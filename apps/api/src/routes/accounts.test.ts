@@ -549,7 +549,7 @@ describe('a task that names an account kind', () => {
     expect(response.json().accounts[0].held).toEqual([
       // `reach` is false for every kind that is not mail, and the fixture has no
       // mailbox model, so it is false here for both reasons (`#299`).
-      { identifier: '@declared', proved: false, preferred: false, reach: false },
+      { identifier: '@declared', proved: false, preferred: false, reach: false, forWork: true },
     ])
   })
 

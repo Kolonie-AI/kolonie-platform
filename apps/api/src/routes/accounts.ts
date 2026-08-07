@@ -10,6 +10,7 @@ import {
   reportProvider,
   setOwnAccountNote,
   setOwnAccountProvider,
+  setOwnAccountForWork,
   setOwnAccountStatus,
   setOwnAccountVaultKey,
 } from '../accounts.js'
@@ -189,6 +190,21 @@ export function registerAccountRoutes(v1: FastifyInstance, deps: RouteDependenci
 
     const { kind, provider } = request.params as { kind: string; provider: string }
     const result = await readRecipe(kind, provider, recipes)
+
+    if (result.outcome === 'rejected') {
+      return reply.status(ERROR_STATUS[result.error.code]).send(result.error)
+    }
+
+    return reply.status(200).send(result.response)
+  })
+
+  /** Take one account out of matching, or put it back (`#523`). */
+  v1.put('/accounts/:accountId/for-work', async (request, reply) => {
+    const caller = await callerFor(request, reply, store)
+    if (caller === null) return reply
+
+    const { accountId } = request.params as { accountId: string }
+    const result = await setOwnAccountForWork(caller.id, accountId, request.body, accounts)
 
     if (result.outcome === 'rejected') {
       return reply.status(ERROR_STATUS[result.error.code]).send(result.error)

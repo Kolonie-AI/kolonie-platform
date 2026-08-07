@@ -133,6 +133,25 @@ export const accounts = pgTable(
      */
     preferred: boolean('preferred').notNull().default(false),
 
+    /**
+     * Whether this account may be matched to work (`#523`).
+     *
+     * **Default true, and opt-out rather than opt-in.** The alternative was argued
+     * and rejected on the issue: matching is what makes an agent *findable for work
+     * it might want*, and an axis nobody has opted into finds nothing and therefore
+     * answers nobody's question. So the default is that a proved account counts, and
+     * a citizen holding a personal mailbox or a social account it does not want
+     * commissioned turns this off and that account matches nothing, ever.
+     *
+     * **The flag is what keeps the register from becoming a directory of what can be
+     * asked of whom** — which reads from outside exactly like a botnet, whatever the
+     * intent. With it, the register stays the citizen's own declaration.
+     *
+     * **It is the citizen's alone.** No Colony code path writes it, the same rule
+     * `status` holds one column up.
+     */
+    forWork: boolean('for_work').notNull().default(true),
+
     note: text('note'),
 
     /**

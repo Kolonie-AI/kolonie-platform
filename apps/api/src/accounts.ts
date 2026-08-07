@@ -23,6 +23,7 @@ import {
   reportProvider as reportProviderInDatabase,
   provedMailbox,
   setAccountNote,
+  setAccountForWork,
   setAccountProvider,
   setAccountPreference,
   setAccountStatus,
@@ -52,6 +53,8 @@ export interface AccountRegister {
   setStatus(agentId: AgentId, accountId: string, status: AccountStatus): Promise<AccountEdit>
   setNote(agentId: AgentId, accountId: string, note: string | null): Promise<AccountEdit>
   setProvider(agentId: AgentId, accountId: string, provider: string | null): Promise<AccountEdit>
+  /** Take an account out of matching, or put it back (`#523`). */
+  setForWork(agentId: AgentId, accountId: string, forWork: boolean): Promise<AccountEdit>
   /** The aggregate, which names no citizen and no account (`#288`). */
   providers(kind?: AccountKind): Promise<readonly ProviderTally[]>
   /**
@@ -129,6 +132,14 @@ export interface HeldAccount {
    * kind, because there is nothing on the other end of one (D-050).
    */
   readonly reach: boolean
+  /**
+   * Whether this account may be matched to work (`#523`).
+   *
+   * Carried on the listing shape rather than filtered out of it, so a citizen reading
+   * a task sees *which* address it holds even for one it has taken out of matching.
+   * The filter reads this; the display does not hide it.
+   */
+  readonly forWork: boolean
 }
 
 /**
@@ -171,6 +182,31 @@ export function databaseAccountResolution(db: Database): AccountResolution {
 }
 
 /**
+ * Whether a citizen is equipped for work naming these account kinds (`#523`).
+ *
+ * **Every named kind, not any of them.** A quest naming a mailbox and a GitHub account
+ * needs both, and *any* would answer a question nobody asked — an agent filtering for
+ * what fits does not want the one it is half-equipped for at the top of the list.
+ *
+ * **Proved only, and marked for work.** An asserted account is not a qualification, and
+ * an account the citizen took out of matching matches nothing, ever. The proof *method*
+ * is deliberately not read: a rung and a generic proof are different strengths (`#520`)
+ * and both are proof of possession, which is the whole of what a match is about. A
+ * filter that preferred rung-proved accounts would quietly make the generic proofs worth
+ * less than the register says they are.
+ *
+ * A pure function, on the reason `heldAccountsOf` below states at length.
+ */
+export function equippedFor(
+  kinds: readonly string[],
+  held: ReadonlyMap<string, readonly HeldAccount[]>,
+): boolean {
+  return kinds.every((kind) =>
+    (held.get(kind) ?? []).some((account) => account.proved && account.forWork),
+  )
+}
+
+/**
  * The register's rows and the reach address, as a task listing shows them.
  *
  * **Separated from the read so it can be tested without a database**, which is
@@ -198,6 +234,7 @@ export function heldAccountsOf(
         proved: account.proved,
         preferred: account.preferred,
         reach: reach !== null && reach.toLowerCase() === account.identifier.toLowerCase(),
+        forWork: account.forWork,
       }))
       .sort(
         (left, right) =>
@@ -214,6 +251,7 @@ export function databaseAccounts(db: Database): AccountRegister {
     declare: (agentId, input) => declareAccount(db, agentId, input),
     setStatus: (agentId, accountId, status) => setAccountStatus(db, agentId, accountId, status),
     setNote: (agentId, accountId, note) => setAccountNote(db, agentId, accountId, note),
+    setForWork: (agentId, accountId, forWork) => setAccountForWork(db, agentId, accountId, forWork),
     setProvider: (agentId, accountId, provider) =>
       setAccountProvider(db, agentId, accountId, provider),
     providers: (kind) => providerTallies(db, kind),
@@ -575,6 +613,41 @@ export async function setOwnAccountProvider(
   }
 
   return answer(await deps.register.setProvider(agentId, accountId, parsed.data.provider))
+}
+
+/** `{ "forWork": false }` — take one account out of matching (`#523`). */
+export const AccountForWorkArgumentSchema = z.object({ forWork: z.boolean() })
+
+/**
+ * Take an account out of matching, or put it back (`#523`).
+ *
+ * **The citizen's own, like `status`.** Nothing in the Colony writes it: an account the
+ * Colony withdrew from matching on its own behalf would be the Colony deciding what a
+ * citizen may be offered, which is the opposite of what the flag is for.
+ */
+export async function setOwnAccountForWork(
+  agentId: AgentId,
+  accountId: string,
+  body: unknown,
+  deps: AccountDependencies,
+): Promise<AccountWriteOutcome> {
+  const parsed = AccountForWorkArgumentSchema.safeParse(body)
+
+  if (!parsed.success) {
+    return {
+      outcome: 'rejected',
+      error: {
+        code: 'validation_failed',
+        message:
+          'Send {"forWork": false} to take this account out of matching, or {"forWork": true} to ' +
+          'put it back. It changes nothing else: the account stays in your register, stays ' +
+          'proved, and stays yours to use.',
+        details: fieldErrors(parsed.error),
+      },
+    }
+  }
+
+  return answer(await deps.register.setForWork(agentId, accountId, parsed.data.forWork))
 }
 
 /**

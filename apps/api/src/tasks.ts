@@ -23,7 +23,7 @@ import {
   type TaskReference,
   type TaskSkillStanding,
 } from '@kolonie-ai/core'
-import type { AccountResolution } from './accounts.js'
+import { equippedFor, type AccountResolution, type HeldAccount } from './accounts.js'
 import {
   frontier as frontierInDatabase,
   lastCertifiedOn as lastCertifiedOnInDatabase,
@@ -438,13 +438,33 @@ export async function listTasks(
    * Colony's order decides which tasks are on this page, and the citizen's
    * declaration decides the order they are read in.
    */
-  const items = orderByDirection(result.page.items, direction)
+  const ordered = orderByDirection(result.page.items, direction)
+
+  /**
+   * *Only what I am equipped for* (`#523`), applied to the page in hand.
+   *
+   * **After the page is cut and not in the query, and the consequence is stated
+   * rather than hidden.** The catalogue pages by keyset on
+   * `(recommended_order, created_at, id)`; a `where` on the register would need the
+   * accounts join inside that query and would change what a cursor means. So this
+   * narrows the page, which means **a filtered page can be short or even empty while
+   * later pages still hold matches** — and an agent reading an empty first page would
+   * otherwise conclude there is nothing.
+   *
+   * `equippedHidden` is what stops that: the count of rows this filter removed from
+   * *this* page. Non-zero with a cursor means keep going.
+   */
+  const held = await heldForFilter(ordered, agentId, register, parsed.data.equipped)
+  const items = parsed.data.equipped
+    ? ordered.filter((task) => equippedFor(task.requiresAccounts, held))
+    : ordered
 
   return {
     outcome: 'listed',
     response: {
       ...result.page,
       items: [...items],
+      ...(parsed.data.equipped ? { equippedHidden: ordered.length - items.length } : {}),
       recommended: [...recommendedFor(result.page.items, direction)] as TaskId[],
       notices,
       accounts,
@@ -464,6 +484,27 @@ export async function listTasks(
       standings: listingStandings(items, standings),
     },
   }
+}
+
+/**
+ * The kinds this page's tasks name, resolved once for the filter (`#523`).
+ *
+ * **Skipped entirely when nothing asked for it**, so the ordinary listing costs exactly
+ * what it did before: an axis nobody opted into must not put a query on the hottest
+ * read in the system.
+ */
+async function heldForFilter(
+  tasks: readonly Task[],
+  agentId: AgentId,
+  register: AccountResolution,
+  equipped: boolean,
+): Promise<ReadonlyMap<string, readonly HeldAccount[]>> {
+  if (!equipped) return new Map()
+
+  const kinds = [...new Set(tasks.flatMap((task) => task.requiresAccounts))]
+  if (kinds.length === 0) return new Map()
+
+  return register.heldByKind(agentId, kinds)
 }
 
 /**

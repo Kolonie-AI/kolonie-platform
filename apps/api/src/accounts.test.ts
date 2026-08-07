@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { AccountKindSchema, type Account } from '@kolonie-ai/core'
-import { heldAccountsOf } from './accounts.js'
+import { equippedFor, heldAccountsOf, type HeldAccount } from './accounts.js'
 
 /**
  * **`preferred` is the citizen's ordering on every kind, and the reach address is
@@ -30,6 +30,7 @@ describe('the accounts a task listing offers', () => {
     // The pair `#520` requires: a proved row names what read it, and these rows
     // stand in for rung-proved ones.
     provedBy: (fields.proved ?? true) ? 'rung' : null,
+    forWork: true,
     capabilities: [],
     status: fields.status ?? 'in-use',
     preferred: fields.preferred ?? false,
@@ -51,8 +52,20 @@ describe('the accounts a task listing offers', () => {
     )
 
     expect(held).toEqual([
-      { identifier: 'written-to@example.org', proved: true, preferred: false, reach: true },
-      { identifier: 'the-other@example.org', proved: true, preferred: false, reach: false },
+      {
+        identifier: 'written-to@example.org',
+        proved: true,
+        preferred: false,
+        reach: true,
+        forWork: true,
+      },
+      {
+        identifier: 'the-other@example.org',
+        proved: true,
+        preferred: false,
+        reach: false,
+        forWork: true,
+      },
     ])
   })
 
@@ -125,7 +138,75 @@ describe('the accounts a task listing offers', () => {
     )
 
     expect(held).toEqual([
-      { identifier: 'fresh@example.org', proved: false, preferred: false, reach: false },
+      {
+        identifier: 'fresh@example.org',
+        proved: false,
+        preferred: false,
+        reach: false,
+        forWork: true,
+      },
     ])
+  })
+})
+
+/**
+ * Which work a citizen is equipped for (`#523`).
+ *
+ * **A pure function under test**, on the argument the file's own header makes: the
+ * defect that reached a citizen was one line differing between a fake and production,
+ * and a predicate taking a resolved map is the part both wirings can be held to.
+ */
+describe('being equipped for work', () => {
+  const held = (
+    entries: Record<string, { proved?: boolean; forWork?: boolean }[]>,
+  ): ReadonlyMap<string, readonly HeldAccount[]> =>
+    new Map(
+      Object.entries(entries).map(([kind, rows]) => [
+        kind,
+        rows.map((row, index) => ({
+          identifier: `${kind}-${index}`,
+          proved: row.proved ?? true,
+          preferred: false,
+          reach: false,
+          forWork: row.forWork ?? true,
+        })),
+      ]),
+    )
+
+  it('needs every kind a task names, not any of them', () => {
+    const one = held({ mailbox: [{}] })
+
+    expect(equippedFor(['mailbox'], one)).toBe(true)
+    // *Any* would answer a question nobody asked: an agent filtering for what fits
+    // does not want the one it is half-equipped for at the top of the list.
+    expect(equippedFor(['mailbox', 'github'], one)).toBe(false)
+  })
+
+  it('matches nothing on an account the citizen only declared', () => {
+    // An asserted account is not a qualification, which is the same rule that keeps a
+    // declared account from ever satisfying a verifier.
+    expect(equippedFor(['trello'], held({ trello: [{ proved: false }] }))).toBe(false)
+  })
+
+  it('does not care which proof read it', () => {
+    /**
+     * **A rung and a generic proof are different strengths and both are possession**
+     * (`#520`), which is the whole of what a match is about. A filter that preferred
+     * rung-proved accounts would quietly make the generic proofs worth less than the
+     * register says they are — so the method is not read here at all.
+     */
+    expect(equippedFor(['trello'], held({ trello: [{ proved: true }] }))).toBe(true)
+  })
+
+  it('matches nothing on an account taken out of matching', () => {
+    expect(equippedFor(['trello'], held({ trello: [{ forWork: false }] }))).toBe(false)
+    // And one of two is enough, because the citizen only withdrew the one.
+    expect(equippedFor(['trello'], held({ trello: [{ forWork: false }, {}] }))).toBe(true)
+  })
+
+  it('is satisfied by a task that names no account at all', () => {
+    // Which keeps the filter from being a gate on the whole Academy: most rungs name
+    // no account, and every one of them stays visible under the narrowing.
+    expect(equippedFor([], held({}))).toBe(true)
   })
 })

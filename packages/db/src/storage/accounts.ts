@@ -498,6 +498,22 @@ export async function setAccountProvider(
  * citizen may store the secret later, or elsewhere. This is a label pointing at
  * a label; nothing is decrypted and nothing is disclosed.
  */
+/**
+ * Turn matching off, or back on, for one account (`#523`).
+ *
+ * **The citizen's own, like `status`.** Nothing in the Colony writes it: an account
+ * the Colony took out of matching on its own behalf would be the Colony deciding what
+ * a citizen may be offered, which is the opposite of what the flag is for.
+ */
+export async function setAccountForWork(
+  db: Database,
+  agentId: AgentId,
+  accountId: string,
+  forWork: boolean,
+): Promise<AccountEdit> {
+  return editOwn(db, agentId, accountId, { forWork })
+}
+
 export async function setAccountVaultKey(
   db: Database,
   agentId: AgentId,
@@ -724,6 +740,8 @@ async function editOwn(
     note: string | null
     vaultKey: string | null
     provider: string | null
+    /** Whether this account may be matched to work (`#523`). The citizen's own. */
+    forWork: boolean
   }>,
 ): Promise<AccountEdit> {
   const [row] = await db
@@ -788,6 +806,7 @@ function toAccount(row: typeof accounts.$inferSelect): Account {
     capabilities: row.capabilities as Account['capabilities'],
     status: row.status,
     preferred: row.preferred,
+    forWork: row.forWork,
     note: row.note,
     vaultKey: row.vaultKey,
     provider: row.provider,

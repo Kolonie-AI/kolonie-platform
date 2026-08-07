@@ -22,6 +22,7 @@ import {
   setOwnAccountNote,
   setOwnAccountProvider,
   setOwnAccountStatus,
+  setOwnAccountForWork,
   setOwnAccountVaultKey,
 } from '../../accounts.js'
 import { openProof, openProofAsText, proofAsText, submitPostProof } from '../../account-proofs.js'
@@ -842,6 +843,59 @@ export function registerAccountTools(
           },
         ],
         structuredContent: { channel: 'request', ...asked.response },
+      }
+    },
+  )
+
+  /**
+   * Keep one account out of matching (`#523`).
+   *
+   * **A seventh small write rather than a field on `declare`**, on the reason the other
+   * six give: each of these is a different intention, and an `update` taking a partial
+   * object cannot tell *do not offer this* from *do not touch this*.
+   */
+  server.registerTool(
+    'kolonie.accounts.for-work',
+    {
+      title: 'Keep an account out of being matched to work',
+      description:
+        'Every account you have proved can be matched to work that names its kind, so you can ' +
+        'be found for something you might want. This turns that off for one account.\n\n' +
+        '**Being matched is not being available.** Holding an account is not consent to use it ' +
+        'for anything, and refusing a quest costs you nothing — so the flag is for the accounts ' +
+        'you would rather were not considered at all. A personal mailbox, a handle you do not ' +
+        'want commissioned.\n\n' +
+        '**It changes nothing else.** The account stays in your register, stays proved, stays ' +
+        'yours to use, and still shows up when a task tells you which address to use.',
+      inputSchema: {
+        accountId: z.uuid().describe('The id from kolonie.accounts.list.'),
+        forWork: z.boolean().describe('`false` takes it out of matching. `true` puts it back.'),
+      },
+      annotations: { readOnlyHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    async (input) => {
+      const authenticatedAgent = await authenticate(credential, deps.store)
+      if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
+
+      const result = await setOwnAccountForWork(
+        authenticatedAgent.agent.id,
+        input.accountId,
+        { forWork: input.forWork },
+        deps.accounts,
+      )
+      if (result.outcome === 'rejected') return toolError(result.error)
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: input.forWork
+              ? `${result.response.account.identifier} can be matched to work again.`
+              : `${result.response.account.identifier} will not be matched to any work. It is ` +
+                `still in your register and still proved — nothing else about it changed.`,
+          },
+        ],
+        structuredContent: result.response,
       }
     },
   )

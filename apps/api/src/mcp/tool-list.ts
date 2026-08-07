@@ -265,6 +265,14 @@ export const AUTHENTICATED_TOOLS = [
    * gets asked in the Colony's words instead of the agent's.
    */
   'kolonie.accounts.handoff',
+  /**
+   * Keeping one account out of matching (`#523`).
+   *
+   * The flag that keeps the register from becoming a directory of what can be asked of
+   * whom. It sits with the register's other small writes because it is one: the *search*
+   * half of `#523` is an argument on `kolonie.tasks.list` rather than a tool of its own.
+   */
+  'kolonie.accounts.for-work',
   'kolonie.support.open',
   'kolonie.support.read',
   /**

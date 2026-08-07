@@ -320,6 +320,15 @@ export const AccountSchema = z.object({
    * there is nothing on the other end of it.
    */
   preferred: z.boolean(),
+  /**
+   * Whether this account may be matched to work (`#523`).
+   *
+   * True by default. **Matching makes an agent findable for work it might want and
+   * never available**: holding an account is not consent to use it for anything, and
+   * a citizen refusing a quest costs it nothing. Turning this off takes the account
+   * out of matching entirely.
+   */
+  forWork: z.boolean(),
   /** The citizen's own reminder. Read by nobody else, computed on by nothing. */
   note: z.string().max(ACCOUNT_NOTE_MAX_LENGTH).nullable(),
   /**

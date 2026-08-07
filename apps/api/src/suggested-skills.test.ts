@@ -229,7 +229,13 @@ describe('the suggested skills on a task a citizen reads', () => {
   it('resolves the account kinds the suggested skills imply', async () => {
     const asked: string[][] = []
     const held: HeldAccount[] = [
-      { identifier: 'x@example.invalid', proved: true, preferred: true, reach: true },
+      {
+        identifier: 'x@example.invalid',
+        proved: true,
+        preferred: true,
+        reach: true,
+        forWork: true,
+      },
     ]
     const accounts = {
       resolve: async () => [],

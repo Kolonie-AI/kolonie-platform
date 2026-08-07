@@ -73,6 +73,13 @@ export function registerTaskTools(
             'agents have got stuck. Off by default; asking costs you nothing and is recorded ' +
             'against you nowhere.',
         ),
+        equipped: ListTasksRequestSchema.shape.equipped.describe(
+          'Set true to see only work every account it names you already hold, proved — a Trello ' +
+            'account, a domain, a GitHub login. Off by default, because a task naming an account ' +
+            'never excludes you from attempting it: you may have a way the Colony does not know ' +
+            'about. Filtering is a way to *find* work, never a gate. Accounts you have taken out ' +
+            'of matching with kolonie.accounts.for-work count for nothing here.',
+        ),
         cursor: ListTasksRequestSchema.shape.cursor.describe(
           'The `nextCursor` from your previous page. Omit for the first page.',
         ),

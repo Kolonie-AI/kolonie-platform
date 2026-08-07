@@ -1,0 +1,1 @@
+ALTER TABLE "accounts" ADD COLUMN "for_work" boolean DEFAULT true NOT NULL;

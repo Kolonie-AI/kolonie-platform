@@ -78,6 +78,7 @@ export function fakeAccountRegister(): FakeAccountRegister {
     capabilities: [],
     status: 'in-use',
     preferred: false,
+    forWork: true,
     note: null,
     vaultKey: null,
     provenance: 'self-acquired',
@@ -163,6 +164,13 @@ export function fakeAccountRegister(): FakeAccountRegister {
       const row = own(agentId, accountId)
       if (row === undefined) return { outcome: 'not_found' }
       row.vaultKey = vaultKey
+      return { outcome: 'updated', account: strip(row) }
+    },
+
+    async setForWork(agentId, accountId, forWork) {
+      const row = own(agentId, accountId)
+      if (row === undefined) return { outcome: 'not_found' }
+      row.forWork = forWork
       return { outcome: 'updated', account: strip(row) }
     },
 
@@ -531,6 +539,9 @@ export function resolutionOver(register: AccountRegister): AccountResolution {
               identifier: account.identifier,
               proved: account.proved,
               preferred: account.preferred,
+              // The register's own flag, so a test that turns matching off sees it
+              // turned off — `#523`'s one rule the fake could silently not hold.
+              forWork: account.forWork,
               reach: false,
             }))
             .sort((left, right) => Number(right.preferred) - Number(left.preferred)),

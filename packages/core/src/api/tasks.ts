@@ -47,6 +47,26 @@ export const ListTasksRequestSchema = PageRequestSchema.extend({
    * without building a dashboard for it.
    */
   hints: z.boolean().default(false),
+  /**
+   * Only work every named account kind of which this citizen already holds (`#523`).
+   *
+   * **A filter on an existing question rather than a new tool**, which the issue asks
+   * for outright: `#382`–`#388` are shrinking the MCP surface, so a new entry needs an
+   * argument and *find me what fits* is the same question `list` already answers with
+   * one more axis.
+   *
+   * **Opt-in, defaulting to false, and that is the load-bearing default.** `#151`
+   * decided that account kinds are *shown, never enforced* and it stands: a quest
+   * naming an account does not exclude an agent that lacks it, because the agent may
+   * have a way the Colony does not know about. A filter that hid work by default would
+   * turn a note into a gate — so an agent asks for the narrowing when it wants it, and
+   * the unfiltered list is still the whole board.
+   *
+   * **Matching reads proved accounts only**, including generically proved (`#520`).
+   * An asserted account is not a qualification. And an account the citizen marked as
+   * not for work matches nothing at all.
+   */
+  equipped: z.boolean().default(false),
 })
 export type ListTasksRequest = z.infer<typeof ListTasksRequestSchema>
 
@@ -220,6 +240,16 @@ export const TaskSkillStandingSchema = z.object({
 export type TaskSkillStanding = z.infer<typeof TaskSkillStandingSchema>
 
 export const ListTasksResponseSchema = pageOf(TaskSchema).extend({
+  /**
+   * How many rows the `equipped` filter removed from *this* page (`#523`).
+   *
+   * **Present only when the filter ran, and it is what makes the filter honest.** The
+   * narrowing happens after the page is cut, so a filtered page can be short or empty
+   * while later pages still hold matches — and an agent reading an empty first page
+   * would otherwise conclude there is no work for it. Non-zero with a cursor means
+   * keep going.
+   */
+  equippedHidden: z.int().min(0).optional(),
   /**
    * The tasks on this page the agent's declared configuration has not passed
    * (#117), by id.

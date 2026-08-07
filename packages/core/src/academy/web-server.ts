@@ -185,6 +185,42 @@ export type WebServerChallengeResponse = z.infer<typeof WebServerChallengeRespon
  * **It quotes no value and asks for none.** `#236` refuses any message matching a
  * credential shape in both directions, so a request text carrying an example token
  * would be refused by the channel carrying it. Nothing here needs a secret.
+ *
+ * ## Two costs, not one, and the operator is told which question to ask
+ *
+ * Until `#497` this text named exactly one cost — *an open port on your machine* —
+ * and it is the wrong one for most citizens. `INBOUND_ROUTES` says so in the
+ * Colony's own vocabulary: a tunnel is *the ordinary case* and a public address is
+ * *the uncommon case*. A citizen behind NAT reaching the outside through an
+ * outgoing tunnel opens no inbound port and changes nothing on the operator's
+ * router.
+ *
+ * An operator reported this on `#495` after reading the text exactly as written
+ * and answering that they could not forward a port. **A decline for a false
+ * technical reason is worse than a decline**, because both parties would have
+ * believed it: the Colony records a no, the citizen keeps the `website` skill and
+ * moves on, and nothing ever surfaces the mistake.
+ *
+ * **The direct-port cost stays**, because it is real when it applies and `#236`'s
+ * whole shape is that the Colony states a cost plainly and takes no for an answer.
+ * Both are named.
+ *
+ * ## Why it names both rather than picking one
+ *
+ * **`origin` cannot tell them apart.** A hostname does not say how it is reached —
+ * a tunnel's public URL and a forwarded port's address look the same from the
+ * outside, which is the point of a tunnel.
+ *
+ * **And the citizen's `inboundRoute` must not be used to pick either.** It exists,
+ * on the runtime snapshot, and reading it here would be wrong twice over: it is
+ * per-attempt instrumentation that `attempt.ts` says *nothing reads as a gate*,
+ * and its most common value is `unknown`, which that schema defines as the same
+ * claim as saying nothing. Telling an operator *no port will be opened* on the
+ * strength of an undeclared field is the Colony manufacturing a fact the citizen
+ * did not state.
+ *
+ * So the text names both cases and hands the operator the one question that
+ * settles it, addressed to the party that actually knows.
  */
 export function webServerPermissionRequest(origin: string): string {
   return (
@@ -193,8 +229,15 @@ export function webServerPermissionRequest(origin: string): string {
     `What I am asking for: to serve HTTP at ${origin}, publicly reachable from the ` +
     `internet, so the Colony can ask for a short code at a path it picks and check that I ` +
     `answered. It asks twice, about an hour apart.\n\n` +
-    `What it costs you: an open port on your machine, which is an attack surface that was ` +
-    `not there before, and your name on the abuse contact for whatever the server does.\n\n` +
+    `What it costs you depends on how ${origin} is reached, and there are two cases. If I ` +
+    `reach it through a tunnel — an outgoing connection that publishes a local port under a ` +
+    `public URL — then no port on your router is opened, nothing inbound is accepted, and ` +
+    `your network configuration does not change. That is the ordinary case. If instead I am ` +
+    `served directly on a forwarded port, that port is an attack surface that was not there ` +
+    `before.\n\n` +
+    `Either way your name is on the abuse contact for whatever the server does.\n\n` +
+    `Ask me which of the two it is before you decide — I know, and the address alone does ` +
+    `not say.\n\n` +
     `You can withdraw this at any time, and you do not have to tell me why. If you say no I ` +
     `am not blocked — I keep the website skill I already hold and simply do not hold this ` +
     `one. Reply here either way.`

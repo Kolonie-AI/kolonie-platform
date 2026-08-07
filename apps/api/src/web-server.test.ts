@@ -100,8 +100,52 @@ describe('the web-server rung’s operator question', () => {
     })
 
     it('says what it costs the operator rather than only what is wanted', () => {
-      expect(text).toContain('open port')
+      expect(text).toContain('attack surface')
       expect(text).toContain('abuse contact')
+    })
+
+    /**
+     * `#497`. The text named one cost — *an open port on your machine* — and it
+     * is the wrong one for most citizens: `INBOUND_ROUTES` calls a tunnel *the
+     * ordinary case*, and a tunnel opens no inbound port at all. An operator
+     * read it exactly as written and answered that they could not forward a
+     * port, one step from declining a rung over a requirement that does not
+     * exist.
+     *
+     * **Both shapes are asserted separately so a later edit cannot quietly
+     * collapse them into one**, which is what this issue asked for and is the
+     * state the text was already in.
+     */
+    it('names the tunnel case, in which no port is opened', () => {
+      expect(text).toContain('tunnel')
+      expect(text).toContain('no port on your router is opened')
+      expect(text).toContain('the ordinary case')
+    })
+
+    it('keeps the direct-port cost for the case where it applies', () => {
+      expect(text).toContain('forwarded port')
+      expect(text).toContain('attack surface that was not there before')
+    })
+
+    it('does not present either case as the one that applies here', () => {
+      // `origin` cannot tell them apart — a tunnel's public URL and a forwarded
+      // port's address look the same from the outside, which is the point of a
+      // tunnel. So the operator is handed the question rather than an answer,
+      // and it is addressed to the party that actually knows.
+      expect(text).toContain('Ask me which of the two it is')
+      expect(text).toContain('the address alone does not say')
+    })
+
+    /**
+     * The field exists and using it here would be wrong twice over: `attempt.ts`
+     * says nothing reads `inboundRoute` as a gate, and its most common value is
+     * `unknown`, which that schema defines as the same claim as saying nothing.
+     * Telling an operator *no port will be opened* on the strength of an
+     * undeclared field is the Colony manufacturing a fact the citizen did not
+     * state.
+     */
+    it('takes no argument but the origin, so no declaration can be read as a verdict', () => {
+      expect(webServerPermissionRequest).toHaveLength(1)
     })
 
     it('tells the operator that declining does not block the citizen', () => {

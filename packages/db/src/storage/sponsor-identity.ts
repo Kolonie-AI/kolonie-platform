@@ -142,15 +142,84 @@ export async function openSponsorIdentity(
 
       await tx.insert(humanAgents).values({ agentId: agentRow.id, humanId: request.humanId })
 
-      if (request.address !== undefined && request.address.trim() !== '') {
-        await tx.insert(accounts).values({
-          agentId: agentRow.id,
-          kind: 'mailbox',
-          identifier: request.address,
-          proved: true,
-          provedAt: sql`now()`,
-          provenance: 'self-acquired',
-        })
+      /**
+       * Bound to a const before the branch, not read off `request` inside it.
+       * The insert below sits in a closure, and TypeScript drops the narrowing
+       * of a property across that boundary — the value is still `string`, but
+       * only a local binding says so.
+       */
+      const address = request.address
+      if (address !== undefined && address.trim() !== '') {
+        /**
+         * **An address already proved elsewhere gets no row, and the identity
+         * opens anyway (`#491`).**
+         *
+         * `accounts_proved_identifier_unique` is unique on
+         * `(kind, lower(identifier))` across **every agent in the Colony**, so
+         * an address any citizen has already proved raises `23505` here. That
+         * error was reaching the console as an unhandled 500, identically on
+         * every retry, and there is no other route to a funding address — so a
+         * person who had ever proved that address on an agent could never open a
+         * sponsor identity. Observed on `console.kolonie.ai/funding/identity` on
+         * 2026-08-07, on the population most likely to press the button.
+         *
+         * Skipping the row is not a workaround. It lands the identity in the
+         * state this function already documents above as ordinary: no row, no
+         * unproved claim, nothing held against it. `sponsorAddressUnconfirmedSql`
+         * asks whether an *unproved* account exists, so a missing row is not a
+         * hold and funding proceeds.
+         *
+         * **The read is what makes the ordinary case deterministic; the catch
+         * below is what holds the race between this read and the insert.** A
+         * read alone leaves the race open, and a catch alone would make the
+         * ordinary case depend on an exception.
+         */
+        const [alreadyProved] = await tx
+          .select({ id: accounts.id })
+          .from(accounts)
+          .where(
+            and(
+              eq(accounts.kind, 'mailbox'),
+              eq(accounts.proved, true),
+              sql`lower(${accounts.identifier}) = lower(${address})`,
+            ),
+          )
+          .limit(1)
+
+        if (alreadyProved === undefined) {
+          /**
+           * **The catch is a savepoint, and it has to be.** A `23505` raised
+           * inside a transaction aborts that transaction: every later statement
+           * answers `25P02`, and the `agents` and `human_agents` rows written
+           * above would roll back with it. Catching the error at the outer
+           * `try` and returning `opened` would then be a lie — the identity it
+           * claims to have opened does not exist.
+           *
+           * A nested `transaction()` is a `SAVEPOINT` on postgres, so the
+           * rollback reaches the failed insert and stops there. The identity
+           * survives, which is the outcome this whole branch is protecting.
+           */
+          try {
+            await tx.transaction(async (savepoint) => {
+              await savepoint.insert(accounts).values({
+                agentId: agentRow.id,
+                kind: 'mailbox',
+                identifier: address,
+                proved: true,
+                provedAt: sql`now()`,
+                provenance: 'self-acquired',
+              })
+            })
+          } catch (error) {
+            /**
+             * Matched by constraint name, not by SQLSTATE alone, for the reason
+             * `isNameTakenError` gives: a unique index added to `accounts`
+             * later must not be silently swallowed here. Anything else raises
+             * and reaches the outer handler unchanged.
+             */
+            if (!isProvedIdentifierTakenError(error)) throw error
+          }
+        }
       }
 
       return {
@@ -164,23 +233,39 @@ export async function openSponsorIdentity(
   }
 }
 
+/** The unique violation on `agents_name_unique`, told apart from every other one. */
+function isNameTakenError(error: unknown): boolean {
+  return isUniqueViolationOn(error, 'agents_name_unique')
+}
+
 /**
- * The unique violation on `agents_name_unique`, told apart from every other one.
+ * The unique violation on `accounts_proved_identifier_unique` (`#491`).
+ *
+ * Its own named predicate rather than a second argument threaded through the
+ * call site, so that the two constraints this file knows about are two readable
+ * names and the difference between them is not a string literal in a condition.
+ */
+function isProvedIdentifierTakenError(error: unknown): boolean {
+  return isUniqueViolationOn(error, 'accounts_proved_identifier_unique')
+}
+
+/**
+ * A `23505` on one named constraint, told apart from every other one.
  *
  * **Walked down the `cause` chain**, which is not optional here: Drizzle wraps
  * the driver error and the transaction wraps that again, so the constraint name
  * is several levels below the error that was thrown. `conflictingIndex` in
  * `agents.ts` learned this first and this is the same walk — and like that one it
  * matches the index **by name** rather than by SQLSTATE alone, so a unique index
- * added to `agents` later is not silently reported as a taken name.
+ * added later is not silently reported as one of these two.
  */
-function isNameTakenError(error: unknown): boolean {
+function isUniqueViolationOn(error: unknown, constraintName: string): boolean {
   let current: unknown = error
   while (current instanceof Error) {
     const code = (current as { code?: unknown }).code
     const constraint = (current as { constraint_name?: unknown }).constraint_name
     // 23505 = unique_violation.
-    if (code === '23505' && constraint === 'agents_name_unique') return true
+    if (code === '23505' && constraint === constraintName) return true
     current = current.cause
   }
   return false

@@ -159,6 +159,150 @@ describe('the sponsor identity a person holds', () => {
   })
 
   /**
+   * `#491`. `accounts_proved_identifier_unique` is unique on
+   * `(kind, lower(identifier))` across **every agent in the Colony**, so the
+   * insert above raised `23505` for anyone whose address was already proved
+   * somewhere — a test citizen, an early registration. `isNameTakenError` did
+   * not recognise that constraint, so it surfaced as an unhandled 500 on
+   * `POST /funding/identity`, identically on every retry, with no other route to
+   * a funding address.
+   *
+   * The population most likely to press that button is the one most likely to
+   * have proved the address already, which is what made it worth a p1.
+   */
+  describe('when the provider’s address is already proved elsewhere', () => {
+    /** Somebody else's agent, holding that address as a proved mailbox. */
+    const anotherAgentProving = async (address: string): Promise<AgentId> => {
+      const [row] = await db
+        .insert(agents)
+        .values({ name: `holder-${randomUUID().slice(0, 8)}`, platform: 'other' })
+        .returning({ id: agents.id })
+      if (row === undefined) throw new Error('inserting an agent returned no row')
+      const agentId = AgentIdSchema.parse(row.id)
+
+      await db.insert(accounts).values({
+        agentId,
+        kind: 'mailbox',
+        identifier: address,
+        proved: true,
+        provedAt: sql`now()`,
+        provenance: 'self-acquired',
+      })
+      return agentId
+    }
+
+    it('opens the identity anyway, writing no accounts row', async () => {
+      const address = 'already@example.test'
+      const holder = await anotherAgentProving(address)
+      const humanId = await aPerson()
+
+      const opened = await openSponsorIdentity(db, { humanId, name: 'a-sponsor', address })
+
+      expect(opened.outcome).toBe('opened')
+      if (opened.outcome === 'name-taken') throw new Error('unexpected name collision')
+
+      // No row for the new identity…
+      expect(
+        await db.select().from(accounts).where(eq(accounts.agentId, opened.identity.id)),
+      ).toEqual([])
+      // …and the existing one is exactly as it was.
+      const [held] = await db
+        .select({ identifier: accounts.identifier, proved: accounts.proved })
+        .from(accounts)
+        .where(eq(accounts.agentId, holder))
+      expect(held).toEqual({ identifier: address, proved: true })
+    })
+
+    /**
+     * No row means no *unproved* claim, which is what the gate asks about. The
+     * person pressed a button to get a funding address and they get one.
+     */
+    it('does not hold funding for the identity it opened', async () => {
+      const address = 'already@example.test'
+      await anotherAgentProving(address)
+      const humanId = await aPerson()
+
+      const opened = await openSponsorIdentity(db, { humanId, name: 'a-sponsor', address })
+      if (opened.outcome === 'name-taken') throw new Error('unexpected name collision')
+
+      expect(await unconfirmed(opened.identity.id)).toBe(false)
+      expect(await predicate(opened.identity.id)).toBe(true)
+    })
+
+    /** Case-insensitively, because the index is on `lower(identifier)`. */
+    it('recognises the same address in a different case', async () => {
+      await anotherAgentProving('Already@Example.test')
+      const humanId = await aPerson()
+
+      const opened = await openSponsorIdentity(db, {
+        humanId,
+        name: 'a-sponsor',
+        address: 'already@EXAMPLE.TEST',
+      })
+
+      expect(opened.outcome).toBe('opened')
+      if (opened.outcome === 'name-taken') throw new Error('unexpected name collision')
+      expect(
+        await db.select().from(accounts).where(eq(accounts.agentId, opened.identity.id)),
+      ).toEqual([])
+    })
+
+    /**
+     * An *unproved* row does not reserve the address — the index is partial on
+     * `proved = true` — so this one still writes, and skipping it would be a
+     * different defect wearing this fix's clothes.
+     */
+    it('still writes the row when the existing hold is unproved', async () => {
+      const address = 'unproved@example.test'
+      const [row] = await db
+        .insert(agents)
+        .values({ name: 'a-claimant', platform: 'other' })
+        .returning({ id: agents.id })
+      if (row === undefined) throw new Error('inserting an agent returned no row')
+      await db.insert(accounts).values({
+        agentId: AgentIdSchema.parse(row.id),
+        kind: 'mailbox',
+        identifier: address,
+        proved: false,
+        provenance: 'self-acquired',
+      })
+
+      const humanId = await aPerson()
+      const opened = await openSponsorIdentity(db, { humanId, name: 'a-sponsor', address })
+      if (opened.outcome === 'name-taken') throw new Error('unexpected name collision')
+
+      const [written] = await db
+        .select({ identifier: accounts.identifier, proved: accounts.proved })
+        .from(accounts)
+        .where(eq(accounts.agentId, opened.identity.id))
+      expect(written).toEqual({ identifier: address, proved: true })
+    })
+
+    /**
+     * The skip must not become a catch-all. A collision on a *different*
+     * constraint is the next defect, and it has to keep raising.
+     */
+    it('still reports a taken name rather than swallowing it', async () => {
+      const address = 'already@example.test'
+      await anotherAgentProving(address)
+      const first = await openSponsorIdentity(db, {
+        humanId: await aPerson(),
+        name: 'the-one-name',
+        address,
+      })
+      expect(first.outcome).toBe('opened')
+
+      const second = await openSponsorIdentity(db, {
+        humanId: await aPerson(),
+        name: 'the-one-name',
+        address,
+      })
+
+      expect(second).toEqual({ outcome: 'name-taken', name: 'the-one-name' })
+    })
+  })
+
+  /**
    * **The one place resolution deliberately disagrees with the predicate.**
    * `outsideQuestAudienceSql` lapses once an identity climbs anything, so that
    * an identity that arrived by web cannot become a caste. Resolving on it would

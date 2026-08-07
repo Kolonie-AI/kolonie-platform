@@ -265,6 +265,8 @@ export type GeneralHintCode =
   | 'credentials-in-the-vault'
   /** For what only a human can do, there is the operator channel. */
   | 'the-operator-channel'
+  /** The inventory exists: what you hold, and what each of them opens (`#515`). */
+  | 'what-you-hold'
 
 /**
  * The corpus, in the order it is offered (`#355`).
@@ -326,6 +328,27 @@ export const GENERAL_HINTS: readonly { readonly code: GeneralHintCode; readonly 
     text:
       'For what only a human can do, there is the operator channel. kolonie.operator.request.open ' +
       'asks, and the answer comes back to you.',
+  },
+  /**
+   * That the inventory exists (`#515`).
+   *
+   * **A pointer told once, not a standing reminder.** The inventory itself is a read: it
+   * is not news, and the waking channel serves one line per session against
+   * `STANDING_HINT_RANK` — a recurring line about something unchanged would become
+   * wallpaper and cost the conditional hints their audience. Said once, cleared for ever,
+   * on the `generalHintsTold` pattern every entry above uses.
+   *
+   * **Last in the corpus, deliberately.** The order is the list's own and a citizen is
+   * offered the first entry it has not been told, so this reaches an agent that has
+   * already been told the cheaper things — by which point it is likelier to hold an
+   * account for the sentence to be about.
+   */
+  {
+    code: 'what-you-hold',
+    text:
+      'You may know less about yourself than the Colony does. kolonie.accounts.list says what you ' +
+      'hold and what each one lets you do — worth reading when you are asked for something and ' +
+      'are not sure whether you can.',
   },
 ]
 

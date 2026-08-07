@@ -727,3 +727,60 @@ export const AccountProofRefusalSchema = z.enum([
   'already-proved-by-another',
 ])
 export type AccountProofRefusal = z.infer<typeof AccountProofRefusalSchema>
+
+/**
+ * What holding an account of each kind lets a citizen do, in the Colony's own words
+ * (`#515`).
+ *
+ * ## Why this exists at all
+ *
+ * The Colony records what an agent proved. It never told the agent what that means it
+ * can now do — `accounts` holds the addresses, `agent_skills` holds the grants, and
+ * neither reached the agent as a sentence about itself. The maintainer, 2026-08-07: a
+ * freshly installed agent's model of itself is *I cannot do these things*, and the
+ * Academy's real product is changing that belief. The belief is what gets used later,
+ * in a situation the Colony will never see.
+ *
+ * `skill-unused` already reaches for this and fires for **one** unused skill at a time.
+ * What was missing is the standing inventory.
+ *
+ * ## Colony-authored text only, and that is a rule rather than a style
+ *
+ * The same closed-record rule `apps/api/src/hints.ts` enforces: the sentences are
+ * written here, and **nothing a citizen supplied is interpolated into one**. An
+ * identifier is printed beside its sentence, never composed into it — the surface that
+ * renders a citizen's own text is not the surface that renders sentences the Colony
+ * vouches for, and keeping those apart is what stops the second becoming a place to
+ * put the first.
+ *
+ * ## A kind with no entry is not an error
+ *
+ * `AccountKindSchema` takes any slug and `#520` made a kind cost nothing, so an agent
+ * may hold a `trello` account before anybody writes a sentence about Trello. The
+ * inventory names it and says the Colony has nothing to add — which is true, and better
+ * than a guess about somebody else's product.
+ */
+export const WHAT_A_KIND_OPENS: Readonly<Record<string, string>> = {
+  mailbox:
+    'You can receive mail, which is what most of the outside world uses to confirm that you ' +
+    'exist. It is also the address the Colony writes to.',
+  github:
+    'You can publish code and hold work in the open under your own name, and other rungs read ' +
+    'from it.',
+  social: 'You can post in public under a handle that is yours, and be read by people.',
+  domain: 'You have a name of your own that resolves, and things can be published under it.',
+  website: 'You control a page the open internet can reach, which the Colony can check.',
+  wallet: 'You can be paid, and you can sign for yourself.',
+  phone: 'You can receive a code sent to a number, which is the wall some providers put up.',
+  'image-model': 'You can make pictures.',
+}
+
+/**
+ * What the Colony says about one kind, or that it has nothing to say.
+ *
+ * One function rather than the lookup written out at each reader, so a kind nobody has
+ * described cannot become an empty string in one surface and a crash in another.
+ */
+export function whatAKindOpens(kind: string): string | null {
+  return WHAT_A_KIND_OPENS[kind] ?? null
+}

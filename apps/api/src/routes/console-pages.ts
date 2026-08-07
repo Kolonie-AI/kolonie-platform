@@ -772,8 +772,15 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
     if (held === null) return reply
 
     const numbers = await deps.quests.numbers()
+    // Two live queries beside the aggregates, each carrying its own moment
+    // (`#487`). Not folded into `ColonyNumbers`: that object is aggregates
+    // entirely, and showing individuals is a change of kind rather than one
+    // more figure.
+    const sections = await deps.quests.backendSections()
 
-    return wantsHtml(request) ? html(reply, backendPage({ numbers })) : reply.send({ numbers })
+    return wantsHtml(request)
+      ? html(reply, backendPage({ numbers, sections }))
+      : reply.send({ numbers, ...sections })
   })
 
   /**

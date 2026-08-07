@@ -48,6 +48,7 @@ import {
   retireQuestEarly as retireQuestEarlyInDatabase,
   sponsorQuestReports as sponsorQuestReportsInDatabase,
   colonyNumbers as colonyNumbersInDatabase,
+  backendSections as backendSectionsInDatabase,
   reviewQueueForSteward as reviewQueueForStewardInDatabase,
   recordAuditDecision as recordAuditDecisionInDatabase,
   publishQuest as publishQuestInDatabase,
@@ -77,6 +78,7 @@ import {
   type QuestSubmitOutcome,
   type QuestWithdrawOutcome,
   type QuestWriteOutcome,
+  type BackendSections,
   type ColonyNumbers,
   type QuestUnderReview,
   type RetireQuestOutcome,
@@ -279,6 +281,15 @@ export interface QuestDesk {
   stewardQueue(stewardId: AgentId): Promise<readonly QuestUnderReview[]>
   /** The Colony's own numbers, each with the moment it was computed (`#181`). */
   numbers(): Promise<ColonyNumbers>
+  /**
+   * Who arrived and what is waiting, for `/backend` (`#487`).
+   *
+   * **Beside `numbers()` rather than inside it.** That one is aggregates
+   * entirely — `permissionBlocks` suppresses thin rows in SQL to keep it that
+   * way — and these are individual rows. Folding them in would put the change
+   * of kind somewhere nobody reviewing an aggregate would look for it.
+   */
+  backendSections(): Promise<BackendSections>
 }
 
 /** The quest desk, backed by Postgres. */
@@ -334,6 +345,7 @@ export function databaseQuests(db: Database, audit: QuestAuditPolicy = QUEST_AUD
     retire: (taskId) => retireQuestEarlyInDatabase(db, taskId),
     stewardQueue: (stewardId) => reviewQueueForStewardInDatabase(db, stewardId),
     numbers: () => colonyNumbersInDatabase(db),
+    backendSections: () => backendSectionsInDatabase(db),
   }
 }
 

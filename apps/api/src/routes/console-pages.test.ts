@@ -1513,3 +1513,110 @@ describe('the maintainer’s page', () => {
     })
   })
 })
+
+/**
+ * `#487`. The two sections on `/backend`, from the route's side.
+ *
+ * The orderings and the twenty-row cap are SQL and are asserted against a real
+ * Postgres in `packages/db`. What is asserted here is what the route is
+ * responsible for: that both sections reach both representations, that each
+ * carries its own moment, and that the gate covers them as it covers the page.
+ */
+describe('who arrived and what is waiting', () => {
+  const aMaintainer = async () => {
+    const { human } = await humans_.store.findOrCreate({
+      provider: 'github',
+      subject: `subject-${randomUUID()}`,
+      email: 'someone@example.test',
+    })
+    humans_.store.maintains(human.id)
+    const { session: cookie } = await humans_.store.openSession(human.id, {})
+    return cookie
+  }
+
+  const backend = (cookie: string, accept = 'text/html') =>
+    app.inject({
+      method: 'GET',
+      url: '/backend',
+      headers: { host: CONSOLE_HOST, accept, cookie: `__Host-kolonie_session=${cookie}` },
+    })
+
+  beforeEach(() => {
+    quests.showsOnBackend({
+      registrations: [
+        { name: 'newest-arrival', registeredAt: '2026-08-06T12:00:00Z', path: 'mcp' },
+        { name: 'earlier-arrival', registeredAt: '2026-08-01T12:00:00Z', path: 'web' },
+      ],
+      tickets: [
+        { subject: 'waiting the longest', openedAt: '2026-07-01T12:00:00Z', status: 'open' },
+        { subject: 'waiting less long', openedAt: '2026-08-01T12:00:00Z', status: 'open' },
+      ],
+    })
+  })
+
+  it('renders both sections for the maintainer', async () => {
+    const body = (await backend(await aMaintainer())).body
+
+    expect(body).toContain('Who arrived')
+    expect(body).toContain('newest-arrival')
+    expect(body).toContain('earlier-arrival')
+    expect(body).toContain('Waiting to be read')
+    expect(body).toContain('waiting the longest')
+  })
+
+  /** The order the sections arrive in is the order they are shown in. */
+  it('shows the longest-waiting ticket above the others', async () => {
+    const body = (await backend(await aMaintainer())).body
+
+    expect(body.indexOf('waiting the longest')).toBeLessThan(body.indexOf('waiting less long'))
+  })
+
+  /**
+   * Name, timestamp and path — and nothing else. `#487` draws this line
+   * explicitly, and a page that quietly gained a balance column would be the way
+   * it gets crossed.
+   */
+  it('shows the registration path and no standing, balance or mailbox', async () => {
+    const body = (await backend(await aMaintainer())).body
+
+    expect(body).toContain('<th>How</th>')
+    expect(body).not.toContain('Balance')
+    expect(body).not.toContain('Skills held')
+  })
+
+  it('carries both sections in the JSON representation, each with its moment', async () => {
+    const body = (await backend(await aMaintainer(), 'application/json')).json()
+
+    expect(body.registrations.rows).toHaveLength(2)
+    expect(body.registrations.computedAt).toEqual(expect.any(String))
+    expect(body.tickets.rows).toHaveLength(2)
+    expect(body.tickets.computedAt).toEqual(expect.any(String))
+    // And the numbers keep their own, which is a third and is not shared.
+    expect(body.numbers.computedAt).toEqual(expect.any(String))
+  })
+
+  it('says so plainly when there is nothing in either', async () => {
+    quests.showsOnBackend({ registrations: [], tickets: [] })
+
+    const body = (await backend(await aMaintainer())).body
+
+    expect(body).toContain('Nothing is waiting')
+    expect(body).toContain('something is wrong rather than quiet')
+  })
+
+  /** The sections are behind the same gate as the page, not beside it. */
+  it('shows neither section to somebody without the role', async () => {
+    const { human } = await humans_.store.findOrCreate({
+      provider: 'github',
+      subject: `subject-${randomUUID()}`,
+      email: 'someone@example.test',
+    })
+    const { session: cookie } = await humans_.store.openSession(human.id, {})
+
+    const response = await backend(cookie)
+
+    expect(response.statusCode).toBe(404)
+    expect(response.body).not.toContain('newest-arrival')
+    expect(response.body).not.toContain('waiting the longest')
+  })
+})

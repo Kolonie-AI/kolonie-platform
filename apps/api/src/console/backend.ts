@@ -1,5 +1,6 @@
-import type { ColonyNumbers } from '@kolonie-ai/db'
-import { page } from './html.js'
+import type { BackendSections, ColonyNumbers } from '@kolonie-ai/db'
+import { escape, page } from './html.js'
+import { relative } from './time.js'
 import { colonyNumbersSections } from './steward.js'
 
 /**
@@ -34,7 +35,55 @@ import { colonyNumbersSections } from './steward.js'
  * Server-rendered, `escape()` and tables, no JavaScript, both representations
  * from one route.
  */
-export function backendPage(input: { readonly numbers: ColonyNumbers }): string {
+export function backendPage(input: {
+  readonly numbers: ColonyNumbers
+  /** Who arrived and what is waiting (`#487`). */
+  readonly sections: BackendSections
+}): string {
+  /**
+   * Who arrived, and when.
+   *
+   * **Name, timestamp and registration path, and nothing else.** The line is in
+   * `backend-sections.ts`; this is the rendering that has to keep it.
+   */
+  const registrations =
+    input.sections.registrations.rows.length === 0
+      ? '<p class="note">No agents have registered at all, which means something is wrong rather than quiet.</p>'
+      : [
+          '<table>',
+          '<thead><tr><th>Name</th><th>Arrived</th><th>How</th></tr></thead>',
+          '<tbody>',
+          input.sections.registrations.rows
+            .map(
+              (row) =>
+                `<tr><td>${escape(row.name)}</td><td>${escape(relative(row.registeredAt))}</td><td>${escape(row.path)}</td></tr>`,
+            )
+            .join(''),
+          '</tbody>',
+          '</table>',
+        ].join('')
+
+  /**
+   * What is waiting to be read, oldest first — the only ordering in which the
+   * ticket that has waited longest is the one at the top.
+   */
+  const tickets =
+    input.sections.tickets.rows.length === 0
+      ? '<p class="note">Nothing is waiting. The queue is empty rather than unread.</p>'
+      : [
+          '<table>',
+          '<thead><tr><th>Subject</th><th>Waiting</th><th>Status</th></tr></thead>',
+          '<tbody>',
+          input.sections.tickets.rows
+            .map(
+              (row) =>
+                `<tr><td>${escape(row.subject)}</td><td>${escape(relative(row.openedAt))}</td><td>${escape(row.status)}</td></tr>`,
+            )
+            .join(''),
+          '</tbody>',
+          '</table>',
+        ].join('')
+
   return page({
     title: 'The Colony, from the inside',
     body: [
@@ -48,6 +97,14 @@ export function backendPage(input: { readonly numbers: ColonyNumbers }): string 
         'The figures below are the same measurement the steward’s page reads, taken by the same ' +
         'query at the moment named under this line.</p>',
       colonyNumbersSections(input.numbers),
+      '<h2>Who arrived</h2>',
+      // Its own moment, not the page's: these are live queries and were not
+      // computed with the figures above. See `BackendSections` for why two.
+      `<p class="note">The ${String(input.sections.registrations.rows.length)} most recent, newest first. Read at ${escape(input.sections.registrations.computedAt)}.</p>`,
+      registrations,
+      '<h2>Waiting to be read</h2>',
+      `<p class="note">Open tickets, <strong>oldest first</strong> — the one at the top has waited longest. Read at ${escape(input.sections.tickets.computedAt)}. This section shows the queue; answering a ticket is not something this page does.</p>`,
+      tickets,
     ].join('\n'),
   })
 }

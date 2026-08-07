@@ -44,6 +44,11 @@ export interface FakeQuestDesk extends QuestDesk {
   readonly moderate: (taskId: TaskId, decision?: 'approved' | 'rejected') => void
   /** Credit a sponsor's balance, which is `packages/db`'s job in the real one. */
   readonly credit: (agentId: AgentId, amount: number) => void
+  /** Put rows into the two `/backend` sections (`#487`). */
+  readonly showsOnBackend: (input: {
+    readonly registrations?: readonly { name: string; registeredAt: string; path: string }[]
+    readonly tickets?: readonly { subject: string; openedAt: string; status: string }[]
+  }) => void
   /**
    * Record participation that was **not** accepted (`#454`).
    *
@@ -118,6 +123,10 @@ export function fakeQuests(): FakeQuestDesk {
   const balances = new Map<string, number>()
   let movements: readonly CreditMovement[] = []
   const audienceAsked: AudienceCriteria[] = []
+  const sections: {
+    registrations: readonly { name: string; registeredAt: string; path: string }[]
+    tickets: readonly { subject: string; openedAt: string; status: string }[]
+  } = { registrations: [], tickets: [] }
   let fixedAudience: number | null = null
 
   const task = (input: {
@@ -299,6 +308,11 @@ export function fakeQuests(): FakeQuestDesk {
         })) as never
     },
 
+    showsOnBackend: (input) => {
+      if (input.registrations !== undefined) sections.registrations = input.registrations
+      if (input.tickets !== undefined) sections.tickets = input.tickets
+    },
+
     async numbers() {
       return {
         accountsByPath: { mcp: 1 },
@@ -312,6 +326,21 @@ export function fakeQuests(): FakeQuestDesk {
         ledgerSum: 0,
         mintBalance: 0,
         computedAt: new Date().toISOString(),
+      } as never
+    },
+
+    /**
+     * Who arrived and what is waiting (`#487`).
+     *
+     * Empty by default and settable, because what the routes rely on is the
+     * shape and the gate — the *ordering* and the twenty-row cap are SQL and are
+     * asserted against a real Postgres in `packages/db`, which is where a fake
+     * would only be a second opinion.
+     */
+    async backendSections() {
+      return {
+        registrations: { rows: sections.registrations, computedAt: new Date().toISOString() },
+        tickets: { rows: sections.tickets, computedAt: new Date().toISOString() },
       } as never
     },
 

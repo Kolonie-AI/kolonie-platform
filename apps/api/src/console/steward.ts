@@ -15,6 +15,26 @@ import { escape, page } from './html.js'
 import { questAsCitizenReads } from './sponsor.js'
 
 /**
+ * The one question a steward applies to a quest (D-108, `#522`).
+ *
+ * **A constant, so the wording exists once.** It is a rule the Colony will be
+ * held to by a refused sponsor, and a sentence retyped in a second surface is a
+ * second version of the rule.
+ *
+ * It is written as the whole test rather than as a list of what is allowed. A
+ * catalogue of permitted quest types is wrong within a month and gets read as
+ * exhaustive, which would refuse a quest nobody anticipated for being unlisted —
+ * the opposite of the position D-108 records.
+ */
+const STEWARD_QUESTION =
+  '<p class="note"><strong>The question to apply:</strong> if this provider noticed, would the ' +
+  'citizen lose its account? The Colony refuses only what would destroy a citizen’s own ' +
+  'property — not what looks commercial, and not what you would rather it did not ask. What a ' +
+  'sponsor wants and whether an agent agrees is between them. <em>The refusals are terms that ' +
+  'treat this as grounds for termination, impersonating a real person or organisation, and ' +
+  'anything unlawful where the citizen is.</em></p>'
+
+/**
  * The queue, with everything needed to decide a quest in one screen.
  *
  * **The audience and the proof are shown together, because they are the pair a
@@ -186,6 +206,22 @@ function reviewRow(quest: QuestUnderReview): string {
     '</tbody></table>',
     audienceAndProof,
     requirementNote,
+    /**
+     * The one question a steward applies (D-108, `#522`).
+     *
+     * **On the page rather than in a document a steward is expected to have
+     * read.** The whole defect the rule answers is that two stewards decide
+     * differently, and a rule that lives one click away is a rule consulted by
+     * whoever already suspected there was one. `capabilityMismatches` above sets
+     * the precedent: the thing to weigh is shown beside the thing being weighed.
+     *
+     * **Unconditional, and never computed.** There is no predicate here and
+     * there must not be one — a flag that fired on *some* quests would read as
+     * the Colony having judged the others, and the position D-108 records is
+     * that the Colony does not curate what a sponsor may want. It is a prompt,
+     * not a warning.
+     */
+    STEWARD_QUESTION,
     '<h3>What a citizen reads</h3>',
     // The rate a steward is reviewing against: the one recorded if this quest
     // is already published, otherwise the one publishing it would write

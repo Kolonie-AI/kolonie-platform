@@ -67,6 +67,30 @@ const asStewardAgent = (url: string) =>
     },
   })
 
+/** One quest sitting in the queue, which is what makes a row exist to assert on. */
+const aQuestAwaitingReview = async (): Promise<void> => {
+  quests.credit(stewardId as never, 1_000_000)
+  const authorId = String(store.issue({}).agent.id)
+  quests.credit(authorId as never, 1000)
+  const created = await quests.create({
+    authorId: authorId as never,
+    draft: {
+      title: 'A thousand registrations',
+      description: 'We want to know whether agents can register.',
+      instructions: 'Register and report.',
+      reward: { credits: 1, reputation: 5 },
+      slots: 10,
+      expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
+      questions: [{ key: 'what-happened', prompt: 'What happened?' }],
+    },
+  })
+  await quests.submit({
+    authorId: authorId as never,
+    taskId: created.task.id,
+    at: new Date().toISOString() as never,
+  })
+}
+
 /**
  * The steward's two pages (`#181`).
  *
@@ -121,6 +145,44 @@ describe('the review queue', () => {
 
     expect(page.statusCode).toBe(200)
     expect(page.body).toContain('Review queue')
+  })
+
+  /**
+   * The basis a steward decides an account-using quest on (D-108, `#522`).
+   *
+   * **Beside the quest, and unconditionally.** The defect the rule answers is
+   * two stewards deciding differently, and a rule that lives one click away is
+   * consulted by whoever already suspected there was one. There is deliberately
+   * no predicate: a prompt that fired on *some* quests would read as the Colony
+   * having judged the others.
+   */
+  describe('the basis an account-using quest is decided on', () => {
+    beforeEach(async () => {
+      await aQuestAwaitingReview()
+    })
+
+    it('shows the one question a steward applies', async () => {
+      const page = await asSteward('/review')
+
+      expect(page.body).toContain('if this provider noticed, would the citizen lose its account?')
+      expect(page.body).toContain('destroy a citizen\u2019s own property')
+    })
+
+    /**
+     * **No list of permitted quest types**, which the issue forbids outright: a
+     * catalogue is wrong within a month, a steward reads it as exhaustive, and a
+     * quest nobody anticipated then gets refused for being unlisted.
+     */
+    it('enumerates nothing a sponsor is allowed to ask for', async () => {
+      const body = (await asSteward('/review')).body.toLowerCase()
+
+      // The quest is on the page, so an assertion about absence is about this
+      // page's content rather than about an empty one.
+      expect(body).toContain('a thousand registrations')
+      for (const phrase of ['permitted quest', 'allowed quest', 'quest types', 'may ask for']) {
+        expect(body).not.toContain(phrase)
+      }
+    })
   })
 
   it('answers JSON to a steward holding an API key', async () => {

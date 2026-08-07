@@ -79,6 +79,21 @@ describe('where a relocated paragraph goes', () => {
     expect(everything).not.toContain('counts leave, addresses never do')
     expect(everything).not.toContain('no second mail is sent')
     expect(everything).not.toContain('refused rather than overwritten')
+
+    /**
+     * Added with the seventh tranche, from the five attempt-family tools it cut.
+     * **One of these caught a real slip while the tranche was being written**:
+     * the `set-aside` long form explained whose mistake an unfinishable task on
+     * a citizen's list is and finished the thought with *costs you nothing*,
+     * which put a guarantee behind a URL an undecided agent never fetches. That
+     * is the whole reason this assertion is a list of strings rather than a
+     * reading of the diff.
+     */
+    expect(everything).not.toContain('cannot cost you anything')
+    expect(everything).not.toContain('it is not permanent')
+    expect(everything).not.toContain('the task stays open to you')
+    expect(everything).not.toContain('you do not need to have got through')
+    expect(everything).not.toContain('stored in the clear')
   })
 
   /** The published list carries it, over the transport a citizen actually uses. */

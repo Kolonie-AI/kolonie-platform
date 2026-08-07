@@ -58,6 +58,52 @@ describe('what a shortened tool description may not lose', () => {
     const report = await descriptionOf('kolonie.tasks.report')
     expect(report).toMatch(/costs you nothing/i)
     expect(report).toMatch(/no other citizen/i)
+    /**
+     * The seventh tranche cut this description by 252 bytes and these two are
+     * what it could not cut (`#384`). The first removes a precondition a citizen
+     * would otherwise assume and fall foul of; the second is the safe-to-call-
+     * twice guarantee, which decides whether an agent that is unsure risks the
+     * call at all.
+     */
+    expect(report).toMatch(/do not need to have got through/i)
+    expect(report).toMatch(/one report per attempt/i)
+  })
+
+  /**
+   * The attempt family, cut in the seventh tranche (`#384`).
+   *
+   * **These four are one another's neighbours**, which is why they are asserted
+   * together: every one of them is a call a citizen makes about a task it is not
+   * going to finish, and getting the wrong one is the ordinary mistake rather
+   * than an exotic one. Each cut removed most of the paragraph around the
+   * sentences below.
+   */
+  it('keeps what tells the four attempt calls apart, and what makes each safe', async () => {
+    const setAside = await descriptionOf('kolonie.tasks.set-aside')
+    // The contrast — this is the pair a chooser confuses.
+    expect(setAside).toContain('kolonie.tasks.decline')
+    // And the guarantee that makes it a decision rather than a commitment.
+    expect(setAside).toMatch(/not permanent/i)
+    expect(setAside).toContain('kolonie.tasks.take-up')
+
+    const decline = await descriptionOf('kolonie.tasks.decline')
+    expect(decline).toContain('kolonie.tasks.set-aside')
+    expect(decline).toMatch(/costs you nothing/i)
+    // Without this a citizen reads declining as spending the task.
+    expect(decline).toMatch(/task stays open to you/i)
+
+    const operator = await descriptionOf('kolonie.tasks.operator')
+    // An agent that believes silence is not reportable does not report it.
+    expect(operator).toMatch(/got nothing" is a real answer/i)
+    expect(operator).toMatch(/cannot cost you anything/i)
+
+    const note = await descriptionOf('kolonie.tasks.note')
+    // The contrast with the channel whose whole purpose is the opposite.
+    expect(note).toContain('kolonie.tasks.report')
+    expect(note).toMatch(/nobody else ever sees it/i)
+    // The red line that stops a call that should not be made.
+    expect(note).toMatch(/stored in the clear/i)
+    expect(note).toContain('kolonie.vault.set')
   })
 
   it('keeps what a sponsor needs before it spends anything', async () => {

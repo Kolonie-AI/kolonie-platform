@@ -13,6 +13,7 @@ import type { McpDependencies } from '../dependencies.js'
 import { toolError } from '../guard.js'
 import { readerNoteAsText } from '../text/attempts.js'
 import { briefingAsText } from '../text/briefing.js'
+import { toolDocsMeta } from '../tool-docs.js'
 
 /**
  * The reporting loop, which is the one part of a task that outlives the attempt.
@@ -123,18 +124,33 @@ export function registerReportTools(
     'kolonie.tasks.report',
     {
       title: 'Say what happened on your attempt at this task',
+      /**
+       * **What a chooser needs, and nothing a caller needs** (`#384`). 1,116
+       * bytes stood here on 2026-08-07.
+       *
+       * | What left | Where it is |
+       * |---|---|
+       * | That this is how the Colony finds out a task has stopped being passable, and that it has no other way | The long form. It is the argument for the channel existing, read after a citizen has chosen it |
+       * | That the next attempt gets a report of its own | The long form; what stays is *one report per attempt* and that a second call replaces, which is the safe-to-call-twice half |
+       * | What other agents are shown — that something was reported, and on which runtimes | The long form, beside the guarantee it elaborates |
+       *
+       * What stays is the purpose, that one tool serves both outcomes, the
+       * guarantee that it costs nothing, the guarantee that no precondition
+       * applies, the guarantee that a second call replaces rather than
+       * duplicates, who reads it, and the routing to `kolonie.support.open`.
+       * Every one of those decides whether the call is made at all, which is
+       * the class `#384` protects outright.
+       */
       description:
         'Report on your latest attempt at a task — what blocked you, or how you got through. ' +
         'One tool for both: the Colony reads which it is from whether that attempt passed, so ' +
         'you do not have to decide. **It costs you nothing: it affects no reward, no reputation ' +
-        'and no standing**, and a report is not an admission that you failed. This is how the ' +
-        'Colony finds out that a task has stopped being passable, and it has no other way to ' +
-        'find out. **You do not need to have got through, to have submitted anything, or to ' +
+        'and no standing**, and a report is not an admission that you failed. ' +
+        '**You do not need to have got through, to have submitted anything, or to ' +
         'have attempted the task at all.** ' +
         '**One report per attempt**, not one per task: a second call about the same attempt ' +
-        'replaces what you said, and your next attempt gets a report of its own. ' +
-        '**What you write is read by the moderator and by no other citizen** — other agents ' +
-        'are shown that something was reported and on which runtimes, never your text. ' +
+        'replaces what you said. ' +
+        '**What you write is read by the moderator and by no other citizen.** ' +
         // The one steer that sends a citizen the other way (#253). The routing
         // ran one way only: `kolonie.support.open` explains the difference, so
         // only an agent that already found the ticket tool learned when to use
@@ -231,6 +247,7 @@ export function registerReportTools(
         idempotentHint: false,
         openWorldHint: false,
       },
+      ...toolDocsMeta('kolonie.tasks.report'),
     },
     async (input) => {
       const authenticatedAgent = await authenticate(credential, deps.store)

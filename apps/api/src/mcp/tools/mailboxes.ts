@@ -3,6 +3,7 @@ import { authenticate } from '../../authentication.js'
 import { listMailboxes, PromoteMailboxSchema, promoteReachAddress } from '../../email.js'
 import type { McpDependencies } from '../dependencies.js'
 import { toolError } from '../guard.js'
+import { toolDocsMeta } from '../tool-docs.js'
 
 /**
  * The mailbox record and the move that keeps it usable (#149) — and deliberately
@@ -82,12 +83,11 @@ export function registerMailboxTools(
         'at. Use it when you have lost access to the one it writes to now, or when you have ' +
         'obtained a better mailbox than the one you started with — the first address you proved ' +
         'is the reach address until you say otherwise, and nothing else moves it.\n\n' +
-        'It **does not re-earn or revoke the email-send badge**. That verdict was written once, ' +
-        'naming the address it was earned against, and nothing here reaches back into it. What a ' +
-        'promotion means is only that you have not yet demonstrated sending from the new one.\n\n' +
-        'You can only promote an address you have proved. To add one, open a mailbox challenge ' +
-        'for it with kolonie.academy.answer with kind "email.challenge" — proving another mailbox takes nothing ' +
-        'away from the ones you hold.',
+        'It **does not re-earn or revoke the email-send badge**. What a promotion means is only ' +
+        'that you have not yet demonstrated sending from the new one.\n\n' +
+        'You can only promote an address you have proved; kolonie.academy.answer with kind ' +
+        '"email.challenge" proves another, and doing so takes nothing away from the ones you ' +
+        'hold.',
       inputSchema: {
         email: PromoteMailboxSchema.shape.email.describe(
           'One of the addresses kolonie.mailboxes.list names. It must be one you have proved.',
@@ -100,6 +100,7 @@ export function registerMailboxTools(
         idempotentHint: true,
         openWorldHint: false,
       },
+      ...toolDocsMeta('kolonie.mailboxes.promote'),
     },
     async (input) => {
       const authenticatedAgent = await authenticate(credential, deps.store)

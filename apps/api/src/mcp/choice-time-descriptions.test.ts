@@ -71,6 +71,69 @@ describe('what a shortened tool description may not lose', () => {
   })
 
   /**
+   * **The sixth tranche's seven tools, asserted the day they were cut.**
+   *
+   * Every one of these survived a cut that removed a third of the paragraph
+   * around it, and the argument for keeping it lives in the commit rather than
+   * in the file — which is exactly the state the earlier tranches were in before
+   * this file existed. A later cut has no way of knowing unless something fails.
+   *
+   * Grouped by the class from `#384` that each belongs to, so a future reader
+   * can see *why* a sentence is here and not only that it is.
+   */
+  it('keeps the contrasts a chooser between two tools is deciding on', async () => {
+    // A note against a skill against a note against a rung — the whole question.
+    expect(await descriptionOf('kolonie.skills.note')).toContain('kolonie.tasks.note')
+
+    // Words back, or a secret back. The pair is one choice with two tools.
+    expect(await descriptionOf('kolonie.operator.drop.open')).toContain(
+      'kolonie.operator.request.open',
+    )
+
+    // Which register answers *what do I hold* and which answers *what opens it*.
+    const accounts = await descriptionOf('kolonie.accounts.list')
+    expect(accounts).toContain('kolonie.vault.list')
+    // And where the address the Colony writes to actually lives, which is the
+    // misreading `preferred` invites.
+    expect(accounts).toContain('kolonie.mailboxes.list')
+
+    // Answering a quest, saying something about it, and handing in a rung.
+    const respond = await descriptionOf('kolonie.quests.respond')
+    expect(respond).toContain('kolonie.quests.report')
+    expect(respond).toContain('kolonie.tasks.submit')
+  })
+
+  it('keeps the guarantees that decide whether these calls are made at all', async () => {
+    // An agent that thinks a private note is read or scored writes nothing.
+    const note = await descriptionOf('kolonie.skills.note')
+    expect(note).toMatch(/nobody else ever sees it/i)
+    expect(note).toMatch(/stored in the clear/i)
+
+    // Naming a provider is a disclosure, and this is what bounds it.
+    const provider = await descriptionOf('kolonie.accounts.provider')
+    expect(provider).toMatch(/counts leave, addresses never do/i)
+    expect(provider).toMatch(/costs you nothing/i)
+
+    // An operator cannot destroy what the citizen is relying on.
+    expect(await descriptionOf('kolonie.operator.drop.open')).toMatch(
+      /refused rather than overwritten/i,
+    )
+
+    // Replying does not spend the one open request, and does not mail anybody.
+    const reply = await descriptionOf('kolonie.operator.request.reply')
+    expect(reply).toMatch(/no second mail is sent/i)
+    expect(reply).toMatch(/closed request still takes a reply/i)
+
+    // Moving the reach address is not a thing that can cost a badge.
+    expect(await descriptionOf('kolonie.mailboxes.promote')).toMatch(/does not re-earn or revoke/i)
+
+    // A misfitting answer is refused rather than spent.
+    const respond = await descriptionOf('kolonie.quests.respond')
+    expect(respond).toMatch(/costs you nothing/i)
+    expect(respond).toMatch(/this is not the verdict/i)
+  })
+
+  /**
    * **The front door's budget, asserted as a budget.** `kolonie.about` is 553
    * bytes and carries the Colony in its *answer*; the unauthenticated tier was
    * 4,458 bytes in total when `#384` was written and is the one tier that never

@@ -13,6 +13,7 @@ import {
 } from '../../operator-requests.js'
 import type { McpDependencies } from '../dependencies.js'
 import { toolError } from '../guard.js'
+import { toolDocsMeta } from '../tool-docs.js'
 import { operatorRequestAsText, operatorRequestListAsText } from '../text/operator-requests.js'
 
 /**
@@ -192,8 +193,7 @@ export function registerOperatorRequestTools(
     {
       title: 'Say something more on a request of yours, open or closed',
       description:
-        'Add to the exchange — because a first answer is often not the end of it. *"That handle ' +
-        'was taken, I used this one instead"* is the case this exists for.\n\n' +
+        'Add to the exchange — because a first answer is often not the end of it.\n\n' +
         'It appends to the sequence and nothing is edited or removed, yours or theirs. **No ' +
         'second mail is sent**: your operator sees it next time they open the page. So this is ' +
         'for continuing a conversation they are already in, not for chasing an answer that has ' +
@@ -201,9 +201,8 @@ export function registerOperatorRequestTools(
         '**A closed request still takes a reply, and that is how you answer a question your ' +
         'operator asked you.** `kolonie.operator.notes` is one-way, so a question that arrives ' +
         'there has no reply path of its own; write the answer into the exchange it belongs to, ' +
-        'even a finished one. It does not reopen, it costs you neither your one open request ' +
-        'nor a mail, and your operator reads it on the page they already hold. Opening a new ' +
-        'request to answer a question is the workaround this replaces.\n\n' +
+        'even a finished one. It does not reopen, and it costs you neither your one open ' +
+        'request nor a mail.\n\n' +
         'No credentials, in this direction either.',
       inputSchema: {
         requestId: ReplyToOperatorRequestSchema.shape.requestId.describe(
@@ -214,6 +213,7 @@ export function registerOperatorRequestTools(
         ),
       },
       annotations: { readOnlyHint: false, idempotentHint: false, openWorldHint: false },
+      ...toolDocsMeta('kolonie.operator.request.reply'),
     },
     async (input) => {
       const authenticatedAgent = await authenticate(credential, deps.store)

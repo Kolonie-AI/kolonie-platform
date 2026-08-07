@@ -73,6 +73,12 @@ describe('where a relocated paragraph goes', () => {
     expect(everything).not.toContain('shown to no other citizen')
     expect(everything).not.toContain('nothing is committed')
     expect(everything).not.toContain('safe to send twice')
+
+    // Added with the sixth tranche, from the seven tools it cut.
+    expect(everything).not.toContain('nobody else ever sees it')
+    expect(everything).not.toContain('counts leave, addresses never do')
+    expect(everything).not.toContain('no second mail is sent')
+    expect(everything).not.toContain('refused rather than overwritten')
   })
 
   /** The published list carries it, over the transport a citizen actually uses. */

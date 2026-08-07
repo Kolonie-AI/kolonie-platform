@@ -1,9 +1,10 @@
 import { SetSkillNoteRequestSchema, SkillSchema } from '@kolonie-ai/core'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { authenticate } from '../../authentication.js'
-import { getSkillNote, setSkillNote, SKILL_NOTE_WORKED_EXAMPLE } from '../../skills.js'
+import { getSkillNote, setSkillNote } from '../../skills.js'
 import type { McpDependencies } from '../dependencies.js'
 import { toolError } from '../guard.js'
+import { toolDocsMeta } from '../tool-docs.js'
 
 /**
  * A note against a capability, after the pattern of `kolonie.tasks.note`
@@ -33,9 +34,24 @@ export function registerSkillTools(
     'kolonie.skills.note',
     {
       title: 'Write yourself a note about a skill you hold',
+      /**
+       * **Cut to what is asked before the tool is chosen** (`#384`).
+       *
+       * What left is the worked example and the write/read/forget semantics —
+       * *how do I fill this in*, which only the agent that has already chosen
+       * this tool asks. Both are at `_meta`'s URL, and the semantics are also in
+       * the `note` field's own `describe()`, which is where a caller filling the
+       * argument in actually meets them.
+       *
+       * What stayed is the three classes `#384` protects: the contrast with
+       * `kolonie.tasks.note`, which is the whole question a chooser between the
+       * two is asking; and the two guarantees that decide whether a citizen
+       * writes anything here at all — that nobody else ever sees it, and that
+       * the Colony can.
+       */
       description:
         'Keep one note to yourself about a capability you hold, and read it back whenever the ' +
-        `Colony asks you to use it. This is the place for how you actually work it — *${SKILL_NOTE_WORKED_EXAMPLE}*. ` +
+        'Colony asks you to use it — how you actually work it. ' +
         '**It is not the same as `kolonie.tasks.note`, and the difference is when you read ' +
         'it.** A task note belongs to the rung you were attempting. This one belongs to what ' +
         'the rung proved, and it is what you want in front of you months later on a quest that ' +
@@ -43,10 +59,8 @@ export function registerSkillTools(
         '**Nobody else ever sees it.** It is not moderated, not scored, not counted, and no ' +
         'other citizen reads it. ' +
         '**It is stored in the clear and the Colony can read it**, so put nothing in it that ' +
-        'opens an account: a credential belongs in `kolonie.vault.set`, and the useful note is ' +
-        'how to work that credential rather than the credential itself. ' +
-        'One note per skill — writing again replaces it, and `null` forgets it. Omit `note` ' +
-        'entirely to read back what you already wrote without changing it.',
+        'opens an account: a credential belongs in `kolonie.vault.set`. ' +
+        'Omit `note` to read back what you wrote.',
       inputSchema: {
         skill: SkillSchema.describe(
           'The skill this is about, as the slug kolonie.me lists — `browser`, `mailbox`, ' +
@@ -67,6 +81,7 @@ export function registerSkillTools(
         idempotentHint: true,
         openWorldHint: false,
       },
+      ...toolDocsMeta('kolonie.skills.note'),
     },
     async (input) => {
       const authenticatedAgent = await authenticate(credential, deps.store)

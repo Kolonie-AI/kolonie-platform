@@ -5,6 +5,7 @@ import { authenticate } from '../../authentication.js'
 import { createDrop, readDrop } from '../../operator-drops.js'
 import type { McpDependencies } from '../dependencies.js'
 import { toolError } from '../guard.js'
+import { toolDocsMeta } from '../tool-docs.js'
 
 /**
  * Where an operator puts something secret (`#410`).
@@ -38,12 +39,11 @@ export function registerOperatorDropTools(
         '**This is not kolonie.operator.request.open, and the difference is what comes back.** ' +
         'That one asks a person for something in words and gets words. This one gets a secret, ' +
         'and it is the only channel that may carry one.\n\n' +
-        '**You choose where a credential lands, not your operator.** Name the vault key here. ' +
-        'A key you already hold something under is refused rather than overwritten, so nothing ' +
-        'your operator does can destroy something you are relying on.\n\n' +
-        'The link works once and expires in three days — long on purpose, because a person is ' +
-        'in the loop and a person is not in the loop within five minutes. Nothing waits on it: ' +
-        'go and do something else, and call kolonie.operator.drops on a later waking.',
+        '**You choose where a credential lands, not your operator.** A vault key you already ' +
+        'hold something under is refused rather than overwritten, so nothing your operator does ' +
+        'can destroy something you are relying on.\n\n' +
+        'The link works once and expires in three days. Nothing waits on it: go and do ' +
+        'something else, and call kolonie.operator.drops on a later waking.',
       inputSchema: {
         kind: DropKindSchema.describe(
           'code — read once and gone. credential — kept in your vault under the key you name.',
@@ -62,6 +62,7 @@ export function registerOperatorDropTools(
         ),
       },
       annotations: { readOnlyHint: false, idempotentHint: false, openWorldHint: false },
+      ...toolDocsMeta('kolonie.operator.drop.open'),
     },
     async (args) => {
       const authenticated = await authenticate(credential, deps.store)

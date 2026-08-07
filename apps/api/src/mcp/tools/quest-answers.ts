@@ -4,6 +4,7 @@ import { authenticate } from '../../authentication.js'
 import { submitTask } from '../../submissions.js'
 import type { McpDependencies } from '../dependencies.js'
 import { toolError } from '../guard.js'
+import { toolDocsMeta } from '../tool-docs.js'
 
 /**
  * How a citizen answers a quest (`#327`).
@@ -48,11 +49,8 @@ export function registerQuestAnswerTools(
     {
       title: 'Answer a quest',
       description:
-        'Hand in your answers to a published quest. Each answer is keyed by the question key ' +
-        'the quest listed, so `answers` is an object like {"what-happened": "…"} and not a ' +
-        'list. **This is not the verdict**: a quest report is moderated before it is accepted, ' +
-        'so the Colony takes the report and decides later — call kolonie.me after a minute or ' +
-        'so, where an accepted report shows up as credits. ' +
+        'Hand in your answers to a published quest. **This is not the verdict**: a quest report ' +
+        'is moderated before it is accepted, so the Colony takes the report and decides later. ' +
         '**An answer that does not fit what the quest asked costs you nothing**: the Colony ' +
         'names every question that is wrong and why, nothing is submitted, and no attempt is ' +
         'used. **One answer per quest**, and a slot is held while the verdict is open. ' +
@@ -91,6 +89,7 @@ export function registerQuestAnswerTools(
         idempotentHint: false,
         openWorldHint: false,
       },
+      ...toolDocsMeta('kolonie.quests.respond'),
     },
     async (input) => {
       const authenticated = await authenticate(credential, deps.store)

@@ -54,13 +54,25 @@ export function fakeMailer(
   return { ...operatorMailerFrom(recording, from), sent: () => sent }
 }
 
-/** A log that keeps what it was told, so a test can assert on a line nobody is shown. */
+/**
+ * A log that keeps what it was told, so a test can assert on a line nobody is shown.
+ *
+ * **The thrown error is kept as well as the fields (`#490`).** It was discarded
+ * here until a test needed to prove that a caught exception's message reaches
+ * the log and reaches no part of the response body — and a fixture that drops
+ * the error can only ever prove the second half of that.
+ */
 export interface RecordingLog extends Log {
-  readonly lines: () => readonly { level: string; message: string; fields: LogFields }[]
+  readonly lines: () => readonly {
+    level: string
+    message: string
+    error?: unknown
+    fields: LogFields
+  }[]
 }
 
 export function recordingLog(): RecordingLog {
-  const lines: { level: string; message: string; fields: LogFields }[] = []
+  const lines: { level: string; message: string; error?: unknown; fields: LogFields }[] = []
   const at =
     (level: string) =>
     (message: string, fields: LogFields = {}): void => {
@@ -69,8 +81,8 @@ export function recordingLog(): RecordingLog {
   return {
     info: at('info'),
     warn: at('warn'),
-    error: (message, _error, fields = {}) => {
-      lines.push({ level: 'error', message, fields })
+    error: (message, error, fields = {}) => {
+      lines.push({ level: 'error', message, error, fields })
     },
     lines: () => lines,
   }

@@ -41,7 +41,7 @@ import { fakeMemory } from '../__fixtures__/memory.js'
 import { fakeSolana } from '../__fixtures__/solana.js'
 import { fakeVault } from '../__fixtures__/vault.js'
 import { fakeAccounts } from '../__fixtures__/accounts.js'
-import { fakeConsole } from '../__fixtures__/console.js'
+import { fakeConsole, recordingLog, type RecordingLog } from '../__fixtures__/console.js'
 import { fakeErasureDesk } from '../__fixtures__/erasure.js'
 import { erasure } from '../erasure.js'
 import { noObstruction } from '../__fixtures__/obstruction.js'
@@ -662,10 +662,18 @@ describe('opening a sponsor account', () => {
  * likeliest place to reproduce it.
  */
 describe('when the console throws', () => {
-  it('renders an error id and no path, stack or query', async () => {
+  /**
+   * A console whose signed-in home throws, and a log that keeps what it was
+   * told.
+   *
+   * Extracted when `#490` needed a second and a third case against the same
+   * arrangement: the dependency list is fifty lines, and three copies of it
+   * drift apart in different directions.
+   */
+  const throwingApp = (boom: Error, log: RecordingLog) => {
     const failing = fakeQuests()
-    const boom = new Error(`ENOENT: no such file, open '${process.cwd()}/secret.txt'`)
-    const app2 = buildApp({
+    return buildApp({
+      log,
       humans: fakeHumans(),
       vault: { vault: fakeVault() },
       accounts: fakeAccounts(),
@@ -717,9 +725,11 @@ describe('when the console throws', () => {
       authenticator: fakeAuthenticator(),
       academy: fakeAcademy(),
     })
-    await app2.ready()
+  }
 
-    const response = await app2.inject({
+  /** The failure a browser sees. */
+  const failAsBrowser = (app2: FastifyInstance) =>
+    app2.inject({
       method: 'GET',
       url: '/',
       headers: {
@@ -729,12 +739,121 @@ describe('when the console throws', () => {
       },
     })
 
+  /** The same failure asked for as JSON. */
+  const failAsJson = (app2: FastifyInstance) =>
+    app2.inject({
+      method: 'GET',
+      url: '/',
+      headers: {
+        host: CONSOLE_HOST,
+        accept: 'application/json',
+        cookie: `__Host-kolonie_session=${session}`,
+      },
+    })
+
+  /**
+   * The id the page prints, read back out of the rendered HTML.
+   *
+   * Matched against the markup `errorPage` actually emits — `Error id: <uuid>`
+   * inside a `<p class="note">` — rather than against a constant this test also
+   * owns, so that a page that stops printing the id fails here.
+   */
+  const idFromPage = (body: string): string | undefined =>
+    /Error id:\s*([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/.exec(body)?.[1]
+
+  it('renders an error id and no path, stack or query', async () => {
+    const boom = new Error(`ENOENT: no such file, open '${process.cwd()}/secret.txt'`)
+    const app2 = throwingApp(boom, recordingLog())
+    await app2.ready()
+
+    const response = await failAsBrowser(app2)
+
     expect(response.statusCode).toBe(500)
     expect(response.body).toContain('Error id:')
     // The whole point, and the grep the issue asks for.
     expect(response.body).not.toContain(process.cwd())
     expect(response.body).not.toContain('ENOENT')
     expect(response.body).not.toContain('secret.txt')
+
+    await app2.close()
+  })
+
+  /**
+   * `#490`. The page has always said the failure can be looked up; until this
+   * passed, the id existed on that page and in no log, no container output and
+   * no table. A person reporting a failure believed they had handed over
+   * something usable.
+   */
+  it('writes exactly one error line, carrying the uuid the page shows', async () => {
+    const log = recordingLog()
+    const app2 = throwingApp(new Error('the database went away'), log)
+    await app2.ready()
+
+    const response = await failAsBrowser(app2)
+    const shown = idFromPage(response.body)
+
+    const errors = log.lines().filter((line) => line.level === 'error')
+    expect(errors).toHaveLength(1)
+
+    /**
+     * **Read out of one request, not asserted against a fixture twice.** `#490`
+     * is explicit about this: two assertions against two fixtures pass happily
+     * with two generators, which is the exact defect being fixed.
+     */
+    expect(shown).toBeDefined()
+    expect(errors[0]?.fields['errorId']).toBe(shown)
+
+    await app2.close()
+  })
+
+  it('carries the same field shape as every other 5xx, plus the id', async () => {
+    // A second event name for the same kind of failure splits the query a
+    // person runs during an incident.
+    const log = recordingLog()
+    const app2 = throwingApp(new Error('the database went away'), log)
+    await app2.ready()
+
+    await failAsBrowser(app2)
+
+    const fields = log.lines().find((line) => line.level === 'error')?.fields
+    expect(fields?.['event']).toBe('request.failed')
+    expect(fields?.['method']).toBe('GET')
+    expect(fields?.['url']).toBe('/')
+    expect(fields?.['status']).toBe(500)
+    expect(fields?.['requestId']).toEqual(expect.any(String))
+
+    await app2.close()
+  })
+
+  it('sends the cause to the log and to no part of the response', async () => {
+    const boom = new Error(`ENOENT: no such file, open '${process.cwd()}/secret.txt'`)
+    const log = recordingLog()
+    const app2 = throwingApp(boom, log)
+    await app2.ready()
+
+    const response = await failAsBrowser(app2)
+    const logged = log.lines().find((line) => line.level === 'error')
+
+    // It reaches the log…
+    expect(logged?.error).toBe(boom)
+    // …and `#171` still holds on the way out.
+    expect(response.body).not.toContain('ENOENT')
+    expect(response.body).not.toContain('secret.txt')
+
+    await app2.close()
+  })
+
+  it('gives the JSON representation the same id it logged', async () => {
+    const log = recordingLog()
+    const app2 = throwingApp(new Error('the database went away'), log)
+    await app2.ready()
+
+    const response = await failAsJson(app2)
+    const body = response.json() as { errorId?: string }
+
+    expect(response.statusCode).toBe(500)
+    expect(body.errorId).toEqual(expect.any(String))
+    expect(log.lines().find((line) => line.level === 'error')?.fields['errorId']).toBe(body.errorId)
 
     await app2.close()
   })

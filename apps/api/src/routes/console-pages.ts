@@ -6,6 +6,7 @@ import {
   type AgentId,
   type ApiError,
   type HumanId,
+  type Log,
   type Task,
   type TaskId,
   type Timestamp,
@@ -2457,9 +2458,53 @@ export function consoleErrorId(): string {
   return randomUUID()
 }
 
-/** The console's own error rendering. See {@link errorPage} for why it takes an id. */
-export function consoleError(reply: FastifyReply, request: FastifyRequest): FastifyReply {
+/**
+ * The console's own error rendering. See {@link errorPage} for why it takes an id.
+ *
+ * **It logs, and it logs here rather than at the call site (`#490`).** The page
+ * has always said the failure can be looked up, and until this function wrote a
+ * line there was nothing anywhere to look up: `app.ts`'s error handler returns
+ * through this path *above* its own `log.error`, so a console 5xx took the one
+ * route out of that function that recorded nothing. A maintainer hit it on
+ * `POST /funding/identity` on 2026-08-07 and the cause could not be established
+ * from the id at all.
+ *
+ * Logging inside the render, rather than beside the branch that reaches it, is
+ * what makes that unrepeatable: a future early return cannot skip a line written
+ * by the function it is returning.
+ *
+ * **The id is generated once and used twice**, which is the property `#490` asks
+ * a test to prove by reading both out of one request rather than each against a
+ * fixture — two assertions against two fixtures pass happily with two
+ * generators.
+ */
+export function consoleError(
+  reply: FastifyReply,
+  request: FastifyRequest,
+  caught: unknown,
+  log: Log,
+): FastifyReply {
   const errorId = consoleErrorId()
+
+  /**
+   * The same field shape `app.ts` uses for the 5xx it does log, plus `errorId`.
+   * A second event name for the same kind of failure would split the query a
+   * person runs during an incident, which is the one moment nobody should be
+   * asked to remember there are two.
+   *
+   * **`errorId` is a field on the line and never a Loki label.** `kolonie-infra#68`
+   * fixes the label set at `service` and `level`, because *"cardinality is how a
+   * Loki install dies"* — and a uuid per request is the unbounded worst case
+   * that rule exists for. It is found with a line filter.
+   */
+  log.error(`${request.method} ${request.url} failed`, caught, {
+    event: 'request.failed',
+    requestId: request.id,
+    method: request.method,
+    url: request.url,
+    status: 500,
+    errorId,
+  })
 
   for (const [header, value] of Object.entries(CONSOLE_HEADERS)) reply.header(header, value)
 

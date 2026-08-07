@@ -532,7 +532,17 @@ export function buildApp({
      * rendering is the likeliest place to reproduce it.
      */
     if ((caught.statusCode ?? 500) >= 500 && isConsoleRequest(request, routes.console.consoleUrl)) {
-      return consoleError(reply, request)
+      /**
+       * `caught` and `log` go in because this return is *above* the `log.error`
+       * thirty lines down, and that is the whole of `#490`: the console's error
+       * page printed an id and said it could be looked up, while taking the one
+       * path out of this handler that wrote nothing anywhere.
+       *
+       * The line is written inside `consoleError` rather than here, so that an
+       * early return added to this function later cannot silently reopen the
+       * hole this one made.
+       */
+      return consoleError(reply, request, caught, log)
     }
 
     /**

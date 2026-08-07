@@ -115,20 +115,37 @@ export interface SmsDependencies {
 
 /** Set when a phone rung cannot serve, and why. */
 export function smsUnavailable({ sender, colonyNumber }: SmsDependencies): ApiError | undefined {
+  /**
+   * **`rung_unavailable`, not `internal`** (`#480`).
+   *
+   * A citizen met the old answer and wrote: *"No attempt was opened, so nothing
+   * was spent — but neither is there any input a citizen could change to get
+   * past it."* That is the whole distinction. `internal` is what the Colony says
+   * when something went wrong that it did not expect; this is something it
+   * expects perfectly well and has simply not finished. Reporting them
+   * identically taught a citizen to treat a 500 as a state of the world rather
+   * than as a fault, which is the reading that makes every real 500 cheaper to
+   * ignore.
+   *
+   * Both messages end with what the citizen should do, because *nothing you can
+   * change* is only half an answer.
+   */
   if (sender === undefined) {
     return {
-      code: 'internal',
+      code: 'rung_unavailable',
       message:
-        'The phone rung is not configured: the Colony has no way to send a code, so a challenge ' +
-        'opened now could never be completed.',
+        'The phone rung is not live: the Colony has no way to send a code, so a challenge ' +
+        'opened now could never be completed. Nothing you sent is wrong and no attempt was ' +
+        'spent. Report it with kolonie.tasks.report if you like — that reaches the Colony and ' +
+        'is worth more than a retry.',
     }
   }
   if ((colonyNumber ?? '').trim() === '') {
     return {
-      code: 'internal',
+      code: 'rung_unavailable',
       message:
-        'The phone rung is not configured: the Colony has no number of its own, so there is ' +
-        'nothing to text and nothing to text to.',
+        'The phone rung is not live: the Colony has no number of its own, so there is nothing ' +
+        'to text and nothing to text to. Nothing you sent is wrong and no attempt was spent.',
     }
   }
   return undefined

@@ -702,10 +702,34 @@ const app = buildApp({
     challenges: databaseSmsChallenges(db),
     obstruction,
     ...(smsSender === undefined ? {} : { sender: smsSender }),
-    // Configuration rather than a constant, on `AGENTS.md` §3's reasoning about
-    // identifiers of this deployment: it is public by design and it still
-    // changes without a release.
-    colonyNumber: process.env['SMS_COLONY_NUMBER'] ?? '',
+    /**
+     * **One number, one variable** (`#480`).
+     *
+     * This read `SMS_COLONY_NUMBER`, which was a second name for the number
+     * already in `TWILIO_FROM_NUMBER` — and the second name was never wired.
+     * It is absent from `kolonie-infra`'s `docker-compose.yml` and from its
+     * `.env.example`, so it was empty in production from the day the rung
+     * shipped, `smsUnavailable` refused every call, and `sms-receive` could not
+     * be started by anybody. A citizen found it by trying (`#480`); nothing on
+     * our side had.
+     *
+     * That is D-002's *one record, or none* meeting the ground. The Colony has
+     * exactly one Twilio number: it sends the code from it and citizens text
+     * back to it, and the `sms-send` verifier polls Twilio for messages
+     * addressed `To` that same number. Two variables could only ever agree or
+     * break, and they broke — silently, because an unset variable defaults to
+     * empty and empty is indistinguishable from *not configured yet*.
+     *
+     * Configuration rather than a constant, on `AGENTS.md` §3's reasoning about
+     * identifiers of this deployment: it is public by design and it still
+     * changes without a release. That argument was always about
+     * `TWILIO_FROM_NUMBER`; the second variable added nothing to it.
+     *
+     * **If the Colony ever needs to receive on a number it does not send from**,
+     * that is a change with a reason and a second variable is how to make it.
+     * It is not what this was.
+     */
+    colonyNumber: process.env['TWILIO_FROM_NUMBER'] ?? '',
   },
   academy: {
     challenges: databaseChallenges(db),

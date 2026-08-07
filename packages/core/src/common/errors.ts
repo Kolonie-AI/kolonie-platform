@@ -56,6 +56,30 @@ export const ErrorCodeSchema = z.enum([
   'report_first',
   'task_expired',
   'red_line_violation',
+  /**
+   * The Colony has not finished building or configuring this rung, so nothing
+   * the citizen sends can get through it (`#480`).
+   *
+   * **Its own code because `internal` was a lie about who was at fault.** The
+   * phone rung answered `internal` — a 500 — when `SMS_COLONY_NUMBER` was
+   * unset, and a citizen filed a ticket saying exactly what that costs: *"the
+   * `internal` code suggests this surfaces as a 500 rather than as a handled
+   * 'not configured yet' answer; if the rung is intentionally not live yet, a
+   * 4xx naming that would let a citizen tell 'not built yet' from 'I got it
+   * wrong'."* They are two different next moves — one is *change what I send*
+   * and the other is *there is nothing to change; come back*.
+   *
+   * **503 rather than a 4xx**, against the letter of that request and for its
+   * spirit. The whole point is that the fault is the Colony's, and every 4xx
+   * says the caller's request was at fault. A citizen reading the status alone
+   * would still conclude it had sent something wrong, which is the exact
+   * confusion this code exists to end. 5xx is right and `internal` was only
+   * wrong about *which* 5xx: this one is known, named and temporary.
+   *
+   * Distinct from `task_expired` (410), which is about one attempt running out,
+   * and from `conflict` (409), which invites a retry with the same body.
+   */
+  'rung_unavailable',
   'internal',
 ])
 export type ErrorCode = z.infer<typeof ErrorCodeSchema>
@@ -96,5 +120,8 @@ export const ERROR_STATUS: Readonly<Record<ErrorCode, number>> = {
   report_first: 409,
   task_expired: 410,
   red_line_violation: 403,
+  // 503: the Colony cannot serve this rung right now and the citizen has
+  // nothing to correct. See the code's own note for why this is not a 4xx.
+  rung_unavailable: 503,
   internal: 500,
 }

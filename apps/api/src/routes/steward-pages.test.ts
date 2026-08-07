@@ -306,3 +306,174 @@ describe('what the console can write', () => {
     expect(paths).not.toContain('/numbers')
   })
 })
+
+/**
+ * `#496`. Both review routes rendered `errorPage` when the domain **refused**
+ * them — *"Something went wrong. The Colony could not answer that."* plus a uuid
+ * nothing logged — for a 4xx whose reason the JSON branch of the same route
+ * already sent to the caller.
+ *
+ * So a steward publishing a quest that had not cleared moderation was told the
+ * Colony was broken, while an agent calling the same route one `Accept` header
+ * away was told what to do about it.
+ */
+describe('when the Colony declines a review action', () => {
+  /** A quest by somebody else, submitted and waiting — the ordinary case. */
+  const aQuestInReview = async () => {
+    const authorId = String(store.issue({}).agent.id)
+    quests.credit(authorId as never, 1000)
+    const created = await quests.create({
+      authorId: authorId as never,
+      draft: {
+        title: 'A quest somebody else wrote',
+        description: 'Not the steward’s own, so the review is an ordinary one.',
+        instructions: 'Do it.',
+        reward: { credits: 1, reputation: 5 },
+        slots: 10,
+        expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
+        questions: [{ key: 'how', prompt: 'How?' }],
+      },
+    })
+    await quests.submit({
+      authorId: authorId as never,
+      taskId: created.task.id,
+      at: new Date().toISOString() as never,
+    })
+    return created.task.id
+  }
+
+  const postAsBrowser = (url: string) =>
+    app.inject({
+      method: 'POST',
+      url,
+      headers: {
+        host: CONSOLE_HOST,
+        accept: 'text/html',
+        cookie: `__Host-kolonie_session=${stewardSession}`,
+        'content-type': 'application/x-www-form-urlencoded',
+      },
+      payload: '',
+    })
+
+  const postAsAgent = (url: string) =>
+    app.inject({
+      method: 'POST',
+      url,
+      headers: {
+        host: CONSOLE_HOST,
+        accept: 'application/json',
+        authorization: `Bearer ${stewardKey}`,
+      },
+    })
+
+  /**
+   * The reason `publishQuest` actually returns for a quest that has not cleared
+   * moderation, which is the case the issue opens on.
+   */
+  it('tells the steward why, in the words the JSON caller gets', async () => {
+    const taskId = await aQuestInReview()
+
+    const response = await postAsBrowser(`/review/${taskId}/publish`)
+
+    expect(response.statusCode).toBeGreaterThanOrEqual(400)
+    expect(response.statusCode).toBeLessThan(500)
+    expect(response.body).toContain('has not cleared moderation')
+    expect(response.body).toContain('That did not go through')
+  })
+
+  /**
+   * **No crash page, and no id.** Printing no id is honest; printing one that
+   * reaches no log costs the reader a support round-trip to discover it leads
+   * nowhere — which is the worse half of this defect.
+   */
+  it('renders no error page and no error id for a refusal', async () => {
+    const taskId = await aQuestInReview()
+
+    const response = await postAsBrowser(`/review/${taskId}/publish`)
+
+    expect(response.body).not.toContain('Error id:')
+    expect(response.body).not.toContain('Something went wrong')
+    expect(response.body).not.toContain('could not answer that')
+  })
+
+  /** They land back on the queue they came from, with it still readable. */
+  it('brings them back to the queue rather than to a dead end', async () => {
+    const taskId = await aQuestInReview()
+
+    const response = await postAsBrowser(`/review/${taskId}/publish`)
+
+    expect(response.body).toContain('Review queue')
+    expect(response.body).toContain('A steward publishes or refuses, and never edits')
+  })
+
+  it('does the same for a refusal that is declined', async () => {
+    const taskId = await aQuestInReview()
+
+    const response = await postAsBrowser(`/review/${taskId}/refuse`)
+
+    expect(response.statusCode).toBeGreaterThanOrEqual(400)
+    expect(response.body).not.toContain('Error id:')
+    expect(response.body).toContain('Review queue')
+  })
+
+  /**
+   * The refusal a steward gets for its **own** quest — D-052, and a different
+   * reason reaching the same page, so this is not one message hard-coded.
+   */
+  it('carries a different reason for a different refusal', async () => {
+    quests.credit(stewardId as never, 1000)
+    const created = await quests.create({
+      authorId: stewardId as never,
+      draft: {
+        title: 'My own quest',
+        description: 'Written by the steward reading this.',
+        instructions: 'Do it.',
+        reward: { credits: 1, reputation: 5 },
+        slots: 10,
+        expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
+        questions: [{ key: 'how', prompt: 'How?' }],
+      },
+    })
+    await quests.submit({
+      authorId: stewardId as never,
+      taskId: created.task.id,
+      at: new Date().toISOString() as never,
+    })
+
+    const response = await postAsBrowser(`/review/${created.task.id}/publish`)
+
+    expect(response.statusCode).toBeGreaterThanOrEqual(400)
+    expect(response.body).toContain('That did not go through')
+    expect(response.body).not.toContain('Error id:')
+  })
+
+  /**
+   * **The JSON representation is unchanged** — it was already right, and this
+   * issue is about the other branch of the same `if`.
+   */
+  it('leaves the JSON representation exactly as it was', async () => {
+    const taskId = await aQuestInReview()
+
+    const response = await postAsAgent(`/review/${taskId}/publish`)
+
+    expect(response.statusCode).toBeGreaterThanOrEqual(400)
+    const body = response.json() as { code?: string; message?: string }
+    expect(body.code).toEqual(expect.any(String))
+    expect(body.message).toContain('has not cleared moderation')
+  })
+
+  /**
+   * **The status stays the rejection's own.** A refusal answered `200` is a
+   * refusal nothing downstream can tell from a success — and re-rendering the
+   * queue is exactly the shape that would tempt somebody to make it one.
+   */
+  it('answers the rejection’s status and not 200', async () => {
+    const taskId = await aQuestInReview()
+
+    const asHtml = await postAsBrowser(`/review/${taskId}/publish`)
+    const asJson = await postAsAgent(`/review/${taskId}/publish`)
+
+    expect(asHtml.statusCode).toBe(asJson.statusCode)
+    expect(asHtml.statusCode).not.toBe(200)
+  })
+})

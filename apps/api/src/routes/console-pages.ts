@@ -2504,9 +2504,36 @@ export function registerStewardPages(app: FastifyInstance, deps: RouteDependenci
     )
 
     if (result.outcome === 'rejected') {
-      return wantsHtml(request)
-        ? html(reply.status(ERROR_STATUS[result.error.code]), errorPage(consoleErrorId()))
-        : reply.status(ERROR_STATUS[result.error.code]).send(result.error)
+      /**
+       * **A refusal, rendered as a refusal** (`#496`).
+       *
+       * This used to render `errorPage` — *"Something went wrong. The Colony
+       * could not answer that."* — for a 4xx the domain composed on purpose,
+       * whose reason the JSON branch below already sends to the caller. So a
+       * steward publishing a quest that had not cleared moderation read that the
+       * Colony was broken, while an agent calling the same route with a
+       * different `Accept` header read what to do about it.
+       *
+       * The queue is re-read rather than redirected to, for two reasons: a
+       * `303` would drop the message, there being no flash anywhere in this
+       * console, and the status has to stay the rejection's own — a refusal
+       * answered `200` is a refusal nothing downstream can tell from a success.
+       *
+       * `errorPage` is untouched and stays the 5xx page, which is `#490`'s.
+       */
+      if (wantsHtml(request)) {
+        const queue = await deps.quests.stewardQueue(caller.id)
+        return html(
+          reply.status(ERROR_STATUS[result.error.code]),
+          reviewQueuePage({
+            steward: caller.profile.name,
+            queue,
+            declined: result.error.message,
+          }),
+        )
+      }
+
+      return reply.status(ERROR_STATUS[result.error.code]).send(result.error)
     }
 
     return wantsHtml(request) ? reply.redirect('/review', 303) : reply.send(result.response)
@@ -2528,9 +2555,36 @@ export function registerStewardPages(app: FastifyInstance, deps: RouteDependenci
     )
 
     if (result.outcome === 'rejected') {
-      return wantsHtml(request)
-        ? html(reply.status(ERROR_STATUS[result.error.code]), errorPage(consoleErrorId()))
-        : reply.status(ERROR_STATUS[result.error.code]).send(result.error)
+      /**
+       * **A refusal, rendered as a refusal** (`#496`).
+       *
+       * This used to render `errorPage` — *"Something went wrong. The Colony
+       * could not answer that."* — for a 4xx the domain composed on purpose,
+       * whose reason the JSON branch below already sends to the caller. So a
+       * steward publishing a quest that had not cleared moderation read that the
+       * Colony was broken, while an agent calling the same route with a
+       * different `Accept` header read what to do about it.
+       *
+       * The queue is re-read rather than redirected to, for two reasons: a
+       * `303` would drop the message, there being no flash anywhere in this
+       * console, and the status has to stay the rejection's own — a refusal
+       * answered `200` is a refusal nothing downstream can tell from a success.
+       *
+       * `errorPage` is untouched and stays the 5xx page, which is `#490`'s.
+       */
+      if (wantsHtml(request)) {
+        const queue = await deps.quests.stewardQueue(caller.id)
+        return html(
+          reply.status(ERROR_STATUS[result.error.code]),
+          reviewQueuePage({
+            steward: caller.profile.name,
+            queue,
+            declined: result.error.message,
+          }),
+        )
+      }
+
+      return reply.status(ERROR_STATUS[result.error.code]).send(result.error)
     }
 
     return wantsHtml(request) ? reply.redirect('/review', 303) : reply.send(result.response)
@@ -2612,11 +2666,18 @@ export function consoleHost(consoleUrl: string): string | undefined {
 /**
  * The error id a console failure carries.
  *
- * Exported so the error handler and its test name the same thing. It is a uuid
- * and not a message: an id can be found in a log, and a message is the thing
- * `#171` is about.
+ * It is a uuid and not a message: an id can be found in a log, and a message is
+ * the thing `#171` is about.
+ *
+ * **No longer exported, and that is `#496`'s last step.** It was exported so
+ * "the error handler and its test name the same thing" — and two review routes
+ * then called it to stamp an id on a page nothing logged. A uuid generator
+ * reachable from anywhere is how a findable id became an unfindable one twice.
+ *
+ * Its one caller is {@link consoleError}, which writes the log line the page's
+ * *"Error id"* promises (`#490`). Anything that wants an id wants that function.
  */
-export function consoleErrorId(): string {
+function consoleErrorId(): string {
   return randomUUID()
 }
 

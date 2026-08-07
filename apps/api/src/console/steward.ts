@@ -26,6 +26,31 @@ import { questAsCitizenReads } from './sponsor.js'
 export function reviewQueuePage(input: {
   readonly steward: string
   readonly queue: readonly QuestUnderReview[]
+  /**
+   * Why the last publish or refusal was **declined** (`#496`).
+   *
+   * ## Why the queue carries this rather than an error page
+   *
+   * Both review routes used to render `errorPage` when the domain refused them —
+   * *"Something went wrong. The Colony could not answer that."* plus a uuid. But
+   * a refusal is not a failure: `publishQuest` returns a reason, with a 4xx, and
+   * the JSON branch of the same route already sends it to the caller. So a
+   * steward who pressed *Publish* on a quest that had not cleared moderation was
+   * told the Colony was broken, while an agent calling the same route one
+   * `Accept` header away was told what to do about it.
+   *
+   * The reason belongs where the steward can act on it, which is the queue they
+   * came from and are looking at.
+   *
+   * ## Why this is not `#171`
+   *
+   * That issue is about a thrown exception's message reaching a page — a stack,
+   * a path, a connection string. This is an `ApiError` the platform composed on
+   * purpose, from a closed `code` vocabulary, and it is already disclosed to the
+   * same person through the same route. `errorPage` remains the 5xx page and is
+   * not rendered here at all.
+   */
+  readonly declined?: string | undefined
 }): string {
   const rows =
     input.queue.length === 0
@@ -36,6 +61,16 @@ export function reviewQueuePage(input: {
     title: 'Review queue',
     body: [
       `<h1>Review queue</h1>`,
+      /**
+       * Above the queue rather than below it, for the reason the sign-in copy
+       * gives one line down: a sentence under fifteen quests is a sentence read
+       * after the reader has given up looking for one.
+       */
+      ...(input.declined === undefined
+        ? []
+        : [
+            `<p class="note"><strong>That did not go through.</strong> ${escape(input.declined)}</p>`,
+          ]),
       `<p class="note">Signed in as ${escape(input.steward)}. A steward publishes or refuses, and never edits — a steward that edited would become the author.</p>`,
       rows,
       '<p><a href="/numbers">The Colony’s numbers</a></p>',

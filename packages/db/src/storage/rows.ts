@@ -135,7 +135,7 @@ export function toTask(
    */
   landscape?: readonly TaskLandscapeNote[] | undefined,
 ): Task {
-  return TaskSchema.parse({
+  return parsedTask(row.id, {
     id: row.id,
     type: row.type,
     kind: row.kind,
@@ -192,6 +192,42 @@ export function toTask(
     createdAt: toTimestamp(row.createdAt),
     updatedAt: toTimestamp(row.updatedAt),
   })
+}
+
+/**
+ * {@link TaskSchema}, with the row it refused named in the message (`#542`).
+ *
+ * **A parse failure here is a Colony defect and it used to arrive anonymous.**
+ * Every read of a task goes through {@link toTask}, so one unparseable row throws
+ * out of `kolonie.tasks.list`, `kolonie.tasks.get`, `kolonie.quests.list`,
+ * `kolonie.quests.read` and the console's agent page alike — and what each of
+ * them logged was a `ZodError` naming a field path and no row. On 2026-08-07 that
+ * cost three citizen tickets, a log-detector issue and a finding inside a fourth
+ * ticket, all of which were the same two keyless questions on one quest, and the
+ * id only came out of reading the table by hand.
+ *
+ * The id is what turns that into one line somebody can act on. It is not
+ * sensitive — every one of these surfaces has just been asked for the task by id,
+ * or is about to serve it — and the field paths were already in the error.
+ *
+ * **It still throws.** Returning a partial task, or omitting the row from the
+ * collection it belongs to, would leave the Colony serving an answer it cannot
+ * stand behind while looking healthy; `#132`'s rule that a silent skip is a
+ * silent refusal is the same argument one layer down.
+ * `tasks_questions_carry_a_key` is where the class of row this was actually
+ * stops, and this function is what makes the next unforeseen class cost one
+ * ticket instead of five.
+ */
+function parsedTask(id: string, fields: Record<string, unknown>): Task {
+  const parsed = TaskSchema.safeParse(fields)
+  if (parsed.success) return parsed.data
+
+  throw new Error(
+    `task ${id} cannot be served: ${parsed.error.issues
+      .map((issue) => `${issue.path.join('.')}: ${issue.message}`)
+      .join('; ')}`,
+    { cause: parsed.error },
+  )
 }
 
 /**

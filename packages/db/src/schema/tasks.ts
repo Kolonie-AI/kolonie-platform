@@ -632,6 +632,35 @@ export const tasks = pgTable(
       'tasks_questions_belong_to_quests',
       sql`${table.kind} = 'quest' or ${table.questions} = '[]'::jsonb`,
     ),
+    /**
+     * Every question carries the key an answer names it by (`#542`).
+     *
+     * **On the row rather than in code, because code was already saying it and
+     * the row got written anyway.** `QuestQuestionSchema` has required `key`
+     * since `#177`, `QuestDraftSchema` and `QuestPatchSchema` both parse through
+     * it, and `createQuestDraft` is the only insert into this table that is not
+     * the Academy seed — and yet on 2026-08-07 a live quest was written with two
+     * keyless questions. Nothing in the application can produce that row, which
+     * leaves a hand-written statement, and a check constraint is the only rule a
+     * hand-written statement still has to obey.
+     *
+     * **What it cost is the argument for stating it here.** `toTask` parses
+     * every row through `TaskSchema` on the way out, so the one bad row took
+     * `kolonie.tasks.list`, `kolonie.tasks.get`, `kolonie.quests.list`,
+     * `kolonie.quests.read` and the console's agent page down together — for
+     * every citizen, not only its author — and each surface reported an
+     * `internal` naming nothing. It took three citizen tickets (`#526`, `#538`,
+     * `#542`), a log-detector issue (`#555`) and a finding inside `#537` before
+     * anybody could say which row it was.
+     *
+     * The pattern is `QuestQuestionSchema`'s own, restated in `jsonpath` because
+     * a `CHECK` may not carry a subquery: `like_regex` fails a key that is
+     * absent, empty, or not a string, so all four cases are one expression.
+     */
+    check(
+      'tasks_questions_carry_a_key',
+      sql`jsonb_array_length(${table.questions}) = jsonb_array_length(jsonb_path_query_array(${table.questions}, '$[*] ? (@.key like_regex "^[a-z0-9]+(-[a-z0-9]+)*$")'))`,
+    ),
     check(
       'tasks_proof_verifier_belongs_to_quests',
       sql`${table.kind} = 'quest' or ${table.proofVerifier} is null`,

@@ -86,14 +86,26 @@ export function databasePayouts(db: Database): PayoutDesk {
 }
 
 /**
- * How much SOL the wallet keeps back for its own transaction fees.
+ * How much the wallet keeps back for its own transaction fees.
  *
- * A transfer costs 5,000 lamports and the wallet pays one per payout. This is
- * roughly two thousand of them — enough that the float running low is noticed as
- * *the float is low* rather than as *transactions stopped being accepted*, which
- * is a far harder thing to diagnose.
+ * **A hundred transfers' worth of fees, and it is sized against the fee rather
+ * than against a round number of SOL.** A Solana transfer costs 5,000 lamports,
+ * so this is 500,000 — enough that the float running low is noticed as *the
+ * float is low* rather than as *transactions stopped being accepted*, which is a
+ * far harder thing to diagnose.
+ *
+ * **It was 10,000,000 until the first real payout, and that was wrong by
+ * construction.** The float is small *by design* — a citizen is paid the moment
+ * its report is accepted, so the wallet is never meant to hold much — and a
+ * reserve of 0.01 SOL is larger than the whole float it was reserving out of.
+ * The first mainnet run had 0.003 SOL in the wallet, 0.0015 owed, and refused
+ * every payout as `float-exhausted` while reporting `floatShort` for ever.
+ *
+ * A reserve whose size is unrelated to what it reserves for is a number that
+ * will be wrong again the next time the scale changes. This one is a multiple of
+ * the fee, so it is wrong only if the fee changes.
  */
-export const FEE_RESERVE_LAMPORTS = 10_000_000
+export const FEE_RESERVE_LAMPORTS = 500_000
 
 /** What one pass of the payout runner came to. */
 export interface PayoutPassOutcome {

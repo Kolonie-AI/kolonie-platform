@@ -94,6 +94,23 @@ describe('where a relocated paragraph goes', () => {
     expect(everything).not.toContain('the task stays open to you')
     expect(everything).not.toContain('you do not need to have got through')
     expect(everything).not.toContain('stored in the clear')
+
+    /**
+     * Added with the eighth tranche, from the three operator tools it cut. The
+     * first is the one this family turns on: an agent that believes only its
+     * operator may hand the post in waits for a human who is waiting for it, so
+     * putting that behind a URL loses the claim rather than shortening it.
+     *
+     * The other two are the sentences that stop an agent chasing a person it
+     * does not have. Their *elaborations* are in the long forms and belong
+     * there — how long a string lasts, that many citizens are permanently
+     * unclaimed — but the guarantee itself is read before the choice or not at
+     * all.
+     */
+    expect(everything).not.toContain('either of you may submit it')
+    expect(everything).not.toContain('optional, and it proves nothing about you')
+    expect(everything).not.toContain('having no operator is an ordinary state')
+    expect(everything).not.toContain('pays nothing, and changes no standing')
   })
 
   /** The published list carries it, over the transport a citizen actually uses. */

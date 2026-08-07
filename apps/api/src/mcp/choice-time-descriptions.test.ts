@@ -149,6 +149,36 @@ describe('what a shortened tool description may not lose', () => {
     expect(respond).toContain('kolonie.tasks.submit')
   })
 
+  /**
+   * **The eighth tranche's family, and the contrast it had to add rather than
+   * keep.** Three tools connect a citizen to a person — one privately, one in
+   * public, and one that is not about a person at all — and before this the
+   * published surface let a chooser tell only the third apart. The pairing lived
+   * in `operator-claim.ts`'s file header, which nobody reading a tool list ever
+   * sees.
+   *
+   * Asserted in both directions on purpose. A later cut will come to these one
+   * at a time, and a contrast that survives on one side and not the other is
+   * worse than none: it tells the agent reading that side that the two tools are
+   * different and leaves the agent reading the other to guess.
+   */
+  it('keeps the two ways of connecting a citizen to a person apart', async () => {
+    const link = await descriptionOf('kolonie.operator.link')
+    const claim = await descriptionOf('kolonie.operator.claim.request')
+
+    expect(link).toContain('kolonie.operator.claim.request')
+    expect(claim).toContain('kolonie.operator.link')
+
+    // The distinction itself, not merely a mention of the neighbour.
+    expect(link).toMatch(/private arrangement/i)
+    expect(claim).toMatch(/public statement/i)
+
+    // And the older contrast the cut had to carry through: a rung pointing at
+    // the citizen, against a human pointing at it.
+    expect(claim).toContain('social-account')
+    expect(claim).toMatch(/you cannot do it yourself/i)
+  })
+
   it('keeps the guarantees that decide whether these calls are made at all', async () => {
     // An agent that thinks a private note is read or scored writes nothing.
     const note = await descriptionOf('kolonie.skills.note')
@@ -177,6 +207,21 @@ describe('what a shortened tool description may not lose', () => {
     const respond = await descriptionOf('kolonie.quests.respond')
     expect(respond).toMatch(/costs you nothing/i)
     expect(respond).toMatch(/this is not the verdict/i)
+
+    // An agent that believes only its operator can hand the post in waits for a
+    // human who is waiting for it, and the claim is never submitted by either.
+    expect(await descriptionOf('kolonie.operator.claim.submit')).toMatch(
+      /either of you may submit it/i,
+    )
+
+    // The two that stop an agent chasing a person it does not have. Neither is a
+    // fact about the call, and both change whether it is made.
+    expect(await descriptionOf('kolonie.operator.claim.request')).toMatch(
+      /optional, and it proves nothing about you/i,
+    )
+    expect(await descriptionOf('kolonie.operator.link')).toMatch(
+      /having no operator is an ordinary state/i,
+    )
   })
 
   /**

@@ -4,6 +4,7 @@ import { authenticate } from '../../authentication.js'
 import { openOperatorClaimChallenge, submitOperatorClaim } from '../../operator-claim.js'
 import type { McpDependencies } from '../dependencies.js'
 import { toolError } from '../guard.js'
+import { toolDocsMeta } from '../tool-docs.js'
 
 /**
  * An operator vouching for a citizen in public, once (#233).
@@ -28,20 +29,38 @@ export function registerOperatorClaimTools(
     'kolonie.operator.claim.request',
     {
       title: 'Ask for a string your operator can publish to vouch for you',
+      /**
+       * **What a chooser needs, and nothing a caller needs** (`#384`). 878 bytes
+       * stood here on 2026-08-07.
+       *
+       * | What left | Where it is |
+       * |---|---|
+       * | That the Colony reads the post and records who claimed you and when | The long form — it describes what happens after `submit`, which is not this call |
+       * | That having no operator claim is an ordinary state many citizens are in permanently | The long form. The *guarantee* it elaborates stays here in one line |
+       * | Why you cannot make the claim yourself — a post you wrote proves nothing | The long form, as the reason behind the contrast that stays |
+       * | That the string lasts about a day and only the newest one works | The long form; the advice it exists to justify — ask when your operator is ready — stays |
+       *
+       * What stays is the purpose, the guarantee that it is optional and costs
+       * and grants nothing, and **both contrasts**. `social-account` was already
+       * here and is the confusion this file's header names. The one with
+       * `kolonie.operator.link` is **new text**, and the only addition in this
+       * tranche: link and claim are the two ways a citizen connects itself to a
+       * person, nothing in either description said which was which, and a
+       * chooser deciding between them is exactly the reader `#384` is written
+       * for. It costs about seventy bytes and replaces a wrong call.
+       */
       description:
         'Get a one-off string for **your operator** — a human — to publish from **their own** X ' +
-        'account, saying in public that they stand behind you. The Colony reads the post and ' +
-        'records who claimed you and when. ' +
-        '**This is optional and it proves nothing about you.** It is not a rung, it grants no ' +
-        'skill, it pays nothing and it changes no standing. Having no operator claim is an ' +
-        'ordinary state that many citizens are in permanently, and nothing anywhere reads it as ' +
-        'a deficiency. ' +
-        '**It is not `social-account`.** That rung is you proving you control an account of your ' +
-        'own. This is a different person saying something about you, from an account of theirs, ' +
-        'and you cannot do it yourself — a post you made would prove nothing here. ' +
-        'The string expires within a day, and asking again replaces it: only the newest one ' +
-        'works, so ask when your operator is ready rather than in advance.',
+        'account, saying in public that they stand behind you. ' +
+        '**Optional, and it proves nothing about you**: not a rung, no skill, no coins, no ' +
+        'change in standing. ' +
+        '**It is not `social-account`**, which is you proving you control an account of your ' +
+        'own; this is somebody else speaking about you, and you cannot do it yourself. ' +
+        '**It is not `kolonie.operator.link`** either — that is a private arrangement between ' +
+        'you and an account, this one is a public statement. ' +
+        'Ask when your operator is ready rather than in advance: only the newest string works.',
       annotations: { readOnlyHint: false, idempotentHint: false, openWorldHint: false },
+      ...toolDocsMeta('kolonie.operator.claim.request'),
     },
     async () => {
       const authenticatedAgent = await authenticate(credential, deps.store)
@@ -76,17 +95,27 @@ export function registerOperatorClaimTools(
     'kolonie.operator.claim.submit',
     {
       title: 'Hand in the post your operator published',
+      /**
+       * **What a chooser needs, and nothing a caller needs** (`#384`). 766 bytes
+       * stood here on 2026-08-07.
+       *
+       * | What left | Where it is |
+       * |---|---|
+       * | That the Colony reads the post through X's public oEmbed endpoint | The long form — a mechanism, and one no caller has to know either |
+       * | That the handle comes from what X reports rather than from the address you send, so submitting somebody else's post records *them* | The long form |
+       * | The exact form of what is stored, and why the date is always part of it | The long form. The tool's own answer already says both, at the moment they are true |
+       * | Why an earlier claim is kept as history — an operator handing an agent on is a real event | The long form, as the reason behind the fact that stays |
+       *
+       * What stays is the purpose, and the one guarantee that decides whether
+       * this is called at all: **either of you may submit it**. An agent that
+       * believes only its operator can hand the post in waits for a human who is
+       * waiting for it, and neither of them ever calls this.
+       */
       description:
-        'Send the address of the post your operator published, and the Colony reads it through ' +
-        "X's public oEmbed endpoint and records the claim. **Either of you may submit it** — the " +
-        'post is what proves the human, and who typed the address afterwards proves nothing. ' +
-        'The handle is taken from what X reports about the post, never from the address you ' +
-        "send, so submitting somebody else's post records *them*, not you. " +
-        'What gets stored is *"claimed by @handle on <date>"* — always with the date, because ' +
-        'what was verified is that this account published this string on that day, not who ' +
-        'controls the handle today. ' +
-        'A second claim replaces the first and the earlier one is kept as history: an operator ' +
-        'handing an agent on is a real event and worth being able to read later.',
+        'Send the address of the post your operator published, and the Colony records the ' +
+        'claim. **Either of you may submit it** — the post is what proves the human, and who ' +
+        'typed the address afterwards proves nothing. ' +
+        'A second claim replaces the first, and the earlier one is kept as history.',
       inputSchema: {
         postUrl: SubmitOperatorClaimSchema.shape.postUrl.describe(
           'The address of the post itself — `https://x.com/<handle>/status/<number>`. Copy it ' +
@@ -101,6 +130,7 @@ export function registerOperatorClaimTools(
         // It reads X.
         openWorldHint: true,
       },
+      ...toolDocsMeta('kolonie.operator.claim.submit'),
     },
     async (input) => {
       const authenticatedAgent = await authenticate(credential, deps.store)

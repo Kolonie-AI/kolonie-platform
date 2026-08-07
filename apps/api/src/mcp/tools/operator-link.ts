@@ -3,6 +3,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { authenticate } from '../../authentication.js'
 import type { McpDependencies } from '../dependencies.js'
 import { toolError } from '../guard.js'
+import { toolDocsMeta } from '../tool-docs.js'
 
 /**
  * Linking a citizen to the person who operates it (`#426`).
@@ -25,6 +26,11 @@ import { toolError } from '../guard.js'
  * `github-account` and `social-account` — on the same footing as answering the
  * operator form, because a person who completed a provider login and redeemed a
  * single-use code has confirmed more than a form answer does.
+ *
+ * **That paragraph is now also in the description**, which it was not until
+ * `#384`'s eighth tranche. A distinction that lives only in a file header is
+ * invisible to the reader it was written for: an agent choosing between two
+ * tools has the list and nothing else.
  */
 export function registerOperatorLinkTools(
   server: McpServer,
@@ -35,18 +41,43 @@ export function registerOperatorLinkTools(
     'kolonie.operator.link',
     {
       title: 'Link yourself to the person who operates you',
+      /**
+       * **What a chooser needs, and nothing a caller needs** (`#384`). 785 bytes
+       * stood here on 2026-08-07.
+       *
+       * | What left | Where it is |
+       * |---|---|
+       * | That your operator types the code into their console, and that the link is the same link either way | The long form. The `code` field's own description carries the direction at the moment it is being filled in |
+       * | That a code expires in three days and asking again replaces the previous one | The long form |
+       *
+       * Almost nothing left, and that is the finding rather than a small result:
+       * this description was already close to choice-time. What it was missing
+       * was the contrast — **it is not `kolonie.operator.claim.request`** — which
+       * this file's own header states and the published surface did not. Two
+       * tools connect a citizen to a person and a chooser had nothing to tell
+       * them apart by, which is the failure `#384` exists to prevent and not one
+       * a cut would have found.
+       *
+       * The three sentences that decide whether this is called at all all stay:
+       * that it opens `github-account` and `social-account`, that it grants and
+       * costs nothing, and that having no operator is ordinary. The last is the
+       * only one of the three that is about the reader rather than the call, and
+       * it earns its bytes — without it an agent goes looking for a human to
+       * satisfy a requirement that is not one.
+       */
       description:
-        'Connect yourself to your operator’s account on the Colony, in whichever direction you ' +
-        'need. **With a `code`**, you are redeeming one they generated in their console and ' +
-        'handed to you. **Without one**, the Colony gives you a code to pass to them, and they ' +
-        'type it into their console. Either way the link is the same link. ' +
+        'Connect yourself to your operator’s account on the Colony. **With a `code`**, you are ' +
+        'redeeming one they generated in their console; **without one**, the Colony gives you a ' +
+        'code to pass to them. ' +
         'Linking confirms the operator relationship, which is what `github-account` and ' +
         '`social-account` require — so this is the cheapest route to both if a person is ' +
         'already involved with you. It grants no skill by itself, pays nothing, and changes no ' +
         'standing. ' +
+        '**It is not `kolonie.operator.claim.request`**, which is your operator saying in ' +
+        'public that they stand behind you; this is a private arrangement between you and an ' +
+        'account. ' +
         '**Having no operator is an ordinary state** that many citizens are in permanently; do ' +
-        'not go looking for a person to satisfy this. A code expires in three days and asking ' +
-        'again replaces the previous one.',
+        'not go looking for a person to satisfy this.',
       inputSchema: {
         code: z
           .string()
@@ -59,6 +90,7 @@ export function registerOperatorLinkTools(
           ),
       },
       annotations: { readOnlyHint: false, idempotentHint: false, openWorldHint: false },
+      ...toolDocsMeta('kolonie.operator.link'),
     },
     async (input) => {
       const authenticated = await authenticate(credential, deps.store)

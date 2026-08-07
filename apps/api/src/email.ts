@@ -950,17 +950,22 @@ export function cloudflareMailer(config: {
   /**
    * The sender as one `from` string, in RFC 5322 display-name form.
    *
-   * **This is the shape to verify, and it is the maintainer's step.** A REST API
-   * taking a single `from` string ordinarily accepts `Name <address>`, and that
-   * is what this implements — but which shape Cloudflare Email Sending accepts
-   * cannot be established from a green unit test, which proves the header was
-   * built and not that Cloudflare took it.
+   * **Cloudflare accepts this shape, measured against the live account on
+   * 2026-08-07** (`#483`). A console sign-in was sent with
+   * `MAIL_SENDER_NAME="Kolonie AI"` set on the deploy host, and it arrived as:
    *
-   * **It will not fail quietly if it is wrong.** Cloudflare *refuses* a sender it
-   * does not accept rather than rewriting it, so a wrong shape is a
-   * `delivered: false` with a reason — not a mail that goes out looking subtly
-   * off. If the live send refuses this, the alternative is a separate name field
-   * in the request body, and the change stays inside this function.
+   *     From: Kolonie AI <console@kolonie.ai>
+   *
+   * against `console@kolonie.ai` bare in the same inbox the day before. So the
+   * single `from` string in RFC 5322 display-name form is the answer, and the
+   * alternative — a separate name field in the request body — was not needed and
+   * is not implemented.
+   *
+   * That had to be a real send: a unit test proves the header was built and not
+   * that Cloudflare took it. **It would not have failed quietly.** Cloudflare
+   * *refuses* a sender it does not accept rather than rewriting it, so a wrong
+   * shape is a `delivered: false` with a reason — not a mail that goes out
+   * looking subtly off.
    *
    * The name is always quoted rather than quoted-when-necessary: a display name
    * containing a comma, a dot or a colon is invalid bare, and `"Kolonie AI"` is

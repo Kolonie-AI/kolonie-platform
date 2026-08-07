@@ -131,6 +131,35 @@ export type RecipeStep = z.infer<typeof RecipeStepSchema>
 export const RECIPE_REFUSAL_MAX_LENGTH = 500
 
 /**
+ * How many accounts one operator may have the Colony help create at one provider in a
+ * day, when nothing says otherwise (`#532`).
+ *
+ * **Conservative rather than plausible, and the asymmetry is the argument.** Too slow
+ * costs a day; too fast costs the register — a hundred accounts appearing in a week
+ * from one operator is the pattern that gets all of them flagged, including the ones
+ * already working. Three is a number an abuse team would not look at twice, and it is
+ * a setting precisely because the right figure is discovered rather than known.
+ *
+ * **The honest promise is not a hundred accounts in an hour.** It is a hundred over a
+ * week or two, with the operator spending ten minutes a day on the queue. That is
+ * still far better than anything else on offer, and it is a promise that survives
+ * contact with a provider’s abuse team.
+ */
+export const DEFAULT_SIGNUP_PACE_PER_DAY = 3
+
+/** The setting that overrides {@link DEFAULT_SIGNUP_PACE_PER_DAY}. */
+export const SIGNUP_PACE_VAR = 'SIGNUP_PACE_PER_PROVIDER_PER_DAY'
+
+/**
+ * How many a provider is known to tolerate, when an entry names it.
+ *
+ * Bounded so a catalogue edit cannot express *no limit*: the field exists to record
+ * that a provider is *stricter* than the default, on the reasoning in `paceCeiling`
+ * that content may lower a safety ceiling and never raise one.
+ */
+export const RECIPE_MAX_PACE_PER_DAY = 100
+
+/**
  * One provider, as a recipe (`#521`).
  *
  * **A refusal is an entry rather than an absence**, and it is as valuable as a
@@ -170,6 +199,14 @@ export const ProviderRecipeSchema = z.object({
    * from `kolonie.accounts.provider-report` findings rather than from guesswork.
    */
   caution: z.string().max(RECIPE_REFUSAL_MAX_LENGTH).nullable(),
+  /**
+   * How many accounts one operator may create here in a day, when this provider is
+   * known to be stricter than the default (`#532`).
+   *
+   * Null means *the configured default applies*. It can only ever lower the ceiling —
+   * see `paceCeiling` for why content must not be able to raise one.
+   */
+  pacePerDay: z.int().min(1).max(RECIPE_MAX_PACE_PER_DAY).nullable(),
   updatedAt: TimestampSchema,
 })
 export type ProviderRecipe = z.infer<typeof ProviderRecipeSchema>
@@ -185,6 +222,8 @@ export const WriteProviderRecipeSchema = z
     steps: z.array(RecipeStepSchema).max(RECIPE_MAX_STEPS).default([]),
     proves: AccountProofMethodSchema.optional(),
     caution: z.string().trim().min(1).max(RECIPE_REFUSAL_MAX_LENGTH).optional(),
+    /** Stricter than the default, when `provider-report` findings say so (`#532`). */
+    pacePerDay: z.int().min(1).max(RECIPE_MAX_PACE_PER_DAY).optional(),
   })
   .strict()
   /**

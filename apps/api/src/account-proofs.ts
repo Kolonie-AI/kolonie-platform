@@ -9,6 +9,7 @@ import {
 } from '@kolonie-ai/core'
 import type {
   Database,
+  SettingsReader,
   InboundProofOutcome,
   MintOutcome,
   OpenProofRow,
@@ -83,15 +84,21 @@ export interface AccountProofs {
 }
 
 /** Storage wired to a real database. The only place these two meet. */
-export function databaseAccountProofs(db: Database): AccountProofs {
+export function databaseAccountProofs(db: Database, settings?: SettingsReader): AccountProofs {
   return {
     mint: (agentId, input) =>
-      mintAccountProof(db, agentId, {
-        kind: input.kind as never,
-        identifier: input.identifier,
-        method: input.method,
-        provider: (input.provider ?? null) as never,
-      }),
+      mintAccountProof(
+        db,
+        agentId,
+        {
+          kind: input.kind as never,
+          identifier: input.identifier,
+          method: input.method,
+          provider: (input.provider ?? null) as never,
+        },
+        // The pace cap (`#532`). Absent means no cap rather than a cap of zero.
+        settings,
+      ),
     open: (agentId, id) => openAccountProof(db, agentId, id),
     redeemPost: (agentId, id, url) => redeemPostProof(db, agentId, id, url),
     inbound: (token, from) => recordInboundProof(db, token, from),
@@ -274,6 +281,35 @@ export async function openProof(
 
   if (minted.outcome === 'already-proved-by-another') {
     return { outcome: 'rejected', error: proofRefusal('already-proved-by-another') }
+  }
+
+  /**
+   * The pace cap, answered as a wait rather than as a failure (`#532`).
+   *
+   * **`conflict` and not `rate_limited`**, which is the near-miss worth explaining: a
+   * rate limit is about protecting the Colony from a caller, and this is the Colony
+   * protecting the *caller's own register* from a pattern that gets accounts flagged.
+   * The message says whose limit it is and what happens next, because an agent told
+   * only *slow down* will read it as having done something wrong.
+   */
+  if (minted.outcome === 'defer') {
+    const hours = Math.max(1, Math.round(minted.retryAfterMs / 3_600_000))
+
+    return {
+      outcome: 'rejected',
+      error: {
+        code: 'conflict',
+        message:
+          `Your operator has had ${minted.used} of ${minted.ceiling} accounts at this provider ` +
+          `in the last day, so this one waits about ${hours} hour${hours === 1 ? '' : 's'}. ` +
+          'Nothing is lost and nothing is spent — come back and open it then, and the recipe ' +
+          'continues where it stopped.\n\n' +
+          'This is not a limit on you and not something you did wrong. A provider does not see ' +
+          'agents; it sees one responsible party, so a swarm signing up in parallel looks like ' +
+          'one party signing up many times — and that is the pattern that gets every account ' +
+          'flagged, including the ones already working.',
+      },
+    }
   }
 
   return {

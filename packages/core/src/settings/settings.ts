@@ -170,6 +170,20 @@ export const SETTINGS: readonly SettingDefinition[] = [
     schema: modelReference,
   },
   {
+    name: 'SIGNUP_PACE_PER_PROVIDER_PER_DAY',
+    group: 'threshold',
+    describes:
+      'How many accounts one operator may have the Colony help create at one provider in a day ' +
+      '(#532). A provider does not see agents — it sees a network, a payment instrument, a ' +
+      'naming pattern and a responsible party — so ten agents signing up once looks exactly ' +
+      'like one party signing up ten times, because that is what it is. Reaching this defers a ' +
+      'recipe until tomorrow rather than failing it; nothing is lost and nobody is told to try ' +
+      'again. Raise it for a provider that has shown it tolerates volume, and know that the ' +
+      'thing being risked is the register itself: the fastest way to destroy it is to fill it ' +
+      'too quickly.',
+    schema: atLeastOne,
+  },
+  {
     name: 'PLATFORM_FEE_PERCENT',
     group: 'threshold',
     describes:

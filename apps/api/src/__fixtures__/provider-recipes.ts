@@ -44,6 +44,7 @@ export function fakeProviderRecipes(): FakeProviderRecipes {
         steps: entry.steps ?? (joinable ? [{ actor: 'agent', instruction: 'sign up' }] : []),
         proves: entry.proves ?? (joinable ? 'provider-post' : null),
         caution: entry.caution ?? null,
+        pacePerDay: entry.pacePerDay ?? null,
         updatedAt: currentTime(),
       })
     },

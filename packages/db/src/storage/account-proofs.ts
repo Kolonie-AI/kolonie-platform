@@ -21,6 +21,8 @@ import { mailboxIdentity } from '../schema/email.js'
 import { recordProvedAccount } from './accounts.js'
 import { isUniqueViolation } from './errors.js'
 import { provedMailbox } from './email.js'
+import { signupPace } from './signup-pace.js'
+import type { SettingsReader } from './settings.js'
 import { toTimestamp } from './rows.js'
 
 /**
@@ -65,6 +67,20 @@ export type MintOutcome =
    * account it can never register.
    */
   | { readonly outcome: 'already-proved-by-another' }
+  /**
+   * The operator's pace at this provider is spent for now (`#532`).
+   *
+   * **A deferral rather than a refusal, and the difference is not cosmetic.** Nothing
+   * is minted, nothing is spent, and the recipe continues tomorrow — an agent told to
+   * *try again* would treat this as a failure of its own and either loop or give up,
+   * and both outcomes cost the register more than waiting does.
+   */
+  | {
+      readonly outcome: 'defer'
+      readonly used: number
+      readonly ceiling: number
+      readonly retryAfterMs: number
+    }
 
 /** How many proofs this citizen has open right now. */
 export async function openAccountProofCount(db: Database, agentId: AgentId): Promise<number> {
@@ -100,6 +116,15 @@ export async function mintAccountProof(
     readonly method: GenericProofMethod
     readonly provider?: AccountProvider | null
   },
+  /**
+   * The live settings reader, for the pace cap (`#532`).
+   *
+   * **Optional so a deployment that has not wired it mints exactly as before**, which
+   * is the arrangement `redeemRecheck` already uses in `EmailChallenges`. An absent
+   * reader means no cap rather than a cap of zero: failing closed here would stop every
+   * signup on a misconfiguration, which is a worse outcome than a burst.
+   */
+  settings?: SettingsReader,
 ): Promise<MintOutcome> {
   const open = await openAccountProofCount(db, agentId)
   if (open >= MAX_OPEN_ACCOUNT_PROOFS) return { outcome: 'too-many-open', open }
@@ -119,6 +144,30 @@ export async function mintAccountProof(
   const held = taken[0]
   if (held !== undefined && held.agentId !== agentId) {
     return { outcome: 'already-proved-by-another' }
+  }
+
+  /**
+   * The pace check, before anything is minted (`#532`).
+   *
+   * Placed here rather than at the route because this is the one act that happens
+   * exactly once per account: a recipe's own steps happen at the provider where the
+   * Colony cannot see them, and a handoff happens only where there is a wall. Counting
+   * proofs counts accounts.
+   *
+   * **Only when a provider is named.** A proof with no provider cannot be attributed
+   * to one, and a cap that counted those would throttle a citizen for declining to say
+   * where its account is — which is a field that gates nothing by construction.
+   */
+  if (settings !== undefined && input.provider != null) {
+    const pace = await signupPace(db, settings, agentId, input.kind, input.provider)
+    if (pace.outcome === 'defer') {
+      return {
+        outcome: 'defer',
+        used: pace.used,
+        ceiling: pace.ceiling,
+        retryAfterMs: pace.retryAfterMs,
+      }
+    }
   }
 
   let fromAddress: string | null = null

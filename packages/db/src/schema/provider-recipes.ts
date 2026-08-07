@@ -2,6 +2,7 @@ import { sql } from 'drizzle-orm'
 import {
   boolean,
   check,
+  integer,
   jsonb,
   pgTable,
   text,
@@ -62,6 +63,17 @@ export const providerRecipes = pgTable(
 
     /** A wall a working entry warns about, from `provider-report` findings. */
     caution: text('caution'),
+
+    /**
+     * How many accounts one operator may create here in a day (`#532`).
+     *
+     * Null means the configured default applies. **It can only lower the ceiling**,
+     * which is enforced in `paceCeiling` rather than here: a catalogue entry is
+     * content, edited more often and by more hands than a setting is, and letting
+     * content raise a safety limit would mean the conservative default could be
+     * undone by an edit nobody reviewed as a limit change.
+     */
+    pacePerDay: integer('pace_per_day'),
 
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
       .notNull()

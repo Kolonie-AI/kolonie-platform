@@ -1,0 +1,1 @@
+ALTER TABLE "provider_recipes" ADD COLUMN "pace_per_day" integer;

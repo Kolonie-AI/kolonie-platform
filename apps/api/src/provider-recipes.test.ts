@@ -83,6 +83,7 @@ describe('what the recipe says to the agent walking it', () => {
       ],
       proves: 'rung',
       caution: 'Some domains are refused.',
+      pacePerDay: null,
       updatedAt: new Date().toISOString() as never,
     })
 
@@ -112,6 +113,7 @@ describe('what the recipe says to the agent walking it', () => {
       ],
       proves: 'provider-post',
       caution: null,
+      pacePerDay: null,
       updatedAt: new Date().toISOString() as never,
     })
 
@@ -135,6 +137,7 @@ describe('what the recipe says to the agent walking it', () => {
       steps: [],
       proves: null,
       caution: null,
+      pacePerDay: null,
       updatedAt: new Date().toISOString() as never,
     })
 
@@ -169,6 +172,7 @@ describe('the handoff a recipe names', () => {
     ],
     proves: 'rung' as const,
     caution: null,
+    pacePerDay: null,
     updatedAt: new Date().toISOString() as never,
   }
 

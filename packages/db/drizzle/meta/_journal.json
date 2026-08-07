@@ -1121,6 +1121,13 @@
       "when": 1786142066265,
       "tag": "0159_a_provider_writes_in",
       "breakpoints": true
+    },
+    {
+      "idx": 160,
+      "version": "7",
+      "when": 1786143642387,
+      "tag": "0160_a_provider_sets_its_own_pace",
+      "breakpoints": true
     }
   ]
 }

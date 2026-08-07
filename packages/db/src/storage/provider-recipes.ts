@@ -35,6 +35,7 @@ function toRecipe(row: typeof providerRecipes.$inferSelect): ProviderRecipe {
     steps: (row.steps ?? []).map((step: RecipeStep) => RecipeStepSchema.parse(step)),
     proves: row.proves as ProviderRecipe['proves'],
     caution: row.caution,
+    pacePerDay: row.pacePerDay,
     updatedAt: toTimestamp(row.updatedAt),
   }
 }
@@ -105,6 +106,7 @@ export async function writeProviderRecipe(
     readonly steps: readonly RecipeStep[]
     readonly proves?: ProviderRecipe['proves']
     readonly caution?: string | null
+    readonly pacePerDay?: number | null
   },
 ): Promise<ProviderRecipe> {
   const values = {
@@ -116,6 +118,7 @@ export async function writeProviderRecipe(
     steps: [...entry.steps],
     proves: entry.proves ?? null,
     caution: entry.caution ?? null,
+    pacePerDay: entry.pacePerDay ?? null,
   }
 
   const [row] = await db

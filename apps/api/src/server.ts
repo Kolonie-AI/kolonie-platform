@@ -20,6 +20,7 @@ import { buildApp } from './app.js'
 import { databaseStore } from './authentication.js'
 import { databaseQuests, questAuditPolicy } from './quests.js'
 import { databaseSettings } from './settings.js'
+import { settingsReader } from '@kolonie-ai/db'
 import { databaseProviderEnquiries } from './provider-enquiries.js'
 import { databasePayments } from './payments.js'
 import { databasePayouts, payoutConfigurationRefusal } from './payouts.js'
@@ -158,6 +159,15 @@ const HOST = '0.0.0.0'
 // discovering that on the first agent's registration is worse than discovering
 // it before the container is ever declared healthy.
 const db = createDatabase(databaseUrlFromEnv())
+
+/**
+ * One live settings reader for the whole process (`#532`, D-104).
+ *
+ * **One and not one per consumer**, because each holds its own thirty-second cache: two
+ * readers would mean two answers to *what is the limit* for up to thirty seconds after
+ * a maintainer changed it, which is exactly the window somebody would be watching.
+ */
+const liveSettings = settingsReader(db)
 
 /**
  * The gate's configuration, or the reason there is none.
@@ -708,7 +718,7 @@ const app = buildApp({
      * beside a badge's, because it is the same door.
      */
     proofs: {
-      proofs: databaseAccountProofs(db),
+      proofs: databaseAccountProofs(db, liveSettings),
       challengeDomain: process.env['EMAIL_CHALLENGE_DOMAIN'] ?? '',
     },
   },
@@ -788,7 +798,7 @@ const app = buildApp({
      * (`#520`), so the inbound handler is handed both readers and tries the
      * challenges first. One route, one token space, two tables.
      */
-    accountProofs: databaseAccountProofs(db),
+    accountProofs: databaseAccountProofs(db, liveSettings),
   },
   /**
    * The two phone rungs (`#411`).

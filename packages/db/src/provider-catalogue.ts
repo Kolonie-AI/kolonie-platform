@@ -210,6 +210,7 @@ export async function seedProviderCatalogue(db: Database): Promise<CatalogueSeed
       steps: entry.steps,
       proves: entry.proves ?? null,
       caution: entry.caution ?? null,
+      pacePerDay: entry.pacePerDay ?? null,
     })
   }
 

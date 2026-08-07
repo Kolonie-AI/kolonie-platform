@@ -1,5 +1,6 @@
 import Fastify, { type FastifyError, type FastifyInstance } from 'fastify'
 import fastifyStatic from '@fastify/static'
+import type { ProviderRecipes } from './provider-recipes.js'
 import {
   API_BASE_PATH,
   DEFAULT_RHYTHM_BOUNDS,
@@ -148,6 +149,7 @@ export function buildApp({
   drops,
   dropBaseUrl = '',
   accounts,
+  recipes,
   console: consoleDeps,
   rhythm = DEFAULT_RHYTHM_BOUNDS,
   skillReleases = DEFAULT_SKILL_RELEASES,
@@ -340,6 +342,15 @@ export function buildApp({
    */
   const citizenRecords: CitizenRecords = citizens ?? { publicRecord: async () => undefined }
 
+  /**
+   * An absent catalogue is an empty one (`#521`), resolved here for the reason
+   * `citizenRecords` above is: the handler gets one shape to cope with.
+   */
+  const providerCatalogue: ProviderRecipes = recipes ?? {
+    list: async () => [],
+    one: async () => undefined,
+  }
+
   const routes: RouteDependencies = {
     log,
     citizens: citizenRecords,
@@ -396,6 +407,7 @@ export function buildApp({
     drops,
     dropBaseUrl,
     accounts,
+    recipes: providerCatalogue,
     console: consoleDeps,
     rhythm,
     skillReleases,

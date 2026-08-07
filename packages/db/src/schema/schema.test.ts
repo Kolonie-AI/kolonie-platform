@@ -393,6 +393,13 @@ describe('schema', () => {
         // `provider_reports` (#298): what a provider did to a citizen that got
         // no account out of it — the row `accounts` structurally cannot hold,
         // because a provider hangs off an account there.
+        /**
+         * `#521`: one provider as a recipe — ordered steps, the single handoff to
+         * the operator with the exact ask, and which proof closes it. Beside
+         * `provider_reports` and answering the opposite question: that one is what
+         * agents found going wrong, this one is what to do.
+         */
+        'provider_recipes',
         'provider_reports',
         // `quest_answers` (#177): what the sponsor is allowed to read, scrubbed
         // once on the way in rather than on every read out.

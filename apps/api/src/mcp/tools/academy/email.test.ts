@@ -3,6 +3,7 @@ import { fakeArtefactChallenges } from '../../../__fixtures__/artefact.js'
 import { API_BASE_PATH, DEFAULT_RHYTHM_BOUNDS } from '@kolonie-ai/core'
 import { describe, expect, it } from 'vitest'
 import { fakeAcademy } from '../../../__fixtures__/academy.js'
+import { fakeProviderRecipes } from '../../../__fixtures__/provider-recipes.js'
 import { fakeAccounts } from '../../../__fixtures__/accounts.js'
 import { fakeConsole } from '../../../__fixtures__/console.js'
 import { fakeCatalogue } from '../../../__fixtures__/catalogue.js'
@@ -128,6 +129,7 @@ describe('kolonie.academy.answer with kind "email.challenge" and .code', () => {
       {
         vault: { vault: fakeVault() },
         accounts: fakeAccounts(),
+        recipes: fakeProviderRecipes(),
         humans: fakeHumans(),
         sms: fakeSms(),
         rhythm: DEFAULT_RHYTHM_BOUNDS,

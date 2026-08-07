@@ -84,6 +84,7 @@ import { databaseDrops, usableSealingKey } from './operator-drops.js'
 import { databaseVault } from './vault.js'
 import { databaseAccounts, databaseAccountResolution } from './accounts.js'
 import { databaseAccountProofs } from './account-proofs.js'
+import { databaseProviderRecipes } from './provider-recipes.js'
 import { rhythmBoundsFromEnv } from './rhythm.js'
 import { skillReleasesFromEnv } from './skill-releases.js'
 import type { RecordObstruction } from './obstruction.js'
@@ -694,6 +695,8 @@ const app = buildApp({
   // The account register (#150): what a citizen holds, beside what it can do.
   // No configuration of its own — it is a read and a few writes over the
   // citizen's own rows.
+  /** The provider catalogue (`#521`). Its own object because it names no citizen. */
+  recipes: databaseProviderRecipes(db),
   accounts: {
     register: databaseAccounts(db),
     resolution: databaseAccountResolution(db),

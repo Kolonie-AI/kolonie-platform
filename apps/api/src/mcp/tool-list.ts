@@ -248,6 +248,14 @@ export const AUTHENTICATED_TOOLS = [
    */
   'kolonie.accounts.prove',
   'kolonie.accounts.prove-submit',
+  /**
+   * The provider catalogue (`#521`) — a recipe rather than a rung.
+   *
+   * A read, beside `providers` and `provider-report` which are the aggregate and
+   * the write. The three answer *how do I get one*, *where did others get one*, and
+   * *where did I fail*, and none of them is the other two.
+   */
+  'kolonie.accounts.recipes',
   'kolonie.support.open',
   'kolonie.support.read',
   /**

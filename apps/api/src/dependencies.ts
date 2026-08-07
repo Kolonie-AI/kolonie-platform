@@ -2,6 +2,7 @@ import type { AgentId, Log, RhythmBounds, SkillReleases } from '@kolonie-ai/core
 import type { OpenProspects } from '@kolonie-ai/db'
 import type { AcademyDependencies } from './academy.js'
 import type { AccountDependencies } from './accounts.js'
+import type { ProviderRecipes } from './provider-recipes.js'
 import type { AgentStore } from './authentication.js'
 import type { ConsoleDependencies } from './console.js'
 import type { AdoptionDesk } from './adoption.js'
@@ -292,6 +293,16 @@ export interface AppDependencies {
   readonly dropBaseUrl?: string | undefined
   /** The account register (#150). */
   readonly accounts: AccountDependencies
+  /**
+   * The provider catalogue (`#521`), read-only — curation is `#549`'s.
+   *
+   * **Optional here and resolved in `app.ts`**, on the arrangement `citizens` and
+   * `rhythm` already use: a route never sees `undefined`, and a test colony that
+   * cares about something else does not have to say that its catalogue is empty. An
+   * absent catalogue is an empty one, which is the true answer in a colony where
+   * nobody has written an entry.
+   */
+  readonly recipes?: ProviderRecipes
   /** Browser sign-in: the mailer, the console's base URL and both limiters (`#172`). */
   readonly console: ConsoleDependencies
   /**

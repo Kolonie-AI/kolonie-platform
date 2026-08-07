@@ -1,5 +1,6 @@
 import type { AutonomyDependencies } from '../../autonomy.js'
 import type { OperatorClaimDependencies } from '../../operator-claim.js'
+import { fakeProviderRecipes, type FakeProviderRecipes } from '../provider-recipes.js'
 import type { AccountDependencies } from '../../accounts.js'
 import { fakeHumans } from '../humans.js'
 import type { HumanDependencies } from '../../humans/humans.js'
@@ -50,6 +51,8 @@ export interface FakeDesks {
   readonly erasureDesk: FakeErasureDesk
   /** The account register, behind both surfaces. Overridable the same way (#150). */
   readonly accounts: AccountDependencies
+  /** The provider catalogue (`#521`). Empty until a test writes an entry. */
+  readonly recipes: FakeProviderRecipes
   /** People with accounts, and the tenant they sign in through (`#425`). */
   readonly humans: HumanDependencies
   readonly operatorClaim: OperatorClaimDependencies
@@ -130,6 +133,7 @@ export function fakeDesks(): FakeDesks {
     erasure: erasureSurface({ desk: erasureDesk }),
     erasureDesk,
     accounts: fakeAccounts(),
+    recipes: fakeProviderRecipes(),
     humans: fakeHumans(),
     operatorClaim: fakeOperatorClaim(),
     autonomy: fakeAutonomy(pages, autonomyStore),

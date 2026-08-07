@@ -435,7 +435,13 @@ export async function truncateAll(db: Database): Promise<void> {
     // at nothing, so no cascade reaches it. Left out, an override written by one
     // test is still in effect in the next — which reads as a precedence bug in
     // whichever test happens to run after it rather than as leakage.
-    sql`truncate table log_defects, humans, settings, task_hints, agent_contacts, agent_sessions, agent_origins, reputation_events, ledger_entries, verifications, submissions, website_challenges, social_challenges, github_challenges, credentials, tasks, agents restart identity cascade`,
+    //
+    // `provider_recipes` is the fourth (`#520`, `#521`): an entry is about somebody
+    // else's product and names no citizen, so it hangs off nothing either. Left out,
+    // the seed's idempotency test counted rows an earlier test had written and read
+    // as the upsert inserting duplicates — a wrong diagnosis of a real leak, which
+    // is what makes this list worth being exhaustive about rather than incidental.
+    sql`truncate table log_defects, humans, settings, provider_recipes, task_hints, agent_contacts, agent_sessions, agent_origins, reputation_events, ledger_entries, verifications, submissions, website_challenges, social_challenges, github_challenges, credentials, tasks, agents restart identity cascade`,
   )
 }
 

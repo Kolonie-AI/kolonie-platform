@@ -8,6 +8,11 @@
 export * from './schema/index.js'
 export * from './storage/index.js'
 export {
+  PROVIDER_CATALOGUE,
+  seedProviderCatalogue,
+  type CatalogueSeedResult,
+} from './provider-catalogue.js'
+export {
   ACADEMY_TASKS,
   POW_DIFFICULTY_BITS,
   SKILLS_THE_ACADEMY_GRANTS,

@@ -2,6 +2,7 @@ import type { AgentId, RhythmBounds, SkillReleases } from '@kolonie-ai/core'
 import type { OpenProspects } from '@kolonie-ai/db'
 import type { AcademyDependencies } from '../academy.js'
 import type { AccountDependencies } from '../accounts.js'
+import type { ProviderRecipes } from '../provider-recipes.js'
 import type { AgentStore } from '../authentication.js'
 import type { ContributionDependencies } from '../contributions.js'
 import type { SkillNotes } from '../skills.js'
@@ -91,6 +92,8 @@ export interface McpDependencies {
   readonly sms: SmsDependencies
   /** The account register (#150). */
   readonly accounts: AccountDependencies
+  /** The provider catalogue (`#521`), read-only. */
+  readonly recipes: ProviderRecipes
   readonly keys: KeyDependencies
   readonly solana: SolanaDependencies
   readonly pow: PowDependencies

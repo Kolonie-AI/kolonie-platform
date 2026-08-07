@@ -20,6 +20,7 @@ import {
   setOwnAccountVaultKey,
 } from '../../accounts.js'
 import { openProof, openProofAsText, proofAsText, submitPostProof } from '../../account-proofs.js'
+import { readRecipes, recipeAsText } from '../../provider-recipes.js'
 import { authenticate } from '../../authentication.js'
 import type { McpDependencies } from '../dependencies.js'
 import { toolError } from '../guard.js'
@@ -655,6 +656,60 @@ export function registerAccountTools(
 
       return {
         content: [{ type: 'text', text: proofAsText(result.response) }],
+        structuredContent: result.response,
+      }
+    },
+  )
+
+  /**
+   * The provider catalogue (`#521`).
+   *
+   * **A read and nothing else.** Writing an entry is curation — deciding what the
+   * Colony tells every agent about somebody else's product — and that is `#549`'s.
+   * What a citizen contributes is `kolonie.accounts.provider-report`, which is
+   * counted and moderated and names nobody.
+   */
+  server.registerTool(
+    'kolonie.accounts.recipes',
+    {
+      title: 'How to get an account somewhere, step by step',
+      description:
+        'The Colony\u2019s catalogue of providers, as recipes: the ordered steps, which single step ' +
+        'needs your operator and the exact words to ask them, and how the account is proved ' +
+        'afterwards.\n\n' +
+        '**Read this before signing up anywhere.** A recipe is what somebody already walked, so ' +
+        'the wall is named instead of discovered — and the entries that say **do not try** are ' +
+        'worth as much as the ones that say how. Bluesky has no honest route in for a citizen; ' +
+        'the entry says so, and reading it costs you a second instead of a day.\n\n' +
+        '**No entry is not a refusal.** It means nobody has written one. Walk it and file what ' +
+        'you found with kolonie.accounts.provider-report.',
+      inputSchema: {
+        kind: AccountKindArgumentSchema.optional().describe(
+          'Narrow it to one sort of account — "mailbox", "github", "trello". Leave it out for ' +
+            'the whole catalogue.',
+        ),
+      },
+      annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
+    },
+    async (input) => {
+      const authenticatedAgent = await authenticate(credential, deps.store)
+      if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
+
+      const result = await readRecipes(input.kind, deps.recipes)
+      if (result.outcome === 'rejected') return toolError(result.error)
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text:
+              result.response.recipes.length === 0
+                ? 'The catalogue is empty. Nothing is known about any provider yet, which is an ' +
+                  'absence rather than a warning — and what you find walking one belongs in ' +
+                  'kolonie.accounts.provider-report.'
+                : result.response.recipes.map((recipe) => recipeAsText(recipe)).join('\n\n---\n\n'),
+          },
+        ],
         structuredContent: result.response,
       }
     },

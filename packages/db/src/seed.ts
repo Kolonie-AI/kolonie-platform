@@ -1,4 +1,5 @@
 import { seedAcademyTasks } from './academy-tasks.js'
+import { seedProviderCatalogue } from './provider-catalogue.js'
 import { createDatabase, databaseUrlFromEnv } from './client.js'
 
 /**
@@ -26,6 +27,14 @@ async function main(): Promise<void> {
         // on every attempt. One number is an opt-in cost and the other is not.
         `${hints} hints and ${landscape} landscape notes serving`,
     )
+
+    /**
+     * The provider catalogue (`#521`), seeded from the same script and after the
+     * tasks: an entry may name a rung, and a catalogue that pointed at a task the
+     * database did not have would be a walk ending nowhere.
+     */
+    const { written } = await seedProviderCatalogue(db)
+    console.log(`provider catalogue: ${written} entries written`)
   } finally {
     await db.close()
   }

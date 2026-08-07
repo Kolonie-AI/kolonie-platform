@@ -1,6 +1,7 @@
 import { ERROR_STATUS } from '@kolonie-ai/core'
 import type { FastifyInstance } from 'fastify'
 import { openProof, submitPostProof } from '../account-proofs.js'
+import { readRecipe, readRecipes } from '../provider-recipes.js'
 import {
   declareOwnAccount,
   preferOwnAccount,
@@ -17,7 +18,7 @@ import type { RouteDependencies } from './dependencies.js'
 
 /** The account register (#150): what a citizen holds, and what it says about each. */
 export function registerAccountRoutes(v1: FastifyInstance, deps: RouteDependencies): void {
-  const { accounts, store } = deps
+  const { accounts, recipes, store } = deps
 
   /**
    * The account register: what a citizen holds, beside what it can do (#150).
@@ -154,6 +155,40 @@ export function registerAccountRoutes(v1: FastifyInstance, deps: RouteDependenci
 
     const { proofId } = request.params as { proofId: string }
     const result = await submitPostProof(caller.id, proofId, request.body, accounts.proofs)
+
+    if (result.outcome === 'rejected') {
+      return reply.status(ERROR_STATUS[result.error.code]).send(result.error)
+    }
+
+    return reply.status(200).send(result.response)
+  })
+
+  /**
+   * The provider catalogue (`#521`).
+   *
+   * **Above the `:accountId` routes** for the reason the proofs are, and read-only:
+   * writing an entry is curation and is `#549`'s.
+   */
+  v1.get('/accounts/recipes', async (request, reply) => {
+    const caller = await callerFor(request, reply, store)
+    if (caller === null) return reply
+
+    const { kind } = request.query as { kind?: string }
+    const result = await readRecipes(kind, recipes)
+
+    if (result.outcome === 'rejected') {
+      return reply.status(ERROR_STATUS[result.error.code]).send(result.error)
+    }
+
+    return reply.status(200).send(result.response)
+  })
+
+  v1.get('/accounts/recipes/:kind/:provider', async (request, reply) => {
+    const caller = await callerFor(request, reply, store)
+    if (caller === null) return reply
+
+    const { kind, provider } = request.params as { kind: string; provider: string }
+    const result = await readRecipe(kind, provider, recipes)
 
     if (result.outcome === 'rejected') {
       return reply.status(ERROR_STATUS[result.error.code]).send(result.error)

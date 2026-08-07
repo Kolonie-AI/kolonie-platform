@@ -46,7 +46,23 @@ export function registerAutonomyPageRoutes(app: FastifyInstance, deps: RouteDepe
     return reply
       .headers(CONSOLE_HEADERS)
       .type('text/html')
-      .send(autonomyFormPage({ agentName: form.agentName, token: token as string }))
+      .send(
+        autonomyFormPage({
+          agentName: form.agentName,
+          token: token as string,
+          /**
+           * Prefilled with the address this form was sent to (`#484`).
+           *
+           * The Colony was handed it before it sent the mail, so asking for it
+           * again was asking the operator to retype what they were reading. It
+           * is a default rather than a constraint — the box stays editable and
+           * the field stays free text.
+           */
+          ...(form.operatorAddress === null
+            ? {}
+            : { values: { operatorRoute: form.operatorAddress } }),
+        }),
+      )
   })
 
   app.post('/operator/autonomy/:token', async (request, reply) => {
@@ -74,11 +90,22 @@ export function registerAutonomyPageRoutes(app: FastifyInstance, deps: RouteDepe
 
     if (result.outcome === 'rejected') {
       /**
-       * **The form comes back filled with nothing and an explanation at the top**,
-       * rather than a bare error page. The person filling this in has no account
-       * to return through, and a dead end costs the citizen the whole rung.
+       * **The form comes back holding what they typed, with an explanation at
+       * the top** (`#484`), rather than a bare error page or an empty one. The
+       * person filling this in has no account to return through, and a dead end
+       * costs the citizen the whole rung.
+       *
+       * It used to come back with every field empty, so an operator who mistyped
+       * one answered all four again — and the link is single-use, so the second
+       * abandonment is permanent.
+       *
+       * The **submitted** values, not the invited address: at this point the
+       * operator has said something about every field, and replacing their route
+       * with the default would silently undo an edit they had just made.
        */
       const status = result.error.code === 'not_found' ? 404 : 422
+      const asText = (value: unknown): string | undefined =>
+        typeof value === 'string' ? value : undefined
       const body =
         result.error.code === 'not_found'
           ? autonomyClosedPage()
@@ -86,6 +113,12 @@ export function registerAutonomyPageRoutes(app: FastifyInstance, deps: RouteDepe
               agentName: form.agentName,
               token: token as string,
               error: result.error.message,
+              values: {
+                level: asText(submitted['level']),
+                challengesAllowed: asText(submitted['challengesAllowed']),
+                defaultRule: asText(submitted['defaultRule']),
+                operatorRoute: asText(submitted['operatorRoute']),
+              },
             })
 
       return reply.status(status).headers(CONSOLE_HEADERS).type('text/html').send(body)

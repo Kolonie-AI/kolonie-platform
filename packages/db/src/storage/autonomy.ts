@@ -24,6 +24,19 @@ export interface AutonomyInvitation {
 export interface OpenAutonomyForm {
   readonly agentId: AgentId
   readonly agentName: string
+  /**
+   * The address this invitation was sent to (`#484`).
+   *
+   * **Stored since `#146` and never read back until now.** `inviteOperator`
+   * writes it one column away from the query that renders *"How should it reach
+   * you?"* with an empty box — so the operator retyped the address the mail they
+   * were reading had been sent to.
+   *
+   * `null` where the invitation carries none, which is an ordinary state rather
+   * than a failure: the field stays free text and an empty default is what it
+   * always was.
+   */
+  readonly operatorAddress: string | null
 }
 
 /**
@@ -109,6 +122,8 @@ export async function openAutonomyForm(
        * rename breaks loudly at the first query; this bug does not break at all.
        */
       agentName: sql<string>`(select named.name from agents named where named.id = autonomy_form_invitations.agent_id)`,
+      // One column away from the query that rendered the question (`#484`).
+      operatorAddress: autonomyFormInvitations.operatorAddress,
     })
     .from(autonomyFormInvitations)
     .where(
@@ -120,7 +135,13 @@ export async function openAutonomyForm(
     )
     .limit(1)
 
-  return row === undefined ? null : { agentId: row.agentId as AgentId, agentName: row.agentName }
+  return row === undefined
+    ? null
+    : {
+        agentId: row.agentId as AgentId,
+        agentName: row.agentName,
+        operatorAddress: row.operatorAddress,
+      }
 }
 
 /**

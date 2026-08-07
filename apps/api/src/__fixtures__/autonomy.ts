@@ -27,17 +27,27 @@ export interface FakeAutonomyStore extends AutonomyStore {
  * pass against behaviour the database refuses.
  */
 export function fakeAutonomyStore(): FakeAutonomyStore {
-  const open = new Map<string, { agentId: AgentId; agentName: string }>()
+  const open = new Map<
+    string,
+    { agentId: AgentId; agentName: string; operatorAddress: string | null }
+  >()
   const byAgent = new Map<AgentId, string>()
   const contracts = new Map<AgentId, StoredAutonomyContract>()
 
   const store: FakeAutonomyStore = {
-    invite: (agentId) => {
+    invite: (agentId, operatorAddress) => {
       const previous = byAgent.get(agentId)
       if (previous !== undefined) open.delete(previous)
 
       const token = randomBytes(32).toString('hex')
-      open.set(token, { agentId, agentName: `agent-${randomUUID().slice(0, 4)}` })
+      // The address the invitation was addressed to, kept so the form can be
+      // prefilled with it (`#484`). Storing it and never reading it back was
+      // the defect.
+      open.set(token, {
+        agentId,
+        agentName: `agent-${randomUUID().slice(0, 4)}`,
+        operatorAddress: operatorAddress ?? null,
+      })
       byAgent.set(agentId, token)
 
       return Promise.resolve({

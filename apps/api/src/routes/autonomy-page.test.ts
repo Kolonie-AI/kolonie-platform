@@ -109,13 +109,25 @@ describe('the operator’s form', () => {
      * the whole credential, and what makes a leaked one an embarrassment rather
      * than a compromise is that there is nothing behind it to read.
      */
+    /**
+     * **The operator's own address is the one exception, and it arrived with
+     * `#484`.** This used to assert `op@example.org` was absent, as a proxy for
+     * *nothing about the invitation leaks*. That proxy stopped being right when
+     * the route began prefilling the route field: the address belongs to the
+     * **operator**, who is the person reading the page and the person it was
+     * mailed to. Showing somebody their own address is not a disclosure.
+     *
+     * What the test was actually protecting — that the page says nothing about
+     * the *citizen* beyond its name — is unchanged and is what it now asserts.
+     */
     it('shows nothing about the citizen beyond the name', async () => {
       const token = await aForm()
 
       const response = await get(`/operator/autonomy/${token}`)
 
-      expect(response.body).not.toContain('op@example.org')
       expect(response.body).not.toContain(agentId)
+      // The operator's own address, prefilled into their own field (`#484`).
+      expect(response.body).toContain('value="op@example.org"')
     })
 
     it('answers the same for an unknown link as for a spent one', async () => {
@@ -1072,6 +1084,125 @@ describe('the operator’s form', () => {
       }
 
       expect(await store.read(agentId)).toEqual(before)
+    })
+  })
+
+  /**
+   * `#484`. The Colony was handed the operator's address before it sent the mail
+   * and then asked them, at the bottom of the form it mailed, *"How should it
+   * reach you?"* with an empty box — so they typed in the address the mail they
+   * were reading had been sent to.
+   *
+   * And a validation failure re-rendered every field empty, so an operator who
+   * mistyped one answered all four again. Both are the same missing capability:
+   * `autonomyFormPage` could not be given values.
+   *
+   * The link is single-use and the mail is never sent twice, so friction here is
+   * not deferred — it is spent.
+   */
+  describe('what the form comes back holding', () => {
+    const aForm = async (): Promise<string> => (await store.invite(agentId, 'op@example.org')).token
+
+    const get = (url: string) => app.inject({ method: 'GET', url })
+    const post = (url: string, fields: Record<string, string>) =>
+      app.inject({
+        method: 'POST',
+        url,
+        payload: new URLSearchParams(fields).toString(),
+        headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      })
+
+    it('prefills the address the invitation was sent to', async () => {
+      const token = await aForm()
+
+      const body = (await get(`/operator/autonomy/${token}`)).body
+
+      expect(body).toContain('name="operatorRoute"')
+      expect(body).toContain('value="op@example.org"')
+    })
+
+    /**
+     * **A default, not a constraint.** The field is deliberately free text — *"In
+     * your own words — an address, a channel, a name"* — and an operator who would
+     * rather be reached on a channel the Colony has never seen must still be able
+     * to say so.
+     */
+    it('leaves the box editable and the help text true', async () => {
+      const token = await aForm()
+
+      const body = (await get(`/operator/autonomy/${token}`)).body
+
+      expect(body).toContain('In your own words')
+      expect(body).not.toContain('readonly')
+      expect(body).not.toContain('disabled')
+    })
+
+    /** An invitation carrying no address is an ordinary state, not a failure. */
+    it('renders an empty box when there is no address to prefill', async () => {
+      const { token } = await store.invite(agentId, '')
+
+      const body = (await get(`/operator/autonomy/${token}`)).body
+
+      expect(body).toContain('name="operatorRoute"')
+      expect(body).toContain('value=""')
+    })
+
+    /**
+     * All four answers intact. Previously the comment in the route said it
+     * outright — *"The form comes back filled with nothing"* — and the cost was an
+     * operator answering four questions twice on a link that works once.
+     */
+    it('comes back holding all four answers after a rejected submission', async () => {
+      const token = await aForm()
+
+      const response = await post(`/operator/autonomy/${token}`, {
+        level: 'accompanied',
+        challengesAllowed: 'no',
+        defaultRule: 'refrain',
+        // The one that fails, so the other three have to survive.
+        operatorRoute: '',
+      })
+
+      expect(response.statusCode).toBe(422)
+      // Matched loosely on purpose: the first radio of each group also carries
+      // `required`, so the attributes are not adjacent in every case.
+      expect(response.body).toMatch(/value="accompanied"[^>]*checked/)
+      expect(response.body).toMatch(/value="no"[^>]*checked/)
+      expect(response.body).toMatch(/value="refrain"[^>]*checked/)
+    })
+
+    /**
+     * The **submitted** route, not the invited address: by this point the operator
+     * has said something about every field, and replacing their route with the
+     * default would silently undo an edit they had just made.
+     */
+    it('keeps what the operator typed rather than restoring the default', async () => {
+      const token = await aForm()
+
+      const response = await post(`/operator/autonomy/${token}`, {
+        level: '',
+        challengesAllowed: 'yes',
+        defaultRule: 'ask',
+        operatorRoute: 'Signal, not mail.',
+      })
+
+      expect(response.statusCode).toBe(422)
+      expect(response.body).toContain('value="Signal, not mail."')
+      expect(response.body).not.toContain('value="op@example.org"')
+    })
+
+    it('still carries the explanation at the top', async () => {
+      const token = await aForm()
+
+      const response = await post(`/operator/autonomy/${token}`, {
+        level: 'free',
+        challengesAllowed: 'yes',
+        defaultRule: 'ask',
+        operatorRoute: '',
+      })
+
+      expect(response.body).toContain('<strong>')
+      expect(response.body).toContain('<form method="post"')
     })
   })
 })

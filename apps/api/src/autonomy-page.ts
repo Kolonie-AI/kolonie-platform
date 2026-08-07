@@ -128,12 +128,61 @@ export function autonomyFormPage(input: {
   readonly agentName: string
   readonly token: string
   readonly error?: string | undefined
+  /**
+   * What the form comes back holding (`#484`).
+   *
+   * ## Why this exists at all
+   *
+   * Two absences, one missing capability. The Colony was **handed** the
+   * operator's address before it sent the mail — `inviteOperator` writes it to
+   * `autonomy_form_invitations.operator_address` — and then asked the operator
+   * to type it in again, because `openForm` selected two columns and this was
+   * the third. And a validation failure re-rendered with every field empty, so
+   * an operator who mistyped one answered all four again.
+   *
+   * Neither is a second bug: `autonomyFormPage` could not be given values, so
+   * neither the stored address nor the operator's own submitted answers could
+   * survive into a render.
+   *
+   * ## Why prefilling does not contradict what the field is for
+   *
+   * The route field is deliberately free text — *"In your own words — an
+   * address, a channel, a name"* — and it stays that way. **A prefilled value is
+   * a default, not a constraint**: the box is editable and the help text stays
+   * true. An operator who would rather be reached on a channel the Colony has
+   * never seen still says so.
+   *
+   * And the default is the best guess available, because it is the one route the
+   * operator has already demonstrably received mail at.
+   *
+   * ## Why this is worth `p1` on a form that is only mildly annoying
+   *
+   * `autonomy.ts` records the rule: *"the Colony never initiates — no reminders,
+   * no follow-ups, no digests"*, and the link is single-use. **Friction here is
+   * not deferred, it is spent.** An operator who closes the tab has not been
+   * slowed down; they have answered, permanently, and the citizen loses the
+   * contract with no way to ask again except by spending another ask on a person
+   * who has already stopped reading.
+   */
+  readonly values?:
+    | {
+        readonly level?: string | undefined
+        readonly challengesAllowed?: string | undefined
+        readonly defaultRule?: string | undefined
+        readonly operatorRoute?: string | undefined
+      }
+    | undefined
 }): string {
   const name = escape(input.agentName)
+  const held = input.values ?? {}
+
+  /** `checked` where the operator already chose this one. */
+  const chosen = (field: keyof typeof held, value: string): string =>
+    held[field] === value ? ' checked' : ''
 
   const levels = AUTONOMY_LEVELS.map(
     (level, index) =>
-      `<p><label><input type="radio" name="level" value="${escape(level)}"${index === 0 ? ' required' : ''}> ` +
+      `<p><label><input type="radio" name="level" value="${escape(level)}"${index === 0 ? ' required' : ''}${chosen('level', level)}> ` +
       `<strong>${escape(level[0]?.toUpperCase() + level.slice(1))}</strong> — ` +
       `${escape(AUTONOMY_LEVEL_DESCRIPTIONS[level])}</label></p>`,
   ).join('\n')
@@ -158,20 +207,22 @@ export function autonomyFormPage(input: {
     '<h2>May it clear “prove you are human” checks?</h2>',
     '<p class="note">A separate question from the one above, because it does not follow from it —',
     'an accompanied agent may well be allowed, and an independent one may well not.</p>',
-    '<p><label><input type="radio" name="challengesAllowed" value="yes" required> Yes</label></p>',
-    '<p><label><input type="radio" name="challengesAllowed" value="no"> No</label></p>',
+    `<p><label><input type="radio" name="challengesAllowed" value="yes" required${chosen('challengesAllowed', 'yes')}> Yes</label></p>`,
+    `<p><label><input type="radio" name="challengesAllowed" value="no"${chosen('challengesAllowed', 'no')}> No</label></p>`,
 
     '<h2>And when something comes up that you have not covered?</h2>',
     '<p class="note">One answer, given once. Without it every case you did not think of is a',
     'deadlock for your agent.</p>',
-    '<p><label><input type="radio" name="defaultRule" value="ask" required> It should ask you</label></p>',
-    '<p><label><input type="radio" name="defaultRule" value="refrain"> It should leave it alone</label></p>',
+    `<p><label><input type="radio" name="defaultRule" value="ask" required${chosen('defaultRule', 'ask')}> It should ask you</label></p>`,
+    `<p><label><input type="radio" name="defaultRule" value="refrain"${chosen('defaultRule', 'refrain')}> It should leave it alone</label></p>`,
 
     '<h2>How should it reach you?</h2>',
     '<p class="note">In your own words — an address, a channel, a name. Your agent keeps this;',
     'the Colony sends nothing to it. Needed whatever you answered above: even an agent that may',
     'do anything has to be able to tell you when something is impossible.</p>',
-    `<input name="operatorRoute" type="text" maxlength="${OPERATOR_ROUTE_MAX_LENGTH}" required>`,
+    // A default and not a constraint: prefilled with the address this form was
+    // sent to, and editable.
+    `<input name="operatorRoute" type="text" maxlength="${OPERATOR_ROUTE_MAX_LENGTH}" value="${escape(held.operatorRoute ?? '')}" required>`,
 
     '<button type="submit">Record this</button>',
     '</form>',

@@ -43,6 +43,7 @@ import { zoneFrom } from '../console/time.js'
 import { agentPage } from '../console/agent-page.js'
 import { fundingPage } from '../console/funding.js'
 import { numbersPage, reviewQueuePage } from '../console/steward.js'
+import { backendPage } from '../console/backend.js'
 import {
   operatedQuestsPage,
   questDraftPage,
@@ -237,9 +238,18 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
         you: you !== undefined && String(you.id) === String(agent.id),
       }))
 
+      /**
+       * The maintainer's link, and **absent rather than disabled** (`#486`).
+       *
+       * A greyed-out link tells a person a surface exists that they may not
+       * have, which is a fact about the Colony's shape that a stranger who
+       * signed in with GitHub has no reason to be given.
+       */
+      const maintains = signedIn.human.roles.includes('maintainer')
+
       return wantsHtml(request)
-        ? html(reply, dashboardPage({ zone: zoneFrom(request.headers), agents, code }))
-        : reply.send({ signedIn: true, agents })
+        ? html(reply, dashboardPage({ zone: zoneFrom(request.headers), agents, code, maintains }))
+        : reply.send({ signedIn: true, agents, ...(maintains && { maintains: true }) })
     }
 
     const agent = await caller(request)
@@ -704,6 +714,66 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
     return wantsHtml(request)
       ? reply.status(303).header('location', '/').send()
       : reply.status(200).send({ ended })
+  })
+
+  /**
+   * The maintainer's gate (`#486`).
+   *
+   * **Registered here, in the human-facing registration, and not beside
+   * `steward` in `registerStewardPages`.** That is the separation the issue
+   * asks for made structural: this function is the one that can resolve a
+   * person, and `registerStewardPages` is the one that can resolve an agent.
+   * Neither can reach the other's resolver, so *shares no code path that
+   * resolves an identity* is a fact about the scopes rather than a discipline.
+   *
+   * **That separation is a security property rather than tidiness.** The two
+   * roles open pages on the same host and authenticate through different tables:
+   * `credentials` for an agent, `human_sessions` for a person. `humans.ts`
+   * states what is at stake — *"A bug there does not render a wrong page; it
+   * hands somebody a citizen's authority."*
+   *
+   * So this reaches for {@link person} and never for {@link caller}, and the
+   * compile is what stops the substitution: `person` resolves to a `Human`,
+   * whose `roles` are `HumanRole[]`, and there is no value of that type an
+   * `Agent` could be mistaken for — `HumanId` is branded apart from `AgentId` in
+   * core precisely so this is a type error rather than a review comment.
+   *
+   * A caller without the role gets `callNotFound()`, exactly as the steward gate
+   * does: the page does not announce itself to somebody who cannot have it.
+   * That covers all three refusals in one branch — no session at all, a person's
+   * session without the role, and an agent's session, which `person` cannot
+   * resolve in the first place.
+   */
+  const maintainer = async (request: FastifyRequest, reply: FastifyReply) => {
+    if (!onConsoleHost(request)) {
+      reply.callNotFound()
+      return null
+    }
+
+    for (const [header, value] of Object.entries(CONSOLE_HEADERS)) reply.header(header, value)
+
+    const signedIn = await person(request)
+    if (signedIn === null || !signedIn.human.roles.includes('maintainer')) {
+      reply.callNotFound()
+      return null
+    }
+
+    return signedIn.human
+  }
+
+  /**
+   * *How is the Colony doing*, answered to the person running it (`#486`).
+   *
+   * Reads the same `colonyNumbers()` the steward's page reads — one function,
+   * two pages, so the two cannot disagree about the same figure.
+   */
+  app.get('/backend', async (request, reply) => {
+    const held = await maintainer(request, reply)
+    if (held === null) return reply
+
+    const numbers = await deps.quests.numbers()
+
+    return wantsHtml(request) ? html(reply, backendPage({ numbers })) : reply.send({ numbers })
   })
 
   /**

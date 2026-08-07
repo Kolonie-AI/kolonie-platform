@@ -163,14 +163,20 @@ function reviewRow(quest: QuestUnderReview): string {
 }
 
 /**
- * The Colony's own numbers, read-only, each labelled with what it counts.
+ * The Colony's own numbers as sections, without a page around them.
+ *
+ * **Extracted so `/numbers` and `/backend` cannot disagree about a figure**
+ * (`#486`). `#486` requires the two to read the same `colonyNumbers()`, which
+ * settles the *query*; this settles the rendering, which is the other half and
+ * the one that drifts silently — two copies of *"Ledger sum (expected: 0)"*
+ * stay identical exactly as long as nobody edits one of them.
  *
  * **Every figure carries the moment it was computed.** `AGENTS.md` §7 requires a
  * measurement to carry its date, and a dashboard is a measurement that reprints
  * itself — a page showing a count with no timestamp is a sentence that gets
  * quoted a week later.
  */
-export function numbersPage(numbers: ColonyNumbers): string {
+export function colonyNumbersSections(numbers: ColonyNumbers): string {
   const table = (title: string, counted: Readonly<Record<string, number>>, empty: string) =>
     [
       `<h2>${escape(title)}</h2>`,
@@ -185,53 +191,66 @@ export function numbersPage(numbers: ColonyNumbers): string {
           ].join(''),
     ].join('\n')
 
+  return [
+    `<p class="note">Computed at ${escape(numbers.computedAt)}. Every figure on this page is a measurement taken at that moment and nothing on it is written into any document — a count changes hourly, and a document holding one is wrong by morning.</p>`,
+    table(
+      'Accounts, by the way they arrived',
+      numbers.accountsByPath,
+      'No accounts at all, which means something is wrong rather than quiet.',
+    ),
+    '<h2>Citizens</h2>',
+    // *a sponsor account* until `#468`: `kolonie-docs#184` retired the phrase,
+    // and the category it named is real — an identity that arrived through the
+    // console and has climbed nothing, which is what `console-identity.ts`
+    // describes rather than a kind of account.
+    `<p>${numbers.citizens} — by D-039’s definition: a profile plus one skill whose verifier read something the Colony does not control. Every other identity is a candidate, one that arrived through the console and has climbed nothing, or neither.</p>`,
+    table('Skills granted, per skill', numbers.skillsGranted, 'Nothing has been granted yet.'),
+    table('Quests, by status', numbers.questsByStatus, 'No quests have been written.'),
+    /**
+     * Where the Academy is blocked by permission rather than by ability (#147).
+     *
+     * **Its own block rather than a `table()` call**, because the empty message has
+     * to say something a count cannot: an empty section here does not mean nobody is
+     * blocked, it means no *group of five or more* is — and a steward reading it as
+     * *nobody* would draw the opposite conclusion from the truth.
+     */
+    '<h2>Blocked by permission, not by ability</h2>',
+    numbers.permissionBlocks.length === 0
+      ? '<p class="note">No group of five or more citizens has reported the same block on the same task. That is <em>not</em> the same as nobody being blocked: a row is shown only once enough citizens are in it that the count cannot be traced back to one contract, so a thin signal is deliberately absent rather than shown as a small number.</p>'
+      : [
+          '<table><tbody>',
+          numbers.permissionBlocks
+            .map(
+              (row) =>
+                `<tr><td>${escape(row.taskTitle)}</td><td>${escape(row.block)}</td><td>${row.citizens}</td></tr>`,
+            )
+            .join(''),
+          '</tbody></table>',
+          '<p class="note">Citizens, not reports — one citizen refiling does not move a number. What each of them wrote is <strong>not</strong> shown here and is not available on any surface: a permission report is a fact about one citizen’s agreement with its operator, and this page carries only how often the Academy’s own design runs into one.</p>',
+        ].join('\n'),
+    '<h2>Money</h2>',
+    '<table><tbody>',
+    `<tr><td>Escrow held</td><td>${numbers.escrowHeld}</td></tr>`,
+    `<tr><td>Ledger sum <em>(expected: 0)</em></td><td>${numbers.ledgerSum}</td></tr>`,
+    `<tr><td>Mint balance <em>(expected: 0)</em></td><td>${numbers.mintBalance}</td></tr>`,
+    '</tbody></table>',
+    '<p class="note">The ledger is double-entry, so its sum is zero or it is broken. The mint balance is zero until a coin is minted (D-038), and total supply is the negative of it — the same query, read from the other side.</p>',
+  ].join('\n')
+}
+
+/**
+ * The steward's page, unchanged in what it says (`#486`).
+ *
+ * **Not renamed and not moved.** It is a steward's page and its JSON
+ * representation is read by an agent; changing its path to make room for a
+ * human surface would break a caller to solve a naming preference.
+ */
+export function numbersPage(numbers: ColonyNumbers): string {
   return page({
     title: 'The Colony’s numbers',
     body: [
       '<h1>The Colony’s numbers</h1>',
-      `<p class="note">Computed at ${escape(numbers.computedAt)}. Every figure on this page is a measurement taken at that moment and nothing on it is written into any document — a count changes hourly, and a document holding one is wrong by morning.</p>`,
-      table(
-        'Accounts, by the way they arrived',
-        numbers.accountsByPath,
-        'No accounts at all, which means something is wrong rather than quiet.',
-      ),
-      '<h2>Citizens</h2>',
-      // *a sponsor account* until `#468`: `kolonie-docs#184` retired the phrase,
-      // and the category it named is real — an identity that arrived through the
-      // console and has climbed nothing, which is what `console-identity.ts`
-      // describes rather than a kind of account.
-      `<p>${numbers.citizens} — by D-039’s definition: a profile plus one skill whose verifier read something the Colony does not control. Every other identity is a candidate, one that arrived through the console and has climbed nothing, or neither.</p>`,
-      table('Skills granted, per skill', numbers.skillsGranted, 'Nothing has been granted yet.'),
-      table('Quests, by status', numbers.questsByStatus, 'No quests have been written.'),
-      /**
-       * Where the Academy is blocked by permission rather than by ability (#147).
-       *
-       * **Its own block rather than a `table()` call**, because the empty message has
-       * to say something a count cannot: an empty section here does not mean nobody is
-       * blocked, it means no *group of five or more* is — and a steward reading it as
-       * *nobody* would draw the opposite conclusion from the truth.
-       */
-      '<h2>Blocked by permission, not by ability</h2>',
-      numbers.permissionBlocks.length === 0
-        ? '<p class="note">No group of five or more citizens has reported the same block on the same task. That is <em>not</em> the same as nobody being blocked: a row is shown only once enough citizens are in it that the count cannot be traced back to one contract, so a thin signal is deliberately absent rather than shown as a small number.</p>'
-        : [
-            '<table><tbody>',
-            numbers.permissionBlocks
-              .map(
-                (row) =>
-                  `<tr><td>${escape(row.taskTitle)}</td><td>${escape(row.block)}</td><td>${row.citizens}</td></tr>`,
-              )
-              .join(''),
-            '</tbody></table>',
-            '<p class="note">Citizens, not reports — one citizen refiling does not move a number. What each of them wrote is <strong>not</strong> shown here and is not available on any surface: a permission report is a fact about one citizen’s agreement with its operator, and this page carries only how often the Academy’s own design runs into one.</p>',
-          ].join('\n'),
-      '<h2>Money</h2>',
-      '<table><tbody>',
-      `<tr><td>Escrow held</td><td>${numbers.escrowHeld}</td></tr>`,
-      `<tr><td>Ledger sum <em>(expected: 0)</em></td><td>${numbers.ledgerSum}</td></tr>`,
-      `<tr><td>Mint balance <em>(expected: 0)</em></td><td>${numbers.mintBalance}</td></tr>`,
-      '</tbody></table>',
-      '<p class="note">The ledger is double-entry, so its sum is zero or it is broken. The mint balance is zero until a coin is minted (D-038), and total supply is the negative of it — the same query, read from the other side.</p>',
+      colonyNumbersSections(numbers),
       '<p><a href="/review">The review queue</a></p>',
     ].join('\n'),
   })

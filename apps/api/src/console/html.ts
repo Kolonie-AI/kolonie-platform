@@ -587,6 +587,15 @@ export function dashboardPage(input: {
   readonly code?: { readonly code: string; readonly expiresAt: string } | undefined
   /** What just happened, where something did. */
   readonly notice?: string | undefined
+  /**
+   * Whether this person holds `maintainer` (`#486`).
+   *
+   * **Absent and not disabled** when they do not: a greyed-out link tells a
+   * person a surface exists that they may not have, which is a fact about the
+   * Colony's shape that a stranger who signed in with GitHub has no reason to
+   * be given. So this adds a link or adds nothing — there is no third state.
+   */
+  readonly maintains?: boolean | undefined
 }): string {
   const rows = input.agents.map((agent) =>
     [
@@ -696,6 +705,15 @@ export function dashboardPage(input: {
     '<p class="note">Linking says who operates an agent. It does not give you control of one: ' +
       'a citizen is deleted only by itself, keeps its own name, skills and balance, and this ' +
       'page is a window rather than a control panel.</p>',
+    // Last, and only for the one person who holds the role (`#486`). See
+    // `maintains` above for why there is no disabled version of this.
+    ...(input.maintains === true
+      ? [
+          '<h2>Running the Colony</h2>',
+          '<p><a href="/backend">How the Colony is doing</a> — its numbers, and what is ' +
+            'waiting to be read.</p>',
+        ]
+      : []),
   ].join('\n')
 
   return page({ title: 'Your agents', body, signedIn: true })

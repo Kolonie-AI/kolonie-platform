@@ -34,6 +34,16 @@ export interface FakeHumanStore extends HumanStore {
   readonly makeUnreachable: (agentId: AgentId) => void
   /** And give it a key of its own again, which lifts the refusal (`#458`). */
   readonly holdsOwnKey: (agentId: AgentId) => void
+  /**
+   * Give a person the `maintainer` role (`#486`).
+   *
+   * The grant itself is `packages/db`'s — `setHumanRole` writes the array and
+   * its audit row in one transaction, and that is tested against a real
+   * database. What this exists for is the *gate*: a route test needs a person
+   * who holds the role and one who does not, and neither is interesting enough
+   * to be worth a second implementation of the grant.
+   */
+  readonly maintains: (humanId: Human['id']) => void
 }
 
 export function fakeHumanStore(): FakeHumanStore {
@@ -322,6 +332,17 @@ export function fakeHumanStore(): FakeHumanStore {
       byIdentity.set(key(identity), human)
       order.push(human)
       return { human, created: true }
+    },
+
+    maintains: (humanId: Human['id']) => {
+      const human = order.find((person) => person.id === humanId)
+      if (human === undefined) throw new Error(`no such person: ${String(humanId)}`)
+      const index = order.indexOf(human)
+      const granted: Human = { ...human, roles: ['maintainer'] }
+      order[index] = granted
+      for (const [identityKey, held] of byIdentity) {
+        if (held.id === humanId) byIdentity.set(identityKey, granted)
+      }
     },
 
     openSession: async (humanId, where) => {

@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { fakeHumans } from '../__fixtures__/humans.js'
 import { fakeArtefactChallenges } from '../__fixtures__/artefact.js'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -67,13 +68,15 @@ let apiKey: string
 let session: string
 let agentId: string
 let console_: ReturnType<typeof fakeConsole>
+let humans_: ReturnType<typeof fakeHumans>
 
 beforeEach(async () => {
   store = fakeStore()
   quests = fakeQuests()
   console_ = { ...fakeConsole(), consoleUrl: CONSOLE_URL }
+  humans_ = fakeHumans()
   app = buildApp({
-    humans: fakeHumans(),
+    humans: humans_,
     vault: { vault: fakeVault() },
     accounts: fakeAccounts(),
     console: console_,
@@ -1356,5 +1359,157 @@ describe('a browser sponsor taking an API key (#400)', () => {
     const signIn = await asBrowser('/')
 
     expect(signIn.body).toContain('does not shut the other door')
+  })
+})
+
+/**
+ * `#486`. There was no page that answered *how is the Colony doing* to the
+ * person running it. `/numbers` is the nearest thing and is neither reachable by
+ * a person — it gates on the **agent** role `steward` — nor the whole picture,
+ * being one table of aggregates.
+ *
+ * What is asserted here is the gate, in all four of its states, and that the
+ * figures are the steward page's figures rather than a second query.
+ */
+describe('the maintainer’s page', () => {
+  /** Sign a person in, optionally holding the role. */
+  const aPerson = async (options: { readonly maintains?: boolean } = {}) => {
+    const { human } = await humans_.store.findOrCreate({
+      provider: 'github',
+      subject: `subject-${randomUUID()}`,
+      email: 'someone@example.test',
+    })
+    if (options.maintains === true) humans_.store.maintains(human.id)
+    const { session: cookie } = await humans_.store.openSession(human.id, {})
+    return { human, cookie }
+  }
+
+  const backendAs = (cookie: string | undefined, accept = 'text/html') =>
+    app.inject({
+      method: 'GET',
+      url: '/backend',
+      headers: {
+        host: CONSOLE_HOST,
+        accept,
+        ...(cookie === undefined ? {} : { cookie: `__Host-kolonie_session=${cookie}` }),
+      },
+    })
+
+  it('answers the maintainer, in HTML', async () => {
+    const { cookie } = await aPerson({ maintains: true })
+
+    const response = await backendAs(cookie)
+
+    expect(response.statusCode).toBe(200)
+    expect(response.body).toContain('The Colony, from the inside')
+    // The numbers section, which is the steward page's own rendering.
+    expect(response.body).toContain('Accounts, by the way they arrived')
+    expect(response.body).toContain('Computed at')
+  })
+
+  it('answers the maintainer in JSON when asked for it', async () => {
+    const { cookie } = await aPerson({ maintains: true })
+
+    const response = await backendAs(cookie, 'application/json')
+
+    expect(response.statusCode).toBe(200)
+    expect(response.json().numbers).toBeDefined()
+    expect(response.json().numbers.computedAt).toEqual(expect.any(String))
+  })
+
+  /**
+   * All three refusals the issue names, and each is a 404 rather than a 403:
+   * the page does not announce itself to somebody who cannot have it.
+   */
+  it('refuses a caller with no session at all', async () => {
+    expect((await backendAs(undefined)).statusCode).toBe(404)
+  })
+
+  it('refuses a person signed in without the role', async () => {
+    const { cookie } = await aPerson()
+
+    expect((await backendAs(cookie)).statusCode).toBe(404)
+  })
+
+  /**
+   * **An agent's session must not reach it**, which is the property `#485` and
+   * `humans.ts` both exist to hold: a bug there does not render a wrong page, it
+   * hands somebody a citizen's authority. The session below authenticates
+   * perfectly well as an agent on every other console route.
+   */
+  it('refuses an agent’s console session', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: '/backend',
+      headers: {
+        host: CONSOLE_HOST,
+        accept: 'text/html',
+        cookie: `__Host-kolonie_session=${session}`,
+      },
+    })
+
+    expect(response.statusCode).toBe(404)
+  })
+
+  it('refuses an agent’s API key', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: '/backend',
+      headers: {
+        host: CONSOLE_HOST,
+        accept: 'application/json',
+        authorization: `Bearer ${apiKey}`,
+      },
+    })
+
+    expect(response.statusCode).toBe(404)
+  })
+
+  it('answers on the console host and nowhere else', async () => {
+    const { cookie } = await aPerson({ maintains: true })
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/backend',
+      headers: {
+        host: API_HOST,
+        accept: 'text/html',
+        cookie: `__Host-kolonie_session=${cookie}`,
+      },
+    })
+
+    expect(response.statusCode).toBe(404)
+  })
+
+  describe('the link on the signed-in home', () => {
+    const homeAs = (cookie: string) =>
+      app.inject({
+        method: 'GET',
+        url: '/',
+        headers: {
+          host: CONSOLE_HOST,
+          accept: 'text/html',
+          cookie: `__Host-kolonie_session=${cookie}`,
+        },
+      })
+
+    it('is there when the role is held', async () => {
+      const { cookie } = await aPerson({ maintains: true })
+
+      expect((await homeAs(cookie)).body).toContain('href="/backend"')
+    })
+
+    /**
+     * **Absent and not disabled.** A greyed-out link tells a person a surface
+     * exists that they may not have, which is a fact about the Colony's shape
+     * that a stranger who signed in with GitHub has no reason to be given.
+     */
+    it('is absent — not disabled — when it is not', async () => {
+      const { cookie } = await aPerson()
+
+      const body = (await homeAs(cookie)).body
+      expect(body).not.toContain('/backend')
+      expect(body).not.toContain('Running the Colony')
+    })
   })
 })

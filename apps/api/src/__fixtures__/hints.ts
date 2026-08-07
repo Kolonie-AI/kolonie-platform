@@ -13,11 +13,22 @@ export interface FakeStandingHints extends StandingHintSource {
   readonly answers: (code: StandingHintCode, subject?: string) => void
   /** Who was asked, in order — including the asks that answered nothing. */
   readonly asked: () => readonly AgentId[]
+  /**
+   * What the read-only ask answers, for as long as a test leaves it there
+   * (`#512`).
+   *
+   * **It does not spend, and neither does the real one.** Set separately from
+   * {@link FakeStandingHints.answers} precisely so a test can tell the two
+   * apart: a fake where `facing` consumed what `due` was going to say would hide
+   * the defect the operator's page must not have.
+   */
+  readonly faces: (code: StandingHintCode, subject?: string) => void
 }
 
 /** A hint source that answers once with whatever a test put in it. */
 export function fakeStandingHints(): FakeStandingHints {
   let pending: StandingHintFinding | null = null
+  let standing: StandingHintFinding | null = null
   const asked: AgentId[] = []
 
   return {
@@ -27,8 +38,14 @@ export function fakeStandingHints(): FakeStandingHints {
       pending = null
       return answer
     },
+    // Answers as often as it is asked and takes nothing away, which is the
+    // property the real one has and the one the page depends on.
+    facing: async () => standing,
     answers: (code, subject) => {
       pending = { code, subject: subject ?? null }
+    },
+    faces: (code, subject) => {
+      standing = { code, subject: subject ?? null }
     },
     asked: () => [...asked],
   }

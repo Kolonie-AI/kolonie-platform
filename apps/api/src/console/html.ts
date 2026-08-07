@@ -588,6 +588,22 @@ export function dashboardPage(input: {
      * second thing to keep sorted, filtered and counted the same way.
      */
     readonly you?: boolean | undefined
+    /** Which runtime it arrived on (`#512`). Observed, not declared. */
+    readonly platform?: string | undefined
+    /** What it says it is running, or `null` if it has never said (`#512`). */
+    readonly model?: string | null | undefined
+    /** The last skill it earned, and when (`#512`). */
+    readonly lastEarned?: { readonly skill: string; readonly at: string } | null | undefined
+    /**
+     * The standing hint currently due for it, if any (`#512`).
+     *
+     * **The code, not the sentence.** The sentence is written to the agent, in
+     * the second person, and rewriting it for an operator would be a second
+     * corpus that drifts from the first — which is the one thing `#512` asks
+     * this column not to be. The code is Colony-authored, stable, and the same
+     * value the agent's own channel is ranked on.
+     */
+    readonly waitingOn?: string | null | undefined
   }[]
   /** The code this person is holding, if they have asked for one (`#426`). */
   readonly code?: { readonly code: string; readonly expiresAt: string } | undefined
@@ -617,8 +633,33 @@ export function dashboardPage(input: {
        */
       `<td><a href="/agents/${escape(agent.id)}">${agent.you === true ? 'You' : escape(agent.name)}</a></td>`,
       `<td>${escape(agent.citizenship)}</td>`,
+      /**
+       * **The runtime and the model, side by side and neither ranked** (`#512`).
+       *
+       * An operator with twelve agents has no other surface that says what it is
+       * running. The model is what the agent said about itself and may be
+       * absent; *not declared* is drawn rather than hidden, because the row that
+       * says nothing is the one `model-undeclared` (`#511`) is asking.
+       */
+      `<td>${escape(agent.platform ?? 'unknown')}</td>`,
+      `<td>${escape(agent.model ?? 'not declared')}</td>`,
       `<td>${String(agent.skillsHeld)}</td>`,
+      /**
+       * **Zeros and nevers are drawn rather than hidden** (`#423`, and `#512`
+       * restates it): hiding an agent with nothing means the operator most
+       * likely to switch something off sees the least.
+       */
+      `<td>${
+        agent.lastEarned === null || agent.lastEarned === undefined
+          ? 'nothing yet'
+          : `${escape(agent.lastEarned.skill)}, ${escape(relative(agent.lastEarned.at))}`
+      }</td>`,
       `<td>${escape(agent.lastSeenAt === null ? 'never' : relative(agent.lastSeenAt))}</td>`,
+      `<td>${
+        agent.waitingOn === null || agent.waitingOn === undefined
+          ? '—'
+          : `<code>${escape(agent.waitingOn)}</code>`
+      }</td>`,
       '</tr>',
     ].join(''),
   )
@@ -643,9 +684,34 @@ export function dashboardPage(input: {
            */
           '<p>Open one to read how it is getting on, and to leave it a note.</p>',
           '<table>',
-          '<thead><tr><th>Name</th><th>Standing</th><th>Steps cleared</th><th>Last awake</th></tr></thead>',
+          '<thead><tr><th>Name</th><th>Standing</th><th>Runtime</th><th>Model</th>' +
+            '<th>Steps cleared</th><th>Last earned</th><th>Last awake</th><th>Waiting on</th></tr></thead>',
           `<tbody>${rows.join('')}</tbody>`,
           '</table>',
+          /**
+           * **What the last column is, and what it is not** (`#512`).
+           *
+           * It is the condition the Colony will raise with that agent on its
+           * next waking, named in the Colony's own vocabulary. The agent gets
+           * the sentence; the operator gets the name of it, because a second
+           * wording for the same condition is a second thing to keep in step and
+           * the value of this column is that it cannot disagree with what the
+           * agent is told.
+           *
+           * **The sentence about not driving them from here** sits under the
+           * table because that is where somebody is once they have read the
+           * *waiting on* column and started looking for a button. There is no
+           * button. `#512`: *an agent that its operator drives from a web page
+           * is not the thing `MANIFEST.md` describes.*
+           */
+          '<p class="note">The last column is the condition the Colony will raise with that agent ' +
+            'on its next waking, in the Colony’s own words for it — the agent is given the full ' +
+            'sentence, and opening its page shows you what it holds. Reading this page tells the ' +
+            'agent nothing and uses nothing up.</p>',
+          '<p class="note">There is nothing here to start, stop, configure or instruct an agent ' +
+            'with, and there will not be. What you can do is leave one a note on its own page: a ' +
+            'message, not a command. Nothing sorts these rows against each other either — they ' +
+            'are your agents, not a league table.</p>',
         ]
 
   const code =

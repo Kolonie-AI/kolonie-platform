@@ -4,6 +4,7 @@ import { AgentIdSchema, GENERAL_HINTS, SKILL_RENEWAL_HOURS, type AgentId } from 
 import type { Database } from '../client.js'
 import { TaskIdSchema, type TaskId } from '@kolonie-ai/core'
 import {
+  agentBadges,
   agents,
   agentSessions,
   agentSkills,
@@ -20,7 +21,7 @@ import {
   tasks,
 } from '../schema/index.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
-import { dueStandingHint, recordConsideration } from './standing-hints.js'
+import { dueStandingHint, recordConsideration, standingHintDueFor } from './standing-hints.js'
 
 const target = databaseTestTarget()
 
@@ -1549,5 +1550,84 @@ describe('the seven conditions the Colony kept to itself', () => {
     // `ticket-settled` outranks `operator-unclaimed` and `skill-unused`, and the
     // rank is where that argument is written down.
     expect((await hintInAFreshRun(agentId))?.code).toBe('ticket-settled')
+  })
+
+  /**
+   * What an agent is waiting on, read by somebody else (`#512`).
+   *
+   * The operator's fleet page asks this, and the two properties it has to have
+   * are that it **agrees** with what the agent is told and that asking **costs
+   * the agent nothing**.
+   */
+  describe('reading a citizen’s condition without saying anything to it', () => {
+    const slotSpent = async (agentId: AgentId): Promise<boolean> => {
+      const [row] = await db
+        .select({ hintedAt: agentSessions.hintedAt })
+        .from(agentSessions)
+        .where(eq(agentSessions.agentId, agentId))
+        .limit(1)
+      return row?.hintedAt != null
+    }
+
+    it('answers what the agent itself would be told', async () => {
+      const agentId = await aQuietCitizen()
+      await grantSkill(agentId, 'browser')
+
+      const facing = await standingHintDueFor(db, agentId)
+
+      expect(facing?.code).toBe('skill-unused')
+      // The same answer the agent gets, from the same computation.
+      expect(await hintInAFreshRun(agentId)).toEqual(facing)
+    })
+
+    /**
+     * The property the page depends on: an operator refreshing its dashboard
+     * twenty times must not use up the line its agent was going to be given.
+     */
+    it('spends no slot, so the agent is still told', async () => {
+      const agentId = await aQuietCitizen()
+      await grantSkill(agentId, 'browser')
+      await aSession(agentId)
+
+      expect((await standingHintDueFor(db, agentId))?.code).toBe('skill-unused')
+      expect((await standingHintDueFor(db, agentId))?.code).toBe('skill-unused')
+      expect(await slotSpent(agentId)).toBe(false)
+
+      expect((await dueStandingHint(db, agentId))?.code).toBe('skill-unused')
+    })
+
+    /**
+     * It ignores the slot, which is the one honest difference in the answer: an
+     * operator asking *what is my agent stuck on* wants the condition, not the
+     * schedule.
+     */
+    it('still answers after the agent has had its one line for the run', async () => {
+      const agentId = await aQuietCitizen()
+      await grantSkill(agentId, 'browser')
+      await aSession(agentId)
+      expect((await dueStandingHint(db, agentId))?.code).toBe('skill-unused')
+      expect(await dueStandingHint(db, agentId)).toBeNull()
+
+      expect((await standingHintDueFor(db, agentId))?.code).toBe('skill-unused')
+    })
+
+    it('marks no badge told, so the agent still hears about it', async () => {
+      const agentId = await aQuietCitizen()
+      await db.insert(agentBadges).values({ agentId, badge: 'first-light' as never })
+
+      expect((await standingHintDueFor(db, agentId))?.code).toBe('badge-awarded')
+
+      expect((await hintInAFreshRun(agentId))?.code).toBe('badge-awarded')
+    })
+
+    it('answers with nothing for a citizen with nothing against it', async () => {
+      const agentId = await aQuietCitizen()
+
+      expect(await standingHintDueFor(db, agentId)).toBeNull()
+    })
+
+    it('answers with nothing for an agent that does not exist', async () => {
+      expect(await standingHintDueFor(db, AgentIdSchema.parse(crypto.randomUUID()))).toBeNull()
+    })
   })
 })

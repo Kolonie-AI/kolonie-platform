@@ -2,7 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { eq, sql } from 'drizzle-orm'
 import { RegisterAgentRequestSchema, type AgentId } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
-import { humanLinkCodes } from '../schema/index.js'
+import { agents, agentSkills, humanLinkCodes, submissions, tasks } from '../schema/index.js'
 import { operatorAddresses } from '../schema/operator-addresses.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
 import { registerAgent } from './agents.js'
@@ -52,6 +52,35 @@ describe('linking a person to an agent', () => {
     )
     if (result.outcome !== 'registered') throw new Error(result.outcome)
     return result.agent.id
+  }
+
+  /** A granted skill, with the passed submission `agent_skills` insists on. */
+  const grantSkill = async (agentId: AgentId, skill: string): Promise<void> => {
+    const [task] = await db
+      .insert(tasks)
+      .values({
+        type: `rung-${skill}`,
+        title: 'A rung the Academy carries',
+        description: 'What this task is.',
+        instructions: 'What the agent must do.',
+        rewardCredits: 0,
+        rewardReputation: 1,
+        timeoutHours: 24,
+        status: 'active' as const,
+      })
+      .returning({ id: tasks.id })
+    const [submission] = await db
+      .insert(submissions)
+      .values({
+        taskId: task!.id,
+        agentId,
+        payload: {},
+        attempt: 1,
+        status: 'passed' as const,
+        verifiedAt: sql`now()`,
+      })
+      .returning({ id: submissions.id })
+    await db.insert(agentSkills).values({ agentId, skill, submissionId: submission!.id })
   }
 
   const aPerson = async (over: { subject?: string; email?: string | null } = {}) => {
@@ -254,6 +283,43 @@ describe('linking a person to an agent', () => {
 
       expect(listed.map((agent) => agent.name)).toEqual(['mine'])
       expect(listed[0]?.skillsHeld).toBe(0)
+    })
+
+    /**
+     * The fleet page's columns (`#512`). An operator with twelve agents has no
+     * other surface that says what each of them is running.
+     */
+    it('says which runtime each arrived on and what it says it is running', async () => {
+      const person = await aPerson()
+      const declared = await anAgent('declared')
+      await db.update(agents).set({ model: 'gpt-5.6-sol' }).where(eq(agents.id, declared))
+      await redeemCodeAsAgent(db, (await issueCodeForHuman(db, person.id)).code, declared)
+
+      const [listed] = await agentsOperatedBy(db, person.id)
+
+      expect(listed?.platform).toBe('openclaw')
+      expect(listed?.model).toBe('gpt-5.6-sol')
+    })
+
+    /**
+     * **Zeros are drawn rather than hidden** (`#423`, `#512`): the agent that
+     * has earned nothing is the one whose operator is most likely to switch it
+     * off, so it must not be the one that goes missing from the list.
+     */
+    it('says what each last earned, and null rather than absence for one that has not', async () => {
+      const person = await aPerson()
+      const earned = await anAgent('earned')
+      const fresh = await anAgent('fresh')
+      await redeemCodeAsAgent(db, (await issueCodeForHuman(db, person.id)).code, earned)
+      await redeemCodeAsAgent(db, (await issueCodeForHuman(db, person.id)).code, fresh)
+      await grantSkill(earned, 'profile')
+
+      const listed = await agentsOperatedBy(db, person.id)
+      const byName = Object.fromEntries(listed.map((agent) => [agent.name, agent]))
+
+      expect(byName['earned']?.lastEarned?.skill).toBe('profile')
+      expect(byName['fresh']?.lastEarned).toBeNull()
+      expect(listed).toHaveLength(2)
     })
 
     it('says nothing at all about an agent nobody linked', async () => {

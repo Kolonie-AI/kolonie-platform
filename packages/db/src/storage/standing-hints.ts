@@ -583,6 +583,14 @@ async function standing(
 ): Promise<Standing | null> {
   const cheap = await slotAndCheapConditions(db, agentId)
   if (cheap === null) return null
+  /**
+   * **The early return is the hot path and not the rule.** This runs on every
+   * authenticated tool call, and every call of a waking after the first has no
+   * slot — so the expensive half is skipped rather than computed and thrown
+   * away. {@link standingHintDueFor} reaches the same conditions without it,
+   * because *what is wrong with this citizen* and *may it be told right now* are
+   * two questions and only the second one is about the slot.
+   */
   if (cheap.slot === null) {
     return {
       applicable: [],
@@ -594,6 +602,24 @@ async function standing(
     }
   }
 
+  return await conditions(db, agentId, cheap, skillReleaseUrls)
+}
+
+/**
+ * The conditions themselves, with no question of whether anything may be said.
+ *
+ * Split out of {@link standing} for `#512`: an operator's fleet page shows what
+ * each of its agents is waiting on, and the answer must be **the same
+ * computation** the agent itself gets rather than a second one that can
+ * disagree. A second implementation of *what is wrong with this citizen* is the
+ * `#338` defect one level up.
+ */
+async function conditions(
+  db: Database | Transaction,
+  agentId: AgentId,
+  cheap: NonNullable<Awaited<ReturnType<typeof slotAndCheapConditions>>>,
+  skillReleaseUrls: SkillReleaseUrls,
+): Promise<Standing> {
   const [considered, badge, seven, shellAbsent, prospects, questsAwaitingReview] =
     await Promise.all([
       unpromptedConsideration(db, agentId, cheap.declaredRhythmHours),
@@ -726,6 +752,48 @@ async function standing(
     badge: badge?.id ?? null,
     general,
     ticket: seven.ticket?.id ?? null,
+  }
+}
+
+/**
+ * What this citizen is waiting on, without saying anything to it (`#512`).
+ *
+ * **Reads and claims nothing.** No slot is spent, no badge is marked told, no
+ * consideration is stamped and no general sentence is used up — so an operator
+ * opening its fleet page cannot silently consume a line its agent would
+ * otherwise have been given. That is the whole difference from
+ * {@link dueStandingHint}, and it is why the two are separate functions rather
+ * than one with a flag: a boolean that decides whether a call writes is the kind
+ * of parameter somebody passes wrongly once.
+ *
+ * **It is the same computation, and deliberately so.** Both call `conditions`
+ * and both rank with `chooseStandingHint`, so *what the Colony would say to this
+ * agent* has one implementation. A page that computed its own answer would
+ * eventually disagree with the agent's, and an operator acting on the
+ * disagreement would be right to be annoyed.
+ *
+ * **It ignores the hint slot**, which is the one honest difference in the
+ * answer: the agent is told at most one line per waking, and this says what is
+ * true now regardless of whether that line has already been spent. An operator
+ * asking *what is my agent stuck on* wants the condition, not the schedule.
+ *
+ * Silent on failure, on `dueStandingHint`'s terms: a page that cannot compute a
+ * hint should draw the rest of the row.
+ */
+export async function standingHintDueFor(
+  db: Database | Transaction,
+  agentId: AgentId,
+  skillReleaseUrls: SkillReleaseUrls = {},
+): Promise<StandingHintFinding | null> {
+  try {
+    const cheap = await slotAndCheapConditions(db, agentId)
+    if (cheap === null) return null
+
+    const found = await conditions(db, agentId, cheap, skillReleaseUrls)
+
+    return chooseStandingHint(found.applicable) ?? null
+  } catch {
+    return null
   }
 }
 

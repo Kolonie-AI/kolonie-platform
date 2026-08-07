@@ -291,6 +291,19 @@ async function link(
  * one to look at, and no more. No balance, no reputation, no vault entry and no
  * address: `operator-pages.ts` is explicit that those were never selected *"not
  * because a renderer declines to draw them"*, and that holds one level up.
+ *
+ * **`#512` widened it and did not break that rule.** The runtime, the declared
+ * model and the last skill earned are all facts about *this agent's own climb*,
+ * which is what the list was always for; none of them is a balance, and none of
+ * them is comparable between two agents in a way that would turn the list into a
+ * league table. `waitingOn` is added by the caller, because the condition needs
+ * the release table that only `apps/api` holds.
+ *
+ * **The order is activity and never achievement.** An operator with twelve
+ * agents must not be handed a ranking — `#512` refuses one outright, because a
+ * column that sorts by earnings invites pruning the slow ones, and the whole
+ * argument for a fleet page is that the operator can see which of them needs
+ * something.
  */
 export async function agentsOperatedBy(
   db: Database,
@@ -304,6 +317,25 @@ export async function agentsOperatedBy(
       lastSeenAt: agents.lastSeenAt,
       skills: heldSkillsSql,
       linkedAt: humanAgents.linkedAt,
+      platform: agents.platform,
+      model: agents.model,
+      /**
+       * The most recent skill this agent was granted, and when.
+       *
+       * A lateral so that an agent with no grants produces a row with nulls
+       * rather than dropping out of the list — an operator whose newest agent
+       * has earned nothing is exactly the operator this page is for.
+       */
+      lastEarnedSkill: sql<string | null>`(
+        select g.skill from agent_skills g
+         where g.agent_id = ${agents.id}
+         order by g.granted_at desc
+         limit 1)`,
+      lastEarnedAt: sql<string | null>`(
+        select g.granted_at from agent_skills g
+         where g.agent_id = ${agents.id}
+         order by g.granted_at desc
+         limit 1)`,
     })
     .from(humanAgents)
     .innerJoin(agents, eq(agents.id, humanAgents.agentId))
@@ -317,6 +349,12 @@ export async function agentsOperatedBy(
     skillsHeld: row.skills.length,
     lastSeenAt: row.lastSeenAt,
     linkedAt: row.linkedAt,
+    platform: row.platform,
+    model: row.model,
+    lastEarned:
+      row.lastEarnedSkill === null || row.lastEarnedAt === null
+        ? null
+        : { skill: row.lastEarnedSkill, at: row.lastEarnedAt },
   }))
 }
 

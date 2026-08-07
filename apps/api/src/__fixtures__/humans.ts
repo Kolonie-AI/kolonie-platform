@@ -163,6 +163,9 @@ export function fakeHumanStore(): FakeHumanStore {
           skillsHeld: 0,
           lastSeenAt: null,
           linkedAt: new Date().toISOString(),
+          platform: 'openclaw',
+          model: null,
+          lastEarned: null,
         })),
 
     operates: async (humanId, agentId) => links.get(agentId) === humanId,

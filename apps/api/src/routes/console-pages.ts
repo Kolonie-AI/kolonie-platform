@@ -227,12 +227,33 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
        * shape that rule describes.
        */
       const you = await deps.humans.store.sponsorAgent(signedIn.human.id)
-      const agents = operated.map((agent) => ({
+      /**
+       * **What each of them is waiting on** (`#512`).
+       *
+       * *Which of my twelve is stuck on something I can fix* is the question
+       * this page could not answer at all, and the one that makes it worth
+       * opening twice. It is the agent's **own** standing hint, computed by the
+       * one function that computes it — never a second answer — and asking for
+       * it spends nothing: `facing` claims no slot, marks no badge told and uses
+       * up no general sentence.
+       *
+       * One call per agent, in parallel. It is a page load rather than a hot
+       * path, and the alternative — a single query reimplementing fourteen
+       * conditions — is the second implementation this is written to avoid.
+       */
+      const waiting = await Promise.all(
+        operated.map(async (agent) => (await deps.hints.facing(agent.id))?.code ?? null),
+      )
+      const agents = operated.map((agent, index) => ({
         id: String(agent.id),
         name: agent.name,
         citizenship: agent.citizenship,
         skillsHeld: agent.skillsHeld,
         lastSeenAt: agent.lastSeenAt,
+        platform: agent.platform,
+        model: agent.model,
+        lastEarned: agent.lastEarned ?? null,
+        waitingOn: waiting[index] ?? null,
         you: you !== undefined && String(you.id) === String(agent.id),
       }))
 

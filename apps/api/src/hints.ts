@@ -6,7 +6,7 @@ import type {
   StandingHintFinding,
 } from '@kolonie-ai/core'
 import { GENERAL_HINTS, generalHintText } from '@kolonie-ai/core'
-import { dueStandingHint, type Database } from '@kolonie-ai/db'
+import { dueStandingHint, standingHintDueFor, type Database } from '@kolonie-ai/db'
 
 /**
  * The one line a citizen did not ask for (`#231`).
@@ -25,6 +25,20 @@ export interface StandingHintSource {
    * There is exactly one caller: the MCP guard, once per tool result.
    */
   due(agentId: AgentId): Promise<StandingHintFinding | null>
+  /**
+   * What this agent is waiting on, said to nobody (`#512`).
+   *
+   * **Spends nothing**, which is the whole reason it is a second method rather
+   * than a flag on the first: an operator opening its fleet page must not
+   * consume a line its agent would otherwise have been given, and a boolean
+   * deciding whether a call writes is the kind of parameter somebody passes
+   * wrongly once.
+   *
+   * It is the *same computation* — `packages/db` runs one implementation for
+   * both — so the operator and the agent can never be told two different things
+   * about what is wrong.
+   */
+  facing(agentId: AgentId): Promise<StandingHintFinding | null>
 }
 
 /**
@@ -42,7 +56,10 @@ export function databaseStandingHints(db: Database, releases: SkillReleases): St
     Object.entries(releases).map(([platform, release]) => [platform, release.url]),
   )
 
-  return { due: (agentId) => dueStandingHint(db, agentId, urls) }
+  return {
+    due: (agentId) => dueStandingHint(db, agentId, urls),
+    facing: (agentId) => standingHintDueFor(db, agentId, urls),
+  }
 }
 
 /**

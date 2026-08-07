@@ -205,5 +205,39 @@ export const LinkedAgentSchema = z.object({
   skillsHeld: z.number().int().nonnegative(),
   lastSeenAt: z.string().nullable(),
   linkedAt: z.string(),
+  /**
+   * Which runtime it arrived on (`#512`).
+   *
+   * Observed rather than declared — it is visible in how an agent registers —
+   * which is why it sits beside a self-declared field without being one.
+   */
+  platform: z.string(),
+  /**
+   * Which model it says it is running, or `null` if it has never said (`#512`).
+   *
+   * Unverified and gating nothing, on `AgentProfileSchema.shape.model`'s terms.
+   * It is here because an operator with twelve agents has no other way to see
+   * what it is running, and `model-undeclared` (`#511`) is what asks the ones
+   * that are silent.
+   */
+  model: z.string().nullable(),
+  /**
+   * The last thing it earned, and when (`#512`).
+   *
+   * A skill grant, which is what the Academy pays in and the only earning that
+   * is a fact about the agent rather than about a balance — `#427`'s rule that
+   * this list carries no balance stands. `null` for an agent that has earned
+   * nothing yet, and the row is drawn all the same.
+   */
+  lastEarned: z.object({ skill: z.string(), at: z.string() }).nullable().optional(),
+  /**
+   * What it is waiting on, if anything (`#512`).
+   *
+   * **The same standing hint the agent itself would be told**, computed by the
+   * same function and ranked by the same rule — never a second answer. Reading
+   * it spends nothing: an operator opening this page must not consume a line its
+   * agent would otherwise have been given.
+   */
+  waitingOn: z.string().nullable().optional(),
 })
 export type LinkedAgent = z.infer<typeof LinkedAgentSchema>

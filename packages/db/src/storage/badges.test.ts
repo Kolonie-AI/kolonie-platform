@@ -243,6 +243,14 @@ describe('the badges a citizen is given', () => {
        * property worth pinning and cannot be pinned without touching both.
        */
       'attribution.test.ts',
+      /**
+       * `#512`, and a test rather than a sixth reader, on `attribution.test.ts`'
+       * reasoning. `standing-hints.ts` is already allowed above; its test writes
+       * a badge in order to assert that the **read-only** hint accessor an
+       * operator's fleet page uses does *not* mark it told. Pinning that needs a
+       * badge to exist, and the property being pinned is a non-read.
+       */
+      'standing-hints.test.ts',
     ])
 
     const offenders: string[] = []

@@ -10,6 +10,7 @@ import {
   refusingTenant,
   type FakeHumanStore,
 } from '../__fixtures__/humans.js'
+import type { FakeStandingHints } from '../__fixtures__/hints.js'
 import { SESSION_COOKIE } from './console.js'
 import { OAUTH_STATE_COOKIE } from '../humans/humans.js'
 
@@ -25,6 +26,7 @@ const API_HOST = 'api.example'
 
 let app: FastifyInstance
 let humans: FakeHumanStore
+let hints: FakeStandingHints
 
 /**
  * The app, with or without a tenant.
@@ -35,8 +37,13 @@ let humans: FakeHumanStore
  */
 const build = (withTenant = true) => {
   humans = fakeHumanStore()
+  const colony = fakeColony()
+  // Kept rather than spread and forgotten (`#512`): the fleet's *waiting on*
+  // column reads through this, and the tests for it need both to set the answer
+  // and to assert that nothing was spent.
+  hints = colony.hints as FakeStandingHints
   return buildApp({
-    ...fakeColony(),
+    ...colony,
     console: { ...fakeConsole(), consoleUrl: CONSOLE_URL },
     humans: { store: humans, ...(withTenant ? { tenant: fakeTenant() } : {}) },
   })
@@ -777,6 +784,80 @@ describe('the dashboard and the link code', () => {
       const response = await asBrowser(`/agents/${agentId}/operator`)
 
       expect(response.statusCode).toBe(404)
+    })
+  })
+
+  /**
+   * The fleet (`#512`). An operator with twelve agents could read about them one
+   * at a time; what it could not answer at all is *which of them is waiting on
+   * something I can fix*, and that is the column that earns the page.
+   */
+  describe('reading the whole fleet at once', () => {
+    const agentId = '44444444-4444-4444-8444-444444444444' as never
+
+    beforeEach(async () => {
+      await post('/link/code')
+      await humans.redeemAsAgent('TEST-0001', agentId)
+    })
+
+    it('draws the runtime, the model, what it last earned and when it last woke', async () => {
+      const body = (await signedIn('/')).body
+
+      expect(body).toContain('<th>Runtime</th>')
+      expect(body).toContain('<th>Model</th>')
+      expect(body).toContain('<th>Last earned</th>')
+      expect(body).toContain('<th>Last awake</th>')
+    })
+
+    /**
+     * **Zeros and nevers are drawn rather than hidden** (`#423`, restated by
+     * `#512`): hiding an agent with nothing means the operator most likely to
+     * switch something off sees the least.
+     */
+    it('draws an agent that has declared nothing and earned nothing', async () => {
+      const body = (await signedIn('/')).body
+
+      expect(body).toContain('not declared')
+      expect(body).toContain('nothing yet')
+      expect(body).toContain('never')
+    })
+
+    it('shows what each agent is waiting on', async () => {
+      hints.faces('rhythm-undeclared')
+
+      const body = (await signedIn('/')).body
+
+      expect(body).toContain('<th>Waiting on</th>')
+      expect(body).toContain('rhythm-undeclared')
+    })
+
+    /**
+     * **The page must not consume the agent's one line.** It reads through
+     * `facing`, which claims nothing; `due` is the MCP guard's and has exactly
+     * one caller. A page that spent the slot would silence the agent's own
+     * channel every time its operator refreshed a browser tab.
+     */
+    it('spends nothing the agent was going to be told', async () => {
+      hints.faces('rhythm-undeclared')
+      hints.answers('rhythm-undeclared')
+
+      await signedIn('/')
+      await signedIn('/')
+
+      // `asked` records the calls to `due`, which is the one that spends.
+      expect(hints.asked()).toEqual([])
+    })
+
+    /**
+     * **Not a control panel, and no league table** (`#512`). Both refusals are
+     * on the page in words, because the next person to open this file will be
+     * adding a column and these are the two they would add.
+     */
+    it('says outright that it drives nothing and ranks nothing', async () => {
+      const body = (await signedIn('/')).body
+
+      expect(body).toMatch(/nothing here to start, stop, configure or instruct/i)
+      expect(body).toMatch(/not a league table/i)
     })
   })
 

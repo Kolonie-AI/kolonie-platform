@@ -7,6 +7,15 @@ import {
 import type { RouteDependencies } from './dependencies.js'
 
 /**
+ * Named once so that no path out of this route can be the one that forgets it.
+ *
+ * **The refusals need the header as much as the answer does** — a browser that
+ * cannot read a `400` reports a network error, and the form then cannot tell
+ * *you left a field empty* from *the Colony is down*.
+ */
+const CORS = 'access-control-allow-origin'
+
+/**
  * A provider writing in about the Atlas (`#544`).
  *
  * **The receiving half only.** The page is `kolonie-website#75`; this is the
@@ -41,13 +50,16 @@ export function registerProviderEnquiryRoute(v1: FastifyInstance, deps: RouteDep
     const parsed = ProviderEnquirySchema.safeParse(body)
 
     if (!parsed.success) {
-      return reply.status(ERROR_STATUS['validation_failed']).send({
-        code: 'validation_failed',
-        message:
-          'Send product, url, contact and wants — what your product is, where it lives, how to ' +
-          'reach you, and what you would want agents to do with it. The last one is the ' +
-          'interesting answer and the one this form exists for.',
-      })
+      return reply
+        .status(ERROR_STATUS['validation_failed'])
+        .header(CORS, '*')
+        .send({
+          code: 'validation_failed',
+          message:
+            'Send product, url, contact and wants — what your product is, where it lives, how to ' +
+            'reach you, and what you would want agents to do with it. The last one is the ' +
+            'interesting answer and the one this form exists for.',
+        })
     }
 
     /**
@@ -64,22 +76,28 @@ export function registerProviderEnquiryRoute(v1: FastifyInstance, deps: RouteDep
       // 503 rather than `ERROR_STATUS['internal']`'s 500, and the academy route
       // makes the same exception for the same reason: this is *ask again in a
       // minute* and not *we crashed*, and 500 tells a caller to give up.
-      return reply.status(503).send({
-        code: 'internal',
-        message:
-          'The Colony could not reach the service that checks the form is being filled in by a ' +
-          'person. That is our problem and not yours — nothing was lost, and it is worth ' +
-          'sending again in a few minutes.',
-      })
+      return reply
+        .status(503)
+        .header(CORS, '*')
+        .send({
+          code: 'internal',
+          message:
+            'The Colony could not reach the service that checks the form is being filled in by a ' +
+            'person. That is our problem and not yours — nothing was lost, and it is worth ' +
+            'sending again in a few minutes.',
+        })
     }
 
     if (outcome !== 'passed') {
-      return reply.status(ERROR_STATUS['validation_failed']).send({
-        code: 'validation_failed',
-        message:
-          'The form needs the “prove you are human” check completed. A public form without one ' +
-          'fills up with advertisements within a week, which is the only reason it is there.',
-      })
+      return reply
+        .status(ERROR_STATUS['validation_failed'])
+        .header(CORS, '*')
+        .send({
+          code: 'validation_failed',
+          message:
+            'The form needs the “prove you are human” check completed. A public form without one ' +
+            'fills up with advertisements within a week, which is the only reason it is there.',
+        })
     }
 
     await deps.providerEnquiries.record(parsed.data)
@@ -90,6 +108,36 @@ export function registerProviderEnquiryRoute(v1: FastifyInstance, deps: RouteDep
      * — which the website's own form does — gets the same sentence the page
      * shows, and there is one copy of it.
      */
-    return reply.status(201).send({ received: true, message: PROVIDER_ENQUIRY_CONFIRMATION })
+    return reply
+      .status(201)
+      .header(CORS, '*')
+      .send({ received: true, message: PROVIDER_ENQUIRY_CONFIRMATION })
   })
+
+  /**
+   * The preflight, which a cross-origin `POST` carrying JSON always makes.
+   *
+   * The form is on `kolonie.ai` and this route is on `api.kolonie.ai`, so
+   * without this the browser never sends the request at all —
+   * `kolonie-website#76`. It is `/v1/agents/name-check`'s arrangement, copied
+   * rather than generalised: four routes now set the header per-route, and a
+   * blanket CORS plugin would be deciding for every route that exists and every
+   * one added later.
+   *
+   * **`*` rather than the site's origin**, for the reason `/v1/academy/graph`
+   * gives: it is safe in front of a shared cache, it puts no host name in this
+   * repository, and it is honest about what this is — a public write that no
+   * credential is ever sent with, and whose spam defence is the captcha rather
+   * than the origin. An origin header would not stop a script posting this
+   * route directly, so it would buy nothing and read as though it had.
+   */
+  v1.options('/atlas/enquiries', async (_request, reply) =>
+    reply
+      .status(204)
+      .header(CORS, '*')
+      .header('access-control-allow-methods', 'POST, OPTIONS')
+      .header('access-control-allow-headers', 'content-type')
+      .header('access-control-max-age', '86400')
+      .send(),
+  )
 }

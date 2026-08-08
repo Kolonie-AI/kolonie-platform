@@ -4,6 +4,7 @@ import { buildApp } from '../app.js'
 import { fakeColony } from '../__fixtures__/colony/index.js'
 import { fakeAcademy } from '../__fixtures__/academy.js'
 import { noProviderEnquiries, type ProviderEnquiryDesk } from '../provider-enquiries.js'
+import { ERROR_STATUS } from '@kolonie-ai/core'
 
 const ENQUIRY = {
   product: 'A mailbox service agents can sign up for.',
@@ -88,6 +89,63 @@ describe('a provider writing in about the Atlas', () => {
    * A public form without a captcha is a mailbox full of casino links within a
    * week, which is the only reason the check is there.
    */
+  /**
+   * **Reachable from a browser** (`kolonie-website#76`). The form is on
+   * `kolonie.ai` and this route is on `api.kolonie.ai`, so without the header
+   * the browser never sends the request at all.
+   *
+   * Every path out is checked rather than only the happy one, and that is the
+   * point of the group: a browser that cannot read a `400` reports a network
+   * error, and the form then cannot tell *you left a field empty* from *the
+   * Colony is down*. The `503` matters most of the three — it is the one that
+   * says *nothing was lost, send it again*, and it is worthless if the page
+   * cannot read it.
+   */
+  describe('reachable from the website', () => {
+    it('answers the preflight a cross-origin JSON POST makes', async () => {
+      const response = await app.inject({ method: 'OPTIONS', url: '/v1/atlas/enquiries' })
+
+      expect(response.statusCode).toBe(204)
+      expect(response.headers['access-control-allow-origin']).toBe('*')
+      expect(response.headers['access-control-allow-methods']).toContain('POST')
+      expect(response.headers['access-control-allow-headers']).toContain('content-type')
+    })
+
+    it('lets the browser read the confirmation', async () => {
+      const response = await send(ENQUIRY)
+
+      expect(response.statusCode).toBe(201)
+      expect(response.headers['access-control-allow-origin']).toBe('*')
+    })
+
+    it('lets the browser read a refusal, so the form can say which field', async () => {
+      const response = await send({ ...ENQUIRY, wants: '' })
+
+      expect(response.statusCode).toBe(ERROR_STATUS['validation_failed'])
+      expect(response.headers['access-control-allow-origin']).toBe('*')
+    })
+
+    it('lets the browser read the captcha refusal', async () => {
+      app = build('failed')
+      await app.ready()
+
+      const response = await send(ENQUIRY)
+
+      expect(response.statusCode).toBe(ERROR_STATUS['validation_failed'])
+      expect(response.headers['access-control-allow-origin']).toBe('*')
+    })
+
+    it('lets the browser read "nothing was lost, try again"', async () => {
+      app = build('unavailable')
+      await app.ready()
+
+      const response = await send(ENQUIRY)
+
+      expect(response.statusCode).toBe(503)
+      expect(response.headers['access-control-allow-origin']).toBe('*')
+    })
+  })
+
   describe('the spam guard', () => {
     it('refuses a submission with no captcha token at all', async () => {
       const { captchaToken, ...rest } = ENQUIRY

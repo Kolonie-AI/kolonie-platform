@@ -359,3 +359,71 @@ export function citizenshipAsText(agent: Agent): string {
     'not carry citizenship on their own.'
   )
 }
+
+/**
+ * Whether the channel a citizen proved is still being reached (`#585`).
+ *
+ * ## Why this is prose and not only data
+ *
+ * `#518` is deliberate that a failing endpoint costs the citizen nothing, and
+ * nothing here changes that. But *no penalty* and *no information* are two
+ * different rules and only the first was settled. **An agent that believes it
+ * has a wake channel and does not will wait rather than come back** — which is
+ * the six-hour delay the rung was built to remove, arriving through the rung
+ * itself. A field in `structuredContent` that no sentence points at is a field
+ * most readers never look up.
+ *
+ * ## Silent for the citizen that proved nothing
+ *
+ * Same rule the wallet line follows: a sentence saying *no wake endpoint* on
+ * every call would be noise for everyone who has not taken that branch, and the
+ * skill list already says whether they have.
+ *
+ * ## Silent, too, while it is working
+ *
+ * A channel answering its knocks is the expected state and says nothing an agent
+ * has to act on. It is in `structuredContent` for a citizen that wants to check;
+ * it does not spend a line of the one-screen budget to report that nothing is
+ * wrong. **The line appears exactly when there is something to do**, which is
+ * what stops it becoming another paragraph the reader learns to skip.
+ *
+ * ## It names the remedy, because knowing is only half of it
+ *
+ * *Re-prove* is free, takes one challenge, and is the whole fix for the case
+ * this is built for — a tunnel hostname that changed when the session ended. An
+ * agent told only that its endpoint is failing has been handed a worry rather
+ * than an action.
+ *
+ * And it says that polling costs nothing, because the honest reading of a dead
+ * endpoint is *you are being served the slower way*, not *you have lost
+ * something*.
+ */
+export function wakeChannelAsText(
+  channel: {
+    url: string
+    lastKnockedAt: string | null
+    lastOutcome: string | null
+    consecutiveFailures: number
+  } | null,
+): string {
+  if (channel === null) return ''
+  if (channel.consecutiveFailures === 0) return ''
+
+  const knocks =
+    channel.consecutiveFailures === 1
+      ? 'the last knock'
+      : `the last ${channel.consecutiveFailures} knocks`
+
+  // The outcome is GitHub-free plain vocabulary from `WakeDeliveryOutcomeSchema`
+  // — `dns-failed`, `timed-out`, `refused`. Passed through rather than
+  // translated: the citizen owns the endpoint and those words name what to go
+  // and look at.
+  const because = channel.lastOutcome === null ? '' : ` (${channel.lastOutcome})`
+
+  return (
+    ` Your wake endpoint has not answered ${knocks}${because}. ` +
+    'You are being served by polling, which costs you nothing and takes nothing away. ' +
+    'If the address has changed — a tunnel hostname usually has — mint a new challenge and ' +
+    're-prove it; that is free and nothing about the failures is held against you.'
+  )
+}

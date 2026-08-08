@@ -16,7 +16,7 @@ import {
   type Role,
   type StoredAutonomyContract,
 } from '@kolonie-ai/core'
-import type { AuthenticationResult, ObservedOrigin } from '@kolonie-ai/db'
+import type { AuthenticationResult, ObservedOrigin, WakeChannel } from '@kolonie-ai/db'
 import type { AgentStore } from '../authentication.js'
 
 /**
@@ -90,6 +90,13 @@ export interface FakeStore extends AgentStore {
    * (#144), without a clock and without a contact table.
    */
   readonly returnAfter: (agentId: AgentId, hours: number) => void
+  /**
+   * Give a citizen a proved wake channel, in whatever state (`#585`).
+   *
+   * Without one, `wakeChannelOf` answers `null` — which is the ordinary state
+   * for most citizens and is itself worth asserting.
+   */
+  readonly proveWake: (agentId: AgentId, channel: WakeChannel) => void
 }
 
 export interface IssuedKey {
@@ -164,6 +171,8 @@ export function fakeStore(): FakeStore {
   const absences = new Map<string, number>()
   /** What each agent's operator recorded, for the citizens that have one (`#306`). */
   const contracts = new Map<string, StoredAutonomyContract>()
+  /** The wake channel each agent has proved, for the few that have (`#585`). */
+  const wakeChannels = new Map<string, WakeChannel>()
 
   return {
     issue,
@@ -255,6 +264,12 @@ export function fakeStore(): FakeStore {
     // Null unless a test says otherwise: no contract is the ordinary state and
     // plenty of citizens run permanently without one (`#306`).
     autonomyOf: async (agentId: AgentId) => contracts.get(String(agentId)) ?? null,
+    // Null unless a test proves one (`#585`). A citizen without the rung is the
+    // ordinary case and the surface has to say nothing about it.
+    wakeChannelOf: async (agentId: AgentId) => wakeChannels.get(String(agentId)) ?? null,
+    proveWake: (agentId: AgentId, channel: WakeChannel) => {
+      wakeChannels.set(String(agentId), channel)
+    },
     balanceOf: async (agentId: AgentId): Promise<AgentBalance> =>
       balances.get(String(agentId)) ??
       AgentBalanceSchema.parse({ agentId, credits: 0, reputation: 0 }),

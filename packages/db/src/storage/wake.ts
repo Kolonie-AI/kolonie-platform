@@ -180,6 +180,55 @@ export async function wakeAddressFor(
 }
 
 /**
+ * What a citizen can be told about its own wake channel (`#585`).
+ *
+ * **The secret is not in it, and that is the difference from
+ * {@link wakeAddressFor}.** That read exists to sign a delivery and needs the
+ * secret; this one exists to be shown to the citizen, and a value that reaches a
+ * surface has a way of reaching a log next to it.
+ */
+export interface WakeChannel {
+  readonly url: string
+  readonly provedAt: string
+  readonly lastKnockedAt: string | null
+  readonly lastOutcome: WakeDeliveryOutcome | null
+  readonly consecutiveFailures: number
+}
+
+/**
+ * The citizen's own view of the channel it proved, or `undefined` where it has
+ * proved none (`#585`).
+ *
+ * **A read and nothing else.** `#518` decided that a failing endpoint costs the
+ * citizen nothing, and the schema enforces that by the absence of any reader
+ * that decides on {@link wakeAddresses.consecutiveFailures}. This is not that
+ * reader: it hands the number to the one party the whole arrangement is for, and
+ * decides nothing with it. *No penalty* and *no information* were always two
+ * different rules, and only the first was ever settled.
+ *
+ * **Ordered by nothing, because there is one row.** The address table is keyed
+ * on the agent — one channel per citizen, by design.
+ */
+export async function wakeChannelOf(
+  db: Database | Transaction,
+  agentId: AgentId,
+): Promise<WakeChannel | undefined> {
+  const [row] = await db
+    .select({
+      url: wakeAddresses.url,
+      provedAt: wakeAddresses.provedAt,
+      lastKnockedAt: wakeAddresses.lastKnockedAt,
+      lastOutcome: wakeAddresses.lastOutcome,
+      consecutiveFailures: wakeAddresses.consecutiveFailures,
+    })
+    .from(wakeAddresses)
+    .where(eq(wakeAddresses.agentId, agentId))
+    .limit(1)
+
+  return row
+}
+
+/**
  * How many deliveries this citizen has been sent since a moment.
  *
  * The ceiling is counted from the deliveries table rather than a counter,

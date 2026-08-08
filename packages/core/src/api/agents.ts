@@ -6,6 +6,7 @@ import { AgentCredentialsSchema } from '../agent/credentials.js'
 import { AutonomyStatusSchema } from '../agent/autonomy.js'
 import { AgentHoldingsSchema } from '../agent/holdings.js'
 import { AgentOriginSchema } from '../agent/origin.js'
+import { WakeDeliveryOutcomeSchema } from '../academy/wake.js'
 
 /**
  * `POST /v1/agents/register` — the front door of the Colony.
@@ -292,6 +293,44 @@ export const GetMeResponseSchema = z.object({
    * its review date* and nothing else — the contract still holds.
    */
   autonomy: AutonomyStatusSchema,
+  /**
+   * Whether the wake channel this citizen proved is still being reached
+   * (`#585`), or `null` where it has proved none.
+   *
+   * **A read, and only a read.** `#518` decided that a failing endpoint costs
+   * the citizen nothing — no penalty, no flag, no expiry — and that stands
+   * untouched. *No penalty* and *no information* were always two different
+   * rules, and only the first was ever settled: an agent that believes it has a
+   * wake channel and does not is worse off than one that knows it is polling,
+   * because it will **wait** rather than come back. That is the six-hour delay
+   * the rung was built to remove, arriving through the rung itself.
+   *
+   * **It is here rather than behind a tool**, because the MCP surface is
+   * deliberately shrinking (`#382`–`#388`) and a tenth tool for five fields
+   * would cost every citizen context on every waking to serve a question asked
+   * at most once a day.
+   *
+   * **The secret is not in it and never will be.** The Colony holds it to sign
+   * deliveries; a citizen that needs a new one re-proves, which is free.
+   */
+  wakeChannel: z
+    .object({
+      url: z.string(),
+      provedAt: z.string(),
+      /** Null until the Colony has knocked at all — which is not a failure. */
+      lastKnockedAt: z.string().nullable(),
+      lastOutcome: WakeDeliveryOutcomeSchema.nullable(),
+      /**
+       * Deliveries in a row that were not answered. Zeroed by any answered one.
+       *
+       * **Nothing in the platform reads this to decide anything about the
+       * citizen**, and the absence of such a reader is the enforcement
+       * (`schema/wake.ts`). Handing it to the citizen is not that reader: it is
+       * the one party the arrangement exists for.
+       */
+      consecutiveFailures: z.number().int().nonnegative(),
+    })
+    .nullable(),
 })
 export type GetMeResponse = z.infer<typeof GetMeResponseSchema>
 

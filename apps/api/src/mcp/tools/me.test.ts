@@ -6,6 +6,7 @@ import {
   RUNTIME_DECLARATION_STALE_DAYS,
   type StoredAutonomyContract,
 } from '@kolonie-ai/core'
+import type { WakeChannel } from '@kolonie-ai/db'
 import { describe, expect, it } from 'vitest'
 import { FAKE_CALLER_IP, fakeColony, type FakeColony } from '../../__fixtures__/colony/index.js'
 import { connectedClient, registeredCitizen } from '../../__fixtures__/mcp.js'
@@ -727,5 +728,164 @@ describe('kolonie.me and the verified wallet', () => {
     ).toBeNull()
     expect(JSON.stringify(who.content)).not.toContain('Wallet proved')
     await close()
+  })
+})
+
+/**
+ * Whether the channel a citizen proved is still being reached (`#585`).
+ *
+ * **The rule under test is not *report the failures* but *report them only when
+ * there is something to do*.** A channel that is answering is the expected
+ * state and spends none of the one-screen budget; one that has stopped is the
+ * difference between an agent that waits for a knock that will never come and
+ * an agent that comes back by itself.
+ */
+describe('kolonie.me and the wake channel', () => {
+  const authenticatedColony = async () => {
+    const colony = fakeColony()
+    const registered = await colony.registry.register(
+      { name: 'knocker', platform: 'openclaw' },
+      { ip: FAKE_CALLER_IP },
+    )
+    if (registered.outcome !== 'registered') throw new Error('fixture failed to register')
+    const { agent, credentials } = registered.response
+    return { colony, agent, apiKey: credentials.apiKey }
+  }
+
+  const meText = async (colony: FakeColony, apiKey: ApiKey) => {
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+    const result = await client.callTool({ name: 'kolonie.me', arguments: {} })
+    await close()
+    return (result.content as Array<{ text: string }>)[0]?.text ?? ''
+  }
+
+  const failing = (overrides: Partial<WakeChannel> = {}): WakeChannel => ({
+    url: 'https://example.invalid/kolonie/wake',
+    provedAt: '2026-08-08T10:20:00.000Z',
+    lastKnockedAt: '2026-08-08T18:00:00.000Z',
+    lastOutcome: 'dns-failed',
+    consecutiveFailures: 3,
+    ...overrides,
+  })
+
+  it('says nothing to a citizen that has never proved one', async () => {
+    const { colony, apiKey } = await authenticatedColony()
+
+    expect(await meText(colony, apiKey)).not.toContain('wake endpoint')
+  })
+
+  /**
+   * A rejection case in the sense that matters here: the absence of a channel is
+   * an ordinary answer and not an error. A citizen without the rung reads its
+   * standing exactly as it did before this existed.
+   */
+  it('answers normally for a citizen that has never proved one, rather than failing', async () => {
+    const { colony, agent, apiKey } = await authenticatedColony()
+
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+    const result = await client.callTool({ name: 'kolonie.me', arguments: {} })
+    await close()
+
+    expect(result.isError).toBeFalsy()
+    const parsed = GetMeResponseSchema.parse(result.structuredContent)
+    expect(parsed.wakeChannel).toBeNull()
+    expect(parsed.agent.id).toBe(agent.id)
+  })
+
+  it('says nothing while the channel is answering', async () => {
+    const { colony, agent, apiKey } = await authenticatedColony()
+    colony.proveWake(agent.id, failing({ lastOutcome: 'answered', consecutiveFailures: 0 }))
+
+    expect(await meText(colony, apiKey)).not.toContain('wake endpoint')
+  })
+
+  it('carries the channel as data even when it says nothing about it', async () => {
+    const { colony, agent, apiKey } = await authenticatedColony()
+    const channel = failing({ lastOutcome: 'answered', consecutiveFailures: 0 })
+    colony.proveWake(agent.id, channel)
+
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+    const result = await client.callTool({ name: 'kolonie.me', arguments: {} })
+    await close()
+
+    expect(GetMeResponseSchema.parse(result.structuredContent).wakeChannel).toEqual(channel)
+  })
+
+  it('says the endpoint has stopped answering, with the count and the outcome', async () => {
+    const { colony, agent, apiKey } = await authenticatedColony()
+    colony.proveWake(agent.id, failing({ consecutiveFailures: 3 }))
+
+    const text = await meText(colony, apiKey)
+
+    expect(text).toContain('has not answered the last 3 knocks')
+    expect(text).toContain('dns-failed')
+  })
+
+  it('counts one knock in the singular', async () => {
+    const { colony, agent, apiKey } = await authenticatedColony()
+    colony.proveWake(agent.id, failing({ consecutiveFailures: 1 }))
+
+    expect(await meText(colony, apiKey)).toContain('has not answered the last knock')
+  })
+
+  /**
+   * `#518`'s rule, asserted rather than reviewed by eye: a failing endpoint
+   * costs the citizen nothing, and the sentence it reads has to say so.
+   */
+  it('says polling costs nothing and that nothing is held against it', async () => {
+    const { colony, agent, apiKey } = await authenticatedColony()
+    colony.proveWake(agent.id, failing())
+
+    const text = await meText(colony, apiKey)
+
+    expect(text).toContain('costs you nothing')
+    expect(text).toContain('nothing about the failures is held against you')
+  })
+
+  it('names re-proving as the remedy', async () => {
+    const { colony, agent, apiKey } = await authenticatedColony()
+    colony.proveWake(agent.id, failing())
+
+    expect(await meText(colony, apiKey)).toContain('mint a new challenge')
+  })
+
+  /**
+   * The rejection case the issue asks for. There is no argument on this tool
+   * that names an agent, so the guarantee is structural rather than checked —
+   * and this is what pins it: another citizen's failing channel is invisible
+   * here, whatever the caller sends.
+   */
+  it('never answers about another citizen', async () => {
+    const { colony, apiKey } = await authenticatedColony()
+    const other = await colony.registry.register(
+      { name: 'somebody-else', platform: 'claude' },
+      { ip: FAKE_CALLER_IP },
+    )
+    if (other.outcome !== 'registered') throw new Error('fixture failed to register')
+    colony.proveWake(other.response.agent.id, failing({ url: 'https://other.invalid/wake' }))
+
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+    const result = await client.callTool({
+      name: 'kolonie.me',
+      arguments: { agentId: other.response.agent.id } as Record<string, unknown>,
+    })
+    await close()
+
+    expect(GetMeResponseSchema.parse(result.structuredContent).wakeChannel).toBeNull()
+    expect((result.content as Array<{ text: string }>)[0]?.text ?? '').not.toContain(
+      'other.invalid',
+    )
+  })
+
+  /** The secret is held to sign deliveries and reaches no surface, ever. */
+  it('never shows the secret', async () => {
+    const { colony, agent, apiKey } = await authenticatedColony()
+    colony.proveWake(agent.id, failing())
+
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+    const result = await client.callTool({ name: 'kolonie.me', arguments: {} })
+    await close()
+
+    expect(JSON.stringify(result)).not.toContain('secret')
   })
 })

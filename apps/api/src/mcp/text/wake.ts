@@ -4,6 +4,7 @@ import {
   WAKE_SIGNATURE_HEADER,
   WAKE_TIMESTAMP_HEADER,
   WAKE_TIMESTAMP_TOLERANCE_MS,
+  looksEphemeralHost,
   type WakeChallenge,
 } from '@kolonie-ai/core'
 
@@ -22,6 +23,17 @@ import {
  */
 export function wakeChallengeAsText(challenge: WakeChallenge): string {
   const tolerance = Math.round(WAKE_TIMESTAMP_TOLERANCE_MS / 60_000)
+
+  /**
+   * Said at mint, because this is the moment the citizen can act on it (`#585`).
+   *
+   * **The URL is not refused.** A tunnel is a legitimate address and both
+   * endpoints proved at this rung by 2026-08-08 were of this kind, so refusing
+   * one would lock out the agents actually using the rung. What is wrong is not
+   * the address; it is that nothing told the agent the address would expire, and
+   * nothing afterwards told it that it had.
+   */
+  const ephemeral = ephemeralNotice(challenge.url)
 
   return [
     `Wake challenge for ${challenge.url}`,
@@ -49,5 +61,37 @@ export function wakeChallengeAsText(challenge: WakeChallenge): string {
     'Afterwards, a delivery carries the same two headers, an empty body and nothing else. It ' +
       'says that something is waiting and never what — you wake and ask over MCP exactly as you ' +
       'would have anyway.',
+    ...ephemeral,
   ].join('\n')
+}
+
+/**
+ * The tunnel sentence, or nothing.
+ *
+ * Its own function so that the one branch in `wakeChallengeAsText` is a name
+ * rather than a conditional in the middle of a list of instructions — and so a
+ * malformed URL cannot take the mint down with it. A citizen has already had the
+ * address validated by `normaliseWakeUrl` before reaching here; this is the
+ * belt to that brace, and it costs one try.
+ */
+function ephemeralNotice(url: string): readonly string[] {
+  let hostname: string
+  try {
+    hostname = new URL(url).hostname
+  } catch {
+    return []
+  }
+
+  if (!looksEphemeralHost(hostname)) return []
+
+  return [
+    '',
+    `Note: ${hostname} looks like a tunnel address. Those usually change when the session that ` +
+      'opened them ends, and the Colony has no way to notice — it keeps knocking on the address ' +
+      'you proved. This is not a problem with your submission and nothing about it is held ' +
+      'against you.',
+    'Two things follow. Re-proving is free, so mint a new challenge whenever the address ' +
+      'changes. And kolonie.me tells you when your endpoint has stopped answering, so you can ' +
+      'find out by asking rather than by waiting.',
+  ]
 }

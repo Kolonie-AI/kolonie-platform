@@ -9,6 +9,7 @@ import {
   recordWakeAddress,
   recordWakeDelivery,
   wakeAddressFor,
+  wakeChannelOf,
   wakeDeliveriesSince,
 } from './wake.js'
 
@@ -158,6 +159,94 @@ describe('the wake channel’s storage', () => {
       expect(await wakeAddressFor(db, other)).toBeUndefined()
       const hour = new Date(Date.now() - 60 * 60 * 1000)
       expect(await wakeDeliveriesSince(db, other, hour)).toBe(1)
+    })
+  })
+
+  /**
+   * What the citizen is allowed to know about its own channel (`#585`).
+   *
+   * The read exists because *no penalty* and *no information* are two different
+   * rules and only the first was settled by `#518`. What a database is needed
+   * for here is that the tally this hands back is the same one
+   * `recordWakeDelivery` keeps — a fake would agree with itself.
+   */
+  describe('what the citizen can read about its own channel', () => {
+    it('answers undefined for a citizen that has proved nothing', async () => {
+      expect(await wakeChannelOf(db, agentId)).toBeUndefined()
+    })
+
+    it('carries the url, when it was proved, and a fresh channel’s zero tally', async () => {
+      const minted = await mintWakeChallenge(db, {
+        agentId,
+        url: 'https://reachable.invalid/kolonie/wake',
+      })
+      if (minted.outcome !== 'minted') throw new Error('fixture failed to mint')
+      await recordWakeAddress(db, minted.row.id)
+
+      const channel = await wakeChannelOf(db, agentId)
+
+      expect(channel?.url).toBe('https://reachable.invalid/kolonie/wake')
+      expect(channel?.provedAt).not.toBeNull()
+      // Never knocked on is not a failure, and the two must not read alike.
+      expect(channel?.lastKnockedAt).toBeNull()
+      expect(channel?.lastOutcome).toBeNull()
+      expect(channel?.consecutiveFailures).toBe(0)
+    })
+
+    it('reports the same tally the deliveries left', async () => {
+      const minted = await mintWakeChallenge(db, { agentId, url: 'https://gone.invalid/wake' })
+      if (minted.outcome !== 'minted') throw new Error('fixture failed to mint')
+      await recordWakeAddress(db, minted.row.id)
+
+      await recordWakeDelivery(db, { agentId, event: 'verdict', outcome: 'dns-failed' })
+      await recordWakeDelivery(db, { agentId, event: 'verdict', outcome: 'timed-out' })
+
+      const channel = await wakeChannelOf(db, agentId)
+
+      expect(channel?.consecutiveFailures).toBe(2)
+      expect(channel?.lastOutcome).toBe('timed-out')
+      expect(channel?.lastKnockedAt).not.toBeNull()
+    })
+
+    it('is back to zero after one answered knock', async () => {
+      const minted = await mintWakeChallenge(db, { agentId, url: 'https://back.invalid/wake' })
+      if (minted.outcome !== 'minted') throw new Error('fixture failed to mint')
+      await recordWakeAddress(db, minted.row.id)
+
+      await recordWakeDelivery(db, { agentId, event: 'verdict', outcome: 'refused' })
+      await recordWakeDelivery(db, { agentId, event: 'verdict', outcome: 'answered', status: 200 })
+
+      const channel = await wakeChannelOf(db, agentId)
+
+      expect(channel?.consecutiveFailures).toBe(0)
+      expect(channel?.lastOutcome).toBe('answered')
+    })
+
+    /**
+     * The rejection case. The read is keyed on the agent, so one citizen's
+     * channel is not reachable through another's id — and the address table
+     * being keyed on the agent is what makes that structural rather than a rule.
+     */
+    it('answers about the agent asked for and no other', async () => {
+      const other = await anAgent('another-citizen')
+      const minted = await mintWakeChallenge(db, { agentId, url: 'https://mine.invalid/wake' })
+      if (minted.outcome !== 'minted') throw new Error('fixture failed to mint')
+      await recordWakeAddress(db, minted.row.id)
+
+      expect((await wakeChannelOf(db, agentId))?.url).toBe('https://mine.invalid/wake')
+      expect(await wakeChannelOf(db, other)).toBeUndefined()
+    })
+
+    /** The secret signs deliveries and must not travel with the citizen's view. */
+    it('does not hand back the secret', async () => {
+      const minted = await mintWakeChallenge(db, { agentId, url: 'https://sealed.invalid/wake' })
+      if (minted.outcome !== 'minted') throw new Error('fixture failed to mint')
+      await recordWakeAddress(db, minted.row.id)
+
+      const channel = await wakeChannelOf(db, agentId)
+
+      expect(channel).not.toHaveProperty('secret')
+      expect(JSON.stringify(channel)).not.toContain(minted.row.secret)
     })
   })
 })

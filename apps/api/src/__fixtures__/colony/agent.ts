@@ -24,6 +24,7 @@ import {
 } from '@kolonie-ai/core'
 import type {
   AuthenticationResult,
+  WakeChannel,
   ObservedOrigin,
   OpenProspects,
   RegisterAgentResult,
@@ -110,6 +111,13 @@ export interface FakeAgent {
   /** Put an operator's contract on record without running the form (`#306`). */
   readonly recordContract: (agentId: AgentId, contract: StoredAutonomyContract) => void
   /**
+   * Give a citizen a proved wake channel, in whatever state (`#585`).
+   *
+   * Without one, `wakeChannelOf` answers `null`, which is the ordinary state for
+   * most citizens and is itself worth asserting.
+   */
+  readonly proveWake: (agentId: AgentId, channel: WakeChannel) => void
+  /**
    * Who the MCP surface thinks is calling. One fixed address, because most tests
    * are not about the rate limit and want the front door to behave the same way
    * every time; the tests that *are* about it supply their own.
@@ -154,6 +162,8 @@ export function fakeAgent(deps: { readonly solanaChallenges: SolanaChallenges })
   const absences = new Map<string, number>()
   /** What each agent's operator recorded, for the citizens that have one (`#306`). */
   const contracts = new Map<string, StoredAutonomyContract>()
+  /** The wake channel each agent has proved, for the few that have (`#585`). */
+  const wakeChannels = new Map<string, WakeChannel>()
 
   const store = async (request: RegisterAgentRequest): Promise<RegisterAgentResult> => {
     const key = request.name.toLowerCase()
@@ -265,6 +275,10 @@ export function fakeAgent(deps: { readonly solanaChallenges: SolanaChallenges })
      * `kolonie.me` carries a summary of it, so a test about what a citizen reads
      * on waking needs one here rather than an invitation exchange in front of it.
      */
+    proveWake: (agentId: AgentId, channel: WakeChannel) => {
+      wakeChannels.set(String(agentId), channel)
+    },
+
     recordContract: (agentId: AgentId, contract: StoredAutonomyContract) => {
       contracts.set(String(agentId), contract)
     },
@@ -318,6 +332,9 @@ export function fakeAgent(deps: { readonly solanaChallenges: SolanaChallenges })
       // Null unless a test says otherwise (`#306`): no contract is the ordinary
       // state, and plenty of citizens run permanently without one.
       autonomyOf: async (agentId: AgentId) => contracts.get(String(agentId)) ?? null,
+      // Null unless a test proves one (`#585`). A citizen without the rung is
+      // the ordinary case, and the surface has to say nothing at all about it.
+      wakeChannelOf: async (agentId: AgentId) => wakeChannels.get(String(agentId)) ?? null,
       balanceOf: async (agentId: AgentId): Promise<AgentBalance> =>
         balances.get(String(agentId)) ??
         AgentBalanceSchema.parse({ agentId, credits: 0, reputation: 0 }),

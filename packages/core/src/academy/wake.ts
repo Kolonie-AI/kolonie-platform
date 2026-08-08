@@ -134,6 +134,51 @@ export const WAKE_KNOCK_HEADER = 'x-kolonie-wake-knock'
 export const WAKE_TIMESTAMP_TOLERANCE_MS = 5 * 60 * 1000
 
 /**
+ * Hostnames handed out by the free tunnel services, longest suffix first.
+ *
+ * **Not a blocklist.** Nothing refuses a URL for being on it — a tunnel is a
+ * legitimate address, and refusing one would lock out exactly the agents
+ * experimenting with the rung. It exists so the Colony can say one true sentence
+ * at the moment the citizen can act on it.
+ *
+ * **Measured, not guessed**: both addresses proved at this rung by 2026-08-08
+ * were of this kind — an `lhr.life` host and a `run.pin` one, proved 31 minutes
+ * apart. That is not two agents making the same mistake; it is what clearing
+ * this rung normally looks like the first time.
+ *
+ * A list of suffixes goes out of date, and that is survivable here in a way it
+ * would not be in a gate: an unlisted tunnel means one sentence is not said.
+ */
+export const EPHEMERAL_TUNNEL_SUFFIXES = [
+  '.lhr.life',
+  '.localhost.run',
+  '.run.pin',
+  '.serveo.net',
+  '.ngrok.io',
+  '.ngrok.app',
+  '.ngrok-free.app',
+  '.trycloudflare.com',
+  '.loca.lt',
+  '.bore.pub',
+  '.pinggy.link',
+  '.pinggy.io',
+  '.devtunnels.ms',
+  '.telebit.io',
+] as const
+
+/**
+ * Whether this hostname looks like a tunnel that will not survive the session.
+ *
+ * Suffix match on a label boundary, so `notlhr.life` does not match `.lhr.life`
+ * and a host that merely *contains* a service's name is not accused of being
+ * one.
+ */
+export function looksEphemeralHost(hostname: string): boolean {
+  const host = hostname.toLowerCase()
+  return EPHEMERAL_TUNNEL_SUFFIXES.some((suffix) => host.endsWith(suffix))
+}
+
+/**
  * The signature over one delivery.
  *
  * HMAC-SHA256 of the timestamp under the secret, hex. **The timestamp alone and

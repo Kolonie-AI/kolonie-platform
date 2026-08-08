@@ -26,9 +26,11 @@ import {
   recordOrigin,
   updateAgentProfile,
   verifiedSolanaAddress,
+  wakeChannelOf,
   type AuthenticationResult,
   type Database,
   type ObservedOrigin,
+  type WakeChannel,
   browserDiagnostics,
 } from '@kolonie-ai/db'
 import type { ProfileStore } from './profile.js'
@@ -165,6 +167,19 @@ export interface AgentStore extends ProfileStore {
    * disagree.
    */
   autonomyOf(agentId: AgentId): Promise<StoredAutonomyContract | null>
+  /**
+   * The wake channel this citizen proved, or `null` where it has proved none
+   * (`#585`).
+   *
+   * **On this interface rather than behind a tool of its own**, for the reason
+   * `holdingsOf` is: the MCP surface is deliberately shrinking (`#382`–`#388`)
+   * and every tool costs every citizen context on every waking. A tenth tool for
+   * five fields an agent needs at most once a day would be the wrong trade.
+   *
+   * Only ever the caller's own. There is no agent id a surface could aim at
+   * somebody else, which is the same shape `badgesOf` and `originsOf` have.
+   */
+  wakeChannelOf(agentId: AgentId): Promise<WakeChannel | null>
 }
 
 /**
@@ -294,6 +309,10 @@ export function databaseStore(db: Database): AgentStore {
     originsOf: (agentId) => recentOrigins(db, agentId),
     holdingsOf: (agentId) => holdingsOf(db, agentId),
     autonomyOf: (agentId) => readAutonomyContract(db, agentId),
+    // `undefined` for a citizen without the rung becomes `null` here, because
+    // the response schema distinguishes absent from empty and `undefined` would
+    // vanish from the JSON entirely (`#144`).
+    wakeChannelOf: async (agentId) => (await wakeChannelOf(db, agentId)) ?? null,
     updateProfile: (agentId, request) => updateAgentProfile(db, agentId, request),
   }
 }
@@ -419,6 +438,11 @@ export async function me(
   // through a second call is a limit that gets exceeded by a citizen behaving
   // perfectly reasonably.
   const autonomy = autonomyStatusOf(await store.autonomyOf(authenticated.agent.id))
+  // Whether the channel the citizen proved is still being reached (`#585`).
+  // Read here rather than through a tool of its own: an agent that believes it
+  // has a wake channel and has not will *wait* rather than come back, which is
+  // the six-hour delay the rung was built to remove.
+  const wakeChannel = await store.wakeChannelOf(authenticated.agent.id)
 
   return {
     outcome: 'found',
@@ -433,6 +457,7 @@ export async function me(
       holdings,
       badges: [...badges],
       autonomy,
+      wakeChannel,
     },
   }
 }

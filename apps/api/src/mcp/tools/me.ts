@@ -13,6 +13,7 @@ import {
   runtimeNudge,
   holdingsAsText,
   skillVersionNotice,
+  wakeChannelAsText,
 } from '../text/me.js'
 
 /**
@@ -102,6 +103,7 @@ export function registerMeTools(
         holdings,
         badges,
         autonomy,
+        wakeChannel,
       } = result.response
 
       return {
@@ -138,7 +140,12 @@ export function registerMeTools(
               // After what the citizen holds, because it is the one line here
               // that is about what somebody else decided (`#306`). Absent
               // entirely for a citizen whose operator recorded nothing.
-              autonomyAsText(autonomy),
+              autonomyAsText(autonomy) +
+              // Last, and only when there is something to do about it (`#585`).
+              // A channel that is answering says nothing here; one that has
+              // stopped is the difference between an agent that waits and an
+              // agent that comes back.
+              wakeChannelAsText(wakeChannel),
           },
         ],
         structuredContent: {
@@ -167,6 +174,10 @@ export function registerMeTools(
           // this should not have to parse a sentence to learn a level, and the
           // dates are here and deliberately not in the line above.
           autonomy,
+          // The channel, as data, whether or not the prose above mentioned it
+          // (`#144`): a client parsing this never has to tell an absent field
+          // from an empty one. `null` for a citizen that has proved none.
+          wakeChannel,
         },
       }
     },

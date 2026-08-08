@@ -33,6 +33,30 @@ export const TRIAGE_REPOSITORIES = [
   'Kolonie-AI/kolonie-docs',
 ] as const
 
+/**
+ * What actually went wrong under a `TypeError: fetch failed`.
+ *
+ * Undici reports every transport failure with that one message and puts the
+ * distinguishing fact — `ENOTFOUND`, `ECONNRESET`, `UND_ERR_CONNECT_TIMEOUT` —
+ * on `cause`, sometimes a chain of them. A log line without it says only that
+ * the network was involved, which is what the first occurrence of `#586` said
+ * and why it could not be told apart from a DNS outage.
+ *
+ * Bounded at four links: a cause chain is a linked list and this runs inside a
+ * catch, where an unbounded walk over hostile input is a second failure on top
+ * of the first.
+ */
+export function transportReason(error: unknown): string {
+  const links: string[] = []
+  let current: unknown = error
+  for (let depth = 0; depth < 4 && current instanceof Error; depth++) {
+    const code = (current as { code?: unknown }).code
+    links.push(typeof code === 'string' ? `${current.message} (${code})` : current.message)
+    current = (current as { cause?: unknown }).cause
+  }
+  return links.length === 0 ? String(error) : links.join(' ← ')
+}
+
 /** An issue the Colony already has open, as much of it as triage needs. */
 export interface KnownIssue {
   readonly repository: string
@@ -272,6 +296,68 @@ export function githubIssues(options: GitHubOptions): Issues {
     }
   }
 
+  /**
+   * One repository's issue listing, or `undefined` where it could not be read.
+   *
+   * **A transport failure is treated exactly as an unreadable status is**, and
+   * that is the whole of this helper. Both listings already refused to let one
+   * repository decide the answer for all three — but only for a response that
+   * arrived. A `fetch` that *throws* escaped that care, out through `reconcile`
+   * and into `reconcile.failed`, taking the two repositories that had not been
+   * read yet and the settling loop that had not run yet with it.
+   *
+   * Measured once, 2026-08-08 at 17:03:27Z (`#586`): `TypeError: fetch failed`
+   * at `Object.closed`, `poll.done` in the same second, and **no listing warning
+   * before it** — which is how the stack proves it was the repository call and
+   * not the token call.
+   *
+   * **Warned rather than raised, and the line is deliberate.** A status says
+   * something about the App — its installation, its permissions, a repository
+   * that moved — and it is a maintainer's to fix. A throw says something about
+   * the network during one tick, and the next tick is half an hour away; the
+   * ticket stays `acknowledged`, which is still true, and the citizen is told
+   * nothing wrong in the meantime.
+   *
+   * **The cause is carried** because `TypeError: fetch failed` on its own does
+   * not distinguish a DNS answer from a reset connection from a connect
+   * timeout, and the first occurrence could not be diagnosed for exactly that
+   * reason: `Log`'s error shape keeps `name`, `message` and `stack`, and drops
+   * `cause`. Serialising it here rather than there, because that shape is
+   * shared by every service and this is one call site's problem.
+   */
+  const listing = async (
+    repository: string,
+    state: 'open' | 'closed',
+    url: string,
+    headers: Record<string, string>,
+  ): Promise<readonly unknown[] | undefined> => {
+    const unreadable = (why: string, fields: Record<string, unknown>): undefined => {
+      log.warn(`could not read ${state} issues in ${repository}: ${why}`, {
+        event: 'github.issues.read.failed',
+        repository,
+        state,
+        ...fields,
+      })
+      return undefined
+    }
+
+    const response = await doFetch(url, { headers }).catch((error: unknown) =>
+      unreadable(transportReason(error), { status: null, reason: transportReason(error) }),
+    )
+    if (response === undefined) return undefined
+    if (!response.ok) return unreadable(String(response.status), { status: response.status })
+
+    // A body that stops arriving half way through fails here rather than above,
+    // and it is the same fact about the network with the same remedy.
+    const body = await response.json().catch((error: unknown) =>
+      unreadable(transportReason(error), {
+        status: response.status,
+        reason: transportReason(error),
+      }),
+    )
+    return Array.isArray(body) ? (body as readonly unknown[]) : undefined
+  }
+
   return {
     available: true,
     open: async () => {
@@ -280,25 +366,19 @@ export function githubIssues(options: GitHubOptions): Issues {
 
       const found: KnownIssue[] = []
       for (const repository of TRIAGE_REPOSITORIES) {
-        const response = await doFetch(
+        // One unreadable repository must not empty the corpus: a triage run
+        // with a partial corpus files a duplicate, which a maintainer closes
+        // in a second. One with an empty corpus files a duplicate of
+        // *everything*. `listing` holds that for a throw as well as a status.
+        const read = await listing(
+          repository,
+          'open',
           `https://api.github.com/repos/${repository}/issues?state=open&per_page=100`,
-          { headers },
+          headers,
         )
-        if (!response.ok) {
-          // One unreadable repository must not empty the corpus: a triage run
-          // with a partial corpus files a duplicate, which a maintainer closes
-          // in a second. One with an empty corpus files a duplicate of
-          // *everything*.
-          log.warn(`could not read open issues in ${repository}: ${response.status}`, {
-            event: 'github.issues.read.failed',
-            repository,
-            state: 'open',
-            status: response.status,
-          })
-          continue
-        }
+        if (read === undefined) continue
 
-        const issues = (await response.json()) as ReadonlyArray<{
+        const issues = read as ReadonlyArray<{
           number?: number
           title?: string
           body?: string | null
@@ -336,26 +416,21 @@ export function githubIssues(options: GitHubOptions): Issues {
 
       const found: ClosedIssue[] = []
       for (const repository of TRIAGE_REPOSITORIES) {
-        const response = await doFetch(
+        // One unreadable repository costs the tickets pointing into it another
+        // half hour, and nothing else: the next tick asks again, and a ticket
+        // that stays `acknowledged` is telling the citizen the truth in the
+        // meantime. Warn rather than throw, so the other two are still read —
+        // which is what `listing` now also holds for a `fetch` that throws.
+        const read = await listing(
+          repository,
+          'closed',
           `https://api.github.com/repos/${repository}/issues` +
             `?state=closed&sort=updated&direction=desc&per_page=100`,
-          { headers },
+          headers,
         )
-        if (!response.ok) {
-          // One unreadable repository costs the tickets pointing into it another
-          // half hour, and nothing else: the next tick asks again, and a ticket
-          // that stays `acknowledged` is telling the citizen the truth in the
-          // meantime. Warn rather than throw, so the other two are still read.
-          log.warn(`could not read closed issues in ${repository}: ${response.status}`, {
-            event: 'github.issues.read.failed',
-            repository,
-            state: 'closed',
-            status: response.status,
-          })
-          continue
-        }
+        if (read === undefined) continue
 
-        const issues = (await response.json()) as ReadonlyArray<{
+        const issues = read as ReadonlyArray<{
           title?: string
           html_url?: string
           state_reason?: string | null

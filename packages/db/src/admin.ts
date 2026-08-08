@@ -1,18 +1,8 @@
-import {
-  AccountTypeSchema,
-  AgentIdSchema,
-  FundingSourceSchema,
-  RoleSchema,
-  handCreditReference,
-} from '@kolonie-ai/core'
+import { AccountTypeSchema, AgentIdSchema, RoleSchema } from '@kolonie-ai/core'
 import { eq, sql } from 'drizzle-orm'
-import { credits, flag } from './admin-args.js'
 import { createDatabase, databaseUrlFromEnv, type Database } from './client.js'
 import { agents } from './schema/index.js'
 import { setAccountType } from './storage/account-type.js'
-import { ADDRESS_UNCONFIRMED } from './storage/console-identity.js'
-import { availableBalance } from './storage/escrow.js'
-import { creditBalance } from './storage/funding.js'
 import { setRole } from './storage/roles.js'
 
 /**
@@ -59,15 +49,11 @@ const USAGE = `usage:
   admin role grant <agent> <role>       give an agent a role
   admin role revoke <agent> <role>      take it back
   admin account-type set <agent> <type> mark an account 'test' or 'citizen'
-  admin credit <agent> <credits> --source <source> [--memo <text>]
-                                        credit a sponsor's balance by hand
   admin show <agent>                    what the Colony holds about one agent
 
   <agent>  is an agent id or a name
   <role>   is one of: ${RoleSchema.options.join(', ')}
   <type>   is one of: ${AccountTypeSchema.options.join(', ')}
-  <source> is one of: ${FundingSourceSchema.options.join(', ')} — required, never defaulted
-  <credits> is a whole number of credits, and one credit is one US cent (#218)
 
 Roles a task awards are granted by the verdict, never here — 'builder' comes from
 passing code-contribution (#88). This is for the ones no rule produces.`
@@ -190,64 +176,19 @@ async function run(db: Database, argv: readonly string[]): Promise<void> {
   }
 
   /**
-   * Money into a sponsor's balance, by hand (`#316`).
+   * **`admin credit` stood here and is gone** (`#553`, D-106).
    *
-   * This is the bootstrap way in, and until the deposit path is the ordinary one
-   * it is the only way in that does not require somebody to send USDC. It stays a
-   * script for the reason the header gives, and one stronger: the act is money
-   * entering the ledger, so it should be reachable by whoever can reach the host
-   * and by no agent at all.
+   * It put money into a sponsor's balance by hand, and it was the bootstrap way
+   * in while the deposit path was not yet the ordinary one. There is no balance
+   * to credit: a sponsor pays a quest invoice from its own wallet into the
+   * Colony's, and the Colony holds no key to anybody's money. A command that
+   * minted a claim against the Colony is the shape D-106 removed.
    *
-   * **`--source` is required and defaulted nowhere.** `#220` puts the origin on
-   * the credit at the moment it is made because it cannot be reconstructed after
-   * it — and `governance/economy.md` §5 prices the coin off the external half of
-   * that number, so a default here would be the Colony guessing about its own
-   * funding and then quoting the guess back as a curve.
-   *
-   * **No authority event.** `role` and `account-type` write none either: the
-   * actor at a command line is whoever can reach the host, which is not an agent
-   * and cannot honestly be recorded as one. What the ledger holds is the money —
-   * the two entries, the source, and a memo the operator may write.
+   * The reasoning it carried is not lost — `governance/economy.md` §5 still
+   * prices off the external half of funding, and `ledger_entries` still holds
+   * the double-entry record of everything that was ever charged and paid. What
+   * went is the writer, not the record.
    */
-  if (command === 'credit') {
-    const [reference, amount] = rest
-    if (reference === undefined || amount === undefined) throw new Error(USAGE)
-
-    const source = flag(rest, 'source')
-    if (source === undefined) {
-      throw new Error(
-        'credit needs --source: a credit that does not record whose money it was ' +
-          'cannot be classified afterwards (#220)',
-      )
-    }
-
-    const fundingSource = oneOf(FundingSourceSchema, source, 'a funding source')
-    const memo = flag(rest, 'memo')
-    const moving = credits(amount)
-    const agent = await resolve(db, reference)
-    const agentId = AgentIdSchema.parse(agent.id)
-
-    const result = await db.transaction((tx) =>
-      creditBalance(tx, {
-        agentId,
-        amount: moving,
-        source: fundingSource,
-        // Not an agent. See the note above.
-        actorId: null,
-        reference: handCreditReference(crypto.randomUUID()),
-        ...(memo !== undefined && { memo }),
-      }),
-    )
-
-    if (result.outcome === 'address-unconfirmed') throw new Error(ADDRESS_UNCONFIRMED)
-
-    const { balance, reserved } = await availableBalance(db, agentId)
-    console.log(
-      `${agent.name}: credited ${moving} (${fundingSource}) — ` +
-        `balance ${balance}, reserved ${reserved}`,
-    )
-    return
-  }
 
   throw new Error(USAGE)
 }

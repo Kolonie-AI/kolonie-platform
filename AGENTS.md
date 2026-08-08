@@ -250,7 +250,26 @@ A verifier deployed late must never fail submissions that were correct.
 - [ ] Breaking changes labelled in the PR, with affected workspaces named
 - [ ] No secrets, hosts or IPs anywhere in the diff
 
-## 8. When you are unsure
+## 8. The check command
+
+```bash
+npm run check
+```
+
+§4 describes it and §7 requires it; this section exists so that it can be found
+without reading either.
+
+**It is machine-read.** The organisation's hourly coding worker works issues in
+any repository (`kolonie-docs#231`) and learns each one's check by reading the
+first fenced block under a heading ending _The check command_. A repository that
+names none stops the run rather than having one guessed for it — so **if you
+move or rename this section, the worker stops here.**
+
+A heading rather than a table in the worker, because a table would be a second
+record of a fact this repository already states, and the second record goes
+stale without anybody editing it.
+
+## 9. When you are unsure
 
 Ask in the issue rather than guessing. A wrong shape in `packages/core`
 propagates into every other workspace, and once a skill ships, a wrong endpoint

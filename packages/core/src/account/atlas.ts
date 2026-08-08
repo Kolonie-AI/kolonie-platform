@@ -2,8 +2,14 @@ import { z } from 'zod'
 import { TimestampSchema } from '../common/time.js'
 import { AccountProviderSchema } from './account.js'
 import { AtlasFiguresSchema, atlasRank, noFigures, type AtlasFigures } from './atlas-figures.js'
-import { ProviderRecipeSchema, RecipeStatusSchema, type ProviderRecipe } from './recipe.js'
-import type { RecipeStatus } from './recipe.js'
+import {
+  AtlasCategorySchema,
+  ProviderRecipeSchema,
+  RecipeOperatorNeedSchema,
+  RecipeStatusSchema,
+  type ProviderRecipe,
+} from './recipe.js'
+import type { RecipeOperatorNeed, RecipeStatus } from './recipe.js'
 
 /**
  * The Atlas: the provider catalogue, as something a stranger can read (`#546`).
@@ -88,6 +94,28 @@ export const AtlasEntrySchema = z.object({
    */
   status: RecipeStatusSchema,
   /**
+   * The shelf this provider sits on (`#589`).
+   *
+   * **One category per entry and not the set of its rows'**, taken from the same
+   * row the title comes from. An entry is a provider, and a provider listed on
+   * two shelves is `#547`'s combination page arriving as an index — which
+   * `growth/README.md` refuses in as many words: *one page per provider, never
+   * one per combination*. The per-kind categories are still on the rows below,
+   * where a reader who has arrived is looking at one provider anyway.
+   */
+  category: AtlasCategorySchema,
+  /**
+   * Whether this provider can be joined without an operator (`#589`).
+   *
+   * **The strictest row wins**: if any row on this entry needs an operator, the
+   * entry does. An operator deciding whether to volunteer an afternoon is asking
+   * *will I be needed here*, and answering *not for one of the three things* is
+   * the answer that gets them called at the wrong moment.
+   */
+  operatorNeed: RecipeOperatorNeedSchema,
+  /** True when the answer above rests on a guess rather than on a walked step. */
+  operatorNeedIsGuess: z.boolean(),
+  /**
    * One row per kind, in the catalogue's own order, each with what was measured
    * about it (`#545`). Never empty.
    */
@@ -135,13 +163,26 @@ export function atlasEntries(
      * is titled by the working one; a provider nobody has looked at is titled by
      * an unwritten row, which is the only kind it has.
      */
-    const titled = rows.find((row) => row.status === status) ?? rows[0]
+    const lead = rows.find((row) => row.status === status) ?? rows[0]
+
+    /**
+     * `byProvider` only ever holds keys it pushed a row under, so this cannot
+     * happen — and it is thrown rather than defaulted because the alternative is
+     * inventing a category for an entry that has no rows, which would put a
+     * provider on a shelf nobody chose.
+     */
+    if (lead === undefined) throw new Error(`atlasEntries: no rows for ${provider}`)
+
+    const need = atlasEntryOperatorNeed(rows)
 
     return {
       provider: AccountProviderSchema.parse(provider),
       path: atlasPath(provider),
-      title: titled?.title ?? provider,
+      title: lead.title,
       status,
+      category: lead.category,
+      operatorNeed: need.need,
+      operatorNeedIsGuess: need.isGuess,
       recipes: rows.map((row) => ({
         ...row,
         figures:
@@ -171,6 +212,37 @@ export function atlasEntryStatus(rows: readonly { readonly status: RecipeStatus 
   if (rows.some((row) => row.status === 'refused')) return 'refused'
 
   return 'unwritten'
+}
+
+/**
+ * Whether a provider needs an operator anywhere on it (`#589`).
+ *
+ * **The strictest row wins, and an unknown row does not soften a known one.** A
+ * provider with one walked recipe that needs an operator and one nobody has
+ * looked at needs an operator: the first is a fact, and the second is silence.
+ * The order is `operator-needed`, then `unknown`, then `unaided` — the middle
+ * one sits where it does because *we do not know* must never read as *you are
+ * not needed*, which is the sentence that gets somebody called at the wrong
+ * moment.
+ *
+ * The guess flag rides on whichever row decided it, so a page can say *needs
+ * you, we think* without a second field for the reason.
+ */
+export function atlasEntryOperatorNeed(
+  rows: readonly {
+    readonly operatorNeed: RecipeOperatorNeed
+    readonly operatorNeedIsGuess: boolean
+  }[],
+): { readonly need: RecipeOperatorNeed; readonly isGuess: boolean } {
+  for (const need of ['operator-needed', 'unknown', 'unaided'] as const) {
+    const found = rows.filter((row) => row.operatorNeed === need)
+    if (found.length === 0) continue
+
+    /** A guess only where *every* row that decided it was one. */
+    return { need, isGuess: found.every((row) => row.operatorNeedIsGuess) }
+  }
+
+  return { need: 'unknown', isGuess: false }
 }
 
 /**

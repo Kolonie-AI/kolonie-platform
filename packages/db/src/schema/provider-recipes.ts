@@ -11,16 +11,26 @@ import {
   uuid,
 } from 'drizzle-orm/pg-core'
 import {
+  AtlasCategorySchema,
   RECIPE_MAX_RUNTIME_NOTES,
   RECIPE_MAX_STEPS,
+  RecipeOperatorGuessSchema,
   RecipeStatusSchema,
   type RecipeRuntimeNote,
   type RecipeStep,
   type ReferralArrangement,
 } from '@kolonie-ai/core'
 
-/** The three states, taken from the schema so the table cannot disagree with it. */
+/**
+ * The vocabularies, taken from `core` so the table cannot disagree with it.
+ *
+ * **Read off the schemas rather than repeated here**, which is the whole reason
+ * they are in `core` at all: a list typed out twice is a list that is wrong in
+ * one place, and the wrong place is whichever one nobody was editing.
+ */
 const RECIPE_STATUSES = RecipeStatusSchema.options
+const ATLAS_CATEGORIES = AtlasCategorySchema.options
+const OPERATOR_GUESSES = RecipeOperatorGuessSchema.options
 
 /**
  * One provider, as a recipe (`#521`).
@@ -121,6 +131,33 @@ export const providerRecipes = pgTable(
     refusal: text('refusal'),
 
     /**
+     * What sort of thing this is (`#589`).
+     *
+     * **A separate column from `kind`, which keeps its job as half of the key.**
+     * For two of the three seeded rows the kind is the provider spelled again —
+     * `github/github.com`, `trello/trello.com` — so it cannot group anything.
+     *
+     * **No default.** A default would let a row be filed on a shelf nobody chose,
+     * and the point of the column is that somebody chose. The vocabulary is
+     * `AtlasCategorySchema`'s and the check below is generated from it, so adding
+     * a category is a change in `core` and a migration, together.
+     */
+    category: text('category').notNull(),
+
+    /**
+     * A best guess at who has to be there, for an entry nobody has walked
+     * (`#589`).
+     *
+     * **The only place the operator answer is ever stored, and it is refused
+     * wherever it could disagree with a walk.** With steps present the answer is
+     * derived from `RecipeStepSchema.actor` (see `operatorNeed` in core) — a
+     * stored copy beside them is `D-002`'s second record of one fact, and it
+     * would go stale the day somebody edits step three. The constraint below
+     * makes the disagreement unrepresentable rather than merely discouraged.
+     */
+    operatorGuess: text('operator_guess'),
+
+    /**
      * The ordered steps, as JSON.
      *
      * **`jsonb` rather than a `recipe_steps` table**, and the trade is worth
@@ -199,6 +236,43 @@ export const providerRecipes = pgTable(
     check(
       'provider_recipes_status_is_known',
       sql`${table.status} in (${sql.raw(RECIPE_STATUSES.map((one) => `'${one}'`).join(', '))})`,
+    ),
+
+    /**
+     * The shelf vocabulary, in SQL, generated from `core`'s list (`#589`).
+     *
+     * **Written from `AtlasCategorySchema` rather than typed out beside it**, so
+     * the two cannot drift: a category added in `core` and forgotten here would
+     * be a value the write shape accepts and the database refuses, which surfaces
+     * as a failed insert nobody expected. `provider-recipes.test.ts` asserts the
+     * two sets are the same by inserting every one of them.
+     */
+    check(
+      'provider_recipes_category_is_known',
+      sql`${table.category} in (${sql.raw(ATLAS_CATEGORIES.map((one) => `'${one}'`).join(', '))})`,
+    ),
+
+    check(
+      'provider_recipes_operator_guess_is_known',
+      sql`${table.operatorGuess} is null
+          or ${table.operatorGuess} in (${sql.raw(
+            OPERATOR_GUESSES.map((one) => `'${one}'`).join(', '),
+          )})`,
+    ),
+
+    /**
+     * **A guess and a walk cannot disagree, because the guess is refused where
+     * there is a walk** (`#589`).
+     *
+     * This is the constraint that makes *derived, never typed* true rather than
+     * merely intended. An entry with steps answers the operator question in the
+     * steps; a stored answer beside them is a second record that nothing keeps in
+     * step, and the acceptance criterion asks for the disagreement to be
+     * unrepresentable rather than caught.
+     */
+    check(
+      'provider_recipes_operator_guess_only_without_steps',
+      sql`${table.operatorGuess} is null or jsonb_array_length(${table.steps}) = 0`,
     ),
 
     /**

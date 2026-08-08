@@ -218,6 +218,109 @@ export const RecipeStatusSchema = z.enum(['joinable', 'refused', 'unwritten'])
 export type RecipeStatus = z.infer<typeof RecipeStatusSchema>
 
 /**
+ * What sort of thing an Atlas entry is (`#589`).
+ *
+ * **A closed vocabulary held in `core`, and never free text.** Free text gives
+ * *email*, *e-mail*, *mailbox* and *Mail* within a month, and the grouping is
+ * the whole value — a shelf a reader cannot find things on is not a shelf. It is
+ * a separate column from `kind`, which keeps its job as half of the entry's key:
+ * for two of the three seeded rows the kind is the provider spelled again, so it
+ * cannot group.
+ *
+ * **Fourteen, chosen so no category is a single provider and none holds more
+ * than about a dozen.** Adding one is a code change on purpose. A category
+ * nobody can find things in is worse than a slightly wrong home, and the cost of
+ * the change is what forces that argument to be had.
+ *
+ * **It is a shelf and not an opinion.** No ranking, no score, no *recommended* —
+ * `growth/README.md` is explicit that figures are shown whether or not they
+ * flatter, and a category that implied a judgement would be a second ordering
+ * beside the measured one.
+ */
+export const AtlasCategorySchema = z.enum([
+  'mailbox',
+  'domain-dns',
+  'code-hosting',
+  'social-publishing',
+  'compute-hosting',
+  'payments-finance',
+  'storage',
+  'project-tracking',
+  'communication',
+  'knowledge-docs',
+  'design-media',
+  'data-apis',
+  'identity-security',
+  'commerce-marketplace',
+])
+export type AtlasCategory = z.infer<typeof AtlasCategorySchema>
+
+/**
+ * Whether an agent can walk this entry by itself (`#589`).
+ *
+ * The maintainer's ask, 2026-08-08: *"bei jedem Account müssen wir auch vermerken
+ * ob das ein Account ist, den die komplett alleine machen können, oder ob die
+ * eben Operator-Hilfe dabei brauchen … es gibt ja auch viele Accounts, die können
+ * sie sich ja selber machen."*
+ *
+ * **The Colony's claim to an operator is that they are needed rarely and
+ * precisely** — the recipe text puts it as *you only open the doors where a human
+ * is demanded*. A catalogue that cannot say which doors those are cannot make
+ * that claim checkable, and an operator reading it has to assume the worst about
+ * all of them.
+ *
+ * `unknown` is the third value and it is what makes the other two honest: an
+ * entry with no steps has nothing to derive from, and answering `unaided`
+ * because no `operator` step was found would be the catalogue promising a walk
+ * nobody has taken.
+ */
+export const RecipeOperatorNeedSchema = z.enum(['unaided', 'operator-needed', 'unknown'])
+export type RecipeOperatorNeed = z.infer<typeof RecipeOperatorNeedSchema>
+
+/**
+ * What a seeded entry may guess about the operator answer, before anybody walks
+ * it (`#589`, `#590`).
+ *
+ * **`unknown` is not guessable**, and its absence from this list is the point: a
+ * stored `unknown` and no stored value at all are the same fact, and offering
+ * both would be two ways to write one thing. An entry with no guess answers
+ * `unknown` because nothing was said.
+ */
+export const RecipeOperatorGuessSchema = RecipeOperatorNeedSchema.exclude(['unknown'])
+export type RecipeOperatorGuess = z.infer<typeof RecipeOperatorGuessSchema>
+
+/**
+ * Who has to be there, from what the entry actually holds (`#589`).
+ *
+ * **Derived and never stored where steps exist**, which is `D-002`: a stored
+ * answer beside a steps array is two records of one fact, and this one would go
+ * stale the day somebody edits step three. The answer is already in the data —
+ * `RecipeStepSchema.actor` — and what was missing is that nothing surfaced it, so
+ * a reader had to open a recipe and read five steps to learn the one thing that
+ * decides whether they are needed.
+ *
+ * **The guess is the exception and only where there is nothing to derive from.**
+ * An entry `#590` seeded may carry a best guess about a provider nobody has
+ * walked; it is returned as a guess (see `operatorNeedIsGuess`) so that no
+ * surface can render it as an answer.
+ */
+export function operatorNeed(entry: {
+  readonly steps: readonly RecipeStep[]
+  readonly operatorGuess?: RecipeOperatorGuess | null | undefined
+}): { readonly need: RecipeOperatorNeed; readonly isGuess: boolean } {
+  if (entry.steps.length > 0) {
+    return {
+      need: entry.steps.some((step) => step.actor === 'operator') ? 'operator-needed' : 'unaided',
+      isGuess: false,
+    }
+  }
+
+  const guessed = entry.operatorGuess ?? null
+
+  return guessed === null ? { need: 'unknown', isGuess: false } : { need: guessed, isGuess: true }
+}
+
+/**
  * What an entry in each state may carry.
  *
  * Stated once, here, and asserted by `WriteProviderRecipeSchema`, by
@@ -268,6 +371,25 @@ export const ProviderRecipeSchema = z.object({
   provider: AccountProviderSchema,
   /** What the entry is called where an agent reads it. */
   title: z.string().trim().min(1).max(120),
+  /** What sort of thing this is, from the closed list (`#589`). */
+  category: AtlasCategorySchema,
+  /**
+   * Whether an agent can walk this alone, and whether that is known (`#589`).
+   *
+   * **Derived on the way out of storage, never stored beside the steps.** See
+   * `operatorNeed`, which is the one implementation — a second one would be the
+   * second record `D-002` refuses, arriving as a function instead of a column.
+   */
+  operatorNeed: RecipeOperatorNeedSchema,
+  /**
+   * Whether the answer above came from a guess rather than from steps (`#589`).
+   *
+   * **Carried on the shape rather than left to each surface to work out**, which
+   * is what stops a guess being rendered as an answer: a reader deciding whether
+   * to volunteer an operator's afternoon should be told that nobody has checked.
+   * False whenever the entry has steps, because then it is derived.
+   */
+  operatorNeedIsGuess: z.boolean(),
   /**
    * What this provider is, and why an agent would want an account there (`#547`).
    *
@@ -355,6 +477,17 @@ export const WriteProviderRecipeSchema = z
     kind: AccountKindSchema,
     provider: AccountProviderSchema,
     title: z.string().trim().min(1).max(120),
+    /** What sort of thing this is (`#589`). Required — an uncategorised shelf is no shelf. */
+    category: AtlasCategorySchema,
+    /**
+     * A best guess at who has to be there, for an entry with no steps (`#589`).
+     *
+     * Refused on an entry that has steps: there the answer is derived, and a
+     * stored one beside it could disagree with the walk it describes. The
+     * database refuses the same combination, because the seed writes through
+     * neither this shape nor any other.
+     */
+    operatorGuess: RecipeOperatorGuessSchema.optional(),
     /** What the provider is and why an agent would want one (`#547`). */
     about: z.string().trim().min(1).max(RECIPE_ABOUT_MAX_LENGTH).optional(),
     /** Where a named runtime genuinely differs, and nowhere else (`#547`). */
@@ -412,5 +545,17 @@ export const WriteProviderRecipeSchema = z
   .refine((entry) => entry.status === 'joinable' || entry.proves === undefined, {
     message: 'there is nothing to prove where there is nothing to walk.',
     path: ['proves'],
+  })
+  /**
+   * **A guess and a walk cannot disagree, because the guess is refused where
+   * there is a walk** (`#589`). An entry with steps already answers this
+   * question, in the only place the answer can be checked against.
+   */
+  .refine((entry) => entry.operatorGuess === undefined || entry.steps.length === 0, {
+    message:
+      'an entry with steps already says who has to be there — the operator steps are the answer, ' +
+      'and a guess beside them is a second record of one fact that can go stale. Guess only ' +
+      'where nobody has walked it.',
+    path: ['operatorGuess'],
   })
 export type WriteProviderRecipe = z.infer<typeof WriteProviderRecipeSchema>

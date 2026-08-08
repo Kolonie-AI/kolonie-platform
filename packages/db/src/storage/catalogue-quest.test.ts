@@ -43,6 +43,7 @@ describe('a catalogue entry handed in by a citizen', () => {
       provider,
       title: provider,
       status: 'joinable',
+      category: 'code-hosting',
       steps: [{ actor: 'agent', instruction: 'sign up' }],
       proves: 'provider-mail',
     })
@@ -70,6 +71,7 @@ describe('a catalogue entry handed in by a citizen', () => {
       provider: 'notion.so',
       title: 'A Notion workspace',
       status: 'joinable',
+      category: 'code-hosting',
       steps: [{ actor: 'agent', instruction: 'Sign up with the mailbox you proved.' }],
       proves: 'provider-mail',
     })
@@ -87,6 +89,7 @@ describe('a catalogue entry handed in by a citizen', () => {
       provider: 'walled.test',
       title: 'Walled — no honest route in',
       status: 'refused',
+      category: 'code-hosting',
       refusal: 'Signup requires a phone number no citizen can hold.',
       steps: [],
     })

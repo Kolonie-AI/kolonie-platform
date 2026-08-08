@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import {
+  AtlasCategorySchema,
   RECIPE_ABOUT_MAX_LENGTH,
   RECIPE_MAX_STEPS,
   RECIPE_REFUSAL_MAX_LENGTH,
@@ -83,6 +84,16 @@ export const CatalogueDeliverableSchema = z
     kind: AccountKindSchema,
     provider: AccountProviderSchema,
     title: z.string().trim().min(1).max(120),
+    /**
+     * What sort of thing it is (`#589`).
+     *
+     * **The citizen's to state, from the closed list.** They walked it, so they
+     * know what it is — and the vocabulary being closed means the worst they can
+     * do is file it on a slightly wrong shelf, which the review queue is there to
+     * correct. Deriving it from `kind` was the alternative and it does not work:
+     * for two of the three seeded entries the kind is the provider spelled again.
+     */
+    category: AtlasCategorySchema,
     about: z.string().trim().min(1).max(RECIPE_ABOUT_MAX_LENGTH).optional(),
     /**
      * Whether it can be joined honestly.

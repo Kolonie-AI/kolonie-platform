@@ -127,8 +127,8 @@ describe('the provider bundles', () => {
      */
     it('tells a listed-but-unwalked entry apart from one that is not listed', async () => {
       await db.execute(
-        `insert into provider_recipes (kind, provider, title, status)
-         values ('image-model', 'openai.com', 'OpenAI', 'unwritten')`,
+        `insert into provider_recipes (kind, provider, title, status, category)
+         values ('image-model', 'openai.com', 'OpenAI', 'unwritten', 'data-apis')`,
       )
       await seedBundles(db)
 

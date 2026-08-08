@@ -41,6 +41,7 @@ describe('an entry’s paying counterparty', () => {
       provider,
       title: provider,
       status,
+      category: 'code-hosting',
       ...(status === 'joinable'
         ? {
             steps: [{ actor: 'agent' as const, instruction: 'sign up' }],
@@ -216,6 +217,7 @@ describe('an entry’s paying counterparty', () => {
         provider: 'example.test',
         title: 'Example',
         status: 'joinable',
+        category: 'code-hosting',
         steps: [{ actor: 'agent', instruction: 'sign up' }],
         proves: 'provider-post',
         referral: REFERRAL,

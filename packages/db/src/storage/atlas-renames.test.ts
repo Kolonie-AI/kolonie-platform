@@ -15,6 +15,7 @@ const entry = async (db: Database, provider: string, kindName = 'social') =>
     provider,
     title: provider,
     status: 'joinable',
+    category: 'code-hosting',
     steps: [{ actor: 'agent', instruction: 'sign up' }],
     proves: 'provider-post',
   })

@@ -4,10 +4,16 @@ import {
   AccountProviderSchema,
   inBundleOrder,
   leadsWithTheCheapAccounts,
+  AtlasCategorySchema,
+  RecipeOperatorGuessSchema,
   RecipeStatusSchema,
+  operatorNeed,
+  type AtlasCategory,
   type Bundle,
   type BundleEntry,
+  type RecipeOperatorNeed,
   type RecipeStatus,
+  type RecipeStep,
 } from '@kolonie-ai/core'
 import type { Database, Transaction } from '../client.js'
 import { providerBundleEntries, providerBundles, providerRecipes } from '../schema/index.js'
@@ -23,6 +29,25 @@ import { providerBundleEntries, providerBundles, providerRecipes } from '../sche
  * (`#525`); which entries the Colony *recommends together* is the Colony's.
  */
 
+/**
+ * The operator answer for one joined row, derived rather than read (`#589`).
+ *
+ * A left join gives `null` steps for a provider that is not in the catalogue at
+ * all; a row that *is* there always has its array, empty or not, and
+ * `operatorNeed` answers `unknown` for the empty one.
+ */
+function operatorAnswer(
+  steps: RecipeStep[] | null,
+  guess: string | null,
+): { readonly operatorNeed: RecipeOperatorNeed; readonly operatorNeedIsGuess: boolean } {
+  const answered = operatorNeed({
+    steps: steps ?? [],
+    operatorGuess: guess === null ? null : RecipeOperatorGuessSchema.parse(guess),
+  })
+
+  return { operatorNeed: answered.need, operatorNeedIsGuess: answered.isGuess }
+}
+
 /** One entry as the reader returns it, with what the catalogue knows about it. */
 export interface BundleEntryView extends BundleEntry {
   /** The catalogue's title, or `null` when nobody has written the entry yet. */
@@ -37,6 +62,18 @@ export interface BundleEntryView extends BundleEntry {
    * this provider, the other says it has and has not investigated it.
    */
   readonly status: RecipeStatus | null
+  /** The shelf it sits on, or `null` when it is not in the catalogue (`#589`). */
+  readonly category: AtlasCategory | null
+  /**
+   * Whether an agent can walk it alone (`#589`).
+   *
+   * Derived from the stored steps by the same `operatorNeed` every other surface
+   * uses, so a bundle row and the Atlas page it links to cannot disagree. `null`
+   * only where there is no row at all.
+   */
+  readonly operatorNeed: RecipeOperatorNeed | null
+  /** True when the answer above is a guess rather than a walked step. */
+  readonly operatorNeedIsGuess: boolean
   /** Why not, when the catalogue says it cannot be joined. */
   readonly refusal: string | null
 }
@@ -66,6 +103,9 @@ export async function bundles(db: Database | Transaction): Promise<readonly Bund
       provider: providerBundleEntries.provider,
       entryTitle: providerRecipes.title,
       status: providerRecipes.status,
+      category: providerRecipes.category,
+      steps: providerRecipes.steps,
+      operatorGuess: providerRecipes.operatorGuess,
       refusal: providerRecipes.refusal,
     })
     .from(providerBundles)
@@ -96,6 +136,10 @@ export async function bundles(db: Database | Transaction): Promise<readonly Bund
           provider: AccountProviderSchema.parse(row.provider),
           title: row.entryTitle,
           status: row.status === null ? null : RecipeStatusSchema.parse(row.status),
+          category: row.category === null ? null : AtlasCategorySchema.parse(row.category),
+          ...(row.status === null
+            ? { operatorNeed: null, operatorNeedIsGuess: false }
+            : operatorAnswer(row.steps, row.operatorGuess)),
           refusal: row.refusal,
         },
       ],

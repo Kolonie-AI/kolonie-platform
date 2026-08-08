@@ -78,6 +78,9 @@ describe('what the recipe says to the agent walking it', () => {
         contact: null,
         lastConfirmedAt: '2026-08-01T00:00:00.000Z' as never,
         status: 'joinable',
+        category: 'code-hosting' as const,
+        operatorNeed: 'operator-needed' as const,
+        operatorNeedIsGuess: false,
         refusal: null,
         steps: [
           { actor: 'agent', instruction: 'Vault a password.' },
@@ -118,6 +121,9 @@ describe('what the recipe says to the agent walking it', () => {
         contact: null,
         lastConfirmedAt: '2026-08-01T00:00:00.000Z' as never,
         status: 'joinable',
+        category: 'code-hosting' as const,
+        operatorNeed: 'operator-needed' as const,
+        operatorNeedIsGuess: false,
         refusal: null,
         steps: [
           {
@@ -163,6 +169,9 @@ describe('what the recipe says to the agent walking it', () => {
       contact: null,
       lastConfirmedAt: '2026-08-01T00:00:00.000Z' as never,
       status: 'joinable' as const,
+      category: 'code-hosting' as const,
+      operatorNeed: 'operator-needed' as const,
+      operatorNeedIsGuess: false,
       refusal: null,
       steps: [
         { actor: 'agent' as const, instruction: 'Fill in the form.' },
@@ -221,6 +230,9 @@ describe('what the recipe says to the agent walking it', () => {
         contact: null,
         lastConfirmedAt: '2026-08-01T00:00:00.000Z' as never,
         status: 'refused',
+        category: 'code-hosting' as const,
+        operatorNeed: 'unknown' as const,
+        operatorNeedIsGuess: false,
         refusal: 'It requires a phone number no citizen has (measured 2026-08-08).',
         steps: [],
         proves: null,
@@ -251,6 +263,9 @@ describe('the handoff a recipe names', () => {
     contact: null,
     lastConfirmedAt: '2026-08-01T00:00:00.000Z' as never,
     status: 'joinable' as const,
+    category: 'code-hosting' as const,
+    operatorNeed: 'operator-needed' as const,
+    operatorNeedIsGuess: false,
     refusal: null,
     steps: [
       { actor: 'agent' as const, instruction: 'Name the handle you want.' },

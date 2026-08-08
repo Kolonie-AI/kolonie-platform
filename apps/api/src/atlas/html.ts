@@ -107,22 +107,6 @@ export function atlasIndexPage(input: {
   readonly entries: readonly AtlasEntry[]
   readonly canonical: string
 }): string {
-  const rows =
-    input.entries.length === 0
-      ? [
-          '<p>The catalogue is empty. Nothing has been listed yet, which is not the same as ' +
-            'nothing being joinable.</p>',
-        ]
-      : input.entries.map(
-          (entry) =>
-            `<li><a href="${escape(entry.path)}">${escape(entry.title)}</a>` +
-            indexStatusMark(entry.status) +
-            (entry.recipes.some((recipe) => recipe.paid)
-              ? ' <span class="k-paid">paid</span>'
-              : '') +
-            `<br><small>${escape(kindsLine(entry))}${escape(indexFigure(entry))}</small></li>`,
-        )
-
   return atlasPage({
     title: 'The Atlas',
     description: ATLAS_STANDFIRST,
@@ -132,10 +116,73 @@ export function atlasIndexPage(input: {
       '<h1>The Atlas</h1>',
       `<p>${escape(ATLAS_STANDFIRST)}</p>`,
       `<p><small>${escape(ATLAS_ORDER_NOTE)}</small></p>`,
-      `<ul class="k-atlas-index">${rows.join('')}</ul>`,
+      input.entries.length === 0
+        ? '<p>The catalogue is empty. Nothing has been listed yet, which is not the same as ' +
+          'nothing being joinable.</p>'
+        : shelves(input.entries).join('\n'),
       '</main>',
     ].join('\n'),
   })
+}
+
+/**
+ * The index, grouped into shelves (`#589`).
+ *
+ * **The categories come from the entries and not from the vocabulary**, so an
+ * empty shelf is not rendered: fourteen headings over three entries would say
+ * the Atlas has eleven holes in it, when what it has is eleven categories
+ * nothing has been filed under yet. A reader learns the shelves exist by seeing
+ * them fill.
+ *
+ * **The order inside each shelf is `atlasByOutcome`'s and is not re-sorted
+ * here.** That ordering is the product — measured outcome, never payment — and a
+ * second sort at the rendering layer would be a second answer to it.
+ */
+function shelves(entries: readonly AtlasEntry[]): readonly string[] {
+  const byCategory = new Map<string, AtlasEntry[]>()
+
+  for (const entry of entries) {
+    const held = byCategory.get(entry.category)
+    if (held === undefined) byCategory.set(entry.category, [entry])
+    else held.push(entry)
+  }
+
+  return [...byCategory.entries()].map(
+    ([category, shelf]) =>
+      `<h2>${escape(category)}</h2>` +
+      `<ul class="k-atlas-index">${shelf.map(indexRow).join('')}</ul>`,
+  )
+}
+
+function indexRow(entry: AtlasEntry): string {
+  return (
+    `<li><a href="${escape(entry.path)}">${escape(entry.title)}</a>` +
+    indexStatusMark(entry.status) +
+    (entry.recipes.some((recipe) => recipe.paid) ? ' <span class="k-paid">paid</span>' : '') +
+    `<br><small>${escape(kindsLine(entry))}${escape(indexFigure(entry))} — ` +
+    `${escape(operatorLine(entry))}</small></li>`
+  )
+}
+
+/**
+ * Who has to be there, on the row rather than inside the page (`#589`).
+ *
+ * **The one fact that decides whether a reader has to volunteer an afternoon**,
+ * and until now it was only discoverable by opening an entry and reading its
+ * steps. A guess says it is a guess: an operator told *not needed* about a
+ * provider nobody has walked will find out otherwise at the worst moment.
+ */
+function operatorLine(entry: {
+  readonly operatorNeed: AtlasEntry['operatorNeed']
+  readonly operatorNeedIsGuess: boolean
+}): string {
+  const said = {
+    unaided: 'an agent can do this alone',
+    'operator-needed': 'needs a person at one step',
+    unknown: 'nobody has walked this, so who is needed is not known',
+  }[entry.operatorNeed]
+
+  return entry.operatorNeedIsGuess ? `${said} (a guess, not a walk)` : said
 }
 
 /** One provider's page. */
@@ -152,6 +199,13 @@ export function atlasEntryPage(input: {
     body: [
       '<main>',
       `<h1>${escape(entry.title)}</h1>`,
+      /**
+       * The two facts `#589` adds, above everything else on the page. A reader
+       * arrives asking *what sort of thing is this* and *will I be needed*, and
+       * both used to be answerable only by reading five steps.
+       */
+      `<p class="k-atlas-facts"><a href="${ATLAS_PATH}">${escape(entry.category)}</a> — ` +
+        `${escape(operatorLine(entry))}</p>`,
       paidMarker(entry),
       aboutSection(entry),
       `<p>${escape(entryDescription(entry))}</p>`,
@@ -225,6 +279,7 @@ function recipeSection(recipe: AtlasEntry['recipes'][number]): string {
   if (recipe.status === 'unwritten') {
     return [
       `<section><h2>${escape(recipe.kind)}</h2>`,
+      `<p><small>${escape(operatorLine(recipe))}</small></p>`,
       `<p class="k-unwritten">${escape(UNWRITTEN_ENTRY_NOTE)}</p>`,
       '</section>',
     ].join('')
@@ -246,6 +301,7 @@ function recipeSection(recipe: AtlasEntry['recipes'][number]): string {
 
   return [
     `<section><h2>${escape(recipe.kind)}</h2>`,
+    `<p><small>${escape(operatorLine(recipe))}</small></p>`,
     staleNote(recipe),
     `<ol>${steps}</ol>`,
     `<p>${escape(provesLine(recipe.proves))}</p>`,

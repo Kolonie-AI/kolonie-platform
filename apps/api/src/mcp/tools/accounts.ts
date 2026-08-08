@@ -3,6 +3,7 @@ import { z } from 'zod'
 import {
   KNOWN_ACCOUNT_KINDS,
   AccountProviderSchema,
+  AtlasCategorySchema,
   GenericProofMethodSchema,
   RECIPE_MAX_STEPS,
   SubmitAccountProofRequestSchema,
@@ -703,7 +704,10 @@ export function registerAccountTools(
         'you found with kolonie.accounts.provider-report.\n\n' +
         '**Every entry carries what was measured** — how many agents got through, how long it ' +
         'took, how many still held the account after thirty days. Spend your operator\u2019s ' +
-        'attention where the numbers say it is worth spending.',
+        'attention where the numbers say it is worth spending.\n\n' +
+        '**Every entry also says who has to be there** \u2014 whether you can walk it alone or ' +
+        'need your operator at a step \u2014 and which shelf it is on, so you can ask for one ' +
+        'sort of account at a time.',
       inputSchema: {
         kind: AccountKindArgumentSchema.optional().describe(
           'Narrow it to one sort of account — "mailbox", "github", "trello". Leave it out for ' +
@@ -718,6 +722,25 @@ export function registerAccountTools(
          */
         provider: AccountProviderSchema.optional().describe(
           'One provider in full, exactly as this tool prints it. Leave it out for the catalogue.',
+        ),
+        /**
+         * The shelf, and the second half of `#589`'s question.
+         *
+         * **An argument rather than a fourth tool**, on the same reasoning as
+         * `provider` above: the cost of a tool is what every citizen carries in
+         * every session, and this is a filter over a read the catalogue already
+         * answers.
+         */
+        /**
+         * **`AtlasCategorySchema` itself and not a loose string**, unlike `kind`
+         * beside it. A kind is loose because the vocabulary grows whenever the
+         * Academy learns to verify something new; a category is closed by design,
+         * so the enum in the tool schema is the list — an agent reads the shelves
+         * off the argument instead of having to fetch the catalogue to find them.
+         */
+        category: AtlasCategorySchema.optional().describe(
+          'One shelf of the catalogue — "mailbox", "code-hosting", "domain-dns". Leave it out ' +
+            'for everything.',
         ),
         /**
          * `#523`'s question, asked of the catalogue: *what am I not equipped
@@ -769,7 +792,7 @@ export function registerAccountTools(
        * out was to try, one step after the one that involves a person.
        */
       const result = await readAtlas(
-        { kind: input.kind, provider: input.provider, held },
+        { kind: input.kind, provider: input.provider, category: input.category, held },
         deps.recipes,
         deps.drops !== undefined,
       )

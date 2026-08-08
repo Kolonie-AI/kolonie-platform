@@ -1,17 +1,36 @@
 import { describe, expect, it } from 'vitest'
 import { AccountKindSchema, AccountProviderSchema } from './account.js'
 import { atlasEntries, atlasPath } from './atlas.js'
-import type { ProviderRecipe, RecipeStatus } from './recipe.js'
+import { operatorNeed } from './recipe.js'
+import type {
+  AtlasCategory,
+  ProviderRecipe,
+  RecipeOperatorGuess,
+  RecipeStatus,
+  RecipeStep,
+} from './recipe.js'
 
 const recipe = (input: {
   kind: string
   provider: string
   title?: string
   status?: RecipeStatus
+  category?: AtlasCategory
+  operatorSteps?: boolean
+  operatorGuess?: RecipeOperatorGuess
   updatedAt?: string
 }): ProviderRecipe => {
   const status = input.status ?? 'joinable'
   const joinable = status === 'joinable'
+  const steps: RecipeStep[] = !joinable
+    ? []
+    : input.operatorSteps === true
+      ? [
+          { actor: 'agent', instruction: 'sign up' },
+          { actor: 'operator', instruction: 'accept the terms', ask: 'Please accept the terms.' },
+        ]
+      : [{ actor: 'agent', instruction: 'sign up' }]
+  const need = operatorNeed({ steps, operatorGuess: input.operatorGuess })
 
   return {
     kind: AccountKindSchema.parse(input.kind),
@@ -24,8 +43,11 @@ const recipe = (input: {
     contact: null,
     lastConfirmedAt: '2026-08-01T00:00:00.000Z' as never,
     status,
+    category: input.category ?? 'code-hosting',
+    operatorNeed: need.need,
+    operatorNeedIsGuess: need.isGuess,
     refusal: status === 'refused' ? 'no honest route in' : null,
-    steps: joinable ? [{ actor: 'agent', instruction: 'sign up' }] : [],
+    steps,
     proves: joinable ? 'provider-post' : null,
     caution: null,
     pacePerDay: null,
@@ -136,6 +158,91 @@ describe('grouping the catalogue into entries', () => {
     expect(atlasEntries([recipe({ kind: 'github', provider: 'github' })])[0]?.path).toBe(
       '/atlas/github',
     )
+  })
+
+  /**
+   * `#589`. One shelf per provider: a provider listed on two is `#547`'s
+   * combination page arriving as an index, which `growth/README.md` refuses.
+   */
+  it('takes its category from the row it takes its title from', () => {
+    const entries = atlasEntries([
+      recipe({
+        kind: 'social',
+        provider: 'github',
+        status: 'refused',
+        category: 'social-publishing',
+      }),
+      recipe({ kind: 'github', provider: 'github', category: 'code-hosting' }),
+    ])
+
+    expect(entries[0]?.category).toBe('code-hosting')
+  })
+})
+
+/**
+ * Who has to be there, rolled up (`#589`).
+ *
+ * The whole value of the field is that an operator can tell where they will be
+ * needed, so the rollup errs towards *you will be*: silence must never read as
+ * *you are not needed*, which is the answer that gets somebody called at the
+ * wrong moment.
+ */
+describe('whether a provider needs an operator anywhere on it', () => {
+  it('says so when any row on it does, however many do not', () => {
+    const entries = atlasEntries([
+      recipe({ kind: 'github', provider: 'github' }),
+      recipe({ kind: 'website', provider: 'github', operatorSteps: true }),
+    ])
+
+    expect(entries[0]?.operatorNeed).toBe('operator-needed')
+    expect(entries[0]?.operatorNeedIsGuess).toBe(false)
+  })
+
+  it('says unaided only when every row it has is', () => {
+    const entries = atlasEntries([recipe({ kind: 'trello', provider: 'trello.com' })])
+
+    expect(entries[0]?.operatorNeed).toBe('unaided')
+  })
+
+  /** An unknown row does not soften a known one, and does not read as *unaided* either. */
+  it('prefers unknown to unaided when one row has not been walked', () => {
+    const entries = atlasEntries([
+      recipe({ kind: 'mailbox', provider: 'fastmail.com', status: 'unwritten' }),
+      recipe({ kind: 'domain', provider: 'fastmail.com' }),
+    ])
+
+    expect(entries[0]?.operatorNeed).toBe('unknown')
+  })
+
+  /** A guess is carried as a guess, so no surface can render it as an answer. */
+  it('marks an answer that rests only on a guess', () => {
+    const entries = atlasEntries([
+      recipe({
+        kind: 'mailbox',
+        provider: 'fastmail.com',
+        status: 'unwritten',
+        operatorGuess: 'unaided',
+      }),
+    ])
+
+    expect(entries[0]?.operatorNeed).toBe('unaided')
+    expect(entries[0]?.operatorNeedIsGuess).toBe(true)
+  })
+
+  /** And stops being a guess the moment one walked row says the same thing. */
+  it('stops calling it a guess once a walked row agrees', () => {
+    const entries = atlasEntries([
+      recipe({
+        kind: 'mailbox',
+        provider: 'fastmail.com',
+        status: 'unwritten',
+        operatorGuess: 'unaided',
+      }),
+      recipe({ kind: 'domain', provider: 'fastmail.com' }),
+    ])
+
+    expect(entries[0]?.operatorNeed).toBe('unaided')
+    expect(entries[0]?.operatorNeedIsGuess).toBe(false)
   })
 })
 

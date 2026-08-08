@@ -1,5 +1,6 @@
 import {
   AccountKindSchema,
+  AtlasCategorySchema,
   atlasByOutcome,
   atlasEntries,
   throughRate,
@@ -150,6 +151,16 @@ export async function readAtlas(
      * the one most agents are asking.
      */
     readonly held?: ReadonlySet<string> | undefined
+    /**
+     * One shelf of the catalogue (`#589`).
+     *
+     * **The agent's own question, which until now could only be answered by
+     * fetching everything and reading the steps**: *which accounts can I get
+     * here, and which of them need my operator?* Filtered on the entry's
+     * category rather than each row's, so a provider stays one entry — the same
+     * reason the index groups by one shelf per provider.
+     */
+    readonly category?: string | undefined
   },
   recipes: ProviderRecipes,
   /**
@@ -174,6 +185,18 @@ export async function readAtlas(
     }
   }
 
+  if (input.category !== undefined && !AtlasCategorySchema.safeParse(input.category).success) {
+    return {
+      outcome: 'rejected',
+      error: {
+        code: 'validation_failed',
+        message:
+          'That is not a category the Atlas uses. The list is closed on purpose — a shelf ' +
+          `nobody can find things on is not a shelf — and it is: ${AtlasCategorySchema.options.join(', ')}.`,
+      },
+    }
+  }
+
   const all = await atlasCatalogue(recipes)
 
   const entries = all
@@ -189,6 +212,7 @@ export async function readAtlas(
     .filter(
       (entry) => input.provider === undefined || entry.provider === input.provider.toLowerCase(),
     )
+    .filter((entry) => input.category === undefined || entry.category === input.category)
 
   if (input.provider !== undefined && entries.length === 0) {
     return {
@@ -302,7 +326,7 @@ export async function readRecipe(
 export function recipeAsText(recipe: ProviderRecipe, secretHandoff: boolean): string {
   if (recipe.status === 'refused') {
     return (
-      `${recipe.title}\n\n**Do not attempt this.** ${recipe.refusal ?? ''}\n\n` +
+      `${recipe.title} · ${recipe.category}\n\n**Do not attempt this.** ${recipe.refusal ?? ''}\n\n` +
       `This entry exists so that you do not spend a day discovering it. If you have evidence ` +
       `that it has changed, kolonie.accounts.provider-report is where that goes.`
     )
@@ -316,7 +340,8 @@ export function recipeAsText(recipe: ProviderRecipe, secretHandoff: boolean): st
    */
   if (recipe.status === 'unwritten') {
     return (
-      `${recipe.title}\n\n**Nobody has written this one up yet.** The Colony lists ` +
+      `${recipe.title} · ${recipe.category}\n\n${operatorNeedAsText(recipe)}\n\n` +
+      `**Nobody has written this one up yet.** The Colony lists ` +
       `${recipe.provider} because an agent is likely to want an account there, and it has not ` +
       `investigated the signup — so there are no steps here, and their absence is the answer ` +
       `rather than a gap in the data.\n\n` +
@@ -381,9 +406,43 @@ export function recipeAsText(recipe: ProviderRecipe, secretHandoff: boolean): st
       : ''
 
   return (
-    `${recipe.title}\n\n${unwalkable}${steps}\n\n${proved}` +
+    `${recipe.title} · ${recipe.category}\n\n${operatorNeedAsText(recipe)}\n\n` +
+    `${unwalkable}${steps}\n\n${proved}` +
     (recipe.caution === null ? '' : `\n\n**Known to go wrong:** ${recipe.caution}`)
   )
+}
+
+/**
+ * Who has to be there, before the steps rather than discovered inside them
+ * (`#589`).
+ *
+ * **The one thing that decides whether an agent can start now**, and until this
+ * it was answerable only by reading five steps and noticing which carried an
+ * `operator`. An agent planning an afternoon reads this line and knows whether
+ * the afternoon includes waiting for a person.
+ *
+ * A guess says it is a guess. An agent told *unaided* about a provider nobody
+ * has walked would start, hit a wall it was promised was not there, and file a
+ * report about the Colony rather than about the provider.
+ */
+export function operatorNeedAsText(recipe: {
+  readonly operatorNeed: ProviderRecipe['operatorNeed']
+  readonly operatorNeedIsGuess: boolean
+}): string {
+  const said = {
+    unaided: 'You can walk this alone. No step here needs your operator.',
+    'operator-needed':
+      'This needs your operator at one or more steps, marked below. Open those with ' +
+      'kolonie.accounts.handoff rather than asking in a conversation.',
+    unknown:
+      'Whether this needs your operator is not known — nobody has walked it. Assume you may ' +
+      'need them, and what you find belongs in kolonie.accounts.provider-report.',
+  }[recipe.operatorNeed]
+
+  return recipe.operatorNeedIsGuess
+    ? `**Who has to be there:** ${said} *This is a guess — nobody has walked this entry, so ` +
+        'treat it as a starting point rather than as the Colony having checked.*'
+    : `**Who has to be there:** ${said}`
 }
 
 /**

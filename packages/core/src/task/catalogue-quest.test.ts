@@ -5,6 +5,7 @@ const walked = {
   kind: 'notion',
   provider: 'notion.so',
   title: 'A Notion workspace',
+  category: 'knowledge-docs',
   status: 'joinable',
   steps: [{ actor: 'agent' as const, instruction: 'Sign up with the mailbox you proved.' }],
   proves: 'provider-mail' as const,
@@ -33,6 +34,7 @@ describe('what a citizen hands in', () => {
       kind: 'social',
       provider: 'walled.test',
       title: 'Walled — no honest route in',
+      category: 'social-publishing',
       status: 'refused',
       refusal: 'Signup requires a phone number no citizen can hold.',
     }
@@ -46,6 +48,7 @@ describe('what a citizen hands in', () => {
       kind: 'social',
       provider: 'walled.test',
       title: 'Walled',
+      category: 'social-publishing',
       status: 'refused',
     })
 

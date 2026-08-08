@@ -1,10 +1,12 @@
 import {
   AccountKindSchema,
   noFigures,
+  operatorNeed,
   now as currentTime,
   type AtlasFigures,
   type EntryProposal,
   type ProviderRecipe,
+  type RecipeOperatorGuess,
 } from '@kolonie-ai/core'
 import type { FallingRate } from '@kolonie-ai/db'
 import type { ProviderRecipes } from '../provider-recipes.js'
@@ -31,9 +33,15 @@ function listOrder(status: ProviderRecipe['status']): number {
  */
 export interface FakeProviderRecipes extends ProviderRecipes {
   readonly write: (
-    entry: Omit<Partial<ProviderRecipe>, 'kind' | 'provider'> & {
+    entry: Omit<Partial<ProviderRecipe>, 'kind' | 'provider' | 'operatorNeed'> & {
       kind: string
       provider: string
+      /**
+       * A guess a test can set, exactly as the column allows (`#589`). The
+       * derived answer is never settable here — it comes from the steps, which
+       * is the property the fake exists to preserve.
+       */
+      operatorGuess?: RecipeOperatorGuess
     },
   ) => void
   /**
@@ -112,6 +120,9 @@ export function fakeProviderRecipes(): FakeProviderRecipes {
     write(entry) {
       const status = entry.status ?? 'joinable'
       const joinable = status === 'joinable'
+      const steps =
+        entry.steps ?? (joinable ? [{ actor: 'agent' as const, instruction: 'sign up' }] : [])
+      const need = operatorNeed({ steps, operatorGuess: entry.operatorGuess })
       rows.push({
         kind: AccountKindSchema.parse(entry.kind),
         provider: entry.provider as ProviderRecipe['provider'],
@@ -123,8 +134,11 @@ export function fakeProviderRecipes(): FakeProviderRecipes {
         contact: entry.contact ?? null,
         lastConfirmedAt: entry.lastConfirmedAt ?? currentTime(),
         status,
+        category: entry.category ?? 'code-hosting',
+        operatorNeed: need.need,
+        operatorNeedIsGuess: need.isGuess,
         refusal: entry.refusal ?? (status === 'refused' ? 'no honest route in' : null),
-        steps: entry.steps ?? (joinable ? [{ actor: 'agent', instruction: 'sign up' }] : []),
+        steps,
         proves: entry.proves ?? (joinable ? 'provider-post' : null),
         caution: entry.caution ?? null,
         pacePerDay: entry.pacePerDay ?? null,

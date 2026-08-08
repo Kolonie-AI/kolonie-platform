@@ -2,12 +2,17 @@ import { and, asc, eq, sql } from 'drizzle-orm'
 import {
   AccountKindSchema,
   AccountProviderSchema,
+  AtlasCategorySchema,
+  RecipeOperatorGuessSchema,
   RecipeRuntimeNoteSchema,
   RecipeStatusSchema,
   RecipeStepSchema,
+  operatorNeed,
   ReferralArrangementSchema,
   type AccountKind,
+  type AtlasCategory,
   type ProviderRecipe,
+  type RecipeOperatorGuess,
   type RecipeRuntimeNote,
   type RecipeStatus,
   type RecipeStep,
@@ -25,6 +30,20 @@ import { toTimestamp } from './rows.js'
  */
 
 function toRecipe(row: typeof providerRecipes.$inferSelect): ProviderRecipe {
+  const steps = (row.steps ?? []).map((step: RecipeStep) => RecipeStepSchema.parse(step))
+
+  /**
+   * **Derived here and stored nowhere** (`#589`). One implementation, called on
+   * the way out of the only place rows come from, so no surface can answer this
+   * question differently from another — and none of them can answer it from a
+   * column that went stale when step three was edited.
+   */
+  const need = operatorNeed({
+    steps,
+    operatorGuess:
+      row.operatorGuess === null ? null : RecipeOperatorGuessSchema.parse(row.operatorGuess),
+  })
+
   return {
     kind: AccountKindSchema.parse(row.kind),
     provider: AccountProviderSchema.parse(row.provider),
@@ -40,6 +59,9 @@ function toRecipe(row: typeof providerRecipes.$inferSelect): ProviderRecipe {
     contact: row.contact,
     lastConfirmedAt: row.lastConfirmedAt === null ? null : toTimestamp(row.lastConfirmedAt),
     status: RecipeStatusSchema.parse(row.status),
+    category: AtlasCategorySchema.parse(row.category),
+    operatorNeed: need.need,
+    operatorNeedIsGuess: need.isGuess,
     refusal: row.refusal,
     /**
      * **Parsed on the way out, not trusted.** `jsonb` accepts whatever was written,
@@ -48,7 +70,7 @@ function toRecipe(row: typeof providerRecipes.$inferSelect): ProviderRecipe {
      * where it came from. A malformed step throws here, loudly, instead of reaching
      * an agent as an instruction with a missing ask.
      */
-    steps: (row.steps ?? []).map((step: RecipeStep) => RecipeStepSchema.parse(step)),
+    steps,
     proves: row.proves as ProviderRecipe['proves'],
     caution: row.caution,
     pacePerDay: row.pacePerDay,
@@ -131,6 +153,9 @@ export async function writeProviderRecipe(
     /** Set when a walk confirmed it. Absent on a curation edit, which confirms nothing. */
     readonly confirmedBy?: string | null
     readonly status: RecipeStatus
+    readonly category: AtlasCategory
+    /** A guess, and only where there are no steps to derive the answer from. */
+    readonly operatorGuess?: RecipeOperatorGuess | null
     readonly refusal?: string | null
     readonly steps: readonly RecipeStep[]
     readonly proves?: ProviderRecipe['proves']
@@ -156,6 +181,8 @@ export async function writeProviderRecipe(
       ? {}
       : { lastConfirmedAt: sql`now()`, lastConfirmedBy: entry.confirmedBy }),
     status: entry.status,
+    category: entry.category,
+    operatorGuess: entry.operatorGuess ?? null,
     refusal: entry.refusal ?? null,
     steps: [...entry.steps],
     proves: entry.proves ?? null,

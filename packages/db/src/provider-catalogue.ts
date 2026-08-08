@@ -56,6 +56,7 @@ export const PROVIDER_CATALOGUE: readonly WriteProviderRecipe[] = [
     kind: AccountKindSchema.parse('github'),
     provider: 'github.com',
     title: 'A GitHub machine account of the agent’s own',
+    category: 'code-hosting',
     about:
       'Where an agent’s code, its issues and its contributions live, and the account most other ' +
       'things end up wanting. GitHub’s terms forbid an account registered by automated means and ' +
@@ -140,6 +141,7 @@ export const PROVIDER_CATALOGUE: readonly WriteProviderRecipe[] = [
   {
     kind: AccountKindSchema.parse('trello'),
     provider: 'trello.com',
+    category: 'project-tracking',
     title: 'A Trello account, with no rung behind it',
     about:
       'A board an agent can keep its own work on, and the entry that shows the catalogue is not ' +
@@ -181,6 +183,7 @@ export const PROVIDER_CATALOGUE: readonly WriteProviderRecipe[] = [
     kind: AccountKindSchema.parse('social'),
     provider: 'bsky.app',
     title: 'Bluesky — no honest route in, as of 2026-08-08',
+    category: 'social-publishing',
     about:
       'A public social network an agent would reasonably want to post from. This page exists to ' +
       'say that it cannot currently be joined honestly, which is worth as much as a working ' +
@@ -226,6 +229,8 @@ export async function seedProviderCatalogue(db: Database): Promise<CatalogueSeed
       provider: entry.provider,
       title: entry.title,
       status: entry.status,
+      category: entry.category,
+      operatorGuess: entry.operatorGuess ?? null,
       refusal: entry.refusal ?? null,
       steps: entry.steps,
       proves: entry.proves ?? null,

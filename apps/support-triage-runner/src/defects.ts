@@ -110,6 +110,15 @@ export interface DefectHistory {
   readonly openIssue: KnownIssue | undefined
   /** A closed issue whose title carries this signature, if there is one. */
   readonly closedIssue: ClosedIssue | undefined
+  /**
+   * The most recent line in the window, or `null` where none could be read.
+   *
+   * **Only ever needed against a closed issue** (`#560`), and `watch.ts` only
+   * pays for it then: the evidence read is one query per signature, and asking
+   * for it before every decision would spend it on the ordinary case, which is a
+   * signature with no closed issue at all.
+   */
+  readonly lastSeenAt: string | null
 }
 
 /** What the runner should do about one signature. Decided by arithmetic alone. */
@@ -140,6 +149,19 @@ export const COMMENT_INTERVAL_MS = 86_400_000
  * eternal issue this whole change exists to end, moved one level down. Silence
  * on an issue between those notes is not the detector losing interest; it is the
  * detector having nothing new to say.
+ *
+ * **A closed issue is only a regression if the lines are newer than the
+ * closure** (`#560`), and this was missing one term for as long as the file
+ * existed. The window is half an hour wide and a fix is deployed *before* the
+ * issue is closed, so the window that contains the closure almost always still
+ * holds pre-fix lines. `#526` closed at `23:20:43Z`; `#557` was filed at
+ * `23:21:41Z` — **fifty-eight seconds later** — carrying lines whose last
+ * occurrence was `22:50:26Z`, and saying *"This came back"*. Nothing had.
+ *
+ * The cost of getting it wrong is not one bad issue. It arrives labelled `bug`
+ * with a *this came back* header that the next reader has to disprove by hand,
+ * it happens **at the moment somebody has just fixed something**, and done twice
+ * it teaches people to discount the header on the occasions it is true.
  */
 export function decide(history: DefectHistory, now: number = Date.now()): DefectAction {
   if (history.openIssue !== undefined) {
@@ -151,6 +173,26 @@ export function decide(history: DefectHistory, now: number = Date.now()): Defect
   }
 
   if (history.closedIssue !== undefined) {
+    /**
+     * **Both unknowns fall back to the old behaviour, which is to file.**
+     * `closed_at` is nullable in GitHub's API and the evidence read can come
+     * back empty, and neither is evidence that nothing came back — it is the
+     * absence of evidence either way. Filing a regression that turns out to be
+     * stale costs a reader five minutes; staying quiet about one that is real
+     * costs the Colony a defect nobody is told about.
+     */
+    const closedAt = history.closedIssue.closedAt
+    const lastSeenAt = history.lastSeenAt
+    const stale =
+      closedAt !== null &&
+      lastSeenAt !== null &&
+      Number.isFinite(Date.parse(closedAt)) &&
+      Number.isFinite(Date.parse(lastSeenAt)) &&
+      Date.parse(lastSeenAt) <= Date.parse(closedAt)
+
+    // These are the lines the fix was for. Nobody needs telling about them.
+    if (stale) return { kind: 'quiet' }
+
     return { kind: 'file', regression: true, closed: history.closedIssue }
   }
 

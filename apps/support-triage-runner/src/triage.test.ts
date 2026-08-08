@@ -392,6 +392,8 @@ describe('the note a closed issue leaves on a ticket', () => {
     url: 'https://github.com/Kolonie-AI/kolonie-platform/issues/157',
     title: 'the mint path throws when a challenge is already open',
     reason: 'completed',
+    // Irrelevant to a ticket's ending — `#560` reads it, and this file does not.
+    closedAt: null,
     ...over,
   })
 

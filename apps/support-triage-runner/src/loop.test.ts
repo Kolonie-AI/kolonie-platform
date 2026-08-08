@@ -432,7 +432,9 @@ describe('carrying a closed issue back to its ticket', () => {
 
   const closing = (reason: string | null, url = ISSUE) => ({
     issues: fakeIssues({
-      closed: async () => [{ url, title: 'the mint path throws on an open challenge', reason }],
+      closed: async () => [
+        { url, title: 'the mint path throws on an open challenge', reason, closedAt: null },
+      ],
     }).issues,
   })
 
@@ -516,7 +518,7 @@ describe('carrying a closed issue back to its ticket', () => {
     const issues = fakeIssues({
       closed: async () => {
         listings++
-        return [{ url: ISSUE, title: 'a title', reason: 'completed' }]
+        return [{ url: ISSUE, title: 'a title', reason: 'completed', closedAt: null }]
       },
     }).issues
 

@@ -12,6 +12,7 @@ import {
   labelsFor,
   routeFor,
   titleFor,
+  type DefectHistory,
 } from './defects.js'
 import { watchLogs, type DefectStore } from './watch.js'
 
@@ -105,10 +106,17 @@ const openIssue = (signature: string, over: Partial<KnownIssue> = {}): KnownIssu
   ...over,
 })
 
-const closedIssue = (signature: string): ClosedIssue => ({
+/**
+ * Closed **before** `EVIDENCE.lastAt`, so the default fixture is a signature
+ * that genuinely came back — which is what every regression case here means by
+ * it. `#560` is the other side of that line and states its own timings.
+ */
+const closedIssue = (signature: string, over: Partial<ClosedIssue> = {}): ClosedIssue => ({
   url: 'https://github.com/Kolonie-AI/kolonie-platform/issues/7',
   title: titleFor(signature, 'the same thing, once'),
   reason: 'completed',
+  closedAt: '2026-08-05T10:00:00.000Z',
+  ...over,
 })
 
 /**
@@ -378,10 +386,114 @@ describe('what the detector decides without a model', () => {
   })
 
   it('files when nothing open or closed covers the signature', () => {
-    expect(decide({ known: undefined, openIssue: undefined, closedIssue: undefined })).toEqual({
+    expect(
+      decide({
+        known: undefined,
+        openIssue: undefined,
+        closedIssue: undefined,
+        lastSeenAt: null,
+      }),
+    ).toEqual({
       kind: 'file',
       regression: false,
     })
+  })
+})
+
+/**
+ * `#560`. The detector filed a regression whenever a closed issue carried the
+ * signature, **without asking whether the lines it was holding were newer than
+ * the closure** — so it called a fix a regression.
+ *
+ * The timings below are the measured ones rather than invented: `#526` closed at
+ * `23:20:43Z`, `#557` was filed **fifty-eight seconds later** carrying lines
+ * whose last occurrence was `22:50:26Z`, half an hour before the fix. Every one
+ * of them predated it. The window is half an hour wide and a fix ships *before*
+ * its issue is closed, so this is the ordinary case rather than a rare race.
+ */
+describe('a closed issue and lines older than the closure', () => {
+  const signature = signatureOf('api', 'mcp.tool.threw')
+
+  const CLOSED_AT = '2026-08-07T23:20:43.000Z'
+  const BEFORE_THE_FIX = '2026-08-07T22:50:26.000Z'
+  const AFTER_THE_FIX = '2026-08-07T23:31:00.000Z'
+
+  const history = (over: Partial<DefectHistory> = {}): DefectHistory => ({
+    known: undefined,
+    openIssue: undefined,
+    closedIssue: closedIssue(signature, { closedAt: CLOSED_AT }),
+    lastSeenAt: BEFORE_THE_FIX,
+    ...over,
+  })
+
+  it('is quiet, because those are the lines the fix was for', () => {
+    expect(decide(history())).toEqual({ kind: 'quiet' })
+  })
+
+  it('is still a regression when one line is newer than the closure', () => {
+    expect(decide(history({ lastSeenAt: AFTER_THE_FIX }))).toEqual({
+      kind: 'file',
+      regression: true,
+      closed: closedIssue(signature, { closedAt: CLOSED_AT }),
+    })
+  })
+
+  it('is a regression on the exact boundary only when strictly newer', () => {
+    // A line stamped at the closing instant is not evidence it came back.
+    expect(decide(history({ lastSeenAt: CLOSED_AT }))).toEqual({ kind: 'quiet' })
+  })
+
+  /**
+   * Both unknowns keep the old behaviour, and that direction is deliberate:
+   * an unknown closure time is not evidence of anything, and a regression filed
+   * in error costs a reader five minutes where one withheld costs the Colony a
+   * defect nobody hears about.
+   */
+  it('files when GitHub recorded no closing time', () => {
+    expect(decide(history({ closedIssue: closedIssue(signature, { closedAt: null }) }))).toEqual({
+      kind: 'file',
+      regression: true,
+      closed: closedIssue(signature, { closedAt: null }),
+    })
+  })
+
+  it('files when no line could be read at all', () => {
+    expect(decide(history({ lastSeenAt: null }))).toEqual({
+      kind: 'file',
+      regression: true,
+      closed: closedIssue(signature, { closedAt: CLOSED_AT }),
+    })
+  })
+
+  it('files when either timestamp is unparseable rather than trusting a NaN', () => {
+    expect(decide(history({ lastSeenAt: 'the day before yesterday' })).kind).toBe('file')
+    expect(
+      decide(history({ closedIssue: closedIssue(signature, { closedAt: 'whenever' }) })).kind,
+    ).toBe('file')
+  })
+
+  it('files nothing at all through a whole pass, and says it was quiet', async () => {
+    const issues = fakeIssues({
+      closed: async () => [closedIssue(signature, { closedAt: CLOSED_AT })],
+    })
+
+    const outcome = await watchLogs({
+      logs: fakeLogs([aSignature({ signature, event: 'mcp.tool.threw' })], {
+        evidence: async () => ({
+          firstAt: '2026-08-07T22:45:00.000Z',
+          lastAt: BEFORE_THE_FIX,
+          samples: ['{"level":"error","event":"mcp.tool.threw"}'],
+        }),
+      }),
+      issues,
+      store: fakeStore(),
+      writer: noWriter,
+    })
+
+    expect(issues.filed()).toHaveLength(0)
+    expect(issues.comments()).toHaveLength(0)
+    expect(outcome.quiet).toBe(1)
+    expect(outcome.regressions).toBe(0)
   })
 })
 

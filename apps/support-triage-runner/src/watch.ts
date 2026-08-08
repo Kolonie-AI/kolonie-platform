@@ -1,7 +1,7 @@
 import { silentLog, type Log } from '@kolonie-ai/core'
 import type { Issues } from './github.js'
 import type { DefectWriter } from './llm.js'
-import type { Logs } from './logs.js'
+import type { DefectEvidence, Logs } from './logs.js'
 import {
   DEFECT_WINDOW_SECONDS,
   MAX_ISSUES_PER_DAY,
@@ -145,10 +145,31 @@ export async function watchLogs(deps: WatchDependencies): Promise<WatchOutcome> 
   const ordered = [...signatures].sort((a, b) => b.count - a.count)
 
   for (const signature of ordered) {
+    const openIssue = openIssueFor(signature.signature, open)
+    const closedIssue = closedIssueFor(signature.signature, closed)
+
+    /**
+     * **Read early, and only where it changes the decision** (`#560`).
+     *
+     * `decide()` cannot call a regression without knowing whether the lines are
+     * newer than the closure, and the last occurrence lives in the evidence
+     * read. That read is a Loki query per signature, so it is paid for here only
+     * in the case that needs it — a signature with a closed issue and nothing
+     * open — and handed to `assemble()` afterwards so it is never made twice.
+     *
+     * Everything else keeps the shape it had: evidence is fetched inside
+     * `assemble()`, after the caps, for the signatures actually being acted on.
+     */
+    const evidence =
+      openIssue === undefined && closedIssue !== undefined
+        ? await deps.logs.evidence(signature, DEFECT_WINDOW_SECONDS)
+        : undefined
+
     const history: DefectHistory = {
       known: knownBefore.get(signature.signature),
-      openIssue: openIssueFor(signature.signature, open),
-      closedIssue: closedIssueFor(signature.signature, closed),
+      openIssue,
+      closedIssue,
+      lastSeenAt: evidence?.lastAt ?? null,
     }
 
     const action = decide(history, now())
@@ -159,7 +180,7 @@ export async function watchLogs(deps: WatchDependencies): Promise<WatchOutcome> 
     }
 
     if (action.kind === 'comment') {
-      const report = await assemble(signature, history, deps)
+      const report = await assemble(signature, history, deps, evidence)
       const said = await deps.issues.comment(action.issue.url, recurrenceComment(report))
       if (said) {
         await deps.store.commented(signature.signature)
@@ -175,7 +196,7 @@ export async function watchLogs(deps: WatchDependencies): Promise<WatchOutcome> 
       continue
     }
 
-    const report = await assemble(signature, history, deps)
+    const report = await assemble(signature, history, deps, evidence)
     const url = await deps.issues.create(defectIssue(report))
 
     if (url === null) {
@@ -223,9 +244,16 @@ async function assemble(
   signature: DefectReport['signature'],
   history: DefectHistory,
   deps: WatchDependencies,
+  /**
+   * The evidence, where the caller has already paid for it (`#560`).
+   *
+   * Appended rather than inserted, and optional, so every other call site and
+   * the ordinary path are untouched: absent, this reads it exactly as before.
+   */
+  alreadyRead?: DefectEvidence,
 ): Promise<DefectReport> {
   const log = deps.log ?? silentLog
-  const evidence = await deps.logs.evidence(signature, DEFECT_WINDOW_SECONDS)
+  const evidence = alreadyRead ?? (await deps.logs.evidence(signature, DEFECT_WINDOW_SECONDS))
 
   const lastStart =
     evidence.firstAt === null

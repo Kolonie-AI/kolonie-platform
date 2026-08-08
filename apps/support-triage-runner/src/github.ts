@@ -63,6 +63,17 @@ export interface ClosedIssue {
   readonly title: string
   /** `completed`, `not_planned`, or `null` where GitHub recorded nothing. */
   readonly reason: string | null
+  /**
+   * When it was closed, or `null` where GitHub recorded nothing.
+   *
+   * **Read rather than inferred, and it is what stops a fix being reported as a
+   * regression** (`#560`). The list endpoint has always carried `closed_at` in
+   * the same object as `state_reason`; it was dropped here, so `decide()` had no
+   * way to ask whether the lines it was holding were older than the closure.
+   * `#557` was filed fifty-eight seconds after `#526` closed, carrying only
+   * pre-fix lines, saying *"This came back"*.
+   */
+  readonly closedAt: string | null
 }
 
 export interface NewIssue {
@@ -348,6 +359,7 @@ export function githubIssues(options: GitHubOptions): Issues {
           title?: string
           html_url?: string
           state_reason?: string | null
+          closed_at?: string | null
           pull_request?: unknown
         }>
 
@@ -361,6 +373,7 @@ export function githubIssues(options: GitHubOptions): Issues {
             url: issue.html_url,
             title: issue.title,
             reason: issue.state_reason ?? null,
+            closedAt: issue.closed_at ?? null,
           })
         }
       }

@@ -1,4 +1,10 @@
-import { ATLAS_PATH, type AtlasEntry } from '@kolonie-ai/core'
+import {
+  ATLAS_PATH,
+  ATLAS_RETENTION_DAYS,
+  throughRate,
+  type AtlasEntry,
+  type AtlasFigures,
+} from '@kolonie-ai/core'
 import { escape } from '../console/html.js'
 import { CONSOLE_MAST } from '../console/mark.js'
 import { CONSOLE_STYLE } from '../console/theme.js'
@@ -107,7 +113,7 @@ export function atlasIndexPage(input: {
           (entry) =>
             `<li><a href="${escape(entry.path)}">${escape(entry.title)}</a>` +
             (entry.joinable ? '' : ' <span class="k-refused">cannot be joined</span>') +
-            `<br><small>${escape(kindsLine(entry))}</small></li>`,
+            `<br><small>${escape(kindsLine(entry))}${escape(indexFigure(entry))}</small></li>`,
         )
 
   return atlasPage({
@@ -118,6 +124,7 @@ export function atlasIndexPage(input: {
       '<main>',
       '<h1>The Atlas</h1>',
       `<p>${escape(ATLAS_STANDFIRST)}</p>`,
+      `<p><small>${escape(ATLAS_ORDER_NOTE)}</small></p>`,
       `<ul class="k-atlas-index">${rows.join('')}</ul>`,
       '</main>',
     ].join('\n'),
@@ -191,6 +198,7 @@ function recipeSection(recipe: AtlasEntry['recipes'][number]): string {
     `<section><h2>${escape(recipe.kind)}</h2>`,
     `<ol>${steps}</ol>`,
     `<p>${escape(provesLine(recipe.proves))}</p>`,
+    figuresSection(recipe.figures),
     recipe.caution === null
       ? ''
       : `<p><strong>Known to go wrong:</strong> ${escape(recipe.caution)}</p>`,
@@ -203,4 +211,84 @@ function provesLine(proves: AtlasEntry['recipes'][number]['proves']): string {
   if (proves === null) return ''
 
   return `Proved afterwards with kolonie.accounts.prove, method ${proves}.`
+}
+
+/**
+ * How the index is ordered, said on the page rather than left to be inferred.
+ *
+ * **`#543` rule 2 refuses to sell ordering, and a promise nobody can read is not
+ * a promise.** A visitor who cannot tell whether the top of a catalogue was
+ * bought has to assume it was.
+ */
+const ATLAS_ORDER_NOTE =
+  'Ordered by how many agents actually got through, never by payment. Where an entry is paid ' +
+  'for, it says so on its own page.'
+
+/** The one figure the index has room for: how many got through. */
+function indexFigure(entry: AtlasEntry): string {
+  const attempted = entry.recipes.reduce((sum, one) => sum + one.figures.attempted, 0)
+  const proved = entry.recipes.reduce((sum, one) => sum + one.figures.proved, 0)
+
+  if (!entry.joinable || attempted === 0) return ''
+
+  return ` — ${Math.round((proved / attempted) * 100)}% of ${attempted} got through`
+}
+
+/**
+ * What the Colony measured, on the page (`#545`).
+ *
+ * **A poor number is printed like any other**, which is the rule that makes
+ * every other number here worth reading: the moment a bad result can be
+ * suppressed by a paying provider, they all become worthless. There is
+ * deliberately no branch in this function that hides a figure for being low.
+ */
+function figuresSection(figures: AtlasFigures): string {
+  if (figures.suppressed) {
+    return (
+      '<p><small>Too few agents have tried this for the Colony to publish figures without ' +
+      'describing individuals. The recipe above is what is known.</small></p>'
+    )
+  }
+
+  if (figures.attempted === 0) {
+    return (
+      '<p><small>Nobody has reported walking this yet, so there is nothing measured to ' +
+      'show. That is an absence and not a poor result.</small></p>'
+    )
+  }
+
+  const rate = throughRate(figures)
+  const lines = [
+    rate === null
+      ? ''
+      : `<li>${Math.round(rate * 100)}% of ${figures.attempted} agents got through.</li>`,
+    figures.medianHoursToProof === null
+      ? ''
+      : `<li>Half were proved within ${figures.medianHoursToProof} hours of starting.</li>`,
+    figures.refused === 0 ? '' : `<li>${figures.refused} were refused outright.</li>`,
+    ...figures.stopped.map(
+      (stop) => `<li>${stop.citizens} stopped at: ${escape(stoppedAt(stop.outcome))}.</li>`,
+    ),
+    figures.stillHeld === null || figures.heldLongEnoughToAsk === 0
+      ? ''
+      : `<li>${figures.stillHeld} of ${figures.heldLongEnoughToAsk} still held the account ` +
+        `after ${ATLAS_RETENTION_DAYS} days.</li>`,
+  ].filter((line) => line !== '')
+
+  return `<h3>What we measured</h3><ul>${lines.join('')}</ul>`
+}
+
+/**
+ * Where an attempt stopped, in words.
+ *
+ * The four report outcomes are the steps the Colony actually records, and each
+ * is a different piece of advice to the next agent — which is why `#298` refused
+ * to collapse `no-service` into `abandoned`.
+ */
+function stoppedAt(outcome: AtlasFigures['stopped'][number]['outcome']): string {
+  if (outcome === 'no-service') return 'there is no service behind the domain'
+  if (outcome === 'signup-refused') return 'signup was refused'
+  if (outcome === 'never-provisioned') return 'signup appeared to work and no account ever existed'
+
+  return 'they gave up before it was settled'
 }

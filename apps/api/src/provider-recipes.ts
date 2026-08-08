@@ -1,12 +1,18 @@
 import {
   AccountKindSchema,
+  atlasByOutcome,
+  atlasEntries,
+  figureKey,
   type AccountKind,
   type ApiError,
+  type AtlasAudience,
+  type AtlasEntry,
+  type AtlasFigures,
   type ProviderRecipe,
   type RecipeStep,
 } from '@kolonie-ai/core'
 import type { Database } from '@kolonie-ai/db'
-import { providerRecipe, providerRecipeList } from '@kolonie-ai/db'
+import { atlasFigures, providerRecipe, providerRecipeList } from '@kolonie-ai/db'
 
 /**
  * The provider catalogue, read (`#521`).
@@ -20,13 +26,52 @@ import { providerRecipe, providerRecipeList } from '@kolonie-ai/db'
 export interface ProviderRecipes {
   list(kind?: AccountKind): Promise<readonly ProviderRecipe[]>
   one(kind: AccountKind, provider: string): Promise<ProviderRecipe | undefined>
+  /**
+   * What was measured about every recipe (`#545`).
+   *
+   * **On the catalogue rather than beside it**, because every surface that reads
+   * an entry needs the figures with it: a page, a tool result and the data route
+   * that showed a recipe without its measured outcome would be the link
+   * collection the Atlas exists not to be.
+   */
+  figures(options?: {
+    readonly audience?: AtlasAudience
+    readonly provider?: string
+  }): Promise<readonly AtlasFigures[]>
 }
 
 export function databaseProviderRecipes(db: Database): ProviderRecipes {
   return {
     list: (kind) => providerRecipeList(db, kind),
     one: (kind, provider) => providerRecipe(db, kind, provider),
+    figures: (options) => atlasFigures(db, options ?? {}),
   }
+}
+
+/**
+ * The catalogue and its measurements, assembled into entries (`#545`, `#546`).
+ *
+ * **One call, so no surface can render a recipe without its figures.** The two
+ * reads are independent and the grouping is `atlasEntries`'; what this adds is
+ * that they always happen together, which is the property `#545` needs — a page
+ * showing a recipe and omitting how many got through is the catalogue pretending
+ * to be a curated list.
+ */
+export async function atlasCatalogue(
+  recipes: ProviderRecipes,
+  options: { readonly audience?: AtlasAudience; readonly ordered?: boolean } = {},
+): Promise<readonly AtlasEntry[]> {
+  const [rows, measured] = await Promise.all([
+    recipes.list(),
+    recipes.figures(options.audience === undefined ? {} : { audience: options.audience }),
+  ])
+
+  const entries = atlasEntries(
+    rows,
+    new Map(measured.map((one) => [figureKey(one.kind, one.provider), one])),
+  )
+
+  return options.ordered === false ? entries : atlasByOutcome(entries)
 }
 
 export type RecipeOutcome<T> =

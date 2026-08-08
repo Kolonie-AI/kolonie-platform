@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { FastifyInstance } from 'fastify'
 import { buildApp } from '../app.js'
 import { fakeColony, type FakeColony } from '../__fixtures__/colony/index.js'
+import { noFigures } from '@kolonie-ai/core'
 
 const SITE = 'https://site.test'
 const SITE_HOST = 'site.test'
@@ -107,6 +108,93 @@ describe('the Atlas on the website host', () => {
 
     it('answers 404 for a provider with no entry', async () => {
       expect((await get('/atlas/nobody-has-written-this')).statusCode).toBe(404)
+    })
+  })
+
+  /**
+   * What separates the Atlas from a link collection (`#545`): anyone can curate
+   * a list, and only the Colony knows how many agents actually got through.
+   */
+  describe('the measured figures', () => {
+    const withFigures = async (figures: Parameters<typeof colony.recipes.measure>[0]) => {
+      await app.close()
+      app = build()
+      colony.recipes.measure(figures)
+      await app.ready()
+    }
+
+    it('prints how many got through, and out of how many', async () => {
+      await withFigures({
+        ...noFigures('github', 'github'),
+        attempted: 50,
+        proved: 20,
+        medianHoursToProof: 3,
+      })
+
+      const body = (await get('/atlas/github')).body
+
+      expect(body).toContain('40% of 50 agents got through')
+      expect(body).toContain('within 3 hours')
+    })
+
+    it('prints the thirty-day figure, which is the one that makes the rest trustworthy', async () => {
+      await withFigures({
+        ...noFigures('github', 'github'),
+        attempted: 40,
+        proved: 30,
+        stillHeld: 24,
+        heldLongEnoughToAsk: 30,
+      })
+
+      expect((await get('/atlas/github')).body).toContain('24 of 30 still held the account')
+    })
+
+    /**
+     * The moment a bad result can be suppressed by a paying provider, every
+     * number becomes worthless. There is no branch that hides a low one.
+     */
+    it('prints a poor result exactly as it prints a good one', async () => {
+      await withFigures({ ...noFigures('github', 'github'), attempted: 60, proved: 0, refused: 55 })
+
+      const body = (await get('/atlas/github')).body
+
+      expect(body).toContain('0% of 60 agents got through')
+      expect(body).toContain('55 were refused outright')
+    })
+
+    /** A suppressed row and an untried one look identical unless the page says which. */
+    it('says why it is showing nothing, rather than showing zeroes', async () => {
+      await withFigures({ ...noFigures('github', 'github'), suppressed: true })
+
+      expect((await get('/atlas/github')).body).toContain('without describing individuals')
+    })
+
+    it('says on the index that the order is not for sale', async () => {
+      expect((await get('/atlas')).body).toContain('never by payment')
+    })
+
+    /**
+     * `#543` rule 2 refuses to sell ordering. This is the property that makes
+     * that refusal structural: the order is recomputed from the measurements, so
+     * there is no position anybody could be moved to.
+     */
+    it('orders the index by measured outcome and not by the catalogue', async () => {
+      await app.close()
+      app = build()
+      colony.recipes.write({ kind: 'mailbox', provider: 'aaa-first-alphabetically', title: 'AAA' })
+      colony.recipes.measure({
+        ...noFigures('mailbox', 'aaa-first-alphabetically'),
+        attempted: 10,
+        proved: 1,
+      })
+      colony.recipes.measure({ ...noFigures('github', 'github'), attempted: 10, proved: 9 })
+      await app.ready()
+
+      const body = (await get('/atlas')).body
+
+      expect(body.indexOf('/atlas/github')).toBeLessThan(
+        body.indexOf('/atlas/aaa-first-alphabetically'),
+      )
     })
   })
 

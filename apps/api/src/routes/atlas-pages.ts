@@ -1,7 +1,6 @@
 import {
   ATLAS_CACHE_SECONDS,
   ATLAS_PATH,
-  atlasEntries,
   atlasPath,
   AccountProviderSchema,
   type AtlasEntry,
@@ -9,6 +8,7 @@ import {
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import { ATLAS_HEADERS, atlasEntryPage, atlasIndexPage } from '../atlas/html.js'
 import { atlasSitemap } from '../atlas/sitemap.js'
+import { atlasCatalogue } from '../provider-recipes.js'
 import type { RouteDependencies } from './dependencies.js'
 
 /**
@@ -67,7 +67,13 @@ export function registerAtlasPages(app: FastifyInstance, deps: RouteDependencies
       .send(body)
   }
 
-  const listEntries = async (): Promise<readonly AtlasEntry[]> => atlasEntries(await recipes.list())
+  /**
+   * The catalogue with its measurements, in the order `#545` derives.
+   *
+   * **Ordered on every read and never from a stored rank**, which is what makes
+   * the ordering something nobody can buy — there is no position field to set.
+   */
+  const listEntries = async (): Promise<readonly AtlasEntry[]> => atlasCatalogue(recipes)
 
   app.get(ATLAS_PATH, async (request, reply) => {
     if (wrongHost(request)) return reply.callNotFound()

@@ -1,4 +1,10 @@
-import { AccountKindSchema, now as currentTime, type ProviderRecipe } from '@kolonie-ai/core'
+import {
+  AccountKindSchema,
+  noFigures,
+  now as currentTime,
+  type AtlasFigures,
+  type ProviderRecipe,
+} from '@kolonie-ai/core'
 import type { ProviderRecipes } from '../provider-recipes.js'
 
 /**
@@ -15,12 +21,35 @@ export interface FakeProviderRecipes extends ProviderRecipes {
       provider: string
     },
   ) => void
+  /**
+   * What a test says was measured about an entry (`#545`).
+   *
+   * **Set rather than derived**, unlike the catalogue rows beside it: the
+   * measurement is a query over two other tables, and reimplementing it here
+   * would let a page test pass against a fake that counts differently from the
+   * SQL. `packages/db/src/storage/atlas-figures.test.ts` is where the counting
+   * is asserted, against a real Postgres.
+   */
+  readonly measure: (figures: AtlasFigures) => void
 }
 
 export function fakeProviderRecipes(): FakeProviderRecipes {
   const rows: ProviderRecipe[] = []
+  const measured: AtlasFigures[] = []
 
   return {
+    async figures() {
+      return rows.map(
+        (row) =>
+          measured.find((one) => one.kind === row.kind && one.provider === row.provider) ??
+          noFigures(row.kind, row.provider),
+      )
+    },
+
+    measure(figures) {
+      measured.push(figures)
+    },
+
     async list(kind) {
       return rows
         .filter((row) => kind === undefined || row.kind === kind)

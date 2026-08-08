@@ -1,7 +1,8 @@
 import { z } from 'zod'
 import { TimestampSchema } from '../common/time.js'
 import { AccountProviderSchema } from './account.js'
-import { ProviderRecipeSchema } from './recipe.js'
+import { AtlasFiguresSchema, atlasRank, noFigures, type AtlasFigures } from './atlas-figures.js'
+import { ProviderRecipeSchema, type ProviderRecipe } from './recipe.js'
 
 /**
  * The Atlas: the provider catalogue, as something a stranger can read (`#546`).
@@ -77,8 +78,11 @@ export const AtlasEntrySchema = z.object({
    * (`#482`), and `#547` requires it to be a full one.
    */
   joinable: z.boolean(),
-  /** One row per kind, in the catalogue's own order. Never empty. */
-  recipes: z.array(ProviderRecipeSchema).min(1),
+  /**
+   * One row per kind, in the catalogue's own order, each with what was measured
+   * about it (`#545`). Never empty.
+   */
+  recipes: z.array(ProviderRecipeSchema.extend({ figures: AtlasFiguresSchema })).min(1),
   /** The most recent edit across the rows, which is what a reader wants dated. */
   updatedAt: TimestampSchema,
 })
@@ -94,9 +98,18 @@ export type AtlasEntry = z.infer<typeof AtlasEntrySchema>
  * so the catalogue has one order and it is stated in one place.
  */
 export function atlasEntries(
-  recipes: readonly z.infer<typeof ProviderRecipeSchema>[],
+  recipes: readonly ProviderRecipe[],
+  /**
+   * What was measured, by `kind\u0000provider` (`#545`).
+   *
+   * **Optional, and an absent figure is `noFigures` rather than an error.** A
+   * colony where nobody has attempted a provider is the ordinary early state of
+   * every entry, and a surface that could not render one would be a surface that
+   * cannot show a newly written recipe.
+   */
+  figures: ReadonlyMap<string, AtlasFigures> = new Map(),
 ): readonly AtlasEntry[] {
-  const byProvider = new Map<string, z.infer<typeof ProviderRecipeSchema>[]>()
+  const byProvider = new Map<string, ProviderRecipe[]>()
 
   for (const recipe of recipes) {
     const held = byProvider.get(recipe.provider)
@@ -113,10 +126,50 @@ export function atlasEntries(
       path: atlasPath(provider),
       title: titled?.title ?? provider,
       joinable,
-      recipes: rows,
+      recipes: rows.map((row) => ({
+        ...row,
+        figures:
+          figures.get(figureKey(row.kind, row.provider)) ?? noFigures(row.kind, row.provider),
+      })),
       updatedAt: rows
         .map((row) => row.updatedAt)
         .reduce((latest, at) => (at > latest ? at : latest)),
     }
   })
+}
+
+/**
+ * How a figure is looked up: the pair that identifies the recipe it measures.
+ *
+ * A NUL separator rather than a hyphen or a colon, because both are legal inside
+ * a provider — `mail.tm` and `x-com` are ordinary values — and a separator that
+ * can appear in a key is a collision waiting for the provider that contains it.
+ */
+export function figureKey(kind: string, provider: string): string {
+  return `${kind}\u0000${provider}`
+}
+
+/**
+ * The catalogue in the order a visitor should meet it (`#545`).
+ *
+ * **Ordered by measured outcome, never by payment**, and derived on every read
+ * rather than stored — which is what makes it something nobody can buy. A
+ * visitor should be able to see at a glance which providers are actually
+ * passable by an agent; `#547` calls that ordering the product.
+ *
+ * Ties fall back to the catalogue's own order, so two unmeasured entries stay
+ * where `providerRecipeList` put them rather than swapping between reads.
+ */
+export function atlasByOutcome(entries: readonly AtlasEntry[]): readonly AtlasEntry[] {
+  return entries
+    .map((entry, index) => ({
+      entry,
+      index,
+      rank: atlasRank({
+        joinable: entry.joinable,
+        figures: entry.recipes.map((recipe) => recipe.figures),
+      }),
+    }))
+    .sort((a, b) => b.rank - a.rank || a.index - b.index)
+    .map((one) => one.entry)
 }

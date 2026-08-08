@@ -27,6 +27,7 @@ describe('the operator queue on the fleet page', () => {
     about: 'Prove you control a mailbox',
     since: '2026-08-08T08:00:00.000Z',
     answerAt: null,
+    requestId: null,
     dropId: null,
     ...over,
   })
@@ -82,20 +83,54 @@ describe('the operator queue on the fleet page', () => {
     })
   })
 
-  it('links a question to the page the operator holds, and a drop to nothing', () => {
+  /**
+   * **The console links to its own door and never reproduces the token**
+   * (`#587`).
+   *
+   * The row still carries `answerAt` — it is correct for the mailed digest,
+   * where the token *is* how the operator is known — and this asserts the
+   * console *substitutes* rather than that the field went away. A test built on
+   * a row with no `answerAt` would pass against a console that had simply
+   * stopped rendering a link at all.
+   *
+   * The fragment is `#593`'s anchor, so the reader lands on the question they
+   * clicked rather than at the top of a page whose first blocks are about
+   * identity.
+   */
+  it('links a question to the console’s own door, carrying no token', () => {
     const html = dashboardPage({
       zone: 'UTC',
       agents: [agent],
       waiting: [
         item({ kind: 'code' }),
-        item({ kind: 'question', ask: 'May I?', answerAt: '/operator/page/abc' }),
+        item({
+          kind: 'question',
+          ask: 'May I?',
+          answerAt: '/operator/page/abc',
+          requestId: '22222222-2222-4222-8222-222222222222',
+        }),
       ],
     })
 
-    expect(html).toContain('href="/operator/page/abc"')
+    expect(html).toContain(
+      `href="/agents/${agent.id}/operator#question-22222222-2222-4222-8222-222222222222"`,
+    )
+    expect(html).not.toContain('/operator/page/abc')
     // A drop's link is a bearer secret the Colony keeps only the hash of. A
     // sentence beats a dead link.
     expect(html).toContain('use the link that was mailed to you')
+  })
+
+  /** A question with no id lands on the door itself rather than on a dead fragment. */
+  it('links to the door with no fragment when the row names no exchange', () => {
+    const html = dashboardPage({
+      zone: 'UTC',
+      agents: [agent],
+      waiting: [item({ kind: 'question', answerAt: '/operator/page/abc', requestId: null })],
+    })
+
+    expect(html).toContain(`href="/agents/${agent.id}/operator"`)
+    expect(html).not.toContain('/operator/page/abc')
   })
 
   /**

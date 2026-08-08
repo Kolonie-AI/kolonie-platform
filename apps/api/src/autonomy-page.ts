@@ -1111,10 +1111,12 @@ export function operatorDurablePage(input: {
    * the section can *do* is unchanged, because it is the same forms posting to
    * the same handlers.
    */
+  const asked = question.filter(Boolean)
+
   const operatorSection = [
     ...wall,
     ...body,
-    ...question.filter(Boolean),
+    ...asked,
     ...note.filter(Boolean),
     '<p class="note">The agent can take this page away at any time, and does not have to tell',
     'you. That is deliberate: the page is about your agreement with it, and it is the one who',
@@ -1123,13 +1125,33 @@ export function operatorDurablePage(input: {
 
   if (input.as === 'section') return operatorSection.filter(Boolean).join('\n')
 
+  /**
+   * **The question comes first when there is one** (`#587`).
+   *
+   * A page opened *because somebody was asked something* should open on the
+   * asking. Before this the assembly was wordmark, name, standing, then the
+   * operator's section — so an operator clicking *Answer* landed on an ASCII
+   * wordmark, the badges, what the agent had proved and its autonomy contract,
+   * with the question below all of it and nothing taking them there.
+   *
+   * **Better than the anchor alone**, which is why both exist: a fragment jump
+   * on a long page leaves a reader with no idea what they skipped, and a
+   * browser's restored scroll position on a back-navigation puts them at the top
+   * again.
+   *
+   * The badges and the contract are context for the answer, and context goes
+   * under the question. **With nothing open the order is exactly what it was** —
+   * `asked` is empty, and this reads as the old assembly.
+   */
+  const questionFirst = asked.length > 0
+
   return page({
     title: input.agentName,
     body: [
       ...(wordmark === null ? [] : [`<pre class="wordmark" aria-hidden="true">${wordmark}</pre>`]),
       `<h1>${name}</h1>`,
-      ...standing,
-      ...operatorSection,
+      ...(questionFirst ? operatorSection : standing),
+      ...(questionFirst ? standing : operatorSection),
     ].join('\n'),
   })
 }

@@ -103,6 +103,24 @@ export const WaitingItemSchema = z.object({
    */
   answerAt: z.string().nullable(),
   /**
+   * The exchange this row is, for the console's own link (`#587`).
+   *
+   * **`answerAt` above stays exactly as it is, and this is why there are two.**
+   * That field is a `/operator/page/<token>` URL and is correct for the surface
+   * it was written for — a mailed digest, where the token *is* how the operator
+   * is known. It is wrong for the console, where a session already proves who
+   * the reader is and rendering the token would put a durable bearer credential
+   * into a page behind a login (`#428`).
+   *
+   * So the console substitutes: `/agents/:agentId/operator`, plus this id as a
+   * fragment so the reader lands on the question they clicked. **Do not "fix"
+   * the queue by putting the token back** — the substitution belongs in the
+   * console because that is where the session exists.
+   *
+   * An id and not a link: it authorises nothing. `null` on a drop.
+   */
+  requestId: z.uuid().nullable(),
+  /**
    * The drop this item is, when it is one (`#570`). `null` for a question.
    *
    * **An id and not a link, and the difference is the whole of the change.** The

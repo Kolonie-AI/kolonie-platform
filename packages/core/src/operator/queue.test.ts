@@ -17,6 +17,7 @@ describe('the operator queue', () => {
     about: null,
     since,
     answerAt: null,
+    requestId: null,
     dropId: null,
   })
 

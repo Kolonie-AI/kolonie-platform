@@ -22,8 +22,36 @@ import type { WaitingItem, WaitingKind } from '@kolonie-ai/core'
 import { CONSOLE_MAST } from './mark.js'
 import { CONSOLE_STYLE } from './theme.js'
 import { absolute, relative } from './time.js'
+import { exchangeAnchor } from '../autonomy-page.js'
+import { consoleOperatorPath } from '../operator-page-body.js'
 
 /** The five characters that turn text into markup. */
+/**
+ * Where the console sends an operator to answer one question (`#587`).
+ *
+ * **The console's own door, and never `answerAt`.** That field is a
+ * `/operator/page/<token>` URL, and `operator_pages.token` is a durable bearer
+ * credential revoked only by the agent — so rendering it inside a page behind a
+ * login put permanent write access to an operator page into a screenshot, a
+ * shared screen, a browser history entry and a referrer. `#428` refuses exactly
+ * that, `operator-page-body.ts` says so in as many words, and the forms on that
+ * page already obey it. The queue's `href` did not.
+ *
+ * `/agents/:agentId/operator` already exists, renders the identical body through
+ * `operatorPageBody`, and posts to the console's own path — and the queue has
+ * `agentId` in the same row, so this costs no extra query.
+ *
+ * **The fragment is what `#593` made possible.** Each exchange is its own
+ * section with its own anchor, so this lands on the question the operator
+ * clicked rather than at the top of a page whose first three blocks are about
+ * identity.
+ */
+function consoleAnswerLink(item: WaitingItem): string {
+  const door = consoleOperatorPath(item.agentId)
+
+  return item.requestId === null ? door : `${door}#${exchangeAnchor(item.requestId)}`
+}
+
 export function escape(value: string): string {
   return value
     .replaceAll('&', '&amp;')
@@ -729,7 +757,7 @@ export function dashboardPage(input: {
                   item.dropId === null
                     ? item.answerAt === null
                       ? '<small>use the link that was mailed to you</small>'
-                      : `<a href="${escape(item.answerAt)}">Answer</a>`
+                      : `<a href="${escape(consoleAnswerLink(item))}">Answer</a>`
                     : [
                         `<form method="post" action="/drops/${escape(item.dropId)}">`,
                         '<input type="password" name="value" required maxlength="4096" ' +

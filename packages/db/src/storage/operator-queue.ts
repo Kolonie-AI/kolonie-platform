@@ -39,6 +39,7 @@ interface WaitingRow extends Record<string, unknown> {
   readonly about: string | null
   readonly since: string
   readonly answer_at: string | null
+  readonly request_id: string | null
   readonly drop_id: string | null
 }
 
@@ -70,6 +71,7 @@ export async function waitingForOperator(
         t.title as about,
         r.opened_at as since,
         p.token as answer_at,
+        r.id as request_id,
         null::uuid as drop_id
       from operator_requests r
       join mine on mine.agent_id = r.agent_id
@@ -92,6 +94,7 @@ export async function waitingForOperator(
         t.title as about,
         d.created_at as since,
         null::text as answer_at,
+        null::uuid as request_id,
         d.id as drop_id
       from operator_drops d
       join mine on mine.agent_id = d.agent_id
@@ -124,6 +127,15 @@ export async function waitingForOperator(
      * cannot produce that link and should not learn to.
      */
     answerAt: row.answer_at === null ? null : `/operator/page/${row.answer_at}`,
+    /**
+     * Which exchange this row is, so the console can link to its anchor
+     * (`#587`, `#593`).
+     *
+     * **An id and not a link**, exactly as `dropId` beside it is: it authorises
+     * nothing, and the console's own session is what proves the reader may
+     * answer. `null` on a drop, which is not an exchange.
+     */
+    requestId: row.request_id,
     /**
      * The drop itself, so the console can offer the field beside the item
      * (`#570`). An id rather than a link, and it authorises nothing — the

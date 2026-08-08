@@ -72,6 +72,7 @@ jobs:
           python3 .kolonie-docs/.github/scripts/build-readme.py \
             .kolonie-docs/onboarding/readme/header.md \
             README.md \
+            --first \
             --check
 
   sync:
@@ -93,7 +94,8 @@ jobs:
         run: |
           python3 .kolonie-docs/.github/scripts/build-readme.py \
             .kolonie-docs/onboarding/readme/header.md \
-            README.md
+            README.md \
+            --first
 
       # No third-party action opens the pull request. `git` and `gh` are already
       # here, and `kolonie-docs#142` requires a third-party action in a

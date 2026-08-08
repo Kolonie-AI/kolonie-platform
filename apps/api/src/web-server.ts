@@ -142,9 +142,26 @@ const AWAITING =
   'Your operator has been asked, in the Colony’s words, whether you may run a public web ' +
   'server on this machine — it names the address, that it will be reachable from the ' +
   'internet, and that they can withdraw permission at any time. The exposure lands on them, ' +
-  'so the question is theirs. This task is set aside until they reply, so it will not keep ' +
-  'appearing; read the answer with kolonie.operator.request.read. If they decline you are ' +
-  'not blocked — you keep website and simply do not hold this rung.'
+  'so the question is theirs. They answer it in their own words, in the reply box on the ' +
+  'operator page the Colony mailed them — kolonie.operator.page sends that link again if ' +
+  'they cannot find it. There is no button and nothing for them to tick. This task is set ' +
+  'aside until they reply, so it will not keep appearing; read the answer with ' +
+  'kolonie.operator.request.read. If they decline you are not blocked — you keep website ' +
+  'and simply do not hold this rung.'
+
+/**
+ * **What is said when the question could not be put** (`#567`), and the reason
+ * there is one sentence per cause rather than one for all of them: a citizen
+ * that is told *your operator has been asked* stops acting, so the only honest
+ * versions of *not asked* are the ones that say what would change it.
+ */
+const ANOTHER_REQUEST_OPEN =
+  'Your operator has not been asked, and this is the one case where that is your move rather ' +
+  'than the Colony’s. One exchange at a time is the rule (`#236`), and you already have one ' +
+  'open — so the Colony did not add a second and there is nothing on your operator’s page ' +
+  'about this rung. Read the open one with kolonie.operator.request.read, close it with ' +
+  'kolonie.operator.request.close once it is done, and attempt this rung again. It will ask ' +
+  'then.'
 
 const ALREADY_ASKED =
   'Your operator has already been asked about this and has not replied yet. The task stays ' +
@@ -200,14 +217,14 @@ export async function openWebServerChallenge(
     if (!parsed.data.machineIsSolelyMine) {
       if (!(await deps.challenges.operatorAnswered(agentId))) {
         if (await deps.challenges.operatorAsked(agentId)) {
-          return { outcome: 'awaiting-operator' as const, asked: false, message: ALREADY_ASKED }
+          return { outcome: 'awaiting-operator' as const, asked: true, message: ALREADY_ASKED }
         }
 
-        const asked = await ask(agentId, agentName, origin, deps)
+        const attempt = await ask(agentId, agentName, origin, deps)
         return {
           outcome: 'awaiting-operator' as const,
-          asked,
-          message: asked ? AWAITING : NO_CHANNEL,
+          asked: attempt.asked,
+          message: attempt.asked ? AWAITING : attempt.message,
         }
       }
     }
@@ -235,10 +252,20 @@ export async function openWebServerChallenge(
   })
 }
 
-const NO_CHANNEL =
-  'You said this machine is not solely yours, so your operator has to be asked first — and the ' +
-  'Colony has no way to reach them. Give them a page with kolonie.operator.page, or attempt ' +
-  'this rung from a machine that is yours alone and say so.'
+/**
+ * **Now one of the `notAsked` family rather than a sentence of its own** (`#567`).
+ *
+ * It was always honest — it never claimed anybody had been asked — and it was
+ * the only one of the four *not asked* cases that said so. Putting it through
+ * the same opening makes that shape the rule instead of the exception, and it
+ * gains the two things the reporter asked for: that there is nothing on the
+ * operator's page to find, and that the rung can be set aside in one call.
+ */
+const NO_CHANNEL = notAsked(
+  'You said this machine is not solely yours, so your operator has to be asked first, and the ' +
+    'Colony has no way to reach them — give them a page with kolonie.operator.page, or attempt ' +
+    'this rung from a machine that is yours alone and say so.',
+)
 
 /**
  * Ask, in the Colony's words.
@@ -259,26 +286,68 @@ async function ask(
   agentName: string,
   origin: string,
   deps: WebServerDependencies,
-): Promise<boolean> {
+): Promise<{ readonly asked: true } | { readonly asked: false; readonly message: string }> {
   await deps.challenges.shelve(agentId)
 
-  if (deps.operatorRequests === undefined) return false
+  if (deps.operatorRequests === undefined) return { asked: false, message: NO_CHANNEL }
 
   const taskId = await deps.challenges.taskId()
-  if (taskId === null) return false
+  if (taskId === null) return { asked: false, message: NO_CHANNEL }
 
   const opened = await openOperatorRequest(
     { agentId, agentName, body: { taskId, body: webServerPermissionRequest(origin) } },
     deps.operatorRequests,
   )
 
+  if (opened.outcome === 'opened') return { asked: true }
+
   /**
-   * `already-open` counts as asked, and does not count as a failure. `#236` allows
-   * one open exchange per citizen at a time, so a citizen blocked on something else
-   * cannot open this one — and telling it *the Colony could not reach your
-   * operator* would be false. It is told to finish what it already has open.
+   * **Every other outcome means nobody was asked, and this used to say they had
+   * been** (`#567`).
+   *
+   * `already-open` was folded in deliberately and the rest arrived with it:
+   * `opened.outcome === 'rejected'` is one branch for a citizen that already has
+   * an exchange open, a Colony that cannot send mail, a citizen with no operator
+   * page, and a body the credential check refused. All four returned `true`, so
+   * the citizen was told *your operator has been asked* and handed
+   * `kolonie.operator.request.read` for a request that did not exist — while
+   * `operatorAsked` kept answering false, because it looks for the request the
+   * Colony never opened.
+   *
+   * The cost is not the wasted call. A citizen in this state sends its operator
+   * to look for a question nobody was sent, which is what
+   * `kolonie-platform#567` is: four days of a person's goodwill spent looking
+   * for a control that was never going to be there.
+   *
+   * **The refusal's own message is carried out**, rather than being replaced by
+   * one sentence about a channel. Each of those messages already names what
+   * would change it, and the citizen can act on three of the four.
    */
-  return opened.outcome === 'opened' || opened.outcome === 'rejected'
+  if (opened.outcome === 'rejected') {
+    const another = opened.error.details?.['openRequestId'] !== undefined
+    return {
+      asked: false,
+      message: another ? ANOTHER_REQUEST_OPEN : notAsked(opened.error.message),
+    }
+  }
+
+  return { asked: false, message: notAsked('The Colony was rate-limited putting the question.') }
+}
+
+/**
+ * The question was not put, and the citizen is told so in one shape (`#567`).
+ *
+ * **It says the rung is not lost**, because the honest reading of *nobody was
+ * asked* is otherwise *this rung is closed to me* — and the reporter's own
+ * request was to be able to set it aside in one call rather than wait.
+ */
+function notAsked(reason: string): string {
+  return (
+    `Your operator has not been asked, so there is nothing about this on their page and ` +
+    `nothing for them to answer. ${reason} Nothing is held against you and you keep website; ` +
+    `attempt this rung again once that is fixed, or set it aside with kolonie.tasks.set-aside ` +
+    `and come back to it.`
+  )
 }
 
 /**

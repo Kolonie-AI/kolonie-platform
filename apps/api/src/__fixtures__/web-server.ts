@@ -14,6 +14,18 @@ import { noObstruction } from './obstruction.js'
 export interface FakeWebServerChallenges extends WebServerChallengeStore {
   /** Say an operator has come back about this rung, without running the channel. */
   readonly operatorAnswers: (agentId: AgentId) => void
+  /**
+   * Say a request about this rung really was opened (`#567`).
+   *
+   * **Shelving used to do this, and that was the fake asserting something
+   * production does not do.** `operatorAsked` is `operatorAskedAbout` — an open
+   * request row for this task — and the task is shelved whether or not the ask
+   * succeeded. So a failed ask left the real Colony with `operatorAsked` false
+   * and this fixture with it true, which is precisely the divergence that let
+   * `#567` ship: every test agreed the citizen was waiting on a question nobody
+   * had been sent.
+   */
+  readonly operatorAsks: (agentId: AgentId) => void
   /** Answer the probe the citizen currently holds, as a passing verdict would. */
   readonly serveCurrentProbe: (agentId: AgentId) => void
   /** Move the clock past the separation, so the second probe is disclosed. */
@@ -42,12 +54,18 @@ interface Row {
  * would let every test pass against the behaviour the rung exists to prevent. It
  * is a short function in both places for that reason.
  */
-export function fakeWebServerChallenges(): FakeWebServerChallenges {
+export function fakeWebServerChallenges(
+  /**
+   * The rung's task id, when a test needs the operator-request store to know the
+   * same one (`#567`). Random otherwise, as it was.
+   */
+  ownTaskId?: TaskId,
+): FakeWebServerChallenges {
   const rows = new Map<AgentId, Row>()
   const answered = new Set<AgentId>()
   const asked = new Set<AgentId>()
   const shelvedFor = new Set<AgentId>()
-  const taskId = randomUUID() as TaskId
+  const taskId = ownTaskId ?? (randomUUID() as TaskId)
   let askCount = 0
 
   const nonce = () => randomUUID().replace(/-/g, '')
@@ -123,7 +141,6 @@ export function fakeWebServerChallenges(): FakeWebServerChallenges {
 
     shelve: async (agentId) => {
       shelvedFor.add(agentId)
-      asked.add(agentId)
       askCount += 1
     },
 
@@ -131,6 +148,10 @@ export function fakeWebServerChallenges(): FakeWebServerChallenges {
 
     operatorAnswers: (agentId) => {
       answered.add(agentId)
+    },
+
+    operatorAsks: (agentId) => {
+      asked.add(agentId)
     },
 
     serveCurrentProbe: (agentId) => {

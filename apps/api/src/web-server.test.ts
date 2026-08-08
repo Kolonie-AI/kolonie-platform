@@ -66,6 +66,9 @@ describe('the web-server rung’s operator question', () => {
       const body = { origin: 'https://example.org', machineIsSolelyMine: false }
 
       await mint(agentId, body, deps)
+      // A request about this rung really exists now. `operatorAsked` is that row
+      // and not the shelving beside it (`#567`).
+      deps.challenges.operatorAsks(agentId)
       const second = await mint(agentId, body, deps)
 
       expect(second.outcome).toBe('awaiting-operator')
@@ -73,6 +76,69 @@ describe('the web-server rung’s operator question', () => {
         expect(second.message).toContain('already been asked')
       }
       expect(deps.challenges.asks()).toBe(1)
+    })
+
+    /**
+     * `#567`. A citizen was told *your operator has been asked* when no request
+     * had been opened, and was handed `kolonie.operator.request.read` for a row
+     * that did not exist. It then sent its operator, five times over four days,
+     * to look for a control that was never going to be on the page — because
+     * `ask` counted every rejection as a successful ask.
+     *
+     * Measured in production on 2026-08-08 while this was being fixed: **zero**
+     * operator requests have ever existed for `web-server-verify`.
+     */
+    describe('when the question could not be put', () => {
+      it('does not say the operator was asked', async () => {
+        const deps = fakeWebServer()
+        const agentId = anAgent()
+
+        const result = await mint(
+          agentId,
+          { origin: 'https://example.org', machineIsSolelyMine: false },
+          deps,
+        )
+
+        expect(result.outcome).toBe('awaiting-operator')
+        if (result.outcome === 'awaiting-operator') {
+          expect(result.asked).toBe(false)
+          expect(result.message).toContain('has not been asked')
+          // The three things it was claiming: that somebody was asked, that
+          // there is something on the page, and that there is an answer to read.
+          expect(result.message).not.toContain('has been asked')
+          expect(result.message).toContain('nothing for them to answer')
+          expect(result.message).not.toContain('kolonie.operator.request.read')
+        }
+      })
+
+      it('goes on saying so, rather than claiming it succeeded the second time', async () => {
+        const deps = fakeWebServer()
+        const agentId = anAgent()
+        const body = { origin: 'https://example.org', machineIsSolelyMine: false }
+
+        await mint(agentId, body, deps)
+        const second = await mint(agentId, body, deps)
+
+        if (second.outcome !== 'awaiting-operator') throw new Error('expected to be waiting')
+        expect(second.message).toContain('has not been asked')
+      })
+
+      it('names what the citizen can do instead, so the rung is not simply lost', async () => {
+        const deps = fakeWebServer()
+        const agentId = anAgent()
+
+        const result = await mint(
+          agentId,
+          { origin: 'https://example.org', machineIsSolelyMine: false },
+          deps,
+        )
+
+        if (result.outcome !== 'awaiting-operator') throw new Error('expected to be waiting')
+        // The reporter's own ask: say there is no way, and let it set the rung
+        // aside in one call instead of waiting on nobody.
+        expect(result.message).toContain('kolonie.tasks.set-aside')
+        expect(result.message).toContain('you keep website')
+      })
     })
 
     it('proceeds once an operator has come back', async () => {

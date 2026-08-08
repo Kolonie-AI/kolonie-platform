@@ -530,21 +530,19 @@ const app = buildApp({
             ? { watcher: httpPaymentWatcher(process.env[PAYMENT_RPC_URL_VAR].trim()) }
             : {}),
           /**
-           * **Renamed to `PAYMENT_WEBHOOK_SECRET`, reading the old name too**
-           * (`kolonie-infra#95`). It guards the payment routes and was named for
-           * the deposit module `kolonie-platform#506` retired.
+           * **`PAYMENT_WEBHOOK_SECRET`, named for the route it guards**
+           * (`kolonie-infra#95`). It was `DEPOSIT_WEBHOOK_SECRET`, written for
+           * `POST /v1/deposits/webhook` — a route that went with the deposit
+           * module (`#506`) while the secret stayed to guard the payment ones.
            *
-           * The fallback is a deploy-ordering concession and not a permanent
-           * alias: a container starts with the environment the host had when it
-           * started, so a release that only read the new name would mount no
-           * payment routes between the deploy and somebody editing `.env`. It
-           * comes out in the commit after the host carries the new name, which
-           * is the last step of `kolonie-infra#95` rather than a later issue.
+           * The old name was read as a fallback for one release, so a container
+           * starting between the deploy and the host's `.env` edit would still
+           * mount the payment routes. The host carries the new name and the
+           * fallback is gone; a deployment that still has only the old one
+           * mounts nothing and says so at startup, which is the honest failure.
            */
-          ...((process.env['PAYMENT_WEBHOOK_SECRET'] ?? process.env['DEPOSIT_WEBHOOK_SECRET']) !==
-            undefined && {
-            webhookSecret: (process.env['PAYMENT_WEBHOOK_SECRET'] ??
-              process.env['DEPOSIT_WEBHOOK_SECRET']) as string,
+          ...(process.env['PAYMENT_WEBHOOK_SECRET'] !== undefined && {
+            webhookSecret: process.env['PAYMENT_WEBHOOK_SECRET'],
           }),
         },
       }),

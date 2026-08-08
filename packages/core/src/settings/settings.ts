@@ -299,8 +299,6 @@ export const NEVER_A_SETTING: readonly string[] = [
   'HCAPTCHA_SECRET',
   'EMAIL_INBOUND_SECRET',
   'PAYMENT_WEBHOOK_SECRET',
-  // The name it carried until `kolonie-infra#95`; still read as a fallback.
-  'DEPOSIT_WEBHOOK_SECRET',
   'DEPOSIT_SEALING_KEY',
   'OPERATOR_DROP_SEALING_KEY',
   'GITHUB_VERIFIER_TOKEN',

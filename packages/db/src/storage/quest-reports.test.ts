@@ -3,14 +3,19 @@ import { eq, sql } from 'drizzle-orm'
 import type { AgentId, TaskId } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import { agents, questReports, tasks } from '../schema/index.js'
-import { connectForTests, databaseTestTarget, expectRejection, truncateAll } from '../testing.js'
+import {
+  connectForTests,
+  databaseTestTarget,
+  expectRejection,
+  truncateAll,
+  ledgerCreditsOf,
+} from '../testing.js'
 import {
   escrowHeldFor,
   fundQuestEscrow,
   payQuestObstacleBonus,
   questsAwaitingRefund,
 } from './escrow.js'
-import { balanceOfAgent } from './balance.js'
 import { creditBalance } from './funding.js'
 import {
   declineReasons,
@@ -459,7 +464,7 @@ describe('a quest report', () => {
 
         await publishAnObstacle(taskId, agentId, 'The archive needs an account.')
 
-        expect((await balanceOfAgent(db, agentId)).credits).toBe(5)
+        expect(await ledgerCreditsOf(db, agentId)).toBe(5)
         // 10 × 10 for the answers plus 15 for the pool, less the 5 just paid.
         expect(await escrowHeldFor(db, taskId)).toBe(110)
       })
@@ -477,7 +482,7 @@ describe('a quest report', () => {
         })
 
         expect(paid).toBe(0)
-        expect((await balanceOfAgent(db, agentId)).credits).toBe(0)
+        expect(await ledgerCreditsOf(db, agentId)).toBe(0)
       })
 
       /** And nothing for one the stage approved but did not publish. */
@@ -548,7 +553,7 @@ describe('a quest report', () => {
         )
 
         expect(paid).toBe(0)
-        expect((await balanceOfAgent(db, agentId)).credits).toBe(0)
+        expect(await ledgerCreditsOf(db, agentId)).toBe(0)
       })
     })
 

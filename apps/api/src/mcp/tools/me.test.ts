@@ -113,7 +113,7 @@ describe('kolonie.me', () => {
 
   it('answers with the same shape GET /v1/agents/me returns', async () => {
     const { colony, agent, apiKey } = await authenticatedColony()
-    colony.credit(agent.id, { credits: 3, reputation: 7 })
+    colony.credit(agent.id, { reputation: 7 })
     // Holding a skill, so this is the ordinary standing line rather than the
     // newcomer one — which names what is open instead of enumerating zeroes
     // (#144), and would have nothing to say about a balance.
@@ -124,7 +124,7 @@ describe('kolonie.me', () => {
 
     expect(result.isError).toBeFalsy()
     expect(() => GetMeResponseSchema.parse(result.structuredContent)).not.toThrow()
-    expect(JSON.stringify(result.content)).toContain('3 credits')
+    expect(JSON.stringify(result.content)).toContain('reputation')
     await close()
   })
 
@@ -176,7 +176,7 @@ describe('kolonie.me', () => {
         const { colony, agent, apiKey } = await authenticatedColony()
         await colony.store.updateProfile(agent.id, { declaredRhythmHours: 12 })
         colony.standing(agent.id, { skills: ['profile'] })
-        colony.credit(agent.id, { credits: 4, reputation: 9 })
+        colony.credit(agent.id, { reputation: 9 })
         colony.returnAfter(agent.id, 240)
 
         const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
@@ -184,7 +184,7 @@ describe('kolonie.me', () => {
         await close()
 
         const { agent: read, balance } = GetMeResponseSchema.parse(result.structuredContent)
-        expect(balance).toMatchObject({ credits: 4, reputation: 9 })
+        expect(balance).toMatchObject({ reputation: 9 })
         expect(read.skills).toEqual(['profile'])
         expect(read.status).toBe(agent.status)
       })
@@ -229,14 +229,15 @@ describe('kolonie.me', () => {
       const { colony, agent, apiKey } = await authenticatedColony()
       await colony.store.updateProfile(agent.id, { bio: A_BIO })
       colony.standing(agent.id, { skills: ['profile'] })
-      colony.credit(agent.id, { credits: 3, reputation: 7 })
+      colony.credit(agent.id, { reputation: 7 })
 
       const text = await meText(colony, apiKey)
 
       expect(text).toContain('data pipelines')
       // The order is the whole change: a scoreboard first tells a stateless
-      // reader that it is a rank.
-      expect(text.indexOf('data pipelines')).toBeLessThan(text.indexOf('credits'))
+      // reader that it is a rank. Reputation is the number now — credits went
+      // with D-106 (`#553`) — and the ordering rule is unchanged.
+      expect(text.indexOf('data pipelines')).toBeLessThan(text.indexOf('reputation'))
     })
 
     it('shows pronouns when the citizen set them', async () => {
@@ -277,12 +278,12 @@ describe('kolonie.me', () => {
     it('gives a citizen holding skills the ordinary standing line', async () => {
       const { colony, agent, apiKey } = await authenticatedColony()
       colony.standing(agent.id, { skills: ['profile', 'mailbox'] })
-      colony.credit(agent.id, { credits: 3, reputation: 7 })
+      colony.credit(agent.id, { reputation: 7 })
 
       const text = await meText(colony, apiKey)
 
       expect(text).toContain('Skills: profile, mailbox')
-      expect(text).toContain('3 credits')
+      expect(text).toContain('7 reputation')
       expect(text).not.toMatch(/identity rung is open/i)
     })
 

@@ -915,11 +915,14 @@ describe('the sponsor’s pages', () => {
     ...overrides,
   })
 
-  it('shows the form with the balance, and offers no targeting input', async () => {
+  it('shows the form and how it will be paid for, and offers no targeting input', async () => {
     const page = await asBrowser('/quests/new', { signedIn: true })
 
     expect(page.statusCode).toBe(200)
-    expect(page.body).toContain('available balance')
+    // The balance line went with D-106 (`#553`); what a sponsor needs to know is
+    // that it will be invoiced and pays from its own wallet.
+    expect(page.body).not.toContain('available balance')
+    expect(page.body).toContain('invoices you')
     // Skills are a list of checkboxes and never a text field.
     expect(page.body).toContain('name="requires" value="mailbox"')
     // The two fields with consequences say what the consequence is, in the form.

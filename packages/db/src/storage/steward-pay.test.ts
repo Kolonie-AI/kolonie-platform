@@ -10,8 +10,7 @@ import {
 } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import { agents, ledgerEntries, tasks } from '../schema/index.js'
-import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
-import { balanceOfAgent } from './balance.js'
+import { connectForTests, databaseTestTarget, truncateAll, ledgerCreditsOf } from '../testing.js'
 import { treasuryBalance } from './escrow.js'
 import {
   createQuestDraft,
@@ -177,7 +176,7 @@ describe('what a steward is paid for deciding a quest', () => {
     // Read back rather than inferred from the booking: `#499`'s first two
     // criteria are about the balance, which is the ledger summed and not a
     // column anybody wrote.
-    expect((await balanceOfAgent(db, steward)).credits).toBe(QUEST_REVIEW_REWARD_CREDITS)
+    expect(await ledgerCreditsOf(db, steward)).toBe(QUEST_REVIEW_REWARD_CREDITS)
   })
 
   it('pays a steward that refuses, the same amount', async () => {
@@ -192,7 +191,7 @@ describe('what a steward is paid for deciding a quest', () => {
     })
 
     expect(result).toEqual({ outcome: 'refused' })
-    expect((await balanceOfAgent(db, steward)).credits).toBe(QUEST_REVIEW_REWARD_CREDITS)
+    expect(await ledgerCreditsOf(db, steward)).toBe(QUEST_REVIEW_REWARD_CREDITS)
   })
 
   /**
@@ -280,7 +279,7 @@ describe('what a steward is paid for deciding a quest', () => {
     expect(second.outcome).toBe('not-in-review')
     expect(third.outcome).toBe('not-in-review')
     expect(await reviewEntries(steward)).toHaveLength(1)
-    expect((await balanceOfAgent(db, steward)).credits).toBe(QUEST_REVIEW_REWARD_CREDITS)
+    expect(await ledgerCreditsOf(db, steward)).toBe(QUEST_REVIEW_REWARD_CREDITS)
   })
 
   /**
@@ -314,7 +313,7 @@ describe('what a steward is paid for deciding a quest', () => {
         expect(row?.status).toBe('rejected')
 
         expect(await reviewEntries(steward)).toEqual([])
-        expect((await balanceOfAgent(db, steward)).credits).toBe(0)
+        expect(await ledgerCreditsOf(db, steward)).toBe(0)
         expect(warn).toHaveBeenCalledOnce()
         expect(warn.mock.calls[0]?.[0]).toContain('the steward was not paid')
       } finally {
@@ -342,8 +341,8 @@ describe('what a steward is paid for deciding a quest', () => {
           audit: QUEST_AUDIT_OFF,
         })
 
-        expect((await balanceOfAgent(db, first.steward)).credits).toBe(QUEST_REVIEW_REWARD_CREDITS)
-        expect((await balanceOfAgent(db, second.steward)).credits).toBe(0)
+        expect(await ledgerCreditsOf(db, first.steward)).toBe(QUEST_REVIEW_REWARD_CREDITS)
+        expect(await ledgerCreditsOf(db, second.steward)).toBe(0)
         expect(await treasuryBalance(db)).toBe(0)
       } finally {
         warn.mockRestore()

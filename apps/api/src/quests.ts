@@ -19,7 +19,6 @@ import {
   type AudienceReport,
   type RequirementFlag,
   type ApiError,
-  type CreditMovement,
   type QuestAuditPolicy,
   type QuestReportCounts,
   type QuestAudience,
@@ -57,12 +56,8 @@ import {
   questReviewQueue as questReviewQueueInDatabase,
   readOwnQuest as readOwnQuestInDatabase,
   SKILLS_THE_ACADEMY_GRANTS,
-  availableBalance,
   commitmentsBy,
   countAudience,
-  creditBalanceFor,
-  creditMovementCountFor,
-  creditMovementsFor,
   refuseQuest as refuseQuestInDatabase,
   submitQuestForReview as submitQuestForReviewInDatabase,
   updateQuestDraft as updateQuestDraftInDatabase,
@@ -140,45 +135,19 @@ export interface QuestDesk {
     readonly at: Timestamp
   }): Promise<QuestWithdrawOutcome>
   /**
-   * What this sponsor may still commit: its balance minus what it has reserved
-   * (`#174`).
+   * **`balance` and `movements` stood here** (`#553`, D-106).
    *
-   * On the quest desk rather than on a ledger desk of its own, because the only
-   * question anybody asks it here is *can this sponsor afford this quest* — and
-   * `#180` requires the answer to be visible in the form **before** submission
-   * rather than discovered at publication.
+   * `balance` answered what a sponsor could still commit and `movements` was
+   * the audit it could not be — *a balance is a number a citizen has to believe,
+   * and this is the set of events it is the sum of.* Both described credits the
+   * Colony held on somebody's behalf, and it holds none: a citizen is paid in
+   * SOL to a wallet the Colony has no key to, and a sponsor pays a quest invoice
+   * from its own.
    *
-   * **That is no longer the only question, and the seam is knowingly left as it
-   * is** (`#333`). {@link QuestDesk.movements} asks *what has happened to this
-   * account*, which is about credits and not about quests: it serves a citizen
-   * that has never sponsored anything, and a grant, a deposit and a hand credit
-   * all appear in it. It is here because the split would be one interface, one
-   * factory, one dependency field and one fixture for two methods, and the thing
-   * that would justify paying that is a second implementation of the ledger —
-   * not a second question about it. **What would tip it**: an account surface
-   * that a non-sponsor route has to reach without the quest desk, or a second
-   * backing store. Neither exists, and this comment is here so the next reader
-   * decides on that rather than on tidiness.
+   * The audit half is not lost and did not need this desk: `kolonie.me.earnings`
+   * (`#535`) is the citizen's record of what it was paid, with the transaction
+   * signature, so it can check the chain rather than believe a number.
    */
-  balance(authorId: AgentId): Promise<{
-    readonly balance: number
-    readonly reserved: number
-    readonly available: number
-  }>
-  /**
-   * Every movement of this citizen's own credits, newest first (`#333`).
-   *
-   * The audit `balance` cannot be: a balance is a number a citizen has to
-   * believe, and this is the set of events it is the sum of.
-   */
-  movements(
-    agentId: AgentId,
-    options: { readonly since?: string; readonly limit?: number },
-  ): Promise<{
-    readonly balance: number
-    readonly total: number
-    readonly movements: readonly CreditMovement[]
-  }>
   /**
    * The same money, decomposed per quest (`#324`).
    *
@@ -344,19 +313,6 @@ export function databaseQuests(
       }),
     submit: (input) => submitQuestForReviewInDatabase(db, input),
     withdraw: (input) => withdrawQuestFromReviewInDatabase(db, input),
-    balance: (authorId) => availableBalance(db, authorId),
-    movements: async (agentId, options) => {
-      // The three reads are independent and none of them writes, so a
-      // transaction would buy nothing: a movement booked between them appears in
-      // one answer and not another, and the totals are served precisely so a
-      // reader can see that rather than be protected from it.
-      const [balance, total, movements] = await Promise.all([
-        creditBalanceFor(db, agentId),
-        creditMovementCountFor(db, agentId),
-        creditMovementsFor(db, agentId, options),
-      ])
-      return { balance, total, movements }
-    },
     commitments: (authorId) => commitmentsBy(db, authorId),
     audience: (criteria) => countAudience(db, criteria),
     listOwn: (authorId) => listOwnQuestsInDatabase(db, authorId),
@@ -459,23 +415,21 @@ export async function fileQuestReport(
  * shown an affordable quest and refused it.
  */
 export interface QuestCommitment {
-  /** `reward.credits × slots` — what publication would reserve. */
-  readonly cost: number
-  readonly balance: number
-  /** Committed to quests already in the queue. */
-  readonly reserved: number
-  /** `balance - reserved`: what is left to commit. */
-  readonly available: number
   /**
-   * Whether `available` covers `cost` **today**.
+   * What the quest will cost — price × slots.
    *
-   * A statement about now and not a promise about submission: another quest of
-   * this account entering the queue moves `reserved`, and a deposit moves
-   * `balance`. It is the number `#180` requires the form to show before it
-   * commits anything, said in one boolean so a client does not have to
-   * re-derive the comparison.
+   * **The only field left, and the three that went are the point** (`#553`,
+   * D-106). It carried `balance`, `reserved` and `affordable` as well, because
+   * `#174` reserved a sponsor's credits at submission and the form had to show
+   * whether they covered the quest. There is no balance: a sponsor pays an
+   * invoice from its own wallet **after** a steward publishes, and the Colony
+   * has no key to that wallet and does not watch it.
+   *
+   * So *can you afford this* is not a question the Colony can answer, and a
+   * boolean computed from a number it does not have would be a guess with an
+   * air of authority. What it can say is what the quest costs, which is this.
    */
-  readonly affordable: boolean
+  readonly cost: number
 }
 
 /**
@@ -566,13 +520,13 @@ const notFound = <T>(): QuestResult<T> => ({ outcome: 'rejected', error: NO_SUCH
 /**
  * One shape for every answer about a sponsor's own quest.
  *
- * The balance is passed in rather than read here, so a list of quests costs one
- * read of it rather than one per row — and so this function stays what it is,
- * which is an assembly with no questions of its own.
+ * **A balance was passed in until `#553`**, so a list of quests cost one read of
+ * it rather than one per row. There is no balance under D-106, and what is left
+ * — the cost — is computed from the quest itself, so this function is now what
+ * its comment always claimed: an assembly with no questions of its own.
  */
 const respond = (
   quest: OwnQuest,
-  purse: { readonly balance: number; readonly reserved: number; readonly available: number },
   audience?: QuestAudience,
   walletAddress?: string,
 ): OwnQuestResponse => {
@@ -586,13 +540,7 @@ const respond = (
     quest: quest.task,
     rejectionReason: quest.rejectionReason,
     awaitingModeration: quest.awaitingModeration,
-    commitment: {
-      cost,
-      balance: purse.balance,
-      reserved: purse.reserved,
-      available: purse.available,
-      affordable: purse.available >= cost,
-    },
+    commitment: { cost },
     /**
      * Rendered with the citizen's own renderer, called as it is called for a
      * citizen that has never attempted this: no struggle count, no briefing
@@ -659,18 +607,11 @@ const audienceOf = async (task: Task, desk: QuestDesk): Promise<QuestAudience> =
   return { ...reports, sentence: audienceSentence(reports) }
 }
 
-/** The same, for the calls that have not read a balance and are about to. */
-const responding = async (
-  quest: OwnQuest,
-  authorId: AgentId,
-  desk: QuestDesk,
-): Promise<OwnQuestResponse> => {
-  const [purse, audience] = await Promise.all([
-    desk.balance(authorId),
-    audienceOf(quest.task, desk),
-  ])
+/** The same, for the calls that have the quest and need its audience. */
+const responding = async (quest: OwnQuest, desk: QuestDesk): Promise<OwnQuestResponse> => {
+  const audience = await audienceOf(quest.task, desk)
 
-  return respond(quest, purse, audience, desk.walletAddress)
+  return respond(quest, audience, desk.walletAddress)
 }
 
 /** Write a new draft. */
@@ -693,7 +634,7 @@ export async function writeQuestDraft(
   if (ungranted !== undefined) return { outcome: 'rejected', error: ungranted }
 
   const quest = await desk.create({ authorId: input.authorId, draft: parsed.data })
-  return { outcome: 'ok', response: await responding(quest, input.authorId, desk) }
+  return { outcome: 'ok', response: await responding(quest, desk) }
 }
 
 /**
@@ -752,7 +693,7 @@ export async function editQuestDraft(
 
   switch (result.outcome) {
     case 'written':
-      return { outcome: 'ok', response: await responding(result.quest, input.authorId, desk) }
+      return { outcome: 'ok', response: await responding(result.quest, desk) }
     case 'not-editable':
       return {
         outcome: 'rejected',
@@ -816,7 +757,7 @@ export async function submitQuest(
 
   switch (result.outcome) {
     case 'submitted':
-      return { outcome: 'ok', response: await responding(result.quest, input.authorId, desk) }
+      return { outcome: 'ok', response: await responding(result.quest, desk) }
     case 'not-editable':
       return { outcome: 'rejected', error: { code: 'conflict', message: frozen(result.status) } }
     case 'queue-occupied':
@@ -871,7 +812,7 @@ export async function withdrawQuest(
 
   switch (result.outcome) {
     case 'withdrawn':
-      return { outcome: 'ok', response: await responding(result.quest, input.authorId, desk) }
+      return { outcome: 'ok', response: await responding(result.quest, desk) }
     /**
      * Two different sentences under one outcome, because the two states mean
      * opposite things to the caller. A quest already in `draft` is where the
@@ -902,14 +843,10 @@ export async function listQuests(
   desk: QuestDesk,
 ): Promise<QuestResult<{ readonly quests: readonly OwnQuestResponse[] }>> {
   const quests = await desk.listOwn(authorId)
-  // One balance read for the whole list: the purse is a fact about the account
-  // and not about each row, and a read per quest would say the same thing N
-  // times.
-  const purse = await desk.balance(authorId)
   return {
     outcome: 'ok',
     response: {
-      quests: quests.map((quest) => respond(quest, purse, undefined, desk.walletAddress)),
+      quests: quests.map((quest) => respond(quest, undefined, desk.walletAddress)),
     },
   }
 }
@@ -925,35 +862,7 @@ export async function readQuest(
   const quest = await desk.readOwn(input.authorId, taskId)
   if (quest === undefined) return notFound()
 
-  return { outcome: 'ok', response: await responding(quest, input.authorId, desk) }
-}
-
-/**
- * What this account may still commit (`#320`).
- *
- * **The number existed and had no route.** `QuestDesk.balance` has been on the
- * desk since `#180`, read by six console pages and by nothing else — so a
- * sponsor that is not driving a browser could not find out what it could afford
- * until a submission was refused for want of it. That is the failure `#180`
- * named, arriving one surface along.
- *
- * `available` is the one to price a quest against: `balance` counts the money,
- * and `reserved` is what quests already in the queue have spoken for.
- */
-export async function readBalance(
-  authorId: AgentId,
-  desk: QuestDesk,
-): Promise<
-  QuestResult<{
-    readonly balance: number
-    readonly reserved: number
-    readonly available: number
-    readonly quests: readonly QuestCommitmentRow[]
-  }>
-> {
-  const [purse, quests] = await Promise.all([desk.balance(authorId), desk.commitments(authorId)])
-
-  return { outcome: 'ok', response: { ...purse, quests } }
+  return { outcome: 'ok', response: await responding(quest, desk) }
 }
 
 /**
@@ -1001,34 +910,6 @@ export async function readAudience(
     outcome: 'ok',
     response: { audience: reportAudience(counted), criteria: criteria.data },
   }
-}
-
-/**
- * Every movement of the caller's own credits (`#333`).
- *
- * **The reading a citizen could not do.** `kolonie.me` gives a balance and
- * `kolonie.quests.balance` gives a decomposition of what is committed right now;
- * neither is a record of events, so a grant, a payout, an escrow funding and a
- * refund were all invisible as things that happened. A citizen that found two of
- * those numbers disagreeing had no way to establish which was wrong and had to
- * open a ticket to ask — which is how this issue arrived.
- *
- * `balance` and `total` come back with the rows because the rows may be capped:
- * a partial list does not sum to the balance, and a reader that discovered that
- * by subtraction would reasonably conclude the ledger was wrong.
- */
-export async function readCreditHistory(
-  agentId: AgentId,
-  input: { readonly since?: string; readonly limit?: number },
-  desk: QuestDesk,
-): Promise<
-  QuestResult<{
-    readonly balance: number
-    readonly total: number
-    readonly movements: readonly CreditMovement[]
-  }>
-> {
-  return { outcome: 'ok', response: await desk.movements(agentId, input) }
 }
 
 /** One quest in the queue that describes work it requires no skill for (`#353`). */

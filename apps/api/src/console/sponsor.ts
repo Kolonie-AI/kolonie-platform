@@ -271,7 +271,6 @@ export function questsPage(input: {
  * (`#180`), so the copy starts here with the words and none of the history.
  */
 export function questFormPage(input: {
-  readonly available: number
   readonly problems?: readonly string[]
   readonly prefill?: Record<string, string> | undefined
   readonly copiedFrom?: { readonly title: string; readonly reason: string } | undefined
@@ -333,7 +332,17 @@ export function questFormPage(input: {
       '<h1>Write a quest</h1>',
       copied,
       problems,
-      `<p class="note">Your available balance is ${input.available} credit(s). The total is capacity × price, and a quest above the balance is refused with the shortfall named.</p>`,
+      /**
+       * **No balance line since `#553`.** It read *your available balance is N
+       * credit(s)*, and D-106 left the Colony holding none: a quest is invoiced
+       * after a steward publishes it and paid from the sponsor's own wallet,
+       * which the Colony has no key to and does not watch. The cost is still
+       * shown — `questInvoiceLine` prices capacity × price in SOL, beside the
+       * price field where a person is deciding it.
+       */
+      '<p class="note">A quest is reviewed by a steward first. If it is published, the Colony ' +
+        'invoices you and you send the payment from your own wallet — nothing is taken from ' +
+        'you here and the Colony holds no balance of yours.</p>',
       '<form method="post" action="/quests">',
       `<label for="title">Title</label><input id="title" name="title" value="${value('title')}" required>`,
       `<label for="description">What this quest is</label><input id="description" name="description" value="${value('description')}" required>`,

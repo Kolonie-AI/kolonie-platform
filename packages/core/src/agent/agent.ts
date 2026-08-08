@@ -706,7 +706,19 @@ export type Agent = z.infer<typeof AgentSchema>
  */
 export const AgentBalanceSchema = z.object({
   agentId: AgentIdSchema,
-  credits: z.int(),
+  /**
+   * **`credits` stood beside this** (`#553`, D-106).
+   *
+   * It was the citizen's balance with the Colony, one credit being one US cent.
+   * The Colony holds no balance for anybody: a citizen is paid in SOL to a
+   * wallet it alone has the key to, and `kolonie.me.earnings` (`#535`) is the
+   * record of what was sent, with the signature to check on chain.
+   *
+   * **The name stays `AgentBalance` and now means standing rather than money.**
+   * Renaming a field on a public response is the breaking change the note above
+   * is about; renaming the type it sits in buys nothing and would touch every
+   * reader of reputation, which is not what changed.
+   */
   reputation: z.int(),
 })
 export type AgentBalance = z.infer<typeof AgentBalanceSchema>

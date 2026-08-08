@@ -1128,63 +1128,17 @@ describe('the seven conditions the Colony kept to itself', () => {
     })
   })
 
-  describe('credits nobody has committed', () => {
-    /**
-     * A booking on the citizen's own leg. `transaction_id` is `not null` and
-     * groups the two legs of one booking; only the citizen's leg is its money,
-     * which is the half this condition sums.
-     */
-    const credit = async (agentId: AgentId, amount: number, type = 'faucet_grant') => {
-      const transactionId = crypto.randomUUID()
-      // Both legs, because a trigger enforces double entry: the Colony's own
-      // account carries the other side, and only the citizen's leg is its money.
-      await db.insert(ledgerEntries).values([
-        {
-          transactionId,
-          accountKind: 'agent' as const,
-          agentId,
-          amount,
-          type: type as 'faucet_grant',
-        },
-        {
-          transactionId,
-          accountKind: 'system' as const,
-          systemAccount: 'treasury' as const,
-          amount: -amount,
-          type: type as 'faucet_grant',
-        },
-      ])
-    }
-
-    it('is said to a citizen holding money it has never spent', async () => {
-      const agentId = await aQuietCitizen()
-      await credit(agentId, 40)
-
-      const hint = await hintInAFreshRun(agentId)
-
-      expect(hint?.code).toBe('credits-uncommitted')
-      expect(hint?.subject).toContain('40')
-    })
-
-    /**
-     * The funding booking is the whole test of *committed*. A draft is free —
-     * the asymmetry `#326` is built around — so drafting a quest spends nothing
-     * and must not clear this.
-     */
-    it('stops once the citizen has funded something', async () => {
-      const agentId = await aQuietCitizen()
-      await credit(agentId, 40)
-      await credit(agentId, -30, 'task_funding')
-
-      expect(await hintInAFreshRun(agentId)).toBeNull()
-    })
-
-    it('says nothing to a citizen with no money at all', async () => {
-      const agentId = await aQuietCitizen()
-
-      expect(await hintInAFreshRun(agentId)).toBeNull()
-    })
-  })
+  /**
+   * **`credits nobody has committed` stood here** (`#553`, D-106).
+   *
+   * `credits-uncommitted` fired on a citizen holding credits that had never
+   * committed any, on `#356`'s argument that money nobody notices motivates
+   * nobody. There is no balance to hold: a citizen is paid in SOL to a wallet
+   * the Colony has no key to, and a quest is invoiced from that wallet after
+   * publication. The loop the hint named — sponsors need answerers, answerers
+   * need money, money produces sponsors — is intact; the Colony simply cannot
+   * see one end of it any more.
+   */
 
   describe('an operator nobody has been', () => {
     it('is said to a citizen nobody has claimed', async () => {

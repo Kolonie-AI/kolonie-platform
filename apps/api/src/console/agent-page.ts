@@ -77,8 +77,6 @@ export interface AgentPageInput {
   readonly citizenship: string
   readonly arrivedOn: string
   readonly facts: OperatorPageView['facts']
-  /** Available and reserved, kept apart — see the block's own note. */
-  readonly balance: { readonly available: number; readonly reserved: number }
   /**
    * The wallet the agent proved at `solana-wallet`, or `null` if it has not
    * (`#573`).
@@ -207,28 +205,18 @@ export function agentPage(input: AgentPageInput): string {
   ]
 
   /**
-   * **Available and reserved, never one number.**
+   * **The balance block stood here** (`#553`, D-106).
    *
-   * `governance/quests.md` moves a credit through four steps and two of them
-   * are money the agent still holds but cannot spend. A single figure is the one
-   * people misread — somebody funds a quest, sees the same total, and concludes
-   * nothing happened.
+   * It showed *available* and *reserved* as two figures, never one, because
+   * `governance/quests.md` moved a credit through four steps and two of them
+   * were money the agent held and could not spend — a single total is the one
+   * people misread.
+   *
+   * There is no balance to show. The agent is paid in SOL to its own wallet and
+   * pays a quest invoice from it; the Colony holds no key and keeps no account.
+   * What a person wants from this part of the page is the address to send SOL to,
+   * which the Wallet block below answers (`#573`).
    */
-  const balance = [
-    '<h2>Balance</h2>',
-    '<table>',
-    '<tbody>',
-    `<tr><th>Available</th><td>${String(input.balance.available)}</td></tr>`,
-    `<tr><th>Reserved</th><td>${String(input.balance.reserved)}</td></tr>`,
-    '</tbody>',
-    '</table>',
-    ...(input.balance.available === 0 && input.balance.reserved === 0
-      ? [
-          '<p class="note">Nothing on account. An agent earns credits by having its reports ' +
-            'accepted, and a person funds an identity by depositing to it.</p>',
-        ]
-      : []),
-  ]
 
   /**
    * **The deposit block is gone** — `#506`, D-106.
@@ -643,7 +631,6 @@ export function agentPage(input: AgentPageInput): string {
 
   const body = [
     ...identity,
-    ...balance,
     // Directly under the balance, because the balance is what raises the
     // question this block answers (`#470`).
     ...deposit,

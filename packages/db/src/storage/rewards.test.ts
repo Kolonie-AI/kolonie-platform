@@ -26,7 +26,13 @@ import {
   tasks,
   verifications,
 } from '../schema/index.js'
-import { connectForTests, databaseTestTarget, expectRejection, truncateAll } from '../testing.js'
+import {
+  connectForTests,
+  databaseTestTarget,
+  expectRejection,
+  ledgerCreditsOf,
+  truncateAll,
+} from '../testing.js'
 import { registerAgent } from './agents.js'
 import { balanceOfAgent } from './balance.js'
 import { listAccounts } from './accounts.js'
@@ -327,7 +333,8 @@ describe('booking a passed submission', () => {
       // agent that is told its submission passed must be able to see the credit.
       await pass(submissionId)
 
-      expect(await balanceOfAgent(db, agentId)).toEqual({ agentId, credits: 10, reputation: 5 })
+      expect(await balanceOfAgent(db, agentId)).toEqual({ agentId, reputation: 5 })
+      expect(await ledgerCreditsOf(db, agentId)).toBe(10)
     })
 
     /**
@@ -345,7 +352,8 @@ describe('booking a passed submission', () => {
       expect(await entriesFor(submissionId)).toHaveLength(0)
       if (written.outcome === 'recorded') expect(written.booking?.transactionId).toBeNull()
       // The reputation still happens.
-      expect(await balanceOfAgent(db, agentId)).toEqual({ agentId, credits: 0, reputation: 3 })
+      expect(await balanceOfAgent(db, agentId)).toEqual({ agentId: agentId, reputation: 3 })
+      expect(await ledgerCreditsOf(db, agentId)).toBe(0)
     })
   })
 
@@ -692,7 +700,8 @@ describe('booking a passed submission', () => {
       expect(written.outcome).toBe('recorded')
       if (written.outcome === 'recorded') expect(written.booking).toBeUndefined()
       expect(await entriesFor(submissionId)).toHaveLength(0)
-      expect(await balanceOfAgent(db, agentId)).toEqual({ agentId, credits: 0, reputation: 0 })
+      expect(await balanceOfAgent(db, agentId)).toEqual({ agentId: agentId, reputation: 0 })
+      expect(await ledgerCreditsOf(db, agentId)).toBe(0)
     })
 
     it('books nothing when a verifier answers pending', async () => {
@@ -722,7 +731,8 @@ describe('booking a passed submission', () => {
       // and never reaches the booking at all.
       expect(second.outcome).toBe('stale')
       expect(await entriesFor(submissionId)).toHaveLength(2)
-      expect(await balanceOfAgent(db, agentId)).toEqual({ agentId, credits: 10, reputation: 5 })
+      expect(await balanceOfAgent(db, agentId)).toEqual({ agentId: agentId, reputation: 5 })
+      expect(await ledgerCreditsOf(db, agentId)).toBe(10)
     })
 
     /**
@@ -761,7 +771,8 @@ describe('booking a passed submission', () => {
       }
 
       expect(await entriesFor(submissionId)).toHaveLength(2)
-      expect(await balanceOfAgent(db, agentId)).toEqual({ agentId, credits: 10, reputation: 5 })
+      expect(await balanceOfAgent(db, agentId)).toEqual({ agentId: agentId, reputation: 5 })
+      expect(await ledgerCreditsOf(db, agentId)).toBe(10)
       expect(await ledgerTotal()).toBe(0)
     })
 
@@ -850,7 +861,8 @@ describe('booking a passed submission', () => {
 
       await pass(submissionId)
 
-      expect(await balanceOfAgent(db, agentId)).toMatchObject({ credits: 10, reputation: 5 })
+      expect(await balanceOfAgent(db, agentId)).toMatchObject({ reputation: 5 })
+      expect(await ledgerCreditsOf(db, agentId)).toBe(10)
     })
 
     it.each(['operator-provided', 'operator-performed', 'unknown'] as const)(
@@ -864,9 +876,11 @@ describe('booking a passed submission', () => {
 
         // Half of each, rounded up — the constant is core's, not restated here.
         expect(await balanceOfAgent(db, agentId)).toMatchObject({
-          credits: Math.ceil((10 * UNDECLARED_REWARD_PERCENT) / 100),
           reputation: Math.ceil((5 * UNDECLARED_REWARD_PERCENT) / 100),
         })
+        expect(await ledgerCreditsOf(db, agentId)).toBe(
+          Math.ceil((10 * UNDECLARED_REWARD_PERCENT) / 100),
+        )
 
         // An entry that booked 5 where the task says 10 has to say why, or an
         // audit has to go and reconstruct the reason from a submission row.
@@ -893,11 +907,10 @@ describe('booking a passed submission', () => {
         await aClaimedSubmission({ taskId, agentId: honest, assistance: 'operator-performed' }),
       )
 
+      // Credits and reputation until `#553`; credits are gone and the ledger is
+      // asserted separately below, so this is the standing half.
       expect(await balanceOfAgent(db, quiet)).toMatchObject(
-        await balanceOfAgent(db, honest).then(({ credits, reputation }) => ({
-          credits,
-          reputation,
-        })),
+        await balanceOfAgent(db, honest).then(({ reputation }) => ({ reputation })),
       )
     })
 

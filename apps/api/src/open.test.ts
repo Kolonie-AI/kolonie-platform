@@ -83,31 +83,39 @@ describe('what is open to a citizen', () => {
   })
 
   /**
-   * The asymmetry the proposal is really about: a human self-selects out of an
-   * impossible option, an agent optimises toward what it was shown. With no
-   * credits `quests.write` succeeds, because a draft is free — so the agent
-   * writes the whole quest and fails at `quests.submit`.
+   * **The credit gate is gone** (`#553`, D-106).
+   *
+   * These three tests asserted the asymmetry `#326` was really about: a human
+   * self-selects out of an impossible option, an agent optimises toward what it
+   * was shown — so sponsoring was offered only to a citizen holding credits, and
+   * replaced by *earn some by answering* when it was not. `quests.write`
+   * succeeds even with nothing, because a draft is free, so the agent wrote the
+   * whole quest and failed at `submit`.
+   *
+   * The gate read a balance the Colony no longer has. A quest is invoiced after
+   * a steward publishes it and paid from the citizen's own wallet, which the
+   * Colony holds no key to and does not watch — so *can this citizen pay* is a
+   * question with no input, and a gate computed from a number nobody has would
+   * be a guess wearing a rule's clothes.
+   *
+   * **The asymmetry it was protecting against is not gone, and is answered
+   * differently**: the entry now says what it will cost and where the money
+   * comes from, so an agent reading it learns the same thing the gate used to
+   * enforce — that this one needs money it has to already hold.
    */
-  it('does not offer sponsoring to a citizen that cannot pay for it', async () => {
-    const open = await openingsFor(agentId, [], sourceWith({ listed: [aQuest()], credits: 0 }))
-
-    expect(JSON.stringify(open.entries)).not.toContain('kolonie.quests.write')
-  })
-
-  it('substitutes how credits are earned, rather than leaving a hole', async () => {
-    const open = await openingsFor(agentId, [], sourceWith({ listed: [aQuest()], credits: 0 }))
-
-    const substitute = open.entries.find((entry) => entry.what.includes('earn credits'))
-    expect(substitute).toBeDefined()
-    expect(substitute?.why).toContain('answering is where credits come from')
-  })
-
-  it('offers sponsoring once the balance can actually pay', async () => {
-    const open = await openingsFor(agentId, [], sourceWith({ listed: [aQuest()], credits: 500 }))
+  it('offers sponsoring to everybody, and says what it will cost', async () => {
+    const open = await openingsFor(agentId, [], sourceWith({ listed: [aQuest()] }))
 
     const sponsor = open.entries.find((entry) => entry.call.includes('kolonie.quests.write'))
     expect(sponsor).toBeDefined()
-    expect(sponsor?.why).toContain('500 credit(s) available')
+    expect(sponsor?.needs).toContain('SOL in your own wallet')
+    expect(sponsor?.needs).toContain('invoices you')
+  })
+
+  it('promises no balance it cannot see', async () => {
+    const open = await openingsFor(agentId, [], sourceWith({ listed: [aQuest()] }))
+
+    expect(JSON.stringify(open.entries)).not.toContain('credit(s) available')
   })
 
   /**
@@ -234,13 +242,11 @@ describe('what is open to a citizen', () => {
    * cannot correct the input it controls.
    */
   it('echoes what the filter used', async () => {
-    const open = await openingsFor(
-      agentId,
-      ['mailbox', 'profile'],
-      sourceWith({ listed: [], credits: 40 }),
-    )
+    const open = await openingsFor(agentId, ['mailbox', 'profile'], sourceWith({ listed: [] }))
 
-    expect(open.filteredOn).toEqual({ skills: ['mailbox', 'profile'], credits: 40 })
+    // Skills only since `#553`: the credits half echoed a gate that no longer
+    // exists, and a filter cannot report an input it does not take.
+    expect(open.filteredOn).toEqual({ skills: ['mailbox', 'profile'] })
   })
 
   /**
@@ -382,20 +388,18 @@ describe('what the open section may propose beyond a rung', () => {
   })
 
   /**
-   * The rejection case the issue names: a citizen that cannot pay is not offered
-   * writing a quest. An option that is shown and cannot complete will be
-   * attempted — `quests.write` succeeds because a draft is free, and only
-   * `quests.submit` refuses.
+   * **The rejection case this issue named is no longer expressible** (`#553`).
+   * It asserted that a citizen holding no credits was never offered writing a
+   * quest, because an option shown and unable to complete will be attempted.
+   * The Colony cannot tell whether a citizen can pay — the money is in a wallet
+   * it has no key to — so what survives of that care is in the entry's own
+   * words, asserted further up.
+   *
+   * The other half — that an unconditional entry must not make *nothing is open
+   * to you* unreachable — is pinned by *says so rather than inventing an errand*
+   * above, which fails the moment the sponsor entry is counted as something the
+   * board offered.
    */
-  it('never offers writing a quest to a citizen that cannot pay for one', async () => {
-    const open = await openingsFor(
-      agentId,
-      ['profile'],
-      sourceWith({ credits: 0, prospects: { hasOperator: false, failedAttempts: 1 } }),
-    )
-
-    expect(open.entries.some((entry) => entry.call.startsWith('kolonie.quests.write'))).toBe(false)
-  })
 
   /** The measured defect, as an assertion: not every entry is a rung. */
   it('no longer answers with nothing but tasks.submit', async () => {

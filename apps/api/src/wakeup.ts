@@ -1,12 +1,9 @@
 import {
-  questPayoutSplit,
   SkillSchema,
   WakeupRequestSchema,
   type AgentId,
   type WakeupOpen,
-  type CreditMovement,
   type Task,
-  type WakeupPays,
   type WakeupResponse,
   type SkillNoteEntry,
   type WakeupNoteInvitation,
@@ -92,7 +89,7 @@ export interface WakeupSource {
 const NOTHING_OPEN: WakeupOpen = {
   entries: [],
   nothing: false,
-  filteredOn: { skills: [], credits: 0 },
+  filteredOn: { skills: [] },
 }
 
 /** Wire the digest to a real database. */
@@ -170,84 +167,6 @@ async function startableSince(
     .catch(() => [])
 
   return new Set(listed.map((task) => task.id))
-}
-
-/** How many quests the `pays` section names before the rest is a count. */
-const QUESTS_NAMED = 3
-
-/** How many arrivals are named as events before the total speaks for them. */
-const ARRIVALS_NAMED = 5
-
-/**
- * What pays: this citizen's own money, and the quests that would move it
- * (`#346`).
- *
- * **Money appeared in the whole digest exactly once** — `0 credit(s) available`
- * in the filter footer of the `open` block — and never as a balance, an earning
- * or an event. A citizen that is never shown that work paid has no evidence the
- * economy exists.
- *
- * **The inputs already existed.** `kolonie.quests.balance` and
- * `kolonie.credits.history` hold both halves; nothing here is a new record of
- * anything, and the quests come from the same available listing `open` is built
- * from rather than a third read of the catalogue.
- *
- * `null` when no quest desk was supplied — *not computed*, which is not the same
- * claim as *you have nothing*. It never throws, for the reason `openingsFor`
- * does not.
- */
-async function paysFor(
-  agentId: AgentId,
-  since: string,
-  source: OpenSource | undefined,
-  available: Promise<readonly Task[]>,
-): Promise<WakeupPays | null> {
-  if (source === undefined) return null
-
-  const [purse, ledger, listed] = await Promise.all([
-    source.quests.balance(agentId).catch(() => ({ balance: 0, reserved: 0, available: 0 })),
-    source.quests
-      .movements(agentId, { since, limit: ARRIVALS_NAMED })
-      .catch(() => ({ balance: 0, total: 0, movements: [] as readonly CreditMovement[] })),
-    available,
-  ])
-
-  /**
-   * Arrivals only. Money leaving is the sponsor's own act and it already knows;
-   * money arriving is the half nothing ever told a citizen about.
-   */
-  const arrivals = ledger.movements.filter((movement) => movement.amount > 0)
-
-  return {
-    balance: purse.balance,
-    available: purse.available,
-    earned: arrivals.reduce((total, movement) => total + movement.amount, 0),
-    arrivals: [...arrivals],
-    quests: listed
-      .filter((task) => task.kind === 'quest')
-      /**
-       * **A quest with no free slots is not offered.** The listing reports
-       * fullness rather than filtering on it (`#175`), which is right for a
-       * catalogue and wrong here: this section exists to say *this pays*, and a
-       * quest that cannot be answered pays nobody. `undefined` is a read that
-       * did not compute it and is not a claim that the quest is full.
-       */
-      .filter(
-        (task) => task.freeSlots === undefined || task.freeSlots === null || task.freeSlots > 0,
-      )
-      .slice(0, QUESTS_NAMED)
-      .map((quest) => ({
-        taskId: quest.id,
-        title: quest.title,
-        // The net, because this is what the citizen is being offered (`#472`).
-        // The recorded rate wins; a published quest older than the fee has none
-        // and pays none.
-        rewardCredits: questPayoutSplit(quest.reward.credits, quest.platformFeePercent ?? 0)
-          .toCitizen,
-        freeSlots: quest.freeSlots ?? null,
-        expiresAt: quest.expiresAt,
-      })),
-  }
 }
 
 /**
@@ -417,25 +336,22 @@ export async function wakeup(
       ? Promise.resolve([] as readonly Task[])
       : availableNow(agentId, openings.source)
 
-  const [changes, pulls, operatorNotesUnread, standing, open, startableAdded, pays] =
-    await Promise.all([
-      source.changes(agentId, since),
-      listContributions(agentId, contributions),
-      source.unreadOperatorNotes(agentId),
-      source.standing(agentId),
-      openings === undefined
-        ? Promise.resolve(NOTHING_OPEN)
-        : openingsFor(agentId, openings.skills, openings.source, available),
-      startableSince(agentId, since, openings?.source),
-      paysFor(agentId, since, openings?.source, available),
-    ])
+  const [changes, pulls, operatorNotesUnread, standing, open, startableAdded] = await Promise.all([
+    source.changes(agentId, since),
+    listContributions(agentId, contributions),
+    source.unreadOperatorNotes(agentId),
+    source.standing(agentId),
+    openings === undefined
+      ? Promise.resolve(NOTHING_OPEN)
+      : openingsFor(agentId, openings.skills, openings.source, available),
+    startableSince(agentId, since, openings?.source),
+  ])
 
   return {
     response: {
       since,
       firstSession,
       standing,
-      pays,
       open,
       ...changes,
       noteInvitations: [...(await noteInvitationsFor(agentId, changes.skillsGranted, notes))],

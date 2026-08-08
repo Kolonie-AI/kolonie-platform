@@ -313,7 +313,6 @@ async function sevenConditions(
    */
   readonly questAnsweredUnreported: boolean
   /** Credits held, when none has ever been committed. */
-  readonly uncommittedCredits: number | null
   /** Whether anybody has claimed this citizen. */
   readonly hasOperator: boolean
   /** A held skill nothing the citizen passed since has required. */
@@ -425,23 +424,6 @@ async function sevenConditions(
            and not exists (
              select 1 from quest_reports r
               where r.task_id = q.id and r.agent_id = ${agentId}))`,
-      /**
-       * What the citizen holds, when it has never funded anything.
-       *
-       * **`task_funding` is the whole test of *committed*.** A citizen that has
-       * drafted a quest has spent nothing — a draft is free, which is the
-       * asymmetry `#326` is built around — and the booking is the moment the
-       * money actually moves.
-       */
-      uncommittedCredits: sql<string | null>`(
-        select case
-          when exists (select 1 from ledger_entries f
-                        where f.agent_id = ${agentId} and f.type = 'task_funding')
-            then null
-          else nullif(coalesce(sum(l.amount), 0), 0)::text
-        end
-          from ledger_entries l
-         where l.agent_id = ${agentId} and l.account_kind = 'agent')`,
       hasOperator: sql<boolean>`exists (
         select 1 from operator_claims c
          where c.agent_id = ${agentId} and c.replaced_at is null)`,
@@ -469,8 +451,6 @@ async function sevenConditions(
     .where(eq(agents.id, agentId))
     .limit(1)
 
-  const credits = row?.uncommittedCredits ?? null
-
   return {
     ticket:
       row?.ticketId == null || row.ticketSubject == null
@@ -479,7 +459,6 @@ async function sevenConditions(
     dueSkill: row?.dueSkill ?? null,
     questOpen: row?.questOpen === true,
     questAnsweredUnreported: row?.questAnsweredUnreported === true,
-    uncommittedCredits: credits === null ? null : Number(credits),
     hasOperator: row?.hasOperator === true,
     unusedSkill: row?.unusedSkill ?? null,
   }
@@ -855,12 +834,6 @@ async function conditions(
    */
   if (untoldKind !== null) {
     applicable.push({ code: 'account-kind-proved', subject: untoldKind.kind })
-  }
-  if (seven.uncommittedCredits !== null) {
-    applicable.push({
-      code: 'credits-uncommitted',
-      subject: `${seven.uncommittedCredits} credit(s)`,
-    })
   }
   if (!seven.hasOperator) applicable.push({ code: 'operator-unclaimed', subject: null })
   if (seven.unusedSkill !== null) {

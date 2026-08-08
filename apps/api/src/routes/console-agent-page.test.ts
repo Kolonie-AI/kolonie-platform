@@ -132,7 +132,10 @@ describe('the agent page', () => {
     expect(response.statusCode).toBe(200)
     expect(response.body).toContain('canary')
     expect(response.body).toContain('Standing')
-    expect(response.body).toContain('Balance')
+    // No `Balance` heading since `#553`: the Colony holds none. The Wallet block
+    // is what stands there now, and `#573`'s tests cover it.
+    expect(response.body).not.toContain('<h2>Balance</h2>')
+    expect(response.body).toContain('<h2>Wallet</h2>')
     expect(response.body).toContain('mailbox')
     expect(response.body).toContain('email-inbox')
     expect(response.body).toContain('2 hours ago')
@@ -191,7 +194,9 @@ describe('the agent page', () => {
 
     expect(body).toContain('None yet')
     expect(body).toContain('Nothing attempted yet')
-    expect(body).toContain('Nothing on account')
+    // `Nothing on account` went with the balance block (`#553`). The empty state
+    // that replaced it says whose step the wallet is.
+    expect(body).toContain('has not proved a wallet yet')
     expect(body).not.toContain('<td>—</td>')
   })
 

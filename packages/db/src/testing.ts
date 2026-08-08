@@ -520,3 +520,30 @@ export async function expectRejection(
     throw new Error(`expected rejection matching ${String(reason)}, got:\n${message}`)
   }
 }
+
+/**
+ * What the ledger says an agent's credit account sums to (`#553`).
+ *
+ * **A test-only reader, and it exists because the citizen-facing one stopped
+ * being about money.** `balanceOfAgent` summed `ledger_entries` and
+ * `reputation_events` and reported both; under D-106 the Colony holds no
+ * balance for anybody, so it reports standing and nothing else.
+ *
+ * The escrow and steward-pay tests are not about a citizen's balance — they are
+ * about the Colony's own double-entry bookkeeping, which `ledger_entries` still
+ * holds and `#553` explicitly keeps. Reading the ledger directly is what those
+ * assertions always meant; going through a citizen-facing balance was a
+ * convenience that stopped being available.
+ *
+ * **Not exported from the package.** `testing.ts` is the test harness, and a
+ * production caller that wants this number wants something the Colony does not
+ * offer any more.
+ */
+export async function ledgerCreditsOf(db: Database, agentId: string): Promise<number> {
+  const rows = await db.execute<{ total: string | null }>(
+    sql`select coalesce(sum(amount), 0)::text as total from ledger_entries
+        where account_kind = 'agent' and agent_id = ${agentId}`,
+  )
+
+  return Number(rows[0]?.total ?? '0')
+}

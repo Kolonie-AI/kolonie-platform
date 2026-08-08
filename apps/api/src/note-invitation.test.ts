@@ -178,7 +178,6 @@ describe('the invitation to write a note about a skill just granted', () => {
     expect(written.reputationDelta).toBe(declined.reputationDelta)
     expect(written.skillsGranted).toEqual(declined.skillsGranted)
     expect(written.open).toEqual(declined.open)
-    expect(written.pays).toEqual(declined.pays)
   })
 
   /**

@@ -82,40 +82,19 @@ describe('the sponsor over MCP', () => {
   })
 
   /**
-   * The number that had no route at all until this issue: `QuestDesk.balance`
-   * was read by six console pages and by nothing else, so a sponsor not driving
-   * a browser found out what it could afford by being refused.
+   * **Two tests about a balance stood here** (`#553`, D-106).
+   *
+   * One read `kolonie.quests.balance` before and after a submission and watched
+   * the reservation appear; the other asserted that a sponsor with nothing was
+   * refused and nothing was reserved. Both read a tool that is gone with the
+   * balance it reported: a citizen is paid in SOL to a wallet the Colony has no
+   * key to, and a quest is invoiced from the sponsor's own after publication.
+   *
+   * The refusal at submission still exists — `submitQuestForReview` still books
+   * a reservation and still refuses what the ledger cannot cover — and it is
+   * asserted where it lives, in `packages/db`. What went is the surface that
+   * reported it.
    */
-  it('reads a balance, and the reservation shows up in it after submission', async () => {
-    const sponsor = anAgent()
-    quests.credit(sponsor.id, 100)
-
-    const before = await call(sponsor.key, 'kolonie.quests.balance')
-    expect(structured(before)).toMatchObject({ balance: 100, reserved: 0, available: 100 })
-
-    const written = await call(sponsor.key, 'kolonie.quests.write', aDraft())
-    const id = (structured(written).quest as unknown as { id: TaskId }).id
-    const submitted = await call(sponsor.key, 'kolonie.quests.submit', { questId: id })
-    expect(submitted.isError).toBeFalsy()
-
-    // Five slots at one credit each, reserved whole at submission — a quest that
-    // cannot be paid for never reaches a steward.
-    const after = await call(sponsor.key, 'kolonie.quests.balance')
-    expect(structured(after)).toMatchObject({ balance: 100, reserved: 5, available: 95 })
-  })
-
-  it('is refused a quest it cannot pay for, and nothing is reserved', async () => {
-    const sponsor = anAgent()
-
-    const written = await call(sponsor.key, 'kolonie.quests.write', aDraft())
-    const id = (structured(written).quest as unknown as { id: TaskId }).id
-    const submitted = await call(sponsor.key, 'kolonie.quests.submit', { questId: id })
-
-    expect(submitted.isError).toBe(true)
-    expect(structured(await call(sponsor.key, 'kolonie.quests.balance'))).toMatchObject({
-      reserved: 0,
-    })
-  })
 
   it('changes a draft it has not submitted', async () => {
     const sponsor = anAgent()
@@ -154,13 +133,11 @@ describe('the sponsor over MCP', () => {
     // 20 × 15 for the answers, plus 7 each for the first three published
     // obstacle reports (`#371`) — the commitment is the whole of what the quest
     // would hold, which is what a sponsor is deciding about.
-    expect(structured(written).commitment).toMatchObject({
-      cost: 321,
-      available: 500,
-      affordable: true,
-    })
+    // The commitment is the cost and nothing else since `#553`: `available` and
+    // `affordable` read a balance the Colony does not hold.
+    expect(structured(written).commitment).toEqual({ cost: 321 })
     expect(String(structured(written).preview)).toContain('A thousand registrations')
-    expect(JSON.stringify(written.content)).toContain('321 credit(s)')
+    expect(JSON.stringify(written.content)).toContain('321')
   })
 
   /**
@@ -206,7 +183,7 @@ describe('the sponsor over MCP', () => {
     // obstacles — on top of the capacity rather than out of it.
     expect(structured(written).commitment).toMatchObject({ cost: 115 })
     const said = JSON.stringify(written.content)
-    expect(said).toContain('115 credit(s)')
+    expect(said).toContain('115')
     expect(said).toContain('15 of that is for the first 3 citizens')
     expect(said).toContain('rather than out of them')
   })
@@ -407,48 +384,15 @@ describe('the sponsor over MCP', () => {
   })
 
   /**
-   * `#196`'s rule, applied to the text this file ships rather than to the task
-   * seed: a description naming a tool that does not exist misdirects an agent at
-   * the moment it is deciding what to call next.
+   * **`says the draft is unaffordable at the moment it is written` stood here**
+   * (`#553`, D-106). It asserted `affordable: false` on a 3,021-credit draft
+   * from a sponsor holding 500, and the sentence *more than you can currently
+   * pay*. The Colony cannot see what a sponsor holds — the money is in a wallet
+   * it has no key to — so the honest answer is the cost, which the tests above
+   * assert, and the invoice, which arrives after a steward publishes.
    */
-  it('names no tool the surface does not register, in any quest tool text', async () => {
-    const { client, close } = await connectedClient(colony(), `Bearer ${anAgent().key}`)
-    try {
-      const { tools } = await client.listTools()
-      const registered = new Set(tools.map((tool) => tool.name))
-      const named = new Set<string>()
 
-      for (const tool of tools.filter((one) => one.name.startsWith('kolonie.quests.'))) {
-        const text = `${tool.description ?? ''}\n${JSON.stringify(tool.inputSchema)}`
-        for (const match of text.matchAll(/kolonie(?:\.[a-z]+(?:-[a-z]+)*)+/g)) {
-          named.add(match[0].replace(/\.$/, ''))
-        }
-      }
-
-      expect([...named].filter((tool) => !registered.has(tool))).toEqual([])
-      // The scan is worth nothing if it found no names at all.
-      expect(named.size).toBeGreaterThan(0)
-    } finally {
-      await close()
-    }
-  })
-
-  it('says the draft is unaffordable at the moment it is written', async () => {
-    const sponsor = anAgent()
-    quests.credit(sponsor.id, 100)
-
-    const written = await call(
-      sponsor.key,
-      'kolonie.quests.write',
-      aDraft({ reward: { credits: 15, reputation: 0 }, slots: 200 }),
-    )
-
-    // 200 × 15, plus 21 for the obstacle pool (`#371`).
-    expect(structured(written).commitment).toMatchObject({ cost: 3021, affordable: false })
-    expect(JSON.stringify(written.content)).toContain('more than you can currently pay')
-  })
-
-  it('withdraws a quest from review, freeing the reservation and the slot', async () => {
+  it('withdraws a quest from review, freeing the slot', async () => {
     const sponsor = anAgent()
     quests.credit(sponsor.id, 1_000)
 
@@ -460,14 +404,12 @@ describe('the sponsor over MCP', () => {
     const id = (structured(written).quest as unknown as { id: TaskId }).id
     await call(sponsor.key, 'kolonie.quests.submit', { questId: id })
 
-    // 5 × 10 for the answers and 15 for the obstacle pool (`#371`).
-    expect(structured(await call(sponsor.key, 'kolonie.quests.balance')).reserved).toBe(65)
-
     const withdrawn = await call(sponsor.key, 'kolonie.quests.withdraw', { questId: id })
 
+    // The reservation is no longer readable from a tool (`#553`); the status is
+    // what a sponsor experiences, and the freed slot is asserted below.
     expect(withdrawn.isError).toBeFalsy()
     expect((structured(withdrawn).quest as unknown as { status: string }).status).toBe('draft')
-    expect(structured(await call(sponsor.key, 'kolonie.quests.balance')).reserved).toBe(0)
 
     // Editable again, which is the whole reason a sponsor withdraws.
     const changed = await call(sponsor.key, 'kolonie.quests.update', {

@@ -3,7 +3,6 @@ import { AccountKindSchema } from '../account/account.js'
 import { SkillSchema } from '../common/skill.js'
 import { SubmissionIdSchema, SupportTicketIdSchema, TaskIdSchema } from '../common/ids.js'
 import { TimestampSchema } from '../common/time.js'
-import { CreditMovementSchema } from '../ledger/ledger.js'
 import { SubmissionStatusSchema } from '../submission/submission.js'
 import { SupportTicketStatusSchema } from '../support/support.js'
 import { ModerationStatusSchema } from '../guidance/guidance.js'
@@ -153,8 +152,13 @@ export const WakeupOpenSchema = z.object({
    */
   filteredOn: z.object({
     skills: z.array(z.string()),
-    /** Credits available to commit, which is what decides whether sponsoring is offered. */
-    credits: z.int(),
+    /**
+     * **`credits` stood here** (`#553`). It was what decided whether sponsoring
+     * was offered, and D-106 left the Colony with no balance to read — a quest
+     * is invoiced and paid from the citizen's own wallet, which the Colony has
+     * no key to and does not watch. Sponsoring is now offered to everybody,
+     * so there is no filter input to echo back.
+     */
   }),
 })
 export type WakeupOpen = z.infer<typeof WakeupOpenSchema>
@@ -313,39 +317,25 @@ export const WakeupQuestSchema = z.object({
 export type WakeupQuest = z.infer<typeof WakeupQuestSchema>
 
 /**
- * What pays: the citizen's own money, and the quests that would move it
- * (`#346`).
+ * **The `pays` block stood here and is gone** (`#553`, D-106).
  *
- * **Money appeared in the whole digest exactly once**, in the filter footer of
- * the `open` block — `0 credit(s) available` — and nowhere as a balance, an
- * earning or an event. A citizen that is never shown that work paid has no
- * evidence the economy exists, and `#326` names the consequence in a citizen's
- * own words: answering quests is *"not a consolation prize, it is the on-ramp to
- * the economy"*.
+ * `#346` built it because money appeared in the whole digest exactly once, in a
+ * filter footer, and *"a citizen that is never shown that work paid has no
+ * evidence the economy exists"*. That argument is still right. What it was built
+ * out of is not: a balance the Colony held, in credits, one credit being one US
+ * cent — and under D-106 the Colony holds no balance for anybody. A citizen is
+ * paid in SOL to a wallet the Colony has no key to.
  *
- * `null` on the response when the Colony was not given the inputs to compute it,
- * which is *not asked* and not *you have nothing* — the same distinction
- * `WakeupTask.startable` and `NOTHING_OPEN` make.
+ * **The evidence moved rather than vanishing.** `kolonie.me.earnings` (`#535`)
+ * is what a citizen was paid, to which wallet, with the signature to check on
+ * chain, and what is still owed and why. It is a read the citizen asks for, so
+ * the digest no longer volunteers *you earned something* — which is a real
+ * difference from what `#346` shipped and is named in `#553` rather than left to
+ * be discovered.
+ *
+ * The `quests` half of this block is not lost: `open` lists quests open to the
+ * citizen, from the same catalogue read.
  */
-export const WakeupPaysSchema = z.object({
-  /** What the citizen holds. */
-  balance: z.int(),
-  /** What it may still commit, which is the balance minus what its own quests reserve. */
-  available: z.int(),
-  /** What arrived inside the window — the sum of the movements below. */
-  earned: z.int(),
-  /**
-   * The arrivals themselves, newest first.
-   *
-   * **Stated as events and not only as a total**, because a number that went up
-   * says nothing about what the citizen did to make it go up. Only arrivals:
-   * money leaving is the sponsor's own act and it already knows about it.
-   */
-  arrivals: z.array(CreditMovementSchema),
-  /** Quests open to this citizen now, as quests. */
-  quests: z.array(WakeupQuestSchema),
-})
-export type WakeupPays = z.infer<typeof WakeupPaysSchema>
 
 export const WakeupRequestSchema = z.object({
   /**
@@ -516,7 +506,6 @@ export const WakeupResponseSchema = z.object({
    *
    * `null` when the Colony was not given the inputs to compute it.
    */
-  pays: WakeupPaysSchema.nullable(),
   /**
    * Accounts whose re-check is waiting on this citizen (`#226`).
    *
@@ -677,10 +666,11 @@ export function wakeupIsQuiet(digest: WakeupResponse): boolean {
     digest.reputationDelta === 0 &&
     digest.contributions.pullRequests.length === 0 &&
     digest.contributions.unavailable === null &&
-    // A payment that landed while the citizen slept is news (`#346`). `null` is
-    // *not computed* and cannot make a wake-up loud, which is the same rule
-    // every other nullable field in this response follows.
-    (digest.pays === null || digest.pays.arrivals.length === 0) &&
+    // A payment that landed while the citizen slept used to make a wake-up loud
+    // (`#346`). It was a credit arrival, and there are none (`#553`) — what a
+    // citizen is paid now is SOL, read through `kolonie.me.earnings`. **So a
+    // payment no longer makes a wake-up loud**, which is a real loss and is
+    // named in `#553` rather than left here as a silent one.
     // A note waiting is not a quiet wake-up (#239). Leaving it out here would
     // make the digest say "nothing changed" over the top of the one thing on it
     // that was addressed to this citizen personally.

@@ -9,7 +9,6 @@ import {
   nonWithdrawableNotice,
   questCommitment,
   type AgentId,
-  type CreditMovement,
   type SubmissionId,
   type Task,
   type TaskId,
@@ -60,15 +59,6 @@ export interface FakeQuestDesk extends QuestDesk {
    * and one still waiting on a verdict.
    */
   readonly tookPartIn: (agentId: AgentId, row: QuestTakenPartIn) => void
-  /**
-   * What the ledger reader answers with (`#346`).
-   *
-   * Still not a ledger — the rows are handed in rather than booked. What the
-   * wake-up digest does with them *is* this layer's job, though: it keeps only
-   * the arrivals and sums them, and a fixture that could only answer empty
-   * would let both halves of that pass untested.
-   */
-  readonly answersMovements: (movements: readonly CreditMovement[]) => void
   /**
    * Accept a report on a quest, which only a verdict can do in the real one
    * (`#178`).
@@ -124,7 +114,6 @@ export function fakeQuests(): FakeQuestDesk {
     { readonly own: OwnQuest; moderated: 'approved' | 'rejected' | null }
   >()
   const balances = new Map<string, number>()
-  let movements: readonly CreditMovement[] = []
   const audienceAsked: AudienceCriteria[] = []
   /** `#524`'s figure. Empty until a test says otherwise. */
   let holdings: readonly HoldingCount[] = []
@@ -527,10 +516,6 @@ export function fakeQuests(): FakeQuestDesk {
       })
     },
 
-    answersMovements(next) {
-      movements = next
-    },
-
     async create({ authorId, draft }) {
       const parsed = QuestDraftSchema.parse(draft)
       const id = TaskIdSchema.parse(randomUUID())
@@ -663,21 +648,6 @@ export function fakeQuests(): FakeQuestDesk {
     },
 
     /**
-     * The citizen's own credit movements (`#333`).
-     *
-     * **Empty, and that is the whole fixture.** The rows are the ledger's and
-     * this file holds no ledger — reproducing one would be reimplementing double
-     * entry to test a route that does nothing but pass the list through. What
-     * the route contract actually needs from here is the *shape*: three fields,
-     * and `balance` and `total` served alongside the rows rather than derived
-     * from them. The behaviour is tested against a real database in
-     * `packages/db/src/storage/credits.test.ts`, which is where it belongs.
-     */
-    async movements() {
-      return { balance: 0, total: movements.length, movements: [...movements] }
-    },
-
-    /**
      * The undo for `submit` (`#323`), reproducing the one rule the route is
      * allowed to rely on: it works from `pending_review` and from nowhere else.
      * The reservation needs no unwinding here for the same reason it needs none
@@ -703,37 +673,6 @@ export function fakeQuests(): FakeQuestDesk {
           null,
         ),
       }
-    },
-
-    /**
-     * Balance minus what is reserved, reproducing `#174`'s rule rather than
-     * returning the raw balance.
-     *
-     * **The reservation is the half a fake would be tempted to skip**, and
-     * skipping it would let the console's tests pass while a sponsor with one
-     * quest in review appeared able to fund a second one out of the same
-     * credits. Whether Postgres computes it the same way is asserted in
-     * `packages/db` against a real one.
-     */
-    async balance(authorId) {
-      const balance = balances.get(authorId) ?? 0
-      const reserved = [...quests.values()]
-        .filter(
-          (held) =>
-            held.own.task.createdBy === authorId && held.own.task.status === 'pending_review',
-        )
-        .reduce(
-          (total, held) =>
-            total +
-            questCommitment({
-              reward: held.own.task.reward,
-              slots: held.own.task.slots ?? 0,
-              publishObstacles: held.own.task.publishObstacles,
-            }),
-          0,
-        )
-
-      return { balance, reserved, available: balance - reserved }
     },
 
     /**

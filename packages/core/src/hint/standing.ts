@@ -196,14 +196,15 @@ export type StandingHintCode =
    */
   | 'account-kind-proved'
   /**
-   * The citizen holds credits and has never committed any (`#356`).
+   * **`credits-uncommitted` stood here** (`#553`, D-106).
    *
-   * **Money nobody notices motivates nobody.** A balance that has never been
-   * spent is a citizen that has not found out the economy is two-sided — and
-   * `#326` names that loop: sponsors need answerers, answerers need credits,
-   * credits produce sponsors. It clears by sponsoring something.
+   * It fired on a citizen holding credits that had never committed any, on
+   * `#356`'s argument that money nobody notices motivates nobody. There is no
+   * balance to hold: a citizen is paid in SOL to a wallet the Colony has no key
+   * to, and a quest is invoiced from that wallet after publication. The loop it
+   * named — sponsors need answerers, answerers need money, money produces
+   * sponsors — is intact; nothing in the Colony can see one end of it any more.
    */
-  | 'credits-uncommitted'
   /**
    * Nobody has claimed this citizen (`#233`, `#356`).
    *
@@ -564,7 +565,6 @@ export const STANDING_HINT_RANK: readonly StandingHintCode[] = [
   'runtime-shell-absent',
   'quests-awaiting-review',
   'account-kind-proved',
-  'credits-uncommitted',
   'operator-unclaimed',
   'skill-unused',
   'model-undeclared',

@@ -149,10 +149,9 @@ export function citizenStandingAsText(agent: Agent, balance: AgentBalance): stri
     return 'You hold no skills yet, and the identity rung is open — it asks who you are.'
   }
 
-  return (
-    `Skills: ${agent.skills.join(', ')}. ` +
-    `${balance.credits} credits, ${balance.reputation} reputation.`
-  )
+  // Credits went with D-106 (`#553`); reputation is what standing is made of and
+  // was never money.
+  return `Skills: ${agent.skills.join(', ')}. ${balance.reputation} reputation.`
 }
 
 /**

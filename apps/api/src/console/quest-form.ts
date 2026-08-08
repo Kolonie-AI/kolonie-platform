@@ -418,13 +418,18 @@ function asList(value: unknown): string[] {
   return []
 }
 
-/** What a quest costs, and whether the sponsor can pay for it. */
-export interface Affordability {
-  readonly total: number
-  readonly available: number
-  readonly shortfall: number
-  readonly affordable: boolean
-}
+/**
+ * **`Affordability` stood here** (`#553`, D-106).
+ *
+ * It carried a total, what the sponsor had available, the shortfall and a
+ * boolean, because `#174` reserved credits at submission and the form had to
+ * refuse a quest the balance could not cover. There is no balance to compare
+ * against, and `questInvoiceLine` below — which `#540` already wrote — is what
+ * replaced it: what the quest costs in SOL, invoiced after publication and paid
+ * from the sponsor's own wallet.
+ *
+ * Nothing read this type by the time it was removed.
+ */
 
 /**
  * Capacity × price against what the sponsor may still commit.

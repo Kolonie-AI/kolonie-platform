@@ -1,4 +1,4 @@
-import { CreditHistoryRequestSchema, ERROR_STATUS, type Timestamp } from '@kolonie-ai/core'
+import { ERROR_STATUS, type Timestamp } from '@kolonie-ai/core'
 import type { FastifyInstance, FastifyReply } from 'fastify'
 import {
   editQuestDraft,
@@ -10,8 +10,6 @@ import {
   recordAudit,
   listQuests,
   publishQuest,
-  readBalance,
-  readCreditHistory,
   readQuest,
   readReviewQueue,
   refuseQuest,
@@ -72,43 +70,20 @@ export function registerQuestRoutes(v1: FastifyInstance, deps: RouteDependencies
   })
 
   /**
-   * What the caller may still commit (`#320`).
+   * **`GET /quests/balance` and `GET /quests/credits` stood here** (`#553`,
+   * D-106).
    *
-   * On the quest prefix because that is the only question it answers — *can I
-   * afford this quest* — and `QuestDesk` puts it there for the same reason. It
-   * is also where a citizen finds what a quest paid it, which is the same
-   * number read from the other end.
-   */
-  v1.get('/quests/balance', async (request, reply) => {
-    const caller = await acting(request, reply)
-    if (caller === null) return reply
-
-    return send(reply, await readBalance(caller.id, quests))
-  })
-
-  /**
-   * The caller's own credit movements (`#333`).
+   * Both answered *what do you hold with the Colony*, in credits. Nothing does:
+   * a citizen is paid in SOL to a wallet the Colony holds no key to, and a
+   * sponsor pays an invoice from its own. `kolonie.me.earnings` (`#535`) is the
+   * citizen's side and the quest's invoice is the sponsor's, and neither is a
+   * balance.
    *
-   * On the quest prefix because {@link QuestDesk} is what serves it, and that
-   * placement is argued on the desk itself rather than here. The question is
-   * about the account and not about quests — a citizen that has never sponsored
-   * anything has movements, and this route answers for it.
+   * Removed here in the same commit as the MCP tools, deliberately: they read
+   * the same two functions, and a REST route answering a balance the MCP surface
+   * says does not exist is `kolonie-platform#561` — two readers of one fact
+   * disagreeing — which this issue exists to end rather than to create.
    */
-  v1.get('/quests/credits', async (request, reply) => {
-    const caller = await acting(request, reply)
-    if (caller === null) return reply
-
-    const query = CreditHistoryRequestSchema.safeParse(request.query)
-    if (!query.success) {
-      return reply.status(ERROR_STATUS.validation_failed).send({
-        code: 'validation_failed',
-        message:
-          'since must be an ISO 8601 timestamp and limit a positive whole number of movements.',
-      })
-    }
-
-    return send(reply, await readCreditHistory(caller.id, query.data, quests))
-  })
 
   /**
    * How many citizens a requirement set reaches (`#350`).

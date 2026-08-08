@@ -63,22 +63,6 @@ export const AUTHENTICATED_TOOLS = [
    */
   'kolonie.quests.respond',
   /**
-   * The sponsor's side of the quest surface (`#320`).
-   *
-   * **In the ordinary authenticated tier, deliberately.** Sponsoring is not a
-   * privilege and no role gates it: `#176` gives the write path to *any
-   * authenticated identity*, and a citizen that wants something asked of the
-   * Colony is a sponsor the moment it has the credits. Putting these behind a
-   * role would invent a gate the decision does not have.
-   *
-   * They were missing until `#320` because `#176` reasoned about the
-   * **credential** — *session or API key, indifferently* — and not about the
-   * **surface**. D-026 had already settled the surface question in July: a
-   * capability the REST surface has and this one lacks is a capability foreign
-   * agents do not have.
-   */
-  'kolonie.quests.balance',
-  /**
    * What a sponsor asks before it writes anything (`#524`).
    *
    * **Listed before `write` because it comes before it in time.** The one figure
@@ -148,14 +132,6 @@ export const AUTHENTICATED_TOOLS = [
   'kolonie.skills.note',
   'kolonie.tasks.take-up',
   'kolonie.tasks.report.feedback',
-  /**
-   * Registered by `tools/quests.ts` because `QuestDesk` is what serves it, and
-   * listed here beside the citizen's own record because that is what it is
-   * (#333). A citizen that has never sponsored anything has credit movements —
-   * the grant that opened its account and every task it has been paid for — so
-   * this is not a sponsor tool despite where it is registered.
-   */
-  'kolonie.credits.history',
   // Both registered by `tools/history.ts` rather than with the tasks, and it
   // says why. They are about the citizen rather than about any one task.
   'kolonie.me.history',

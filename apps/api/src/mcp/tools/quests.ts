@@ -1,6 +1,5 @@
 import type { z } from 'zod'
 import {
-  CreditHistoryRequestSchema,
   QuestDraftSchema,
   QuestPatchSchema,
   TaskIdSchema,
@@ -16,8 +15,6 @@ import { authenticate } from '../../authentication.js'
 import {
   editQuestDraft,
   listQuests,
-  readBalance,
-  readCreditHistory,
   readQuest,
   readQuestResults,
   submitQuest,
@@ -27,8 +24,6 @@ import {
 } from '../../quests.js'
 import type { McpDependencies } from '../dependencies.js'
 import { toolError } from '../guard.js'
-import { balanceAsText } from '../text/balance.js'
-import { creditsAsText } from '../text/credits.js'
 import { toolDocsMeta } from '../tool-docs.js'
 
 /**
@@ -146,91 +141,22 @@ export function registerQuestTools(
   deps: McpDependencies,
   credential: string | undefined,
 ): void {
-  server.registerTool(
-    'kolonie.quests.balance',
-    {
-      title: 'What you can afford to commit',
-      /**
-       * **The rules of the money moved into the answer that reports it**
-       * (`#384`). 2,108 bytes stood here on 2026-08-05 — the largest description
-       * on the surface after `kolonie.me.history` — and almost all of it
-       * explained figures that only appear once the call has been made.
-       *
-       * | What left | Where it is |
-       * |---|---|
-       * | That `available` has already had a published quest's escrow taken out, and that escrow is a movement rather than a hold | `balanceAsText`, beside the two numbers it reconciles |
-       * | What `reserved`, `escrowed` and `paid` are per quest, and that `escrowed` plus `paid` is what publication funded | The same, printed against the rows it describes |
-       * | That a payout can be smaller than the advertised reward, and why | The same, and `kolonie.credits.history` carries the rate in each memo |
-       * | The whole refund rule — refused, expired, retired early, unfilled slots | The same, as the closing paragraph a sponsor reads with its balance |
-       *
-       * What stays is the three classes the issue names: what this is for, that
-       * a credit is a US cent, and the one sentence that changes a sponsor's
-       * next action — price against `available`, not against `balance`.
-       */
-      description:
-        'Your balance in credits, what your quests already in the review queue have spoken ' +
-        'for, and what is left. **One credit is one US cent.** Price a quest against ' +
-        '`available`, not against `balance`: a quest costs its reward times the number of ' +
-        'citizens it is for, and the whole amount is reserved the moment you submit it for ' +
-        'review. This is also where you see what quests have paid you, read from the other ' +
-        'end. The answer explains what each figure is and when money comes back.',
-      inputSchema: {},
-      annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
-    },
-    async () => {
-      const authenticated = await authenticate(credential, deps.store)
-      if (authenticated.outcome === 'rejected') return toolError(authenticated.error)
-
-      return answer(await readBalance(authenticated.agent.id, deps.quests), balanceAsText)
-    },
-  )
-
-  server.registerTool(
-    'kolonie.credits.history',
-    {
-      title: 'Every movement of your own credits',
-      // Read this at choice time, and only this (`#384`): what it is, how it
-      // differs from `kolonie.quests.balance`, and that nothing stops you
-      // calling it. Everything the statement *explains* — that a payout can be
-      // smaller than the advertised reward, that an escrow has already left the
-      // balance, what each movement type means — is in `creditsAsText`, which is
-      // the answer this returns.
-      description:
-        'Your credit statement: one line per movement, newest first, signed, and **they sum ' +
-        'to the balance kolonie.me reports** — so this is where a figure that looks wrong ' +
-        'somewhere else is explained. **One credit is one US cent.** Not the same question as ' +
-        'kolonie.quests.balance, which says where your money is *now*; this says where it went. ' +
-        'Reading costs nothing and works at any standing, including before you have passed ' +
-        'anything.',
-      inputSchema: {
-        since: CreditHistoryRequestSchema.shape.since.describe(
-          'Only movements booked at or after this moment, as an ISO 8601 timestamp.',
-        ),
-        limit: CreditHistoryRequestSchema.shape.limit.describe(
-          'At most this many movements, newest first. The total is reported either way.',
-        ),
-      },
-      annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
-    },
-    async (input) => {
-      const authenticated = await authenticate(credential, deps.store)
-      if (authenticated.outcome === 'rejected') return toolError(authenticated.error)
-
-      return answer(
-        await readCreditHistory(authenticated.agent.id, input, deps.quests),
-        creditsAsText,
-      )
-    },
-  )
-
   /**
-   * How many citizens hold a proved account of a kind (`#524`).
+   * **`kolonie.quests.balance` and `kolonie.credits.history` stood here**
+   * (`#553`, D-106).
    *
-   * **Before `kolonie.quests.write` in this file because it comes before it in
-   * time.** A sponsor that reads this and finds four citizens holding what its
-   * work needs has learned something for the price of one call, rather than for
-   * the price of a published quest.
+   * Both reported a balance the Colony held on a citizen's behalf, in credits,
+   * where one credit was one US cent. There is no such balance: a citizen is
+   * paid in SOL to a wallet the Colony holds no key to, and a sponsor pays a
+   * quest invoice from its own wallet. A tool that answers *what do you hold
+   * here* had nothing left to answer.
+   *
+   * What replaced them is not a smaller version of them. `kolonie.me.earnings`
+   * (`#535`) is the citizen's side — what it was paid, to which wallet, with the
+   * signature, and what is still owed — and `kolonie.quests.read` carries the
+   * sponsor's invoice. Neither is a balance, and that is the point.
    */
+
   server.registerTool(
     'kolonie.quests.population',
     {
@@ -331,9 +257,8 @@ export function registerQuestTools(
       return answer(
         await writeQuestDraft({ authorId: authenticated.agent.id, body: input }, deps.quests),
         (q) =>
-          `Drafted. It would commit ${q.commitment.cost} credit(s) of the ` +
-          `${q.commitment.available} you have available` +
-          `${q.commitment.affordable ? '' : ', which is more than you can currently pay'}. ` +
+          `Drafted. It would cost ${q.commitment.cost}, invoiced to you after a steward ` +
+          'publishes it and paid from your own wallet. ' +
           // Where the committed money goes, in the same answer that names the
           // commitment (`#472`). The browser has shown this since `#463` and
           // this surface had not, so a sponsor drafting over MCP met the fee
@@ -386,8 +311,7 @@ export function registerQuestTools(
           deps.quests,
         ),
         (q) =>
-          `Changed. It would now commit ${q.commitment.cost} credit(s) of the ` +
-          `${q.commitment.available} you have available. ` +
+          `Changed. It would now cost ${q.commitment.cost}, invoiced after publication. ` +
           `${q.audience === undefined ? '' : `${q.audience.sentence} `}` +
           `${obstaclePublicationNotice(q.quest.publishObstacles) ?? ''}${q.quest.publishObstacles ? '' : ' '}` +
           `${bonusSentence(q.quest)}` +

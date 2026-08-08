@@ -1341,8 +1341,7 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
     const token = await deps.autonomy.pages.liveToken(operated.agentId)
     const door = token === undefined ? null : await deps.autonomy.pages.open(token)
 
-    const [balance, open, own, quests, written, walletAddress] = await Promise.all([
-      deps.quests.balance(operated.agentId),
+    const [open, own, quests, written, walletAddress] = await Promise.all([
       /**
        * **`availableOnly`, not the frontier**, and `openTasksFor` in `tasks.ts`
        * already argues this exact point for a different reader: the frontier
@@ -1388,7 +1387,6 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
       citizenship: held.citizenship,
       arrivedOn: held.arrivedOn,
       facts: held.facts,
-      balance: { available: balance.available, reserved: balance.reserved },
       walletAddress,
       /**
        * Bounded here rather than in the page, because *how many is too many* is
@@ -1962,8 +1960,6 @@ function registerSponsorPages(
 
     const agent = await ctx.caller(request)
     const signedIn = agent === null ? await ctx.person(request) : null
-    const held =
-      signedIn === null ? undefined : await deps.humans.store.sponsorAgent(signedIn.human.id)
 
     if (agent === null && signedIn === null) {
       if (wantsHtml(request)) reply.callNotFound()
@@ -1971,14 +1967,9 @@ function registerSponsorPages(
       return reply
     }
 
-    const writer = agent ?? held
-    const { available } =
-      writer === undefined ? { available: 0 } : await deps.quests.balance(writer.id)
-
     return wantsHtml(request)
-      ? html(reply, questFormPage({ available }))
+      ? html(reply, questFormPage({}))
       : reply.send({
-          available,
           fields: QUEST_FORM_FIELDS,
           skills: SKILL_CHOICES,
           audiences: AUDIENCE_CHOICES,
@@ -2156,11 +2147,10 @@ function registerSponsorPages(
 
     const parsed = parseQuestForm(request.body)
     if (parsed.outcome === 'rejected') {
-      const { available } = await deps.quests.balance(agent.id)
       return wantsHtml(request)
         ? html(
             reply.status(ERROR_STATUS.validation_failed),
-            questFormPage({ available, problems: parsed.problems }),
+            questFormPage({ problems: parsed.problems }),
           )
         : reply.status(ERROR_STATUS.validation_failed).send({
             code: 'validation_failed',
@@ -2171,11 +2161,10 @@ function registerSponsorPages(
 
     const written = await writeQuestDraft({ authorId: agent.id, body: parsed.draft }, deps.quests)
     if (written.outcome === 'rejected') {
-      const { available } = await deps.quests.balance(agent.id)
       return wantsHtml(request)
         ? html(
             reply.status(ERROR_STATUS[written.error.code]),
-            questFormPage({ available, problems: [written.error.message] }),
+            questFormPage({ problems: [written.error.message] }),
           )
         : reply.status(ERROR_STATUS[written.error.code]).send(written.error)
     }
@@ -2457,15 +2446,14 @@ function registerSponsorPages(
       minReputation: String(quest.minReputation),
     }
 
-    const { available } = await deps.quests.balance(agent.id)
     const copiedFrom =
       own.response.rejectionReason === null
         ? undefined
         : { title: quest.title, reason: own.response.rejectionReason }
 
     return wantsHtml(request)
-      ? html(reply, questFormPage({ available, prefill, copiedFrom }))
-      : reply.send({ prefill, available, copiedFrom: copiedFrom ?? null })
+      ? html(reply, questFormPage({ prefill, copiedFrom }))
+      : reply.send({ prefill, copiedFrom: copiedFrom ?? null })
   })
 
   /** The answers as they arrive, with the counts. */

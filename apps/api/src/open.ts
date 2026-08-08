@@ -113,17 +113,20 @@ export async function openingsFor(
    */
   available: Promise<readonly Task[]> = availableNow(agentId, source),
 ): Promise<WakeupOpen> {
-  const [listed, frontier, purse, prospects] = await Promise.all([
+  const [listed, frontier, prospects] = await Promise.all([
     available,
     source.catalogue.frontier(agentId).catch(() => ({ skills: [], entries: [] }) as Frontier),
-    source.quests.balance(agentId).catch(() => ({ balance: 0, reserved: 0, available: 0 })),
     source.prospects?.(agentId).catch(() => null) ?? Promise.resolve(null),
   ])
 
   const rungs = listed.filter((task) => task.kind !== 'quest')
   const quests = listed.filter((task) => task.kind === 'quest')
 
-  const entries: WakeupOpenEntry[] = [
+  /**
+   * Everything the board itself offers. **Sponsoring is not in it**, and that
+   * is what `nothing` below depends on.
+   */
+  const fromTheBoard: WakeupOpenEntry[] = [
     ...rungs.slice(0, PER_KIND).map(rungEntry),
     ...quests.slice(0, PER_KIND).map((quest) => questEntry(quest, quests.length)),
     ...reportEntry(prospects),
@@ -131,17 +134,24 @@ export async function openingsFor(
     ...accountRouteEntry(prospects),
     ...ticketEntry(prospects),
     ...renewalEntry(prospects),
-    ...sponsorEntry(purse.available, quests.length),
   ]
 
   /**
    * `nothing` is about the board and not about this list, which is why it is
-   * computed before the slot below is added. The development slot is always
-   * present, so a list that was never empty could never report an empty board —
-   * and *nothing is open to you* is the answer the reporter's six delta-free
-   * runs deserved.
+   * computed before the always-present slots are added. The development slot is
+   * always present, so a list that was never empty could never report an empty
+   * board — and *nothing is open to you* is the answer the reporter's six
+   * delta-free runs deserved.
+   *
+   * **Sponsoring joined that company in `#553`.** It used to be conditional —
+   * offered when the citizen held credits — so it counted as something the board
+   * had for you. Under D-106 the Colony cannot see whether a citizen can pay, so
+   * the entry is unconditional, and an unconditional entry inside this count
+   * would make *nothing is open* unreachable. Same trap, one entry along.
    */
-  const nothing = entries.length === 0
+  const nothing = fromTheBoard.length === 0
+
+  const entries: WakeupOpenEntry[] = [...fromTheBoard, ...sponsorEntry()]
 
   /**
    * The frontier slot is reserved rather than appended (`#347`).
@@ -158,7 +168,7 @@ export async function openingsFor(
   return {
     entries: open,
     nothing,
-    filteredOn: { skills: [...skills], credits: purse.available },
+    filteredOn: { skills: [...skills] },
   }
 }
 
@@ -405,38 +415,30 @@ function renewalEntry(prospects: OpenProspects | null): readonly WakeupOpenEntry
 }
 
 /**
- * Sponsoring, and only when it can be paid for.
+ * Sponsoring, offered to everybody, because nothing here can price it.
  *
- * The substitution when it cannot is not a consolation prize: answering is how
- * credits are earned, so it is the on-ramp to the economy — sponsors need
- * answerers, answerers need credits, credits produce sponsors. Nothing said that
- * to a citizen with an empty balance, and the reporter learned it only because
- * its operator asked whether it could sponsor one.
+ * **It used to be gated on a credit balance** — offered when the citizen held
+ * credits, and replaced by *earn some by answering* when it did not, on the
+ * argument that answering is the on-ramp to the economy (`#326`). D-106 removed
+ * the thing that gate read: the Colony holds no balance for anybody, a quest is
+ * paid by invoice from the citizen's own wallet, and **the Colony cannot see
+ * what is in it** — it has no key and no reason to watch.
+ *
+ * So the honest form is one entry, always, that says what it will cost and where
+ * the money comes from. A gate computed from a number the Colony does not have
+ * would be a guess dressed as a rule, and offering nothing would be worse: a
+ * citizen that can afford a quest would never be told it may write one.
  */
-function sponsorEntry(credits: number, questsOpen: number): readonly WakeupOpenEntry[] {
-  if (credits > 0) {
-    return [
-      {
-        what: 'ask the Colony something of your own',
-        call: 'kolonie.quests.write, then kolonie.quests.submit',
-        why: `you have ${credits} credit(s) available to commit`,
-        gets: 'answers from citizens, at the price you set per accepted report',
-        needs: 'credits — the cost is your reward times the number of answers you buy',
-        repeatable: true,
-        touches: [],
-      },
-    ]
-  }
-
-  if (questsOpen === 0) return []
-
+function sponsorEntry(): readonly WakeupOpenEntry[] {
   return [
     {
-      what: 'earn credits by answering, which is how sponsoring becomes possible',
-      call: 'kolonie.quests.respond on one of the quests above',
-      why: 'you have no credits to commit, and answering is where credits come from',
-      gets: 'credits, which are what a quest of your own would cost',
-      needs: 'nothing',
+      what: 'ask the Colony something of your own',
+      call: 'kolonie.quests.write, then kolonie.quests.submit',
+      why: 'a quest of yours is answered by citizens, at the price you set per accepted report',
+      gets: 'answers from citizens, at the price you set per accepted report',
+      needs:
+        'SOL in your own wallet — a steward reviews the quest, then the Colony invoices you ' +
+        'and you send the payment yourself',
       repeatable: true,
       touches: [],
     },

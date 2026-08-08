@@ -178,34 +178,24 @@ const awaitingReview = async (draft = aDraft()) => {
  * from the reading side, at a price it had computed itself.
  */
 describe('what comes back with a quest of your own', () => {
-  it('echoes what the draft would cost, against what is available', async () => {
-    quests.credit(sponsorId as never, 500)
-
+  /**
+   * **The commitment is the cost and nothing else** (`#553`, D-106).
+   *
+   * It carried `balance`, `reserved` and `affordable` too, because `#174`
+   * reserved a sponsor's credits at submission. There is no balance: a quest is
+   * invoiced after a steward publishes it and paid from the sponsor's own
+   * wallet, which the Colony has no key to. *Can you afford this* is a question
+   * with no input, and the second test here — *says plainly when the draft costs
+   * more than is available* — was asserting an answer to it.
+   */
+  it('echoes what the draft would cost', async () => {
     const written = await write(aDraft({ reward: { credits: 15, reputation: 0 }, slots: 20 }))
 
     // The sponsor that reported this computed 300 by hand and was right about
     // the answers; since `#371` the commitment is 321, because the first three
     // published obstacle reports are held on top of the capacity rather than out
-    // of it. The point is unchanged: it could not find out until after
-    // submitting.
-    expect(written.json().commitment).toMatchObject({
-      cost: 321,
-      balance: 500,
-      reserved: 0,
-      available: 500,
-      affordable: true,
-    })
-  })
-
-  it('says plainly when the draft costs more than is available', async () => {
-    quests.credit(sponsorId as never, 100)
-
-    // The reported trap: a fat-fingered 200 where 20 was meant, which used to
-    // fail at submission — one step after the moment it could be corrected.
-    const written = await write(aDraft({ reward: { credits: 15, reputation: 0 }, slots: 200 }))
-
-    // 200 × 15, plus 21 held for the obstacle reports (`#371`).
-    expect(written.json().commitment).toMatchObject({ cost: 3021, affordable: false })
+    // of it.
+    expect(written.json().commitment).toEqual({ cost: 321 })
   })
 
   it('carries the quest as an answering citizen reads it', async () => {
@@ -242,38 +232,16 @@ describe('what comes back with a quest of your own', () => {
 })
 
 /**
- * Where a sponsor watches its own money (`#324`).
+ * **`the balance decomposes per quest` stood here** (`#553`, D-106).
  *
- * The scalar could not say which quest had released what, so the refund rule
- * was unobservable even to somebody watching for it.
+ * `#324` split a scalar `reserved` into a row per quest, because a sponsor with
+ * two quests settling could not tell which had released what and the refund rule
+ * was unobservable even to somebody watching for it. Both halves read
+ * `GET /v1/quests/balance`, which is gone with the balance it reported.
+ *
+ * `commitments` is still on the quest desk and still decomposes the same rows —
+ * the console reads it — so what went is the route, not the decomposition.
  */
-describe('the balance decomposes per quest', () => {
-  it('names the quest holding each reservation', async () => {
-    quests.credit(sponsorId as never, 10_000)
-    const first = await write(aDraft({ reward: { credits: 10, reputation: 0 }, slots: 5 }))
-    const id = first.json().quest.id
-    await post(`/v1/quests/${id}/submit`, sponsorKey)
-
-    const balance = (await get('/v1/quests/balance', sponsorKey)).json()
-
-    // 5 × 10 for the answers and 15 for the obstacle pool (`#371`).
-    expect(balance.reserved).toBe(65)
-    expect(balance.quests).toEqual([
-      expect.objectContaining({ taskId: id, reserved: 65, escrowed: 0 }),
-    ])
-  })
-
-  it('empties as the quest leaves the queue', async () => {
-    quests.credit(sponsorId as never, 10_000)
-    const written = await write(aDraft({ reward: { credits: 10, reputation: 0 }, slots: 5 }))
-    const id = written.json().quest.id
-    await post(`/v1/quests/${id}/submit`, sponsorKey)
-
-    await post(`/v1/quests/${id}/withdraw`, sponsorKey)
-
-    expect((await get('/v1/quests/balance', sponsorKey)).json().quests).toEqual([])
-  })
-})
 
 describe('POST /v1/quests/:questId/withdraw', () => {
   it('takes a quest out of the queue and back to a draft', async () => {
@@ -287,16 +255,18 @@ describe('POST /v1/quests/:questId/withdraw', () => {
   })
 
   /** The two things submitting took, and the whole reason the move is worth having. */
-  it('frees the reservation and the queue slot', async () => {
+  /**
+   * **The reservation half is no longer observable from a route** (`#553`). It
+   * read `GET /v1/quests/balance`, which went with the balance it reported. The
+   * queue slot is what a citizen actually experiences, and it is asserted on the
+   * behaviour rather than on a number: a second quest could not be submitted
+   * while the first held the slot, and can once it is withdrawn.
+   */
+  it('frees the queue slot', async () => {
     const id = await awaitingReview(aDraft({ reward: { credits: 10, reputation: 0 }, slots: 5 }))
-
-    // 5 × 10 for the answers and 15 for the obstacle pool (`#371`).
-    expect((await get('/v1/quests/balance', sponsorKey)).json().reserved).toBe(65)
 
     await post(`/v1/quests/${id}/withdraw`, sponsorKey)
 
-    expect((await get('/v1/quests/balance', sponsorKey)).json().reserved).toBe(0)
-    // The slot: a second quest can now be submitted, which is what was blocked.
     const second = await write(aDraft())
     const secondId = second.json().quest.id
     expect((await post(`/v1/quests/${secondId}/submit`, sponsorKey)).statusCode).toBe(200)
@@ -500,39 +470,13 @@ describe('GET /v1/quests', () => {
   })
 })
 
-describe('GET /v1/quests/balance', () => {
-  /**
-   * The route `#320` added, and the reason it is a route at all: the number was
-   * on the desk from `#180` and reachable only from a console page, so a sponsor
-   * that is not driving a browser learned what it could afford by being refused.
-   */
-  it('answers what the caller may still commit', async () => {
-    quests.credit(sponsorId as never, 100)
-
-    const response = await get('/v1/quests/balance', sponsorKey)
-
-    expect(response.statusCode).toBe(200)
-    expect(response.json()).toMatchObject({ balance: 100, reserved: 0, available: 100 })
-  })
-
-  it('counts what a submitted quest has spoken for', async () => {
-    quests.credit(sponsorId as never, 100)
-    const written = await write(aDraft({ reward: { credits: 1, reputation: 0 }, slots: 5 }))
-    await post(`/v1/quests/${written.json().quest.id}/submit`, sponsorKey)
-
-    const response = await get('/v1/quests/balance', sponsorKey)
-
-    expect(response.json()).toMatchObject({ balance: 100, reserved: 5, available: 95 })
-  })
-
-  /** Static before parametric: the id route must not swallow it. */
-  it('is not read as a quest id', async () => {
-    const response = await get('/v1/quests/balance', sponsorKey)
-
-    expect(response.statusCode).toBe(200)
-    expect(response.json().quest).toBeUndefined()
-  })
-})
+/**
+ * **`GET /v1/quests/balance`'s tests stood here** (`#553`, D-106). The route
+ * answered what a sponsor could still commit, in credits, and the Colony holds
+ * no balance for anybody — a citizen is paid in SOL to a wallet it alone has the
+ * key to. `kolonie.me.earnings` (`#535`) is the citizen's record of what it was
+ * paid; a quest's invoice is the sponsor's side. Neither is a balance.
+ */
 
 describe('GET /v1/quests/audience', () => {
   /**

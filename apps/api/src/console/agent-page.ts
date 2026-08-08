@@ -215,6 +215,23 @@ export function agentPage(input: AgentPageInput): string {
   const deposit: readonly string[] = []
 
   /**
+   * The way a person proves a wallet they hold in this browser (`#539`).
+   *
+   * **Where the deposit block used to be, and answering the question that block
+   * answered.** *How do I put money behind this agent* is now *pay from a wallet
+   * the Colony recognises*, and under D-106 it recognises a payment by the
+   * address it came from — so an address nobody proved cannot pay the Colony for
+   * anything. This link is the only route a person has to proving one, because
+   * every address verified so far was signed programmatically by an agent.
+   */
+  const wallet = [
+    '<h2>Wallet</h2>',
+    `<p><a href="/agents/${escape(input.agentId)}/wallet">Prove a wallet with your browser</a> ` +
+      '— a signature, not a transaction. The Colony recognises a payment by the address it ' +
+      'came from, so a wallet has to prove itself once before it can pay for a quest.</p>',
+  ]
+
+  /**
    * **Skills, and what they open next.**
    *
    * A list of skills answers *what has it proved*; the second half answers the
@@ -445,6 +462,7 @@ export function agentPage(input: AgentPageInput): string {
     // Directly under the balance, because the balance is what raises the
     // question this block answers (`#470`).
     ...deposit,
+    ...wallet,
     ...skills,
     ...rungs,
     ...activity,

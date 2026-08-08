@@ -5,6 +5,7 @@ import {
   type Wish,
   type WishAuthor,
 } from '@kolonie-ai/core'
+import { BUNDLES } from '@kolonie-ai/db'
 import type { WishDependencies, WishStore } from '../account-wishes.js'
 
 export interface FakeWishes extends WishStore {
@@ -93,6 +94,43 @@ export function fakeWishes(): FakeWishes {
         .map(([provider, who]) => ({ provider, citizens: who.size }))
         .sort((a, b) => b.citizens - a.citizens || a.provider.localeCompare(b.provider))
     },
+
+    /**
+     * The bundles (`#531`), in memory.
+     *
+     * **The seeded set, unchanged.** A fixture that invented its own bundles
+     * would let a page test pass against an ordering rule the real ones do not
+     * have — and the ordering is the part `#531` calls the one worth getting
+     * right.
+     */
+    bundles: async () =>
+      BUNDLES.map((bundle) => ({
+        slug: bundle.slug,
+        title: bundle.title,
+        reason: bundle.reason,
+        entries: bundle.entries.map((entry) => ({
+          ...entry,
+          title: null,
+          joinable: null,
+          refusal: null,
+        })),
+      })),
+
+    bundle: async (slug) =>
+      (
+        await (async () =>
+          BUNDLES.map((bundle) => ({
+            slug: bundle.slug,
+            title: bundle.title,
+            reason: bundle.reason,
+            entries: bundle.entries.map((entry) => ({
+              ...entry,
+              title: null,
+              joinable: null,
+              refusal: null,
+            })),
+          })))()
+      ).find((bundle) => bundle.slug === slug),
 
     blocksHandoff: async (agentId, provider) => {
       const wish = listFor(agentId).find((row) => row.provider === provider)

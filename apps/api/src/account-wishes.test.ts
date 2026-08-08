@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { AgentId } from '@kolonie-ai/core'
-import { putOnWishList } from './account-wishes.js'
+import { putOnWishList, selectBundle } from './account-wishes.js'
 import { fakeWishList } from './__fixtures__/account-wishes.js'
 
 /**
@@ -103,5 +103,68 @@ describe('putting something on the shared account list', () => {
     if (result.outcome === 'rejected') throw new Error('rejected')
     expect(result.wish.author).toBe('operator')
     expect(result.wish.noticedWhile).toBeNull()
+  })
+})
+
+/**
+ * Taking a bundle (#531).
+ *
+ * **What is asserted is that it fills the list and decides nothing.** A bundle
+ * that arrived pre-approved would turn the one judgement `#527` reserves for a
+ * person into a side effect of a button, and nothing else in either issue would
+ * catch it.
+ */
+describe('taking a bundle', () => {
+  const agentId = '11111111-1111-4111-8111-111111111111' as AgentId
+
+  it('puts every entry on the list in one action, and marks none of them wanted', async () => {
+    const deps = fakeWishList()
+    const result = await selectBundle(agentId, { slug: 'starter' }, deps)
+
+    expect(result.outcome).toBe('selected')
+    if (result.outcome !== 'selected') throw new Error('not selected')
+    expect(result.added).toBe(2)
+
+    const held = deps.store.held(agentId)
+    expect(held.map((wish) => wish.provider)).toEqual(['openmail.sh', 'twilio.com'])
+    expect(held.every((wish) => wish.wantedAt === null)).toBe(true)
+  })
+
+  /**
+   * `#531`: *"the entries an operator removes are as informative as the ones it
+   * keeps"* — so an edited selection has to be honoured exactly.
+   */
+  it('takes only the entries the operator kept', async () => {
+    const deps = fakeWishList()
+    const result = await selectBundle(
+      agentId,
+      { slug: 'starter', entries: ['mailbox:openmail.sh'] },
+      deps,
+    )
+
+    if (result.outcome !== 'selected') throw new Error('not selected')
+    expect(result.added).toBe(1)
+    expect(deps.store.held(agentId).map((wish) => wish.provider)).toEqual(['openmail.sh'])
+  })
+
+  it('does not duplicate what is already on the list', async () => {
+    const deps = fakeWishList()
+    await putOnWishList(agentId, 'citizen', { provider: 'openmail.sh' }, deps)
+
+    const result = await selectBundle(agentId, { slug: 'starter' }, deps)
+
+    if (result.outcome !== 'selected') throw new Error('not selected')
+    expect(result.added).toBe(1)
+    expect(result.alreadyListed).toBe(1)
+    // The citizen's authorship stands: it noticed first, and `#534` counts that.
+    expect(deps.store.held(agentId).find((w) => w.provider === 'openmail.sh')?.author).toBe(
+      'citizen',
+    )
+  })
+
+  it('says so rather than failing when the bundle is not one the Colony has', async () => {
+    const result = await selectBundle(agentId, { slug: 'not-a-bundle' }, fakeWishList())
+
+    expect(result.outcome).toBe('no-such-bundle')
   })
 })

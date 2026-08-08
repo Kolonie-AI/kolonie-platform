@@ -1,5 +1,6 @@
 import { seedAcademyTasks } from './academy-tasks.js'
 import { seedProviderCatalogue } from './provider-catalogue.js'
+import { seedBundles } from './storage/provider-bundles.js'
 import { createDatabase, databaseUrlFromEnv } from './client.js'
 
 /**
@@ -35,6 +36,18 @@ async function main(): Promise<void> {
      */
     const { written } = await seedProviderCatalogue(db)
     console.log(`provider catalogue: ${written} entries written`)
+
+    /**
+     * The bundles (`#531`), after the catalogue for the same reason the
+     * catalogue comes after the tasks: a bundle names entries, and one seeded
+     * before them would be a recommendation pointing at nothing.
+     *
+     * **It is not an error for a bundle to name an entry that does not exist**
+     * — the read says so and the operator sees it — so this ordering is about
+     * the ordinary case rather than about correctness.
+     */
+    const bundles = await seedBundles(db)
+    console.log(`provider bundles: ${bundles} written`)
   } finally {
     await db.close()
   }

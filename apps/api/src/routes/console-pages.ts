@@ -79,7 +79,7 @@ import type { OperatorPageView } from '@kolonie-ai/db'
 import { operatorAnsweredPage, operatorNoteSentPage } from '../autonomy-page.js'
 import { writeOperatorNote } from '../operator-notes.js'
 import { answerOperatorRequest } from '../operator-requests.js'
-import { putOnWishList } from '../account-wishes.js'
+import { putOnWishList, selectBundle } from '../account-wishes.js'
 import { generatedSponsorName, SESSION_COOKIE } from './console.js'
 import { mintOauthState } from '../humans/auth0.js'
 import {
@@ -1462,6 +1462,8 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
          * half of the plan they write.
          */
         wishes: await deps.wishes.store.list(operated.agentId),
+        // The recommendation, beside the list it fills (`#531`).
+        bundles: await deps.wishes.store.bundles(),
         ...(token === undefined || door === null
           ? {}
           : {
@@ -1574,6 +1576,56 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
           .header('location', `/agents/${String(operated.agentId)}`)
           .send()
       : reply.status(added.outcome === 'added' ? 201 : 200).send({ wish: added.wish })
+  })
+
+  /**
+   * Take a bundle, in one action (`#531`).
+   *
+   * **It writes wishes and marks nothing wanted.** Choosing a bundle is choosing
+   * what to consider; the decision that lets a recipe act on an entry is still
+   * made item by item, on the route above. A bundle that arrived pre-approved
+   * would turn the one judgement `#527` reserves for a person into a side effect
+   * of a button.
+   */
+  app.post('/agents/:agentId/wishes/bundle', async (request, reply) => {
+    if (!(await guard(request, reply))) return reply
+
+    const operated = await operatedAgent(request, reply)
+    if (operated === null) return reply
+
+    /**
+     * A form with one ticked box sends a string and one with several sends an
+     * array — the ordinary HTML shape, normalised here rather than in the domain
+     * function, which takes the same body the JSON caller sends.
+     */
+    const body = (request.body ?? {}) as { slug?: unknown; entries?: unknown }
+    const entries =
+      typeof body.entries === 'string'
+        ? [body.entries]
+        : Array.isArray(body.entries)
+          ? body.entries
+          : undefined
+
+    const result = await selectBundle(
+      operated.agentId,
+      { slug: body.slug, ...(entries === undefined ? {} : { entries }) },
+      deps.wishes,
+    )
+
+    if (result.outcome === 'rejected') {
+      return reply.status(ERROR_STATUS[result.error.code]).send(result.error)
+    }
+
+    if (result.outcome === 'no-such-bundle') {
+      return consoleNotFound(reply, request)
+    }
+
+    return wantsHtml(request)
+      ? reply
+          .status(303)
+          .header('location', `/agents/${String(operated.agentId)}`)
+          .send()
+      : reply.status(200).send({ added: result.added, alreadyListed: result.alreadyListed })
   })
 
   /**

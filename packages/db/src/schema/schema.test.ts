@@ -425,6 +425,13 @@ describe('schema', () => {
          * Keyed by provider and not by kind: a claim is about who runs the
          * service, and one counterparty may offer several kinds of account.
          */
+        /**
+         * The bundles (`#531`) — a named set of catalogue entries and the
+         * reason they belong together, for an operator with one agent who needs
+         * a recommendation rather than a catalogue.
+         */
+        'provider_bundle_entries',
+        'provider_bundles',
         'provider_claims',
         'provider_enquiries',
         'provider_recipes',

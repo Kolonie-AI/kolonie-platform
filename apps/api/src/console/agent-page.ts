@@ -49,6 +49,7 @@
  */
 
 import type { Wish } from '@kolonie-ai/core'
+import type { BundleView } from '@kolonie-ai/db'
 import type { OperatorPageView } from '@kolonie-ai/db'
 import { escape, page } from './html.js'
 import { absolute, relative } from './time.js'
@@ -154,6 +155,14 @@ export interface AgentPageInput {
    * itself. Absent for a page the person does not operate.
    */
   readonly wishes?: readonly Wish[] | undefined
+  /**
+   * The bundles the Colony recommends (`#531`).
+   *
+   * **An operator with one agent needs a recommendation, not a catalogue.**
+   * Rendered beside the list rather than on a page of its own, because choosing
+   * one is a thing somebody does *while looking at what this agent already has*.
+   */
+  readonly bundles?: readonly BundleView[] | undefined
 }
 
 /**
@@ -580,6 +589,58 @@ export function agentPage(input: AgentPageInput): string {
             'list.</p>',
         ]
 
+  /**
+   * The recommendation (`#531`).
+   *
+   * **Not a store front.** No pricing, no tiers, no *recommended* badge — a
+   * bundle is a starting point an operator edits, and every entry is a checkbox
+   * that begins ticked so that removing one is the cheap gesture.
+   *
+   * **A provider known to refuse agents is shown as such, inside the bundle.**
+   * `#531` requires it: omitting the entry would tell the operator something
+   * untrue about what the Colony recommends, and showing it tells them something
+   * about the world.
+   */
+  const bundleBlock =
+    input.bundles === undefined || input.bundles.length === 0
+      ? []
+      : [
+          '<h3>Or start from a bundle</h3>',
+          '<p>A named set the Colony recommends, with the reason. Each one leads with a mailbox ' +
+            'and a number — not because they are the most valuable accounts, but because they ' +
+            'are the two that stop you having to fetch a code for everything that follows.</p>',
+          ...input.bundles.flatMap((bundle) => [
+            `<form method="post" action="/agents/${escape(input.agentId)}/wishes/bundle">`,
+            `<input type="hidden" name="slug" value="${escape(bundle.slug)}">`,
+            `<h4>${escape(bundle.title)}</h4>`,
+            `<p>${escape(bundle.reason)}</p>`,
+            ...bundle.entries.map(
+              (entry) =>
+                '<label>' +
+                `<input type="checkbox" name="entries" value="${escape(`${entry.kind}:${entry.provider}`)}" checked> ` +
+                `${escape(entry.provider)} <small>(${escape(entry.kind)})</small>` +
+                (entry.joinable === false
+                  ? ` <strong>— cannot currently be joined${
+                      entry.refusal === null ? '' : `: ${escape(entry.refusal)}`
+                    }</strong>`
+                  : entry.joinable === null
+                    ? ' <small>— no entry written for this one yet</small>'
+                    : '') +
+                '</label>',
+            ),
+            '<button type="submit">Put these on the list</button>',
+            '</form>',
+          ]),
+          /**
+           * The sentence that keeps a bundle from reading as a decision. What it
+           * writes is wishes; the mark that lets a recipe act on one is still
+           * made item by item (`#527`).
+           */
+          '<p class="note">Taking a bundle puts its entries on the list above. It does not mark ' +
+            'any of them as wanted and nothing is attempted — that decision is still yours, one ' +
+            'entry at a time.</p>',
+        ]
+
   const body = [
     ...identity,
     ...balance,
@@ -611,6 +672,9 @@ export function agentPage(input: AgentPageInput): string {
       'only by itself, keeps its own name, skills and balance, and nothing here changes any ' +
       'of that.</p>',
     ...wishes,
+    // Beside the list rather than inside it: the block is built after `wishes`,
+    // and a recommendation reads as one when it follows what is already there.
+    ...bundleBlock,
     ...(input.operator === undefined
       ? []
       : [

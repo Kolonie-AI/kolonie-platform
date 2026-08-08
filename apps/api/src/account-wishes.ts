@@ -1,6 +1,7 @@
 import {
   AccountProviderSchema,
   AddWishSchema,
+  SelectBundleSchema,
   credentialFinding,
   credentialRefusalMessage,
   type AgentId,
@@ -10,11 +11,14 @@ import {
 } from '@kolonie-ai/core'
 import {
   addWish,
+  bundleNamed,
+  bundles,
   markWanted,
   removeWish,
   wantedProviderCounts,
   wishBlocksHandoff,
   wishesFor,
+  type BundleView,
   type Database,
   type WantedProviderCount,
 } from '@kolonie-ai/db'
@@ -69,6 +73,10 @@ export interface WishStore {
    * exactly what the floor exists to stop being reportable.
    */
   wanted(): Promise<readonly WantedProviderCount[]>
+  /** The bundles the Colony recommends, with what the catalogue says (`#531`). */
+  bundles(): Promise<readonly BundleView[]>
+  /** One of them, by name. */
+  bundle(slug: string): Promise<BundleView | undefined>
 }
 
 export function databaseWishes(db: Database): WishStore {
@@ -79,6 +87,8 @@ export function databaseWishes(db: Database): WishStore {
     remove: (agentId, provider) => removeWish(db, agentId, provider),
     blocksHandoff: (agentId, provider) => wishBlocksHandoff(db, agentId, provider),
     wanted: () => wantedProviderCounts(db),
+    bundles: () => bundles(db),
+    bundle: (slug) => bundleNamed(db, slug),
   }
 }
 
@@ -164,4 +174,86 @@ export async function putOnWishList(
   })
 
   return result
+}
+
+/** What happened when an operator chose a bundle. */
+export type SelectBundleResult =
+  | {
+      readonly outcome: 'selected'
+      /** How many entries went onto the list, and how many were already there. */
+      readonly added: number
+      readonly alreadyListed: number
+    }
+  | { readonly outcome: 'no-such-bundle' }
+  | { readonly outcome: 'rejected'; readonly error: ApiError }
+
+/**
+ * Put a bundle on an agent's list, in one action (#531).
+ *
+ * ## What it writes, and what it deliberately does not
+ *
+ * **Wishes, and nothing marked wanted.** Choosing a bundle is choosing what to
+ * *consider*; the mark that turns each one into something a recipe may act on is
+ * still the operator's, item by item. A bundle that arrived pre-approved would
+ * make the one decision `#527` reserves for a person into a side effect of a
+ * button.
+ *
+ * ## An operator can take entries out before starting
+ *
+ * `#531` requires it, and the reason is worth keeping: *"the entries an operator
+ * removes are as informative as the ones it keeps."* An absent `entries` means
+ * all of them — the one-click case — and a shorter list is an edit.
+ *
+ * ## A provider that cannot be joined is still written down
+ *
+ * The bundle shows the refusal, and if the operator leaves the entry in, it goes
+ * on the list. Silently dropping it would be the Colony deciding something on an
+ * operator's behalf about a fact it had just shown them.
+ */
+export async function selectBundle(
+  agentId: AgentId,
+  body: unknown,
+  deps: WishDependencies,
+): Promise<SelectBundleResult> {
+  const parsed = SelectBundleSchema.safeParse(body ?? {})
+  if (!parsed.success) {
+    return {
+      outcome: 'rejected',
+      error: {
+        code: 'validation_failed',
+        message: 'Name the bundle to put on the list.',
+        details: Object.fromEntries(
+          parsed.error.issues.map((issue) => [issue.path.join('.'), issue.message]),
+        ),
+      },
+    }
+  }
+
+  const bundle = await deps.store.bundle(parsed.data.slug)
+  if (bundle === undefined) return { outcome: 'no-such-bundle' }
+
+  const chosen =
+    parsed.data.entries === undefined
+      ? bundle.entries
+      : bundle.entries.filter((entry) =>
+          parsed.data.entries?.includes(`${entry.kind}:${entry.provider}`),
+        )
+
+  let added = 0
+  let alreadyListed = 0
+
+  for (const entry of chosen) {
+    /**
+     * **Written as the operator's entry, because it is one.** The author column
+     * records who first noticed, and a bundle is the Colony's recommendation
+     * accepted by a person — reading it back later as *an agent asked for this*
+     * would corrupt `#534`'s count, which is the one figure that depends on the
+     * distinction.
+     */
+    const result = await deps.store.add({ agentId, provider: entry.provider, author: 'operator' })
+    if (result.outcome === 'added') added += 1
+    else alreadyListed += 1
+  }
+
+  return { outcome: 'selected', added, alreadyListed }
 }

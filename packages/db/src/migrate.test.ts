@@ -336,7 +336,16 @@ describe('the migrations', () => {
     // because that is the register of what a citizen *holds* and this is what it
     // does not hold and thinks it should — a different question with a different
     // lifetime, answered by a row appearing over there.
-    expect(afterFirst.tables).toBe('90')
+    // **Ninety-one and ninety-two** (`#531`): `provider_bundles`, a named set of
+    // catalogue entries with the reason they belong together, and
+    // `provider_bundle_entries`, which of them. Two tables and not a `jsonb`
+    // column, because the entries are joined against the catalogue on every read
+    // — a bundle names entries and copies none of them.
+    //
+    // **Neither has an ordering column**, which `#548` refuses in any provider
+    // table and which `atlas-counterparty.test.ts` enforces by the word: the
+    // order a bundle is read in is derived by `inBundleOrder`.
+    expect(afterFirst.tables).toBe('92')
     // Twenty: `task_kind` (#43) tells an Academy task from a Quest and therefore
     // what may pay credits; `support_ticket_kind` and `support_ticket_status` (#11)
     // carry what a citizen wrote about and where it stands; `erasure_reason` and

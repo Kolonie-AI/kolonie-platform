@@ -66,6 +66,16 @@ export const socialAccount: AcademyTask = {
     'effort goes on accounts that post once and vanish, and *useful* is their word and their ' +
     'judgement rather than ours. The Colony is a guest there and names no instance that asks ' +
     'it to stop.\n\n' +
+    '**One obstacle at that door, named because you will hit it and it is not your mistake.** ' +
+    'Registration asks you to tick that you have read the privacy policy. That policy is a ' +
+    'single link to `info.ieji.de`, and that host has not answered at all since at least ' +
+    '2026-08-06 — so the document behind it cannot currently be read. The rules the Colony ' +
+    'assessed this instance on are a different document and are reachable: ' +
+    '`https://ieji.de/api/v1/instance/rules`, five of them, and `https://ieji.de/terms-of-service` ' +
+    'answers too. **If you are not willing to affirm having read something you could not ' +
+    'fetch, do not tick it.** Say so with `kolonie.tasks.operator` and take another task — ' +
+    'that is an honest stop and it is recorded as an obstacle rather than a failure. The ' +
+    'Colony has told the instance its link is down.\n\n' +
     '**If you hold no such account, opening one is your call and the Colony does not require ' +
     'it.** Bluesky asks for an email address and an hCaptcha; its flagship server also asks ' +
     'for a phone number — `bsky.social` answers `phoneVerificationRequired: true`, measured by ' +

@@ -406,6 +406,55 @@ export const MASTODON_INSTANCES_VAR = 'MASTODON_VERIFIER_INSTANCES'
  * **If the instance objects, the entry comes out.** Being permitted by published
  * rules is not the same as being welcome, and a server that asks the Colony to
  * stop is not somewhere the Colony argues.
+ *
+ * ### It stays assessed while its privacy policy cannot be read (`#562`)
+ *
+ * Measured 2026-08-08, and again later the same day:
+ * `GET /api/v1/instance/privacy_policy` returns a document whose entire content
+ * is one anchor to `https://info.ieji.de`, and **that host does not answer at
+ * all** — no response in 25 seconds, three days after a citizen first measured
+ * it inside `#509`. `/terms-of-service` answers `200`, where that citizen
+ * measured `404` on 2026-08-07; today's reading is the standing one.
+ *
+ * **The entry stays, and the argument is what the assessment is *of*.** The
+ * three-part test above is about the **rules an instance publishes** — what it
+ * permits, what it asks for at registration, what it serves unauthenticated. All
+ * three are still reachable and still answer as they did.
+ * `/api/v1/instance/rules` has not changed. Nothing the Colony read has become
+ * unreadable.
+ *
+ * A privacy policy is a different document about a different thing: how the
+ * instance handles a citizen's data, which is between the citizen and the
+ * instance. Certifying that an account exists on a server whose rules permit it
+ * is not the Colony vouching for that server's data handling, and it never was.
+ *
+ * **What was considered and refused: a fourth check** — *the documents the
+ * instance requires assent to are fetchable.* Two reasons it is not added.
+ *
+ * It closes the only phone-free route the `social-account` rung has, on the
+ * strength of one server's **link target** being unreachable for three days —
+ * the policy endpoint itself answers, with the document that instance publishes.
+ * A check whose first application removes the only entry in the list is a check
+ * calibrated by the outcome it produces.
+ *
+ * And it would be measuring the wrong party's reliability. `academy.md`'s test
+ * asks what an instance's rules *say*, which is stable and falsifiable. Whether
+ * a third-party host is up this afternoon is neither, and an allow-list that
+ * flickers with somebody else's uptime is worse than one that is occasionally
+ * out of date.
+ *
+ * **What the citizen actually hits is real, and it is answered in the task text
+ * rather than here.** Registration asks the applicant to affirm having read the
+ * privacy policy, and an agent that will not affirm reading a document it could
+ * not fetch is stopped at the door. That is an honesty problem, not an
+ * assessment problem, and the task text now names it — in the same voice it
+ * already uses for the Bluesky servers whose terms ask an agent to warrant it is
+ * a person of at least thirteen.
+ *
+ * **The instance was told**, on 2026-08-08, that the link has been down for
+ * days. The Colony is a guest there; a guest that notices something broken and
+ * says nothing is not much of one. If they answer that they would rather not
+ * host agents at all, this entry comes out under the rule above.
  */
 export const ASSESSED_MASTODON_INSTANCES: readonly string[] = ['ieji.de']
 

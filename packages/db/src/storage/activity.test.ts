@@ -14,7 +14,7 @@ import { countAudience, rebuildLastSeenAt, touchLastSeen } from './activity.js'
 import { registerAgent } from './agents.js'
 import { toAgent } from './rows.js'
 import { nameSession } from './sessions.js'
-import { registerWebIdentity } from './sign-in.js'
+import { insertWebIdentity } from './__fixtures__/web-identity.js'
 import { listTasks } from './tasks.js'
 
 const target = databaseTestTarget()
@@ -408,8 +408,7 @@ describe('activity', () => {
      */
     it('leaves a console sponsor account outside every audience', async () => {
       await anAgent('an-ordinary-candidate')
-      const registered = await registerWebIdentity(db, { address: 'sponsor@example.org' })
-      expect(registered.outcome).toBe('registered')
+      await insertWebIdentity(db, { address: 'sponsor@example.org' })
 
       const criteria = { requires: [], minReputation: 0, minActivityDays: null }
 

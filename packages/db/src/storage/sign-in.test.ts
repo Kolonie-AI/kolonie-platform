@@ -6,11 +6,11 @@ import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
 import { accounts, agents, credentials, emailChallenges } from '../schema/index.js'
 import {
   redeemSignInLink,
-  registerWebIdentity,
   requestSignInLink,
   resolveSignInAddress,
   revokeSession,
 } from './sign-in.js'
+import { insertWebIdentity } from './__fixtures__/web-identity.js'
 import { authenticateSession } from './authentication.js'
 import { registerAgent } from './agents.js'
 
@@ -87,15 +87,14 @@ describe('browser sign-in', () => {
     })
 
     it('finds a web identity by the address it signed up with', async () => {
-      const created = await registerWebIdentity(db, {
+      const created = await insertWebIdentity(db, {
         name: 'sponsor-one',
         address: 'sponsor@example.org',
       })
-      if (created.outcome !== 'registered') throw new Error(created.outcome)
 
       const resolved = await resolveSignInAddress(db, 'sponsor@example.org')
 
-      expect(resolved?.agentId).toBe(created.identity.agentId)
+      expect(resolved?.agentId).toBe(created.agentId)
     })
 
     /**
@@ -106,44 +105,18 @@ describe('browser sign-in', () => {
      * production on 2026-08-05.
      */
     it('still finds a web identity after it has followed a link once', async () => {
-      const created = await registerWebIdentity(db, {
+      const created = await insertWebIdentity(db, {
         name: 'returning-sponsor',
         address: 'returning@example.org',
       })
-      if (created.outcome !== 'registered') throw new Error(created.outcome)
 
-      const link = await requestSignInLink(db, created.identity)
+      const link = await requestSignInLink(db, created)
       const redeemed = await redeemSignInLink(db, link.token)
       expect(redeemed.outcome).toBe('signed-in')
 
       const resolved = await resolveSignInAddress(db, 'returning@example.org')
 
-      expect(resolved?.agentId).toBe(created.identity.agentId)
-    })
-
-    /**
-     * The same defect seen from the sign-up form, and the one that produced a
-     * `500`: `registerWebIdentity` asks this function whether an address is
-     * taken. An address invisible to it was signed up **again**, and redeeming
-     * the second identity's link then tried to prove an address the first one
-     * already held proved — which `accounts_proved_identifier_unique` refuses.
-     */
-    it('refuses a second sign-up on an address that has already signed in', async () => {
-      const first = await registerWebIdentity(db, {
-        name: 'sponsor-established',
-        address: 'taken@example.org',
-      })
-      if (first.outcome !== 'registered') throw new Error(first.outcome)
-
-      const link = await requestSignInLink(db, first.identity)
-      await redeemSignInLink(db, link.token)
-
-      const second = await registerWebIdentity(db, {
-        name: 'sponsor-duplicate',
-        address: 'taken@example.org',
-      })
-
-      expect(second.outcome).toBe('address-taken')
+      expect(resolved?.agentId).toBe(created.agentId)
     })
 
     /**
@@ -265,19 +238,18 @@ describe('browser sign-in', () => {
     })
 
     it('proves a web identity’s sign-up address on the first link it follows', async () => {
-      const created = await registerWebIdentity(db, {
+      const created = await insertWebIdentity(db, {
         name: 'first-link',
         address: 'sponsor@example.org',
       })
-      if (created.outcome !== 'registered') throw new Error(created.outcome)
 
-      const link = await requestSignInLink(db, created.identity)
+      const link = await requestSignInLink(db, created)
       await redeemSignInLink(db, link.token)
 
       const [row] = await db
         .select({ proved: accounts.proved, capabilities: accounts.capabilities })
         .from(accounts)
-        .where(eq(accounts.agentId, created.identity.agentId))
+        .where(eq(accounts.agentId, created.agentId))
 
       expect(row?.proved).toBe(true)
       // Reachability is not the rung. Nothing here grants `mailbox`.
@@ -375,80 +347,6 @@ describe('browser sign-in', () => {
         'console-session',
         'email-link',
       ])
-    })
-  })
-
-  describe('signing up from the console', () => {
-    it('creates an identity holding nothing', async () => {
-      const created = await registerWebIdentity(db, {
-        name: 'thin-account',
-        address: 'thin@example.org',
-      })
-      if (created.outcome !== 'registered') throw new Error(created.outcome)
-
-      const [row] = await db
-        .select({
-          status: agents.status,
-          roles: agents.roles,
-          registrationPath: agents.registrationPath,
-          platform: agents.platform,
-        })
-        .from(agents)
-        .where(eq(agents.id, created.identity.agentId))
-
-      expect(row?.status).toBe('candidate')
-      expect(row?.roles).toEqual([])
-      expect(row?.registrationPath).toBe('web')
-      expect(row?.platform).toBe('other')
-    })
-
-    /** No bearer credential exists before anybody has proved they can read the mail. */
-    it('issues no API key', async () => {
-      const created = await registerWebIdentity(db, {
-        name: 'no-key',
-        address: 'nokey@example.org',
-      })
-      if (created.outcome !== 'registered') throw new Error(created.outcome)
-
-      const rows = await db
-        .select({ kind: credentials.kind })
-        .from(credentials)
-        .where(eq(credentials.agentId, created.identity.agentId))
-
-      expect(rows).toEqual([])
-    })
-
-    it('refuses an address that already names a citizen', async () => {
-      await citizenReachableAt('already-here', 'taken@example.org')
-
-      const created = await registerWebIdentity(db, {
-        name: 'second-comer',
-        address: 'taken@example.org',
-      })
-
-      expect(created.outcome).toBe('address-taken')
-    })
-
-    it('refuses an address that already names a web identity', async () => {
-      await registerWebIdentity(db, { name: 'first-web', address: 'once@example.org' })
-
-      const second = await registerWebIdentity(db, {
-        name: 'second-web',
-        address: 'once@example.org',
-      })
-
-      expect(second.outcome).toBe('address-taken')
-    })
-
-    it('reports a taken name as a taken name', async () => {
-      await registerAgent(db, { name: 'collision', platform: 'openclaw', operator: null })
-
-      const created = await registerWebIdentity(db, {
-        name: 'collision',
-        address: 'fresh@example.org',
-      })
-
-      expect(created).toEqual({ outcome: 'name-taken', name: 'collision' })
     })
   })
 

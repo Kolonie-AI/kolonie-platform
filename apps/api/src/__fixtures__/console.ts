@@ -118,7 +118,6 @@ export function fakeConsoleStore(): FakeConsoleStore {
   /** Tokens that were minted and are no longer live, and why (`#396`). */
   const finished = new Map<string, 'spent' | 'expired'>()
   const tokens: string[] = []
-  const names = new Set<string>()
   /** The key-mint confirmations (`#400`), on their own map — see `requestKeyMint`. */
   const keyMints = new Map<string, { agentId: AgentId }>()
   const keyMintTokens: string[] = []
@@ -186,27 +185,6 @@ export function fakeConsoleStore(): FakeConsoleStore {
         session: randomUUID(),
         expiresAt: new Date(Date.now() + 12 * 60 * 60 * 1000).toISOString(),
       }
-    },
-
-    registerWeb: async ({ name, address }) => {
-      if (byAddress.has(key(address))) return { outcome: 'address-taken' }
-
-      /**
-       * An absent name is the Colony's to invent, and it never collides
-       * (`#266`) — the database retries until it does not, so a fixture that
-       * could return `name-taken` for a name nobody chose would model a state
-       * the real store does not reach.
-       */
-      const chosen = name ?? `sponsor-${randomUUID().slice(0, 8)}`
-      if (name !== undefined && names.has(chosen.toLowerCase())) {
-        return { outcome: 'name-taken', name: chosen }
-      }
-
-      names.add(chosen.toLowerCase())
-      const agentId = AgentIdSchema.parse(randomUUID())
-      byAddress.set(key(address), { agentId, address })
-
-      return { outcome: 'registered', identity: { agentId, address } }
     },
 
     endSession: async () => {},

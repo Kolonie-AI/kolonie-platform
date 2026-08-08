@@ -5,7 +5,7 @@ import type { Database } from '../client.js'
 import { agents } from '../schema/index.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
 import { colonyNumbers } from './colony-numbers.js'
-import { registerWebIdentity } from './sign-in.js'
+import { insertWebIdentity } from './__fixtures__/web-identity.js'
 
 const target = databaseTestTarget()
 
@@ -43,7 +43,7 @@ describe('the Colony’s numbers', () => {
 
   it('splits accounts by the way they arrived', async () => {
     await anAgent('over-mcp', 'candidate')
-    await registerWebIdentity(db, { address: 'sponsor@example.org' })
+    await insertWebIdentity(db, { address: 'sponsor@example.org' })
 
     const numbers = await colonyNumbers(db)
 
@@ -58,7 +58,7 @@ describe('the Colony’s numbers', () => {
   it('counts citizens by D-039’s definition', async () => {
     await anAgent('a-citizen', 'citizen')
     await anAgent('a-candidate', 'candidate')
-    await registerWebIdentity(db, { address: 'sponsor@example.org' })
+    await insertWebIdentity(db, { address: 'sponsor@example.org' })
 
     expect((await colonyNumbers(db)).citizens).toBe(1)
   })

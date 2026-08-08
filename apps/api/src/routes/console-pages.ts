@@ -20,16 +20,13 @@ import {
   RequestLinkSchema,
   SIGN_IN_CALLBACK_PATH,
   SIGN_IN_REDEEM_PATH,
-  SignUpSchema,
   redeemKeyMint,
   redeemSignIn,
   requestKeyMint,
   requestSignIn,
-  signUp,
 } from '../console.js'
 import {
   CONSOLE_HEADERS,
-  accountOpenedPage,
   errorPage,
   keyMintedPage,
   keyPage,
@@ -49,6 +46,7 @@ import { atlasCuration } from '../provider-recipes.js'
 import {
   operatedQuestsPage,
   questDraftPage,
+  pairAnAgentPage,
   questFormPage,
   questResultsPage,
   questsPage,
@@ -80,7 +78,7 @@ import { operatorAnsweredPage, operatorNoteSentPage } from '../autonomy-page.js'
 import { writeOperatorNote } from '../operator-notes.js'
 import { answerOperatorRequest, isWaitingOnTheOperator } from '../operator-requests.js'
 import { putOnWishList, selectBundle } from '../account-wishes.js'
-import { generatedSponsorName, SESSION_COOKIE } from './console.js'
+import { SESSION_COOKIE } from './console.js'
 import { mintOauthState } from '../humans/auth0.js'
 import {
   OAUTH_CONNECT_COOKIE,
@@ -246,17 +244,14 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
       const operated = await deps.humans.store.operated(signedIn.human.id)
       const code = await deps.humans.store.liveCode(signedIn.human.id)
       /**
-       * **Which of these rows is the person themselves** (`#455`).
+       * **No row is *the person themselves* any more** (`#578`).
        *
-       * The identity somebody writes quests through is an ordinary linked agent
-       * and arrives in `operated` with the rest — so without this it would sit
-       * in the table under a generated name, holding a balance and owning
-       * quests, and nothing would say it was them. `governance/red-lines.md`
-       * refuses *"accounts created to deceive about who is behind them"*, and
-       * while nobody here intends that, an unlisted account holding money is the
-       * shape that rule describes.
+       * This marked the `sponsor-*` identity the console minted, which arrived
+       * in `operated` with the rest and would otherwise have sat there under a
+       * generated name with nothing saying it was them. Nothing mints one now:
+       * every row here is an agent the person paired deliberately and already
+       * knows the name of, so the column had nothing left to disclose.
        */
-      const you = await deps.humans.store.sponsorAgent(signedIn.human.id)
       /**
        * **What each of them is waiting on** (`#512`).
        *
@@ -284,7 +279,6 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
         model: agent.model,
         lastEarned: agent.lastEarned ?? null,
         waitingOn: waiting[index] ?? null,
-        you: you !== undefined && String(you.id) === String(agent.id),
       }))
 
       /**
@@ -396,70 +390,6 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
 
     return wantsHtml(request)
       ? html(reply.status(200), signInPage({ sent: true, providers }))
-      : reply.status(202).send(CHECK_YOUR_MAIL)
-  })
-
-  /**
-   * Open an account, from an address alone (`#266`).
-   *
-   * **The same `signUp` the JSON route calls**, for the reason the sign-in route
-   * above gives: a second implementation of the front door is a second place its
-   * brake could be missing, and this one is a step *earlier* on the surface those
-   * two limiters protect.
-   *
-   * **It answers exactly as `/sign-in` does, and that is the whole shape of it.**
-   * A taken address renders *check your mail* and creates nothing, a fresh one
-   * renders *check your mail* and creates an identity — so a stranger cannot use
-   * this form to learn whether an address is registered here. The `name-taken`
-   * branch is unreachable from a browser, because the browser sends no name and
-   * the Colony generates one it retries on collision; it is answered all the same,
-   * because the route is the same route to an agent posting JSON.
-   */
-  app.post('/sign-up', async (request, reply) => {
-    if (!(await guard(request, reply))) return reply
-
-    const parsed = SignUpSchema.safeParse(request.body)
-    if (!parsed.success) {
-      return wantsHtml(request)
-        ? html(reply.status(ERROR_STATUS.validation_failed), signInPage({ providers }))
-        : reply.status(ERROR_STATUS.validation_failed).send({
-            code: 'validation_failed',
-            message: 'A sign-up carries one field, `email`, and may carry a `name`.',
-          })
-    }
-
-    const result = await signUp(
-      parsed.data,
-      clientIp(request.headers, request.socket.remoteAddress ?? ''),
-      deps.console,
-    )
-
-    if (result.outcome === 'name-taken') {
-      return wantsHtml(request)
-        ? html(reply.status(ERROR_STATUS.conflict), signInPage({ providers }))
-        : reply.status(ERROR_STATUS.conflict).send({
-            code: 'conflict',
-            message: `The name "${result.name}" is taken.`,
-          })
-    }
-
-    if (result.outcome === 'rejected') {
-      return wantsHtml(request)
-        ? html(reply.status(ERROR_STATUS[result.error.code]), signInPage({ providers }))
-        : reply.status(ERROR_STATUS[result.error.code]).send(result.error)
-    }
-
-    /**
-     * **The browser's answer is the sign-up route's own, and the JSON answer is
-     * still `CHECK_YOUR_MAIL`** (`#398`).
-     *
-     * The two differ because their readers do. A browser posting this form is a
-     * person who just asked to open an account and is owed a straight answer;
-     * the JSON shape is a contract an agent may already have built against, and
-     * its ambiguity costs an agent nothing — it knows what it asked for.
-     */
-    return wantsHtml(request)
-      ? html(reply.status(200), accountOpenedPage())
       : reply.status(202).send(CHECK_YOUR_MAIL)
   })
 
@@ -805,8 +735,6 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
 
     const operated = await deps.humans.store.operated(signedIn.human.id)
     const live = await deps.humans.store.liveCode(signedIn.human.id)
-    /** Same row, same label, on the render that follows a link attempt (`#455`). */
-    const you = await deps.humans.store.sponsorAgent(signedIn.human.id)
 
     return html(
       reply.status(result.outcome === 'linked' ? 200 : ERROR_STATUS.validation_failed),
@@ -818,7 +746,6 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
           citizenship: agent.citizenship,
           skillsHeld: agent.skillsHeld,
           lastSeenAt: agent.lastSeenAt,
-          you: you !== undefined && String(you.id) === String(agent.id),
         })),
         code: live,
         notice,
@@ -1601,7 +1528,7 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
     const token = await deps.autonomy.pages.liveToken(operated.agentId)
     const door = token === undefined ? null : await deps.autonomy.pages.open(token)
 
-    const [open, own, quests, written, walletAddress] = await Promise.all([
+    const [open, quests, written, walletAddress] = await Promise.all([
       /**
        * **`availableOnly`, not the frontier**, and `openTasksFor` in `tasks.ts`
        * already argues this exact point for a different reader: the frontier
@@ -1618,7 +1545,6 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
         limit: 5,
         hints: false,
       }),
-      deps.humans.store.sponsorAgent(operated.humanId),
       /**
        * Quests this agent took part in (`#454`), from the store the console's
        * own quest pages read rather than a query written for this page.
@@ -1657,7 +1583,6 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
         open.outcome === 'listed'
           ? open.page.items.map((task) => ({ title: task.title, requires: [...task.requires] }))
           : [],
-      you: own !== undefined && String(own.id) === String(operated.agentId),
       /**
        * Absent rather than `null` when the agent holds none, so the JSON
        * representation says the same thing the page does: it has not asked.
@@ -1684,17 +1609,16 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
      * answer is a refusal is the thing D-013 refuses to build, so the section is
      * absent for an identity that holds a key at all.
      */
-    const adoption =
-      view.you && !(await deps.humans.store.identityHoldsKey(operated.agentId))
-        ? {
-            ...(issued === undefined ? {} : { issued }),
-            ...(issued !== undefined
-              ? {}
-              : await deps.humans.store
-                  .liveAdoptionCode(operated.agentId)
-                  .then((live) => (live === undefined ? {} : { live }))),
-          }
-        : undefined
+    const adoption = !(await deps.humans.store.identityHoldsKey(operated.agentId))
+      ? {
+          ...(issued === undefined ? {} : { issued }),
+          ...(issued !== undefined
+            ? {}
+            : await deps.humans.store
+                .liveAdoptionCode(operated.agentId)
+                .then((live) => (live === undefined ? {} : { live }))),
+        }
+      : undefined
 
     if (!wantsHtml(request)) {
       return reply.send({ ...view, ...(adoption === undefined ? {} : { adoption }) })
@@ -1766,11 +1690,16 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
     const operated = await operatedAgent(request, reply)
     if (operated === null) return reply
 
-    const own = await deps.humans.store.sponsorAgent(operated.humanId)
-    if (own === undefined || String(own.id) !== String(operated.agentId)) {
-      return consoleNotFound(reply, request)
-    }
-
+    /**
+     * **`issueAdoptionCode` is the check, and it always was** (`#578`).
+     *
+     * This used to also require the agent to be the person's minted `sponsor-*`
+     * identity. Nothing mints one now, so that guard would refuse every request
+     * — and it was redundant anyway: adoption supplies a credential, so the
+     * storage call refuses any identity that already holds one, which is the
+     * durable form of the same question and does not depend on the console
+     * being right.
+     */
     const issued = await deps.humans.store.issueAdoptionCode(operated.agentId)
 
     if (issued.outcome === 'refused') return consoleNotFound(reply, request)
@@ -1786,11 +1715,6 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
 
     const operated = await operatedAgent(request, reply)
     if (operated === null) return reply
-
-    const own = await deps.humans.store.sponsorAgent(operated.humanId)
-    if (own === undefined || String(own.id) !== String(operated.agentId)) {
-      return consoleNotFound(reply, request)
-    }
 
     const revoked = await deps.humans.store.revokeAdoptionCode(operated.agentId)
 
@@ -2103,7 +2027,7 @@ function registerSponsorPages(
    * browser and the other is a caller with a key.
    */
   const sponsor = async (request: FastifyRequest, reply: FastifyReply) => {
-    const agent = await identity(request, reply, { create: false })
+    const agent = await identity(request, reply, {})
     if (agent === null) return null
     return agent
   }
@@ -2142,7 +2066,6 @@ function registerSponsorPages(
     request: FastifyRequest,
     reply: FastifyReply,
     options: {
-      readonly create: boolean
       /**
        * Whether to send the refusal when nothing resolves (`#457`).
        *
@@ -2159,35 +2082,20 @@ function registerSponsorPages(
     const agent = await ctx.caller(request)
     if (agent !== null) return agent
 
-    const signedIn = await ctx.person(request)
-    if (signedIn !== null) {
-      const held = await deps.humans.store.sponsorAgent(signedIn.human.id)
-      if (held !== undefined) return held
-
-      if (options.create) {
-        const opened = await deps.humans.store.openSponsor({
-          humanId: signedIn.human.id,
-          // Named by the Colony, exactly as `POST /v1/console/sponsor` names it
-          // and for the same reason: a name derived from the address would
-          // publish a piece of it through a route that answers without a
-          // credential. The person never types this name and the dashboard
-          // shows the row as **You**, so it is an identifier and not a label.
-          name: generatedSponsorName(),
-          // The provider's, never the request body's — D-018 in the one place
-          // it matters most, and the same precedence `POST /v1/console/sponsor`
-          // uses: the first attached identity that returned one.
-          address: signedIn.human.identities.find((one) => one.email !== null)?.email ?? undefined,
-        })
-
-        /**
-         * `name-taken` is a generated eight-character suffix colliding, which
-         * is not a thing a person can act on and not a state worth a branch of
-         * its own on a quest form. It falls through to the ordinary refusal and
-         * the next attempt generates a different name.
-         */
-        if (opened.outcome !== 'name-taken') return { id: opened.identity.id }
-      }
-    }
+    /**
+     * **A signed-in person resolves to no identity at all** (`#578`).
+     *
+     * This used to answer with the `sponsor-*` identity the console minted for
+     * them, and to mint one on the first draft. Nothing mints one now, and
+     * resolving a person to an agent they merely operate would put their hand on
+     * that agent's work — which `#457` refused in as many words: *operating an
+     * agent does not make its work yours to edit*.
+     *
+     * So the person falls through to the refusal, and the callers that have a
+     * second place to look — {@link questAuthor}, which searches the agents they
+     * operate in order to let them **read** — still find what they are entitled
+     * to.
+     */
 
     /**
      * **The one caller that does not want the refusal sent here** (`#457`).
@@ -2225,6 +2133,26 @@ function registerSponsorPages(
       if (wantsHtml(request)) reply.callNotFound()
       else reply.status(ERROR_STATUS.unauthorized).send({ signedIn: false, signIn: '/sign-in' })
       return reply
+    }
+
+    /**
+     * **The form is the agent's, and a person is shown the way to it** (`#578`).
+     *
+     * An agent caller gets the form. A person gets the page that says an agent
+     * writes this — and, where they have paired none, that pairing is the first
+     * step. The console no longer opens an identity for them to write through.
+     */
+    if (signedIn !== null) {
+      const operated = await deps.humans.store.operated(signedIn.human.id)
+
+      return wantsHtml(request)
+        ? html(reply, pairAnAgentPage(operated.length > 0))
+        : reply.send({
+            writtenBy: 'agent',
+            tool: 'kolonie.quests.write',
+            pairAt: '/',
+            operates: operated.length,
+          })
     }
 
     return wantsHtml(request)
@@ -2304,20 +2232,13 @@ function registerSponsorPages(
     }
 
     const operated = await deps.humans.store.operated(signedIn.human.id)
-    const own = await deps.humans.store.sponsorAgent(signedIn.human.id)
 
     /**
-     * **`You` is the label and the identity is an ordinary member of the list**
-     * (`#455`). A person who has never written a quest has no such identity yet,
-     * and then the list is their agents alone — which is what `#456`'s ordering
-     * note allows for and what the empty state then speaks to.
+     * **The list is their agents, and nothing else** (`#578`). It used to carry
+     * the minted identity first, labelled `You`; there is no such identity now,
+     * and every author here is an agent the person paired and named.
      */
-    const authors = [
-      ...(own === undefined ? [] : [{ id: own.id, name: 'You' }]),
-      ...operated
-        .filter((agent) => own === undefined || String(agent.id) !== String(own.id))
-        .map((agent) => ({ id: agent.id, name: agent.name })),
-    ]
+    const authors = [...operated.map((agent) => ({ id: agent.id, name: agent.name }))]
 
     return questsFor(request, reply, authors, operated.length > 0)
   })
@@ -2394,15 +2315,62 @@ function registerSponsorPages(
   }
 
   /**
-   * Save a draft — **and the one route that brings an identity into existence**
-   * (`#455`).
+   * Save a draft.
    *
-   * The first draft a person writes creates the identity they write it through;
-   * the second reuses it. Nothing short of this creates one: not signing in, not
-   * the dashboard, not opening the form above.
+   * **It used to be the one route that brought an identity into existence**
+   * (`#455`), minting a `sponsor-*` agent on a person's first draft. `#578`
+   * removed that: the person writes through an agent they already operate, and
+   * where they operate several the form asked which.
    */
   app.post('/quests', async (request, reply) => {
-    const agent = await identity(request, reply, { create: true })
+    if (!(await ctx.guard(request, reply))) return reply
+
+    /**
+     * **An agent caller is its own author**, and everything below is about the
+     * other kind of caller: a person, who now writes through an agent they
+     * paired rather than through one the Colony made for them (`#578`).
+     */
+    const caller = await ctx.caller(request)
+    const signedIn = caller === null ? await ctx.person(request) : null
+
+    if (caller === null && signedIn === null) {
+      if (wantsHtml(request)) reply.callNotFound()
+      else reply.status(ERROR_STATUS.unauthorized).send({ signedIn: false, signIn: '/sign-in' })
+      return reply
+    }
+
+    /**
+     * **A person does not author a quest here, and `#457` is why** (`#578`).
+     *
+     * That issue settled that *operating an agent does not make its work yours
+     * to edit*. The console got around it by minting the person an identity of
+     * their own to write through; `#578` removed the minting, and writing as an
+     * agent they merely operate would break `#457` in the other direction —
+     * putting a quest, and the invoice behind it, on a citizen that did not
+     * write it.
+     *
+     * So the agent writes its own quests, over MCP with its own key, exactly as
+     * `kolonie.quests.write` already lets it. What the person gets here is the
+     * sentence saying so.
+     */
+    if (signedIn !== null) {
+      const operated = await deps.humans.store.operated(signedIn.human.id)
+
+      return wantsHtml(request)
+        ? html(reply.status(ERROR_STATUS.validation_failed), pairAnAgentPage(operated.length > 0))
+        : reply.status(ERROR_STATUS.validation_failed).send({
+            code: 'validation_failed',
+            message:
+              operated.length > 0
+                ? 'A quest is written by the agent it belongs to. Ask one of yours to call ' +
+                  'kolonie.quests.write.'
+                : 'A quest is written by an agent. Pair one with this account first — the ' +
+                  'Colony opens none on your behalf.',
+            pairAt: '/',
+          })
+    }
+
+    const agent = caller
     if (agent === null) return reply
 
     const parsed = parseQuestForm(request.body)
@@ -2492,7 +2460,7 @@ function registerSponsorPages(
      * own (`#455`) and would be turned away here — while an agent they operate
      * may have written the very quest they are asking about.
      */
-    const agent = await identity(request, reply, { create: false, refuse: false })
+    const agent = await identity(request, reply, { refuse: false })
 
     const questId = (request.params as { questId?: string }).questId
     if (agent !== null && questId === undefined) return { id: agent.id }

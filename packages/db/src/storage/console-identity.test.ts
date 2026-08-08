@@ -1,13 +1,14 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
-import { eq, sql } from 'drizzle-orm'
+import { sql } from 'drizzle-orm'
 import { RegisterAgentRequestSchema, type AgentId } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
-import { agentSkills, agents, submissions, taskAttempts, tasks } from '../schema/index.js'
+import { agentSkills, submissions, taskAttempts, tasks } from '../schema/index.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
 import { countAudience } from './activity.js'
 import { registerAgent } from './agents.js'
 import { creditBalance } from './funding.js'
-import { redeemSignInLink, registerWebIdentity, requestSignInLink } from './sign-in.js'
+import { redeemSignInLink, requestSignInLink } from './sign-in.js'
+import { insertWebIdentity } from './__fixtures__/web-identity.js'
 
 const target = databaseTestTarget()
 
@@ -44,11 +45,8 @@ describe('a console sponsor account', () => {
     return result.agent.id
   }
 
-  const aSponsor = async (address: string): Promise<AgentId> => {
-    const registered = await registerWebIdentity(db, { address })
-    if (registered.outcome !== 'registered') throw new Error(registered.outcome)
-    return registered.identity.agentId
-  }
+  const aSponsor = async (address: string): Promise<AgentId> =>
+    (await insertWebIdentity(db, { address })).agentId
 
   /** Follow the link, which is what confirms the address. */
   const confirm = async (agentId: AgentId, address: string): Promise<void> => {
@@ -199,42 +197,6 @@ describe('a console sponsor account', () => {
       )
 
       expect(result.outcome).toBe('credited')
-    })
-  })
-
-  describe('the name it is given', () => {
-    it('is generated, and carries nothing from the address', async () => {
-      const sponsor = await aSponsor('memorable-local-part@example.org')
-
-      const [row] = await db
-        .select({ name: agents.name })
-        .from(agents)
-        .where(eq(agents.id, sponsor))
-
-      expect(row?.name).toMatch(/^sponsor-[a-z2-9]{8}$/)
-      expect(row?.name).not.toContain('memorable')
-    })
-
-    it('is the one given, when a caller gives one', async () => {
-      const registered = await registerWebIdentity(db, {
-        name: 'a-named-sponsor',
-        address: 'named@example.org',
-      })
-      if (registered.outcome !== 'registered') throw new Error(registered.outcome)
-
-      const [row] = await db
-        .select({ name: agents.name })
-        .from(agents)
-        .where(eq(agents.id, registered.identity.agentId))
-
-      expect(row?.name).toBe('a-named-sponsor')
-    })
-
-    it('is unique across two sign-ups that both gave only an address', async () => {
-      const first = await aSponsor('one@example.org')
-      const second = await aSponsor('two@example.org')
-
-      expect(first).not.toBe(second)
     })
   })
 })

@@ -143,44 +143,14 @@ describe('the console front door', () => {
       expect(consoleDeps.mailer.sent()).toHaveLength(1)
     })
 
-    it('answers a taken and a fresh sign-up address identically', async () => {
-      consoleDeps.store.hold('taken@example.org')
-
-      const taken = await app.inject({
-        method: 'POST',
-        url: '/v1/console/sign-up',
-        payload: { name: 'first-try', email: 'taken@example.org' },
-      })
-      const fresh = await app.inject({
-        method: 'POST',
-        url: '/v1/console/sign-up',
-        payload: { name: 'second-try', email: 'fresh@example.org' },
-      })
-
-      expect(taken.statusCode).toBe(fresh.statusCode)
-      expect(taken.body).toBe(fresh.body)
-    })
-
     /**
-     * The asymmetry is deliberate: names are already public through
-     * `POST /v1/agents/name-check`, and a sign-up that failed silently on one
-     * would leave somebody waiting for mail that is never coming.
+     * **The sign-up route this pair of tests covered is gone** (`#578`), and
+     * with it the *does say when a name is taken* asymmetry: nothing on the
+     * console creates an identity any more, so there is no name for it to
+     * refuse. The disclosure rule they were protecting is unchanged and is
+     * asserted on `/console/sign-in` above, which is the route that still
+     * answers identically for a known and an unknown address.
      */
-    it('does say when a name is taken', async () => {
-      await app.inject({
-        method: 'POST',
-        url: '/v1/console/sign-up',
-        payload: { name: 'sponsor', email: 'one@example.org' },
-      })
-
-      const second = await app.inject({
-        method: 'POST',
-        url: '/v1/console/sign-up',
-        payload: { name: 'sponsor', email: 'two@example.org' },
-      })
-
-      expect(second.statusCode).toBe(409)
-    })
 
     it('refuses every bad link the same way', async () => {
       const redeem = (token: string) =>
@@ -213,14 +183,7 @@ describe('the console front door', () => {
         url: '/v1/console/sign-in',
         payload: { email: 'sponsor@example.org' },
       })
-      await app.inject({
-        method: 'POST',
-        url: '/v1/console/sign-up',
-        payload: { email: 'fresh@example.org' },
-      })
-
       expect(consoleDeps.mailer.sent().map((mail) => mail.from)).toEqual([
-        'console@example.invalid',
         'console@example.invalid',
       ])
     })
@@ -437,19 +400,6 @@ describe('the console front door', () => {
 
       expect(refused.statusCode).toBe(delivered.statusCode)
       expect(refused.body).toBe(delivered.body)
-    })
-
-    it('records a refused sign-up under its own surface', async () => {
-      app = refusing()
-      await app.ready()
-
-      await app.inject({
-        method: 'POST',
-        url: '/v1/console/sign-up',
-        payload: { email: 'fresh@example.org' },
-      })
-
-      expect(linesFrom()[0]?.fields['surface']).toBe('sign-up')
     })
 
     it('says nothing at all when the mail was delivered', async () => {

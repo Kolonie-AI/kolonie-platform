@@ -36,7 +36,7 @@ describe('adopting a web identity', () => {
   })
 
   /**
-   * A person's identity, as `openSponsorIdentity` writes one: an ordinary
+   * A person's identity, as the console used to write one before `#578`: an ordinary
    * `agents` row with `registration_path = 'web'` and **no credential**. The
    * missing credential is the whole of what adoption supplies, so the fixture
    * inserts the row directly rather than going through `registerAgent`, which
@@ -84,8 +84,8 @@ describe('adopting a web identity', () => {
       .where(eq(agents.id, agentId))
       .limit(1)
 
-    // `sponsorIdentityOf` resolves the console's identity on this column.
-    // Rewriting it would detach the account from the person still operating it.
+    // The column records how the identity arrived. Rewriting it would detach the
+    // account from the person still operating it.
     expect(row?.path).toBe('web')
   })
 

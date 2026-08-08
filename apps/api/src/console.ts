@@ -9,7 +9,6 @@ import {
 import {
   redeemKeyMintLink,
   redeemSignInLink,
-  registerWebIdentity,
   requestKeyMintLink,
   requestSignInLink,
   resolveSignInAddress,
@@ -20,7 +19,6 @@ import {
 } from '@kolonie-ai/db'
 import type { Mailer, OperatorMailer } from './email.js'
 import { ClaimedAddressSchema } from './email.js'
-import { AgentProfileSchema } from '@kolonie-ai/core'
 import type { RateLimiter } from './rate-limit.js'
 
 /**
@@ -96,15 +94,6 @@ export interface ConsoleStore {
         expiresAt: string
       }
     | { outcome: 'refused'; reason: RefusalReason }
-  >
-  /** Create a thin identity from the sign-up form. The name is the Colony's if absent. */
-  registerWeb(request: {
-    name?: string | undefined
-    address: string
-  }): Promise<
-    | { outcome: 'registered'; identity: { agentId: AgentId; address: string } }
-    | { outcome: 'address-taken' }
-    | { outcome: 'name-taken'; name: string }
   >
   /** End one session. */
   endSession(agentId: AgentId, credentialId: CredentialId): Promise<void>
@@ -198,19 +187,6 @@ export function consoleUnavailable(
 
 export const RequestLinkSchema = z.object({ email: ClaimedAddressSchema }).strict()
 
-/**
- * A sign-up is an address, and may carry a name (`#266`).
- *
- * **Optional rather than required**, which is `#180`'s unmet criterion: the
- * console's form sends the address alone and the Colony generates a name that
- * says nothing about it. An agent posting JSON may still choose one, because it
- * has a name already and would rather be called by it than by a generated
- * string — the field did not become useless, it stopped being a toll.
- */
-export const SignUpSchema = z
-  .object({ name: AgentProfileSchema.shape.name.optional(), email: ClaimedAddressSchema })
-  .strict()
-
 export const RedeemSchema = z.object({ token: z.string().min(1).max(256) }).strict()
 
 /**
@@ -253,8 +229,9 @@ export type LinkOutcome =
  * identity exists. So *"the Colony could not deliver the mail"* is a sentence
  * that can only occur for a registered address, which makes it **a perfect
  * oracle for which addresses have accounts**: precisely what
- * {@link CHECK_YOUR_MAIL} is written to prevent. `signUp` has the same shape one
- * step along, where a fresh address sends and a taken one does not.
+ * {@link CHECK_YOUR_MAIL} is written to prevent. The sign-up form had the same
+ * shape one step along, where a fresh address sent and a taken one did not; that
+ * form went with `#578` and the rule it illustrates did not.
  *
  * So the answer goes somewhere the caller cannot see, and that is a log line.
  *
@@ -265,7 +242,7 @@ export type LinkOutcome =
  */
 function recordUndelivered(
   deps: ConsoleDependencies,
-  surface: 'sign-in' | 'sign-up' | 'key-mint',
+  surface: 'sign-in' | 'key-mint',
   sent: { readonly delivered: boolean; readonly reason?: string },
 ): void {
   if (sent.delivered) return
@@ -322,48 +299,6 @@ export async function requestSignIn(
     // Recorded, never answered. See recordUndelivered for why this one branch
     // cannot reach the caller the way the other four send sites do.
     recordUndelivered(deps, 'sign-in', sent)
-  }
-
-  return { outcome: 'accepted' }
-}
-
-/**
- * Sign up from the console.
- *
- * The identity is created and a link is sent in one call, so that a sign-up and
- * a sign-in are the same thing from the browser's side and the form has one
- * button. A taken address creates nothing and mails nothing, and answers exactly
- * as a fresh one does — the address on it already belongs to somebody, and
- * telling the caller so is telling a stranger who is registered here.
- *
- * A taken *name* is answered plainly, and the asymmetry is deliberate: names are
- * already public, `POST /v1/agents/name-check` answers the same question without
- * a credential, and a sign-up that silently failed on a name would leave somebody
- * waiting for mail that is never coming.
- */
-export async function signUp(
-  request: { name?: string | undefined; email: string },
-  clientKey: string,
-  deps: ConsoleDependencies,
-): Promise<LinkOutcome | { readonly outcome: 'name-taken'; readonly name: string }> {
-  const limited = brake(request.email, clientKey, deps)
-  if (limited !== undefined) return { outcome: 'rejected', error: limited }
-
-  const mailer = deps.mailer
-  if (mailer === undefined) return { outcome: 'rejected', error: MAILER_MISSING }
-
-  const created = await deps.store.registerWeb({ name: request.name, address: request.email })
-
-  if (created.outcome === 'name-taken') return { outcome: 'name-taken', name: created.name }
-
-  if (created.outcome === 'registered') {
-    const link = await deps.store.requestLink(created.identity)
-    const sent = await mailer.send({
-      to: link.address,
-      subject: NEW_ACCOUNT_SUBJECT,
-      text: newAccountMailBody(deps.consoleUrl, link.token),
-    })
-    recordUndelivered(deps, 'sign-up', sent)
   }
 
   return { outcome: 'accepted' }
@@ -586,9 +521,6 @@ function brake(
 /** The subject on a link asked for by somebody who already has an account. */
 export const SIGN_IN_SUBJECT = 'Your Kolonie sign-in link'
 
-/** The subject on the first mail an account ever gets (`#398`). */
-export const NEW_ACCOUNT_SUBJECT = 'Your Kolonie sponsor account is open'
-
 /**
  * The mail a citizen actually reads.
  *
@@ -601,37 +533,6 @@ function signInMailBody(consoleUrl: string, token: string): string {
     'Somebody asked to sign in to the Kolonie console with this address.',
     '',
     signInLinkUrl(consoleUrl, token),
-    '',
-    'The link works once and expires in 15 minutes.',
-    'If this was not you, nothing has happened and you can ignore this mail.',
-  ].join('\n')
-}
-
-/**
- * The first mail an account ever gets, and it describes the act that produced it
- * (`#398`).
- *
- * **It said *somebody asked to sign in*, to a person who had just clicked *open
- * an account*.** They were left to work out whether their click had done
- * anything, from a mail describing an act they had not performed — and the
- * maintainer's verdict on the sequence was that *"it is written so badly that
- * you cannot understand what you are supposed to do"*.
- *
- * So this one says three things the sign-in mail has no business saying: that
- * the account exists, what it holds — nothing — and what the link is for. The
- * last two lines are the sign-in mail's, unchanged, because they are true of
- * every link the console mails.
- */
-function newAccountMailBody(consoleUrl: string, token: string): string {
-  return [
-    'Your Kolonie sponsor account is open. This link is how you get into it:',
-    '',
-    signInLinkUrl(consoleUrl, token),
-    '',
-    'A sponsor account starts empty and stays empty: no skills, no reputation,',
-    'and no place in any quest’s audience. What it holds is a balance and the',
-    'quests you write against it — and nothing can be funded until you have',
-    'followed this link once.',
     '',
     'The link works once and expires in 15 minutes.',
     'If this was not you, nothing has happened and you can ignore this mail.',
@@ -654,7 +555,6 @@ export function databaseConsoleStore(db: Database): ConsoleStore {
       return { token: link.token, address: link.address, expiresAt: link.expiresAt }
     },
     redeem: (token) => redeemSignInLink(db, token),
-    registerWeb: (request) => registerWebIdentity(db, request),
     endSession: (agentId, credentialId) => revokeSession(db, agentId, credentialId),
     requestKeyMint: async (agentId) => {
       /**

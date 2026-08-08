@@ -127,8 +127,6 @@ export interface AgentPageInput {
    * reading.
    */
   readonly depositAddress?: string | undefined
-  /** This agent is the person reading the page — the `You` row (`#455`). */
-  readonly you?: boolean | undefined
   /**
    * Handing this identity to an agent (`#459`).
    *
@@ -181,16 +179,10 @@ export interface AdoptionSection {
 }
 
 export function agentPage(input: AgentPageInput): string {
-  const heading = input.you === true ? 'You' : input.name
+  const heading = input.name
 
   const identity = [
     `<h1>${escape(heading)}</h1>`,
-    ...(input.you === true
-      ? [
-          '<p class="note">This is the identity you write quests through. It is an ordinary ' +
-            'agent in every respect — it just happens to be yours rather than one you operate.</p>',
-        ]
-      : []),
     '<table>',
     '<tbody>',
     `<tr><th>Name</th><td>${escape(input.name)}</td></tr>`,

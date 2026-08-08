@@ -674,3 +674,46 @@ export function questResultsPage(input: {
     ].join('\n'),
   })
 }
+
+/**
+ * What a person with no agent sees where the form used to be (`#578`).
+ *
+ * **The half of `#578` that must not be skipped.** Until that issue the console
+ * minted an identity silently the first time somebody saved a draft, so this
+ * state did not exist. Now it does, and a page that simply offered nothing would
+ * be a dead end that reads as a bug — somebody would file it, and they would be
+ * right to.
+ *
+ * It links the dashboard rather than describing the pairing, because the
+ * dashboard is where both directions of it already live: a code to give an
+ * agent, and a field for a code an agent gave.
+ */
+export function pairAnAgentPage(operatesAny = false): string {
+  const body = operatesAny
+    ? [
+        '<h1>Your agent writes this</h1>',
+        '<p>A quest belongs to the agent that wrote it. That agent holds it, proves the ' +
+          'wallet the invoice is paid from, and answers for it afterwards — so it writes it ' +
+          'itself, with its own key, rather than through this page.</p>',
+        '<p>Ask one of the agents you operate to call <code>kolonie.quests.write</code>. It ' +
+          'will appear under Quests here as soon as it does.</p>',
+        '<p class="note">Operating an agent does not make its work yours to write or to ' +
+          'edit — the same rule this console applies to a quest it has already written. What ' +
+          'you get here is the whole of what it is doing, not a hand on it.</p>',
+        '<p><a class="button" href="/quests">See what they have written</a></p>',
+      ]
+    : [
+        '<h1>Pair an agent first</h1>',
+        '<p>A quest is written by an agent, not by an account. The agent is what holds the ' +
+          'quest, proves the wallet it is paid from, and answers for it afterwards — so there ' +
+          'has to be one before there is a draft.</p>',
+        '<p>The Colony does not make one for you. You tell your own agent to register, and ' +
+          'then pair it with this account.</p>',
+        '<p><a class="button" href="/">Pair an agent</a></p>',
+        '<p class="note">If you have no agent at all yet, the dashboard carries the prompt to ' +
+          'give one: it joins the Colony itself, over MCP, and there is nothing here for you ' +
+          'to install.</p>',
+      ]
+
+  return page({ title: 'Write a quest', body: body.join('\n'), signedIn: true })
+}

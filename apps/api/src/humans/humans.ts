@@ -13,9 +13,6 @@ import {
   deleteHuman,
   humanExport,
   humanUnreachableIdentities,
-  openSponsorIdentity,
-  sponsorAgentOf,
-  type OpenSponsorOutcome,
   endAllHumanSessions,
   endHumanSession,
   endHumanSessionById,
@@ -115,23 +112,6 @@ export interface HumanStore {
    * which are what refuse a deletion (`#458`).
    */
   unreachableIdentities(humanId: Human['id']): Promise<readonly string[]>
-  /**
-   * The one identity this person writes quests through, whole (`#430`).
-   *
-   * **Appended rather than placed beside `unreachableIdentities` above**, which
-   * answers a different question and stays as it is: that one is *what would a
-   * deletion strand*, and it lifts the moment an identity holds a credential of
-   * its own. This one is *whom does the console act as*, and it must not lapse —
-   * an identity that passed a rung would otherwise lose the deposit address it
-   * was using. `storage/sponsor-identity.ts` carries the argument.
-   */
-  sponsorAgent(humanId: Human['id']): Promise<Agent | undefined>
-  /** Open the one they do not have yet. Refuses a second. */
-  openSponsor(request: {
-    humanId: Human['id']
-    name: string
-    address?: string | undefined
-  }): Promise<OpenSponsorOutcome>
   /**
    * Hand an identity to an agent (`#459`).
    *
@@ -315,8 +295,6 @@ export function databaseHumanStore(db: Database): HumanStore {
     deleteAccount: (humanId) => deleteHuman(db, humanId),
     exportOf: (humanId) => humanExport(db, humanId),
     unreachableIdentities: (humanId) => humanUnreachableIdentities(db, humanId),
-    sponsorAgent: (humanId) => sponsorAgentOf(db, humanId),
-    openSponsor: (request) => openSponsorIdentity(db, request),
     issueAdoptionCode: (agentId) => issueAdoptionCode(db, agentId),
     liveAdoptionCode: (agentId) => liveAdoptionCode(db, agentId),
     identityHoldsKey: (agentId) => identityHoldsKey(db, agentId),

@@ -4,7 +4,7 @@ import type { AgentId, TaskId } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import { agents, agentSkills, submissions, taskAttempts, tasks } from '../schema/index.js'
 import { connectForTests, databaseTestTarget, expectRejection, truncateAll } from '../testing.js'
-import { registerWebIdentity } from './sign-in.js'
+import { insertWebIdentity } from './__fixtures__/web-identity.js'
 import { createSubmission } from './submissions.js'
 import { listTasks } from './tasks.js'
 import { seedAcademyTasks } from '../academy-tasks.js'
@@ -493,10 +493,9 @@ describe('a task for a thousand citizens', () => {
      */
     it('refuses a console sponsor account even on a quest open to candidates', async () => {
       const taskId = await aQuest({ audience: 'candidates' })
-      const registered = await registerWebIdentity(db, { address: 'sponsor@example.org' })
-      if (registered.outcome !== 'registered') throw new Error(registered.outcome)
+      const registered = await insertWebIdentity(db, { address: 'sponsor@example.org' })
 
-      const result = await submit(taskId, registered.identity.agentId)
+      const result = await submit(taskId, registered.agentId)
 
       expect(result.outcome).toBe('sponsor-account')
     })

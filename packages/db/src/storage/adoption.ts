@@ -25,17 +25,17 @@ import { heldSkillsSql, toSkills } from './skills.js'
  *
  * ## Nothing is converted
  *
- * `sponsor-identity.ts` says why there is nothing to convert: *"It is still an
- * ordinary `agents` row… `registration_path = 'web'`, `platform = 'other'`."*
- * What that row is missing is a credential, which is the only reason a browser
+ * There is nothing to convert. The identity is an ordinary `agents` row —
+ * `registration_path = 'web'`, `platform = 'other'` — and what it is missing is
+ * a credential, which is the only reason a browser
  * session is the sole thing that can act as it. Adoption mints that credential.
  * `agents.id` does not move, the quests keep their author, the escrow does not
  * move, and citizens see nothing.
  *
  * ## Why a code and not a key in the browser
  *
- * The same file already ruled on the shape: *"a long-lived key handed to a
- * browser has a worse lifetime than the session it came from."* So the code is
+ * A long-lived key handed to a browser has a worse lifetime than the session it
+ * came from. So the code is
  * short-lived and single-use, the key is minted by the agent over MCP, and no
  * key is ever returned to a page.
  *
@@ -213,7 +213,7 @@ export type AdoptionOutcome =
  *
  * **Nothing else on the row is touched.** Not the name, not the id, not the
  * `registration_path` — that column records how the identity *arrived*, which
- * adoption does not change and which `sponsorIdentityOf` resolves on. Rewriting
+ * adoption does not change and which records how the identity arrived. Rewriting
  * it would detach the account from the console of the person who still operates
  * it.
  */

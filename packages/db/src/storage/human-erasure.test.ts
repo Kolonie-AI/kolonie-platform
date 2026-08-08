@@ -7,7 +7,7 @@ import { agentSkills, submissions, taskAttempts, tasks } from '../schema/index.j
 import { creditBalance } from './funding.js'
 import { registerAgent } from './agents.js'
 import { connectIdentity, findOrCreateHuman, openHumanSession } from './humans.js'
-import { openSponsorIdentity } from './sponsor-identity.js'
+import { insertUnreachableIdentity } from './__fixtures__/web-identity.js'
 import { issueCodeForAgent, redeemCodeAsHuman } from './human-links.js'
 import {
   recordOperatorAddress,
@@ -79,22 +79,20 @@ describe('deleting a person', () => {
   }
 
   /**
-   * An identity with no way in of its own, made the way the console really makes
-   * one (`#430`): `openSponsorIdentity` writes an `agents` row and links it, and
-   * issues no credential — which is precisely why the login is the only door to
-   * it.
+   * An identity with no way in of its own: an `agents` row, a link, and no
+   * credential — which is precisely why the login is the only door to it.
    *
-   * **Not `anAgent()` with `registration_path` patched to `web`**, which is what
-   * these tests used to do. `registerAgent` issues an API key, so an agent
-   * doctored that way holds a credential of its own and would be *reachable* —
-   * the fixture would have been asserting against a state the product cannot
-   * produce.
+   * **Not `anAgent()` with `registration_path` patched to `web`.** `registerAgent`
+   * issues an API key, so an agent doctored that way holds a credential of its
+   * own and would be *reachable* — the fixture would have been asserting against
+   * a state the product cannot produce.
+   *
+   * **Nothing mints one of these any more** (`#578`), and these tests still
+   * matter: the rows exist in production, and erasure still has to refuse a
+   * person who holds one.
    */
-  const anUnreachableIdentity = async (humanId: HumanId, name: string): Promise<AgentId> => {
-    const opened = await openSponsorIdentity(db, { humanId, name })
-    if (opened.outcome !== 'opened') throw new Error(opened.outcome)
-    return opened.identity.id
-  }
+  const anUnreachableIdentity = async (humanId: HumanId, name: string): Promise<AgentId> =>
+    await insertUnreachableIdentity(db, { humanId, name })
 
   /** And the credential that ends that, as `#459`'s adoption will mint it. */
   const giveOwnKey = async (agentId: AgentId): Promise<void> => {

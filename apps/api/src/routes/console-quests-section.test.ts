@@ -139,20 +139,24 @@ describe('the quests a person’s identities have written', () => {
   })
 
   /**
-   * **`You` is a row like any other** (`#455`), and the person's own identity is
-   * in this list rather than above it.
+   * **No row is `You` any more** (`#578`).
+   *
+   * `#455` put the person's own minted identity in this list and labelled it
+   * `You`, because it was an `agents` row under a generated name that nothing
+   * else identified as them. Nothing mints one now: every author here is an
+   * agent the person paired and named, so the list says the name.
    */
-  it('calls the person’s own identity You', async () => {
+  it('names every author, because none of them is the person', async () => {
     const cookie = await signedInCookie()
-    const own = anAgent({ name: 'sponsor-abcd' })
-    humans.holdsSponsor(theHuman().id, own)
-    await wroteQuest(own.id, 'A quest I wrote myself')
+    const own = anAgent({ name: 'a-named-agent' })
+    humans.operatesAgent(theHuman().id, own)
+    await wroteQuest(own.id, 'A quest my agent wrote')
 
     const body = (await section(cookie)).body
 
-    expect(body).toContain('A quest I wrote myself')
-    expect(body).toContain('>You<')
-    expect(body).not.toContain('sponsor-abcd')
+    expect(body).toContain('A quest my agent wrote')
+    expect(body).toContain('a-named-agent')
+    expect(body).not.toContain('>You<')
   })
 
   it('carries status, how full it is, and what it has cost', async () => {
@@ -406,16 +410,28 @@ describe('the quests a person’s identities have written', () => {
       expect(write.body).toBe(invented.body)
     })
 
-    /** Nothing changes for an agent acting with its own key. */
-    it('leaves an agent’s own writes alone', async () => {
+    /**
+     * **The rule now has no exception on this console** (`#578`).
+     *
+     * It used to: the person's own minted identity was an agent they could act
+     * as from a browser, so this asserted that submitting *its* quest was not
+     * refused. There is no such identity, and every agent a person operates is
+     * one `#457` puts out of reach — so the refusal is uniform, which is what
+     * this asserts instead.
+     *
+     * **What did not change is the agent's own key.** An agent submits its own
+     * quest over the API exactly as before; the refusal is about a browser
+     * session, not about the quest.
+     */
+    it('refuses through the browser whichever agent of theirs wrote it', async () => {
       const cookie = await signedInCookie()
-      const own = anAgent({ name: 'sponsor-abcd' })
-      humans.holdsSponsor(theHuman().id, own)
-      const mine = await wroteQuest(own.id, 'A quest I wrote myself')
+      const own = anAgent({ name: 'a-named-agent' })
+      humans.operatesAgent(theHuman().id, own)
+      const mine = await wroteQuest(own.id, 'A quest my agent wrote')
 
       const response = await post(String(mine.task.id), 'submit', cookie)
 
-      expect(response.statusCode).not.toBe(403)
+      expect(response.statusCode).toBe(403)
     })
   })
 })

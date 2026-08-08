@@ -188,13 +188,17 @@ describe('the hand-over section on a person’s own identity', () => {
     walletAddress: null,
     opensNext: [],
     quests: [],
-    you: true,
   } as unknown as Parameters<typeof agentPage>[0]
 
-  it('is absent on an agent the person merely operates', () => {
-    // No `adoption`, so no section — and no button whose only answer would be a
-    // refusal, which is D-013's rule about surfaces.
-    expect(agentPage({ ...view, you: false })).not.toContain('Hand this account to an agent')
+  /**
+   * **`#578` removed the `you` flag this used to turn on.** No row is *the
+   * person themselves* any more, so the section is decided by whether the
+   * identity holds a key — which is the question adoption actually turns on and
+   * was always the durable half. Absent `adoption`, absent section, and still no
+   * button whose only answer would be a refusal (D-013).
+   */
+  it('is absent on an agent that cannot be handed over', () => {
+    expect(agentPage({ ...view })).not.toContain('Hand this account to an agent')
   })
 
   it('says in one sentence how it differs from the link code', () => {

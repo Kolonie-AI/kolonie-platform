@@ -2,7 +2,6 @@ import type { Agent } from '@kolonie-ai/core'
 import { ERROR_STATUS } from '@kolonie-ai/core'
 import type { FastifyReply, FastifyRequest } from 'fastify'
 import { authenticate, BEARER_SCHEME, observing, type AgentStore } from '../authentication.js'
-import type { HumanStore } from '../humans/humans.js'
 import { observedOrigin } from '../observed-origin.js'
 import { SESSION_COOKIE } from './console.js'
 
@@ -90,74 +89,4 @@ export function cookieValue(header: string | undefined, name: string): string | 
  */
 export function sessionCookie(header: string | undefined): string | undefined {
   return cookieValue(header, SESSION_COOKIE)
-}
-
-/**
- * Whoever holds the key **or** whoever is signed in as a person, or `null` with
- * the refusal already sent (`#430`).
- *
- * ## What this closes
- *
- * `kolonie.ai/sponsors` step 5: the deposit address *"is handed over the API
- * rather than shown in the console, so this is the one step a sponsor with no
- * agent cannot finish alone"*. This is that step, closed — and closed without
- * minting a bearer key for a browser, which is why it is a better answer than
- * `#400` asked for. A long-lived key handed to a session has a worse lifetime
- * than the session it came from.
- *
- * ## The order is not arbitrary
- *
- * The key first, always. An agent driving the console with its ordinary API key
- * must reach exactly what it reached before — `routes/console.ts` says an agent
- * *"must never be told to open a browser in order to be a sponsor"*, and that
- * stays true because the first branch here is unchanged {@link callerFor}.
- * The person is asked only once no credential resolved, so nothing an agent does
- * can now resolve to somebody else's identity.
- *
- * ## Why only some routes take this
- *
- * It is a second argument rather than a change to {@link callerFor}, so the
- * routes a browser reaches are named one at a time. Sponsoring is what
- * `#430` opens to a session; a helper that widened all forty-six at once would
- * be deciding that by omission.
- *
- * **A person signed in who has never opened a sponsor identity is refused
- * exactly as an absent credential is** — same status, same body, same
- * `WWW-Authenticate`. There is nothing to disclose in the difference, and a
- * distinguishable refusal would say *this browser is signed in* to a caller that
- * had not established it.
- *
- * CSRF is unchanged by this and is worth stating rather than assuming: the
- * session cookie is `SameSite=Lax`, so a cross-site `POST` carries no cookie —
- * the property `routes/console.ts` already relies on for the citizen session
- * that has travelled through {@link callerFor} since `#172`.
- */
-export async function sponsorFor(
-  request: FastifyRequest,
-  reply: FastifyReply,
-  store: AgentStore,
-  humans: HumanStore,
-): Promise<Agent | null> {
-  const authenticated = await authenticate(
-    request.headers.authorization,
-    observing(store, observedOrigin(request.headers, request.ip)),
-    sessionCookie(request.headers.cookie),
-  )
-  if (authenticated.outcome !== 'rejected') return authenticated.agent
-
-  const cookie = sessionCookie(request.headers.cookie)
-  if (cookie !== undefined) {
-    const person = await humans.authenticate(cookie)
-    if (person.outcome === 'authenticated') {
-      const sponsor = await humans.sponsorAgent(person.human.id)
-      if (sponsor !== undefined) return sponsor
-    }
-  }
-
-  await reply
-    .status(ERROR_STATUS[authenticated.error.code])
-    .header('www-authenticate', BEARER_SCHEME)
-    .send(authenticated.error)
-
-  return null
 }

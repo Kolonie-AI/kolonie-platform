@@ -530,73 +530,45 @@ describe('the identity a person writes quests through', () => {
       }).toString(),
     })
 
-  const theirs = async () => {
-    const [human] = humans.people()
-    return human === undefined ? undefined : await humans.sponsorAgent(human.id)
-  }
-
   /**
-   * **The rejection case the issue asks for.** Signing in is not needing one,
-   * and neither is reading the dashboard.
+   * **The Colony opens no identity on anybody's behalf** (`#578`, decided by the
+   * maintainer on 2026-08-08).
+   *
+   * These tests were the mirror image of themselves until that issue: they
+   * asserted that a `sponsor-*` identity appeared on the first draft, was reused
+   * on the second, and showed up in the dashboard labelled `You`. That was the
+   * behaviour `#578` removed — an auto-minted agent is a citizen nobody runs and
+   * nobody holds a key for — so what is asserted now is that none of it happens.
    */
-  it('creates nothing by signing in', async () => {
-    expect(await theirs()).toBeUndefined()
-  })
-
-  it('creates nothing by visiting the console', async () => {
+  it('creates nothing by signing in, by reading the console, or by opening the form', async () => {
     await signedIn('/')
+    await signedIn('/quests/new')
 
-    expect(await theirs()).toBeUndefined()
+    expect((await signedIn('/')).body).toContain('No agents yet')
   })
 
   /**
-   * **A form is a page somebody can leave.** Opening it creates no row, and the
-   * balance it shows is zero — which is true, because there is no identity and
-   * therefore nothing on account.
+   * **The half of `#578` that must not be skipped.** A person with no agent has
+   * nothing to write a quest through, and a form that simply offered nothing
+   * would be a dead end somebody would file as a bug.
    */
-  it('creates nothing by opening the quest form, and still renders it', async () => {
+  it('says to pair an agent first, and links the pairing flow', async () => {
     const response = await signedIn('/quests/new')
 
     expect(response.statusCode).toBe(200)
-    expect(await theirs()).toBeUndefined()
+    expect(response.body).toContain('Pair an agent first')
+    expect(response.body).toContain('href="/"')
   })
 
-  it('creates it on the first draft', async () => {
-    expect(await theirs()).toBeUndefined()
+  it('refuses a draft rather than minting something to hang it on', async () => {
+    const response = await draft()
 
-    await draft()
-
-    expect(await theirs()).toBeDefined()
+    expect(response.statusCode).toBe(ERROR_STATUS.validation_failed)
+    expect((await signedIn('/')).body).toContain('No agents yet')
   })
 
-  /** *Exactly one per human.* The second draft reuses what the first made. */
-  it('reuses it on the second', async () => {
-    await draft({ title: 'The first' })
-    const first = await theirs()
-
-    await draft({ title: 'The second' })
-
-    expect((await theirs())?.id).toBe(first?.id)
-  })
-
-  /**
-   * **It is not invisible.** An identity that holds a balance and owns quests
-   * and appears in no list is the shape `governance/red-lines.md` describes when
-   * it refuses *"accounts created to deceive about who is behind them"* — not
-   * because anybody here intends that, but because nobody can tell from outside.
-   */
-  it('appears in the dashboard afterwards, called You', async () => {
-    const before = (await signedIn('/')).body
-    expect(before).not.toContain('>You<')
-
-    await draft()
-
-    expect((await signedIn('/')).body).toContain('>You<')
-  })
-
-  /** And it is one row among the person's agents, not a list of its own. */
-  it('is an ordinary row beside the agents they operate', async () => {
-    await draft()
+  /** And no row is labelled `You`, because none of them is the person. */
+  it('labels no dashboard row as the person themselves', async () => {
     const agentId = '44444444-4444-4444-8444-444444444444' as never
     await app.inject({
       method: 'POST',
@@ -607,7 +579,7 @@ describe('the identity a person writes quests through', () => {
 
     const body = (await signedIn('/')).body
 
-    expect(body).toContain('>You<')
+    expect(body).not.toContain('>You<')
     expect(body).toContain(`href="/agents/${agentId}"`)
   })
 })

@@ -29,8 +29,8 @@ export interface FakeHumanStore extends HumanStore {
   readonly people: () => readonly Human[]
   /** Every session value it has handed out, newest last. */
   readonly sessions: () => readonly string[]
-  /** Put a sponsor identity on record without going through `openSponsor` (`#430`). */
-  readonly holdsSponsor: (humanId: Human['id'], agent: Agent) => void
+  /** Put an agent this person operates on record, without a link code (`#578`). */
+  readonly operatesAgent: (humanId: Human['id'], agent: Agent) => void
   /**
    * Put a second person on record holding a given identity (`#574`).
    *
@@ -84,8 +84,8 @@ export function fakeHumanStore(): FakeHumanStore {
    * which is the same choice every other set in this file makes.
    */
   const unreachableIdentities = new Set<AgentId>()
-  const sponsorAgents = new Map<AgentId, Agent>()
-  const takenNames = new Set<string>()
+  /** Agents put on record by name, so `operated` can answer with the real one. */
+  const agentsById = new Map<AgentId, Agent>()
 
   /**
    * Adoption codes, in memory (`#459`).
@@ -118,24 +118,6 @@ export function fakeHumanStore(): FakeHumanStore {
       if (person.id === now.id) byIdentity.set(held, now)
     }
   }
-
-  /**
-   * The one identity this person writes quests through, among everything they
-   * operate.
-   *
-   * **Filtered on `sponsorAgents` membership, not on link order.** Resolving it
-   * as *the first agent this human linked* was wrong the moment a person linked
-   * an ordinary agent before writing a quest: the first link is that agent, it
-   * is in no way theirs to act as, and the lookup returned nothing while an
-   * identity existed. The real storage asks `registration_path = 'web'`, which
-   * is a property of the row and not of the order rows arrived in — this is the
-   * fake's version of that question.
-   */
-  const ownIdentityOf = (humanId: Human['id']): Agent | undefined =>
-    [...links.entries()]
-      .filter(([agentId, held]) => held === humanId && sponsorAgents.has(agentId))
-      .map(([agentId]) => sponsorAgents.get(agentId))
-      .find((agent) => agent !== undefined)
 
   return {
     people: () => order,
@@ -197,7 +179,7 @@ export function fakeHumanStore(): FakeHumanStore {
         .filter(([, held]) => held === humanId)
         .map(([agentId]) => ({
           id: agentId,
-          name: `agent-${agentId.slice(0, 4)}`,
+          name: agentsById.get(agentId)?.profile.name ?? `agent-${agentId.slice(0, 4)}`,
           citizenship: 'candidate',
           skillsHeld: 0,
           lastSeenAt: null,
@@ -276,7 +258,7 @@ export function fakeHumanStore(): FakeHumanStore {
         .filter(([, id]) => id === humanId)
         .map(([agentId]) => ({
           id: agentId,
-          name: `agent-${agentId.slice(0, 4)}`,
+          name: agentsById.get(agentId)?.profile.name ?? `agent-${agentId.slice(0, 4)}`,
           linkedAt: new Date().toISOString(),
         })),
     }),
@@ -298,17 +280,6 @@ export function fakeHumanStore(): FakeHumanStore {
     holdsOwnKey: (agentId: AgentId) => {
       unreachableIdentities.delete(agentId)
     },
-
-    /**
-     * The one identity the console acts as (`#430`).
-     *
-     * **Resolved off `links` rather than off `unreachableIdentities` above**,
-     * which is the same distinction the real storage draws and the one a fake
-     * most easily flattens: that set is *whom would a deletion strand*, and it
-     * lifts the moment an identity holds a key of its own. This is *whom does
-     * the console act as*, and it must not.
-     */
-    sponsorAgent: async (humanId) => ownIdentityOf(humanId),
 
     identityHoldsKey: async (agentId) => !unreachableIdentities.has(agentId),
 
@@ -334,22 +305,6 @@ export function fakeHumanStore(): FakeHumanStore {
 
     revokeAdoptionCode: async (agentId) => (adoptionCodes.delete(agentId) ? 1 : 0),
 
-    openSponsor: async ({ humanId, name }) => {
-      const agent = ownIdentityOf(humanId)
-      if (agent !== undefined) {
-        return { outcome: 'already-held', identity: { id: agent.id, name: agent.profile.name } }
-      }
-
-      if (takenNames.has(name.toLowerCase())) return { outcome: 'name-taken', name }
-
-      const agentId = AgentIdSchema.parse(randomUUID())
-      takenNames.add(name.toLowerCase())
-      links.set(agentId, humanId)
-      unreachableIdentities.add(agentId)
-      sponsorAgents.set(agentId, anAgent({ id: agentId, name }))
-      return { outcome: 'opened', identity: { id: agentId, name } }
-    },
-
     holdsIdentity: (identity: ProviderIdentity) => {
       const human: Human = {
         id: HumanIdSchema.parse(randomUUID()),
@@ -371,12 +326,18 @@ export function fakeHumanStore(): FakeHumanStore {
       return human
     },
 
-    /** Put an identity on record without going through `openSponsor`. */
-    holdsSponsor: (humanId: Human['id'], agent: Agent) => {
+    /**
+     * Put an agent this person operates on record, without a link code (`#578`).
+     *
+     * **It was `holdsSponsor` and it also marked the identity unreachable**,
+     * because the identity it modelled was one the console had minted and no
+     * agent held a key to. Nothing mints one now, so what this models is an
+     * ordinary paired agent — and a test that wants the unreachable case says so
+     * with `makeUnreachable`, which is what that helper is for.
+     */
+    operatesAgent: (humanId: Human['id'], agent: Agent) => {
       links.set(agent.id, humanId)
-      unreachableIdentities.add(agent.id)
-      sponsorAgents.set(agent.id, agent)
-      takenNames.add(agent.profile.name.toLowerCase())
+      agentsById.set(agent.id, agent)
     },
 
     /**

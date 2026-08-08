@@ -18,7 +18,7 @@ import {
   writeQuestDraft,
   type QuestResult,
 } from '../quests.js'
-import { sponsorFor } from './authenticated.js'
+import { callerFor } from './authenticated.js'
 import { stewardFor } from './privileged.js'
 import type { RouteDependencies } from './dependencies.js'
 
@@ -37,7 +37,7 @@ import type { RouteDependencies } from './dependencies.js'
  * asserts the router carries no such route.
  */
 export function registerQuestRoutes(v1: FastifyInstance, deps: RouteDependencies): void {
-  const { store, quests, humans } = deps
+  const { store, quests } = deps
 
   /**
    * The caller, by key or by session (`#430`).
@@ -46,11 +46,16 @@ export function registerQuestRoutes(v1: FastifyInstance, deps: RouteDependencies
    * previewed, submitted and funded in one sitting: a form a browser can open
    * and a submit it cannot is not a form. The steward's routes below keep
    * `stewardFor`, which is a different question and unchanged.
+   *
+   * **It was `sponsorFor` until `#578`**, which additionally resolved a browser
+   * session to the person's minted `sponsor-*` identity. Nothing mints one, so
+   * that fallback had no identity left to find and the two functions had become
+   * the same function.
    */
   const acting = (
-    request: Parameters<typeof sponsorFor>[0],
-    reply: Parameters<typeof sponsorFor>[1],
-  ) => sponsorFor(request, reply, store, humans.store)
+    request: Parameters<typeof callerFor>[0],
+    reply: Parameters<typeof callerFor>[1],
+  ) => callerFor(request, reply, store)
 
   /** Write a draft. Nothing is committed and nothing is visible to anyone else. */
   v1.post('/quests', async (request, reply) => {

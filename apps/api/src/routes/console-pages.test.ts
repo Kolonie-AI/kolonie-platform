@@ -459,219 +459,6 @@ describe('following the link that was actually mailed', () => {
 })
 
 /**
- * The door `#180` left unbuilt, and the criterion it carried into `#266`: an
- * address alone opens an account, and the page says an agent may hold one.
- */
-describe('opening a sponsor account', () => {
-  const signUp = async (payload: string) =>
-    await app.inject({
-      method: 'POST',
-      url: '/sign-up',
-      headers: {
-        host: CONSOLE_HOST,
-        accept: 'text/html',
-        'content-type': 'application/x-www-form-urlencoded',
-      },
-      payload,
-    })
-
-  it('takes an address and nothing else', async () => {
-    const response = await signUp('email=stranger%40example.org')
-
-    expect(response.statusCode).toBe(200)
-    expect(response.body).toContain('Your account is open')
-    expect(console_.store.tokens()).toHaveLength(1)
-    expect(console_.mailer.sent()[0]?.to).toBe('stranger@example.org')
-  })
-
-  /**
-   * The confirmation describes the act the reader performed (`#398`).
-   *
-   * It borrowed the sign-in page's *"if that address belongs to an account"* —
-   * conditional wording whose whole purpose is to conceal who is registered here,
-   * shown to somebody who had just asked to register and knew perfectly well what
-   * they had asked for. It answered a question they had not asked and left theirs
-   * open.
-   */
-  it('confirms that an account was opened, and does not borrow the sign-in wording', async () => {
-    const response = await signUp('email=plainly%40example.org')
-
-    expect(response.body).toContain('Your account is open')
-    expect(response.body).not.toContain('If that address belongs to an account')
-    // And what they now have, which is nothing.
-    expect(response.body).toContain('no skills, no reputation')
-  })
-
-  /**
-   * **The sign-in route keeps its ambiguity, and the asymmetry is deliberate.**
-   * Sign-up has nothing to conceal — the person asking is the person told — and
-   * sign-in has everything to conceal, because anyone may type any address into
-   * it. The two pages must not be tidied into one.
-   */
-  it('leaves the sign-in route unable to say whether an address has an account', async () => {
-    console_.store.hold('registered@example.org')
-
-    const known = await app.inject({
-      method: 'POST',
-      url: '/sign-in',
-      headers: {
-        host: CONSOLE_HOST,
-        accept: 'text/html',
-        'content-type': 'application/x-www-form-urlencoded',
-      },
-      payload: 'email=registered%40example.org',
-    })
-
-    const stranger = await app.inject({
-      method: 'POST',
-      url: '/sign-in',
-      headers: {
-        host: CONSOLE_HOST,
-        accept: 'text/html',
-        'content-type': 'application/x-www-form-urlencoded',
-      },
-      payload: 'email=nobody%40example.org',
-    })
-
-    expect(known.body).toBe(stranger.body)
-    expect(known.body).toContain('If that address belongs to an account')
-    expect(known.body).not.toContain('Your account is open')
-  })
-
-  /**
-   * **The form must not become an oracle.** A taken address creates nothing and
-   * mails nothing, and a stranger cannot tell the two cases apart — which is
-   * `signUp`'s own rule, asserted at the surface a stranger actually reaches.
-   */
-  it('answers a taken address exactly as it answers a fresh one', async () => {
-    console_.store.hold('known@example.org')
-    const fresh = await signUp('email=unknown%40example.org')
-
-    const response = await signUp('email=known%40example.org')
-
-    expect(response.statusCode).toBe(200)
-    expect(response.body).toBe(fresh.body)
-    expect(console_.mailer.sent().map((mail) => mail.to)).toEqual(['unknown@example.org'])
-  })
-
-  /**
-   * The first mail an account gets says which act produced it (`#398`). A person
-   * who clicked *Open an account* and read *somebody asked to sign in* had to
-   * work out whether their click had done anything.
-   */
-  it('mails a new account something other than a sign-in link', async () => {
-    await signUp('email=opened%40example.org')
-    const opening = console_.mailer.sent()[0]
-
-    console_.store.hold('returning@example.org')
-    await app.inject({
-      method: 'POST',
-      url: '/sign-in',
-      headers: {
-        host: CONSOLE_HOST,
-        accept: 'text/html',
-        'content-type': 'application/x-www-form-urlencoded',
-      },
-      payload: 'email=returning%40example.org',
-    })
-    const returning = console_.mailer.sent()[1]
-
-    expect(opening?.subject).not.toBe(returning?.subject)
-    expect(opening?.subject).toContain('account is open')
-    expect(opening?.text).toContain('Your Kolonie sponsor account is open')
-    expect(opening?.text).not.toContain('asked to sign in')
-    expect(returning?.subject).toBe('Your Kolonie sign-in link')
-    expect(returning?.text).toContain('asked to sign in')
-  })
-
-  it('answers an agent with JSON on the same route', async () => {
-    const response = await app.inject({
-      method: 'POST',
-      url: '/sign-up',
-      headers: {
-        host: CONSOLE_HOST,
-        accept: 'application/json',
-        'content-type': 'application/json',
-      },
-      payload: { email: 'an-agent@example.org' },
-    })
-
-    expect(response.statusCode).toBe(202)
-  })
-
-  it('refuses a body with no address', async () => {
-    const response = await signUp('name=just-a-name')
-
-    expect(response.statusCode).toBe(ERROR_STATUS.validation_failed)
-  })
-
-  it('states on the page that an agent may hold a sponsor account, and how it signs in', async () => {
-    const response = await app.inject({
-      method: 'GET',
-      url: '/',
-      headers: { host: CONSOLE_HOST, accept: 'text/html' },
-    })
-
-    expect(response.body).toContain('action="/sign-up"')
-    // The note said *An agent may hold a sponsor account* until `#468`. What it
-    // has to carry is the half an agent needs: this page is not the way in.
-    expect(response.body).toContain('registered over MCP needs no form at all')
-    expect(response.body).toContain('API key')
-    // The one field, and no second one asking for a name.
-    expect(response.body).toContain('id="sign-up-email"')
-    expect(response.body).not.toContain('id="sign-up-name"')
-  })
-
-  /**
-   * The console stops naming a kind of account the Colony does not have
-   * (`#468`).
-   *
-   * `kolonie-docs#184` settled that there are two kinds of account — a human
-   * account and an agent — and that *sponsor* stays a role in a transaction
-   * while it stops naming an account, a page, a flag, an audience or a table.
-   * The site landed this in `kolonie-website#55`; this is the surface where a
-   * person actually met the word.
-   *
-   * **Asserted against the rendered page rather than the source**, because the
-   * source still carries the retired phrase in the comments that explain why it
-   * went — and a test that failed on those would be a test nobody could keep.
-   */
-  it('offers no sponsor account anywhere on the page a stranger arrives at', async () => {
-    const response = await app.inject({
-      method: 'GET',
-      url: '/',
-      headers: { host: CONSOLE_HOST, accept: 'text/html' },
-    })
-
-    // The rejection case: the retired phrase, in any casing, on a rendered page.
-    expect(response.body.toLowerCase()).not.toContain('sponsor account')
-    expect(response.body.toLowerCase()).not.toContain('open a sponsor')
-  })
-
-  /**
-   * The form creates an agent, and now says so.
-   *
-   * `registerWeb` makes an ordinary `agents` row. *Open a sponsor account* was
-   * wrong in both halves — it is not opening an account, and there is no sponsor
-   * account — so the heading names what is created and the sentence says what it
-   * is for.
-   */
-  it('says the second form creates an agent, and what that agent is for', async () => {
-    const response = await app.inject({
-      method: 'GET',
-      url: '/',
-      headers: { host: CONSOLE_HOST, accept: 'text/html' },
-    })
-
-    expect(response.body).toContain('creates an agent of your own')
-    expect(response.body).toContain('Quests and the money that funds them')
-    // What it confers is still nothing, which is the sentence `#266` put here
-    // and `#184` does not weaken.
-    expect(response.body).toContain('no skills, no reputation')
-  })
-})
-
-/**
  * `#171` is open on a tool that throws handing the citizen the container's
  * filesystem, and a brand-new surface with its own error rendering is the
  * likeliest place to reproduce it.
@@ -1331,11 +1118,20 @@ describe('a browser sponsor taking an API key (#400)', () => {
     expect(console_.mailer.sent()).toHaveLength(0)
   })
 
-  /** The sponsor deciding how to start is told the choice is not permanent. */
-  it('says on the sign-in page that starting in a browser is not a one-way door', async () => {
+  /**
+   * **The sentence this asserted went with the form it was about** (`#578`).
+   *
+   * It said *starting in a browser does not shut the other door* — a reassurance
+   * to somebody choosing between the sign-up form and registering over MCP. The
+   * form is gone, so there is no such choice to reassure anybody about, and what
+   * the page must say instead is what the mail door actually signs in.
+   */
+  it('says the address door signs in an agent rather than opening an account', async () => {
     const signIn = await asBrowser('/')
 
-    expect(signIn.body).toContain('does not shut the other door')
+    expect(signIn.body).toContain('Sign in as an agent, with an address')
+    expect(signIn.body).toContain('This opens no account and creates nothing')
+    expect(signIn.body).not.toContain('action="/sign-up"')
   })
 })
 

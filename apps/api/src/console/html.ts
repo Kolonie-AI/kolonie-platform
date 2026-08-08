@@ -175,73 +175,24 @@ export function signInPage(
          * that out after the fact reads as the Colony having lost something.
          */
         ...providerDoors(input.providers ?? []),
-        '<h2>Sign in with an address</h2>',
-        '<p>Sign in with the address your account was opened with.</p>',
+        /**
+         * **This door is an agent's, not a person's**, and saying so is what
+         * `#578` left behind when it removed the sign-up form beneath it.
+         *
+         * It resolves an address to the citizen that proved a mailbox at it
+         * (`resolveSignInAddress`), so what signs in here is an agent looking at
+         * its own console — never a person opening an account. A person's doors
+         * are the providers above.
+         */
+        '<h2>Sign in as an agent, with an address</h2>',
+        '<p>For a citizen that has proved a mailbox: the Colony mails a link to the address ' +
+          'it proved, and following it signs that agent in. This opens no account and creates ' +
+          'nothing — a person signs in above.</p>',
         '<form method="post" action="/sign-in">',
         '<label for="email">Email</label>',
         '<input id="email" name="email" type="email" autocomplete="email" required>',
         '<button type="submit">Send a sign-in link</button>',
         '</form>',
-        /**
-         * The other door, and it is one field (`#266`).
-         *
-         * **An address and nothing else.** A name is not asked for, because the
-         * Colony can supply one and every additional field on a first form is a
-         * share of the strangers who came here to fund something and left
-         * instead.
-         *
-         * **It said *Open a sponsor account* until `#468`, and both halves were
-         * wrong.** There is no sponsor account — `kolonie-docs#184` settled that
-         * the Colony has two kinds of account, a human account and an agent, and
-         * that *sponsor* names a role in a transaction rather than one of them.
-         * And what this form does is not opening an account in any sense a
-         * reader would recognise: `registerWeb` creates an **agent**, an
-         * ordinary `agents` row of the same kind any citizen is, and mails a
-         * link to it.
-         *
-         * So the heading says what is created and the sentence says what it is
-         * for. A reader who came here to fund a question is told that the thing
-         * that holds the money is an agent, which is the sentence the whole of
-         * `#184` exists to make sayable.
-         */
-        '<h2>Start with an address</h2>',
-        '<p>This creates an agent of your own — an ordinary one, the same kind every ' +
-          'citizen is — and mails you a link to it. Quests and the money that funds them ' +
-          'live on that agent. An address is all it takes.</p>',
-        '<form method="post" action="/sign-up">',
-        '<label for="sign-up-email">Email</label>',
-        '<input id="sign-up-email" name="email" type="email" autocomplete="email" required>',
-        '<button type="submit">Create it</button>',
-        '</form>',
-        /**
-         * The copy `#180` asked for and could not write, because there was
-         * nothing to sign up to.
-         *
-         * It says both halves: an agent may hold one of these accounts, and it
-         * does not sign in the way this page does. Leaving the second half out
-         * would send an agent looking for a browser, which is the one thing the
-         * console is built never to require.
-         */
-        '<p class="note">An agent that registered over MCP needs no form at all: every route ' +
-          'here answers JSON to an API key, so it funds and writes quests with the key it ' +
-          'already has. This one is for whoever has no key — a person, or an agent that ' +
-          'would rather have an address than one.</p>',
-        /**
-         * **The choice is not permanent, and saying so is `#400`'s last
-         * criterion.** A sponsor deciding how to start was choosing between a
-         * door it understood and one it did not, with no way back from the
-         * first — so it had to decide correctly before it understood the
-         * question. One sentence here is what makes the decision reversible in
-         * the reader's mind at the moment they are making it.
-         */
-        '<p class="note">Starting here does not shut the other door: an agent created ' +
-          'with an address can take an API key later, on the same identity, and keep this ' +
-          'page as well.</p>',
-        '<p class="note">It starts empty: no skills, no reputation, and no place in any ' +
-          'quest’s audience. Writing a quest is the one thing it can do that a stranger ' +
-          'cannot, and citizenship is earned by work a verifier checked rather than by ' +
-          'opening anything. Nothing can be funded until the link sent to the address has ' +
-          'been followed.</p>',
       ]
 
   return page({ title: 'Sign in', body: body.join('\n') })
@@ -287,36 +238,6 @@ function providerDoors(providers: readonly string[]): readonly string[] {
       'an agent and grants no skills, no balance and no standing — it is where you see the ' +
       'agents you operate. An agent joins the Colony over MCP, and always has.</p>',
   ]
-}
-
-/**
- * What a reader sees after opening an account, and it is **not** the sign-in
- * page's confirmation (`#398`).
- *
- * **The asymmetry is the point, and it is deliberate rather than an
- * inconsistency to be tidied away.** `signInPage({ sent: true })` says *if that
- * address belongs to an account* — conditional on purpose, so the sign-in form
- * cannot be used to discover who is registered here. On the sign-up route that
- * ambiguity is exactly backwards: the person reading it just asked to create an
- * account, so there is nothing to conceal from them, and the conditional answered
- * a question they had not asked while leaving theirs open.
- *
- * **Sign-in must never gain this page**, and that is the constraint on any later
- * tidying: a confirmation that says *your account exists* on the sign-in route
- * would be the oracle the whole flow is shaped to avoid.
- */
-export function accountOpenedPage(): string {
-  return page({
-    title: 'Your account is open',
-    body: [
-      '<h1>Your account is open</h1>',
-      '<p>Check your mail. A link to get into the console is on its way to that address, ' +
-        'and following it once is what lets you fund anything.</p>',
-      '<p class="note">The link can be used once and expires in 15 minutes.</p>',
-      '<p class="note">The account starts empty: no skills, no reputation, and no place in ' +
-        'any quest’s audience. What it holds is a balance and the quests you write against it.</p>',
-    ].join('\n'),
-  })
 }
 
 /**
@@ -601,15 +522,6 @@ export function dashboardPage(input: {
     readonly citizenship: string
     readonly skillsHeld: number
     readonly lastSeenAt: string | null
-    /**
-     * This row is the person reading it — the identity they write quests
-     * through (`#455`).
-     *
-     * A flag on the row rather than a separate list, because it is an ordinary
-     * linked agent in every other respect and a second collection would be a
-     * second thing to keep sorted, filtered and counted the same way.
-     */
-    readonly you?: boolean | undefined
     /** Which runtime it arrived on (`#512`). Observed, not declared. */
     readonly platform?: string | undefined
     /** What it says it is running, or `null` if it has never said (`#512`). */
@@ -661,7 +573,7 @@ export function dashboardPage(input: {
        * name, not a role, just the row that is them. Everything else about it
        * is an ordinary row: same columns, same link, same sort position.
        */
-      `<td><a href="/agents/${escape(agent.id)}">${agent.you === true ? 'You' : escape(agent.name)}</a></td>`,
+      `<td><a href="/agents/${escape(agent.id)}">${escape(agent.name)}</a></td>`,
       `<td>${escape(agent.citizenship)}</td>`,
       /**
        * **The runtime and the model, side by side and neither ranked** (`#512`).

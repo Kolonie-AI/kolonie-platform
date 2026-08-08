@@ -162,6 +162,10 @@ describe('the page that asks a browser wallet to sign', () => {
     })
 
     expect(script.statusCode).toBe(200)
+    // `no-store`, and it is asserted because getting it wrong is invisible
+    // locally: the first version said `max-age=3600`, the edge rewrote it to
+    // four hours, and a shipped fix to this script reached nobody for as long.
+    expect(script.headers['cache-control']).toBe('no-store')
     expect(script.body).toContain('signMessage')
     expect(script.body).not.toMatch(/signTransaction|signAndSendTransaction/i)
     expect(script.body).not.toMatch(/privateKey|secretKey|mnemonic|seed phrase/i)

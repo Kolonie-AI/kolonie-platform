@@ -76,9 +76,21 @@ export function registerConsoleWalletRoutes(
    * The script, served from the console's own origin.
    *
    * **A file rather than an inline block**, which is what lets the page's CSP
-   * say `script-src 'self'` and nothing looser. Cached for an hour: it is one
-   * small static file and it changes on a deploy, where every other console
-   * response is `no-store` because every other one is about somebody.
+   * say `script-src 'self'` and nothing looser.
+   *
+   * **`no-store`, like every other console response, and the first version of
+   * this route got it wrong.** It said `public, max-age=3600` on the reasoning
+   * that one small static file changing only on a deploy is worth caching.
+   * Measured against production on 2026-08-08, an hour after a fix to this
+   * script shipped: `cf-cache-status: HIT`, `age: 1114`, and the edge had
+   * **rewritten the header to `max-age=14400`** — four hours. The container was
+   * serving the new file and no browser could get it.
+   *
+   * A stale cached script is not a stale cached page. This one is the code that
+   * asks a wallet to sign, so a correction to it has to reach the next person
+   * who opens the page rather than the next person who opens it after the edge
+   * forgets. 5.7 KB per page view on a surface with a handful of daily readers
+   * is not a cost worth trading a signing flow's correctness for.
    */
   app.get(WALLET_SCRIPT_PATH, async (request, reply) => {
     if (!onConsoleHost(request)) {
@@ -90,7 +102,7 @@ export function registerConsoleWalletRoutes(
       .headers({
         'content-type': 'application/javascript; charset=utf-8',
         'x-content-type-options': 'nosniff',
-        'cache-control': 'public, max-age=3600',
+        'cache-control': 'no-store',
       })
       .send(WALLET_SCRIPT)
   })

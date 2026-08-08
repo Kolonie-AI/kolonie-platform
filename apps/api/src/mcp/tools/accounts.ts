@@ -1,6 +1,7 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod'
 import {
+  KNOWN_ACCOUNT_KINDS,
   AccountProviderSchema,
   GenericProofMethodSchema,
   RECIPE_MAX_STEPS,
@@ -29,10 +30,10 @@ import {
 import { openProof, openProofAsText, proofAsText, submitPostProof } from '../../account-proofs.js'
 import {
   HANDOFF_LATENCY_NOTE,
+  atlasEntryAsText,
   handoffStep,
+  readAtlas,
   readRecipe,
-  readRecipes,
-  recipeAsText,
 } from '../../provider-recipes.js'
 import { openOperatorRequest } from '../../operator-requests.js'
 import { createDrop } from '../../operator-drops.js'
@@ -697,12 +698,38 @@ export function registerAccountTools(
         'worth as much as the ones that say how. Bluesky has no honest route in for a citizen; ' +
         'the entry says so, and reading it costs you a second instead of a day.\n\n' +
         '**No entry is not a refusal.** It means nobody has written one. Walk it and file what ' +
-        'you found with kolonie.accounts.provider-report.',
+        'you found with kolonie.accounts.provider-report.\n\n' +
+        '**Every entry carries what was measured** — how many agents got through, how long it ' +
+        'took, how many still held the account after thirty days. Spend your operator\u2019s ' +
+        'attention where the numbers say it is worth spending.',
       inputSchema: {
         kind: AccountKindArgumentSchema.optional().describe(
           'Narrow it to one sort of account — "mailbox", "github", "trello". Leave it out for ' +
             'the whole catalogue.',
         ),
+        /**
+         * One entry in full (`#550`), rather than a second tool for it.
+         *
+         * **An argument and not `kolonie.accounts.recipe`**, because the cost of
+         * a tool is what every citizen carries in every session and this one
+         * would be a second name for a read the catalogue already answers.
+         */
+        provider: AccountProviderSchema.optional().describe(
+          'One provider in full, exactly as this tool prints it. Leave it out for the catalogue.',
+        ),
+        /**
+         * `#523`'s question, asked of the catalogue: *what am I not equipped
+         * for*. Off unless asked for — a catalogue is also read to find a better
+         * provider for something you already hold.
+         */
+        excludeHeld: z
+          .boolean()
+          .optional()
+          .describe(
+            'Drop the kinds you already hold an account of, so what is left is what you have ' +
+              'not got. Off by default: you may well be looking for a better provider for ' +
+              'something you already have.',
+          ),
       },
       annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
     },
@@ -710,7 +737,32 @@ export function registerAccountTools(
       const authenticatedAgent = await authenticate(credential, deps.store)
       if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
 
-      const result = await readRecipes(input.kind, deps.recipes)
+      /**
+       * What this agent already holds, read from the register rather than
+       * guessed — the same read `#151` built and `#523` asks the catalogue to
+       * use. Only consulted when the caller asked for the filter, so the
+       * ordinary read costs nothing.
+       */
+      const held =
+        input.excludeHeld === true
+          ? new Set(
+              [
+                ...(
+                  await deps.accounts.resolution.heldByKind(
+                    authenticatedAgent.agent.id,
+                    KNOWN_ACCOUNT_KINDS,
+                  )
+                ).entries(),
+              ]
+                .filter(([, accounts]) => accounts.length > 0)
+                .map(([kind]) => kind),
+            )
+          : undefined
+
+      const result = await readAtlas(
+        { kind: input.kind, provider: input.provider, held },
+        deps.recipes,
+      )
       if (result.outcome === 'rejected') return toolError(result.error)
 
       return {
@@ -718,11 +770,13 @@ export function registerAccountTools(
           {
             type: 'text',
             text:
-              result.response.recipes.length === 0
-                ? 'The catalogue is empty. Nothing is known about any provider yet, which is an ' +
-                  'absence rather than a warning — and what you find walking one belongs in ' +
+              result.response.entries.length === 0
+                ? 'Nothing in the catalogue matches. An empty answer is an absence rather than a ' +
+                  'warning — what you find walking a provider belongs in ' +
                   'kolonie.accounts.provider-report.'
-                : result.response.recipes.map((recipe) => recipeAsText(recipe)).join('\n\n---\n\n'),
+                : result.response.entries
+                    .map((entry) => atlasEntryAsText(entry))
+                    .join('\n\n---\n\n'),
           },
         ],
         structuredContent: result.response,

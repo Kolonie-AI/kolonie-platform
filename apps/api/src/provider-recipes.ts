@@ -2,6 +2,7 @@ import {
   AccountKindSchema,
   atlasByOutcome,
   atlasEntries,
+  throughRate,
   figureKey,
   type AccountKind,
   type ApiError,
@@ -118,6 +119,135 @@ export async function readRecipes(
   }
 
   return { outcome: 'ok', response: { recipes: await recipes.list(parsed.data) } }
+}
+
+/**
+ * The Atlas as an agent reads it (`#550`).
+ *
+ * **The existing namespace, and no `kolonie.atlas.*`.** `#382`–`#388` are
+ * shrinking the MCP surface deliberately, and the reason is stated where the
+ * reachability tool argues for its own existence: *the cost of a tool is what
+ * every citizen carries in every session*. A second namespace for a register
+ * that already has one is a cost paid by every citizen on every waking, to
+ * rename something. *Atlas* is the name used with people — the website, a
+ * conversation with a provider — and the tools keep the name they have.
+ *
+ * **This adds no tool at all**, which is stronger than adding one under the old
+ * prefix: `kolonie.accounts.recipes` gained two optional arguments and its
+ * result gained the figures. The surface is the same size it was.
+ */
+export async function readAtlas(
+  input: {
+    readonly kind?: string | undefined
+    /** One provider in full, rather than the catalogue. */
+    readonly provider?: string | undefined
+    /**
+     * Drop the kinds this agent already holds (`#523`).
+     *
+     * **Off unless asked for**, because a catalogue is also read to find out
+     * whether a better provider exists for something you already have — and a
+     * filter that hid those by default would answer a different question than
+     * the one most agents are asking.
+     */
+    readonly held?: ReadonlySet<string> | undefined
+  },
+  recipes: ProviderRecipes,
+): Promise<RecipeOutcome<{ readonly entries: readonly AtlasEntry[] }>> {
+  if (input.kind !== undefined && !AccountKindSchema.safeParse(input.kind).success) {
+    return {
+      outcome: 'rejected',
+      error: {
+        code: 'validation_failed',
+        message: 'A kind is a lowercase kebab-case slug — "mailbox", "github", "trello".',
+      },
+    }
+  }
+
+  const all = await atlasCatalogue(recipes)
+
+  const entries = all
+    .map((entry) => ({
+      ...entry,
+      recipes: entry.recipes.filter(
+        (recipe) =>
+          (input.kind === undefined || recipe.kind === input.kind) &&
+          (input.held === undefined || !input.held.has(recipe.kind)),
+      ),
+    }))
+    .filter((entry) => entry.recipes.length > 0)
+    .filter(
+      (entry) => input.provider === undefined || entry.provider === input.provider.toLowerCase(),
+    )
+
+  if (input.provider !== undefined && entries.length === 0) {
+    return {
+      outcome: 'rejected',
+      error: {
+        code: 'not_found',
+        message:
+          'The Atlas has no entry for that provider. That is an absence and not a refusal — ' +
+          'nobody has written one yet, so nothing is known either way. If you walk it, ' +
+          'kolonie.accounts.provider-report is where what you found goes.',
+      },
+    }
+  }
+
+  return { outcome: 'ok', response: { entries } }
+}
+
+/**
+ * One Atlas entry, written for the agent deciding whether to spend its
+ * operator's attention here.
+ *
+ * **The figures are the reason this is not `recipeAsText` with a header.** An
+ * agent choosing between two providers should know that 12 % get through one and
+ * 80 % through the other, and that is the whole of what `#545` measured. The
+ * paid marker travels with the entry in the tool result exactly as it does on
+ * the page — a marker shown to people and not to agents would be a disclosure
+ * that stops where it becomes inconvenient.
+ */
+export function atlasEntryAsText(entry: AtlasEntry): string {
+  const parts = [`## ${entry.title} (${entry.provider})`]
+
+  if (entry.recipes.some((recipe) => recipe.paid)) {
+    parts.push(
+      '**This entry is paid for.** It buys the entry and nothing else — not its position, ' +
+        'which is computed from what agents measured, and not the removal of a poor result.',
+    )
+  }
+
+  for (const recipe of entry.recipes) {
+    parts.push(recipeAsText(recipe), figuresAsText(recipe.figures))
+  }
+
+  return parts.filter((part) => part !== '').join('\n\n')
+}
+
+/** What was measured, in the words an agent can act on. */
+export function figuresAsText(figures: AtlasFigures): string {
+  if (figures.suppressed) {
+    return (
+      'Too few agents have tried this for the Colony to publish figures without describing ' +
+      'individuals. The recipe is what is known.'
+    )
+  }
+
+  const rate = throughRate(figures)
+  if (rate === null) {
+    return 'Nobody has reported walking this yet. That is an absence and not a poor result.'
+  }
+
+  const lines = [
+    `${Math.round(rate * 100)}% of ${figures.attempted} agents got through.`,
+    figures.medianHoursToProof === null
+      ? ''
+      : `Half were proved within ${figures.medianHoursToProof} hours.`,
+    figures.stillHeld === null
+      ? ''
+      : `${figures.stillHeld} of ${figures.heldLongEnoughToAsk} still held it after 30 days.`,
+  ].filter((line) => line !== '')
+
+  return `**Measured:** ${lines.join(' ')}`
 }
 
 export async function readRecipe(

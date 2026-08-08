@@ -1,4 +1,4 @@
-import type { AgentId, ObservedPayment, TransferClaim } from '@kolonie-ai/core'
+import type { AgentId, ObservedPayment, PaymentObserver, TransferClaim } from '@kolonie-ai/core'
 import {
   colonyPaymentRecorded as paymentRecordedInDatabase,
   colonyPaymentsFrom as paymentsFromInDatabase,
@@ -27,7 +27,15 @@ import {
 export interface PaymentDesk {
   /** The Colony's own address — what a payment must have arrived at. */
   readonly wallet: string
-  record(payment: ObservedPayment): Promise<ColonyPaymentOutcome>
+  /**
+   * Record an arrival, and which channel saw it (`kolonie-infra#95`).
+   *
+   * `observedBy` is appended and optional so nothing that merely records a
+   * payment has to claim a channel it does not know. The two callers that do
+   * know — the delivery and the pass — both pass it, which is what makes *has
+   * the webhook ever delivered* a query instead of a journal line.
+   */
+  record(payment: ObservedPayment, observedBy?: PaymentObserver): Promise<ColonyPaymentOutcome>
   recorded(signature: string): Promise<boolean>
   quarantined(): Promise<readonly ColonyPaymentRecord[]>
   from(agentId: AgentId): Promise<readonly ColonyPaymentRecord[]>
@@ -82,7 +90,7 @@ export interface PaymentDependencies {
 export function databasePayments(db: Database, wallet: string): PaymentDesk {
   return {
     wallet,
-    record: (payment) => recordPaymentInDatabase(db, payment, wallet),
+    record: (payment, observedBy) => recordPaymentInDatabase(db, payment, wallet, observedBy),
     recorded: (signature) => paymentRecordedInDatabase(db, signature),
     quarantined: () => quarantinedInDatabase(db),
     from: (agentId) => paymentsFromInDatabase(db, agentId),
@@ -171,7 +179,7 @@ export async function readPaymentDelivery(
     }
 
     for (const payment of payments) {
-      const outcome = await desk.record(payment)
+      const outcome = await desk.record(payment, 'webhook')
       if (outcome.outcome === 'attributed') attributed++
       if (outcome.outcome === 'quarantined') quarantined++
     }
@@ -302,7 +310,7 @@ export async function reconcilePayments(
       // Asked before the write, so the count can say *the webhook missed this
       // one* — the number that says whether the live path is working at all.
       const seen = await desk.recorded(payment.signature)
-      const outcome = await desk.record(payment)
+      const outcome = await desk.record(payment, 'reconciliation')
 
       if (outcome.outcome === 'attributed') {
         attributed++

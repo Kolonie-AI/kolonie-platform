@@ -14,6 +14,7 @@ import {
   IdentityProviderSchema,
   InboundRouteSchema,
   WakeEventSchema,
+  PaymentObserverSchema,
   WakeDeliveryOutcomeSchema,
   CredentialKindSchema,
   EmailChallengePurposeSchema,
@@ -422,3 +423,13 @@ export const wakeDeliveryOutcome = pgEnum(
   'wake_delivery_outcome',
   valuesOf(WakeDeliveryOutcomeSchema.options),
 )
+
+/**
+ * Which of the two channels observed a payment (`kolonie-infra#95`).
+ *
+ * The Colony watches its own wallet twice — a Helius webhook and the
+ * reconciliation pass — and until this column nothing recorded which one saw an
+ * arrival. `kolonie-platform#503`'s criterion, that the pass alone is
+ * sufficient, was answerable only from a journal line that rotates away.
+ */
+export const paymentObserver = pgEnum('payment_observer', valuesOf(PaymentObserverSchema.options))

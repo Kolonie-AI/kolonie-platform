@@ -96,6 +96,35 @@ export type PaymentQuarantine = z.infer<typeof PaymentQuarantineSchema>
  * off what it says. Everything the attribution rests on is in here and is
  * checked.
  */
+/**
+ * Which of the two channels observed an arrival (`kolonie-infra#95`).
+ *
+ * **The Colony watches its wallet twice and could not tell which one saw a
+ * payment.** A Helius webhook carries the live path and
+ * `kolonie-payments-reconcile.timer` re-reads the wallet's recent signatures
+ * every fifteen minutes. `kolonie-platform#503` set the criterion — *"the
+ * reconciliation alone is sufficient; a dead webhook must not be able to stop
+ * payments being recognised"* — and left it answerable only from a journal line
+ * that rotates away.
+ *
+ * `kolonie-infra#73` records this provider's webhook registered, correctly
+ * authenticated, and **never observed delivering anything**. That is why the
+ * pass runs four times an hour rather than once, and it has been the standing
+ * assumption for a week without anybody being able to check it. One column makes
+ * *has the webhook ever worked* a query.
+ *
+ * **Two values and no `unknown`.** A row written before this existed carries
+ * `null`, which says *recorded before the Colony kept this* — a different and
+ * honest fact, and one a query can exclude rather than mistake for a channel.
+ */
+export const PaymentObserverSchema = z.enum([
+  /** A Helius delivery to `POST /v1/payments/webhook`. */
+  'webhook',
+  /** The reconciliation pass re-reading the wallet's recent signatures. */
+  'reconciliation',
+])
+export type PaymentObserver = z.infer<typeof PaymentObserverSchema>
+
 export const ObservedPaymentSchema = z.object({
   signature: z.string().min(1).max(120),
   /** The address the lamports came from — the whole of the attribution. */

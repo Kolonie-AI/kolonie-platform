@@ -68,6 +68,16 @@ describe('a payment to the Colony wallet', () => {
     ...overrides,
   })
 
+  /** Which channel the row says saw it — `kolonie-infra#95`. */
+  const observerOf = async (signature: string): Promise<string | null> => {
+    const [row] = await db
+      .select({ observedBy: colonyPayments.observedBy })
+      .from(colonyPayments)
+      .where(eq(colonyPayments.signature, signature))
+      .limit(1)
+    return row?.observedBy ?? null
+  }
+
   it('is attributed to the citizen whose verified wallet sent it', async () => {
     const agentId = await anAgent('Payer')
     await withVerifiedWallet(agentId, 'payer-wallet')
@@ -213,5 +223,61 @@ describe('a payment to the Colony wallet', () => {
     const forbidden = /keypair|depositAddress|sealingKey|unsealDeposit/i
 
     expect(Object.keys(db).filter((name) => forbidden.test(name))).toEqual([])
+  })
+
+  /**
+   * `kolonie-infra#95`. The Colony watches its own wallet twice and could not say
+   * which channel saw an arrival, so `kolonie-platform#503`'s criterion — *the
+   * reconciliation alone is sufficient; a dead webhook must not stop payments
+   * being recognised* — was answerable only from a journal line that rotates away.
+   */
+  describe('which channel saw a payment', () => {
+    it('records the webhook when the delivery wrote the row', async () => {
+      const outcome = await recordColonyPayment(
+        db,
+        aPayment({ signature: 'by-webhook' }),
+        COLONY,
+        'webhook',
+      )
+
+      expect(outcome.outcome).not.toBe('not-final')
+      expect(await observerOf('by-webhook')).toBe('webhook')
+    })
+
+    it('records the pass when the reconciliation wrote it', async () => {
+      await recordColonyPayment(db, aPayment({ signature: 'by-pass' }), COLONY, 'reconciliation')
+
+      expect(await observerOf('by-pass')).toBe('reconciliation')
+    })
+
+    /**
+     * **First, not only** — both channels read the same transfers and the second
+     * write is the expected case. `onConflictDoNothing` on the signature means the
+     * row keeps whichever channel arrived first, which is exactly the question:
+     * *did the webhook get there before the pass had to?*
+     */
+    it('keeps the channel that got there first', async () => {
+      await recordColonyPayment(db, aPayment({ signature: 'raced' }), COLONY, 'webhook')
+      const second = await recordColonyPayment(
+        db,
+        aPayment({ signature: 'raced' }),
+        COLONY,
+        'reconciliation',
+      )
+
+      expect(second.outcome).toBe('already-recorded')
+      expect(await observerOf('raced')).toBe('webhook')
+    })
+
+    /**
+     * A caller that does not know writes nothing rather than guessing, and null
+     * means *recorded before the Colony kept this* — which is what the two rows
+     * already in production say, honestly.
+     */
+    it('leaves it null for a caller that names no channel', async () => {
+      await recordColonyPayment(db, aPayment({ signature: 'unattributed-channel' }), COLONY)
+
+      expect(await observerOf('unattributed-channel')).toBeNull()
+    })
   })
 })

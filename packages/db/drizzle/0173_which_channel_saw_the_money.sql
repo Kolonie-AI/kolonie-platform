@@ -1,0 +1,23 @@
+-- Which of the two channels observed a payment (`kolonie-infra#95`).
+--
+-- The Colony watches its own wallet twice: a Helius webhook carries the live
+-- path, and `kolonie-payments-reconcile.timer` re-reads the wallet's recent
+-- signatures every fifteen minutes. Until this column, nothing recorded which
+-- one saw an arrival — `colony_payments` carried eleven columns and not one of
+-- them said where the row came from.
+--
+-- `kolonie-platform#503` set the criterion in as many words: *"the
+-- reconciliation alone is sufficient — a dead webhook must not be able to stop
+-- payments being recognised."* It was answerable only from the `recovered`
+-- figure on a journal line, which survives as long as `journalctl` does.
+-- `kolonie-infra#73` records the webhook registered, correctly authenticated and
+-- **never observed delivering anything**, which is why the pass runs four times
+-- an hour rather than once — an assumption nobody could check.
+--
+-- **Nullable, and null is a fact rather than a gap.** The two rows already in
+-- production were recorded before the Colony kept this, and a query for *has the
+-- webhook ever delivered* excludes them rather than mistaking them for a
+-- channel. No backfill: guessing which channel wrote a row from a week ago would
+-- put an invention where the answer belongs.
+CREATE TYPE "public"."payment_observer" AS ENUM('webhook', 'reconciliation');--> statement-breakpoint
+ALTER TABLE "colony_payments" ADD COLUMN "observed_by" "payment_observer";

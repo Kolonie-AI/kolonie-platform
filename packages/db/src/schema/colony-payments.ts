@@ -11,6 +11,7 @@ import {
   varchar,
 } from 'drizzle-orm/pg-core'
 import { agents } from './agents.js'
+import { paymentObserver } from './enums.js'
 
 /**
  * Every SOL transfer the Colony has observed arriving at its own wallet,
@@ -54,6 +55,28 @@ export const colonyPayments = pgTable(
      * sender address is for.
      */
     sender: varchar('sender', { length: 64 }).notNull(),
+
+    /**
+     * Which channel saw this arrival first (`kolonie-infra#95`).
+     *
+     * **The Colony watches its wallet twice and could not say which one
+     * worked.** `kolonie-platform#503` set the criterion — the reconciliation
+     * alone must be sufficient, a dead webhook must not stop payments being
+     * recognised — and left it readable only from a journal line that rotates
+     * away. `kolonie-infra#73` records the webhook registered, correctly
+     * authenticated and never seen delivering, which is why the pass runs four
+     * times an hour; that has been an assumption for a week.
+     *
+     * **First, not only.** Both channels read the same transfers and the second
+     * write is the expected case — `onConflictDoNothing` on the signature means
+     * whichever arrives first is what this records, which is exactly the
+     * question being asked.
+     *
+     * **Nullable, and null is a fact rather than a gap**: recorded before the
+     * Colony kept this. A query for *has the webhook ever delivered* excludes
+     * those rather than mistaking them for a channel.
+     */
+    observedBy: paymentObserver('observed_by'),
 
     /**
      * The Colony wallet it arrived at.

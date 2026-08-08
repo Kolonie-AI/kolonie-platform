@@ -529,8 +529,22 @@ const app = buildApp({
           ...(process.env[PAYMENT_RPC_URL_VAR]?.trim()
             ? { watcher: httpPaymentWatcher(process.env[PAYMENT_RPC_URL_VAR].trim()) }
             : {}),
-          ...(process.env['DEPOSIT_WEBHOOK_SECRET'] !== undefined && {
-            webhookSecret: process.env['DEPOSIT_WEBHOOK_SECRET'],
+          /**
+           * **Renamed to `PAYMENT_WEBHOOK_SECRET`, reading the old name too**
+           * (`kolonie-infra#95`). It guards the payment routes and was named for
+           * the deposit module `kolonie-platform#506` retired.
+           *
+           * The fallback is a deploy-ordering concession and not a permanent
+           * alias: a container starts with the environment the host had when it
+           * started, so a release that only read the new name would mount no
+           * payment routes between the deploy and somebody editing `.env`. It
+           * comes out in the commit after the host carries the new name, which
+           * is the last step of `kolonie-infra#95` rather than a later issue.
+           */
+          ...((process.env['PAYMENT_WEBHOOK_SECRET'] ?? process.env['DEPOSIT_WEBHOOK_SECRET']) !==
+            undefined && {
+            webhookSecret: (process.env['PAYMENT_WEBHOOK_SECRET'] ??
+              process.env['DEPOSIT_WEBHOOK_SECRET']) as string,
           }),
         },
       }),

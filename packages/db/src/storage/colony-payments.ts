@@ -3,6 +3,7 @@ import {
   paymentQuarantine,
   type AgentId,
   type ObservedPayment,
+  type PaymentObserver,
   type PaymentQuarantine,
 } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
@@ -63,6 +64,15 @@ export async function recordColonyPayment(
   db: Database,
   payment: ObservedPayment,
   colonyAddress: string,
+  /**
+   * Which channel saw it (`kolonie-infra#95`).
+   *
+   * **Appended and optional**, so every existing caller and test is untouched
+   * and a caller that genuinely does not know writes `null` rather than
+   * guessing. The two that do know are the webhook and the reconciliation, and
+   * both pass it.
+   */
+  observedBy?: PaymentObserver,
 ): Promise<ColonyPaymentOutcome> {
   return await db.transaction(async (tx) => {
     /**
@@ -102,6 +112,7 @@ export async function recordColonyPayment(
         sender: payment.sender,
         recipient: payment.recipient,
         lamports: payment.lamports,
+        ...(observedBy === undefined ? {} : { observedBy }),
         ...(attributed ? { agentId: sender!.agentId, attributedAt: sql`now()` } : { quarantine }),
       })
       .onConflictDoNothing({ target: colonyPayments.signature })

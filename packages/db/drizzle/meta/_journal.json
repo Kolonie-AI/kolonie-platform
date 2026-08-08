@@ -1212,6 +1212,13 @@
       "when": 1786184417570,
       "tag": "0172_one_citizen_one_wallet",
       "breakpoints": true
+    },
+    {
+      "idx": 173,
+      "version": "7",
+      "when": 1786186448725,
+      "tag": "0173_which_channel_saw_the_money",
+      "breakpoints": true
     }
   ]
 }

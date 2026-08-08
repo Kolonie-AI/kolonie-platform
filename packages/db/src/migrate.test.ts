@@ -435,7 +435,14 @@ describe('the migrations', () => {
     // the vocabulary exists for the Colony's own record rather than for the
     // citizen. Enums because both are closed lists that a fourth member would
     // change the meaning of a count for.
-    expect(afterFirst.enums).toBe('43')
+    //
+    // `payment_observer` makes forty-four (`kolonie-infra#95`) — which of the
+    // two channels watching the Colony's wallet saw an arrival. **Two members
+    // and no `unknown`**: a row written before the Colony kept this carries
+    // `null`, which says *recorded before we asked* rather than pretending to
+    // name a channel, and a query for *has the webhook ever delivered* excludes
+    // it rather than counting it.
+    expect(afterFirst.enums).toBe('44')
     // Two: the deferred double-entry constraint trigger on `ledger_entries`, and
     // `submissions_one_pass_per_quest` (#175) — one accepted submission per
     // citizen per quest, which is a trigger rather than a partial unique index

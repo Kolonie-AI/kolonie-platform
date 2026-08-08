@@ -1,4 +1,5 @@
 import type { PublicCitizenRecord } from '@kolonie-ai/core'
+import type { SwarmPortrait } from '@kolonie-ai/db'
 import type { CitizenRecords } from '../citizens.js'
 
 /**
@@ -17,15 +18,30 @@ import type { CitizenRecords } from '../citizens.js'
 export interface FakeCitizenRecords extends CitizenRecords {
   /** Put one citizen's public record on the record. */
   readonly publish: (record: PublicCitizenRecord) => void
+  /** Publish one swarm, which no colony does until a maintainer names one. */
+  readonly publishSwarm: (drawn: SwarmPortrait) => void
 }
 
 export function fakeCitizenRecords(): FakeCitizenRecords {
   const published = new Map<string, PublicCitizenRecord>()
+  let portrait: SwarmPortrait | undefined
 
   return {
+    publishSwarm: (drawn) => {
+      portrait = drawn
+    },
+
     publish: (record) => {
       published.set(record.handle.toLowerCase(), record)
     },
     publicRecord: async (name) => published.get(name.toLowerCase()),
+    /**
+     * No swarm is published (`kolonie-website#63`).
+     *
+     * **The default in production too**, so a test that never calls
+     * `publishSwarm` is exercising the ordinary state rather than a fixture's
+     * convenience.
+     */
+    swarmPortrait: async () => portrait,
   }
 }

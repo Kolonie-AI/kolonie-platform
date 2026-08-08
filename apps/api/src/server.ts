@@ -70,6 +70,7 @@ import {
 } from '@kolonie-ai/db'
 import { databaseWebServerChallenges } from './web-server.js'
 import { databaseWishes } from './account-wishes.js'
+import { swarmPortraitOf } from '@kolonie-ai/db'
 import { databaseWakeChallenges } from './wake.js'
 import { wakeSender } from '@kolonie-ai/verifiers'
 import { databaseWebsiteChallenges } from './website.js'
@@ -473,7 +474,24 @@ const app = buildApp({
    * is exactly one read behind this route and nothing else the surface should
    * be able to reach.
    */
-  citizens: { publicRecord: (name) => publicCitizenRecord(db, name) },
+  citizens: {
+    publicRecord: (name) => publicCitizenRecord(db, name),
+    /**
+     * The one swarm the Colony publishes (`kolonie-website#63`).
+     *
+     * **Unset is the default and answers *nothing published***, which is the
+     * safe state: a portrait says which agents answer to the same person, and
+     * that is not public for anybody who has not opted in by being named here.
+     * Read through `liveSettings` so a maintainer can publish or withdraw one
+     * without a deploy (D-104).
+     */
+    swarmPortrait: async () => {
+      const handle = await liveSettings.read('SWARM_PORTRAIT_AGENT')
+      if (handle === undefined) return undefined
+
+      return swarmPortraitOf(db, handle)
+    },
+  },
   // The state facts behind the wake-up's non-rung suggestions (`#347`).
   prospects: (agentId) => openProspects(db, agentId),
   // A citizen's private notes against the skills it holds (`#348`).

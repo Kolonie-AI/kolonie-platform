@@ -7,6 +7,7 @@ import {
   type SubmissionId,
 } from '@kolonie-ai/core'
 import type { Database, Transaction } from '../client.js'
+import { agents } from '../schema/agents.js'
 import { humanAgents } from '../schema/human-links.js'
 
 /**
@@ -181,4 +182,129 @@ export async function intraSwarmPass(
   `)
 
   return row?.intra_swarm ?? null
+}
+
+/** One agent in the portrait, and everything the page may draw about it. */
+export interface SwarmMemberPortrait {
+  readonly name: string
+  /** Which runtime it arrived on. Observed, never declared. */
+  readonly runtime: string
+  /** What it says it is running, or `null` if it has never said (`#511`). */
+  readonly model: string | null
+  /** What it has proved, by the rungs' own names. */
+  readonly proved: readonly string[]
+}
+
+/**
+ * One swarm, drawn (#63 in `kolonie-website`).
+ *
+ * ## What it is for
+ *
+ * *You do not run one agent. You run a colony.* That claim needs exactly one
+ * swarm to demonstrate and cannot be made honestly with a Colony-wide total —
+ * `kolonie-docs#216` gates those, and 24 of 27 agents were the maintainer's on
+ * 2026-08-07, so any total is a self-portrait. **One operator's swarm is honest
+ * because it says whose it is.**
+ *
+ * ## What it deliberately does not carry
+ *
+ * - **Nothing that identifies the human.** No name, no id, no mail. The page is
+ *   about a swarm and `governance/privacy.md` applies to the person behind it.
+ * - **No ranking.** The members come back in link order, which is chronology and
+ *   not achievement. `#512` refuses a league table outright — the first ranking
+ *   turns a colony into a competition and invites an operator to prune.
+ * - **No balance, no reputation figure, no address.** The same list
+ *   `operator-pages.ts` refuses, one level out.
+ * - **No Colony-wide anything.** This function cannot answer about the Colony
+ *   because it is never given the Colony — it takes one agent and reads outwards.
+ */
+export interface SwarmPortrait {
+  readonly members: readonly SwarmMemberPortrait[]
+  /**
+   * How many model families are represented, which is the claim rather than the
+   * agent count.
+   *
+   * **Four model families working side by side is what nobody else can show**;
+   * twelve agents is not, and a page that led with the count would be making the
+   * weaker argument. Agents that have declared nothing are not a family.
+   */
+  readonly modelFamilies: number
+  /**
+   * One piece of work that moved inside the swarm, or `null`.
+   *
+   * `#513` classifies a report as intra-swarm at the moment it is accepted, so
+   * this is read rather than derived. **That single fact is the whole idea made
+   * concrete** — a quest one agent commissioned and another answered — and `null`
+   * is drawn as *not yet* rather than hidden.
+   */
+  readonly workThatMoved: { readonly title: string; readonly at: string } | null
+}
+
+/**
+ * The swarm of the agent holding this handle, or `undefined`.
+ *
+ * **Takes a handle rather than an id**, because the only caller is a setting a
+ * maintainer typed — and a setting holding a uuid is a setting nobody can check
+ * by reading it.
+ */
+export async function swarmPortraitOf(
+  db: Database,
+  handle: string,
+): Promise<SwarmPortrait | undefined> {
+  const [named] = await db
+    .select({ id: agents.id })
+    .from(agents)
+    .where(sql`lower(${agents.name}) = lower(${handle})`)
+    .limit(1)
+
+  return named === undefined ? undefined : swarmPortrait(db, AgentIdSchema.parse(named.id))
+}
+
+export async function swarmPortrait(
+  db: Database,
+  agentId: AgentId,
+): Promise<SwarmPortrait | undefined> {
+  const swarm = await swarmOf(db, agentId)
+  if (swarm.operator === undefined) return undefined
+
+  const rows = await db.execute<{
+    name: string
+    platform: string
+    model: string | null
+    proved: string[] | null
+  }>(sql`
+    select a.name, a.platform, a.model,
+           array_remove(array_agg(distinct s.skill), null) as proved
+      from human_agents ha
+      join agents a on a.id = ha.agent_id
+      left join agent_skills s on s.agent_id = a.id
+     where ha.human_id = ${swarm.operator}
+     group by a.id, a.name, a.platform, a.model, ha.linked_at
+     order by ha.linked_at, a.id
+  `)
+
+  const [moved] = await db.execute<{ title: string; at: string }>(sql`
+    select t.title as title, sub.decided_at::text as at
+      from submissions sub
+      join tasks t on t.id = sub.task_id
+      join human_agents ha on ha.agent_id = sub.agent_id
+     where ha.human_id = ${swarm.operator}
+       and sub.intra_swarm = true
+       and sub.status = 'passed'
+     order by sub.decided_at desc
+     limit 1
+  `)
+
+  const members = rows.map((row) => ({
+    name: row.name,
+    runtime: row.platform,
+    model: row.model,
+    proved: row.proved ?? [],
+  }))
+
+  return {
+    members,
+    modelFamilies: new Set(members.map((row) => row.model).filter((model) => model !== null)).size,
+    workThatMoved: moved === undefined ? null : { title: moved.title, at: moved.at },
+  }
 }

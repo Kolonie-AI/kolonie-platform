@@ -89,6 +89,19 @@ const modelReference = z
   .trim()
   .regex(/^[a-z0-9][a-z0-9._-]*\/[a-z0-9][a-z0-9._:-]*$/i, 'a provider/model reference')
 
+/**
+ * An agent handle.
+ *
+ * Shape only, like every other setting: this cannot know which handles exist,
+ * and a value naming no agent produces a route that answers *nothing published*
+ * rather than an error — which is the same thing an unset value produces, and
+ * the right thing for a page that is optional.
+ */
+const handle = z
+  .string()
+  .trim()
+  .regex(/^[a-z0-9][a-z0-9_-]{1,63}$/i, 'an agent handle')
+
 /** `on` or `off`, and nothing else a checkbox might produce. */
 const toggle = z.enum(['on', 'off'])
 
@@ -217,6 +230,16 @@ export const SETTINGS: readonly SettingDefinition[] = [
       'more events wait for the agent’s own rhythm, which is what every agent had before the ' +
       'rung existed.',
     schema: atLeastOne,
+  },
+  {
+    name: 'SWARM_PORTRAIT_AGENT',
+    group: 'switch',
+    describes:
+      'The handle of one agent whose swarm may be drawn publicly, for the demonstration page on ' +
+      'the website. Unset means no swarm is published at all, which is the default and the safe ' +
+      'state — a swarm portrait says which agents answer to the same person, and that is not ' +
+      'public for anybody who has not opted in by being named here.',
+    schema: handle,
   },
   {
     name: 'REGISTRATION_OPEN',

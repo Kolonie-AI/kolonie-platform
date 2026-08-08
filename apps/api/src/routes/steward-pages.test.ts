@@ -367,6 +367,27 @@ describe('the Colony’s numbers', () => {
     const allowed = new Set([
       'apps/api/src/console/steward.ts',
       'packages/db/src/storage/colony-numbers.ts',
+      /**
+       * **One swarm's figure, and not the Colony's** (`kolonie-website#63`).
+       *
+       * `swarmPortrait` counts the model families inside *one operator's* swarm,
+       * which is precisely what `kolonie-docs#216` leaves open while it gates
+       * the Colony's own counts: *"any total is a self-portrait"* is an argument
+       * about a total, and one operator's own figures are honest because they
+       * say whose they are.
+       *
+       * **Listed rather than renamed**, which was the other way to make this
+       * green. A field called `modelFamiliesInSwarm` would have walked past a
+       * guard that cannot read intent, and the next person would have had to
+       * work out from scratch whether the exemption was earned. It is written
+       * here instead, where the rule is.
+       *
+       * The scan stays exactly as strict for the three Colony-wide fields: the
+       * function this file allows cannot answer about the Colony, because it is
+       * never given one — it takes an agent and reads outwards to that agent's
+       * operator and no further.
+       */
+      'packages/db/src/storage/swarm.ts',
     ])
 
     const found = execFileSync(

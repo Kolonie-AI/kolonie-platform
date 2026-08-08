@@ -1,4 +1,5 @@
 import type { PublicCitizenRecord } from '@kolonie-ai/core'
+import type { SwarmPortrait } from '@kolonie-ai/db'
 
 /**
  * The one read behind `GET /v1/citizens/:name` (`#441`).
@@ -13,4 +14,19 @@ import type { PublicCitizenRecord } from '@kolonie-ai/core'
 export interface CitizenRecords {
   /** One citizen by handle, case-insensitively, or `undefined` if none holds it. */
   publicRecord(name: string): Promise<PublicCitizenRecord | undefined>
+  /**
+   * The one swarm the Colony publishes, or `undefined` when it publishes none
+   * (`kolonie-website#63`).
+   *
+   * **It takes nothing, and that is the whole of the difference from the method
+   * above.** A swarm says which agents answer to the same person — a fact about
+   * several citizens, only one of whom supplied a name — so it is not something
+   * a caller may ask about by naming anybody. Which swarm, if any, is a
+   * maintainer's decision in `SWARM_PORTRAIT_AGENT`.
+   *
+   * Beside `publicRecord` for the reason that port exists at all: this is the
+   * second read in the API that answers a caller presenting nothing, and keeping
+   * both on one narrow port is what stops *list them* becoming expressible.
+   */
+  swarmPortrait(): Promise<SwarmPortrait | undefined>
 }

@@ -54,6 +54,7 @@ import { registerGithubRoute } from './routes/github.js'
 import { registerWebsiteRoute } from './routes/website.js'
 import { registerWebServerRoute } from './routes/web-server.js'
 import { registerWakeRoute } from './routes/wake.js'
+import { registerSwarmRoute } from './routes/swarm.js'
 import { registerReachabilityRoute } from './routes/reachability.js'
 import { registerImageRoute } from './routes/image.js'
 import { registerSceneRoute } from './routes/scene.js'
@@ -355,7 +356,12 @@ export function buildApp({
    * Resolved here rather than in the route, so the handler has one shape to
    * cope with. A test colony has no citizens and this is the true answer in it.
    */
-  const citizenRecords: CitizenRecords = citizens ?? { publicRecord: async () => undefined }
+  const citizenRecords: CitizenRecords = citizens ?? {
+    publicRecord: async () => undefined,
+    // And no swarm is published, which is the default in production too
+    // (`kolonie-website#63`): a portrait needs a maintainer to name one.
+    swarmPortrait: async () => undefined,
+  }
 
   /**
    * An absent catalogue is an empty one (`#521`), resolved here for the reason
@@ -533,6 +539,7 @@ export function buildApp({
       registerWebsiteRoute(v1, routes)
       registerWebServerRoute(v1, routes)
       registerWakeRoute(v1, routes)
+      registerSwarmRoute(v1, routes)
       registerReachabilityRoute(v1, routes)
       registerImageRoute(v1, routes)
       registerSceneRoute(v1, routes)

@@ -732,6 +732,41 @@ describe('schema', () => {
       )
     })
 
+    /**
+     * `#571`. The same rule from the other side, and it exists because the first
+     * one is not enough: two citizens sharing a wallet would let one payout be
+     * claimed twice, and **one citizen holding two makes *where do we pay this
+     * citizen* a question with more than one answer**. Under the Colony's own
+     * rule — every agent has its own wallet and only the agent holds the key —
+     * that has to be impossible rather than merely unusual.
+     *
+     * Asserted here for the reason above: the whole of it is a partial unique
+     * index, and the code path it guards is a race that cannot be provoked
+     * reliably from a test.
+     */
+    it('rejects one citizen proving a second wallet', async () => {
+      const agent = await anAgent({ name: 'twice' })
+
+      await provedWallet(agent, 'So11111111111111111111111111111111111111112')
+
+      await expectRejection(
+        () => provedWallet(agent, 'Ax11111111111111111111111111111111111111112'),
+        /solana_wallet_challenges_agent_unique/,
+      )
+    })
+
+    it('lets one citizen fail many attempts before clearing', async () => {
+      const agent = await anAgent({ name: 'persistent' })
+
+      await provedWallet(agent, 'So11111111111111111111111111111111111111112', { cleared: false })
+      await provedWallet(agent, 'Ax11111111111111111111111111111111111111112', { cleared: false })
+
+      // An attempt reserves nothing, including against its own agent.
+      await expect(
+        provedWallet(agent, 'Bx11111111111111111111111111111111111111112'),
+      ).resolves.toBeUndefined()
+    })
+
     it('reserves nothing for an address that only appears on a failed attempt', async () => {
       const first = await anAgent({ name: 'first' })
       const second = await anAgent({ name: 'second' })

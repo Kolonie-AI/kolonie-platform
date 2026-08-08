@@ -33,3 +33,29 @@ function causeOf(error: unknown): unknown {
     ? (error as { cause?: unknown }).cause
     : undefined
 }
+
+/**
+ * Whether a unique violation names **this** index (`#571`).
+ *
+ * `isUniqueViolation` answers *something was already taken*, which is enough
+ * when a table has one uniqueness rule. `solana_wallet_challenges` has two, and
+ * they mean opposite things to the citizen that hit one: *another citizen holds
+ * that wallet* and *you already hold one*. Reporting the first for the second
+ * would tell an agent its own wallet belongs to somebody else.
+ *
+ * `postgres` puts the index name on `constraint_name`; the chain is walked for
+ * the reason above — Drizzle wraps the driver's error and the detail lives on
+ * the `cause`.
+ */
+export function violatesConstraint(error: unknown, name: string): boolean {
+  for (let current: unknown = error; current != null; current = causeOf(current)) {
+    if (
+      typeof current === 'object' &&
+      'constraint_name' in current &&
+      (current as { constraint_name?: unknown }).constraint_name === name
+    ) {
+      return true
+    }
+  }
+  return false
+}

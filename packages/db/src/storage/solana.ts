@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto'
-import { and, desc, eq, gt, isNull, ne, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, gt, isNull, ne, sql } from 'drizzle-orm'
 import {
   now as currentTime,
   verifySolanaSignature,
@@ -8,7 +8,7 @@ import {
 } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import { solanaWalletChallenges, SOLANA_NONCE_BYTES } from '../schema/solana.js'
-import { isUniqueViolation } from './errors.js'
+import { isUniqueViolation, violatesConstraint } from './errors.js'
 import { toTimestamp } from './rows.js'
 import { openAttemptForChallenge } from './challenge-tasks.js'
 
@@ -50,6 +50,19 @@ export type SolanaWalletOutcome =
   | { readonly outcome: 'bad_signature' }
   /** Another citizen has already cleared this rung with this wallet (D-019). */
   | { readonly outcome: 'address_taken' }
+  /**
+   * This citizen has already proved a wallet (`#571`).
+   *
+   * **Its own outcome rather than `already_answered`**, which it used to share
+   * and which says *a nonce is single-use — mint a fresh one if you want to sign
+   * again*. That is true of a spent nonce and false here: minting again cannot
+   * help, because the rung is cleared and one citizen holds one wallet. An
+   * agent told to retry something that cannot work will retry it.
+   *
+   * Carries the address it already proved, so the answer is checkable rather
+   * than merely a refusal.
+   */
+  | { readonly outcome: 'wallet_already_proved'; readonly address: string | null }
 
 /**
  * Mint a nonce for an agent that has authenticated with its API key.
@@ -113,7 +126,9 @@ export async function answerSolanaChallenge(
   // prefers it — so an agent that already holds the skill is told so rather than
   // being allowed to clear a second time with a second wallet.
   if (current === null) return { outcome: 'no_open_challenge' }
-  if (current.verifiedAt !== null) return { outcome: 'already_answered' }
+  if (current.verifiedAt !== null) {
+    return { outcome: 'wallet_already_proved', address: current.address }
+  }
   if (current.signature !== null) return { outcome: 'already_answered' }
   if (Date.parse(current.expiresAt) <= Date.now()) return { outcome: 'expired' }
 
@@ -145,8 +160,23 @@ export async function answerSolanaChallenge(
 
     return { outcome: 'verified', address: updated.address }
   } catch (error) {
-    // The partial unique index firing: another citizen cleared with this wallet
-    // between the check above and this write.
+    /**
+     * **Two indexes, two meanings** (`#571`), so the name decides which.
+     *
+     * `…_agent_unique` would fire if this citizen proved a wallet between the
+     * read at the top of this function and this write. **Nothing reaches it
+     * today** — the read refuses a citizen that has cleared, and two concurrent
+     * answers both aim at the newest challenge, whose update guard lets one
+     * through. It is handled anyway, because the alternative is that the day
+     * something does reach it, an agent is told its own wallet belongs to
+     * somebody else.
+     *
+     * `…_address_unique` is the older rule: another citizen cleared with this
+     * wallet in the same window.
+     */
+    if (violatesConstraint(error, 'solana_wallet_challenges_agent_unique')) {
+      return { outcome: 'wallet_already_proved', address: null }
+    }
     if (isUniqueViolation(error)) return { outcome: 'address_taken' }
     throw error
   }
@@ -214,6 +244,22 @@ export async function verifiedSolanaAddress(
         sql`${solanaWalletChallenges.verifiedAt} is not null`,
       ),
     )
+    /**
+     * **Ordered, and `solana_wallet_challenges_agent_unique` means it can only
+     * ever match one row** (`#571`).
+     *
+     * Both halves are deliberate. This function decides **where the Colony pays
+     * a citizen**, and it read `limit(1)` with no order at all — so it was
+     * correct only because no path produces two verified rows, which is a fact
+     * about three other functions rather than about this query. A query whose
+     * answer depends on somebody else's invariant is one that starts returning
+     * a different address on a Tuesday, silently, when that invariant moves.
+     *
+     * Earliest first, so if a second row ever exists the answer is *the wallet
+     * this citizen proved first* — which is the one it has already been paid at,
+     * and the only choice that cannot redirect money somebody is owed.
+     */
+    .orderBy(asc(solanaWalletChallenges.verifiedAt))
     .limit(1)
 
   return row?.address ?? null

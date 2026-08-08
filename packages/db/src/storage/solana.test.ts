@@ -1,6 +1,6 @@
 import { generateKeyPairSync, sign as signWith } from 'node:crypto'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
-import { eq, sql } from 'drizzle-orm'
+import { and, eq, sql } from 'drizzle-orm'
 import { encodeBase58, RegisterAgentRequestSchema, type AgentId } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import { solanaWalletChallenges } from '../schema/index.js'
@@ -84,6 +84,20 @@ describe('the solana wallet rung', () => {
       address: signer.address,
       signature: signer.sign(challenge.nonce),
     })
+  }
+
+  /** How many verified rows this agent holds — the thing the index bounds. */
+  const countVerifiedFor = async (agent: AgentId): Promise<number> => {
+    const rows = await db
+      .select({ id: solanaWalletChallenges.id })
+      .from(solanaWalletChallenges)
+      .where(
+        and(
+          eq(solanaWalletChallenges.agentId, agent),
+          sql`${solanaWalletChallenges.verifiedAt} is not null`,
+        ),
+      )
+    return rows.length
   }
 
   describe('minting', () => {
@@ -190,7 +204,13 @@ describe('the solana wallet rung', () => {
       expect(result.outcome).toBe('bad_signature')
     })
 
-    it('refuses a second answer to the same nonce', async () => {
+    /**
+     * **`wallet_already_proved` and not `already_answered` since `#571`.** The
+     * two were one outcome, and the sentence the API attached to it ends *mint a
+     * fresh one if you want to sign again* — true of a spent nonce, false of a
+     * cleared rung, and an agent told to retry something that cannot work will.
+     */
+    it('tells an agent that has cleared that the rung is done, not that the nonce is spent', async () => {
       const signer = wallet()
       await clear(agentId, signer)
 
@@ -199,7 +219,10 @@ describe('the solana wallet rung', () => {
         signature: 'whatever',
       })
 
-      expect(again.outcome).toBe('already_answered')
+      expect(again.outcome).toBe('wallet_already_proved')
+      // The address it already holds, so the answer is checkable rather than
+      // only a refusal.
+      expect(again).toMatchObject({ address: signer.address })
     })
 
     it('refuses an agent that has minted nothing', async () => {
@@ -251,7 +274,61 @@ describe('the solana wallet rung', () => {
 
       const again = await clear(agentId)
 
-      expect(again.outcome).toBe('already_answered')
+      expect(again.outcome).toBe('wallet_already_proved')
+    })
+
+    /**
+     * `#571`, and this test says what is **not** reachable as much as what is.
+     *
+     * Two answers at once is the only shape that could ever have produced two
+     * verified rows for one citizen, and it cannot: `latestSolanaChallenge`
+     * returns the newest challenge to both callers, so both aim at the same row,
+     * and that row's update carries `signature is null` in its `WHERE`. The
+     * loser matches nothing and is told the nonce is spent.
+     *
+     * So the guarantee already held — resting on three separate things agreeing:
+     * the read's ordering, the update's guard, and the cleared-row preference
+     * above. `solana_wallet_challenges_agent_unique` is what turns *nobody has
+     * found a way through* into *there is none*, and it is the reason this test
+     * asserts the row count rather than only the outcomes.
+     */
+    it('lets only one of two concurrent answers land', async () => {
+      const signer = wallet()
+      const challenge = await mintSolanaChallenge(db, agentId)
+      const signature = signer.sign(challenge.nonce)
+
+      const results = await Promise.all([
+        answerSolanaChallenge(db, agentId, { address: signer.address, signature }),
+        answerSolanaChallenge(db, agentId, { address: signer.address, signature }),
+      ])
+
+      expect(results.filter((result) => result.outcome === 'verified')).toHaveLength(1)
+      expect(await countVerifiedFor(agentId)).toBe(1)
+
+      // Never `address_taken`: its sentence says another citizen holds the
+      // wallet, which would be false and alarming about the agent's own.
+      const lost = results.find((result) => result.outcome !== 'verified')
+      expect(['already_answered', 'wallet_already_proved']).toContain(lost?.outcome)
+    })
+
+    /**
+     * The second half of the same guarantee: a citizen with two open challenges
+     * cannot answer the older one at all, because the reader hands both callers
+     * the newest. Worth pinning, since it is what makes the race above harmless
+     * and it is not obvious from either function alone.
+     */
+    it('answers only the newest challenge, whichever nonce was signed', async () => {
+      const signer = wallet()
+      const older = await mintSolanaChallenge(db, agentId)
+      await mintSolanaChallenge(db, agentId)
+
+      const result = await answerSolanaChallenge(db, agentId, {
+        address: signer.address,
+        signature: signer.sign(older.nonce),
+      })
+
+      expect(result.outcome).toBe('bad_signature')
+      expect(await countVerifiedFor(agentId)).toBe(0)
     })
   })
 

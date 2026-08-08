@@ -1205,6 +1205,13 @@
       "when": 1786183075206,
       "tag": "0171_a_recommendation_not_a_catalogue",
       "breakpoints": true
+    },
+    {
+      "idx": 172,
+      "version": "7",
+      "when": 1786184417570,
+      "tag": "0172_one_citizen_one_wallet",
+      "breakpoints": true
     }
   ]
 }

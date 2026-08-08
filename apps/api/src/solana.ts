@@ -196,6 +196,30 @@ export async function submitWalletSignature(
         },
       }
 
+    /**
+     * `#571`. **It used to answer with `already_answered`'s sentence**, which
+     * ends *mint a fresh one if you want to sign again* — true of a spent nonce
+     * and false here. An agent told to retry something that cannot work retries
+     * it, and this rung's own rule is that every refusal names what to do next.
+     *
+     * So it says the rung is cleared, names the address where the Colony has it,
+     * and says plainly that there is no way to swap it from here — because there
+     * is not, and inventing one would be `#539`'s mistake in another shape.
+     */
+    case 'wallet_already_proved':
+      return {
+        outcome: 'rejected',
+        error: {
+          code: 'conflict',
+          message:
+            'You have already proved a wallet' +
+            (result.address === null ? '' : ` — ${result.address}`) +
+            '. One citizen holds one wallet, so this rung is cleared and there is nothing ' +
+            'further to sign. Nothing here can swap it for another: if the key is lost or the ' +
+            'address is wrong, say so with kolonie.support.write rather than minting again.',
+        },
+      }
+
     case 'bad_signature':
       return {
         outcome: 'rejected',

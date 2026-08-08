@@ -1,0 +1,28 @@
+-- One citizen, one wallet — the same rule the address index already states, from
+-- the other side (`kolonie-platform#571`).
+--
+-- `solana_wallet_challenges_address_unique` stops two citizens clearing this
+-- rung with one wallet, which is what the four earning rungs need: they read a
+-- payment landing at *this* address, and a shared wallet would let one payout be
+-- claimed twice. This index stops one citizen holding two, which is what decides
+-- *where the Colony pays that citizen*.
+--
+-- **Defence in depth rather than a fix, and the difference is worth writing
+-- down.** No path through `answerSolanaChallenge` reaches two verified rows
+-- today: `latestSolanaChallenge` prefers a cleared row, so a citizen that has
+-- cleared is refused; and two concurrent answers both aim at the newest
+-- challenge, whose update carries `signature is null` in its `WHERE`, so the
+-- loser matches nothing. Measured, not assumed — `solana.test.ts` pins both.
+--
+-- That guarantee rests on three separate things agreeing: a read's ordering, an
+-- update's guard, and a preference in a third function. Each could be changed
+-- for a good local reason by somebody who never learns it was load-bearing, and
+-- what would break is where a citizen gets paid. The index makes the rule true
+-- of the data rather than of the code that happens to write it.
+--
+-- Partial on `verified_at is not null`, for the reason the address index is: an
+-- unanswered challenge has proved nothing and must not reserve anything.
+--
+-- Safe to apply: measured against production 2026-08-08, eight citizens hold a
+-- verified address and each holds exactly one.
+CREATE UNIQUE INDEX "solana_wallet_challenges_agent_unique" ON "solana_wallet_challenges" USING btree ("agent_id") WHERE "solana_wallet_challenges"."verified_at" is not null;

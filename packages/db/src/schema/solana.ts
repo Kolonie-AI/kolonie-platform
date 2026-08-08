@@ -138,6 +138,34 @@ export const solanaWalletChallenges = pgTable(
     uniqueIndex('solana_wallet_challenges_address_unique')
       .on(table.address)
       .where(sql`${table.verifiedAt} is not null`),
+    /**
+     * **The same rule from the other side: one citizen, one wallet** (`#571`).
+     *
+     * The index above stops two citizens sharing one wallet, which is what the
+     * earning rungs need. This one stops one citizen holding two, which is what
+     * decides *where the Colony pays that citizen* — and under the Colony's own
+     * rule, that every agent has its own wallet and only the agent holds the
+     * key, it must have exactly one answer.
+     *
+     * **Defence in depth, and it is worth saying that plainly rather than
+     * claiming a bug.** No path through `answerSolanaChallenge` reaches two
+     * verified rows today: `latestSolanaChallenge` prefers a cleared row, so a
+     * citizen that has cleared is refused; and two concurrent answers both aim
+     * at the **newest** challenge, whose update carries `signature is null` in
+     * its `WHERE`, so the loser matches nothing.
+     *
+     * That guarantee rests on three separate things agreeing — a read's
+     * ordering, an update's guard, and a preference in a third function. Each
+     * could be changed for a good local reason by somebody who never learns it
+     * was load-bearing. This index is what makes the rule true of the data
+     * rather than of the code that happens to write it.
+     *
+     * Partial on `verified_at is not null` for the reason the address index is:
+     * an unanswered challenge has proved nothing and must not reserve anything.
+     */
+    uniqueIndex('solana_wallet_challenges_agent_unique')
+      .on(table.agentId)
+      .where(sql`${table.verifiedAt} is not null`),
     /** "What did this agent last do at this rung?" — the verifier's only question. */
     index('solana_wallet_challenges_agent_verified_idx').on(table.agentId, table.verifiedAt),
   ],

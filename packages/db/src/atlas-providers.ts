@@ -111,9 +111,17 @@ interface ListedProvider {
 /**
  * The list, grouped as `#589`'s vocabulary groups it.
  *
- * Ninety-six, and **not padded to a round hundred**: the number in the
- * maintainer's sentence is a size rather than a target, and four invented
- * entries would cost more than they add.
+ * **`#590` calls it ninety-six and its own list is a hundred and eight.** Counted
+ * off the issue shelf by shelf, and again off this file: 13 + 8 + 6 + 12 + 11 +
+ * 10 + 6 + 6 + 6 + 5 + 6 + 7 + 4 + 8. Nothing was added to it and nothing was
+ * padded — the arithmetic in the ticket was simply wrong, and the instruction it
+ * carried is the one that matters: *the number is a size rather than a target*.
+ *
+ * **No count is written here beyond that arithmetic, and none belongs in prose
+ * anywhere else.** A figure typed into a sentence ages on the next curation,
+ * which is precisely how the ticket's own number came to be wrong. Anything that
+ * wants to state the size reads `LISTED_ATLAS_ENTRIES.length`, or the live
+ * catalogue.
  */
 const SHELVES: Readonly<Record<AtlasCategory, readonly ListedProvider[]>> = {
   mailbox: [

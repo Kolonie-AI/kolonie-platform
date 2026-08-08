@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { TimestampSchema } from '../common/time.js'
 import { looksLikeCredential } from '../operator/request.js'
+import { AgentPlatformSchema } from '../agent/agent.js'
 import { AccountKindSchema, AccountProofMethodSchema, AccountProviderSchema } from './account.js'
 
 /**
@@ -131,6 +132,41 @@ export type RecipeStep = z.infer<typeof RecipeStepSchema>
 export const RECIPE_REFUSAL_MAX_LENGTH = 500
 
 /**
+ * How long the paragraph saying what a provider *is* may be (`#547`).
+ *
+ * **One paragraph and not a review.** `#547` asks a provider page to say what
+ * the provider is and why an agent would want an account there, and the failure
+ * mode of an unbounded field is a curator writing marketing copy for somebody
+ * else's product on a page whose value is that it does not.
+ */
+export const RECIPE_ABOUT_MAX_LENGTH = 800
+
+/** How long one runtime's difference may be. Two sentences, like a step. */
+export const RECIPE_RUNTIME_NOTE_MAX_LENGTH = 300
+
+/**
+ * Where one runtime's walk genuinely differs (`#547`).
+ *
+ * **Only where they genuinely do**, which is the constraint that keeps this from
+ * becoming the thing `#547` forbids. Two hundred providers times seven runtimes
+ * is 1400 pages of programmatic SEO, and the reason the honest version wins is
+ * that a page saying *here is what a Hermes agent does, here is what differs for
+ * a Claude agent* is informative where two hundred near-duplicates are not. A
+ * note that says nothing a reader could act on is a note that should not exist —
+ * so this is a short list on one page and never a page of its own.
+ */
+export const RecipeRuntimeNoteSchema = z
+  .object({
+    runtime: AgentPlatformSchema,
+    note: z.string().trim().min(1).max(RECIPE_RUNTIME_NOTE_MAX_LENGTH),
+  })
+  .strict()
+export type RecipeRuntimeNote = z.infer<typeof RecipeRuntimeNoteSchema>
+
+/** How many runtimes one entry may distinguish. One per known platform is the ceiling. */
+export const RECIPE_MAX_RUNTIME_NOTES = 8
+
+/**
  * How many accounts one operator may have the Colony help create at one provider in a
  * day, when nothing says otherwise (`#532`).
  *
@@ -172,6 +208,29 @@ export const ProviderRecipeSchema = z.object({
   provider: AccountProviderSchema,
   /** What the entry is called where an agent reads it. */
   title: z.string().trim().min(1).max(120),
+  /**
+   * What this provider is, and why an agent would want an account there (`#547`).
+   *
+   * Null on an entry nobody has written it for, which is an ordinary state: a
+   * recipe is worth publishing before its prose is.
+   */
+  about: z.string().max(RECIPE_ABOUT_MAX_LENGTH).nullable(),
+  /**
+   * Where a named runtime's walk differs, and nowhere else (`#547`).
+   *
+   * Empty is the common and correct answer. A note per runtime on every entry
+   * would be the combination page arriving as a list.
+   */
+  runtimes: z.array(RecipeRuntimeNoteSchema).max(RECIPE_MAX_RUNTIME_NOTES),
+  /**
+   * Whether this entry is paid for (`#543` rule 3, shown by `#547`).
+   *
+   * **A field on the entry and a marker on the page, never a footnote.** It buys
+   * nothing about inclusion, ordering or the visibility of a poor result —
+   * `atlasRank` cannot see it, and `#548` is where that is enforced in the rest
+   * of the data model.
+   */
+  paid: z.boolean(),
   /**
    * Whether an agent can currently join this provider honestly.
    *
@@ -217,6 +276,12 @@ export const WriteProviderRecipeSchema = z
     kind: AccountKindSchema,
     provider: AccountProviderSchema,
     title: z.string().trim().min(1).max(120),
+    /** What the provider is and why an agent would want one (`#547`). */
+    about: z.string().trim().min(1).max(RECIPE_ABOUT_MAX_LENGTH).optional(),
+    /** Where a named runtime genuinely differs, and nowhere else (`#547`). */
+    runtimes: z.array(RecipeRuntimeNoteSchema).max(RECIPE_MAX_RUNTIME_NOTES).default([]),
+    /** Whether the entry is paid for. Visible on the page, never a footnote. */
+    paid: z.boolean().default(false),
     joinable: z.boolean(),
     refusal: z.string().trim().min(1).max(RECIPE_REFUSAL_MAX_LENGTH).optional(),
     steps: z.array(RecipeStepSchema).max(RECIPE_MAX_STEPS).default([]),

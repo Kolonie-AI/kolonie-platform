@@ -198,6 +198,116 @@ describe('the Atlas on the website host', () => {
     })
   })
 
+  /**
+   * What a provider page says (`#547`), and the refusal underneath it: one page
+   * per provider, never one per provider × runtime.
+   */
+  describe('what a provider page carries', () => {
+    const rebuild = (write: (colony: FakeColony) => void) => async () => {
+      await app.close()
+      app = build()
+      write(colony)
+      await app.ready()
+    }
+
+    it('says what the provider is and why an agent would want one', async () => {
+      await rebuild((one) =>
+        one.recipes.write({
+          kind: 'trello',
+          provider: 'trello.com',
+          title: 'Trello',
+          about: 'A board an agent can keep its own work on.',
+        }),
+      )()
+
+      expect((await get('/atlas/trello.com')).body).toContain(
+        'A board an agent can keep its own work on.',
+      )
+    })
+
+    /**
+     * 200 providers × 7 runtimes is 1400 thin doorway pages, which
+     * `growth/README.md` forbids. The honest version names the runtimes on the
+     * one page and gives their real differences.
+     */
+    it('names runtime differences on the provider’s own page', async () => {
+      await rebuild((one) =>
+        one.recipes.write({
+          kind: 'github',
+          provider: 'github.com',
+          runtimes: [{ runtime: 'hermes', note: 'Hermes holds the token in its own vault.' }],
+        }),
+      )()
+
+      const body = (await get('/atlas/github.com')).body
+
+      expect(body).toContain('Where runtimes differ')
+      expect(body).toContain('Hermes holds the token in its own vault.')
+    })
+
+    it('renders no runtime section where nothing genuinely differs', async () => {
+      expect((await get('/atlas/github')).body).not.toContain('Where runtimes differ')
+    })
+
+    /**
+     * The structural half of the refusal: there is no route that could serve a
+     * combination page, so nothing can generate one.
+     */
+    it('has no route for a provider-and-runtime combination', async () => {
+      expect((await get('/atlas/github/hermes')).statusCode).toBe(404)
+    })
+
+    /** An empty page for every conceivable service is the doorway pattern by another route. */
+    it('has no page for a provider with no entry', async () => {
+      expect((await get('/atlas/notion.so')).statusCode).toBe(404)
+    })
+
+    /**
+     * `#543` rule 3: the marker is on the page, not in a footnote. A disclosure
+     * a reader reaches after deciding is not a disclosure.
+     */
+    it('states plainly when an entry is paid for, and what that does not buy', async () => {
+      await rebuild((one) =>
+        one.recipes.write({ kind: 'mailbox', provider: 'sponsored.test', paid: true }),
+      )()
+
+      const body = (await get('/atlas/sponsored.test')).body
+
+      expect(body).toContain('This entry is paid for.')
+      expect(body).toContain('not its position in the index')
+    })
+
+    it('marks a paid entry on the index too', async () => {
+      await rebuild((one) =>
+        one.recipes.write({ kind: 'mailbox', provider: 'sponsored.test', paid: true }),
+      )()
+
+      expect((await get('/atlas')).body).toContain('paid')
+    })
+
+    /**
+     * Paying buys the entry and nothing else. This is the property that makes
+     * that structural: `atlasRank` is not given the field, so no edit can weight
+     * it without adding an argument somebody reviews.
+     */
+    it('does not move a paid entry up the index', async () => {
+      await rebuild((one) => {
+        one.recipes.write({ kind: 'mailbox', provider: 'sponsored.test', paid: true })
+        one.recipes.measure({ ...noFigures('mailbox', 'sponsored.test'), attempted: 20, proved: 1 })
+        one.recipes.measure({ ...noFigures('github', 'github'), attempted: 20, proved: 18 })
+      })()
+
+      const body = (await get('/atlas')).body
+
+      expect(body.indexOf('/atlas/github')).toBeLessThan(body.indexOf('/atlas/sponsored.test'))
+    })
+
+    /** A recipe describes a path that worked. The provider decides, and can change. */
+    it('never claims a provider will accept an agent', async () => {
+      expect((await get('/atlas/github')).body).toContain('not a promise')
+    })
+  })
+
   describe('caching, because this is the first public traffic the API takes', () => {
     it('lets the edge and the browser cache a page', async () => {
       const cacheControl = (await get('/atlas')).headers['cache-control']

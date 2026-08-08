@@ -2,9 +2,11 @@ import { and, asc, eq, sql } from 'drizzle-orm'
 import {
   AccountKindSchema,
   AccountProviderSchema,
+  RecipeRuntimeNoteSchema,
   RecipeStepSchema,
   type AccountKind,
   type ProviderRecipe,
+  type RecipeRuntimeNote,
   type RecipeStep,
 } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
@@ -23,6 +25,12 @@ function toRecipe(row: typeof providerRecipes.$inferSelect): ProviderRecipe {
     kind: AccountKindSchema.parse(row.kind),
     provider: AccountProviderSchema.parse(row.provider),
     title: row.title,
+    about: row.about,
+    /** Parsed on the way out for the reason `steps` is: `jsonb` accepts whatever was written. */
+    runtimes: (row.runtimes ?? []).map((note: RecipeRuntimeNote) =>
+      RecipeRuntimeNoteSchema.parse(note),
+    ),
+    paid: row.paid,
     joinable: row.joinable,
     refusal: row.refusal,
     /**
@@ -101,6 +109,9 @@ export async function writeProviderRecipe(
     readonly kind: AccountKind
     readonly provider: string
     readonly title: string
+    readonly about?: string | null
+    readonly runtimes?: readonly RecipeRuntimeNote[]
+    readonly paid?: boolean
     readonly joinable: boolean
     readonly refusal?: string | null
     readonly steps: readonly RecipeStep[]
@@ -113,6 +124,9 @@ export async function writeProviderRecipe(
     kind: entry.kind,
     provider: entry.provider,
     title: entry.title,
+    about: entry.about ?? null,
+    runtimes: [...(entry.runtimes ?? [])],
+    paid: entry.paid ?? false,
     joinable: entry.joinable,
     refusal: entry.refusal ?? null,
     steps: [...entry.steps],

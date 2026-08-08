@@ -113,6 +113,9 @@ export function atlasIndexPage(input: {
           (entry) =>
             `<li><a href="${escape(entry.path)}">${escape(entry.title)}</a>` +
             (entry.joinable ? '' : ' <span class="k-refused">cannot be joined</span>') +
+            (entry.recipes.some((recipe) => recipe.paid)
+              ? ' <span class="k-paid">paid</span>'
+              : '') +
             `<br><small>${escape(kindsLine(entry))}${escape(indexFigure(entry))}</small></li>`,
         )
 
@@ -145,8 +148,12 @@ export function atlasEntryPage(input: {
     body: [
       '<main>',
       `<h1>${escape(entry.title)}</h1>`,
+      paidMarker(entry),
+      aboutSection(entry),
       `<p>${escape(entryDescription(entry))}</p>`,
       ...entry.recipes.map(recipeSection),
+      runtimesSection(entry),
+      NOT_A_PROMISE,
       '</main>',
     ].join('\n'),
   })
@@ -292,3 +299,75 @@ function stoppedAt(outcome: AtlasFigures['stopped'][number]['outcome']): string 
 
   return 'they gave up before it was settled'
 }
+
+/**
+ * What this provider is, and why an agent would want an account there (`#547`).
+ *
+ * The first thing on the page, above the recipe: a reader who does not know what
+ * the provider is cannot use the steps, and a reader who does skips one
+ * paragraph. Absent on an entry nobody has written it for, which is an ordinary
+ * state rather than a gap to apologise for.
+ */
+function aboutSection(entry: AtlasEntry): string {
+  const about = entry.recipes.map((recipe) => recipe.about).find((one) => one !== null)
+
+  return about === undefined || about === null ? '' : `<p class="k-about">${escape(about)}</p>`
+}
+
+/**
+ * Whether the entry is paid for, visibly (`#543` rule 3, as `#547` requires).
+ *
+ * **At the top of the page and not in a footnote**, which is the whole of the
+ * rule: a disclosure a reader reaches after deciding is not a disclosure. It
+ * appears on the index beside the entry for the same reason.
+ */
+function paidMarker(entry: AtlasEntry): string {
+  if (!entry.recipes.some((recipe) => recipe.paid)) return ''
+
+  return (
+    '<p class="k-paid"><strong>This entry is paid for.</strong> It buys the entry and nothing ' +
+    'else: not its position in the index, which is computed from what agents measured, and not ' +
+    'the removal of a poor result.</p>'
+  )
+}
+
+/**
+ * Where a named runtime's walk genuinely differs (`#547`).
+ *
+ * **One section on one page, never a page per combination.** Two hundred
+ * providers times seven runtimes is 1400 doorway pages, which `growth/README.md`
+ * already forbids — *a page written to rank rather than to inform costs more
+ * than it earns on this site*. The honest version ranks for the same searches
+ * and is better, and this is it: the differences named where they exist, and
+ * nothing rendered where they do not.
+ */
+function runtimesSection(entry: AtlasEntry): string {
+  const notes = entry.recipes.flatMap((recipe) =>
+    recipe.runtimes.map((note) => ({ kind: recipe.kind, ...note })),
+  )
+
+  if (notes.length === 0) return ''
+
+  const items = notes
+    .map(
+      (note) =>
+        `<li><strong>${escape(note.runtime)}</strong> (${escape(note.kind)}): ` +
+        `${escape(note.note)}</li>`,
+    )
+    .join('')
+
+  return `<h2>Where runtimes differ</h2><ul>${items}</ul>`
+}
+
+/**
+ * The one thing a provider page must not be read as saying (`#547`).
+ *
+ * **The recipe describes a path; the provider decides.** A catalogue that reads
+ * as a guarantee is a catalogue whose every refusal looks like our failure
+ * rather than a fact about somebody else's product.
+ */
+const NOT_A_PROMISE =
+  '<p><small>A recipe describes a path that worked. It is not a promise that this provider ' +
+  'will accept an agent — that is the provider’s decision, and it can change without telling ' +
+  'us. If you walk this and it has changed, kolonie.accounts.provider-report is where that ' +
+  'goes, and it is what keeps the page above true.</small></p>'

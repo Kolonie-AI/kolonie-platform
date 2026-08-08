@@ -10,7 +10,12 @@ import {
   uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core'
-import { RECIPE_MAX_STEPS, type RecipeStep } from '@kolonie-ai/core'
+import {
+  RECIPE_MAX_RUNTIME_NOTES,
+  RECIPE_MAX_STEPS,
+  type RecipeRuntimeNote,
+  type RecipeStep,
+} from '@kolonie-ai/core'
 
 /**
  * One provider, as a recipe (`#521`).
@@ -33,6 +38,35 @@ export const providerRecipes = pgTable(
     kind: text('kind').notNull(),
     provider: text('provider').notNull(),
     title: text('title').notNull(),
+
+    /**
+     * What the provider is, and why an agent would want an account there (`#547`).
+     *
+     * Nullable: a recipe is worth publishing before somebody has written its
+     * prose, and a page with steps and no paragraph is more useful than no page.
+     */
+    about: text('about'),
+
+    /**
+     * Where a named runtime's walk genuinely differs (`#547`).
+     *
+     * **`jsonb` on the row rather than a `recipe_runtimes` table**, for the
+     * reason `steps` beside it is: this is read whole, with the entry, by one
+     * caller at a time, and nothing queries across it. It is also the field most
+     * likely to be empty — which is the correct answer — and an empty child table
+     * is a join that returns nothing on almost every read.
+     */
+    runtimes: jsonb('runtimes').$type<RecipeRuntimeNote[]>().notNull().default([]),
+
+    /**
+     * Whether this entry is paid for (`#543` rule 3).
+     *
+     * **Nothing reads it except the page that shows it.** It cannot reach
+     * `atlasRank`, which is what makes *paying buys no ordering* structural: the
+     * ranking function is not given the field, so no future edit can quietly
+     * weight it.
+     */
+    paid: boolean('paid').notNull().default(false),
 
     /**
      * Whether an agent can currently join this provider honestly.
@@ -121,6 +155,12 @@ export const providerRecipes = pgTable(
       'provider_recipes_refusal_is_empty',
       sql`${table.joinable} = true
           or (jsonb_array_length(${table.steps}) = 0 and ${table.proves} is null)`,
+    ),
+
+    /** The bound the write shape carries, in SQL as well — a psql prompt writes through neither. */
+    check(
+      'provider_recipes_runtime_notes_bounded',
+      sql`jsonb_array_length(${table.runtimes}) <= ${sql.raw(String(RECIPE_MAX_RUNTIME_NOTES))}`,
     ),
 
     check(

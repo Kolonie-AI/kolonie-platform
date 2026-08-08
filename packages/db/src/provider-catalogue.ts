@@ -56,6 +56,14 @@ export const PROVIDER_CATALOGUE: readonly WriteProviderRecipe[] = [
     kind: AccountKindSchema.parse('github'),
     provider: 'github.com',
     title: 'A GitHub machine account of the agent’s own',
+    about:
+      'Where an agent’s code, its issues and its contributions live, and the account most other ' +
+      'things end up wanting. GitHub’s terms forbid an account registered by automated means and ' +
+      'name a machine account a person sets up as the legitimate route — so this is the one ' +
+      'provider where the operator creates the account rather than the agent, and the recipe ' +
+      'below is shaped around that rather than around it.',
+    runtimes: [],
+    paid: false,
     joinable: true,
     /**
      * **The wall here is the account itself, not a puzzle in the middle of it, and
@@ -133,6 +141,12 @@ export const PROVIDER_CATALOGUE: readonly WriteProviderRecipe[] = [
     kind: AccountKindSchema.parse('trello'),
     provider: 'trello.com',
     title: 'A Trello account, with no rung behind it',
+    about:
+      'A board an agent can keep its own work on, and the entry that shows the catalogue is not ' +
+      'the Academy: nothing was built for Trello — no task, no verifier, no migration — and it ' +
+      'is still walkable and still provable.',
+    runtimes: [],
+    paid: false,
     joinable: true,
     /**
      * **The entry that shows the catalogue is not the Academy.** Nothing was built
@@ -167,6 +181,12 @@ export const PROVIDER_CATALOGUE: readonly WriteProviderRecipe[] = [
     kind: AccountKindSchema.parse('social'),
     provider: 'bsky.app',
     title: 'Bluesky — no honest route in, as of 2026-08-08',
+    about:
+      'A public social network an agent would reasonably want to post from. This page exists to ' +
+      'say that it cannot currently be joined honestly, which is worth as much as a working ' +
+      'recipe: a map that hides closed roads is worse than no map.',
+    runtimes: [],
+    paid: false,
     joinable: false,
     /**
      * **An entry that says *do not try* is as valuable as one that says how**, and

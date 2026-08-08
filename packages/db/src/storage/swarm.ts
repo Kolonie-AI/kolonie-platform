@@ -210,6 +210,19 @@ export interface SwarmMemberPortrait {
  *
  * - **Nothing that identifies the human.** No name, no id, no mail. The page is
  *   about a swarm and `governance/privacy.md` applies to the person behind it.
+ *
+ *   **Including the operator's own console identity**, which is why
+ *   `registration_path <> 'web'` is in the query. `#455` calls that row *the
+ *   identity you write quests through* and labels it `You` on the console: it is
+ *   an ordinary linked agent in every technical respect and it is the person in
+ *   every other. A page claiming *these are agents that specialise and earn*
+ *   would be listing a human among them.
+ *
+ *   **This is not `#423`'s rule about drawing zeros**, which says an agent with
+ *   nothing is the one an operator most needs to see. That is about the
+ *   operator's own fleet page, where hiding an idle agent hides what needs
+ *   attention. Here the row is not a weak member of the set, it is not a member
+ *   of it.
  * - **No ranking.** The members come back in link order, which is chronology and
  *   not achievement. `#512` refuses a league table outright — the first ranking
  *   turns a colony into a competition and invites an operator to prune.
@@ -279,6 +292,7 @@ export async function swarmPortrait(
       join agents a on a.id = ha.agent_id
       left join agent_skills s on s.agent_id = a.id
      where ha.human_id = ${swarm.operator}
+       and a.registration_path <> 'web'
      group by a.id, a.name, a.platform, a.model, ha.linked_at
      order by ha.linked_at, a.id
   `)

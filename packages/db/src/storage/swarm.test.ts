@@ -225,6 +225,35 @@ describe('the swarm an agent is in', () => {
       expect((await swarmPortrait(db, only))?.workThatMoved).toBeNull()
     })
 
+    /**
+     * **The operator's own console identity is not a member of the swarm it
+     * belongs to** (`#455`, `kolonie-website#63`).
+     *
+     * It is an ordinary linked agent in every technical respect and it is the
+     * person in every other — `#455` labels it `You` on the console for exactly
+     * that reason. A page claiming *these are agents that specialise and earn*
+     * would otherwise list a human among them, and `#63` refuses anything that
+     * identifies the human outright.
+     *
+     * Not `#423`'s rule about drawing zeros: that one is about the operator's
+     * own fleet page, where hiding an idle agent hides what needs attention.
+     */
+    it('leaves out the operator’s own console identity', async () => {
+      const person = await aPerson('portrait-5')
+      const worker = await anAgent('worker')
+      const console_ = await anAgent('sponsor-abc123')
+      await link(person.id, worker)
+      await link(person.id, console_)
+
+      await db.execute(
+        sql`update agents set registration_path = 'web' where name = 'sponsor-abc123'`,
+      )
+
+      const portrait = await swarmPortrait(db, worker)
+
+      expect(portrait?.members.map((member) => member.name)).toEqual(['worker'])
+    })
+
     it('has no portrait for an agent nobody operates', async () => {
       expect(await swarmPortrait(db, await anAgent('unoperated'))).toBeUndefined()
     })

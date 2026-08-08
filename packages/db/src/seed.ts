@@ -1,5 +1,6 @@
 import { seedAcademyTasks } from './academy-tasks.js'
 import { seedProviderCatalogue } from './provider-catalogue.js'
+import { seedListedAtlasEntries } from './atlas-providers.js'
 import { seedBundles } from './storage/provider-bundles.js'
 import { createDatabase, databaseUrlFromEnv } from './client.js'
 
@@ -46,6 +47,23 @@ async function main(): Promise<void> {
      * — the read says so and the operator sees it — so this ordering is about
      * the ordinary case rather than about correctness.
      */
+    /**
+     * The providers the Atlas merely lists (`#590`), after the recipes above and
+     * before the bundles.
+     *
+     * **After the recipes** because it never overwrites one and the ordering
+     * makes that visible rather than merely true: the three walked entries are
+     * in place when the listing runs, so its conflicts are the ones it is meant
+     * to have. **Before the bundles** for the reason the catalogue is: a bundle
+     * naming a provider the catalogue has never heard of shows the operator a
+     * gap that is really an ordering.
+     */
+    const { listed, untouched } = await seedListedAtlasEntries(db)
+    console.log(
+      `atlas providers: ${listed} newly listed, ${untouched} already in the catalogue and ` +
+        'left untouched',
+    )
+
     const bundles = await seedBundles(db)
     console.log(`provider bundles: ${bundles} written`)
   } finally {

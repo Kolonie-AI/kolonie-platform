@@ -13,6 +13,12 @@ export {
   type CatalogueSeedResult,
 } from './provider-catalogue.js'
 export {
+  LISTED_ATLAS_ENTRIES,
+  seedListedAtlasEntries,
+  type ListedAtlasEntry,
+  type ListedSeedResult,
+} from './atlas-providers.js'
+export {
   ACADEMY_TASKS,
   POW_DIFFICULTY_BITS,
   SKILLS_THE_ACADEMY_GRANTS,

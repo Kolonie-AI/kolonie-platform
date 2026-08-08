@@ -205,6 +205,53 @@ export async function writeProviderRecipe(
 }
 
 /**
+ * List a provider nobody has walked, if the catalogue does not have it (`#590`).
+ *
+ * **`onConflictDoNothing` and never the upsert `writeProviderRecipe` uses**, and
+ * the difference is the whole reason this is a second function rather than a
+ * flag. What is written here is a name on a shelf; what may already be there is
+ * a recipe somebody walked. An upsert would replace the second with the first,
+ * which does not merely lose the steps — it replaces *this is how you join* with
+ * *nobody has looked*, erasing the fact that anybody ever did.
+ *
+ * Returns whether a row was created, so the seed can report what it changed
+ * rather than printing the same line on every deploy.
+ */
+export async function listAtlasProvider(
+  db: Database,
+  entry: {
+    readonly kind: AccountKind
+    readonly provider: string
+    readonly title: string
+    readonly category: AtlasCategory
+    readonly operatorGuess?: RecipeOperatorGuess
+  },
+): Promise<boolean> {
+  const written = await db
+    .insert(providerRecipes)
+    .values({
+      kind: entry.kind,
+      provider: AccountProviderSchema.parse(entry.provider),
+      title: entry.title,
+      category: entry.category,
+      operatorGuess: entry.operatorGuess ?? null,
+      /**
+       * The three things a listing must not carry, written explicitly rather
+       * than left to the column defaults: steps, a proof and a refusal are each
+       * a claim that somebody looked.
+       */
+      status: 'unwritten',
+      steps: [],
+      proves: null,
+      refusal: null,
+    })
+    .onConflictDoNothing({ target: [providerRecipes.kind, providerRecipes.provider] })
+    .returning({ id: providerRecipes.id })
+
+  return written.length > 0
+}
+
+/**
  * A citizen walked this entry and it worked (`#525`).
  *
  * Separate from `writeProviderRecipe` because it changes nothing about the

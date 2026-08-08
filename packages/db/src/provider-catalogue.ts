@@ -228,6 +228,16 @@ export async function seedProviderCatalogue(db: Database): Promise<CatalogueSeed
       kind: entry.kind,
       provider: entry.provider,
       title: entry.title,
+      /**
+       * **`about`, `runtimes` and `paid` were declared here and never written**,
+       * so the paragraph each entry carries reached no page. Passed through now
+       * (`#590`), because the listing seed beside this one makes the catalogue a
+       * hundred rows and an entry whose prose silently vanishes is harder to
+       * notice in a hundred than in three.
+       */
+      about: entry.about ?? null,
+      runtimes: entry.runtimes,
+      paid: entry.paid,
       status: entry.status,
       category: entry.category,
       operatorGuess: entry.operatorGuess ?? null,

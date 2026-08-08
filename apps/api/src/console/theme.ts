@@ -101,6 +101,30 @@ export const CONSOLE_TOKENS: Readonly<Record<string, string>> = {
 
   '--k-measure': '68ch',
 
+  /**
+   * **The composition width, and it is a different thing from `--k-measure`**
+   * (`#584`, taking `kolonie-website#81`'s decision rather than making a second
+   * one).
+   *
+   * `--k-measure` caps a *line of prose* so the eye does not lose its place.
+   * This caps the *composition* — the masthead's row, each section of a page,
+   * the footer — so that at a width nobody designed for the page is something
+   * arranged on a field rather than a row stretched across one.
+   *
+   * **The same 80rem the site uses.** Measured 2026-08-08: the console rendered
+   * at `46rem` (736px) against `kolonie.ai`'s `80rem` (1280px), so somebody
+   * moving from the site to the console landed on a page a little over half as
+   * wide, on the same screen, in the same session. The console never received
+   * `#81` because it has its own stylesheet in its own repository — the cost of
+   * the split (D-062), not an argument against it.
+   *
+   * **Tables and forms take this width and not the prose one.** They are most of
+   * what an operator is here for, and capping the queue, the wish list and the
+   * quests table at a paragraph's width was never a decision anybody made — it
+   * was one number doing two jobs.
+   */
+  '--k-container': '80rem',
+
   /* Spacing, on a 4px step, and the vertical rhythm above it. */
   '--k-space-1': '0.25rem',
   '--k-space-2': '0.5rem',
@@ -159,7 +183,7 @@ ${declarations(LOCAL_TOKENS)}
     color: var(--k-text);
     background: var(--k-bg);
     margin: 0 auto;
-    max-width: 46rem;
+    max-width: var(--k-container);
     padding: var(--k-space-6) var(--k-space-4) var(--k-space-7);
   }
 
@@ -180,6 +204,12 @@ ${declarations(LOCAL_TOKENS)}
   h3 { font-size: var(--k-text-lg); margin: var(--k-space-5) 0 var(--k-space-2); }
 
   p { margin: 0 0 var(--k-space-4); max-width: var(--k-measure); }
+
+  /* Running text, wherever it is not a paragraph. An unclassed list in the
+     console is prose with bullets on it, and it reads at a paragraph's width for
+     the same reason a paragraph does. A list that carries a class is a component
+     and sizes itself. */
+  ul:not([class]), ol:not([class]) { max-width: var(--k-measure); }
 
   a { color: var(--k-accent); text-underline-offset: 0.2em; }
   a:hover { color: var(--k-accent-strong); }
@@ -220,6 +250,12 @@ ${declarations(LOCAL_TOKENS)}
     border-radius: var(--k-radius);
     padding: var(--k-space-2) var(--k-space-3);
     width: 100%;
+    /* **Full width of the form, not of the composition** (#584). A table wants
+       the whole 80rem and gets it; a text field that is 1280px long is not a
+       better text field, and the cursor ends up somewhere the eye is not. This
+       is the one place the prose measure is doing a layout job rather than a
+       reading one, and it is doing it deliberately. */
+    max-width: var(--k-measure);
     box-sizing: border-box;
   }
   input[type="radio"] { width: auto; accent-color: var(--k-accent); }

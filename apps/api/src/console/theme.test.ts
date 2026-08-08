@@ -133,3 +133,50 @@ describe('the tokens the drift check compares', () => {
     expect(CONSOLE_STYLE).not.toContain('JetBrains')
   })
 })
+
+/**
+ * Two widths, and neither is doing the other's job (`#584`).
+ *
+ * `kolonie-website#81` split them on the site and argued it there: a prose
+ * measure caps a *line* so the eye does not lose its place; a container caps the
+ * *composition* so a page at a width nobody designed for is arranged on a field
+ * rather than stretched across one. The console never received that change,
+ * because it has its own stylesheet in its own repository — so until this it
+ * rendered at 736px beside the site's 1280px, and a person signing in appeared
+ * to change products.
+ */
+describe('the console’s two widths', () => {
+  it('composes at the same width the site does', () => {
+    expect(CONSOLE_TOKENS['--k-container']).toBe('80rem')
+    expect(rules).toMatch(/max-width:\s*var\(--k-container\)/)
+  })
+
+  /** The number `#584` was measured against. It must not come back by hand. */
+  it('caps nothing at 46rem any more', () => {
+    expect(CONSOLE_STYLE).not.toContain('46rem')
+  })
+
+  it('still caps running text at the prose measure', () => {
+    expect(CONSOLE_TOKENS['--k-measure']).toBe('68ch')
+    expect(rules).toMatch(/\bp\s*\{[^}]*max-width:\s*var\(--k-measure\)/)
+    expect(rules).toMatch(/ul:not\(\[class\]\)[^{]*\{[^}]*max-width:\s*var\(--k-measure\)/)
+  })
+
+  /**
+   * The tables are what the change is for: the queue, the wish list and the
+   * quests table were squeezed into a paragraph's width by one number doing two
+   * jobs.
+   */
+  it('lets a table take the whole composition', () => {
+    expect(rules).toMatch(/\btable\s*\{[^}]*width:\s*100%/)
+    expect(rules).not.toMatch(/\btable\s*\{[^}]*max-width:\s*var\(--k-measure\)/)
+  })
+
+  /**
+   * And the one place the prose measure does a layout job on purpose: a text
+   * field 1280px long is not a better text field.
+   */
+  it('keeps a text field to a length somebody can read back', () => {
+    expect(rules).toMatch(/input,\s*textarea\s*\{[^}]*max-width:\s*var\(--k-measure\)/)
+  })
+})

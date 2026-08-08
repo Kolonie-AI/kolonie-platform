@@ -186,6 +186,27 @@ describe('the page that asks a browser wallet to sign', () => {
   })
 
   /**
+   * **Every wallet that answered gets a button**, and the first version of this
+   * page did not: it labelled one button after `wallets[0]` and signed with it,
+   * which on a browser holding two wallets makes the second unreachable. A page
+   * that offers whichever wallet registered first is not wallet-agnostic, and
+   * `#539`'s *works in at least two wallets* cannot even be demonstrated on it.
+   *
+   * Asserted on the script because the choice is made in the browser: what a
+   * test here can hold is that the code iterates the discovered wallets rather
+   * than indexing one out of them.
+   */
+  it('offers every wallet that answered, not whichever registered first', async () => {
+    const script = (
+      await app.inject({ method: 'GET', url: WALLET_SCRIPT_PATH, headers: { host: CONSOLE_HOST } })
+    ).body
+
+    expect(script).toContain('for (const wallet of state.wallets)')
+    expect(script).not.toContain('state.wallets[0]')
+    expect(script).toContain('wallet-choices')
+  })
+
+  /**
    * The CSP exception, which is this page's whole cost: `CONSOLE_HEADERS` says
    * the console's policy can be that strict *because the pages carry no script*.
    * Two sources are added and both are `'self'`.

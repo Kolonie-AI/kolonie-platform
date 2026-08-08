@@ -214,9 +214,9 @@ async function post(path, body) {
   return payload
 }
 
-async function prove(wallet) {
-  const button = document.getElementById('wallet-sign')
-  if (button !== null) button.disabled = true
+async function prove(wallet, choices) {
+  const button = choices.querySelector('button')
+  if (button === null) return
 
   try {
     say('working', 'Asking the Colony for a nonce…')
@@ -235,10 +235,25 @@ async function prove(wallet) {
     // the prompt and said no, which is exactly what the prompt is for.
     const message = error && error.message ? error.message : String(error)
     say('failed', message)
-    if (button !== null) button.disabled = false
+    // Every choice comes back, so a refusal in one wallet can be retried in
+    // another rather than needing a reload.
+    for (const other of choices.querySelectorAll('button')) other.disabled = false
   }
 }
 
+/**
+ * One button per wallet that answered, and that is not a flourish.
+ *
+ * The first version labelled the single button after wallets[0] and signed with
+ * it. On a browser holding two wallets that makes the second unreachable — so a
+ * page written to be wallet-agnostic would have offered whichever wallet
+ * happened to register first and no way to reach the other. #539 asks that this
+ * work in at least two wallets, and a person cannot demonstrate that on a page
+ * that only ever offers one.
+ *
+ * With one wallet installed it renders exactly as before: a single button that
+ * names it.
+ */
 function start() {
   state.wallets = discover()
 
@@ -254,13 +269,26 @@ function start() {
     return
   }
 
-  const wallet = state.wallets[0]
-  button.textContent = 'Sign with ' + wallet.name
-  button.disabled = false
+  const choices = document.createElement('p')
+  choices.id = 'wallet-choices'
+
+  for (const wallet of state.wallets) {
+    // Cloned from the rendered button so every choice carries the same data
+    // attributes — the two paths the page posts to live on it.
+    const choice = button.cloneNode(false)
+    choice.id = ''
+    choice.disabled = false
+    choice.textContent = 'Sign with ' + wallet.name
+    choice.addEventListener('click', () => {
+      for (const other of choices.querySelectorAll('button')) other.disabled = true
+      void prove(wallet, choices)
+    })
+    choices.appendChild(choice)
+    choices.appendChild(document.createTextNode(' '))
+  }
+
+  button.replaceWith(choices)
   say('ready', state.wallets.length === 1 ? '' : state.wallets.length + ' wallets answered.')
-  button.addEventListener('click', () => {
-    void prove(wallet)
-  })
 }
 
 // The wallets register on app-ready, and a wallet whose own script has not run

@@ -139,6 +139,38 @@ export function atlasEntries(
 }
 
 /**
+ * The catalogue as data, for a reader with no credential (`#551`).
+ *
+ * **Not what the website is built from** — `#546` settled that the pages are
+ * rendered by the API rather than from a feed, so this blocks nothing and should
+ * not pretend to. What it is for is `llms-full.txt` reading a bounded index
+ * rather than the website holding a copy, third parties who want to tell their
+ * own users which providers an agent can join, and the plainest reason of all:
+ * **the Atlas is only worth trusting if it can be checked**, and a catalogue
+ * readable only through our own pages is one nobody can audit.
+ */
+export const AtlasDocumentSchema = z.object({
+  /**
+   * When this answer was assembled.
+   *
+   * **A consumer has to be able to tell a stale copy from a current one**, and
+   * the entries' own `updatedAt` cannot do it: a catalogue nobody edited for a
+   * month and a cached response from a month ago look identical through them.
+   */
+  generatedAt: TimestampSchema,
+  /**
+   * How long this may be treated as current, in seconds.
+   *
+   * Stated in the document as well as in the header, because a consumer that
+   * stored the body has thrown the header away — and the one that did is exactly
+   * the one at risk of serving a year-old catalogue as fact.
+   */
+  maxAgeSeconds: z.int().min(0),
+  entries: z.array(AtlasEntrySchema),
+})
+export type AtlasDocument = z.infer<typeof AtlasDocumentSchema>
+
+/**
  * How a figure is looked up: the pair that identifies the recipe it measures.
  *
  * A NUL separator rather than a hyphen or a colon, because both are legal inside

@@ -9,6 +9,13 @@ While the version is `0.x`, **breaking changes bump the minor version**.
 
 ### Added
 
+- **The Atlas catalogue as data, for a reader with no credential**
+  (`kolonie-platform#551`). `AtlasDocumentSchema` and `AtlasDocument`.
+
+  **`generatedAt` and `maxAgeSeconds` are in the body, not only in the header.**
+  A consumer that stored the response has thrown the header away, and it is
+  exactly the one at risk of serving a year-old catalogue as current.
+
 - **What an Atlas provider page says** (`kolonie-platform#547`).
   `RECIPE_ABOUT_MAX_LENGTH`, `RECIPE_RUNTIME_NOTE_MAX_LENGTH`,
   `RECIPE_MAX_RUNTIME_NOTES`, `RecipeRuntimeNoteSchema` and `RecipeRuntimeNote`;

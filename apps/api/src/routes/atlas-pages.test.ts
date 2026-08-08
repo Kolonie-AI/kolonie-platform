@@ -340,6 +340,56 @@ describe('the Atlas on the website host', () => {
     })
   })
 
+  /**
+   * The catalogue as data (`#551`). The Atlas is only worth trusting if it can
+   * be checked, and one readable only through our own pages cannot be.
+   */
+  describe('the catalogue as data', () => {
+    const document = async () => JSON.parse((await get('/atlas/catalogue.json')).body)
+
+    it('answers a reader with no credential at all', async () => {
+      const response = await get('/atlas/catalogue.json')
+
+      expect(response.statusCode).toBe(200)
+      expect(response.headers['content-type']).toContain('application/json')
+    })
+
+    it('carries the recipes, whether they can be joined, and the figures', async () => {
+      await app.close()
+      app = build()
+      colony.recipes.measure({ ...noFigures('github', 'github'), attempted: 30, proved: 12 })
+      await app.ready()
+
+      const body = await document()
+      const github = body.entries.find((one: { provider: string }) => one.provider === 'github')
+      const bluesky = body.entries.find((one: { provider: string }) => one.provider === 'bluesky')
+
+      expect(github.recipes[0].steps).toHaveLength(2)
+      expect(github.recipes[0].figures.attempted).toBe(30)
+      expect(bluesky.joinable).toBe(false)
+      expect(bluesky.recipes[0].refusal).toContain('phone number')
+    })
+
+    /**
+     * A consumer that stored the body has thrown the header away, and it is
+     * exactly the one at risk of serving a year-old catalogue as fact.
+     */
+    it('dates itself in the body as well as in the header', async () => {
+      const body = await document()
+
+      expect(typeof body.generatedAt).toBe('string')
+      expect(body.maxAgeSeconds).toBeGreaterThan(0)
+    })
+
+    it('is cacheable on the same terms as the pages', async () => {
+      expect((await get('/atlas/catalogue.json')).headers['cache-control']).toContain('public')
+    })
+
+    it('is not read as a provider called catalogue.json', async () => {
+      expect((await document()).entries).toBeDefined()
+    })
+  })
+
   describe('a renamed entry', () => {
     it('redirects permanently from the path it used to be at', async () => {
       await colony.renames.rename('twitter', 'x')
@@ -419,6 +469,32 @@ describe('the Atlas on the website host', () => {
 
         expect(credentialed.body).toBe(anonymous.body)
       }
+    })
+
+    /**
+     * The data route the same way, minus the one field that is *supposed* to
+     * differ between two requests.
+     *
+     * **`generatedAt` is compared out rather than the route being excused.** A
+     * whole-body equality here would be a flake — the timestamp is the point of
+     * the field — and dropping the route from the check would leave the surface
+     * a third party stores a URL to as the only one nothing guards.
+     */
+    it('answers the data route with the same content for a credentialed reader', async () => {
+      const withoutTime = (body: string) => {
+        const parsed = JSON.parse(body)
+        delete parsed.generatedAt
+        return JSON.stringify(parsed)
+      }
+
+      const anonymous = await get('/atlas/catalogue.json')
+      const credentialed = await app.inject({
+        method: 'GET',
+        url: '/atlas/catalogue.json',
+        headers: { host: SITE_HOST, authorization: 'Bearer a-key', cookie: 'kolonie_session=x' },
+      })
+
+      expect(withoutTime(credentialed.body)).toBe(withoutTime(anonymous.body))
     })
   })
 })

@@ -2,7 +2,9 @@ import {
   ATLAS_CACHE_SECONDS,
   ATLAS_PATH,
   atlasPath,
+  now,
   AccountProviderSchema,
+  type AtlasDocument,
   type AtlasEntry,
 } from '@kolonie-ai/core'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
@@ -102,6 +104,31 @@ export function registerAtlasPages(app: FastifyInstance, deps: RouteDependencies
       atlasSitemap({ entries: await listEntries(), websiteUrl }),
       'application/xml; charset=utf-8',
     )
+  })
+
+  /**
+   * The catalogue as data, for a reader with no credential (`#551`).
+   *
+   * **Under `/atlas` and not `/v1`**, which is the same call the pages made and
+   * for a stronger reason: this is the surface a third party stores a URL to. It
+   * carries the same rules as the pages — anonymous, cacheable, aggregates only,
+   * nothing per-citizen — so the one test that guards them guards this too.
+   *
+   * **`/v1/accounts/recipes` is not this.** That one authenticates, answers with
+   * rows rather than entries, and carries no figures; a stranger checking the
+   * Colony's claim cannot reach it at all. The two exist for different readers
+   * and neither is the other's version.
+   */
+  app.get(`${ATLAS_PATH}/catalogue.json`, async (request, reply) => {
+    if (wrongHost(request)) return reply.callNotFound()
+
+    const document: AtlasDocument = {
+      generatedAt: now(),
+      maxAgeSeconds: ATLAS_CACHE_SECONDS,
+      entries: [...(await listEntries())],
+    }
+
+    return send(reply, JSON.stringify(document), 'application/json; charset=utf-8')
   })
 
   app.get<{ Params: { provider: string } }>(`${ATLAS_PATH}/:provider`, async (request, reply) => {

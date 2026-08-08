@@ -156,6 +156,10 @@ export function registerPaymentRoutes(
         floatShort: false,
         forfeited: 0,
         stuck: 0,
+        // Null rather than zero: a deployment with no wallet holds no balance,
+        // which is not the same fact as a wallet holding nothing (`#536`).
+        heldLamports: null,
+        floatEmpty: false,
       })
     }
 
@@ -169,6 +173,20 @@ export function registerPaymentRoutes(
     if (outcome.floatShort) {
       log.error('the payout wallet holds less than the Colony owes', new Error('float short'), {
         event: 'payout.float.short',
+        ...outcome,
+      })
+    } else if (outcome.floatEmpty) {
+      /**
+       * **The wallet cannot pay anything, and nothing is owed yet** (`#536`).
+       *
+       * Its own signature rather than `payout.float.short`, because the two are
+       * read at different moments and one of them is still preventable: short
+       * means a citizen is already waiting, empty means the next citizen will
+       * be. A signature that covered both would have its first occurrence
+       * closed as *the wallet was topped up*, and its second read as a repeat.
+       */
+      log.error('the payout wallet cannot pay anything', new Error('float empty'), {
+        event: 'payout.float.empty',
         ...outcome,
       })
     } else {

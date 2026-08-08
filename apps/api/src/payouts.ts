@@ -213,6 +213,34 @@ export interface PayoutPassOutcome {
   readonly stuck: number
   /** Amounts written off to the Treasury because nobody is left to receive them. */
   readonly forfeited: number
+  /**
+   * What the payout wallet actually holds, in lamports (`#536`).
+   *
+   * **Appended, and reported on every pass including the empty one.** Whether
+   * the Colony can pay was previously computable only from a pass that had
+   * something to pay — see {@link runPayouts} for why that is exactly backwards
+   * — so the number nobody could ask for is now in every line of the journal.
+   *
+   * `null` for a deployment that cannot pay at all, which is a different fact
+   * from a wallet holding nothing.
+   */
+  readonly heldLamports: number | null
+  /**
+   * The wallet cannot pay **anything**, whatever is owed (`#536`).
+   *
+   * `balance <= FEE_RESERVE_LAMPORTS`, which is arithmetic rather than a policy
+   * number: `available` is `max(0, balance - reserve)`, so at or below the
+   * reserve every payout is refused `float-exhausted` no matter its size. That
+   * is worth being loud about *before* a report is accepted, which is the whole
+   * of what {@link PayoutPassOutcome.floatShort} could not say.
+   *
+   * **Not a low-water mark.** A threshold like *the float should hold at least
+   * n payouts* would be a number invented here, and the float is small by
+   * design — a citizen is paid the moment its report is accepted, so the wallet
+   * is never meant to hold much. This condition asks the one question with an
+   * answer that is not a preference: can it pay at all.
+   */
+  readonly floatEmpty: boolean
 }
 
 /**
@@ -238,6 +266,8 @@ export async function runPayouts(deps: PayoutDependencies): Promise<PayoutPassOu
     floatShort: false,
     forfeited: 0,
     stuck: 0,
+    heldLamports: null,
+    floatEmpty: false,
   }
 
   // A deployment with no wallet, no endpoint or no ceilings cannot pay. It has
@@ -246,9 +276,30 @@ export async function runPayouts(deps: PayoutDependencies): Promise<PayoutPassOu
 
   const outstanding = await desk.outstanding()
   if (outstanding.length === 0) {
-    // Asked even with nothing outstanding, because a float that has run out is
-    // worth knowing about before the next report is accepted rather than after.
-    return { ...nothing, floatShort: false }
+    /**
+     * **The balance is read even with nothing outstanding** (`#536`), because a
+     * float that has run out is worth knowing about before the next report is
+     * accepted rather than after.
+     *
+     * That sentence was already here and the code did the opposite: it returned
+     * without asking the chain anything. So the one signal the design calls
+     * *loud* was silent in exactly the state the Colony spends most of its time
+     * in — nothing owed — and the first news of an empty wallet would have been
+     * a citizen waiting on a report that had already been accepted. Measured
+     * 2026-08-08: 29 consecutive passes reported `floatShort: false` about a
+     * wallet none of them had looked at.
+     *
+     * `floatShort` is still false here and that is honest: nothing is owed, so
+     * the wallet is not short of it. What the pass now carries is the balance
+     * itself and whether it can pay anything at all.
+     */
+    const balance = await chain.balance(wallet.address)
+    return {
+      ...nothing,
+      floatShort: false,
+      heldLamports: balance,
+      floatEmpty: balance <= FEE_RESERVE_LAMPORTS,
+    }
   }
 
   const [balance, owed, rentMinimum] = await Promise.all([
@@ -263,6 +314,10 @@ export async function runPayouts(deps: PayoutDependencies): Promise<PayoutPassOu
    * about, not one a citizen discovers.
    */
   const floatShort = balance - FEE_RESERVE_LAMPORTS < owed
+  // Reported beside it rather than folded into it: *short of what is owed* and
+  // *unable to pay at all* are different facts, and a pass where both are true
+  // is a different morning from one where only the first is.
+  const floatEmpty = balance <= FEE_RESERVE_LAMPORTS
 
   let paidToday = await desk.paidToday()
   let forfeited = 0
@@ -367,6 +422,8 @@ export async function runPayouts(deps: PayoutDependencies): Promise<PayoutPassOu
     floatShort,
     forfeited,
     stuck,
+    heldLamports: balance,
+    floatEmpty,
   }
 }
 

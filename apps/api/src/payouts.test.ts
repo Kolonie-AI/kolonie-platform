@@ -225,13 +225,83 @@ describe('a payout pass', () => {
     expect(outcome.refused['float-exhausted']).toBe(1)
   })
 
+  /**
+   * The float, on a pass with nothing to pay (`#536`).
+   *
+   * The defect: `runPayouts` returned `floatShort: false` on an empty pass
+   * **without asking the chain anything**, under a comment promising the
+   * opposite — *a float that has run out is worth knowing about before the next
+   * report is accepted rather than after*. Nothing owed is the state the Colony
+   * spends most of its time in, so the one signal the design calls loud was
+   * structurally silent: measured 2026-08-08, 29 consecutive passes reported a
+   * healthy float about a wallet none of them had looked at.
+   */
+  describe('a pass with nothing owed', () => {
+    it('reads the balance anyway and reports it', async () => {
+      const { desk } = fakeDesk([])
+      let asked = 0
+      const chain = fakeChain({
+        balance: async () => {
+          asked += 1
+          return LAMPORTS_PER_SOL
+        },
+      })
+
+      const outcome = await runPayouts(deps({ desk, chain }))
+
+      expect(asked).toBe(1)
+      expect(outcome.heldLamports).toBe(LAMPORTS_PER_SOL)
+      expect(outcome.considered).toBe(0)
+    })
+
+    it('says the wallet can pay nothing at all, before a citizen finds out', async () => {
+      const { desk } = fakeDesk([])
+      const chain = fakeChain({ balance: async () => FEE_RESERVE_LAMPORTS })
+
+      const outcome = await runPayouts(deps({ desk, chain }))
+
+      expect(outcome.floatEmpty).toBe(true)
+      // And not `floatShort`, which would be a claim about a debt that does not
+      // exist. Nothing is owed, so the wallet is not short of it.
+      expect(outcome.floatShort).toBe(false)
+    })
+
+    it('is quiet about a float that can still pay', async () => {
+      const { desk } = fakeDesk([])
+      const chain = fakeChain({ balance: async () => FEE_RESERVE_LAMPORTS + 1 })
+
+      const outcome = await runPayouts(deps({ desk, chain }))
+
+      expect(outcome.floatEmpty).toBe(false)
+      expect(outcome.floatShort).toBe(false)
+    })
+  })
+
+  it('reports the balance on a pass that did pay, not only on an empty one', async () => {
+    const { desk } = fakeDesk([anObligation()])
+    const chain = fakeChain({ balance: async () => LAMPORTS_PER_SOL * 3 })
+
+    const outcome = await runPayouts(deps({ desk, chain }))
+
+    expect(outcome.heldLamports).toBe(LAMPORTS_PER_SOL * 3)
+    expect(outcome.floatEmpty).toBe(false)
+  })
+
   /** A deployment that cannot pay has said so at startup; it must not throw hourly. */
   it('does nothing, quietly, without a wallet, a chain or ceilings', async () => {
     const { desk } = fakeDesk([anObligation()])
 
     for (const missing of [{ wallet: undefined }, { chain: undefined }, { ceilings: undefined }]) {
       const outcome = await runPayouts(deps({ desk, ...missing }))
-      expect(outcome).toMatchObject({ considered: 0, paid: 0 })
+      // `heldLamports` is null rather than zero: a deployment with no wallet
+      // holds no balance, which is not the same fact as a wallet holding
+      // nothing (`#536`).
+      expect(outcome).toMatchObject({
+        considered: 0,
+        paid: 0,
+        heldLamports: null,
+        floatEmpty: false,
+      })
     }
   })
 

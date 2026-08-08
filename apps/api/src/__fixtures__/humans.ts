@@ -32,6 +32,17 @@ export interface FakeHumanStore extends HumanStore {
   /** Put a sponsor identity on record without going through `openSponsor` (`#430`). */
   readonly holdsSponsor: (humanId: Human['id'], agent: Agent) => void
   /**
+   * Put a second person on record holding a given identity (`#574`).
+   *
+   * The ambiguous case — one address reaching two people — cannot be reached
+   * through `findOrCreate` any more, because preventing exactly that is the
+   * feature. It is still a state the Colony can arrive at: an address changes
+   * hands, and both rows are honest about the day they were written. So the
+   * fixture can be told to hold one, which is how the refusal gets tested at
+   * all.
+   */
+  readonly holdsIdentity: (identity: ProviderIdentity) => Human
+  /**
    * Make a linked agent read as reachable only through the login, which refuses
    * a deletion (`#429`, retargeted by `#458`).
    */
@@ -88,6 +99,25 @@ export function fakeHumanStore(): FakeHumanStore {
   const adoptionCodes = new Map<AgentId, { code: string; expiresAt: string }>()
 
   const key = (identity: ProviderIdentity) => `${identity.provider}|${identity.subject}`
+
+  /**
+   * Swap a person for an updated copy, everywhere this fixture holds one
+   * (`#574`).
+   *
+   * `Human` is readonly, so attaching an identity produces a new object rather
+   * than mutating the old — and this store keeps the same person in two places.
+   * Updating `order` and leaving `byIdentity` pointing at the previous copy is
+   * exactly the bug this feature would otherwise hide: signing in through the
+   * first door would reach a person with one identity and the second door a
+   * person with two.
+   */
+  const replace = (was: Human, now: Human) => {
+    const at = order.indexOf(was)
+    if (at >= 0) order[at] = now
+    for (const [held, person] of byIdentity) {
+      if (person.id === now.id) byIdentity.set(held, now)
+    }
+  }
 
   /**
    * The one identity this person writes quests through, among everything they
@@ -320,6 +350,27 @@ export function fakeHumanStore(): FakeHumanStore {
       return { outcome: 'opened', identity: { id: agentId, name } }
     },
 
+    holdsIdentity: (identity: ProviderIdentity) => {
+      const human: Human = {
+        id: HumanIdSchema.parse(randomUUID()),
+        createdAt: new Date().toISOString(),
+        lastSeenAt: new Date().toISOString(),
+        roles: [],
+        identities: [
+          {
+            provider: identity.provider,
+            subject: identity.subject,
+            email: identity.email,
+            attachedAt: new Date().toISOString(),
+          },
+        ],
+      }
+
+      byIdentity.set(key(identity), human)
+      order.push(human)
+      return human
+    },
+
     /** Put an identity on record without going through `openSponsor`. */
     holdsSponsor: (humanId: Human['id'], agent: Agent) => {
       links.set(agent.id, humanId)
@@ -328,9 +379,50 @@ export function fakeHumanStore(): FakeHumanStore {
       takenNames.add(agent.profile.name.toLowerCase())
     },
 
+    /**
+     * The four arrivals, including the two `#574` added.
+     *
+     * **The address match is modelled here rather than stubbed**, because the
+     * route's job is to tell the outcomes apart and a fixture that could only
+     * produce two of them would let the other two go untested at this layer.
+     * What is *not* modelled is the transaction — that is `packages/db`'s, and
+     * its tests run against a real PostgreSQL.
+     */
     findOrCreate: async (identity) => {
       const existing = byIdentity.get(key(identity))
-      if (existing !== undefined) return { human: existing, created: false }
+      if (existing !== undefined) return { outcome: 'returning', human: existing }
+
+      if (identity.email !== null) {
+        const matches = [
+          ...new Set(
+            order.filter((person) =>
+              person.identities.some((held) => held.email === identity.email),
+            ),
+          ),
+        ]
+
+        if (matches.length > 1) return { outcome: 'ambiguous' }
+
+        const [only] = matches
+        if (only !== undefined) {
+          const attached: Human = {
+            ...only,
+            identities: [
+              ...only.identities,
+              {
+                provider: identity.provider,
+                subject: identity.subject,
+                email: identity.email,
+                attachedAt: new Date().toISOString(),
+              },
+            ],
+          }
+
+          replace(only, attached)
+          byIdentity.set(key(identity), attached)
+          return { outcome: 'attached', human: attached }
+        }
+      }
 
       const human: Human = {
         id: HumanIdSchema.parse(randomUUID()),
@@ -352,7 +444,34 @@ export function fakeHumanStore(): FakeHumanStore {
 
       byIdentity.set(key(identity), human)
       order.push(human)
-      return { human, created: true }
+      return { outcome: 'created', human }
+    },
+
+    connect: async (humanId, identity) => {
+      const holder = byIdentity.get(key(identity))
+      if (holder !== undefined && holder.id !== humanId) return { outcome: 'taken' }
+
+      const person = order.find((candidate) => candidate.id === humanId)
+      if (person === undefined) throw new Error(`no such person: ${String(humanId)}`)
+
+      if (holder !== undefined) return { outcome: 'already-theirs', human: person }
+
+      const attached: Human = {
+        ...person,
+        identities: [
+          ...person.identities,
+          {
+            provider: identity.provider,
+            subject: identity.subject,
+            email: identity.email,
+            attachedAt: new Date().toISOString(),
+          },
+        ],
+      }
+
+      replace(person, attached)
+      byIdentity.set(key(identity), attached)
+      return { outcome: 'attached', human: attached }
     },
 
     maintains: (humanId: Human['id']) => {
@@ -436,6 +555,16 @@ export function fakeHumanStore(): FakeHumanStore {
 export interface FakeTenant extends IdentityProviderTenant {
   readonly codes: () => readonly string[]
   readonly states: () => readonly string[]
+  /**
+   * Change what the next `exchangeCode` answers with (`#574`).
+   *
+   * A second door is a *different identity from the same tenant*, and the
+   * alternative — rebuilding the app around a second `fakeTenant` — throws away
+   * the store, so the person the test just signed in stops existing. One tenant
+   * that can answer differently is the only shape in which the two doors belong
+   * to one account.
+   */
+  readonly answersWith: (identity: ResolvedIdentity) => void
 }
 
 export function fakeTenant(
@@ -450,6 +579,7 @@ export function fakeTenant(
   // for the other case rather than passing nothing.
   const codes: string[] = []
   const states: string[] = []
+  let answer = identity
 
   return {
     authorizeUrl: ({ connection, state }) => {
@@ -458,10 +588,13 @@ export function fakeTenant(
     },
     exchangeCode: async (code) => {
       codes.push(code)
-      return identity
+      return answer
     },
     codes: () => codes,
     states: () => states,
+    answersWith: (next) => {
+      answer = next
+    },
   }
 }
 
@@ -498,6 +631,10 @@ export function refusingTenant(): FakeTenant {
     },
     codes: () => codes,
     states: () => states,
+    // A tenant that confirms nothing confirms nothing whatever it is told to
+    // answer with. Present so the two fakes share one type; changing it here
+    // would make this the *working* tenant under another name.
+    answersWith: () => {},
   }
 }
 

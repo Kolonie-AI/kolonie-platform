@@ -4,7 +4,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { sql } from 'drizzle-orm'
 import { RegisterAgentRequestSchema, type AgentId, type HumanId } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
-import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
+import { connectForTests, databaseTestTarget, personOf, truncateAll } from '../testing.js'
 import { registerAgent } from './agents.js'
 import { findOrCreateHuman } from './humans.js'
 import { issueCodeForHuman, redeemCodeAsAgent } from './human-links.js'
@@ -44,11 +44,13 @@ describe('the swarm an agent is in', () => {
   }
 
   const aPerson = async (subject: string) => {
-    const { human } = await findOrCreateHuman(db, {
-      provider: 'github',
-      subject,
-      email: `${subject}@example.com`,
-    })
+    const human = personOf(
+      await findOrCreateHuman(db, {
+        provider: 'github',
+        subject,
+        email: `${subject}@example.com`,
+      }),
+    )
     return human
   }
 

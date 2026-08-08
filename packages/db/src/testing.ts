@@ -547,3 +547,24 @@ export async function ledgerCreditsOf(db: Database, agentId: string): Promise<nu
 
   return Number(rows[0]?.total ?? '0')
 }
+
+/**
+ * The person an arrival produced, or a failure naming the outcome (`#574`).
+ *
+ * `findOrCreateHuman` gained an outcome with **no person in it** — the address
+ * reaching two people, which writes nothing and signs nobody in. That is the
+ * point of the type, and it means every test that only wants *the person* has
+ * to say what it expects when there is not one.
+ *
+ * Saying it here once beats a `!` at each call site: a non-null assertion turns
+ * *the refusal fired* into *cannot read properties of undefined*, several lines
+ * from the call that refused.
+ */
+export function personOf<T extends { readonly outcome: string; readonly human?: unknown }>(
+  arrival: T,
+): NonNullable<T['human']> {
+  if (arrival.human === undefined || arrival.human === null) {
+    throw new Error(`no person: the arrival was ${arrival.outcome}`)
+  }
+  return arrival.human as NonNullable<T['human']>
+}

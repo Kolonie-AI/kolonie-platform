@@ -4,7 +4,7 @@ import { RegisterAgentRequestSchema, type AgentId } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import { agents, agentSkills, humanLinkCodes, submissions, tasks } from '../schema/index.js'
 import { operatorAddresses } from '../schema/operator-addresses.js'
-import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
+import { connectForTests, databaseTestTarget, personOf, truncateAll } from '../testing.js'
 import { registerAgent } from './agents.js'
 import { findOrCreateHuman } from './humans.js'
 import {
@@ -83,12 +83,28 @@ describe('linking a person to an agent', () => {
     await db.insert(agentSkills).values({ agentId, skill, submissionId: submission!.id })
   }
 
+  /**
+   * **The address follows the subject unless a caller names one**, and it has to
+   * since `#574`.
+   *
+   * An unknown identity carrying an address one person already holds now
+   * attaches to them instead of creating a second account. This fixture gave
+   * every caller `someone@example.com`, so two subjects came back as **one
+   * person** — and the test asking whether a person sees only their own agents
+   * saw both, correctly, because there was only one person. It failed loudly,
+   * which is the good case; a fixture like this failing quietly is the whole
+   * risk of the change.
+   */
   const aPerson = async (over: { subject?: string; email?: string | null } = {}) => {
-    const { human } = await findOrCreateHuman(db, {
-      provider: 'github',
-      subject: over.subject ?? '4815162342',
-      email: over.email === undefined ? 'someone@example.com' : over.email,
-    })
+    const subject = over.subject ?? '4815162342'
+    const human = personOf(
+      await findOrCreateHuman(db, {
+        provider: 'github',
+        subject,
+        email: over.email === undefined ? `${subject}@example.com` : over.email,
+      }),
+    )
+    if (human === undefined) throw new Error('no person was created')
     return human
   }
 

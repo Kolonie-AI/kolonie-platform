@@ -69,26 +69,87 @@ export interface ProviderIdentity {
 }
 
 /**
- * Find the person this identity belongs to, or create them.
+ * What happened when an identity arrived.
  *
- * **The pair decides, and the address never does.** Two people may hold one
- * address over time and one person may change theirs; the `(provider, subject)`
- * pair is what the provider promises is stable, and it is the only thing this
- * matches on. Matching on the address would let somebody who acquires a lapsed
- * address inherit an account.
+ * **Four outcomes and not a boolean** (`#574`). It was
+ * `{ human, created }`, which could say *this person is new* and *this person
+ * was already here* — and once an identity can attach to an account that
+ * already exists, those two no longer cover the answers. `ambiguous` in
+ * particular has **no person in it at all**, which a boolean cannot express and
+ * a caller must not be able to ignore.
+ */
+export type IdentityArrival =
+  /** The `(provider, subject)` pair was already here. The ordinary sign-in. */
+  | { readonly outcome: 'returning'; readonly human: Human }
+  /** Nothing matched, so a person was written. */
+  | { readonly outcome: 'created'; readonly human: Human }
+  /** Unknown pair, one verified address, one match: attached to that person. */
+  | { readonly outcome: 'attached'; readonly human: Human }
+  /**
+   * Unknown pair whose address matches **more than one** person.
+   *
+   * Nothing was written and nobody is signed in. See the refusal in
+   * {@link findOrCreateHuman}.
+   */
+  | { readonly outcome: 'ambiguous'; readonly human?: undefined }
+
+/**
+ * Find the person this identity belongs to, attach it to them, or create them.
+ *
+ * **The pair decides who this *is*, and the address never does.** Two people
+ * may hold one address over time and one person may change theirs; the
+ * `(provider, subject)` pair is what the provider promises is stable, and it is
+ * the only thing an *existing* identity is matched on. Matching an existing
+ * identity by address would let somebody who acquires a lapsed address inherit
+ * an account.
  *
  * A returning person also has their address refreshed, because a person who
  * made their GitHub address public since last time should not have to be told
  * the Colony still cannot reach them.
  *
- * `onConflictDoUpdate` rather than select-then-insert: two callbacks arriving at
- * once for a new person is a race the unique index would otherwise turn into a
- * 500 for whichever lost.
+ * ## The address decides what an unknown identity *joins* (`#574`)
+ *
+ * `packages/db/src/schema/humans.ts` states the intent this function never
+ * carried out: *"a person who signs in with GitHub today and Google tomorrow is
+ * one person"*. Nothing ever wrote the second identity, so they were two.
+ *
+ * An unknown pair carrying a verified address now attaches to the one person
+ * who already holds that address. **The objection to this did not survive**, and
+ * it is recorded because it is the obvious one: that control of a mailbox
+ * becomes sufficient to reach an account holding `maintainer`. It is already
+ * sufficient — whoever controls the mailbox can reset the provider account
+ * itself and arrive through the front door. The address is the root of trust for
+ * every provider offered here, so attaching on the strength of it grants no
+ * authority that was not already reachable.
+ *
+ * Three conditions, and every one is load-bearing:
+ *
+ * - **Both addresses are provider-verified**, guaranteed by construction rather
+ *   than checked here: `readProfile` writes `human_identities.email` only when
+ *   the provider said `email_verified`, and never for a GitHub noreply address.
+ *   So a non-null value in that column is already verified.
+ * - **Exactly one person matches.** Two or more is refused and creates nothing,
+ *   for the same reason `bootstrapMaintainer` refuses an ambiguous subject:
+ *   granting to whichever row the planner returned first is the one outcome
+ *   that could hand somebody authority over another person's Colony.
+ * - **`null` is not a match.** The private-GitHub-address case `#426` decided
+ *   lands here as a new account, exactly as before. Two people who both hold no
+ *   address are not each other, and SQL agrees — but the query says so out loud
+ *   rather than relying on it.
+ *
+ * **Merging two accounts that already exist is deliberately not here.** A merge
+ * has to decide what happens to two sponsor identities, two sets of operated
+ * agents and two role arrays, and every answer is a guess. This attaches to a
+ * person who already exists, so the question is never asked.
+ *
+ * `onConflictDoNothing` rather than select-then-insert on the write: two
+ * callbacks arriving at once for a new person is a race the unique index would
+ * otherwise turn into a 500 for whichever lost.
  */
 export async function findOrCreateHuman(
   db: Database,
   identity: ProviderIdentity,
-): Promise<{ readonly human: Human; readonly created: boolean }> {
+): Promise<IdentityArrival> {
   return await db.transaction(async (tx) => {
     const [existing] = await tx
       .select({ humanId: humanIdentities.humanId })
@@ -121,7 +182,55 @@ export async function findOrCreateHuman(
       // outlive the person it points at. Checked rather than asserted, because
       // being wrong here means signing somebody in as nobody.
       if (human === undefined) throw new Error('identity without a human')
-      return { human, created: false }
+      return { outcome: 'returning', human }
+    }
+
+    /**
+     * An unknown pair. Before writing a person, ask whether one already holds
+     * this address (`#574`).
+     *
+     * `distinct` on `human_id` and not on the row: one person may hold two
+     * identities carrying the same address — GitHub and Google under one
+     * mailbox is the ordinary case this feature exists for — and two rows
+     * pointing at one person is one match, not an ambiguity.
+     *
+     * Limited to two, because the only question is *one, or more than one*.
+     */
+    if (identity.email !== null) {
+      const matches = await tx
+        .selectDistinct({ humanId: humanIdentities.humanId })
+        .from(humanIdentities)
+        .where(eq(humanIdentities.email, identity.email))
+        .limit(2)
+
+      if (matches.length > 1) {
+        // Nothing written, nobody signed in, and deliberately no hint about how
+        // many: the caller renders one sentence and the reader learns nothing
+        // about other people's accounts from it.
+        return { outcome: 'ambiguous' }
+      }
+
+      const [only] = matches
+      if (only !== undefined) {
+        await tx
+          .insert(humanIdentities)
+          .values({
+            humanId: only.humanId,
+            provider: identity.provider,
+            subject: identity.subject,
+            email: identity.email,
+          })
+          .onConflictDoNothing()
+
+        await tx
+          .update(humans)
+          .set({ lastSeenAt: sql`now()` })
+          .where(eq(humans.id, only.humanId))
+
+        const human = await readHuman(tx, HumanIdSchema.parse(only.humanId))
+        if (human === undefined) throw new Error('identity without a human')
+        return { outcome: 'attached', human }
+      }
     }
 
     const [row] = await tx.insert(humans).values({}).returning({ id: humans.id })
@@ -139,7 +248,101 @@ export async function findOrCreateHuman(
 
     const human = await readHuman(tx, HumanIdSchema.parse(row.id))
     if (human === undefined) throw new Error('the account was not written')
-    return { human, created: true }
+    return { outcome: 'created', human }
+  })
+}
+
+/**
+ * What happened when a signed-in person tried to attach a provider (`#574`).
+ *
+ * The three refusals are separate outcomes rather than one `false`, because
+ * they are three different sentences a person needs to read — and because
+ * *belongs to somebody else* is the one where being wrong hands over an
+ * account, so it must not be reachable by falling through a boolean.
+ */
+export type ConnectOutcome =
+  /** Attached. Either door now reaches this person. */
+  | { readonly outcome: 'attached'; readonly human: Human }
+  /** They already hold it. Not an error and not a duplicate row. */
+  | { readonly outcome: 'already-theirs'; readonly human: Human }
+  /** It is another person's identity. Nothing is touched, on either account. */
+  | { readonly outcome: 'taken'; readonly human?: undefined }
+
+/**
+ * Attach a provider identity to a person who is already signed in (`#574`).
+ *
+ * **The deliberate path, and it exists because the automatic one cannot cover
+ * the common case.** {@link findOrCreateHuman} attaches when the verified
+ * addresses match; a GitHub account with a private address gives the Colony no
+ * address at all, and a person may simply use two. Neither is an edge case
+ * among developers, so there is a path that asks rather than infers.
+ *
+ * **Whose session it is decides, and the address plays no part.** The caller has
+ * already established who is signed in; this attaches to *that* person. That is
+ * the whole difference from the automatic path, and it is why this one needs no
+ * verified-address condition: the person is standing there.
+ *
+ * **`taken` is the branch to read.** An identity already belonging to somebody
+ * else is refused with nothing written on either account — not moved, not
+ * shared, not silently ignored. A version of this that reassigned the row would
+ * let anybody who can complete a provider handover walk into the account that
+ * identity already reaches.
+ */
+export async function connectIdentity(
+  db: Database,
+  humanId: HumanId,
+  identity: ProviderIdentity,
+): Promise<ConnectOutcome> {
+  return await db.transaction(async (tx) => {
+    const [existing] = await tx
+      .select({ humanId: humanIdentities.humanId })
+      .from(humanIdentities)
+      .where(
+        and(
+          eq(humanIdentities.provider, identity.provider),
+          eq(humanIdentities.subject, identity.subject),
+        ),
+      )
+      .limit(1)
+
+    if (existing !== undefined && existing.humanId !== humanId) {
+      return { outcome: 'taken' }
+    }
+
+    if (existing !== undefined) {
+      // Theirs already. The address is still refreshed, for the same reason a
+      // returning sign-in refreshes it: a person who made their address public
+      // since last time should not stay unreachable.
+      await tx
+        .update(humanIdentities)
+        .set({ email: identity.email })
+        .where(
+          and(
+            eq(humanIdentities.provider, identity.provider),
+            eq(humanIdentities.subject, identity.subject),
+          ),
+        )
+
+      const human = await readHuman(tx, humanId)
+      if (human === undefined) throw new Error('identity without a human')
+      return { outcome: 'already-theirs', human }
+    }
+
+    await tx
+      .insert(humanIdentities)
+      .values({
+        humanId,
+        provider: identity.provider,
+        subject: identity.subject,
+        email: identity.email,
+      })
+      .onConflictDoNothing()
+
+    const human = await readHuman(tx, humanId)
+    // The caller held a session for this person a moment ago. If they are gone
+    // now, the account was deleted mid-flight and there is nothing to attach to.
+    if (human === undefined) throw new Error('identity without a human')
+    return { outcome: 'attached', human }
   })
 }
 

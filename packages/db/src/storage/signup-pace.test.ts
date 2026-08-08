@@ -8,7 +8,7 @@ import {
   type HumanId,
 } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
-import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
+import { connectForTests, databaseTestTarget, personOf, truncateAll } from '../testing.js'
 import { registerAgent } from './agents.js'
 import { mintAccountProof } from './account-proofs.js'
 import { writeProviderRecipe } from './provider-recipes.js'
@@ -59,11 +59,13 @@ describe('the signup pace', () => {
      * `signupPace` makes is two hops through `human_agents` and a fixture that inserted
      * directly could pass while the real linkage was shaped differently.
      */
-    const { human } = await findOrCreateHuman(db, {
-      provider: 'github',
-      subject: `paced-${Date.now()}`,
-      email: 'operator@example.org',
-    })
+    const human = personOf(
+      await findOrCreateHuman(db, {
+        provider: 'github',
+        subject: `paced-${Date.now()}`,
+        email: 'operator@example.org',
+      }),
+    )
     operator = human.id
     for (const agent of [one, two]) {
       const { code } = await issueCodeForHuman(db, human.id)

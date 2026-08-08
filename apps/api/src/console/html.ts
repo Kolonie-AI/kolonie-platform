@@ -924,6 +924,19 @@ export function accountPage(input: {
    * refused, and the names are what the refusal says.
    */
   readonly unreachable: readonly string[]
+  /**
+   * The doors already attached, and the ones that could be (`#574`).
+   *
+   * Both, because the section has to say what is true before it offers what is
+   * possible: a person who has attached Google needs to see that, not a button
+   * that would do it again.
+   */
+  readonly doors?:
+    | {
+        readonly held: readonly { readonly provider: string; readonly email: string | null }[]
+        readonly offered: readonly string[]
+      }
+    | undefined
   readonly notice?: string | undefined
 }): string {
   const rows = input.agents.map(
@@ -986,10 +999,53 @@ export function accountPage(input: {
           '</form>',
         ]
 
+  /**
+   * **How you get in, and the second way in** (`#574`).
+   *
+   * The section exists because the feature is otherwise undiscoverable: the
+   * automatic path in `findOrCreateHuman` attaches when the verified addresses
+   * match, and the case it cannot cover — a private GitHub address, or simply
+   * two addresses — is common among exactly the people this console is for.
+   *
+   * **A `POST` and a form, not a link.** Attaching an identity is a change to
+   * this account, and a `GET` is a change any third-party page can trigger by
+   * embedding it. `#429`'s deletion form directly below sets the same pattern.
+   *
+   * Nothing offers to *remove* a door. That is a second decision — it can strand
+   * an account whose only remaining identity is unreachable, which is the guard
+   * `#458` already had to write for deletion — and it is not this issue's.
+   */
+  const doors =
+    input.doors === undefined
+      ? []
+      : [
+          '<h2>How you sign in</h2>',
+          '<p>Any of these reaches this same account, with the same agents and the same ' +
+            'quests. Attaching one is not a second account and never was — the Colony ' +
+            'records which doors are yours, and nothing else changes.</p>',
+          '<ul>',
+          ...input.doors.held.map(
+            (door) =>
+              `<li>${escape(door.provider)}${
+                door.email === null ? ' — no address' : ` — ${escape(door.email)}`
+              }</li>`,
+          ),
+          '</ul>',
+          ...(input.doors.offered.length === 0
+            ? ['<p>Every door this build offers is already attached to this account.</p>']
+            : input.doors.offered.map(
+                (provider) =>
+                  `<form method="post" action="/account/connect/${escape(provider)}">` +
+                  `<button type="submit">Attach ${escape(provider)}</button>` +
+                  '</form>',
+              )),
+        ]
+
   const body = [
     '<h1>Your account</h1>',
     ...(input.notice === undefined ? [] : [`<p class="note">${escape(input.notice)}</p>`]),
     ...linked,
+    ...doors,
     ...deletion,
   ].join('\n')
 

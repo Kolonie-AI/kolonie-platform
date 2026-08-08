@@ -1351,7 +1351,14 @@ describe('a browser sponsor taking an API key (#400)', () => {
 describe('the maintainer’s page', () => {
   /** Sign a person in, optionally holding the role. */
   const aPerson = async (options: { readonly maintains?: boolean } = {}) => {
-    const { human } = await humans_.store.findOrCreate({
+    /**
+     * `holdsIdentity` and not `findOrCreate` since `#574`: an unknown identity
+     * carrying an address somebody already holds now **attaches** to them, and
+     * every person here was made with the same address — so the second call
+     * would hand back the first person and every test wanting two would have
+     * one. This fixture is making a person, not exercising that resolution.
+     */
+    const human = humans_.store.holdsIdentity({
       provider: 'github',
       subject: `subject-${randomUUID()}`,
       email: 'someone@example.test',
@@ -1582,7 +1589,7 @@ describe('the maintainer’s page', () => {
  */
 describe('who arrived and what is waiting', () => {
   const aMaintainer = async () => {
-    const { human } = await humans_.store.findOrCreate({
+    const human = humans_.store.holdsIdentity({
       provider: 'github',
       subject: `subject-${randomUUID()}`,
       email: 'someone@example.test',
@@ -1664,7 +1671,7 @@ describe('who arrived and what is waiting', () => {
 
   /** The sections are behind the same gate as the page, not beside it. */
   it('shows neither section to somebody without the role', async () => {
-    const { human } = await humans_.store.findOrCreate({
+    const human = humans_.store.holdsIdentity({
       provider: 'github',
       subject: `subject-${randomUUID()}`,
       email: 'someone@example.test',
@@ -1690,7 +1697,7 @@ describe('who arrived and what is waiting', () => {
  */
 describe('the settings a maintainer turns', () => {
   const aMaintainer = async () => {
-    const { human } = await humans_.store.findOrCreate({
+    const human = humans_.store.holdsIdentity({
       provider: 'github',
       subject: `subject-${randomUUID()}`,
       email: 'someone@example.test',
@@ -1858,7 +1865,7 @@ describe('the settings a maintainer turns', () => {
 
   describe('for somebody without the role', () => {
     const aPerson = async () => {
-      const { human } = await humans_.store.findOrCreate({
+      const human = humans_.store.holdsIdentity({
         provider: 'github',
         subject: `subject-${randomUUID()}`,
         email: 'someone@example.test',

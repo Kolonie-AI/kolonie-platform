@@ -83,6 +83,7 @@ import { putOnWishList, selectBundle } from '../account-wishes.js'
 import { generatedSponsorName, SESSION_COOKIE } from './console.js'
 import { mintOauthState } from '../humans/auth0.js'
 import {
+  OAUTH_CONNECT_COOKIE,
   OAUTH_STATE_COOKIE,
   OFFERED_PROVIDERS,
   browserFamily,
@@ -507,6 +508,54 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
   })
 
   /**
+   * Attach a second door to the account already signed in (`#574`).
+   *
+   * **A `POST` and not a `GET`, which is the one way this differs from
+   * `/sign-in/:provider` in shape.** That route starts a handover for a stranger
+   * and changes nothing until the callback; this one acts on behalf of a person
+   * who is signed in, so a `GET` would be a state change any third-party page
+   * could trigger by embedding a link. Signing in cannot be done to somebody;
+   * attaching an identity to their account can.
+   *
+   * The state goes in {@link OAUTH_CONNECT_COOKIE} rather than the sign-in
+   * cookie, and the callback tells the two apart by which one came back. That
+   * distinction is the whole of what stops a prepared callback from attaching an
+   * identity to whoever is holding this browser.
+   *
+   * The same 404 as `/sign-in/:provider` when no tenant is configured, for the
+   * same reason: a route that answered *not configured* would tell a stranger
+   * what the deployment is missing.
+   */
+  app.post('/account/connect/:provider', async (request, reply) => {
+    if (!(await guard(request, reply))) return reply
+
+    const { provider } = request.params as { provider?: string }
+    const tenant = deps.humans.tenant
+    const offered = OFFERED_PROVIDERS.find((known) => known === provider)
+
+    if (tenant === undefined || offered === undefined) {
+      return wantsHtml(request)
+        ? html(reply.status(404), notFoundPage())
+        : reply.status(404).send({ code: 'not_found', message: 'No such sign-in route.' })
+    }
+
+    // Before the redirect, not after: a person who is not signed in must not be
+    // sent to a provider at all. Coming back with an identity and no session is
+    // a refusal either way, but it is a refusal after they have handed a third
+    // party a consent screen for nothing.
+    const signedIn = await person(request)
+    if (signedIn === null) return signInRequired(request, reply)
+
+    const state = mintOauthState()
+
+    return reply
+      .status(303)
+      .header('set-cookie', oauthStateCookie(state, OAUTH_CONNECT_COOKIE))
+      .header('location', tenant.authorizeUrl({ connection: offered, state }))
+      .send()
+  })
+
+  /**
    * And the way back (`#425`).
    *
    * Three things have to be true before a session is issued, and each of them is
@@ -522,7 +571,12 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
   app.get(SIGN_IN_CALLBACK_PATH, async (request, reply) => {
     if (!(await guard(request, reply))) return reply
 
-    reply.header('set-cookie', clearedOauthStateCookie())
+    // Both handovers end here, so both are cleared on every path out — a
+    // one-time value that survives its use is not one-time.
+    reply.header('set-cookie', [
+      clearedOauthStateCookie(),
+      clearedOauthStateCookie(OAUTH_CONNECT_COOKIE),
+    ])
 
     const tenant = deps.humans.tenant
     if (tenant === undefined) {
@@ -540,7 +594,29 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
             message: notice,
           })
 
-    if (!stateMatches(cookieValue(request.headers.cookie, OAUTH_STATE_COOKIE), query.state)) {
+    /**
+     * **Which handover is coming back** (`#574`).
+     *
+     * One callback path serves both, because a second registered callback URL is
+     * a change in the Auth0 tenant and this needs none. What tells them apart is
+     * which `__Host-` cookie the browser presents, and nothing outside this
+     * origin can write either.
+     *
+     * **Connect is checked first and the two are never both accepted.** A
+     * request presenting both cookies is a request that started two handovers;
+     * treating it as a sign-in would let a connect handover be laundered into a
+     * session, so the narrower reading wins and the other cookie is cleared
+     * unused.
+     */
+    const connecting = stateMatches(
+      cookieValue(request.headers.cookie, OAUTH_CONNECT_COOKIE),
+      query.state,
+    )
+
+    if (
+      !connecting &&
+      !stateMatches(cookieValue(request.headers.cookie, OAUTH_STATE_COOKIE), query.state)
+    ) {
       return refuse('That sign-in did not start in this browser, or it took too long. Try again.')
     }
 
@@ -553,7 +629,55 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
       return refuse('The provider could not confirm that sign-in. Nothing was changed.')
     }
 
-    const { human } = await deps.humans.store.findOrCreate(identity)
+    if (connecting) {
+      /**
+       * **Re-read the session here rather than trusting the one that started
+       * the handover.** A person may have signed out, or the session may have
+       * expired, between the redirect out and the redirect back. `#574` names
+       * that case and requires it to attach nothing.
+       */
+      const signedIn = await person(request)
+      if (signedIn === null) {
+        return refuse('That connection was not made: the sign-in ended before you came back.')
+      }
+
+      const attached = await deps.humans.store.connect(signedIn.human.id, identity)
+
+      if (attached.outcome === 'taken') {
+        // Somebody else's identity. Nothing on either account was touched, and
+        // this session is deliberately left alone — the person did nothing wrong
+        // and signing them out would read as a punishment for a typo.
+        return wantsHtml(request)
+          ? reply.status(303).header('location', `/account?connected=taken`).send()
+          : reply.status(ERROR_STATUS.validation_failed).send({
+              code: 'validation_failed',
+              message: 'That account is already attached to somebody else.',
+            })
+      }
+
+      return wantsHtml(request)
+        ? reply.status(303).header('location', `/account?connected=${attached.outcome}`).send()
+        : reply.status(200).send({ connected: attached.outcome })
+    }
+
+    const arrival = await deps.humans.store.findOrCreate(identity)
+
+    if (arrival.outcome === 'ambiguous') {
+      /**
+       * **More than one person already holds this address** (`#574`).
+       *
+       * Nothing was written and nobody is signed in. The sentence says what to
+       * do and deliberately not how many matched: the number is a fact about
+       * other people's accounts, and a stranger who reached this page should
+       * learn nothing from it.
+       */
+      return refuse(
+        'That address already reaches more than one account here, so we did not guess. ' +
+          'Sign in with a provider you have used before, then attach this one from your account.',
+      )
+    }
+
+    const { human } = arrival
     const session = await deps.humans.store.openSession(human.id, {
       browser: browserFamily(request.headers['user-agent']),
       location: coarseLocation(request.headers as Record<string, unknown>),
@@ -567,6 +691,7 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
      */
     reply.header('set-cookie', [
       clearedOauthStateCookie(),
+      clearedOauthStateCookie(OAUTH_CONNECT_COOKIE),
       `${SESSION_COOKIE}=${session.session}; Max-Age=${session.maxAgeSeconds}; Path=/; Secure; HttpOnly; SameSite=Lax`,
     ])
 
@@ -990,9 +1115,47 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
       linkedAt: agent.linkedAt,
     }))
 
+    /**
+     * The doors, and what is left to attach (`#574`).
+     *
+     * `OFFERED_PROVIDERS` minus the ones already held, so the page offers a
+     * button only where pressing it would do something. With one provider in
+     * that list this section says *every door is already attached* and offers
+     * nothing, which is correct today and stops being the whole story the day
+     * `#568` adds Google.
+     */
+    const held = signedIn.human.identities
+    const doors = {
+      held: held.map((identity) => ({ provider: identity.provider, email: identity.email })),
+      offered: OFFERED_PROVIDERS.filter(
+        (provider) => !held.some((identity) => identity.provider === provider),
+      ),
+    }
+
+    /**
+     * What the connect handover said, read back off the redirect (`#574`).
+     *
+     * A query parameter and not a flash cookie: the callback has nowhere to keep
+     * a message, this site sets no cookie it does not need, and the three
+     * sentences below say nothing a stranger could not already guess by trying.
+     * Unknown values render no notice at all rather than being echoed.
+     */
+    const connected = (request.query as { connected?: unknown }).connected
+    const notice =
+      connected === 'attached'
+        ? 'That provider is attached. Either one now signs you in to this account.'
+        : connected === 'already-theirs'
+          ? 'That provider was already attached to this account. Nothing changed.'
+          : connected === 'taken'
+            ? 'That provider is already attached to somebody else’s account, so nothing was changed here.'
+            : undefined
+
     return wantsHtml(request)
-      ? html(reply, accountPage({ zone: zoneFrom(request.headers), agents, unreachable }))
-      : reply.send({ agents: exported.agents, unreachable })
+      ? html(
+          reply,
+          accountPage({ zone: zoneFrom(request.headers), agents, unreachable, doors, notice }),
+        )
+      : reply.send({ agents: exported.agents, unreachable, doors })
   })
 
   /**

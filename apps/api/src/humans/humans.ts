@@ -21,6 +21,7 @@ import {
   endHumanSessionById,
   agentsOperatedBy,
   waitingForOperator,
+  connectIdentity,
   findOrCreateHuman,
   issueCodeForAgent,
   identityHoldsKey,
@@ -43,6 +44,8 @@ import {
   type LinkCode,
   type LinkOutcome,
   type OpenedSession,
+  type ConnectOutcome,
+  type IdentityArrival,
   type ProviderIdentity,
 } from '@kolonie-ai/db'
 import type { IdentityProviderTenant } from './auth0.js'
@@ -77,7 +80,17 @@ export interface HumanStore {
   waitingOnThem(humanId: Human['id']): Promise<readonly WaitingItem[]>
   /** Whether this person operates this agent — the check `#428` authorises on. */
   operates(humanId: Human['id'], agentId: AgentId): Promise<boolean>
-  findOrCreate(identity: ProviderIdentity): Promise<{ human: Human; created: boolean }>
+  findOrCreate(identity: ProviderIdentity): Promise<IdentityArrival>
+  /**
+   * Attach a provider to the person already signed in (`#574`).
+   *
+   * Separate from {@link findOrCreate} because the two answer different
+   * questions. That one asks *who is this*; this one is told, by the session,
+   * and asks only whether the identity is free to attach. Folding them together
+   * would put the session inside a function whose whole job is to work without
+   * one.
+   */
+  connect(humanId: Human['id'], identity: ProviderIdentity): Promise<ConnectOutcome>
   openSession(
     humanId: Human['id'],
     where: { browser?: string | null; location?: string | null },
@@ -161,15 +174,31 @@ export interface HumanDependencies {
  */
 export const OAUTH_STATE_COOKIE = '__Host-kolonie_oauth'
 
+/**
+ * And the one that ties a **connect** handover to the browser that started it
+ * (`#574`).
+ *
+ * **A second name rather than a second value in the first cookie, and that is
+ * the security property of this feature.** The two handovers come back to one
+ * callback path, and a callback that cannot tell *connect* from *sign in* is a
+ * callback that attaches an identity to whoever is holding the browser. Two
+ * cookies means the question is answered by which one the browser presents,
+ * which nothing outside this origin can forge — the `__Host-` prefix is what
+ * makes that true, exactly as it is for the sign-in state.
+ *
+ * `#574`: *"The state cookie must be distinguishable from a sign-in state."*
+ */
+export const OAUTH_CONNECT_COOKIE = '__Host-kolonie_connect'
+
 /** The `Set-Cookie` value that starts a handover. */
-export function oauthStateCookie(state: string): string {
+export function oauthStateCookie(state: string, name = OAUTH_STATE_COOKIE): string {
   const seconds = Math.floor(OAUTH_HANDOVER_MS / 1000)
-  return `${OAUTH_STATE_COOKIE}=${state}; Max-Age=${seconds}; Path=/; Secure; HttpOnly; SameSite=Lax`
+  return `${name}=${state}; Max-Age=${seconds}; Path=/; Secure; HttpOnly; SameSite=Lax`
 }
 
 /** And the one that ends it, whichever way the callback went. */
-export function clearedOauthStateCookie(): string {
-  return `${OAUTH_STATE_COOKIE}=; Max-Age=0; Path=/; Secure; HttpOnly; SameSite=Lax`
+export function clearedOauthStateCookie(name = OAUTH_STATE_COOKIE): string {
+  return `${name}=; Max-Age=0; Path=/; Secure; HttpOnly; SameSite=Lax`
 }
 
 /**
@@ -261,6 +290,7 @@ export const OFFERED_PROVIDERS: readonly IdentityProvider[] = ['github']
 export function databaseHumanStore(db: Database): HumanStore {
   return {
     findOrCreate: (identity) => findOrCreateHuman(db, identity),
+    connect: (humanId, identity) => connectIdentity(db, humanId, identity),
     issueCodeForHuman: (humanId) => issueCodeForHuman(db, humanId),
     liveCode: (humanId) => liveCodeForHuman(db, humanId),
     issueCodeForAgent: (agentId) => issueCodeForAgent(db, agentId),

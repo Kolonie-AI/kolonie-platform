@@ -2,11 +2,11 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { sql } from 'drizzle-orm'
 import { RegisterAgentRequestSchema, type AgentId, type HumanId } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
-import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
+import { connectForTests, databaseTestTarget, personOf, truncateAll } from '../testing.js'
 import { agentSkills, submissions, taskAttempts, tasks } from '../schema/index.js'
 import { creditBalance } from './funding.js'
 import { registerAgent } from './agents.js'
-import { findOrCreateHuman, openHumanSession } from './humans.js'
+import { connectIdentity, findOrCreateHuman, openHumanSession } from './humans.js'
 import { openSponsorIdentity } from './sponsor-identity.js'
 import { issueCodeForAgent, redeemCodeAsHuman } from './human-links.js'
 import {
@@ -51,12 +51,24 @@ describe('deleting a person', () => {
     return result.agent.id
   }
 
+  /**
+   * **The address varies with the subject, and it has to since `#574`.**
+   *
+   * An unknown identity carrying an address one person already holds now
+   * attaches to them rather than creating a second account. A fixture that gave
+   * every caller one address would hand back the *same* person for two
+   * subjects, and every test here asking about two people would be asking about
+   * one — silently, and while passing.
+   */
   const aPerson = async (subject = '4815162342') => {
-    const { human } = await findOrCreateHuman(db, {
-      provider: 'github',
-      subject,
-      email: 'someone@example.com',
-    })
+    const human = personOf(
+      await findOrCreateHuman(db, {
+        provider: 'github',
+        subject,
+        email: `${subject}@example.com`,
+      }),
+    )
+    if (human === undefined) throw new Error('no person was created')
     return human
   }
 
@@ -184,6 +196,37 @@ describe('deleting a person', () => {
 
     expect(result.outcome).toBe('deleted')
     expect(await standingOf(agentId)).toEqual(before)
+  })
+
+  /**
+   * **A person holding two identities loses both** (`#574`), and the guard that
+   * decides whether they may go at all is unchanged by the second.
+   *
+   * `#458`'s refusal is about *agents* this login is the only way to reach, and
+   * an extra door onto the person changes nothing about that — but *changes
+   * nothing* is the sort of claim that is true until somebody makes the guard
+   * read the identity table, so it is asserted rather than reasoned about.
+   */
+  it('removes both identities of a person who attached a second door', async () => {
+    const human = await aPerson()
+    await connectIdentity(db, human.id, {
+      provider: 'google',
+      subject: 'g-1',
+      email: 'elsewhere@example.com',
+    })
+
+    const agentId = await anAgent()
+    await link(human.id, agentId)
+
+    // The guard answers the same with two identities as with one.
+    expect(await humanUnreachableIdentities(db, human.id)).toEqual([])
+
+    expect((await deleteHuman(db, human.id)).outcome).toBe('deleted')
+
+    const [row] = await db.execute<{ total: number }>(
+      sql`select count(*)::int as total from human_identities where human_id = ${human.id}`,
+    )
+    expect(row?.total).toBe(0)
   })
 
   it('removes the person, their identities, their sessions and the join rows in one go', async () => {

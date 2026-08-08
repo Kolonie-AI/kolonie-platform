@@ -36,7 +36,9 @@ afterEach(async () => {
 
 /** A person at a browser, signed in and holding nothing else. */
 const signedIn = async () => {
-  const { human } = await colony.humans.store.findOrCreate({
+  // `holdsIdentity` since `#574` — see `console-pages.test.ts` for why a shared
+  // address makes `findOrCreate` hand back the same person twice.
+  const human = people.holdsIdentity({
     provider: 'github',
     subject: `subject-${Math.trunc(performance.now() * 1000)}`,
     email: 'someone@example.test',

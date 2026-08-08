@@ -5,7 +5,7 @@ import { sql } from 'drizzle-orm'
 import type { AgentId, HumanId, TaskId } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import { agents, tasks } from '../schema/index.js'
-import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
+import { connectForTests, databaseTestTarget, personOf, truncateAll } from '../testing.js'
 import { colonyNumbers } from './colony-numbers.js'
 import { findOrCreateHuman } from './humans.js'
 import { issueCodeForHuman, redeemCodeAsAgent } from './human-links.js'
@@ -47,11 +47,13 @@ describe('what counts as market volume', () => {
   }
 
   const aPerson = async (subject: string): Promise<HumanId> => {
-    const { human } = await findOrCreateHuman(db, {
-      provider: 'github',
-      subject,
-      email: `${subject}@example.org`,
-    })
+    const human = personOf(
+      await findOrCreateHuman(db, {
+        provider: 'github',
+        subject,
+        email: `${subject}@example.org`,
+      }),
+    )
     return human.id
   }
 

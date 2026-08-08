@@ -3,10 +3,11 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { eq, sql } from 'drizzle-orm'
 import { HUMAN_SESSION_CEILING_MS, HUMAN_SESSION_IDLE_MS, HumanIdSchema } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
-import { authorityEvents, humanSessions } from '../schema/index.js'
-import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
+import { authorityEvents, humanIdentities, humanSessions, humans } from '../schema/index.js'
+import { connectForTests, databaseTestTarget, personOf, truncateAll } from '../testing.js'
 import {
   authenticateHumanSession,
+  connectIdentity,
   endAllHumanSessions,
   endHumanSession,
   endHumanSessionById,
@@ -55,31 +56,137 @@ describe('a person with an account', () => {
       const first = await findOrCreateHuman(db, anIdentity())
       const second = await findOrCreateHuman(db, anIdentity())
 
-      expect(first.created).toBe(true)
-      expect(second.created).toBe(false)
-      expect(second.human.id).toBe(first.human.id)
-      expect(second.human.identities).toHaveLength(1)
+      expect(first.outcome).toBe('created')
+      expect(second.outcome).toBe('returning')
+      expect(second.human?.id).toBe(first.human?.id)
+      expect(second.human?.identities).toHaveLength(1)
     })
 
     /**
-     * The pair decides and the address never does. Somebody who acquires a
-     * lapsed address must not inherit the account it once belonged to.
+     * **This assertion was reversed on `#574`, and the reversal is the whole
+     * feature.**
+     *
+     * It read *is a different person when the subject differs, whatever the
+     * address says*, and its reason was that somebody who acquires a lapsed
+     * address must not inherit the account it once belonged to.
+     *
+     * `#574` weighed that objection and it did not survive: **control of the
+     * mailbox is already sufficient**, because whoever holds it can reset the
+     * provider account itself and arrive through the front door. The address is
+     * the root of trust for every provider offered here, so attaching a second
+     * identity on the strength of it grants nothing that was not already
+     * reachable — while refusing costs a person the feature the schema was
+     * shaped for.
+     *
+     * **What did not reverse is below**: the address must be there, and it must
+     * match exactly one person.
      */
-    it('is a different person when the subject differs, whatever the address says', async () => {
+    it('attaches an unknown identity to the one person holding that address', async () => {
       const first = await findOrCreateHuman(db, anIdentity())
-      const other = await findOrCreateHuman(db, anIdentity({ subject: '9999' }))
+      const other = await findOrCreateHuman(db, anIdentity({ provider: 'google', subject: '9999' }))
 
-      expect(other.created).toBe(true)
-      expect(other.human.id).not.toBe(first.human.id)
+      expect(other.outcome).toBe('attached')
+      expect(other.human?.id).toBe(first.human?.id)
+      expect(other.human?.identities).toHaveLength(2)
     })
 
-    /** And the same subject on a different provider is a different person too. */
-    it('is a different person when the provider differs', async () => {
+    it('signs them in through either door afterwards, as the same person', async () => {
       const first = await findOrCreateHuman(db, anIdentity())
-      const other = await findOrCreateHuman(db, anIdentity({ provider: 'google' }))
+      await findOrCreateHuman(db, anIdentity({ provider: 'google', subject: '9999' }))
 
-      expect(other.created).toBe(true)
-      expect(other.human.id).not.toBe(first.human.id)
+      const back = await findOrCreateHuman(db, anIdentity())
+      const other = await findOrCreateHuman(db, anIdentity({ provider: 'google', subject: '9999' }))
+
+      expect(back.outcome).toBe('returning')
+      expect(other.outcome).toBe('returning')
+      expect(back.human?.id).toBe(first.human?.id)
+      expect(other.human?.id).toBe(first.human?.id)
+    })
+
+    /** The reverse ordering, which `#574` asks for by name. */
+    it('works whichever provider arrived first', async () => {
+      const first = await findOrCreateHuman(db, anIdentity({ provider: 'google', subject: '77' }))
+      const other = await findOrCreateHuman(db, anIdentity())
+
+      expect(other.outcome).toBe('attached')
+      expect(other.human?.id).toBe(first.human?.id)
+    })
+
+    it('is a different person when the address differs', async () => {
+      const first = await findOrCreateHuman(db, anIdentity())
+      const other = await findOrCreateHuman(
+        db,
+        anIdentity({ subject: '9999', email: 'somebody-else@example.com' }),
+      )
+
+      expect(other.outcome).toBe('created')
+      expect(other.human?.id).not.toBe(first.human?.id)
+    })
+
+    /**
+     * **The refusal, and it is the branch where being wrong hands over an
+     * account.**
+     *
+     * Two people already holding one address is reachable — an address changes
+     * hands, and both records are honest about the day they were written.
+     * Attaching to whichever row the planner returned first is the only outcome
+     * that could grant somebody authority over another person's Colony, which is
+     * the reason `bootstrapMaintainer` refuses an ambiguous subject one function
+     * over.
+     */
+    it('refuses, and writes nothing, when the address reaches two people', async () => {
+      const first = await findOrCreateHuman(db, anIdentity())
+      // A second person, made distinct by their address — this function will
+      // not create one that shares it, which is the feature above.
+      const second = await findOrCreateHuman(
+        db,
+        anIdentity({ provider: 'apple', subject: '1', email: 'elsewhere@example.com' }),
+      )
+
+      /**
+       * And now they collide, which is a state the Colony cannot prevent: an
+       * address changes hands, and both rows are honest about the day they were
+       * written. This is how it gets reached, so this is how the test reaches it.
+       */
+      await db
+        .update(humanIdentities)
+        .set({ email: 'someone@example.com' })
+        .where(eq(humanIdentities.humanId, second.human!.id))
+
+      expect(first.human!.id).not.toBe(second.human!.id)
+
+      const before = await db.select({ id: humans.id }).from(humans)
+
+      const arrival = await findOrCreateHuman(db, anIdentity({ provider: 'x', subject: '5' }))
+
+      expect(arrival.outcome).toBe('ambiguous')
+      expect(arrival.human).toBeUndefined()
+      // Nothing written: no account, and no identity either.
+      expect(await db.select({ id: humans.id }).from(humans)).toHaveLength(before.length)
+      expect(
+        await db
+          .select({ id: humanIdentities.id })
+          .from(humanIdentities)
+          .where(eq(humanIdentities.subject, '5')),
+      ).toHaveLength(0)
+    })
+
+    /**
+     * **`null` is not a match**, and this is the case `#426` decided: a GitHub
+     * account with a private address gives the Colony no address at all. Two
+     * people who both hold none are not each other, and a version of this that
+     * matched on `null` would put every private-address arrival into one
+     * account.
+     */
+    it('creates an account for an identity with no address, however many others have none', async () => {
+      const first = await findOrCreateHuman(db, anIdentity({ email: null }))
+      const other = await findOrCreateHuman(
+        db,
+        anIdentity({ provider: 'google', subject: '9999', email: null }),
+      )
+
+      expect(other.outcome).toBe('created')
+      expect(other.human?.id).not.toBe(first.human?.id)
     })
 
     /**
@@ -88,26 +195,26 @@ describe('a person with an account', () => {
      * something.
      */
     it('records a person the provider gave no address for', async () => {
-      const { human } = await findOrCreateHuman(db, anIdentity({ email: null }))
+      const human = personOf(await findOrCreateHuman(db, anIdentity({ email: null })))
 
-      expect(human.identities[0]?.email).toBeNull()
+      expect(human?.identities[0]?.email).toBeNull()
     })
 
     it('refreshes an address that has since become readable', async () => {
       await findOrCreateHuman(db, anIdentity({ email: null }))
-      const { human } = await findOrCreateHuman(db, anIdentity({ email: 'now@example.com' }))
+      const human = personOf(await findOrCreateHuman(db, anIdentity({ email: 'now@example.com' })))
 
-      expect(human.identities[0]?.email).toBe('now@example.com')
+      expect(human?.identities[0]?.email).toBe('now@example.com')
     })
 
     it('moves the last-seen stamp when somebody comes back', async () => {
-      const { human } = await findOrCreateHuman(db, anIdentity())
-      const before = (await readHuman(db, human.id))?.lastSeenAt
+      const human = personOf(await findOrCreateHuman(db, anIdentity()))
+      const before = (await readHuman(db, human!.id))?.lastSeenAt
 
       await new Promise((resolve) => setTimeout(resolve, 5))
       await findOrCreateHuman(db, anIdentity())
 
-      expect(Date.parse((await readHuman(db, human.id))?.lastSeenAt ?? '')).toBeGreaterThan(
+      expect(Date.parse((await readHuman(db, human!.id))?.lastSeenAt ?? '')).toBeGreaterThan(
         Date.parse(before ?? ''),
       )
     })
@@ -115,7 +222,7 @@ describe('a person with an account', () => {
 
   describe('a session', () => {
     const aSignedInPerson = async () => {
-      const { human } = await findOrCreateHuman(db, anIdentity())
+      const human = personOf(await findOrCreateHuman(db, anIdentity()))
       const opened = await openHumanSession(db, human.id, { browser: 'Firefox on Linux' })
       return { human, opened }
     }
@@ -202,7 +309,11 @@ describe('a person with an account', () => {
 
     it('ends one named in the list, and only for the person who holds it', async () => {
       const { human, opened } = await aSignedInPerson()
-      const { human: other } = await findOrCreateHuman(db, anIdentity({ subject: 'other' }))
+      // A different address as well as a different subject, or `#574` attaches
+      // the two to one account and this test asserts nothing about two people.
+      const other = personOf(
+        await findOrCreateHuman(db, anIdentity({ subject: 'other', email: 'other@example.com' })),
+      )
       const [listed] = await listHumanSessions(db, human.id)
       if (listed === undefined) throw new Error('no session was listed')
 
@@ -298,12 +409,12 @@ describe('the authority a person holds', () => {
     await db.select().from(authorityEvents).where(eq(authorityEvents.subjectHumanId, humanId))
 
   it('starts empty, for everybody', async () => {
-    const { human } = await findOrCreateHuman(db, anIdentity('1'))
+    const human = personOf(await findOrCreateHuman(db, anIdentity('1')))
     expect(human.roles).toEqual([])
   })
 
   it('grants the role and records who decided it', async () => {
-    const { human } = await findOrCreateHuman(db, anIdentity('1'))
+    const human = personOf(await findOrCreateHuman(db, anIdentity('1')))
 
     const change = await setHumanRole(db, {
       humanId: human.id,
@@ -327,7 +438,7 @@ describe('the authority a person holds', () => {
    * reads — the rule `setStewardRole` states, held to here.
    */
   it('writes nothing at all when the role is already held', async () => {
-    const { human } = await findOrCreateHuman(db, anIdentity('1'))
+    const human = personOf(await findOrCreateHuman(db, anIdentity('1')))
     await setHumanRole(db, { humanId: human.id, role: 'maintainer', hold: true })
 
     const again = await setHumanRole(db, { humanId: human.id, role: 'maintainer', hold: true })
@@ -339,7 +450,7 @@ describe('the authority a person holds', () => {
   })
 
   it('revokes it, and records that too', async () => {
-    const { human } = await findOrCreateHuman(db, anIdentity('1'))
+    const human = personOf(await findOrCreateHuman(db, anIdentity('1')))
     await setHumanRole(db, { humanId: human.id, role: 'maintainer', hold: true })
 
     const revoked = await setHumanRole(db, { humanId: human.id, role: 'maintainer', hold: false })
@@ -422,7 +533,7 @@ describe('the authority a person holds', () => {
     })
 
     it('grants the role to the identity the subject names', async () => {
-      const { human } = await findOrCreateHuman(db, anIdentity('github|4815162342'))
+      const human = personOf(await findOrCreateHuman(db, anIdentity('github|4815162342')))
 
       const outcome = await bootstrapMaintainer(db, 'github|4815162342')
 
@@ -432,7 +543,7 @@ describe('the authority a person holds', () => {
 
     /** Idempotent: every start after the first finds it held and writes nothing. */
     it('is idempotent across restarts', async () => {
-      const { human } = await findOrCreateHuman(db, anIdentity('github|4815162342'))
+      const human = personOf(await findOrCreateHuman(db, anIdentity('github|4815162342')))
       await bootstrapMaintainer(db, 'github|4815162342')
 
       const second = await bootstrapMaintainer(db, 'github|4815162342')
@@ -442,7 +553,7 @@ describe('the authority a person holds', () => {
     })
 
     it('tolerates whitespace around the subject', async () => {
-      const { human } = await findOrCreateHuman(db, anIdentity('github|4815162342'))
+      const human = personOf(await findOrCreateHuman(db, anIdentity('github|4815162342')))
 
       expect(await bootstrapMaintainer(db, '  github|4815162342  ')).toEqual({
         outcome: 'granted',
@@ -462,16 +573,20 @@ describe('the authority a person holds', () => {
      */
     it('refuses a subject that names more than one identity, and grants nobody', async () => {
       const shared = '2418106'
-      const { human: first } = await findOrCreateHuman(db, {
-        provider: 'github',
-        subject: shared,
-        email: 'one@example.com',
-      })
-      const { human: second } = await findOrCreateHuman(db, {
-        provider: 'google',
-        subject: shared,
-        email: 'two@example.com',
-      })
+      const first = personOf(
+        await findOrCreateHuman(db, {
+          provider: 'github',
+          subject: shared,
+          email: 'one@example.com',
+        }),
+      )
+      const second = personOf(
+        await findOrCreateHuman(db, {
+          provider: 'google',
+          subject: shared,
+          email: 'two@example.com',
+        }),
+      )
 
       expect(await bootstrapMaintainer(db, shared)).toEqual({ outcome: 'ambiguous-subject' })
 
@@ -481,11 +596,142 @@ describe('the authority a person holds', () => {
     })
 
     it('grants nobody anything when the subject names a different identity', async () => {
-      const { human } = await findOrCreateHuman(db, anIdentity('github|4815162342'))
+      const human = personOf(await findOrCreateHuman(db, anIdentity('github|4815162342')))
 
       await bootstrapMaintainer(db, 'github|9999')
 
-      expect((await readHuman(db, human.id))?.roles).toEqual([])
+      expect((await readHuman(db, human!.id))?.roles).toEqual([])
     })
+
+    /**
+     * **A person holding two identities still resolves to one row** (`#574`).
+     *
+     * `bootstrapMaintainer` matches on `subject` alone and refuses when two rows
+     * match. Attaching a second identity puts a second subject in the table, so
+     * the collision it guards against becomes reachable sooner — but a person
+     * with two identities is not that collision, and this is what says so.
+     */
+    it('finds one person through either of the two identities they hold', async () => {
+      const human = personOf(await findOrCreateHuman(db, anIdentity('github|4815162342')))
+      const attached = await connectIdentity(db, human!.id, {
+        provider: 'google',
+        subject: 'g-1',
+        email: 'someone@example.com',
+      })
+
+      expect(attached.outcome).toBe('attached')
+      expect(await bootstrapMaintainer(db, 'g-1')).toMatchObject({ outcome: 'granted' })
+      expect((await readHuman(db, human!.id))?.roles).toEqual(['maintainer'])
+    })
+  })
+})
+
+/**
+ * **Attaching a provider on request** (`#574`), which is the path for the case
+ * the automatic one cannot cover: a GitHub account with a private address gives
+ * the Colony no address at all, and a person may simply use two.
+ *
+ * The session decides here, not the address — the caller has already
+ * established who is signed in. What is left to check is whether the identity is
+ * free to attach, and the three answers are three different sentences.
+ */
+describe('attaching a provider to the person already signed in', () => {
+  let db: Database
+
+  beforeAll(async () => {
+    db = await connectForTests(target.url)
+  })
+
+  afterAll(async () => {
+    await db?.close()
+  })
+
+  beforeEach(async () => {
+    await truncateAll(db)
+  })
+
+  const aPerson = async (over = {}) => {
+    const human = personOf(
+      await findOrCreateHuman(db, {
+        provider: 'github',
+        subject: '1',
+        email: 'one@example.com',
+        ...over,
+      }),
+    )
+    if (human === undefined) throw new Error('no person was created')
+    return human
+  }
+
+  const google = { provider: 'google' as const, subject: 'g-1', email: 'two@example.com' }
+
+  it('attaches an unknown identity, and either door then reaches the same person', async () => {
+    const person = await aPerson()
+
+    const attached = await connectIdentity(db, person.id, google)
+    expect(attached.outcome).toBe('attached')
+    expect(attached.human?.identities).toHaveLength(2)
+
+    const back = await findOrCreateHuman(db, google)
+    expect(back.outcome).toBe('returning')
+    expect(back.human?.id).toBe(person.id)
+  })
+
+  it('works in the other order too: Google first, GitHub attached second', async () => {
+    const person = await aPerson({ provider: 'google', subject: 'g-9', email: 'nine@example.com' })
+
+    const attached = await connectIdentity(db, person.id, {
+      provider: 'github',
+      subject: 'h-9',
+      email: 'other@example.com',
+    })
+
+    expect(attached.outcome).toBe('attached')
+    expect(
+      (await findOrCreateHuman(db, { provider: 'github', subject: 'h-9', email: null })).human?.id,
+    ).toBe(person.id)
+  })
+
+  it('says so and writes nothing when they already hold it', async () => {
+    const person = await aPerson()
+    await connectIdentity(db, person.id, google)
+
+    const again = await connectIdentity(db, person.id, google)
+
+    expect(again.outcome).toBe('already-theirs')
+    expect(again.human?.identities).toHaveLength(2)
+  })
+
+  /**
+   * **The rejection case, and the one where being wrong hands over an account.**
+   *
+   * A version of this that reassigned the row would let anybody who can complete
+   * a provider handover walk into the account that identity already reaches. So
+   * neither account is touched, and the caller keeps its session — the person
+   * did nothing wrong and signing them out would read as a punishment.
+   */
+  it('refuses an identity that belongs to somebody else, and changes neither account', async () => {
+    const person = await aPerson()
+    const stranger = await aPerson({ subject: '2', email: 'two-other@example.com' })
+    await connectIdentity(db, stranger.id, google)
+
+    const refused = await connectIdentity(db, person.id, google)
+
+    expect(refused.outcome).toBe('taken')
+    expect(refused.human).toBeUndefined()
+    expect((await readHuman(db, person.id))?.identities).toHaveLength(1)
+    expect((await readHuman(db, stranger.id))?.identities).toHaveLength(2)
+  })
+
+  it('refreshes an address that has since become readable', async () => {
+    const person = await aPerson()
+    await connectIdentity(db, person.id, { ...google, email: null })
+
+    const again = await connectIdentity(db, person.id, google)
+
+    expect(again.outcome).toBe('already-theirs')
+    expect(again.human?.identities.find((identity) => identity.provider === 'google')?.email).toBe(
+      'two@example.com',
+    )
   })
 })

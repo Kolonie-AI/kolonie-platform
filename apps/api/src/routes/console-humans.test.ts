@@ -9,10 +9,11 @@ import {
   fakeTenant,
   refusingTenant,
   type FakeHumanStore,
+  type FakeTenant,
 } from '../__fixtures__/humans.js'
 import type { FakeStandingHints } from '../__fixtures__/hints.js'
 import { SESSION_COOKIE } from './console.js'
-import { OAUTH_STATE_COOKIE } from '../humans/humans.js'
+import { OAUTH_CONNECT_COOKIE, OAUTH_STATE_COOKIE } from '../humans/humans.js'
 
 /**
  * A person signing in with a provider (`#425`).
@@ -418,13 +419,13 @@ describe('a person who is signed in', () => {
      * request and is checked against the person in the statement that ends it.
      */
     it('ends nothing when the session named belongs to somebody else', async () => {
-      const stranger = await humans.findOrCreate({
+      const stranger = humans.holdsIdentity({
         provider: 'github',
         subject: 'somebody-else',
         email: null,
       })
-      const theirs = await humans.openSession(stranger.human.id, {})
-      const [session] = await humans.listSessions(stranger.human.id)
+      const theirs = await humans.openSession(stranger.id, {})
+      const [session] = await humans.listSessions(stranger.id)
 
       await post(`/sessions/${String(session?.id)}/end`)
 
@@ -906,5 +907,262 @@ describe('the dashboard and the link code', () => {
 
     expect(response.body).toContain('does not give you control')
     expect(response.body).toContain('deleted only by itself')
+  })
+})
+
+/**
+ * **A second door onto one account** (`#574`).
+ *
+ * The schema was shaped for this — *"a person who signs in with GitHub today
+ * and Google tomorrow is one person"* — and nothing ever wrote the second
+ * identity, so they were two. These are the seams where being wrong hands over
+ * an account, so each is a route test rather than a reading of the storage.
+ */
+describe('attaching a second provider', () => {
+  let tenant: FakeTenant
+
+  /**
+   * One tenant that can answer differently, rather than two apps.
+   *
+   * A second door is a different identity from the same tenant. Rebuilding the
+   * app around a second `fakeTenant` would throw the store away with it, so the
+   * person who just signed in would stop existing — and every assertion about
+   * *one account, two doors* would be about two empty stores.
+   */
+  beforeEach(async () => {
+    humans = fakeHumanStore()
+    const colony = fakeColony()
+    hints = colony.hints as FakeStandingHints
+    tenant = fakeTenant({ provider: 'github', subject: 'first', email: 'one@example.test' })
+    app = buildApp({
+      ...colony,
+      console: { ...fakeConsole(), consoleUrl: CONSOLE_URL },
+      humans: { store: humans, tenant },
+    })
+    await app.ready()
+  })
+
+  /** Sign in through the front door and keep the session cookie handed back. */
+  const signedInSession = async (): Promise<string> => {
+    const started = await asBrowser('/sign-in/github')
+    const state = new URL(started.headers['location'] as string).searchParams.get('state') as string
+    const back = await asBrowser(`/sign-in/callback?code=abc&state=${state}`, {
+      cookie: `${OAUTH_STATE_COOKIE}=${state}`,
+    })
+    const session = cookieNamed(back.headers['set-cookie'], SESSION_COOKIE) as string
+    return session.split(';')[0] as string
+  }
+
+  const startConnect = async (session: string) => {
+    const started = await app.inject({
+      method: 'POST',
+      url: '/account/connect/github',
+      headers: { host: CONSOLE_HOST, accept: 'text/html', cookie: session },
+    })
+    return new URL(started.headers['location'] as string).searchParams.get('state') as string
+  }
+
+  describe('starting it', () => {
+    /**
+     * **A `POST`, and that is a security property rather than a convention.**
+     * Signing in cannot be done *to* somebody; attaching an identity to their
+     * account can, so a `GET` here would be a state change any third-party page
+     * could trigger by embedding a link.
+     */
+    it('is not reachable with a GET', async () => {
+      const session = await signedInSession()
+
+      const response = await app.inject({
+        method: 'GET',
+        url: '/account/connect/github',
+        headers: { host: CONSOLE_HOST, accept: 'text/html', cookie: session },
+      })
+
+      expect(response.statusCode).toBe(404)
+    })
+
+    it('refuses a stranger, before sending them to a provider at all', async () => {
+      const response = await app.inject({
+        method: 'POST',
+        url: '/account/connect/github',
+        headers: { host: CONSOLE_HOST, accept: 'text/html' },
+      })
+
+      expect(response.statusCode).toBe(ERROR_STATUS.unauthorized)
+      expect(response.headers['location']).toBeUndefined()
+    })
+
+    /**
+     * **A cookie of its own**, which is what lets one callback tell the two
+     * handovers apart. A callback that cannot is a callback that attaches an
+     * identity to whoever is holding the browser.
+     */
+    it('remembers the state under a name of its own, not the sign-in one', async () => {
+      const session = await signedInSession()
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/account/connect/github',
+        headers: { host: CONSOLE_HOST, accept: 'text/html', cookie: session },
+      })
+
+      expect(response.statusCode).toBe(303)
+      expect(cookieNamed(response.headers['set-cookie'], OAUTH_CONNECT_COOKIE)).toBeDefined()
+      expect(cookieNamed(response.headers['set-cookie'], OAUTH_STATE_COOKIE)).toBeUndefined()
+    })
+
+    it('offers no door this build does not know', async () => {
+      const session = await signedInSession()
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/account/connect/myspace',
+        headers: { host: CONSOLE_HOST, accept: 'text/html', cookie: session },
+      })
+
+      expect(response.statusCode).toBe(404)
+    })
+  })
+
+  describe('coming back', () => {
+    it('attaches the identity, and either door then reaches the same person', async () => {
+      const session = await signedInSession()
+      const before = humans.people().length
+
+      tenant.answersWith({ provider: 'google', subject: 'second', email: 'two@example.test' })
+      const state = await startConnect(session)
+      const response = await asBrowser(`/sign-in/callback?code=abc&state=${state}`, {
+        cookie: `${session}; ${OAUTH_CONNECT_COOKIE}=${state}`,
+      })
+
+      expect(response.statusCode).toBe(303)
+      expect(response.headers['location']).toBe('/account?connected=attached')
+      // One account, not two.
+      expect(humans.people()).toHaveLength(before)
+      expect(humans.people()[0]?.identities).toHaveLength(2)
+    })
+
+    it('is a no-op that says so when they already hold it', async () => {
+      const session = await signedInSession()
+
+      const state = await startConnect(session)
+      const response = await asBrowser(`/sign-in/callback?code=abc&state=${state}`, {
+        cookie: `${session}; ${OAUTH_CONNECT_COOKIE}=${state}`,
+      })
+
+      expect(response.headers['location']).toBe('/account?connected=already-theirs')
+      expect(humans.people()[0]?.identities).toHaveLength(1)
+    })
+
+    /**
+     * **The branch where being wrong hands over an account.** Neither account is
+     * touched, and this session survives — the person did nothing wrong, and
+     * signing them out would read as a punishment for a mistake.
+     */
+    it('refuses an identity that belongs to somebody else, and keeps the session', async () => {
+      const session = await signedInSession()
+      const stranger = humans.holdsIdentity({
+        provider: 'google',
+        subject: 'theirs',
+        email: 'theirs@example.test',
+      })
+
+      tenant.answersWith({ provider: 'google', subject: 'theirs', email: 'theirs@example.test' })
+      const state = await startConnect(session)
+      const response = await asBrowser(`/sign-in/callback?code=abc&state=${state}`, {
+        cookie: `${session}; ${OAUTH_CONNECT_COOKIE}=${state}`,
+      })
+
+      expect(response.headers['location']).toBe('/account?connected=taken')
+      expect(humans.people()[0]?.identities).toHaveLength(1)
+      expect(stranger.identities).toHaveLength(1)
+      // The session is untouched: the account page still answers.
+      expect((await asBrowser('/account', { cookie: session })).statusCode).toBe(200)
+    })
+
+    /**
+     * **The session is re-read on the way back, not trusted from the way out.**
+     * `#574` names this: a person may sign out, or the session may expire, while
+     * they are at the provider. Nothing is attached.
+     */
+    it('attaches nothing when the session ended mid-flight', async () => {
+      const session = await signedInSession()
+      const state = await startConnect(session)
+
+      const response = await asBrowser(`/sign-in/callback?code=abc&state=${state}`, {
+        cookie: `${OAUTH_CONNECT_COOKIE}=${state}`,
+      })
+
+      expect(response.statusCode).toBe(ERROR_STATUS.validation_failed)
+      expect(response.body).toContain('was not made')
+      expect(humans.people()[0]?.identities).toHaveLength(1)
+    })
+
+    it('refuses a state that did not start in this browser', async () => {
+      const session = await signedInSession()
+      await startConnect(session)
+
+      const response = await asBrowser('/sign-in/callback?code=abc&state=somebody-elses', {
+        cookie: `${session}; ${OAUTH_CONNECT_COOKIE}=mine`,
+      })
+
+      expect(response.statusCode).toBe(ERROR_STATUS.validation_failed)
+      expect(humans.people()[0]?.identities).toHaveLength(1)
+    })
+  })
+
+  /**
+   * **The automatic path**: an unknown identity whose verified address already
+   * reaches exactly one person attaches to them, and more than one is refused
+   * with nothing written.
+   */
+  describe('arriving with an address the Colony already knows', () => {
+    it('signs them into the account that address reaches, without a second one', async () => {
+      await signedInSession()
+
+      tenant.answersWith({ provider: 'google', subject: 'second', email: 'one@example.test' })
+      const session = await signedInSession()
+
+      expect(humans.people()).toHaveLength(1)
+      expect(humans.people()[0]?.identities).toHaveLength(2)
+
+      const page = await asBrowser('/account', { cookie: session })
+      expect(page.statusCode).toBe(200)
+      expect(page.body).toContain('How you sign in')
+      expect(page.body).toContain('google')
+    })
+
+    it('refuses, signs nobody in and writes nothing when it reaches two', async () => {
+      await signedInSession()
+      humans.holdsIdentity({ provider: 'apple', subject: 'other', email: 'one@example.test' })
+      const before = humans.people().length
+
+      tenant.answersWith({ provider: 'google', subject: 'third', email: 'one@example.test' })
+      const started = await asBrowser('/sign-in/github')
+      const state = new URL(started.headers['location'] as string).searchParams.get(
+        'state',
+      ) as string
+      const response = await asBrowser(`/sign-in/callback?code=abc&state=${state}`, {
+        cookie: `${OAUTH_STATE_COOKIE}=${state}`,
+      })
+
+      expect(response.statusCode).toBe(ERROR_STATUS.validation_failed)
+      expect(response.body).toContain('more than one account')
+      expect(cookieNamed(response.headers['set-cookie'], SESSION_COOKIE)).toBeUndefined()
+      expect(humans.people()).toHaveLength(before)
+    })
+
+    /**
+     * **`null` is not a match**, and this is `#426`'s private-GitHub-address
+     * case: two people who both hold no address are not each other.
+     */
+    it('creates an account for an identity with no address', async () => {
+      await signedInSession()
+
+      tenant.answersWith({ provider: 'google', subject: 'fourth', email: null })
+      await signedInSession()
+
+      expect(humans.people()).toHaveLength(2)
+    })
   })
 })

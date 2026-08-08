@@ -16,6 +16,7 @@ import {
 } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import {
+  accounts,
   agentSkills,
   reputationEvents,
   submissions,
@@ -64,6 +65,14 @@ export interface ListTasksQuery {
    * catalogue refuses.
    */
   readonly createdSince?: string | undefined
+  /**
+   * Only tasks every account kind of which this agent already holds (`#523`).
+   *
+   * **A different row set, not a different rendering**, which is why it is a
+   * parameter here rather than a filter over the answer — see {@link equippedBy}
+   * for the predicate and {@link encodeCursor} for what it costs a cursor.
+   */
+  readonly equipped?: boolean | undefined
 }
 
 /**
@@ -304,6 +313,40 @@ const passedBy = (agentId: AgentId): SQL =>
   sql`exists (select 1 from ${submissions} where ${submissions.taskId} = ${tasks.id} and ${submissions.agentId} = ${agentId} and ${submissions.status} = 'passed')`
 
 /**
+ * Whether this agent holds every account kind the task names (`#523`, `#559`).
+ *
+ * **The one expression of *equipped*, and it is here rather than over the page.**
+ * `#523` narrowed the page in hand, in TypeScript, after the keyset cut — which
+ * made a filtered page short or empty while later pages still held matches, and
+ * left the same rule written twice. It is a `where` now, so the page is cut from
+ * rows that already match and the count on it is the count of results.
+ *
+ * **Every named kind, not any of them**, which is what the doubled negation says:
+ * there is no kind on this task for which this agent has no account. A task naming
+ * a mailbox and a GitHub login needs both, and an empty `account_kinds` matches
+ * everybody — vacuously true, the same answer `every` gives an empty list.
+ *
+ * **Proved, `in-use`, `for_work`** — the three the register's own reading applies.
+ * An asserted account is not a qualification, an account the citizen retired is
+ * gone, and one taken out of matching matches nothing. The proof *method* is
+ * deliberately not read: a rung and a generic proof (`#520`) are different
+ * strengths and both are proof of possession, which is the whole of what a match
+ * is about.
+ */
+const equippedBy = (agentId: AgentId): SQL =>
+  sql`not exists (
+    select 1 from unnest(${tasks.accountKinds}) as required(kind)
+    where not exists (
+      select 1 from ${accounts}
+      where ${accounts.agentId} = ${agentId}
+        and ${accounts.kind} = required.kind
+        and ${accounts.proved}
+        and ${accounts.forWork}
+        and ${accounts.status} = 'in-use'
+    )
+  )`
+
+/**
  * The list an agent walks, one page at a time.
  *
  * **It answers "what can I start now?" and nothing else.** D-030 replaced the
@@ -328,8 +371,19 @@ const passedBy = (agentId: AgentId): SQL =>
  * agents are reading, and an offset silently shifts underneath them.
  */
 export async function listTasks(db: Database, query: ListTasksQuery): Promise<ListTasksResult> {
+  const equipped = query.equipped === true
   const after = decodeCursor(query.cursor)
   if (after === 'invalid') return { outcome: 'invalid-cursor' }
+  /**
+   * A cursor is only a position in the row set it was issued over (`#559`).
+   *
+   * Replaying one across the flag would page through a *different* set from the
+   * position of the old one: rows skipped, rows repeated, and nothing said. So
+   * the cursor carries which set it came from and a mismatch is refused here —
+   * as `invalid-cursor`, which the route already answers with *request the first
+   * page again*, the only honest recovery from an opaque string.
+   */
+  if (after !== undefined && after.equipped !== equipped) return { outcome: 'invalid-cursor' }
 
   const conditions: SQL[] = [
     inArray(tasks.status, [
@@ -415,6 +469,9 @@ export async function listTasks(db: Database, query: ListTasksQuery): Promise<Li
     conditions.push(gte(tasks.createdAt, query.createdSince))
   }
 
+  // *Only what I am equipped for*, cut with the page rather than out of it.
+  if (equipped) conditions.push(equippedBy(query.agentId))
+
   if (after !== undefined) {
     // Row-wise comparison, which is the whole reason the sort key is a tuple:
     // Postgres compares it left to right in one predicate, so the index on
@@ -463,7 +520,8 @@ export async function listTasks(db: Database, query: ListTasksQuery): Promise<Li
           row.freeSlots,
         ),
       ),
-      nextCursor: rows.length > query.limit && last !== undefined ? encodeCursor(last) : null,
+      nextCursor:
+        rows.length > query.limit && last !== undefined ? encodeCursor(last, equipped) : null,
     },
   }
 }
@@ -885,6 +943,8 @@ interface Cursor {
   readonly recommendedOrder: number
   readonly createdAt: string
   readonly id: string
+  /** Which row set it is a position in — see {@link encodeCursor} (`#559`). */
+  readonly equipped: boolean
 }
 
 /**
@@ -902,11 +962,20 @@ interface Cursor {
  * The first field used to be the level; since D-030 it is the recommended order,
  * and that change was invisible to every agent that treated the string as opaque
  * — which is the property the encoding was chosen for.
+ *
+ * **It also carries the row set it is a position in** (`#559`), because
+ * `equipped` changes which rows exist rather than how they are shown, and a
+ * position in one set means nothing in the other. Encoded rather than inferred:
+ * a caller cannot be asked to remember what it sent, and the alternative —
+ * accepting the cursor and quietly paging its own set — is the silent wrong
+ * answer this field exists to make impossible. {@link listTasks} refuses the
+ * mismatch; nothing here decides, it only records.
  */
-function encodeCursor(row: typeof tasks.$inferSelect): string {
-  return Buffer.from(`${row.recommendedOrder}|${row.createdAt}|${row.id}`, 'utf8').toString(
-    'base64url',
-  )
+function encodeCursor(row: typeof tasks.$inferSelect, equipped: boolean): string {
+  return Buffer.from(
+    `${equipped ? 'e' : 'a'}|${row.recommendedOrder}|${row.createdAt}|${row.id}`,
+    'utf8',
+  ).toString('base64url')
 }
 
 /**
@@ -920,8 +989,15 @@ function decodeCursor(cursor: string | null | undefined): Cursor | undefined | '
   if (cursor === undefined || cursor === null || cursor === '') return undefined
 
   const parts = Buffer.from(cursor, 'base64url').toString('utf8').split('|')
-  if (parts.length !== 3) return 'invalid'
-  const [rawOrder, createdAt, id] = parts as [string, string, string]
+  if (parts.length !== 4) return 'invalid'
+  const [set, rawOrder, createdAt, id] = parts as [string, string, string, string]
+
+  // A cursor from before `#559` has three fields and no set marker. It is not
+  // accepted as the unfiltered one: *unmarked* and *from the unfiltered list*
+  // are only the same thing for as long as the old format is still in flight,
+  // and a cursor is a string an agent holds for one call. Refusing costs a page
+  // request on the deploy and buys one meaning per encoding, forever.
+  if (set !== 'e' && set !== 'a') return 'invalid'
 
   const recommendedOrder = Number(rawOrder)
   // The same range the column is constrained to. A value outside it cannot
@@ -933,5 +1009,5 @@ function decodeCursor(cursor: string | null | undefined): Cursor | undefined | '
   if (createdAt === '' || Number.isNaN(Date.parse(createdAt))) return 'invalid'
   if (!TaskIdSchema.safeParse(id).success) return 'invalid'
 
-  return { recommendedOrder, createdAt, id }
+  return { recommendedOrder, createdAt, id, equipped: set === 'e' }
 }

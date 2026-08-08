@@ -185,31 +185,6 @@ export function databaseAccountResolution(db: Database): AccountResolution {
 }
 
 /**
- * Whether a citizen is equipped for work naming these account kinds (`#523`).
- *
- * **Every named kind, not any of them.** A quest naming a mailbox and a GitHub account
- * needs both, and *any* would answer a question nobody asked — an agent filtering for
- * what fits does not want the one it is half-equipped for at the top of the list.
- *
- * **Proved only, and marked for work.** An asserted account is not a qualification, and
- * an account the citizen took out of matching matches nothing, ever. The proof *method*
- * is deliberately not read: a rung and a generic proof are different strengths (`#520`)
- * and both are proof of possession, which is the whole of what a match is about. A
- * filter that preferred rung-proved accounts would quietly make the generic proofs worth
- * less than the register says they are.
- *
- * A pure function, on the reason `heldAccountsOf` below states at length.
- */
-export function equippedFor(
-  kinds: readonly string[],
-  held: ReadonlyMap<string, readonly HeldAccount[]>,
-): boolean {
-  return kinds.every((kind) =>
-    (held.get(kind) ?? []).some((account) => account.proved && account.forWork),
-  )
-}
-
-/**
  * The register's rows and the reach address, as a task listing shows them.
  *
  * **Separated from the read so it can be tested without a database**, which is

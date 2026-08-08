@@ -3,6 +3,7 @@ import { eq, sql } from 'drizzle-orm'
 import { TaskSchema, type AgentId, type Task, type TaskId, type TaskStatus } from '@kolonie-ai/core'
 import { createDatabase, type Database } from '../client.js'
 import {
+  accounts,
   agents,
   agentSkills,
   reputationEvents,
@@ -56,6 +57,8 @@ describe('listTasks', () => {
     /** `quest` is what `tasks_academy_is_open` requires before a floor may be raised. */
     readonly kind?: 'academy' | 'quest'
     readonly audience?: 'candidates' | 'citizens'
+    /** The account kinds the task names, which `equipped` is answered from (`#559`). */
+    readonly accountKinds?: string[]
   }
 
   const seed = async (...seeds: Seed[]): Promise<void> => {
@@ -75,6 +78,7 @@ describe('listTasks', () => {
         status: task.status ?? ('active' as const),
         kind: task.kind ?? ('academy' as const),
         audience: task.audience ?? ('candidates' as const),
+        accountKinds: task.accountKinds ?? [],
         ...(task.createdAt === undefined ? {} : { createdAt: task.createdAt }),
       })),
     )
@@ -470,6 +474,157 @@ describe('listTasks', () => {
     })
   })
 
+  /**
+   * *Only what I am equipped for* (`#523`), cut with the page rather than out of
+   * it (`#559`).
+   *
+   * These are the rules the API used to hold in TypeScript, over a page it had
+   * already been handed. They are asserted here now because here is the only
+   * place they are written — the point of `#559` is that there is one predicate
+   * and not two that can drift.
+   */
+  describe('only what the citizen is equipped for', () => {
+    /** One account in the register, in whatever state the case is about. */
+    const anAccount = async (
+      kind: string,
+      state: { proved?: boolean; forWork?: boolean; status?: 'in-use' | 'retired' | 'lost' } = {},
+      holder: AgentId = agentId,
+    ): Promise<void> => {
+      const proved = state.proved ?? true
+      await db.insert(accounts).values({
+        agentId: holder,
+        kind,
+        identifier: `${kind}-${crypto.randomUUID()}`,
+        proved,
+        ...(proved ? { provedAt: new Date().toISOString() } : {}),
+        capabilities: proved ? ['control'] : [],
+        forWork: state.forWork ?? true,
+        status: state.status ?? ('in-use' as const),
+        provenance: 'self-acquired' as const,
+      })
+    }
+
+    const equipped = async (query: Partial<ListTasksQuery> = {}) =>
+      titles((await list({ equipped: true, ...query })).items)
+
+    it('pages over matching rows, so a page is short only when the results are', async () => {
+      /**
+       * The defect `#559` was filed for, as a test.
+       *
+       * Ten tasks, only the last of which the citizen is equipped for. Filtering
+       * a page of five returned an *empty first page* with a cursor — an agent
+       * reading it concluded there was no work for it, which is the whole cost.
+       */
+      await seed(
+        ...Array.from({ length: 9 }, (_, index) => ({
+          title: `Needs a domain ${index}`,
+          order: index,
+          accountKinds: ['domain'],
+        })),
+        { title: 'Needs a mailbox', order: 9, accountKinds: ['mailbox'] },
+      )
+      await anAccount('mailbox')
+
+      const page = await list({ equipped: true, limit: 5 })
+
+      expect(titles(page.items)).toEqual(['Needs a mailbox'])
+      expect(page.nextCursor).toBeNull()
+    })
+
+    it('needs every kind a task names, not any of them', async () => {
+      // *Any* would answer a question nobody asked: an agent filtering for what
+      // fits does not want the one it is half-equipped for at the top of the list.
+      await seed(
+        { title: 'One kind', accountKinds: ['mailbox'] },
+        { title: 'Both kinds', accountKinds: ['mailbox', 'github'] },
+      )
+      await anAccount('mailbox')
+
+      expect(await equipped()).toEqual(['One kind'])
+    })
+
+    it('is satisfied by a task that names no account at all', async () => {
+      // Which keeps the filter from being a gate on the whole Academy: most rungs
+      // name no account, and every one of them stays visible under the narrowing.
+      await seed({ title: 'Names nothing' })
+
+      expect(await equipped()).toEqual(['Names nothing'])
+    })
+
+    it('matches nothing on an account the citizen only declared', async () => {
+      // An asserted account is not a qualification, which is the same rule that
+      // keeps a declared account from ever satisfying a verifier.
+      await seed({ title: 'Needs trello', accountKinds: ['trello'] })
+      await anAccount('trello', { proved: false })
+
+      expect(await equipped()).toEqual([])
+    })
+
+    it('matches nothing on an account taken out of matching, or retired', async () => {
+      await seed({ title: 'Needs trello', accountKinds: ['trello'] })
+      await anAccount('trello', { forWork: false })
+      await anAccount('trello', { status: 'retired' })
+
+      expect(await equipped()).toEqual([])
+
+      // And one of three is enough, because the citizen only withdrew the others.
+      await anAccount('trello')
+      expect(await equipped()).toEqual(['Needs trello'])
+    })
+
+    it('reads this citizen’s register and nobody else’s', async () => {
+      await seed({ title: 'Needs a mailbox', accountKinds: ['mailbox'] })
+      await anAccount('mailbox', {}, await anAgent('somebody else'))
+
+      expect(await equipped()).toEqual([])
+    })
+
+    it('does not care which proof read it', async () => {
+      /**
+       * **A rung and a generic proof are different strengths and both are
+       * possession** (`#520`), which is the whole of what a match is about. A
+       * filter that preferred rung-proved accounts would quietly make the generic
+       * proofs worth less than the register says they are — so the method is not
+       * read at all.
+       */
+      await seed({ title: 'Needs trello', accountKinds: ['trello'] })
+      await anAccount('trello')
+
+      for (const method of ['rung', 'provider-mail', 'provider-post']) {
+        await db.execute(sql`update ${accounts} set proved_by = ${method}`)
+        expect(await equipped()).toEqual(['Needs trello'])
+      }
+    })
+
+    it('refuses a cursor replayed across the flag, in both directions', async () => {
+      /**
+       * A cursor is a position in the row set it was issued over, and the flag
+       * decides which set that is. Paging on regardless would skip rows or repeat
+       * them and say nothing, so the refusal is here rather than in a convention.
+       */
+      await seed(
+        { title: 'Needs a mailbox', order: 0, accountKinds: ['mailbox'] },
+        { title: 'Needs a domain', order: 1, accountKinds: ['domain'] },
+        { title: 'Also a mailbox', order: 2, accountKinds: ['mailbox'] },
+      )
+      await anAccount('mailbox')
+
+      const narrowed = await list({ equipped: true, limit: 1 })
+      const whole = await list({ limit: 1 })
+      expect(narrowed.nextCursor).not.toBeNull()
+      expect(whole.nextCursor).not.toBeNull()
+
+      const replay = async (cursor: string | null, equipped: boolean) =>
+        (await listTasks(db, { agentId, availableOnly: true, limit: 25, cursor, equipped })).outcome
+
+      expect(await replay(narrowed.nextCursor, false)).toBe('invalid-cursor')
+      expect(await replay(whole.nextCursor, true)).toBe('invalid-cursor')
+      // And each is still good for the set it came from.
+      expect(await replay(narrowed.nextCursor, true)).toBe('listed')
+      expect(await replay(whole.nextCursor, false)).toBe('listed')
+    })
+  })
+
   describe('a cursor the endpoint did not issue', () => {
     const rejected = async (cursor: string) =>
       (await listTasks(db, { agentId, availableOnly: true, limit: 25, cursor })).outcome
@@ -481,12 +636,27 @@ describe('listTasks', () => {
     it('is refused when it decodes but carries nonsense', async () => {
       const forged = (value: string) => Buffer.from(value, 'utf8').toString('base64url')
 
-      expect(await rejected(forged('0|2026-07-28T09:00:00Z'))).toBe('invalid-cursor')
-      expect(await rejected(forged('9999|2026-07-28T09:00:00Z|' + crypto.randomUUID()))).toBe(
+      expect(await rejected(forged('a|0|2026-07-28T09:00:00Z'))).toBe('invalid-cursor')
+      expect(await rejected(forged('a|9999|2026-07-28T09:00:00Z|' + crypto.randomUUID()))).toBe(
         'invalid-cursor',
       )
-      expect(await rejected(forged('0|not-a-time|' + crypto.randomUUID()))).toBe('invalid-cursor')
-      expect(await rejected(forged('0|2026-07-28T09:00:00Z|not-a-uuid'))).toBe('invalid-cursor')
+      expect(await rejected(forged('a|0|not-a-time|' + crypto.randomUUID()))).toBe('invalid-cursor')
+      expect(await rejected(forged('a|0|2026-07-28T09:00:00Z|not-a-uuid'))).toBe('invalid-cursor')
+      // An unknown row set, which is what a hand-written marker looks like.
+      expect(await rejected(forged('x|0|2026-07-28T09:00:00Z|' + crypto.randomUUID()))).toBe(
+        'invalid-cursor',
+      )
+    })
+
+    it('is refused when it is the three-field form from before `#559`', async () => {
+      // *Unmarked* and *from the unfiltered list* are only the same thing for as
+      // long as the old format is still in flight. Refusing costs a page request
+      // on the deploy and buys one meaning per encoding, forever.
+      const old = Buffer.from(`0|2026-07-28T09:00:00Z|${crypto.randomUUID()}`, 'utf8').toString(
+        'base64url',
+      )
+
+      expect(await rejected(old)).toBe('invalid-cursor')
     })
 
     it('does not look addressable, so nobody hand-crafts one', async () => {

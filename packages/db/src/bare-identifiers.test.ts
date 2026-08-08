@@ -181,6 +181,27 @@ describe('a subquery never interpolates columns of two tables', () => {
    * on 2026-08-02. The two that were wrong are gone from the list rather than
    * corrected in it, because they no longer name a table variable.
    *
+   * **`#559` adds a second to `tasks.ts`**: `equippedBy`, *does this citizen
+   * hold every account kind the task names*, in the `where` of the listing.
+   * Rendered through this dialect on 2026-08-08, every identifier qualified —
+   * including the outer one, which is the correlation the fragment is for:
+   *
+   * ```
+   * not exists (
+   *   select 1 from unnest("tasks"."account_kinds") as required(kind)
+   *   where not exists (
+   *     select 1 from "accounts"
+   *     where "accounts"."agent_id" = $1
+   *       and "accounts"."kind" = required.kind
+   *       and "accounts"."proved"
+   *       and "accounts"."for_work"
+   *       and "accounts"."status" = 'in-use'))
+   * ```
+   *
+   * The inner correlation is to `required.kind` — a `from` item of the fragment's
+   * own making, written out and aliased, so it cannot be resolved outward
+   * whatever the query around it does.
+   *
    * **`#263` split `quests.ts` into `storage/quests/`** and the five moved with
    * their fragments unchanged — four to `steward.ts` (the moderation clearance,
    * the moderation queue, the scrub queue and the audit queue) and one to
@@ -189,7 +210,7 @@ describe('a subquery never interpolates columns of two tables', () => {
    * are what changed.
    */
   const MEASURED_SAFE: Readonly<Record<string, number>> = {
-    'tasks.ts': 1,
+    'tasks.ts': 2,
     'guidance.ts': 1,
     'submissions.ts': 1,
     'steward.ts': 4,

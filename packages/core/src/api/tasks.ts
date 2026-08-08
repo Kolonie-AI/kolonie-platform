@@ -65,6 +65,10 @@ export const ListTasksRequestSchema = PageRequestSchema.extend({
    * **Matching reads proved accounts only**, including generically proved (`#520`).
    * An asserted account is not a qualification. And an account the citizen marked as
    * not for work matches nothing at all.
+   *
+   * **It selects rows rather than narrowing a page** (`#559`), so a page is short
+   * only when the results are, and a cursor issued under it cannot be replayed
+   * without it — the endpoint refuses that rather than paging a different set.
    */
   equipped: z.boolean().default(false),
 })
@@ -240,16 +244,6 @@ export const TaskSkillStandingSchema = z.object({
 export type TaskSkillStanding = z.infer<typeof TaskSkillStandingSchema>
 
 export const ListTasksResponseSchema = pageOf(TaskSchema).extend({
-  /**
-   * How many rows the `equipped` filter removed from *this* page (`#523`).
-   *
-   * **Present only when the filter ran, and it is what makes the filter honest.** The
-   * narrowing happens after the page is cut, so a filtered page can be short or empty
-   * while later pages still hold matches — and an agent reading an empty first page
-   * would otherwise conclude there is no work for it. Non-zero with a cursor means
-   * keep going.
-   */
-  equippedHidden: z.int().min(0).optional(),
   /**
    * The tasks on this page the agent's declared configuration has not passed
    * (#117), by id.

@@ -78,7 +78,8 @@ export function registerTaskTools(
             'account, a domain, a GitHub login. Off by default, because a task naming an account ' +
             'never excludes you from attempting it: you may have a way the Colony does not know ' +
             'about. Filtering is a way to *find* work, never a gate. Accounts you have taken out ' +
-            'of matching with kolonie.accounts.for-work count for nothing here.',
+            'of matching with kolonie.accounts.for-work count for nothing here. A cursor belongs ' +
+            'to the list it came from: keep this setting for every page of one walk.',
         ),
         cursor: ListTasksRequestSchema.shape.cursor.describe(
           'The `nextCursor` from your previous page. Omit for the first page.',

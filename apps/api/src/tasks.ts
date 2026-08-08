@@ -23,7 +23,7 @@ import {
   type TaskReference,
   type TaskSkillStanding,
 } from '@kolonie-ai/core'
-import { equippedFor, type AccountResolution, type HeldAccount } from './accounts.js'
+import type { AccountResolution } from './accounts.js'
 import {
   frontier as frontierInDatabase,
   lastCertifiedOn as lastCertifiedOnInDatabase,
@@ -114,6 +114,15 @@ export interface CatalogueQuery {
    * must not own a second copy of the availability predicate to answer it.
    */
   readonly createdSince?: string | undefined
+  /**
+   * Only tasks every account kind of which the reader already holds (`#523`).
+   *
+   * **The catalogue's business and not this layer's** (`#559`). It selects rows,
+   * so it belongs in the query that selects them — a filter applied to the answer
+   * would return a page shorter than the page size while later pages still held
+   * matches, which is what it did until `#559`.
+   */
+  readonly equipped?: boolean | undefined
 }
 
 /** What `GET /v1/tasks` resolved to, in the API's own vocabulary. */
@@ -441,30 +450,22 @@ export async function listTasks(
   const ordered = orderByDirection(result.page.items, direction)
 
   /**
-   * *Only what I am equipped for* (`#523`), applied to the page in hand.
+   * *Only what I am equipped for* (`#523`) is a `where` in the catalogue since
+   * `#559`, so there is nothing to narrow here.
    *
-   * **After the page is cut and not in the query, and the consequence is stated
-   * rather than hidden.** The catalogue pages by keyset on
-   * `(recommended_order, created_at, id)`; a `where` on the register would need the
-   * accounts join inside that query and would change what a cursor means. So this
-   * narrows the page, which means **a filtered page can be short or even empty while
-   * later pages still hold matches** — and an agent reading an empty first page would
-   * otherwise conclude there is nothing.
-   *
-   * `equippedHidden` is what stops that: the count of rows this filter removed from
-   * *this* page. Non-zero with a cursor means keep going.
+   * It cannot be done the way the reordering above is. Reordering the page is
+   * safe precisely because it changes no row set; filtering it is the same
+   * operation minus that property, which is what `#523` shipped and `#559`
+   * undid — a page cut from rows and then filtered is short while later pages
+   * still hold matches, and no count on the response makes that not so.
    */
-  const held = await heldForFilter(ordered, agentId, register, parsed.data.equipped)
-  const items = parsed.data.equipped
-    ? ordered.filter((task) => equippedFor(task.requiresAccounts, held))
-    : ordered
+  const items = ordered
 
   return {
     outcome: 'listed',
     response: {
       ...result.page,
       items: [...items],
-      ...(parsed.data.equipped ? { equippedHidden: ordered.length - items.length } : {}),
       recommended: [...recommendedFor(result.page.items, direction)] as TaskId[],
       notices,
       accounts,
@@ -484,27 +485,6 @@ export async function listTasks(
       standings: listingStandings(items, standings),
     },
   }
-}
-
-/**
- * The kinds this page's tasks name, resolved once for the filter (`#523`).
- *
- * **Skipped entirely when nothing asked for it**, so the ordinary listing costs exactly
- * what it did before: an axis nobody opted into must not put a query on the hottest
- * read in the system.
- */
-async function heldForFilter(
-  tasks: readonly Task[],
-  agentId: AgentId,
-  register: AccountResolution,
-  equipped: boolean,
-): Promise<ReadonlyMap<string, readonly HeldAccount[]>> {
-  if (!equipped) return new Map()
-
-  const kinds = [...new Set(tasks.flatMap((task) => task.requiresAccounts))]
-  if (kinds.length === 0) return new Map()
-
-  return register.heldByKind(agentId, kinds)
 }
 
 /**

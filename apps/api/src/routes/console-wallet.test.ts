@@ -184,9 +184,28 @@ describe('the page that asks a browser wallet to sign', () => {
     expect(script).toContain('wallet-standard:app-ready')
     expect(script).toContain('solana:signMessage')
     expect(script).toContain('window.solana')
-    // Phantom's namespace is read because it is an interface others implement.
-    // MetaMask is reached through the standard and is named nowhere at all.
-    expect(script).not.toMatch(/metamask/i)
+
+    /**
+     * **The rule is that no wallet is named in a *branch*, not that none is
+     * mentioned.** Comments record which wallet a defect was measured in, and
+     * that is worth keeping — `standard:connect` is there because MetaMask
+     * registers with no accounts, and a comment saying so is how the next
+     * reader knows it was measured rather than guessed.
+     *
+     * So the code is stripped of its comments before the assertion, which is
+     * what the requirement was always about: nothing decides whether signing is
+     * possible by asking which wallet this is.
+     */
+    const code = script
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .split('\n')
+      .filter((line) => !line.trim().startsWith('//'))
+      .join('\n')
+
+    expect(code).not.toMatch(/metamask/i)
+    // Phantom's namespace is read because it is an interface others implement,
+    // and it is read as one — never as a test for which product is installed.
+    expect(code).not.toMatch(/if\s*\([^)]*phantom[^)]*\)/i)
   })
 
   /**
@@ -208,6 +227,45 @@ describe('the page that asks a browser wallet to sign', () => {
     expect(script).toContain('for (const wallet of state.wallets)')
     expect(script).not.toContain('state.wallets[0]')
     expect(script).toContain('wallet-choices')
+  })
+
+  /**
+   * **A registered wallet is not a connected one**, and the first version of
+   * this script assumed it was: it read `wallet.accounts[0]` and threw when it
+   * was empty, which is the state every Wallet Standard wallet is in until a
+   * page asks. MetaMask registers with no accounts, so the only wallet anybody
+   * tried answered `no account` and the rung could not be cleared **at all**.
+   *
+   * The injected path always called `connect()`. The standard path never did,
+   * and that asymmetry was the whole defect — so what is asserted is that both
+   * paths connect, and that the failure message names what to do next rather
+   * than saying two words.
+   */
+  it('connects through the standard before it asks for a signature', async () => {
+    const script = (
+      await app.inject({ method: 'GET', url: WALLET_SCRIPT_PATH, headers: { host: CONSOLE_HOST } })
+    ).body
+
+    expect(script).toContain("wallet.features['standard:connect']")
+    // The injected path's own connect, so neither route can lose it.
+    expect(script).toContain('injected.connect()')
+    // Every refusal names what to do next — the rung's own rule, one file over.
+    expect(script).not.toContain("throw new Error('no account')")
+    expect(script).toContain('Unlock it')
+  })
+
+  /**
+   * A wallet may hold accounts on several chains and only some are ours to ask.
+   * Picking `accounts[0]` blindly is how a page asks an Ethereum account to sign
+   * a Solana nonce and reports the failure as the citizen's.
+   */
+  it('picks an account that can sign for Solana', async () => {
+    const script = (
+      await app.inject({ method: 'GET', url: WALLET_SCRIPT_PATH, headers: { host: CONSOLE_HOST } })
+    ).body
+
+    expect(script).toContain("startsWith('solana:')")
+    expect(script).toContain("includes('solana:signMessage')")
   })
 
   /**

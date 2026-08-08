@@ -145,6 +145,15 @@ function base58(bytes) {
 function discover() {
   const found = []
 
+  // An account that can sign for Solana. A wallet may hold accounts for several
+  // chains and only some of them are ours to ask.
+  const solanaAccount = (accounts) =>
+    (accounts || []).find(
+      (account) =>
+        (account.chains || []).some((chain) => String(chain).startsWith('solana:')) &&
+        (account.features || []).includes('solana:signMessage'),
+    ) || (accounts || [])[0]
+
   const register = (...wallets) => {
     for (const wallet of wallets.flat()) {
       const feature = wallet.features && wallet.features['solana:signMessage']
@@ -152,8 +161,41 @@ function discover() {
       found.push({
         name: wallet.name,
         sign: async (message) => {
-          const account = wallet.accounts && wallet.accounts[0]
-          if (account === undefined) throw new Error('no account')
+          /**
+           * **Connect first, because a registered wallet is not a connected
+           * one.** This is what the first version got wrong: it read
+           * wallet.accounts[0] and threw when it was empty, which is the state
+           * every Wallet Standard wallet is in until a page asks. MetaMask
+           * registers with no accounts and stayed that way, so the button
+           * answered no account and the rung could not be cleared at all.
+           *
+           * The injected path below always called connect(); this one never
+           * did, and that asymmetry was the whole defect.
+           */
+          let account = solanaAccount(wallet.accounts)
+
+          if (account === undefined) {
+            const connect = wallet.features && wallet.features['standard:connect']
+            if (connect === undefined || typeof connect.connect !== 'function') {
+              throw new Error(
+                wallet.name +
+                  ' has no account this page can use and offers no way to connect one. ' +
+                  'Unlock it, make sure it has a Solana account, and reload.',
+              )
+            }
+
+            const connected = await connect.connect()
+            account = solanaAccount(connected && connected.accounts) || solanaAccount(wallet.accounts)
+          }
+
+          if (account === undefined) {
+            throw new Error(
+              wallet.name +
+                ' connected but offered no Solana account. If it holds accounts on other ' +
+                'chains only, add or select a Solana one and try again.',
+            )
+          }
+
           const [output] = await feature.signMessage({ account, message })
           return { address: base58(account.publicKey), signature: base58(output.signature) }
         },
@@ -222,7 +264,14 @@ async function prove(wallet, choices) {
     say('working', 'Asking the Colony for a nonce…')
     const challenge = await post(button.dataset.challenge)
 
-    say('working', 'Waiting for ' + wallet.name + ' to sign. Nothing is being spent.')
+    // Two prompts are possible here and a person should expect both: a wallet
+    // that has never been connected to this page asks to connect first, and
+    // then asks to sign. Neither spends anything.
+    say(
+      'working',
+      'Waiting for ' + wallet.name + '. It may ask to connect first, then to sign. ' +
+        'Nothing is being spent.',
+    )
     const signed = await wallet.sign(encoder.encode(challenge.nonce))
 
     say('working', 'Checking the signature…')

@@ -11,7 +11,7 @@ import {
 } from '../autonomy-page.js'
 import { writeOperatorNote } from '../operator-notes.js'
 import { operatorPageBody } from '../operator-page-body.js'
-import { answerOperatorRequest } from '../operator-requests.js'
+import { answerOperatorRequest, isWaitingOnTheOperator } from '../operator-requests.js'
 import { CONSOLE_HEADERS } from '../console/html.js'
 import type { RouteDependencies } from './dependencies.js'
 
@@ -239,6 +239,18 @@ export function registerAutonomyPageRoutes(app: FastifyInstance, deps: RouteDepe
     const submitted = (request.body ?? {}) as Record<string, unknown>
 
     if (submitted['intent'] === 'note') {
+      /**
+       * Whether a question of the citizen's is still open (`#564`).
+       *
+       * **Read here rather than assumed**, because the confirmation page has to
+       * say so: a note leaves an open question open, and a person who thought
+       * they had just answered one finds out on the page that says *sent*
+       * instead of at their agent's sixth blocked run.
+       */
+      const stillWaiting = isWaitingOnTheOperator(
+        await deps.operatorRequests.store.openExchangeForToken(token as string),
+      )
+
       const written = await writeOperatorNote(
         { token: token as string, body: submitted['body'] },
         deps.operatorNotes,
@@ -248,7 +260,7 @@ export function registerAutonomyPageRoutes(app: FastifyInstance, deps: RouteDepe
         return reply
           .headers(CONSOLE_HEADERS)
           .type('text/html')
-          .send(operatorNoteSentPage(view.agentName))
+          .send(operatorNoteSentPage(view.agentName, stillWaiting))
       }
 
       /**

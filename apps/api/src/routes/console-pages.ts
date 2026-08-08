@@ -78,7 +78,7 @@ import { consoleOperatorPath, operatorPageBody } from '../operator-page-body.js'
 import type { OperatorPageView } from '@kolonie-ai/db'
 import { operatorAnsweredPage, operatorNoteSentPage } from '../autonomy-page.js'
 import { writeOperatorNote } from '../operator-notes.js'
-import { answerOperatorRequest } from '../operator-requests.js'
+import { answerOperatorRequest, isWaitingOnTheOperator } from '../operator-requests.js'
 import { putOnWishList, selectBundle } from '../account-wishes.js'
 import { generatedSponsorName, SESSION_COOKIE } from './console.js'
 import { mintOauthState } from '../humans/auth0.js'
@@ -1728,13 +1728,25 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
     const submitted = (request.body ?? {}) as Record<string, unknown>
 
     if (submitted['intent'] === 'note') {
+      /**
+       * Whether a question of the citizen's is still open (`#564`).
+       *
+       * **Read here rather than assumed**, because the confirmation page has to
+       * say so: a note leaves an open question open, and a person who thought
+       * they had just answered one finds out on the page that says *sent*
+       * instead of at their agent's sixth blocked run.
+       */
+      const stillWaiting = isWaitingOnTheOperator(
+        await deps.operatorRequests.store.openExchangeForToken(door.token),
+      )
+
       const written = await writeOperatorNote(
         { token: door.token, body: submitted['body'] },
         deps.operatorNotes,
       )
 
       if (written.outcome === 'written') {
-        return html(reply, operatorNoteSentPage(door.view.agentName))
+        return html(reply, operatorNoteSentPage(door.view.agentName, stillWaiting))
       }
 
       if (written.outcome === 'unreachable') return consoleNotFound(reply, request)

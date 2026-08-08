@@ -1110,19 +1110,27 @@ describe('the operator’s form', () => {
       })
 
       /**
-       * **Both boxes**, because the defect was reported about a question the
-       * operator asked and the answer box is where that conversation continues.
-       * A sentence on only one of them would be right in the case nobody
-       * complained about.
+       * **On whichever box is drawn**, which since `#564` is one box while a
+       * question is waiting.
+       *
+       * This asserted *both* until then, on the reasoning that `#495`'s defect
+       * was reported about a question and a sentence on only one box would be
+       * right in the case nobody complained about. That reasoning stands and the
+       * count does not: `#564` found the second box was itself the defect — an
+       * operator answered in it and the rung went on saying `awaitingOperator` —
+       * so while something is waiting the page offers the answer box and points
+       * at it. The sentence is on that box, which is the only one a person can
+       * type into.
        */
-      it('says it under the answer box too', async () => {
+      it('says it under the answer box, which is the only box while a question waits', async () => {
         pages.rhythmFor(agentId, 6)
         const { token } = await anAsk()
 
         const body = (await get(`/operator/page/${token}`)).body
 
         expect(body).toContain('name="intent" value="answer"')
-        expect(body.match(/you will not be notified/g)).toHaveLength(2)
+        expect(body).not.toContain('name="intent" value="note"')
+        expect(body.match(/you will not be notified/g)).toHaveLength(1)
       })
 
       /**

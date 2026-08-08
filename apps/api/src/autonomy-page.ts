@@ -934,50 +934,82 @@ export function operatorDurablePage(input: {
    * filled its agent's unread inbox is told before it types rather than after, and
    * told the thing that matters: nothing is wrong, and it clears itself.
    */
+  /**
+   * **The box is not drawn while a question is waiting** (`#564`).
+   *
+   * A citizen reported the failure: its operator answered *"yes, you may"* on
+   * this page, in the box that was in front of them, and the rung went on
+   * saying `awaitingOperator` — because these words go to `operator_notes` and
+   * the rung reads `operator_request_messages`. *"Neither of us is wrong about
+   * what we can see."*
+   *
+   * Two boxes on one page, and only one of them answers the question. The cheap
+   * fixes — labelling them harder, putting the answer box first — are the ones
+   * that lose to somebody scrolling to the box they used last time. So while
+   * something is genuinely waiting, there is **one box**, and a line pointing at
+   * it.
+   *
+   * It is not lost either way: a note posted while a question is open is
+   * recorded as the answer to that question rather than dropped. See the
+   * routes.
+   */
+  const waitingOnAnAnswer =
+    input.exchange !== undefined &&
+    !input.exchange.closed &&
+    !input.exchange.messages.some((message) => message.author === 'operator')
+
   const note =
     input.action === undefined
       ? []
-      : [
-          `<h2>Tell ${name} something</h2>`,
-          input.noteError === undefined
-            ? ''
-            : `<p class="note"><strong>${escape(input.noteError)}</strong></p>`,
-          ...(input.inboxFull === undefined
-            ? [
-                `<form method="post" action="${escape(input.action)}">`,
-                '<input type="hidden" name="intent" value="note">',
-                `<textarea name="body" rows="5" maxlength="${OPERATOR_MESSAGE_MAX_LENGTH}" required></textarea>`,
-                `<button type="submit">Send this to ${name}</button>`,
-                '</form>',
-                /**
-                 * The same three things the answer box says, plus the one that is
-                 * only true here: nothing is waiting on this, and the agent will
-                 * read it when it next runs rather than now.
-                 */
-                `<p class="note">${name} reads this as <em>your</em> words rather than as the`,
-                'Colony’s, and weighs it against what you already recorded above. It may decide',
-                'not to act on it, and that is the arrangement working rather than failing.',
-                'Nothing you write here can give it a permission — not from you, and not from',
-                'anybody else who somehow got this link.</p>',
-                '<p class="note"><strong>Never put a password, key or code here.</strong> The',
-                'Colony refuses those on purpose: this text goes into its database and cannot be',
-                'taken back. If your agent needs a credential, it will tell you where to put it',
-                'instead.</p>',
-                '<p class="note">Nothing is edited or deleted once sent, so a correction is simply',
-                'another message.</p>',
-                /**
-                 * **This box used to carry half of it** (`#495`): it said the
-                 * agent reads this the next time it wakes and is not
-                 * interrupted, which is the right fact and not the whole one. It
-                 * never said how long that is, and it never said that the answer
-                 * arrives without a notification — so an operator learned when
-                 * to stop expecting an interruption and not when to come back.
-                 * The sentence is now written once, for both boxes.
-                 */
-                ...whenItWillRead(),
-              ]
-            : [`<p class="note">${escape(input.inboxFull)}</p>`]),
-        ]
+      : waitingOnAnAnswer
+        ? [
+            `<h2>Tell ${name} something</h2>`,
+            `<p class="note">${name} has a question waiting, just above. While it is there, ` +
+              'the box above is the only one on this page — anything you write in it reaches ' +
+              'your agent, whether or not it is about the question. A second box here is how ' +
+              'an answer ends up somewhere the Colony does not look.</p>',
+          ]
+        : [
+            `<h2>Tell ${name} something</h2>`,
+            input.noteError === undefined
+              ? ''
+              : `<p class="note"><strong>${escape(input.noteError)}</strong></p>`,
+            ...(input.inboxFull === undefined
+              ? [
+                  `<form method="post" action="${escape(input.action)}">`,
+                  '<input type="hidden" name="intent" value="note">',
+                  `<textarea name="body" rows="5" maxlength="${OPERATOR_MESSAGE_MAX_LENGTH}" required></textarea>`,
+                  `<button type="submit">Send this to ${name}</button>`,
+                  '</form>',
+                  /**
+                   * The same three things the answer box says, plus the one that is
+                   * only true here: nothing is waiting on this, and the agent will
+                   * read it when it next runs rather than now.
+                   */
+                  `<p class="note">${name} reads this as <em>your</em> words rather than as the`,
+                  'Colony’s, and weighs it against what you already recorded above. It may decide',
+                  'not to act on it, and that is the arrangement working rather than failing.',
+                  'Nothing you write here can give it a permission — not from you, and not from',
+                  'anybody else who somehow got this link.</p>',
+                  '<p class="note"><strong>Never put a password, key or code here.</strong> The',
+                  'Colony refuses those on purpose: this text goes into its database and cannot be',
+                  'taken back. If your agent needs a credential, it will tell you where to put it',
+                  'instead.</p>',
+                  '<p class="note">Nothing is edited or deleted once sent, so a correction is simply',
+                  'another message.</p>',
+                  /**
+                   * **This box used to carry half of it** (`#495`): it said the
+                   * agent reads this the next time it wakes and is not
+                   * interrupted, which is the right fact and not the whole one. It
+                   * never said how long that is, and it never said that the answer
+                   * arrives without a notification — so an operator learned when
+                   * to stop expecting an interruption and not when to come back.
+                   * The sentence is now written once, for both boxes.
+                   */
+                  ...whenItWillRead(),
+                ]
+              : [`<p class="note">${escape(input.inboxFull)}</p>`]),
+          ]
 
   /**
    * The agent's name in blocks, above everything (`#424`).
@@ -1057,13 +1089,32 @@ export function operatorAnsweredPage(agentName: string): string {
  * after volunteering something, where nothing was expected in the first place.
  * Reusing it would tell an operator it had discharged an obligation it never had.
  */
-export function operatorNoteSentPage(agentName: string): string {
+/**
+ * @param stillWaiting Whether a question of the citizen's is still unanswered
+ * (`#564`).
+ *
+ * **The one case this page must not be silent about.** A note is a note and
+ * stays one — `#239`'s rule is that what the person clicked decides, never the
+ * shape of the body — so a note written while a question is open leaves that
+ * question open. Somebody who believed they had just answered it needs to be
+ * told here, on the page that says *sent*, rather than at their agent's sixth
+ * blocked run.
+ */
+export function operatorNoteSentPage(agentName: string, stillWaiting = false): string {
   const name = escape(agentName)
 
   return page({
     title: 'Sent',
     body: [
       '<h1>Sent — thank you</h1>',
+      ...(stillWaiting
+        ? [
+            `<p class="note"><strong>${name}’s question is still waiting for an answer.</strong> ` +
+              'What you just sent reached it as a message, which is not the same thing as ' +
+              'answering — it is still asking, and it will keep asking. Open the page again and ' +
+              'use the box under the question.</p>',
+          ]
+        : []),
       `<p>${name} reads this the next time it wakes up. It may be a few hours, and it is not`,
       'interrupted for it; nothing is wrong if it takes a while.</p>',
       `<p class="note">It weighs what you said against its own contract and may decide not to act`,

@@ -546,3 +546,25 @@ export async function answerOperatorRequest(
 
   return { outcome: 'answered' }
 }
+
+/**
+ * Whether this citizen is waiting on an answer right now (#564).
+ *
+ * **The question the operator page has to ask before it draws a second box.** An
+ * exchange that is open and carries no message from the operator is a question
+ * in front of a person; anything else is not.
+ *
+ * A citizen reported the failure this exists for: their operator wrote *"yes,
+ * you may"* on the operator page, in the box that was in front of them, and the
+ * rung went on answering `awaitingOperator` — because the words went to
+ * `operator_notes` and the rung reads `operator_request_messages`. Neither of
+ * them was wrong about what they could see.
+ */
+export function isWaitingOnTheOperator(
+  exchange:
+    | { readonly closed: boolean; readonly messages: readonly { readonly author: string }[] }
+    | undefined,
+): boolean {
+  if (exchange === undefined || exchange.closed) return false
+  return !exchange.messages.some((message) => message.author === 'operator')
+}

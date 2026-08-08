@@ -69,7 +69,7 @@ describe('the Atlas over MCP', () => {
 
   describe('what an agent can ask', () => {
     it('lists the catalogue', async () => {
-      const result = await readAtlas({}, colony.recipes)
+      const result = await readAtlas({}, colony.recipes, true)
       if (result.outcome !== 'ok') throw new Error('expected the read to succeed')
 
       expect(result.response.entries.map((one) => one.provider).sort()).toEqual([
@@ -80,14 +80,14 @@ describe('the Atlas over MCP', () => {
     })
 
     it('narrows to one category', async () => {
-      const result = await readAtlas({ kind: 'mailbox' }, colony.recipes)
+      const result = await readAtlas({ kind: 'mailbox' }, colony.recipes, true)
       if (result.outcome !== 'ok') throw new Error('expected the read to succeed')
 
       expect(result.response.entries.map((one) => one.provider)).toEqual(['mail.tm'])
     })
 
     it('reads one entry in full', async () => {
-      const result = await readAtlas({ provider: 'github.com' }, colony.recipes)
+      const result = await readAtlas({ provider: 'github.com' }, colony.recipes, true)
       if (result.outcome !== 'ok') throw new Error('expected the read to succeed')
 
       expect(result.response.entries).toHaveLength(1)
@@ -96,7 +96,7 @@ describe('the Atlas over MCP', () => {
 
     /** An absence is not a refusal, and the message has to say which it is. */
     it('says a missing entry is an absence rather than a refusal', async () => {
-      const result = await readAtlas({ provider: 'notion.so' }, colony.recipes)
+      const result = await readAtlas({ provider: 'notion.so' }, colony.recipes, true)
 
       expect(result.outcome).toBe('rejected')
       if (result.outcome !== 'rejected') return
@@ -109,7 +109,7 @@ describe('the Atlas over MCP', () => {
      * provider for something you already hold.
      */
     it('can drop the kinds the agent already holds', async () => {
-      const result = await readAtlas({ held: new Set(['github']) }, colony.recipes)
+      const result = await readAtlas({ held: new Set(['github']) }, colony.recipes, true)
       if (result.outcome !== 'ok') throw new Error('expected the read to succeed')
 
       expect(result.response.entries.map((one) => one.provider).sort()).toEqual([
@@ -119,7 +119,7 @@ describe('the Atlas over MCP', () => {
     })
 
     it('keeps everything when the filter is not asked for', async () => {
-      const result = await readAtlas({}, colony.recipes)
+      const result = await readAtlas({}, colony.recipes, true)
       if (result.outcome !== 'ok') throw new Error('expected the read to succeed')
 
       expect(result.response.entries).toHaveLength(3)
@@ -128,7 +128,7 @@ describe('the Atlas over MCP', () => {
 
   describe('what an entry says to an agent', () => {
     const entryFor = async (provider: string): Promise<AtlasEntry> => {
-      const result = await readAtlas({ provider }, colony.recipes)
+      const result = await readAtlas({ provider }, colony.recipes, true)
       if (result.outcome !== 'ok') throw new Error('expected the read to succeed')
       const entry = result.response.entries[0]
       if (entry === undefined) throw new Error('expected an entry')
@@ -149,7 +149,7 @@ describe('the Atlas over MCP', () => {
         heldLongEnoughToAsk: 35,
       })
 
-      const text = atlasEntryAsText(await entryFor('github.com'))
+      const text = atlasEntryAsText(await entryFor('github.com'), true)
 
       expect(text).toContain('80% of 50 agents got through')
       expect(text).toContain('30 of 35 still held it after 30 days')
@@ -162,18 +162,20 @@ describe('the Atlas over MCP', () => {
     it('carries the paid marker, and says what paying does not buy', async () => {
       colony.recipes.write({ kind: 'mailbox', provider: 'sponsored.test', paid: true })
 
-      const text = atlasEntryAsText(await entryFor('sponsored.test'))
+      const text = atlasEntryAsText(await entryFor('sponsored.test'), true)
 
       expect(text).toContain('This entry is paid for.')
       expect(text).toContain('not its position')
     })
 
     it('tells an agent not to attempt a refused provider', async () => {
-      expect(atlasEntryAsText(await entryFor('bsky.app'))).toContain('Do not attempt this')
+      expect(atlasEntryAsText(await entryFor('bsky.app'), true)).toContain('Do not attempt this')
     })
 
     it('says an unmeasured entry is an absence rather than a poor result', async () => {
-      expect(atlasEntryAsText(await entryFor('mail.tm'))).toContain('absence and not a poor result')
+      expect(atlasEntryAsText(await entryFor('mail.tm'), true)).toContain(
+        'absence and not a poor result',
+      )
     })
 
     /**
@@ -183,7 +185,7 @@ describe('the Atlas over MCP', () => {
     it('never states how many agents the Colony has', async () => {
       colony.recipes.measure({ ...noFigures('github', 'github.com'), attempted: 50, proved: 40 })
 
-      const text = atlasEntryAsText(await entryFor('github.com'))
+      const text = atlasEntryAsText(await entryFor('github.com'), true)
 
       expect(text).not.toMatch(/the Colony has \d/i)
       expect(text).not.toMatch(/\d+ citizens in total/i)

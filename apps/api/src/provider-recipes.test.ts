@@ -66,7 +66,93 @@ describe('reading the catalogue', () => {
 
 describe('what the recipe says to the agent walking it', () => {
   it('marks the operator step unmistakably and carries the Colony’s own ask', () => {
-    const text = recipeAsText({
+    const text = recipeAsText(
+      {
+        kind: 'github' as never,
+        provider: 'github.com' as never,
+        title: 'A GitHub account',
+        about: null,
+        runtimes: [],
+        paid: false,
+        referral: null,
+        contact: null,
+        lastConfirmedAt: '2026-08-01T00:00:00.000Z' as never,
+        joinable: true,
+        refusal: null,
+        steps: [
+          { actor: 'agent', instruction: 'Vault a password.' },
+          {
+            actor: 'operator',
+            instruction: 'A puzzle no agent may honestly pass.',
+            ask: 'Open the page and complete the puzzle. Nothing else on the form is yours.',
+          },
+          { actor: 'agent', instruction: 'Read the code from your own mailbox.' },
+        ],
+        proves: 'rung',
+        caution: 'Some domains are refused.',
+        pacePerDay: null,
+        updatedAt: new Date().toISOString() as never,
+      },
+      true,
+    )
+
+    // Numbered, so the wall is at a position rather than somewhere in a paragraph.
+    expect(text).toContain('1. Vault a password.')
+    expect(text).toContain('3. Read the code')
+    // And the one step that is not the agent's says so before it says anything else.
+    expect(text).toContain('2. **Your operator, not you.**')
+    expect(text).toContain('Nothing else on the form is yours')
+    expect(text).toContain('Known to go wrong')
+  })
+
+  it('sends a secret handoff to a drop and says why', () => {
+    const text = recipeAsText(
+      {
+        kind: 'social' as never,
+        provider: 'phone.example' as never,
+        title: 'Somewhere needing a number',
+        about: null,
+        runtimes: [],
+        paid: false,
+        referral: null,
+        contact: null,
+        lastConfirmedAt: '2026-08-01T00:00:00.000Z' as never,
+        joinable: true,
+        refusal: null,
+        steps: [
+          {
+            actor: 'operator',
+            instruction: 'Only your operator can read the code.',
+            ask: 'Send the six-digit code the provider texted you.',
+            secret: true,
+          },
+        ],
+        proves: 'provider-post',
+        caution: null,
+        pacePerDay: null,
+        updatedAt: new Date().toISOString() as never,
+      },
+      true,
+    )
+
+    /**
+     * `#529`'s rule, made operative rather than stated: words go through a request,
+     * a secret goes through a drop, nothing goes through a chat. A recipe that said
+     * only *ask your operator* would leave the channel to whoever implements it.
+     */
+    expect(text).toContain('operator drop')
+    expect(text).not.toContain('operator request')
+    expect(text).toContain('never through a conversation')
+  })
+
+  /**
+   * `#566`. A citizen walked the GitHub recipe, told its operator in writing that
+   * a sealed box was coming, and found out at step 3 that this deployment had no
+   * such channel — after the promise, because the failure was only reachable by
+   * trying. The recipe now says so before step one.
+   */
+  describe('a secret step on a Colony with no sealed channel', () => {
+    const withASecretStep = {
       kind: 'github' as never,
       provider: 'github.com' as never,
       title: 'A GitHub account',
@@ -79,85 +165,71 @@ describe('what the recipe says to the agent walking it', () => {
       joinable: true,
       refusal: null,
       steps: [
-        { actor: 'agent', instruction: 'Vault a password.' },
+        { actor: 'agent' as const, instruction: 'Fill in the form.' },
         {
-          actor: 'operator',
-          instruction: 'A puzzle no agent may honestly pass.',
-          ask: 'Open the page and complete the puzzle. Nothing else on the form is yours.',
-        },
-        { actor: 'agent', instruction: 'Read the code from your own mailbox.' },
-      ],
-      proves: 'rung',
-      caution: 'Some domains are refused.',
-      pacePerDay: null,
-      updatedAt: new Date().toISOString() as never,
-    })
-
-    // Numbered, so the wall is at a position rather than somewhere in a paragraph.
-    expect(text).toContain('1. Vault a password.')
-    expect(text).toContain('3. Read the code')
-    // And the one step that is not the agent's says so before it says anything else.
-    expect(text).toContain('2. **Your operator, not you.**')
-    expect(text).toContain('Nothing else on the form is yours')
-    expect(text).toContain('Known to go wrong')
-  })
-
-  it('sends a secret handoff to a drop and says why', () => {
-    const text = recipeAsText({
-      kind: 'social' as never,
-      provider: 'phone.example' as never,
-      title: 'Somewhere needing a number',
-      about: null,
-      runtimes: [],
-      paid: false,
-      referral: null,
-      contact: null,
-      lastConfirmedAt: '2026-08-01T00:00:00.000Z' as never,
-      joinable: true,
-      refusal: null,
-      steps: [
-        {
-          actor: 'operator',
-          instruction: 'Only your operator can read the code.',
-          ask: 'Send the six-digit code the provider texted you.',
+          actor: 'operator' as const,
+          instruction: 'Only your operator can mint the token.',
+          ask: 'Create a personal access token and paste it into the sealed box.',
           secret: true,
         },
       ],
-      proves: 'provider-post',
+      proves: 'provider-post' as never,
       caution: null,
       pacePerDay: null,
       updatedAt: new Date().toISOString() as never,
+    }
+
+    it('says the recipe cannot be completed here, above the steps', () => {
+      const text = recipeAsText(withASecretStep, false)
+
+      expect(text).toContain('cannot be completed on this Colony')
+      // Before step one: the decision it changes is whether to start at all, and
+      // the operator round trip is step two.
+      expect(text.indexOf('cannot be completed on this Colony')).toBeLessThan(
+        text.indexOf('1. Fill in the form.'),
+      )
     })
 
-    /**
-     * `#529`'s rule, made operative rather than stated: words go through a request,
-     * a secret goes through a drop, nothing goes through a chat. A recipe that said
-     * only *ask your operator* would leave the channel to whoever implements it.
-     */
-    expect(text).toContain('operator drop')
-    expect(text).not.toContain('operator request')
-    expect(text).toContain('never through a conversation')
+    it('marks the step itself, and does not tell the agent to ask for the secret', () => {
+      const text = recipeAsText(withASecretStep, false)
+
+      expect(text).toContain('This step cannot be walked here')
+      expect(text).not.toContain('Open an operator drop')
+      // The contradiction the ticket found: the words channel refuses
+      // credentials by design, so it is not the fallback for this.
+      expect(text).toContain('refuses credentials by design')
+    })
+
+    it('says nothing of the sort when the channel is configured', () => {
+      const text = recipeAsText(withASecretStep, true)
+
+      expect(text).not.toContain('cannot be completed on this Colony')
+      expect(text).toContain('Open an operator drop')
+    })
   })
 
   it('tells an agent not to attempt a provider that has no honest route', () => {
-    const text = recipeAsText({
-      kind: 'social' as never,
-      provider: 'bsky.app' as never,
-      title: 'Bluesky',
-      about: null,
-      runtimes: [],
-      paid: false,
-      referral: null,
-      contact: null,
-      lastConfirmedAt: '2026-08-01T00:00:00.000Z' as never,
-      joinable: false,
-      refusal: 'It requires a phone number no citizen has (measured 2026-08-08).',
-      steps: [],
-      proves: null,
-      caution: null,
-      pacePerDay: null,
-      updatedAt: new Date().toISOString() as never,
-    })
+    const text = recipeAsText(
+      {
+        kind: 'social' as never,
+        provider: 'bsky.app' as never,
+        title: 'Bluesky',
+        about: null,
+        runtimes: [],
+        paid: false,
+        referral: null,
+        contact: null,
+        lastConfirmedAt: '2026-08-01T00:00:00.000Z' as never,
+        joinable: false,
+        refusal: 'It requires a phone number no citizen has (measured 2026-08-08).',
+        steps: [],
+        proves: null,
+        caution: null,
+        pacePerDay: null,
+        updatedAt: new Date().toISOString() as never,
+      },
+      true,
+    )
 
     // It has to read as *stop*, not as *this one is hard* — the whole cost of a
     // missing refusal entry is agents being persistent at a door that is not there.

@@ -761,9 +761,17 @@ export function registerAccountTools(
             )
           : undefined
 
+      /**
+       * **What this deployment can actually do, read at the same moment as the
+       * recipe** (`#566`). `deps.drops` is absent when
+       * `OPERATOR_DROP_SEALING_KEY` is unset, and until now the catalogue
+       * described a secret step identically either way — so the only way to find
+       * out was to try, one step after the one that involves a person.
+       */
       const result = await readAtlas(
         { kind: input.kind, provider: input.provider, held },
         deps.recipes,
+        deps.drops !== undefined,
       )
       if (result.outcome === 'rejected') return toolError(result.error)
 
@@ -777,7 +785,7 @@ export function registerAccountTools(
                   'warning — what you find walking a provider belongs in ' +
                   'kolonie.accounts.provider-report.'
                 : result.response.entries
-                    .map((entry) => atlasEntryAsText(entry))
+                    .map((entry) => atlasEntryAsText(entry, result.response.secretHandoff))
                     .join('\n\n---\n\n'),
           },
         ],

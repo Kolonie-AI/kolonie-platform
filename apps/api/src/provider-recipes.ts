@@ -152,7 +152,18 @@ export async function readAtlas(
     readonly held?: ReadonlySet<string> | undefined
   },
   recipes: ProviderRecipes,
-): Promise<RecipeOutcome<{ readonly entries: readonly AtlasEntry[] }>> {
+  /**
+   * Whether this deployment can carry a secret from an operator (`#566`).
+   *
+   * **A parameter rather than something read here**, because it is deployment
+   * configuration — `OPERATOR_DROP_SEALING_KEY`, absent rather than fatal — and
+   * the catalogue is a read over stored rows that knows nothing about the
+   * process it is running in.
+   */
+  secretHandoff: boolean,
+): Promise<
+  RecipeOutcome<{ readonly entries: readonly AtlasEntry[]; readonly secretHandoff: boolean }>
+> {
   if (input.kind !== undefined && !AccountKindSchema.safeParse(input.kind).success) {
     return {
       outcome: 'rejected',
@@ -192,7 +203,7 @@ export async function readAtlas(
     }
   }
 
-  return { outcome: 'ok', response: { entries } }
+  return { outcome: 'ok', response: { entries, secretHandoff } }
 }
 
 /**
@@ -206,7 +217,7 @@ export async function readAtlas(
  * the page — a marker shown to people and not to agents would be a disclosure
  * that stops where it becomes inconvenient.
  */
-export function atlasEntryAsText(entry: AtlasEntry): string {
+export function atlasEntryAsText(entry: AtlasEntry, secretHandoff: boolean): string {
   const parts = [`## ${entry.title} (${entry.provider})`]
 
   if (entry.recipes.some((recipe) => recipe.paid)) {
@@ -217,7 +228,7 @@ export function atlasEntryAsText(entry: AtlasEntry): string {
   }
 
   for (const recipe of entry.recipes) {
-    parts.push(recipeAsText(recipe), figuresAsText(recipe.figures))
+    parts.push(recipeAsText(recipe, secretHandoff), figuresAsText(recipe.figures))
   }
 
   return parts.filter((part) => part !== '').join('\n\n')
@@ -288,7 +299,7 @@ export async function readRecipe(
  * an agent has to get right is which step is not its own — and an agent reading a
  * flat list will treat the wall as something to try harder at.
  */
-export function recipeAsText(recipe: ProviderRecipe): string {
+export function recipeAsText(recipe: ProviderRecipe, secretHandoff: boolean): string {
   if (!recipe.joinable) {
     return (
       `${recipe.title}\n\n**Do not attempt this.** ${recipe.refusal ?? ''}\n\n` +
@@ -300,6 +311,27 @@ export function recipeAsText(recipe: ProviderRecipe): string {
   const steps = recipe.steps
     .map((step, index) => {
       if (step.actor === 'agent') return `${index + 1}. ${step.instruction}`
+
+      /**
+       * **The one step this Colony cannot carry, said before it is promised**
+       * (`#566`). A secret step is walked by asking a person for a credential;
+       * an agent that discovers afterwards that there is no sealed box has
+       * already spent the round trip and has to retract the promise, which is
+       * the cost the ticket named and it is larger than an error.
+       */
+      if (step.secret === true && !secretHandoff) {
+        return (
+          `${index + 1}. **This step cannot be walked here, and that is not your doing.** ` +
+          `${step.instruction}\n` +
+          '   This Colony has no sealed channel configured, so there is nowhere for a secret to ' +
+          'arrive. Do not ask your operator for this value yet: an operator request carries ' +
+          'words and refuses credentials by design, so there is no route for it inside the ' +
+          'Colony at all.\n' +
+          '   Anything you arrange instead is outside the Colony and outside what it can ' +
+          'promise about the value. kolonie.support.open is how this reaches somebody who can ' +
+          'configure the channel.'
+        )
+      }
 
       return (
         `${index + 1}. **Your operator, not you.** ${step.instruction}\n` +
@@ -318,8 +350,20 @@ export function recipeAsText(recipe: ProviderRecipe): string {
       ? 'An Academy rung proves this account once it exists.'
       : `Prove it afterwards with kolonie.accounts.prove, method \`${recipe.proves ?? ''}\`.`
 
+  /**
+   * **Above the steps and not only beside the one that fails** (`#566`), because
+   * the decision this changes — *do I start this at all* — is taken before step
+   * one and the reader may act on the first line it understands.
+   */
+  const unwalkable =
+    !secretHandoff && recipe.steps.some((step) => step.secret === true)
+      ? '**This recipe cannot be completed on this Colony.** One of its steps hands you a ' +
+        'secret, and no sealed channel is configured here. The steps are below so you can see ' +
+        'what it would take; the marked one has no route inside the Colony today.\n\n'
+      : ''
+
   return (
-    `${recipe.title}\n\n${steps}\n\n${proved}` +
+    `${recipe.title}\n\n${unwalkable}${steps}\n\n${proved}` +
     (recipe.caution === null ? '' : `\n\n**Known to go wrong:** ${recipe.caution}`)
   )
 }

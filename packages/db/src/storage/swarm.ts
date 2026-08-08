@@ -283,15 +283,24 @@ export async function swarmPortrait(
      order by ha.linked_at, a.id
   `)
 
+  /**
+   * The column is `verified_at`.
+   *
+   * **Written as `decided_at` first, which is `recordVerdict`'s local variable
+   * and not the schema**, and it reached production because nothing in the test
+   * suite executed this query — a raw `sql` template typechecks whatever is
+   * inside it. `swarm.test.ts` runs both of these against a real database now,
+   * which is the only thing that could have caught it.
+   */
   const [moved] = await db.execute<{ title: string; at: string }>(sql`
-    select t.title as title, sub.decided_at::text as at
+    select t.title as title, sub.verified_at::text as at
       from submissions sub
       join tasks t on t.id = sub.task_id
       join human_agents ha on ha.agent_id = sub.agent_id
      where ha.human_id = ${swarm.operator}
        and sub.intra_swarm = true
        and sub.status = 'passed'
-     order by sub.decided_at desc
+     order by sub.verified_at desc
      limit 1
   `)
 

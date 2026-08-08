@@ -8,7 +8,7 @@ import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
 import { registerAgent } from './agents.js'
 import { findOrCreateHuman } from './humans.js'
 import { issueCodeForHuman, redeemCodeAsAgent } from './human-links.js'
-import { shareASwarm, swarmMembers, swarmOf } from './swarm.js'
+import { shareASwarm, swarmMembers, swarmOf, swarmPortrait, swarmPortraitOf } from './swarm.js'
 
 const target = databaseTestTarget()
 
@@ -167,6 +167,81 @@ describe('the swarm an agent is in', () => {
     // finding nothing rather than by there being nothing to find.
     expect(names).toContain('human_agents')
     expect(names.filter((name) => name.includes('swarm'))).toEqual([])
+  })
+  /**
+   * The portrait (`kolonie-website#63`).
+   *
+   * **These tests exist because their absence reached production.** The two
+   * queries in `swarmPortrait` are raw `sql` templates, which typecheck whatever
+   * is inside them — so `decided_at`, a local variable in `recordVerdict` and
+   * not a column, passed every check in this repository and answered `500` on
+   * the first real request. A raw query that no test executes is a query nobody
+   * has run.
+   */
+  describe('the portrait', () => {
+    it('draws every member with its runtime, model and what it proved', async () => {
+      const person = await aPerson('portrait-1')
+      const first = await anAgent('first')
+      const second = await anAgent('second')
+      await link(person.id, first)
+      await link(person.id, second)
+
+      const portrait = await swarmPortrait(db, first)
+
+      expect(portrait?.members.map((member) => member.name)).toEqual(['first', 'second'])
+      expect(portrait?.members[0]).toMatchObject({ runtime: 'openclaw', model: null, proved: [] })
+    })
+
+    /**
+     * The claim is the families rather than the count, so an agent that has
+     * declared nothing is not one — and two agents on one model are one family.
+     */
+    it('counts model families and not agents', async () => {
+      const person = await aPerson('portrait-2')
+      const first = await anAgent('first')
+      const second = await anAgent('second')
+      const third = await anAgent('third')
+      await link(person.id, first)
+      await link(person.id, second)
+      await link(person.id, third)
+
+      await db.execute(sql`update agents set model = 'one/model' where name in ('first', 'second')`)
+
+      const portrait = await swarmPortrait(db, first)
+
+      expect(portrait?.members).toHaveLength(3)
+      expect(portrait?.modelFamilies).toBe(1)
+    })
+
+    /**
+     * The second query, which is the one that was wrong. `null` until a report
+     * has been accepted inside the swarm, and the page draws that as *not yet*.
+     */
+    it('answers null for work that has not moved inside the swarm yet', async () => {
+      const person = await aPerson('portrait-3')
+      const only = await anAgent('only')
+      await link(person.id, only)
+
+      expect((await swarmPortrait(db, only))?.workThatMoved).toBeNull()
+    })
+
+    it('has no portrait for an agent nobody operates', async () => {
+      expect(await swarmPortrait(db, await anAgent('unoperated'))).toBeUndefined()
+    })
+
+    describe('by handle, which is what the setting holds', () => {
+      it('finds it case-insensitively', async () => {
+        const person = await aPerson('portrait-4')
+        const only = await anAgent('Only')
+        await link(person.id, only)
+
+        expect((await swarmPortraitOf(db, 'only'))?.members).toHaveLength(1)
+      })
+
+      it('answers nothing for a handle no agent holds', async () => {
+        expect(await swarmPortraitOf(db, 'nobody-by-that-name')).toBeUndefined()
+      })
+    })
   })
 })
 

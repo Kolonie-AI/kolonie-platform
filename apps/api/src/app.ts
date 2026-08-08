@@ -1,6 +1,7 @@
 import Fastify, { type FastifyError, type FastifyInstance } from 'fastify'
 import fastifyStatic from '@fastify/static'
 import type { ProviderRecipes } from './provider-recipes.js'
+import type { AtlasRenames } from './atlas/renames.js'
 import type { Attestations } from './attestations.js'
 import {
   API_BASE_PATH,
@@ -38,6 +39,7 @@ import {
 import { registerAcademyRoutes } from './routes/academy.js'
 import { registerProviderEnquiryRoute } from './routes/provider-enquiries.js'
 import { registerConsoleRoutes } from './routes/console.js'
+import { registerAtlasPages } from './routes/atlas-pages.js'
 import { registerEmailRoutes } from './routes/email.js'
 import { registerSmsRoutes } from './routes/sms.js'
 import { registerInboundMailRoute } from './routes/email-inbound.js'
@@ -157,6 +159,8 @@ export function buildApp({
   dropBaseUrl = '',
   accounts,
   recipes,
+  renames,
+  websiteUrl = '',
   attestations,
   console: consoleDeps,
   rhythm = DEFAULT_RHYTHM_BOUNDS,
@@ -359,6 +363,15 @@ export function buildApp({
     one: async () => undefined,
   }
 
+  /**
+   * A colony that has renamed nothing has no redirects (`#546`), resolved here
+   * for the reason the catalogue above is.
+   */
+  const atlasRenames: AtlasRenames = renames ?? {
+    renamedTo: async () => undefined,
+    rename: async () => ({ moved: 0 }),
+  }
+
   /** A colony that confirms nothing is the true answer in one with no citizens (`#519`). */
   const publicAttestations: Attestations = attestations ?? {
     answer: async () => ({ holds: false, grantedAt: null, accountProvedBy: null }),
@@ -422,6 +435,8 @@ export function buildApp({
     dropBaseUrl,
     accounts,
     recipes: providerCatalogue,
+    renames: atlasRenames,
+    websiteUrl,
     attestations: publicAttestations,
     console: consoleDeps,
     earnings,
@@ -446,6 +461,10 @@ export function buildApp({
   // (`#179`). Registered before the prefixed tree for readability only —
   // they cannot collide, because they answer on a different host.
   registerConsolePages(app, routes)
+  // The Atlas, on the website's host and outside `/v1` (`#546`). Registered
+  // beside the console's pages because it is the same arrangement pointed at a
+  // different host, and it cannot collide with them for the same reason.
+  registerAtlasPages(app, routes)
   registerStewardPages(app, routes)
   // Host routes rather than `/v1/`: these are pages a person clicks out of a
   // mail, and an API version in the URL would break them for reasons that have

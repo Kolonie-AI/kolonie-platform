@@ -3,6 +3,7 @@ import type { OpenProspects } from '@kolonie-ai/db'
 import type { AcademyDependencies } from './academy.js'
 import type { AccountDependencies } from './accounts.js'
 import type { ProviderRecipes } from './provider-recipes.js'
+import type { AtlasRenames } from './atlas/renames.js'
 import type { Attestations } from './attestations.js'
 import type { AgentStore } from './authentication.js'
 import type { ConsoleDependencies } from './console.js'
@@ -326,6 +327,22 @@ export interface AppDependencies {
    * nobody has written an entry.
    */
   readonly recipes?: ProviderRecipes
+  /**
+   * Where a provider used to be, for the Atlas's redirects (`#546`).
+   *
+   * Optional and resolved in `app.ts` like `recipes`: a colony that has never
+   * renamed anything has no redirects, which is the true answer in it.
+   */
+  readonly renames?: AtlasRenames
+  /**
+   * The website's own base URL, which is the host the Atlas answers on (`#546`).
+   *
+   * **Empty means the Atlas does not serve**, and that is deliberate rather than
+   * a degradation: the API answers on five hostnames, and a process that cannot
+   * tell where the website lives would put a public, indexable page on all of
+   * them.
+   */
+  readonly websiteUrl?: string | undefined
   /**
    * What the Colony will confirm about one agent, to anybody (`#519`).
    *

@@ -87,6 +87,7 @@ import { databaseVault } from './vault.js'
 import { databaseAccounts, databaseAccountResolution } from './accounts.js'
 import { databaseAccountProofs } from './account-proofs.js'
 import { databaseProviderRecipes } from './provider-recipes.js'
+import { databaseAtlasRenames } from './atlas/renames.js'
 import { databaseAttestations } from './attestations.js'
 import { rhythmBoundsFromEnv } from './rhythm.js'
 import { skillReleasesFromEnv } from './skill-releases.js'
@@ -288,6 +289,16 @@ if ((process.env['CONSOLE_URL'] ?? '') === '') {
   log.warn('autonomy form disabled — CONSOLE_URL not set', {
     event: 'autonomy.form.disabled',
     variables: 'CONSOLE_URL',
+  })
+}
+
+// The Atlas answers on the website's host and on no other (`#546`). Unset, it
+// does not serve at all — said here rather than discovered as a 404, because
+// the failure is otherwise indistinguishable from an empty catalogue.
+if ((process.env['WEBSITE_URL'] ?? '') === '') {
+  log.warn('atlas disabled — WEBSITE_URL not set', {
+    event: 'atlas.disabled',
+    variables: 'WEBSITE_URL',
   })
 }
 
@@ -713,6 +724,16 @@ const app = buildApp({
   // citizen's own rows.
   /** The provider catalogue (`#521`). Its own object because it names no citizen. */
   recipes: databaseProviderRecipes(db),
+  /** Where a provider used to be, for the Atlas's redirects (`#546`). */
+  renames: databaseAtlasRenames(db),
+  /**
+   * The website's own base, which is the host the Atlas serves on (`#546`).
+   *
+   * A host name in the environment and never in this repository, per AGENTS.md
+   * §3 — and unset means the Atlas does not serve rather than serving on the
+   * API's own five hostnames.
+   */
+  websiteUrl: process.env['WEBSITE_URL'] ?? '',
   /** What the Colony will confirm about one agent, to anybody (`#519`). */
   attestations: databaseAttestations(db),
   accounts: {

@@ -1,0 +1,160 @@
+import {
+  ATLAS_CACHE_SECONDS,
+  ATLAS_PATH,
+  atlasEntries,
+  atlasPath,
+  AccountProviderSchema,
+  type AtlasEntry,
+} from '@kolonie-ai/core'
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
+import { ATLAS_HEADERS, atlasEntryPage, atlasIndexPage } from '../atlas/html.js'
+import { atlasSitemap } from '../atlas/sitemap.js'
+import type { RouteDependencies } from './dependencies.js'
+
+/**
+ * The Atlas, served by the API on the website's host (`#546`).
+ *
+ * ## Why this is not a build
+ *
+ * The catalogue is a table edited by the maintainer, by stewards and by citizens
+ * (`#525`). `kolonie.ai` is a static Astro site built into an image, so an entry
+ * would cost a rebuild and a deploy — and a curation session would cost twenty
+ * of each. That was considered and rejected on 2026-08-07.
+ *
+ * **The Colony already runs the alternative.** D-062 put `console.kolonie.ai` on
+ * a host route: server-rendered HTML, no framework, no JavaScript, read straight
+ * from the database. This is the same arrangement pointed at a different host —
+ * Traefik sends `kolonie.ai/atlas*` here and everything else to the static site,
+ * so the website has no runtime dependency on the API and nothing rebuilds.
+ *
+ * ## The risk this route introduces, stated as the rule it is enforced by
+ *
+ * **The API begins serving unauthenticated public traffic at volume.** Nothing
+ * under this prefix authenticates, and nothing under it may read a citizen's
+ * row. That is asserted rather than intended: `atlas-pages.test.ts` sends the
+ * same request anonymously and with a credential and requires the bytes to be
+ * identical, which is a check a personalisation cannot pass however it is
+ * introduced.
+ *
+ * ## Registered on the app, not under `/v1`
+ *
+ * These are pages a person reads and a crawler indexes. An API version in a
+ * public URL is a URL that breaks for a reason nothing to do with the page —
+ * the same call the console made (`#179`) and the mailed pages after it.
+ */
+export function registerAtlasPages(app: FastifyInstance, deps: RouteDependencies): void {
+  const { recipes, websiteUrl, renames } = deps
+
+  /**
+   * Every request here first asks *is this the Atlas's host*.
+   *
+   * The API answers on five hostnames from one process. Without this guard the
+   * Atlas would also answer on `api.kolonie.ai` and `mcp.kolonie.ai`, which is
+   * three more addresses for one page — duplicate content a canonical tag then
+   * has to argue with, on hosts that have no business serving it.
+   */
+  const wrongHost = (request: FastifyRequest): boolean => !isAtlasRequest(request, websiteUrl)
+
+  const send = (reply: FastifyReply, body: string, type: string): FastifyReply => {
+    for (const [header, value] of Object.entries(ATLAS_HEADERS)) reply.header(header, value)
+
+    return reply
+      .header(
+        'cache-control',
+        `public, max-age=${ATLAS_CACHE_SECONDS}, s-maxage=${ATLAS_CACHE_SECONDS}, stale-while-revalidate=${ATLAS_CACHE_SECONDS * 4}`,
+      )
+      .type(type)
+      .send(body)
+  }
+
+  const listEntries = async (): Promise<readonly AtlasEntry[]> => atlasEntries(await recipes.list())
+
+  app.get(ATLAS_PATH, async (request, reply) => {
+    if (wrongHost(request)) return reply.callNotFound()
+
+    return send(
+      reply,
+      atlasIndexPage({ entries: await listEntries(), canonical: `${websiteUrl}${ATLAS_PATH}` }),
+      'text/html; charset=utf-8',
+    )
+  })
+
+  /**
+   * The sitemap, and it is the reason a dynamic Atlas indexes as well as a
+   * static one would.
+   *
+   * Ahead of `/atlas/:provider` in this file for readability only — Fastify
+   * matches a static segment before a parametric one regardless of order, so
+   * `sitemap.xml` could not be read as a provider name even if a provider were
+   * ever called that.
+   */
+  app.get(`${ATLAS_PATH}/sitemap.xml`, async (request, reply) => {
+    if (wrongHost(request)) return reply.callNotFound()
+
+    return send(
+      reply,
+      atlasSitemap({ entries: await listEntries(), websiteUrl }),
+      'application/xml; charset=utf-8',
+    )
+  })
+
+  app.get<{ Params: { provider: string } }>(`${ATLAS_PATH}/:provider`, async (request, reply) => {
+    if (wrongHost(request)) return reply.callNotFound()
+
+    const asked = AccountProviderSchema.safeParse(request.params.provider)
+    if (!asked.success) return reply.callNotFound()
+
+    const entry = (await listEntries()).find((one) => one.provider === asked.data)
+
+    if (entry === undefined) {
+      /**
+       * **A page that used to be here is a redirect, not a 404.**
+       *
+       * Looked up only on the miss, so the ordinary read costs nothing: a
+       * rename is rare and the query for one should not be on the path every
+       * hit takes. 301 rather than 302 — the move is permanent, and a
+       * temporary redirect leaves the old URL in an index forever.
+       */
+      const renamedTo = await renames.renamedTo(asked.data)
+      if (renamedTo !== undefined) return reply.redirect(atlasPath(renamedTo), 301)
+
+      return reply.callNotFound()
+    }
+
+    return send(
+      reply,
+      atlasEntryPage({ entry, canonical: `${websiteUrl}${entry.path}` }),
+      'text/html; charset=utf-8',
+    )
+  })
+}
+
+/**
+ * Whether this request arrived on the host the Atlas serves.
+ *
+ * The same shape as `isConsoleRequest`, and separate from it because it reads a
+ * different setting: the console's host is `CONSOLE_URL` and this one is the
+ * website's. **An unset `WEBSITE_URL` means the Atlas does not serve** — a process
+ * that cannot tell where the website lives must not guess, because the guess
+ * would be the API's own host and the Atlas would appear on five addresses.
+ */
+export function isAtlasRequest(
+  request: { readonly headers: { host?: string } },
+  websiteUrl: string,
+): boolean {
+  const host = atlasHost(websiteUrl)
+  if (host === undefined) return false
+
+  return (request.headers.host ?? '').split(':')[0]?.toLowerCase() === host
+}
+
+/** The host from `WEBSITE_URL`, or nothing when it is unset or malformed. */
+export function atlasHost(websiteUrl: string): string | undefined {
+  if (websiteUrl.trim() === '') return undefined
+
+  try {
+    return new URL(websiteUrl).hostname.toLowerCase()
+  } catch {
+    return undefined
+  }
+}

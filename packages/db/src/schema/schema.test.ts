@@ -192,6 +192,13 @@ describe('schema', () => {
          */
         'artefact_challenges',
         /**
+         * `#546`. Where a provider used to be, so the Atlas's old paths keep
+         * answering after a rename. Three columns and no foreign key: the thing
+         * it records is a name that no longer exists, which by definition has no
+         * row to point at.
+         */
+        'atlas_renames',
+        /**
          * `#173`. The record behind every privileged act — who granted a role,
          * who took it back, who published a quest. It is here rather than in a
          * log file because the question it answers is *who let this money move*,

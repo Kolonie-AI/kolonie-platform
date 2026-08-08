@@ -1,6 +1,8 @@
 import type { AutonomyDependencies } from '../../autonomy.js'
 import type { OperatorClaimDependencies } from '../../operator-claim.js'
 import { fakeProviderRecipes, type FakeProviderRecipes } from '../provider-recipes.js'
+import { fakeAtlasRenames } from '../atlas-renames.js'
+import type { AtlasRenames } from '../../atlas/renames.js'
 import type { AccountDependencies } from '../../accounts.js'
 import { fakeHumans } from '../humans.js'
 import type { HumanDependencies } from '../../humans/humans.js'
@@ -53,6 +55,8 @@ export interface FakeDesks {
   readonly accounts: AccountDependencies
   /** The provider catalogue (`#521`). Empty until a test writes an entry. */
   readonly recipes: FakeProviderRecipes
+  /** Where a provider used to be (`#546`). Empty until a test renames one. */
+  readonly renames: AtlasRenames
   /** People with accounts, and the tenant they sign in through (`#425`). */
   readonly humans: HumanDependencies
   readonly operatorClaim: OperatorClaimDependencies
@@ -134,6 +138,7 @@ export function fakeDesks(): FakeDesks {
     erasureDesk,
     accounts: fakeAccounts(),
     recipes: fakeProviderRecipes(),
+    renames: fakeAtlasRenames(),
     humans: fakeHumans(),
     operatorClaim: fakeOperatorClaim(),
     autonomy: fakeAutonomy(pages, autonomyStore),

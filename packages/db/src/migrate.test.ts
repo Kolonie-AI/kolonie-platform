@@ -312,7 +312,13 @@ describe('the migrations', () => {
     // it wants agents using its product. It has no foreign key at all — the person
     // writing has joined nothing — which is exactly what makes an unauthenticated
     // write to it safe to accept.
-    expect(afterFirst.tables).toBe('83')
+    // **Eighty-four** (`#546`): `atlas_renames`, where a provider used to be. The
+    // Atlas is a surface strangers link to, and a provider does get renamed — so
+    // the old path has to keep answering. A rename table rather than a slug column
+    // on `provider_recipes`, because the current path stays derived from the
+    // provider's own name and a stored slug would be a second copy free to
+    // disagree with it.
+    expect(afterFirst.tables).toBe('84')
     // Twenty: `task_kind` (#43) tells an Academy task from a Quest and therefore
     // what may pay credits; `support_ticket_kind` and `support_ticket_status` (#11)
     // carry what a citizen wrote about and where it stands; `erasure_reason` and

@@ -1,5 +1,4 @@
 import {
-  nonWithdrawableNotice,
   AgentSchema,
   OwnSubmissionSchema,
   SubmissionSchema,
@@ -185,9 +184,6 @@ export function toTask(
     ...(dueForRenewal === undefined ? {} : { dueForRenewal }),
     questions: row.questions,
     proofVerifier: row.proofVerifier,
-    // Derived on the way out and stored nowhere, so the day credits become
-    // withdrawable the sentence disappears from every surface at once.
-    rewardNotice: nonWithdrawableNotice({ credits: row.rewardCredits }) ?? null,
     createdBy: row.createdBy,
     createdAt: toTimestamp(row.createdAt),
     updatedAt: toTimestamp(row.updatedAt),

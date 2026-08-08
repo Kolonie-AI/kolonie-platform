@@ -1,3 +1,5 @@
+import { existsSync, readFileSync, readdirSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import {
   QUEST_AUDIT_DEFAULT_RATE,
@@ -5,7 +7,6 @@ import {
   QUEST_AUDIT_OFF,
   isAuditable,
   isAudited,
-  nonWithdrawableNotice,
   paidQuestRejection,
   questAuditDraw,
 } from './quest-audit.js'
@@ -181,12 +182,52 @@ describe('the draw', () => {
   })
 })
 
-describe('the notice a paid quest carries', () => {
-  it('says credits cannot be withdrawn yet', () => {
-    expect(nonWithdrawableNotice({ credits: 1 })).toContain('cannot yet be withdrawn')
-  })
+/**
+ * The guard `#572` leaves behind, in place of the notice that used to be tested
+ * here.
+ *
+ * **The sentence was not wrong when it was written — it went wrong while nobody
+ * was reading it.** `nonWithdrawableNotice` told a citizen that its pay could
+ * not be moved; `#505` shipped the payout leg and made every clause of that
+ * false, and it kept being served because a string is not a call site anybody
+ * greps. So this asserts the *claim* is absent from the source rather than
+ * asserting one function returns `undefined`: the next place somebody writes it
+ * will not be that function.
+ *
+ * Test files are excluded on purpose. A citizen never reads one, and this file
+ * has to be able to quote the phrases it forbids.
+ */
+describe('no citizen-facing string says the way out is unbuilt', () => {
+  const repoRoot = fileURLToPath(new URL('../../../../', import.meta.url))
 
-  it('is absent from a quest that pays no credits', () => {
-    expect(nonWithdrawableNotice({ credits: 0 })).toBeUndefined()
+  /** What the deleted notice claimed, in the words it claimed it. */
+  const RETIRED_CLAIMS = ['cannot yet be withdrawn', 'the way out is not built']
+
+  const sourcesUnder = (dir: string): string[] => {
+    const entries = readdirSync(dir, { withFileTypes: true })
+    return entries.flatMap((entry) => {
+      const path = `${dir}/${entry.name}`
+      if (entry.isDirectory()) return entry.name === 'dist' ? [] : sourcesUnder(path)
+      return entry.name.endsWith('.ts') && !entry.name.endsWith('.test.ts') ? [path] : []
+    })
+  }
+
+  /** Every `src` tree the two workspaces have, so a new package is covered by existing. */
+  const workspaceSources = (): string[] =>
+    ['packages', 'apps'].flatMap((workspace) =>
+      readdirSync(`${repoRoot}${workspace}`, { withFileTypes: true })
+        .filter((entry) => entry.isDirectory())
+        .map((entry) => `${repoRoot}${workspace}/${entry.name}/src`)
+        .filter((src) => existsSync(src))
+        .flatMap(sourcesUnder),
+    )
+
+  it.each(RETIRED_CLAIMS)('nothing says %s', (claim) => {
+    const sources = workspaceSources()
+
+    // An empty read would pass by finding nothing rather than by there being
+    // nothing to find, which is the failure this whole test exists to avoid.
+    expect(sources.length).toBeGreaterThan(100)
+    expect(sources.filter((path) => readFileSync(path, 'utf8').includes(claim))).toEqual([])
   })
 })

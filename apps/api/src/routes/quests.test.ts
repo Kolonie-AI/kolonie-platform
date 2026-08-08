@@ -921,16 +921,15 @@ describe('the sampling audit', () => {
   })
 })
 
+/**
+ * `rewardNotice` was a field on every quest a citizen read, so its removal is
+ * checked where a citizen would have seen it and not only where it was produced
+ * (`#572`). The paid case is the one that carried the sentence.
+ */
 describe('the notice on a paid quest', () => {
-  it('appears on every quest that pays credits', async () => {
+  it('is gone, and the field with it', async () => {
     const written = await write(aDraft({ reward: { credits: 5, reputation: 0 } }))
 
-    expect(written.json().quest.rewardNotice).toContain('cannot yet be withdrawn')
-  })
-
-  it('is absent from one that pays reputation only', async () => {
-    const written = await write(aDraft({ reward: { credits: 0, reputation: 5 } }))
-
-    expect(written.json().quest.rewardNotice).toBeNull()
+    expect(written.json().quest).not.toHaveProperty('rewardNotice')
   })
 })

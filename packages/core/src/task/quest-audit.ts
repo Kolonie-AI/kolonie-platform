@@ -238,21 +238,18 @@ export function paidQuestRejection(
 const percent = (fraction: number): string => `${Math.round(fraction * 100)}%`
 
 /**
- * The sentence every paid quest carries, until a citizen can take the money out.
+ * `nonWithdrawableNotice` stood here until `#572`, and it was deleted rather than
+ * rewritten because that is what it asked for: *"it disappears on its own when
+ * the payout leg ships (`#222`) … there is no second place to remember to delete
+ * this from."*
  *
- * **Written by the Colony and never by the sponsor**, appended to what a citizen
- * reads. Somebody earning something it cannot have and finding out afterwards is
- * the cheapest possible way to lose the citizens this whole programme is for.
+ * The payout leg shipped in `#505` — a citizen is paid in SOL, to a wallet it
+ * controls, the moment its report is accepted — and every clause of the sentence
+ * became false on the same day. **Nothing replaces it.** What a quest pays is on
+ * the row as `rewardLamports`, and what became of a payment is
+ * `kolonie.me.earnings`; a third sentence restating either is the duplication
+ * D-002 refuses, and it is what let this one go stale unnoticed.
  *
- * It disappears on its own when the payout leg ships (`#222`): the caller passes
- * `withdrawable`, and there is no second place to remember to delete this from.
+ * `quest-audit.test.ts` now asserts that no citizen-facing source string claims
+ * the way out is unbuilt, which is the guard this deletion leaves behind.
  */
-export function nonWithdrawableNotice(reward: { readonly credits: number }): string | undefined {
-  if (reward.credits === 0) return undefined
-
-  return (
-    'This quest pays Quest Credits into your Colony balance. Credits cannot yet be withdrawn ' +
-    'to a wallet of your own — the way out is not built. Take this quest for the balance and ' +
-    'the standing, and not for money you can move today.'
-  )
-}

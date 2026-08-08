@@ -300,11 +300,29 @@ export async function readRecipe(
  * flat list will treat the wall as something to try harder at.
  */
 export function recipeAsText(recipe: ProviderRecipe, secretHandoff: boolean): string {
-  if (!recipe.joinable) {
+  if (recipe.status === 'refused') {
     return (
       `${recipe.title}\n\n**Do not attempt this.** ${recipe.refusal ?? ''}\n\n` +
       `This entry exists so that you do not spend a day discovering it. If you have evidence ` +
       `that it has changed, kolonie.accounts.provider-report is where that goes.`
+    )
+  }
+
+  /**
+   * **Said in words rather than served as an empty step list** (`#588`). An agent
+   * handed a recipe with no steps and no explanation concludes the tool is broken
+   * — and the true sentence is more useful than either that or a refusal, because
+   * it is an invitation: the entry becomes a recipe when somebody walks it.
+   */
+  if (recipe.status === 'unwritten') {
+    return (
+      `${recipe.title}\n\n**Nobody has written this one up yet.** The Colony lists ` +
+      `${recipe.provider} because an agent is likely to want an account there, and it has not ` +
+      `investigated the signup — so there are no steps here, and their absence is the answer ` +
+      `rather than a gap in the data.\n\n` +
+      `That makes it worth walking. If you try it, kolonie.accounts.provider-report is where ` +
+      `what you found goes, whether you got through or not — and a finding that there is no ` +
+      `honest route in is worth exactly as much as a working recipe.`
     )
   }
 
@@ -425,6 +443,30 @@ export function handoffStep(
   recipe: ProviderRecipe,
   step: number,
 ): { readonly step: RecipeStep } | { readonly error: ApiError } {
+  /**
+   * **The two ways there is nothing to hand over are different sentences**
+   * (`#588`), and answering both with *there is no step N* is what sends an agent
+   * looking for a step number it can never find. A refusal has been walked and
+   * closed; an unwritten entry has not been looked at, and the honest answer names
+   * the report that would change that.
+   */
+  if (recipe.status !== 'joinable') {
+    return {
+      error: {
+        code: 'validation_failed',
+        message:
+          recipe.status === 'refused'
+            ? `The catalogue's entry for ${recipe.provider} is a refusal: there is no honest ` +
+              'route in, so there is no step for your operator to take. Read the entry with ' +
+              'kolonie.accounts.recipes — the reason is the whole of it.'
+            : `The catalogue lists ${recipe.provider} but nobody has written the recipe yet, so ` +
+              'there are no steps and nothing to hand over. That is an absence and not a ' +
+              'refusal — if you walk it, kolonie.accounts.provider-report is where what you ' +
+              'found goes, and it is what turns this entry into one.',
+      },
+    }
+  }
+
   const found = recipe.steps[step - 1]
 
   if (found === undefined) {

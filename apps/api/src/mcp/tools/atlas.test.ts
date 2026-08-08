@@ -22,7 +22,7 @@ describe('the Atlas over MCP', () => {
       kind: 'social',
       provider: 'bsky.app',
       title: 'Bluesky',
-      joinable: false,
+      status: 'refused',
       refusal: 'No honest route in for a citizen without a phone.',
     })
   })

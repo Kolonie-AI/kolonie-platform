@@ -14,7 +14,7 @@ const entry = async (db: Database, provider: string, kindName = 'social') =>
     kind: kind(kindName),
     provider,
     title: provider,
-    joinable: true,
+    status: 'joinable',
     steps: [{ actor: 'agent', instruction: 'sign up' }],
     proves: 'provider-post',
   })

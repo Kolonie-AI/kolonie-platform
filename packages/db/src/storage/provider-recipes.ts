@@ -3,11 +3,13 @@ import {
   AccountKindSchema,
   AccountProviderSchema,
   RecipeRuntimeNoteSchema,
+  RecipeStatusSchema,
   RecipeStepSchema,
   ReferralArrangementSchema,
   type AccountKind,
   type ProviderRecipe,
   type RecipeRuntimeNote,
+  type RecipeStatus,
   type RecipeStep,
   type ReferralArrangement,
 } from '@kolonie-ai/core'
@@ -37,7 +39,7 @@ function toRecipe(row: typeof providerRecipes.$inferSelect): ProviderRecipe {
     referral: row.referral === null ? null : ReferralArrangementSchema.parse(row.referral),
     contact: row.contact,
     lastConfirmedAt: row.lastConfirmedAt === null ? null : toTimestamp(row.lastConfirmedAt),
-    joinable: row.joinable,
+    status: RecipeStatusSchema.parse(row.status),
     refusal: row.refusal,
     /**
      * **Parsed on the way out, not trusted.** `jsonb` accepts whatever was written,
@@ -57,10 +59,12 @@ function toRecipe(row: typeof providerRecipes.$inferSelect): ProviderRecipe {
 /**
  * Every entry, or every entry for one kind.
  *
- * **Joinable ones first, then by provider.** A reader scanning the catalogue wants
- * what it can act on at the top; the refusals are what it reads when the one it
- * wanted is not there. The ordering is stated here rather than left to the caller,
- * so two surfaces cannot present one catalogue differently.
+ * **Joinable first, then unwritten, then refusals; within each, by provider.** A
+ * reader scanning the catalogue wants what it can act on at the top; an entry
+ * nobody has looked at yet may still work and so sits above one known not to
+ * (`#588`). The ordering is stated here rather than left to the caller, so two
+ * surfaces cannot present one catalogue differently — and it agrees with
+ * `atlasRank`, which orders the entries the same way one level up.
  */
 export async function providerRecipeList(
   db: Database,
@@ -71,7 +75,11 @@ export async function providerRecipeList(
     .from(providerRecipes)
     .where(kind === undefined ? undefined : eq(providerRecipes.kind, kind))
     .orderBy(
-      sql`${providerRecipes.joinable} desc`,
+      sql`case ${providerRecipes.status}
+            when 'joinable' then 0
+            when 'unwritten' then 1
+            else 2
+          end`,
       asc(providerRecipes.kind),
       asc(providerRecipes.provider),
     )
@@ -122,7 +130,7 @@ export async function writeProviderRecipe(
     readonly contact?: string | null
     /** Set when a walk confirmed it. Absent on a curation edit, which confirms nothing. */
     readonly confirmedBy?: string | null
-    readonly joinable: boolean
+    readonly status: RecipeStatus
     readonly refusal?: string | null
     readonly steps: readonly RecipeStep[]
     readonly proves?: ProviderRecipe['proves']
@@ -147,7 +155,7 @@ export async function writeProviderRecipe(
     ...(entry.confirmedBy === undefined
       ? {}
       : { lastConfirmedAt: sql`now()`, lastConfirmedBy: entry.confirmedBy }),
-    joinable: entry.joinable,
+    status: entry.status,
     refusal: entry.refusal ?? null,
     steps: [...entry.steps],
     proves: entry.proves ?? null,

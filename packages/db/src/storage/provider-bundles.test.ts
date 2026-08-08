@@ -114,9 +114,27 @@ describe('the provider bundles', () => {
 
       expect(unwritten).toBeDefined()
       expect(unwritten?.title).toBeNull()
-      // `null` and not `false`: *nobody has written this one* and *this one
-      // refuses agents* are different facts.
-      expect(unwritten?.joinable).toBeNull()
+      // `null` and not `'refused'`: *this provider is not in the catalogue at
+      // all* and *this one refuses agents* are different facts — and since
+      // `#588`, so is *listed and nobody has walked it*, which is `'unwritten'`.
+      expect(unwritten?.status).toBeNull()
+    })
+
+    /**
+     * The middle answer (`#588`). A provider the catalogue lists and nobody has
+     * investigated is a different promise from one it has never heard of, on the
+     * surface an operator actually reads.
+     */
+    it('tells a listed-but-unwalked entry apart from one that is not listed', async () => {
+      await db.execute(
+        `insert into provider_recipes (kind, provider, title, status)
+         values ('image-model', 'openai.com', 'OpenAI', 'unwritten')`,
+      )
+      await seedBundles(db)
+
+      const design = await bundleNamed(db, 'design')
+
+      expect(design?.entries.find((row) => row.provider === 'openai.com')?.status).toBe('unwritten')
     })
 
     it('carries what the catalogue holds where an entry exists', async () => {
@@ -127,7 +145,7 @@ describe('the provider bundles', () => {
       const written = research?.entries.find((row) => row.provider === 'github.com')
 
       expect(written?.title).not.toBeNull()
-      expect(written?.joinable).toBe(true)
+      expect(written?.status).toBe('joinable')
     })
   })
 })

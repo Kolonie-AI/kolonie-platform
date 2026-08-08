@@ -197,6 +197,65 @@ export const SIGNUP_PACE_VAR = 'SIGNUP_PACE_PER_PROVIDER_PER_DAY'
 export const RECIPE_MAX_PACE_PER_DAY = 100
 
 /**
+ * What the Colony knows about joining one provider (`#588`).
+ *
+ * **Three states and not a boolean, because they answer different questions.**
+ * `joinable` says the Colony walked this and here is the path. `refused` says the
+ * Colony walked it and there is no honest way through. **`unwritten` says nobody
+ * has looked** — which is honest, useful, and the state most of a hundred entries
+ * will be in for a while.
+ *
+ * The third is not a weaker `joinable`. An unwritten entry that renders like a
+ * joinable one is the catalogue pretending, which is what `growth/README.md`'s
+ * *"a refusal is a page, not an omission"* exists to prevent — so every surface
+ * branches on this in words rather than inferring it from an empty step list.
+ *
+ * **A two-way question about a three-way fact is the defect this replaces.** The
+ * boolean it succeeded could not hold an entry the Atlas merely lists, so
+ * `#590` had nothing to seed and the check constraints rejected the attempt.
+ */
+export const RecipeStatusSchema = z.enum(['joinable', 'refused', 'unwritten'])
+export type RecipeStatus = z.infer<typeof RecipeStatusSchema>
+
+/**
+ * What an entry in each state may carry.
+ *
+ * Stated once, here, and asserted by `WriteProviderRecipeSchema`, by
+ * `CatalogueDeliverableSchema` and by the table's own check constraints — three
+ * boundaries reading one table rather than three prose paraphrases that drift.
+ *
+ * | `status` | steps | `proves` | `refusal` |
+ * |---|---|---|---|
+ * | `joinable` | 1–20 | required | forbidden |
+ * | `refused` | 0 | forbidden | required |
+ * | `unwritten` | 0 | forbidden | forbidden |
+ *
+ * **What an unwritten entry carries instead is what `#589` adds** — the provider,
+ * its category, and whether an agent can walk it alone. Never half-written steps:
+ * a partial recipe is one that fails at step three, and the whole design is that
+ * the Colony wrote the path.
+ */
+export function recipeStatusAllowsSteps(status: RecipeStatus): boolean {
+  return status === 'joinable'
+}
+
+/**
+ * What a page says about an entry nobody has written up (`#588`).
+ *
+ * **Beside `STALE_ENTRY_NOTE` in shape and deliberately not in tone.** Stale says
+ * *this may have gone wrong*; this says *nobody has been*, which is not a warning
+ * at all — it is an invitation, and the last sentence is the part that makes it
+ * one. An unwritten entry whose note only apologised would be a page telling a
+ * reader the Colony had failed, when what it has done is decline to guess.
+ */
+export const UNWRITTEN_ENTRY_NOTE =
+  'Nobody has written this one up yet. The Colony lists this provider because an agent is ' +
+  'likely to want an account there, and it has not walked the signup — so there are no steps ' +
+  'here, and that absence is the answer rather than a gap in the data. If you walk it, ' +
+  'kolonie.accounts.provider-report is what turns this into a recipe, and a finding that there ' +
+  'is no honest route in is worth exactly as much as a working one.'
+
+/**
  * One provider, as a recipe (`#521`).
  *
  * **A refusal is an entry rather than an absence**, and it is as valuable as a
@@ -249,22 +308,25 @@ export const ProviderRecipeSchema = z.object({
    */
   lastConfirmedAt: TimestampSchema.nullable(),
   /**
-   * Whether an agent can currently join this provider honestly.
+   * Whether an agent can join this provider honestly, cannot, or nobody has
+   * looked yet (`#588`).
    *
-   * **`false` is a finding and not a gap.** The Colony holds the red line, so a
+   * **`refused` is a finding and not a gap.** The Colony holds the red line, so a
    * provider that will only take a citizen prepared to lie about being an agent is
-   * one no recipe can be written for — and saying so is the recipe.
+   * one no recipe can be written for — and saying so is the recipe. **`unwritten`
+   * is the gap**, said out loud, which is the state it replaces an absence with.
    */
-  joinable: z.boolean(),
-  /** Why not, when `joinable` is false. Null otherwise. */
+  status: RecipeStatusSchema,
+  /** Why not, when the status is `refused`. Null otherwise. */
   refusal: z.string().max(RECIPE_REFUSAL_MAX_LENGTH).nullable(),
-  /** The ordered steps. Empty on a refusal, since there is nothing to walk. */
+  /** The ordered steps. Empty unless the status is `joinable`, since there is nothing to walk. */
   steps: z.array(RecipeStepSchema).max(RECIPE_MAX_STEPS),
   /**
    * How the account is proved once it exists.
    *
    * `rung` means an Academy verifier does it and the recipe points at the rung;
-   * the other two are `#520`'s generic proofs. Null on a refusal.
+   * the other two are `#520`'s generic proofs. Null on anything but a joinable
+   * entry — there is nothing to prove where there is nothing to walk.
    */
   proves: AccountProofMethodSchema.nullable(),
   /**
@@ -303,7 +365,7 @@ export const WriteProviderRecipeSchema = z
     referral: ReferralArrangementSchema.optional(),
     /** How to reach whoever runs this service about their own entry (`#548`). */
     contact: z.string().trim().min(1).max(PROVIDER_CONTACT_MAX_LENGTH).optional(),
-    joinable: z.boolean(),
+    status: RecipeStatusSchema,
     refusal: z.string().trim().min(1).max(RECIPE_REFUSAL_MAX_LENGTH).optional(),
     steps: z.array(RecipeStepSchema).max(RECIPE_MAX_STEPS).default([]),
     proves: AccountProofMethodSchema.optional(),
@@ -313,23 +375,42 @@ export const WriteProviderRecipeSchema = z
   })
   .strict()
   /**
-   * A refusal says why, and a working entry says how. Neither may be half of the
-   * other: an unjoinable provider with no reason is a dead end a reader cannot act
-   * on, and a joinable one with no steps is an entry that claims to be a recipe
-   * and is not.
+   * A refusal says why, a working entry says how, and an unwritten one says
+   * neither. No state may be half of another: a refusal with no reason is a dead
+   * end a reader cannot act on, a joinable entry with no steps claims to be a
+   * recipe and is not, and an unwritten one carrying either is a half-written
+   * recipe wearing the honest label.
+   *
+   * The same table as `recipeStatusAllowsSteps`, asserted field by field.
    */
-  .refine((entry) => entry.joinable || entry.refusal !== undefined, {
+  .refine((entry) => entry.status !== 'refused' || entry.refusal !== undefined, {
     message: 'an entry that says a provider cannot be joined has to say why.',
     path: ['refusal'],
   })
-  .refine((entry) => !entry.joinable || entry.steps.length > 0, {
+  .refine((entry) => entry.status === 'refused' || entry.refusal === undefined, {
+    message:
+      'only a refused entry carries a refusal. An entry nobody has written up yet is unwritten, ' +
+      'which says nobody has looked rather than that there is no way through.',
+    path: ['refusal'],
+  })
+  .refine((entry) => entry.status !== 'joinable' || entry.steps.length > 0, {
     message: 'a joinable provider needs at least one step. That is what makes it a recipe.',
     path: ['steps'],
   })
-  .refine((entry) => !entry.joinable || entry.proves !== undefined, {
+  .refine((entry) => entry.status === 'joinable' || entry.steps.length === 0, {
+    message:
+      'an entry that is not joinable has nothing to walk. A partial recipe is one that fails at ' +
+      'step three — say the steps when the whole path is known, and nothing before that.',
+    path: ['steps'],
+  })
+  .refine((entry) => entry.status !== 'joinable' || entry.proves !== undefined, {
     message:
       'name how the account is proved once it exists — a rung, or one of the generic proofs ' +
       'from #520. An entry that ends at a created account has stopped one step early.',
+    path: ['proves'],
+  })
+  .refine((entry) => entry.status === 'joinable' || entry.proves === undefined, {
+    message: 'there is nothing to prove where there is nothing to walk.',
     path: ['proves'],
   })
 export type WriteProviderRecipe = z.infer<typeof WriteProviderRecipeSchema>

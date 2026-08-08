@@ -13,10 +13,14 @@ import {
 import {
   RECIPE_MAX_RUNTIME_NOTES,
   RECIPE_MAX_STEPS,
+  RecipeStatusSchema,
   type RecipeRuntimeNote,
   type RecipeStep,
   type ReferralArrangement,
 } from '@kolonie-ai/core'
+
+/** The three states, taken from the schema so the table cannot disagree with it. */
+const RECIPE_STATUSES = RecipeStatusSchema.options
 
 /**
  * One provider, as a recipe (`#521`).
@@ -92,14 +96,28 @@ export const providerRecipes = pgTable(
     contact: text('contact'),
 
     /**
-     * Whether an agent can currently join this provider honestly.
+     * Whether an agent can join this provider honestly, cannot, or nobody has
+     * looked yet (`#588`).
      *
      * **A refusal is an entry rather than an absence** (`#482`). Bluesky and X have
      * no honest signup route for a phone-less citizen, and a catalogue that omitted
      * that would send agents to fail repeatedly — so the row that says *do not try*
      * is as valuable as one that says how.
+     *
+     * **And an unwritten entry is an entry rather than an absence too**, which is
+     * what the boolean this replaced could not hold: the two check constraints
+     * below rejected every row with no steps and no refusal, so the Atlas could
+     * not list a provider it had not investigated. It listed three and read as
+     * empty.
+     *
+     * **`text` with a check rather than a `pg_enum`**, and the reason is
+     * operational: `ALTER TYPE … ADD VALUE` cannot use the new value in the same
+     * transaction, so a fourth state would need its migration split in two, and
+     * the value could never be removed. `proves` beside it is text-with-a-check
+     * for the same reason and this follows it rather than inventing a second
+     * convention in one table.
      */
-    joinable: boolean('joinable').notNull().default(true),
+    status: text('status').notNull().default('joinable'),
     refusal: text('refusal'),
 
     /**
@@ -170,30 +188,51 @@ export const providerRecipes = pgTable(
     uniqueIndex('provider_recipes_kind_provider_unique').on(table.kind, table.provider),
 
     /**
-     * A refusal says why; a working entry says how and how it is proved.
+     * The three states, in SQL, so a psql prompt cannot invent a fourth (`#588`).
      *
-     * Both directions in SQL as well as in `WriteProviderRecipeSchema`, because the
-     * seed writes through neither: a hand-written entry with `joinable = false` and
+     * **`sql.raw` and not an interpolated value**, which `RECIPE_MAX_STEPS`
+     * above needs for the same reason: an interpolated one becomes a bind
+     * parameter, and `drizzle-kit generate` writes the parameter *marker* into
+     * the migration file. The constraint would then be `in ($1, $2, $3)` and the
+     * migration would fail on the way in.
+     */
+    check(
+      'provider_recipes_status_is_known',
+      sql`${table.status} in (${sql.raw(RECIPE_STATUSES.map((one) => `'${one}'`).join(', '))})`,
+    ),
+
+    /**
+     * A refusal says why; a working entry says how and how it is proved; an
+     * unwritten one says neither.
+     *
+     * Every direction in SQL as well as in `WriteProviderRecipeSchema`, because the
+     * seed writes through neither: a hand-written entry with `status = 'refused'` and
      * no reason would be a dead end a reader cannot act on, and nothing in the
      * request shape can stop a psql prompt.
      */
     check(
       'provider_recipes_refusal_says_why',
-      sql`(${table.joinable} = true and ${table.refusal} is null)
-          or (${table.joinable} = false and ${table.refusal} is not null)`,
+      sql`(${table.status} = 'refused' and ${table.refusal} is not null)
+          or (${table.status} <> 'refused' and ${table.refusal} is null)`,
     ),
 
     check(
       'provider_recipes_joinable_has_steps',
-      sql`${table.joinable} = false
+      sql`${table.status} <> 'joinable'
           or (jsonb_array_length(${table.steps}) between 1 and ${sql.raw(String(RECIPE_MAX_STEPS))}
               and ${table.proves} is not null)`,
     ),
 
-    /** A refusal has nothing to walk and nothing to prove. */
+    /**
+     * Anything but a joinable entry has nothing to walk and nothing to prove.
+     *
+     * **This is the one that carries `unwritten`'s whole meaning.** A row marked
+     * *nobody has looked* that carries three steps is a half-written recipe
+     * wearing the honest label, and it fails at step three for whoever trusts it.
+     */
     check(
-      'provider_recipes_refusal_is_empty',
-      sql`${table.joinable} = true
+      'provider_recipes_unjoinable_is_empty',
+      sql`${table.status} = 'joinable'
           or (jsonb_array_length(${table.steps}) = 0 and ${table.proves} is null)`,
     ),
 

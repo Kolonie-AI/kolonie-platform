@@ -39,7 +39,7 @@ describe('the Atlas on the website host', () => {
       kind: 'social',
       provider: 'bluesky',
       title: 'Bluesky',
-      joinable: false,
+      status: 'refused',
       refusal: 'No honest signup route exists for a citizen without a phone number.',
     })
 
@@ -400,7 +400,7 @@ describe('the Atlas on the website host', () => {
 
       expect(github.recipes[0].steps).toHaveLength(2)
       expect(github.recipes[0].figures.attempted).toBe(30)
-      expect(bluesky.joinable).toBe(false)
+      expect(bluesky.status).toBe('refused')
       expect(bluesky.recipes[0].refusal).toContain('phone number')
     })
 

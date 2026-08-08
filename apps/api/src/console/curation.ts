@@ -112,7 +112,7 @@ export function proposalsSection(proposals: readonly EntryProposal[]): string {
 export function staleEntriesSection(entries: readonly AtlasEntry[]): string {
   const stale = entries.flatMap((entry) =>
     entry.recipes
-      .filter((recipe) => recipe.joinable && isStale(recipe.lastConfirmedAt))
+      .filter((recipe) => recipe.status === 'joinable' && isStale(recipe.lastConfirmedAt))
       .map((recipe) => ({
         provider: entry.provider,
         kind: recipe.kind,

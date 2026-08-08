@@ -37,7 +37,7 @@ describe('the provider catalogue', () => {
       kind: kind('linear'),
       provider: 'linear.app',
       title: 'A Linear workspace',
-      joinable: true,
+      status: 'joinable',
       steps: [
         { actor: 'agent', instruction: 'Vault a password, then sign up with your proved mailbox.' },
         { actor: 'agent', instruction: 'Forward the welcome mail to close a provider-mail proof.' },
@@ -50,7 +50,7 @@ describe('the provider catalogue', () => {
     expect(found).toMatchObject({
       kind: 'linear',
       provider: 'linear.app',
-      joinable: true,
+      status: 'joinable',
       proves: 'provider-mail',
     })
     expect(found?.steps).toHaveLength(2)
@@ -61,7 +61,7 @@ describe('the provider catalogue', () => {
       kind: kind('linear'),
       provider: 'linear.app',
       title: 'A Linear workspace',
-      joinable: true,
+      status: 'joinable',
       steps: [{ actor: 'agent', instruction: 'Sign up.' }],
       proves: 'provider-post',
     })
@@ -74,7 +74,7 @@ describe('the provider catalogue', () => {
       kind: kind('linear'),
       provider: 'linear.app',
       title: 'A Linear workspace',
-      joinable: true,
+      status: 'joinable' as const,
       proves: 'provider-post' as const,
     }
 
@@ -128,8 +128,8 @@ describe('the provider catalogue', () => {
     it('refuses an unjoinable provider that does not say why', async () => {
       expect(
         await refusedBy(
-          `insert into provider_recipes (kind, provider, title, joinable)
-           values ('social', 'silent.example', 'Silent', false)`,
+          `insert into provider_recipes (kind, provider, title, status)
+           values ('social', 'silent.example', 'Silent', 'refused')`,
         ),
       ).toBe('provider_recipes_refusal_says_why')
     })
@@ -137,8 +137,8 @@ describe('the provider catalogue', () => {
     it('refuses a joinable provider with no steps', async () => {
       expect(
         await refusedBy(
-          `insert into provider_recipes (kind, provider, title, joinable, proves)
-           values ('social', 'empty.example', 'Empty', true, 'rung')`,
+          `insert into provider_recipes (kind, provider, title, status, proves)
+           values ('social', 'empty.example', 'Empty', 'joinable', 'rung')`,
         ),
       ).toBe('provider_recipes_joinable_has_steps')
     })
@@ -146,8 +146,8 @@ describe('the provider catalogue', () => {
     it('refuses a joinable provider that never says how it is proved', async () => {
       expect(
         await refusedBy(
-          `insert into provider_recipes (kind, provider, title, joinable, steps)
-           values ('social', 'unproved.example', 'Unproved', true, '[{"actor":"agent","instruction":"sign up"}]')`,
+          `insert into provider_recipes (kind, provider, title, status, steps)
+           values ('social', 'unproved.example', 'Unproved', 'joinable', '[{"actor":"agent","instruction":"sign up"}]')`,
         ),
       ).toBe('provider_recipes_joinable_has_steps')
     })
@@ -155,23 +155,74 @@ describe('the provider catalogue', () => {
     it('refuses a refusal that carries steps anyway', async () => {
       expect(
         await refusedBy(
-          `insert into provider_recipes (kind, provider, title, joinable, refusal, steps)
-           values ('social', 'busy.example', 'Busy', false, 'no honest route',
+          `insert into provider_recipes (kind, provider, title, status, refusal, steps)
+           values ('social', 'busy.example', 'Busy', 'refused', 'no honest route',
                    '[{"actor":"agent","instruction":"sign up"}]')`,
         ),
-      ).toBe('provider_recipes_refusal_is_empty')
+      ).toBe('provider_recipes_unjoinable_is_empty')
+    })
+
+    /**
+     * The state `#588` exists for: an entry the Atlas lists and nobody has
+     * walked. It is the row the two constraints it replaced rejected outright,
+     * which is why `#590` had nothing it could seed.
+     */
+    it('takes an entry with no steps, no proof and no refusal', async () => {
+      await db.execute(
+        `insert into provider_recipes (kind, provider, title, status)
+         values ('mailbox', 'fastmail.com', 'Fastmail', 'unwritten')`,
+      )
+
+      const found = await providerRecipe(db, kind('mailbox'), 'fastmail.com')
+
+      expect(found).toMatchObject({ status: 'unwritten', refusal: null, proves: null })
+      expect(found?.steps).toHaveLength(0)
+    })
+
+    /**
+     * **Rejected by the database rather than by application code**, which is the
+     * whole point of putting it here: a partial recipe wearing the honest label
+     * is one that fails at step three for whoever trusts it, and the seed and a
+     * psql prompt both write through neither Zod schema.
+     */
+    it('refuses an unwritten entry that carries steps anyway', async () => {
+      expect(
+        await refusedBy(
+          `insert into provider_recipes (kind, provider, title, status, steps)
+           values ('mailbox', 'half.example', 'Half', 'unwritten',
+                   '[{"actor":"agent","instruction":"sign up"}]')`,
+        ),
+      ).toBe('provider_recipes_unjoinable_is_empty')
+    })
+
+    it('refuses an unwritten entry that carries a refusal', async () => {
+      expect(
+        await refusedBy(
+          `insert into provider_recipes (kind, provider, title, status, refusal)
+           values ('mailbox', 'both.example', 'Both', 'unwritten', 'no honest route')`,
+        ),
+      ).toBe('provider_recipes_refusal_says_why')
+    })
+
+    it('refuses a fourth state nobody defined', async () => {
+      expect(
+        await refusedBy(
+          `insert into provider_recipes (kind, provider, title, status)
+           values ('mailbox', 'maybe.example', 'Maybe', 'probably')`,
+        ),
+      ).toBe('provider_recipes_status_is_known')
     })
 
     it('holds one entry per provider per kind', async () => {
       await db.execute(
-        `insert into provider_recipes (kind, provider, title, joinable, refusal)
-         values ('social', 'twice.example', 'Twice', false, 'no honest route')`,
+        `insert into provider_recipes (kind, provider, title, status, refusal)
+         values ('social', 'twice.example', 'Twice', 'refused', 'no honest route')`,
       )
 
       expect(
         await refusedBy(
-          `insert into provider_recipes (kind, provider, title, joinable, refusal)
-           values ('social', 'twice.example', 'Again', false, 'still no honest route')`,
+          `insert into provider_recipes (kind, provider, title, status, refusal)
+           values ('social', 'twice.example', 'Again', 'refused', 'still no honest route')`,
         ),
       ).toBe('provider_recipes_kind_provider_unique')
     })
@@ -196,8 +247,10 @@ describe('the provider catalogue', () => {
 
       expect(entries.length).toBeGreaterThanOrEqual(3)
       expect(entries.some((entry) => entry.proves === 'rung')).toBe(true)
-      expect(entries.some((entry) => entry.joinable && entry.proves !== 'rung')).toBe(true)
-      const refusal = entries.find((entry) => !entry.joinable)
+      expect(entries.some((entry) => entry.status === 'joinable' && entry.proves !== 'rung')).toBe(
+        true,
+      )
+      const refusal = entries.find((entry) => entry.status === 'refused')
       expect(refusal?.refusal).toBeTruthy()
       // A refusal has to date itself: it is a fact about somebody else's product.
       expect(refusal?.refusal).toMatch(/\d{4}-\d{2}-\d{2}/)

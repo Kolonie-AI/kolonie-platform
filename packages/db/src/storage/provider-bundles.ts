@@ -4,8 +4,10 @@ import {
   AccountProviderSchema,
   inBundleOrder,
   leadsWithTheCheapAccounts,
+  RecipeStatusSchema,
   type Bundle,
   type BundleEntry,
+  type RecipeStatus,
 } from '@kolonie-ai/core'
 import type { Database, Transaction } from '../client.js'
 import { providerBundleEntries, providerBundles, providerRecipes } from '../schema/index.js'
@@ -26,13 +28,15 @@ export interface BundleEntryView extends BundleEntry {
   /** The catalogue's title, or `null` when nobody has written the entry yet. */
   readonly title: string | null
   /**
-   * Whether an agent can currently join this provider honestly.
+   * What the catalogue says about joining this provider.
    *
-   * **`null` means there is no entry yet**, which is a third state and not a
-   * missing boolean: *nobody has written this one* and *this one refuses agents*
-   * are different facts and an operator needs to tell them apart.
+   * **`null` means the provider is not in the catalogue at all**, which is a
+   * fourth answer and not a missing one. `#588` gave the catalogue its own word
+   * for *listed but nobody has looked* — `'unwritten'` — and the two are
+   * genuinely different to an operator: one says the Colony has never heard of
+   * this provider, the other says it has and has not investigated it.
    */
-  readonly joinable: boolean | null
+  readonly status: RecipeStatus | null
   /** Why not, when the catalogue says it cannot be joined. */
   readonly refusal: string | null
 }
@@ -61,7 +65,7 @@ export async function bundles(db: Database | Transaction): Promise<readonly Bund
       kind: providerBundleEntries.kind,
       provider: providerBundleEntries.provider,
       entryTitle: providerRecipes.title,
-      joinable: providerRecipes.joinable,
+      status: providerRecipes.status,
       refusal: providerRecipes.refusal,
     })
     .from(providerBundles)
@@ -91,7 +95,7 @@ export async function bundles(db: Database | Transaction): Promise<readonly Bund
           kind: AccountKindSchema.parse(row.kind),
           provider: AccountProviderSchema.parse(row.provider),
           title: row.entryTitle,
-          joinable: row.joinable,
+          status: row.status === null ? null : RecipeStatusSchema.parse(row.status),
           refusal: row.refusal,
         },
       ],

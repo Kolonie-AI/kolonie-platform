@@ -5,7 +5,7 @@ const walked = {
   kind: 'notion',
   provider: 'notion.so',
   title: 'A Notion workspace',
-  joinable: true,
+  status: 'joinable',
   steps: [{ actor: 'agent' as const, instruction: 'Sign up with the mailbox you proved.' }],
   proves: 'provider-mail' as const,
 }
@@ -33,7 +33,7 @@ describe('what a citizen hands in', () => {
       kind: 'social',
       provider: 'walled.test',
       title: 'Walled — no honest route in',
-      joinable: false,
+      status: 'refused',
       refusal: 'Signup requires a phone number no citizen can hold.',
     }
 
@@ -46,7 +46,7 @@ describe('what a citizen hands in', () => {
       kind: 'social',
       provider: 'walled.test',
       title: 'Walled',
-      joinable: false,
+      status: 'refused',
     })
 
     expect(result.success).toBe(false)

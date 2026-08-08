@@ -1,6 +1,7 @@
 import {
   ATLAS_PATH,
   STALE_ENTRY_NOTE,
+  UNWRITTEN_ENTRY_NOTE,
   isStale,
   ATLAS_RETENTION_DAYS,
   throughRate,
@@ -98,9 +99,10 @@ export function atlasPage(input: {
 const ATLAS_STANDFIRST =
   'What an agent has to do to hold an account somewhere, provider by provider: the steps, ' +
   'where a human is unavoidable, and what proves it afterwards. Where a provider cannot be ' +
-  'joined honestly, that is what the page says.'
+  'joined honestly, that is what the page says — and where nobody has looked yet, it says that ' +
+  'instead of guessing.'
 
-/** The index: every entry, joinable first. */
+/** The index: every entry, joinable first, then unwritten, then refusals (`#588`). */
 export function atlasIndexPage(input: {
   readonly entries: readonly AtlasEntry[]
   readonly canonical: string
@@ -108,13 +110,13 @@ export function atlasIndexPage(input: {
   const rows =
     input.entries.length === 0
       ? [
-          '<p>The catalogue is empty. Nothing has been written yet, which is not the same as ' +
+          '<p>The catalogue is empty. Nothing has been listed yet, which is not the same as ' +
             'nothing being joinable.</p>',
         ]
       : input.entries.map(
           (entry) =>
             `<li><a href="${escape(entry.path)}">${escape(entry.title)}</a>` +
-            (entry.joinable ? '' : ' <span class="k-refused">cannot be joined</span>') +
+            indexStatusMark(entry.status) +
             (entry.recipes.some((recipe) => recipe.paid)
               ? ' <span class="k-paid">paid</span>'
               : '') +
@@ -170,9 +172,33 @@ export function atlasEntryPage(input: {
  * facts it describes.
  */
 function entryDescription(entry: AtlasEntry): string {
-  return entry.joinable
-    ? `How an agent joins ${entry.provider}: ${kindsLine(entry)}.`
-    : `${entry.provider} cannot currently be joined honestly by an agent, and this is why.`
+  if (entry.status === 'joinable')
+    return `How an agent joins ${entry.provider}: ${kindsLine(entry)}.`
+
+  if (entry.status === 'refused') {
+    return `${entry.provider} cannot currently be joined honestly by an agent, and this is why.`
+  }
+
+  return (
+    `${entry.provider} is in the Atlas and nobody has written up how an agent joins it yet. ` +
+    'That is what this page says, rather than pretending either way.'
+  )
+}
+
+/**
+ * The one word the index has room for about an entry's state (`#588`).
+ *
+ * **Three answers and never a blank for two of them.** A joinable entry is
+ * unmarked because it is the ordinary case and the figures beside it already say
+ * how it went; the other two are marked, in words, because an unmarked unwritten
+ * entry is indistinguishable from a working recipe — which is the catalogue
+ * pretending, and the thing `growth/README.md` refuses.
+ */
+function indexStatusMark(status: AtlasEntry['status']): string {
+  if (status === 'refused') return ' <span class="k-refused">cannot be joined</span>'
+  if (status === 'unwritten') return ' <span class="k-unwritten">nobody has looked yet</span>'
+
+  return ''
 }
 
 function kindsLine(entry: AtlasEntry): string {
@@ -181,11 +207,25 @@ function kindsLine(entry: AtlasEntry): string {
 
 /** One row of the catalogue, as a section of its provider's page. */
 function recipeSection(recipe: AtlasEntry['recipes'][number]): string {
-  if (!recipe.joinable) {
+  if (recipe.status === 'refused') {
     return [
       `<section><h2>${escape(recipe.kind)}</h2>`,
       '<p class="k-refused">This cannot be joined honestly, so do not try.</p>',
       `<p>${escape(recipe.refusal ?? '')}</p>`,
+      '</section>',
+    ].join('')
+  }
+
+  /**
+   * **An unwritten row says so and stops** (`#588`). No steps, no proof line, no
+   * figures — there is nothing measured about a provider nobody has attempted,
+   * and rendering the joinable layout with everything empty is exactly how a
+   * reader concludes the recipe is broken rather than absent.
+   */
+  if (recipe.status === 'unwritten') {
+    return [
+      `<section><h2>${escape(recipe.kind)}</h2>`,
+      `<p class="k-unwritten">${escape(UNWRITTEN_ENTRY_NOTE)}</p>`,
       '</section>',
     ].join('')
   }
@@ -240,7 +280,7 @@ function indexFigure(entry: AtlasEntry): string {
   const attempted = entry.recipes.reduce((sum, one) => sum + one.figures.attempted, 0)
   const proved = entry.recipes.reduce((sum, one) => sum + one.figures.proved, 0)
 
-  if (!entry.joinable || attempted === 0) return ''
+  if (entry.status !== 'joinable' || attempted === 0) return ''
 
   return ` — ${Math.round((proved / attempted) * 100)}% of ${attempted} got through`
 }
@@ -413,7 +453,7 @@ function counterpartySection(entry: AtlasEntry): string {
  * refusal would skip providers that are perfectly joinable.
  */
 function staleNote(recipe: AtlasEntry['recipes'][number]): string {
-  if (!recipe.joinable || !isStale(recipe.lastConfirmedAt)) return ''
+  if (recipe.status !== 'joinable' || !isStale(recipe.lastConfirmedAt)) return ''
 
   return `<p class="k-stale"><strong>Unconfirmed.</strong> ${escape(STALE_ENTRY_NOTE)}</p>`
 }

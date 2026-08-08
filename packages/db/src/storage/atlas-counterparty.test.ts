@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { sql } from 'drizzle-orm'
 import { AccountKindSchema } from '@kolonie-ai/core'
+import type { RecipeStatus } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
 import {
@@ -34,18 +35,20 @@ const REFERRAL = {
 describe('an entry’s paying counterparty', () => {
   let db: Database
 
-  const entry = async (provider: string, joinable: boolean) =>
+  const entry = async (provider: string, status: RecipeStatus) =>
     writeProviderRecipe(db, {
       kind,
       provider,
       title: provider,
-      joinable,
-      ...(joinable
+      status,
+      ...(status === 'joinable'
         ? {
             steps: [{ actor: 'agent' as const, instruction: 'sign up' }],
             proves: 'provider-post' as const,
           }
-        : { refusal: 'No honest signup route exists.', steps: [] }),
+        : status === 'refused'
+          ? { refusal: 'No honest signup route exists.', steps: [] }
+          : { steps: [] }),
     })
 
   beforeAll(async () => {
@@ -81,7 +84,7 @@ describe('an entry’s paying counterparty', () => {
 
   describe('a claimed provider proposes and does not edit', () => {
     it('files a proposal rather than changing the entry', async () => {
-      await entry('example.test', true)
+      await entry('example.test', 'joinable')
 
       const result = await proposeEntryChange(db, {
         kind,
@@ -102,23 +105,29 @@ describe('an entry’s paying counterparty', () => {
      * removed yet*.
      */
     it('refuses a proposal that would clear a finding about itself', async () => {
-      await entry('walled.test', false)
+      await entry('walled.test', 'refused')
 
       const result = await proposeEntryChange(db, {
         kind,
         provider: 'walled.test',
         author: 'claimed-provider',
-        proposed: { joinable: true },
+        proposed: { status: 'joinable' },
       })
 
       expect(result.outcome).toBe('refused')
       expect(await pendingProposals(db)).toHaveLength(0)
     })
 
+    /**
+     * **Including by moving it to `unwritten`** (`#588`), which erases a walked
+     * finding as thoroughly as declaring the provider joinable does and is the
+     * cheaper move to miss. The rule is about the refusal leaving, not about
+     * which state it leaves for.
+     */
     it('refuses it however the refusal is emptied rather than flipped', async () => {
-      await entry('walled.test', false)
+      await entry('walled.test', 'refused')
 
-      for (const proposed of [{ refusal: null }, { refusal: '' }]) {
+      for (const proposed of [{ refusal: null }, { refusal: '' }, { status: 'unwritten' }]) {
         const result = await proposeEntryChange(db, {
           kind,
           provider: 'walled.test',
@@ -135,13 +144,13 @@ describe('an entry’s paying counterparty', () => {
      * get in* is a claim about its own product.** The asymmetry is the point.
      */
     it('takes the same proposal from a citizen', async () => {
-      await entry('walled.test', false)
+      await entry('walled.test', 'refused')
 
       const result = await proposeEntryChange(db, {
         kind,
         provider: 'walled.test',
         author: 'citizen',
-        proposed: { joinable: true },
+        proposed: { status: 'joinable' },
         note: 'I got through on 2026-08-08; here is what changed.',
       })
 
@@ -149,7 +158,7 @@ describe('an entry’s paying counterparty', () => {
     })
 
     it('lets a provider correct a working entry, which is the useful case', async () => {
-      await entry('example.test', true)
+      await entry('example.test', 'joinable')
 
       const result = await proposeEntryChange(db, {
         kind,
@@ -164,7 +173,7 @@ describe('an entry’s paying counterparty', () => {
 
   describe('the review queue', () => {
     it('holds both authors’ proposals in one queue', async () => {
-      await entry('example.test', true)
+      await entry('example.test', 'joinable')
       await proposeEntryChange(db, {
         kind,
         provider: 'example.test',
@@ -185,7 +194,7 @@ describe('an entry’s paying counterparty', () => {
     })
 
     it('takes a decision once and leaves nothing pending', async () => {
-      await entry('example.test', true)
+      await entry('example.test', 'joinable')
       const filed = await proposeEntryChange(db, {
         kind,
         provider: 'example.test',
@@ -206,7 +215,7 @@ describe('an entry’s paying counterparty', () => {
         kind,
         provider: 'example.test',
         title: 'Example',
-        joinable: true,
+        status: 'joinable',
         steps: [{ actor: 'agent', instruction: 'sign up' }],
         proves: 'provider-post',
         referral: REFERRAL,
@@ -223,7 +232,7 @@ describe('an entry’s paying counterparty', () => {
      * checked is the one that breaks a programme's terms in the Colony's name.
      */
     it('is refused by the database when the check was not recorded', async () => {
-      await entry('example.test', true)
+      await entry('example.test', 'joinable')
 
       await expect(
         db.execute(sql`
@@ -235,7 +244,7 @@ describe('an entry’s paying counterparty', () => {
     })
 
     it('is refused when the terms note is empty', async () => {
-      await entry('example.test', true)
+      await entry('example.test', 'joinable')
 
       await expect(
         db.execute(sql`

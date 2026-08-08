@@ -2,7 +2,8 @@ import { z } from 'zod'
 import { TimestampSchema } from '../common/time.js'
 import { AccountProviderSchema } from './account.js'
 import { AtlasFiguresSchema, atlasRank, noFigures, type AtlasFigures } from './atlas-figures.js'
-import { ProviderRecipeSchema, type ProviderRecipe } from './recipe.js'
+import { ProviderRecipeSchema, RecipeStatusSchema, type ProviderRecipe } from './recipe.js'
+import type { RecipeStatus } from './recipe.js'
 
 /**
  * The Atlas: the provider catalogue, as something a stranger can read (`#546`).
@@ -72,12 +73,20 @@ export const AtlasEntrySchema = z.object({
    */
   title: z.string().min(1),
   /**
-   * Whether **anything** here can currently be joined honestly.
+   * What this provider is, rolled up from its rows (`#588`).
    *
-   * False means every row is a refusal — which is a page and not an omission
-   * (`#482`), and `#547` requires it to be a full one.
+   * **The strongest thing true of any row wins**, in that order: `joinable` if
+   * anything here can be joined honestly, else `refused` if anything was walked
+   * and found closed, else `unwritten`. A provider with one working recipe and
+   * one refused kind is a provider you can join, and the rows below say which is
+   * which.
+   *
+   * `refused` means every row was looked at and none is passable — a page and not
+   * an omission (`#482`), which `#547` requires to be a full one. `unwritten`
+   * means nobody has looked at any of them, which is a different sentence and
+   * must never be rendered as either of the other two.
    */
-  joinable: z.boolean(),
+  status: RecipeStatusSchema,
   /**
    * One row per kind, in the catalogue's own order, each with what was measured
    * about it (`#545`). Never empty.
@@ -118,14 +127,21 @@ export function atlasEntries(
   }
 
   return [...byProvider.entries()].map(([provider, rows]) => {
-    const joinable = rows.some((row) => row.joinable)
-    const titled = rows.find((row) => row.joinable === joinable) ?? rows[0]
+    const status = atlasEntryStatus(rows)
+
+    /**
+     * The title comes from a row in the entry's own state, so a page is never
+     * named after something it does not say. A provider with one working recipe
+     * is titled by the working one; a provider nobody has looked at is titled by
+     * an unwritten row, which is the only kind it has.
+     */
+    const titled = rows.find((row) => row.status === status) ?? rows[0]
 
     return {
       provider: AccountProviderSchema.parse(provider),
       path: atlasPath(provider),
       title: titled?.title ?? provider,
-      joinable,
+      status,
       recipes: rows.map((row) => ({
         ...row,
         figures:
@@ -136,6 +152,25 @@ export function atlasEntries(
         .reduce((latest, at) => (at > latest ? at : latest)),
     }
   })
+}
+
+/**
+ * What one provider is, from what its rows are (`#588`).
+ *
+ * **Not `some(joinable)` with a boolean's two answers.** The rollup has to keep
+ * *walked and closed* apart from *nobody looked*, and a provider whose every row
+ * is unwritten is the one the old shape could not express at all — it came out as
+ * *cannot be joined*, which is a claim about the provider the Colony has not
+ * earned.
+ *
+ * Exported because `#591`'s browsing surface and the website's index group by it,
+ * and a second implementation of this ordering is a second answer to it.
+ */
+export function atlasEntryStatus(rows: readonly { readonly status: RecipeStatus }[]): RecipeStatus {
+  if (rows.some((row) => row.status === 'joinable')) return 'joinable'
+  if (rows.some((row) => row.status === 'refused')) return 'refused'
+
+  return 'unwritten'
 }
 
 /**
@@ -198,7 +233,7 @@ export function atlasByOutcome(entries: readonly AtlasEntry[]): readonly AtlasEn
       entry,
       index,
       rank: atlasRank({
-        joinable: entry.joinable,
+        status: entry.status,
         figures: entry.recipes.map((recipe) => recipe.figures),
       }),
     }))

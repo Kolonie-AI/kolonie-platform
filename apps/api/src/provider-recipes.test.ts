@@ -48,8 +48,8 @@ describe('reading the catalogue', () => {
   })
 
   it('puts what can be acted on above what cannot', async () => {
-    recipes.write({ kind: 'social', provider: 'closed.example', joinable: false })
-    recipes.write({ kind: 'trello', provider: 'trello.com', joinable: true })
+    recipes.write({ kind: 'social', provider: 'closed.example', status: 'refused' })
+    recipes.write({ kind: 'trello', provider: 'trello.com', status: 'joinable' })
 
     const result = await readRecipes(undefined, recipes)
     if (result.outcome !== 'ok') throw new Error('expected the read to succeed')
@@ -77,7 +77,7 @@ describe('what the recipe says to the agent walking it', () => {
         referral: null,
         contact: null,
         lastConfirmedAt: '2026-08-01T00:00:00.000Z' as never,
-        joinable: true,
+        status: 'joinable',
         refusal: null,
         steps: [
           { actor: 'agent', instruction: 'Vault a password.' },
@@ -117,7 +117,7 @@ describe('what the recipe says to the agent walking it', () => {
         referral: null,
         contact: null,
         lastConfirmedAt: '2026-08-01T00:00:00.000Z' as never,
-        joinable: true,
+        status: 'joinable',
         refusal: null,
         steps: [
           {
@@ -162,7 +162,7 @@ describe('what the recipe says to the agent walking it', () => {
       referral: null,
       contact: null,
       lastConfirmedAt: '2026-08-01T00:00:00.000Z' as never,
-      joinable: true,
+      status: 'joinable' as const,
       refusal: null,
       steps: [
         { actor: 'agent' as const, instruction: 'Fill in the form.' },
@@ -220,7 +220,7 @@ describe('what the recipe says to the agent walking it', () => {
         referral: null,
         contact: null,
         lastConfirmedAt: '2026-08-01T00:00:00.000Z' as never,
-        joinable: false,
+        status: 'refused',
         refusal: 'It requires a phone number no citizen has (measured 2026-08-08).',
         steps: [],
         proves: null,
@@ -250,7 +250,7 @@ describe('the handoff a recipe names', () => {
     referral: null,
     contact: null,
     lastConfirmedAt: '2026-08-01T00:00:00.000Z' as never,
-    joinable: true as const,
+    status: 'joinable' as const,
     refusal: null,
     steps: [
       { actor: 'agent' as const, instruction: 'Name the handle you want.' },

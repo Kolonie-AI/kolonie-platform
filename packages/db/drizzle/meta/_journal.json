@@ -1240,6 +1240,20 @@
       "when": 1786207886982,
       "tag": "0176_the_fee_leaves_the_hot_wallet",
       "breakpoints": true
+    },
+    {
+      "idx": 177,
+      "version": "7",
+      "when": 1786214266239,
+      "tag": "0177_swift_queen_noir",
+      "breakpoints": true
+    },
+    {
+      "idx": 178,
+      "version": "7",
+      "when": 1786214297862,
+      "tag": "0178_mixed_the_leader",
+      "breakpoints": true
     }
   ]
 }

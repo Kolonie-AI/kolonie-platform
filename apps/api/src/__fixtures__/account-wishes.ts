@@ -111,7 +111,7 @@ export function fakeWishes(): FakeWishes {
         entries: bundle.entries.map((entry) => ({
           ...entry,
           title: null,
-          joinable: null,
+          status: null,
           refusal: null,
         })),
       })),
@@ -126,7 +126,7 @@ export function fakeWishes(): FakeWishes {
             entries: bundle.entries.map((entry) => ({
               ...entry,
               title: null,
-              joinable: null,
+              status: null,
               refusal: null,
             })),
           })))()

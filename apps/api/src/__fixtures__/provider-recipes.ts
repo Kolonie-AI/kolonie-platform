@@ -10,6 +10,19 @@ import type { FallingRate } from '@kolonie-ai/db'
 import type { ProviderRecipes } from '../provider-recipes.js'
 
 /**
+ * The catalogue's own order, in the fake (`#588`).
+ *
+ * Joinable, then unwritten, then refusals — the same three-way order
+ * `providerRecipeList` gives in SQL. A fake that sorted a boolean would put an
+ * unwritten entry below a refusal and hide the ordering half of the issue.
+ */
+function listOrder(status: ProviderRecipe['status']): number {
+  if (status === 'joinable') return 0
+
+  return status === 'unwritten' ? 1 : 2
+}
+
+/**
  * The provider catalogue, in memory (`#521`).
  *
  * **Empty by default and seeded by the test that needs entries.** A fixture that
@@ -87,7 +100,7 @@ export function fakeProviderRecipes(): FakeProviderRecipes {
     async list(kind) {
       return rows
         .filter((row) => kind === undefined || row.kind === kind)
-        .sort((a, b) => Number(b.joinable) - Number(a.joinable))
+        .sort((a, b) => listOrder(a.status) - listOrder(b.status))
     },
 
     async one(kind, provider) {
@@ -97,7 +110,8 @@ export function fakeProviderRecipes(): FakeProviderRecipes {
     },
 
     write(entry) {
-      const joinable = entry.joinable ?? true
+      const status = entry.status ?? 'joinable'
+      const joinable = status === 'joinable'
       rows.push({
         kind: AccountKindSchema.parse(entry.kind),
         provider: entry.provider as ProviderRecipe['provider'],
@@ -108,8 +122,8 @@ export function fakeProviderRecipes(): FakeProviderRecipes {
         referral: entry.referral ?? null,
         contact: entry.contact ?? null,
         lastConfirmedAt: entry.lastConfirmedAt ?? currentTime(),
-        joinable,
-        refusal: entry.refusal ?? (joinable ? null : 'no honest route in'),
+        status,
+        refusal: entry.refusal ?? (status === 'refused' ? 'no honest route in' : null),
         steps: entry.steps ?? (joinable ? [{ actor: 'agent', instruction: 'sign up' }] : []),
         proves: entry.proves ?? (joinable ? 'provider-post' : null),
         caution: entry.caution ?? null,

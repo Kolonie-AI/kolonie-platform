@@ -87,27 +87,34 @@ export const CatalogueDeliverableSchema = z
     /**
      * Whether it can be joined honestly.
      *
-     * `false` is not a failed submission. It is the other half of the ask, and
+     * `refused` is not a failed submission. It is the other half of the ask, and
      * the reward path does not distinguish them.
+     *
+     * **Two of the catalogue's three states, and the omission is deliberate**
+     * (`#588`). `unwritten` means nobody has looked; a quest deliverable is a
+     * walk, so a citizen handing one in has looked by definition and the third
+     * state is not something they can honestly report. It is the Colony's own
+     * word for an entry it has listed and not investigated, and a submission that
+     * could set it would be a citizen paid for having done nothing.
      */
-    joinable: z.boolean(),
+    status: z.enum(['joinable', 'refused']),
     refusal: z.string().trim().min(1).max(RECIPE_REFUSAL_MAX_LENGTH).optional(),
     steps: z.array(RecipeStepSchema).max(RECIPE_MAX_STEPS).default([]),
     proves: AccountProofMethodSchema.optional(),
     caution: z.string().trim().min(1).max(RECIPE_REFUSAL_MAX_LENGTH).optional(),
   })
   .strict()
-  .refine((entry) => entry.joinable || entry.refusal !== undefined, {
+  .refine((entry) => entry.status === 'joinable' || entry.refusal !== undefined, {
     message:
       'a finding that a provider cannot be joined has to say what the wall was. That sentence ' +
       'is the whole value of the finding — it is what stops the next agent trying.',
     path: ['refusal'],
   })
-  .refine((entry) => !entry.joinable || entry.steps.length > 0, {
+  .refine((entry) => entry.status !== 'joinable' || entry.steps.length > 0, {
     message: 'a recipe is its steps. Say what you actually did, in the order you did it.',
     path: ['steps'],
   })
-  .refine((entry) => !entry.joinable || entry.proves !== undefined, {
+  .refine((entry) => entry.status !== 'joinable' || entry.proves !== undefined, {
     message:
       'say how the account is proved once it exists — a rung, or one of the generic proofs. An ' +
       'entry that ends at a created account has stopped one step early.',

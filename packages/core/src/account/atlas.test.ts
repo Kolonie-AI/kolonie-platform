@@ -1,16 +1,17 @@
 import { describe, expect, it } from 'vitest'
 import { AccountKindSchema, AccountProviderSchema } from './account.js'
 import { atlasEntries, atlasPath } from './atlas.js'
-import type { ProviderRecipe } from './recipe.js'
+import type { ProviderRecipe, RecipeStatus } from './recipe.js'
 
 const recipe = (input: {
   kind: string
   provider: string
   title?: string
-  joinable?: boolean
+  status?: RecipeStatus
   updatedAt?: string
 }): ProviderRecipe => {
-  const joinable = input.joinable ?? true
+  const status = input.status ?? 'joinable'
+  const joinable = status === 'joinable'
 
   return {
     kind: AccountKindSchema.parse(input.kind),
@@ -22,8 +23,8 @@ const recipe = (input: {
     referral: null,
     contact: null,
     lastConfirmedAt: '2026-08-01T00:00:00.000Z' as never,
-    joinable,
-    refusal: joinable ? null : 'no honest route in',
+    status,
+    refusal: status === 'refused' ? 'no honest route in' : null,
     steps: joinable ? [{ actor: 'agent', instruction: 'sign up' }] : [],
     proves: joinable ? 'provider-post' : null,
     caution: null,
@@ -80,18 +81,45 @@ describe('grouping the catalogue into entries', () => {
    */
   it('is joinable when anything on it is, and takes its title from that row', () => {
     const entries = atlasEntries([
-      recipe({ kind: 'social', provider: 'github', title: 'GitHub (social)', joinable: false }),
+      recipe({ kind: 'social', provider: 'github', title: 'GitHub (social)', status: 'refused' }),
       recipe({ kind: 'github', provider: 'github', title: 'GitHub' }),
     ])
 
-    expect(entries[0]?.joinable).toBe(true)
+    expect(entries[0]?.status).toBe('joinable')
     expect(entries[0]?.title).toBe('GitHub')
   })
 
   it('is not joinable when every row on it is a refusal', () => {
-    const entries = atlasEntries([recipe({ kind: 'social', provider: 'bluesky', joinable: false })])
+    const entries = atlasEntries([
+      recipe({ kind: 'social', provider: 'bluesky', status: 'refused' }),
+    ])
 
-    expect(entries[0]?.joinable).toBe(false)
+    expect(entries[0]?.status).toBe('refused')
+  })
+
+  /**
+   * The state `#588` added, and the one the boolean could not reach: a provider
+   * the Atlas lists and nobody has investigated. It must not roll up as
+   * *refused* — that would be the catalogue claiming a finding it never made.
+   */
+  it('is unwritten when nobody has looked at any of its rows', () => {
+    const entries = atlasEntries([
+      recipe({ kind: 'mailbox', provider: 'fastmail.com', status: 'unwritten' }),
+      recipe({ kind: 'domain', provider: 'fastmail.com', status: 'unwritten' }),
+    ])
+
+    expect(entries[0]?.status).toBe('unwritten')
+  })
+
+  /** A walked refusal outranks *nobody looked* — one of them is a finding. */
+  it('prefers a refusal to an unwritten row when no row is joinable', () => {
+    const entries = atlasEntries([
+      recipe({ kind: 'social', provider: 'x.com', status: 'unwritten' }),
+      recipe({ kind: 'mailbox', provider: 'x.com', status: 'refused', title: 'X — no route' }),
+    ])
+
+    expect(entries[0]?.status).toBe('refused')
+    expect(entries[0]?.title).toBe('X — no route')
   })
 
   /** What a reader wants dated is the newest thing known about the provider. */

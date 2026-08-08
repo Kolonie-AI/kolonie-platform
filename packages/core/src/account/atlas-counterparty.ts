@@ -1,6 +1,11 @@
 import { z } from 'zod'
 import { TimestampSchema } from '../common/time.js'
 import { AccountKindSchema, AccountProviderSchema } from './account.js'
+/**
+ * Type-only, and it has to stay that way: `recipe.ts` imports this module for
+ * `ReferralArrangementSchema`, so a value import here would close the cycle.
+ */
+import type { RecipeStatus } from './recipe.js'
 
 /**
  * The other side of an Atlas entry (`#548`).
@@ -109,31 +114,38 @@ export type EntryProposal = z.infer<typeof EntryProposalSchema>
 /**
  * The one change a claimed provider may never propose about itself (`#548`).
  *
- * **A refusal finding cannot be removed by its subject.** `joinable: false` says
- * that no agent can join this provider honestly; the only thing that changes it
- * is an agent getting through, which is evidence rather than an assertion. A
- * provider that could clear its own refusal could clear it the day it was
- * written, and every refusal in the Atlas would then mean *nobody has paid to
- * have this removed yet*.
+ * **A refusal finding cannot be removed by its subject.** `status: 'refused'`
+ * says that no agent can join this provider honestly; the only thing that
+ * changes it is an agent getting through, which is evidence rather than an
+ * assertion. A provider that could clear its own refusal could clear it the day
+ * it was written, and every refusal in the Atlas would then mean *nobody has paid
+ * to have this removed yet*.
  *
  * Returns the reason it is refused, or `undefined` when the proposal is fine.
  *
  * **A citizen proposing the same change is not refused here**, and the asymmetry
  * is the point: a citizen saying *I got in* is the evidence, and a provider
  * saying *you can get in* is a claim about its own product.
+ *
+ * **`unwritten` clears the refusal too, and that is why it is named here**
+ * (`#588`). Moving a refused entry to *nobody has looked* erases a walked finding
+ * as thoroughly as declaring it joinable does, and it is the cheaper move to
+ * miss — so the rule is about the refusal leaving, not about which state it
+ * leaves for.
  */
 export function refusalIsNotTheirsToRemove(input: {
   readonly author: ProposalAuthor
-  /** What the entry says today. */
-  readonly currentlyJoinable: boolean
+  /** What the entry says today. `undefined` when no entry exists yet. */
+  readonly currentStatus: RecipeStatus | undefined
   /** The fields being proposed. */
   readonly proposed: Readonly<Record<string, unknown>>
 }): string | undefined {
   if (input.author !== 'claimed-provider') return undefined
-  if (input.currentlyJoinable) return undefined
+  if (input.currentStatus !== 'refused') return undefined
 
   const clearsRefusal =
-    input.proposed['joinable'] === true ||
+    input.proposed['status'] === 'joinable' ||
+    input.proposed['status'] === 'unwritten' ||
     input.proposed['refusal'] === null ||
     input.proposed['refusal'] === ''
 

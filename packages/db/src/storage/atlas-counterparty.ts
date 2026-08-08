@@ -2,6 +2,7 @@ import { and, asc, eq, sql } from 'drizzle-orm'
 import {
   AccountKindSchema,
   AccountProviderSchema,
+  RecipeStatusSchema,
   refusalIsNotTheirsToRemove,
   type AccountKind,
   type EntryProposal,
@@ -101,14 +102,14 @@ export async function proposeEntryChange(
   const provider = AccountProviderSchema.parse(input.provider)
 
   const [entry] = await db
-    .select({ joinable: providerRecipes.joinable })
+    .select({ status: providerRecipes.status })
     .from(providerRecipes)
     .where(and(eq(providerRecipes.kind, input.kind), eq(providerRecipes.provider, provider)))
     .limit(1)
 
   const refusal = refusalIsNotTheirsToRemove({
     author: input.author,
-    currentlyJoinable: entry?.joinable ?? true,
+    currentStatus: entry === undefined ? undefined : RecipeStatusSchema.parse(entry.status),
     proposed: input.proposed,
   })
 

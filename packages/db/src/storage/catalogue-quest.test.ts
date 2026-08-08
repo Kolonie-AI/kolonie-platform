@@ -42,7 +42,7 @@ describe('a catalogue entry handed in by a citizen', () => {
       kind,
       provider,
       title: provider,
-      joinable: true,
+      status: 'joinable',
       steps: [{ actor: 'agent', instruction: 'sign up' }],
       proves: 'provider-mail',
     })
@@ -69,7 +69,7 @@ describe('a catalogue entry handed in by a citizen', () => {
       kind,
       provider: 'notion.so',
       title: 'A Notion workspace',
-      joinable: true,
+      status: 'joinable',
       steps: [{ actor: 'agent', instruction: 'Sign up with the mailbox you proved.' }],
       proves: 'provider-mail',
     })
@@ -86,7 +86,7 @@ describe('a catalogue entry handed in by a citizen', () => {
       kind: AccountKindSchema.parse('social'),
       provider: 'walled.test',
       title: 'Walled — no honest route in',
-      joinable: false,
+      status: 'refused',
       refusal: 'Signup requires a phone number no citizen can hold.',
       steps: [],
     })

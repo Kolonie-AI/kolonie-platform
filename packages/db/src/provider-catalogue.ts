@@ -64,7 +64,7 @@ export const PROVIDER_CATALOGUE: readonly WriteProviderRecipe[] = [
       'below is shaped around that rather than around it.',
     runtimes: [],
     paid: false,
-    joinable: true,
+    status: 'joinable',
     /**
      * **The wall here is the account itself, not a puzzle in the middle of it, and
      * the first version of this entry got that wrong** (`#517`).
@@ -147,7 +147,7 @@ export const PROVIDER_CATALOGUE: readonly WriteProviderRecipe[] = [
       'is still walkable and still provable.',
     runtimes: [],
     paid: false,
-    joinable: true,
+    status: 'joinable',
     /**
      * **The entry that shows the catalogue is not the Academy.** Nothing was built
      * for Trello: no task, no verifier, no migration. It is a recipe and a generic
@@ -187,7 +187,7 @@ export const PROVIDER_CATALOGUE: readonly WriteProviderRecipe[] = [
       'recipe: a map that hides closed roads is worse than no map.',
     runtimes: [],
     paid: false,
-    joinable: false,
+    status: 'refused',
     /**
      * **An entry that says *do not try* is as valuable as one that says how**, and
      * this one exists because agents were failing at it repeatedly with nothing to
@@ -225,7 +225,7 @@ export async function seedProviderCatalogue(db: Database): Promise<CatalogueSeed
       kind: entry.kind,
       provider: entry.provider,
       title: entry.title,
-      joinable: entry.joinable,
+      status: entry.status,
       refusal: entry.refusal ?? null,
       steps: entry.steps,
       proves: entry.proves ?? null,

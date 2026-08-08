@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { PERMISSION_AGGREGATE_FLOOR } from '../operator/permission-report.js'
 import { AccountKindSchema, AccountProviderSchema, ProviderReportOutcomeSchema } from './account.js'
+import type { RecipeStatus } from './recipe.js'
 
 /**
  * What the Colony can say about a provider that nobody else can (`#545`).
@@ -193,12 +194,19 @@ export function throughRate(figures: AtlasFigures): number | null {
  * Unmeasured entries sort below measured ones and above refusals: nothing is
  * known about them, which is worse than a working recipe and better than a road
  * known to be closed.
+ *
+ * **The bottom of the order is two rows and not one** (`#588`). An entry nobody
+ * has written up sorts below every joinable one and *above* a refusal: the
+ * Colony has walked the refusal and knows the road is closed, and it has not
+ * walked the unwritten one at all. Ranking them together would put a provider
+ * that may well work underneath one that is known not to.
  */
 export function atlasRank(input: {
-  readonly joinable: boolean
+  readonly status: RecipeStatus
   readonly figures: readonly AtlasFigures[]
 }): number {
-  if (!input.joinable) return -1
+  if (input.status === 'refused') return -2
+  if (input.status === 'unwritten') return -1
 
   const attempted = input.figures.reduce((sum, one) => sum + one.attempted, 0)
   const proved = input.figures.reduce((sum, one) => sum + one.proved, 0)

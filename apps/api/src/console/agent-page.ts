@@ -178,6 +178,35 @@ export interface AdoptionSection {
   readonly live?: { readonly expiresAt: string } | undefined
 }
 
+/**
+ * What a bundle row says about an entry the catalogue may not have walked
+ * (`#588`).
+ *
+ * **Four answers, and the two that used to be one are the point.** `#531`
+ * requires a provider known to refuse agents to be shown as such inside the
+ * bundle, because omitting it would tell the operator something untrue about
+ * what the Colony recommends. The same argument reaches one step further: an
+ * entry the Colony has listed and not investigated is a different promise from a
+ * provider it has never heard of, and from one it walked and found closed.
+ * Rendering all three as *no entry yet* was the two-way question about a
+ * three-way fact, on the surface an operator actually uses.
+ */
+function bundleEntryNote(entry: BundleView['entries'][number]): string {
+  if (entry.status === 'refused') {
+    return ` <strong>— cannot currently be joined${
+      entry.refusal === null ? '' : `: ${escape(entry.refusal)}`
+    }</strong>`
+  }
+
+  if (entry.status === 'unwritten') {
+    return ' <small>— listed, but nobody has walked the signup yet</small>'
+  }
+
+  if (entry.status === null) return ' <small>— not in the catalogue at all</small>'
+
+  return ''
+}
+
 export function agentPage(input: AgentPageInput): string {
   const heading = input.name
 
@@ -599,13 +628,7 @@ export function agentPage(input: AgentPageInput): string {
                 '<label>' +
                 `<input type="checkbox" name="entries" value="${escape(`${entry.kind}:${entry.provider}`)}" checked> ` +
                 `${escape(entry.provider)} <small>(${escape(entry.kind)})</small>` +
-                (entry.joinable === false
-                  ? ` <strong>— cannot currently be joined${
-                      entry.refusal === null ? '' : `: ${escape(entry.refusal)}`
-                    }</strong>`
-                  : entry.joinable === null
-                    ? ' <small>— no entry written for this one yet</small>'
-                    : '') +
+                bundleEntryNote(entry) +
                 '</label>',
             ),
             '<button type="submit">Put these on the list</button>',

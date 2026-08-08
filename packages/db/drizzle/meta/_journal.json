@@ -1233,6 +1233,13 @@
       "when": 1786199902589,
       "tag": "0175_a_door_for_somebody_with_neither",
       "breakpoints": true
+    },
+    {
+      "idx": 176,
+      "version": "7",
+      "when": 1786207886982,
+      "tag": "0176_the_fee_leaves_the_hot_wallet",
+      "breakpoints": true
     }
   ]
 }

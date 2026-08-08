@@ -256,6 +256,19 @@ export const SETTINGS: readonly SettingDefinition[] = [
     schema: toggle,
   },
   {
+    name: 'TREASURY_SWEEP_INTERVAL_MS',
+    group: 'cadence',
+    describes:
+      'How long the Colony waits between moving its earned fee from the payout wallet to the ' +
+      'Treasury (#507). The timer on the host calls the sweep far more often than this; the ' +
+      'interval is what decides whether a call actually sends anything, so it is a dial here ' +
+      'rather than a deploy. Lower means the hot wallet holds the fee for less time, which is ' +
+      'the whole point of moving it, and costs one transaction fee per sweep.',
+    schema: millis,
+    reachesRunningProcess:
+      'At the next call from the timer — the interval is read per sweep and nothing caches it.',
+  },
+  {
     name: 'PAYOUT_MAX_LAMPORTS',
     group: 'threshold',
     describes:

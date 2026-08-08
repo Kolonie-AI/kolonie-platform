@@ -119,6 +119,7 @@ export function buildApp({
   providerEnquiries = noProviderEnquiries(),
   payments,
   payouts,
+  treasury,
   earnings = noEarnings(),
   submissions,
   guidance,
@@ -521,7 +522,7 @@ export function buildApp({
       registerQuestRoutes(v1, routes)
       // Mounted only where a wallet is configured: a deployment that cannot take
       // money should not advertise a route that would answer as though it could.
-      if (payments !== undefined) registerPaymentRoutes(v1, payments, routes.log, payouts)
+      if (payments !== undefined) registerPaymentRoutes(v1, payments, routes.log, payouts, treasury)
       registerAcademyRoutes(v1, routes)
       registerProviderEnquiryRoute(v1, routes)
       registerEmailRoutes(v1, routes)

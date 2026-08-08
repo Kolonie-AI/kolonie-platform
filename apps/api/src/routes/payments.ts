@@ -14,6 +14,8 @@ import {
   settlePaymentDelivery,
   type PaymentDependencies,
 } from '../payments.js'
+import { runTreasurySweep } from '../treasury.js'
+import type { TreasurySweepDependencies } from '../treasury.js'
 import { runPayouts, type PayoutDependencies } from '../payouts.js'
 
 /**
@@ -33,6 +35,7 @@ export function registerPaymentRoutes(
   payments: PaymentDependencies,
   log: Log,
   payouts?: PayoutDependencies,
+  treasury?: TreasurySweepDependencies,
 ): void {
   const secret = payments.webhookSecret
   if (secret === undefined || secret.trim() === '') return
@@ -191,6 +194,63 @@ export function registerPaymentRoutes(
       })
     } else {
       log.info('a payout pass ran', { event: 'payout.pass', ...outcome })
+    }
+
+    return reply.send(outcome)
+  })
+
+  /**
+   * Move the Colony's earned fee to the Treasury — `#507`.
+   *
+   * **Beside the payout run and after it, on the same timer.** The order is the
+   * whole of why it is here rather than on a clock of its own: a pass pays every
+   * citizen it can and *then* sweeps what is left over as fee, so the sweep can
+   * never take money a payout in the same minute was about to need.
+   *
+   * **How often it actually sends is a setting, not this timer** (`D-104`). The
+   * unit fires every quarter of an hour like the two above; `runTreasurySweep`
+   * reads `TREASURY_SWEEP_INTERVAL_MS` and refuses `too-soon` until the interval
+   * has passed. That is what makes the cadence a maintainer's dial rather than a
+   * deploy.
+   *
+   * `POST` because it moves money, and idempotent by the same shape as the
+   * others: the receipt's unique signature means a timer firing twice records
+   * one transfer.
+   */
+  v1.post('/treasury/sweep', async (request, reply) => {
+    if (!webhookAuthorised(request.headers['authorization'], secret)) {
+      return reply.status(ERROR_STATUS[WEBHOOK_REFUSED.code]).send(WEBHOOK_REFUSED)
+    }
+
+    if (treasury === undefined) {
+      return reply.send({
+        sweptLamports: 0,
+        refusal: 'not-configured' as const,
+        outstandingFeeLamports: 0,
+        heldLamports: null,
+        owedLamports: 0,
+      })
+    }
+
+    const outcome = await runTreasurySweep(treasury)
+
+    /**
+     * **`float-would-not-cover-it` is the one worth raising**, and it is not an
+     * error: it means the wallet holds less than it owes plus its float, so the
+     * fee that is sitting in a hot wallet cannot leave it. Everything else here
+     * is an ordinary quiet state, including sweeping nothing because nothing has
+     * been earned.
+     */
+    if (outcome.refusal === 'float-would-not-cover-it') {
+      log.error('the earned fee cannot leave the payout wallet', new Error('sweep deferred'), {
+        event: 'treasury.sweep.deferred',
+        ...outcome,
+      })
+    } else if (outcome.sweptLamports > 0) {
+      log.info('the earned fee moved to the Treasury', {
+        event: 'treasury.sweep',
+        ...outcome,
+      })
     }
 
     return reply.send(outcome)

@@ -240,3 +240,28 @@ export function settingsReader(
     },
   }
 }
+
+/**
+ * One setting's effective value, read fresh (`#507`).
+ *
+ * **A read per call and no cache, which is what makes a setting a dial.** D-104
+ * puts runner cadence in this table precisely so a maintainer can change it
+ * without a deploy; a value resolved once at startup would be an environment
+ * variable with extra steps. The read is one indexed row and the callers are
+ * timers, so the cost is not worth a cache that would have to be invalidated.
+ *
+ * Falls back to the environment exactly as {@link effectiveSettings} does, so a
+ * deployment that has never written a row behaves the way it did before the
+ * table existed.
+ */
+export async function settingValue(
+  db: Database,
+  name: string,
+  environment: EnvironmentReader = processEnvironment,
+): Promise<string | undefined> {
+  const [row] = await db.select().from(settings).where(eq(settings.name, name)).limit(1)
+  if (row !== undefined) return row.value
+
+  const fromEnvironment = environment(name)
+  return fromEnvironment === undefined || fromEnvironment === '' ? undefined : fromEnvironment
+}

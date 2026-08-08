@@ -345,7 +345,12 @@ describe('the migrations', () => {
     // **Neither has an ordering column**, which `#548` refuses in any provider
     // table and which `atlas-counterparty.test.ts` enforces by the word: the
     // order a bundle is read in is derived by `inBundleOrder`.
-    expect(afterFirst.tables).toBe('92')
+    // **Ninety-three** (`#507`): `treasury_transfers`, the record of the Colony
+    // moving its own earned fee out of the hot wallet. Its own table because the
+    // wallet balance cannot answer *how much of this is ours* — it mixes the fee
+    // with money owed to citizens whose accrual has not reached the chain
+    // minimum, and that confusion is the whole of what `#507` refuses.
+    expect(afterFirst.tables).toBe('93')
     // Twenty: `task_kind` (#43) tells an Academy task from a Quest and therefore
     // what may pay credits; `support_ticket_kind` and `support_ticket_status` (#11)
     // carry what a citizen wrote about and where it stands; `erasure_reason` and

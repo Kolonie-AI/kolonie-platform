@@ -44,6 +44,7 @@ import type { PermissionReportDependencies } from './permission-reports.js'
 import type { CredentialRotation } from './rotation.js'
 import type { PaymentDependencies } from './payments.js'
 import type { EarningsDesk, PayoutDependencies } from './payouts.js'
+import type { TreasurySweepDependencies } from './treasury.js'
 import type { QuestDesk } from './quests.js'
 import type { TaskCatalogue } from './tasks.js'
 import type { DropStore } from './operator-drops.js'
@@ -236,6 +237,16 @@ export interface AppDependencies {
    * to start rather than pay without a limit.
    */
   readonly payouts?: PayoutDependencies | undefined
+  /**
+   * Moving the earned fee out of the hot wallet (`#507`).
+   *
+   * **Its own entry rather than a field on {@link payouts}**, and the reason is
+   * the one-way guarantee: that one carries the wallet's secret because it pays
+   * citizens, and folding the sweep into it would put the Treasury next to a
+   * key in the same object. They share the wallet and nothing else, and a reader
+   * checking that no Treasury key exists should have one type to read.
+   */
+  readonly treasury?: TreasurySweepDependencies | undefined
   /**
    * What a citizen has been paid and what it is still owed (`#535`).
    *

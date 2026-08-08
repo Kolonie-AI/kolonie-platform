@@ -4,6 +4,7 @@ import {
   OPERATOR_DROP_SEALING_KEY_VAR,
   PAYOUT_WALLET_ADDRESS_VAR,
   PAYOUT_WALLET_SECRET_VAR,
+  TREASURY_ADDRESS_VAR,
   payoutWalletMismatch,
   solanaAddressFromSeed,
 } from '@kolonie-ai/core'
@@ -20,10 +21,12 @@ import { buildApp } from './app.js'
 import { databaseStore } from './authentication.js'
 import { databaseQuests, questAuditPolicy } from './quests.js'
 import { databaseSettings } from './settings.js'
+import { settingValue } from '@kolonie-ai/db'
 import { databaseWakeDesk, settingsReader } from '@kolonie-ai/db'
 import { databaseProviderEnquiries } from './provider-enquiries.js'
 import { databasePayments } from './payments.js'
 import { databaseEarnings, databasePayouts, payoutConfigurationRefusal } from './payouts.js'
+import { databaseTreasury } from './treasury.js'
 import { httpPayoutChain } from './payout-chain.js'
 import { PAYMENT_RPC_URL_VAR, httpPaymentWatcher } from './payment-watcher.js'
 import { databaseCatalogue } from './tasks.js'
@@ -426,6 +429,20 @@ const autonomyStore = databaseAutonomyStore(db)
 const payoutWalletAddress = colonyWallet()
 
 /**
+ * Where the earned fee goes — `kolonie-docs#202`, swept by `#507`.
+ *
+ * **An address and never a key**, and this is the line that makes that true of
+ * the whole process: nothing anywhere reads a Treasury secret, because there is
+ * no variable holding one. The seed phrase is the maintainer's and belongs to
+ * the succession arrangement.
+ *
+ * Absent means this deployment does not sweep. That is not a broken state — it
+ * is every test and every environment that is not production — and it is the
+ * same shape the payout ceilings use one constant down.
+ */
+const treasuryAddress = process.env[TREASURY_ADDRESS_VAR]?.trim() || undefined
+
+/**
  * The payout ceilings, or nothing — D-106 (`#505`).
  *
  * **Read from the environment at startup and refused if half-set.** They are
@@ -564,6 +581,35 @@ const app = buildApp({
             secret: process.env[PAYOUT_WALLET_SECRET_VAR]?.trim() ?? '',
           },
           ceilings: payoutCeilings,
+          ...(process.env[PAYMENT_RPC_URL_VAR]?.trim()
+            ? { chain: httpPayoutChain(process.env[PAYMENT_RPC_URL_VAR].trim()) }
+            : {}),
+        },
+      }),
+  /**
+   * Moving the earned fee out of the hot wallet (`#507`).
+   *
+   * **Present on exactly the deployments that can pay**, because it sweeps from
+   * the same wallet — and additionally needs somewhere to sweep *to*. The
+   * Treasury address is read here and no key for it is read anywhere: the
+   * Colony sends to that address and cannot send from it, which is the property
+   * `treasury.test.ts` asserts on the module's exports.
+   */
+  ...(payoutWalletAddress === undefined || treasuryAddress === undefined
+    ? {}
+    : {
+        treasury: {
+          desk: databaseTreasury(db),
+          wallet: {
+            address: payoutWalletAddress,
+            secret: process.env[PAYOUT_WALLET_SECRET_VAR]?.trim() ?? '',
+          },
+          treasuryAddress,
+          intervalMs: async () => {
+            const value = await settingValue(db, 'TREASURY_SWEEP_INTERVAL_MS')
+            const parsed = value === undefined ? Number.NaN : Number(value)
+            return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined
+          },
           ...(process.env[PAYMENT_RPC_URL_VAR]?.trim()
             ? { chain: httpPayoutChain(process.env[PAYMENT_RPC_URL_VAR].trim()) }
             : {}),

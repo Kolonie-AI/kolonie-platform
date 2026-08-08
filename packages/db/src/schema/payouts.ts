@@ -207,3 +207,73 @@ export const payoutObligations = pgTable(
     index('payout_obligations_paid_at_idx').on(table.paidAt),
   ],
 )
+
+/**
+ * Every transfer of earned fee from the payout wallet to the Treasury — `#507`.
+ *
+ * ## Why this table exists at all
+ *
+ * `#505` pays a citizen the moment a report is accepted and leaves the Colony's
+ * share where it fell: *"stays in the Colony wallet and is moved to the Treasury
+ * separately, not per report."* Nothing moved it, so the fee accumulated in a
+ * hot wallet whose key sits on the deploy host. `governance/treasury.md` divides
+ * the money for one reason — earned funds are held behind a key only the
+ * maintainer has, and the hot wallet holds an operating float and a key a
+ * compromised host would surrender. Leaving the fee there collapses the
+ * distinction into two addresses and no transfer.
+ *
+ * ## What a row is, and what it is not
+ *
+ * **It is the Colony's record of money it has already moved to itself.** It is
+ * not an obligation, not a balance, and not anybody's claim: the Treasury is the
+ * maintainer's address and the Colony holds no key for it (`kolonie-docs#202`).
+ *
+ * **Its only job in the arithmetic is to be subtracted.** What may be swept is
+ * *earned minus already swept*, and `already swept` is the sum of this table.
+ * There is no other record of it — the wallet balance cannot answer it, because
+ * a balance mixes the fee with money owed to citizens whose accrual has not yet
+ * reached the chain minimum, which is exactly the confusion `#507` refuses.
+ *
+ * **A row is written only after a signature comes back.** A sweep that recorded
+ * itself before the send would, on a failed send, subtract money that never
+ * moved and quietly strand it for ever — the mirror of the defect `#505`
+ * avoided by never marking a report paid on the strength of a call that
+ * returned an error.
+ */
+export const treasuryTransfers = pgTable(
+  'treasury_transfers',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+
+    /** How much left the payout wallet, in lamports. */
+    lamports: bigint('lamports', { mode: 'number' }).notNull(),
+
+    /**
+     * The transaction that moved it.
+     *
+     * **Unique, and that uniqueness is the idempotency.** A timer firing twice
+     * over one signature records one row; a retry that resends produces a
+     * different signature and a second honest row.
+     */
+    signature: varchar('signature', { length: 120 }).notNull(),
+
+    /**
+     * Where it went, written down at the moment it went.
+     *
+     * `TREASURY_ADDRESS` is an environment variable and a variable can be
+     * changed. Recording the destination on the row is what makes *where did the
+     * Colony's money actually go* answerable against the chain later, rather
+     * than against whatever the host happens to hold today.
+     */
+    address: varchar('address', { length: 64 }).notNull(),
+
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('treasury_transfers_signature_unique').on(table.signature),
+    check('treasury_transfers_lamports_positive', sql`${table.lamports} > 0`),
+    index('treasury_transfers_created_at_idx').on(table.createdAt),
+  ],
+)

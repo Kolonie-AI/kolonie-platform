@@ -601,6 +601,13 @@ describe('schema', () => {
         'tasks',
         /** `#206`: one TOTP secret per citizen, checked twice. */
         'totp_secrets',
+        /**
+         * `#507`: every transfer of earned fee out of the hot wallet, and the
+         * only record of it. The wallet balance cannot answer *how much of this
+         * is the Colony's* — it mixes the fee with money owed to citizens whose
+         * accrual has not reached the chain minimum.
+         */
+        'treasury_transfers',
         'verifications',
         /** `#45`: the vetting rung's manifests, one row per attempt. */
         'vetting_challenges',

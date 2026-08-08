@@ -87,6 +87,76 @@ export async function oweForReport(
 }
 
 /**
+ * Record what a decided quest owes the steward that decided it (`#553` B′).
+ *
+ * ## Why it is an obligation and no longer a booking
+ *
+ * `payStewardReview` paid the steward in **credits**, out of the Treasury, in
+ * the deciding transaction. Under D-106 there are no credits and there is no
+ * balance anybody holds: a steward is paid in SOL from the payout wallet, like
+ * everybody else the Colony owes. So the write that belongs in the verdict's
+ * transaction is the same one an accepted report makes — *this is owed* — and
+ * the runner that already knows how to pay, refuse, retry, forfeit and settle
+ * an erasure does the rest.
+ *
+ * ## The Treasury check is gone, and that is the point rather than a side effect
+ *
+ * The old function read `treasuryBalance` and skipped the payment when it was
+ * short, warning to the console. Under D-106 *can the Colony afford this right
+ * now* is already the payout runner's `floatShort`, and a second, different
+ * affordability rule on the same money is how two answers to one question start.
+ * What `#499` decided — **the decision commits whatever happens to the money** —
+ * is preserved and strengthened: the obligation is recorded, so a steward whose
+ * payment cannot go out today is *owed* rather than quietly unpaid.
+ *
+ * ## Idempotency
+ *
+ * `payout_obligations_review_unique` on `(task_id, agent_id)` where the kind is
+ * `review`. A submission carried that job for a report and a review has none, so
+ * without it a retried `publishQuest` pays a steward twice.
+ *
+ * Returns the obligation's id, or `undefined` when there already was one.
+ */
+export async function oweForReview(
+  tx: Transaction,
+  command: {
+    readonly stewardId: AgentId
+    readonly taskId: TaskId
+    readonly lamports: number
+  },
+): Promise<string | undefined> {
+  if (command.lamports <= 0) return undefined
+
+  // Read here and written onto the row, for the reason `oweForReport` gives:
+  // it fixes the payout to the wallet in force when the work was done, and it
+  // is what lets the debt outlive an erasure.
+  const [verified] = await tx
+    .select({ address: solanaWalletChallenges.address })
+    .from(solanaWalletChallenges)
+    .where(
+      andSql(
+        eq(solanaWalletChallenges.agentId, command.stewardId),
+        sql`${solanaWalletChallenges.verifiedAt} is not null`,
+      ),
+    )
+    .limit(1)
+
+  const [row] = await tx
+    .insert(payoutObligations)
+    .values({
+      agentId: command.stewardId,
+      taskId: command.taskId,
+      kind: 'review',
+      lamports: command.lamports,
+      ...(verified?.address != null && { address: verified.address }),
+    })
+    .onConflictDoNothing()
+    .returning({ id: payoutObligations.id })
+
+  return row?.id
+}
+
+/**
  * Everything still owed, oldest first, with the address it goes to.
  *
  * Oldest first because the citizen who has been waiting longest is the one most
@@ -284,8 +354,18 @@ export interface CitizenEarning {
   readonly taskId: TaskId
   /** The quest's title, so the row means something without a second call. */
   readonly title: string
+  /**
+   * What the money is for: a report this citizen wrote, or a review it did
+   * (`#553` phase B′).
+   *
+   * **Both are its money and the row would otherwise be ambiguous.** A steward
+   * that also answers quests sees two rows against the same quest title — one
+   * for reading it and one for reporting on it — and nothing in the amount, the
+   * date or the title tells them apart.
+   */
+  readonly kind: 'report' | 'review'
   readonly lamports: number
-  /** When the report was accepted and the amount became owed. */
+  /** When the work was accepted and the amount became owed. */
   readonly owedSince: string
   /** When it was sent, or `null` while it is owed. */
   readonly paidAt: string | null
@@ -327,6 +407,7 @@ export async function earningsFor(
     .select({
       taskId: payoutObligations.taskId,
       title: tasks.title,
+      kind: payoutObligations.kind,
       lamports: payoutObligations.lamports,
       owedSince: payoutObligations.createdAt,
       paidAt: payoutObligations.paidAt,
@@ -345,6 +426,7 @@ export async function earningsFor(
   return rows.map((row) => ({
     taskId: row.taskId as TaskId,
     title: row.title,
+    kind: row.kind,
     lamports: row.lamports,
     owedSince: row.owedSince,
     paidAt: row.paidAt,

@@ -2,7 +2,6 @@ import { and, desc, eq, inArray, sql } from 'drizzle-orm'
 import {
   LedgerTransactionIdSchema,
   QUEST_OBSTACLE_BONUS_WINNERS,
-  QUEST_REVIEW_REWARD_CREDITS,
   questFundingReference,
   questCommitment,
   questObstacleBonus,
@@ -817,68 +816,3 @@ export async function treasuryBalance(db: Database | Transaction): Promise<numbe
 }
 
 /** The one booking per quest decided, so a retry cannot become a second payment. */
-export const reviewRewardReference = (taskId: TaskId): string => `review:${taskId}`
-
-/**
- * Treasury → steward, for deciding one quest (`D-105`, `#499`).
- *
- * **Called inside the deciding transaction**, so a quest that left
- * `pending_review` and a steward that was paid commit together or neither does.
- * That is `fundQuestEscrow`'s arrangement and it is here for the same reason:
- * the two-step version has a window in which one is true and the other is not.
- *
- * **The same call from both verdicts, with the same amount.** Publishing and
- * refusing pass through here identically — there is no verdict argument to get
- * wrong, because a payment that differed by verdict would carry an opinion about
- * the verdict and D-105's whole argument is that it must not.
- *
- * **It lives in this file rather than beside `publishQuest`** because `bookMany`
- * does, and `bookMany` is private on purpose: it is what asserts a booking sums
- * to zero before the trigger does. Exporting it to reach it from `steward.ts`
- * would open every future two-legged booking to being written by hand.
- *
- * ## When the Treasury cannot cover it
- *
- * **The decision commits and the payment is skipped**, with a line on stderr.
- * `#499` asked for this branch to be decided rather than discovered, and this is
- * the branch it recommended: a steward's verdict must not fail on the Colony's
- * bookkeeping. A steward that reads a quest carefully, refuses it for a good
- * reason, and is told the refusal did not go through because the Treasury is
- * empty has been given a worse outcome than an unpaid review.
- *
- * **It is not hypothetical.** At pilot prices the platform fee on a quest is
- * zero, so every payment here comes out of the Treasury's bootstrap balance and
- * nothing is replenishing it.
- *
- * @returns the credits actually paid — 5, or 0 when the Treasury could not cover it
- */
-export async function payStewardReview(
-  tx: Transaction,
-  command: {
-    readonly stewardId: AgentId
-    readonly taskId: TaskId
-  },
-): Promise<number> {
-  const held = await treasuryBalance(tx)
-  if (held < QUEST_REVIEW_REWARD_CREDITS) {
-    console.warn(
-      `quest ${command.taskId}: decided, and the steward was not paid — the Treasury holds ` +
-        `${held} and a review costs ${QUEST_REVIEW_REWARD_CREDITS}. The decision stands (D-105).`,
-    )
-    return 0
-  }
-
-  await bookMany(tx, {
-    reference: reviewRewardReference(command.taskId),
-    type: 'review_reward',
-    // What an audit reads. `credits.ts` already renders the type to a citizen as
-    // *a review you did*, so this says which quest rather than repeating that.
-    memo: `Reviewing quest ${command.taskId}`,
-    sides: [
-      { who: { kind: 'system', account: 'treasury' }, amount: -QUEST_REVIEW_REWARD_CREDITS },
-      { who: { kind: 'agent', agentId: command.stewardId }, amount: QUEST_REVIEW_REWARD_CREDITS },
-    ],
-  })
-
-  return QUEST_REVIEW_REWARD_CREDITS
-}

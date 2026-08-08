@@ -24,6 +24,9 @@ export function fakeEarnings(): FakeEarnings {
       rows.unshift({
         taskId: 'a0000000-0000-4000-8000-000000000001' as CitizenEarning['taskId'],
         title: 'A quest somebody paid for',
+        // A report unless a test says otherwise: it is what most rows are, and
+        // a steward's review is the case worth writing down explicitly (`#553`).
+        kind: 'report',
         lamports: 1_500_000,
         owedSince: '2026-08-07T15:52:00.000Z',
         paidAt: null,

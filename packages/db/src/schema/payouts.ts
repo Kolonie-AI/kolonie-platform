@@ -4,6 +4,7 @@ import {
   check,
   index,
   integer,
+  pgEnum,
   pgTable,
   text,
   timestamp,
@@ -33,6 +34,24 @@ import { tasks } from './tasks.js'
  * Colony out of the custodial half of D-106 while an accrual waits for the chain
  * minimum.
  */
+/**
+ * What a payout obligation is owed *for* (`#553` phase B′).
+ *
+ * **The table stopped being *what an accepted report owes* and became *what the
+ * Colony owes somebody for a piece of work*.** Its own doc comment already
+ * reached for that — *"an amount owed for a specific report, payable to that
+ * citizen's own wallet and to nowhere else"* — and the second half is the
+ * load-bearing one, true of both kinds.
+ *
+ * A steward review has no submission: it is work on a quest, by somebody who
+ * answered nothing. That is the whole reason a kind exists rather than a second
+ * table — one payout runner, one set of refusal and forfeiture rules, one place
+ * where an erasure has to be got right.
+ *
+ * `report` is the default because every row that existed before this did.
+ */
+export const payoutObligationKind = pgEnum('payout_obligation_kind', ['report', 'review'])
+
 export const payoutObligations = pgTable(
   'payout_obligations',
   {
@@ -57,7 +76,10 @@ export const payoutObligations = pgTable(
      */
     agentId: uuid('agent_id').references(() => agents.id, { onDelete: 'set null' }),
 
-    /** The quest the report was for. */
+    /** What this is owed for: an accepted report, or a review of a quest. */
+    kind: payoutObligationKind('kind').notNull().default('report'),
+
+    /** The quest — the one the report was for, or the one that was reviewed. */
     taskId: uuid('task_id')
       .notNull()
       .references(() => tasks.id, { onDelete: 'restrict' }),
@@ -71,9 +93,9 @@ export const payoutObligations = pgTable(
      * does not recognise a prior success"* as one of the three ordinary defects
      * that would drain the wallet; this is where that one is stopped.
      */
-    submissionId: uuid('submission_id')
-      .notNull()
-      .references(() => submissions.id, { onDelete: 'restrict' }),
+    submissionId: uuid('submission_id').references(() => submissions.id, {
+      onDelete: 'restrict',
+    }),
 
     /** The citizen's share, in lamports. The Colony's fee is not in this table. */
     lamports: bigint('lamports', { mode: 'number' }).notNull(),
@@ -167,8 +189,39 @@ export const payoutObligations = pgTable(
     hintedAt: timestamp('hinted_at', { withTimezone: true, mode: 'string' }),
   },
   (table) => [
-    /** One obligation per accepted report, enforced where two writers can both see it. */
-    uniqueIndex('payout_obligations_submission_unique').on(table.submissionId),
+    /**
+     * One obligation per accepted report, enforced where two writers can both
+     * see it.
+     *
+     * **Partial since `#553` phase B′**, because a review row carries no
+     * submission and several nulls are not a collision in Postgres anyway — the
+     * `where` says out loud what the null semantics would have done silently.
+     */
+    uniqueIndex('payout_obligations_submission_unique')
+      .on(table.submissionId)
+      .where(sql`${table.submissionId} is not null`),
+    /**
+     * One review payment per steward per quest.
+     *
+     * **The submission was carrying this job and a review has none**, so without
+     * this rule a retried `publishQuest` pays a steward twice — the same class of
+     * defect as the replayed verdict the index above stops, arriving through the
+     * door that index no longer covers.
+     */
+    uniqueIndex('payout_obligations_review_unique')
+      .on(table.taskId, table.agentId)
+      .where(sql`${table.kind} = 'review'`),
+    /**
+     * A report names its submission and a review does not.
+     *
+     * Enforced rather than trusted: the two kinds differ in exactly one column,
+     * which is the sort of thing a later writer fills in *"to be safe"* and
+     * thereby makes the partial indexes above disagree with each other.
+     */
+    check(
+      'payout_obligations_submission_iff_report',
+      sql`(${table.kind} = 'report') = (${table.submissionId} is not null)`,
+    ),
     check('payout_obligations_lamports_positive', sql`${table.lamports} > 0`),
     /**
      * An outstanding obligation names the citizen it is owed to. A settled one

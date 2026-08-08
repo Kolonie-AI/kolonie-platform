@@ -447,7 +447,15 @@ describe('the migrations', () => {
     // `null`, which says *recorded before we asked* rather than pretending to
     // name a channel, and a query for *has the webhook ever delivered* excludes
     // it rather than counting it.
-    expect(afterFirst.enums).toBe('44')
+    //
+    // `payout_obligation_kind` makes forty-five (`#553` phase B′) — whether an
+    // obligation is owed for an accepted **report** or for a steward's
+    // **review**. Two members and a `report` default, because every row that
+    // existed before it was one. An enum rather than a boolean for the reason
+    // the rest of this list gives: a third kind of work the Colony owes somebody
+    // for is a thing that can be added, and `is_review` would have to be
+    // rewritten to allow it.
+    expect(afterFirst.enums).toBe('45')
     // Two: the deferred double-entry constraint trigger on `ledger_entries`, and
     // `submissions_one_pass_per_quest` (#175) — one accepted submission per
     // citizen per quest, which is a trigger rather than a partial unique index

@@ -8,6 +8,7 @@ import {
   platformFeePercentFromEnv,
   questInvoiceLamports,
   questNeedsInvoice,
+  QUEST_REVIEW_REWARD_LAMPORTS,
   type AgentId,
   type ModerationStages,
   type QuestAuditPolicy,
@@ -26,7 +27,8 @@ import {
   tasks,
   verifications,
 } from '../../schema/index.js'
-import { availableBalance, fundQuestEscrow, payStewardReview } from '../escrow.js'
+import { availableBalance, fundQuestEscrow } from '../escrow.js'
+import { oweForReview } from '../payouts.js'
 import { recordAuthorityEvent } from '../roles.js'
 import { toTask, toTimestamp } from '../rows.js'
 import type { ScrubbedAnswer } from './shared.js'
@@ -218,10 +220,14 @@ export async function publishQuest(
         ...(sponsorId !== null && { subjectAgentId: sponsorId }),
       })
 
-      // The steward is paid for deciding, published or refused, and a quest
+      // The steward is owed for deciding, published or refused, and a quest
       // waiting for money has been decided (D-105). Making this wait for the
       // sponsor would put a steward's pay in the hands of a third party.
-      await payStewardReview(tx, { stewardId: command.stewardId, taskId: command.taskId })
+      await oweForReview(tx, {
+        stewardId: command.stewardId,
+        taskId: command.taskId,
+        lamports: QUEST_REVIEW_REWARD_LAMPORTS,
+      })
 
       return { outcome: 'awaiting-payment', invoiceLamports }
     }
@@ -285,7 +291,11 @@ export async function publishQuest(
     // The steward's pay, in this transaction (`D-105`, `#499`). Identical to the
     // call in `refuseQuest`, deliberately: the amount carries no opinion about
     // the verdict, so there is nothing here for a verdict to change.
-    await payStewardReview(tx, { stewardId: command.stewardId, taskId: command.taskId })
+    await oweForReview(tx, {
+      stewardId: command.stewardId,
+      taskId: command.taskId,
+      lamports: QUEST_REVIEW_REWARD_LAMPORTS,
+    })
 
     return { outcome: 'published', escrowed }
   })
@@ -334,7 +344,11 @@ export async function refuseQuest(
     // The same call and the same amount as `publishQuest` (`D-105`, `#499`).
     // **Refusing is the decision the Colony most needs done well**, and a model
     // that paid only for publishing would price the careful no at zero.
-    await payStewardReview(tx, { stewardId: command.stewardId, taskId: command.taskId })
+    await oweForReview(tx, {
+      stewardId: command.stewardId,
+      taskId: command.taskId,
+      lamports: QUEST_REVIEW_REWARD_LAMPORTS,
+    })
 
     return { outcome: 'refused' }
   })

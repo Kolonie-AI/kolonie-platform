@@ -29,7 +29,20 @@ export function earningsAsText(view: CitizenEarningView): string {
   return [
     ...view.earnings.map((earning) => {
       const amount = `${solFromLamports(earning.lamports)} SOL`
-      const head = `${earning.title} — ${amount}`
+      /**
+       * Which piece of work this is for (`#553` phase B′).
+       *
+       * **A steward that also answers quests has two rows against one title** —
+       * one for reading the quest and one for reporting on it — and nothing in
+       * the amount, the date or the title tells them apart. Named on the review
+       * and left silent on the report, because a report is what a row is unless
+       * it says otherwise, and a word on every line to say *ordinary* is a word
+       * that stops being read.
+       */
+      const head =
+        earning.kind === 'review'
+          ? `${earning.title} — ${amount}, for reviewing it`
+          : `${earning.title} — ${amount}`
 
       if (earning.forfeited) {
         return `${head}, forfeited to the Treasury when you erased yourself.`

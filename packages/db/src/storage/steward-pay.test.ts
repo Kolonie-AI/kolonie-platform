@@ -1,17 +1,17 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
-import { eq } from 'drizzle-orm'
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { and, eq } from 'drizzle-orm'
 import {
   QUEST_AUDIT_OFF,
-  QUEST_REVIEW_REWARD_CREDITS,
+  QUEST_REVIEW_REWARD_LAMPORTS,
   noStagesRun,
   type AgentId,
   type QuestDraft,
   type TaskId,
 } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
-import { agents, ledgerEntries, tasks } from '../schema/index.js'
-import { connectForTests, databaseTestTarget, truncateAll, ledgerCreditsOf } from '../testing.js'
-import { treasuryBalance } from './escrow.js'
+import { agents, ledgerEntries, payoutObligations, tasks } from '../schema/index.js'
+import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
+import { oweForReview } from './payouts.js'
 import {
   createQuestDraft,
   publishQuest,
@@ -21,11 +21,24 @@ import {
 } from './quests/index.js'
 
 /**
- * A steward is paid for deciding a quest, either verdict (`D-105`, `#499`).
+ * A steward is owed for deciding a quest, either verdict (`D-105`, `#499`).
  *
- * **The four things `#499` says have to be true, and each is a test here**: the
- * same amount for both verdicts, once per quest, it survives an empty Treasury,
- * and it lands in the steward's one balance.
+ * **What `#499` asked for is unchanged; what pays it is not** (`#553` phase B′).
+ * The steward used to be credited from the Treasury inside the deciding
+ * transaction. Under D-106 there are no credits and no balance anybody holds, so
+ * the write in that transaction is an **obligation** — the same one an accepted
+ * report makes — and the payout runner that already knows how to pay, refuse,
+ * retry, forfeit and settle an erasure does the rest.
+ *
+ * `#499`'s four properties survive the change and are each a test here: the same
+ * amount for both verdicts, once per quest, the decision commits whatever
+ * happens to the money, and it is owed to the steward that did the reading.
+ *
+ * **The Treasury branch is gone rather than ported.** *Can the Colony afford
+ * this right now* is the payout runner's `floatShort`, and a second, different
+ * affordability rule on the same money is how two answers to one question start.
+ * What replaces those tests is stronger: a steward whose payment cannot go out
+ * today is **owed**, where before it was silently unpaid with a line on stderr.
  *
  * Its own file rather than more of `quests.test.ts`, which is already long and
  * is where every other agent working the quest path is editing.
@@ -57,39 +70,6 @@ describe('what a steward is paid for deciding a quest', () => {
       .values({ name, platform: 'openclaw', status: 'citizen', roles: [...roles] })
       .returning({ id: agents.id })
     return row!.id as AgentId
-  }
-
-  /**
-   * Money into the Treasury, from the mint.
-   *
-   * **Every test here has to do this explicitly**, and that is worth stating
-   * because it is not obvious: nothing in the ordinary fixtures leaves the
-   * Treasury with anything in it. `quests.test.ts`'s `credit` helper books
-   * `treasury → agent`, so a test that funds a sponsor drives the Treasury
-   * *negative*. Production's bootstrap balance has no equivalent in a truncated
-   * database, so a test that forgot this would be testing the empty branch and
-   * passing.
-   */
-  const fundTreasury = async (amount: number): Promise<void> => {
-    const transactionId = crypto.randomUUID()
-    await db.insert(ledgerEntries).values([
-      {
-        transactionId,
-        accountKind: 'system' as const,
-        systemAccount: 'mint' as const,
-        amount: -amount,
-        type: 'adjustment' as const,
-        reference: `bootstrap:treasury:${transactionId}`,
-      },
-      {
-        transactionId,
-        accountKind: 'system' as const,
-        systemAccount: 'treasury' as const,
-        amount,
-        type: 'adjustment' as const,
-        reference: `bootstrap:treasury:${transactionId}`,
-      },
-    ])
   }
 
   const aDraft = (overrides: Partial<QuestDraft> = {}): QuestDraft => ({
@@ -158,11 +138,18 @@ describe('what a steward is paid for deciding a quest', () => {
     return { steward, taskId: task.id }
   }
 
-  const reviewEntries = async (agentId: AgentId) =>
+  /** What the Colony owes this steward for reviews, as rows. */
+  const reviewObligations = async (agentId: AgentId) =>
+    await db
+      .select()
+      .from(payoutObligations)
+      .where(and(eq(payoutObligations.agentId, agentId), eq(payoutObligations.kind, 'review')))
+
+  /** Every ledger entry naming this agent — none, for a review, and that is the point. */
+  const ledgerEntriesOf = async (agentId: AgentId) =>
     await db.select().from(ledgerEntries).where(eq(ledgerEntries.agentId, agentId))
 
-  it('pays a steward that publishes', async () => {
-    await fundTreasury(100)
+  it('owes a steward that publishes', async () => {
     const { steward, taskId } = await aQuestAwaitingReview()
 
     const result = await publishQuest(db, {
@@ -173,14 +160,16 @@ describe('what a steward is paid for deciding a quest', () => {
     })
 
     expect(result.outcome).toBe('published')
-    // Read back rather than inferred from the booking: `#499`'s first two
-    // criteria are about the balance, which is the ledger summed and not a
-    // column anybody wrote.
-    expect(await ledgerCreditsOf(db, steward)).toBe(QUEST_REVIEW_REWARD_CREDITS)
+    const owed = await reviewObligations(steward)
+    expect(owed).toHaveLength(1)
+    expect(owed[0]?.lamports).toBe(QUEST_REVIEW_REWARD_LAMPORTS)
+    expect(owed[0]?.taskId).toBe(taskId)
+    // A review has no submission, which is what the second uniqueness rule is
+    // there to carry instead.
+    expect(owed[0]?.submissionId).toBeNull()
   })
 
-  it('pays a steward that refuses, the same amount', async () => {
-    await fundTreasury(100)
+  it('owes a steward that refuses, the same amount', async () => {
     const { steward, taskId } = await aQuestAwaitingReview()
 
     const result = await refuseQuest(db, {
@@ -191,7 +180,9 @@ describe('what a steward is paid for deciding a quest', () => {
     })
 
     expect(result).toEqual({ outcome: 'refused' })
-    expect(await ledgerCreditsOf(db, steward)).toBe(QUEST_REVIEW_REWARD_CREDITS)
+    const owed = await reviewObligations(steward)
+    expect(owed).toHaveLength(1)
+    expect(owed[0]?.lamports).toBe(QUEST_REVIEW_REWARD_LAMPORTS)
   })
 
   /**
@@ -200,8 +191,7 @@ describe('what a steward is paid for deciding a quest', () => {
    * opinion about the verdict, and *refusing is the decision the Colony most
    * needs done well*.
    */
-  it('books identically for the two verdicts', async () => {
-    await fundTreasury(100)
+  it('records identically for the two verdicts', async () => {
     const published = await aQuestAwaitingReview()
     await publishQuest(db, {
       stewardId: published.steward,
@@ -218,48 +208,38 @@ describe('what a steward is paid for deciding a quest', () => {
       at: now(),
     })
 
-    const shape = (row: { amount: number; type: string; memo: string | null }) => ({
-      amount: row.amount,
-      type: row.type,
-      // The quest id differs between the two and nothing else does.
-      memo: row.memo?.replace(/quest .*/, 'quest <id>'),
+    const shape = (row: { lamports: number; kind: string; submissionId: string | null }) => ({
+      lamports: row.lamports,
+      kind: row.kind,
+      submissionId: row.submissionId,
     })
 
-    expect((await reviewEntries(published.steward)).map(shape)).toEqual(
-      (await reviewEntries(refused.steward)).map(shape),
+    expect((await reviewObligations(published.steward)).map(shape)).toEqual(
+      (await reviewObligations(refused.steward)).map(shape),
     )
   })
 
-  it('books it as review_reward against the treasury, and the pair balances', async () => {
-    await fundTreasury(100)
+  /**
+   * **A review is owed, not booked**, and this is the assertion that says the
+   * old path is gone rather than merely unused: no credit reaches the steward,
+   * because there is nowhere for one to go.
+   */
+  it('writes no ledger entry for the steward, because a review is not a credit', async () => {
     const { steward, taskId } = await aQuestAwaitingReview()
+
     await publishQuest(db, { stewardId: steward, taskId, at: now(), audit: QUEST_AUDIT_OFF })
 
-    const [entry] = await reviewEntries(steward)
-    expect(entry?.type).toBe('review_reward')
-    expect(entry?.amount).toBe(QUEST_REVIEW_REWARD_CREDITS)
-
-    const both = await db
-      .select()
-      .from(ledgerEntries)
-      .where(eq(ledgerEntries.transactionId, entry!.transactionId))
-    expect(both).toHaveLength(2)
-    expect(both.reduce((sum, row) => sum + row.amount, 0)).toBe(0)
-    expect(both.find((row) => row.accountKind === 'system')?.systemAccount).toBe('treasury')
-
-    // The money came out of the Treasury and not from the mint: a review is
-    // paid, not minted (D-038).
-    expect(await treasuryBalance(db)).toBe(100 - QUEST_REVIEW_REWARD_CREDITS)
+    expect(await ledgerEntriesOf(steward)).toEqual([])
   })
 
   /**
-   * `#499` asks that this be asserted rather than relied on. The bound is
-   * natural today — a quest leaves `pending_review` once — but a retry path
-   * added later would break it silently, and a steward paid twice for one
-   * reading is the thing that would not be noticed.
+   * `#499` asks that this be asserted rather than relied on. The bound used to
+   * be natural — a quest leaves `pending_review` once — and the submission's
+   * uniqueness was carrying it for reports. A review has no submission, so
+   * `payout_obligations_review_unique` is what carries it now, and a retried
+   * publication paying a steward twice is exactly what it stops.
    */
-  it('pays once per quest, however many times the decision is called', async () => {
-    await fundTreasury(100)
+  it('owes once per quest, however many times the decision is called', async () => {
     const { steward, taskId } = await aQuestAwaitingReview()
 
     await publishQuest(db, { stewardId: steward, taskId, at: now(), audit: QUEST_AUDIT_OFF })
@@ -278,75 +258,58 @@ describe('what a steward is paid for deciding a quest', () => {
 
     expect(second.outcome).toBe('not-in-review')
     expect(third.outcome).toBe('not-in-review')
-    expect(await reviewEntries(steward)).toHaveLength(1)
-    expect(await ledgerCreditsOf(db, steward)).toBe(QUEST_REVIEW_REWARD_CREDITS)
+    expect(await reviewObligations(steward)).toHaveLength(1)
   })
 
   /**
-   * The branch `#499` asked to be decided rather than discovered, and it is not
-   * hypothetical: at pilot prices the fee on a quest is zero, so every payment
-   * here comes out of a bootstrap balance nothing replenishes.
-   *
-   * **A steward's verdict must not fail on the Colony's bookkeeping.** A steward
-   * that reads a quest carefully, refuses it for a good reason and is told the
-   * refusal did not go through because the Treasury is empty has been given a
-   * worse outcome than an unpaid review.
+   * The uniqueness rule on its own terms, without going through the states that
+   * happen to prevent a second call today. `oweForReview` is what a later retry
+   * path would reach, and this is the assertion that it is safe to.
    */
-  describe('when the Treasury cannot cover it', () => {
-    it('still decides, pays nothing, and says so', async () => {
-      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
-      try {
-        // Deliberately not funded, and not zero either: one less than the price
-        // is the boundary, and a test at zero would pass on a `> 0` check.
-        await fundTreasury(QUEST_REVIEW_REWARD_CREDITS - 1)
-        const { steward, taskId } = await aQuestAwaitingReview()
+  it('refuses a second review obligation for the same steward and quest', async () => {
+    const { steward, taskId } = await aQuestAwaitingReview()
+    await publishQuest(db, { stewardId: steward, taskId, at: now(), audit: QUEST_AUDIT_OFF })
 
-        const result = await refuseQuest(db, {
-          stewardId: steward,
-          taskId,
-          reason: 'Say which page the citizen should register on.',
-          at: now(),
-        })
+    const again = await db.transaction((tx) =>
+      oweForReview(tx, {
+        stewardId: steward,
+        taskId,
+        lamports: QUEST_REVIEW_REWARD_LAMPORTS,
+      }),
+    )
 
-        expect(result).toEqual({ outcome: 'refused' })
-        const [row] = await db.select().from(tasks).where(eq(tasks.id, taskId)).limit(1)
-        expect(row?.status).toBe('rejected')
+    expect(again).toBeUndefined()
+    expect(await reviewObligations(steward)).toHaveLength(1)
+  })
 
-        expect(await reviewEntries(steward)).toEqual([])
-        expect(await ledgerCreditsOf(db, steward)).toBe(0)
-        expect(warn).toHaveBeenCalledOnce()
-        expect(warn.mock.calls[0]?.[0]).toContain('the steward was not paid')
-      } finally {
-        warn.mockRestore()
-      }
+  /**
+   * The Treasury branch is **gone**, and this is what replaces the two tests
+   * that covered it.
+   *
+   * Before `#553` phase B′, a steward deciding a quest the Treasury could not
+   * pay for got the verdict and no money, with a line on stderr — the decision
+   * committing was the whole point (`#499`) and it still is. What changes is the
+   * other half: there is now a **record that it is owed**, so the money is late
+   * rather than lost, and *can the Colony afford this today* is asked once, by
+   * the payout runner, where it was already being asked.
+   */
+  it('records the debt whatever the Colony can afford today, because affordability is the runner’s question', async () => {
+    const { steward, taskId } = await aQuestAwaitingReview()
+
+    const result = await refuseQuest(db, {
+      stewardId: steward,
+      taskId,
+      reason: 'Say which page the citizen should register on.',
+      at: now(),
     })
 
-    it('does not overdraw it on the quest that empties it', async () => {
-      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
-      try {
-        await fundTreasury(QUEST_REVIEW_REWARD_CREDITS)
-        const first = await aQuestAwaitingReview()
-        const second = await aQuestAwaitingReview()
+    expect(result).toEqual({ outcome: 'refused' })
+    const [row] = await db.select().from(tasks).where(eq(tasks.id, taskId)).limit(1)
+    expect(row?.status).toBe('rejected')
 
-        await publishQuest(db, {
-          stewardId: first.steward,
-          taskId: first.taskId,
-          at: now(),
-          audit: QUEST_AUDIT_OFF,
-        })
-        await publishQuest(db, {
-          stewardId: second.steward,
-          taskId: second.taskId,
-          at: now(),
-          audit: QUEST_AUDIT_OFF,
-        })
-
-        expect(await ledgerCreditsOf(db, first.steward)).toBe(QUEST_REVIEW_REWARD_CREDITS)
-        expect(await ledgerCreditsOf(db, second.steward)).toBe(0)
-        expect(await treasuryBalance(db)).toBe(0)
-      } finally {
-        warn.mockRestore()
-      }
-    })
+    // Nothing was funded anywhere in this test, and the steward is owed anyway.
+    const owed = await reviewObligations(steward)
+    expect(owed).toHaveLength(1)
+    expect(owed[0]?.paidAt).toBeNull()
   })
 })

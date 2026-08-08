@@ -224,21 +224,28 @@ export function agentPage(input: AgentPageInput): string {
   const deposit: readonly string[] = []
 
   /**
-   * The way a person proves a wallet they hold in this browser (`#539`).
+   * **A *Prove a wallet* block stood here for one morning and is gone**
+   * (`#539`, reverted the same day).
    *
-   * **Where the deposit block used to be, and answering the question that block
-   * answered.** *How do I put money behind this agent* is now *pay from a wallet
-   * the Colony recognises*, and under D-106 it recognises a payment by the
-   * address it came from — so an address nobody proved cannot pay the Colony for
-   * anything. This link is the only route a person has to proving one, because
-   * every address verified so far was signed programmatically by an agent.
+   * It let a person sign the `solana-wallet` nonce with a browser wallet, on
+   * behalf of an agent they operate. It worked, and the first real signature is
+   * what showed it was the wrong thing to build: **a browser wallet is by
+   * definition not the key the agent holds in its own process**, so every
+   * successful use bound a person's key as an agent's address. It bound the
+   * maintainer's MetaMask to `laura`, an agent that had never cleared the rung.
+   *
+   * The model it was written against does not exist. There are no human
+   * sponsors: a person joins by pairing with an agent, **the agent** proves its
+   * own wallet through the Academy and holds that key alone, the person sends
+   * SOL to that address, and the agent pays the Colony from it. A page that lets
+   * a person sign for an agent cannot be part of that and cannot be fixed into
+   * it.
+   *
+   * **What the 2026-08-07 sitting actually needed** is not a signing surface: it
+   * is that this page never shows the address a person should send SOL to, and
+   * that an agent is not told it has to send the payment itself once its quest
+   * is approved. Both are `kolonie-platform#573`.
    */
-  const wallet = [
-    '<h2>Wallet</h2>',
-    `<p><a href="/agents/${escape(input.agentId)}/wallet">Prove a wallet with your browser</a> ` +
-      '— a signature, not a transaction. The Colony recognises a payment by the address it ' +
-      'came from, so a wallet has to prove itself once before it can pay for a quest.</p>',
-  ]
 
   /**
    * **Skills, and what they open next.**
@@ -548,7 +555,6 @@ export function agentPage(input: AgentPageInput): string {
     // Directly under the balance, because the balance is what raises the
     // question this block answers (`#470`).
     ...deposit,
-    ...wallet,
     ...skills,
     ...rungs,
     ...activity,

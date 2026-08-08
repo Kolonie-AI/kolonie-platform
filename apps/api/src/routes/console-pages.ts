@@ -42,7 +42,6 @@ import {
 } from '../console/html.js'
 import { zoneFrom } from '../console/time.js'
 import { agentPage } from '../console/agent-page.js'
-import { registerConsoleWalletRoutes } from './console-wallet.js'
 import { numbersPage, reviewQueuePage } from '../console/steward.js'
 import { backendPage } from '../console/backend.js'
 import { curationSections } from '../console/curation.js'
@@ -1708,22 +1707,6 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
         answerError: result.error.message,
       }),
     )
-  })
-
-  /**
-   * The wallet rung's console half (`#539`).
-   *
-   * **Registered from here so it is handed this file's own `guard` and
-   * `operatedAgent`** rather than growing a second copy of *does this person
-   * operate this agent*. It is a separate file because it is the one console
-   * page that carries script and therefore the one with its own CSP, and that
-   * exception is easier to review beside its own reasoning than buried here.
-   */
-  registerConsoleWalletRoutes(app, deps, {
-    guard,
-    operatedAgent,
-    notFound: consoleNotFound,
-    onConsoleHost,
   })
 }
 

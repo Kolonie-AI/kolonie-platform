@@ -1,5 +1,10 @@
 import { randomUUID } from 'node:crypto'
-import type { AgentId, Wish, WishAuthor } from '@kolonie-ai/core'
+import {
+  PERMISSION_AGGREGATE_FLOOR,
+  type AgentId,
+  type Wish,
+  type WishAuthor,
+} from '@kolonie-ai/core'
 import type { WishDependencies, WishStore } from '../account-wishes.js'
 
 export interface FakeWishes extends WishStore {
@@ -65,6 +70,28 @@ export function fakeWishes(): FakeWishes {
       const kept = held.filter((row) => row.provider !== provider)
       lists.set(agentId, kept)
       return kept.length !== held.length
+    },
+
+    wanted: async () => {
+      /**
+       * The same floor the real query applies, in the fake (`#534`).
+       *
+       * **Reimplemented here on purpose**, like every other rule a fixture
+       * carries: a fake that reported thin rows would let a page test pass while
+       * the one property protecting citizens was broken.
+       */
+      const counts = new Map<string, Set<AgentId>>()
+      for (const [agentId, held] of lists) {
+        for (const wish of held) {
+          if (wish.author !== 'citizen') continue
+          counts.set(wish.provider, (counts.get(wish.provider) ?? new Set()).add(agentId))
+        }
+      }
+
+      return [...counts.entries()]
+        .filter(([, who]) => who.size >= PERMISSION_AGGREGATE_FLOOR)
+        .map(([provider, who]) => ({ provider, citizens: who.size }))
+        .sort((a, b) => b.citizens - a.citizens || a.provider.localeCompare(b.provider))
     },
 
     blocksHandoff: async (agentId, provider) => {

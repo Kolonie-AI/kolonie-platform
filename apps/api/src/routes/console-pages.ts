@@ -832,13 +832,27 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
     // form.
     const enquiries = await deps.providerEnquiries.list()
     const curation = curationSections(await atlasCuration(deps.recipes))
+    /**
+     * What agents are asking for (`#534`).
+     *
+     * **Here and on no public route.** `kolonie-docs#216` gates the Colony's
+     * stock figures until the majority of agents are not ours, and `/backend` is
+     * behind the maintainer role — which is the only reason this may be drawn at
+     * all. The floor is already applied in SQL, so nothing this route does can
+     * widen it.
+     */
+    const wanted = await deps.wishes.store.wanted()
 
     return wantsHtml(request)
-      ? html(reply, backendPage({ numbers, sections, settings, enquiries, notice, curation }))
+      ? html(
+          reply,
+          backendPage({ numbers, sections, settings, enquiries, notice, curation, wanted }),
+        )
       : reply.send({
           numbers,
           ...sections,
           enquiries,
+          wanted,
           settings: settings.map((setting) => ({
             name: setting.definition.name,
             group: setting.definition.group,

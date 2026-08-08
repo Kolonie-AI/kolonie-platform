@@ -1,5 +1,10 @@
 import { and, asc, eq, isNotNull, sql } from 'drizzle-orm'
-import type { AgentId, Wish, WishAuthor } from '@kolonie-ai/core'
+import {
+  PERMISSION_AGGREGATE_FLOOR,
+  type AgentId,
+  type Wish,
+  type WishAuthor,
+} from '@kolonie-ai/core'
 import type { Database, Transaction } from '../client.js'
 import { accountWishes } from '../schema/index.js'
 
@@ -173,4 +178,59 @@ function asWish(row: typeof accountWishes.$inferSelect): Wish {
     wantedAt: row.wantedAt,
     addedAt: row.addedAt,
   }
+}
+
+/** One provider and how many citizens have asked for it. */
+export interface WantedProviderCount {
+  readonly provider: string
+  readonly citizens: number
+}
+
+/**
+ * Which providers agents want, and how many want them (#534).
+ *
+ * ## Only what a citizen wrote
+ *
+ * `#534` is about *"what a population of autonomous agents is trying to reach
+ * and cannot"*. An operator's entry is a fact about a person's plan for one
+ * agent, which is a different claim and a much weaker one — a hundred operators
+ * adding the same provider would say something about a conversation somebody had
+ * on a forum, not about what agents hit.
+ *
+ * So the count is `author = 'citizen'`, in SQL, and a caller cannot ask for the
+ * other.
+ *
+ * ## The floor, and there are no combinations to apply it to
+ *
+ * `PERMISSION_AGGREGATE_FLOOR` suppresses a thin row in a `having` clause rather
+ * than in a caller, for the reason `permissionBlockCounts` gives one file over:
+ * a filter in TypeScript is one a second caller could skip. Three agents wanting
+ * something is not a market signal, it is three identifiable agents.
+ *
+ * `#534` asks that *"the floor applies, including to any combination"*. **There
+ * are no combinations here**, which is the strongest available form of that: one
+ * grouping, one dimension, no filters, no time window and no way to narrow. A
+ * caller that could ask *who wanted Figma in the last week* would be asking a
+ * question whose answer is a smaller group, and small groups identify agents.
+ *
+ * ## What it is, wherever it is shown
+ *
+ * **Interest and never availability.** An agent that asked for a Figma account
+ * has not agreed to do Figma work — the same line `#524` draws for holdings, for
+ * the same reason. Nothing in this function can enforce that; the surfaces that
+ * render it say so, and `#534` requires them to.
+ */
+export async function wantedProviderCounts(db: Database): Promise<readonly WantedProviderCount[]> {
+  const floor = sql.raw(String(PERMISSION_AGGREGATE_FLOOR))
+
+  const rows = await db.execute<{ provider: string; citizens: string }>(sql`
+    select w.provider as provider, count(distinct w.agent_id)::text as citizens
+      from account_wishes w
+     where w.author = 'citizen'
+     group by w.provider
+    having count(distinct w.agent_id) >= ${floor}
+     order by count(distinct w.agent_id) desc, w.provider
+  `)
+
+  return rows.map((row) => ({ provider: row.provider, citizens: Number(row.citizens) }))
 }

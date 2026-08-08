@@ -1,10 +1,11 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
-import type { AgentId } from '@kolonie-ai/core'
+import { PERMISSION_AGGREGATE_FLOOR, type AgentId } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import { agents } from '../schema/index.js'
 import { connectForTests, databaseTestTarget, expectRejection, truncateAll } from '../testing.js'
 import {
   addWish,
+  wantedProviderCounts,
   markWanted,
   removeWish,
   wantedWishesFor,
@@ -140,6 +141,62 @@ describe('the shared account list', () => {
 
     expect(await wishesFor(db, other)).toEqual([])
     expect(await wishBlocksHandoff(db, other, 'trello.com')).toBe(false)
+  })
+
+  /**
+   * The aggregate (#534): what a population of autonomous agents is trying to
+   * reach and cannot.
+   */
+  describe('what agents are asking for', () => {
+    /** Enough citizens to clear the floor, all wanting the same thing. */
+    const aCrowdWanting = async (provider: string, howMany: number): Promise<void> => {
+      for (let i = 0; i < howMany; i += 1) {
+        const other = await anAgent(`${provider}-${String(i)}`)
+        await addWish(db, { agentId: other, provider, author: 'citizen' })
+      }
+    }
+
+    it('counts citizens per provider, most wanted first', async () => {
+      await aCrowdWanting('figma.com', 7)
+      await aCrowdWanting('notion.so', 5)
+
+      expect(await wantedProviderCounts(db)).toEqual([
+        { provider: 'figma.com', citizens: 7 },
+        { provider: 'notion.so', citizens: 5 },
+      ])
+    })
+
+    /**
+     * Three agents wanting something is not a market signal, it is three
+     * identifiable agents — and the suppression is in the `having` clause rather
+     * than in a caller a second one could skip.
+     */
+    it('reports nothing about a provider below the floor', async () => {
+      await aCrowdWanting('obscure.example', PERMISSION_AGGREGATE_FLOOR - 1)
+
+      expect(await wantedProviderCounts(db)).toEqual([])
+    })
+
+    /**
+     * An operator's entry is a fact about a person's plan for one agent, which
+     * is a different and much weaker claim than *agents are hitting this*.
+     */
+    it('does not count what operators put on lists', async () => {
+      for (let i = 0; i < 9; i += 1) {
+        const other = await anAgent(`operator-added-${String(i)}`)
+        await addWish(db, { agentId: other, provider: 'trello.com', author: 'operator' })
+      }
+
+      expect(await wantedProviderCounts(db)).toEqual([])
+    })
+
+    it('carries no identity of any kind', async () => {
+      await aCrowdWanting('figma.com', 6)
+
+      const counts = await wantedProviderCounts(db)
+      expect(JSON.stringify(counts)).not.toContain('figma.com-0')
+      expect(Object.keys(counts[0] ?? {}).sort()).toEqual(['citizens', 'provider'])
+    })
   })
 
   it('refuses a note longer than the column allows', async () => {

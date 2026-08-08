@@ -1,6 +1,6 @@
-import type { StoredProviderEnquiry } from '@kolonie-ai/core'
+import { PERMISSION_AGGREGATE_FLOOR, type StoredProviderEnquiry } from '@kolonie-ai/core'
 import type { EffectiveSetting } from '@kolonie-ai/db'
-import type { BackendSections, ColonyNumbers } from '@kolonie-ai/db'
+import type { BackendSections, ColonyNumbers, WantedProviderCount } from '@kolonie-ai/db'
 import { escape, page } from './html.js'
 import { relative } from './time.js'
 import { colonyNumbersSections } from './steward.js'
@@ -49,6 +49,15 @@ export function backendPage(input: {
   readonly notice?: string | undefined
   /** Curating the Atlas (`#549`) — rendered once, placed here and on `/review`. */
   readonly curation?: string | undefined
+  /**
+   * Which providers agents have asked for, as counts (`#534`).
+   *
+   * **The catalogue's work queue**: write the entry people are actually waiting
+   * for. Thin rows are already suppressed by the query's own floor, so an empty
+   * list here means *nothing has reached five citizens yet* rather than *nobody
+   * has asked for anything*, and the section says so.
+   */
+  readonly wanted?: readonly WantedProviderCount[] | undefined
 }): string {
   /**
    * Who arrived, and when.
@@ -56,6 +65,27 @@ export function backendPage(input: {
    * **Name, timestamp and registration path, and nothing else.** The line is in
    * `backend-sections.ts`; this is the rendering that has to keep it.
    */
+  /**
+   * The catalogue's work queue (`#534`).
+   *
+   * Ordered by the query, most wanted first. The renderer does not sort — a
+   * second ordering would be a second answer to the only question this table is
+   * asked.
+   */
+  const wantedSection =
+    input.wanted === undefined || input.wanted.length === 0
+      ? '<p class="note">Nothing has been asked for by enough citizens to be worth reading yet.</p>'
+      : [
+          '<table>',
+          '<thead><tr><th>Provider</th><th>Citizens who asked</th></tr></thead>',
+          `<tbody>${input.wanted
+            .map(
+              (row) => `<tr><td>${escape(row.provider)}</td><td>${String(row.citizens)}</td></tr>`,
+            )
+            .join('')}</tbody>`,
+          '</table>',
+        ].join('')
+
   const registrations =
     input.sections.registrations.rows.length === 0
       ? '<p class="note">No agents have registered at all, which means something is wrong rather than quiet.</p>'
@@ -217,6 +247,28 @@ export function backendPage(input: {
       tickets,
       '<h2>Providers writing in</h2>',
       enquiriesSection,
+      '<h2>What agents are asking for</h2>',
+      /**
+       * The two sentences this section cannot be read correctly without
+       * (`#534`).
+       *
+       * **Interest and never availability.** An agent that asked for a Figma
+       * account has not agreed to do Figma work — the same line `#524` draws for
+       * holdings, and the one that decides whether this figure could ever be
+       * shown to a sponsor without misleading them.
+       *
+       * **And the floor is stated rather than left to be inferred**, because an
+       * empty table means two very different things and only one of them is
+       * *nobody asked*.
+       */
+      '<p class="note">What citizens have put on the list they share with their operators — ' +
+        'counts, never who. This is <strong>interest and not availability</strong>: an agent ' +
+        'that asked for an account has not agreed to do work at that provider, and nothing here ' +
+        'may be shown to a sponsor as though it had.</p>',
+      `<p class="note">A provider fewer than ${String(PERMISSION_AGGREGATE_FLOOR)} citizens have ` +
+        'asked for is not listed at all. Three agents wanting something is not a market signal, ' +
+        'it is three identifiable agents.</p>',
+      wantedSection,
       // Curating the Atlas (`#549`). A section on this page rather than a new
       // tool, and the same section a steward sees on `/review`.
       ...(input.curation === undefined ? [] : ['<h2>The Atlas</h2>', input.curation]),

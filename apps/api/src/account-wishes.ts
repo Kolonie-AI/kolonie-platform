@@ -12,9 +12,11 @@ import {
   addWish,
   markWanted,
   removeWish,
+  wantedProviderCounts,
   wishBlocksHandoff,
   wishesFor,
   type Database,
+  type WantedProviderCount,
 } from '@kolonie-ai/db'
 
 /**
@@ -59,6 +61,14 @@ export interface WishStore {
    * storage for why the gate is narrow.
    */
   blocksHandoff(agentId: AgentId, provider: string): Promise<boolean>
+  /**
+   * Which providers citizens have asked for, as counts (`#534`).
+   *
+   * **Takes no arguments and never will.** A parameter here would be a way to
+   * narrow, and the answer to a narrowing question is a smaller group — which is
+   * exactly what the floor exists to stop being reportable.
+   */
+  wanted(): Promise<readonly WantedProviderCount[]>
 }
 
 export function databaseWishes(db: Database): WishStore {
@@ -68,6 +78,7 @@ export function databaseWishes(db: Database): WishStore {
     want: (agentId, provider) => markWanted(db, agentId, provider),
     remove: (agentId, provider) => removeWish(db, agentId, provider),
     blocksHandoff: (agentId, provider) => wishBlocksHandoff(db, agentId, provider),
+    wanted: () => wantedProviderCounts(db),
   }
 }
 

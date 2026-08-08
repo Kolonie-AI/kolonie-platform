@@ -1,4 +1,4 @@
-import type { AgentId, WakeupResponse, WakeupStanding } from '@kolonie-ai/core'
+import type { AgentId, WakeupResponse, WakeupStanding, WakeupWantedAccount } from '@kolonie-ai/core'
 import type { WakeupSource } from '../wakeup.js'
 
 type Changes = Omit<
@@ -7,6 +7,10 @@ type Changes = Omit<
   | 'firstSession'
   | 'contributions'
   | 'operatorNotesUnread'
+  // Its own call on the source, for the reason `operatorNotesUnread` is: a mark
+  // is an open request rather than news, and windowing it would hide it from a
+  // citizen that asked for a narrow window (`#581`).
+  | 'accountsWanted'
   | 'open'
   | 'standing'
   | 'pays'
@@ -37,6 +41,8 @@ const NOTHING: Changes = {
 export interface FakeWakeup extends WakeupSource {
   /** How many unread operator notes the digest should report (#239). */
   readonly answersUnreadNotes: (count: number) => void
+  /** What the operator has marked and the citizen has not got (`#581`). */
+  readonly answersWantedAccounts: (wanted: readonly WakeupWantedAccount[]) => void
   /** What the previous session's start should answer. `null` is "first session". */
   readonly answersPreviousSession: (at: string | null) => void
   /** Where the citizen stands, for the section that says so (`#344`). */
@@ -57,12 +63,14 @@ export function fakeWakeup(): FakeWakeup {
   let previousSession: string | null = null
   let changes: Changes = NOTHING
   let unread = 0
+  let wanted: readonly WakeupWantedAccount[] = []
   let standing: WakeupStanding = AT_THE_START
   const windows: string[] = []
 
   return {
     previousSessionStart: async (_agentId: AgentId) => previousSession,
     unreadOperatorNotes: async (_agentId: AgentId) => unread,
+    wantedAccounts: async (_agentId: AgentId) => wanted,
     standing: async (_agentId: AgentId) => standing,
     changes: async (_agentId: AgentId, since: string) => {
       windows.push(since)
@@ -73,6 +81,9 @@ export function fakeWakeup(): FakeWakeup {
     },
     answersUnreadNotes: (count) => {
       unread = count
+    },
+    answersWantedAccounts: (next) => {
+      wanted = next
     },
     answersStanding: (next) => {
       standing = next

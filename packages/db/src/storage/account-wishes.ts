@@ -1,12 +1,21 @@
-import { and, asc, eq, isNotNull, sql } from 'drizzle-orm'
+import { and, asc, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm'
 import {
   PERMISSION_AGGREGATE_FLOOR,
+  RecipeOperatorGuessSchema,
+  RecipeStatusSchema,
+  RecipeStepSchema,
+  atlasEntryOperatorNeed,
+  atlasEntryStatus,
+  operatorNeed,
   type AgentId,
+  type RecipeOperatorNeed,
+  type RecipeStatus,
+  type RecipeStep,
   type Wish,
   type WishAuthor,
 } from '@kolonie-ai/core'
 import type { Database, Transaction } from '../client.js'
-import { accountWishes } from '../schema/index.js'
+import { accounts, accountWishes, providerRecipes } from '../schema/index.js'
 
 /**
  * The shared account list, in storage (#527).
@@ -153,6 +162,147 @@ export async function wishBlocksHandoff(
     .limit(1)
 
   return row !== undefined && row.wantedAt === null
+}
+
+/**
+ * What the operator has said yes to and the citizen has not got (`#581`).
+ *
+ * **This is what `wantedWishesFor` was for and never had a caller for.** That
+ * function was exported, tested, and called by nothing in the platform — so an
+ * operator pressed *mark as wanted*, a timestamp was written, and the only live
+ * effect was that one MCP call stopped refusing. The wake-up digest reads this,
+ * which is how the mark reaches the agent at all.
+ *
+ * **Marked, and not held.** The two filters are the whole of the query and each
+ * is a rule: an unmarked entry is one the operator is still considering, and
+ * `#527` reserves the mark as the one gesture that means *you may act on this*;
+ * a provider the citizen already holds an account at is a mark that has been
+ * satisfied, and repeating it every waking would be the digest nagging about
+ * finished work.
+ *
+ * **Left-joined to the catalogue rather than filtered by it.** A provider with
+ * no recipe is exactly the signal `#534` is built on, and dropping it here would
+ * make the citizen unable to see what its operator asked for — so the row comes
+ * back saying *nothing is written for this yet*, which is a true answer it can
+ * act on by walking it and filing a report.
+ */
+export async function wantedAccountsFor(
+  db: Database | Transaction,
+  agentId: AgentId,
+): Promise<
+  readonly {
+    readonly provider: string
+    readonly wantedAt: string
+    readonly status: RecipeStatus | null
+    readonly operatorNeed: RecipeOperatorNeed | null
+    /** Whether that answer rests on a guess rather than a walked step (`#589`). */
+    readonly operatorNeedIsGuess: boolean
+  }[]
+> {
+  /**
+   * **A left join and `is null`, rather than a `not exists` subquery.**
+   * `bare-identifiers.test.ts` caught the first version of this: a subquery
+   * naming columns of two tables is `#183`'s defect or one edit away from it,
+   * and the guard is right that text cannot tell which. A join expresses the
+   * same thing with no raw SQL at all, so there is nothing to render bare.
+   *
+   * It cannot multiply rows either: only the wishes with no matching account
+   * survive the filter, and those matched nothing to multiply by.
+   */
+  const rows = await db
+    .select({ provider: accountWishes.provider, wantedAt: accountWishes.wantedAt })
+    .from(accountWishes)
+    .leftJoin(
+      accounts,
+      and(
+        eq(accounts.agentId, accountWishes.agentId),
+        eq(accounts.provider, accountWishes.provider),
+      ),
+    )
+    .where(
+      and(
+        eq(accountWishes.agentId, agentId),
+        isNotNull(accountWishes.wantedAt),
+        /**
+         * **Held means an account row naming this provider, whatever its kind.**
+         * The wish names a provider and the register names a provider, so that
+         * is the comparison both sides can make — a citizen holding a mailbox at
+         * a provider it was also asked to get a domain from is an edge this
+         * treats as satisfied rather than inventing a kind for a wish to carry.
+         */
+        isNull(accounts.id),
+      ),
+    )
+    .orderBy(asc(accountWishes.wantedAt))
+
+  if (rows.length === 0) return []
+
+  /**
+   * The catalogue's answer for those providers, in one more query and grouped
+   * here.
+   *
+   * **Grouped by the same functions the Atlas pages use** — `atlasEntryStatus`
+   * and `atlasEntryOperatorNeed` — because a provider can carry a row per kind
+   * and the digest must not answer differently from the page the citizen will
+   * open next. Joining the catalogue into the query above would also have
+   * multiplied a wish by its provider's kinds, which is the quieter half of why
+   * this is two reads.
+   */
+  const catalogue = await db
+    .select({
+      provider: providerRecipes.provider,
+      status: providerRecipes.status,
+      operatorGuess: providerRecipes.operatorGuess,
+      steps: providerRecipes.steps,
+    })
+    .from(providerRecipes)
+    .where(
+      inArray(
+        providerRecipes.provider,
+        rows.map((row) => row.provider),
+      ),
+    )
+
+  const byProvider = new Map<
+    string,
+    { status: RecipeStatus; operatorNeed: RecipeOperatorNeed; operatorNeedIsGuess: boolean }[]
+  >()
+  for (const row of catalogue) {
+    const held = byProvider.get(row.provider) ?? []
+    const need = operatorNeed({
+      // Parsed rather than trusted, exactly as `toRecipe` does it: `jsonb`
+      // accepts whatever was written, and a hand-inserted row is the case the
+      // catalogue exists to allow.
+      steps: (row.steps ?? []).map((step: RecipeStep) => RecipeStepSchema.parse(step)),
+      operatorGuess:
+        row.operatorGuess === null ? null : RecipeOperatorGuessSchema.parse(row.operatorGuess),
+    })
+
+    held.push({
+      status: RecipeStatusSchema.parse(row.status),
+      operatorNeed: need.need,
+      operatorNeedIsGuess: need.isGuess,
+    })
+    byProvider.set(row.provider, held)
+  }
+
+  return rows.map((row) => {
+    const held = byProvider.get(row.provider)
+
+    return {
+      provider: row.provider,
+      wantedAt: row.wantedAt as string,
+      /**
+       * `null` where the catalogue holds nothing at all, which is **not**
+       * `unwritten`: the first says the Colony has never heard of this provider
+       * and the second that it lists it and nobody has walked it. The free-text
+       * field takes anything, so both arrive here.
+       */
+      status: held === undefined ? null : atlasEntryStatus(held),
+      operatorNeed: held === undefined ? null : atlasEntryOperatorNeed(held).need,
+      operatorNeedIsGuess: held !== undefined && atlasEntryOperatorNeed(held).isGuess,
+    }
+  })
 }
 
 /** Everything this agent's operator has said yes to. */

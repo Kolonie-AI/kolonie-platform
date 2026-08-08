@@ -8,14 +8,20 @@ import {
   type SkillNoteEntry,
   type WakeupNoteInvitation,
   type WakeupStanding,
+  type WakeupWantedAccount,
 } from '@kolonie-ai/core'
 import {
   countUnreadOperatorNotes,
   previousSessionStart,
   wakeupChanges,
   wakeupStanding,
+  wantedAccountsFor,
   type Database,
 } from '@kolonie-ai/db'
+
+/** `timestamptz` comes back as a string; the digest's shape wants a `Timestamp`. */
+const toTimestamp = (value: string): WakeupWantedAccount['wantedAt'] =>
+  new Date(value).toISOString() as WakeupWantedAccount['wantedAt']
 import { listContributions, type ContributionDependencies } from './contributions.js'
 import { availableNow, openingsFor, type OpenSource } from './open.js'
 import { startDueRechecks, type RecheckDependencies } from './recheck.js'
@@ -47,6 +53,15 @@ export interface WakeupSource {
    */
   unreadOperatorNotes(agentId: AgentId): Promise<number>
   /**
+   * What the operator has marked and the citizen has not got (`#581`).
+   *
+   * **Its own call, for the reason `unreadOperatorNotes` is one.** A mark is an
+   * open request rather than news: an operator who marked something a week ago
+   * is still waiting, and folding it into `changes` would make it vanish for a
+   * citizen that asked for a narrow window.
+   */
+  wantedAccounts(agentId: AgentId): Promise<readonly WakeupWantedAccount[]>
+  /**
    * Where the citizen stands (`#344`).
    *
    * **Its own call, for the reason `unreadOperatorNotes` is one**: everything
@@ -65,6 +80,7 @@ export interface WakeupSource {
       | 'firstSession'
       | 'contributions'
       | 'operatorNotesUnread'
+      | 'accountsWanted'
       | 'open'
       | 'standing'
       | 'pays'
@@ -97,6 +113,17 @@ export function databaseWakeup(db: Database, rechecks?: RecheckDependencies): Wa
   return {
     previousSessionStart: (agentId) => previousSessionStart(db, agentId),
     unreadOperatorNotes: (agentId) => countUnreadOperatorNotes(db, agentId),
+    wantedAccounts: async (agentId) => {
+      const rows = await wantedAccountsFor(db, agentId)
+
+      return rows.map((row) => ({
+        provider: row.provider,
+        wantedAt: toTimestamp(row.wantedAt),
+        status: row.status,
+        operatorNeed: row.operatorNeed,
+        operatorNeedIsGuess: row.operatorNeedIsGuess,
+      }))
+    },
     standing: (agentId) => wakeupStanding(db, agentId),
     ...(rechecks === undefined
       ? {}
@@ -336,16 +363,18 @@ export async function wakeup(
       ? Promise.resolve([] as readonly Task[])
       : availableNow(agentId, openings.source)
 
-  const [changes, pulls, operatorNotesUnread, standing, open, startableAdded] = await Promise.all([
-    source.changes(agentId, since),
-    listContributions(agentId, contributions),
-    source.unreadOperatorNotes(agentId),
-    source.standing(agentId),
-    openings === undefined
-      ? Promise.resolve(NOTHING_OPEN)
-      : openingsFor(agentId, openings.skills, openings.source, available),
-    startableSince(agentId, since, openings?.source),
-  ])
+  const [changes, pulls, operatorNotesUnread, accountsWanted, standing, open, startableAdded] =
+    await Promise.all([
+      source.changes(agentId, since),
+      listContributions(agentId, contributions),
+      source.unreadOperatorNotes(agentId),
+      source.wantedAccounts(agentId),
+      source.standing(agentId),
+      openings === undefined
+        ? Promise.resolve(NOTHING_OPEN)
+        : openingsFor(agentId, openings.skills, openings.source, available),
+      startableSince(agentId, since, openings?.source),
+    ])
 
   return {
     response: {
@@ -371,6 +400,7 @@ export async function wakeup(
         unavailable: pulls.response.unavailable ?? null,
       },
       operatorNotesUnread,
+      accountsWanted: [...accountsWanted],
     },
   }
 }

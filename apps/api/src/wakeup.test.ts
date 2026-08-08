@@ -180,6 +180,7 @@ describe('a rung whose requirements moved', () => {
       open: { entries: [], nothing: false, filteredOn: { skills: [], credits: 0 } },
       contributions: { pullRequests: [], unavailable: null },
       operatorNotesUnread: 0,
+      accountsWanted: [],
     })
 
     expect(wakeupIsQuiet(digest)).toBe(false)
@@ -263,6 +264,7 @@ describe('a due mailbox re-check', () => {
           open: { entries: [], nothing: false, filteredOn: { skills: [], credits: 0 } },
           contributions: { pullRequests: [], unavailable: null },
           operatorNotesUnread: 0,
+          accountsWanted: [],
         }),
         accountRechecks: [
           {
@@ -308,6 +310,7 @@ describe('a role granted or taken back', () => {
       open: { entries: [], nothing: false, filteredOn: { skills: [], credits: 0 } },
       contributions: { pullRequests: [], unavailable: null },
       operatorNotesUnread: 0,
+      accountsWanted: [],
       ...fields,
     })
 
@@ -554,6 +557,7 @@ describe('the shape of the rendered digest', () => {
         unavailable: null,
       },
       operatorNotesUnread: 2,
+      accountsWanted: [],
     })
 
   interface Positions {
@@ -669,6 +673,7 @@ describe('the shape of the rendered digest', () => {
       capabilityNotes: [],
       contributions: { pullRequests: [], unavailable: null },
       operatorNotesUnread: 0,
+      accountsWanted: [],
       // A payment that landed while the citizen slept is news (`#346`), so a
       // digest carrying one is not quiet. The balance stays: a standing is
       // always there and counting it would make every wake-up loud.
@@ -723,6 +728,7 @@ describe('the new tasks a waking citizen is shown', () => {
       open: { entries: [], nothing: false, filteredOn: { skills: ['profile'], credits: 0 } },
       contributions: { pullRequests: [], unavailable: null },
       operatorNotesUnread: 0,
+      accountsWanted: [],
     })
 
   /** The first session, with the whole catalogue as the input. */

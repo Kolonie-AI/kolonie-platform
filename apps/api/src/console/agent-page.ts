@@ -152,6 +152,20 @@ export interface AgentPageInput {
    */
   readonly wishes?: readonly Wish[] | undefined
   /**
+   * What the catalogue holds for each provider on the list, by provider
+   * (`#581`).
+   *
+   * **A lookup rather than a field on the wish**, because a wish is what
+   * somebody asked for and this is what the Colony happens to know today — two
+   * facts with different lifetimes, and joining them onto the row would make a
+   * stale catalogue read look like a stale wish.
+   *
+   * An entry absent from the map is a provider the catalogue has never heard of,
+   * which is a real and useful state: the free-text field takes anything, and
+   * `#534` is built on exactly that signal.
+   */
+  readonly catalogue?: Readonly<Record<string, WishCatalogueEntry>> | undefined
+  /**
    * The bundles the Colony recommends (`#531`).
    *
    * **An operator with one agent needs a recommendation, not a catalogue.**
@@ -176,6 +190,54 @@ export interface AdoptionSection {
   readonly issued?: { readonly code: string; readonly expiresAt: string } | undefined
   /** A code is out. Enough to offer *Revoke*, and not enough to use. */
   readonly live?: { readonly expiresAt: string } | undefined
+}
+
+/** What the catalogue holds about one provider on the list (`#581`). */
+export interface WishCatalogueEntry {
+  readonly status: 'joinable' | 'refused' | 'unwritten'
+  readonly operatorNeed: 'unaided' | 'operator-needed' | 'unknown'
+  readonly refusal: string | null
+}
+
+/**
+ * What the list says about a provider before anybody marks it (`#581`).
+ *
+ * **Before, and not after.** The form took free text with a provider as its
+ * placeholder, three entries had recipes, and an operator could mark something
+ * that could never lead to a handoff with nothing saying so. The mark is a
+ * decision, and a decision taken without this in front of you is one the Colony
+ * let somebody take blind.
+ *
+ * **A refusal shows its recorded reason.** `bsky.app` has been in the table as a
+ * refusal with its reason since `#482`, and reading as *nothing here yet* was
+ * the catalogue's own finding being hidden from the person deciding.
+ */
+function wishCatalogueCell(entry: WishCatalogueEntry | undefined): string {
+  if (entry === undefined) {
+    return (
+      '<small>no entry at all — nothing will be attempted, and what your agent finds if it ' +
+      'walks it is how one gets written</small>'
+    )
+  }
+
+  if (entry.status === 'refused') {
+    return (
+      '<strong>recorded as not joinable</strong>' +
+      (entry.refusal === null ? '' : `<br><small>${escape(entry.refusal)}</small>`)
+    )
+  }
+
+  if (entry.status === 'unwritten') {
+    return '<small>listed, but no recipe written yet — nothing will be attempted</small>'
+  }
+
+  return (
+    '<strong>ready</strong><br><small>' +
+    (entry.operatorNeed === 'operator-needed'
+      ? 'a recipe exists and one of its steps will need you'
+      : 'a recipe exists and your agent can walk it alone') +
+    '</small>'
+  )
 }
 
 /**
@@ -551,6 +613,17 @@ export function agentPage(input: AgentPageInput): string {
             'ask you for anything. Neither of you can start an onboarding alone: you cannot ' +
             'because it is not your account, it cannot because a wall needs a person.</p>',
           /**
+           * **The sentence the operator was actually asking for** (`#581`).
+           * Marking an entry wrote a timestamp and did nothing an operator could
+           * see, so the button read as broken — which is what happened. This
+           * says who acts next and when, and it is careful not to promise a
+           * schedule the Colony does not control.
+           */
+          '<p class="note">When you mark one, your agent is woken and told about it. It picks ' +
+            'the work up on its own schedule — it is not started for it — and it comes back to ' +
+            'you at the one step that needs a person, if there is one. Nothing else happens in ' +
+            'between, and nothing is waiting on you until it asks.</p>',
+          /**
            * The way in that does not require already knowing a hostname
            * (`#591`). Above the free-text field rather than below it, because
            * the field is the fallback and had been the only door.
@@ -563,7 +636,7 @@ export function agentPage(input: AgentPageInput): string {
             : [
                 '<table>',
                 '<thead><tr><th>Provider</th><th>Added by</th><th>Noticed while</th>' +
-                  '<th>Status</th><th></th></tr></thead>',
+                  '<th>What the Colony has</th><th>Status</th><th></th></tr></thead>',
                 `<tbody>${input.wishes
                   .map((wish) =>
                     [
@@ -571,6 +644,7 @@ export function agentPage(input: AgentPageInput): string {
                       `<td>${escape(wish.provider)}</td>`,
                       `<td>${wish.author === 'operator' ? 'you' : escape(input.name)}</td>`,
                       `<td>${wish.noticedWhile === null ? '—' : escape(wish.noticedWhile)}</td>`,
+                      `<td>${wishCatalogueCell(input.catalogue?.[wish.provider])}</td>`,
                       `<td>${
                         wish.wantedAt === null
                           ? 'not yet'
@@ -594,7 +668,7 @@ export function agentPage(input: AgentPageInput): string {
               ]),
           `<form method="post" action="/agents/${escape(input.agentId)}/wishes">`,
           '<label for="provider">Provider</label>',
-          '<input id="provider" name="provider" type="text" placeholder="trello.com" required>',
+          '<input id="provider" name="provider" type="text" placeholder="example.com" required>',
           '<button type="submit">Add to the list</button>',
           '</form>',
           /**

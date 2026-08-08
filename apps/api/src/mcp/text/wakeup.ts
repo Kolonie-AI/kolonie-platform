@@ -602,6 +602,56 @@ function capabilityNotesBlock(digest: WakeupResponse): readonly Block[] {
  * can cost a citizen a skill by being missed had no line in the text the citizen
  * actually reads.
  */
+/**
+ * One provider the operator has said yes to (`#581`).
+ *
+ * **Under *what is owed*, beside the unread notes.** A mark is the operator
+ * having done their half of `#527`'s division — they said which of the entries
+ * on the shared list may be acted on — and what remains is the citizen's. It is
+ * not news, so it does not belong among the things that changed; it is an open
+ * request, which is exactly what that section is for.
+ *
+ * **The line says what the citizen can do about it right now**, which differs by
+ * what the catalogue holds. Telling an agent *your operator wants github.com*
+ * and nothing else invites it to go and improvise a signup, which is the thing
+ * a recipe exists to prevent.
+ */
+function wantedAccountLine(wanted: WakeupResponse['accountsWanted'][number]): string {
+  const opening = `your operator marked ${wanted.provider} as wanted (${wanted.wantedAt})`
+
+  if (wanted.status === null) {
+    return (
+      `${opening}\n    The catalogue has no entry for it at all — that is an absence and not a ` +
+      'refusal. Walking it and filing what you found with kolonie.accounts.provider-report is ' +
+      'what turns it into one, and it is the most useful thing you can do with this.'
+    )
+  }
+
+  if (wanted.status === 'refused') {
+    return (
+      `${opening}\n    The catalogue records that it cannot be joined honestly. Read the reason ` +
+      'with kolonie.accounts.recipes before spending anything on it, and tell your operator ' +
+      'what it says — they marked it without that in front of them.'
+    )
+  }
+
+  if (wanted.status === 'unwritten') {
+    return (
+      `${opening}\n    It is listed and nobody has walked it, so there are no steps yet. ` +
+      'kolonie.accounts.provider-report is where what you find goes, whether you got through ' +
+      'or not.'
+    )
+  }
+
+  return (
+    `${opening}\n    A recipe exists: read it with kolonie.accounts.recipes. ` +
+    (wanted.operatorNeed === 'operator-needed'
+      ? 'One or more steps need your operator — kolonie.accounts.handoff opens those, and it is ' +
+        'the only channel for them.'
+      : 'No step on it needs your operator, so this one is yours from end to end.')
+  )
+}
+
 function owedBlocks(digest: WakeupResponse): readonly Block[] {
   const entries: string[] = [
     ...(digest.operatorNotesUnread === 0 ? [] : [unreadNotesLine(digest.operatorNotesUnread)]),
@@ -614,6 +664,7 @@ function owedBlocks(digest: WakeupResponse): readonly Block[] {
         // tool for it would be a surface that has to be learned twice.
         'Read the code and hand it back with kolonie.academy.answer with kind "email.code".',
     ),
+    ...digest.accountsWanted.map(wantedAccountLine),
     ...digest.contributions.pullRequests.map(
       (pull) => `a pull request waits: ${pull.title} — ${pull.url}`,
     ),

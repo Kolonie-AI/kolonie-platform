@@ -78,6 +78,7 @@ import { operatorAnsweredPage, operatorNoteSentPage } from '../autonomy-page.js'
 import { writeOperatorNote } from '../operator-notes.js'
 import { answerOperatorRequest, isWaitingOnTheOperator } from '../operator-requests.js'
 import { markWishWanted, putOnWishList, selectBundle } from '../account-wishes.js'
+import type { WishCatalogueEntry } from '../console/agent-page.js'
 import {
   atlasPickerIndex,
   atlasPickerPath,
@@ -1650,6 +1651,16 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
          * half of the plan they write.
          */
         wishes: await deps.wishes.store.list(operated.agentId),
+        /**
+         * What the catalogue holds for each provider on that list (`#581`).
+         *
+         * **Read here rather than joined in storage**, because a wish is what
+         * somebody asked for and the catalogue is what the Colony knows today —
+         * two facts with different lifetimes. Assembled from `atlasCatalogue`,
+         * which is the same read the public Atlas and the picker make, so the
+         * three cannot disagree about one provider.
+         */
+        catalogue: await wishCatalogue(deps, operated.agentId),
         // The recommendation, beside the list it fills (`#531`).
         bundles: await deps.wishes.store.bundles(),
         ...(token === undefined || door === null
@@ -1665,6 +1676,40 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
             }),
       }),
     )
+  }
+
+  /**
+   * What the catalogue says about each provider on one agent's list (`#581`).
+   *
+   * **Only the providers on the list**, which is what keeps this from being a
+   * hundred-and-eight-entry read rendered as five rows. `atlasCatalogue` is one
+   * query either way; the narrowing is of the map handed to the page, so the
+   * renderer cannot accidentally show the whole Atlas in a table about a plan.
+   */
+  const wishCatalogue = async (
+    dependencies: RouteDependencies,
+    agentId: AgentId,
+  ): Promise<Record<string, WishCatalogueEntry>> => {
+    const [wishes, entries] = await Promise.all([
+      dependencies.wishes.store.list(agentId),
+      atlasCatalogue(dependencies.recipes),
+    ])
+
+    const wanted = new Set(wishes.map((wish) => wish.provider))
+    const held: Record<string, WishCatalogueEntry> = {}
+
+    for (const entry of entries) {
+      if (!wanted.has(entry.provider)) continue
+
+      held[entry.provider] = {
+        status: entry.status,
+        operatorNeed: entry.operatorNeed,
+        /** The reason a refusal records, from the row that carries it. */
+        refusal: entry.recipes.find((recipe) => recipe.refusal !== null)?.refusal ?? null,
+      }
+    }
+
+    return held
   }
 
   app.get('/agents/:agentId', async (request, reply) => {

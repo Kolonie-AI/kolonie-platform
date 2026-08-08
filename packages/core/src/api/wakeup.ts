@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { AccountKindSchema } from '../account/account.js'
+import { RecipeOperatorNeedSchema, RecipeStatusSchema } from '../account/recipe.js'
 import { SkillSchema } from '../common/skill.js'
 import { SubmissionIdSchema, SupportTicketIdSchema, TaskIdSchema } from '../common/ids.js'
 import { TimestampSchema } from '../common/time.js'
@@ -250,6 +251,43 @@ export const WakeupNoteInvitationSchema = z.object({
   example: z.string(),
 })
 export type WakeupNoteInvitation = z.infer<typeof WakeupNoteInvitationSchema>
+
+/**
+ * One provider the operator has said yes to (`#581`).
+ *
+ * **What is here is what the citizen needs to decide whether to act now**, and
+ * the two fields after the provider are the whole of that decision: whether a
+ * path exists, and whether walking it will need a person. Both come from the
+ * catalogue (`#588`, `#589`) rather than from the wish row, so an entry marked
+ * before anybody wrote a recipe answers honestly and changes its answer the day
+ * one is written.
+ */
+export const WakeupWantedAccountSchema = z.object({
+  provider: z.string(),
+  /** When the operator marked it, so a citizen can tell a fresh mark from an old one. */
+  wantedAt: TimestampSchema,
+  /**
+   * What the catalogue holds for it, or `null` when it holds nothing at all.
+   *
+   * `null` is not `unwritten`: the first means the Colony has never heard of
+   * this provider, the second that it lists it and nobody has walked it. An
+   * operator can mark either — the free-text field takes anything, which is how
+   * `#534` learns what agents want — and the citizen is told which it got.
+   */
+  status: RecipeStatusSchema.nullable(),
+  /** Whether walking it needs the operator, from the recipe's own steps (`#589`). */
+  operatorNeed: RecipeOperatorNeedSchema.nullable(),
+  /**
+   * Whether that answer is a guess rather than a walked step (`#589`).
+   *
+   * Carried here for the reason it is carried everywhere else: a citizen told
+   * *no operator needed* about a provider nobody has walked would start, hit a
+   * wall it was promised was not there, and file a report about the Colony
+   * rather than about the provider.
+   */
+  operatorNeedIsGuess: z.boolean(),
+})
+export type WakeupWantedAccount = z.infer<typeof WakeupWantedAccountSchema>
 
 export const WakeupStandingSchema = z.object({
   /** The skills this citizen holds, named rather than counted. */
@@ -647,6 +685,31 @@ export const WakeupResponseSchema = z.object({
    * `0` when there is nothing, and the renderer says nothing at all.
    */
   operatorNotesUnread: z.int(),
+  /**
+   * Providers the operator has marked as wanted and the citizen does not hold
+   * yet (`#527`, delivered by `#581`).
+   *
+   * **The mark had one live effect and it was a refusal that stopped**: it let
+   * `kolonie.accounts.handoff` proceed, on a call the agent had no reason to
+   * make. An operator pressed a button and nothing happened — not slowly, at
+   * all — because `wantedWishesFor` existed, was tested, and was called by
+   * nothing.
+   *
+   * **Not windowed by `since`**, for the reason `operatorNotesUnread` above is
+   * not: a mark is an open request rather than news. An operator who marked
+   * something a week ago is still waiting, and a citizen that asked for a narrow
+   * window must not be told the list is empty.
+   *
+   * **Marked only, never the whole list.** An unmarked entry is something the
+   * operator is considering, and `#527` reserves the mark as the one gesture
+   * that means *you may act on this*. Carrying unmarked entries here would make
+   * the digest ask for work nobody approved.
+   *
+   * **And not held ones.** A provider the citizen already has an account at is
+   * a mark that has been satisfied; repeating it every waking would be the
+   * digest nagging about finished work.
+   */
+  accountsWanted: z.array(WakeupWantedAccountSchema),
 })
 export type WakeupResponse = z.infer<typeof WakeupResponseSchema>
 
@@ -674,6 +737,11 @@ export function wakeupIsQuiet(digest: WakeupResponse): boolean {
     // A note waiting is not a quiet wake-up (#239). Leaving it out here would
     // make the digest say "nothing changed" over the top of the one thing on it
     // that was addressed to this citizen personally.
-    digest.operatorNotesUnread === 0
+    digest.operatorNotesUnread === 0 &&
+    // A provider the operator marked and the citizen has not got is a thing
+    // addressed to this citizen personally, exactly as an unread note is
+    // (`#581`). A wake-up that called itself quiet over the top of one would be
+    // the silence this issue exists to end.
+    digest.accountsWanted.length === 0
   )
 }

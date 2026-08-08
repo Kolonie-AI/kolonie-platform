@@ -412,42 +412,61 @@ async function recreateFromTemplate(url: string, baseUrl: string): Promise<void>
 }
 
 /**
- * Empty every table, leaving the schema in place.
+ * Empty every table in `public`, leaving the schema in place.
  *
- * Every table is named even though `cascade` would reach most of them through a
- * foreign key. A table that is only truncated by cascade is one that silently
- * stops being truncated the day somebody adds it without a reference to
- * anything here — and a table that keeps rows between tests fails a later test
- * for a reason that is nowhere near it.
+ * **Read from `pg_tables` rather than named** (`#556`). This was a hand-written
+ * list, and `cascade` from `agents` was what reached most of it — so a table
+ * with no foreign key to anything in the list was never truncated at all, its
+ * rows survived into the next test, and the failure did not look like leakage.
+ * It looked like a wrong count, a duplicate insert, or a precedence bug in
+ * whichever test happened to run next.
+ *
+ * **Five tables arrived in that state and every one of them cost somebody a
+ * wrong diagnosis first**: `log_defects` (`#407`), `humans` (`#425`), `settings`
+ * (`#489`), `provider_recipes` (`#520`, `#521`) — where it was first
+ * misdiagnosed as the seed's upsert inserting duplicates — and
+ * `provider_enquiries` (`#544`). Each was fixed by adding a name to the list,
+ * which fixed that instance and nothing about the next one. Five is a pattern
+ * rather than a coincidence, and the list was correct on the day it was written
+ * every single time.
+ *
+ * **What is given up is that the list also documented which tables are
+ * deliberately unattached**, which `#556` names as the real cost of this
+ * change. That documentation is the paragraph above: it is now a record of what
+ * happened rather than a thing that has to be maintained to stay true, which is
+ * the direction a comment should move.
+ *
+ * **What it costs in time, measured rather than assumed.** 100 calls against the
+ * real schema — 83 tables, all empty — on CLAUDE002 on 2026-08-08: 8.32 s for
+ * the 19 named tables, 8.58 s for all of them. 83.2 ms against 85.8 ms per call,
+ * 3%. `truncate` on an empty table is close to free, and the schema would have to
+ * grow by an order of magnitude before that stopped being true.
+ *
+ * **One statement rather than a query and then a truncate**, so there is no
+ * window in which the list this reads and the list it truncates could differ,
+ * and no round trip per call to discover what has not changed. `pg_tables`
+ * filtered to `public` excludes the migrations bookkeeping, which lives in
+ * {@link MIGRATIONS_SCHEMA}.
  */
 export async function truncateAll(db: Database): Promise<void> {
-  await db.execute(
-    // `log_defects` is named explicitly because it hangs off nothing: it has no
-    // foreign key to `agents`, so the cascade below never reaches it and rows
-    // would survive into the next test as a silently growing count (`#407`).
-    //
-    // `humans` is named for exactly that reason and is the second instance of
-    // it (`#425`): a person is not an agent, so nothing in the cascade below
-    // reaches one. `human_identities` and `human_sessions` follow it through
-    // their own foreign keys, so naming the account is enough.
-    //
-    // `settings` is the third (`#489`): its key is a variable name and it points
-    // at nothing, so no cascade reaches it. Left out, an override written by one
-    // test is still in effect in the next — which reads as a precedence bug in
-    // whichever test happens to run after it rather than as leakage.
-    //
-    // `provider_recipes` is the fourth (`#520`, `#521`): an entry is about somebody
-    // else's product and names no citizen, so it hangs off nothing either. Left out,
-    // the seed's idempotency test counted rows an earlier test had written and read
-    // as the upsert inserting duplicates — a wrong diagnosis of a real leak, which
-    // is what makes this list worth being exhaustive about rather than incidental.
-    //
-    // `provider_enquiries` is the fifth (`#544`): the person who wrote in has
-    // joined nothing, so the row has no foreign key at all — deliberately, since
-    // that is what makes an unauthenticated write safe to accept. Nothing in the
-    // cascade can reach a table that hangs off nothing.
-    sql`truncate table log_defects, humans, settings, provider_recipes, provider_enquiries, task_hints, agent_contacts, agent_sessions, agent_origins, reputation_events, ledger_entries, verifications, submissions, website_challenges, social_challenges, github_challenges, credentials, tasks, agents restart identity cascade`,
-  )
+  await db.execute(sql`
+    do $$
+    declare statement text;
+    begin
+      select 'truncate table ' || string_agg(format('%I', tablename), ', ') ||
+             ' restart identity cascade'
+        into statement
+        from pg_tables
+        where schemaname = 'public';
+
+      -- Null when the schema holds no tables, which is a database nobody has
+      -- migrated. Truncating nothing is the honest answer; EXECUTE on a null
+      -- would be an error about the wrong thing.
+      if statement is not null then
+        execute statement;
+      end if;
+    end $$
+  `)
 }
 
 /**

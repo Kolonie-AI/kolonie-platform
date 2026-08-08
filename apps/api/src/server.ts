@@ -663,6 +663,13 @@ const app = buildApp({
   operatorNotes: {
     store: databaseOperatorNoteStore(db),
     limiter: operatorNoteLimiter(),
+    /**
+     * The wake channel on the second of its three operator events (`#580`).
+     *
+     * The same sender the request path takes, deliberately: the ceiling is per
+     * agent across every event together, and two senders would be two ceilings.
+     */
+    wake: liveWake,
   },
   operatorRequests: {
     store: databaseOperatorRequestStore(db),
@@ -784,7 +791,9 @@ const app = buildApp({
   wake: { challenges: databaseWakeChallenges(db), obstruction },
   // The plan an agent and its operator keep together (`#527`). No credential,
   // no channel: it is a table and a refusal.
-  wishes: { store: databaseWishes(db) },
+  // The third operator event (`#580`): a mark on the shared list is a thing a
+  // person said, and it reaches the agent through the same sender as the other two.
+  wishes: { store: databaseWishes(db), wake: liveWake },
   image: { challenges: databaseImageChallenges(db), obstruction },
   // The generator rung (#216). Same shape as the rung above and the same
   // absence of a Colony credential at this layer: minting draws from a

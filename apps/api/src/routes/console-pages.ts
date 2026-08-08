@@ -77,7 +77,7 @@ import type { OperatorPageView } from '@kolonie-ai/db'
 import { operatorAnsweredPage, operatorNoteSentPage } from '../autonomy-page.js'
 import { writeOperatorNote } from '../operator-notes.js'
 import { answerOperatorRequest, isWaitingOnTheOperator } from '../operator-requests.js'
-import { putOnWishList, selectBundle } from '../account-wishes.js'
+import { markWishWanted, putOnWishList, selectBundle } from '../account-wishes.js'
 import {
   atlasPickerIndex,
   atlasPickerPath,
@@ -1919,7 +1919,15 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
       })
     }
 
-    const marked = await deps.wishes.store.want(operated.agentId, provider.trim().toLowerCase())
+    /**
+     * Through the domain function rather than the store (`#580`), so the mark
+     * and the knock cannot come apart on a surface somebody adds later.
+     */
+    const marked = await markWishWanted(
+      operated.agentId,
+      provider.trim().toLowerCase(),
+      deps.wishes,
+    )
 
     return wantsHtml(request)
       ? reply

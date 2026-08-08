@@ -219,12 +219,53 @@ export function wakeSignatureMatches(
  * record — *which events actually wake agents* is a question about the design
  * that only a log can answer.
  */
+/**
+ * **Which of these are raised, and which are not** (`#580`).
+ *
+ * Measured 2026-08-08, before this list changed: three values were declared and
+ * **one had a call site**. `verdict` and `quest-opened` are declared and unwired,
+ * which is a fact about the build order rather than a decision — an event with no
+ * caller wakes nobody, and this comment exists so the next reader does not have
+ * to grep to find that out.
+ *
+ * | Event | Raised |
+ * |---|---|
+ * | `operator-answer` | Yes — `operator-requests.ts`, on an answered request |
+ * | `operator-note` | Yes — `operator-notes.ts`, on a written note |
+ * | `wish-wanted` | Yes — the wish mark, and **only when it changed a row** |
+ * | `verdict` | No call site |
+ * | `quest-opened` | No call site |
+ *
+ * **A contentless wake is only ever worth sending after something is in the
+ * database for the agent to find.** The knock deliberately carries nothing, so
+ * the agent wakes and asks the Colony what changed; if nothing was written before
+ * the knock, the answer is *nothing* and the cycle is spent. That is what makes
+ * these three eligible and a bare *poke this agent* button not — `#518` refuses
+ * one, and nothing here is a step towards it.
+ */
 export const WakeEventSchema = z.enum([
   /** An operator replied on the operator page. The one this rung exists for. */
   'operator-answer',
-  /** A verdict was recorded on a submission. */
+  /**
+   * An operator wrote a note unasked (`#239`, wired by `#580`).
+   *
+   * The same act as answering from the citizen's side — a person said something
+   * it is waiting on — and the only reason it did not wake anybody is that it was
+   * built second.
+   */
+  'operator-note',
+  /**
+   * An operator marked an entry on the shared list as wanted (`#527`, `#580`).
+   *
+   * **Raised only where the mark changed a row.** `markWanted` sets `wanted_at`
+   * where it is null, so clicking twice writes once — the idempotence is the
+   * anti-abuse property and it was already there, which is why no counter or
+   * cooldown was added for this.
+   */
+  'wish-wanted',
+  /** A verdict was recorded on a submission. No call site yet. */
   'verdict',
-  /** A quest the citizen is equipped for opened. */
+  /** A quest the citizen is equipped for opened. No call site yet. */
   'quest-opened',
 ])
 export type WakeEvent = z.infer<typeof WakeEventSchema>

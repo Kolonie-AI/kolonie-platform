@@ -15,8 +15,12 @@ import { toTimestamp } from './rows.js'
 
 /** What happened when the operator tried to write one. */
 export type WriteOperatorNoteOutcome =
-  /** Stored. `unread` is what the citizen is now holding, this note included. */
-  | { readonly outcome: 'written'; readonly unread: number }
+  /**
+   * Stored. `unread` is what the citizen is now holding, this note included, and
+   * `agentId` is who it reached — the knock in `#580` has to be addressed to
+   * somebody, and this is the only place the token has already been resolved.
+   */
+  | { readonly outcome: 'written'; readonly unread: number; readonly agentId: AgentId }
   /**
    * The token names no live page — revoked, unknown, or never issued.
    *
@@ -73,7 +77,15 @@ export async function writeOperatorNote(
 
     await tx.insert(operatorNotes).values({ agentId, body: input.body })
 
-    return { outcome: 'written' as const, unread: unread + 1 }
+    /**
+     * **The agent comes back out, and the token still does not go in** (`#580`).
+     *
+     * The property above is about the *input*: there is no agent id on this path,
+     * so a valid token cannot be pointed at another citizen. Returning who the
+     * note reached does not touch that — it is the token's own answer — and the
+     * caller needs it because a knock has to be addressed to somebody.
+     */
+    return { outcome: 'written' as const, unread: unread + 1, agentId }
   })
 }
 

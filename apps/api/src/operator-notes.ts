@@ -17,6 +17,7 @@ import {
   type Database,
   type WriteOperatorNoteOutcome,
 } from '@kolonie-ai/db'
+import type { WakeSender } from '@kolonie-ai/verifiers'
 import type { RateLimiter } from './rate-limit.js'
 
 /**
@@ -99,6 +100,19 @@ export interface OperatorNoteDependencies {
    * it without writing ten notes.
    */
   readonly limiter: RateLimiter
+  /**
+   * The wake channel (`#518`, wired here by `#580`).
+   *
+   * **Optional, exactly as it is on the request path.** A deployment with no
+   * channel behaves as it did before it existed, and `noWake` is the default —
+   * so this is a dependency the tests that do not care may leave out.
+   *
+   * **Nothing the caller can read comes back.** `WakeSender.wake` returns
+   * nothing on purpose: an operator is never told whether their agent was
+   * reached, and a caller that could read the outcome would eventually branch on
+   * it. The record is in `wake_deliveries`.
+   */
+  readonly wake?: WakeSender | undefined
 }
 
 export type WriteNoteResult =
@@ -181,6 +195,17 @@ export async function writeOperatorNote(
   if (stored.outcome === 'inbox-full') {
     return { outcome: 'inbox-full', unread: stored.unread }
   }
+
+  /**
+   * **After the write and never instead of it** (`#580`).
+   *
+   * A knock carries nothing, so the agent wakes and asks what changed — which
+   * means it is only worth sending once the note is in the database. And `wake`
+   * never throws: a delivery that failed, was capped, or found no address costs
+   * a row in `wake_deliveries` and nothing else. The note is written either way,
+   * and the operator is told the same thing either way.
+   */
+  await deps.wake?.wake(stored.agentId, 'operator-note')
 
   return { outcome: 'written', unread: stored.unread }
 }

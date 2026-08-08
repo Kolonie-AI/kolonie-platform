@@ -22,6 +22,7 @@ import {
   type Database,
   type WantedProviderCount,
 } from '@kolonie-ai/db'
+import type { WakeSender } from '@kolonie-ai/verifiers'
 
 /**
  * The shared account list, as a surface (#527).
@@ -94,6 +95,50 @@ export function databaseWishes(db: Database): WishStore {
 
 export interface WishDependencies {
   readonly store: WishStore
+  /**
+   * The wake channel (`#518`, wired here by `#580`).
+   *
+   * **The mark is a thing an operator says, and this is what delivers it.** A
+   * note and a mark are the same act from the citizen's side — a person said
+   * something it is waiting on — and until `#580` only one of the three reached
+   * anybody.
+   *
+   * Optional, like every other wiring of it: a deployment with no channel
+   * behaves exactly as it did before the channel existed.
+   */
+  readonly wake?: WakeSender | undefined
+}
+
+/**
+ * The operator says yes to one entry (`#527`), and the agent hears about it
+ * (`#580`).
+ *
+ * **Here rather than in the route**, so a second surface that ever marks one
+ * cannot mark without waking. The route was the only caller and would have been
+ * the obvious place; the reason it is the wrong one is that *the mark reaches
+ * the agent* is a rule about the act rather than about the page it was made on.
+ *
+ * **Raised only when a row actually changed**, which is the anti-abuse property
+ * and it was already there: `markWanted` sets `wanted_at` only where it is null,
+ * so an operator clicking twice writes once and knocks once. Nothing was added
+ * to make that true — no counter, no cooldown — and that is the whole reason
+ * this event is safe to raise from a button.
+ */
+export async function markWishWanted(
+  agentId: AgentId,
+  provider: string,
+  deps: WishDependencies,
+): Promise<boolean> {
+  const marked = await deps.store.want(agentId, provider)
+
+  /**
+   * **After the write, and never when nothing was written.** A knock carries
+   * nothing, so the agent wakes and asks what changed — and a knock sent when
+   * the row was already marked would spend a waking to be told *nothing*.
+   */
+  if (marked) await deps.wake?.wake(agentId, 'wish-wanted')
+
+  return marked
 }
 
 export type AddWishResult =

@@ -58,7 +58,9 @@ describe('the operator note (#239)', () => {
 
     const written = await writeOperatorNote(db, { token, body: NOTE })
 
-    expect(written).toEqual({ outcome: 'written', unread: 1 })
+    // `agentId` since `#580`: the knock has to be addressed to somebody, and
+    // this is the only place the token has already been resolved to an agent.
+    expect(written).toEqual({ outcome: 'written', unread: 1, agentId })
     expect(await countUnreadOperatorNotes(db, agentId)).toBe(1)
   })
 

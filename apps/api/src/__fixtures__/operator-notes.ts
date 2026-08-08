@@ -76,7 +76,7 @@ export function fakeOperatorNoteStore(
       }
 
       insert(agentId, input.body)
-      return Promise.resolve({ outcome: 'written' as const, unread: unread + 1 })
+      return Promise.resolve({ outcome: 'written' as const, unread: unread + 1, agentId })
     },
 
     read: (agentId) => {

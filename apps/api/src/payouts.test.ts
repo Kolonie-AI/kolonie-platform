@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  PAYOUT_STUCK_AFTER_ATTEMPTS,
   encodeBase58,
   LAMPORTS_PER_SOL,
   solanaAddressFromSeed,
@@ -51,6 +52,29 @@ function fakeDesk(outstanding: readonly OutstandingPayout[], owed = 0) {
     },
     paidToday: async () => 0,
     owed: async () => owed || outstanding.reduce((sum, o) => sum + o.lamports, 0),
+    /**
+     * What is still owed after this pass, past the attempt threshold (`#541`).
+     *
+     * Derived from the same rows and the attempts this pass recorded, so the
+     * fake answers what the table would: the pass counts *after* deferring, and
+     * an obligation that crosses the threshold on this pass is meant to be in
+     * the number this pass reports.
+     */
+    stuck: async (minAttempts) =>
+      outstanding
+        .filter((obligation) => !paid.some((row) => row.id === obligation.id))
+        .filter((obligation) => !forfeited.includes(obligation.id))
+        .map((obligation) => ({
+          id: obligation.id,
+          agentId: obligation.agentId,
+          lamports: obligation.lamports,
+          address: obligation.address,
+          attempts: obligation.attempts + attempts.filter((row) => row.id === obligation.id).length,
+          lastRefusal: attempts.findLast((row) => row.id === obligation.id)?.refusal ?? null,
+          lastAttemptAt: null,
+          owedSince: '2026-08-07T15:52:00.000Z',
+        }))
+        .filter((obligation) => obligation.attempts >= minAttempts),
   }
 
   return { desk, attempts, paid, forfeited }
@@ -223,5 +247,69 @@ describe('a payout pass', () => {
     expect(attempts[0]).toEqual({ id: 'broken', refusal: 'unavailable' })
     expect(paid.map((p) => p.id)).toEqual(['fine'])
     expect(outcome.paid).toBe(1)
+  })
+
+  /**
+   * **A payout that keeps failing is a number nobody reads** (`#541`).
+   *
+   * `attempts` and `last_refusal` have been on the row since `#505` and nothing
+   * read either, so an obligation on its fortieth attempt looked exactly like
+   * one on its first. The float alert covers the Colony being unable to pay; it
+   * says nothing about one citizen being unpayable while everything else goes
+   * out normally.
+   */
+  describe('what has been retried too often', () => {
+    it('is counted in the pass, beside floatShort', async () => {
+      const { desk } = fakeDesk([
+        anObligation({ id: 'stuck', address: null, attempts: PAYOUT_STUCK_AFTER_ATTEMPTS }),
+        anObligation({ id: 'fresh', address: null, attempts: 0 }),
+      ])
+
+      const outcome = await runPayouts(deps({ desk }))
+
+      expect(outcome.stuck).toBe(1)
+    })
+
+    /**
+     * Counted after the pass rather than before it: the obligation that crosses
+     * the threshold on this pass is the one worth naming on this pass.
+     */
+    it('counts the attempt this pass just made', async () => {
+      const { desk } = fakeDesk([
+        anObligation({
+          id: 'about-to-stick',
+          address: null,
+          attempts: PAYOUT_STUCK_AFTER_ATTEMPTS - 1,
+        }),
+      ])
+
+      expect((await runPayouts(deps({ desk }))).stuck).toBe(1)
+    })
+
+    it('is zero when everything owed is being paid', async () => {
+      const { desk } = fakeDesk([anObligation()])
+
+      const outcome = await runPayouts(deps({ desk }))
+
+      expect(outcome.paid).toBe(1)
+      expect(outcome.stuck).toBe(0)
+    })
+
+    /**
+     * **The rejection case, and it is the whole of `#132`'s rule.** Nothing is
+     * abandoned at this count or at any other: the amount is still owed, still
+     * attempted, and the only thing crossing the threshold changes is that
+     * somebody is told.
+     */
+    it('changes nothing about what is paid', async () => {
+      const overdue = anObligation({ id: 'overdue', attempts: PAYOUT_STUCK_AFTER_ATTEMPTS * 10 })
+      const { desk, paid, forfeited } = fakeDesk([overdue])
+
+      const outcome = await runPayouts(deps({ desk }))
+
+      expect(paid.map((row) => row.id)).toEqual(['overdue'])
+      expect(forfeited).toEqual([])
+      expect(outcome.lamportsPaid).toBe(overdue.lamports)
+    })
   })
 })

@@ -1,6 +1,7 @@
 import {
   ceilingsRefusal,
   CURRENCY_MOVES_NOTICE,
+  PAYOUT_STUCK_AFTER_ATTEMPTS,
   payoutRefusal,
   payoutRefusalRaises,
   payoutRefusalReason,
@@ -10,7 +11,7 @@ import {
   type PayoutCeilings,
   type PayoutRefusal,
 } from '@kolonie-ai/core'
-import type { CitizenEarning, Database, OutstandingPayout } from '@kolonie-ai/db'
+import type { CitizenEarning, Database, OutstandingPayout, StuckPayout } from '@kolonie-ai/db'
 import {
   earningsFor as earningsInDatabase,
   forfeitPayout as forfeitInDatabase,
@@ -19,6 +20,7 @@ import {
   owedLamports as owedInDatabase,
   paidTodayLamports as paidTodayInDatabase,
   recordPayoutAttempt as recordAttemptInDatabase,
+  stuckPayouts as stuckInDatabase,
 } from '@kolonie-ai/db'
 
 /**
@@ -52,6 +54,14 @@ export interface PayoutDesk {
   recordAttempt(id: string, refusal: PayoutRefusal): Promise<void>
   paidToday(): Promise<number>
   owed(): Promise<number>
+  /**
+   * Everything owed that has been attempted at least this many times (`#541`).
+   *
+   * On the desk rather than computed from `outstanding()`, because that read is
+   * bounded at 200 rows for the runner's own purposes and a stuck obligation is
+   * exactly the one that would fall off the end of it.
+   */
+  stuck(minAttempts: number): Promise<readonly StuckPayout[]>
 }
 
 /**
@@ -153,6 +163,7 @@ export function databasePayouts(db: Database): PayoutDesk {
     recordAttempt: (id, refusal) => recordAttemptInDatabase(db, id, refusal),
     paidToday: () => paidTodayInDatabase(db),
     owed: () => owedInDatabase(db),
+    stuck: (minAttempts) => stuckInDatabase(db, minAttempts),
   }
 }
 
@@ -187,6 +198,19 @@ export interface PayoutPassOutcome {
   readonly refused: Readonly<Record<string, number>>
   /** Whether the wallet holds less than the Colony owes. Loud on purpose. */
   readonly floatShort: boolean
+  /**
+   * How many outstanding obligations have been attempted at least
+   * {@link PAYOUT_STUCK_AFTER_ATTEMPTS} times (`#541`).
+   *
+   * **Beside `floatShort` because whoever reads the journal line reads both**,
+   * and they are the two halves of *is anybody not being paid*: that one covers
+   * the Colony being unable to pay at all, this one covers a single citizen
+   * being unpayable while everything else goes out normally.
+   *
+   * **It reports; it does not decide.** Nothing is abandoned at this count or at
+   * any other, and nothing about what is paid depends on it.
+   */
+  readonly stuck: number
   /** Amounts written off to the Treasury because nobody is left to receive them. */
   readonly forfeited: number
 }
@@ -213,6 +237,7 @@ export async function runPayouts(deps: PayoutDependencies): Promise<PayoutPassOu
     refused,
     floatShort: false,
     forfeited: 0,
+    stuck: 0,
   }
 
   // A deployment with no wallet, no endpoint or no ceilings cannot pay. It has
@@ -322,7 +347,27 @@ export async function runPayouts(deps: PayoutDependencies): Promise<PayoutPassOu
     }
   }
 
-  return { considered: outstanding.length, paid, lamportsPaid, refused, floatShort, forfeited }
+  /**
+   * Counted **after** the pass rather than before it (`#541`).
+   *
+   * This pass has just incremented every attempt it deferred, so counting first
+   * would report the state before the newest failure — and the obligation that
+   * crosses the threshold on this pass is exactly the one worth naming on this
+   * pass. It is one query and it runs whether or not anything was refused,
+   * because an obligation that was already past the threshold does not stop
+   * being so on a pass that happened to pay somebody else.
+   */
+  const stuck = (await desk.stuck(PAYOUT_STUCK_AFTER_ATTEMPTS)).length
+
+  return {
+    considered: outstanding.length,
+    paid,
+    lamportsPaid,
+    refused,
+    floatShort,
+    forfeited,
+    stuck,
+  }
 }
 
 /** Record an attempt that did not pay, and count it for the pass's report. */

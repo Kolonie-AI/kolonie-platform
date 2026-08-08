@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, isNull, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, gte, isNull, sql } from 'drizzle-orm'
 import {
   PayoutRefusalSchema,
   type AgentId,
@@ -208,6 +208,75 @@ export async function owedLamports(db: Database): Promise<number> {
     .where(and(isNull(payoutObligations.paidAt), isNull(payoutObligations.forfeitedAt)))
 
   return Number(row?.total ?? 0)
+}
+
+/** An obligation that has been attempted too often to still be waiting quietly (`#541`). */
+export interface StuckPayout {
+  readonly id: string
+  /** Null once the citizen has erased itself. The debt outlives it. */
+  readonly agentId: AgentId | null
+  readonly lamports: number
+  /** Where it was going. `null` is a citizen that verified no address. */
+  readonly address: string | null
+  readonly attempts: number
+  readonly lastRefusal: PayoutRefusal | null
+  readonly lastAttemptAt: string | null
+  readonly owedSince: string
+}
+
+/**
+ * Everything owed that has been attempted at least `minAttempts` times (`#541`).
+ *
+ * **`attempts` and `last_refusal` have been on this table since `#505` and
+ * nothing read them.** The pass reports counts by reason for that pass alone, so
+ * an obligation on its fortieth attempt looked exactly like one on its first.
+ * The realistic case is narrow and real: one malformed address, one citizen whose
+ * wallet was verified and then lost, one obligation that will never clear —
+ * retried every hour for ever with nobody knowing.
+ *
+ * **Outstanding only.** A paid row's attempt count is history; what this answers
+ * is *who is still not being paid*.
+ *
+ * Most-attempted first, because the worst one is the one worth reading if only
+ * one is read.
+ */
+export async function stuckPayouts(
+  db: Database,
+  minAttempts: number,
+  limit = 200,
+): Promise<readonly StuckPayout[]> {
+  const rows = await db
+    .select({
+      id: payoutObligations.id,
+      agentId: payoutObligations.agentId,
+      lamports: payoutObligations.lamports,
+      address: payoutObligations.address,
+      attempts: payoutObligations.attempts,
+      lastRefusal: payoutObligations.lastRefusal,
+      lastAttemptAt: payoutObligations.lastAttemptAt,
+      owedSince: payoutObligations.createdAt,
+    })
+    .from(payoutObligations)
+    .where(
+      and(
+        isNull(payoutObligations.paidAt),
+        isNull(payoutObligations.forfeitedAt),
+        gte(payoutObligations.attempts, minAttempts),
+      ),
+    )
+    .orderBy(desc(payoutObligations.attempts))
+    .limit(limit)
+
+  return rows.map((row) => ({
+    id: row.id,
+    agentId: row.agentId as AgentId | null,
+    lamports: row.lamports,
+    address: row.address,
+    attempts: row.attempts,
+    lastRefusal: PayoutRefusalSchema.nullable().parse(row.lastRefusal),
+    lastAttemptAt: row.lastAttemptAt,
+    owedSince: row.owedSince,
+  }))
 }
 
 /** One payment, as the citizen it was for reads it (`#535`). */

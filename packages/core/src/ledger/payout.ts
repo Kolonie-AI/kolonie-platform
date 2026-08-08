@@ -53,6 +53,30 @@ export interface PayoutCeilings {
   readonly perDay: number
 }
 
+/**
+ * How many failed attempts make an obligation worth reporting (`#541`).
+ *
+ * **A threshold on attempts and never a give-up.** Nothing abandons an
+ * obligation at this count or at any other; `#132`'s rule holds — a permanent
+ * skip is a silent refusal — and the one write-off that exists stays the one
+ * `#505` defined. What passing this changes is that somebody is told.
+ *
+ * **Six, because the pass is hourly.** `kolonie-reconcile.timer` runs
+ * `/v1/payouts/run` on `OnCalendar=hourly`, so six attempts is about six hours:
+ * long enough that a chain outage, a float top-up and a deploy all resolve
+ * themselves without producing a report, and short enough that an obligation
+ * which will never clear on its own — one malformed address, one wallet verified
+ * and then lost — is visible the same day rather than on its fortieth attempt.
+ *
+ * `#541` reasoned from a fifteen-minute pass, which would have made this
+ * ninety minutes. The timer is hourly and has been since `kolonie-infra#72`.
+ *
+ * **A constant with an argued number rather than a setting** (D-104). It changes
+ * what somebody is told, never what is paid, so a maintainer turning it without
+ * a deploy buys nothing.
+ */
+export const PAYOUT_STUCK_AFTER_ATTEMPTS = 6
+
 /** Why the ceilings cannot be used, or `undefined` if they can. */
 export function ceilingsRefusal(ceilings: {
   readonly perTransaction: number | undefined

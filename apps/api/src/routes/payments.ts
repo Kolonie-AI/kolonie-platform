@@ -1,4 +1,9 @@
-import { ERROR_STATUS, HeliusDeliverySchema, nativeClaimsInDelivery } from '@kolonie-ai/core'
+import {
+  ERROR_STATUS,
+  HeliusDeliverySchema,
+  nativeClaimsInDelivery,
+  PAYOUT_STUCK_AFTER_ATTEMPTS,
+} from '@kolonie-ai/core'
 import type { FastifyInstance } from 'fastify'
 import { clientIp } from '../client-ip.js'
 import { WEBHOOK_REFUSED, webhookAuthorised } from '../webhook-auth.js'
@@ -143,7 +148,15 @@ export function registerPaymentRoutes(
     if (payouts === undefined) {
       // A deployment that cannot pay says so once, here, rather than by failing
       // a unit every quarter of an hour.
-      return reply.send({ considered: 0, paid: 0, lamportsPaid: 0, refused: {}, floatShort: false })
+      return reply.send({
+        considered: 0,
+        paid: 0,
+        lamportsPaid: 0,
+        refused: {},
+        floatShort: false,
+        forfeited: 0,
+        stuck: 0,
+      })
     }
 
     const outcome = await runPayouts(payouts)
@@ -163,6 +176,35 @@ export function registerPaymentRoutes(
     }
 
     return reply.send(outcome)
+  })
+
+  /**
+   * Which obligations have been retried too often to still be waiting quietly
+   * (`#541`).
+   *
+   * **The list behind the count the pass reports.** `payout_obligations` has
+   * counted `attempts` and recorded `last_refusal` since `#505` and nothing read
+   * either, so an obligation on its fortieth attempt looked exactly like one on
+   * its first — and the float alert covers the Colony being unable to pay, never
+   * a single citizen being unpayable.
+   *
+   * Behind the same secret as the pass itself rather than behind a citizen's
+   * key: it names other citizens' amounts and addresses, which is nobody's
+   * business but a maintainer's. What a citizen may read about **its own**
+   * payments is `kolonie.me.earnings` (`#535`).
+   */
+  v1.get('/payouts/stuck', async (request, reply) => {
+    if (!webhookAuthorised(request.headers['authorization'], secret)) {
+      return reply.status(ERROR_STATUS[WEBHOOK_REFUSED.code]).send(WEBHOOK_REFUSED)
+    }
+
+    if (payouts === undefined)
+      return reply.send({ threshold: PAYOUT_STUCK_AFTER_ATTEMPTS, payouts: [] })
+
+    return reply.send({
+      threshold: PAYOUT_STUCK_AFTER_ATTEMPTS,
+      payouts: await payouts.desk.stuck(PAYOUT_STUCK_AFTER_ATTEMPTS),
+    })
   })
 
   v1.get('/payments/quarantined', async (request, reply) => {

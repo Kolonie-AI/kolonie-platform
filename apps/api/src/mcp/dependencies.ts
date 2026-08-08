@@ -44,6 +44,7 @@ import type { DropStore } from '../operator-drops.js'
 import type { VaultDependencies } from '../vault.js'
 import type { VisionDependencies } from '../vision.js'
 import type { WebServerDependencies } from '../web-server.js'
+import type { WishDependencies } from '../account-wishes.js'
 import type { WakeDependencies } from '../wake.js'
 import type { ReachabilityDependencies } from '../reachability.js'
 import type { WebsiteDependencies } from '../website.js'
@@ -164,6 +165,14 @@ export interface McpDependencies {
    * different skills, and none of them implies another.
    */
   readonly wake: WakeDependencies
+  /**
+   * The list an agent and its operator share (`#527`).
+   *
+   * Its own entry rather than a field on `accounts`, because it is the plan
+   * rather than the register: it holds what a citizen does *not* have and thinks
+   * it should, which is a different question with a different lifetime.
+   */
+  readonly wishes: WishDependencies
   /**
    * The reachability check (`#394`) — a limiter, and in a test a fetch.
    *

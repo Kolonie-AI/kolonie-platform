@@ -48,6 +48,7 @@
  *   agent has written something, and not as an empty heading.
  */
 
+import type { Wish } from '@kolonie-ai/core'
 import type { OperatorPageView } from '@kolonie-ai/db'
 import { escape, page } from './html.js'
 import { absolute, relative } from './time.js'
@@ -136,6 +137,14 @@ export interface AgentPageInput {
    * page is complete without it rather than showing an empty section.
    */
   readonly operator?: string | undefined
+  /**
+   * The list this agent and its operator keep together (`#527`).
+   *
+   * **The one place the operator's half of it is written**, and the reason the
+   * mark means anything: an agent that could set *wanted* would be agreeing with
+   * itself. Absent for a page the person does not operate.
+   */
+  readonly wishes?: readonly Wish[] | undefined
 }
 
 /**
@@ -456,6 +465,83 @@ export function agentPage(input: AgentPageInput): string {
                 ]),
         ]
 
+  /**
+   * The shared list (`#527`), and it sits **below** the window sentence and
+   * above the note form.
+   *
+   * It is a plan rather than a report, so it does not belong among the tiles
+   * that say what the agent has done — and it is the second thing on this page a
+   * person can act with, so it belongs beside the first rather than scattered.
+   *
+   * **Rendered only when the person operates this agent**, which the route
+   * decides by passing it at all. There is no read-only version: a list only one
+   * party can write to is not the thing `#527` is about.
+   */
+  const wishes =
+    input.wishes === undefined
+      ? []
+      : [
+          '<h2>Accounts you and this agent are planning</h2>',
+          '<p>Either of you may add one. Your agent adds what it has found it needs and says ' +
+            'what it was doing when it noticed — that half is the one you cannot supply. You ' +
+            'add what you think it should have.</p>',
+          /**
+           * **The sentence that makes the mark mean something.** Without it the
+           * button reads as bookkeeping; with it, a person knows they are the
+           * one deciding what is attempted.
+           */
+          '<p class="note">An entry is a wish, not an instruction. Nothing is attempted until ' +
+            'you mark it as wanted, and a recipe for a provider you have not marked will not ' +
+            'ask you for anything. Neither of you can start an onboarding alone: you cannot ' +
+            'because it is not your account, it cannot because a wall needs a person.</p>',
+          ...(input.wishes.length === 0
+            ? ['<p>Nothing on it yet.</p>']
+            : [
+                '<table>',
+                '<thead><tr><th>Provider</th><th>Added by</th><th>Noticed while</th>' +
+                  '<th>Status</th><th></th></tr></thead>',
+                `<tbody>${input.wishes
+                  .map((wish) =>
+                    [
+                      '<tr>',
+                      `<td>${escape(wish.provider)}</td>`,
+                      `<td>${wish.author === 'operator' ? 'you' : escape(input.name)}</td>`,
+                      `<td>${wish.noticedWhile === null ? '—' : escape(wish.noticedWhile)}</td>`,
+                      `<td>${
+                        wish.wantedAt === null
+                          ? 'not yet'
+                          : `wanted, ${escape(relative(wish.wantedAt))}`
+                      }</td>`,
+                      `<td>${
+                        wish.wantedAt === null
+                          ? `<form method="post" action="/agents/${escape(input.agentId)}/wishes/want">` +
+                            `<input type="hidden" name="provider" value="${escape(wish.provider)}">` +
+                            '<button type="submit">Mark as wanted</button></form>'
+                          : ''
+                      }` +
+                        `<form method="post" action="/agents/${escape(input.agentId)}/wishes/remove">` +
+                        `<input type="hidden" name="provider" value="${escape(wish.provider)}">` +
+                        '<button type="submit">Remove</button></form></td>',
+                      '</tr>',
+                    ].join(''),
+                  )
+                  .join('')}</tbody>`,
+                '</table>',
+              ]),
+          `<form method="post" action="/agents/${escape(input.agentId)}/wishes">`,
+          '<label for="provider">Provider</label>',
+          '<input id="provider" name="provider" type="text" placeholder="trello.com" required>',
+          '<button type="submit">Add to the list</button>',
+          '</form>',
+          /**
+           * The same refusal both operator channels make, said where somebody
+           * might otherwise type one in (`#236`, `#410`).
+           */
+          '<p class="note">Words only. A password or a token typed here is refused — a secret ' +
+            'reaches your agent through the sealed box it asks you for, and never through a ' +
+            'list.</p>',
+        ]
+
   const body = [
     ...identity,
     ...balance,
@@ -486,6 +572,7 @@ export function agentPage(input: AgentPageInput): string {
     '<p class="note">This page is a window rather than a control panel. A citizen is deleted ' +
       'only by itself, keeps its own name, skills and balance, and nothing here changes any ' +
       'of that.</p>',
+    ...wishes,
     ...(input.operator === undefined
       ? []
       : [

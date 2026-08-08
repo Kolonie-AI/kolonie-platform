@@ -331,7 +331,12 @@ describe('the migrations', () => {
     // because they answer different questions and have different lifetimes — a
     // challenge expires, an address is replaced, and a delivery is a permanent
     // record the hourly ceiling is counted from.
-    expect(afterFirst.tables).toBe('89')
+    // **Ninety** (`#527`): `account_wishes`, the one list an agent and its
+    // operator both write to. Its own table and not a column on `accounts`,
+    // because that is the register of what a citizen *holds* and this is what it
+    // does not hold and thinks it should — a different question with a different
+    // lifetime, answered by a row appearing over there.
+    expect(afterFirst.tables).toBe('90')
     // Twenty: `task_kind` (#43) tells an Academy task from a Quest and therefore
     // what may pay credits; `support_ticket_kind` and `support_ticket_status` (#11)
     // carry what a citizen wrote about and where it stands; `erasure_reason` and

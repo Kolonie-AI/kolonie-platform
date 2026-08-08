@@ -231,13 +231,34 @@ describe('the agent page', () => {
 
     expect(body).toContain('a window rather than a control panel')
     /**
-     * **No form that posts at this agent.** The page carries the console
-     * header's sign-out, which posts at the *session* and is furniture on every
-     * signed-in page — so the assertion is about the target rather than about
-     * the tag. `#453` adds exactly one form here, the operator note, and it
-     * reaches words and never a permission.
+     * **Every form on this page is named, and each one reaches words or a
+     * plan** — never the agent's own state.
+     *
+     * This was *no form posting at this agent at all* until `#527`, and it held
+     * only because the fixture has no operator page: `#453`'s note form posts to
+     * `/agents/:id/operator` and would have tripped it the moment a citizen
+     * issued one. An assertion that passes for the wrong reason is worse than
+     * one that lists what it allows, so this lists them.
+     *
+     * - `…/operator` — a message to the citizen. D-081: words, never a
+     *   permission.
+     * - `…/wishes`, `…/wishes/want`, `…/wishes/remove` — the shared account
+     *   list (`#527`). A plan both parties write; nothing on it starts anything,
+     *   and the mark is what the operator has to make before a recipe may ask
+     *   them for anything.
+     *
+     * Nothing else may appear here without being argued for in this list.
      */
-    expect(body).not.toMatch(/<form[^>]*action="\/agents\//)
+    const actions = [...body.matchAll(/<form[^>]*action="([^"]+)"/g)].map((match) => match[1])
+    for (const action of actions) {
+      expect(
+        action?.startsWith(`/agents/${agentId}/wishes`) === true ||
+          action === `/agents/${agentId}/operator` ||
+          action?.startsWith('/agents/') !== true,
+        `unexpected form target on the agent page: ${String(action)}`,
+      ).toBe(true)
+    }
+
     expect(body).not.toContain('<script')
   })
 

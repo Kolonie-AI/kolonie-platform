@@ -232,6 +232,20 @@ export const AUTHENTICATED_TOOLS = [
   'kolonie.accounts.note',
   'kolonie.accounts.vault-key',
   /**
+   * The list an agent and its operator keep together (`#527`).
+   *
+   * **One tool for reading and writing, which is the exception to the rule the
+   * five above make.** Those are separate because each is a *different
+   * intention* an `update` could not tell apart. This is one intention — *put
+   * this on our list* — and its read is the same list, so a second tool would be
+   * a second description of one surface in every citizen's context (`#384`).
+   *
+   * The mark that turns a wish into something attempted is deliberately not
+   * here: it is the operator's, made on the console, and an agent that could set
+   * it would be agreeing with itself.
+   */
+  'kolonie.accounts.wishes',
+  /**
    * Who runs the service behind an account, and what the Colony can say about
    * providers from what citizens have named (`#288`).
    *

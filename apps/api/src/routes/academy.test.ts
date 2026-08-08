@@ -30,6 +30,7 @@ import { fakeSocial } from '../__fixtures__/social.js'
 import { fakeDomain } from '../__fixtures__/domain.js'
 import { fakeWebServer } from '../__fixtures__/web-server.js'
 import { fakeWake } from '../__fixtures__/wake.js'
+import { fakeWishList } from '../__fixtures__/account-wishes.js'
 import { fakeWebsite } from '../__fixtures__/website.js'
 import { fakeImage } from '../__fixtures__/image.js'
 import { fakeScene } from '../__fixtures__/scene.js'
@@ -97,6 +98,7 @@ const build = (answer: CaptchaCheck = 'passed') => {
     website: fakeWebsite(),
     webServer: fakeWebServer(),
     wake: fakeWake(),
+    wishes: fakeWishList(),
     image: fakeImage(),
     scene: fakeScene(),
     injection: fakeInjection(),
@@ -311,6 +313,7 @@ describe('POST /v1/academy/challenges', () => {
       website: fakeWebsite(),
       webServer: fakeWebServer(),
       wake: fakeWake(),
+      wishes: fakeWishList(),
       image: fakeImage(),
       scene: fakeScene(),
       injection: fakeInjection(),
@@ -684,6 +687,7 @@ describe('when the gate is not configured', () => {
       website: fakeWebsite(),
       webServer: fakeWebServer(),
       wake: fakeWake(),
+      wishes: fakeWishList(),
       image: fakeImage(),
       scene: fakeScene(),
       injection: fakeInjection(),
@@ -777,6 +781,7 @@ describe('when the gate is not configured', () => {
       website: fakeWebsite(),
       webServer: fakeWebServer(),
       wake: fakeWake(),
+      wishes: fakeWishList(),
       image: fakeImage(),
       scene: fakeScene(),
       injection: fakeInjection(),

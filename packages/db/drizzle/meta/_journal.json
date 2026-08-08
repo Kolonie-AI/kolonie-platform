@@ -1191,6 +1191,13 @@
       "when": 1786176451077,
       "tag": "0169_the_colony_can_knock",
       "breakpoints": true
+    },
+    {
+      "idx": 170,
+      "version": "7",
+      "when": 1786180540160,
+      "tag": "0170_a_plan_between_two_parties",
+      "breakpoints": true
     }
   ]
 }

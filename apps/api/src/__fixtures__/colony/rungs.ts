@@ -13,6 +13,7 @@ import type { ContributionDependencies } from '../../contributions.js'
 import type { WebsiteDependencies } from '../../website.js'
 import type { WebServerDependencies } from '../../web-server.js'
 import type { WakeDependencies } from '../../wake.js'
+import type { WishDependencies } from '../../account-wishes.js'
 import type { ImageDependencies } from '../../image.js'
 import type { SceneDependencies } from '../../scene.js'
 import type { InjectionDependencies } from '../../injection.js'
@@ -35,6 +36,7 @@ import { fakeSocial } from '../social.js'
 import { fakeDomain } from '../domain.js'
 import { fakeWebServer, type FakeWebServerChallenges } from '../web-server.js'
 import { fakeWake, type FakeWakeChallenges } from '../wake.js'
+import { fakeWishList, type FakeWishes } from '../account-wishes.js'
 import { fakeWebsite } from '../website.js'
 import { fakeImage } from '../image.js'
 import { fakeScene } from '../scene.js'
@@ -88,6 +90,11 @@ export interface FakeRungs {
    */
   readonly wake: WakeDependencies & { readonly challenges: FakeWakeChallenges }
   /**
+   * The list an agent and its operator share (`#527`), with its own store so a
+   * test can put something on it and read it back.
+   */
+  readonly wishes: WishDependencies & { readonly store: FakeWishes }
+  /**
    * The reachability check (`#394`) — beside the web rungs because it is about
    * the same wall, and separate from them because it grants nothing.
    *
@@ -132,6 +139,7 @@ export function fakeRungs(): FakeRungs {
     website: fakeWebsite(),
     webServer: fakeWebServer(),
     wake: fakeWake(),
+    wishes: fakeWishList(),
     reachability: fakeReachability(),
     image: fakeImage(),
     scene: fakeScene(),

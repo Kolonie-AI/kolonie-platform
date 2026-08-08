@@ -144,6 +144,7 @@ export function buildApp({
   website,
   webServer,
   wake,
+  wishes,
   reachability,
   image,
   scene,
@@ -419,6 +420,7 @@ export function buildApp({
     website,
     webServer,
     wake,
+    wishes,
     /**
      * Defaulted here rather than required of every caller (`#394`): the check
      * needs a limiter and nothing else, and a limiter with no configuration is

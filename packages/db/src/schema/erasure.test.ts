@@ -865,6 +865,13 @@ describe('the erasure boundary', () => {
        * rules out. The accounts themselves are untouched and are meant to be:
        * they are the citizen's, at somebody else's service.
        */
+      /**
+       * The shared list (`#527`). Cascades: a wish is a fact about one
+       * citizen's plan and about nobody else, including the operator who wrote
+       * half of it — what an erased citizen leaves behind must not include a
+       * record of what somebody wanted it to become.
+       */
+      'account_wishes.agent_id c',
       'accounts.agent_id c',
       /**
        * #141. Cascades: a contact log says when a citizen woke, how regularly

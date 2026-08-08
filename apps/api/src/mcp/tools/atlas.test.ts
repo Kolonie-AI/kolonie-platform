@@ -50,9 +50,12 @@ describe('the Atlas over MCP', () => {
      * gained the figures, so the count is exactly what it was. Reported here per
      * `#388`'s practice.
      */
-    it('leaves the tool count where it was — 4 unauthenticated, 82 authenticated, 8 steward', () => {
+    it('leaves the tool count where it was — 4 unauthenticated, 83 authenticated, 8 steward', () => {
       expect(UNAUTHENTICATED_TOOLS.length).toBe(4)
-      expect(AUTHENTICATED_TOOLS.length).toBe(82)
+      // 83 since `#527` added `kolonie.accounts.wishes` — one tool that both
+      // reads and writes one list, rather than the two a read and a write would
+      // ordinarily be here.
+      expect(AUTHENTICATED_TOOLS.length).toBe(83)
       expect(STEWARD_TOOLS.length).toBe(8)
     })
 

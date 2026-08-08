@@ -80,6 +80,7 @@ import type { OperatorPageView } from '@kolonie-ai/db'
 import { operatorAnsweredPage, operatorNoteSentPage } from '../autonomy-page.js'
 import { writeOperatorNote } from '../operator-notes.js'
 import { answerOperatorRequest } from '../operator-requests.js'
+import { putOnWishList } from '../account-wishes.js'
 import { generatedSponsorName, SESSION_COOKIE } from './console.js'
 import { mintOauthState } from '../humans/auth0.js'
 import {
@@ -1432,6 +1433,15 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
       agentPage({
         ...view,
         ...(adoption === undefined ? {} : { adoption }),
+        /**
+         * The shared list (`#527`).
+         *
+         * **Only on the HTML representation and only for an operated agent**,
+         * which is the same rule the operator section below follows: this page
+         * is reached by the person who operates the agent, and the list is the
+         * half of the plan they write.
+         */
+        wishes: await deps.wishes.store.list(operated.agentId),
         ...(token === undefined || door === null
           ? {}
           : {
@@ -1513,6 +1523,100 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
           .header('location', `/agents/${String(operated.agentId)}`)
           .send()
       : reply.status(200).send({ revoked })
+  })
+
+  /**
+   * The operator's half of the shared list (`#527`).
+   *
+   * **Three writes and not one taking a verb**, on the reasoning `accounts.ts`
+   * gives about its six small tools: adding, deciding and withdrawing are three
+   * different intentions, and a handler that reads an action out of the body
+   * cannot refuse the one it did not mean to offer.
+   *
+   * All three authorise through {@link operatedAgent}, so a person can only
+   * touch the list of an agent they operate — and the author is decided by which
+   * route was called rather than by a field.
+   */
+  app.post('/agents/:agentId/wishes', async (request, reply) => {
+    if (!(await guard(request, reply))) return reply
+
+    const operated = await operatedAgent(request, reply)
+    if (operated === null) return reply
+
+    const added = await putOnWishList(operated.agentId, 'operator', request.body, deps.wishes)
+    if (added.outcome === 'rejected') {
+      return reply.status(ERROR_STATUS[added.error.code]).send(added.error)
+    }
+
+    return wantsHtml(request)
+      ? reply
+          .status(303)
+          .header('location', `/agents/${String(operated.agentId)}`)
+          .send()
+      : reply.status(added.outcome === 'added' ? 201 : 200).send({ wish: added.wish })
+  })
+
+  /**
+   * The mark that turns a wish into something that may be attempted.
+   *
+   * **Only the operator can make it, and that is the whole of what it means.**
+   * An agent that could set it would be agreeing with itself; there is
+   * deliberately no MCP call that reaches this.
+   */
+  app.post('/agents/:agentId/wishes/want', async (request, reply) => {
+    if (!(await guard(request, reply))) return reply
+
+    const operated = await operatedAgent(request, reply)
+    if (operated === null) return reply
+
+    const { provider } = (request.body ?? {}) as { provider?: unknown }
+    if (typeof provider !== 'string' || provider.trim() === '') {
+      return reply.status(ERROR_STATUS.validation_failed).send({
+        code: 'validation_failed',
+        message: 'Name the provider on the list to mark as wanted.',
+      })
+    }
+
+    const marked = await deps.wishes.store.want(operated.agentId, provider.trim().toLowerCase())
+
+    return wantsHtml(request)
+      ? reply
+          .status(303)
+          .header('location', `/agents/${String(operated.agentId)}`)
+          .send()
+      : reply.status(200).send({ marked })
+  })
+
+  /**
+   * Take something off the list.
+   *
+   * **This is also how an operator withdraws a yes**, which is why there is no
+   * *unwanted* state: a third value would be something every reader has to
+   * handle for a case a removal already covers, and it would leave a row saying
+   * *refused* about a provider somebody may simply have changed their mind on.
+   */
+  app.post('/agents/:agentId/wishes/remove', async (request, reply) => {
+    if (!(await guard(request, reply))) return reply
+
+    const operated = await operatedAgent(request, reply)
+    if (operated === null) return reply
+
+    const { provider } = (request.body ?? {}) as { provider?: unknown }
+    if (typeof provider !== 'string' || provider.trim() === '') {
+      return reply.status(ERROR_STATUS.validation_failed).send({
+        code: 'validation_failed',
+        message: 'Name the provider to take off the list.',
+      })
+    }
+
+    const removed = await deps.wishes.store.remove(operated.agentId, provider.trim().toLowerCase())
+
+    return wantsHtml(request)
+      ? reply
+          .status(303)
+          .header('location', `/agents/${String(operated.agentId)}`)
+          .send()
+      : reply.status(200).send({ removed })
   })
 
   app.get('/agents/:agentId/operator', async (request, reply) => {

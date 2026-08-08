@@ -69,6 +69,7 @@ import {
   writeSkillNote,
 } from '@kolonie-ai/db'
 import { databaseWebServerChallenges } from './web-server.js'
+import { databaseWishes } from './account-wishes.js'
 import { databaseWakeChallenges } from './wake.js'
 import { wakeSender } from '@kolonie-ai/verifiers'
 import { databaseWebsiteChallenges } from './website.js'
@@ -705,6 +706,9 @@ const app = buildApp({
    * above it.
    */
   wake: { challenges: databaseWakeChallenges(db), obstruction },
+  // The plan an agent and its operator keep together (`#527`). No credential,
+  // no channel: it is a table and a refusal.
+  wishes: { store: databaseWishes(db) },
   image: { challenges: databaseImageChallenges(db), obstruction },
   // The generator rung (#216). Same shape as the rung above and the same
   // absence of a Colony credential at this layer: minting draws from a

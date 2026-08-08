@@ -6,6 +6,7 @@ import {
   GenericProofMethodSchema,
   RECIPE_MAX_STEPS,
   SubmitAccountProofRequestSchema,
+  WISH_NOTE_MAX_LENGTH,
 } from '@kolonie-ai/core'
 import {
   AccountKindArgumentSchema,
@@ -27,6 +28,7 @@ import {
   setOwnAccountForWork,
   setOwnAccountVaultKey,
 } from '../../accounts.js'
+import { putOnWishList } from '../../account-wishes.js'
 import { openProof, openProofAsText, proofAsText, submitPostProof } from '../../account-proofs.js'
 import {
   HANDOFF_LATENCY_NOTE,
@@ -833,6 +835,33 @@ export function registerAccountTools(
       if ('error' in resolved) return toolError(resolved.error)
 
       /**
+       * **The one gate the shared list puts on a recipe** (`#527`).
+       *
+       * *"An item on the list is a wish, not an instruction. The operator marks
+       * it as wanted; only then does a recipe run."* This is where a recipe
+       * actually spends the operator's time, so it is where that sentence is
+       * enforceable.
+       *
+       * **Narrow on purpose.** It refuses only a provider that is *on this
+       * agent's list and not marked wanted*. A provider nobody wrote down is not
+       * gated at all — the list is a plan, and making it a permission system
+       * would mean an agent could make its own work harder by recording that it
+       * needs something.
+       */
+      if (await deps.wishes.store.blocksHandoff(authenticatedAgent.agent.id, input.provider)) {
+        return toolError({
+          code: 'conflict',
+          message:
+            `${input.provider} is on the list you and your operator share, and they have not ` +
+            'marked it as wanted yet. That mark is what turns it from something you noticed ' +
+            'into something to attempt — until it is there, asking them for this step would be ' +
+            'starting an onboarding they have not agreed to. Nothing is wrong and nothing is ' +
+            'held against you: read the list with kolonie.accounts.wishes, and carry on with ' +
+            'something else meanwhile.',
+        })
+      }
+
+      /**
        * **A secret goes through the drop, and the drop needs a vault key.** The
        * agent chooses where it lands rather than the operator — `createDrop` refuses
        * a credential drop without one, and its reasoning is that a key chosen by
@@ -898,6 +927,117 @@ export function registerAccountTools(
           },
         ],
         structuredContent: { channel: 'request', ...asked.response },
+      }
+    },
+  )
+
+  /**
+   * The list the agent and its operator share (`#527`).
+   *
+   * **One tool for reading and writing, which is unusual here and is measured
+   * rather than assumed.** The six small writes above are separate because each
+   * is a *different intention* an `update` could not tell apart. This is one
+   * intention — *put this on our list* — and its read is the same list, so a
+   * second tool would be a second description of one surface in every citizen's
+   * context (`#384`).
+   *
+   * **The agent cannot mark anything wanted.** That is the operator's mark and
+   * it is made on the console, which is the whole of what makes it mean
+   * something: an agent that could set it would be agreeing with itself.
+   */
+  server.registerTool(
+    'kolonie.accounts.wishes',
+    {
+      title: 'The list of accounts you and your operator keep together',
+      description:
+        'One list per agent that both of you write to. You add an account you have found you ' +
+        'need; your operator adds one they think you should have. Called with no arguments it ' +
+        'reads the list.\n\n' +
+        '**Say what you were doing when you noticed.** That is the half your operator cannot ' +
+        'supply — you know what you failed at and they do not — and it is what turns a list of ' +
+        'provider names into a case for spending money.\n\n' +
+        '**An entry is a wish and not an instruction.** Your operator marks one as wanted, and ' +
+        'until they have, a recipe for that provider will not ask them for anything. Neither of ' +
+        'you can start an onboarding alone: they cannot because it is not their account, you ' +
+        'cannot because a wall needs a human.\n\n' +
+        '**Nothing on it is a secret.** It is words, on the terms the operator channels already ' +
+        'set — a credential is refused here exactly as it is there, and a sealed drop is what ' +
+        'carries a value.',
+      inputSchema: {
+        provider: AccountProviderSchema.optional().describe(
+          'Who runs it, as the Atlas prints it — "trello.com". Omit to read the list.',
+        ),
+        noticedWhile: z
+          .string()
+          .max(WISH_NOTE_MAX_LENGTH)
+          .optional()
+          .describe('What you were doing when you found you needed it. Words, never a value.'),
+      },
+      annotations: { readOnlyHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    async (input) => {
+      const authenticatedAgent = await authenticate(credential, deps.store)
+      if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
+
+      const agentId = authenticatedAgent.agent.id
+
+      if (input.provider !== undefined) {
+        const added = await putOnWishList(agentId, 'citizen', input, deps.wishes)
+        if (added.outcome === 'rejected') return toolError(added.error)
+
+        if (added.outcome === 'already-listed') {
+          return {
+            content: [
+              {
+                type: 'text',
+                text:
+                  `${added.wish.provider} is already on the list — added ` +
+                  `${added.wish.author === 'operator' ? 'by your operator' : 'by you'}, and ` +
+                  `${added.wish.wantedAt === null ? 'not marked as wanted yet' : 'marked as wanted'}. ` +
+                  'Nothing was changed and nothing was duplicated.',
+              },
+            ],
+            structuredContent: { wish: added.wish, added: false },
+          }
+        }
+
+        return {
+          content: [
+            {
+              type: 'text',
+              text:
+                `${added.wish.provider} is on the list. Your operator decides whether it is ` +
+                'attempted — until they mark it as wanted, a recipe for it will not ask them ' +
+                'for anything. There is nothing to wait for: read the list again on a later ' +
+                'waking.',
+            },
+          ],
+          structuredContent: { wish: added.wish, added: true },
+        }
+      }
+
+      const wishes = await deps.wishes.store.list(agentId)
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text:
+              wishes.length === 0
+                ? 'The list is empty. Add an account you have found you need, and say what you ' +
+                  'were doing when you noticed — that sentence is the reason your operator will ' +
+                  'act on it.'
+                : wishes
+                    .map(
+                      (wish) =>
+                        `${wish.provider} — ${wish.author === 'operator' ? 'your operator' : 'you'}` +
+                        `, ${wish.wantedAt === null ? 'not yet marked as wanted' : 'marked as wanted'}` +
+                        `${wish.noticedWhile === null ? '' : `\n  noticed while: ${wish.noticedWhile}`}`,
+                    )
+                    .join('\n'),
+          },
+        ],
+        structuredContent: { wishes },
       }
     },
   )

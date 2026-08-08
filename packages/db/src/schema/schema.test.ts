@@ -135,6 +135,12 @@ describe('schema', () => {
          * the skills, which existed six times over as one proof-event log per
          * kind.
          */
+        /**
+         * The plan an agent and its operator keep together (`#527`) — what the
+         * citizen does *not* hold and thinks it should, beside the register of
+         * what it does.
+         */
+        'account_wishes',
         'accounts',
         /** The layer that counts for nothing (`#241`). */
         /**

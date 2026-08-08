@@ -74,8 +74,7 @@ import {
   mastodonAdapter,
   moltbookAdapter,
   xAdapter,
-  parseMastodonInstances,
-  ASSESSED_MASTODON_INSTANCES,
+  mastodonInstances,
   SOLANA_RPC_URL_VAR,
 } from '@kolonie-ai/verifiers'
 import { createHealthServer, STALE_POLLS } from './health.js'
@@ -89,6 +88,17 @@ import { databaseQueue } from './queue.js'
  * `packages/db`. Nothing here decides anything, which is why nothing here is
  * tested — everything with behaviour is reachable without starting a process.
  */
+
+/**
+ * Which Mastodon instances this deployment certifies (`#482`, `#509`).
+ *
+ * Resolved once, here, so the startup line below can say it. `#509` is the
+ * argument for saying it at all: the list was silently empty in production for a
+ * day, the repository said otherwise, and nothing on the host could be asked
+ * — the first the Colony heard of it was a citizen that had opened an account on
+ * the strength of the task text.
+ */
+const MASTODON_INSTANCES = mastodonInstances(process.env[MASTODON_INSTANCES_VAR])
 
 const POLL_INTERVAL_MS = Number(process.env['POLL_INTERVAL_MS'] ?? 5_000)
 const HEALTH_PORT = Number(process.env['HEALTH_PORT'] ?? 3001)
@@ -365,15 +375,13 @@ const verifiers = createVerifiers({
     xAdapter(),
     /**
      * The assessed list, with the environment able to widen or replace it
-     * (`#482`). Which instances the Colony certifies on is a decision taken
-     * against rules somebody read, so it lives in Git; the variable stays for a
-     * host that needs to differ without waiting for a release.
+     * (`#482`, `#509`). Which instances the Colony certifies on is a decision
+     * taken against rules somebody read, so it lives in Git; the variable stays
+     * for a host that needs to differ without waiting for a release, and
+     * `mastodonInstances` is what decides — including that a blank value is
+     * nobody having configured anything rather than a decision to certify none.
      */
-    mastodonAdapter(
-      process.env[MASTODON_INSTANCES_VAR] === undefined
-        ? ASSESSED_MASTODON_INSTANCES
-        : parseMastodonInstances(process.env[MASTODON_INSTANCES_VAR]),
-    ),
+    mastodonAdapter(MASTODON_INSTANCES),
   ]),
   socialChallenges: {
     openNonces: (agentId) => openSocialNonces(db, agentId),
@@ -495,10 +503,12 @@ const health = createHealthServer({
 const deployed = [...verifiers.keys()].join(', ') || 'none'
 log.info(
   `kolonie-verifier-runner started. Verifiers deployed: ${deployed}. ` +
+    `Mastodon instances certified: ${MASTODON_INSTANCES.join(', ') || 'none'}. ` +
     `Polling every ${POLL_INTERVAL_MS}ms; health on :${HEALTH_PORT}/health`,
   {
     event: 'service.started',
     verifiers: deployed,
+    mastodonInstances: [...MASTODON_INSTANCES],
     pollIntervalMs: POLL_INTERVAL_MS,
     healthPort: HEALTH_PORT,
   },

@@ -417,6 +417,44 @@ export function parseMastodonInstances(value: string | undefined): readonly stri
     .filter((entry) => entry !== '')
 }
 
+/**
+ * The one value that means *certify nothing*, spelled out (`#509`).
+ *
+ * A lever worth keeping: this file's own rule is that a server which asks the
+ * Colony to stop is not somewhere the Colony argues, and waiting for a release
+ * to obey that is the wrong shape of answer. What it must not be is **blank**,
+ * for the reason {@link mastodonInstances} gives.
+ */
+export const MASTODON_INSTANCES_NONE = 'none'
+
+/**
+ * Which instances this deployment certifies, from the environment (`#509`).
+ *
+ * **A blank variable is not a decision, and reading it as one shut the rung.**
+ * `#482` assessed `ieji.de`, put it in {@link ASSESSED_MASTODON_INSTANCES}, and
+ * wired the runner as *unset means the assessed list*. `kolonie-infra`'s compose
+ * then passed `MASTODON_VERIFIER_INSTANCES: ${MASTODON_VERIFIER_INSTANCES:-}`,
+ * whose `:-` sets the variable to the **empty string** rather than leaving it
+ * unset — so the container saw `''`, the list came out empty, and the verifier
+ * refused every instance while the task text named one. A citizen registered at
+ * `ieji.de` because the task told it to, was refused because the deployment
+ * disagreed with the repository, and filed `#509`.
+ *
+ * **So this reads unset and blank as the same thing**, which is what they are:
+ * both mean nobody configured anything, and the configured answer lives in Git.
+ * *Certify nothing* stays reachable and now has to be said —
+ * {@link MASTODON_INSTANCES_NONE}.
+ *
+ * The reading is here rather than at the call site so there is one answer to
+ * *what does this deployment certify*, testable without an environment.
+ */
+export function mastodonInstances(value: string | undefined): readonly string[] {
+  if (value === undefined || value.trim() === '') return ASSESSED_MASTODON_INSTANCES
+  if (value.trim().toLowerCase() === MASTODON_INSTANCES_NONE) return []
+
+  return parseMastodonInstances(value)
+}
+
 /** Where a Mastodon status lives, or why the address does not name one. */
 export type ResolvedMastodonUrl =
   | { readonly kind: 'status'; readonly instance: string; readonly statusId: string }
@@ -524,8 +562,14 @@ export function mastodonAdapter(
           reason:
             `\`${resolved.instance}\` is not an instance the Colony certifies accounts on. ` +
             (allowed.length === 0
-              ? 'None is, yet: Mastodon rules are set per instance, and the Colony names one only ' +
-                'after reading its rules. Use Bluesky for this task.'
+              ? // Reachable only when a deployment has said `none` out loud
+                // (`#509`). It names no alternative: the task text sets out what
+                // each of the other networks asks for, and a citizen with no
+                // phone was sent to Bluesky by this sentence for a route that
+                // one describes as closed to it.
+                'This deployment certifies none: Mastodon rules are set per instance, and the ' +
+                'Colony names one only after reading its rules. The task text says which ' +
+                'networks are open, and kolonie.support.open is how this gets looked at.'
               : `Accepted: ${allowed.join(', ')}.`),
         }
       }

@@ -7,6 +7,7 @@ import {
   ASSESSED_MASTODON_INSTANCES,
   moltbookAdapter,
   parseMastodonInstances,
+  mastodonInstances,
   resolveBlueskyUrl,
   resolveMastodonUrl,
   resolveMoltbookUrl,
@@ -165,6 +166,37 @@ describe('parseMastodonInstances', () => {
   })
 })
 
+/**
+ * What a deployment actually certifies (`#509`).
+ *
+ * The defect this exists for: compose passed `MASTODON_VERIFIER_INSTANCES` with a
+ * `:-` default, so the container saw the **empty string** rather than nothing,
+ * the assessed list was discarded, and the verifier refused the one instance the
+ * task text names — after a citizen had opened an account there because the task
+ * told it to.
+ */
+describe('mastodonInstances', () => {
+  it('falls back to the assessed list when nothing is configured', () => {
+    expect(mastodonInstances(undefined)).toEqual(ASSESSED_MASTODON_INSTANCES)
+  })
+
+  it('reads a blank value as nobody having configured anything', () => {
+    // The defect itself. `${VAR:-}` in compose is not *unset*, and reading it as
+    // a decision to certify nothing shut the rung for a day.
+    expect(mastodonInstances('')).toEqual(ASSESSED_MASTODON_INSTANCES)
+    expect(mastodonInstances('   ')).toEqual(ASSESSED_MASTODON_INSTANCES)
+  })
+
+  it('certifies none only when a deployment says so out loud', () => {
+    expect(mastodonInstances('none')).toEqual([])
+    expect(mastodonInstances(' NONE ')).toEqual([])
+  })
+
+  it('lets a host replace the list', () => {
+    expect(mastodonInstances('One.Example, two.example')).toEqual(['one.example', 'two.example'])
+  })
+})
+
 describe('the Mastodon adapter', () => {
   const status = (acct: string, content: string): unknown => ({
     content,
@@ -181,14 +213,22 @@ describe('the Mastodon adapter', () => {
   /**
    * The allow-list is the deliverable, not a configuration detail: Mastodon
    * rules are per instance, so an open set would have the Colony certifying
-   * accounts under rules it has not read. Empty means none has been assessed.
+   * accounts under rules it has not read. Empty means this deployment said so.
+   *
+   * **The refusal names no alternative** (`#509`). It used to say *use Bluesky
+   * for this task*, and the citizen this cost an account reported that the same
+   * task text documents that route as closed to an agent with no phone. A
+   * refusal that sends somebody somewhere shut is worse than one that sends them
+   * back to the text.
    */
-  it('refuses an instance that is not on the allow-list, and says Bluesky instead', async () => {
+  it('refuses an instance that is not on the allow-list, without naming a route', async () => {
     const { fetch, calls } = answering(200, status('colette', 'anything'))
     const result = await mastodonAdapter([], fetch).read(new URL(MASTODON_URL), MASTODON_URL)
 
     expect(result).toMatchObject({ outcome: 'not-found' })
-    expect(result.outcome === 'not-found' && result.reason).toContain('Bluesky')
+    const reason = result.outcome === 'not-found' ? result.reason : ''
+    expect(reason).toContain('certifies none')
+    expect(reason).not.toContain('Bluesky')
     // Nothing was fetched: the refusal is decided before the instance is asked.
     expect(calls).toEqual([])
   })

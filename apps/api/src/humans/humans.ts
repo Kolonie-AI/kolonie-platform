@@ -6,6 +6,7 @@ import {
   type HumanSession,
   type IdentityProvider,
   type LinkedAgent,
+  type WaitingItem,
 } from '@kolonie-ai/core'
 import {
   authenticateHumanSession,
@@ -19,6 +20,7 @@ import {
   endHumanSession,
   endHumanSessionById,
   agentsOperatedBy,
+  waitingForOperator,
   findOrCreateHuman,
   issueCodeForAgent,
   identityHoldsKey,
@@ -65,6 +67,14 @@ export interface HumanStore {
   redeemAsHuman(code: string, humanId: Human['id']): Promise<LinkOutcome>
   /** The agents a person operates, for the dashboard `#427` renders. */
   operated(humanId: Human['id']): Promise<readonly LinkedAgent[]>
+  /**
+   * Everything waiting on this person, across all of them (`#530`).
+   *
+   * Its own method rather than a field on {@link operated}, because it is not
+   * per agent: the whole point of the queue is that an operator sees one list
+   * with thirty items on it rather than twelve agents each with two or three.
+   */
+  waitingOnThem(humanId: Human['id']): Promise<readonly WaitingItem[]>
   /** Whether this person operates this agent — the check `#428` authorises on. */
   operates(humanId: Human['id'], agentId: AgentId): Promise<boolean>
   findOrCreate(identity: ProviderIdentity): Promise<{ human: Human; created: boolean }>
@@ -257,6 +267,7 @@ export function databaseHumanStore(db: Database): HumanStore {
     redeemAsAgent: (code, agentId) => redeemCodeAsAgent(db, code, agentId),
     redeemAsHuman: (code, humanId) => redeemCodeAsHuman(db, code, humanId),
     operated: (humanId) => agentsOperatedBy(db, humanId),
+    waitingOnThem: (humanId) => waitingForOperator(db, humanId),
     operates: (humanId, agentId) => operatesAgent(db, humanId, agentId),
     openSession: (humanId, where) => openHumanSession(db, humanId, where),
     authenticate: (session) => authenticateHumanSession(db, session),

@@ -18,6 +18,7 @@
  * why it is copied from `kolonie-website` and what stops the copy drifting.
  */
 
+import type { WaitingItem, WaitingKind } from '@kolonie-ai/core'
 import { CONSOLE_MAST } from './mark.js'
 import { CONSOLE_STYLE } from './theme.js'
 import { absolute, relative } from './time.js'
@@ -570,6 +571,20 @@ export function sessionsPage(input: {
  * explicit that those were never selected *"not because a renderer declines to
  * draw them"*, and that holds one level up.
  */
+/**
+ * What each kind of waiting item is, in the operator's terms rather than the
+ * Colony's (`#530`).
+ *
+ * **Named for what the person will do, not for the table the row came from.**
+ * *A code* and *a credential* are things somebody recognises from their own
+ * afternoon; `operator_drops.kind` is not.
+ */
+const WAITING_LABEL: Readonly<Record<WaitingKind, string>> = {
+  code: 'a code — seconds, if you have it in front of you',
+  credential: 'a credential — something to find or to create',
+  question: 'a question — it needs you to read it and decide',
+}
+
 export function dashboardPage(input: {
   /** The zone every absolute time on this page is rendered in (`#461`). */
   readonly zone: string
@@ -605,6 +620,14 @@ export function dashboardPage(input: {
      */
     readonly waitingOn?: string | null | undefined
   }[]
+  /**
+   * Everything waiting on this person, across every agent they operate (`#530`).
+   *
+   * **Already ordered** by `inClearingOrder` — the renderer does not sort, so
+   * that the console and any future surface cannot disagree about the one
+   * property this section has.
+   */
+  readonly waiting?: readonly WaitingItem[] | undefined
   /** The code this person is holding, if they have asked for one (`#426`). */
   readonly code?: { readonly code: string; readonly expiresAt: string } | undefined
   /** What just happened, where something did. */
@@ -727,8 +750,74 @@ export function dashboardPage(input: {
           '<form method="post" action="/link/code"><button type="submit">Generate a new code</button></form>',
         ]
 
+  /**
+   * **The queue, and it comes before everything else on the page** (`#530`).
+   *
+   * The fleet table answers *how are my agents getting on*; this answers *what
+   * is stopping one right now, that I can clear*. The second question is the one
+   * somebody opens this page twice a day for, so it is above the table rather
+   * than below it.
+   *
+   * **An operator with one agent sees a short list, not an empty dashboard.**
+   * With nothing waiting there is no section at all — a heading over an empty
+   * table teaches a person that this page usually has nothing on it.
+   */
+  const waiting = input.waiting ?? []
+  const queue =
+    waiting.length === 0
+      ? []
+      : [
+          `<h2>Waiting on you (${String(waiting.length)})</h2>`,
+          /**
+           * **Ordered by what each one costs to clear, and the page says so.**
+           * `#530`: *"A queue that puts a five-second captcha behind a card
+           * payment is a queue the operator abandons."* Somebody who cannot see
+           * why the order is what it is will read it as arbitrary and re-sort it
+           * in their head by age, which is the ordering being avoided.
+           */
+          '<p>Shortest first, so a run down this list clears the most agents for the least of ' +
+            'your time. Each line is what the agent was actually asked for, in the words the ' +
+            'Colony gave it.</p>',
+          '<table>',
+          '<thead><tr><th>Agent</th><th>Asked for</th><th>What it was doing</th>' +
+            '<th>Waiting</th><th></th></tr></thead>',
+          `<tbody>${waiting
+            .map((item) =>
+              [
+                '<tr>',
+                `<td><a href="/agents/${escape(item.agentId)}">${escape(item.agentName)}</a></td>`,
+                `<td>${escape(item.ask)}<br><small>${escape(WAITING_LABEL[item.kind])}</small></td>`,
+                `<td>${item.about === null ? '—' : escape(item.about)}</td>`,
+                `<td>${escape(relative(item.since))}</td>`,
+                /**
+                 * **A drop has no link and the cell says why.** Its link is a
+                 * bearer secret the Colony keeps only the hash of, delivered
+                 * once by mail. Rendering a dead link, or inventing a second
+                 * door onto a secret channel, are both worse than a sentence.
+                 */
+                `<td>${
+                  item.answerAt === null
+                    ? '<small>use the link that was mailed to you</small>'
+                    : `<a href="${escape(item.answerAt)}">Answer</a>`
+                }</td>`,
+                '</tr>',
+              ].join(''),
+            )
+            .join('')}</tbody>`,
+          '</table>',
+          /**
+           * The two sentences somebody needs after reading the list: that
+           * answering is worth doing now rather than later (`#518`), and that
+           * this is still not a control panel (`#512`, inherited by `#530`).
+           */
+          '<p class="note">Answering wakes the agent, so it carries on within moments rather ' +
+            'than at its next rhythm — which is hours. Nothing here starts, stops or instructs ' +
+            'an agent; you are answering what it asked.</p>',
+        ]
+
   const body = [
     ...(input.notice === undefined ? [] : [`<p><strong>${escape(input.notice)}</strong></p>`]),
+    ...queue,
     ...list,
     '<h2>Link an agent to this account</h2>',
     '<p>Give your agent this code and ask it to call <code>kolonie.operator.link</code> with it.</p>',

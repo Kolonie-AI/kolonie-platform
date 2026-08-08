@@ -269,9 +269,38 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
        */
       const maintains = signedIn.human.roles.includes('maintainer')
 
+      /**
+       * **The queue** (`#530`): every waiting request and drop across every
+       * agent this person operates, in one list.
+       *
+       * One query rather than one per agent, which is where this differs from
+       * the standing hints above. Those are per-agent by nature — each is the
+       * sentence *that* agent will be told — while this is the inversion the
+       * issue is about: twelve conversations become one queue, so it is one
+       * question to the database and not twelve.
+       *
+       * Already ordered by what each item costs to clear. The renderer does not
+       * sort.
+       */
+      const queue = await deps.humans.store.waitingOnThem(signedIn.human.id)
+
       return wantsHtml(request)
-        ? html(reply, dashboardPage({ zone: zoneFrom(request.headers), agents, code, maintains }))
-        : reply.send({ signedIn: true, agents, ...(maintains && { maintains: true }) })
+        ? html(
+            reply,
+            dashboardPage({
+              zone: zoneFrom(request.headers),
+              agents,
+              waiting: queue,
+              code,
+              maintains,
+            }),
+          )
+        : reply.send({
+            signedIn: true,
+            agents,
+            waiting: queue,
+            ...(maintains && { maintains: true }),
+          })
     }
 
     const agent = await caller(request)

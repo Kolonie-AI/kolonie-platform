@@ -3,10 +3,12 @@ import {
   AgentIdSchema,
   AgentSchema,
   HumanIdSchema,
+  inClearingOrder,
   type Agent,
   type AgentId,
   type Human,
   type HumanSession,
+  type WaitingItem,
 } from '@kolonie-ai/core'
 import type { HumanAuthentication, OpenedSession, ProviderIdentity } from '@kolonie-ai/db'
 import type { HumanDependencies, HumanStore } from '../humans/humans.js'
@@ -21,6 +23,8 @@ import type { IdentityProviderTenant, ResolvedIdentity } from '../humans/auth0.j
  * fixture deliberately does not have a second opinion about it.
  */
 export interface FakeHumanStore extends HumanStore {
+  /** Put something on this person's operator queue (`#530`), without a recipe. */
+  readonly isWaitingOn: (humanId: Human['id'], item: WaitingItem) => void
   /** Every person this store holds, in arrival order. */
   readonly people: () => readonly Human[]
   /** Every session value it has handed out, newest last. */
@@ -59,6 +63,7 @@ export function fakeHumanStore(): FakeHumanStore {
     used: boolean
   }[] = []
   const links = new Map<AgentId, Human['id']>()
+  const queued = new Map<Human['id'], WaitingItem[]>()
   /**
    * Which linked agents this fake should treat as reachable only through the
    * login (`#429`, retargeted by `#458`).
@@ -153,6 +158,10 @@ export function fakeHumanStore(): FakeHumanStore {
       return { outcome: 'linked', agentId: held.agentId, humanId }
     },
 
+    isWaitingOn: (humanId, item) => {
+      queued.set(humanId, [...(queued.get(humanId) ?? []), item])
+    },
+
     operated: async (humanId) =>
       [...links.entries()]
         .filter(([, held]) => held === humanId)
@@ -167,6 +176,15 @@ export function fakeHumanStore(): FakeHumanStore {
           model: null,
           lastEarned: null,
         })),
+
+    /**
+     * The queue (`#530`).
+     *
+     * **Ordered by the same function the real store uses**, rather than handed
+     * back in insertion order — a fake that returned them unordered would let a
+     * test of the page pass while the one property the page has was broken.
+     */
+    waitingOnThem: async (humanId) => inClearingOrder(queued.get(humanId) ?? []),
 
     operates: async (humanId, agentId) => links.get(agentId) === humanId,
 

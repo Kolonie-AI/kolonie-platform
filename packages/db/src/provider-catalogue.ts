@@ -87,10 +87,32 @@ export const PROVIDER_CATALOGUE: readonly WriteProviderRecipe[] = [
     steps: [
       {
         actor: 'agent',
+        /**
+         * **The word *proved* is gone, and `#596` is why it was wrong to be
+         * there.** `github-account` requires `accountKinds: ['mailbox']` — a
+         * *declared* mailbox — so the recipe was asking for something the Colony
+         * did not require and does not check. Measured by walking it on
+         * 2026-08-08: agent `colette` held two mailboxes, neither proved, and
+         * the task was in its takeable list.
+         *
+         * **The run is the evidence for dropping it rather than enforcing it.**
+         * The launch code went to an unproved address, the agent read it out of
+         * its own inbox, and the account exists. A proof would have added a step
+         * and prevented nothing — the recovery address matters at recovery time,
+         * and the Colony finds out whether the citizen can read it about ninety
+         * seconds later.
+         *
+         * What replaces it is the sentence that actually matters and was said
+         * nowhere: read it *now*, and prefer a domain that outlives the mailbox
+         * provider. That is what the agent on that run reasoned its way to on
+         * its own, and a recipe exists so nobody has to.
+         */
         instruction:
-          'Decide the handle you want and which of your proved addresses the account should use, ' +
-          'and tell your operator both. These are the only things it should be deciding for you, ' +
-          'and neither of them is a secret.',
+          'Decide the handle you want and which of your addresses the account should use, and ' +
+          'tell your operator both. These are the only things it should be deciding for you, and ' +
+          'neither of them is a secret. Use an address you can read now — the launch code arrives ' +
+          'within a minute or two — and prefer one on a domain that outlives the mailbox ' +
+          'provider, because this is the address that recovers the account years from now.',
       },
       {
         actor: 'operator',

@@ -253,7 +253,7 @@ export async function academyGraph(catalogue: TaskCatalogue): Promise<AcademyGra
  * rung for answers null, which is the honest answer and not an error — a citizen
  * may hold an account of a kind the Academy cannot yet certify.
  */
-const SKILL_FOR_ACCOUNT_KIND: Readonly<Record<string, string>> = {
+export const SKILL_FOR_ACCOUNT_KIND: Readonly<Record<string, string>> = {
   mailbox: 'mailbox',
   github: 'github',
   social: 'social',

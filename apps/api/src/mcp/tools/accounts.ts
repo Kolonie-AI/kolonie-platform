@@ -45,6 +45,8 @@ import type { McpDependencies } from '../dependencies.js'
 import { toolError } from '../guard.js'
 import { toolDocsMeta } from '../tool-docs.js'
 import { accountsAsText, providersAsText } from '../text/accounts.js'
+import type { HeldAccount } from '../../accounts.js'
+import { SKILL_FOR_ACCOUNT_KIND } from '../../tasks.js'
 
 /**
  * The account register (#150) — the layer under the skills.
@@ -53,6 +55,52 @@ import { accountsAsText, providersAsText } from '../text/accounts.js'
  * note* are different acts with different consequences, and a single `update`
  * taking a partial object would make an agent guess which fields it may omit.
  */
+/**
+ * How much of the Academy is read to work out which account kinds a recipe puts
+ * a citizen in front of (`#596`).
+ *
+ * **A bound rather than everything**, on the same reasoning `#345` gives the
+ * digest: an unbounded read is one that gets slower every time the Academy grows
+ * and nobody notices until it is the slowest call an agent makes. The Academy is
+ * dozens of rungs, so this is far above it and is here to have a ceiling at all.
+ */
+const MAX_TASKS_READ_FOR_ACCOUNT_KINDS = 200
+
+/**
+ * What the citizen already holds of the kinds this entry will ask it to choose
+ * between, **with which of them the Colony has proved** (`#596`).
+ *
+ * The recipe step says *choose which of your addresses the account should use*.
+ * `kolonie.accounts.list` has carried `proved` per account all along and the
+ * recipe never showed it — so the choice was made from memory, or from a second
+ * call the agent had to know to make. A step that asks a citizen to choose
+ * between its own accounts should carry enough to choose with.
+ *
+ * **It says nothing when the citizen holds nothing**, because the refusal that
+ * names the rung is a better answer than an empty list, and the task listing is
+ * where that already lives.
+ */
+function ownAccountsAsText(held: ReadonlyMap<string, readonly HeldAccount[]>): string {
+  const lines = [...held.entries()].flatMap(([kind, accounts]) =>
+    accounts.map(
+      (account) =>
+        `- ${kind}: ${account.identifier}` +
+        (account.proved ? ' — proved' : ' — declared, not proved') +
+        (account.preferred ? ', your preferred one' : ''),
+    ),
+  )
+
+  if (lines.length === 0) return ''
+
+  return (
+    '**What you already hold, for the step that asks you to choose one:**\n' +
+    lines.join('\n') +
+    '\n\nProved or not is the Colony\u2019s record of whether it has seen you read that ' +
+    'address. Nothing here requires a proved one \u2014 use an address you can read now, and ' +
+    'prefer one on a domain that outlives the mailbox provider.'
+  )
+}
+
 export function registerAccountTools(
   server: McpServer,
   deps: McpDependencies,
@@ -798,6 +846,75 @@ export function registerAccountTools(
       )
       if (result.outcome === 'rejected') return toolError(result.error)
 
+      /**
+       * **What the citizen already holds of the kinds these recipes need**
+       * (`#596`).
+       *
+       * A step that says *choose which of your addresses the account should
+       * use* is asking a citizen to choose between its own accounts, and it
+       * should carry enough to choose with. `kolonie.accounts.list` has had
+       * `proved` per account all along; the recipe never showed it, so the
+       * choice was made from memory or from a second call.
+       *
+       * Read only for the kinds the entries on this answer actually require, so
+       * a citizen reading the whole catalogue does not pay for a register scan
+       * it did not ask for.
+       */
+      const everyTask = await deps.catalogue.list({
+        agentId: authenticatedAgent.agent.id,
+        availableOnly: false,
+        limit: MAX_TASKS_READ_FOR_ACCOUNT_KINDS,
+        hints: false,
+      })
+
+      /**
+       * An unreadable catalogue costs the extra paragraph and nothing else. The
+       * recipe is the answer this tool exists for, and a cursor problem in a
+       * read that only enriches it must not take that away.
+       */
+      const academy = everyTask.outcome === 'listed' ? everyTask.page.items : []
+
+      /**
+       * The kinds a citizen would be choosing between, from the tasks that
+       * grant what these entries produce.
+       *
+       * **`grants` joined to the entry's `kind`, and `requiresAccounts` read off
+       * that task.** `github-account` grants a `github` account and requires a
+       * `mailbox`, so an agent reading the `github.com` entry is choosing
+       * between its mailboxes — which is exactly what step one asks it to do.
+       */
+      const needed = [
+        ...new Set(
+          result.response.entries.flatMap((entry) =>
+            entry.recipes.flatMap((recipe) =>
+              /**
+               * **Through `SKILL_FOR_ACCOUNT_KIND` rather than by comparing the
+               * two names.** `grants` is a list of *skills* and `kind` is an
+               * *account kind*; they happen to coincide for every entry the
+               * Colony has today, and a join built on that coincidence breaks
+               * silently the first time a rung is named differently from what
+               * it certifies. That table is the relation, already derived from
+               * what the seed says a task grants.
+               */
+              academy
+                .filter(
+                  (task) =>
+                    SKILL_FOR_ACCOUNT_KIND[recipe.kind] !== undefined &&
+                    task.grants.some(
+                      (skill) => String(skill) === SKILL_FOR_ACCOUNT_KIND[recipe.kind],
+                    ),
+                )
+                .flatMap((task) => task.requiresAccounts),
+            ),
+          ),
+        ),
+      ]
+
+      const ownAccounts =
+        needed.length === 0
+          ? new Map<string, readonly HeldAccount[]>()
+          : await deps.accounts.resolution.heldByKind(authenticatedAgent.agent.id, needed)
+
       return {
         content: [
           {
@@ -808,7 +925,14 @@ export function registerAccountTools(
                   'warning — what you find walking a provider belongs in ' +
                   'kolonie.accounts.provider-report.'
                 : result.response.entries
-                    .map((entry) => atlasEntryAsText(entry, result.response.secretHandoff))
+                    .map((entry) =>
+                      [
+                        atlasEntryAsText(entry, result.response.secretHandoff),
+                        ownAccountsAsText(ownAccounts),
+                      ]
+                        .filter((part) => part !== '')
+                        .join('\n\n'),
+                    )
                     .join('\n\n---\n\n'),
           },
         ],

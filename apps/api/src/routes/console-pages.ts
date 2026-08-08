@@ -42,7 +42,7 @@ import { agentPage } from '../console/agent-page.js'
 import { numbersPage, reviewQueuePage } from '../console/steward.js'
 import { backendPage } from '../console/backend.js'
 import { curationSections } from '../console/curation.js'
-import { atlasCuration } from '../provider-recipes.js'
+import { atlasCatalogue, atlasCuration } from '../provider-recipes.js'
 import {
   operatedQuestsPage,
   questDraftPage,
@@ -78,6 +78,12 @@ import { operatorAnsweredPage, operatorNoteSentPage } from '../autonomy-page.js'
 import { writeOperatorNote } from '../operator-notes.js'
 import { answerOperatorRequest, isWaitingOnTheOperator } from '../operator-requests.js'
 import { putOnWishList, selectBundle } from '../account-wishes.js'
+import {
+  atlasPickerIndex,
+  atlasPickerPath,
+  atlasPickerShelf,
+  pickerCategory,
+} from '../console/atlas-picker.js'
 import { SESSION_COOKIE } from './console.js'
 import { mintOauthState } from '../humans/auth0.js'
 import {
@@ -1752,12 +1758,94 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
       return reply.status(ERROR_STATUS[added.error.code]).send(added.error)
     }
 
+    /**
+     * Where the operator lands afterwards (`#591`).
+     *
+     * **Back to the shelf they were reading, when they came from one.** Somebody
+     * equipping an agent adds four things from one shelf, and a redirect to the
+     * agent page after each would make them navigate back three times. The agent
+     * page stays the destination for the free-text field beside the list, which
+     * is where they already were.
+     *
+     * **The shelf is read from the closed vocabulary and never from the body as
+     * given**, so this cannot be talked into redirecting anywhere but a page
+     * this file owns — a `returnTo` would have been the ordinary shape and the
+     * ordinary open redirect.
+     */
+    const shelf = pickerCategory((request.body as { category?: unknown } | undefined)?.category)
+    const back =
+      shelf === undefined
+        ? `/agents/${String(operated.agentId)}`
+        : `${atlasPickerPath(String(operated.agentId), shelf)}` +
+          (added.outcome === 'already-listed'
+            ? `&already=${encodeURIComponent(added.wish.provider)}`
+            : '')
+
     return wantsHtml(request)
-      ? reply
-          .status(303)
-          .header('location', `/agents/${String(operated.agentId)}`)
-          .send()
+      ? reply.status(303).header('location', back).send()
       : reply.status(added.outcome === 'added' ? 201 : 200).send({ wish: added.wish })
+  })
+
+  /**
+   * Browsing the catalogue from the console (`#591`).
+   *
+   * **Its own route under the accounts area rather than a block on the agent
+   * page.** `#582` is moving the three account blocks to
+   * `/agents/:agentId/accounts`, and a browser built into the page it is about
+   * to move would be built twice; a page at
+   * `/agents/:agentId/accounts/browse` is where that issue would have put it
+   * anyway, and links to it from either place cost one line.
+   *
+   * It reads `atlasCatalogue` — the same assembly the public Atlas and
+   * `kolonie.accounts.recipes` read — so the console cannot drift from what a
+   * stranger sees.
+   */
+  app.get('/agents/:agentId/accounts/browse', async (request, reply) => {
+    if (!(await guard(request, reply))) return reply
+
+    const operated = await operatedAgent(request, reply)
+    if (operated === null) return reply
+
+    const [entries, wishes, accounts] = await Promise.all([
+      atlasCatalogue(deps.recipes),
+      deps.wishes.store.list(operated.agentId),
+      deps.accounts.register.list(operated.agentId),
+    ])
+
+    const state = {
+      listed: new Set(wishes.map((wish) => wish.provider)),
+      /**
+       * **Providers, not kinds.** An agent holding one mailbox has not exhausted
+       * the mailbox shelf, and a picker that greyed out twelve providers because
+       * one account exists would be answering a question nobody asked.
+       */
+      held: new Set(
+        accounts.flatMap((account) => (account.provider === null ? [] : [account.provider])),
+      ),
+    }
+
+    const { category, already } = request.query as { category?: unknown; already?: unknown }
+    const shelf = pickerCategory(category)
+
+    const input = {
+      agentId: String(operated.agentId),
+      entries,
+      state,
+      ...(typeof already === 'string' ? { alreadyListed: already } : {}),
+    }
+
+    /**
+     * **An unknown shelf lands on the list of shelves rather than on a 404.** A
+     * category is a name in a link, and somebody who edits one out of curiosity
+     * has not found a missing page — they have asked for a shelf that does not
+     * exist, and the list of the ones that do is the answer.
+     */
+    return html(
+      reply,
+      shelf === undefined
+        ? atlasPickerIndex(input)
+        : atlasPickerShelf({ ...input, category: shelf }),
+    )
   })
 
   /**

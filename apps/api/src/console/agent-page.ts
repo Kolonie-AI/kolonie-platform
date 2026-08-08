@@ -550,6 +550,14 @@ export function agentPage(input: AgentPageInput): string {
             'you mark it as wanted, and a recipe for a provider you have not marked will not ' +
             'ask you for anything. Neither of you can start an onboarding alone: you cannot ' +
             'because it is not your account, it cannot because a wall needs a person.</p>',
+          /**
+           * The way in that does not require already knowing a hostname
+           * (`#591`). Above the free-text field rather than below it, because
+           * the field is the fallback and had been the only door.
+           */
+          `<p><a href="/agents/${escape(input.agentId)}/accounts/browse">Browse the Atlas</a> — ` +
+            'what the Colony knows about, by category, with what each one needs from you. ' +
+            'Typing a provider it has never heard of still works, below.</p>',
           ...(input.wishes.length === 0
             ? ['<p>Nothing on it yet.</p>']
             : [

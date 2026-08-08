@@ -99,6 +99,34 @@ export const QUEST_MAX_DURATION_DAYS = 365
  */
 export const QUEST_REVIEW_REWARD_CREDITS = 5
 
+/**
+ * What a steward is paid per quest decided, in lamports (D-110).
+ *
+ * **`0.001 SOL`, flat, either verdict** — D-105 unchanged in everything except
+ * its unit and its amount. Five credits was five US cents, and D-106 left that
+ * with nothing to be five cents *of*.
+ *
+ * **Stopping was refused rather than overlooked.** D-105's argument survives the
+ * change of unit intact — *refusing is the decision the Colony most needs done
+ * well*, and an unpaid role prices the careful no at zero. What changed is that
+ * the payment is now real: five credits was a unit the Colony minted for itself
+ * and a lamport is not, so stopping would have been reversing D-105 under cover
+ * of porting it.
+ *
+ * **A transaction fee is not a meaningful fraction of it**, which
+ * `kolonie-docs#225` reasonably feared: a Solana base fee is `5_000` lamports,
+ * half a per cent of this. The real chain constraint is the rent-exempt minimum
+ * ({@link RENT_EXEMPT_MINIMUM_FALLBACK}), and a steward's first review accrues
+ * through it exactly as a citizen's first report does (`#505`).
+ *
+ * Three orders of magnitude above the fee that carries it, in the same ladder as
+ * {@link QUEST_TIER_CAPS_LAMPORTS}, and about seven and a half cents at USD
+ * 74.52/SOL rather than the old five — a small rise, said plainly in D-110.
+ * **Whether a steward is paid enough is a different question** from which unit
+ * it is paid in, and it belongs to `kolonie-docs#194` rather than here.
+ */
+export const QUEST_REVIEW_REWARD_LAMPORTS = 1_000_000
+
 export const QUEST_REFUSAL_MIN_LENGTH = 10
 export const QUEST_REFUSAL_MAX_LENGTH = 1000
 
@@ -167,6 +195,42 @@ export const QUEST_TIER_CAPS: Readonly<Record<QuestTier, number>> = {
   'colony-judged': 100,
   /** Five cents — *"must never pay more than the reputation it risks."* */
   soft: 5,
+}
+
+/**
+ * The same three ceilings, in lamports, which is what a quest is priced in
+ * (D-110, `kolonie-docs#225`).
+ *
+ * **`200 : 20 : 1`, unchanged — that ratio is the decision.** The absolute
+ * figures only ever followed a price, and under D-106 there is no cent for them
+ * to follow. Converting at write time was refused: it needs a USD/SOL rate the
+ * Colony does not have and would put an outbound call on the quest write path,
+ * and a ceiling that depends on a third party makes a quest refusable for a
+ * reason the sponsor cannot see. **They float in dollar terms and that is the
+ * accepted cost** — at USD 74.52/SOL, measured 2026-08-08, about $7.45, $0.75
+ * and $0.037, which is near the old intent and already out of date.
+ *
+ * **What these still protect, now that the balance argument is gone.** `#504`
+ * has the sponsor pay an invoice for capacity × unit, so a typo costs at the
+ * moment it is invoiced rather than emptying anything silently — the reason
+ * `governance/quests.md` originally gave has expired. What survives is the
+ * sentence above the tier table: *a softly verified Quest must never pay more
+ * than the reputation it risks.* That is not about a sponsor's money. It is what
+ * the Colony will let itself advertise, and a ceiling is the only thing between
+ * the tier names and their meaning.
+ *
+ * **`soft` is below the rent-exempt minimum** ({@link RENT_EXEMPT_MINIMUM_FALLBACK},
+ * `890_880`), so a citizen's first payout at that price accrues until it clears.
+ * Named here because it looks like a defect and is not: `#505` does this for
+ * every payout and calls it physics rather than a threshold policy.
+ */
+export const QUEST_TIER_CAPS_LAMPORTS: Readonly<Record<QuestTier, number>> = {
+  /** 0.1 SOL a report. A third party said yes; the Colony is not the evidence. */
+  hard: 100_000_000,
+  /** 0.01 SOL. A model read it against the sponsor's own stated criteria. */
+  'colony-judged': 10_000_000,
+  /** 0.0005 SOL — *"must never pay more than the reputation it risks."* */
+  soft: 500_000,
 }
 
 /**

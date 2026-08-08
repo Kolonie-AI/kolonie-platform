@@ -1,10 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import { QuestQuestionSchema } from './questions.js'
+import { RENT_EXEMPT_MINIMUM_FALLBACK } from '../ledger/transfer.js'
 import {
   DEFAULT_PLATFORM_FEE_PERCENT,
   PLATFORM_FEE_PERCENT_VAR,
   QUEST_EDITABLE_STATUSES,
   QUEST_TIER_CAPS,
+  QUEST_TIER_CAPS_LAMPORTS,
+  QUEST_REVIEW_REWARD_LAMPORTS,
   QUEST_MAX_DURATION_DAYS,
   QUEST_MAX_SLOTS,
   QuestDraftSchema,
@@ -500,5 +503,57 @@ describe('what a sponsor and a citizen are told about the fee', () => {
       expect(notice).not.toContain('0 ')
       expect(notice).not.toContain('platform fee')
     })
+  })
+})
+
+/**
+ * D-110 (`kolonie-docs#225`). The two prices that were still in cents when D-106
+ * moved settlement to SOL, re-taken in lamports.
+ *
+ * **What is asserted is the ratio and the ordering, not the figures.** A test
+ * that restated `100_000_000` would only prove the constant had been typed
+ * twice. The ratio is what `governance/quests.md` actually argues — *"a softly
+ * verified Quest must never pay more than the reputation it risks"* is a claim
+ * about proportion — and it is what a later re-take at a new price has to
+ * preserve.
+ */
+describe('the prices D-106 left without a unit', () => {
+  it('keeps the tier ceilings at 200 : 20 : 1, whatever the price of SOL', () => {
+    const { hard, soft } = QUEST_TIER_CAPS_LAMPORTS
+    const judged = QUEST_TIER_CAPS_LAMPORTS['colony-judged']
+
+    expect(hard / soft).toBe(200)
+    expect(judged / soft).toBe(20)
+    // The same ratio the credit ceilings carried, so this is a change of unit
+    // rather than a repricing that arrived wearing one.
+    expect(hard / soft).toBe(QUEST_TIER_CAPS.hard / QUEST_TIER_CAPS.soft)
+    expect(judged / soft).toBe(QUEST_TIER_CAPS['colony-judged'] / QUEST_TIER_CAPS.soft)
+  })
+
+  it('prices every tier above the fee that carries a payout', () => {
+    // A ceiling below the cost of paying it out would be a tier that cannot be
+    // used. 5_000 lamports is the Solana base fee.
+    for (const cap of Object.values(QUEST_TIER_CAPS_LAMPORTS)) {
+      expect(cap).toBeGreaterThan(5_000 * 10)
+    }
+  })
+
+  /**
+   * Not an oversight and not a bug: a first payout at the soft ceiling accrues
+   * until it clears the chain minimum, which `#505` does for every payout. The
+   * assertion is here so that somebody raising the ceiling has to meet this
+   * comment rather than discover it from a citizen who was not paid.
+   */
+  it('leaves the soft ceiling below the rent-exempt minimum, knowingly', () => {
+    expect(QUEST_TIER_CAPS_LAMPORTS.soft).toBeLessThan(RENT_EXEMPT_MINIMUM_FALLBACK)
+    expect(QUEST_TIER_CAPS_LAMPORTS['colony-judged']).toBeGreaterThan(RENT_EXEMPT_MINIMUM_FALLBACK)
+  })
+
+  it("pays a steward more than a soft report and far more than a transaction's fee", () => {
+    expect(QUEST_REVIEW_REWARD_LAMPORTS).toBeGreaterThan(QUEST_TIER_CAPS_LAMPORTS.soft)
+    expect(QUEST_REVIEW_REWARD_LAMPORTS).toBeGreaterThan(5_000 * 100)
+    // Small enough that reviewing is not a way to earn — D-105's second
+    // condition, which the change of unit had to keep.
+    expect(QUEST_REVIEW_REWARD_LAMPORTS).toBeLessThan(QUEST_TIER_CAPS_LAMPORTS['colony-judged'])
   })
 })

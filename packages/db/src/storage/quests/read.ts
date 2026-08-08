@@ -28,9 +28,11 @@ export async function listOwnQuests(db: Database, authorId: AgentId): Promise<re
     .where(and(eq(tasks.createdBy, authorId), eq(tasks.kind, 'quest')))
     .orderBy(desc(tasks.createdAt))
 
+  // Every id, unfiltered: the status half of the rule is inside `unmoderatedIds`
+  // since `#561`, and pre-filtering here is what let the two readers drift apart.
   const pending = await unmoderatedIds(
     db,
-    rows.filter((row) => row.status === 'pending_review').map((row) => row.id as TaskId),
+    rows.map((row) => row.id as TaskId),
   )
 
   return rows.map((row) => ({
@@ -76,7 +78,26 @@ function invoiceOf(
   return { invoice: { lamports: row.invoiceLamports ?? 0, paidLamports: row.paidLamports } }
 }
 
-/** Which of these quests are still waiting on the moderator. */
+/**
+ * Which of these quests are still waiting on the moderator.
+ *
+ * **Both halves of the rule are here, and that is the fix for `#561`.** Waiting
+ * on the moderator means *in the review queue* **and** *no moderation newer than
+ * the last text revision*. The second half lived here; the first lived in
+ * `listOwnQuests`, which filtered to `pending_review` before calling — and
+ * `readOwnQuest` did not.
+ *
+ * So the two readers of one field disagreed, exactly as a citizen measured on
+ * 2026-08-08: quest `767f79cd`, `active`, funded, advertised to twelve citizens
+ * and carrying **no moderation row at all** — because moderation is switched off
+ * in production (`kolonie-docs#206`) — answered `awaitingModeration: false` from
+ * `quests.list` and `true` from `quests.read`, in the same second. `quests.read`
+ * is the detail view a sponsor opens to ask *is my quest live yet*, and it was
+ * answering *no* about a live quest.
+ *
+ * A predicate that is only correct when the caller remembers to pre-filter is a
+ * predicate with two definitions. This one now needs no help.
+ */
 async function unmoderatedIds(
   db: Database,
   taskIds: readonly TaskId[],
@@ -89,6 +110,10 @@ async function unmoderatedIds(
     .where(
       and(
         inArray(tasks.id, [...taskIds]),
+        // Nothing outside the review queue is waiting on the moderator, whatever
+        // the moderation rows say. A quest that went live without one is not
+        // pending; it is a quest the Colony published without moderating.
+        eq(tasks.status, 'pending_review'),
         sql`not exists (
           select 1 from ${questModerations}
           where ${questModerations.taskId} = ${tasks.id}

@@ -890,6 +890,70 @@ describe('the quest write path', () => {
       await moderate(task.id)
       expect((await readOwnQuest(db, sponsor, task.id))?.awaitingModeration).toBe(false)
     })
+
+    /**
+     * `#561`, reported by a citizen who called both readers within a few seconds
+     * and got different answers about the same quest.
+     *
+     * The predicate — *no moderation newer than the last text revision* — is
+     * true of a live quest that was never moderated, which is what a deployment
+     * with the audit switched off produces (`kolonie-docs#206`). What made it
+     * false in one reader and true in the other was that `listOwnQuests`
+     * pre-filtered to `pending_review` and `readOwnQuest` did not.
+     *
+     * **Asserted on both readers against one row**, because either alone passes
+     * while they disagree — which is the whole shape of the defect. Measured in
+     * production on quest `767f79cd`: `active`, funded, advertised to twelve
+     * citizens, zero moderation rows, `list` said `false` and `read` said `true`.
+     */
+    it('never says a live quest is awaiting moderation, whichever reader is asked', async () => {
+      const sponsor = await anAgent('sponsor')
+      const { task } = await createQuestDraft(db, { authorId: sponsor, draft: aDraft() })
+
+      // Live and never moderated — the production state, reached directly
+      // because no code path is supposed to produce it and the reader must be
+      // right about it anyway.
+      await db.update(tasks).set({ status: 'active' }).where(eq(tasks.id, task.id))
+
+      const read = await readOwnQuest(db, sponsor, task.id)
+      const listed = (await listOwnQuests(db, sponsor)).find((quest) => quest.task.id === task.id)
+
+      expect(read?.task.status).toBe('active')
+      expect(read?.awaitingModeration).toBe(false)
+      expect(listed?.awaitingModeration).toBe(false)
+      expect(read?.awaitingModeration).toBe(listed?.awaitingModeration)
+    })
+
+    /**
+     * The other half of the same rule, and the reason the fix is a status gate
+     * rather than a special case for `active`: nothing outside the review queue
+     * is waiting on a moderator.
+     */
+    it('agrees on every status a quest can be in', async () => {
+      const sponsor = await anAgent('sponsor')
+
+      for (const status of ['draft', 'pending_review', 'active', 'rejected', 'retired'] as const) {
+        const { task } = await createQuestDraft(db, { authorId: sponsor, draft: aDraft() })
+        await db
+          .update(tasks)
+          .set({
+            status,
+            // The constraint pairs a reason with the status that carries one.
+            ...(status === 'rejected' && { rejectionReason: 'It asks for a captcha.' }),
+          })
+          .where(eq(tasks.id, task.id))
+
+        const read = await readOwnQuest(db, sponsor, task.id)
+        const listed = (await listOwnQuests(db, sponsor)).find((q) => q.task.id === task.id)
+
+        expect(read?.awaitingModeration, `read disagreed on ${status}`).toBe(
+          status === 'pending_review',
+        )
+        expect(listed?.awaitingModeration, `list disagreed on ${status}`).toBe(
+          read?.awaitingModeration,
+        )
+      }
+    })
   })
 
   /**

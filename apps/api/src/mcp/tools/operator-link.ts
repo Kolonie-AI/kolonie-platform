@@ -104,7 +104,7 @@ export function registerOperatorLinkTools(
               type: 'text',
               text:
                 `Give this to your operator:\n\n    ${issued.code}\n\n` +
-                'They sign in at the console with GitHub — a person’s account, not a citizen’s ' +
+                'They sign in at the console — a person’s account, not a citizen’s ' +
                 '— and enter it there. It works once and stops working at ' +
                 `${issued.expiresAt}. Asking again replaces it, so ask when they are ready ` +
                 'rather than in advance.',

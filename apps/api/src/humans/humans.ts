@@ -277,7 +277,7 @@ export function coarseLocation(headers: Record<string, unknown>): string | null 
 }
 
 /** The doors this build knows how to offer, in the order the page shows them. */
-export const OFFERED_PROVIDERS: readonly IdentityProvider[] = ['github']
+export const OFFERED_PROVIDERS: readonly IdentityProvider[] = ['github', 'google']
 
 /**
  * The store, wired to a real database. The only place these two meet.

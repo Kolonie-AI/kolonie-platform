@@ -248,11 +248,25 @@ describe('signing in as a person', () => {
   })
 
   describe('the page', () => {
-    it('offers the door when a tenant is configured', async () => {
+    it('offers the doors when a tenant is configured', async () => {
       const response = await asBrowser('/')
 
       expect(response.body).toContain('/sign-in/github')
       expect(response.body).toContain('Continue with GitHub')
+      expect(response.body).toContain('/sign-in/google')
+      expect(response.body).toContain('Continue with Google')
+    })
+
+    /**
+     * The assertion `#568` is actually about, and it is a negative one: GitHub
+     * is a developer's login, and an operator is not always a developer. A page
+     * offering a second door still fails this issue if the sentence beside the
+     * buttons says the first one is how you get in.
+     */
+    it('names no provider as *the* way in', async () => {
+      const response = await asBrowser('/')
+
+      expect(response.body).not.toMatch(/sign in (?:to the console )?with GitHub/i)
     })
 
     /**

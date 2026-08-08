@@ -34,9 +34,10 @@ export interface IdentityProviderTenant {
   /**
    * Where to send a browser to sign in.
    *
-   * `connection` names the door — with GitHub the only one configured, naming it
-   * skips a chooser page that has one option on it. `state` is the caller's, and
-   * comes back untouched.
+   * `connection` names the door, so the person lands on the provider they
+   * pressed rather than on a chooser page repeating the choice they just made.
+   * That mattered less when GitHub was the only door and matters more now that
+   * it is not. `state` is the caller's, and comes back untouched.
    */
   authorizeUrl(input: { readonly connection: IdentityProvider; readonly state: string }): string
   /** Turn a callback code into the identity behind it, or nothing. */

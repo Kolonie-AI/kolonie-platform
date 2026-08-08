@@ -316,6 +316,27 @@ const STANDING_HINT_TEXT: Record<StandingHintCode, (subject: string | null) => s
     'publishing. It is worth doing now rather than next time: escrow is committed when a quest ' +
     'is published, so a sponsor’s balance sits reserved for nothing while the queue is ' +
     'unread, and the paid work another citizen would answer does not exist yet.',
+  /**
+   * `#577`. **The only sentence here that reports money arriving**, and what it
+   * has to carry is everything the chain cannot say: that the Colony sent it,
+   * what it was for, and that something may still be owed.
+   *
+   * **No amount and no signature.** `kolonie.me.earnings` is exact and this is a
+   * nudge — `quest-awaiting-your-payment`'s rule next door, applied in the other
+   * direction: a figure repeated into a hint is a figure that can be stale and
+   * wrong about somebody's money.
+   *
+   * **It says the Colony holds no balance**, because the sentence would
+   * otherwise read as *your Colony account has been credited*, which is the
+   * arrangement D-106 ended and the one a citizen arriving from any older
+   * documentation still expects.
+   */
+  'payout-sent': () =>
+    'The Colony has paid you for work it accepted, to the wallet you verified — it is on chain ' +
+    'and yours already, and no balance is held for you here. kolonie.me.earnings is the only ' +
+    'place that says what each payment was for, which transaction carries it, and whether ' +
+    'anything is still owed and what would release it. Worth one read; the chain shows you the ' +
+    'money and not the reason.',
   'account-kind-proved': (subject) => {
     const opens = subject === null ? null : whatAKindOpens(subject)
 

@@ -1,4 +1,4 @@
-import { and, asc, eq, isNull, sql } from 'drizzle-orm'
+import { and, asc, eq, isNotNull, isNull, sql } from 'drizzle-orm'
 import {
   BADGE_CATALOGUE,
   GENERAL_HINTS,
@@ -13,6 +13,7 @@ import {
   accounts,
   agents,
   agentSessions,
+  payoutObligations,
   supportTickets,
   taskConsiderations,
   tasks,
@@ -57,6 +58,15 @@ interface Standing {
   readonly ticket: string | null
   /** The `accounts` row behind an `account-kind-proved` finding, if any (`#558`). */
   readonly account: string | null
+  /**
+   * Whether a `payout-sent` finding has rows to mark (`#577`).
+   *
+   * A boolean and not an id, unlike every field above it, because what is
+   * claimed is **every** paid obligation this citizen has not been told about
+   * rather than the one that produced the finding — see
+   * `payout_obligations.hinted_at`.
+   */
+  readonly payoutUntold: boolean
 }
 
 /**
@@ -554,6 +564,71 @@ async function claimTicketHint(db: Database | Transaction, id: string): Promise<
 }
 
 /**
+ * Whether the Colony has paid this citizen something it has never mentioned
+ * (`#577`).
+ *
+ * **Paid, and never merely owed.** `paid_at is not null` is the whole condition:
+ * an obligation waiting for the chain minimum is not news, and a hint fired on
+ * one would be true on every waking until the accrual moved — which is the one
+ * thing the standing channel refuses.
+ *
+ * **`hinted_at is null` rather than a comparison against the previous session.**
+ * The issue's condition was *paid since the citizen was last awake*, and that
+ * version quietly makes the hint the most perishable line in the vocabulary: it
+ * applies on exactly one waking, so being outranked once loses it for ever. The
+ * mark says the same thing in a form that survives, which is what lets it rank
+ * with the doors rather than beside `badge-awarded`.
+ *
+ * **Forfeited rows are not payments.** An amount forfeited to the Treasury under
+ * `erasure.md` never reached anybody's wallet, and the schema's
+ * `paid_xor_forfeited` check means reading `paid_at` alone is enough to exclude
+ * them.
+ */
+async function untoldPayout(db: Database | Transaction, agentId: AgentId): Promise<boolean> {
+  const rows = await db
+    .select({ id: payoutObligations.id })
+    .from(payoutObligations)
+    .where(
+      and(
+        eq(payoutObligations.agentId, agentId),
+        isNotNull(payoutObligations.paidAt),
+        isNull(payoutObligations.hintedAt),
+      ),
+    )
+    .limit(1)
+
+  return rows.length > 0
+}
+
+/**
+ * Mark that this citizen has been told the Colony paid it (`#577`).
+ *
+ * **Every paid and untold row, not the one that produced the finding.** The
+ * sentence says *you have been paid* and names no amount and no quest, so a
+ * citizen paid three times between wakings has heard it once and correctly;
+ * marking a single row would queue three identical sentences across three
+ * wakings.
+ *
+ * The `where` is the same race guard the claims above use, and the loser
+ * attaches nothing rather than reporting an error.
+ */
+async function claimPayoutHint(db: Database | Transaction, agentId: AgentId): Promise<boolean> {
+  const claimed = await db
+    .update(payoutObligations)
+    .set({ hintedAt: sql`now()` })
+    .where(
+      and(
+        eq(payoutObligations.agentId, agentId),
+        isNotNull(payoutObligations.paidAt),
+        isNull(payoutObligations.hintedAt),
+      ),
+    )
+    .returning({ id: payoutObligations.id })
+
+  return claimed.length > 0
+}
+
+/**
  * Whether this citizen's own latest declaration says the run has no shell
  * (`#372`).
  *
@@ -695,6 +770,7 @@ async function standing(
       general: null,
       ticket: null,
       account: null,
+      payoutUntold: false,
     }
   }
 
@@ -725,6 +801,7 @@ async function conditions(
     questsAwaitingReview,
     untoldKind,
     questAwaitingPayment,
+    payoutUntold,
   ] = await Promise.all([
     unpromptedConsideration(db, agentId, cheap.declaredRhythmHours),
     untoldBadge(db, agentId),
@@ -742,6 +819,7 @@ async function conditions(
     stewardWithQueue(db, agentId),
     untoldAccountKind(db, agentId),
     ownQuestAwaitingPayment(db, agentId),
+    untoldPayout(db, agentId),
   ])
 
   const general = untoldGeneralHint(cheap.generalHintsTold)
@@ -866,6 +944,14 @@ async function conditions(
    * {@link STANDING_HINT_RANK}, where `general` sits below every condition that
    * is about this citizen.
    */
+  /**
+   * **No subject** (`#577`). Not the amount — `kolonie.me.earnings` is exact and
+   * a figure copied into a hint can be stale about somebody's money; not the
+   * quest's title, which is sponsor-authored and this channel's oldest
+   * prohibition; and not the signature, which is a thing to look up rather than
+   * a sentence.
+   */
+  if (payoutUntold) applicable.push({ code: 'payout-sent', subject: null })
   if (general !== null) applicable.push({ code: 'general', subject: general })
 
   return {
@@ -876,6 +962,7 @@ async function conditions(
     general,
     ticket: seven.ticket?.id ?? null,
     account: untoldKind?.id ?? null,
+    payoutUntold,
   }
 }
 
@@ -1015,6 +1102,11 @@ export async function dueStandingHint(
     if (chosen.code === 'account-kind-proved') {
       if (found.account === null) return null
       if (!(await claimAccountKindHint(db, found.account))) return null
+    }
+
+    if (chosen.code === 'payout-sent') {
+      if (!found.payoutUntold) return null
+      if (!(await claimPayoutHint(db, agentId))) return null
     }
 
     return chosen

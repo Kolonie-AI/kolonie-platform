@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
-import { and, eq, sql } from 'drizzle-orm'
+import { and, eq, isNull, sql } from 'drizzle-orm'
 import { AgentIdSchema, GENERAL_HINTS, SKILL_RENEWAL_HOURS, type AgentId } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import { TaskIdSchema, type TaskId } from '@kolonie-ai/core'
@@ -11,6 +11,7 @@ import {
   agentSkills,
   ledgerEntries,
   operatorClaims,
+  payoutObligations,
   submissions,
   supportTickets,
   taskAttempts,
@@ -817,6 +818,52 @@ describe('the seven conditions the Colony kept to itself', () => {
   const hintInAFreshRun = async (agentId: AgentId) => {
     await aSession(agentId)
     return dueStandingHint(db, agentId)
+  }
+
+  /**
+   * An accepted report the Colony owes for, paid or still owed (`#577`).
+   *
+   * A submission of its own each time, because `payout_obligations` is unique on
+   * it — that uniqueness is the idempotency of the whole payout path, and a
+   * helper that reused one would be testing against a shape production cannot
+   * reach.
+   */
+  const aPayout = async (agentId: AgentId, paid: boolean): Promise<string> => {
+    const taskId = await aTask({ status: 'draft' as const })
+    const [submission] = await db
+      .insert(submissions)
+      .values({
+        taskId,
+        agentId,
+        payload: {},
+        attempt: 1,
+        status: 'passed' as const,
+        verifiedAt: sql`now()`,
+      })
+      .returning({ id: submissions.id })
+    if (submission === undefined) throw new Error('inserting a submission returned no row')
+
+    const [row] = await db
+      .insert(payoutObligations)
+      .values({
+        agentId,
+        taskId,
+        submissionId: submission.id,
+        lamports: 1_000_000,
+        address: 'So11111111111111111111111111111111111111112',
+        ...(paid ? { paidAt: sql`now()`, signature: `sig-${++seeded}` } : {}),
+      })
+      .returning({ id: payoutObligations.id })
+    if (row === undefined) throw new Error('inserting an obligation returned no row')
+    return row.id
+  }
+
+  const untoldPayouts = async (agentId: AgentId): Promise<number> => {
+    const rows = await db
+      .select({ id: payoutObligations.id })
+      .from(payoutObligations)
+      .where(and(eq(payoutObligations.agentId, agentId), isNull(payoutObligations.hintedAt)))
+    return rows.length
   }
 
   const aTask = async (over: Record<string, unknown> = {}): Promise<TaskId> => {
@@ -1722,6 +1769,107 @@ describe('the seven conditions the Colony kept to itself', () => {
     // `ticket-settled` outranks `operator-unclaimed` and `skill-unused`, and the
     // rank is where that argument is written down.
     expect((await hintInAFreshRun(agentId))?.code).toBe('ticket-settled')
+  })
+
+  /**
+   * `#577`. `#553` removed the wake-up's `pays` block and with it the one place
+   * the digest volunteered that work had paid, so a citizen found out only by
+   * asking — and `kolonie.me.earnings` is a read nobody makes unprompted.
+   */
+  describe('the money the Colony has already sent', () => {
+    it('says so once the payment has completed', async () => {
+      const agentId = await aQuietCitizen()
+      await aPayout(agentId, true)
+
+      const hint = await hintInAFreshRun(agentId)
+
+      expect(hint?.code).toBe('payout-sent')
+      // No amount, no quest, no signature: the earnings call is exact and this
+      // is a nudge towards it.
+      expect(hint?.subject).toBeNull()
+    })
+
+    /**
+     * The rejection case the issue names, and the one that decides whether this
+     * is a hint or a nag: an obligation waiting for the chain minimum would be
+     * true on every waking until the accrual moved.
+     */
+    it('says nothing about an amount that is merely owed', async () => {
+      const agentId = await aQuietCitizen()
+      await aPayout(agentId, false)
+
+      expect(await hintInAFreshRun(agentId)).toBeNull()
+    })
+
+    it('says nothing twice', async () => {
+      const agentId = await aQuietCitizen()
+      await aPayout(agentId, true)
+
+      expect((await hintInAFreshRun(agentId))?.code).toBe('payout-sent')
+      expect(await hintInAFreshRun(agentId)).toBeNull()
+    })
+
+    /**
+     * What was said is *you have been paid*, so three payments between wakings
+     * are one sentence. Marking only the row that produced the finding would
+     * queue three identical lines across three wakings.
+     */
+    it('marks every completed payment it was silent about, not one', async () => {
+      const agentId = await aQuietCitizen()
+      await aPayout(agentId, true)
+      await aPayout(agentId, true)
+      await aPayout(agentId, true)
+
+      expect((await hintInAFreshRun(agentId))?.code).toBe('payout-sent')
+      expect(await untoldPayouts(agentId)).toBe(0)
+      expect(await hintInAFreshRun(agentId)).toBeNull()
+    })
+
+    /**
+     * The mark leaves an outstanding debt alone, which is what makes the next
+     * payment sayable: a citizen paid, told, and then paid again hears it again.
+     */
+    it('is said again the next time the Colony pays', async () => {
+      const agentId = await aQuietCitizen()
+      await aPayout(agentId, true)
+      expect((await hintInAFreshRun(agentId))?.code).toBe('payout-sent')
+
+      await aPayout(agentId, true)
+
+      expect((await hintInAFreshRun(agentId))?.code).toBe('payout-sent')
+    })
+
+    /**
+     * Both halves of the placement argument in `STANDING_HINT_RANK`. It is a
+     * door — the money is already the citizen's and on chain — so it yields to
+     * everything with a clock, and the mark is what makes yielding free: the
+     * condition is still there on the waking after.
+     */
+    it('yields to a lapsing skill, and survives having yielded', async () => {
+      const [skill, hours] = Object.entries(SKILL_RENEWAL_HOURS)[0] ?? []
+      if (skill === undefined || hours === undefined) return
+
+      const agentId = await aQuietCitizen()
+      await aPayout(agentId, true)
+      await grantSkill(
+        agentId,
+        skill,
+        new Date(Date.now() - (hours + 1) * 60 * 60 * 1000).toISOString(),
+      )
+
+      expect((await hintInAFreshRun(agentId))?.code).toBe('skill-due-for-renewal')
+      // The whole reason it can afford to rank low: nothing was lost.
+      expect(await untoldPayouts(agentId)).toBe(1)
+    })
+
+    it('leads the two doors that have stood open since the citizen arrived', async () => {
+      const agentId = await aQuietCitizen()
+      await db.delete(operatorClaims).where(eq(operatorClaims.agentId, agentId))
+      await grantSkill(agentId, 'browser')
+      await aPayout(agentId, true)
+
+      expect((await hintInAFreshRun(agentId))?.code).toBe('payout-sent')
+    })
   })
 
   /**

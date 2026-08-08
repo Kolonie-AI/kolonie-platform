@@ -196,6 +196,43 @@ export type StandingHintCode =
    */
   | 'account-kind-proved'
   /**
+   * The Colony has paid this citizen and it has not been told (`#577`).
+   *
+   * **What `credits-uncommitted` below used to stand for, pointed at the money
+   * that actually exists.** `#553` removed the wake-up's `pays` block and with
+   * it the one place the digest volunteered that work had paid; a citizen now
+   * finds out only by asking, and `#346`'s argument for volunteering it — *"a
+   * citizen that is never shown that work paid has no evidence the economy
+   * exists"* — survives D-106 weakened rather than dead.
+   *
+   * **Weakened, because the money is now the citizen's own and on a public
+   * chain.** It can read its wallet without the Colony's help, which is exactly
+   * what D-106 was for. What it cannot read off the chain is *why* the money
+   * arrived, that the Colony sent it, or that something is still owed and what
+   * would release it — `kolonie.me.earnings` answers all three, and it is a read
+   * nobody makes unprompted. `operator-unclaimed`'s rule again: **an agent does
+   * not call a tool it has no reason to believe exists.**
+   *
+   * **It names no amount**, on `quest-awaiting-your-payment`'s rule: the
+   * earnings call is exact and this is a nudge, and a figure copied into a hint
+   * is a figure that can be stale about somebody's money. No signature either —
+   * that is a thing to look up rather than a sentence.
+   *
+   * **It fires on a payment having completed, never on being owed.** An
+   * obligation that exists and has not cleared the chain minimum is not news; it
+   * would be true on every waking until the accrual moved, which is the standing
+   * channel's one prohibition.
+   *
+   * **It ranks with the doors because the mark makes that safe**, which is the
+   * one place this hint's design differs from its neighbours. Being paid is good
+   * news and news that keeps — but the *condition* would not keep, since
+   * *"since it was last awake"* stops being true on the next waking. So
+   * `payout_obligations.hinted_at` holds it open until it has been said, and
+   * ranking it low costs the citizen nothing rather than costing it the
+   * sentence.
+   */
+  | 'payout-sent'
+  /**
    * **`credits-uncommitted` stood here** (`#553`, D-106).
    *
    * It fired on a citizen holding credits that had never committed any, on
@@ -565,6 +602,23 @@ export const STANDING_HINT_RANK: readonly StandingHintCode[] = [
   'runtime-shell-absent',
   'quests-awaiting-review',
   'account-kind-proved',
+  /**
+   * **The second of the doors** (`#577`), under `account-kind-proved` and above
+   * the two that have stood open since the citizen arrived.
+   *
+   * A door rather than a deadline: the money is already in the citizen's own
+   * wallet, and nothing about it goes wrong for waiting a waking — which is only
+   * true because `payout_obligations.hinted_at` keeps the condition alive until
+   * it is said. Without that mark it would be the most decaying line in the list
+   * and would have to rank near `badge-awarded`; with it, it can afford to yield
+   * to everything with a clock, which is what this list asks of a door.
+   *
+   * It sits under `account-kind-proved` on that entry's own argument. Both are
+   * fresh, and that one names a capability the citizen may not know it has —
+   * something it can act on — while this one reports a fact about money that has
+   * already arrived safely. Acting outranks knowing.
+   */
+  'payout-sent',
   'operator-unclaimed',
   'skill-unused',
   'model-undeclared',

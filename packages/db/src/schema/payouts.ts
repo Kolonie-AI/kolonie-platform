@@ -140,6 +140,31 @@ export const payoutObligations = pgTable(
      * the receipt to say so, and this is what it reads.
      */
     forfeitedAt: timestamp('forfeited_at', { withTimezone: true, mode: 'string' }),
+
+    /**
+     * When the Colony told this citizen that this payment went out (`#577`).
+     *
+     * **A fact about what the Colony sent, never about what the citizen did with
+     * it** — `accounts.hinted_at`, `support_tickets.hinted_at` and
+     * `agent_sessions.hinted_at` exactly, and the standing-hint channel's rule
+     * that there is no read state anywhere in it.
+     *
+     * **It is what lets the hint rank low.** `#577` asks for it to, on the
+     * ground that being paid is *news that keeps* — and that is only true if
+     * the news survives being outranked. Fired off *"paid since the citizen was
+     * last awake"* alone, a payout crowded out by a lapsing skill on the one
+     * waking it applied to would never be mentioned again, which is the
+     * opposite of good news that keeps. With the mark, the condition holds
+     * until it has been said once, and yielding costs nothing.
+     *
+     * **Every paid row of that citizen is marked at once, not only the one that
+     * triggered it.** The sentence names no amount and no quest — it says money
+     * arrived and points at `kolonie.me.earnings` — so what was said is *you
+     * have been paid*, and a citizen paid three times between wakings has heard
+     * it. Marking one row would queue three identical sentences across three
+     * wakings, which is `#231`'s wallpaper failure with extra steps.
+     */
+    hintedAt: timestamp('hinted_at', { withTimezone: true, mode: 'string' }),
   },
   (table) => [
     /** One obligation per accepted report, enforced where two writers can both see it. */

@@ -57,8 +57,8 @@ export async function operatorPageBody(
     readonly as?: 'page' | 'section' | undefined
   } = {},
 ): Promise<string> {
-  const [exchange, room] = await Promise.all([
-    deps.operatorRequests.store.openExchangeForToken(token),
+  const [exchanges, room] = await Promise.all([
+    deps.operatorRequests.store.exchangesForToken(token),
     deps.operatorNotes.store.roomForToken(token),
   ])
 
@@ -82,19 +82,23 @@ export async function operatorPageBody(
     ...(room !== undefined && room.unread >= MAX_UNREAD_OPERATOR_NOTES
       ? { inboxFull: inboxFullMessage(room.unread) }
       : {}),
-    ...(exchange === undefined
-      ? {}
-      : {
-          exchange: {
-            requestId: String(exchange.requestId),
-            taskTitle: exchange.taskTitle,
-            messages: exchange.messages,
-            // Whether the page renders a box under it (`#359`). A closed
-            // exchange is here because the citizen answered a question the
-            // operator asked in the notes channel, and it is read-only.
-            closed: exchange.closed,
-          },
-        }),
+    /**
+     * Every exchange, not the one the query happened to pick (`#593`).
+     *
+     * Passed through in the order storage gave — open oldest-first, then a
+     * closed one the citizen answered into since — because that order is what
+     * `#587`'s anchor depends on and re-sorting it here would be a second answer
+     * to *which question is first*.
+     */
+    exchanges: exchanges.map((exchange) => ({
+      requestId: String(exchange.requestId),
+      taskTitle: exchange.taskTitle,
+      messages: exchange.messages,
+      // Whether the page renders a box under it (`#359`). A closed exchange is
+      // here because the citizen answered a question the operator asked in the
+      // notes channel, and it is read-only.
+      closed: exchange.closed,
+    })),
   })
 }
 

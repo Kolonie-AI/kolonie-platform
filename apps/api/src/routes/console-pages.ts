@@ -2060,7 +2060,7 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
        * instead of at their agent's sixth blocked run.
        */
       const stillWaiting = isWaitingOnTheOperator(
-        await deps.operatorRequests.store.openExchangeForToken(door.token),
+        await deps.operatorRequests.store.exchangesForToken(door.token),
       )
 
       const written = await writeOperatorNote(

@@ -17,7 +17,7 @@ import {
   closeOperatorRequest,
   hasOpenOperatorRequest,
   listOperatorRequests,
-  openExchangeForToken,
+  exchangesForToken,
   openOperatorRequest,
   operatorRequestRecipient,
   readOperatorRequest,
@@ -385,7 +385,7 @@ describe('the operator request (#236)', () => {
       const requestId = await anOpenRequest()
       const token = await issueOperatorPage(db, agentId, OPERATOR)
 
-      const exchange = await openExchangeForToken(db, token)
+      const [exchange] = await exchangesForToken(db, token)
       expect(exchange?.requestId).toBe(requestId)
       expect(exchange?.taskTitle).toBe('github-account')
       expect(exchange?.messages).toHaveLength(1)
@@ -395,16 +395,36 @@ describe('the operator request (#236)', () => {
       const requestId = await anOpenRequest()
       const token = await issueOperatorPage(db, agentId, OPERATOR)
 
-      expect(await openExchangeForToken(db, 'not-a-token')).toBeUndefined()
+      expect(await exchangesForToken(db, 'not-a-token')).toEqual([])
 
       await closeOperatorRequest(db, { agentId, requestId })
-      expect(await openExchangeForToken(db, token)).toBeUndefined()
+      expect(await exchangesForToken(db, token)).toEqual([])
 
       await openOperatorRequest(db, { agentId, taskId, body: ASK })
-      expect(await openExchangeForToken(db, token)).toBeDefined()
+      expect(await exchangesForToken(db, token)).toHaveLength(1)
 
       await revokeOperatorPage(db, agentId, OPERATOR)
-      expect(await openExchangeForToken(db, token)).toBeUndefined()
+      expect(await exchangesForToken(db, token)).toEqual([])
+    })
+
+    /**
+     * **`#593` says an agent can have two open questions, and it cannot** —
+     * `operator_requests_one_open_idx` is a partial unique index on `agent_id`
+     * where `closed_at is null`, so the database refuses the second. Verified
+     * against production 2026-08-08: no agent has more than one.
+     *
+     * The test is here rather than the two-open-exchange one the issue asked
+     * for, because a test asserting a state the schema forbids would be a test
+     * asserting a fiction. What `#593` describes an operator seeing is real and
+     * is the anchor problem `#587` fixes.
+     */
+    it('refuses a second open request, which is why one can never be picked wrongly', async () => {
+      const first = await anOpenRequest()
+
+      const second = await openOperatorRequest(db, { agentId, taskId, body: ASK })
+
+      expect(second.outcome).toBe('already-open')
+      expect(second.outcome === 'already-open' ? second.openRequestId : undefined).toBe(first)
     })
 
     /**
@@ -420,11 +440,11 @@ describe('the operator request (#236)', () => {
       const token = await issueOperatorPage(db, agentId, OPERATOR)
       await closeOperatorRequest(db, { agentId, requestId })
 
-      expect(await openExchangeForToken(db, token)).toBeUndefined()
+      expect(await exchangesForToken(db, token)).toEqual([])
 
       await replyToOperatorRequest(db, { agentId, requestId, body: 'Answering your question.' })
 
-      const exchange = await openExchangeForToken(db, token)
+      const [exchange] = await exchangesForToken(db, token)
       expect(exchange?.requestId).toBe(requestId)
       // Read-only on the page: the box is what `closed` decides, and a finished
       // exchange the operator could answer back into would be the conversation
@@ -434,10 +454,17 @@ describe('the operator request (#236)', () => {
     })
 
     /**
-     * An open exchange always wins, so the operator is never shown two things at
-     * once — the *favour rather than a job* rule the channel is built on.
+     * **Both, with the open one first** (`#593`).
+     *
+     * This used to assert that the open exchange *won* and the closed one was
+     * hidden, on the reading that an operator must never be shown two things at
+     * once. That was the `limit(1)` being described as a rule: the console queue
+     * already listed every open request, so the page hiding one was not
+     * protecting anybody — it was disagreeing with the queue that sent them
+     * here. The finished one stays last and stays read-only, which is `#359`'s
+     * actual rule and is unchanged.
      */
-    it('prefers the open exchange over an answered closed one', async () => {
+    it('shows an open exchange and an answered closed one, open first', async () => {
       const closedRequest = await anOpenRequest()
       const token = await issueOperatorPage(db, agentId, OPERATOR)
       await closeOperatorRequest(db, { agentId, requestId: closedRequest })
@@ -450,9 +477,13 @@ describe('the operator request (#236)', () => {
       const opened = await openOperatorRequest(db, { agentId, taskId, body: ASK })
       expect(opened.outcome).toBe('opened')
 
-      const exchange = await openExchangeForToken(db, token)
-      expect(exchange?.closed).toBe(false)
-      expect(exchange?.requestId).not.toBe(closedRequest)
+      const exchanges = await exchangesForToken(db, token)
+
+      expect(exchanges).toHaveLength(2)
+      expect(exchanges[0]?.closed).toBe(false)
+      expect(exchanges[0]?.requestId).not.toBe(closedRequest)
+      expect(exchanges[1]?.closed).toBe(true)
+      expect(exchanges[1]?.requestId).toBe(closedRequest)
     })
   })
 

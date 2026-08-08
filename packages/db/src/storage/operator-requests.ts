@@ -362,11 +362,30 @@ export interface OpenExchangeForOperator {
  * word was said before it closed is finished business and stays off the page;
  * only an answer written *after* it closed is news the operator has not seen.
  */
-export async function openExchangeForToken(
+/**
+ * Every exchange the operator is shown: all the open ones, then a closed one the
+ * citizen has answered into since (`#593`).
+ *
+ * **`limit(1)` with no `order by` is what this replaces**, and it was worse than
+ * wrong: a consistently wrong choice would have been noticed, while a
+ * planner-dependent one shows the right question often enough that the times it
+ * does not read as the operator misremembering. The console queue listed every
+ * open request and the page showed one of them.
+ *
+ * **Open ones oldest first.** The oldest has been blocking longest, and a stable
+ * order is what makes `#587`'s anchor land where the operator clicked.
+ *
+ * **The closed one stays at most one, and stays last.** `#359` put it here
+ * because an answer written after an exchange closed is news the operator has
+ * not seen; that is unchanged, and it is deliberately not turned into a history
+ * — a page that grew a transcript would stop being the *favour rather than a
+ * job* `#236` built the channel around.
+ */
+export async function exchangesForToken(
   db: Database,
   token: string,
-): Promise<OpenExchangeForOperator | undefined> {
-  const [open] = await db
+): Promise<readonly OpenExchangeForOperator[]> {
+  const open = await db
     .select({
       requestId: operatorRequests.id,
       taskTitle: tasks.title,
@@ -382,18 +401,43 @@ export async function openExchangeForToken(
         isNull(operatorRequests.closedAt),
       ),
     )
-    .limit(1)
+    /**
+     * **Oldest first, and `id` breaks the tie.** Two requests opened in the same
+     * millisecond are ordinary — an agent asking twice in one turn — and without
+     * the second key their order would be the planner's again, which is the
+     * whole defect this function exists to remove.
+     */
+    .orderBy(asc(operatorRequests.openedAt), asc(operatorRequests.id))
 
-  if (open !== undefined) {
-    return {
-      requestId: open.requestId as OperatorRequestId,
-      taskTitle: open.taskTitle,
-      openedAt: toTimestamp(open.openedAt),
-      messages: await messagesOf(db, open.requestId as OperatorRequestId),
+  const exchanges: OpenExchangeForOperator[] = []
+
+  for (const row of open) {
+    exchanges.push({
+      requestId: row.requestId as OperatorRequestId,
+      taskTitle: row.taskTitle,
+      openedAt: toTimestamp(row.openedAt),
+      messages: await messagesOf(db, row.requestId as OperatorRequestId),
       closed: false,
-    }
+    })
   }
 
+  const answered = await answeredSinceClosing(db, token)
+  if (answered !== undefined) exchanges.push(answered)
+
+  return exchanges
+}
+
+/**
+ * A finished exchange the citizen wrote into after it closed (`#359`).
+ *
+ * Split out of {@link exchangesForToken} because it is a different question with
+ * a different `order by`, and inlining it made the one function two queries deep
+ * in a way that hid which of the two the `limit(1)` belonged to.
+ */
+async function answeredSinceClosing(
+  db: Database,
+  token: string,
+): Promise<OpenExchangeForOperator | undefined> {
   const [answered] = await db
     .select({
       requestId: operatorRequests.id,

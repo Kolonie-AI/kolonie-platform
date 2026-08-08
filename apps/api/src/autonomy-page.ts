@@ -123,6 +123,47 @@ function tile(value: number, label: string): string {
   )
 }
 
+/**
+ * One exchange between a citizen and its operator, as this page renders it.
+ *
+ * **Named since `#593`**, because the page shows a list of them and a function
+ * that takes one needs something to be typed against. Before that it was an
+ * inline shape on the page's input and there was only ever one.
+ */
+export interface OperatorExchange {
+  readonly requestId: string
+  readonly taskTitle: string
+  readonly messages: readonly {
+    readonly author: 'citizen' | 'operator'
+    readonly body: string
+    readonly writtenAt: string
+  }[]
+  /**
+   * Whether the exchange is finished, in which case it is shown **without a
+   * box** (`#359`).
+   *
+   * A citizen may answer a question its operator asked in the notes channel by
+   * replying into an exchange that is already closed — which costs it neither
+   * its one open-request slot nor its one mail. What arrives here is that
+   * answer, and the reason there is no box under it is the same reason the notes
+   * channel is one-way: a finished exchange that could be resumed from both
+   * sides is the conversation `#236` chose not to build.
+   */
+  readonly closed?: boolean | undefined
+}
+
+/**
+ * The fragment one exchange lives at (`#593`, pointed at by `#587`).
+ *
+ * **The request id and not an index.** A position changes the moment another
+ * question is opened or answered, so a link built on one would send an operator
+ * to a different question than the one they clicked — which is the defect this
+ * page already had, arriving through the link instead of through the query.
+ */
+export function exchangeAnchor(requestId: string): string {
+  return `question-${requestId}`
+}
+
 /** The form itself. `token` is in the action, so nothing has to carry it in a field. */
 export function autonomyFormPage(input: {
   readonly agentName: string
@@ -422,35 +463,25 @@ export function operatorDurablePage(input: {
   /**
    * The one open question this citizen has asked, if it has asked one (`#236`).
    *
-   * Absent for the ordinary case, in which the page is exactly what `#257` built
-   * and carries no form at all. **One at a time**, because that is the rule the
-   * channel enforces — an operator opening this page is never confronted with a
-   * queue, which is the difference between a favour and a job.
+   * Empty for the ordinary case, in which the page is exactly what `#257` built
+   * and carries no form at all.
+   *
+   * **A list since `#593`, and the rule it replaces was never enforced here.**
+   * The page showed one exchange because the query said `limit(1)`, and the
+   * sentence about never confronting an operator with a queue was written over
+   * the top of that. The console queue already listed every open request, so an
+   * operator clicked *Answer* on the second, landed on a page showing the first,
+   * answered it, and found the row they wanted still there — with nothing saying
+   * why.
+   *
+   * What `#236` actually protects is the citizen's **one open request**, and
+   * that is enforced where a request is opened rather than here. Several
+   * exchanges on this page means one open question and a finished one the
+   * citizen wrote into since (`#359`), or a page reached for an agent that has
+   * more than one — and hiding the extras was never the protection, only the
+   * appearance of it.
    */
-  readonly exchange?:
-    | {
-        readonly requestId: string
-        readonly taskTitle: string
-        readonly messages: readonly {
-          readonly author: 'citizen' | 'operator'
-          readonly body: string
-          readonly writtenAt: string
-        }[]
-        /**
-         * Whether the exchange is finished, in which case it is shown **without a
-         * box** (`#359`).
-         *
-         * A citizen may now answer a question its operator asked in the notes
-         * channel by replying into an exchange that is already closed — which
-         * costs it neither its one open-request slot nor its one mail. What
-         * arrives here is that answer, and the reason there is no box under it is
-         * the same reason the notes channel is one-way: a finished exchange that
-         * could be resumed from both sides is the conversation `#236` chose not
-         * to build.
-         */
-        readonly closed?: boolean | undefined
-      }
-    | undefined
+  readonly exchanges?: readonly OperatorExchange[] | undefined
   /** What to say if an answer was just refused — a credential, or an empty box. */
   readonly answerError?: string | undefined
   /**
@@ -832,87 +863,116 @@ export function operatorDurablePage(input: {
    * amended under is that the link carries words. A `select` here would be the
    * first step to carrying something else.
    */
+  const answerAction = input.action
+
   const question =
-    input.exchange === undefined || input.action === undefined
+    answerAction === undefined
       ? []
-      : input.exchange.closed === true
-        ? [
-            /**
-             * A finished exchange the citizen wrote into afterwards (`#359`).
-             *
-             * **Shown, and shown without a box.** The answer is here because the
-             * operator asked something in the notes channel and there was nowhere
-             * for the reply to land; it is read-only because the exchange is over
-             * and reopening it from this side would turn one question into a
-             * thread. The operator's route to another question is the note box
-             * further down, which is where the first one came from.
-             */
-            `<h2>${name} answered you</h2>`,
-            `<p>About a task called “${escape(input.exchange.taskTitle)}”, in an exchange that is`,
-            'now finished. There is nothing to reply to here — if you want to say something else,',
-            'use the message box below.</p>',
-            '<table>',
-            ...input.exchange.messages.map(
-              (message) =>
-                `<tr><th>${message.author === 'operator' ? 'You wrote' : `${name} wrote`}</th>` +
-                `<td>${escape(message.body)}</td></tr>`,
-            ),
-            '</table>',
-          ]
-        : [
-            `<h2>${name} has asked you something</h2>`,
-            `<p>About a task called “${escape(input.exchange.taskTitle)}”.</p>`,
-            input.answerError === undefined
-              ? ''
-              : `<p class="note"><strong>${escape(input.answerError)}</strong></p>`,
-            '<table>',
-            ...input.exchange.messages.map(
-              (message) =>
-                `<tr><th>${message.author === 'operator' ? 'You wrote' : `${name} wrote`}</th>` +
-                `<td>${escape(message.body)}</td></tr>`,
-            ),
-            '</table>',
-            `<form method="post" action="${escape(input.action)}">`,
-            /**
-             * Which of the page's two boxes this is (`#239`).
-             *
-             * **Named rather than inferred from `requestId` being present.** The
-             * route used to have one form and could assume; with two, guessing from
-             * the shape of a body a stranger controls is how an answer ends up
-             * delivered as a note. The field is the answer to *what did the person
-             * click*, and it is not the answer to *what may they do* — both forms
-             * reach words and nothing else.
-             */
-            '<input type="hidden" name="intent" value="answer">',
-            `<input type="hidden" name="requestId" value="${escape(input.exchange.requestId)}">`,
-            `<textarea name="body" rows="5" maxlength="${OPERATOR_MESSAGE_MAX_LENGTH}" required></textarea>`,
-            '<button type="submit">Send this to your agent</button>',
-            '</form>',
-            /**
-             * Three things a person needs to know before they type, in the order
-             * they need them: what their words are worth, what they must not
-             * include, and that they may correct themselves later. The last one is
-             * why the record is append-only, and saying so is what stops an
-             * operator agonising over the first draft.
-             */
-            '<p class="note">Your agent reads this as <em>your</em> words rather than as the',
-            'Colony’s, and weighs it against what you already recorded above. Answering cannot',
-            'give it any new permission — not from you, and not from anybody else who somehow got',
-            'this link.</p>',
-            '<p class="note"><strong>Never put a password, key or code here.</strong> The Colony',
-            'refuses those on purpose: this text goes into its database and cannot be taken back.',
-            'If your agent needs a credential, it will tell you where to put it instead.</p>',
-            '<p class="note">You can add to your answer later if you got something wrong — nothing',
-            'you send is edited or deleted, so a correction is simply another message.</p>',
-            /**
-             * **Last, because it is what happens after the button** (`#495`).
-             * The three above are things to know before typing; this one is the
-             * thing to know before walking away, and an operator that reads only
-             * the last line has read the one that stops them wondering whether
-             * they were ignored.
-             */
-            ...whenItWillRead(),
-          ]
+      : (input.exchanges ?? []).flatMap((exchange) => [
+          /**
+           * **Each exchange is its own section with its own anchor** (`#593`),
+           * so `#587`'s *Answer* link has something stable to point at and an
+           * operator who answers the second of three lands back where they were
+           * rather than at the top of a long page.
+           */
+          `<section id="${escape(exchangeAnchor(exchange.requestId))}">`,
+          ...exchangeBlock(exchange, name, {
+            action: answerAction,
+            ...(input.answerError === undefined ? {} : { answerError: input.answerError }),
+          }),
+          '</section>',
+        ])
+
+  /**
+   * One exchange: what was said, and the box to answer it (`#236`).
+   *
+   * Lifted out of the page body by `#593` because there are now several of them.
+   * Nothing about what it renders changed.
+   */
+  function exchangeBlock(
+    exchange: OperatorExchange,
+    who: string,
+    context: { readonly action: string; readonly answerError?: string | undefined },
+  ): readonly string[] {
+    return exchange.closed === true
+      ? [
+          /**
+           * A finished exchange the citizen wrote into afterwards (`#359`).
+           *
+           * **Shown, and shown without a box.** The answer is here because the
+           * operator asked something in the notes channel and there was nowhere
+           * for the reply to land; it is read-only because the exchange is over
+           * and reopening it from this side would turn one question into a
+           * thread. The operator's route to another question is the note box
+           * further down, which is where the first one came from.
+           */
+          `<h2>${who} answered you</h2>`,
+          `<p>About a task called “${escape(exchange.taskTitle)}”, in an exchange that is`,
+          'now finished. There is nothing to reply to here — if you want to say something else,',
+          'use the message box below.</p>',
+          '<table>',
+          ...exchange.messages.map(
+            (message) =>
+              `<tr><th>${message.author === 'operator' ? 'You wrote' : `${who} wrote`}</th>` +
+              `<td>${escape(message.body)}</td></tr>`,
+          ),
+          '</table>',
+        ]
+      : [
+          `<h2>${who} has asked you something</h2>`,
+          `<p>About a task called “${escape(exchange.taskTitle)}”.</p>`,
+          context.answerError === undefined
+            ? ''
+            : `<p class="note"><strong>${escape(context.answerError)}</strong></p>`,
+          '<table>',
+          ...exchange.messages.map(
+            (message) =>
+              `<tr><th>${message.author === 'operator' ? 'You wrote' : `${who} wrote`}</th>` +
+              `<td>${escape(message.body)}</td></tr>`,
+          ),
+          '</table>',
+          `<form method="post" action="${escape(context.action)}">`,
+          /**
+           * Which of the page's two boxes this is (`#239`).
+           *
+           * **Named rather than inferred from `requestId` being present.** The
+           * route used to have one form and could assume; with two, guessing from
+           * the shape of a body a stranger controls is how an answer ends up
+           * delivered as a note. The field is the answer to *what did the person
+           * click*, and it is not the answer to *what may they do* — both forms
+           * reach words and nothing else.
+           */
+          '<input type="hidden" name="intent" value="answer">',
+          `<input type="hidden" name="requestId" value="${escape(exchange.requestId)}">`,
+          `<textarea name="body" rows="5" maxlength="${OPERATOR_MESSAGE_MAX_LENGTH}" required></textarea>`,
+          '<button type="submit">Send this to your agent</button>',
+          '</form>',
+          /**
+           * Three things a person needs to know before they type, in the order
+           * they need them: what their words are worth, what they must not
+           * include, and that they may correct themselves later. The last one is
+           * why the record is append-only, and saying so is what stops an
+           * operator agonising over the first draft.
+           */
+          '<p class="note">Your agent reads this as <em>your</em> words rather than as the',
+          'Colony’s, and weighs it against what you already recorded above. Answering cannot',
+          'give it any new permission — not from you, and not from anybody else who somehow got',
+          'this link.</p>',
+          '<p class="note"><strong>Never put a password, key or code here.</strong> The Colony',
+          'refuses those on purpose: this text goes into its database and cannot be taken back.',
+          'If your agent needs a credential, it will tell you where to put it instead.</p>',
+          '<p class="note">You can add to your answer later if you got something wrong — nothing',
+          'you send is edited or deleted, so a correction is simply another message.</p>',
+          /**
+           * **Last, because it is what happens after the button** (`#495`).
+           * The three above are things to know before typing; this one is the
+           * thing to know before walking away, and an operator that reads only
+           * the last line has read the one that stops them wondering whether
+           * they were ignored.
+           */
+          ...whenItWillRead(),
+        ]
+  }
 
   /**
    * The box for saying something nobody asked for (`#239`).
@@ -953,10 +1013,20 @@ export function operatorDurablePage(input: {
    * recorded as the answer to that question rather than dropped. See the
    * routes.
    */
-  const waitingOnAnAnswer =
-    input.exchange !== undefined &&
-    !input.exchange.closed &&
-    !input.exchange.messages.some((message) => message.author === 'operator')
+  /**
+   * **Any open question the operator has not written into yet** (`#593`).
+   *
+   * `some` rather than the one exchange this used to read, and the choice is the
+   * conservative one: with two questions waiting, the note box says *use the box
+   * above* until both have been answered. Showing a second box while anything is
+   * still unanswered is exactly how an answer ends up somewhere the Colony does
+   * not look, which is the sentence below it.
+   */
+  const waitingOnAnAnswer = (input.exchanges ?? []).some(
+    (exchange) =>
+      exchange.closed !== true &&
+      !exchange.messages.some((message) => message.author === 'operator'),
+  )
 
   const note =
     input.action === undefined

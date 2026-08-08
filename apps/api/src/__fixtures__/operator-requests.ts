@@ -145,43 +145,49 @@ export function fakeOperatorRequestStore(
       )
     },
 
-    openExchangeForToken: (token) => {
+    exchangesForToken: (token) => {
       const agentId = pages.agentForToken(token)
-      if (agentId === null) return Promise.resolve(undefined)
+      if (agentId === null) return Promise.resolve([])
 
-      const open = openRowFor(agentId)
-      // The open exchange wins; a closed one appears only once the citizen has
-      // answered into it after it closed (`#359`).
-      const row =
-        open ??
-        [...rows.values()]
-          .filter(
-            (candidate) =>
-              candidate.agentId === agentId &&
-              candidate.closedAt !== null &&
-              candidate.messages.some(
-                (message) =>
-                  message.author === 'citizen' &&
-                  candidate.closedAt !== null &&
-                  // `>=` where the database says `>`: both timestamps here are
-                  // `toISOString()` at millisecond resolution, and a close
-                  // followed immediately by a reply lands on the same
-                  // millisecond. Postgres records microseconds, so the two
-                  // statements are never equal there.
-                  message.writtenAt >= candidate.closedAt,
-              ),
-          )
-          .sort((a, b) => String(b.closedAt).localeCompare(String(a.closedAt)))[0]
+      /**
+       * **Every open one, oldest first, then a closed one answered into since**
+       * (`#593`, `#359`). The fake orders the way the SQL does, because a fake
+       * that returned them in insertion order would let a page test pass against
+       * an ordering the database does not give.
+       */
+      const open = [...rows.values()]
+        .filter((row) => row.agentId === agentId && row.closedAt === null)
+        .sort((a, b) => a.openedAt.localeCompare(b.openedAt) || a.id.localeCompare(b.id))
 
-      if (row === undefined) return Promise.resolve(undefined)
+      const answered = [...rows.values()]
+        .filter(
+          (candidate) =>
+            candidate.agentId === agentId &&
+            candidate.closedAt !== null &&
+            candidate.messages.some(
+              (message) =>
+                message.author === 'citizen' &&
+                candidate.closedAt !== null &&
+                // `>=` where the database says `>`: both timestamps here are
+                // `toISOString()` at millisecond resolution, and a close
+                // followed immediately by a reply lands on the same
+                // millisecond. Postgres records microseconds, so the two
+                // statements are never equal there.
+                message.writtenAt >= candidate.closedAt,
+            ),
+        )
+        .sort((a, b) => String(b.closedAt).localeCompare(String(a.closedAt)))
+        .slice(0, 1)
 
-      return Promise.resolve({
-        requestId: row.id,
-        taskTitle: tasks.get(row.taskId) ?? '',
-        openedAt: row.openedAt,
-        messages: row.messages.map((message) => ({ ...message })),
-        closed: row.closedAt !== null,
-      })
+      return Promise.resolve(
+        [...open, ...answered].map((row) => ({
+          requestId: row.id,
+          taskTitle: tasks.get(row.taskId) ?? '',
+          openedAt: row.openedAt,
+          messages: row.messages.map((message) => ({ ...message })),
+          closed: row.closedAt !== null,
+        })),
+      )
     },
 
     answer: ({ token, requestId, body }) => {

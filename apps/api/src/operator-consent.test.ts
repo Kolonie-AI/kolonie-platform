@@ -36,11 +36,11 @@ describe('whether a citizen is waiting on its operator', () => {
   const answered = [{ author: 'citizen' }, { author: 'operator' }]
 
   it('is waiting when the exchange is open and the operator has not written', () => {
-    expect(isWaitingOnTheOperator({ closed: false, messages: asked })).toBe(true)
+    expect(isWaitingOnTheOperator([{ closed: false, messages: asked }])).toBe(true)
   })
 
   it('is not waiting once the operator has written anything at all', () => {
-    expect(isWaitingOnTheOperator({ closed: false, messages: answered })).toBe(false)
+    expect(isWaitingOnTheOperator([{ closed: false, messages: answered }])).toBe(false)
   })
 
   /**
@@ -51,15 +51,17 @@ describe('whether a citizen is waiting on its operator', () => {
    */
   it('is not waiting after a reply that says no', () => {
     expect(
-      isWaitingOnTheOperator({
-        closed: false,
-        messages: [{ author: 'citizen' }, { author: 'operator' }],
-      }),
+      isWaitingOnTheOperator([
+        {
+          closed: false,
+          messages: [{ author: 'citizen' }, { author: 'operator' }],
+        },
+      ]),
     ).toBe(false)
   })
 
   it('is not waiting on a closed exchange', () => {
-    expect(isWaitingOnTheOperator({ closed: true, messages: asked })).toBe(false)
+    expect(isWaitingOnTheOperator([{ closed: true, messages: asked }])).toBe(false)
   })
 
   /**
@@ -67,7 +69,23 @@ describe('whether a citizen is waiting on its operator', () => {
    * only box and is drawn as it always was. `#239` gave the operator that
    * channel precisely for the case where there is no question in front of it.
    */
+  /**
+   * **Any of them, since `#593`.** The page renders every exchange it is given,
+   * so a note posted while one of two is still unanswered must still be told
+   * *your agent is waiting* — telling an operator otherwise because the first
+   * had been answered is the sentence this function exists to prevent, one
+   * question late.
+   */
+  it('is waiting when any one of several is', () => {
+    expect(
+      isWaitingOnTheOperator([
+        { closed: true, messages: [{ author: 'citizen' }] },
+        { closed: false, messages: [{ author: 'citizen' }] },
+      ]),
+    ).toBe(true)
+  })
+
   it('is not waiting when there is no exchange at all', () => {
-    expect(isWaitingOnTheOperator(undefined)).toBe(false)
+    expect(isWaitingOnTheOperator([])).toBe(false)
   })
 })

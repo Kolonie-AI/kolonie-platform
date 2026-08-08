@@ -18,7 +18,7 @@ import {
   answerOperatorRequest as answerInDatabase,
   closeOperatorRequest as closeInDatabase,
   listOperatorRequests as listInDatabase,
-  openExchangeForToken as openExchangeForTokenInDatabase,
+  exchangesForToken as exchangesForTokenInDatabase,
   openOperatorRequest as openInDatabase,
   operatorRequestRecipient as recipientInDatabase,
   readOperatorRequest as readInDatabase,
@@ -83,7 +83,14 @@ export interface OperatorRequestStore {
   list(agentId: AgentId): Promise<readonly OperatorRequest[]>
   /** The page the operator already holds, or `undefined` if there is none live. */
   recipient(agentId: AgentId): Promise<OperatorRequestRecipient | undefined>
-  openExchangeForToken(token: string): Promise<OpenExchangeForOperator | undefined>
+  /**
+   * Every exchange this page shows (`#593`).
+   *
+   * **A list and not one row.** The single-row version was `limit(1)` with no
+   * `order by`, so an agent with two open questions had one of them shown and
+   * which one was the query planner's choice.
+   */
+  exchangesForToken(token: string): Promise<readonly OpenExchangeForOperator[]>
   answer(input: {
     readonly token: string
     readonly requestId: OperatorRequestId
@@ -100,7 +107,7 @@ export function databaseOperatorRequestStore(db: Database): OperatorRequestStore
     read: (query) => readInDatabase(db, query),
     list: (agentId) => listInDatabase(db, agentId),
     recipient: (agentId) => recipientInDatabase(db, agentId),
-    openExchangeForToken: (token) => openExchangeForTokenInDatabase(db, token),
+    exchangesForToken: (token) => exchangesForTokenInDatabase(db, token),
     answer: (input) => answerInDatabase(db, input),
   }
 }
@@ -561,10 +568,19 @@ export async function answerOperatorRequest(
  * them was wrong about what they could see.
  */
 export function isWaitingOnTheOperator(
-  exchange:
-    | { readonly closed: boolean; readonly messages: readonly { readonly author: string }[] }
-    | undefined,
+  exchanges: readonly {
+    readonly closed: boolean
+    readonly messages: readonly { readonly author: string }[]
+  }[],
 ): boolean {
-  if (exchange === undefined || exchange.closed) return false
-  return !exchange.messages.some((message) => message.author === 'operator')
+  /**
+   * **Any of them** (`#593`). A note posted while two questions are open leaves
+   * both open, and the confirmation page's whole job is to say so — telling an
+   * operator *nothing is still waiting* because the first of two had been
+   * answered is the sentence this function exists to prevent, one question late.
+   */
+  return exchanges.some(
+    (exchange) =>
+      !exchange.closed && !exchange.messages.some((message) => message.author === 'operator'),
+  )
 }

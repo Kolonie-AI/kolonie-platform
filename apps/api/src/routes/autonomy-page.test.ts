@@ -861,7 +861,7 @@ describe('the operator’s form', () => {
       expect(response.statusCode).toBe(200)
       expect(response.body).toContain('Sent')
 
-      const exchange = await requests.store.openExchangeForToken(token)
+      const [exchange] = await requests.store.exchangesForToken(token)
       expect(exchange?.messages.map((message) => message.author)).toEqual(['citizen', 'operator'])
       expect(exchange?.messages[1]?.body).toBe('Done — the handle is @canary-ai.')
     })
@@ -873,7 +873,7 @@ describe('the operator’s form', () => {
       await post(`/operator/page/${token}`, { requestId, body: 'The handle is @canary.' })
       await post(`/operator/page/${token}`, { requestId, body: 'Sorry — @canary-ai in fact.' })
 
-      const exchange = await requests.store.openExchangeForToken(token)
+      const [exchange] = await requests.store.exchangesForToken(token)
       expect(exchange?.messages.map((message) => message.body)).toEqual([
         'I cannot make a GitHub account without you.',
         'The handle is @canary.',
@@ -930,7 +930,7 @@ describe('the operator’s form', () => {
       // the secret rather than started again from a dead end.
       expect(response.body).toContain('<textarea')
 
-      const exchange = await requests.store.openExchangeForToken(token)
+      const [exchange] = await requests.store.exchangesForToken(token)
       expect(exchange?.messages).toHaveLength(1)
     })
 
@@ -1001,7 +1001,7 @@ describe('the operator’s form', () => {
       })
 
       expect(response.statusCode).toBe(404)
-      const exchange = await requests.store.openExchangeForToken(token)
+      const [exchange] = await requests.store.exchangesForToken(token)
       expect(exchange?.messages).toHaveLength(1)
     })
 
@@ -1170,7 +1170,7 @@ describe('the operator’s form', () => {
       expect(await notes.store.countUnread(agentId)).toBe(1)
 
       // And the exchange is untouched — still open, still unanswered.
-      const exchange = await requests.store.openExchangeForToken(token)
+      const [exchange] = await requests.store.exchangesForToken(token)
       expect(exchange?.messages.some((message) => message.author === 'operator')).toBe(false)
     })
 

@@ -248,7 +248,7 @@ export function registerAutonomyPageRoutes(app: FastifyInstance, deps: RouteDepe
        * instead of at their agent's sixth blocked run.
        */
       const stillWaiting = isWaitingOnTheOperator(
-        await deps.operatorRequests.store.openExchangeForToken(token as string),
+        await deps.operatorRequests.store.exchangesForToken(token as string),
       )
 
       const written = await writeOperatorNote(

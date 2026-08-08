@@ -2,10 +2,17 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { eq, sql } from 'drizzle-orm'
 import { MAX_DROP_ATTEMPTS, VAULT_MAX_ENTRIES, type AgentId } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
-import { agentVault, agents, operatorDrops, tasks } from '../schema/index.js'
+import { agentVault, agents, humanAgents, humans, operatorDrops, tasks } from '../schema/index.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
 import { openVaultValue } from '../vault-crypto.js'
-import { listDrops, openDrop, submitDrop, takeDrop, viewDrop } from './operator-drops.js'
+import {
+  fillDropAsOperator,
+  listDrops,
+  openDrop,
+  submitDrop,
+  takeDrop,
+  viewDrop,
+} from './operator-drops.js'
 
 const target = databaseTestTarget()
 
@@ -364,6 +371,127 @@ describe('the operator drop', () => {
       expect(row?.sealedValue).toBeNull()
       // The record that it happened stays. A row without its value names nothing.
       expect(row?.readAt).not.toBeNull()
+    })
+  })
+  /**
+   * The console door (`#570`).
+   *
+   * `#530`'s queue listed a drop and sent the operator to their inbox to find
+   * the mail that carried its link. These are the properties that door has to
+   * have and the mailed one does not: it authorises by `human_agents`, it does
+   * not spend an attempt, and it seals through the one path that seals.
+   */
+  describe('filled from the console by the person who operates the agent', () => {
+    const aPerson = async (): Promise<string> => {
+      const [row] = await db.insert(humans).values({}).returning({ id: humans.id })
+      if (row === undefined) throw new Error('inserting a person returned no row')
+      return row.id
+    }
+
+    const operates = async (humanId: string, agent: AgentId): Promise<void> => {
+      await db.insert(humanAgents).values({ humanId, agentId: agent })
+    }
+
+    it('lands in the vault, sealed, with no token anywhere', async () => {
+      const humanId = await aPerson()
+      await operates(humanId, agentId)
+      const drop = await aCredentialDrop('mailbox')
+
+      const result = await fillDropAsOperator(db, {
+        dropId: drop.id,
+        humanId: humanId as never,
+        value: SECRET,
+        sealingKey: SEALING_KEY,
+      })
+
+      expect(result).toEqual({ outcome: 'accepted' })
+      const taken = await takeDrop(db, agentId, drop.id, SEALING_KEY, AGENT_KEY)
+      expect(taken).toMatchObject({ outcome: 'taken', kind: 'credential' })
+    })
+
+    /** The test `#570` asks for by name. */
+    it('refuses an agent this person does not operate', async () => {
+      const stranger = await aPerson()
+      const drop = await aCredentialDrop('mailbox')
+
+      const result = await fillDropAsOperator(db, {
+        dropId: drop.id,
+        humanId: stranger as never,
+        value: SECRET,
+        sealingKey: SEALING_KEY,
+      })
+
+      // `closed`, and not a refusal of its own: telling *not yours* apart from
+      // *already answered* would let a signed-in person learn that an id belongs
+      // to somebody else's fleet.
+      expect(result).toEqual({ outcome: 'closed' })
+
+      const [row] = await db
+        .select({ sealedValue: operatorDrops.sealedValue })
+        .from(operatorDrops)
+        .where(eq(operatorDrops.id, drop.id))
+      expect(row?.sealedValue).toBeNull()
+    })
+
+    it('spends no attempt, because there is no token to guess', async () => {
+      const humanId = await aPerson()
+      await operates(humanId, agentId)
+      const drop = await aCredentialDrop('mailbox')
+
+      await fillDropAsOperator(db, {
+        dropId: drop.id,
+        humanId: humanId as never,
+        value: SECRET,
+        sealingKey: SEALING_KEY,
+      })
+
+      const [row] = await db
+        .select({ attempts: operatorDrops.attempts })
+        .from(operatorDrops)
+        .where(eq(operatorDrops.id, drop.id))
+      expect(row?.attempts).toBe(0)
+    })
+
+    /**
+     * The consequence written into `schema/operator-drops.ts`: the exhausted
+     * counter says the link is dead, and the link is not what authorised this.
+     */
+    it('still works after the mailed link has burned its attempts', async () => {
+      const humanId = await aPerson()
+      await operates(humanId, agentId)
+      const drop = await aCredentialDrop('mailbox')
+      await db
+        .update(operatorDrops)
+        .set({ attempts: MAX_DROP_ATTEMPTS })
+        .where(eq(operatorDrops.id, drop.id))
+
+      expect(await viewDrop(db, drop.token)).toBeNull()
+      expect(
+        await fillDropAsOperator(db, {
+          dropId: drop.id,
+          humanId: humanId as never,
+          value: SECRET,
+          sealingKey: SEALING_KEY,
+        }),
+      ).toEqual({ outcome: 'accepted' })
+    })
+
+    it('closes the mailed link with it, so one drop is filled once', async () => {
+      const humanId = await aPerson()
+      await operates(humanId, agentId)
+      const drop = await aCredentialDrop('mailbox')
+
+      await fillDropAsOperator(db, {
+        dropId: drop.id,
+        humanId: humanId as never,
+        value: SECRET,
+        sealingKey: SEALING_KEY,
+      })
+
+      expect(await viewDrop(db, drop.token)).toBeNull()
+      expect(await submitDrop(db, drop.token, 'something else', SEALING_KEY)).toEqual({
+        outcome: 'closed',
+      })
     })
   })
 })

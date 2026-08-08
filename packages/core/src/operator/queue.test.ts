@@ -17,6 +17,7 @@ describe('the operator queue', () => {
     about: null,
     since,
     answerAt: null,
+    dropId: null,
   })
 
   it('puts what is quick to clear first, however long the slow ones have waited', () => {

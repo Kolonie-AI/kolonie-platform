@@ -141,6 +141,23 @@ export const operatorDrops = pgTable(
      * place to guess a six-digit code at whatever rate a browser allows. Counted
      * rather than rate-limited by address, because there is no account here and
      * an IP is not one.
+     *
+     * **It counts submissions against the token, and only against the token**
+     * (`#570`). A signed-in operator filling this drop from its own queue is
+     * authorised by `human_agents` rather than by a secret, so there is nothing
+     * to guess and nothing is counted: a person who mistyped a code three times
+     * on their own console would otherwise have burned a drop nobody was
+     * attacking. Two consequences, stated here rather than left to be
+     * rediscovered:
+     *
+     * - **A drop whose link has run out of attempts can still be filled from
+     *   the console.** The exhausted counter says the link is dead, and the link
+     *   is not what authorised that path.
+     * - **`waitingForOperator` stopped filtering on it.** That filter was right
+     *   while the link was the only door — a drop nobody could open was not
+     *   something waiting on anybody — and it is wrong now, because the queue
+     *   would be listing less than the operator can act on, which is the defect
+     *   `#570` exists to fix.
      */
     attempts: integer('attempts').notNull().default(0),
 

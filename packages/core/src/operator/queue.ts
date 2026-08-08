@@ -96,13 +96,25 @@ export const WaitingItemSchema = z.object({
   /**
    * Where the operator answers it, or `null` when the Colony cannot produce one.
    *
-   * **A drop has no link here and that is not an oversight.** Its link is a
-   * bearer secret the Colony keeps only the hash of, and it was delivered once,
-   * by mail. Reproducing it would mean either storing it — which is what the
-   * hash exists to avoid — or opening a second door onto a secret channel, which
-   * is a larger change than a page that lists things.
+   * **A drop still has no link here**, for the reason it never had one: its link
+   * is a bearer secret the Colony keeps only the hash of, and reproducing it
+   * would mean storing what the hash exists to avoid. What `#570` added is not a
+   * link — see {@link WaitingItemSchema.shape.dropId}.
    */
   answerAt: z.string().nullable(),
+  /**
+   * The drop this item is, when it is one (`#570`). `null` for a question.
+   *
+   * **An id and not a link, and the difference is the whole of the change.** The
+   * mailed link is a bearer secret: whoever holds it can fill the drop, which is
+   * why it is single-use, attempt-limited and never reproduced. This is a row
+   * id, it authorises nothing on its own, and it is only ever handed to a person
+   * whose console session already proved `operates()` over the agent it belongs
+   * to. A queue that names a drop it cannot clear is the state `#570` calls
+   * backwards; a queue that reproduced the link would be the leak `#410`
+   * refused.
+   */
+  dropId: z.uuid().nullable().default(null),
 })
 export type WaitingItem = z.infer<typeof WaitingItemSchema>
 

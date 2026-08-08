@@ -129,6 +129,32 @@ import type { RouteDependencies } from './dependencies.js'
  * appear at the API's own host, where nothing expects a `Set-Cookie` and a
  * form.
  */
+/**
+ * What the dashboard says after a drop was filled from the queue (`#570`).
+ *
+ * **Keyed by `SubmitDropOutcome`**, so a new ending cannot be added to the
+ * sealing path and quietly render as nothing here. `closed` is deliberately one
+ * sentence for four states — expired, already answered, never a drop, or
+ * somebody else's agent — on `submitDrop`'s own reasoning: telling them apart
+ * would let a signed-in person learn that an id belongs to another operator's
+ * fleet.
+ */
+const FILL_NOTICE: Record<string, string | undefined> = {
+  accepted:
+    'Sent. It went straight into that agent\u2019s vault, sealed \u2014 nobody can read it back ' +
+    'out, including you and including the Colony. The agent carries on within moments.',
+  closed:
+    'That one is no longer open. It may have been answered already, or expired, or it is not ' +
+    'yours to fill. Nothing was sent and nothing is held against the agent.',
+  'key-taken':
+    'The agent already holds something under that name in its vault, and the Colony will not ' +
+    'overwrite it. Nothing was sent \u2014 the agent has to clear the old one or ask again ' +
+    'under another name.',
+  'vault-full':
+    'That agent\u2019s vault is full, so there is nowhere for this to land. Nothing was sent; ' +
+    'the agent has to remove something first.',
+}
+
 export function registerConsolePages(app: FastifyInstance, deps: RouteDependencies): void {
   const host = consoleHost(deps.console.consoleUrl)
   if (host === undefined) return
@@ -285,6 +311,16 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
        */
       const queue = await deps.humans.store.waitingOnThem(signedIn.human.id)
 
+      /**
+       * What just happened to a drop, carried across the redirect (`#570`).
+       *
+       * **A code from a closed set and never a sentence in the URL.** The
+       * value is looked up here, so a link somebody was sent cannot put words
+       * on this page in the Colony's voice — and the wording stays in one
+       * place when it is edited.
+       */
+      const filled = FILL_NOTICE[String((request.query as { filled?: unknown }).filled ?? '')]
+
       return wantsHtml(request)
         ? html(
             reply,
@@ -294,6 +330,7 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
               waiting: queue,
               code,
               maintains,
+              ...(filled === undefined ? {} : { notice: filled }),
             }),
           )
         : reply.send({
@@ -787,6 +824,66 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
         notice,
       }),
     )
+  })
+
+  /**
+   * Fill a drop from the queue, as the person the agent asked (`#570`).
+   *
+   * ## Why this exists on the console at all
+   *
+   * `#530` built a queue that lists everything waiting on one person and could
+   * act on one of the two kinds it lists. A question links to the operator page;
+   * **a drop was named and went nowhere** — the cell said *use the link that was
+   * mailed to you*, which sends somebody to their inbox for a three-day-old
+   * mail. That is the item an operator does later or not at all, and `code`
+   * ranks first in `WAITING_EFFORT` precisely because the value is already in
+   * front of them. The queue was batching the questions and scattering the
+   * codes.
+   *
+   * ## The trust boundary, decided
+   *
+   * **A signed-in operator is more strongly authenticated than a bearer link in
+   * a mail**, and `human_agents` already answers *is this your agent*. That is
+   * the authorisation and nothing weaker; the mailed link's own guards —
+   * single-use, attempt-limited — protect a token, and this path presents none.
+   * What that means for `attempts` and for the link's continued validity is
+   * written on `fillDropAsOperator`, in the present tense, beside the sealing it
+   * shares.
+   *
+   * **No drop is created here** (`#410`), the value is never shown back, and
+   * nothing new seals anything: this reaches the same sealing `submitDrop` does.
+   */
+  app.post('/drops/:dropId', async (request, reply) => {
+    if (!(await guard(request, reply))) return reply
+
+    const signedIn = await person(request)
+    if (signedIn === null) return signInRequired(request, reply)
+
+    const { dropId } = request.params as { dropId: string }
+    const { value } = (request.body ?? {}) as { value?: unknown }
+
+    /**
+     * **`closed` when the channel is not configured**, which is the same answer
+     * a stranger's drop id gets. A console that said *this Colony has no sealing
+     * key* would be telling a signed-in person about the deployment rather than
+     * about their own queue — and the queue cannot list a drop on a Colony that
+     * could not have created one.
+     */
+    const result =
+      deps.drops === undefined || typeof value !== 'string' || value === ''
+        ? ({ outcome: 'closed' } as const)
+        : await deps.drops.fillAsOperator(dropId, signedIn.human.id, value)
+
+    if (!wantsHtml(request)) {
+      return result.outcome === 'accepted'
+        ? reply.status(200).send({ filled: true })
+        : reply.status(ERROR_STATUS.conflict).send({
+            code: 'conflict',
+            message: FILL_NOTICE[result.outcome] ?? FILL_NOTICE['closed'],
+          })
+    }
+
+    return reply.status(303).header('location', `/?filled=${result.outcome}`).send()
   })
 
   /**

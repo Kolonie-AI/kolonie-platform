@@ -1,11 +1,5 @@
 import { sql } from 'drizzle-orm'
-import {
-  MAX_DROP_ATTEMPTS,
-  inClearingOrder,
-  type HumanId,
-  type WaitingItem,
-  type WaitingKind,
-} from '@kolonie-ai/core'
+import { inClearingOrder, type HumanId, type WaitingItem, type WaitingKind } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 
 /**
@@ -45,6 +39,7 @@ interface WaitingRow extends Record<string, unknown> {
   readonly about: string | null
   readonly since: string
   readonly answer_at: string | null
+  readonly drop_id: string | null
 }
 
 export async function waitingForOperator(
@@ -74,7 +69,8 @@ export async function waitingForOperator(
           limit 1) as ask,
         t.title as about,
         r.opened_at as since,
-        p.token as answer_at
+        p.token as answer_at,
+        null::uuid as drop_id
       from operator_requests r
       join mine on mine.agent_id = r.agent_id
       join agents a on a.id = r.agent_id
@@ -95,14 +91,20 @@ export async function waitingForOperator(
         d.prompt as ask,
         t.title as about,
         d.created_at as since,
-        null::text as answer_at
+        null::text as answer_at,
+        d.id as drop_id
       from operator_drops d
       join mine on mine.agent_id = d.agent_id
       join agents a on a.id = d.agent_id
       left join tasks t on t.id = d.task_id
+      -- attempts is deliberately not a condition here (kolonie-platform#570).
+      -- It was right while the mailed link was the only door: a drop nobody
+      -- could open was not something waiting on the operator. The console fills
+      -- this by session rather than by token, so an exhausted counter now means
+      -- the link is dead, not that this cannot be cleared -- and hiding the row
+      -- would put the queue back to listing less than the operator can act on.
       where d.submitted_at is null
         and d.expires_at > now()
-        and d.attempts < ${MAX_DROP_ATTEMPTS}
     )
     select * from questions
     union all
@@ -122,6 +124,12 @@ export async function waitingForOperator(
      * cannot produce that link and should not learn to.
      */
     answerAt: row.answer_at === null ? null : `/operator/page/${row.answer_at}`,
+    /**
+     * The drop itself, so the console can offer the field beside the item
+     * (`#570`). An id rather than a link, and it authorises nothing — the
+     * console's own session does.
+     */
+    dropId: row.drop_id,
   }))
 
   // Ordered by `@kolonie-ai/core` rather than by `order by`, so the console, a

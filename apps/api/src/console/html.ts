@@ -790,15 +790,34 @@ export function dashboardPage(input: {
                 `<td>${item.about === null ? '—' : escape(item.about)}</td>`,
                 `<td>${escape(relative(item.since))}</td>`,
                 /**
-                 * **A drop has no link and the cell says why.** Its link is a
-                 * bearer secret the Colony keeps only the hash of, delivered
-                 * once by mail. Rendering a dead link, or inventing a second
-                 * door onto a secret channel, are both worse than a sentence.
+                 * **A question links to the page; a drop gets the field itself**
+                 * (`#570`).
+                 *
+                 * The cell used to say *use the link that was mailed to you*,
+                 * which sent an operator to their inbox for a three-day-old mail
+                 * — the item they do later or not at all, and `code` is first in
+                 * the ordering precisely because the value is already on a
+                 * screen in front of them. The link is still never reproduced:
+                 * this posts a row id from a session that has already proved
+                 * `operates()`.
+                 *
+                 * **`type="password"`, so the value is not left legible on a
+                 * shared screen.** It is not shown back afterwards either, from
+                 * anywhere — a filled drop is sealed and single-read by the
+                 * agent.
                  */
                 `<td>${
-                  item.answerAt === null
-                    ? '<small>use the link that was mailed to you</small>'
-                    : `<a href="${escape(item.answerAt)}">Answer</a>`
+                  item.dropId === null
+                    ? item.answerAt === null
+                      ? '<small>use the link that was mailed to you</small>'
+                      : `<a href="${escape(item.answerAt)}">Answer</a>`
+                    : [
+                        `<form method="post" action="/drops/${escape(item.dropId)}">`,
+                        '<input type="password" name="value" required maxlength="4096" ' +
+                          `autocomplete="off" aria-label="${escape(item.ask)}">`,
+                        '<button type="submit">Send</button>',
+                        '</form>',
+                      ].join('')
                 }</td>`,
                 '</tr>',
               ].join(''),

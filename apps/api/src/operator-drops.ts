@@ -5,9 +5,11 @@ import {
   type ApiError,
   type CreateDropResponse,
   type DropSummary,
+  type HumanId,
   type ReadDropResponse,
 } from '@kolonie-ai/core'
 import {
+  fillDropAsOperator,
   listDrops,
   openDrop,
   submitDrop,
@@ -37,6 +39,17 @@ export interface DropStore {
   list(agentId: AgentId): Promise<readonly DropSummary[]>
   /** The agent's plaintext key, for the length of one request. See `vault.ts`. */
   take(agentId: AgentId, dropId: string, vaultToken: string): Promise<TakeDropOutcome>
+  /**
+   * Fill one from the console, for an agent this person operates (`#570`).
+   *
+   * **A second door onto the channel and not a second sealing path.** It reaches
+   * the same `sealIntoDrop` `submit` does; what differs is only how the row is
+   * found and what authorised finding it — a console session over
+   * `human_agents`, rather than a bearer token from a mail. The reasoning, and
+   * what it means for `attempts` and for the mailed link, is on
+   * `fillDropAsOperator` in `packages/db`.
+   */
+  fillAsOperator(dropId: string, humanId: HumanId, value: string): Promise<SubmitDropOutcome>
 }
 
 export interface DropDependencies {
@@ -60,6 +73,8 @@ export function databaseDrops(db: Database, sealingKey: string): DropStore {
     submit: (token, value) => submitDrop(db, token, value, sealingKey),
     list: (agentId) => listDrops(db, agentId),
     take: (agentId, dropId, vaultToken) => takeDrop(db, agentId, dropId, sealingKey, vaultToken),
+    fillAsOperator: (dropId, humanId, value) =>
+      fillDropAsOperator(db, { dropId, humanId, value, sealingKey }),
   }
 }
 

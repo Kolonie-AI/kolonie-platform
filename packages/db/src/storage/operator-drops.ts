@@ -8,6 +8,7 @@ import {
   type AgentId,
   type DropKind,
   type DropSummary,
+  type HumanId,
   type TaskId,
   type Timestamp,
 } from '@kolonie-ai/core'
@@ -174,6 +175,33 @@ export async function submitDrop(
 
   if (counted === undefined) return { outcome: 'closed' }
 
+  return sealIntoDrop(db, counted, value, sealingKey)
+}
+
+/**
+ * Everything a submission does once the row has been found: the vault checks,
+ * the sealing, and the write that closes the drop.
+ *
+ * **Split out for `#570` so the console cannot become a second sealing path.**
+ * That issue's own prohibition — *"whatever the console writes goes through
+ * `submitDrop` and its sealing, or the deployment has two ways to seal a secret
+ * and one of them will be the one that is wrong"* — is met by there being one
+ * function that seals, reached from both doors. What differs between the doors
+ * is only how the row is found and who was allowed to find it.
+ */
+async function sealIntoDrop(
+  db: Database,
+  found: {
+    readonly id: string
+    readonly agentId: string
+    readonly kind: string
+    readonly vaultKey: string | null
+  },
+  value: string,
+  sealingKey: string,
+): Promise<SubmitDropOutcome> {
+  const counted = found
+
   if (counted.kind === 'credential' && counted.vaultKey !== null) {
     const occupied = await db
       .select({ key: agentVault.key })
@@ -212,6 +240,83 @@ export async function submitDrop(
     .returning({ id: operatorDrops.id })
 
   return stored === undefined ? { outcome: 'closed' } : { outcome: 'accepted' }
+}
+
+/**
+ * Fill a drop from the console, for an agent this person operates (`#570`).
+ *
+ * ## Why a console session is enough
+ *
+ * The mailed link exists to reach **somebody who has no account**. A signed-in
+ * operator is the same person, more strongly authenticated, and
+ * `human_agents` already answers *is this your agent* — which is the
+ * authorisation here and nothing weaker. `#530` built a queue that lists a drop
+ * and then sends the operator to their inbox to find a three-day-old mail; that
+ * is the item they do later or not at all, and `code` ranks first in
+ * `WAITING_EFFORT` precisely because the value is already in front of them.
+ *
+ * ## What is deliberately not carried over
+ *
+ * **`attempts` is neither read nor incremented on this path, and that is a
+ * decision rather than an omission.** The counter exists so that a **token**
+ * cannot be probed at browser speed — `submitDrop` counts before it even looks,
+ * for exactly that reason. This path presents no token: there is nothing to
+ * guess, and the session that reached it was already proved. Counting here would
+ * mean a person who mistyped a code three times on their own console had burned
+ * a drop nobody was attacking.
+ *
+ * The consequence is stated rather than left to be discovered: **a drop whose
+ * mailed link has run out of attempts can still be filled from the console.**
+ * The exhausted counter says the link is dead, and the link is not what
+ * authorised this.
+ *
+ * **The mailed link does not keep working afterwards**, and nothing new was
+ * needed for that: `submitted_at is null` is in every clause that finds a drop,
+ * so filling it here closes it there. Two doors, one drop, and the first to
+ * write wins — which is the same race `submitDrop` already resolves.
+ *
+ * **No drop is created here.** `#410`: *"A drop is created by the agent and
+ * never by the operator."* This finds one that exists and fills it.
+ */
+export async function fillDropAsOperator(
+  db: Database,
+  input: {
+    readonly dropId: string
+    readonly humanId: HumanId
+    readonly value: string
+    readonly sealingKey: string
+  },
+): Promise<SubmitDropOutcome> {
+  const [found] = await db.execute<{
+    id: string
+    agent_id: string
+    kind: string
+    vault_key: string | null
+  }>(sql`
+    select d.id, d.agent_id, d.kind, d.vault_key
+      from operator_drops d
+      join human_agents ha on ha.agent_id = d.agent_id
+     where d.id = ${input.dropId}
+       and ha.human_id = ${input.humanId}
+       and d.submitted_at is null
+       and d.expires_at > now()
+     limit 1
+  `)
+
+  /**
+   * **One outcome for *not yours* and for *already answered*.** `submitDrop`
+   * makes the same refusal for the same reason: telling the two apart would let
+   * a signed-in person learn that a drop id belongs to somebody else's agent,
+   * which is a fact about another operator's fleet.
+   */
+  if (found === undefined) return { outcome: 'closed' }
+
+  return sealIntoDrop(
+    db,
+    { id: found.id, agentId: found.agent_id, kind: found.kind, vaultKey: found.vault_key },
+    input.value,
+    input.sealingKey,
+  )
 }
 
 /** Everything waiting for this citizen, oldest first, never with a value. */

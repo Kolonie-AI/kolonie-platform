@@ -40,7 +40,7 @@ import { listAtlasProvider } from './storage/provider-recipes.js'
  * `kind` is *what you hold there* and `category` is *what sort of thing the
  * provider is*, which is why `#589` made them separate columns. Most categories
  * imply their kind, so it is derived per category below rather than typed out
- * ninety-six times, and the three providers the catalogue already knows keep the
+ * once per row, and the three providers the catalogue already knows keep the
  * kind their existing rows carry — otherwise a listing would appear beside a
  * recipe as a second row for one provider.
  *

@@ -276,8 +276,15 @@ export function coarseLocation(headers: Record<string, unknown>): string | null 
   return country.toUpperCase()
 }
 
-/** The doors this build knows how to offer, in the order the page shows them. */
-export const OFFERED_PROVIDERS: readonly IdentityProvider[] = ['github', 'google']
+/**
+ * The doors this build knows how to offer, in the order the page shows them.
+ *
+ * **`password` is last on purpose** (`#575`). Somebody who has a GitHub or a
+ * Google account is better served by it — nothing to remember, nothing for the
+ * Colony to lose — and the password door exists for the person who has neither.
+ * Listing it first would offer a new password to people who do not need one.
+ */
+export const OFFERED_PROVIDERS: readonly IdentityProvider[] = ['github', 'google', 'password']
 
 /**
  * The store, wired to a real database. The only place these two meet.

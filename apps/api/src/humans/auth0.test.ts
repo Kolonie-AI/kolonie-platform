@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { auth0Tenant, mintOauthState, providerToConnection, readProfile } from './auth0.js'
+import {
+  auth0Tenant,
+  mintOauthState,
+  PASSWORD_CONNECTION,
+  providerToConnection,
+  readProfile,
+} from './auth0.js'
 import { browserFamily, coarseLocation, stateMatches } from './humans.js'
 
 /**
@@ -23,15 +29,46 @@ describe('reading a profile the tenant returned', () => {
 
   /**
    * Auth0 names its connections and the Colony names its providers, and they
-   * disagree for two of the five. Storing Auth0's name would make a renamed
+   * disagree for three of the six. Storing Auth0's name would make a renamed
    * connection turn every returning person into a new one.
    */
-  it('knows the two connections whose name is not the provider’s', () => {
+  it('knows the connections whose name is not the provider’s', () => {
     expect(readProfile({ sub: 'google-oauth2|1', email_verified: true })?.provider).toBe('google')
     expect(readProfile({ sub: 'twitter|1', email_verified: true })?.provider).toBe('x')
     expect(providerToConnection('google')).toBe('google-oauth2')
     expect(providerToConnection('x')).toBe('twitter')
     expect(providerToConnection('github')).toBe('github')
+  })
+
+  /**
+   * **The password door is the one where the two directions genuinely differ**
+   * (`#575`), and the reason the test above can be read as saying they are
+   * inverses. A `sub` carries Auth0's *strategy*; an authorize URL wants the
+   * *connection's name*. For every social door those are the same string, which
+   * is why nothing here caught it until a database connection existed.
+   *
+   * Measured against one real sign-in on 2026-08-08: `auth0|<id>`, from a
+   * connection named `Username-Password-Authentication`.
+   */
+  it('reads a password person off the strategy and sends them to the connection', () => {
+    expect(readProfile({ sub: 'auth0|6a773e8931e3b099dce8e372' })).toEqual({
+      provider: 'password',
+      subject: '6a773e8931e3b099dce8e372',
+      email: null,
+    })
+
+    expect(providerToConnection('password')).toBe(PASSWORD_CONNECTION)
+    expect(PASSWORD_CONNECTION).not.toBe('auth0')
+  })
+
+  /**
+   * The trap the line above would otherwise invite: a reader who believes the
+   * two functions are a single table read in both directions would wire the
+   * connection's name into `connectionToProvider`, and every password person
+   * would be refused as an unknown door.
+   */
+  it('does not accept the connection’s name where a strategy belongs', () => {
+    expect(readProfile({ sub: `${PASSWORD_CONNECTION}|1` })).toBeUndefined()
   })
 
   it('refuses a connection this build has no name for', () => {

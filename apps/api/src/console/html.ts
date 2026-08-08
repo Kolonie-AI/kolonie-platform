@@ -261,6 +261,13 @@ const PROVIDER_NAMES: Readonly<Record<string, string>> = {
   apple: 'Apple',
   facebook: 'Facebook',
   x: 'X',
+  /**
+   * Not a company, so not a proper noun — *Continue with a password* rather than
+   * *Continue with Password* (`#575`). It is also deliberately not *an email
+   * address*, which is what the mail link lower down this same page offers: two
+   * doors described with the same words is worse than one door.
+   */
+  password: 'a password',
 }
 
 /** The provider doors, or nothing at all where none is configured. */

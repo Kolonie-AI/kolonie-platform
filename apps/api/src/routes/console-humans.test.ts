@@ -255,6 +255,19 @@ describe('signing in as a person', () => {
       expect(response.body).toContain('Continue with GitHub')
       expect(response.body).toContain('/sign-in/google')
       expect(response.body).toContain('Continue with Google')
+      expect(response.body).toContain('/sign-in/password')
+      expect(response.body).toContain('Continue with a password')
+    })
+
+    /**
+     * `#575`'s whole argument: the password door is for the person who has
+     * neither of the other two, so it is offered last and never instead.
+     */
+    it('offers the password door after the accounts a person may already have', async () => {
+      const { body } = await asBrowser('/')
+
+      expect(body.indexOf('/sign-in/password')).toBeGreaterThan(body.indexOf('/sign-in/github'))
+      expect(body.indexOf('/sign-in/password')).toBeGreaterThan(body.indexOf('/sign-in/google'))
     })
 
     /**

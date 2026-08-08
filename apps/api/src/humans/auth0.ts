@@ -153,7 +153,20 @@ export function readProfile(profile: {
   if (typeof profile.sub !== 'string' || profile.sub === '') return undefined
 
   /**
-   * Auth0's `sub` is `<connection>|<subject>`, and both halves are wanted.
+   * Auth0's `sub` is `<strategy>|<subject>`, and both halves are wanted.
+   *
+   * **Strategy, not connection name.** This comment said *connection* until
+   * `#575`, and it was wrong in a way nothing could show: a social connection's
+   * default name *is* its strategy, so `github` and `google-oauth2` are both at
+   * once and the distinction never surfaced. The database connection is where
+   * they part — it is named `Username-Password-Authentication` and its strategy
+   * is `auth0`, so a `sub` of `auth0|68f2…` carries a word that appears nowhere
+   * in the connection's name. Measured against one real sign-in on 2026-08-08.
+   *
+   * That is why {@link providerToConnection} and `connectionToProvider` are not
+   * inverses of one another and cannot be collapsed into one table: the first
+   * answers *where do I send a browser*, which wants the name, and the second
+   * answers *who came back*, which is given the strategy.
    *
    * Storing the composite would work until the day a connection is renamed, at
    * which point every returning person becomes a new one. Splitting it means the
@@ -196,22 +209,42 @@ export function readProfile(profile: {
   }
 }
 
+/** Auth0's name for the database connection every password person arrives on. */
+export const PASSWORD_CONNECTION = 'Username-Password-Authentication'
+
 /**
  * Auth0 names its connections; the Colony names its providers.
  *
- * They agree for four of the five and disagree for Google, whose connection is
- * `google-oauth2`. One table rather than a rule, because the next disagreement
- * will not follow a pattern either.
+ * They agree for the plain social ones and disagree for Google, whose connection
+ * is `google-oauth2`, for X, whose kept its old name, and for the password door,
+ * whose connection is not named after anything. One table rather than a rule,
+ * because the next disagreement will not follow a pattern either.
+ *
+ * **This is the browser's direction and it wants the connection's name.** Its
+ * partner below is given a strategy instead, which is why the two are separate
+ * functions rather than one map read in both directions — see `readProfile`.
  */
 export function providerToConnection(provider: IdentityProvider): string {
   if (provider === 'google') return 'google-oauth2'
   if (provider === 'x') return 'twitter'
+  if (provider === 'password') return PASSWORD_CONNECTION
   return provider
 }
 
+/**
+ * What came back, read from the `sub` prefix — which is a **strategy**.
+ *
+ * **`auth0` is a strategy shared by every database connection**, so this maps
+ * the strategy and not a connection: a second database connection would arrive
+ * here as `auth0` too and be indistinguishable from the first. That is fine
+ * while there is one, and the day there are two the pair `(provider, subject)`
+ * stops being unique — so a second database connection is a schema question,
+ * not a line added here.
+ */
 function connectionToProvider(connection: string): string {
   if (connection === 'google-oauth2') return 'google'
   // X's connection kept its old name in Auth0, as it has everywhere else.
   if (connection === 'twitter') return 'x'
+  if (connection === 'auth0') return 'password'
   return connection
 }

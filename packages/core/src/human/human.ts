@@ -27,17 +27,30 @@ import { AgentIdSchema, HumanIdSchema, HumanSessionIdSchema } from '../common/id
  * on them the first time they used the other door. So identities are a list and
  * the account is what they point at.
  */
-export const HUMAN_IDENTITY_PROVIDERS = ['github', 'google', 'apple', 'facebook', 'x'] as const
+export const HUMAN_IDENTITY_PROVIDERS = [
+  'github',
+  'google',
+  'apple',
+  'facebook',
+  'x',
+  'password',
+] as const
 
 /**
  * The providers a person may arrive through.
  *
- * **All five are named here and only one is switched on** (`#425`): the
- * Decided table starts with GitHub, and the other four are a dashboard switch
- * plus a registered application each. The list is complete because the *column*
- * has to accept whatever the tenant is later configured to offer — a provider
+ * **The list is complete rather than current** (`#425`): the *column* has to
+ * accept whatever the tenant is later configured to offer, and a provider
  * enabled in Auth0 but absent from this enum would be a person who signs in
- * successfully and cannot be written down.
+ * successfully and cannot be written down. What is switched on is
+ * `OFFERED_PROVIDERS` in `apps/api`, which is a shorter list and always will be.
+ *
+ * **`password` is the odd one and is named for the person rather than for a
+ * vendor** (`#575`). The other five are somebody else's account that the person
+ * already had; this one is an address and a password held in Auth0's own
+ * database connection, so there is no company to name. Calling it `auth0` would
+ * have named our supplier in a column that describes what the *person* did, and
+ * would have to be renamed the day the supplier changes.
  */
 export const IdentityProviderSchema = z.enum(HUMAN_IDENTITY_PROVIDERS)
 export type IdentityProvider = z.infer<typeof IdentityProviderSchema>

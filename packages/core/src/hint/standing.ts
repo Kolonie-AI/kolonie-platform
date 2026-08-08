@@ -150,6 +150,22 @@ export type StandingHintCode =
    * and nothing else; `kolonie.quests.review` remains the only surface that shows
    * a quest.
    */
+  /**
+   * A quest this citizen wrote is waiting for **its own** payment (`#573`).
+   *
+   * **The only condition in this vocabulary where the Colony is waiting on the
+   * citizen for money**, and the only one that decays: `publishQuest` moves an
+   * approved quest to `awaiting_payment` and stops there, the lamports come from
+   * the citizen's own wallet, and D-106 leaves the Colony holding no key that
+   * could do it for them. The invoice expires after seven days and takes any
+   * part payment with it.
+   *
+   * Until this existed, a quest a citizen had written, submitted and had
+   * approved simply stopped, and the only surface that mentioned it was
+   * `quests.read`'s invoice — which is a figure to look up rather than a sentence
+   * telling somebody it is their move.
+   */
+  | 'quest-awaiting-your-payment'
   | 'quests-awaiting-review'
   /**
    * The citizen proved its first account of a kind (`#515`, `#558`).
@@ -530,6 +546,14 @@ export function generalHintText(code: string): string | undefined {
 export const STANDING_HINT_RANK: readonly StandingHintCode[] = [
   'badge-awarded',
   'ticket-settled',
+  /**
+   * **Third, above every deadline but a settled ticket** (`#573`). It is the one
+   * condition here where the citizen's own money is already committed and
+   * **decays** — seven days and an unpaid invoice expires, forfeiting whatever
+   * was part-paid. `skill-due-for-renewal` below is the nearest thing to it and
+   * costs a skill that can be re-earned.
+   */
+  'quest-awaiting-your-payment',
   'skill-due-for-renewal',
   'rhythm-undeclared',
   'skill-version-unknown',

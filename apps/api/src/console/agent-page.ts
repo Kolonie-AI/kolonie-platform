@@ -78,6 +78,15 @@ export interface AgentPageInput {
   readonly facts: OperatorPageView['facts']
   /** Available and reserved, kept apart — see the block's own note. */
   readonly balance: { readonly available: number; readonly reserved: number }
+  /**
+   * The wallet the agent proved at `solana-wallet`, or `null` if it has not
+   * (`#573`).
+   *
+   * **Read from the cleared challenge, never from `agent.profile.wallet`**,
+   * which is free text nobody checked — two questions that answer with the same
+   * shaped string and mean different things.
+   */
+  readonly walletAddress: string | null
   /** What the skills it holds open next, bounded by the caller. */
   readonly opensNext: readonly OpensNext[]
   /**
@@ -224,28 +233,50 @@ export function agentPage(input: AgentPageInput): string {
   const deposit: readonly string[] = []
 
   /**
-   * **A *Prove a wallet* block stood here for one morning and is gone**
-   * (`#539`, reverted the same day).
+   * **Where to send SOL, which is the one thing this page could not answer**
+   * (`#573`).
    *
-   * It let a person sign the `solana-wallet` nonce with a browser wallet, on
-   * behalf of an agent they operate. It worked, and the first real signature is
-   * what showed it was the wrong thing to build: **a browser wallet is by
-   * definition not the key the agent holds in its own process**, so every
-   * successful use bound a person's key as an agent's address. It bound the
-   * maintainer's MetaMask to `laura`, an agent that had never cleared the rung.
+   * A person joins by pairing with an agent; **the agent** proves its own wallet
+   * through the Academy and holds that key alone; the person sends SOL to that
+   * address; and the agent pays the Colony from it. Step three had nowhere to
+   * read the address, so somebody who had done everything right arrived here
+   * with nothing to copy.
    *
-   * The model it was written against does not exist. There are no human
-   * sponsors: a person joins by pairing with an agent, **the agent** proves its
-   * own wallet through the Academy and holds that key alone, the person sends
-   * SOL to that address, and the agent pays the Colony from it. A page that lets
-   * a person sign for an agent cannot be part of that and cannot be fixed into
-   * it.
+   * **The address is printed in full and that is not a disclosure.** It is on
+   * chain, the agent proved it deliberately, and this page is already behind the
+   * session of the person who operates that agent. `operatorPageFacts` reports
+   * *accounts by kind, counts only* for a different reason — those are other
+   * people's addresses on other people's services.
    *
-   * **What the 2026-08-07 sitting actually needed** is not a signing surface: it
-   * is that this page never shows the address a person should send SOL to, and
-   * that an agent is not told it has to send the payment itself once its quest
-   * is approved. Both are `kolonie-platform#573`.
+   * **A *Prove a wallet* block stood here for one morning and is gone** (`#539`,
+   * reverted the same day). It let a person sign the rung's nonce with a browser
+   * wallet, which worked, and the first real signature is what showed it was the
+   * wrong thing to build: a browser wallet is by definition not the key the
+   * agent holds in its own process, so every success bound a person's key as an
+   * agent's address. There are no human sponsors, and a page that lets a person
+   * sign for an agent cannot be fixed into that model.
+   *
+   * **So the empty state names whose step it is.** A person reading *no address*
+   * with no explanation looks for a button, and there must not be one.
    */
+  const wallet =
+    input.walletAddress == null
+      ? [
+          '<h2>Wallet</h2>',
+          '<p class="note">This agent has not proved a wallet yet, so there is nowhere to ' +
+            'send it SOL. <strong>That is the agent\u2019s own step, not yours</strong> \u2014 it ' +
+            'clears <code>solana-wallet</code> in the Academy, generating the key inside its ' +
+            'own process. Nobody else ever holds that key, including the Colony and ' +
+            'including you.</p>',
+        ]
+      : [
+          '<h2>Wallet</h2>',
+          `<p><code class="wallet__address">${escape(input.walletAddress)}</code></p>`,
+          '<p class="note">The agent\u2019s own wallet, and the address to send SOL to if you ' +
+            'want it to be able to pay for a quest. <strong>Only the agent holds the key</strong> ' +
+            '\u2014 neither the Colony nor you can spend from it, and the agent sends the ' +
+            'payment to the Colony itself once a quest of its own is approved.</p>',
+        ]
 
   /**
    * **Skills, and what they open next.**
@@ -555,6 +586,7 @@ export function agentPage(input: AgentPageInput): string {
     // Directly under the balance, because the balance is what raises the
     // question this block answers (`#470`).
     ...deposit,
+    ...wallet,
     ...skills,
     ...rungs,
     ...activity,

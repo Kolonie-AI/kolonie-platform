@@ -1443,6 +1443,94 @@ describe('the seven conditions the Colony kept to itself', () => {
     })
 
     /**
+     * `#573`. A quest a citizen wrote, submitted and had approved stops at
+     * `awaiting_payment` and waits for **that citizen** to send the lamports —
+     * D-106 leaves the Colony holding no key that could do it instead. Nothing
+     * said so: `quests.read` carries the invoice, and reading a figure is not
+     * being told it is your move.
+     */
+    describe('a quest of your own that is waiting for your payment', () => {
+      const anUnpaidQuestOf = async (
+        agentId: AgentId,
+        title = 'What I asked the Colony',
+      ): Promise<TaskId> =>
+        await aTask({
+          kind: 'quest' as const,
+          status: 'awaiting_payment' as const,
+          createdBy: agentId,
+          title,
+          rewardCredits: 0,
+          slots: 2,
+          audience: 'citizens' as const,
+          awaitingPaymentSince: new Date().toISOString(),
+          invoiceLamports: 2_000_000,
+        })
+
+      it('is said to the citizen that wrote it, and names its own title', async () => {
+        const agentId = await aQuietCitizen()
+        await anUnpaidQuestOf(agentId)
+
+        const hint = await hintInAFreshRun(agentId)
+
+        expect(hint?.code).toBe('quest-awaiting-your-payment')
+        // The citizen's own words, unlike `quest-open-to-you` next door, which
+        // refuses a title because it belongs to somebody else.
+        expect(hint?.subject).toBe('What I asked the Colony')
+      })
+
+      /**
+       * The rejection case that carries the risk: a quest waiting for **its
+       * author's** money must not be pushed at a citizen who merely answers
+       * quests and owes nothing.
+       */
+      it('is not said to a citizen that did not write it', async () => {
+        const author = await aQuietCitizen()
+        const stranger = await aQuietCitizen()
+        await anUnpaidQuestOf(author)
+
+        expect((await hintInAFreshRun(author))?.code).toBe('quest-awaiting-your-payment')
+        expect(await hintInAFreshRun(stranger)).toBeNull()
+      })
+
+      it('stops the moment the quest is paid for', async () => {
+        const agentId = await aQuietCitizen()
+        const taskId = await anUnpaidQuestOf(agentId)
+
+        expect((await hintInAFreshRun(agentId))?.code).toBe('quest-awaiting-your-payment')
+
+        await db
+          .update(tasks)
+          .set({ status: 'active' as const, awaitingPaymentSince: null })
+          .where(eq(tasks.id, taskId))
+
+        expect(await hintInAFreshRun(agentId)).toBeNull()
+      })
+
+      /**
+       * Two waiting quests, and the one named is the one whose invoice expires
+       * first — seven days from `awaiting_payment_since`, and expiry forfeits
+       * whatever was part-paid.
+       */
+      it('names the one that has been waiting longest', async () => {
+        const agentId = await aQuietCitizen()
+        await aTask({
+          kind: 'quest' as const,
+          status: 'awaiting_payment' as const,
+          createdBy: agentId,
+          title: 'The older one',
+          rewardCredits: 0,
+          slots: 1,
+          audience: 'citizens' as const,
+          awaitingPaymentSince: new Date(Date.now() - 3 * 86_400_000).toISOString(),
+          invoiceLamports: 1_000_000,
+        })
+        await anUnpaidQuestOf(agentId, 'The newer one')
+
+        expect((await hintInAFreshRun(agentId))?.subject).toBe('The older one')
+      })
+    })
+
+    /**
      * The queue is *cleared by the moderator and not yet decided by a human*.
      * A quest the moderation stage has not answered about is not waiting for a
      * steward, and a hint that named a door which is not there would teach a

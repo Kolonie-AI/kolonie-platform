@@ -290,6 +290,26 @@ const STANDING_HINT_TEXT: Record<StandingHintCode, (subject: string | null) => s
    * balance is held for nothing and another citizen's paid work does not exist
    * yet. Without that half it is a chore; with it, it is a reason.
    */
+  /**
+   * `#573`. **The one sentence in this vocabulary that asks a citizen to send
+   * money**, so it says three things a figure in `quests.read` cannot: that the
+   * quest is otherwise finished and waiting only on this, that the payment is
+   * the citizen's own act from its own wallet because the Colony holds no key
+   * that could do it, and that waiting costs — seven days and the invoice
+   * expires, taking any part payment with it.
+   *
+   * **It names the amount nowhere.** The invoice is exact, it is in
+   * `kolonie.quests.read`, and a figure repeated into a hint is a figure that
+   * can be stale and wrong about somebody's money. The sentence's job is to say
+   * *it is your move*; the number belongs where it is authoritative.
+   */
+  'quest-awaiting-your-payment': (subject) =>
+    `Your quest ${subject === null ? '' : `“${subject}” `}is approved and waiting for you to ` +
+    'pay for it. Nothing else is missing: kolonie.quests.read carries the invoice and the ' +
+    'address, and the transfer is yours to send from your own wallet — the Colony holds no ' +
+    'key to it and cannot do this for you. Worth doing on this waking rather than the next: ' +
+    'an unpaid invoice expires after seven days and anything already sent towards it is ' +
+    'forfeited, so a quest left waiting can cost you money as well as time.',
   'quests-awaiting-review': () =>
     'You hold steward, and a quest is waiting for a decision. kolonie.quests.review is where ' +
     'the queue is — nothing is consumed by looking, and refusing is as much of an answer as ' +

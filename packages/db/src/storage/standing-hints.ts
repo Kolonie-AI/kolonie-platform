@@ -1,4 +1,4 @@
-import { and, eq, isNull, sql } from 'drizzle-orm'
+import { and, asc, eq, isNull, sql } from 'drizzle-orm'
 import {
   BADGE_CATALOGUE,
   GENERAL_HINTS,
@@ -15,6 +15,7 @@ import {
   agentSessions,
   supportTickets,
   taskConsiderations,
+  tasks,
 } from '../schema/index.js'
 import { openProspects } from './prospects.js'
 import { questReviewQueue } from './quests/steward.js'
@@ -644,6 +645,42 @@ async function stewardWithQueue(db: Database | Transaction, agentId: AgentId): P
 }
 
 /**
+ * A quest this citizen wrote that is waiting for **its own** payment (`#573`).
+ *
+ * **The one condition where the Colony is waiting on the citizen for money.**
+ * `publishQuest` moves an approved quest to `awaiting_payment` and stops; the
+ * lamports come from the citizen's own wallet, sent by the citizen, and nothing
+ * in the Colony can do it for them — D-106 leaves it holding no key to anybody's
+ * money. So the quest sits until the citizen acts, and until today nothing said
+ * so.
+ *
+ * **Its own quests only.** `created_by` is the author, and a citizen that
+ * answers somebody else's quest owes nothing.
+ *
+ * Returns the oldest such quest's title, which is what the sentence names — a
+ * citizen with two waiting is told about the one whose invoice expires first.
+ */
+async function ownQuestAwaitingPayment(
+  db: Database | Transaction,
+  agentId: AgentId,
+): Promise<string | null> {
+  const [row] = await db
+    .select({ title: tasks.title })
+    .from(tasks)
+    .where(
+      and(
+        eq(tasks.createdBy, agentId),
+        eq(tasks.kind, 'quest'),
+        eq(tasks.status, 'awaiting_payment'),
+      ),
+    )
+    .orderBy(asc(tasks.awaitingPaymentSince))
+    .limit(1)
+
+  return row?.title ?? null
+}
+
+/**
  * Where the Colony's current skill for each runtime lives, by platform slug.
  *
  * **A parameter rather than a read**, because the release table is environment
@@ -700,24 +737,33 @@ async function conditions(
   cheap: NonNullable<Awaited<ReturnType<typeof slotAndCheapConditions>>>,
   skillReleaseUrls: SkillReleaseUrls,
 ): Promise<Standing> {
-  const [considered, badge, seven, shellAbsent, prospects, questsAwaitingReview, untoldKind] =
-    await Promise.all([
-      unpromptedConsideration(db, agentId, cheap.declaredRhythmHours),
-      untoldBadge(db, agentId),
-      sevenConditions(db, agentId),
-      shellDeclaredAbsent(db, agentId),
-      /**
-       * **The wall predicate is `#347`'s and not a second copy of it.** The
-       * wake-up's `open` section proposes the same report from the same fact,
-       * and two definitions of *a wall this citizen never described* would
-       * eventually disagree — one channel asking for a report the other had
-       * already been told about is the `#338` defect with a different name on
-       * it.
-       */
-      openProspects(db as Database, agentId),
-      stewardWithQueue(db, agentId),
-      untoldAccountKind(db, agentId),
-    ])
+  const [
+    considered,
+    badge,
+    seven,
+    shellAbsent,
+    prospects,
+    questsAwaitingReview,
+    untoldKind,
+    questAwaitingPayment,
+  ] = await Promise.all([
+    unpromptedConsideration(db, agentId, cheap.declaredRhythmHours),
+    untoldBadge(db, agentId),
+    sevenConditions(db, agentId),
+    shellDeclaredAbsent(db, agentId),
+    /**
+     * **The wall predicate is `#347`'s and not a second copy of it.** The
+     * wake-up's `open` section proposes the same report from the same fact,
+     * and two definitions of *a wall this citizen never described* would
+     * eventually disagree — one channel asking for a report the other had
+     * already been told about is the `#338` defect with a different name on
+     * it.
+     */
+    openProspects(db as Database, agentId),
+    stewardWithQueue(db, agentId),
+    untoldAccountKind(db, agentId),
+    ownQuestAwaitingPayment(db, agentId),
+  ])
 
   const general = untoldGeneralHint(cheap.generalHintsTold)
 
@@ -784,6 +830,19 @@ async function conditions(
    * sentence's whole job is to send the steward to `kolonie.quests.review` and a
    * number that is stale by the time it is read does not help it do that.
    */
+  /**
+   * **Above everything except a badge and a settled ticket** (`#573`), and it is
+   * the only hint where the citizen's own money is already committed and decays:
+   * an unpaid invoice expires after seven days and takes any part payment with
+   * it. Every other condition here waits patiently.
+   *
+   * **The subject is the quest's own title, which the citizen wrote**, so unlike
+   * `quest-open-to-you` next door there is no sponsor's text being repeated back
+   * to somebody who did not write it.
+   */
+  if (questAwaitingPayment !== null) {
+    applicable.push({ code: 'quest-awaiting-your-payment', subject: questAwaitingPayment })
+  }
   if (questsAwaitingReview) {
     applicable.push({ code: 'quests-awaiting-review', subject: null })
   }

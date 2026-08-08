@@ -185,6 +185,7 @@ describe('the hand-over section on a person’s own identity', () => {
     arrivedOn: '2026-08-01T00:00:00.000Z',
     facts: { lastSeenAt: null, skills: [], rungs: [], attempts: [], accounts: [] },
     balance: { available: 0, reserved: 0 },
+    walletAddress: null,
     opensNext: [],
     quests: [],
     you: true,

@@ -1341,7 +1341,7 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
     const token = await deps.autonomy.pages.liveToken(operated.agentId)
     const door = token === undefined ? null : await deps.autonomy.pages.open(token)
 
-    const [balance, open, own, quests, written] = await Promise.all([
+    const [balance, open, own, quests, written, walletAddress] = await Promise.all([
       deps.quests.balance(operated.agentId),
       /**
        * **`availableOnly`, not the frontier**, and `openTasksFor` in `tasks.ts`
@@ -1372,6 +1372,12 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
        * rather than this route's.
        */
       deps.quests.listOwn(operated.agentId),
+      /**
+       * The wallet the agent proved, so the page can say where to send SOL
+       * (`#573`). Read from the cleared challenge rather than from the profile's
+       * free-text `wallet`, which is two questions with one shape of answer.
+       */
+      deps.store.verifiedWalletOf(operated.agentId),
     ])
 
     const view = {
@@ -1383,6 +1389,7 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
       arrivedOn: held.arrivedOn,
       facts: held.facts,
       balance: { available: balance.available, reserved: balance.reserved },
+      walletAddress,
       /**
        * Bounded here rather than in the page, because *how many is too many* is
        * a question about this surface and the frontier is a general answer. Five

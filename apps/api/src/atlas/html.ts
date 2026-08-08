@@ -1,5 +1,7 @@
 import {
   ATLAS_PATH,
+  STALE_ENTRY_NOTE,
+  isStale,
   ATLAS_RETENTION_DAYS,
   throughRate,
   type AtlasEntry,
@@ -204,6 +206,7 @@ function recipeSection(recipe: AtlasEntry['recipes'][number]): string {
 
   return [
     `<section><h2>${escape(recipe.kind)}</h2>`,
+    staleNote(recipe),
     `<ol>${steps}</ol>`,
     `<p>${escape(provesLine(recipe.proves))}</p>`,
     figuresSection(recipe.figures),
@@ -399,4 +402,18 @@ function counterpartySection(entry: AtlasEntry): string {
       : `<p>The link to this provider is a referral link, and the Colony may earn from it. ` +
         `It changes nothing about what this page says.</p>`,
   ].join('')
+}
+
+/**
+ * An entry nobody has confirmed recently, marked as one (`#525`).
+ *
+ * **A recipe nobody has walked since March is a guess with a date on it**, and
+ * the catalogue must say which it is. The note says *unconfirmed* rather than
+ * *wrong*: the recipe may still work, and a reader treating staleness as a
+ * refusal would skip providers that are perfectly joinable.
+ */
+function staleNote(recipe: AtlasEntry['recipes'][number]): string {
+  if (!recipe.joinable || !isStale(recipe.lastConfirmedAt)) return ''
+
+  return `<p class="k-stale"><strong>Unconfirmed.</strong> ${escape(STALE_ENTRY_NOTE)}</p>`
 }

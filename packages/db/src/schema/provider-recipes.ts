@@ -132,6 +132,23 @@ export const providerRecipes = pgTable(
      */
     pacePerDay: integer('pace_per_day'),
 
+    /**
+     * When this recipe was last confirmed to work, and by whom (`#525`).
+     *
+     * **A wrong recipe is worse than no recipe**: it sends every subsequent
+     * agent down a path that does not work, and looks authoritative because the
+     * Colony published it. Null means nobody has confirmed it at all, which is
+     * treated exactly as *long ago* — `isStale` in core answers both the same
+     * way, because a reader can act on neither.
+     *
+     * **Staleness is derived from this and never stored as a flag.** A `stale`
+     * column would need something sweeping it on a schedule, and the day that
+     * job stops the catalogue silently claims to be current. A comparison cannot
+     * stop running.
+     */
+    lastConfirmedAt: timestamp('last_confirmed_at', { withTimezone: true, mode: 'string' }),
+    lastConfirmedBy: uuid('last_confirmed_by'),
+
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
       .notNull()
       .defaultNow(),

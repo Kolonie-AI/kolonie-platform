@@ -75,6 +75,7 @@ describe('what the recipe says to the agent walking it', () => {
       paid: false,
       referral: null,
       contact: null,
+      lastConfirmedAt: '2026-08-01T00:00:00.000Z' as never,
       joinable: true,
       refusal: null,
       steps: [
@@ -111,6 +112,7 @@ describe('what the recipe says to the agent walking it', () => {
       paid: false,
       referral: null,
       contact: null,
+      lastConfirmedAt: '2026-08-01T00:00:00.000Z' as never,
       joinable: true,
       refusal: null,
       steps: [
@@ -147,6 +149,7 @@ describe('what the recipe says to the agent walking it', () => {
       paid: false,
       referral: null,
       contact: null,
+      lastConfirmedAt: '2026-08-01T00:00:00.000Z' as never,
       joinable: false,
       refusal: 'It requires a phone number no citizen has (measured 2026-08-08).',
       steps: [],
@@ -174,6 +177,7 @@ describe('the handoff a recipe names', () => {
     paid: false,
     referral: null,
     contact: null,
+    lastConfirmedAt: '2026-08-01T00:00:00.000Z' as never,
     joinable: true as const,
     refusal: null,
     steps: [

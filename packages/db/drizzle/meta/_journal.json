@@ -1177,6 +1177,13 @@
       "when": 1786159790615,
       "tag": "0167_an_entry_has_a_counterparty",
       "breakpoints": true
+    },
+    {
+      "idx": 168,
+      "version": "7",
+      "when": 1786160458736,
+      "tag": "0168_a_citizen_writes_a_catalogue_entry",
+      "breakpoints": true
     }
   ]
 }

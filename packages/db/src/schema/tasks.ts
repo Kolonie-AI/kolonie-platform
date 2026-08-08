@@ -407,6 +407,16 @@ export const tasks = pgTable(
     proofVerifier: varchar('proof_verifier', { length: 64 }),
 
     /**
+     * What this quest asks to be handed in (`#525`).
+     *
+     * A column rather than a second task kind: escrow, slots, moderation and the
+     * steward's basis all apply unchanged, and only the shape of the deliverable
+     * differs. Defaults to `report`, which is every quest written before this
+     * existed and every quest that says nothing.
+     */
+    deliverable: varchar('deliverable', { length: 32 }).notNull().default('report'),
+
+    /**
      * Why a steward refused this task, for its author to read.
      *
      * A refused task keeps its refusal rather than being edited back into the
@@ -664,6 +674,12 @@ export const tasks = pgTable(
     check(
       'tasks_proof_verifier_belongs_to_quests',
       sql`${table.kind} = 'quest' or ${table.proofVerifier} is null`,
+    ),
+    check('tasks_deliverable_is_known', sql`${table.deliverable} in ('report', 'catalogue-entry')`),
+    /** An Academy rung hands in what its verifier reads, and never a catalogue entry. */
+    check(
+      'tasks_catalogue_deliverable_belongs_to_quests',
+      sql`${table.kind} = 'quest' or ${table.deliverable} = 'report'`,
     ),
     check('tasks_prerequisites_max', sql`cardinality(${table.prerequisiteTaskIds}) <= 16`),
     check(

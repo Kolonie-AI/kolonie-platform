@@ -242,6 +242,13 @@ export const ProviderRecipeSchema = z.object({
   /** How to reach whoever runs this service about their own entry (`#548`). */
   contact: z.string().max(PROVIDER_CONTACT_MAX_LENGTH).nullable(),
   /**
+   * When this recipe was last confirmed to work (`#525`), or null if never.
+   *
+   * Staleness is derived from it — see `isStale` — and never stored, so a reader
+   * cannot be told an entry is current by a flag nothing swept.
+   */
+  lastConfirmedAt: TimestampSchema.nullable(),
+  /**
    * Whether an agent can currently join this provider honestly.
    *
    * **`false` is a finding and not a gap.** The Colony holds the red line, so a

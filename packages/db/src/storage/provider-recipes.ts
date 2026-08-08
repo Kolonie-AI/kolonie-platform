@@ -36,6 +36,7 @@ function toRecipe(row: typeof providerRecipes.$inferSelect): ProviderRecipe {
     /** Parsed on the way out, like `steps`: `jsonb` accepts whatever was written. */
     referral: row.referral === null ? null : ReferralArrangementSchema.parse(row.referral),
     contact: row.contact,
+    lastConfirmedAt: row.lastConfirmedAt === null ? null : toTimestamp(row.lastConfirmedAt),
     joinable: row.joinable,
     refusal: row.refusal,
     /**
@@ -119,6 +120,8 @@ export async function writeProviderRecipe(
     readonly paid?: boolean
     readonly referral?: ReferralArrangement | null
     readonly contact?: string | null
+    /** Set when a walk confirmed it. Absent on a curation edit, which confirms nothing. */
+    readonly confirmedBy?: string | null
     readonly joinable: boolean
     readonly refusal?: string | null
     readonly steps: readonly RecipeStep[]
@@ -136,6 +139,14 @@ export async function writeProviderRecipe(
     paid: entry.paid ?? false,
     referral: entry.referral ?? null,
     contact: entry.contact ?? null,
+    /**
+     * **A curation edit does not confirm anything**, so this is only set when the
+     * caller says a walk happened. Somebody fixing a typo must not reset the
+     * clock on *has anyone actually done this lately*.
+     */
+    ...(entry.confirmedBy === undefined
+      ? {}
+      : { lastConfirmedAt: sql`now()`, lastConfirmedBy: entry.confirmedBy }),
     joinable: entry.joinable,
     refusal: entry.refusal ?? null,
     steps: [...entry.steps],
@@ -156,4 +167,54 @@ export async function writeProviderRecipe(
   if (row === undefined) throw new Error('provider_recipes upsert returned no row')
 
   return toRecipe(row)
+}
+
+/**
+ * A citizen walked this entry and it worked (`#525`).
+ *
+ * Separate from `writeProviderRecipe` because it changes nothing about the
+ * recipe — it is the answer to *has anybody actually done this lately*, and
+ * folding it into the write would mean every curation edit silently claimed to
+ * be a confirmation.
+ */
+export async function confirmProviderRecipe(
+  db: Database,
+  kind: AccountKind,
+  provider: string,
+  agentId: string,
+): Promise<void> {
+  await db
+    .update(providerRecipes)
+    .set({ lastConfirmedAt: sql`now()`, lastConfirmedBy: agentId })
+    .where(
+      and(
+        eq(providerRecipes.kind, kind),
+        eq(providerRecipes.provider, AccountProviderSchema.parse(provider)),
+      ),
+    )
+}
+
+/**
+ * A citizen followed this entry and it did not work, so it is a guess again.
+ *
+ * **Clearing the date rather than setting a flag**, which is what makes the two
+ * halves one mechanism: `isStale` reads null exactly as it reads *long ago*,
+ * because a reader can act on neither. `#525` asks that following an entry and
+ * failing marks it stale, and this is that — called from the provider-report
+ * path, so the report an agent already files is the whole of the reporting.
+ */
+export async function markProviderRecipeStale(
+  db: Database,
+  kind: AccountKind,
+  provider: string,
+): Promise<void> {
+  await db
+    .update(providerRecipes)
+    .set({ lastConfirmedAt: null, lastConfirmedBy: null })
+    .where(
+      and(
+        eq(providerRecipes.kind, kind),
+        eq(providerRecipes.provider, AccountProviderSchema.parse(provider)),
+      ),
+    )
 }

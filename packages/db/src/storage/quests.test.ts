@@ -245,6 +245,8 @@ describe('the quest write path', () => {
     publishObstacles: true,
     timeoutHours: 24,
     assistanceAllowed: true,
+    // Prose, which is what a sponsor that says nothing about it gets (#525).
+    deliverable: 'report',
     ...overrides,
   })
 

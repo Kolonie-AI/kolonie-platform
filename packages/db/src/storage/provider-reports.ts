@@ -7,6 +7,7 @@ import type {
 } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import { providerReports } from '../schema/provider-reports.js'
+import { markProviderRecipeStale } from './provider-recipes.js'
 
 /**
  * Reports about providers that produced no account (`#298`).
@@ -78,6 +79,21 @@ export async function reportProvider(
       target: [providerReports.agentId, providerReports.kind, providerReports.provider],
       set: written,
     })
+
+  /**
+   * **A report against a provider with an entry marks that entry stale**
+   * (`#525`).
+   *
+   * Here rather than in a second reporting path, which is the whole of `#525`'s
+   * *following an entry and failing is reportable*: the report an agent already
+   * files is the report. A citizen that walked a published recipe and did not
+   * get through is the strongest available evidence that the recipe has gone
+   * out of date, and the catalogue has to stop presenting it as current.
+   *
+   * It clears the confirmation rather than setting a flag, so `isStale` reads
+   * it exactly as it reads *never confirmed* — a reader can act on neither.
+   */
+  await markProviderRecipeStale(db, input.kind, input.provider)
 
   return { outcome: 'recorded' }
 }

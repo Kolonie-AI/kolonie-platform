@@ -21,6 +21,7 @@ const recipe = (input: {
     paid: false,
     referral: null,
     contact: null,
+    lastConfirmedAt: '2026-08-01T00:00:00.000Z' as never,
     joinable,
     refusal: joinable ? null : 'no honest route in',
     steps: joinable ? [{ actor: 'agent', instruction: 'sign up' }] : [],

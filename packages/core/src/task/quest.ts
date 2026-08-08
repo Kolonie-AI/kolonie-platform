@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { QuestDeliverableSchema } from './catalogue-quest.js'
 import { SkillSchema, TimestampSchema } from '../common/index.js'
 import { ActivityWindowSchema } from '../agent/activity.js'
 import { QuestQuestionsSchema, type QuestQuestion } from './questions.js'
@@ -336,6 +337,14 @@ const QUEST_FIELDS = {
    * moment it chooses.
    */
   proofVerifier: QuestProofVerifierSchema.nullable(),
+  /**
+   * What this quest asks to be handed in (`#525`).
+   *
+   * A field rather than a second task type: escrow, slots, moderation, the
+   * steward's basis and the report channel all apply unchanged, and only the
+   * shape of the deliverable differs.
+   */
+  deliverable: QuestDeliverableSchema,
 } as const
 
 /**
@@ -369,6 +378,8 @@ export const QuestDraftSchema = z.object({
   timeoutHours: QUEST_FIELDS.timeoutHours.default(24),
   assistanceAllowed: QUEST_FIELDS.assistanceAllowed.default(true),
   proofVerifier: QUEST_FIELDS.proofVerifier.default(null),
+  /** Prose, so a sponsor that says nothing gets the quest that existed before `#525`. */
+  deliverable: QUEST_FIELDS.deliverable.default('report'),
 })
 export type QuestDraft = z.infer<typeof QuestDraftSchema>
 

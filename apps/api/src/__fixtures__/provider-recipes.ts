@@ -71,6 +71,8 @@ export function fakeProviderRecipes(): FakeProviderRecipes {
         about: entry.about ?? null,
         runtimes: entry.runtimes ?? [],
         paid: entry.paid ?? false,
+        referral: entry.referral ?? null,
+        contact: entry.contact ?? null,
         joinable,
         refusal: entry.refusal ?? (joinable ? null : 'no honest route in'),
         steps: entry.steps ?? (joinable ? [{ actor: 'agent', instruction: 'sign up' }] : []),

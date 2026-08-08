@@ -1170,6 +1170,13 @@
       "when": 1786158381288,
       "tag": "0166_a_page_says_what_a_provider_is",
       "breakpoints": true
+    },
+    {
+      "idx": 167,
+      "version": "7",
+      "when": 1786159790615,
+      "tag": "0167_an_entry_has_a_counterparty",
+      "breakpoints": true
     }
   ]
 }

@@ -318,7 +318,13 @@ describe('the migrations', () => {
     // on `provider_recipes`, because the current path stays derived from the
     // provider's own name and a stored slug would be a second copy free to
     // disagree with it.
-    expect(afterFirst.tables).toBe('84')
+    // **Eighty-five and eighty-six** (`#548`): `provider_claims`, a provider that
+    // has proved it is the provider, and `entry_proposals`, what it — or a citizen
+    // — proposes an entry should become. Two tables because they answer different
+    // questions and only one of them is a queue; one table for *both authors* of a
+    // proposal, because a claimed provider's change goes through the same review a
+    // citizen's does and two queues would be two standards within a month.
+    expect(afterFirst.tables).toBe('86')
     // Twenty: `task_kind` (#43) tells an Academy task from a Quest and therefore
     // what may pay credits; `support_ticket_kind` and `support_ticket_status` (#11)
     // carry what a citizen wrote about and where it stands; `erasure_reason` and

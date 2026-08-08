@@ -4,10 +4,12 @@ import {
   AccountProviderSchema,
   RecipeRuntimeNoteSchema,
   RecipeStepSchema,
+  ReferralArrangementSchema,
   type AccountKind,
   type ProviderRecipe,
   type RecipeRuntimeNote,
   type RecipeStep,
+  type ReferralArrangement,
 } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import { providerRecipes } from '../schema/provider-recipes.js'
@@ -31,6 +33,9 @@ function toRecipe(row: typeof providerRecipes.$inferSelect): ProviderRecipe {
       RecipeRuntimeNoteSchema.parse(note),
     ),
     paid: row.paid,
+    /** Parsed on the way out, like `steps`: `jsonb` accepts whatever was written. */
+    referral: row.referral === null ? null : ReferralArrangementSchema.parse(row.referral),
+    contact: row.contact,
     joinable: row.joinable,
     refusal: row.refusal,
     /**
@@ -112,6 +117,8 @@ export async function writeProviderRecipe(
     readonly about?: string | null
     readonly runtimes?: readonly RecipeRuntimeNote[]
     readonly paid?: boolean
+    readonly referral?: ReferralArrangement | null
+    readonly contact?: string | null
     readonly joinable: boolean
     readonly refusal?: string | null
     readonly steps: readonly RecipeStep[]
@@ -127,6 +134,8 @@ export async function writeProviderRecipe(
     about: entry.about ?? null,
     runtimes: [...(entry.runtimes ?? [])],
     paid: entry.paid ?? false,
+    referral: entry.referral ?? null,
+    contact: entry.contact ?? null,
     joinable: entry.joinable,
     refusal: entry.refusal ?? null,
     steps: [...entry.steps],

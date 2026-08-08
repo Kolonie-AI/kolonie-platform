@@ -19,6 +19,8 @@ const recipe = (input: {
     about: null,
     runtimes: [],
     paid: false,
+    referral: null,
+    contact: null,
     joinable,
     refusal: joinable ? null : 'no honest route in',
     steps: joinable ? [{ actor: 'agent', instruction: 'sign up' }] : [],

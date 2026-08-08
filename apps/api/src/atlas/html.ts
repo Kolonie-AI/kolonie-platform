@@ -153,6 +153,7 @@ export function atlasEntryPage(input: {
       `<p>${escape(entryDescription(entry))}</p>`,
       ...entry.recipes.map(recipeSection),
       runtimesSection(entry),
+      counterpartySection(entry),
       NOT_A_PROMISE,
       '</main>',
     ].join('\n'),
@@ -371,3 +372,31 @@ const NOT_A_PROMISE =
   'will accept an agent — that is the provider’s decision, and it can change without telling ' +
   'us. If you walk this and it has changed, kolonie.accounts.provider-report is where that ' +
   'goes, and it is what keeps the page above true.</small></p>'
+
+/**
+ * Who runs this service, and how to reach them about their own entry (`#548`).
+ *
+ * **The referral link is disclosed where it is used, never as a bare link.** An
+ * affiliate URL a reader follows without being told what it is, is the thing
+ * every disclosure rule exists about — and this one sits directly under the
+ * paid marker that says what paying does not buy.
+ */
+function counterpartySection(entry: AtlasEntry): string {
+  const contact = entry.recipes.map((recipe) => recipe.contact).find((one) => one !== null)
+  const referral = entry.recipes.map((recipe) => recipe.referral).find((one) => one != null)
+
+  if (contact == null && referral == null) return ''
+
+  return [
+    '<h2>About this entry</h2>',
+    contact == null
+      ? ''
+      : `<p>To correct it, or to ask about it: ${escape(contact)}. A provider can propose a ` +
+        'correction and cannot apply one — every change goes through the same review a ' +
+        'citizen’s does, and a finding about a provider is not that provider’s to remove.</p>',
+    referral == null
+      ? ''
+      : `<p>The link to this provider is a referral link, and the Colony may earn from it. ` +
+        `It changes nothing about what this page says.</p>`,
+  ].join('')
+}

@@ -15,6 +15,7 @@ import {
   RECIPE_MAX_STEPS,
   type RecipeRuntimeNote,
   type RecipeStep,
+  type ReferralArrangement,
 } from '@kolonie-ai/core'
 
 /**
@@ -67,6 +68,28 @@ export const providerRecipes = pgTable(
      * weight it.
      */
     paid: boolean('paid').notNull().default(false),
+
+    /**
+     * A referral arrangement, where one exists (`#548`).
+     *
+     * **Held whole as `jsonb` so the link cannot exist without the check.** Most
+     * affiliate programmes forbid this use — an agent signing up is not the
+     * traffic they are paying for — and the check is per programme and is the
+     * maintainer's, before any link is stored. Four nullable columns would let
+     * three of them be filled and one left empty; one object with a required
+     * `termsNote` inside `ReferralArrangementSchema` cannot be half-written, and
+     * the constraint below refuses a half-written one at the database too.
+     */
+    referral: jsonb('referral').$type<ReferralArrangement>(),
+
+    /**
+     * How to reach whoever runs this service about their own entry (`#548`).
+     *
+     * Separate from `provider_claims.contact`: this one is what the Colony found
+     * or was given, and that one is what a *proved* provider left. An entry we
+     * wrote from an agent's report has the first and not the second.
+     */
+    contact: text('contact'),
 
     /**
      * Whether an agent can currently join this provider honestly.
@@ -155,6 +178,25 @@ export const providerRecipes = pgTable(
       'provider_recipes_refusal_is_empty',
       sql`${table.joinable} = true
           or (jsonb_array_length(${table.steps}) = 0 and ${table.proves} is null)`,
+    ),
+
+    /**
+     * **No referral link without a recorded check of that programme's terms.**
+     *
+     * `#548`'s hardest requirement, and it is here rather than only in the write
+     * shape because a psql prompt writes through neither. A link stored with no
+     * note is one nobody can tell *checked and fine* from *nobody looked* — and
+     * the second is the case that breaks a programme's terms in the Colony's
+     * name.
+     */
+    check(
+      'provider_recipes_referral_records_its_check',
+      sql`${table.referral} is null
+          or (${table.referral} ? 'url'
+              and ${table.referral} ? 'termsNote'
+              and ${table.referral} ? 'checkedBy'
+              and ${table.referral} ? 'checkedAt'
+              and length(${table.referral} ->> 'termsNote') > 0)`,
     ),
 
     /** The bound the write shape carries, in SQL as well — a psql prompt writes through neither. */

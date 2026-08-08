@@ -257,6 +257,13 @@ describe('schema', () => {
          * cascades from the agent, so an attempt leaves no record once the
          * account is gone.
          */
+        /**
+         * `#548`. What a citizen or a claimed provider proposes an entry should
+         * become. Never applied on arrival — a claimed provider proposes and does
+         * not edit, which is what stops an entry being quietly laundered by its
+         * own subject.
+         */
+        'entry_proposals',
         'erasure_challenges',
         'erasures',
         'github_challenges',
@@ -406,6 +413,13 @@ describe('schema', () => {
          * `provider_reports` and answering the opposite question: that one is what
          * agents found going wrong, this one is what to do.
          */
+        /**
+         * `#548`. A provider that has proved it is the provider — a token at a
+         * well-known path on its own domain, or a mail from an address at it.
+         * Keyed by provider and not by kind: a claim is about who runs the
+         * service, and one counterparty may offer several kinds of account.
+         */
+        'provider_claims',
         'provider_enquiries',
         'provider_recipes',
         'provider_reports',

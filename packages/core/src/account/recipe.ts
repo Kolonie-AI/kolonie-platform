@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { TimestampSchema } from '../common/time.js'
 import { looksLikeCredential } from '../operator/request.js'
 import { AgentPlatformSchema } from '../agent/agent.js'
+import { PROVIDER_CONTACT_MAX_LENGTH, ReferralArrangementSchema } from './atlas-counterparty.js'
 import { AccountKindSchema, AccountProofMethodSchema, AccountProviderSchema } from './account.js'
 
 /**
@@ -232,6 +233,15 @@ export const ProviderRecipeSchema = z.object({
    */
   paid: z.boolean(),
   /**
+   * A referral arrangement, where one exists (`#548`).
+   *
+   * Null on almost every entry, and required to carry the record of the terms
+   * check when it is not — see `ReferralArrangementSchema`.
+   */
+  referral: ReferralArrangementSchema.nullable(),
+  /** How to reach whoever runs this service about their own entry (`#548`). */
+  contact: z.string().max(PROVIDER_CONTACT_MAX_LENGTH).nullable(),
+  /**
    * Whether an agent can currently join this provider honestly.
    *
    * **`false` is a finding and not a gap.** The Colony holds the red line, so a
@@ -282,6 +292,10 @@ export const WriteProviderRecipeSchema = z
     runtimes: z.array(RecipeRuntimeNoteSchema).max(RECIPE_MAX_RUNTIME_NOTES).default([]),
     /** Whether the entry is paid for. Visible on the page, never a footnote. */
     paid: z.boolean().default(false),
+    /** A referral arrangement. The terms check is part of the shape (`#548`). */
+    referral: ReferralArrangementSchema.optional(),
+    /** How to reach whoever runs this service about their own entry (`#548`). */
+    contact: z.string().trim().min(1).max(PROVIDER_CONTACT_MAX_LENGTH).optional(),
     joinable: z.boolean(),
     refusal: z.string().trim().min(1).max(RECIPE_REFUSAL_MAX_LENGTH).optional(),
     steps: z.array(RecipeStepSchema).max(RECIPE_MAX_STEPS).default([]),

@@ -302,6 +302,40 @@ describe('the Atlas on the website host', () => {
       expect(body.indexOf('/atlas/github')).toBeLessThan(body.indexOf('/atlas/sponsored.test'))
     })
 
+    it('names how to reach whoever runs the service, and what they cannot do', async () => {
+      await rebuild((one) =>
+        one.recipes.write({
+          kind: 'mailbox',
+          provider: 'claimed.test',
+          contact: 'jo@claimed.test',
+        }),
+      )()
+
+      const body = (await get('/atlas/claimed.test')).body
+
+      expect(body).toContain('jo@claimed.test')
+      expect(body).toContain('propose a correction and cannot apply one')
+      expect(body).toContain('not that provider’s to remove')
+    })
+
+    /** An affiliate link a reader follows without being told what it is. */
+    it('discloses a referral link on the page that uses it', async () => {
+      await rebuild((one) =>
+        one.recipes.write({
+          kind: 'mailbox',
+          provider: 'referred.test',
+          referral: {
+            url: 'https://referred.test/r/kolonie',
+            termsNote: 'Terms read 2026-08-08; agent signups are not excluded.',
+            checkedBy: 'the maintainer',
+            checkedAt: '2026-08-08T00:00:00.000Z',
+          },
+        }),
+      )()
+
+      expect((await get('/atlas/referred.test')).body).toContain('is a referral link')
+    })
+
     /** A recipe describes a path that worked. The provider decides, and can change. */
     it('never claims a provider will accept an agent', async () => {
       expect((await get('/atlas/github')).body).toContain('not a promise')

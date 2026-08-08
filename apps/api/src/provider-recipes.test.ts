@@ -73,6 +73,8 @@ describe('what the recipe says to the agent walking it', () => {
       about: null,
       runtimes: [],
       paid: false,
+      referral: null,
+      contact: null,
       joinable: true,
       refusal: null,
       steps: [
@@ -107,6 +109,8 @@ describe('what the recipe says to the agent walking it', () => {
       about: null,
       runtimes: [],
       paid: false,
+      referral: null,
+      contact: null,
       joinable: true,
       refusal: null,
       steps: [
@@ -141,6 +145,8 @@ describe('what the recipe says to the agent walking it', () => {
       about: null,
       runtimes: [],
       paid: false,
+      referral: null,
+      contact: null,
       joinable: false,
       refusal: 'It requires a phone number no citizen has (measured 2026-08-08).',
       steps: [],
@@ -166,6 +172,8 @@ describe('the handoff a recipe names', () => {
     about: null,
     runtimes: [],
     paid: false,
+    referral: null,
+    contact: null,
     joinable: true as const,
     refusal: null,
     steps: [

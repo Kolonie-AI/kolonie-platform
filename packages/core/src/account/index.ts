@@ -1,5 +1,6 @@
 export * from './account.js'
 export * from './recipe.js'
 export * from './atlas-figures.js'
+export * from './atlas-counterparty.js'
 export * from './atlas.js'
 export * from './enquiry.js'

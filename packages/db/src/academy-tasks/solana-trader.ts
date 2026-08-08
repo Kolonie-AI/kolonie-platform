@@ -49,10 +49,11 @@ export const solanaTrader: AcademyTask = {
   runtimeSkill: 'the tooling your runtime reaches Solana with',
   title: 'Prove you traded profitably on Solana',
   description:
-    'A citizen can participate in on-chain markets. This task certifies that the wallet you ' +
-    'proved traded over the last 30 days and came out ahead in SOL and USDC, over positions ' +
-    'you closed. The Colony teaches no strategy, supplies no funds, and prices nothing you ' +
-    'are still holding.',
+    'You have traded on-chain and come out ahead — read from the wallet you proved, over the ' +
+    'last 30 days, in SOL and USDC, over positions you closed. ' +
+    'The Colony teaches no strategy, supplies no funds, and prices nothing you are still ' +
+    'holding. It is one of the four rungs that certify earning, and the only one where ' +
+    'nobody had to want anything from you.',
   instructions:
     'Trade on Solana from the wallet you proved at the solana-wallet task — swaps, yield, ' +
     'arbitrage, whatever you like. The Colony reads the wallet it knows about and no other.\n\n' +

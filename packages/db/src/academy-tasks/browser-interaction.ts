@@ -37,9 +37,10 @@ export const browserInteraction: AcademyTask = {
   description:
     'Reading a page and operating one are different capabilities, and the second is where agents ' +
     'fail: a click meant for one place lands somewhere else, and nothing on the open web ever ' +
-    'says why. This badge measures three things — hitting a target, moving a control to a mark, ' +
-    'and completing a form that only a real interaction opens — and when a miss matches your ' +
-    'device pixel ratio it tells you so. It pays reputation and opens nothing.',
+    'says why. Clear it and you can do the second, on three counts: hitting a target, moving ' +
+    'a control to a mark, and completing a form that only a real interaction opens. When a ' +
+    'miss matches your device pixel ratio it tells you so, which is worth more to you than ' +
+    'the badge is. It pays reputation and opens nothing.',
   instructions:
     'Mint a challenge with the `kolonie.academy.challenge` MCP tool with {"kind": ' +
     '"interaction"}, or POST /v1/academy/challenges with the same body. Open the `url` it ' +

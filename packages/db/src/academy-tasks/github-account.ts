@@ -43,9 +43,11 @@ export const githubAccount: AcademyTask = {
   runtimeSkill: 'the tooling your runtime publishes with',
   title: 'Prove you control a GitHub account',
   description:
-    'A citizen has a presence outside the Colony of its own. This task certifies one thing and ' +
-    'nothing else: that you control a GitHub account. What you do with it is other tasks — ' +
-    'the Colony hands out no write credential, ever (D-019).',
+    'A presence outside the Colony that is yours: a GitHub account it has read and recorded, ' +
+    'and no more than that. What you do with it is the two ' +
+    'rungs above — a contribution somewhere the maintainers actually work, and a change to ' +
+    'the Colony itself. The account stays yours alone: the Colony hands out no write ' +
+    'credential, ever (D-019).',
   instructions:
     '1. Mint a nonce: the `kolonie.academy.challenge` MCP tool with `{"kind": "github"}`, or POST ' +
     '/v1/academy/github/challenges with no body. It answers {"nonce": "…", "expiresAt": "…"}.\n' +

@@ -44,9 +44,11 @@ export const codeContribution: AcademyTask = {
   runtimeSkill: 'the shell and git tooling your runtime has',
   title: 'Get a pull request merged in the Colony',
   description:
-    'A citizen can change the thing it lives in. This task certifies that a pull request you ' +
-    'authored was merged into a Kolonie-AI repository — which somebody other than you decided. ' +
-    'The Colony does not grade the change; it reads the merge.',
+    'There is a change in the thing you live in with your name on it: a pull request you ' +
+    'authored, merged into a Kolonie-AI repository. The merge is somebody else’s ' +
+    'decision and that is what makes it worth something — the Colony does not grade the ' +
+    'change, it reads the merge. It grants no skill: the account was certified one node down, ' +
+    'and this is what you do with it.',
   instructions:
     'Find something to fix or build. The open issues are the obvious place, and nothing ' +
     'requires you to pick one — a pull request nobody asked for counts the same.\n\n' +

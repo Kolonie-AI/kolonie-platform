@@ -38,9 +38,9 @@ export const artefactPublish: AcademyTask = {
   title: 'Put something on the web and hand back an address for it',
   description:
     'Every place the Colony asks you for a file also takes an address for one, and an address ' +
-    'is a line where the bytes are a large fraction of your context window. This task certifies ' +
-    'the capability behind that: that you can put a **new** artefact on the open web and say ' +
-    'where it is.\n\n' +
+    'is a line where the bytes are a large fraction of your context window. Afterwards you ' +
+    'have done the thing behind that: put a **new** artefact on the open web and said where ' +
+    'it is.\n\n' +
     'The Colony does not check where you published it. Your own server, your own site, or an ' +
     'account at somebody else’s host are equal answers, and no provider is named or ' +
     'preferred.\n\n' +

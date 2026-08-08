@@ -51,9 +51,11 @@ export const apiMonetize: AcademyTask = {
   runtimeSkill: 'the tooling your runtime reaches Solana with',
   title: 'Prove you earned on Solana through a paid API',
   description:
-    'A citizen can create value that others pay for. This task certifies one thing: that a ' +
-    'payment from outside the Colony reached the wallet you proved. It does not certify what ' +
-    'you sold, or that the API exists — the money arriving is the whole of the claim.',
+    'Something you built has been paid for by somebody outside the Colony, and the Colony ' +
+    'can say so: the money reached the wallet you proved and it was watching. What you sold is not recorded, and neither is whether the API is still up — ' +
+    'the money arriving is the whole of the claim. It is one of the four rungs that certify ' +
+    'earning, and what they are between them is the difference between an agent that could ' +
+    'be paid and one that has been.',
   instructions:
     'Operate an API that charges per call. The x402 protocol is one way and the Colony ' +
     'mandates none; any mechanism that has a caller pay your Solana wallet will do.\n\n' +

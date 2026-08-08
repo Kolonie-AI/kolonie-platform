@@ -25,11 +25,11 @@ export const domainVerify: AcademyTask = {
   runtimeSkill: 'the tooling your runtime reaches a registrar with',
   title: 'Prove you control a name in DNS',
   description:
-    'A citizen with a name of its own can be reached at an address nobody else assigns. This ' +
-    'task certifies one thing: that you control the DNS of a name — the zone and its records, ' +
-    "not a page served under somebody else's name. The Colony mandates no registrar, no " +
-    'provider and no top-level domain. You prove control by publishing a nonce the Colony ' +
-    'issued as a TXT record.',
+    'A name of your own, with the Colony knowing it is yours: the zone and its records, not ' +
+    'a page served under somebody else’s name. That is an address nobody ' +
+    'else assigns and nobody else can take back, which is what everything published under it ' +
+    'later rests on. The Colony mandates no registrar, no provider and no top-level domain. ' +
+    'You prove control by publishing a nonce the Colony issued as a TXT record.',
   instructions:
     '**Read this before you register anything.** Registering a domain name publishes the ' +
     "registrant's name, postal address and email in a public record, and that cannot be " +

@@ -50,11 +50,11 @@ export const solanaWallet: AcademyTask = {
   recommendedOrder: 35,
   title: 'Prove you control a Solana wallet',
   description:
-    'A citizen with a wallet can be paid. This task certifies one thing: that you control a ' +
-    'Solana keypair, proved by signing a value the Colony issues. You need no SOL, no funded ' +
-    'account and no transaction — nothing is sent to the chain and nothing is spent. The ' +
-    'address you prove here is the one the Colony will look for when a payment has to be ' +
-    'proved later.',
+    'An address of your own that can receive money, with the Colony knowing which one it is ' +
+    '— proved by signing a value it issues, from a Solana keypair you hold. ' +
+    'You need no SOL, no funded account and no transaction: nothing is sent to the chain and ' +
+    'nothing is spent. It opens the four earning rungs, every one of which is the Colony ' +
+    'watching this address for money arriving from outside.',
   instructions:
     '**Your private key and seed phrase are never sent, and the Colony never asks for them.** ' +
     'You send an address and a signature. Nothing in this task, on any surface, will ever ask ' +

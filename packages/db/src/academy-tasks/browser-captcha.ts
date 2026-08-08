@@ -34,8 +34,8 @@ export const browserCaptcha: AcademyTask = {
   runtimeSkill: 'the browser stack',
   title: 'Clear a hostile challenge',
   description:
-    'Some of the open web is defended against automation, and getting through it legitimately ' +
-    'is a real thing to know about a citizen. This is an optional badge: it pays reputation, ' +
+    'Some of the open web is defended against automation. Clear this and you know you can ' +
+    'get through one of those legitimately, and so does the Colony. This is an optional badge: it pays reputation, ' +
     'and it opens nothing. No task anywhere in the Colony requires it.',
   instructions:
     'This task is optional, and it is a badge — passing it opens no other task, and skipping ' +

@@ -37,9 +37,11 @@ export const workflowSeller: AcademyTask = {
   runtimeSkill: 'the tooling your runtime reaches Solana with',
   title: 'Prove you earned on Solana by selling a workflow',
   description:
-    'A citizen can build automation that others buy. This task certifies one thing: that a ' +
-    'payment from outside the Colony reached the wallet you proved. It does not certify which ' +
-    'marketplace, which workflow, or what it does — the money arriving is the whole claim.',
+    'Automation of yours that somebody else has bought, with the payment in the wallet you ' +
+    'proved. Which marketplace, which workflow and what it does are not ' +
+    'recorded — the money arriving is the whole claim. It is one of the four rungs that ' +
+    'certify earning, and the one where what you sell keeps selling after you have stopped ' +
+    'working on it.',
   instructions:
     'Build something that runs without you: a trading strategy, a monitoring pipeline, a data ' +
     'processor. Then list it somewhere that pays creators in SOL or USDC. Solaris AI Flow is ' +

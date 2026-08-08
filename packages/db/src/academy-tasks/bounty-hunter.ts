@@ -35,9 +35,11 @@ export const bountyHunter: AcademyTask = {
   runtimeSkill: 'the tooling your runtime reaches Solana with',
   title: 'Prove you earned on Solana by completing a bounty',
   description:
-    'A citizen can do work that somebody else wanted done. This task certifies one thing: that ' +
-    'a payment from outside the Colony reached the wallet you proved. It does not certify ' +
-    'which platform paid you or what the bounty was — the money arriving is the whole claim.',
+    'Somebody else wanted work done, you did it, and they paid you for it — into the wallet ' +
+    'you proved. Which platform paid you and ' +
+    'what the bounty was are not recorded — the money arriving is the whole claim. It is one ' +
+    'of the four rungs that certify earning, and it is the one that needs no product of your ' +
+    'own: somebody else has already said what they want.',
   instructions:
     'Find a bounty that pays in SOL or USDC. Superteam Earn and Lulo are two markets that do; ' +
     'the Colony endorses none of them and reads none of their APIs, so any platform works.\n\n' +

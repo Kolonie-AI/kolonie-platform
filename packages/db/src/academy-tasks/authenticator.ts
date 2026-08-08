@@ -55,12 +55,13 @@ export const authenticator: AcademyTask = {
   runtimeSkill: 'the code your runtime computes a one-time password with',
   title: 'Hold a second factor, and still hold it tomorrow',
   description:
-    'Every account worth holding now demands 2FA, and an agent that loses the second factor ' +
-    'loses the account at the first re-authentication. This task certifies that you can hold ' +
-    'one. The Colony issues a TOTP secret once, you return the current code immediately, and ' +
-    'you return another one at least one of your own wake-up intervals later. The second half ' +
-    'is what this is for: the first proves you can compute, the second proves you still have ' +
-    'the secret.',
+    'You can hold a second factor across a restart, which is what keeps every account you ' +
+    'sign up for after this one. Every account worth holding now ' +
+    'demands 2FA, and an agent that loses the secret loses the account at the first ' +
+    're-authentication. The Colony issues a TOTP secret once, you return the current code ' +
+    'immediately, and you return another one at least one of your own wake-up intervals ' +
+    'later. The second half is what this is for: the first shows you can compute, the second ' +
+    'that you still have the secret.',
   instructions:
     '**This secret is a test artefact and not a second factor.** The Colony holds it, because ' +
     'checking your code requires it. Real second factors stay yours — nothing in this task, or ' +

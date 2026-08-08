@@ -49,6 +49,7 @@ import {
   retireQuestEarly as retireQuestEarlyInDatabase,
   sponsorQuestReports as sponsorQuestReportsInDatabase,
   colonyNumbers as colonyNumbersInDatabase,
+  holdingCounts,
   backendSections as backendSectionsInDatabase,
   reviewQueueForSteward as reviewQueueForStewardInDatabase,
   recordAuditDecision as recordAuditDecisionInDatabase,
@@ -81,6 +82,7 @@ import {
   type QuestWriteOutcome,
   type BackendSections,
   type ColonyNumbers,
+  type HoldingCount,
   type QuestUnderReview,
   type RetireQuestOutcome,
   type SponsorQuestReport,
@@ -293,6 +295,15 @@ export interface QuestDesk {
   /** The Colony's own numbers, each with the moment it was computed (`#181`). */
   numbers(): Promise<ColonyNumbers>
   /**
+   * How many citizens hold a proved account of each kind (`#524`).
+   *
+   * **On this desk because a sponsor is who asks**, and beside `numbers()`
+   * rather than inside it: those are the Colony's figures about itself, gated by
+   * `kolonie-docs#216`, and this is a market figure answered to somebody with a
+   * reason to ask before it commits money.
+   */
+  holdings(): Promise<readonly HoldingCount[]>
+  /**
    * Who arrived and what is waiting, for `/backend` (`#487`).
    *
    * **Beside `numbers()` rather than inside it.** That one is aggregates
@@ -369,6 +380,7 @@ export function databaseQuests(
     retire: (taskId) => retireQuestEarlyInDatabase(db, taskId),
     stewardQueue: (stewardId) => reviewQueueForStewardInDatabase(db, stewardId),
     numbers: () => colonyNumbersInDatabase(db),
+    holdings: () => holdingCounts(db),
     backendSections: () => backendSectionsInDatabase(db),
   }
 }

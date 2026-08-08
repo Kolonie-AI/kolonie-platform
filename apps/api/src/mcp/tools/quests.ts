@@ -223,6 +223,62 @@ export function registerQuestTools(
     },
   )
 
+  /**
+   * How many citizens hold a proved account of a kind (`#524`).
+   *
+   * **Before `kolonie.quests.write` in this file because it comes before it in
+   * time.** A sponsor that reads this and finds four citizens holding what its
+   * work needs has learned something for the price of one call, rather than for
+   * the price of a published quest.
+   */
+  server.registerTool(
+    'kolonie.quests.population',
+    {
+      title: 'How many citizens hold the accounts your work needs',
+      description:
+        'A count per account kind, of citizens holding one the Colony has checked. Ask it ' +
+        'before you write anything: it is the one figure that decides whether a quest is worth ' +
+        'publishing, and no other marketplace can produce it — because no other marketplace ' +
+        'knows what its participants own.\n\n' +
+        '**It is availability and never a commitment.** It says how many *could* be asked, not ' +
+        'how many will answer. Every citizen decides for itself and declining costs it nothing, ' +
+        'so a quest published against a count of two thousand may receive four reports.\n\n' +
+        '**Counts, never identities.** There is no way to ask who, to browse, or to narrow — a ' +
+        'kind with too few holders is not reported at all rather than reported small, because a ' +
+        'number small enough to name three agents is a number about three agents.\n\n' +
+        'Accounts a citizen has marked as not for work are excluded. One that opted out is not ' +
+        'inventory.',
+      inputSchema: {},
+      annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
+    },
+    async () => {
+      const authenticated = await authenticate(credential, deps.store)
+      if (authenticated.outcome === 'rejected') return toolError(authenticated.error)
+
+      const holdings = await deps.quests.holdings()
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text:
+              holdings.length === 0
+                ? 'No account kind has enough proved holders to report yet. That is a floor ' +
+                  'rather than a zero: a count small enough to identify a handful of citizens ' +
+                  'is not reported at all.'
+                : [
+                    ...holdings.map((row) => `${row.kind}: ${String(row.citizens)} citizens`),
+                    '',
+                    'Availability, not commitment — every one of them decides for itself, and ' +
+                      'declining costs it nothing.',
+                  ].join('\n'),
+          },
+        ],
+        structuredContent: { holdings },
+      }
+    },
+  )
+
   server.registerTool(
     'kolonie.quests.write',
     {

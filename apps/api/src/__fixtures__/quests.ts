@@ -21,6 +21,7 @@ import type {
   QuestResult as AcceptedReport,
 } from '@kolonie-ai/db'
 import type { QuestDesk } from '../quests.js'
+import type { HoldingCount } from '@kolonie-ai/db'
 import type { QuestTakenPartIn } from '@kolonie-ai/db'
 
 /**
@@ -34,6 +35,8 @@ export const FAKE_AUDIENCE = 7
 export interface FakeQuestDesk extends QuestDesk {
   /** Every criterion set the audience count was asked about (`#227`). */
   readonly audienceAsked: readonly AudienceCriteria[]
+  /** Say what the population holds, for a test about `#524`'s figure. */
+  readonly populationHolds: (counts: readonly HoldingCount[]) => void
   /**
    * Clear the moderation stage, which no route can do.
    *
@@ -123,6 +126,8 @@ export function fakeQuests(): FakeQuestDesk {
   const balances = new Map<string, number>()
   let movements: readonly CreditMovement[] = []
   const audienceAsked: AudienceCriteria[] = []
+  /** `#524`'s figure. Empty until a test says otherwise. */
+  let holdings: readonly HoldingCount[] = []
   const sections: {
     registrations: readonly { name: string; registeredAt: string; path: string }[]
     tickets: readonly { subject: string; openedAt: string; status: string }[]
@@ -311,6 +316,18 @@ export function fakeQuests(): FakeQuestDesk {
     showsOnBackend: (input) => {
       if (input.registrations !== undefined) sections.registrations = input.registrations
       if (input.tickets !== undefined) sections.tickets = input.tickets
+    },
+
+    /**
+     * What the population holds (`#524`).
+     *
+     * **Settable and empty by default**, and the floor is not reimplemented
+     * here: the suppression is a `having` clause asserted against a real
+     * Postgres, and a fake with its own copy would be a second opinion about the
+     * one rule that protects citizens.
+     */
+    async holdings() {
+      return holdings
     },
 
     async numbers() {
@@ -730,6 +747,9 @@ export function fakeQuests(): FakeQuestDesk {
      * that the criteria it is asked about are the quest's own.
      */
     audienceAsked,
+    populationHolds: (counts) => {
+      holdings = counts
+    },
 
     async audience(criteria) {
       audienceAsked.push(criteria)

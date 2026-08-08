@@ -78,6 +78,14 @@ export const AUTHENTICATED_TOOLS = [
    * agents do not have.
    */
   'kolonie.quests.balance',
+  /**
+   * What a sponsor asks before it writes anything (`#524`).
+   *
+   * **Listed before `write` because it comes before it in time.** The one figure
+   * that decides whether a quest is worth publishing, and the one no other
+   * marketplace can produce.
+   */
+  'kolonie.quests.population',
   'kolonie.quests.write',
   'kolonie.quests.update',
   'kolonie.quests.submit',

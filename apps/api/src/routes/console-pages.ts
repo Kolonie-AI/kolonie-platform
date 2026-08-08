@@ -44,6 +44,8 @@ import { zoneFrom } from '../console/time.js'
 import { agentPage } from '../console/agent-page.js'
 import { numbersPage, reviewQueuePage } from '../console/steward.js'
 import { backendPage } from '../console/backend.js'
+import { curationSections } from '../console/curation.js'
+import { atlasCuration } from '../provider-recipes.js'
 import {
   operatedQuestsPage,
   questDraftPage,
@@ -799,9 +801,10 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
     // is announced anywhere, because an enquiry nobody answers is worse than no
     // form.
     const enquiries = await deps.providerEnquiries.list()
+    const curation = curationSections(await atlasCuration(deps.recipes))
 
     return wantsHtml(request)
-      ? html(reply, backendPage({ numbers, sections, settings, enquiries, notice }))
+      ? html(reply, backendPage({ numbers, sections, settings, enquiries, notice, curation }))
       : reply.send({
           numbers,
           ...sections,
@@ -2379,9 +2382,46 @@ export function registerStewardPages(app: FastifyInstance, deps: RouteDependenci
     const queue = await deps.quests.stewardQueue(caller.id)
 
     return wantsHtml(request)
-      ? html(reply, reviewQueuePage({ steward: caller.profile.name, queue }))
+      ? html(
+          reply,
+          reviewQueuePage({
+            steward: caller.profile.name,
+            queue,
+            curation: curationSections(await atlasCuration(deps.recipes)),
+          }),
+        )
       : reply.send({ queue })
   })
+
+  /**
+   * Accepting or refusing a proposed entry (`#549`).
+   *
+   * **One press, and it is recorded against its author** — the row keeps who
+   * proposed it and gains when it was decided. Behind the steward gate rather
+   * than the maintainer's, because `#549` requires that stewards curate: a
+   * catalogue only one person can maintain stops when that person is busy.
+   *
+   * **Accepting records the decision; it does not write the entry.** Applying a
+   * reviewed change is a curation edit made deliberately, and a button that both
+   * approved and published would be the one press that puts a stranger's text
+   * into the catalogue.
+   */
+  for (const decision of ['accept', 'refuse'] as const) {
+    app.post(`/curation/:proposalId/${decision}`, async (request, reply) => {
+      const caller = await steward(request, reply)
+      if (caller === null) return reply
+
+      const { proposalId } = request.params as { proposalId?: string }
+      const decided = await deps.recipes.decide(
+        proposalId ?? '',
+        decision === 'accept' ? 'accepted' : 'refused',
+      )
+
+      if (decided === undefined) return consoleNotFound(reply, request)
+
+      return wantsHtml(request) ? reply.redirect('/review', 303) : reply.send(decided)
+    })
+  }
 
   app.post('/review/:questId/publish', async (request, reply) => {
     const caller = await steward(request, reply)

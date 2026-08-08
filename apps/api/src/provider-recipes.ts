@@ -8,11 +8,20 @@ import {
   type AtlasAudience,
   type AtlasEntry,
   type AtlasFigures,
+  type EntryProposal,
   type ProviderRecipe,
   type RecipeStep,
 } from '@kolonie-ai/core'
 import type { Database } from '@kolonie-ai/db'
-import { atlasFigures, providerRecipe, providerRecipeList } from '@kolonie-ai/db'
+import {
+  atlasFigures,
+  decideProposal,
+  fallingSuccessRates,
+  pendingProposals,
+  providerRecipe,
+  providerRecipeList,
+  type FallingRate,
+} from '@kolonie-ai/db'
 
 /**
  * The provider catalogue, read (`#521`).
@@ -38,6 +47,12 @@ export interface ProviderRecipes {
     readonly audience?: AtlasAudience
     readonly provider?: string
   }): Promise<readonly AtlasFigures[]>
+  /** The review queue `#549` works through: proposals nobody has decided. */
+  proposals(): Promise<readonly EntryProposal[]>
+  /** The signal `#549` says will actually be used: rates that have fallen sharply. */
+  fallingRates(): Promise<readonly FallingRate[]>
+  /** Accept or refuse one, recorded against its author. */
+  decide(id: string, status: 'accepted' | 'refused'): Promise<EntryProposal | undefined>
 }
 
 export function databaseProviderRecipes(db: Database): ProviderRecipes {
@@ -45,6 +60,9 @@ export function databaseProviderRecipes(db: Database): ProviderRecipes {
     list: (kind) => providerRecipeList(db, kind),
     one: (kind, provider) => providerRecipe(db, kind, provider),
     figures: (options) => atlasFigures(db, options ?? {}),
+    proposals: () => pendingProposals(db),
+    fallingRates: () => fallingSuccessRates(db),
+    decide: (id, status) => decideProposal(db, id, status),
   }
 }
 
@@ -259,4 +277,26 @@ export function handoffStep(
   }
 
   return { step: found }
+}
+
+/**
+ * Curating the Atlas (`#549`), assembled once for whichever page places it.
+ *
+ * **A module-level function and not a closure inside one route module**, because
+ * two separate registrations place it: the maintainer's `/backend` and the
+ * steward's `/review`. `#549` requires both — a catalogue only one person can
+ * maintain is a catalogue that stops when that person is busy.
+ */
+export async function atlasCuration(recipes: ProviderRecipes): Promise<{
+  readonly proposals: readonly EntryProposal[]
+  readonly falling: readonly FallingRate[]
+  readonly entries: readonly AtlasEntry[]
+}> {
+  const [proposals, falling, entries] = await Promise.all([
+    recipes.proposals(),
+    recipes.fallingRates(),
+    atlasCatalogue(recipes),
+  ])
+
+  return { proposals, falling, entries }
 }

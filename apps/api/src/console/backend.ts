@@ -47,6 +47,8 @@ export function backendPage(input: {
   readonly enquiries?: readonly StoredProviderEnquiry[] | undefined
   /** What just happened to a setting, where something did. */
   readonly notice?: string | undefined
+  /** Curating the Atlas (`#549`) — rendered once, placed here and on `/review`. */
+  readonly curation?: string | undefined
 }): string {
   /**
    * Who arrived, and when.
@@ -215,6 +217,9 @@ export function backendPage(input: {
       tickets,
       '<h2>Providers writing in</h2>',
       enquiriesSection,
+      // Curating the Atlas (`#549`). A section on this page rather than a new
+      // tool, and the same section a steward sees on `/review`.
+      ...(input.curation === undefined ? [] : ['<h2>The Atlas</h2>', input.curation]),
       '<h2>Settings</h2>',
       '<p class="note">Changing one of these does not need a deploy. What is <strong>not</strong> ' +
         'here cannot be put here: every credential, everything the deploy checks for, and the ' +

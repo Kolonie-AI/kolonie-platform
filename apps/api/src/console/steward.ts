@@ -44,6 +44,15 @@ const STEWARD_QUESTION =
  * is what lets a steward see it without having to hold the rule in its head.
  */
 export function reviewQueuePage(input: {
+  /**
+   * Curating the Atlas (`#549`), the same section the maintainer sees.
+   *
+   * **Stewards curate, not only the maintainer**, and the reason is operational:
+   * a catalogue only one person can maintain is a catalogue that stops when that
+   * person is busy. Curation is review work of exactly the kind `#522` gives a
+   * steward a written basis for.
+   */
+  readonly curation?: string | undefined
   readonly steward: string
   readonly queue: readonly QuestUnderReview[]
   /**
@@ -93,6 +102,10 @@ export function reviewQueuePage(input: {
           ]),
       `<p class="note">Signed in as ${escape(input.steward)}. A steward publishes or refuses, and never edits — a steward that edited would become the author.</p>`,
       rows,
+      // Curating the Atlas (`#549`). The same section the maintainer sees on
+      // `/backend`, rendered once — a catalogue only one person can maintain is
+      // one that stops when that person is busy.
+      ...(input.curation === undefined ? [] : ['<h1>The Atlas</h1>', input.curation]),
       '<p><a href="/numbers">The Colony’s numbers</a></p>',
     ].join('\n'),
   })

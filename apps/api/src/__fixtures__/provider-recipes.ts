@@ -3,8 +3,10 @@ import {
   noFigures,
   now as currentTime,
   type AtlasFigures,
+  type EntryProposal,
   type ProviderRecipe,
 } from '@kolonie-ai/core'
+import type { FallingRate } from '@kolonie-ai/db'
 import type { ProviderRecipes } from '../provider-recipes.js'
 
 /**
@@ -31,11 +33,17 @@ export interface FakeProviderRecipes extends ProviderRecipes {
    * is asserted, against a real Postgres.
    */
   readonly measure: (figures: AtlasFigures) => void
+  /** A proposal waiting on `#549`'s queue. */
+  readonly propose: (proposal: EntryProposal) => void
+  /** An entry whose measured rate has fallen, for the signal on the same screen. */
+  readonly fall: (rate: FallingRate) => void
 }
 
 export function fakeProviderRecipes(): FakeProviderRecipes {
   const rows: ProviderRecipe[] = []
   const measured: AtlasFigures[] = []
+  const proposed: EntryProposal[] = []
+  const falling: FallingRate[] = []
 
   return {
     async figures() {
@@ -48,6 +56,32 @@ export function fakeProviderRecipes(): FakeProviderRecipes {
 
     measure(figures) {
       measured.push(figures)
+    },
+
+    async proposals() {
+      return proposed.filter((one) => one.status === 'pending')
+    },
+
+    async fallingRates() {
+      return falling
+    },
+
+    async decide(id, status) {
+      const found = proposed.find((one) => one.id === id && one.status === 'pending')
+      if (found === undefined) return undefined
+
+      const decided = { ...found, status, decidedAt: currentTime() }
+      proposed[proposed.indexOf(found)] = decided
+
+      return decided
+    },
+
+    propose(proposal) {
+      proposed.push(proposal)
+    },
+
+    fall(rate) {
+      falling.push(rate)
     },
 
     async list(kind) {

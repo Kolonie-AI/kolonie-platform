@@ -183,3 +183,93 @@ function stopsOf(stops: { outcome: string; citizens: number }[] | null): AtlasSt
     citizens: Number(stop.citizens),
   }))
 }
+
+/**
+ * Entries whose measured success rate has fallen sharply (`#549`).
+ *
+ * **The one signal on the curation screen, as opposed to the three queues.** A
+ * queue is work somebody filed; this is the Colony noticing something nobody
+ * reported — a provider that quietly changed its signup form announces itself
+ * exactly here, as a rate that was fine last month and is not now.
+ *
+ * ## Recent against earlier, both windows the same length
+ *
+ * Two periods of {@link RATE_WINDOW_DAYS}, back to back. Equal lengths because
+ * comparing a week against a year would call every provider *falling* the moment
+ * a bad week landed on a good history, and the alert nobody can act on is the
+ * alert everybody turns off.
+ *
+ * **Both sides need a floor of their own**, and it is the aggregate floor again:
+ * one citizen failing after one citizen succeeded is a 100-point fall on a
+ * sample of two, and it is also a fact about two people.
+ */
+export const RATE_WINDOW_DAYS = 30
+
+/** How far the rate has to fall before it is worth a curator's attention. */
+export const RATE_FALL_ALERT = 0.3
+
+export interface FallingRate {
+  readonly kind: string
+  readonly provider: string
+  readonly earlierRate: number
+  readonly recentRate: number
+  readonly recentAttempts: number
+}
+
+export async function fallingSuccessRates(db: Database): Promise<readonly FallingRate[]> {
+  const window = sql.raw(String(RATE_WINDOW_DAYS))
+  const floor = sql.raw(String(ATLAS_FIGURE_FLOOR))
+
+  const rows = await db.execute<{
+    kind: string
+    provider: string
+    earlier_rate: string
+    recent_rate: string
+    recent_attempts: string
+  }>(sql`
+    with attempts as (
+      select kind, provider, agent_id, proved, created_at as at
+        from accounts
+       where provider is not null
+      union all
+      select kind, provider, agent_id, false as proved, noted_at as at
+        from provider_reports
+    ),
+    windows as (
+      select
+        kind,
+        provider,
+        count(distinct agent_id) filter (
+          where at >= now() - (${window} * interval '1 day')) as recent_all,
+        count(distinct agent_id) filter (
+          where at >= now() - (${window} * interval '1 day') and proved) as recent_proved,
+        count(distinct agent_id) filter (
+          where at < now() - (${window} * interval '1 day')
+            and at >= now() - (2 * ${window} * interval '1 day')) as earlier_all,
+        count(distinct agent_id) filter (
+          where at < now() - (${window} * interval '1 day')
+            and at >= now() - (2 * ${window} * interval '1 day') and proved) as earlier_proved
+        from attempts
+       group by kind, provider
+    )
+    select kind,
+           provider,
+           (earlier_proved::numeric / earlier_all)::text as earlier_rate,
+           (recent_proved::numeric / recent_all)::text as recent_rate,
+           recent_all::text as recent_attempts
+      from windows
+     where recent_all >= ${floor}
+       and earlier_all >= ${floor}
+       and (earlier_proved::numeric / earlier_all) - (recent_proved::numeric / recent_all)
+           >= ${sql.raw(String(RATE_FALL_ALERT))}
+     order by (earlier_proved::numeric / earlier_all) - (recent_proved::numeric / recent_all) desc
+  `)
+
+  return rows.map((row) => ({
+    kind: row.kind,
+    provider: row.provider,
+    earlierRate: Number(row.earlier_rate),
+    recentRate: Number(row.recent_rate),
+    recentAttempts: Number(row.recent_attempts),
+  }))
+}

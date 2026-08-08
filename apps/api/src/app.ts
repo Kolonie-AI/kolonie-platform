@@ -362,6 +362,9 @@ export function buildApp({
     list: async () => [],
     one: async () => undefined,
     figures: async () => [],
+    proposals: async () => [],
+    fallingRates: async () => [],
+    decide: async () => undefined,
   }
 
   /**

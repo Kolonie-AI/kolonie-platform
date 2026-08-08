@@ -43,7 +43,7 @@ on:
   schedule:
     # Daily, on a minute of this repository's own, so thirteen repositories do
     # not all read `kolonie-docs` in the same second.
-    - cron: "48 7 * * *"
+    - cron: '48 7 * * *'
   workflow_dispatch:
 
 permissions:

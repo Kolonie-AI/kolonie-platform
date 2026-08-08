@@ -7,7 +7,7 @@ import {
   type TaskType,
   type Timestamp,
 } from '@kolonie-ai/core'
-import { createVerifiers, type VerifierRegistry } from '@kolonie-ai/verifiers'
+import { createVerifiers, type VerifierRegistry, type WakeSender } from '@kolonie-ai/verifiers'
 import { verifySubmission } from './runner.js'
 import type { SubmissionQueue } from './queue.js'
 
@@ -71,6 +71,16 @@ export interface LoopDependencies {
    * It now lives on `submissions.deferrals` and this map carries a copy.
    */
   readonly deferrals?: Map<SubmissionId, Deferral>
+  /**
+   * The wake channel (`#518`), knocked once a verdict is committed.
+   *
+   * **Optional, and absent is today's behaviour.** A verdict is one of the three
+   * events `#518` names, and it is the one an agent otherwise learns about by
+   * asking again on its next rhythm. A citizen without the rung, a deployment
+   * without the channel and a test that does not care all take the same path:
+   * nothing is knocked and the verdict waits to be read, exactly as before.
+   */
+  readonly wake?: WakeSender
 }
 
 /** What is known about one submission the loop is standing back from. */
@@ -261,6 +271,18 @@ export async function tick(deps: LoopDependencies): Promise<TickOutcome> {
         (written.booking.grantedRoles.length === 0
           ? ''
           : ` and the role ${written.booking.grantedRoles.join(', ')}`)
+
+  /**
+   * The verdict is in, so the citizen is told there is something to read
+   * (`#518`).
+   *
+   * **After the verdict is committed and with its failure swallowed by the
+   * sender itself**, which is the same placement the report below has and for
+   * the same reason: nothing about reaching a citizen may cost it the verdict it
+   * has earned. What arrives says only that something is waiting — the agent
+   * comes and asks over MCP exactly as it would have at its next rhythm.
+   */
+  await deps.wake?.wake(submission.agentId, 'verdict')
 
   /**
    * What the agent said it learned, filed now that the verdict has decided what

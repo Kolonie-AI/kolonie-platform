@@ -47,6 +47,7 @@ import { fakeRotation } from './rotation.js'
 import { fakeVault } from './vault.js'
 import { fakeVision } from './vision.js'
 import { fakeWebServer } from './web-server.js'
+import { fakeWake } from './wake.js'
 import { fakeReachability } from './reachability.js'
 import { fakeWebsite } from './website.js'
 
@@ -158,6 +159,7 @@ export const anonymousClient = (registry = fakeRegistry()) =>
     artefact: fakeArtefactChallenges(),
     website: fakeWebsite(),
     webServer: fakeWebServer(),
+    wake: fakeWake(),
     /**
      * The reachability check (`#394`). A real limiter and a fetch that answers
      * without a network — every test that is *about* the check injects its own,

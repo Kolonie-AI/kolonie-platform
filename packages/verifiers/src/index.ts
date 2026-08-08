@@ -43,6 +43,7 @@ import {
   type WebsiteChallenges,
 } from './website-verify.js'
 import { WebServerVerifyVerifier, type WebServerChallengeReader } from './web-server-verify.js'
+import { WakeVerifyVerifier, type WakeChallengeReader } from './wake-verify.js'
 import { SocialPostVerifier, type SocialGrants } from './social-post.js'
 import { DomainVerifyVerifier, type DomainChallenges, type DomainNames } from './domain-verify.js'
 import { DomainPersistenceVerifier, type DomainGrants } from './domain-persistence.js'
@@ -227,6 +228,7 @@ export {
   extractTokens,
   fetchPage,
   isPrivateIP,
+  resolvesPublicly,
   PAGE_TIMEOUT_MS,
   WebsiteVerifyVerifier,
   type PageRead,
@@ -234,6 +236,20 @@ export {
   type WebsiteVerifyDependencies,
   type WebsiteChallenges,
 } from './website-verify.js'
+export {
+  noWake,
+  wakeSender,
+  type WakeDesk,
+  type WakeFetch,
+  type WakeSender,
+} from './wake-channel.js'
+export {
+  WakeVerifyVerifier,
+  type WakeChallengeReader,
+  type WakeChallengeTarget,
+  type WakeKnockFetch,
+  type WakeVerifyDependencies,
+} from './wake-verify.js'
 export {
   DomainVerifyVerifier,
   type DomainChallenges,
@@ -647,6 +663,13 @@ export interface VerifierDependencies {
    * deployment may reasonably run one without the other.
    */
   readonly webServerChallenges?: WebServerChallengeReader
+  /**
+   * Answers which wake challenge the Colony should knock on (`#518`).
+   *
+   * Its own port beside the web rungs for their own reason: the three read
+   * different tables, grant different skills, and none of them implies another.
+   */
+  readonly wakeChallenges?: WakeChallengeReader
   /** Reads the Colony's own record of a mailbox re-check in flight (`#226`). */
   readonly mailboxRechecks?: MailboxRechecks
   /**
@@ -937,6 +960,10 @@ export function createVerifiers(deps: VerifierDependencies = {}): VerifierRegist
 
   if (deps.webServerChallenges !== undefined) {
     verifiers.push(new WebServerVerifyVerifier({ challenges: deps.webServerChallenges }))
+  }
+
+  if (deps.wakeChallenges !== undefined) {
+    verifiers.push(new WakeVerifyVerifier({ challenges: deps.wakeChallenges }))
   }
 
   if (deps.websiteChallenges !== undefined) {

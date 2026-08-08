@@ -268,6 +268,36 @@ export class AddressRefused extends Error {
  */
 export const PROBE_HEADERS = { accept: '*/*' } as const
 
+/**
+ * Whether a host resolves to somewhere the Colony is willing to fetch.
+ *
+ * **The same refusal {@link safeFetch} enforces, for the callers that must make
+ * the decision themselves rather than have an exception thrown at them.** The
+ * reachability check (`#394`) reports *not-public* as a finding a citizen reads,
+ * and the wake channel (`#518`) records it as an outcome — neither wants a
+ * throw, and neither may have its own copy of the list.
+ *
+ * The judgement is on the resolved addresses and never on the name, because a
+ * public name pointing at `169.254.169.254` is the attack rather than an edge
+ * case.
+ */
+export async function resolvesPublicly(
+  hostname: string,
+): Promise<'public' | 'not-public' | 'dns-failed'> {
+  if (isIPv4(hostname) || isIPv6(hostname)) {
+    return isPrivateIP(hostname) ? 'not-public' : 'public'
+  }
+
+  let addresses: string[]
+  try {
+    addresses = (await lookup(hostname, { all: true })).map((entry) => entry.address)
+  } catch {
+    return 'dns-failed'
+  }
+
+  return addresses.some((address) => isPrivateIP(address)) ? 'not-public' : 'public'
+}
+
 export async function safeFetch(url: string, redirects = 0): Promise<Response> {
   if (redirects > 5) {
     // A redirect loop is the address's own configuration and answers the same

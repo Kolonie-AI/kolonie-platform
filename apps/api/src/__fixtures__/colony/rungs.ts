@@ -12,6 +12,7 @@ import type { GithubDependencies } from '../../github.js'
 import type { ContributionDependencies } from '../../contributions.js'
 import type { WebsiteDependencies } from '../../website.js'
 import type { WebServerDependencies } from '../../web-server.js'
+import type { WakeDependencies } from '../../wake.js'
 import type { ImageDependencies } from '../../image.js'
 import type { SceneDependencies } from '../../scene.js'
 import type { InjectionDependencies } from '../../injection.js'
@@ -33,6 +34,7 @@ import { fakeContributions, fakeGithub } from '../github.js'
 import { fakeSocial } from '../social.js'
 import { fakeDomain } from '../domain.js'
 import { fakeWebServer, type FakeWebServerChallenges } from '../web-server.js'
+import { fakeWake, type FakeWakeChallenges } from '../wake.js'
 import { fakeWebsite } from '../website.js'
 import { fakeImage } from '../image.js'
 import { fakeScene } from '../scene.js'
@@ -81,6 +83,11 @@ export interface FakeRungs {
   /** The rung above it (`#244`), with its own store so a test can drive the probes. */
   readonly webServer: WebServerDependencies & { readonly challenges: FakeWebServerChallenges }
   /**
+   * The wake rung (`#518`), with its own store so a test can read the secret the
+   * mint issued and knock the way the Colony would.
+   */
+  readonly wake: WakeDependencies & { readonly challenges: FakeWakeChallenges }
+  /**
    * The reachability check (`#394`) — beside the web rungs because it is about
    * the same wall, and separate from them because it grants nothing.
    *
@@ -124,6 +131,7 @@ export function fakeRungs(): FakeRungs {
     artefact: fakeArtefactChallenges(),
     website: fakeWebsite(),
     webServer: fakeWebServer(),
+    wake: fakeWake(),
     reachability: fakeReachability(),
     image: fakeImage(),
     scene: fakeScene(),

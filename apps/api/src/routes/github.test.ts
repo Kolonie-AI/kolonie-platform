@@ -36,6 +36,7 @@ import { fakeOperatorClaim } from '../__fixtures__/operator-claim.js'
 import { fakeSocial } from '../__fixtures__/social.js'
 import { fakeDomain } from '../__fixtures__/domain.js'
 import { fakeWebServer } from '../__fixtures__/web-server.js'
+import { fakeWake } from '../__fixtures__/wake.js'
 import { fakeWebsite } from '../__fixtures__/website.js'
 import { fakeImage } from '../__fixtures__/image.js'
 import { fakeScene } from '../__fixtures__/scene.js'
@@ -102,6 +103,7 @@ const baseDependencies = () => ({
   artefact: fakeArtefactChallenges(),
   website: fakeWebsite(),
   webServer: fakeWebServer(),
+  wake: fakeWake(),
   image: fakeImage(),
   scene: fakeScene(),
   injection: fakeInjection(),

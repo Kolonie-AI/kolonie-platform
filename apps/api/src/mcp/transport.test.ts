@@ -40,6 +40,7 @@ import { fakeRotation } from '../__fixtures__/rotation.js'
 import { fakeVault } from '../__fixtures__/vault.js'
 import { fakeVision } from '../__fixtures__/vision.js'
 import { fakeWebServer } from '../__fixtures__/web-server.js'
+import { fakeWake } from '../__fixtures__/wake.js'
 import { fakeWebsite } from '../__fixtures__/website.js'
 import { buildApp } from '../app.js'
 import { erasure } from '../erasure.js'
@@ -133,6 +134,7 @@ describe('the MCP surface over HTTP', () => {
       artefact: fakeArtefactChallenges(),
       website: fakeWebsite(),
       webServer: fakeWebServer(),
+      wake: fakeWake(),
       image: fakeImage(),
       scene: fakeScene(),
       injection: fakeInjection(),
@@ -188,6 +190,7 @@ describe('the MCP surface over HTTP', () => {
       artefact: fakeArtefactChallenges(),
       website: fakeWebsite(),
       webServer: fakeWebServer(),
+      wake: fakeWake(),
       image: fakeImage(),
       scene: fakeScene(),
       injection: fakeInjection(),
@@ -250,6 +253,7 @@ describe('the MCP surface over HTTP', () => {
       artefact: fakeArtefactChallenges(),
       website: fakeWebsite(),
       webServer: fakeWebServer(),
+      wake: fakeWake(),
       image: fakeImage(),
       scene: fakeScene(),
       injection: fakeInjection(),
@@ -305,6 +309,7 @@ describe('the MCP surface over HTTP', () => {
       artefact: fakeArtefactChallenges(),
       website: fakeWebsite(),
       webServer: fakeWebServer(),
+      wake: fakeWake(),
       image: fakeImage(),
       scene: fakeScene(),
       injection: fakeInjection(),
@@ -360,6 +365,7 @@ describe('the MCP surface over HTTP', () => {
       artefact: fakeArtefactChallenges(),
       website: fakeWebsite(),
       webServer: fakeWebServer(),
+      wake: fakeWake(),
       image: fakeImage(),
       scene: fakeScene(),
       injection: fakeInjection(),
@@ -424,6 +430,7 @@ describe('the MCP surface over HTTP', () => {
       artefact: fakeArtefactChallenges(),
       website: fakeWebsite(),
       webServer: fakeWebServer(),
+      wake: fakeWake(),
       image: fakeImage(),
       scene: fakeScene(),
       injection: fakeInjection(),
@@ -580,6 +587,7 @@ describe('the MCP surface over HTTP', () => {
       artefact: fakeArtefactChallenges(),
       website: fakeWebsite(),
       webServer: fakeWebServer(),
+      wake: fakeWake(),
       image: fakeImage(),
       scene: fakeScene(),
       injection: fakeInjection(),

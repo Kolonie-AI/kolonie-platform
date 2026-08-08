@@ -48,6 +48,7 @@ import type { DropDependencies } from '../operator-drops.js'
 import type { VaultDependencies } from '../vault.js'
 import type { VisionDependencies } from '../vision.js'
 import type { WebServerDependencies } from '../web-server.js'
+import type { WakeDependencies } from '../wake.js'
 import type { ReachabilityDependencies } from '../reachability.js'
 import type { WebsiteDependencies } from '../website.js'
 import type { SettingsDesk } from '../settings.js'
@@ -169,6 +170,14 @@ export interface RouteDependencies {
    * reach the operator channel.
    */
   readonly webServer: WebServerDependencies
+  /**
+   * The wake rung's mint (`#518`).
+   *
+   * Its own dependencies rather than a field on `webServer`, for the reason that
+   * one is not a field on `website`: the three read different tables, grant
+   * different skills, and none of them implies another.
+   */
+  readonly wake: WakeDependencies
   /**
    * The reachability check (`#394`) — the limiter and, in a test, the fetch.
    *

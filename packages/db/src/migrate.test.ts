@@ -324,7 +324,14 @@ describe('the migrations', () => {
     // questions and only one of them is a queue; one table for *both authors* of a
     // proposal, because a claimed provider's change goes through the same review a
     // citizen's does and two queues would be two standards within a month.
-    expect(afterFirst.tables).toBe('86')
+    // **Eighty-seven, eighty-eight and eighty-nine** (`#518`): the wake
+    // channel's three. `wake_challenges` holds a URL and a secret waiting to be
+    // knocked on, `wake_addresses` the one address a citizen proved, and
+    // `wake_deliveries` every knock the Colony attempted. Three and not one
+    // because they answer different questions and have different lifetimes — a
+    // challenge expires, an address is replaced, and a delivery is a permanent
+    // record the hourly ceiling is counted from.
+    expect(afterFirst.tables).toBe('89')
     // Twenty: `task_kind` (#43) tells an Academy task from a Quest and therefore
     // what may pay credits; `support_ticket_kind` and `support_ticket_status` (#11)
     // carry what a citizen wrote about and where it stands; `erasure_reason` and
@@ -408,7 +415,13 @@ describe('the migrations', () => {
     // some members apply to people and some do not. **One member and not
     // three**, on the argument `AGENTS.md` §5 makes about the `p3` label: a
     // vocabulary invented ahead of the case it serves stops meaning anything.
-    expect(afterFirst.enums).toBe('41')
+    // And `wake_event` and `wake_delivery_outcome` make forty-three (`#518`) —
+    // why the Colony knocked, and what came of it. **The first is recorded and
+    // never sent**: a delivery says that something is waiting and never what, so
+    // the vocabulary exists for the Colony's own record rather than for the
+    // citizen. Enums because both are closed lists that a fourth member would
+    // change the meaning of a count for.
+    expect(afterFirst.enums).toBe('43')
     // Two: the deferred double-entry constraint trigger on `ledger_entries`, and
     // `submissions_one_pass_per_quest` (#175) — one accepted submission per
     // citizen per quest, which is a trigger rather than a partial unique index

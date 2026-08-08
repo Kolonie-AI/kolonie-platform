@@ -31,6 +31,7 @@ import {
 } from '@kolonie-ai/db'
 import type { OperatorMailer } from './email.js'
 import type { OutboundAllowance } from './support.js'
+import type { WakeSender } from '@kolonie-ai/verifiers'
 
 /**
  * The operator channel (#236): a citizen asks its operator for something it cannot
@@ -128,6 +129,15 @@ export interface OperatorRequestDependencies {
   readonly mailer?: OperatorMailer | undefined
   /** Where the operator's page lives, from configuration — never a host in code. */
   readonly pageBaseUrl?: string | undefined
+  /**
+   * The wake channel (`#518`), used on exactly one path: an operator answering.
+   *
+   * **Optional, and absent means today's behaviour.** A deployment without a
+   * channel — and every test that does not care — records the answer and the
+   * agent reads it on its own rhythm, which is the guarantee the rung is
+   * required not to weaken.
+   */
+  readonly wake?: WakeSender | undefined
 }
 
 export type OpenRequestResult =
@@ -517,5 +527,22 @@ export async function answerOperatorRequest(
     body: parsed.data.body,
   })
 
-  return answered.outcome === 'answered' ? { outcome: 'answered' } : { outcome: 'unreachable' }
+  if (answered.outcome !== 'answered') return { outcome: 'unreachable' }
+
+  /**
+   * **The operator's answer is the event** (`#518`).
+   *
+   * This is the one call site the wake channel was built for: a person replies
+   * in one minute and, without it, the agent reads the reply at its next rhythm
+   * — four to six hours later, which makes an onboarding ceremony a two-day
+   * project.
+   *
+   * **Awaited and ignored.** The answer is already written and the operator is
+   * owed a reply either way; a citizen whose endpoint has stopped answering
+   * falls back to polling, which is what every citizen has today. Nothing about
+   * this line may reach the operator's screen.
+   */
+  await deps.wake?.wake(answered.agentId, 'operator-answer')
+
+  return { outcome: 'answered' }
 }

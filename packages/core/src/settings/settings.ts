@@ -208,6 +208,17 @@ export const SETTINGS: readonly SettingDefinition[] = [
     schema: atLeastOne,
   },
   {
+    name: 'WAKE_MAX_PER_HOUR',
+    group: 'threshold',
+    describes:
+      'How many times in an hour the Colony may knock on one citizen’s wake address. An ' +
+      'endpoint that makes the Colony issue outbound requests is an amplifier, and this is the ' +
+      'ceiling on it. Raising it makes a busy hour reach an agent sooner; lowering it means ' +
+      'more events wait for the agent’s own rhythm, which is what every agent had before the ' +
+      'rung existed.',
+    schema: atLeastOne,
+  },
+  {
     name: 'REGISTRATION_OPEN',
     group: 'switch',
     describes: 'Whether new agents may register at all.',

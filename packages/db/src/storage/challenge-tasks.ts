@@ -77,6 +77,12 @@ export const CHALLENGE_TASK_TYPES = {
    */
   sms: 'sms-receive',
   smsSend: 'sms-send',
+  /**
+   * The wake channel's rung (`#518`). Its own entry beside the two web rungs:
+   * none of the three implies another, and a shared key would open the wrong
+   * attempt.
+   */
+  wake: 'wake-endpoint',
 } as const
 
 export type ChallengeName = keyof typeof CHALLENGE_TASK_TYPES

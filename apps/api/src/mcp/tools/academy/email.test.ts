@@ -46,6 +46,7 @@ import { fakeVault } from '../../../__fixtures__/vault.js'
 import { fakeVision } from '../../../__fixtures__/vision.js'
 import { fakeReachability } from '../../../__fixtures__/reachability.js'
 import { fakeWebServer } from '../../../__fixtures__/web-server.js'
+import { fakeWake } from '../../../__fixtures__/wake.js'
 import { fakeWebsite } from '../../../__fixtures__/website.js'
 import { fakeStandingHints } from '../../../__fixtures__/hints.js'
 import { fakeWakeup } from '../../../__fixtures__/wakeup.js'
@@ -116,6 +117,7 @@ describe('kolonie.academy.answer with kind "email.challenge" and .code', () => {
       artefact: fakeArtefactChallenges(),
       website: fakeWebsite(),
       webServer: fakeWebServer(),
+      wake: fakeWake(),
       reachability: fakeReachability(),
       image: fakeImage(),
       scene: fakeScene(),
@@ -170,6 +172,7 @@ describe('kolonie.academy.answer with kind "email.challenge" and .code', () => {
         artefact: fakeArtefactChallenges(),
         website: fakeWebsite(),
         webServer: fakeWebServer(),
+        wake: fakeWake(),
         reachability: fakeReachability(),
         image: fakeImage(),
         scene: fakeScene(),

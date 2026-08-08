@@ -23,6 +23,7 @@ import type { Database, Transaction } from '../client.js'
 import { agents, agentSkills, submissions, tasks, verifications } from '../schema/index.js'
 import { recordAccountRecheck, resolveAccount } from './accounts.js'
 import { recordWebServerProbe } from './web-server.js'
+import { recordWakeAddress } from './wake.js'
 import { closeAttempt } from './attempts.js'
 import { DISTINCT_OPERATORS_REFUSED, operatorPlaceTaken } from './distinct-operators.js'
 import { extendImageChallenge } from './image.js'
@@ -473,6 +474,26 @@ export async function recordVerdict(
         which: webServer.which,
         at: webServer.servedAt,
       })
+    }
+
+    /**
+     * A wake address the citizen just proved (`#518`), promoted in the verdict's
+     * own transaction for the reason the probe above is.
+     *
+     * **Only on a pass**, unlike the probe. There is no half of this rung: the
+     * knock either came back carrying what was sent or it did not, and a failed
+     * knock is a fact about an endpoint rather than something to record against
+     * the citizen. So the metadata is written by one branch of one verifier and
+     * read here.
+     *
+     * `recordWakeAddress` overwrites, so a redelivered verdict writes the same
+     * row twice and a citizen that cleared the rung again from a new address
+     * moves the Colony to the new one.
+     */
+    const wake = (result.metadata as { wake?: unknown } | null)?.wake as
+      { challengeId?: unknown } | undefined
+    if (result.status === 'pass' && typeof wake?.challengeId === 'string') {
+      await recordWakeAddress(tx, wake.challengeId)
     }
 
     /**

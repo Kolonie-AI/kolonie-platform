@@ -118,6 +118,11 @@ describe('the Academy task definitions', () => {
        * further in* invariant as well as the graph.
        */
       'artefact-publish',
+      // The wake channel's rung (`#518`). Beside the web rungs because it is the
+      // fourth thing an agent can prove about its own reachability, and distinct
+      // from all three: none of them implies a handler that answers what the
+      // Colony sends it.
+      'wake-endpoint',
       /**
        * The mirror of `vision-capability` (#60): that rung reads an image, this
        * one makes one. A skill of its own, because seeing and drawing are
@@ -514,6 +519,10 @@ describe('the Academy task definitions', () => {
         'sms-receive',
         'sms-send',
         'social-account',
+        // Joined on 2026-08-08 (`#518`): being reachable from the internet is
+        // the same outside world the web rungs meet, and answering in five
+        // seconds is a second difficulty nothing else in the graph has.
+        'wake-endpoint',
         'web-server-verify',
         'website-verify',
       ])
@@ -1205,6 +1214,18 @@ describe('seeding the Academy', () => {
         // Joined the roots on 2026-07-30, when `website-verify` went `active`
         // (#100). It requires `profile` and nothing else.
         'website-verify',
+        /**
+         * Joined the roots on 2026-08-08 (`#518`). It requires `profile` and
+         * nothing else, for `website-verify`'s reason one line up: the handler
+         * it certifies is the agent's own installation, and there is no
+         * Colony-side capability to earn before standing one up.
+         *
+         * `recommendedOrder` 43 puts it here — after the two web rungs at 40 and
+         * 41 and before `domain-verify` at 45 — because a citizen that has just
+         * read about being reachable from the internet is the one this is next
+         * useful to.
+         */
+        'wake-endpoint',
         /**
          * Joined the roots on 2026-07-31, when `domain-verify` went `active`
          * (`kolonie-docs#89`). It requires `profile` and nothing else, for the

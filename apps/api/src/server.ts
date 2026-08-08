@@ -20,7 +20,7 @@ import { buildApp } from './app.js'
 import { databaseStore } from './authentication.js'
 import { databaseQuests, questAuditPolicy } from './quests.js'
 import { databaseSettings } from './settings.js'
-import { settingsReader } from '@kolonie-ai/db'
+import { databaseWakeDesk, settingsReader } from '@kolonie-ai/db'
 import { databaseProviderEnquiries } from './provider-enquiries.js'
 import { databasePayments } from './payments.js'
 import { databaseEarnings, databasePayouts, payoutConfigurationRefusal } from './payouts.js'
@@ -69,6 +69,8 @@ import {
   writeSkillNote,
 } from '@kolonie-ai/db'
 import { databaseWebServerChallenges } from './web-server.js'
+import { databaseWakeChallenges } from './wake.js'
+import { wakeSender } from '@kolonie-ai/verifiers'
 import { databaseWebsiteChallenges } from './website.js'
 import { databaseImageChallenges } from './image.js'
 import { databaseSceneChallenges } from './scene.js'
@@ -170,6 +172,15 @@ const db = createDatabase(databaseUrlFromEnv())
  * a maintainer changed it, which is exactly the window somebody would be watching.
  */
 const liveSettings = settingsReader(db)
+
+/**
+ * The wake channel, once for the process (`#518`).
+ *
+ * One sender, for `liveSettings`' reason: it reads the ceiling through that
+ * cache, and a second would be a second answer to *what is the limit* for up to
+ * thirty seconds after a maintainer changed it.
+ */
+const liveWake = wakeSender(databaseWakeDesk(db, liveSettings))
 
 /**
  * The gate's configuration, or the reason there is none.
@@ -583,6 +594,14 @@ const app = buildApp({
     // mailer with the console's sender bound rather than the Academy's (`#474`).
     ...(mail.operatorMailer === undefined ? {} : { mailer: mail.operatorMailer }),
     ...(process.env['CONSOLE_URL'] ? { pageBaseUrl: process.env['CONSOLE_URL'] } : {}),
+    /**
+     * The wake channel, on the one path it was built for (`#518`).
+     *
+     * **This wiring and not the one on the `web-server` rung below.** That one
+     * only ever *opens* a request; the answer — which is the event — lands
+     * here, wherever it was asked from.
+     */
+    wake: liveWake,
   },
   /**
    * **`banSaltFromEnv()` is called here, at startup, and that placement is the
@@ -677,6 +696,15 @@ const app = buildApp({
     },
     obstruction,
   },
+  /**
+   * The wake rung's mint (`#518`).
+   *
+   * **No operator channel and no credential.** The rung asks nobody for
+   * permission — a citizen standing a handler up on its own machine changes
+   * nothing for anybody else, which is exactly where it differs from the rung
+   * above it.
+   */
+  wake: { challenges: databaseWakeChallenges(db), obstruction },
   image: { challenges: databaseImageChallenges(db), obstruction },
   // The generator rung (#216). Same shape as the rung above and the same
   // absence of a Colony credential at this layer: minting draws from a

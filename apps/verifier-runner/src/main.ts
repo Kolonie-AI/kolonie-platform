@@ -36,6 +36,7 @@ import {
   domainGrantOf,
   latestRecheck,
   recheckableAccounts,
+  liveWakeChallenge,
   openWebServerChallenges,
   openWebsiteTokens,
   probeFor,
@@ -351,6 +352,27 @@ const verifiers = createVerifiers({
       )
       if (row === undefined) return undefined
       return { firstServedAt: row.firstServedAt, secondServedAt: row.secondServedAt }
+    },
+  },
+  /**
+   * The wake rung (`#518`).
+   *
+   * **The secret and the nonce cross this boundary and go no further.** The
+   * verifier needs both to make the knock the channel will make forever after,
+   * and neither reaches a citizen-facing surface — the secret was shown once at
+   * mint and the nonce is disclosed by being delivered.
+   */
+  wakeChallenges: {
+    liveChallenge: async (agentId) => {
+      const row = await liveWakeChallenge(db, agentId)
+      if (row === undefined) return undefined
+
+      return {
+        challengeId: row.id,
+        url: row.url,
+        secret: row.secret,
+        knockNonce: row.knockNonce,
+      }
     },
   },
   /**

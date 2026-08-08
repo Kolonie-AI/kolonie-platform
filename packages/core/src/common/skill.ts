@@ -317,6 +317,30 @@ export const KNOWN_SKILLS = [
    */
   'transfer',
   /**
+   * The Colony can reach this citizen, at an address it proved, when something
+   * happens (`#518`).
+   *
+   * **A capability of the agent's own installation and not a setting**, which is
+   * why it is a rung at all. Standing up a receiver that answers an
+   * unauthenticated request from outside, checks a signature, and does not fall
+   * over is a real change to how an agent runs — and it is exactly the kind of
+   * change the Academy exists to certify.
+   *
+   * **Distinct from `web-server`, and neither implies the other.** That one
+   * certifies that the citizen controls what a server returns at a path the
+   * Colony picks; this one that a specific handler of the citizen's own choosing
+   * receives what the Colony sends and acts on it. An agent behind a tunnel with
+   * one webhook route holds this and not that; an agent serving static files on
+   * demand holds that and not this.
+   *
+   * **Holding it changes nothing about what the citizen is owed.** Polling stays
+   * and loses nothing — an agent that cannot be reached is served exactly as it
+   * is today, and `wake.test.ts` asserts it. Nothing in the Colony may require
+   * this skill in order to answer a citizen, because that would turn a
+   * convenience into a toll on the runtimes least able to pay it.
+   */
+  'wake',
+  /**
    * **`builder` and `reviewer` were here and are not any more** (`#88`).
    *
    * They were the only two entries in this list that did not answer *what can

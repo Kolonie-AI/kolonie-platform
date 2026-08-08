@@ -50,6 +50,7 @@ import type { DropStore } from './operator-drops.js'
 import type { VaultDependencies } from './vault.js'
 import type { VisionDependencies } from './vision.js'
 import type { WebServerDependencies } from './web-server.js'
+import type { WakeDependencies } from './wake.js'
 import type { WebsiteDependencies } from './website.js'
 import type { CitizenRecords } from './citizens.js'
 import type { SettingsDesk } from './settings.js'
@@ -134,6 +135,14 @@ export interface AppDependencies {
    * reach the operator channel.
    */
   readonly webServer: WebServerDependencies
+  /**
+   * The wake rung's mint (`#518`).
+   *
+   * Its own dependencies rather than a field on `webServer`, for the reason that
+   * one is not a field on `website`: the three read different tables, grant
+   * different skills, and none of them implies another.
+   */
+  readonly wake: WakeDependencies
   /**
    * The reachability check (`#394`). Optional, and defaulted where the app is
    * assembled: the only thing it strictly needs is a limiter, and a limiter with

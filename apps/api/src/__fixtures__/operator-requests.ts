@@ -198,7 +198,7 @@ export function fakeOperatorRequestStore(
       const key = shelfKey(row.agentId, row.taskId)
       const clearedSetAside = shelvings.delete(key)
 
-      return Promise.resolve({ outcome: 'answered' as const, clearedSetAside })
+      return Promise.resolve({ outcome: 'answered' as const, clearedSetAside, agentId })
     },
 
     givePage: (agentId, address = 'operator@example.org') => {

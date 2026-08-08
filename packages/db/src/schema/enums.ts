@@ -13,6 +13,8 @@ import {
   HumanRoleSchema,
   IdentityProviderSchema,
   InboundRouteSchema,
+  WakeEventSchema,
+  WakeDeliveryOutcomeSchema,
   CredentialKindSchema,
   EmailChallengePurposeSchema,
   SmsChallengePurposeSchema,
@@ -395,4 +397,28 @@ export const inboundRoute = pgEnum('inbound_route', valuesOf(InboundRouteSchema.
 export const identityProvider = pgEnum(
   'identity_provider',
   valuesOf(IdentityProviderSchema.options),
+)
+
+/**
+ * Why the Colony knocked on a citizen's wake address (`#518`).
+ *
+ * **Recorded and never sent.** The delivery itself carries nothing — the agent
+ * is told something is waiting and finds out what by asking — so this enum
+ * exists for the Colony's own record. *Which events actually wake agents* is a
+ * question about the design that only the deliveries table can answer.
+ */
+export const wakeEvent = pgEnum('wake_event', valuesOf(WakeEventSchema.options))
+
+/**
+ * What became of one wake delivery (`#518`).
+ *
+ * The reachability check's vocabulary plus `capped` and `no-address`, which are
+ * the two outcomes where the Colony did not knock at all. Both are rows rather
+ * than silence: *nothing was sent* and *something was sent and nothing answered*
+ * are different facts, and a channel nobody can tell them apart on cannot be
+ * debugged.
+ */
+export const wakeDeliveryOutcome = pgEnum(
+  'wake_delivery_outcome',
+  valuesOf(WakeDeliveryOutcomeSchema.options),
 )

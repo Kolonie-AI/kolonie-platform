@@ -436,7 +436,19 @@ export type AnswerOperatorRequestOutcome =
    * into the citizen's listing, which is the half of `#236` that closes `#234`'s
    * loop.
    */
-  | { readonly outcome: 'answered'; readonly clearedSetAside: boolean }
+  | {
+      readonly outcome: 'answered'
+      readonly clearedSetAside: boolean
+      /**
+       * Whose exchange it was.
+       *
+       * **Returned because the answer is a wake event** (`#518`): the operator
+       * replying is the one moment the Colony has something to tell an agent that
+       * it would otherwise read six hours later, and the caller cannot look the
+       * citizen up — the token is the only thing that resolves one, deliberately.
+       */
+      readonly agentId: AgentId
+    }
   /**
    * The token does not name a citizen with this exchange open — revoked, unknown,
    * already closed, or belonging to somebody else. **One answer for all four**: the
@@ -494,7 +506,7 @@ export async function answerOperatorRequest(
       target.taskId as TaskId,
     )
 
-    return { outcome: 'answered' as const, clearedSetAside }
+    return { outcome: 'answered' as const, clearedSetAside, agentId: target.agentId as AgentId }
   })
 }
 

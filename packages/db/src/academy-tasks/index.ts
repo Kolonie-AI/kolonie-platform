@@ -54,6 +54,7 @@ import { accountPersistence } from './account-persistence.js'
 import { domainPersistence } from './domain-persistence.js'
 import { githubContribution } from './github-contribution.js'
 import { codeContribution } from './code-contribution.js'
+import { wakeEndpoint } from './wake-endpoint.js'
 
 export { POW_DIFFICULTY_BITS } from './shared.js'
 export type { AcademyTask } from './shared.js'
@@ -182,6 +183,7 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
   domainVerify,
   webServerVerify,
   artefactPublish,
+  wakeEndpoint,
   raster,
   vetting,
   apiMonetize,

@@ -99,6 +99,13 @@ const ARGUMENTS = {
       'web-server.challenge: scheme, host and a port if it is not the default, with no path — ' +
         'the Colony supplies the path, which is the whole rung.',
     ),
+  url: z
+    .string()
+    .nullish()
+    .describe(
+      'wake.endpoint: the full https URL the Colony should knock on, path and all. Unlike the ' +
+        'web rungs the path is yours and is used exactly as given.',
+    ),
   machineIsSolelyMine: z
     .boolean()
     .nullish()

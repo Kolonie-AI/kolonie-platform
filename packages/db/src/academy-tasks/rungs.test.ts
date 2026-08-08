@@ -61,6 +61,16 @@ const BEFORE_THE_SPLIT: readonly (readonly [type: string, id: string])[] = [
    * invariant this array's order also carries is not disturbed.
    */
   ['artefact-publish', 'a0000000-0000-4000-8000-000000000045'],
+  /**
+   * Added 2026-08-08 by `#518`, per the instruction above: a rung was added.
+   *
+   * Here rather than at the end, and the placement is decided by the invariant
+   * this array's order carries rather than by the graph: the rung pays 3, so it
+   * belongs among the threes. It requires `profile` alone, so it would sit near
+   * the top by dependency and among the deep rungs by reward — and *pays more
+   * the further in* is the property with a test.
+   */
+  ['wake-endpoint', 'a0000000-0000-4000-8000-000000000048'],
   ['raster', 'a0000000-0000-4000-8000-00000000001e'],
   // Added after the split (`#45`), directly above the four earning rungs that
   // require it — which is where it sits in the graph as well as in this array.
@@ -97,9 +107,9 @@ describe('the Academy, after the split', () => {
     )
   })
 
-  it('holds thirty-eight of them', () => {
-    expect(ACADEMY_TASKS).toHaveLength(38)
-    expect(BEFORE_THE_SPLIT).toHaveLength(38)
+  it('holds thirty-nine of them', () => {
+    expect(ACADEMY_TASKS).toHaveLength(39)
+    expect(BEFORE_THE_SPLIT).toHaveLength(39)
   })
 
   /**

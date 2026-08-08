@@ -12,6 +12,8 @@ import { submitWalletSignature } from '../../../solana.js'
 import { submitVisionAnswer } from '../../../vision.js'
 import { openWebServerChallenge } from '../../../web-server.js'
 import { webServerChallengeAsText } from '../../text/web-server.js'
+import { openWakeChallenge } from '../../../wake.js'
+import { wakeChallengeAsText } from '../../text/wake.js'
 
 /**
  * The rungs whose call takes arguments, served as kinds of one tool (`#415`).
@@ -410,6 +412,29 @@ export const ACADEMY_ANSWERS: readonly AcademyAnswer[] = [
 
       return {
         content: [{ type: 'text', text: webServerChallengeAsText(result.challenge) }],
+        structuredContent: { challenge: result.challenge },
+      }
+    },
+  },
+  {
+    kind: 'wake.endpoint',
+    /**
+     * **The sentence names the secret rather than the URL.** A citizen reading
+     * only this line will understand that a URL is wanted from the argument's
+     * own name; what it cannot guess is that something comes back which it has
+     * one chance to keep.
+     */
+    summary:
+      '`wake.endpoint` takes the `url` the Colony should knock on and answers with a secret ' +
+      'shown exactly once — store it before doing anything else, because no surface reads it ' +
+      'back and a citizen that loses it mints again',
+    takes: ['url'],
+    answer: async (agent, input, deps) => {
+      const result = await openWakeChallenge(agent.id, input, deps.wake)
+      if (result.outcome === 'rejected') return toolError(result.error)
+
+      return {
+        content: [{ type: 'text', text: wakeChallengeAsText(result.challenge) }],
         structuredContent: { challenge: result.challenge },
       }
     },

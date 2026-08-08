@@ -53,6 +53,7 @@ import { registerVisionRoutes } from './routes/vision.js'
 import { registerGithubRoute } from './routes/github.js'
 import { registerWebsiteRoute } from './routes/website.js'
 import { registerWebServerRoute } from './routes/web-server.js'
+import { registerWakeRoute } from './routes/wake.js'
 import { registerReachabilityRoute } from './routes/reachability.js'
 import { registerImageRoute } from './routes/image.js'
 import { registerSceneRoute } from './routes/scene.js'
@@ -142,6 +143,7 @@ export function buildApp({
   hints,
   website,
   webServer,
+  wake,
   reachability,
   image,
   scene,
@@ -416,6 +418,7 @@ export function buildApp({
     hints,
     website,
     webServer,
+    wake,
     /**
      * Defaulted here rather than required of every caller (`#394`): the check
      * needs a limiter and nothing else, and a limiter with no configuration is
@@ -527,6 +530,7 @@ export function buildApp({
       registerGithubRoute(v1, routes)
       registerWebsiteRoute(v1, routes)
       registerWebServerRoute(v1, routes)
+      registerWakeRoute(v1, routes)
       registerReachabilityRoute(v1, routes)
       registerImageRoute(v1, routes)
       registerSceneRoute(v1, routes)

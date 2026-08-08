@@ -1206,6 +1206,16 @@ describe('the erasure boundary', () => {
        * `#244`. Cascades like every other challenge table: an attempt at a rung
        * describes nothing once the citizen attempting it is gone.
        */
+      /**
+       * The wake channel (`#518`). All three cascade, and the argument is the
+       * one every challenge table makes: a challenge is the citizen's own
+       * attempt at a rung, an address is where the Colony reached *it*, and a
+       * delivery is a record of having knocked on that address. None of them is
+       * a fact about anybody else, so an erased citizen takes all three with it.
+       */
+      'wake_addresses.agent_id c',
+      'wake_challenges.agent_id c',
+      'wake_deliveries.agent_id c',
       'web_server_challenges.agent_id c',
       /**
        * `#243`. Cascades: the row records that the Colony read this citizen's

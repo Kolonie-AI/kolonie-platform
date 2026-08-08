@@ -5,9 +5,7 @@ import {
   type ApiError,
   type ReachabilityFinding,
 } from '@kolonie-ai/core'
-import { isPrivateIP } from '@kolonie-ai/verifiers'
-import { isIPv4, isIPv6 } from 'node:net'
-import { lookup } from 'node:dns/promises'
+import { resolvesPublicly } from '@kolonie-ai/verifiers'
 import type { RateLimiter } from './rate-limit.js'
 
 /**
@@ -48,8 +46,10 @@ import type { RateLimiter } from './rate-limit.js'
  * - **No private, loopback or link-local address.** The metadata service and the
  *   Colony's own internal network are what this stops, and it is checked after
  *   resolution rather than on the string, because a public *name* pointing at
- *   `169.254.169.254` is the whole attack. {@link isPrivateIP} is the same list
- *   `safeFetch` uses; a second copy is a second thing to keep correct.
+ *   `169.254.169.254` is the whole attack. `resolvesPublicly` in
+ *   `@kolonie-ai/verifiers` is the same list `safeFetch` uses and the same one
+ *   the wake channel knocks through; a second copy is a second thing to keep
+ *   correct.
  * - **No redirects followed.** `safeFetch` re-checks after each hop, which is
  *   correct where a body has to be read. Here nothing needs a body, so the
  *   cheaper and stricter answer is available: `redirect: 'manual'`, report the
@@ -201,33 +201,17 @@ export async function checkReachability(
     return { outcome: 'rate-limited', retryAfterSeconds: verdict.retryAfterSeconds }
   }
 
-  const target = new URL(origin)
-  const isIp = isIPv4(target.hostname) || isIPv6(target.hostname)
-
-  let addresses: string[]
-  if (isIp) {
-    addresses = [target.hostname]
-  } else {
-    try {
-      addresses = (await lookup(target.hostname, { all: true })).map((entry) => entry.address)
-    } catch {
-      return {
-        outcome: 'checked',
-        finding: { origin, reason: 'dns-failed', status: null, reached: false, waitedMs: 0 },
-      }
-    }
-  }
-
   /**
    * The boundary, and the Colony makes no request when it fires.
    *
-   * Checked after resolution, because a public name resolving to a private
-   * address is the attack this exists for rather than an edge case.
+   * {@link resolvesPublicly} holds it for this caller and for the wake channel,
+   * which is the one place a second copy would have been tempting.
    */
-  if (addresses.some((address) => isPrivateIP(address))) {
+  const resolution = await resolvesPublicly(new URL(origin).hostname)
+  if (resolution !== 'public') {
     return {
       outcome: 'checked',
-      finding: { origin, reason: 'not-public', status: null, reached: false, waitedMs: 0 },
+      finding: { origin, reason: resolution, status: null, reached: false, waitedMs: 0 },
     }
   }
 

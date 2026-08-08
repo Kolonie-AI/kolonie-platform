@@ -597,6 +597,15 @@ describe('schema', () => {
          * the Colony names, separated in time. Sorted after it, which is also
          * where it belongs conceptually.
          */
+        /**
+         * The wake channel's three (`#518`). A challenge holds a URL and a
+         * secret waiting to be knocked on; an address is the one a citizen
+         * proved; deliveries are the Colony's record of every knock, and the
+         * ceiling is counted from them.
+         */
+        'wake_addresses',
+        'wake_challenges',
+        'wake_deliveries',
         'web_server_challenges',
         /**
          * `#243`. One row per citizen, saying the Colony read its proved page

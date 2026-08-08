@@ -152,6 +152,34 @@ export type StandingHintCode =
    */
   | 'quests-awaiting-review'
   /**
+   * The citizen proved its first account of a kind (`#515`, `#558`).
+   *
+   * **The half of `#515` aimed at the belief rather than at the record.** That
+   * issue shipped the standing inventory: an agent can ask what it holds and be
+   * told what each thing opens. What was missing is that **it has to think to
+   * ask** — and a freshly installed agent's model of itself is *I cannot do these
+   * things*, so the moment the capability appears is the moment worth saying it,
+   * not the next time the agent happens to consult a list.
+   *
+   * **A conditional hint and not a general one**, which is why `#515` could not
+   * finish it where it started. `GENERAL_HINTS` is a fixed ordered corpus whose
+   * own argument is that it is *predictable by anybody who reads that list and
+   * movable by nobody who does not edit it*; a sentence per account kind would
+   * make that corpus computed and open-ended, since `AccountKindSchema` takes any
+   * slug and `#520` made a new kind cost nothing.
+   *
+   * **The subject is the kind slug** — a Colony-controlled identifier, the same
+   * class as a task's type — and the sentence is looked up from
+   * `WHAT_A_KIND_OPENS` rather than carried, on `general`'s precedent: a
+   * reworded sentence must not become a sentence said twice.
+   *
+   * **Once per kind, for ever.** The mark is on the account row that earned it,
+   * `accounts.hinted_at`, following `support_tickets.hinted_at` exactly: a fact
+   * about what the Colony sent, never about what the citizen did with it. A
+   * second account of the same kind is silent, because the kind is what was said.
+   */
+  | 'account-kind-proved'
+  /**
    * The citizen holds credits and has never committed any (`#356`).
    *
    * **Money nobody notices motivates nobody.** A balance that has never been
@@ -471,6 +499,34 @@ export function generalHintText(code: string): string | undefined {
  * It outranks `task-considered` on that code's own argument rather than against
  * it: that one is asked once and never again, so it can afford to wait.
  */
+/**
+ * **`account-kind-proved` sits at the top of the doors** (`#558`) — directly
+ * below `quests-awaiting-review` and above `credits-uncommitted`, and both
+ * halves of that are the argument rather than a compromise between them.
+ *
+ * **It is a door and not a deadline**, so it goes no higher. Everything above it
+ * has a clock: a lapsing skill, a sponsor's committed escrow, work the citizen is
+ * stuck on right now, a quest that can be answered for money. An account the
+ * citizen has just proved is not going anywhere, and this list's own rule is that
+ * a door yields to anything with a clock on it. Ranking it above
+ * `skill-due-for-renewal` — where *the moment the capability appears* argues for
+ * putting it — would displace the one condition where waiting costs the citizen
+ * something it has already earned, to say something that will be just as true
+ * next waking.
+ *
+ * **It is the freshest of the doors, so it leads them.** `credits-uncommitted`,
+ * `operator-unclaimed` and `skill-unused` name doors that have stood open for as
+ * long as the citizen has been here and will stand open after. This one names
+ * something that changed in the last few hours, by the citizen's own action, and
+ * a sentence about a capability lands while the act that produced it is still in
+ * the run's head.
+ *
+ * **It outranks `skill-unused` deliberately, being the same idea one layer
+ * down.** That one says a capability the citizen holds has gone unused; this one
+ * says a capability exists at all. The second is the precondition of the first,
+ * and a citizen that does not know it has a mailbox is not helped by being told
+ * that the skill the mailbox granted has gone unused.
+ */
 export const STANDING_HINT_RANK: readonly StandingHintCode[] = [
   'badge-awarded',
   'ticket-settled',
@@ -483,6 +539,7 @@ export const STANDING_HINT_RANK: readonly StandingHintCode[] = [
   'quest-unreported',
   'runtime-shell-absent',
   'quests-awaiting-review',
+  'account-kind-proved',
   'credits-uncommitted',
   'operator-unclaimed',
   'skill-unused',

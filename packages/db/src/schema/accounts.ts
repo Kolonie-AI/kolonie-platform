@@ -171,6 +171,28 @@ export const accounts = pgTable(
      */
     attestable: boolean('attestable').notNull().default(false),
 
+    /**
+     * When the Colony told this citizen what this **kind** opens (`#558`).
+     *
+     * **A fact about what the Colony sent, never about what the citizen did with
+     * it** — `support_tickets.hinted_at` and `agent_sessions.hinted_at` exactly,
+     * and the standing-hint channel's rule that there is no read state anywhere
+     * in it.
+     *
+     * **It is per kind and it is written on a row**, which reads like a mismatch
+     * and is the cheapest honest record of the thing: *this citizen has been told
+     * about mailboxes* is `exists (a proved mailbox row of this citizen carrying a
+     * mark)`, so the earliest proved account of a kind carries the mark for the
+     * kind. A second mailbox proved later is silent, because the kind is what was
+     * said and not the address.
+     *
+     * The alternatives were a namespaced entry in `agents.general_hints_told`,
+     * which would make one column mean two vocabularies, and a table of two
+     * columns, which is a migration and a join to record a timestamp that has a
+     * row to live on already.
+     */
+    hintedAt: timestamp('hinted_at', { withTimezone: true, mode: 'string' }),
+
     note: text('note'),
 
     /**

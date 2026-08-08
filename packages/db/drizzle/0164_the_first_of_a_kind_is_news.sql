@@ -1,0 +1,1 @@
+ALTER TABLE "accounts" ADD COLUMN "hinted_at" timestamp with time zone;

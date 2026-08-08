@@ -4,6 +4,7 @@ import { AgentIdSchema, GENERAL_HINTS, SKILL_RENEWAL_HOURS, type AgentId } from 
 import type { Database } from '../client.js'
 import { TaskIdSchema, type TaskId } from '@kolonie-ai/core'
 import {
+  accounts,
   agentBadges,
   agents,
   agentSessions,
@@ -1526,6 +1527,135 @@ describe('the seven conditions the Colony kept to itself', () => {
       // And below `quest-open-to-you`: a steward is a citizen first, so work it
       // can be paid for now outranks work it does for the Colony.
       expect((await hintInAFreshRun(agentId))?.code).toBe('quest-open-to-you')
+    })
+  })
+
+  /**
+   * The first account of a kind (`#558`).
+   *
+   * The half of `#515` aimed at the belief rather than at the record: the
+   * inventory exists, and an agent has to think to ask for it.
+   */
+  describe('the first account of a kind this citizen proved', () => {
+    const anAccount = async (
+      agentId: AgentId,
+      kind: string,
+      state: { proved?: boolean; provedAt?: string } = {},
+    ): Promise<string> => {
+      const proved = state.proved ?? true
+      const [row] = await db
+        .insert(accounts)
+        .values({
+          agentId,
+          kind,
+          identifier: `${kind}-${++seeded}@example.test`,
+          proved,
+          ...(proved ? { provedAt: state.provedAt ?? sql`now()` } : {}),
+          capabilities: proved ? ['control'] : [],
+          provenance: 'self-acquired' as const,
+        })
+        .returning({ id: accounts.id })
+      if (row === undefined) throw new Error('inserting an account returned no row')
+      return row.id
+    }
+
+    it('is said once, naming the kind', async () => {
+      const agentId = await aQuietCitizen()
+      await anAccount(agentId, 'mailbox')
+
+      const hint = await hintInAFreshRun(agentId)
+
+      expect(hint?.code).toBe('account-kind-proved')
+      // The kind slug and never the address: the identifier is the citizen's own
+      // text, and no such string travels in this channel.
+      expect(hint?.subject).toBe('mailbox')
+    })
+
+    /** The rejection case the issue asks for, in the shape it asks for it. */
+    it('says nothing on the second account of the same kind', async () => {
+      const agentId = await aQuietCitizen()
+      await anAccount(agentId, 'mailbox')
+      expect((await hintInAFreshRun(agentId))?.code).toBe('account-kind-proved')
+
+      await anAccount(agentId, 'mailbox')
+
+      expect(await hintInAFreshRun(agentId)).toBeNull()
+    })
+
+    it('says nothing twice about the same account either', async () => {
+      const agentId = await aQuietCitizen()
+      await anAccount(agentId, 'mailbox')
+
+      expect((await hintInAFreshRun(agentId))?.code).toBe('account-kind-proved')
+      expect(await hintInAFreshRun(agentId)).toBeNull()
+    })
+
+    it('is said again for a kind the citizen has not been told about', async () => {
+      const agentId = await aQuietCitizen()
+      await anAccount(agentId, 'mailbox', { provedAt: '2026-08-01T09:00:00Z' })
+      await anAccount(agentId, 'github', { provedAt: '2026-08-02T09:00:00Z' })
+
+      // Earliest first, so the kinds arrive in the order they were earned, one
+      // per waking rather than all at once.
+      expect((await hintInAFreshRun(agentId))?.subject).toBe('mailbox')
+      expect((await hintInAFreshRun(agentId))?.subject).toBe('github')
+      expect(await hintInAFreshRun(agentId)).toBeNull()
+    })
+
+    it('says nothing about an account the citizen only declared', async () => {
+      const agentId = await aQuietCitizen()
+      await anAccount(agentId, 'trello', { proved: false })
+
+      expect(await hintInAFreshRun(agentId)).toBeNull()
+    })
+
+    /**
+     * The kind is what was said, so retiring the account does not un-say it —
+     * and it does not silence the kind either, which is the direction that
+     * matters: the account a citizen has given up is exactly the one whose
+     * capability it may never have learned it had.
+     */
+    it('is still said about a kind the citizen has since retired', async () => {
+      const agentId = await aQuietCitizen()
+      const id = await anAccount(agentId, 'mailbox')
+      await db
+        .update(accounts)
+        .set({ status: 'retired' as const })
+        .where(eq(accounts.id, id))
+
+      expect((await hintInAFreshRun(agentId))?.code).toBe('account-kind-proved')
+    })
+
+    /**
+     * Both halves of the placement argument in `STANDING_HINT_RANK`, on one
+     * citizen: it leads the doors, and it yields to anything with a clock.
+     */
+    it('leads the doors and yields to a lapsing skill', async () => {
+      const agentId = await aQuietCitizen()
+      await db.delete(operatorClaims).where(eq(operatorClaims.agentId, agentId))
+      await grantSkill(agentId, 'browser')
+      await anAccount(agentId, 'mailbox')
+
+      // Above `operator-unclaimed` and `skill-unused`: the first is the same idea
+      // one layer down, and a citizen that does not know it holds a mailbox is
+      // not helped by hearing that the skill the mailbox granted has gone unused.
+      expect((await hintInAFreshRun(agentId))?.code).toBe('account-kind-proved')
+    })
+
+    it('yields to the one condition where waiting costs something earned', async () => {
+      const [skill, hours] = Object.entries(SKILL_RENEWAL_HOURS)[0] ?? []
+      if (skill === undefined || hours === undefined) return
+
+      const agentId = await aQuietCitizen()
+      await anAccount(agentId, 'mailbox')
+      await grantSkill(
+        agentId,
+        skill,
+        new Date(Date.parse('2026-08-08T00:00:00Z') - (hours + 1) * 3_600_000).toISOString(),
+      )
+
+      // An account is not going anywhere; a current skill is.
+      expect((await hintInAFreshRun(agentId))?.code).toBe('skill-due-for-renewal')
     })
   })
 

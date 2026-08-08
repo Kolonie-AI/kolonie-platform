@@ -9,7 +9,13 @@ import {
   type StandingHintFinding,
 } from '@kolonie-ai/core'
 import type { Database, Transaction } from '../client.js'
-import { agents, agentSessions, supportTickets, taskConsiderations } from '../schema/index.js'
+import {
+  accounts,
+  agents,
+  agentSessions,
+  supportTickets,
+  taskConsiderations,
+} from '../schema/index.js'
 import { openProspects } from './prospects.js'
 import { questReviewQueue } from './quests/steward.js'
 import { currentSessionIdSql, previousSessionStartSql } from './sessions.js'
@@ -48,6 +54,8 @@ interface Standing {
   readonly general: string | null
   /** The `support_tickets` row behind a `ticket-settled` finding, if any (`#356`). */
   readonly ticket: string | null
+  /** The `accounts` row behind an `account-kind-proved` finding, if any (`#558`). */
+  readonly account: string | null
 }
 
 /**
@@ -477,6 +485,77 @@ async function sevenConditions(
 }
 
 /**
+ * The first proved account of a kind this citizen has not been told about
+ * (`#558`).
+ *
+ * **Per kind and not per account**, which is what the `not exists` says: a kind
+ * is told once, and the row that carried the sentence is the mark for the whole
+ * kind. A citizen that proves a second mailbox is silent, because what was said
+ * was what a mailbox opens.
+ *
+ * **Proved only.** An asserted account is a note the citizen left itself; the
+ * Colony has confirmed nothing and has no business telling it what it can now do.
+ * Status is deliberately not read: a citizen that proved a mailbox and then
+ * retired it did hold one, and the sentence is about the kind rather than about
+ * the address — the account it has since given up is exactly the one whose
+ * capability it may not know it had.
+ *
+ * **Earliest first**, so a citizen that proved three kinds before anything was
+ * said hears about them in the order it earned them, one per waking.
+ *
+ * Its own statement rather than a column on the cheap query, following
+ * `unpromptedConsideration`: it is only ever needed on the one call of a waking
+ * that can still carry a hint.
+ */
+async function untoldAccountKind(
+  db: Database | Transaction,
+  agentId: AgentId,
+): Promise<{ readonly id: string; readonly kind: string } | null> {
+  const rows = await db
+    .select({ id: accounts.id, kind: accounts.kind })
+    .from(accounts)
+    .where(
+      and(
+        eq(accounts.agentId, agentId),
+        eq(accounts.proved, true),
+        /**
+         * **The outer reference is written out rather than interpolated**
+         * (`#183`, `#311`). This is a `where` and Drizzle would qualify it, but
+         * an expression naming no table variable cannot be qualified wrongly
+         * whatever position it ends up in — which is the durable answer that file
+         * settles on.
+         */
+        sql`not exists (select 1 from accounts told
+              where told.agent_id = ${agentId}
+                and told.kind = accounts.kind
+                and told.hinted_at is not null)`,
+      ),
+    )
+    .orderBy(accounts.provedAt, accounts.id)
+    .limit(1)
+
+  return rows[0] ?? null
+}
+
+/**
+ * Mark that this citizen has been told what this kind opens, for all time
+ * (`#558`).
+ *
+ * The guard in the `where` is the same race every other claim here treats the
+ * same way: the loser attaches nothing, which is *once per kind* holding rather
+ * than an error to report.
+ */
+async function claimAccountKindHint(db: Database | Transaction, id: string): Promise<boolean> {
+  const claimed = await db
+    .update(accounts)
+    .set({ hintedAt: sql`now()` })
+    .where(and(eq(accounts.id, id), isNull(accounts.hintedAt)))
+    .returning({ id: accounts.id })
+
+  return claimed.length > 0
+}
+
+/**
  * Mark that this citizen has been told its ticket was settled (`#356`).
  *
  * The one `#356` condition with nothing the citizen could do to make it false,
@@ -599,6 +678,7 @@ async function standing(
       badge: null,
       general: null,
       ticket: null,
+      account: null,
     }
   }
 
@@ -620,7 +700,7 @@ async function conditions(
   cheap: NonNullable<Awaited<ReturnType<typeof slotAndCheapConditions>>>,
   skillReleaseUrls: SkillReleaseUrls,
 ): Promise<Standing> {
-  const [considered, badge, seven, shellAbsent, prospects, questsAwaitingReview] =
+  const [considered, badge, seven, shellAbsent, prospects, questsAwaitingReview, untoldKind] =
     await Promise.all([
       unpromptedConsideration(db, agentId, cheap.declaredRhythmHours),
       untoldBadge(db, agentId),
@@ -636,6 +716,7 @@ async function conditions(
        */
       openProspects(db as Database, agentId),
       stewardWithQueue(db, agentId),
+      untoldAccountKind(db, agentId),
     ])
 
   const general = untoldGeneralHint(cheap.generalHintsTold)
@@ -706,6 +787,16 @@ async function conditions(
   if (questsAwaitingReview) {
     applicable.push({ code: 'quests-awaiting-review', subject: null })
   }
+  /**
+   * **The subject is the kind slug** (`#558`) — a Colony-controlled identifier,
+   * the same class as a task's type above, and the sentence about it is looked up
+   * from `WHAT_A_KIND_OPENS` rather than travelling in the finding. The
+   * identifier the citizen wrote is never read here at all: what is being said is
+   * about the kind, and the address is the citizen's own text.
+   */
+  if (untoldKind !== null) {
+    applicable.push({ code: 'account-kind-proved', subject: untoldKind.kind })
+  }
   if (seven.uncommittedCredits !== null) {
     applicable.push({
       code: 'credits-uncommitted',
@@ -752,6 +843,7 @@ async function conditions(
     badge: badge?.id ?? null,
     general,
     ticket: seven.ticket?.id ?? null,
+    account: untoldKind?.id ?? null,
   }
 }
 
@@ -886,6 +978,11 @@ export async function dueStandingHint(
     if (chosen.code === 'ticket-settled') {
       if (found.ticket === null) return null
       if (!(await claimTicketHint(db, found.ticket))) return null
+    }
+
+    if (chosen.code === 'account-kind-proved') {
+      if (found.account === null) return null
+      if (!(await claimAccountKindHint(db, found.account))) return null
     }
 
     return chosen

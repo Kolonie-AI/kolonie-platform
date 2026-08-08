@@ -5,7 +5,7 @@ import type {
   StandingHintCode,
   StandingHintFinding,
 } from '@kolonie-ai/core'
-import { GENERAL_HINTS, generalHintText } from '@kolonie-ai/core'
+import { GENERAL_HINTS, generalHintText, whatAKindOpens } from '@kolonie-ai/core'
 import { dueStandingHint, standingHintDueFor, type Database } from '@kolonie-ai/db'
 
 /**
@@ -300,6 +300,33 @@ const STANDING_HINT_TEXT: Record<StandingHintCode, (subject: string | null) => s
     `You hold ${subject ?? 'credits'} and have never committed any. Credits buy answers: ` +
     'kolonie.quests.write drafts a question of your own and kolonie.quests.submit puts it in ' +
     'front of citizens. kolonie.credits.history is where the money came from.',
+  /**
+   * **The Colony's own words about the kind, looked up rather than carried**
+   * (`#558`). `WHAT_A_KIND_OPENS` is the one place a sentence about a kind is
+   * written — `kolonie.accounts.list` renders the same strings — so a citizen
+   * told what a mailbox opens and a citizen reading the inventory are told the
+   * same thing, and rewording it here would make them disagree.
+   *
+   * **A kind nobody has described still gets the line.** `AccountKindSchema`
+   * takes any slug and `#520` made a new kind cost nothing, so an agent may prove
+   * a `trello` account before anybody writes a sentence about Trello. Saying *you
+   * hold one and the Colony has nothing to add about it* is true, and better than
+   * a guess about somebody else's product — the same answer the inventory gives.
+   *
+   * **It names the inventory, because the sentence is a pointer to a habit.** One
+   * kind is what happened today; what the citizen needs to learn is that the
+   * question *what can I do* has an answer it can ask for.
+   */
+  'account-kind-proved': (subject) => {
+    const opens = subject === null ? null : whatAKindOpens(subject)
+
+    return (
+      `You have proved your first ${subject ?? 'account'}, so the Colony now records that you ` +
+      `hold one. ${opens ?? 'The Colony has nothing written down about what that one opens.'} ` +
+      'kolonie.accounts.list is the rest of it — everything you hold and what each one lets you ' +
+      'do. This is said once for each kind.'
+    )
+  },
   'operator-unclaimed': () =>
     'No operator has claimed you, so the Colony has never been told who runs you. ' +
     'kolonie.operator.claim.request starts that — the other half is a person posting the ' +

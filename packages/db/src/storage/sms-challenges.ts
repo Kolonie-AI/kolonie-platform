@@ -86,6 +86,12 @@ export interface SmsChallengeState {
   readonly inboundAt: Timestamp | null
   /** The sending number, read off the vendor response. `send` only. */
   readonly inboundFrom: string | null
+  /**
+   * Whether the sending number is one this citizen had already proved it can be
+   * reached at — which is the only thing that turns a send into an ownership
+   * claim (`#579`). Always `false` on a `receive` row and before verification.
+   */
+  readonly ownsSendingNumber: boolean
   readonly verifiedAt: Timestamp | null
 }
 
@@ -124,6 +130,45 @@ const openChallenge = async (
     .limit(1)
 
   return row
+}
+
+/**
+ * Is this the number the citizen already proved it can be *reached* at? (`#579`)
+ *
+ * **This is what turns a send into an ownership claim, and nothing else does.**
+ * `sms-send` requires `phone`, so every citizen reaching this rung has already
+ * named a number and read a code the Colony texted to it. When the carrier
+ * reports that same number as the sender, two independent proofs meet on one
+ * identifier — it receives, and it sends — and *the number is yours* is a thing
+ * the Colony has grounds to record.
+ *
+ * When they differ, the citizen has still done what the rung asks: a message
+ * carrying its nonce left at its instruction. That fact is certified on its own,
+ * and no claim is written about a number the Colony has no reason to think is
+ * anybody's in particular.
+ *
+ * Compared on {@link phoneIdentity} for the reason every other comparison here
+ * is: `+1 708 960 1498` and `17089601498` are one number written twice.
+ */
+const isOwnProvedNumber = async (
+  db: Database | Transaction,
+  agentId: AgentId,
+  from: string,
+): Promise<boolean> => {
+  const [row] = await db
+    .select({ id: smsChallenges.id })
+    .from(smsChallenges)
+    .where(
+      and(
+        eq(smsChallenges.agentId, agentId),
+        eq(smsChallenges.purpose, 'receive'),
+        isNotNull(smsChallenges.verifiedAt),
+        sql`${phoneIdentity(sql`${smsChallenges.number}`)} = ${phoneIdentity(sql`${from}`)}`,
+      ),
+    )
+    .limit(1)
+
+  return row !== undefined
 }
 
 /**
@@ -399,7 +444,26 @@ export async function recordInboundSms(
 
   const agentId = candidate.agentId as AgentId
 
-  if (await numberBelongsToAnother(db, agentId, message.from)) {
+  /**
+   * Two facts, and until `#579` this function fused them (`#579`).
+   *
+   * *A message carrying your nonce left at your instruction* is what the rung
+   * asks for and what the carrier proves. *The originating number is yours* is a
+   * second, larger claim, and sending is not evidence for it: a pooled or shared
+   * gateway sends on behalf of everybody who pays for it.
+   *
+   * A citizen reported that the two pointed in opposite directions for anybody
+   * without an exclusive SIM — the cheap routes were exactly the dishonest ones,
+   * so an agent that had not thought about it passed and one that had could not.
+   * That is the wrong way round, and it is fixed by asking the Colony what it
+   * already knows rather than by asking the citizen to promise something.
+   */
+  const claimsOwnership = await isOwnProvedNumber(db, agentId, message.from)
+
+  // Only a claim can collide. A send from a number nobody is claiming takes
+  // nothing from anybody, so it is not checked and cannot be refused for it —
+  // which is what stops one pooled gateway locking every later citizen out.
+  if (claimsOwnership && (await numberBelongsToAnother(db, agentId, message.from))) {
     return { outcome: 'number_taken', agentId }
   }
 
@@ -414,16 +478,18 @@ export async function recordInboundSms(
         })
         .where(eq(smsChallenges.id, candidate.id))
 
-      await recordProvedAccount(tx, agentId, {
-        kind: AccountKindSchema.parse('phone'),
-        identifier: message.from,
-        // **`send` is written here and nowhere else**, which is what makes *can
-        // send* a thing the network said rather than a thing the citizen typed.
-        capabilities: [AccountCapabilitySchema.parse('send')],
-        provedAt: currentTime(),
-      })
+      if (claimsOwnership) {
+        await recordProvedAccount(tx, agentId, {
+          kind: AccountKindSchema.parse('phone'),
+          identifier: message.from,
+          // **`send` is written here and nowhere else**, which is what makes *can
+          // send* a thing the network said rather than a thing the citizen typed.
+          capabilities: [AccountCapabilitySchema.parse('send')],
+          provedAt: currentTime(),
+        })
+      }
 
-      return { outcome: 'matched', agentId, from: message.from } as const
+      return { outcome: 'matched', agentId, from: message.from, claimsOwnership } as const
     })
   } catch (error) {
     if (isUniqueViolation(error)) return { outcome: 'number_taken', agentId }
@@ -453,6 +519,20 @@ export async function latestSmsChallenge(
 
   if (row === undefined) return null
 
+  /**
+   * Derived rather than stored (`#579`).
+   *
+   * The same question `recordInboundSms` asked when it decided whether to write
+   * the account, asked again from the same evidence — so the verdict cannot say
+   * one thing while the record says another. A column would be a second copy of
+   * an answer that is already reconstructable, and it would be the copy that
+   * goes stale if a citizen later proves the number on the receive rung.
+   */
+  const ownsSendingNumber =
+    row.verifiedAt !== null &&
+    row.inboundFrom !== null &&
+    (await isOwnProvedNumber(db, agentId, row.inboundFrom))
+
   return {
     purpose: row.purpose,
     number: row.number,
@@ -462,6 +542,7 @@ export async function latestSmsChallenge(
     inboundAt: row.inboundAt === null ? null : toTimestamp(row.inboundAt),
     inboundFrom: row.inboundFrom,
     verifiedAt: row.verifiedAt === null ? null : toTimestamp(row.verifiedAt),
+    ownsSendingNumber,
   }
 }
 

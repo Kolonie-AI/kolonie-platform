@@ -234,17 +234,48 @@ describe('the phone nodes', () => {
         receivedAt: currentTime(),
       })
 
-      expect(result).toEqual({ outcome: 'matched', agentId, from: '+15005550008' })
+      expect(result).toEqual({
+        outcome: 'matched',
+        agentId,
+        from: '+15005550008',
+        // Not the citizen's own proved number, so the send is certified and
+        // nothing is claimed about who the number belongs to (`#579`).
+        claimsOwnership: false,
+      })
 
       const state = await latestSmsChallenge(db, agentId, 'send')
       expect(state?.inboundFrom).toBe('+15005550008')
       expect(state?.verifiedAt).not.toBeNull()
       // Nothing was ever claimed, so there is nothing to have believed.
       expect(state?.number).toBeNull()
+      expect(state?.ownsSendingNumber).toBe(false)
+    })
 
-      const phone = (await listAccounts(db, agentId)).find((account) => account.kind === 'phone')
-      expect(phone?.identifier).toBe('+15005550008')
-      expect(phone?.capabilities).toEqual(['send'])
+    /**
+     * The separation `#579` was filed for, from the citizen's side.
+     *
+     * A pooled or shared gateway sends on behalf of everybody who pays for it.
+     * Certifying the send is honest; recording the number as the sender's is
+     * not, and until this the rung did both in one motion — so the cheap routes
+     * were exactly the dishonest ones, and an agent that had thought about it
+     * could not pass while one that had not could.
+     */
+    it('certifies a send from a number it cannot vouch for, and claims nothing about it', async () => {
+      const { nonce } = await mintSmsSendChallenge(db, agentId)
+
+      await recordInboundSms(db, {
+        body: nonce,
+        from: '+15005550008',
+        receivedAt: currentTime(),
+      })
+
+      const state = await latestSmsChallenge(db, agentId, 'send')
+      expect(state?.verifiedAt).not.toBeNull()
+
+      // The badge is earned and the account register is untouched.
+      expect(
+        (await listAccounts(db, agentId)).find((account) => account.kind === 'phone'),
+      ).toBeUndefined()
     })
 
     it('adds send to a number that already proved receive, rather than replacing it', async () => {
@@ -286,7 +317,16 @@ describe('the phone nodes', () => {
       ).toMatchObject({ outcome: 'matched' })
     })
 
-    it('refuses a nonce arriving from a number that already certifies another citizen', async () => {
+    /**
+     * **This used to refuse, and refusing was the defect** (`#579`).
+     *
+     * Under the old rule a send *was* an ownership claim, so the first citizen
+     * to text from a pooled gateway took the number and every later one was
+     * locked out of the badge by somebody else's route. Now the send claims
+     * nothing, so there is nothing to collide with: the badge is earned, and the
+     * citizen who genuinely proved that number keeps it, untouched.
+     */
+    it('lets a citizen send from a number that certifies somebody else, and takes nothing from them', async () => {
       const theirs = await mintAndSend(otherId, OTHER_NUMBER)
       await redeemSmsCode(db, otherId, theirs.code)
 
@@ -298,12 +338,39 @@ describe('the phone nodes', () => {
           from: OTHER_NUMBER,
           receivedAt: currentTime(),
         }),
-      ).toEqual({ outcome: 'number_taken', agentId })
+      ).toEqual({ outcome: 'matched', agentId, from: OTHER_NUMBER, claimsOwnership: false })
 
-      // And the badge stays open, so a message from a number that is the
-      // citizen's own can still close it.
-      const state = await latestSmsChallenge(db, agentId, 'send')
-      expect(state?.verifiedAt).toBeNull()
+      // The sender got the badge and no account.
+      expect((await latestSmsChallenge(db, agentId, 'send'))?.verifiedAt).not.toBeNull()
+      expect(
+        (await listAccounts(db, agentId)).find((account) => account.kind === 'phone'),
+      ).toBeUndefined()
+
+      // And the citizen that actually proved the number still holds it.
+      const theirPhone = (await listAccounts(db, otherId)).find(
+        (account) => account.kind === 'phone',
+      )
+      expect(theirPhone?.identifier).toBe(OTHER_NUMBER)
+      expect(theirPhone?.capabilities).toEqual(['receive'])
+    })
+
+    /**
+     * The other half: when the two proofs meet on one number, the claim is
+     * grounded and is written exactly as it was before.
+     */
+    it('records the number as the citizen’s when it is the one it proved it can be reached at', async () => {
+      const challenge = await mintAndSend(agentId, CITIZEN_NUMBER)
+      await redeemSmsCode(db, agentId, challenge.code)
+
+      const { nonce } = await mintSmsSendChallenge(db, agentId)
+      const result = await recordInboundSms(db, {
+        body: nonce,
+        from: CITIZEN_NUMBER,
+        receivedAt: currentTime(),
+      })
+
+      expect(result).toMatchObject({ outcome: 'matched', claimsOwnership: true })
+      expect((await latestSmsChallenge(db, agentId, 'send'))?.ownsSendingNumber).toBe(true)
     })
 
     it('hands back the open nonce rather than minting a second', async () => {

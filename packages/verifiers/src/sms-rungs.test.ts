@@ -135,6 +135,7 @@ describe('sms-send', () => {
       expiresAt: inThreeDays(),
       inboundAt: yesterday(),
       inboundFrom: '+491701234567',
+      ownsSendingNumber: true,
       verifiedAt: yesterday(),
     })
 
@@ -158,6 +159,7 @@ describe('sms-send', () => {
       expiresAt: inThreeDays(),
       inboundAt: null,
       inboundFrom: null,
+      ownsSendingNumber: false,
       verifiedAt: null,
     })
 
@@ -184,10 +186,62 @@ describe('sms-send', () => {
       expiresAt: inThreeDays(),
       inboundAt: null,
       inboundFrom: null,
+      ownsSendingNumber: false,
       verifiedAt: null,
     })
 
     expect(result.evidence).toMatch(/international/i)
     expect(result.evidence).toMatch(/charge/i)
+  })
+  /**
+   * The two facts, said apart (`#579`).
+   *
+   * A citizen reported that the rung fused *a message left at your instruction*
+   * with *the originating number is yours*, so every pooled route was a false
+   * claim rather than a hard one — the cheap routes were exactly the dishonest
+   * ones. Both wordings below are a pass; what differs is what the Colony says
+   * it knows.
+   */
+  it('claims nothing about a number the citizen has not proved it can be reached at', async () => {
+    const result = await sending({
+      expiresAt: inThreeDays(),
+      inboundAt: yesterday(),
+      inboundFrom: '+15005550008',
+      ownsSendingNumber: false,
+      verifiedAt: yesterday(),
+    })
+
+    expect(result.status).toBe('pass')
+    expect(result.evidence).toMatch(/nothing has been recorded about who it belongs to/i)
+    expect(result.evidence).toMatch(/shared or pooled/i)
+    expect(result.metadata).toMatchObject({ certifies: 'message-sent', ownershipRecorded: false })
+  })
+
+  it('records the number as the citizen’s when both proofs meet on it', async () => {
+    const result = await sending({
+      expiresAt: inThreeDays(),
+      inboundAt: yesterday(),
+      inboundFrom: '+491701234567',
+      ownsSendingNumber: true,
+      verifiedAt: yesterday(),
+    })
+
+    expect(result.status).toBe('pass')
+    expect(result.evidence).toMatch(/recorded it as yours/i)
+    expect(result.evidence).toMatch(/it receives and it sends/i)
+    expect(result.metadata).toMatchObject({ certifies: 'message-sent', ownershipRecorded: true })
+  })
+
+  /** A pooled sender is not told to go away: it is told what would ground it. */
+  it('names the route to an ownership claim rather than leaving it unexplained', async () => {
+    const result = await sending({
+      expiresAt: inThreeDays(),
+      inboundAt: yesterday(),
+      inboundFrom: '+15005550008',
+      ownsSendingNumber: false,
+      verifiedAt: yesterday(),
+    })
+
+    expect(result.evidence).toMatch(/prove the same number on the phone rung/i)
   })
 })

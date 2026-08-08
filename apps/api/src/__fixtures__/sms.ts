@@ -101,6 +101,18 @@ export function fakeSmsStore(): FakeSmsStore {
     sendFailure: row.sendFailure,
     inboundAt: row.inboundAt as Timestamp | null,
     inboundFrom: row.inboundFrom,
+    // The same evidence the database derives it from (`#579`): a send only
+    // claims the number when the citizen already proved it can be reached there.
+    ownsSendingNumber:
+      row.verifiedAt !== null &&
+      row.inboundFrom !== null &&
+      rows.some(
+        (other) =>
+          other.agentId === row.agentId &&
+          other.purpose === 'receive' &&
+          other.verifiedAt !== null &&
+          identity(other.number ?? '') === identity(row.inboundFrom ?? ''),
+      ),
     verifiedAt: row.verifiedAt as Timestamp | null,
   })
 

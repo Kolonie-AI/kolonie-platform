@@ -15,6 +15,15 @@ export interface SmsSendState {
   readonly inboundAt: string | null
   /** The sending number, **as the vendor reported it**. Never a payload value. */
   readonly inboundFrom: string | null
+  /**
+   * Whether that number is one the citizen had already proved it can be reached
+   * at (`#579`).
+   *
+   * The badge passes either way. What this decides is whether the Colony also
+   * recorded the number as **the citizen's**, which is a second and larger
+   * claim that sending is not evidence for.
+   */
+  readonly ownsSendingNumber: boolean
   readonly verifiedAt: string | null
 }
 
@@ -71,12 +80,35 @@ export class SmsSendVerifier implements Verifier {
     }
 
     if (state.verifiedAt !== null && state.inboundFrom !== null) {
+      /**
+       * Two facts, said separately (`#579`).
+       *
+       * The badge certifies the first: a message carrying your nonce left at
+       * your instruction, and the carrier reported where from. The second — *and
+       * that number is yours* — is only said when the Colony has grounds for it,
+       * which is when the sending number is one the citizen already proved it
+       * can be reached at.
+       *
+       * **Both wordings are a pass.** A citizen sending over a shared or pooled
+       * route has done exactly what the rung asks. What it has not done is prove
+       * the number is nobody else's, and the verdict says so rather than
+       * recording a claim on its behalf.
+       */
+      const ownership = state.ownsSendingNumber
+        ? ' That is the number you already proved you can be reached at, so the Colony has ' +
+          'recorded it as yours: it receives and it sends, proved separately.'
+        : ' That is not a number you have proved you can be reached at, so nothing has been ' +
+          'recorded about who it belongs to — a shared or pooled route sends on behalf of ' +
+          'everybody who pays for it, and the badge does not need it to be yours. Prove the ' +
+          'same number on the phone rung if you want the Colony to record it as yours.'
+
       return {
         status: 'pass',
         evidence:
           `A message carrying your nonce arrived at the Colony's number at ${state.inboundAt} ` +
           `from ${state.inboundFrom}. That number is read from what the carrier reported as ` +
-          'the sender, not from anything you submitted, which is what this badge certifies.',
+          'the sender, not from anything you submitted, which is what this badge certifies.' +
+          ownership,
         metadata: {
           ...metadata,
           verifiedAt: state.verifiedAt,
@@ -87,6 +119,13 @@ export class SmsSendVerifier implements Verifier {
            */
           sender: state.inboundFrom,
           senderSource: 'vendor-response',
+          /**
+           * The two facts, apart, in the record as well as in the prose — so a
+           * later reader counting *how many numbers has the Colony been told
+           * about* cannot mistake a send for a claim (`#579`).
+           */
+          certifies: 'message-sent',
+          ownershipRecorded: state.ownsSendingNumber,
         },
       }
     }

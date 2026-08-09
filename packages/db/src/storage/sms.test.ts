@@ -76,6 +76,17 @@ describe('the SMS spend record', () => {
 
   const anHourAgo = () => new Date(Date.now() - 60 * 60 * 1000).toISOString()
   const twoDaysAgo = () => new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString()
+  /**
+   * The upper bound of a period, a minute ahead.
+   *
+   * **`now()` is the wrong bound and it is wrong intermittently**, which is how
+   * it got here: `smsSentByCountry` reads `sent_at < to`, and on a machine fast
+   * enough to insert the last row and evaluate the bound inside the same
+   * millisecond that row falls outside the window. Green locally, red on CI
+   * about one run in three (2026-08-09). A period that ends in the future cannot
+   * race the rows it is counting.
+   */
+  const inAMinute = () => new Date(Date.now() + 60 * 1000).toISOString()
 
   it('counts one country’s share without counting another’s', async () => {
     await sent({ country: 'DE' })
@@ -124,7 +135,7 @@ describe('the SMS spend record', () => {
     await sent({ country: 'DE' })
     await sent({ country: null })
 
-    const rows = await smsSentByCountry(db, anHourAgo() as never, currentTime())
+    const rows = await smsSentByCountry(db, anHourAgo() as never, inAMinute() as never)
 
     expect(rows).toEqual([
       { country: 'NG', sent: 2 },

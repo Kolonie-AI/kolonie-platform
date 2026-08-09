@@ -4,6 +4,7 @@ import {
   atlasPath,
   now,
   AccountProviderSchema,
+  AtlasCategorySchema,
   type AtlasDocument,
   type AtlasEntry,
 } from '@kolonie-ai/core'
@@ -90,8 +91,24 @@ export function registerAtlasPages(app: FastifyInstance, deps: RouteDependencies
    */
   const listEntries = async (): Promise<readonly AtlasEntry[]> => atlasCatalogue(recipes)
 
-  app.get(ATLAS_PATH, async (request, reply) => {
+  app.get<{ Querystring: { category?: string } }>(ATLAS_PATH, async (request, reply) => {
     if (wrongHost(request)) return reply.callNotFound()
+
+    /**
+     * The shelf a reader asked for, if they asked for one that exists
+     * (`kolonie-website#97`).
+     *
+     * **A category nobody defined is not an error and not a 404** — it is the
+     * unfiltered index, which is what a reader following a stale or mistyped
+     * link most wants. `#591` took the same decision on the console's browser
+     * and this follows it rather than inventing a second answer.
+     *
+     * **The canonical drops the filter.** A filtered view is a slice of one
+     * page and not a page of its own; every shelf pointing at `/atlas` is what
+     * stops fourteen near-identical URLs competing with each other in a search
+     * index.
+     */
+    const asked = AtlasCategorySchema.safeParse(request.query.category)
 
     return send(
       reply,
@@ -99,6 +116,7 @@ export function registerAtlasPages(app: FastifyInstance, deps: RouteDependencies
         entries: await listEntries(),
         canonical: `${websiteUrl}${ATLAS_PATH}`,
         chrome: await chromeOf(),
+        category: asked.success ? asked.data : undefined,
       }),
       'text/html; charset=utf-8',
     )

@@ -41,6 +41,7 @@ describe('the Atlas on the website host', () => {
       provider: 'bluesky',
       title: 'Bluesky',
       status: 'refused',
+      category: 'social-publishing',
       refusal: 'No honest signup route exists for a citizen without a phone number.',
     })
     /** `#604`'s three, one row each, so every public surface can be checked against them. */
@@ -288,6 +289,140 @@ describe('the Atlas on the website host', () => {
 
       expect(body).toContain('curated-just-now.example')
       expect(body).toContain('<header class="site-header"')
+    })
+
+    /**
+     * **The index is a map and not a list** (`kolonie-website#97`).
+     *
+     * It groups by category with a count per group, and the count is derived on
+     * every render — `#97` is explicit that *ninety-six providers* ages on the
+     * next curation, and so does a number typed one shelf down.
+     */
+    it('groups the index by category, with a count per shelf', async () => {
+      const body = (await get('/atlas')).body
+
+      expect(body).toContain('code-hosting')
+      expect(body).toContain('social-publishing')
+      /**
+       * One social-publishing row — the refusal. Asserted on that shelf rather
+       * than on `mailbox`, which other cases in this file write to: the count
+       * is the assertion, and a count that another test can move is one that
+       * fails for a reason nobody reads.
+       */
+      expect(body).toMatch(/social-publishing<\/a> <span class="k-atlas-count">1<\/span>/)
+    })
+
+    /**
+     * **Filtering is a link and never a widget** — `?category=`, D-062, the
+     * same decision the console's browser took in `#591`. There is no script on
+     * this page to fail.
+     */
+    it('filters to one shelf from a link, with no JavaScript anywhere', async () => {
+      const response = await get('/atlas?category=social-publishing')
+
+      expect(response.statusCode).toBe(200)
+      expect(response.body).toContain('Bluesky')
+      expect(response.body).not.toContain('>GitHub<')
+      expect(response.body).not.toContain('<script')
+      /** And a way back out of the filter. */
+      expect(response.body).toContain('Every category')
+    })
+
+    /**
+     * A category nobody defined is the unfiltered index rather than a 404: it
+     * is what a reader following a stale or mistyped link most wants, and
+     * `#591` took the same decision one surface over.
+     */
+    it('answers a category nobody defined with the whole index', async () => {
+      const response = await get('/atlas?category=nonsense')
+
+      expect(response.statusCode).toBe(200)
+      expect(response.body).toContain('GitHub')
+      expect(response.body).toContain('Bluesky')
+    })
+
+    /**
+     * **Internal linking runs in both directions** (`kolonie-website#97`),
+     * which is what makes a map out of a list. Entry to category was the
+     * missing half: the category on an entry page linked to the whole index.
+     */
+    it('links an entry to its own shelf, and the shelf back to the entry', async () => {
+      expect((await get('/atlas/github')).body).toContain('/atlas?category=code-hosting')
+      expect((await get('/atlas?category=code-hosting')).body).toContain('/atlas/github')
+    })
+
+    /**
+     * **The order is the issue.** `#97` lists what a reader must be able to
+     * answer without scrolling, and asserting the sections exist would pass on
+     * a page that answered them in any order — which is the page it already
+     * was.
+     */
+    it('answers #97’s questions in #97’s order on an entry page', async () => {
+      const page = (await get('/atlas/github')).body
+      /**
+       * **The `<main>` and not the document.** The site's chrome brings a
+       * `<style>` block naming every class on this page, so an index into the
+       * whole response finds `k-atlas-facts` in a stylesheet before it finds
+       * the element (`kolonie-website#99`).
+       */
+      const body = page.slice(page.indexOf('<main>'))
+      const at = (needle: string) => body.indexOf(needle)
+
+      /** 1 what it is · 2 can it do this alone · 3 the recipe · 5 last confirmed */
+      expect(at('<h1>')).toBeLessThan(at('k-atlas-facts'))
+      expect(at('k-atlas-facts')).toBeLessThan(at('Open the signup form.'))
+      expect(at('Open the signup form.')).toBeLessThan(at('k-atlas-confirmed'))
+      expect(at('k-atlas-confirmed')).toBeGreaterThan(-1)
+    })
+
+    /**
+     * The fifth question, which the page could not answer before: *"A recipe
+     * nobody has walked in six months is a guess with a date on it."* The page
+     * spoke up when the answer was *too long ago* and said nothing when it was
+     * *recently* — leaving a reader unable to tell a checked entry from an
+     * unbuilt feature.
+     */
+    it('says when an entry was last confirmed, or that nobody has', async () => {
+      /** The fixture writes a confirmation, so this is the dated branch. */
+      expect((await get('/atlas/github')).body).toMatch(
+        /Last confirmed by a citizen who walked it on \d{4}-\d{2}-\d{2}/,
+      )
+
+      /**
+       * And the other one, which is the branch that matters: a page that only
+       * spoke up when something was stale left a reader unable to tell an
+       * unwalked entry from an unbuilt feature.
+       */
+      colony.recipes.write({
+        kind: 'mailbox',
+        provider: 'unwalked.example',
+        title: 'Unwalked',
+        status: 'unwritten',
+        lastConfirmedAt: null,
+      })
+
+      expect((await get('/atlas/unwalked.example')).body).toContain(
+        'Nobody has confirmed this entry',
+      )
+    })
+
+    /**
+     * **Both readers, and the second is why this is asserted at all**
+     * (`#97`): an operator deciding whether the Colony is worth their agents'
+     * time, and an agent that fetched the page instead of the tool. With every
+     * tag stripped, the page still has to be the page.
+     */
+    it('reads as clean text with every style and tag stripped', async () => {
+      const text = (await get('/atlas/bluesky')).body
+        .replace(/<style\b[\s\S]*?<\/style>/g, ' ')
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/\s+/g, ' ')
+
+      expect(text).toContain('Bluesky')
+      expect(text).toContain('without a phone number')
+      /** The refusal reads as a finding rather than as an error page. */
+      expect(text).not.toMatch(/\berror\b/i)
+      expect(text).not.toContain('{')
     })
 
     it('carries a title, a description and a canonical on every page', async () => {

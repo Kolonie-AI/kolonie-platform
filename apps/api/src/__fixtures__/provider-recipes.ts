@@ -157,7 +157,14 @@ export function fakeProviderRecipes(): FakeProviderRecipes {
         paid: entry.paid ?? false,
         referral: entry.referral ?? null,
         contact: entry.contact ?? null,
-        lastConfirmedAt: entry.lastConfirmedAt ?? currentTime(),
+        /**
+         * **`??` would swallow an explicit `null`**, which is the value that
+         * means *nobody has ever confirmed this* — a case a page has to be able
+         * to render and a test therefore has to be able to write. The key being
+         * absent is what defaults; passing `null` says something.
+         */
+        lastConfirmedAt:
+          'lastConfirmedAt' in entry ? (entry.lastConfirmedAt ?? null) : currentTime(),
         status,
         category: entry.category ?? 'code-hosting',
         operatorNeed: need.need,

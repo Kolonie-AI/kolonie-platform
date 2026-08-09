@@ -6,12 +6,14 @@ import {
   isStale,
   ATLAS_RETENTION_DAYS,
   throughRate,
+  type AtlasCategory,
   type AtlasEntry,
   type AtlasFigures,
 } from '@kolonie-ai/core'
 import { escape } from '../console/html.js'
 import { CONSOLE_MAST } from '../console/mark.js'
 import { CONSOLE_STYLE } from '../console/theme.js'
+import { ATLAS_STYLE } from './style.js'
 import type { SiteChrome } from './site-chrome.js'
 
 /**
@@ -99,7 +101,14 @@ export function atlasPage(input: {
     `<title>${escape(input.title)} — Kolonie</title>`,
     `<meta name="description" content="${escape(input.description)}">`,
     `<link rel="canonical" href="${escape(input.canonical)}">`,
-    `<style>${CONSOLE_STYLE}</style>`,
+    /**
+     * The console's tokens and element rules, then the Atlas's own
+     * (`kolonie-website#97`). Two blocks and not one: `CONSOLE_STYLE` is shared
+     * with every operator surface and this is only for these pages, so a change
+     * here cannot reach the console and a change there reaches both — which is
+     * the point of it being shared.
+     */
+    `<style>${CONSOLE_STYLE}${ATLAS_STYLE}</style>`,
     chrome?.head ?? '',
     '</head>',
     '<body>',
@@ -132,14 +141,48 @@ const ATLAS_STANDFIRST =
   'joined honestly, that is what the page says — and where nobody has looked yet, it says that ' +
   'instead of guessing.'
 
-/** The index: every entry, joinable first, then unwritten, then refusals (`#588`). */
+/**
+ * The path to the index, filtered to one shelf or not filtered at all.
+ *
+ * **One function, so the link on an entry page and the link on the index cannot
+ * disagree** (`kolonie-website#97`). It is the same shape the console's own
+ * browser uses (`#591`, `atlasPickerPath`) rather than a second spelling of the
+ * same idea on a second surface.
+ */
+export function atlasIndexPath(category?: AtlasCategory): string {
+  return category === undefined ? ATLAS_PATH : `${ATLAS_PATH}?category=${category}`
+}
+
+/**
+ * The index: every entry, on a shelf per category (`#588`, `#589`,
+ * `kolonie-website#97`).
+ *
+ * **Filtering is a link and never a widget** — `?category=mailbox`, D-062, the
+ * same decision the console's browser took in `#591`. `#97` requires it to work
+ * with no JavaScript, and the cheapest way to satisfy that is for there to be
+ * no JavaScript to fail.
+ *
+ * **A filtered index is the same page with one shelf**, not a second template.
+ * The heading, the standfirst and the ordering note are what a reader arriving
+ * on a shared `?category=` link needs as much as anybody else, and a filtered
+ * view that dropped them would be a page that assumes the reader came from the
+ * unfiltered one.
+ */
 export function atlasIndexPage(input: {
   readonly entries: readonly AtlasEntry[]
   readonly canonical: string
   readonly chrome?: SiteChrome | undefined
+  /** The shelf a reader asked for, when they asked for one. */
+  readonly category?: AtlasCategory | undefined
 }): string {
+  const { category } = input
+  const shown =
+    category === undefined
+      ? input.entries
+      : input.entries.filter((entry) => entry.category === category)
+
   return atlasPage({
-    title: 'The Atlas',
+    title: category === undefined ? 'The Atlas' : `The Atlas — ${category}`,
     description: ATLAS_STANDFIRST,
     canonical: input.canonical,
     chrome: input.chrome,
@@ -148,13 +191,56 @@ export function atlasIndexPage(input: {
       '<h1>The Atlas</h1>',
       `<p>${escape(ATLAS_STANDFIRST)}</p>`,
       `<p><small>${escape(ATLAS_ORDER_NOTE)}</small></p>`,
+      shelfNav(input.entries, category),
       input.entries.length === 0
         ? '<p>The catalogue is empty. Nothing has been listed yet, which is not the same as ' +
           'nothing being joinable.</p>'
-        : shelves(input.entries).join('\n'),
+        : category !== undefined && shown.length === 0
+          ? `<p>Nothing is filed under ${escape(category)} yet. That is a shelf waiting to be ` +
+            'filled rather than a category the Colony refuses — every entry on it would be one ' +
+            'somebody walked.</p>'
+          : shelves(shown).join('\n'),
       '</main>',
     ].join('\n'),
   })
+}
+
+/**
+ * The shelves, as links, with what is on each (`kolonie-website#97`).
+ *
+ * **The count is derived and never typed** — `#97` is explicit that *ninety-six
+ * providers* ages on the next curation, and the same is true one shelf down.
+ *
+ * **It is built from the entries and not from `AtlasCategorySchema`.** Fourteen
+ * headings over three entries would say the Atlas has eleven holes in it, when
+ * what it has is eleven categories nothing has been filed under yet. That is
+ * `shelves`' argument below, one level up.
+ *
+ * The current shelf is marked with `aria-current` rather than only styled: it is
+ * what a screen reader announces, and a colour that said the same thing would
+ * say it to one reader in two.
+ */
+function shelfNav(entries: readonly AtlasEntry[], current: AtlasCategory | undefined): string {
+  if (entries.length === 0) return ''
+
+  const counts = new Map<string, number>()
+  for (const entry of entries) counts.set(entry.category, (counts.get(entry.category) ?? 0) + 1)
+
+  const links = [...counts.entries()].map(
+    ([category, count]) =>
+      `<li><a href="${escape(atlasIndexPath(category as AtlasCategory))}"` +
+      `${category === current ? ' aria-current="page"' : ''}>${escape(category)}</a> ` +
+      `<span class="k-atlas-count">${count}</span></li>`,
+  )
+
+  return [
+    '<nav class="k-atlas-shelves" aria-label="Categories">',
+    `<ul>${links.join('')}</ul>`,
+    current === undefined ? '' : `<p><a href="${escape(atlasIndexPath())}">Every category</a></p>`,
+    '</nav>',
+  ]
+    .filter((line) => line !== '')
+    .join('')
 }
 
 /**
@@ -181,7 +267,15 @@ function shelves(entries: readonly AtlasEntry[]): readonly string[] {
 
   return [...byCategory.entries()].map(
     ([category, shelf]) =>
-      `<h2>${escape(category)}</h2>` +
+      `<h2 id="${escape(category)}"><a href="${escape(
+        atlasIndexPath(category as AtlasCategory),
+      )}">${escape(category)}</a> ` +
+      /**
+       * The count, derived from the shelf it is standing on
+       * (`kolonie-website#97`). A number typed into prose ages on the next
+       * curation; this one cannot.
+       */
+      `<span class="k-atlas-count">${shelf.length}</span></h2>` +
       `<ul class="k-atlas-index">${shelf.map(indexRow).join('')}</ul>`,
   )
 }
@@ -230,20 +324,51 @@ export function atlasEntryPage(input: {
     description: entryDescription(entry),
     canonical: input.canonical,
     chrome: input.chrome,
+    /**
+     * **The order is `kolonie-website#97`'s list of what a reader must be able
+     * to answer without scrolling**, in that order, and it is the order rather
+     * than any of the individual sections that the issue is about:
+     *
+     * 1. what this is and what an agent would get — the title, the category and
+     *    `about`
+     * 2. can it do this alone — the single most useful fact on the page
+     * 3. the recipe, as ordered steps with the operator's marked
+     * 4. what was measured, with its sample size
+     * 5. when it was last confirmed, and by what
+     * 6. if it is refused, the reason, prominently
+     * 7. if nobody has walked it, what that means and how to change it
+     *
+     * Six and seven are inside `recipeSection` because they are properties of a
+     * row rather than of a provider: one provider can be joinable for a mailbox
+     * and refused for a domain, and a page that hoisted either to the top would
+     * be saying something untrue about the other.
+     *
+     * **`about` moved above the category line and the paid marker.** A reader
+     * arriving from a search result needs *what is this* before *what shelf is
+     * it on*, and the marker is a fact about the entry rather than about the
+     * provider — `#543` requires it visible, not first.
+     */
     body: [
       '<main>',
       `<h1>${escape(entry.title)}</h1>`,
-      /**
-       * The two facts `#589` adds, above everything else on the page. A reader
-       * arrives asking *what sort of thing is this* and *will I be needed*, and
-       * both used to be answerable only by reading five steps.
-       */
-      `<p class="k-atlas-facts"><a href="${ATLAS_PATH}">${escape(entry.category)}</a> — ` +
-        `${escape(operatorLine(entry))}</p>`,
-      paidMarker(entry),
       aboutSection(entry),
       `<p>${escape(entryDescription(entry))}</p>`,
+      /**
+       * The two facts `#589` adds. A reader arrives asking *what sort of thing
+       * is this* and *will I be needed*, and both used to be answerable only by
+       * reading five steps.
+       *
+       * **The category links to its own shelf** rather than to the whole index
+       * (`kolonie-website#97`): entry to category and category to entry is the
+       * shortest of the internal links that make a map out of a list, and it
+       * was one-way.
+       */
+      `<p class="k-atlas-facts"><a href="${escape(atlasIndexPath(entry.category))}">${escape(
+        entry.category,
+      )}</a> — ${escape(operatorLine(entry))}</p>`,
+      paidMarker(entry),
       ...entry.recipes.map(recipeSection),
+      confirmedLine(entry),
       runtimesSection(entry),
       counterpartySection(entry),
       NOT_A_PROMISE,
@@ -582,4 +707,44 @@ function staleNote(recipe: AtlasEntry['recipes'][number]): string {
   if (recipe.status !== 'joinable' || !isStale(recipe.lastConfirmedAt)) return ''
 
   return `<p class="k-stale"><strong>Unconfirmed.</strong> ${escape(STALE_ENTRY_NOTE)}</p>`
+}
+
+/**
+ * **When this was last confirmed to work, and by what** — the fifth of
+ * `kolonie-website#97`'s seven questions.
+ *
+ * *"A recipe nobody has walked in six months is a guess with a date on it."*
+ * The page already carried `STALE_ENTRY_NOTE` when the answer was *too long
+ * ago*; what it did not carry was the answer when it was *recently*, which is
+ * the case a reader is deciding on. A page that only speaks up when something
+ * is wrong leaves a reader unable to tell *checked last week* from *nobody has
+ * built this part yet*.
+ *
+ * **Derived from `lastConfirmedAt` and never stored as a flag** — a `stale`
+ * column would need something sweeping it, and the day that job stops the
+ * catalogue silently claims to be current. That is `#525`'s argument and this
+ * only surfaces it.
+ *
+ * Never dated to a `null`: the entry says *nobody has confirmed this at all*,
+ * which is a different sentence from a date and is the honest one.
+ */
+function confirmedLine(entry: AtlasEntry): string {
+  const walked = entry.recipes
+    .map((recipe) => recipe.lastConfirmedAt)
+    .filter((at): at is string => at !== null)
+    .sort()
+    .at(-1)
+
+  if (walked === undefined) {
+    return (
+      '<p class="k-atlas-confirmed"><small>Nobody has confirmed this entry by walking it. ' +
+      'Following it and reporting what happened with kolonie.accounts.provider-report is what ' +
+      'changes that, whether it worked or not.</small></p>'
+    )
+  }
+
+  return (
+    `<p class="k-atlas-confirmed"><small>Last confirmed by a citizen who walked it on ` +
+    `${escape(walked.slice(0, 10))}.</small></p>`
+  )
 }

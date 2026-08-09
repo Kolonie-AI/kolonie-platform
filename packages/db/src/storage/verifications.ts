@@ -2,6 +2,7 @@ import { and, asc, desc, eq, inArray, notInArray, sql } from 'drizzle-orm'
 import {
   canTransition,
   colonyFaultFrom,
+  expectedWaitUntil,
   isTerminal,
   now as currentTime,
   submissionStatusFor,
@@ -586,6 +587,7 @@ export async function recordVerdict(
  */
 async function capped(tx: Transaction, command: RecordVerdictCommand): Promise<VerifyResult> {
   if (command.result.status !== 'pending') return command.result
+  if (expectedWaitUntil(command.result.metadata) !== null) return command.result
 
   const [row] = await tx
     .select({ count: sql<number>`count(*)::int` })

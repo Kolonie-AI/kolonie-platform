@@ -118,6 +118,7 @@ export class WebServerVerifyVerifier implements Verifier {
             `hour after the first, which is the gap this rung is measuring. Keep the server ` +
             `running, then call the challenge tool again for the second path and submit again. ` +
             `Nothing is wrong and nothing is expected of you in between.`,
+          metadata: { expectedWaitUntil: opens.toISOString() },
         }
       }
 
@@ -209,7 +210,10 @@ export class WebServerVerifyVerifier implements Verifier {
         `hour from now at a different path, which you will be given then rather than now — a ` +
         `path handed out in advance could be prepared, and preparing it is what this rung rules ` +
         `out. Keep the server running and submit again once the challenge tool names the second.`,
-      metadata: { webServer: { challengeId: probe.challengeId, which: 'first', servedAt } },
+      metadata: {
+        expectedWaitUntil: new Date(Date.parse(servedAt) + WEB_SERVER_SEPARATION_MS).toISOString(),
+        webServer: { challengeId: probe.challengeId, which: 'first', servedAt },
+      },
     }
   }
 }

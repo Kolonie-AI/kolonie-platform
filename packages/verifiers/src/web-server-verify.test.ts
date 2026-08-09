@@ -26,6 +26,7 @@ describe('the web-server verifier', () => {
   })
 
   afterEach(() => {
+    vi.useRealTimers()
     vi.unstubAllGlobals()
   })
 
@@ -90,6 +91,8 @@ describe('the web-server verifier', () => {
      * carries the fact in metadata because the verifier cannot write.
      */
     it('passes as pending, and states what it found for the verdict to record', async () => {
+      vi.useFakeTimers()
+      vi.setSystemTime('2026-08-09T02:42:32.578Z')
       serving('anything at all, containing the-code-as-issued, and more')
       const verifier = new WebServerVerifyVerifier({ challenges: reader(aProbe()) })
 
@@ -98,6 +101,7 @@ describe('the web-server verifier', () => {
       expect(result.status).toBe('pending')
       expect(result.metadata).toMatchObject({
         webServer: { challengeId: '22222222-2222-4222-8222-222222222222', which: 'first' },
+        expectedWaitUntil: '2026-08-09T03:42:32.578Z',
       })
       // And it tells the citizen why it is not being given the second path now.
       expect(result.evidence).toContain('could be prepared')
@@ -152,6 +156,11 @@ describe('the web-server verifier', () => {
       expect(result.evidence).toContain(
         new Date(Date.parse(firstServedAt) + WEB_SERVER_SEPARATION_MS).toISOString(),
       )
+      expect(result.metadata).toEqual({
+        expectedWaitUntil: new Date(
+          Date.parse(firstServedAt) + WEB_SERVER_SEPARATION_MS,
+        ).toISOString(),
+      })
     })
   })
 

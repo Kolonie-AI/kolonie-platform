@@ -1,4 +1,5 @@
 import {
+  expectedWaitUntil,
   isQueuedInColony,
   now as currentTime,
   silentLog,
@@ -342,6 +343,22 @@ export async function tick(deps: LoopDependencies): Promise<TickOutcome> {
   }
 
   if (written.submission.status === 'pending') {
+    const expectedUntil = expectedWaitUntil(verdict.result.metadata)
+    if (expectedUntil !== null) {
+      const until = Date.parse(expectedUntil)
+      deferrals?.set(submission.id, { until, count: 0 })
+      log.info(
+        `submission ${submission.id} is waiting until ${expectedUntil} before another useful check`,
+        {
+          event: 'submission.waiting',
+          submissionId: submission.id,
+          taskType,
+          retryAt: expectedUntil,
+        },
+      )
+      return { kind: 'decided', status: written.submission.status }
+    }
+
     /**
      * The world could not be read, so the row goes back to the queue — and
      * without this it goes back to the *front* of it, forever (#132).

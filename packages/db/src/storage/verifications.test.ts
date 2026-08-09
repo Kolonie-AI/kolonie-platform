@@ -390,6 +390,26 @@ describe('the verifier-runner storage loop', () => {
         expect(result.submission.status).toBe('pending')
       })
 
+      it('does not apply the retry ceiling to a declared healthy wait', async () => {
+        const id = await aSubmission()
+
+        for (let n = 1; n <= MAX_VERIFICATION_ATTEMPTS; n++) {
+          const claimed = await claim()
+          const result = await recordVerdict(db, {
+            submissionId: id,
+            taskType: claimed.taskType,
+            result: {
+              status: 'pending',
+              evidence: 'The second probe has not opened yet.',
+              metadata: { expectedWaitUntil: '2026-08-09T03:42:32.578Z' },
+            },
+          })
+
+          expect(result.outcome).toBe('recorded')
+          if (result.outcome === 'recorded') expect(result.submission.status).toBe('pending')
+        }
+      })
+
       it('keeps the last verifier’s own evidence and adds why nobody will look again', async () => {
         const id = await aSubmission()
 

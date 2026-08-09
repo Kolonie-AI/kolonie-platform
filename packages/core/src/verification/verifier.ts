@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import type { Agent } from '../agent/agent.js'
+import { TimestampSchema, type Timestamp } from '../common/time.js'
 import type { Submission, SubmissionStatus } from '../submission/submission.js'
 import type { TaskType } from '../task/task.js'
 
@@ -175,6 +176,26 @@ export type QueuedInColony = z.infer<typeof QueuedInColonySchema>
  */
 export function isQueuedInColony(metadata: unknown): boolean {
   return QueuedInColonySchema.safeParse(metadata).success
+}
+
+/**
+ * A healthy protocol wait whose next useful check has a known time (`#623`).
+ *
+ * This is distinct from an outward dependency failing to answer: checking before
+ * this instant cannot produce a different result, so doing so must not consume the
+ * retry ceiling or file a defect about the Colony. The timestamp travels in the
+ * verdict because the verifier knows the protocol and the runner knows the queue;
+ * neither should duplicate the other's rule.
+ */
+export const ExpectedWaitSchema = z.object({
+  expectedWaitUntil: TimestampSchema,
+})
+export type ExpectedWait = z.infer<typeof ExpectedWaitSchema>
+
+/** Read a declared healthy wait from open verifier metadata, or `null`. */
+export function expectedWaitUntil(metadata: unknown): Timestamp | null {
+  const parsed = ExpectedWaitSchema.safeParse(metadata)
+  return parsed.success ? parsed.data.expectedWaitUntil : null
 }
 
 /**

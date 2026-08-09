@@ -679,6 +679,29 @@ describe('a submission the world cannot answer for (#132)', () => {
     expect(entry!.until - before).toBeGreaterThanOrEqual(180_000)
   })
 
+  it('schedules a declared healthy wait without counting or reporting a deferral', async () => {
+    const retryAt = Date.now() + 3_600_000
+    const waiting: Verifier = {
+      taskType: EXAMPLE_TASK,
+      verify: async () => ({
+        status: 'pending',
+        evidence: 'The second probe has not opened yet.',
+        metadata: { expectedWaitUntil: new Date(retryAt).toISOString() },
+      }),
+    }
+    const queue = stuck()
+    const deferrals = new Map<SubmissionId, Deferral>()
+
+    await tick({ queue, verifiers: new Map([[waiting.taskType, waiting]]), deferrals })
+
+    expect(queue.deferralCounts.size).toBe(0)
+    expect(queue.deferralsReported).toEqual([])
+    expect(deferrals.get('aaaaaaaa-1111-4111-8111-111111111111' as SubmissionId)).toEqual({
+      until: retryAt,
+      count: 0,
+    })
+  })
+
   it('comes back to it once the wait is over', async () => {
     const queue = stuck()
     const id = 'aaaaaaaa-1111-4111-8111-111111111111' as SubmissionId

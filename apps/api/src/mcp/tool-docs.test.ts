@@ -128,4 +128,38 @@ describe('where a relocated paragraph goes', () => {
     // And a tool with nothing relocated still publishes no key.
     expect(tools.find((tool) => tool.name === 'kolonie.me')?._meta).toBeUndefined()
   })
+
+  it('publishes the accounts discovery tranche and still refuses invalid input', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`, undefined, true)
+    const tools = (await client.listTools()).tools
+
+    for (const name of [
+      'kolonie.accounts.recipes',
+      'kolonie.accounts.wishes',
+      'kolonie.accounts.attestable',
+    ]) {
+      expect(tools.find((tool) => tool.name === name)?._meta).toEqual({
+        [TOOL_DOCS_META_KEY]: toolDocsUrl(name),
+      })
+    }
+
+    const invalidRecipes = await client.callTool({
+      name: 'kolonie.accounts.recipes',
+      arguments: { category: 'not-a-shelf' },
+    })
+    const invalidWishes = await client.callTool({
+      name: 'kolonie.accounts.wishes',
+      arguments: { provider: 'not a provider' },
+    })
+    const invalidAttestable = await client.callTool({
+      name: 'kolonie.accounts.attestable',
+      arguments: { accountId: 'not-an-id', attestable: true },
+    })
+
+    expect(invalidRecipes.isError).toBe(true)
+    expect(invalidWishes.isError).toBe(true)
+    expect(invalidAttestable.isError).toBe(true)
+    await close()
+  })
 })

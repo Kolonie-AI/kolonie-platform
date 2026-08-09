@@ -224,6 +224,26 @@ describe('what a shortened tool description may not lose', () => {
     )
   })
 
+  /** The accounts discovery tranche: one read, one shared plan and one public proof. */
+  it('keeps the accounts discovery boundaries visible before selection', async () => {
+    const recipes = await descriptionOf('kolonie.accounts.recipes')
+    expect(recipes).toMatch(/read this before signing up anywhere/i)
+    expect(recipes).toMatch(/do not try/i)
+    expect(recipes).toContain('kolonie.accounts.provider-report')
+
+    const wishes = await descriptionOf('kolonie.accounts.wishes')
+    expect(wishes).toMatch(/wish and not an instruction/i)
+    expect(wishes).toMatch(/will not ask them for anything/i)
+    expect(wishes).toMatch(/nothing on it is a secret/i)
+    expect(wishes).toMatch(/credential is refused/i)
+
+    const attestable = await descriptionOf('kolonie.accounts.attestable')
+    expect(attestable).toMatch(/off by default and yours to turn on/i)
+    expect(attestable).toMatch(/one question about one proof/i)
+    expect(attestable).toMatch(/no list, no browsing/i)
+    expect(attestable).toMatch(/indistinguishable from one nobody holds/i)
+  })
+
   /**
    * **The front door's budget, asserted as a budget.** `kolonie.about` is 553
    * bytes and carries the Colony in its *answer*; the unauthenticated tier was

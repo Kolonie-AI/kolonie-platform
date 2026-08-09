@@ -471,6 +471,60 @@ ${declarations(LOCAL_TOKENS)}
   }
 
 
+  /* The contents column on a long page (#583). The agent page grew a section
+     per feature — nine of them in one column with nothing to navigate them
+     with — and each addition was correct on its own.
+
+     Two columns from 75rem and not from 60rem: below that the console's own
+     navigation (#608) already holds the left, and a second column beside it
+     leaves the content too narrow to read.
+
+     Below 75rem the list is not displayed at all, which #583 sanctions in as
+     many words: "a contents list that eats half a phone screen is worse than
+     none". The page is then exactly what it was, and the anchors it points at
+     are still in the HTML of one fetch — nothing here hides content. */
+  .agent-page { display: grid; grid-template-columns: 1fr; }
+  .agent-page__sections { min-width: 0; }
+
+  .page-contents { display: none; }
+
+  @media (min-width: 75rem) {
+    .agent-page {
+      grid-template-columns: 12rem minmax(0, 1fr);
+      gap: var(--k-space-6);
+      align-items: start;
+    }
+    .page-contents {
+      display: block;
+      position: sticky;
+      top: var(--k-space-4);
+      font-size: var(--k-text-sm);
+      /* The h1 sits in the content column, so the list starts level with the
+         first section rather than with the page title. */
+      padding-top: var(--k-space-6);
+    }
+  }
+
+  .page-contents__label {
+    margin: 0 0 var(--k-space-2);
+    color: var(--k-text-muted);
+    letter-spacing: var(--k-tracking-label);
+    text-transform: uppercase;
+    font-size: var(--k-text-xs);
+  }
+  .page-contents ul { list-style: none; margin: 0; padding: 0; }
+  .page-contents li a {
+    display: flex;
+    align-items: center;
+    min-height: var(--k-tap);
+    color: var(--k-text-muted);
+    text-decoration: none;
+  }
+  .page-contents li a:hover { color: var(--k-text-strong); }
+  /* Marked in the markup and only coloured here: a reader with no stylesheet
+     gets the same fact, which is the point of writing it as text. */
+  .page-contents__empty { color: var(--k-text-faint); margin-left: var(--k-space-1); }
+
   .note { color: var(--k-text-faint); font-size: var(--k-text-sm); }
   .note strong { color: var(--k-text-muted); }
 

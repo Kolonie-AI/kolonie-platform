@@ -135,7 +135,7 @@ describe('the agent page', () => {
     // No `Balance` heading since `#553`: the Colony holds none. The Wallet block
     // is what stands there now, and `#573`'s tests cover it.
     expect(response.body).not.toContain('<h2>Balance</h2>')
-    expect(response.body).toContain('<h2>Wallet</h2>')
+    expect(response.body).toContain('<h2 id="wallet">Wallet</h2>')
     expect(response.body).toContain('mailbox')
     expect(response.body).toContain('email-inbox')
     expect(response.body).toContain('2 hours ago')
@@ -222,7 +222,7 @@ describe('the agent page', () => {
 
     const body = (await openPage(cookie, agentId)).body
 
-    expect(body).toContain('<h2>Quests</h2>')
+    expect(body).toContain('<h2 id="quests">Quests</h2>')
     expect(body).toContain('None yet')
     expect(body).toContain('finds paid work itself')
   })

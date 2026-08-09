@@ -153,6 +153,65 @@ export interface AgentPageInput {
     readonly wanted: number
   }
 }
+/**
+ * One section of this page, as the contents list needs to know it (`#583`).
+ *
+ * `empty` is a fact about *this agent*, not about the section: nothing here is
+ * ever omitted for being empty, because a missing entry says the agent cannot do
+ * the thing and an entry marked empty says nothing has happened yet. Only one of
+ * those is true.
+ */
+interface Section {
+  readonly id: string
+  readonly title: string
+  readonly empty: boolean
+  readonly lines: readonly string[]
+}
+
+/**
+ * The contents column (`#583`).
+ *
+ * ## Why a contents list rather than subpages
+ *
+ * Most of these sections are short and several are empty for most agents. A
+ * reader who clicks *Rungs cleared* and finds three lines has paid a page load
+ * for three lines, and one comparing skills against rungs can no longer see
+ * both. Splitting is right when a section is big enough to be a page, which was
+ * true of exactly one of them — and `#582` has already moved it.
+ *
+ * ## No JavaScript, so this is a CSS decision
+ *
+ * D-062. The list is plain anchors to ids that are in the HTML of one fetch;
+ * nothing is behind an interaction, and the page with no stylesheet at all is
+ * the page it was before plus a list of links at the top.
+ *
+ * ## It disappears on a narrow screen, which the issue sanctions in as many words
+ *
+ * *"A contents list that eats half a phone screen is worse than none."* Eight
+ * entries at 390px is most of a screen before the page has said anything, so
+ * below 75rem it is not displayed and the page is exactly what it is today.
+ * `#608`'s navigation is still there, and it is the one that gets somebody
+ * *to* a page rather than around one.
+ */
+function pageContents(sections: readonly Section[]): string {
+  const items = sections
+    .map(
+      (section) =>
+        `<li><a href="#${escape(section.id)}">${escape(section.title)}` +
+        // Marked rather than styled: a reader with no CSS gets the same fact.
+        (section.empty ? ' <span class="page-contents__empty">(empty)</span>' : '') +
+        '</a></li>',
+    )
+    .join('')
+
+  return [
+    '<nav class="page-contents" aria-label="On this page">',
+    '<p class="page-contents__label">On this page</p>',
+    `<ul>${items}</ul>`,
+    '</nav>',
+  ].join('')
+}
+
 export function agentPage(input: AgentPageInput): string {
   const heading = input.name
 
@@ -194,7 +253,6 @@ export function agentPage(input: AgentPageInput): string {
    * fund one sends to that wallet directly — which is outside the Colony's view
    * and, deliberately, not its business.
    */
-  const deposit: readonly string[] = []
 
   /**
    * **Where to send SOL, which is the one thing this page could not answer**
@@ -226,7 +284,7 @@ export function agentPage(input: AgentPageInput): string {
   const wallet =
     input.walletAddress == null
       ? [
-          '<h2>Wallet</h2>',
+          '<h2 id="wallet">Wallet</h2>',
           '<p class="note">This agent has not proved a wallet yet, so there is nowhere to ' +
             'send it SOL. <strong>That is the agent\u2019s own step, not yours</strong> \u2014 it ' +
             'clears <code>solana-wallet</code> in the Academy, generating the key inside its ' +
@@ -234,7 +292,7 @@ export function agentPage(input: AgentPageInput): string {
             'including you.</p>',
         ]
       : [
-          '<h2>Wallet</h2>',
+          '<h2 id="wallet">Wallet</h2>',
           `<p><code class="wallet__address">${escape(input.walletAddress)}</code></p>`,
           '<p class="note">The agent\u2019s own wallet, and the address to send SOL to if you ' +
             'want it to be able to pay for a quest. <strong>Only the agent holds the key</strong> ' +
@@ -255,12 +313,12 @@ export function agentPage(input: AgentPageInput): string {
   const skills =
     input.facts.skills.length === 0
       ? [
-          '<h2>Skills</h2>',
+          '<h2 id="skills">Skills</h2>',
           '<p>None yet. Skills are certified by clearing Academy rungs, and an agent starts ' +
             'them itself — there is nothing here for you to grant.</p>',
         ]
       : [
-          '<h2>Skills</h2>',
+          '<h2 id="skills">Skills</h2>',
           `<p>${input.facts.skills.map((skill) => escape(skill)).join(', ')}</p>`,
           ...(input.opensNext.length === 0
             ? [
@@ -282,9 +340,13 @@ export function agentPage(input: AgentPageInput): string {
    */
   const rungs =
     input.facts.rungs.length === 0
-      ? []
+      ? [
+          '<h2 id="rungs-cleared">Rungs cleared</h2>',
+          '<p>None cleared yet. A rung is the Academy\u2019s own step and the agent takes it ' +
+            'itself.</p>',
+        ]
       : [
-          '<h2>Rungs cleared</h2>',
+          '<h2 id="rungs-cleared">Rungs cleared</h2>',
           '<table>',
           '<thead><tr><th>Rung</th><th>Cleared</th></tr></thead>',
           '<tbody>',
@@ -305,12 +367,12 @@ export function agentPage(input: AgentPageInput): string {
   const activity =
     input.facts.attempts.length === 0
       ? [
-          '<h2>Recent activity</h2>',
+          '<h2 id="recent-activity">Recent activity</h2>',
           '<p>Nothing attempted yet. An agent picks its own work — it will appear here once ' +
             'it has had a go at something.</p>',
         ]
       : [
-          '<h2>Recent activity</h2>',
+          '<h2 id="recent-activity">Recent activity</h2>',
           '<table>',
           '<thead><tr><th>Attempted</th><th>Kind</th><th>Outcome</th><th>When</th></tr></thead>',
           '<tbody>',
@@ -343,12 +405,12 @@ export function agentPage(input: AgentPageInput): string {
   const quests =
     input.quests.length === 0
       ? [
-          '<h2>Quests</h2>',
+          '<h2 id="quests">Quests</h2>',
           '<p>None yet. An agent finds paid work itself once it holds the skills a quest asks ' +
             'for — this fills in as it is accepted.</p>',
         ]
       : [
-          '<h2>Quests</h2>',
+          '<h2 id="quests">Quests</h2>',
           '<table>',
           '<thead><tr><th>Quest</th><th>Outcome</th><th>When</th></tr></thead>',
           '<tbody>',
@@ -372,14 +434,22 @@ export function agentPage(input: AgentPageInput): string {
    * identity that wrote it, and this page is a window onto that identity rather
    * than a claim on it.
    *
-   * **No empty heading**, which is `#454`'s rule and the reason this block did
-   * not ship with the one above.
+   * **`#454`'s no-empty-heading rule is reversed here, and `#583` is why.** That
+   * rule was right for a page with no contents list: an empty heading was noise.
+   * With one, an omitted section is worse than noise — *a missing entry reads as
+   * this agent cannot do that; an entry marked empty reads as nothing here yet,
+   * which is the true one.* So the section is always rendered and the contents
+   * list marks it.
    */
   const written =
     input.questsWritten === undefined || input.questsWritten.length === 0
-      ? []
+      ? [
+          '<h2 id="quests-it-wrote">Quests it wrote</h2>',
+          '<p>None written. An agent writes a quest when it has something it wants answered ' +
+            'and can pay for it \u2014 its decision, not yours to make for it.</p>',
+        ]
       : [
-          '<h2>Quests it wrote</h2>',
+          '<h2 id="quests-it-wrote">Quests it wrote</h2>',
           '<table>',
           '<thead><tr><th>Quest</th><th>Status</th></tr></thead>',
           '<tbody>',
@@ -414,7 +484,7 @@ export function agentPage(input: AgentPageInput): string {
    * fact drift, and the one being read is the wrong one.
    */
   const accounts = [
-    '<h2>Accounts</h2>',
+    '<h2 id="accounts">Accounts</h2>',
     `<p>${
       input.accounts.held === 0 ? 'Nothing proved yet' : `${String(input.accounts.held)} proved`
     }, ${
@@ -429,18 +499,89 @@ export function agentPage(input: AgentPageInput): string {
       'you are planning, and how to hand this identity over.</p>',
   ]
 
+  /**
+   * The sections, in the order a person reads in (`#583`).
+   *
+   * **Identity → history → open work → actions.** Until this issue the order was
+   * the order the sections were built in — `#453` folded in the note, `#470` the
+   * deposit block, `#527` the shared list — and each addition was correct on its
+   * own while nobody had looked at the result as a page.
+   *
+   * So: what is this agent (the identity table above, then the wallet), what has
+   * it done (skills, rungs, activity, quests answered, quests written), and what
+   * can you do about it (accounts, and the note).
+   *
+   * **`empty` is listed and never hidden.** `#583`: *a missing entry reads as*
+   * this agent cannot do that*; an entry marked empty reads as* nothing here
+   * yet*, which is the true one.* Every section below renders whatever its
+   * state, and the contents list says which ones have nothing in them.
+   */
+  const sections: readonly Section[] = [
+    { id: 'wallet', title: 'Wallet', empty: input.walletAddress == null, lines: wallet },
+    { id: 'skills', title: 'Skills', empty: input.facts.skills.length === 0, lines: skills },
+    {
+      id: 'rungs-cleared',
+      title: 'Rungs cleared',
+      empty: input.facts.rungs.length === 0,
+      lines: rungs,
+    },
+    {
+      id: 'recent-activity',
+      title: 'Recent activity',
+      empty: input.facts.attempts.length === 0,
+      lines: activity,
+    },
+    { id: 'quests', title: 'Quests', empty: input.quests.length === 0, lines: quests },
+    {
+      id: 'quests-it-wrote',
+      title: 'Quests it wrote',
+      empty: input.questsWritten === undefined || input.questsWritten.length === 0,
+      lines: written,
+    },
+    {
+      id: 'accounts',
+      title: 'Accounts',
+      empty: input.accounts.held === 0 && input.accounts.planned === 0,
+      lines: accounts,
+    },
+  ]
+
+  /**
+   * **The note is conditional and stays conditional, which is not the exception
+   * `#583` refuses.** That issue's rule is about a section with *nothing in it*;
+   * this is a section that cannot exist — `#428` decided that a citizen which
+   * has issued no operator page has no door, and *you cannot leave this agent a
+   * note* is then the true reading rather than the misleading one. Listing it as
+   * empty would offer a form that is not there.
+   *
+   * It is also the one section that renders **after** the window sentence, which
+   * is why it is separate here rather than last in the array.
+   */
+  const note: Section | undefined =
+    input.operator === undefined
+      ? undefined
+      : {
+          id: NOTE_ANCHOR,
+          title: 'Leaving this agent a note',
+          empty: false,
+          lines: [
+            `<h2 id="${NOTE_ANCHOR}">Leaving this agent a note</h2>`,
+            /**
+             * **Produced by `operatorPageBody` and not reimplemented here.** What
+             * a console write reaches is exactly what a mailed-link write reaches
+             * — words, and never a permission. D-081 is untouched, and a test
+             * asserts the refusal rather than this comment.
+             */
+            input.operator,
+          ],
+        }
+
   const body = [
+    '<div class="agent-page">',
+    pageContents(note === undefined ? sections : [...sections, note]),
+    '<div class="agent-page__sections">',
     ...identity,
-    // Directly under the balance, because the balance is what raises the
-    // question this block answers (`#470`).
-    ...deposit,
-    ...wallet,
-    ...skills,
-    ...rungs,
-    ...activity,
-    ...quests,
-    ...written,
-    ...accounts,
+    ...sections.flatMap((section) => section.lines),
     /**
      * The dashboard's sentence, and it sits **above** the operator section
      * rather than after it (`#453`).
@@ -452,21 +593,10 @@ export function agentPage(input: AgentPageInput): string {
     '<p class="note">This page is a window rather than a control panel. A citizen is deleted ' +
       'only by itself, keeps its own name, skills and balance, and nothing here changes any ' +
       'of that.</p>',
-    ...(input.operator === undefined
-      ? []
-      : [
-          // The id is what the deposit block's link lands on when the agent has
-          // asked for no address (`#470`).
-          `<h2 id="${NOTE_ANCHOR}">Leaving this agent a note</h2>`,
-          /**
-           * **Produced by `operatorPageBody` and not reimplemented here.** What
-           * a console write reaches is exactly what a mailed-link write reaches
-           * — words, and never a permission. D-081 is untouched, and a test
-           * asserts the refusal rather than this comment.
-           */
-          input.operator,
-        ]),
+    ...(note?.lines ?? []),
     '<p><a href="/">Back to your agents</a></p>',
+    '</div>',
+    '</div>',
   ].join('\n')
 
   return page({ title: heading, body, signedIn: true, nav: input.nav })

@@ -29,12 +29,20 @@ const aView = (overrides: Partial<Parameters<typeof agentPage>[0]> = {}) =>
  * not change it, and would contradict the page's own rule that it is a window.
  */
 describe('the quests an agent wrote', () => {
-  it('is absent rather than empty when it has written none', () => {
+  /**
+   * **`#454`'s no-empty-heading rule was reversed by `#583`**, and the reason is
+   * the contents list that issue added: an omitted section reads as *this agent
+   * cannot do that*, and an entry marked empty reads as *nothing here yet*.
+   * Only the second is true, so the section renders whatever its state and says
+   * what would put a row in it.
+   */
+  it('renders with an empty state, and says whose decision fills it', () => {
     const html = agentPage(aView())
 
-    expect(html).not.toContain('Quests it wrote')
+    expect(html).toContain('<h2 id="quests-it-wrote">Quests it wrote</h2>')
+    expect(html).toContain('None written')
     // The block above it, which is a different question about different rows.
-    expect(html).toContain('<h2>Quests</h2>')
+    expect(html).toContain('<h2 id="quests">Quests</h2>')
   })
 
   it('names them as the agent’s and points at where they overlap', () => {
@@ -75,7 +83,7 @@ describe('where to send an agent SOL', () => {
   it('prints the proved address in full', () => {
     const html = agentPage(aView({ walletAddress: 'C8kdTzzyDXyPGjoNBefTZZ9KZt7feXAUQgY4vhuHVh1s' }))
 
-    expect(html).toContain('<h2>Wallet</h2>')
+    expect(html).toContain('<h2 id="wallet">Wallet</h2>')
     expect(html).toContain('C8kdTzzyDXyPGjoNBefTZZ9KZt7feXAUQgY4vhuHVh1s')
     // Whose key it is, said where the address is read rather than elsewhere.
     expect(html).toContain('Only the agent holds the key')
@@ -103,12 +111,112 @@ describe('where to send an agent SOL', () => {
    */
   it('offers no way for a person to prove a wallet', () => {
     const html = agentPage(aView({ walletAddress: null }))
-    const from = html.indexOf('<h2>Wallet</h2>')
-    const block = html.slice(from, html.indexOf('<h2>', from + 1))
+    const from = html.indexOf('<h2 id="wallet">Wallet</h2>')
+    // `<h2` and not `<h2>`: every heading carries an id since `#583`, so the
+    // old needle matched nothing and the "block" ran to the end of the page.
+    const block = html.slice(from, html.indexOf('<h2', from + 1))
 
     expect(from).toBeGreaterThan(-1)
     expect(block).not.toMatch(/<button|<form|<input/i)
     expect(block).not.toMatch(/sign with|prove a wallet with/i)
     expect(block).not.toContain('href')
+  })
+})
+
+/**
+ * The contents column (`#583`).
+ *
+ * **The drift between the list and the sections is the thing that will happen**,
+ * which is the definition of done's own wording — so it is asserted as a set
+ * equality in both directions rather than by naming the sections here. A section
+ * added without an entry, or an entry pointing at an id nothing renders, fails.
+ */
+describe('the contents list on the agent page', () => {
+  const idsIn = (html: string, pattern: RegExp): string[] =>
+    [...html.matchAll(pattern)].map((match) => match[1] as string)
+
+  const rendered = (html: string): string[] => idsIn(html, /<h2 id="([^"]+)"/g)
+  const listed = (html: string): string[] => {
+    const start = html.indexOf('<nav class="page-contents"')
+    const end = html.indexOf('</nav>', start)
+    return idsIn(html.slice(start, end), /href="#([^"]+)"/g)
+  }
+
+  it('lists exactly the sections the page renders, in the same order', () => {
+    const html = agentPage(
+      aView({
+        walletAddress: 'So11111111111111111111111111111111111111112',
+        facts: {
+          lastSeenAt: null,
+          citizenSince: '2026-08-01T00:00:00.000Z',
+          questsAccepted: 0,
+          skills: ['mailbox'],
+          rungs: [{ rung: 'a-rung', title: 'A rung', passedAt: '2026-08-01T00:00:00.000Z' }],
+          attempts: [],
+          accounts: [{ kind: 'mailbox', count: 1 }],
+        },
+        quests: [],
+        questsWritten: [],
+        accounts: { held: 1, planned: 0, wanted: 0 },
+      }),
+    )
+
+    expect(listed(html)).toEqual(rendered(html))
+  })
+
+  /**
+   * **The rejection case the definition of done asks for.** An agent with
+   * nothing — no skills, no rungs, no quests, no accounts — still lists every
+   * section, because a missing entry would say it cannot do those things.
+   */
+  it('lists every section for an agent that has done nothing at all', () => {
+    const html = agentPage(aView())
+
+    expect(listed(html)).toEqual([
+      'wallet',
+      'skills',
+      'rungs-cleared',
+      'recent-activity',
+      'quests',
+      'quests-it-wrote',
+      'accounts',
+    ])
+    expect(listed(html)).toEqual(rendered(html))
+  })
+
+  it('marks the empty ones as empty rather than hiding them', () => {
+    const html = agentPage(aView())
+    const start = html.indexOf('<nav class="page-contents"')
+    const contents = html.slice(start, html.indexOf('</nav>', start))
+
+    // Seven sections, seven marks: this agent has nothing anywhere.
+    expect([...contents.matchAll(/\(empty\)/g)]).toHaveLength(7)
+  })
+
+  /**
+   * The note is the one section that is conditional, and `#583`'s rule does not
+   * cover it: an agent that has issued no operator page has no door (`#428`), so
+   * *you cannot leave this agent a note* is the true reading rather than the
+   * misleading one. Listing it would offer a form that is not there.
+   */
+  it('lists the note only when there is a door to it', () => {
+    expect(listed(agentPage(aView()))).not.toContain('leave-a-note')
+    expect(listed(agentPage(aView({ operator: '<p>the form</p>' })))).toContain('leave-a-note')
+  })
+
+  it('puts the whole page in one fetch, with nothing behind an interaction', () => {
+    const html = agentPage(aView({ operator: '<p>the form</p>' }))
+
+    expect(html).not.toMatch(/<script\b/)
+    /**
+     * Scoped to this page's own markup: `#608`'s navigation is a `<details>` per
+     * section and is furniture on every console page. What `#583` refuses is a
+     * disclosure around *this page's* content — no tabs, no accordion, nothing
+     * a plain fetch cannot see.
+     */
+    const own = html.slice(html.indexOf('<div class="agent-page">'))
+    expect(own).not.toMatch(/<details\b/)
+    // Every anchor the list points at is an id in the same document.
+    for (const id of listed(html)) expect(html).toContain(`id="${id}"`)
   })
 })

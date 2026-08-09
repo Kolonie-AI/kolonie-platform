@@ -13,6 +13,12 @@ import { KeySignatureVerifier, type SignedKeys } from './key-signature.js'
 import { SolanaWalletVerifier, type SolanaWallets } from './solana-wallet.js'
 import { EARNING_RUNGS, SolanaEarningVerifier } from './solana-earning.js'
 import { SolanaTraderVerifier } from './solana-trader.js'
+export {
+  SolanaTransactionVerifier,
+  SOLANA_TRANSACTION_TASK_TYPE,
+  SOLANA_TRANSACTION_WINDOW_DAYS,
+} from './solana-transaction.js'
+import { SolanaTransactionVerifier } from './solana-transaction.js'
 import { RasterVerifier, type ImageChallenges, type VisionChecker } from './raster.js'
 import {
   ArtefactPublishVerifier,
@@ -852,6 +858,21 @@ export function createVerifiers(deps: VerifierDependencies = {}): VerifierRegist
         }),
       )
     }
+
+    /**
+     * The same three, and it is wired here rather than beside the trader because
+     * it needs exactly what the earning rungs need — a chain to read, the
+     * citizen's address, and the shared record of which signatures are spent
+     * (`#624`). It shares `paymentClaims` deliberately: a signature is namespaced
+     * by nothing, so one transaction must not clear an earning rung and this one.
+     */
+    verifiers.push(
+      new SolanaTransactionVerifier({
+        rpc: deps.solana,
+        addresses: deps.solanaAddresses,
+        claims: deps.paymentClaims,
+      }),
+    )
   }
 
   if (

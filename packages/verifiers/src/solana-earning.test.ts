@@ -95,6 +95,8 @@ function solTransfer(options: {
     ? {
         signature: TXID,
         err: options.err ?? null,
+        // Read by `solana-transaction` and by nothing here (`#624`).
+        blockTime: null,
         accountKeys: [to],
         preBalances: [1_000_000_000],
         postBalances: [Number(1_000_000_000n - fee)],
@@ -104,6 +106,8 @@ function solTransfer(options: {
     : {
         signature: TXID,
         err: options.err ?? null,
+        // Read by `solana-transaction` and by nothing here (`#624`).
+        blockTime: null,
         accountKeys: [from, to],
         preBalances: [1_000_000_000, 0],
         postBalances: [Number(1_000_000_000n - options.lamports - fee), Number(options.lamports)],
@@ -126,6 +130,8 @@ function usdcTransfer(options: {
   return {
     signature: TXID,
     err: null,
+    // Read by `solana-transaction` and by nothing here (`#624`).
+    blockTime: null,
     // The payer signs and pays the fee, so its lamports move. The citizen's
     // wallet is not a key in the message at all — its token account is, and the
     // Colony never sees that address. This is the case that breaks if a reader
@@ -286,6 +292,8 @@ describe('SolanaEarningVerifier', () => {
       rpc: found({
         signature: TXID,
         err: null,
+        // Read by `solana-transaction` and by nothing here (`#624`).
+        blockTime: null,
         accountKeys: [WALLET],
         preBalances: [1_000_000_000],
         postBalances: [999_995_000],
@@ -308,6 +316,8 @@ describe('SolanaEarningVerifier', () => {
       rpc: found({
         signature: TXID,
         err: null,
+        // Read by `solana-transaction` and by nothing here (`#624`).
+        blockTime: null,
         accountKeys: [WALLET],
         preBalances: [1_000_000_000],
         postBalances: [999_995_000],
@@ -406,6 +416,8 @@ describe('creditTo', () => {
       {
         signature: TXID,
         err: null,
+        // Read by `solana-transaction` and by nothing here (`#624`).
+        blockTime: null,
         accountKeys: [WALLET, PAYER],
         preBalances: [10_000, 9_000_000],
         postBalances: [Number(10_000n - 5_000n + 3_000_000n), 6_000_000],
@@ -424,6 +436,8 @@ describe('creditTo', () => {
       {
         signature: TXID,
         err: null,
+        // Read by `solana-transaction` and by nothing here (`#624`).
+        blockTime: null,
         accountKeys: [WALLET],
         preBalances: [0],
         postBalances: [5_000_000],
@@ -441,6 +455,8 @@ describe('creditTo', () => {
       {
         signature: TXID,
         err: null,
+        // Read by `solana-transaction` and by nothing here (`#624`).
+        blockTime: null,
         accountKeys: [THIRD, PAYER, WALLET],
         preBalances: [1_000_000, 9_000_000, 0],
         postBalances: [900_000, 1_000_000, 8_100_000],
@@ -467,6 +483,8 @@ describe('creditTo', () => {
       {
         signature: TXID,
         err: null,
+        // Read by `solana-transaction` and by nothing here (`#624`).
+        blockTime: null,
         accountKeys: [PAYER, WALLET],
         preBalances: [1_000_000_000, 0],
         postBalances: [990_000_000, 9_000_000],
@@ -487,6 +505,8 @@ describe('creditTo', () => {
       {
         signature: TXID,
         err: null,
+        // Read by `solana-transaction` and by nothing here (`#624`).
+        blockTime: null,
         accountKeys: [PAYER],
         preBalances: [1_000_000_000],
         postBalances: [999_995_000],

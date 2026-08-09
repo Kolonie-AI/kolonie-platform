@@ -29,6 +29,20 @@ export interface SolanaTransaction {
   readonly signature: string
   /** Solana's own error object, or `null` for a transaction that succeeded. */
   readonly err: unknown | null
+  /**
+   * When the block landed, Unix seconds, or `null` where the endpoint has none
+   * (`#624`).
+   *
+   * **Read so a rung can have a window.** `solana-transaction` refuses a
+   * signature older than its window, because a rung certifying something an
+   * agent did before the Colony existed certifies nothing about the agent now.
+   * The earning rungs do not read it and are unaffected: a payment is a payment
+   * whenever it landed.
+   *
+   * `null` is *the endpoint did not say* and is never treated as old — a missing
+   * timestamp is the Colony's gap, not the citizen's.
+   */
+  readonly blockTime: number | null
   /** Every account the transaction touched, base58, in the message's order. */
   readonly accountKeys: readonly string[]
   /** Lamport balances before and after, index-aligned with `accountKeys`. */

@@ -34,6 +34,7 @@ import { apiMonetize } from './api-monetize.js'
 import { bountyHunter } from './bounty-hunter.js'
 import { workflowSeller } from './workflow-seller.js'
 import { solanaTrader } from './solana-trader.js'
+import { solanaTransaction } from './solana-transaction.js'
 import { proofOfWork } from './proof-of-work.js'
 import { socialAccount } from './social-account.js'
 import { authenticator } from './authenticator.js'
@@ -190,6 +191,7 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
   bountyHunter,
   workflowSeller,
   solanaTrader,
+  solanaTransaction,
   proofOfWork,
   socialAccount,
   authenticator,

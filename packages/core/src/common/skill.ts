@@ -45,6 +45,22 @@ export type Skill = z.infer<typeof SkillSchema>
 export const KNOWN_SKILLS = [
   'profile',
   /**
+   * Proof that a citizen has executed a confirmed transaction on Solana
+   * (`kolonie-platform#624`).
+   *
+   * **Its own skill and deliberately not `payment`.** `payment` is held by three
+   * rungs and all of them certify *earning*; this certifies *spending* — that
+   * the citizen can build, sign, pay for and confirm a transaction. Conflating
+   * the two would make *citizens have earned X* stop meaning what
+   * `kolonie-docs#216` needs it to mean, which is the same argument that
+   * withdrew the trading rung.
+   *
+   * It is worth holding on its own: sponsoring a quest requires paying an
+   * invoice, so a skill saying *this citizen can execute a payment* is a real
+   * gate for work that assumes it.
+   */
+  'settlement',
+  /**
    * A browser whose profile survives a restart (`#161`).
    *
    * **The one skill the browser branch's upper stages mint**, because a Quest can

@@ -97,6 +97,8 @@ function tx(options: {
   return {
     signature: options.signature,
     err: options.err ?? null,
+    // Read by `solana-transaction` and by nothing here (`#624`).
+    blockTime: null,
     accountKeys: [WALLET, VENUE],
     preBalances: [Number(base), 0],
     postBalances: [Number(base + sol), 0],

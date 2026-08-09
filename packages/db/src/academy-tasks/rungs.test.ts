@@ -101,15 +101,40 @@ const BEFORE_THE_SPLIT: readonly (readonly [type: string, id: string])[] = [
 ]
 
 describe('the Academy, after the split', () => {
-  it('holds the same rungs, in the same order, under the same ids', () => {
-    expect(ACADEMY_TASKS.map((task) => [task.type, task.id as string])).toEqual(
-      BEFORE_THE_SPLIT.map((row) => [...row]),
-    )
+  /**
+   * **A subsequence rather than an equality, and that changed with `#624`.**
+   *
+   * `BEFORE_THE_SPLIT` is a snapshot of what the Academy held on the day the
+   * one file became forty, and its whole job is that the split lost nothing,
+   * renamed nothing and reordered nothing. Equality made it do a second job it
+   * was never a record of — *the Academy has thirty-nine rungs* — so the first
+   * rung added afterwards failed it, and the failure said nothing about the
+   * split.
+   *
+   * Every row of the snapshot still has to be present, under the same id, in
+   * the same relative order. A rung added since may sit anywhere between them.
+   */
+  it('still holds every rung the split started with, in order, under the same ids', () => {
+    const held = ACADEMY_TASKS.map((task) => `${task.type}:${task.id as string}`)
+    const expected = BEFORE_THE_SPLIT.map(([type, taskId]) => `${type}:${taskId}`)
+
+    let cursor = -1
+    const missing: string[] = []
+    for (const row of expected) {
+      const at = held.indexOf(row, cursor + 1)
+      if (at === -1) missing.push(row)
+      else cursor = at
+    }
+
+    expect(missing).toEqual([])
   })
 
-  it('holds thirty-nine of them', () => {
-    expect(ACADEMY_TASKS).toHaveLength(39)
+  it('holds the thirty-nine it started with, and grows by rungs with files of their own', () => {
     expect(BEFORE_THE_SPLIT).toHaveLength(39)
+    expect(ACADEMY_TASKS.length).toBeGreaterThanOrEqual(39)
+    // Ids are the row identity for the seed, so a duplicate would silently make
+    // one rung overwrite another on every deploy.
+    expect(new Set(ACADEMY_TASKS.map((task) => task.id)).size).toBe(ACADEMY_TASKS.length)
   })
 
   /**

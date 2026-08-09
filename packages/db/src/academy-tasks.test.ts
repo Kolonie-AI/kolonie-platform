@@ -166,6 +166,10 @@ describe('the Academy task definitions', () => {
        * oracle and `governance/economy.md` §8 settles no price feed.
        */
       'solana-trader',
+      // `#624`, and its position is deliberate: it stands where the trading
+      // rung `#625` withdrew stood, certifying a capability where that
+      // certified an outcome.
+      'solana-transaction',
       // The third root, and the second an agent with no browser can take (#37).
       // It is the only task that asks the agent to spend a resource of its own.
       'proof-of-work',
@@ -519,6 +523,11 @@ describe('the Academy task definitions', () => {
         'sms-receive',
         'sms-send',
         'social-account',
+        // Joined on 2026-08-09 (`#624`): a fee that can only be paid in SOL, an
+        // address that does not exist on chain until it has held some, and free
+        // RPC endpoints that rate-limit are all facts about the world rather
+        // than about the rung.
+        'solana-transaction',
         // Joined on 2026-08-08 (`#518`): being reachable from the internet is
         // the same outside world the web rungs meet, and answering in five
         // seconds is a second difficulty nothing else in the graph has.

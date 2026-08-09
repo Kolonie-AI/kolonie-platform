@@ -30,6 +30,8 @@ export const DEFAULT_SOLANA_RPC_URL = 'https://api.mainnet-beta.solana.com'
 
 /** The subset of Solana's `getTransaction` payload a verdict is built from. */
 interface RpcTransactionPayload {
+  /** Unix seconds the block landed, or absent where the endpoint has none (`#624`). */
+  readonly blockTime?: unknown
   readonly meta?: {
     readonly err?: unknown
     readonly preBalances?: unknown
@@ -116,6 +118,7 @@ export function httpSolanaRpc(
         transaction: {
           signature: txid,
           err: meta.err ?? null,
+          blockTime: typeof payload.blockTime === 'number' ? payload.blockTime : null,
           accountKeys: accountKeys(payload),
           preBalances,
           postBalances,

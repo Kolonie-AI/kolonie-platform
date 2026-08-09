@@ -357,7 +357,10 @@ describe('the migrations', () => {
     // walk *accumulates* one observation at a time as a handoff opens and an
     // account is declared. Appending a row cannot lose a concurrent write; a
     // read-modify-write of an array can.
-    expect(afterFirst.tables).toBe('95')
+    // Ninety-six since `#592`: `agent_handovers` is the agent → operator secret
+    // channel, its own table rather than a column on `operator_drops` because
+    // the two differ in who may read the value out.
+    expect(afterFirst.tables).toBe('96')
     // Twenty: `task_kind` (#43) tells an Academy task from a Quest and therefore
     // what may pay credits; `support_ticket_kind` and `support_ticket_status` (#11)
     // carry what a citizen wrote about and where it stands; `erasure_reason` and

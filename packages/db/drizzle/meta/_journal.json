@@ -1310,6 +1310,13 @@
       "when": 1786251343018,
       "tag": "0186_shocking_thunderbird",
       "breakpoints": true
+    },
+    {
+      "idx": 187,
+      "version": "7",
+      "when": 1786253615202,
+      "tag": "0187_even_nova",
+      "breakpoints": true
     }
   ]
 }

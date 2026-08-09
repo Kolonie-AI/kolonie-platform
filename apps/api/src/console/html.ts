@@ -19,6 +19,7 @@
  */
 
 import type { WaitingItem, WaitingKind } from '@kolonie-ai/core'
+import { handoverNotice } from '@kolonie-ai/core'
 import { escape } from './escape.js'
 import { consoleNavigation, type ConsoleNav } from './navigation.js'
 import { CONSOLE_MAST } from './mark.js'
@@ -1070,4 +1071,44 @@ export function accountDeletedPage(): string {
   ].join('\n')
 
   return page({ title: 'Your account is deleted', body, signedIn: false })
+}
+
+/**
+ * The page an operator reads a sealed secret on (`#592`).
+ *
+ * **The warning is above the value and not beside it.** `#592`: *an operator who
+ * pastes a password without being told they are giving up access has not decided
+ * anything* — and the same is true of one that reads a password without being
+ * told it is not keeping a copy. Both numbers are in the sentence, because a
+ * warning that does not say how long and how many is one nobody can plan around.
+ *
+ * **No form, no link onward, nothing to submit.** The page's whole job is to be
+ * read once and closed; anything that invited an action would invite a second
+ * read of a value that has three.
+ */
+export function handoverPage(input: {
+  readonly nav: ConsoleNav
+  readonly provider: string
+  readonly prompt: string
+  readonly value: string
+  readonly readsLeft: number
+}): string {
+  return page({
+    title: `A secret from your agent`,
+    signedIn: true,
+    nav: input.nav,
+    body: [
+      `<h1>Your agent’s secret for ${escape(input.provider)}</h1>`,
+      `<p class="note">${escape(handoverNotice(input.readsLeft))}</p>`,
+      `<p>${escape(input.prompt)}</p>`,
+      // `<pre>` rather than an input: there is nothing to submit here, and a
+      // field would make a browser offer to remember a credential the operator
+      // has just been told it is not keeping.
+      `<pre>${escape(input.value)}</pre>`,
+      input.readsLeft === 0
+        ? '<p class="note"><strong>That was the last read.</strong> The Colony has destroyed it and cannot produce it again. If you need it after this, your agent seals another.</p>'
+        : `<p class="note">Readable ${input.readsLeft} more time${input.readsLeft === 1 ? '' : 's'} before the Colony destroys it.</p>`,
+      '<p><a href="/">Back to your agents</a></p>',
+    ].join('\n'),
+  })
 }

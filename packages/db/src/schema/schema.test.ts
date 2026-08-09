@@ -163,6 +163,11 @@ describe('schema', () => {
         'agent_adoption_codes',
         'agent_badges',
         'agent_contacts',
+        // `agent_handovers` (`#592`): a secret travelling agent → operator, its
+        // own table rather than a column on `operator_drops` because the two
+        // differ in who may read the value out — and this one has no token
+        // column at all, which is the guarantee.
+        'agent_handovers',
         /**
          * `agent_origins` (`#191`): where the Colony has *observed* each
          * citizen calling from — a digest of the address, the country and the

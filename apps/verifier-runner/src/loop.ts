@@ -542,6 +542,16 @@ export function startRunner(deps: LoopDependencies, options: RunnerOptions = {})
               closed: abandoned,
             })
 
+          // Same tick and the same reason again (`#592`). A handover that
+          // outlives its window is unreadable already; what this stops is
+          // ciphertext sitting in a table nobody is watching.
+          const destroyed = await deps.queue.destroyExpiredHandovers()
+          if (destroyed > 0)
+            log.info(`destroyed ${destroyed} expired handover(s)`, {
+              event: 'handovers.expired.destroyed',
+              destroyed,
+            })
+
           // Same tick, same reason as the line above: nobody is present to do
           // it, and a count that stays at zero is how a broken pruner hides.
           const pruned = await deps.queue.pruneContacts()

@@ -100,6 +100,7 @@ import { databaseSocialChallenges } from './social.js'
 import { databaseArtefactChallenges } from './artefact.js'
 import { databaseDomainChallenges } from './domain.js'
 import { databaseVisionChallenges } from './vision.js'
+import { databaseHandovers } from './handovers.js'
 import { databaseDrops, usableSealingKey } from './operator-drops.js'
 import { databaseVault } from './vault.js'
 import { databaseAccounts, databaseAccountResolution } from './accounts.js'
@@ -896,6 +897,18 @@ const app = buildApp({
    */
   drops: usableSealingKey(process.env[OPERATOR_DROP_SEALING_KEY_VAR])
     ? databaseDrops(db, process.env[OPERATOR_DROP_SEALING_KEY_VAR] as string)
+    : undefined,
+  /**
+   * The other direction (`#592`), on the same key and the same condition.
+   *
+   * **One sealing key for both channels and not two.** A second variable would
+   * be a second thing to set, a second thing to rotate and a second way for a
+   * deployment to have half a credential path — and the two are the same
+   * operation over the same envelope format. What differs between them is who
+   * may read, which is code rather than configuration.
+   */
+  handovers: usableSealingKey(process.env[OPERATOR_DROP_SEALING_KEY_VAR])
+    ? databaseHandovers(db, process.env[OPERATOR_DROP_SEALING_KEY_VAR] as string)
     : undefined,
   // Same origin the operator's other links use. AGENTS.md §3 keeps host names
   // out of this repository.

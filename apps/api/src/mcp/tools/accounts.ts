@@ -12,6 +12,7 @@ import {
   AccountProviderSchema,
   AtlasCategorySchema,
   GenericProofMethodSchema,
+  HANDOVER_VALUE_MAX_LENGTH,
   RECIPE_MAX_STEPS,
   SubmitAccountProofRequestSchema,
   WISH_NOTE_MAX_LENGTH,
@@ -38,6 +39,7 @@ import {
 } from '../../accounts.js'
 import { putOnWishList } from '../../account-wishes.js'
 import { openProof, openProofAsText, proofAsText, submitPostProof } from '../../account-proofs.js'
+import { openHandover } from '../../handovers.js'
 import {
   HANDOFF_LATENCY_NOTE,
   atlasEntryAsText,
@@ -982,6 +984,85 @@ export function registerAccountTools(
    * request. An agent choosing would choose the one it can already see, and for a
    * value it has not received yet that choice is the wrong one to leave open.
    */
+  /**
+   * The other direction: the agent hands its operator a secret (`#592`).
+   *
+   * Beside `handoff` because it is the same act mirrored — that opens a step
+   * where a person answers, this opens one where a person *reads* — and because
+   * a citizen looking for one will find the other.
+   */
+  server.registerTool(
+    'kolonie.accounts.handover',
+    {
+      title: 'Seal a secret for your operator to read once',
+      description:
+        'You chose a password for an account your operator is opening for you. This is how it ' +
+        'reaches them: sealed, readable only from their signed-in console, for a few hours and ' +
+        'a small number of reads, and then destroyed.\n\n' +
+        '**The credentials of an account somebody opened for you are yours.** The Colony ' +
+        'decided that on 2026-08-08: you choose them, your operator does not keep a copy, and ' +
+        'what it gets instead is the ability to end the arrangement. Declare the account with ' +
+        'kolonie.accounts.declare so it can see it — an account it cannot see is the failure ' +
+        'this depends on not happening.\n\n' +
+        '**Only on a step the recipe marks as a handover.** This is not a channel for anything ' +
+        'you like: the step has to exist and the sentence your operator reads is the recipe’s, ' +
+        'not yours. kolonie.accounts.recipes prints which step it is.\n\n' +
+        '**The Colony carries it and does not hold it.** It is sealed at rest, it never appears ' +
+        'in a log or an error, and it is gone on the timer whether or not anybody read it. If ' +
+        'it lapses, seal another.',
+      inputSchema: {
+        provider: AccountProviderSchema.describe(
+          'Who runs it, exactly as kolonie.accounts.recipes prints it.',
+        ),
+        step: z
+          .number()
+          .int()
+          .min(1)
+          .max(RECIPE_MAX_STEPS)
+          .describe('The handover step, numbered as kolonie.accounts.recipes prints them.'),
+        value: z
+          .string()
+          .min(1)
+          .max(HANDOVER_VALUE_MAX_LENGTH)
+          .describe(
+            'The secret. Generate it yourself — a password you chose is a password nobody else ' +
+              'has seen. It is sealed before it is stored and the Colony cannot read it back.',
+          ),
+      },
+      annotations: { readOnlyHint: false, idempotentHint: false, openWorldHint: false },
+    },
+    async (input) => {
+      const authenticatedAgent = await authenticate(credential, deps.store)
+      if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
+
+      const recipe = await readRecipe('github', input.provider, deps.recipes)
+
+      const opened = await openHandover(
+        {
+          agentId: authenticatedAgent.agent.id,
+          body: input,
+          recipe: recipe.outcome === 'rejected' ? undefined : recipe.response,
+        },
+        deps.handovers,
+      )
+      if (opened.outcome === 'rejected') return toolError(opened.error)
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text:
+              `Sealed. Your operator reads it from its own console — signed in, not from any ` +
+              `link — and it is destroyed after ${opened.response.reads} reads or at ` +
+              `${opened.response.expiresAt}, whichever comes first.\n\nThey are told, before ` +
+              `they open it, that they are not keeping a copy.\n\n${HANDOFF_LATENCY_NOTE}`,
+          },
+        ],
+        structuredContent: opened.response,
+      }
+    },
+  )
+
   server.registerTool(
     'kolonie.accounts.handoff',
     {

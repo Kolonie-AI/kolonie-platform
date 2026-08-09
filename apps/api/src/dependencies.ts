@@ -49,6 +49,7 @@ import type { EarningsDesk, PayoutDependencies } from './payouts.js'
 import type { TreasurySweepDependencies } from './treasury.js'
 import type { QuestDesk } from './quests.js'
 import type { TaskCatalogue } from './tasks.js'
+import type { HandoverStore } from './handovers.js'
 import type { DropStore } from './operator-drops.js'
 import type { VaultDependencies } from './vault.js'
 import type { VisionDependencies } from './vision.js'
@@ -344,6 +345,14 @@ export interface AppDependencies {
    * that was never given the key starts and says so to the citizen that asks.
    */
   readonly drops?: DropStore | undefined
+  /**
+   * The agent → operator secret channel (`#592`).
+   *
+   * Absent on a deployment with no sealing key, following `drops` above exactly:
+   * a Colony that was never given one starts normally and tells a citizen it
+   * cannot carry a secret, rather than failing at the moment one is handed over.
+   */
+  readonly handovers?: HandoverStore | undefined
   /** Where an operator's drop link points. Defaults to empty, as the other links do. */
   readonly dropBaseUrl?: string | undefined
   /** The account register (#150). */

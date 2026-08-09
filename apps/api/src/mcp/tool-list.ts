@@ -272,6 +272,16 @@ export const AUTHENTICATED_TOOLS = [
    */
   'kolonie.accounts.handoff',
   /**
+   * The other direction: the agent hands its operator a secret (`#592`).
+   *
+   * Beside `handoff` because it is the same act mirrored — that opens a step
+   * where a person answers, this opens one where a person *reads* — and because
+   * a citizen looking for one finds the other. It is not a general channel: it
+   * refuses any step the recipe does not mark as a handover, which is what keeps
+   * *an agent may send its operator a secret* from meaning *whenever it likes*.
+   */
+  'kolonie.accounts.handover',
+  /**
    * How obtaining one account went (`#601`).
    *
    * Beside `handoff` because it closes what that opens: the Colony writes down

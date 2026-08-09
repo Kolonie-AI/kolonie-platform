@@ -170,8 +170,39 @@ export const RecipeStepSchema = z
      * Colony wrote and a name with a space in it cannot be referenced.
      */
     produces: z.array(RecipeValueNameSchema).max(RECIPE_MAX_PRODUCED_VALUES).optional(),
+    /**
+     * Whether this step is the agent handing its **operator** a secret (`#592`).
+     *
+     * **The mirror of {@link RecipeStepSchema.secret} and its opposite in every
+     * direction.** `secret` marks an operator step whose answer comes back
+     * sealed; this marks an agent step whose *output* goes out sealed — the
+     * agent chooses a password, seals it, and the operator reads it once through
+     * its own console.
+     *
+     * **On an `agent` step only, and it is what makes the channel a step rather
+     * than a channel.** `kolonie.accounts.handover` refuses a step that does not
+     * carry this, so an agent cannot send its operator an arbitrary secret
+     * whenever it likes — which the decision record names as *a different and
+     * worse thing* than what was decided.
+     *
+     * The sentence the operator reads is this step's `instruction`, so the
+     * Colony still writes it: an agent fills no prose here either.
+     */
+    handover: z.boolean().optional(),
   })
   .strict()
+  .refine((step) => step.handover !== true || step.actor === 'agent', {
+    message:
+      'only an agent step hands a secret to the operator. An operator step handing one to ' +
+      'itself is not a step, and one handing it to the agent is `secret`.',
+    path: ['handover'],
+  })
+  .refine((step) => step.handover !== true || step.instruction !== undefined, {
+    message:
+      'a handover step must carry the sentence its operator will read beside the secret. The ' +
+      'Colony writes it, exactly as it writes an ask.',
+    path: ['instruction'],
+  })
   .refine((step) => step.actor === 'agent' || step.produces === undefined, {
     message:
       'only an agent step produces values. What an operator step produces is the operator’s ' +

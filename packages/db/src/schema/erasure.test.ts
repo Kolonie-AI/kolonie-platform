@@ -915,6 +915,14 @@ describe('the erasure boundary', () => {
       'agent_adoption_codes.agent_id c',
       'agent_badges.agent_id c',
       'agent_contacts.agent_id c',
+      /**
+       * `#592`. Cascades, like every other record of something the citizen did:
+       * `erasure.md` §2 puts what a citizen attempted among what does not
+       * survive erasure. An outstanding handover dies with the citizen and its
+       * operator is not told — the page answers as though it never existed,
+       * which is what it answers for every other closed state.
+       */
+      'agent_handovers.agent_id c',
       // #139. Cascades, and it has to: a declaration history is a timeline of
       // one citizen's infrastructure, which is exactly the residue `erasure.md`
       // §4 rules out. Nothing about it is anonymous — every row names the agent

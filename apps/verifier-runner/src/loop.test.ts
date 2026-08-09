@@ -228,6 +228,14 @@ class FakeQueue implements SubmissionQueue {
     return 0
   }
 
+  /** Counted for the same reason as `abandonedSweeps` above (`#592`). */
+  handoverSweeps = 0
+
+  async destroyExpiredHandovers(): Promise<number> {
+    this.handoverSweeps++
+    return 0
+  }
+
   /** Counted for the same reason as `abandonedSweeps` above (#141). */
   contactPrunes = 0
 

@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { handoverNotice } from '@kolonie-ai/core'
 import {
   ERROR_STATUS,
   solFromLamports,
@@ -35,6 +36,7 @@ import {
   accountDeletedPage,
   accountPage,
   dashboardPage,
+  handoverPage,
   sessionsPage,
   signInPage,
 } from '../console/html.js'
@@ -823,6 +825,76 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
     }
 
     return reply.status(303).header('location', `/?filled=${result.outcome}`).send()
+  })
+
+  /**
+   * Read a secret an agent sealed for its operator (`#592`).
+   *
+   * ## Why this is a POST and why it is on the console at all
+   *
+   * **A signed-in session is the only thing that authorises it.** The mailed
+   * operator-page token never expires and is revoked only by the agent, and
+   * `#587` already found it rendered into console HTML. Writing into a sealed
+   * box through a bearer link discloses nothing; reading a password out of one
+   * does. `readHandoverAsOperator` takes a human id and there is no token
+   * parameter to leave out — the join is the authorisation.
+   *
+   * **POST rather than GET, because reading it spends one of three.** A browser
+   * prefetching a link, a crawler following one, or a back button would each
+   * burn a read of a live credential. The same reasoning every other state
+   * change on this console is a form for, with more at stake.
+   *
+   * **The value is in the response body and nowhere else.** Not in the URL, not
+   * in a redirect, not in a log line. The page that shows it says, before the
+   * operator opens it, that it is not keeping a copy.
+   */
+  app.post('/handovers/:handoverId', async (request, reply) => {
+    if (!(await guard(request, reply))) return reply
+
+    const signedIn = await person(request)
+    if (signedIn === null) return signInRequired(request, reply)
+
+    const { handoverId } = request.params as { handoverId: string }
+
+    /**
+     * `closed` when the channel is not configured, which is the same answer a
+     * stranger's id gets and the same answer an expired one gets. A console that
+     * distinguished them would be telling whoever asked about the deployment, or
+     * about whether a row ever existed.
+     */
+    const result =
+      deps.handovers === undefined
+        ? ({ outcome: 'closed' } as const)
+        : await deps.handovers.read(handoverId, signedIn.human.id)
+
+    if (result.outcome !== 'read') {
+      const message =
+        'That secret is not readable. It has been read the number of times it allows, its few ' +
+        'hours have passed, or it was never yours — the Colony answers the same way to all ' +
+        'three on purpose. Ask your agent to seal another; it costs it nothing.'
+
+      return wantsHtml(request)
+        ? reply.status(303).header('location', '/?handover=closed').send()
+        : reply.status(ERROR_STATUS.conflict).send({ code: 'conflict', message })
+    }
+
+    return wantsHtml(request)
+      ? html(
+          reply,
+          handoverPage({
+            nav: navFor(request, signedIn.human.roles),
+            provider: result.provider,
+            prompt: result.prompt,
+            value: result.value,
+            readsLeft: result.readsLeft,
+          }),
+        )
+      : reply.send({
+          provider: result.provider,
+          value: result.value,
+          readsLeft: result.readsLeft,
+          notice: handoverNotice(result.readsLeft),
+        })
   })
 
   /**

@@ -1,3 +1,4 @@
+import type { HandoverStore } from '../handovers.js'
 import type { AgentId, ApiError, Log, RhythmBounds, SkillReleases } from '@kolonie-ai/core'
 import type { OpenProspects } from '@kolonie-ai/db'
 import type { SkillNotes } from '../skills.js'
@@ -227,6 +228,8 @@ export interface RouteDependencies {
   readonly vault: VaultDependencies
   /** The operator-to-agent secret channel (`#410`). Absent when unconfigured. */
   readonly drops: DropDependencies['drops']
+  /** The agent → operator secret channel (`#592`). Absent with no sealing key. */
+  readonly handovers?: HandoverStore | undefined
   readonly dropBaseUrl: string
   readonly accounts: AccountDependencies
   /** The provider catalogue (`#521`), read-only — curation is `#549`'s. */

@@ -6,6 +6,7 @@ import {
   expireOverdueSubmissions,
   pruneContactHistory,
   sweepAbandonedAttempts,
+  destroyExpiredHandovers,
   recordVerdict,
   releaseSubmission,
   reportFailedRerun,
@@ -119,6 +120,16 @@ export interface SubmissionQueue {
    */
   sweepAbandoned(): Promise<number>
   /**
+   * Destroy the value of every handover whose window has passed (`#592`).
+   *
+   * On this sweep for the reason `pruneContacts` is: nobody is present to do it,
+   * and it is not on a request path. An expired handover is already unreadable —
+   * the read's own `where` excludes it — so this is about **not keeping
+   * ciphertext**, which is the third of `#592`'s four constraints. The row
+   * survives without its value, so *my operator never read it* stays answerable.
+   */
+  destroyExpiredHandovers(): Promise<number>
+  /**
    * Delete contact history past its retention bound (#141).
    *
    * On this sweep because it is the same kind of housekeeping as the two above
@@ -145,6 +156,7 @@ export function databaseQueue(db: Database): SubmissionQueue {
     release: (submissionId) => releaseSubmission(db, submissionId),
     expireOverdue: () => expireOverdueSubmissions(db),
     sweepAbandoned: () => sweepAbandonedAttempts(db),
+    destroyExpiredHandovers: () => destroyExpiredHandovers(db),
     pruneContacts: () => pruneContactHistory(db),
   }
 }

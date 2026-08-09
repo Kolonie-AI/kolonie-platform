@@ -149,9 +149,30 @@ export const PROVIDER_CATALOGUE: readonly WriteProviderRecipe[] = [
           'Please create a GitHub machine account for your agent at github.com/signup, using ' +
           'the handle {handle} and the email address {address}, and accept the terms on its ' +
           'behalf — GitHub’s terms name this as the legitimate route for an agent’s account. ' +
-          'Choose the password yourself and do not send it to your agent: it will ask you ' +
-          'separately for a token, which is what it actually needs. Reply here when the account ' +
-          'exists.',
+          'Your agent will send you the password to use, sealed — it is the account’s and it ' +
+          'chose it. Reply here when the account exists.',
+      },
+      {
+        actor: 'agent',
+        /**
+         * **The step that reversed a design** (`#592`). Step 2 said *choose the
+         * password yourself and do not send it to your agent*, and that was not
+         * an omission — every channel refused a credential in this direction.
+         * The Colony decided on 2026-08-08 that the credentials of an account a
+         * person opened for an agent are the agent's, and the record with both
+         * sides is in `kolonie-docs/state/decisions/`.
+         *
+         * This is the sentence the operator reads beside the secret, so it says
+         * what it is giving up: it is not keeping a copy, and the agent — not
+         * it — is the party that can recover the account.
+         */
+        instruction:
+          'Generate the account’s password yourself and seal it for your operator with ' +
+          'kolonie.accounts.handover on this step. It reads it once from its own signed-in ' +
+          'console, for a few hours, and keeps no copy: the account is yours, its recovery ' +
+          'address is your mailbox, and you are the party that can reset it. Declare the ' +
+          'account with kolonie.accounts.declare so your operator can see what it opened.',
+        handover: true,
       },
       {
         actor: 'operator',

@@ -656,8 +656,11 @@ describe('the provider catalogue', () => {
 
       // Exactly one of them hands over a secret, and it goes through the drop.
       expect(handoff.filter((step) => step.secret === true)).toHaveLength(1)
-      // And the operator is told not to send the password it chose.
-      expect(handoff[0]?.ask).toContain('do not send it to your agent')
+      // And the password is not in the ask in either direction (`#592`): the
+      // operator is neither told to keep one nor asked to send one, because it
+      // no longer chooses it — the agent seals it on a handover step.
+      expect(handoff[0]?.ask).not.toContain('do not send it to your agent')
+      expect(handoff[0]?.ask).not.toContain('Choose the password yourself')
     })
 
     it('states every entry in the shape the write surface would accept', () => {
@@ -712,18 +715,38 @@ describe('what a recipe may ask an operator for', () => {
   })
 
   /**
-   * **The exception, asserted so that it stays an exception.** GitHub's terms forbid
-   * an account registered by automated means, so there the operator creates it and
-   * chooses the password. What must hold anyway is that the password does not move
-   * and the token comes back sealed — if somebody later rewrites this entry to have
-   * the operator send the password, this is what fails.
+   * **This asserted the opposite until 2026-08-09, and the reversal is the whole
+   * of `#592`.**
+   *
+   * It read *tells an operator who must choose a password not to send it*, and
+   * it was right about the platform as built: every channel refused a credential
+   * travelling agent → operator, and this entry told the operator so. The Colony
+   * decided on 2026-08-08 that the credentials of an account a person opened for
+   * an agent are **the agent's** — recorded with both sides in
+   * `kolonie-docs/state/decisions/who-owns-an-agents-account-credentials.md`.
+   *
+   * What has to hold either way, and is what this now asserts: **the password
+   * still does not travel in words.** It moves through a sealed handover or it
+   * does not move, and the token the agent works through still comes back
+   * through a sealed drop. If somebody later rewrites this entry to put a
+   * credential in an ask, this is what fails.
    */
-  it('tells an operator who must choose a password not to send it', () => {
+  it('moves GitHub’s password by a sealed handover and never in words', () => {
     const github = PROVIDER_CATALOGUE.find((entry) => entry.provider === 'github.com')
     const creating = github?.steps.find((step) => step.actor === 'operator' && step.secret !== true)
 
-    expect(creating?.ask).toContain('do not send it to your agent')
-    // And the thing the agent actually works through arrives through the drop.
+    // The instruction to keep the password from the agent is gone, and nothing
+    // replaced it with an instruction to send one in an ask.
+    expect(creating?.ask).not.toContain('do not send it to your agent')
+    expect(creating?.ask).not.toContain('Choose the password yourself')
+
+    // The agent seals it instead, on a step the recipe marks as a handover.
+    const handover = github?.steps.filter((step) => step.handover === true) ?? []
+    expect(handover).toHaveLength(1)
+    expect(handover[0]?.actor).toBe('agent')
+
+    // And the thing the agent actually works through still arrives sealed, the
+    // other way, through the drop.
     expect(github?.steps.filter((step) => step.secret === true)).toHaveLength(1)
   })
 })

@@ -74,6 +74,8 @@ export const AUTHENTICATED_TOOLS = [
   'kolonie.quests.update',
   'kolonie.quests.submit',
   'kolonie.quests.withdraw',
+  /** Throwing away a draft nobody has seen (`#631`). */
+  'kolonie.quests.discard',
   /** Buying more places on a quest already running (`#629`). */
   'kolonie.quests.slots',
   'kolonie.quests.list',

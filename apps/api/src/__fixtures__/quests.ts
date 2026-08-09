@@ -742,6 +742,19 @@ export function fakeQuests(): FakeQuestDesk {
       }
     },
 
+    async discard({ authorId, taskId }) {
+      const held = mine(authorId, taskId)
+      if (held === undefined) {
+        return quests.has(taskId) ? { outcome: 'not-yours' } : { outcome: 'unknown-quest' }
+      }
+
+      const { status } = held.own.task
+      if (status !== 'draft') return { outcome: 'not-a-draft', status }
+
+      quests.delete(taskId)
+      return { outcome: 'discarded' }
+    },
+
     async withdraw({ authorId, taskId }) {
       const held = mine(authorId, taskId)
       if (held === undefined) {

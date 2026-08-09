@@ -50,8 +50,11 @@ describe('the Atlas over MCP', () => {
      * gained the figures, so the count is exactly what it was. Reported here per
      * `#388`'s practice.
      */
-    it('leaves the tool count where it was — 4 unauthenticated, 85 authenticated, 8 steward', () => {
+    it('leaves the tool count where it was — 4 unauthenticated, 86 authenticated, 8 steward', () => {
       expect(UNAUTHENTICATED_TOOLS.length).toBe(4)
+      // 86 since `#631` added `kolonie.quests.discard` — throwing away a draft.
+      // A tool rather than an argument on `update`, because a delete and an edit
+      // fail differently and a caller that meant one must not get the other.
       // 85 since `#629` added `kolonie.quests.slots` — buying more places on a
       // quest already running. A tool rather than an argument on
       // `kolonie.quests.update`, because that one refuses a published quest and
@@ -71,7 +74,7 @@ describe('the Atlas over MCP', () => {
       // reads and writes one list — and `#524` added
       // `kolonie.quests.population`, the figure a sponsor asks for before it
       // writes anything.
-      expect(AUTHENTICATED_TOOLS.length).toBe(85)
+      expect(AUTHENTICATED_TOOLS.length).toBe(86)
       expect(STEWARD_TOOLS.length).toBe(8)
     })
 

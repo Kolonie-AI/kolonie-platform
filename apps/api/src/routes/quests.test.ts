@@ -559,6 +559,54 @@ describe('POST /v1/quests', () => {
 })
 
 describe('PATCH /v1/quests/:questId', () => {
+  /**
+   * `#631`. `#630` wired the ceiling into the write and the submit and could not
+   * reach the edit — a patch is a subset and the tier depends on every field at
+   * once. It is reached now, by merging the patch onto the quest first.
+   */
+  it('revalidates the tier ceiling against the quest the edit produces', async () => {
+    const id = (await write(aDraft({ reward: { reputation: 0, lamports: 1 } }))).json().quest.id
+
+    const response = await app.inject({
+      method: 'PATCH',
+      url: `/v1/quests/${id}`,
+      headers: { authorization: `Bearer ${sponsorKey}`, 'content-type': 'application/json' },
+      payload: { reward: { reputation: 0, lamports: QUEST_TIER_CAPS_LAMPORTS.soft + 1 } } as never,
+    })
+
+    expect(response.statusCode).toBe(422)
+    expect(response.json().message).toContain('soft')
+  })
+
+  it('accepts a price the merged quest can carry, judging the whole and not the patch', async () => {
+    const id = (
+      await write(
+        aDraft({
+          reward: { reputation: 0, lamports: 1 },
+          proofVerifier: 'email-inbox',
+          questions: [
+            {
+              key: 'address',
+              prompt: 'Which address did you register?',
+              format: 'email',
+              provenBy: true,
+            },
+          ],
+        }),
+      )
+    ).json().quest.id
+
+    // Above the soft ceiling and inside the hard one, which the quest already is.
+    const response = await app.inject({
+      method: 'PATCH',
+      url: `/v1/quests/${id}`,
+      headers: { authorization: `Bearer ${sponsorKey}`, 'content-type': 'application/json' },
+      payload: { reward: { reputation: 0, lamports: QUEST_TIER_CAPS_LAMPORTS.soft + 1 } } as never,
+    })
+
+    expect(response.statusCode).toBe(200)
+  })
+
   it('changes a draft, and answers the same for a stranger’s quest as for none', async () => {
     const written = await write(aDraft())
     const id = written.json().quest.id
@@ -604,6 +652,49 @@ describe('PATCH /v1/quests/:questId', () => {
   })
 })
 
+/**
+ * `#631`. A draft is the one thing here nobody outside its author has seen, and
+ * the rule protecting published quests had been applied to it.
+ */
+describe('DELETE /v1/quests/:questId', () => {
+  const discard = (id: string, key: string) =>
+    app.inject({
+      method: 'DELETE',
+      url: `/v1/quests/${id}`,
+      headers: { authorization: `Bearer ${key}` },
+    })
+
+  it('throws away a draft, and it stops being listed', async () => {
+    const id = (await write(aDraft())).json().quest.id
+
+    const response = await discard(id, sponsorKey)
+
+    expect(response.statusCode).toBe(200)
+    expect(response.json().discarded).toBe(true)
+    expect((await get('/v1/quests', sponsorKey)).json().quests).toEqual([])
+  })
+
+  /** The rejection case: somebody else's draft is not yours to delete. */
+  it('answers a stranger as it answers a quest that does not exist', async () => {
+    const id = (await write(aDraft())).json().quest.id
+
+    expect((await discard(id, stewardKey)).statusCode).toBe(404)
+    expect((await discard(crypto.randomUUID(), sponsorKey)).statusCode).toBe(404)
+    // And the draft is still there.
+    expect((await get('/v1/quests', sponsorKey)).json().quests).toHaveLength(1)
+  })
+
+  it('refuses a quest that has been submitted, naming the status', async () => {
+    const id = (await write(aDraft())).json().quest.id
+    await post(`/v1/quests/${id}/submit`, sponsorKey)
+
+    const response = await discard(id, sponsorKey)
+
+    expect(response.statusCode).toBe(409)
+    expect(response.json().message).toContain('pending_review')
+  })
+})
+
 describe('POST /v1/quests/:questId/submit', () => {
   it('puts the quest in the queue and says it is waiting on the moderator', async () => {
     const written = await write(aDraft())
@@ -639,21 +730,20 @@ describe('POST /v1/quests/:questId/submit', () => {
   })
 
   /**
-   * Submission is where the ceiling is load-bearing (`#630`): a draft can be
-   * edited after it is written, and `editQuestDraft` takes a patch without ever
-   * seeing the merged quest, so this is the last point at which the whole thing
-   * exists in one place before a steward reads it and an invoice is computed.
+   * **Submission is the backstop rather than the only check** (`#630`, `#631`).
+   *
+   * `#630` could not reach the edit — a patch is a subset of fields and the tier
+   * depends on all of them — so an edit could push a draft over and only
+   * submission would catch it. `#631` merges the patch and refuses at the edit,
+   * which is asserted one describe up. What is asserted here is that the check
+   * at submission has not gone: a draft written straight over the ceiling, by a
+   * path that skipped the edit entirely, is still refused.
    */
-  it('refuses a draft an edit pushed above its tier ceiling', async () => {
+  it('refuses a draft that is over its tier ceiling when it is submitted', async () => {
     const id = (await write(aDraft({ reward: { reputation: 0, lamports: 1 } }))).json().quest.id
 
-    const changed = await app.inject({
-      method: 'PATCH',
-      url: `/v1/quests/${id}`,
-      headers: { authorization: `Bearer ${sponsorKey}`, 'content-type': 'application/json' },
-      payload: { reward: { reputation: 0, lamports: QUEST_TIER_CAPS_LAMPORTS.soft + 1 } } as never,
-    })
-    expect(changed.statusCode).toBe(200)
+    // Under the ceiling at the edit, and over it once the ceiling moves.
+    quests.setTierCaps({ ...QUEST_TIER_CAPS_LAMPORTS, soft: 0 })
 
     const response = await post(`/v1/quests/${id}/submit`, sponsorKey)
 

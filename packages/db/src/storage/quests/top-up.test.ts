@@ -5,7 +5,7 @@ import type { Database } from '../../client.js'
 import { agents, tasks } from '../../schema/index.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../../testing.js'
 import { applyPaymentToInvoice } from '../quest-invoices.js'
-import { topUpQuest } from './write.js'
+import { discardQuestDraft, topUpQuest } from './write.js'
 
 const target = databaseTestTarget()
 
@@ -207,6 +207,64 @@ describe('buying more places on a running quest', () => {
     const row = await readQuest(taskId)
     expect(row.slots).toBe(7)
     expect(row.pendingSlots).toBeNull()
+  })
+
+  /**
+   * `#631` — throwing a draft away. Here rather than in its own file because it
+   * shares every fixture with the block above, and both are about what a sponsor
+   * may do to a quest of its own at each point in its life.
+   */
+  describe('discarding a draft', () => {
+    it('deletes it, because there is nothing about it to keep', async () => {
+      const taskId = await aQuest({ status: 'draft', invoiceLamports: null, paidLamports: 0 })
+
+      expect(await discardQuestDraft(db, { authorId: sponsorId, taskId })).toEqual({
+        outcome: 'discarded',
+      })
+      expect(await db.select().from(tasks).where(eq(tasks.id, taskId))).toEqual([])
+    })
+
+    /** The rejection case: somebody else's draft is not yours to delete. */
+    it('refuses a caller that did not write it, and leaves the row', async () => {
+      const taskId = await aQuest({ status: 'draft', invoiceLamports: null, paidLamports: 0 })
+
+      expect(await discardQuestDraft(db, { authorId: strangerId, taskId })).toEqual({
+        outcome: 'not-yours',
+      })
+      expect(await db.select().from(tasks).where(eq(tasks.id, taskId))).toHaveLength(1)
+    })
+
+    it.each(['pending_review', 'active', 'retired'] as const)(
+      'refuses a quest that is %s, naming the status',
+      async (status) => {
+        const taskId = await aQuest({ status })
+
+        expect(await discardQuestDraft(db, { authorId: sponsorId, taskId })).toEqual({
+          outcome: 'not-a-draft',
+          status,
+        })
+        expect(await db.select().from(tasks).where(eq(tasks.id, taskId))).toHaveLength(1)
+      },
+    )
+
+    /**
+     * A refusal is a steward's decision and the row is where it lives, so a
+     * rejected quest is corrected rather than thrown away — which is narrower
+     * than what `QUEST_EDITABLE_STATUSES` allows, and deliberately.
+     */
+    it('refuses a quest a steward refused, whose reason lives on the row', async () => {
+      const taskId = await aQuest({
+        status: 'rejected',
+        rejectionReason: 'Say which page to register on.',
+        invoiceLamports: null,
+        paidLamports: 0,
+      })
+
+      expect(await discardQuestDraft(db, { authorId: sponsorId, taskId })).toMatchObject({
+        outcome: 'not-a-draft',
+        status: 'rejected',
+      })
+    })
   })
 
   /**

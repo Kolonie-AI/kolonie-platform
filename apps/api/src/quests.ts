@@ -75,6 +75,7 @@ import {
   refuseQuest as refuseQuestInDatabase,
   submitQuestForReview as submitQuestForReviewInDatabase,
   updateQuestDraft as updateQuestDraftInDatabase,
+  discardQuestDraft as discardQuestDraftInDatabase,
   topUpQuest as topUpQuestInDatabase,
   withdrawQuestFromReview as withdrawQuestFromReviewInDatabase,
   type AudienceCriteria,
@@ -88,6 +89,7 @@ import {
   type FileQuestReportOutcome,
   type QuestSubmitOutcome,
   type QuestWithdrawOutcome,
+  type QuestDiscardOutcome,
   type QuestTopUpOutcome,
   type QuestWriteOutcome,
   type Arrivals,
@@ -178,6 +180,11 @@ export interface QuestDesk {
    * answered as `not_found` — which is what a route for a thing this deployment
    * cannot do should say.
    */
+  /** Throw a draft away (`#631`). Optional for the reason `topUp` below is. */
+  discard?(input: {
+    readonly authorId: AgentId
+    readonly taskId: TaskId
+  }): Promise<QuestDiscardOutcome>
   topUp?(input: {
     readonly sponsorId: AgentId
     readonly taskId: TaskId
@@ -400,6 +407,7 @@ export function databaseQuests(
     submit: (input) => submitQuestForReviewInDatabase(db, input),
     withdraw: (input) => withdrawQuestFromReviewInDatabase(db, input),
     topUp: (input) => topUpQuestInDatabase(db, input),
+    discard: (input) => discardQuestDraftInDatabase(db, input),
     audience: (criteria) => countAudience(db, criteria),
     listOwn: (authorId) => listOwnQuestsInDatabase(db, authorId),
     readOwn: (authorId, taskId) => readOwnQuestInDatabase(db, authorId, taskId),
@@ -876,6 +884,28 @@ export async function editQuestDraft(
     if (ungranted !== undefined) return { outcome: 'rejected', error: ungranted }
   }
 
+  /**
+   * **An edit is revalidated against the quest it produces** (`#631`).
+   *
+   * `#630` wired the tier ceiling into the write and the submit and said plainly
+   * that it could not be checked here: a patch is a subset of fields, and the
+   * tier depends on the price, the verifier and every question at once. So the
+   * current quest is read and the patch applied to it, and the merged shape is
+   * judged exactly as a fresh draft would be.
+   *
+   * **A read this path did not do before**, and it costs one query on an edit —
+   * which is the cheapest of the surfaces here and the one where a refusal is
+   * most useful, because the author is still typing.
+   */
+  const own = await desk.readOwn(input.authorId, taskId)
+  if (own === undefined) return notFound()
+
+  const merged = { ...own.task, ...parsed.data }
+  const overCeiling = questRewardRejection(merged, await capsOf(desk))
+  if (overCeiling !== undefined) {
+    return { outcome: 'rejected', error: invalid(capitalised(overCeiling)) }
+  }
+
   const result = await desk.update({
     authorId: input.authorId,
     taskId,
@@ -892,6 +922,61 @@ export async function editQuestDraft(
         error: {
           code: 'conflict',
           message: frozen(result.status),
+        },
+      }
+    default:
+      return notFound()
+  }
+}
+
+/** A draft that is gone, and the id it was (`#631`). */
+export interface QuestDiscardedResponse {
+  readonly questId: TaskId
+  readonly discarded: true
+  readonly notice: string
+}
+
+/**
+ * Throw a draft away (`#631`).
+ *
+ * **Only a draft, and only its author's.** A refused quest is corrected rather
+ * than discarded — its refusal is a steward's decision and deleting the row
+ * would delete that — and a published one is somebody else's to answer.
+ */
+export async function discardQuestDraft(
+  input: { readonly authorId: AgentId; readonly questId: string | undefined },
+  desk: QuestDesk,
+): Promise<QuestResult<QuestDiscardedResponse>> {
+  const taskId = questIdFrom(input.questId)
+  if (taskId === undefined) return notFound()
+  if (desk.discard === undefined) return notFound()
+
+  const result = await desk.discard({ authorId: input.authorId, taskId })
+
+  switch (result.outcome) {
+    case 'discarded':
+      return {
+        outcome: 'ok',
+        response: {
+          questId: taskId,
+          discarded: true,
+          notice:
+            'Gone. Nothing was committed and nobody outside you had read it, so nothing is ' +
+            'left behind — no escrow, no record, no id anybody else was holding.',
+        },
+      }
+    case 'not-a-draft':
+      return {
+        outcome: 'rejected',
+        error: {
+          code: 'conflict',
+          message:
+            `Only a draft can be discarded, and this one is ${result.status}. ` +
+            (result.status === 'rejected'
+              ? 'A refused quest carries a steward’s reason, and throwing the row away would ' +
+                'throw that away with it — correct it and submit again instead.'
+              : 'It has left the state where nobody but you had seen it, and what happens to ' +
+                'it from here is not only your decision.'),
         },
       }
     default:

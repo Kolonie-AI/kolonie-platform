@@ -15,6 +15,7 @@ import {
   readReviewQueue,
   refuseQuest,
   submitQuest,
+  discardQuestDraft,
   topUpQuest,
   withdrawQuest,
   writeQuestDraft,
@@ -173,6 +174,22 @@ export function registerQuestRoutes(v1: FastifyInstance, deps: RouteDependencies
 
     const { questId } = request.params as { questId?: string }
     return send(reply, await withdrawQuest({ authorId: caller.id, questId, at: now() }, quests))
+  })
+
+  /**
+   * Throw a draft away (`#631`).
+   *
+   * **`DELETE` and a real one.** A draft is the one thing in this system that
+   * nobody outside its author has ever seen — no escrow, no steward, no citizen
+   * — so there is nothing for a soft delete to preserve, and a `discarded`
+   * status would be a value every list has to remember to exclude forever.
+   */
+  v1.delete('/quests/:questId', async (request, reply) => {
+    const caller = await acting(request, reply)
+    if (caller === null) return reply
+
+    const { questId } = request.params as { questId?: string }
+    return send(reply, await discardQuestDraft({ authorId: caller.id, questId }, quests))
   })
 
   /**

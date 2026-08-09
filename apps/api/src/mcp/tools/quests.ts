@@ -20,6 +20,7 @@ import {
   readQuestResults,
   submitQuest,
   withdrawQuest,
+  discardQuestDraft,
   topUpQuest,
   writeQuestDraft,
   type QuestResult,
@@ -389,6 +390,32 @@ export function registerQuestTools(
           'Withdrawn. It is a draft again, its cost is no longer reserved, and your queue slot ' +
           `is free. \`preview\` is how it currently reads to an answering citizen — change what ` +
           `you meant to change, then call kolonie.quests.submit with ${q.quest.id} again.`,
+      )
+    },
+  )
+
+  server.registerTool(
+    'kolonie.quests.discard',
+    {
+      title: 'Throw away a draft nobody has seen',
+      description:
+        'Delete one of your own quest drafts. **A draft is the one thing here that nobody but ' +
+        'you has ever seen** — no money is committed, no steward has read it, no citizen has ' +
+        'been offered it — so discarding one leaves nothing behind and costs nothing. ' +
+        'A typo in a draft is corrected with kolonie.quests.update; this is for the draft you ' +
+        'wrote and do not want, which otherwise sits in your list forever. ' +
+        '**Only a draft.** A quest a steward refused keeps its refusal and is corrected rather ' +
+        'than thrown away; a published one is being answered and is ended rather than deleted.',
+      inputSchema: { questId },
+      annotations: { readOnlyHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    async ({ questId: id }) => {
+      const authenticated = await authenticate(credential, deps.store)
+      if (authenticated.outcome === 'rejected') return toolError(authenticated.error)
+
+      return answer(
+        await discardQuestDraft({ authorId: authenticated.agent.id, questId: id }, deps.quests),
+        (gone) => gone.notice,
       )
     },
   )

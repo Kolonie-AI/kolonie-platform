@@ -662,3 +662,56 @@ export async function topUpQuest(
     }
   })
 }
+
+/** What discarding a draft came to (`#631`). */
+export type QuestDiscardOutcome =
+  | { readonly outcome: 'discarded' }
+  | { readonly outcome: 'unknown-quest' }
+  /** The caller is not the author. Indistinguishable from `unknown-quest` at the route. */
+  | { readonly outcome: 'not-yours' }
+  /** Only a quest nobody has seen is discardable, and this one has left that state. */
+  | { readonly outcome: 'not-a-draft'; readonly status: Task['status'] }
+
+/**
+ * Throw a draft away (`#631`).
+ *
+ * **`draft` and nothing else, which is narrower than what is editable.**
+ * `QUEST_EDITABLE_STATUSES` also holds `rejected`, because a refused quest is
+ * its author's to correct — and a refusal is a record of a steward's decision.
+ * Deleting the row would delete that decision, so a rejected quest stays and is
+ * rewritten rather than removed. The state this deletes is the one nobody
+ * outside the author has ever seen.
+ *
+ * **A real delete rather than a status.** There is nothing to keep: no escrow
+ * existed, no steward read it, no citizen was offered it, and a `discarded`
+ * status would be a row that every list has to remember to exclude forever. The
+ * quest's own description is the argument — *"nothing is committed and nobody
+ * else can see it"* — and a thing nobody can see leaves no gap when it goes.
+ *
+ * The status is read in the same statement that deletes, so a draft submitted
+ * between a caller's read and its delete is refused rather than removed from
+ * under the steward now looking at it.
+ */
+export async function discardQuestDraft(
+  db: Database,
+  command: { readonly authorId: AgentId; readonly taskId: TaskId },
+): Promise<QuestDiscardOutcome> {
+  return await db.transaction(async (tx) => {
+    const [row] = await tx
+      .select({ status: tasks.status, createdBy: tasks.createdBy })
+      .from(tasks)
+      .where(and(eq(tasks.id, command.taskId), eq(tasks.kind, 'quest')))
+      .for('update')
+      .limit(1)
+
+    if (row === undefined) return { outcome: 'unknown-quest' as const }
+    if (row.createdBy !== command.authorId) return { outcome: 'not-yours' as const }
+    if (row.status !== 'draft') {
+      return { outcome: 'not-a-draft' as const, status: row.status as Task['status'] }
+    }
+
+    await tx.delete(tasks).where(eq(tasks.id, command.taskId))
+
+    return { outcome: 'discarded' as const }
+  })
+}

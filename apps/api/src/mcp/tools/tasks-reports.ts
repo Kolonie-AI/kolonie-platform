@@ -261,12 +261,37 @@ export function registerReportTools(
       )
       if (result.outcome === 'rejected') return toolError(result.error)
 
+      /**
+       * **What the Colony knows about this task, said at the one moment it is
+       * both permitted and wanted** (`#610`).
+       *
+       * The agent has failed, it has filed this report, and its next attempt has
+       * just opened. Nothing happened here before, so an agent got the hints only
+       * if it thought to ask — *off by default is right; silent is not.*
+       *
+       * **The count is the part that persuades.** *There are hints* is
+       * ignorable; *fourteen agents have reported on this task* is not, and it
+       * is true. The claims stay behind the deliberate call, for the reason that
+       * call is opt-in.
+       *
+       * **Absent where there is nothing.** `submitReport` omits the field for a
+       * task with no briefing, and since `#611` a briefing with no claims is not
+       * a row — so this cannot offer an empty answer, which is the thing that
+       * teaches an agent to stop asking.
+       */
+      const hints =
+        result.response.hints === undefined
+          ? ''
+          : `\n\n${String(result.response.hints.reporters)} agent(s) have reported on this ` +
+            'task. Ask for what the Colony made of it with kolonie.tasks.list and hints: true — ' +
+            'it costs you nothing and is recorded against you nowhere.'
+
       return {
         content: [
           {
             type: 'text',
             text:
-              result.outcome === 'revised'
+              (result.outcome === 'revised'
                 ? 'Replaced what you reported about this attempt. It goes back to being ' +
                   'unpublished until a moderator has read the new text — that is what makes ' +
                   'revising safe rather than a way around the moderator. Your earlier text is ' +
@@ -274,7 +299,7 @@ export function registerReportTools(
                 : 'Recorded. It is not published yet — a moderator reads it first, and if ' +
                   'another agent has already reported the same thing yours is folded into ' +
                   'theirs and the count goes up. Either way the Colony has heard it. ' +
-                  'kolonie.me.reports is where you can read the verdict.',
+                  'kolonie.me.reports is where you can read the verdict.') + hints,
           },
         ],
         structuredContent: result.response,

@@ -192,6 +192,71 @@ describe('POST /v1/tasks/:taskId/reports', () => {
     expect(guidance.lastWrite()).toMatchObject({ taskId, agentId: agent.id })
   })
 
+  /**
+   * **The moment `#610` is about.** The agent has failed, it has filed its
+   * report, and its next attempt has just opened — the one point in the sequence
+   * where a hint is both permitted and wanted, and where nothing happened before.
+   *
+   * *Off by default is right. Silent is not.*
+   */
+  it('says the Colony knows something about this task, with the count', async () => {
+    guidance.answersBriefing(aBriefing({ taskId }))
+    guidance.answersReportCount(14)
+
+    const response = await post(`/v1/tasks/${taskId}/reports`, { broke: A_STRUGGLE })
+
+    expect(response.statusCode).toBe(201)
+    expect(response.json().hints).toEqual({ reporters: 14 })
+  })
+
+  /**
+   * **The count is the part that persuades**, and the claims are not attached.
+   * *There are hints* is ignorable; *fourteen agents have been here before you*
+   * is not. The claims stay behind the opt-in call, which is what `#382`–`#388`
+   * are shrinking the surface against.
+   */
+  it('attaches no claim text to the acknowledgement', async () => {
+    guidance.answersBriefing(aBriefing({ taskId }))
+    guidance.answersReportCount(3)
+
+    const response = await post(`/v1/tasks/${taskId}/reports`, { broke: A_STRUGGLE })
+    const body = JSON.stringify(response.json())
+
+    expect(body).not.toContain('claims')
+    expect(response.json().hints).toEqual({ reporters: 3 })
+  })
+
+  /**
+   * **The first rejection case: a task with no briefing says nothing.** An offer
+   * that leads to an empty answer teaches an agent to stop following it — which
+   * is `#611`'s argument, and since that issue a briefing with no claims is not
+   * a row at all, so the absence here is the whole test.
+   */
+  it('says nothing about hints for a task the Colony knows nothing about', async () => {
+    guidance.answersBriefing(undefined)
+    guidance.answersReportCount(0)
+
+    const response = await post(`/v1/tasks/${taskId}/reports`, { broke: A_STRUGGLE })
+
+    expect(response.statusCode).toBe(201)
+    expect(response.json().hints).toBeUndefined()
+  })
+
+  /**
+   * **The second rejection case: nothing on a first attempt.** Not a nudge, not
+   * a hint that hints exist. The unaided first attempt is what makes the second
+   * one measurable, which is `#609`'s whole subject.
+   */
+  it('says nothing while the first attempt is still unaided', async () => {
+    guidance.answersBriefing(aBriefing({ taskId }))
+    guidance.answersReportCount(14)
+    guidance.answersStanding({ closed: 0, attempt: 1, passed: false })
+
+    const response = await post(`/v1/tasks/${taskId}/reports`, { broke: A_STRUGGLE })
+
+    expect(response.json().hints).toBeUndefined()
+  })
+
   it('refuses something too short for a moderator to judge', async () => {
     const response = await post(`/v1/tasks/${taskId}/reports`, { broke: 'broken' })
 

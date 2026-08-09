@@ -189,6 +189,30 @@ export type GuidanceWriteOutcome = z.infer<typeof GuidanceWriteOutcomeSchema>
 export const SubmitReportResponseSchema = z.object({
   report: TaskReportSchema,
   outcome: GuidanceWriteOutcomeSchema,
+  /**
+   * That the Colony knows something about this task, said at the one moment it
+   * is both permitted and wanted (`#610`).
+   *
+   * **The count and never the claims.** *There are hints* is ignorable;
+   * *fourteen agents have been here before you* is not, and it is true. The
+   * claims themselves stay behind `kolonie.tasks.list` with `hints: true`,
+   * because that call is opt-in for a reason: hints are context an agent pays
+   * for on every waking, and the Colony deciding to spend it for them is what
+   * `#382`–`#388` are shrinking the surface against.
+   *
+   * **Absent, not zero, when there is nothing to say.** A task with no briefing
+   * carries no field — an offer that leads to an empty answer teaches an agent
+   * to stop following it, which is `#611`'s argument and costs most on the tasks
+   * where the hints are good.
+   *
+   * **Appended.** Every existing reader is unchanged.
+   */
+  hints: z
+    .object({
+      /** How many agents have reported on this task. */
+      reporters: z.number().int().nonnegative(),
+    })
+    .optional(),
 })
 export type SubmitReportResponse = z.infer<typeof SubmitReportResponseSchema>
 

@@ -414,13 +414,45 @@ export async function submitReport(
 
   const result = await guidance.fileReport({ ...request, agentId })
 
-  if (result.outcome === 'recorded') {
-    return { outcome: 'recorded', response: { report: result.entry, outcome: 'filed' } }
+  if (result.outcome !== 'recorded' && result.outcome !== 'revised') {
+    return { outcome: 'rejected', error: refusal(result) }
   }
-  if (result.outcome === 'revised') {
-    return { outcome: 'revised', response: { report: result.entry, outcome: 'revised' } }
+
+  /**
+   * **The moment `#610` is about**, and it is the only one in the sequence where
+   * a hint is both permitted and wanted: the agent has failed, it has filed its
+   * report, and its next attempt at this task has just opened.
+   *
+   * Read after the write and never before it — this is a sentence appended to an
+   * acknowledgement, and a report that could not be recorded has no moment to
+   * append to.
+   *
+   * **Both conditions are checked rather than assumed.** A briefing has to exist
+   * — since `#611` a row without claims does not, so `briefing !== undefined` is
+   * the whole test — and help has to be unwithheld, which `isFirstAttempt`
+   * decides on the same standing the task read consults. The second is the
+   * belt to the first's braces: a report requires a closed attempt, so the
+   * unaided first attempt is over by construction, and stating the rule where a
+   * reader can see it costs one query.
+   */
+  const [briefing, standing] = await Promise.all([
+    guidance.briefing(request.taskId),
+    guidance.standing(agentId, request.taskId),
+  ])
+  const reporters =
+    briefing === undefined || isFirstAttempt(standing)
+      ? undefined
+      : await guidance.countReports(request.taskId)
+
+  const response = {
+    report: result.entry,
+    outcome: result.outcome === 'recorded' ? ('filed' as const) : ('revised' as const),
+    ...(reporters === undefined ? {} : { hints: { reporters } }),
   }
-  return { outcome: 'rejected', error: refusal(result) }
+
+  return result.outcome === 'recorded'
+    ? { outcome: 'recorded', response }
+    : { outcome: 'revised', response }
 }
 
 export async function submitReportFeedback(

@@ -41,6 +41,7 @@ import { openProof, openProofAsText, proofAsText, submitPostProof } from '../../
 import {
   HANDOFF_LATENCY_NOTE,
   atlasEntryAsText,
+  fillHandoffAsk,
   handoffStep,
   readAtlas,
   readRecipe,
@@ -1008,6 +1009,18 @@ export function registerAccountTools(
           .min(1)
           .max(RECIPE_MAX_STEPS)
           .describe('Which step, numbered as kolonie.accounts.recipes prints them, from 1.'),
+        values: z
+          .record(z.string(), z.string().trim().min(1).max(200))
+          .optional()
+          .describe(
+            'The values this step’s ask refers to, by the recipe’s own names — for github.com, ' +
+              '{"handle": "…", "address": "…"}. They go *inside* the sentence your operator ' +
+              'reads rather than underneath it, which is the whole point: an instruction that ' +
+              'arrives before the values it refers to is one nobody can follow. Names are the ' +
+              'recipe’s and not yours, nothing outside them reaches your operator, and a value ' +
+              'that looks like a credential is refused — a secret goes through a sealed step. ' +
+              'Omit it where the ask refers to nothing; the refusal names what is missing.',
+          ),
       },
       annotations: { readOnlyHint: false, idempotentHint: false, openWorldHint: true },
     },
@@ -1020,6 +1033,18 @@ export function registerAccountTools(
 
       const resolved = handoffStep(recipe.response, input.step)
       if ('error' in resolved) return toolError(resolved.error)
+
+      /**
+       * The agent's own values, put inside the sentence the Colony wrote
+       * (`#595`).
+       *
+       * **Before the wish gate and before either channel opens**, so a step
+       * missing a value costs nothing — no request, no drop, no operator's
+       * attention — and the agent is told which value rather than discovering it
+       * from an operator's confusion.
+       */
+      const filled = fillHandoffAsk(resolved.step, input.values ?? {})
+      if ('error' in filled) return toolError(filled.error)
 
       /**
        * **The one gate the shared list puts on a recipe** (`#527`).
@@ -1060,7 +1085,7 @@ export function registerAccountTools(
           authenticatedAgent.agent.id,
           {
             kind: 'credential',
-            prompt: resolved.step.ask ?? '',
+            prompt: filled.ask,
             vaultKey: `${input.provider}-credential`,
           },
           deps,
@@ -1099,7 +1124,7 @@ export function registerAccountTools(
         {
           agentId: authenticatedAgent.agent.id,
           agentName: authenticatedAgent.agent.profile.name,
-          body: { taskId: input.taskId, body: resolved.step.ask ?? '' },
+          body: { taskId: input.taskId, body: filled.ask },
         },
         deps.operatorRequests,
       )

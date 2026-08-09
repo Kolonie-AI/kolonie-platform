@@ -3,6 +3,9 @@ import {
   AtlasCategorySchema,
   atlasByOutcome,
   atlasEntries,
+  credentialFinding,
+  fillAsk,
+  valuesReferencedBy,
   throughRate,
   figureKey,
   recipeStatusIsOfferable,
@@ -540,6 +543,90 @@ export const HANDOFF_LATENCY_NOTE =
   'Colony has no way to wake you, so four to six hours is normal and nothing has gone wrong. ' +
   'Do not wait on it: go and do something else, and check kolonie.operator.requests when you ' +
   'next come back.'
+
+/**
+ * The ask, with the agent's own values in it (`#595`).
+ *
+ * **The instruction used to arrive before the values it referred to**, because
+ * step 1 of the `github.com` recipe had no channel of its own: the agent's
+ * answer landed as a reply *underneath* the operator's ask, in a channel where
+ * nothing can reorder them. The operator read *using the handle and the email
+ * address it gave you* and then, below it, what those were.
+ *
+ * This resolves them before the request is opened, so the ask the operator reads
+ * has them in it.
+ *
+ * ## What it refuses, and why each refusal is its own answer
+ *
+ * - **A referenced value nobody supplied**, naming which. The agent supplies it
+ *   and asks again; opening the step with a brace in the sentence would be the
+ *   same defect wearing a different shape.
+ * - **A value that looks like a credential**, with the same guard
+ *   `openOperatorRequest` applies to every message. `#528`'s rule is that
+ *   nothing secret travels in text an operator reads on a page, and a value
+ *   substituted into that text is that text.
+ * - **A value nothing references.** Not an error the agent needs, but not
+ *   silently accepted either: an agent that sends `handle` where the ask says
+ *   `{login}` has a typo, and taking it quietly would open the step with the
+ *   brace still in it.
+ *
+ * **Substitution only, and everything outside the braces is the recipe's.**
+ * `#517` refuses free-text composition by the agent, and this keeps that line:
+ * an agent cannot add a sentence, only fill a named hole the steward left.
+ */
+export function fillHandoffAsk(
+  step: RecipeStep,
+  supplied: Readonly<Record<string, string>>,
+): { readonly ask: string } | { readonly error: ApiError } {
+  const ask = step.ask ?? ''
+  const referenced = valuesReferencedBy(ask)
+
+  const missing = referenced.filter((name) => (supplied[name] ?? '').trim() === '')
+  if (missing.length > 0) {
+    return {
+      error: {
+        code: 'validation_failed',
+        message:
+          `This step asks your operator for something using ${missing.length === 1 ? 'a value' : 'values'} ` +
+          `you decide: ${missing.map((name) => `\`${name}\``).join(', ')}. Send ${missing.length === 1 ? 'it' : 'them'} ` +
+          'as `values`, and the request opens with the sentence already carrying ' +
+          `${missing.length === 1 ? 'it' : 'them'} — rather than your operator reading the ` +
+          'instruction first and your answer underneath it.',
+      },
+    }
+  }
+
+  const unknown = Object.keys(supplied).filter((name) => !referenced.includes(name))
+  if (unknown.length > 0) {
+    return {
+      error: {
+        code: 'validation_failed',
+        message:
+          `This step's ask does not refer to ${unknown.map((name) => `\`${name}\``).join(', ')}. ` +
+          `${referenced.length === 0 ? 'It refers to nothing at all — it needs no values.' : `It refers to ${referenced.map((name) => `\`${name}\``).join(', ')}.`} ` +
+          'Names are the recipe’s, not yours: nothing you send outside them can reach your ' +
+          'operator, and a name that does not match is a typo rather than an extra.',
+      },
+    }
+  }
+
+  for (const [name, value] of Object.entries(supplied)) {
+    const finding = credentialFinding(value)
+    if (finding !== null) {
+      return {
+        error: {
+          code: 'validation_failed',
+          message:
+            `The value you sent for \`${name}\` looks like a credential (${finding.reason}). Nothing ` +
+            'secret belongs in text an operator reads on a page — a recipe hands a secret over ' +
+            'through a sealed step, and this is not one.',
+        },
+      }
+    }
+  }
+
+  return { ask: fillAsk(ask, supplied) }
+}
 
 /** The step a handoff is about, resolved from the recipe rather than from the caller. */
 export function handoffStep(

@@ -108,11 +108,26 @@ export const PROVIDER_CATALOGUE: readonly WriteProviderRecipe[] = [
          * its own, and a recipe exists so nobody has to.
          */
         instruction:
-          'Decide the handle you want and which of your addresses the account should use, and ' +
-          'tell your operator both. These are the only things it should be deciding for you, and ' +
-          'neither of them is a secret. Use an address you can read now — the launch code arrives ' +
-          'within a minute or two — and prefer one on a domain that outlives the mailbox ' +
-          'provider, because this is the address that recovers the account years from now.',
+          'Decide the handle you want and which of your addresses the account should use. ' +
+          'Neither is a secret. Use an address you can read now — the launch code arrives in a ' +
+          'minute or two — and prefer a domain that outlives the mailbox provider, because this ' +
+          'address recovers the account years from now. Do not send them anywhere: pass them as ' +
+          '`values` to kolonie.accounts.handoff on the next step and they arrive inside the ' +
+          'sentence your operator reads.',
+        /**
+         * **The two values the next step's ask consumes** (`#595`).
+         *
+         * The instruction used to end *and tell your operator both*, and that
+         * sentence was the defect. Step 1 has no channel of its own, so the
+         * agent's answer arrived as a reply *underneath* the operator's ask —
+         * the operator read *using the handle and the email address it gave you*
+         * and then, below it, what those were. Walked 2026-08-08 and it is
+         * exactly what happened.
+         *
+         * Naming them here is what lets the ask below refer to them and lets the
+         * handoff refuse to open until they are supplied.
+         */
+        produces: ['handle', 'address'],
       },
       {
         actor: 'operator',
@@ -121,12 +136,22 @@ export const PROVIDER_CATALOGUE: readonly WriteProviderRecipe[] = [
           'account set up by a person as the legitimate route. Creating it is therefore your ' +
           'step, and it is the wall — not because a form is hard, but because accepting terms ' +
           'on somebody’s behalf is something only a person can do.',
+        /**
+         * **The values are in the sentence rather than under it** (`#595`).
+         *
+         * `{handle}` and `{address}` are substituted from what the agent passes
+         * to `kolonie.accounts.handoff`, so the operator reads the handle it is
+         * to use at the moment it is told to use one. Everything outside the
+         * braces is still the Colony's wording, which is `#517`'s line: the
+         * agent fills named holes and composes nothing.
+         */
         ask:
-          'Please create a GitHub machine account for your agent at github.com/signup, using the ' +
-          'handle and the email address it gave you, and accept the terms on its behalf — ' +
-          'GitHub’s terms name this as the legitimate route for an agent’s account. Choose the ' +
-          'password yourself and do not send it to your agent: it will ask you separately for a ' +
-          'token, which is what it actually needs. Reply here when the account exists.',
+          'Please create a GitHub machine account for your agent at github.com/signup, using ' +
+          'the handle {handle} and the email address {address}, and accept the terms on its ' +
+          'behalf — GitHub’s terms name this as the legitimate route for an agent’s account. ' +
+          'Choose the password yourself and do not send it to your agent: it will ask you ' +
+          'separately for a token, which is what it actually needs. Reply here when the account ' +
+          'exists.',
       },
       {
         actor: 'operator',

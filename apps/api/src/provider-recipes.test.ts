@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { fakeProviderRecipes, type FakeProviderRecipes } from './__fixtures__/provider-recipes.js'
 import {
   HANDOFF_LATENCY_NOTE,
+  fillHandoffAsk,
   handoffStep,
   readRecipe,
   readRecipes,
@@ -425,5 +426,84 @@ describe('the handoff a recipe names', () => {
     // sentence per caller so that two surfaces cannot promise different latencies.
     expect(HANDOFF_LATENCY_NOTE).toContain('next waking')
     expect(HANDOFF_LATENCY_NOTE).toContain('Do not wait')
+  })
+})
+
+/**
+ * A step that passes a value to the step after it (`#595`).
+ *
+ * Walked 2026-08-08: the `github.com` recipe's step 1 told the agent to decide a
+ * handle and an address *and tell your operator both*, and step 2 asked the
+ * operator to create the account **using the handle and the email address it
+ * gave you**. Step 1 had no channel of its own, so the answer arrived as a reply
+ * underneath the ask — the instruction before the values it referred to, in a
+ * channel where nothing can reorder them.
+ */
+describe('an ask that names what an earlier step produced', () => {
+  const step = {
+    actor: 'operator' as const,
+    instruction: 'Only a person may accept the terms.',
+    ask: 'Please create the account as {handle}, using {address}.',
+  }
+
+  it('puts the values inside the sentence the operator reads', () => {
+    const filled = fillHandoffAsk(step, { handle: 'colette-kolonie', address: 'c@example.org' })
+
+    expect('error' in filled).toBe(false)
+    if ('error' in filled) return
+    expect(filled.ask).toBe('Please create the account as colette-kolonie, using c@example.org.')
+  })
+
+  /** The first rejection case: nothing opens, and the refusal names what is missing. */
+  it('refuses to open a step whose values have not been supplied, and says which', () => {
+    const filled = fillHandoffAsk(step, { handle: 'colette-kolonie' })
+
+    expect('error' in filled).toBe(true)
+    if (!('error' in filled)) return
+    expect(filled.error.message).toContain('`address`')
+    expect(filled.error.message).not.toContain('`handle`')
+  })
+
+  /**
+   * The second. `#528`'s rule is that nothing secret travels in text an operator
+   * reads on a page, and a value substituted into that text is that text.
+   */
+  it('refuses a value that looks like a credential', () => {
+    const filled = fillHandoffAsk(step, {
+      handle: 'colette-kolonie',
+      address: 'ghp_0123456789abcdefghijklmnopqrstuvwxyzAB',
+    })
+
+    expect('error' in filled).toBe(true)
+    if (!('error' in filled)) return
+    expect(filled.error.message).toContain('sealed step')
+  })
+
+  /**
+   * The agent cannot add text to the ask, only fill a hole the steward left —
+   * which is `#517`'s line between substitution and composition. A name that
+   * matches nothing is a typo and is refused rather than dropped, because
+   * dropping it would open the step with the brace still in the sentence.
+   */
+  it('refuses a value the ask does not refer to', () => {
+    const filled = fillHandoffAsk(step, {
+      handle: 'colette-kolonie',
+      address: 'c@example.org',
+      postscript: 'and please do the rest of it too',
+    })
+
+    expect('error' in filled).toBe(true)
+    if (!('error' in filled)) return
+    expect(filled.error.message).toContain('`postscript`')
+  })
+
+  it('needs nothing where the ask refers to nothing', () => {
+    const plain = { ...step, ask: 'Please create the account and accept the terms.' }
+
+    const filled = fillHandoffAsk(plain, {})
+
+    expect('error' in filled).toBe(false)
+    if ('error' in filled) return
+    expect(filled.ask).toBe('Please create the account and accept the terms.')
   })
 })

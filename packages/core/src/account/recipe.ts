@@ -49,6 +49,50 @@ export const RECIPE_STEP_MAX_LENGTH = 500
 /** How many steps one recipe may carry. */
 export const RECIPE_MAX_STEPS = 20
 
+/** How many named values one step may produce. Two is the `github.com` case. */
+export const RECIPE_MAX_PRODUCED_VALUES = 5
+
+/**
+ * What a produced value may be called (`#595`).
+ *
+ * A short lowercase slug, because it is written into a sentence as `{handle}`
+ * and read back out by the same pattern. Nothing here is shown to an operator:
+ * the *value* is, and the name is only how the recipe refers to it.
+ */
+export const RecipeValueNameSchema = z
+  .string()
+  .trim()
+  .regex(/^[a-z][a-z0-9-]{1,29}$/, 'a short lowercase name, like `handle` or `address`')
+export type RecipeValueName = z.infer<typeof RecipeValueNameSchema>
+
+/**
+ * How a value is referenced inside an ask: `{handle}`.
+ *
+ * **Braces and nothing cleverer.** The substitution is the only way an agent's
+ * text reaches an operator, so the pattern has to be something a steward writing
+ * a sentence cannot produce by accident and something no ordinary prose
+ * contains.
+ */
+export const RECIPE_VALUE_REFERENCE = /\{([a-z][a-z0-9-]{1,29})\}/g
+
+/** Every value an ask refers to, in the order it refers to them, without repeats. */
+export function valuesReferencedBy(ask: string): readonly string[] {
+  return [...new Set([...ask.matchAll(RECIPE_VALUE_REFERENCE)].map((match) => match[1] ?? ''))]
+}
+
+/**
+ * Put the agent's values into the sentence the Colony wrote (`#595`).
+ *
+ * **Substitution and nothing else, which is the line `#517` draws.** That issue
+ * refuses free-text composition by the agent — *"an operator handed a message an
+ * agent composed tends to do the whole job"* — and substituting named values
+ * into a fixed sentence is not the same act. Everything outside the braces is
+ * the recipe's, and a value that is not referenced cannot appear at all.
+ */
+export function fillAsk(ask: string, values: Readonly<Record<string, string>>): string {
+  return ask.replace(RECIPE_VALUE_REFERENCE, (whole, name: string) => values[name] ?? whole)
+}
+
 /**
  * One step of a recipe.
  *
@@ -104,8 +148,36 @@ export const RecipeStepSchema = z
      * channel everybody already has open.
      */
     secret: z.boolean().optional(),
+    /**
+     * Named values this step is expected to produce (`#595`).
+     *
+     * **The recipe format had no way to say that a step produces a value a later
+     * step consumes**, and the `github.com` walk on 2026-08-08 is what that
+     * costs: step 1 tells the agent to decide a handle and an address *and tell
+     * your operator both*; step 2 asks the operator to create the account
+     * **using the handle and the email address it gave you**. Step 1 has no
+     * channel of its own, so the agent's answer arrives as a reply *underneath*
+     * the ask — the instruction before the values it refers to, in a channel
+     * where nothing can reorder them.
+     *
+     * Declaring them here is what lets {@link RecipeStepSchema.ask} name them
+     * and lets the handoff refuse to open a step whose values are missing.
+     *
+     * **On an `agent` step only.** An operator step's output is the operator's
+     * answer and it already has a channel — the request, or the sealed drop.
+     *
+     * Slugs rather than prose, because they are substituted into a sentence the
+     * Colony wrote and a name with a space in it cannot be referenced.
+     */
+    produces: z.array(RecipeValueNameSchema).max(RECIPE_MAX_PRODUCED_VALUES).optional(),
   })
   .strict()
+  .refine((step) => step.actor === 'agent' || step.produces === undefined, {
+    message:
+      'only an agent step produces values. What an operator step produces is the operator’s ' +
+      'answer, and that already has a channel.',
+    path: ['produces'],
+  })
   .refine((step) => step.actor === 'operator' || step.ask === undefined, {
     message: 'only an operator step has an ask — an agent step has nobody to ask.',
     path: ['ask'],
@@ -683,6 +755,39 @@ export const WriteProviderRecipeSchema = z
    *
    * The same table as `recipeStatusAllowsSteps`, asserted field by field.
    */
+  /**
+   * **Every value an ask names is produced by an earlier step** (`#595`).
+   *
+   * The check that makes the reference safe rather than hopeful. An ask
+   * referring to `{handle}` that nothing produces would be published as a
+   * sentence with a brace in it, and the operator would read the literal text —
+   * which is the same class of failure as the instruction arriving before its
+   * values, one step further along.
+   *
+   * **Earlier, not anywhere**, because a value produced after the step that
+   * consumes it cannot have been supplied when the handoff opens. The order the
+   * steps are written in is the order they happen in, which is the whole reason
+   * `RecipeActor` is a field on a step rather than a column on the entry.
+   */
+  .superRefine((entry, ctx) => {
+    const produced = new Set<string>()
+
+    entry.steps.forEach((step, index) => {
+      for (const missing of valuesReferencedBy(step.ask ?? '')) {
+        if (produced.has(missing)) continue
+
+        ctx.addIssue({
+          code: 'custom',
+          path: ['steps', index, 'ask'],
+          message:
+            `this ask refers to {${missing}} and no earlier step produces it. Add it to the ` +
+            '`produces` of the agent step that decides it, or the operator reads a brace.',
+        })
+      }
+
+      for (const name of step.produces ?? []) produced.add(name)
+    })
+  })
   .refine((entry) => entry.status !== 'refused' || entry.refusal !== undefined, {
     message: 'an entry that says a provider cannot be joined has to say why.',
     path: ['refusal'],

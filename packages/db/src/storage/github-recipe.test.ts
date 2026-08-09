@@ -99,4 +99,29 @@ describe('the github.com recipe', () => {
     // listing is what tells it which rung produces one.
     expect(await wishBlocksHandoff(db, agentId, 'nowhere.example')).toBe(false)
   })
+  /**
+   * The recipe passes its two values forward rather than telling the agent to
+   * send them by hand (`#595`).
+   *
+   * Walked 2026-08-08: step 1 said *tell your operator both* and step 2 asked
+   * the operator to use *the handle and the email address it gave you*. Step 1
+   * has no channel, so the answer arrived underneath the ask.
+   */
+  describe('the handle and the address it passes forward', () => {
+    it('declares them on the step that decides them', async () => {
+      const recipe = await providerRecipe(db, AccountKindSchema.parse('github'), 'github.com')
+
+      expect(recipe?.steps[0]?.produces).toEqual(['handle', 'address'])
+    })
+
+    it('refers to them inside the operator’s ask, not below it', async () => {
+      const recipe = await providerRecipe(db, AccountKindSchema.parse('github'), 'github.com')
+      const ask = recipe?.steps[1]?.ask ?? ''
+
+      expect(ask).toContain('{handle}')
+      expect(ask).toContain('{address}')
+      // The sentence that made this a hand-carried message is gone from step 1.
+      expect(recipe?.steps[0]?.instruction ?? '').not.toContain('tell your operator both')
+    })
+  })
 })

@@ -269,6 +269,39 @@ A heading rather than a table in the worker, because a table would be a second
 record of a fact this repository already states, and the second record goes
 stale without anybody editing it.
 
+### The check prerequisite
+
+```bash
+npm run test:db:up
+```
+
+**`npm run check` cannot pass without a PostgreSQL 16 and a `DATABASE_URL`, and
+that is deliberate.** §4 and `kolonie-docs/operations/testing.md` both refuse the
+alternative: _"a missing variable is a hard failure, in every environment"_,
+because a suite that skips the database tests reports green while covering
+nothing. The command above is this repository's own disposable server, and it
+finishes by printing the `export DATABASE_URL=…` line that goes with it.
+
+**This heading is machine-read too, and it is the sibling of the one above**
+(`kolonie-docs#247`). The hourly worker re-runs this repository's check after its
+model has finished — an unattended agent reporting that it ran a check is the
+claim that arrangement exists to stop taking on trust — and until 2026-08-09 it
+re-ran it with no database at all. Run `31303638874`: the model found this
+command in this file, started the server, passed the whole check against it, and
+the worker's re-run then failed on the one thing the model had already solved.
+
+So the worker reads the first fenced block under a heading ending _The check
+prerequisite_, runs it before the check, and takes the `export NAME=value` lines
+it prints. **A repository that needs nothing states nothing** — four of the five
+do, and silence there is the ordinary answer rather than a defect. Here it is not
+silence, and moving or renaming this section puts the worker back in an
+environment this repository's own tests are designed to refuse.
+
+Anything that provides a PostgreSQL 16 will do — §4 fixes the interface at
+`DATABASE_URL` and nothing else, so the Compose stack in `kolonie-infra`, an
+`apt`-installed server or a hosted throwaway are all equally correct locally.
+This section names the one command a machine can run unattended.
+
 ## 9. When you are unsure
 
 Ask in the issue rather than guessing. A wrong shape in `packages/core`

@@ -272,6 +272,19 @@ export const AUTHENTICATED_TOOLS = [
    */
   'kolonie.accounts.handoff',
   /**
+   * How obtaining one account went (`#601`).
+   *
+   * Beside `handoff` because it closes what that opens: the Colony writes down
+   * each step as it happens, and this is the one thing it cannot observe —
+   * whether the walk got through, ended at a wall, or simply stopped.
+   *
+   * **It is the only question an agent is asked about a walk**, which is why
+   * there is one tool here and not a reporting surface. A walk that got through
+   * writes a draft entry a steward publishes; nothing an agent says here reaches
+   * the public Atlas.
+   */
+  'kolonie.accounts.walk-report',
+  /**
    * Keeping one account out of matching (`#523`).
    *
    * The flag that keeps the register from becoming a directory of what can be asked of

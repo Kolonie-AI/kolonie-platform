@@ -6,6 +6,7 @@ import {
   throughRate,
   figureKey,
   recipeStatusIsOfferable,
+  stepInstruction,
   recipeStatusIsPublic,
   type AccountKind,
   type ApiError,
@@ -17,6 +18,7 @@ import {
   type RecipeStep,
 } from '@kolonie-ai/core'
 import type { Database } from '@kolonie-ai/db'
+import type { WalkStore } from './account-walks.js'
 import {
   atlasFigures,
   decideProposal,
@@ -359,7 +361,7 @@ export function recipeAsText(recipe: ProviderRecipe, secretHandoff: boolean): st
       `${recipe.retiredReason ?? ''}\n\n` +
       `It is not on offer. What follows is kept as the record of what the path was while it ` +
       `worked, and is not a recipe any more:\n\n` +
-      recipe.steps.map((step, index) => `${index + 1}. ${step.instruction}`).join('\n') +
+      recipe.steps.map((step, index) => `${index + 1}. ${stepInstruction(step)}`).join('\n') +
       `\n\nIf you have evidence that what closed this has changed, ` +
       `kolonie.accounts.provider-report is where that goes.`
     )
@@ -395,7 +397,7 @@ export function recipeAsText(recipe: ProviderRecipe, secretHandoff: boolean): st
 
   const steps = recipe.steps
     .map((step, index) => {
-      if (step.actor === 'agent') return `${index + 1}. ${step.instruction}`
+      if (step.actor === 'agent') return `${index + 1}. ${stepInstruction(step)}`
 
       /**
        * **The one step this Colony cannot carry, said before it is promised**
@@ -407,7 +409,7 @@ export function recipeAsText(recipe: ProviderRecipe, secretHandoff: boolean): st
       if (step.secret === true && !secretHandoff) {
         return (
           `${index + 1}. **This step cannot be walked here, and that is not your doing.** ` +
-          `${step.instruction}\n` +
+          `${stepInstruction(step)}\n` +
           '   This Colony has no sealed channel configured, so there is nowhere for a secret to ' +
           'arrive. Do not ask your operator for this value yet: an operator request carries ' +
           'words and refuses credentials by design, so there is no route for it inside the ' +
@@ -419,7 +421,7 @@ export function recipeAsText(recipe: ProviderRecipe, secretHandoff: boolean): st
       }
 
       return (
-        `${index + 1}. **Your operator, not you.** ${step.instruction}\n` +
+        `${index + 1}. **Your operator, not you.** ${stepInstruction(step)}\n` +
         `   Open an operator ${step.secret === true ? 'drop' : 'request'} and ask exactly this: ` +
         `"${step.ask ?? ''}"` +
         (step.secret === true
@@ -634,17 +636,27 @@ export function handoffStep(
  * steward's `/review`. `#549` requires both — a catalogue only one person can
  * maintain is a catalogue that stops when that person is busy.
  */
-export async function atlasCuration(recipes: ProviderRecipes): Promise<{
+export async function atlasCuration(
+  recipes: ProviderRecipes,
+  /**
+   * Walks, for the divergence queue (`#601`). Optional at every layer, so a
+   * deployment that records no walks shows the section saying there are none —
+   * which is true rather than empty.
+   */
+  walks?: WalkStore | undefined,
+): Promise<{
   readonly proposals: readonly EntryProposal[]
   readonly falling: readonly FallingRate[]
   readonly entries: readonly AtlasEntry[]
   readonly unpublished: readonly ProviderRecipe[]
+  readonly divergences: Awaited<ReturnType<WalkStore['divergences']>>
 }> {
-  const [proposals, falling, entries, all] = await Promise.all([
+  const [proposals, falling, entries, all, divergences] = await Promise.all([
     recipes.proposals(),
     recipes.fallingRates(),
     atlasCatalogue(recipes),
     recipes.listInternal(),
+    walks?.divergences() ?? Promise.resolve([]),
   ])
 
   /**
@@ -657,5 +669,5 @@ export async function atlasCuration(recipes: ProviderRecipes): Promise<{
    */
   const unpublished = all.filter((entry) => !recipeStatusIsPublic(entry.status))
 
-  return { proposals, falling, entries, unpublished }
+  return { proposals, falling, entries, unpublished, divergences }
 }

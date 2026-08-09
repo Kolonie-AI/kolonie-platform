@@ -1,6 +1,7 @@
 import {
   ATLAS_PATH,
   RETIRED_ENTRY_NOTE,
+  stepInstruction,
   STALE_ENTRY_NOTE,
   UNWRITTEN_ENTRY_NOTE,
   isStale,
@@ -474,7 +475,7 @@ function recipeSection(recipe: AtlasEntry['recipes'][number]): string {
       recipe.steps.length === 0
         ? ''
         : '<h3>What the path was</h3><ol>' +
-          recipe.steps.map((step) => `<li>${escape(step.instruction)}</li>`).join('') +
+          recipe.steps.map((step) => `<li>${escape(stepInstruction(step))}</li>`).join('') +
           '</ol>',
       '</section>',
     ].join('')
@@ -490,7 +491,7 @@ function recipeSection(recipe: AtlasEntry['recipes'][number]): string {
             (step.secret === true ? ' — through a sealed drop, never a conversation.' : '') +
             '</small>'
 
-      return `<li>${who}${escape(step.instruction)}${ask}</li>`
+      return `<li>${who}${escape(stepInstruction(step))}${ask}</li>`
     })
     .join('')
 

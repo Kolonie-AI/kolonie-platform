@@ -350,7 +350,14 @@ describe('the migrations', () => {
     // wallet balance cannot answer *how much of this is ours* — it mixes the fee
     // with money owed to citizens whose accrual has not reached the chain
     // minimum, and that confusion is the whole of what `#507` refuses.
-    expect(afterFirst.tables).toBe('93')
+    // **Ninety-five** (`#601`): `account_walks` and `account_walk_steps`, the
+    // record of one agent obtaining one account. Two tables and not a `jsonb`
+    // column of steps, which is the opposite call `provider_recipes` makes and
+    // for the stated reason — a recipe is authored whole and replaced, and a
+    // walk *accumulates* one observation at a time as a handoff opens and an
+    // account is declared. Appending a row cannot lose a concurrent write; a
+    // read-modify-write of an array can.
+    expect(afterFirst.tables).toBe('95')
     // Twenty: `task_kind` (#43) tells an Academy task from a Quest and therefore
     // what may pay credits; `support_ticket_kind` and `support_ticket_status` (#11)
     // carry what a citizen wrote about and where it stands; `erasure_reason` and

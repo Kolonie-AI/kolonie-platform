@@ -61,8 +61,30 @@ export const RECIPE_MAX_STEPS = 20
 export const RecipeStepSchema = z
   .object({
     actor: RecipeActorSchema,
-    /** What is done, in one or two sentences. */
-    instruction: z.string().trim().min(1).max(RECIPE_STEP_MAX_LENGTH),
+    /**
+     * What is done, in one or two sentences.
+     *
+     * **Optional, and only a `draft` may leave it out** (`#601`). The rule is on
+     * `WriteProviderRecipeSchema` and on the table's own check constraint rather
+     * than here, because it is a fact about the entry's state and a step does not
+     * know what state it is in.
+     *
+     * A walk writes a draft as a by-product of an agent obtaining an account, and
+     * what a walk observes is *what happened* — an operator was asked here, the
+     * agent acted alone there. It does not observe a sentence, and `#601` is
+     * explicit that the Colony must not invent one:
+     *
+     * > The Colony still writes the operator's sentence (`#517`), so a draft
+     * > carries the actions and a steward supplies the wording.
+     *
+     * That shape was not representable while this was required — a derived draft
+     * would have had to carry a sentence nobody wrote, and a steward publishing
+     * without rewriting would have shipped it. An absent instruction is the
+     * honest record of *nobody has written this step up yet*, and it cannot reach
+     * a reader: no public surface renders a draft (`#604`), and no entry can
+     * leave `draft` while a step is still wordless.
+     */
+    instruction: z.string().trim().min(1).max(RECIPE_STEP_MAX_LENGTH).optional(),
     /**
      * What the operator is asked for, on an `operator` step.
      *
@@ -718,6 +740,32 @@ export const WriteProviderRecipeSchema = z
       'reviewed it yet, and nothing before that.',
     path: ['steps'],
   })
+  /**
+   * **A step may be wordless only while the entry is a draft** (`#601`).
+   *
+   * This is the other half of making `instruction` optional, and it is the half
+   * that matters: a draft is the one state a walk can write, and publishing is
+   * exactly the act of a steward having supplied what the walk could not
+   * observe. An entry that left `draft` with a wordless step would be a recipe
+   * with a blank line in it, handed to an agent as a path to follow.
+   *
+   * `retired` is allowed one, because it keeps whatever it had — an entry
+   * withdrawn while it was still a draft keeps the record of the walk, which is
+   * the whole argument for `retired` in `#604`.
+   */
+  .refine(
+    (entry) =>
+      entry.status === 'draft' ||
+      entry.status === 'retired' ||
+      entry.steps.every((step) => step.instruction !== undefined),
+    {
+      message:
+        'every step needs to say what is done before the entry leaves draft. A walk records ' +
+        'that a step happened and who it needed; the sentence is a steward’s, and publishing ' +
+        'is where it gets written.',
+      path: ['steps'],
+    },
+  )
   .refine((entry) => entry.status !== 'joinable' || entry.proves !== undefined, {
     message:
       'name how the account is proved once it exists — a rung, or one of the generic proofs ' +

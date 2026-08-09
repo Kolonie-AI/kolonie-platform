@@ -72,6 +72,7 @@ import {
   writeSkillNote,
 } from '@kolonie-ai/db'
 import { databaseWebServerChallenges } from './web-server.js'
+import { databaseWalks } from './account-walks.js'
 import { databaseWishes } from './account-wishes.js'
 import { swarmPortraitOf } from '@kolonie-ai/db'
 import { databaseWakeChallenges } from './wake.js'
@@ -794,6 +795,12 @@ const app = buildApp({
   // The third operator event (`#580`): a mark on the shared list is a thing a
   // person said, and it reaches the agent through the same sender as the other two.
   wishes: { store: databaseWishes(db), wake: liveWake },
+  /**
+   * Walks, recorded as they happen (`#601`). A walk writes the recipe: an agent
+   * obtaining an account produces a draft entry as a by-product, and a steward
+   * publishes it.
+   */
+  walks: databaseWalks(db),
   image: { challenges: databaseImageChallenges(db), obstruction },
   // The generator rung (#216). Same shape as the rung above and the same
   // absence of a Colony credential at this layer: minting draws from a

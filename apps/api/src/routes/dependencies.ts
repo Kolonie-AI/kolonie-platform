@@ -50,6 +50,7 @@ import type { VaultDependencies } from '../vault.js'
 import type { VisionDependencies } from '../vision.js'
 import type { WebServerDependencies } from '../web-server.js'
 import type { WishDependencies } from '../account-wishes.js'
+import type { WalkStore } from '../account-walks.js'
 import type { WakeDependencies } from '../wake.js'
 import type { ReachabilityDependencies } from '../reachability.js'
 import type { WebsiteDependencies } from '../website.js'
@@ -188,6 +189,14 @@ export interface RouteDependencies {
    * it should, which is a different question with a different lifetime.
    */
   readonly wishes: WishDependencies
+  /**
+   * Walks, recorded as they happen (`#601`).
+   *
+   * **Optional, and absent means the Colony does not write them down** — not
+   * that a walk fails. Recording is a by-product of an agent obtaining an
+   * account and must never be able to break one.
+   */
+  readonly walks?: WalkStore | undefined
   /**
    * The reachability check (`#394`) — the limiter and, in a test, the fetch.
    *

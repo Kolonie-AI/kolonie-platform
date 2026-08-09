@@ -357,6 +357,43 @@ export const providerRecipes = pgTable(
     ),
 
     /**
+     * **A step may be wordless only while the entry is a draft** (`#601`).
+     *
+     * `RecipeStepSchema.instruction` became optional so that a walk can record
+     * *this step happened and who it needed* without the Colony inventing the
+     * sentence `#517` says is its to write. This is the other half: publishing
+     * is exactly the act of a steward having supplied what the walk could not
+     * observe, and an entry that left `draft` with a wordless step would be a
+     * recipe with a blank line in it, handed to an agent as a path to follow.
+     *
+     * **In SQL and not only in `WriteProviderRecipeSchema`**, for this table's
+     * standing reason: the seed and a `psql` prompt write through neither.
+     *
+     * `retired` is exempt because it keeps whatever it had — an entry withdrawn
+     * while it was still a draft keeps the record of the walk, which is the
+     * argument for `retired` existing at all.
+     */
+    check(
+      'provider_recipes_published_steps_are_written',
+      /**
+       * **`jsonb_path_exists` and not a subquery**, which was the first
+       * spelling: PostgreSQL refuses a subquery in a check constraint outright
+       * — `cannot use subquery in check constraint`, `0A000` — so the obvious
+       * `not exists (select … jsonb_array_elements(…))` cannot be written here
+       * at all. A jsonpath is an ordinary function call over the value and is
+       * allowed.
+       *
+       * `!exists(@.instruction)` matches an element with **no such key**, which
+       * is the shape an absent optional field takes in `jsonb` — a filter for
+       * `== null` would not match it, because the key is missing rather than
+       * null. Verified against PostgreSQL 16: it answers true for a step
+       * without one, false for a step with one, and false for an empty array.
+       */
+      sql`${table.status} in ('draft', 'retired')
+          or not jsonb_path_exists(${table.steps}, '$[*] ? (!exists(@.instruction))')`,
+    ),
+
+    /**
      * A state with no walk behind it has nothing to walk and nothing to prove.
      *
      * **This is the one that carries `unwritten`'s whole meaning.** A row marked

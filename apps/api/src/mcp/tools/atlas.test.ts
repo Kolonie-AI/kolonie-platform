@@ -50,15 +50,18 @@ describe('the Atlas over MCP', () => {
      * gained the figures, so the count is exactly what it was. Reported here per
      * `#388`'s practice.
      */
-    it('leaves the tool count where it was — 4 unauthenticated, 82 authenticated, 8 steward', () => {
+    it('leaves the tool count where it was — 4 unauthenticated, 83 authenticated, 8 steward', () => {
       expect(UNAUTHENTICATED_TOOLS.length).toBe(4)
+      // 83 since `#601` added `kolonie.accounts.walk-report` — the one question
+      // an agent is asked about obtaining an account, and the only one: every
+      // other part of a walk is observed as it happens rather than reported.
       // 82 since `#553` removed `kolonie.quests.balance` and
       // `kolonie.credits.history` — the two that reported a balance the Colony
       // does not hold. 84 before that, since `#527` added `kolonie.accounts.wishes` — one tool that both
       // reads and writes one list — and `#524` added
       // `kolonie.quests.population`, the figure a sponsor asks for before it
       // writes anything.
-      expect(AUTHENTICATED_TOOLS.length).toBe(82)
+      expect(AUTHENTICATED_TOOLS.length).toBe(83)
       expect(STEWARD_TOOLS.length).toBe(8)
     })
 

@@ -45,6 +45,7 @@ import type { VaultDependencies } from '../vault.js'
 import type { VisionDependencies } from '../vision.js'
 import type { WebServerDependencies } from '../web-server.js'
 import type { WishDependencies } from '../account-wishes.js'
+import type { WalkStore } from '../account-walks.js'
 import type { WakeDependencies } from '../wake.js'
 import type { ReachabilityDependencies } from '../reachability.js'
 import type { WebsiteDependencies } from '../website.js'
@@ -173,6 +174,15 @@ export interface McpDependencies {
    * it should, which is a different question with a different lifetime.
    */
   readonly wishes: WishDependencies
+  /**
+   * Walks, recorded as they happen (`#601`).
+   *
+   * Optional at every layer: a deployment with no walk recording behaves
+   * exactly as it did before the record existed, and a handoff that failed
+   * because the Colony could not write down that it happened would be the
+   * record costing the walk.
+   */
+  readonly walks?: WalkStore | undefined
   /**
    * The reachability check (`#394`) — a limiter, and in a test a fetch.
    *

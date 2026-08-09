@@ -63,7 +63,13 @@ describe('the curation section', () => {
     const { curationSections } = await import('../console/curation.js')
 
     expect(
-      curationSections({ proposals: [], falling: [], entries: [], unpublished: [] }),
+      curationSections({
+        proposals: [],
+        falling: [],
+        entries: [],
+        unpublished: [],
+        divergences: [],
+      }),
     ).toContain('an empty one is the good answer')
   })
 
@@ -79,6 +85,7 @@ describe('the curation section', () => {
       falling: [],
       entries: [],
       unpublished: [],
+      divergences: [],
     })
 
     expect(rendered).toContain('caution')
@@ -108,6 +115,7 @@ describe('the curation section', () => {
       ],
       entries: [],
       unpublished: [],
+      divergences: [],
     })
 
     for (const control of ['position', 'rank', 'move-up', 'moveUp', 'reorder', 'drag']) {

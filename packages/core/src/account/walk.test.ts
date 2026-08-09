@@ -1,0 +1,283 @@
+import { describe, expect, it } from 'vitest'
+import {
+  WalkNoteSchema,
+  WalkOutcomeSchema,
+  walkMatchesRecipe,
+  walkToSteps,
+  walkVerdict,
+  type AccountWalk,
+  type WalkStep,
+} from './walk.js'
+import { RecipeStepSchema, WriteProviderRecipeSchema, type RecipeStep } from './recipe.js'
+
+/**
+ * The derivation, as a pure function (`#601`).
+ *
+ * **What a finished walk means is one decision and this is where it is
+ * asserted.** The storage half — that a walk accumulates, closes once, and
+ * writes what it earned inside one transaction — is in `packages/db`, against a
+ * real Postgres. Neither is the other.
+ */
+
+const step = (
+  actor: 'agent' | 'operator',
+  extra: Partial<WalkStep> = {},
+  position = 1,
+): WalkStep => ({
+  position,
+  actor,
+  secret: false,
+  at: '2026-08-09T00:00:00.000Z' as never,
+  ...extra,
+})
+
+const walk = (steps: readonly WalkStep[], over: Partial<AccountWalk> = {}): AccountWalk => ({
+  id: '00000000-0000-4000-8000-000000000001',
+  agentId: '00000000-0000-4000-8000-000000000002',
+  kind: 'mailbox' as never,
+  provider: 'somewhere.example' as never,
+  startedAt: '2026-08-09T00:00:00.000Z' as never,
+  finishedAt: '2026-08-09T00:40:00.000Z' as never,
+  outcome: 'proved',
+  wall: null,
+  note: null,
+  steps: [...steps],
+  ...over,
+})
+
+describe('what a walk observed, as steps', () => {
+  /**
+   * **Actions with the wording genuinely missing**, which is the whole of
+   * option 1: a walk does not observe a sentence and the Colony does not invent
+   * one.
+   */
+  it('carries no instruction, because it did not observe one', () => {
+    const derived = walkToSteps(walk([step('agent'), step('agent', {}, 2)]))
+
+    expect(derived).toHaveLength(2)
+    for (const one of derived) expect(one.instruction).toBeUndefined()
+  })
+
+  /**
+   * **And the one piece of wording it does carry is real**, which is option 3:
+   * the ask that actually went to the operator, recorded when it was sent.
+   */
+  it('carries the ask the Colony itself sent', () => {
+    const derived = walkToSteps(
+      walk([step('operator', { ask: 'Please open this URL and complete the challenge.' })]),
+    )
+
+    expect(derived[0]?.ask).toBe('Please open this URL and complete the challenge.')
+  })
+
+  it('marks a sealed step sealed, and says nothing about what was in it', () => {
+    const derived = walkToSteps(walk([step('operator', { secret: true, ask: 'The code.' })]))
+
+    expect(derived[0]?.secret).toBe(true)
+    expect(Object.keys(derived[0] ?? {}).sort()).toEqual(['actor', 'ask', 'secret'])
+  })
+
+  it('puts them in the order they happened, whatever order they arrive in', () => {
+    const derived = walkToSteps(
+      walk([step('operator', { ask: 'second' }, 2), step('agent', {}, 1)]),
+    )
+
+    expect(derived.map((one) => one.actor)).toEqual(['agent', 'operator'])
+  })
+
+  /**
+   * **The derived steps have to be storable**, which is the property that makes
+   * the whole thing work rather than merely typecheck: a draft entry made of
+   * them must pass the write shape.
+   */
+  it('produces steps a draft entry accepts', () => {
+    const steps = walkToSteps(
+      walk([step('agent'), step('operator', { ask: 'Please open this URL.' }, 2)]),
+    )
+
+    for (const one of steps) expect(RecipeStepSchema.safeParse(one).success).toBe(true)
+
+    expect(
+      WriteProviderRecipeSchema.safeParse({
+        kind: 'mailbox',
+        provider: 'somewhere.example',
+        title: 'Somewhere',
+        category: 'mailbox',
+        status: 'draft',
+        steps: [...steps],
+      }).success,
+    ).toBe(true)
+  })
+
+  /** And publishing them, as they are, is refused — which is the other half. */
+  it('produces steps a published entry refuses until somebody writes them up', () => {
+    expect(
+      WriteProviderRecipeSchema.safeParse({
+        kind: 'mailbox',
+        provider: 'somewhere.example',
+        title: 'Somewhere',
+        category: 'mailbox',
+        status: 'joinable',
+        proves: 'rung',
+        steps: [...walkToSteps(walk([step('agent')]))],
+      }).success,
+    ).toBe(false)
+  })
+})
+
+describe('whether a walk went the way the entry says it goes', () => {
+  const published: readonly RecipeStep[] = [
+    { actor: 'agent', instruction: 'Open the signup form.' },
+    { actor: 'operator', instruction: 'A person is needed.', ask: 'Please open this URL.' },
+  ]
+
+  it('matches on shape, whatever the wording says', () => {
+    const matched = walk([step('agent'), step('operator', { ask: 'Completely different.' }, 2)])
+
+    expect(walkMatchesRecipe(matched, { steps: [...published] })).toBe(true)
+  })
+
+  it('does not match when a step appeared or disappeared', () => {
+    expect(walkMatchesRecipe(walk([step('agent')]), { steps: [...published] })).toBe(false)
+  })
+
+  it('does not match when the order changed', () => {
+    const swapped = walk([step('operator', { ask: 'first now' }), step('agent', {}, 2)])
+
+    expect(walkMatchesRecipe(swapped, { steps: [...published] })).toBe(false)
+  })
+
+  /** A step that became sealed is a different step: the channel is the finding. */
+  it('does not match when a step became a sealed one', () => {
+    const sealed = walk([
+      step('agent'),
+      step('operator', { secret: true, ask: 'Please open this URL.' }, 2),
+    ])
+
+    expect(walkMatchesRecipe(sealed, { steps: [...published] })).toBe(false)
+  })
+})
+
+describe('what a finished walk proposes', () => {
+  const one = [step('agent')]
+
+  it('proposes a draft where nobody has walked the provider', () => {
+    expect(walkVerdict(walk(one), undefined).kind).toBe('draft')
+    expect(walkVerdict(walk(one), { status: 'unwritten', steps: [] }).kind).toBe('draft')
+  })
+
+  /**
+   * **The rejection case `#601` names**: a walk that ended halfway proposes
+   * nothing. Half a path published as a recipe is one that fails at step three.
+   */
+  it('proposes nothing for a walk that was abandoned', () => {
+    const verdict = walkVerdict(walk(one, { outcome: 'abandoned' }), undefined)
+
+    expect(verdict.kind).toBe('nothing')
+    expect(verdict.kind === 'nothing' && verdict.why).toContain('half a path')
+  })
+
+  it('proposes nothing for a walk that has not finished', () => {
+    expect(walkVerdict(walk(one, { outcome: null, finishedAt: null }), undefined).kind).toBe(
+      'nothing',
+    )
+  })
+
+  it('proposes nothing when nothing was observed', () => {
+    expect(walkVerdict(walk([]), undefined).kind).toBe('nothing')
+  })
+
+  it('proposes a refusal, with the wall', () => {
+    const verdict = walkVerdict(
+      walk(one, { outcome: 'refused', wall: 'It demands a phone number.' }),
+      undefined,
+    )
+
+    expect(verdict.kind === 'refusal' && verdict.wall).toContain('phone number')
+  })
+
+  /** A refusal that named no wall proposes nothing: a dead end nobody described. */
+  it('proposes nothing for a refusal with no wall', () => {
+    expect(walkVerdict(walk(one, { outcome: 'refused' }), undefined).kind).toBe('nothing')
+  })
+
+  it('confirms a published entry it matched', () => {
+    expect(
+      walkVerdict(walk(one), {
+        status: 'joinable',
+        steps: [{ actor: 'agent', instruction: 'Open the signup form.' }],
+      }).kind,
+    ).toBe('confirms')
+  })
+
+  it('raises a divergence against a published entry it did not match', () => {
+    const verdict = walkVerdict(walk(one), {
+      status: 'joinable',
+      steps: [
+        { actor: 'agent', instruction: 'One.' },
+        { actor: 'operator', instruction: 'Two.', ask: 'Please.' },
+      ],
+    })
+
+    expect(verdict.kind).toBe('diverges')
+    expect(verdict.kind === 'diverges' && verdict.walked).toHaveLength(1)
+    expect(verdict.kind === 'diverges' && verdict.published).toHaveLength(2)
+  })
+
+  /**
+   * **A successful walk of an entry the Colony publishes as refused is the
+   * loudest divergence there is** — the Colony is telling agents not to try
+   * something one of them just did.
+   */
+  it('raises a divergence when it got through an entry published as refused', () => {
+    expect(walkVerdict(walk(one), { status: 'refused', steps: [] }).kind).toBe('diverges')
+  })
+
+  /** A draft is overwritten by a later walk: nobody has stood behind it yet. */
+  it('proposes a draft over an existing draft', () => {
+    expect(
+      walkVerdict(walk(one), { status: 'draft', steps: [{ actor: 'operator', ask: 'x' }] }).kind,
+    ).toBe('draft')
+  })
+})
+
+describe('the one question an agent is asked', () => {
+  it('takes an ordinary answer', () => {
+    expect(
+      WalkNoteSchema.safeParse('It matched, except the second step now opens a different page.')
+        .success,
+    ).toBe(true)
+  })
+
+  /**
+   * **The rejection case `#601` names**: an attempt to record a value that
+   * looks like a credential. A value here would be one the Colony holds and
+   * cannot un-hold.
+   */
+  it('refuses something that looks like a credential', () => {
+    /**
+     * A labelled value, which is the shape `looksLikeCredential` is built
+     * around and the shape an agent actually produces when it means to be
+     * helpful — *here is what I used* with the thing it used after it.
+     */
+    expect(WalkNoteSchema.safeParse('password: hunter2xyzzy').success).toBe(false)
+    expect(
+      WalkNoteSchema.safeParse('it wanted token ghp_abcdefghijklmnopqrstuvwxyz012345').success,
+    ).toBe(false)
+  })
+
+  /**
+   * And the sentence that gets this right is *not* refused, which is why the
+   * check is on the value rather than on the words about one.
+   */
+  it('takes a sentence about a credential that carries none', () => {
+    expect(
+      WalkNoteSchema.safeParse('I chose the password myself and did not send it to anybody.')
+        .success,
+    ).toBe(true)
+  })
+
+  it('has three outcomes and abandoned is one of them', () => {
+    expect(WalkOutcomeSchema.options).toEqual(['proved', 'refused', 'abandoned'])
+  })
+})

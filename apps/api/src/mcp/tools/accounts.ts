@@ -1,7 +1,14 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod'
 import {
+  NO_WALK_IN_PROGRESS,
+  WalkReportSchema,
+  noteWalkStep,
+  walkVerdictAsText,
+} from '../../account-walks.js'
+import {
   KNOWN_ACCOUNT_KINDS,
+  AccountKindSchema,
   AccountProviderSchema,
   AtlasCategorySchema,
   GenericProofMethodSchema,
@@ -206,6 +213,31 @@ export function registerAccountTools(
 
       const result = await declareOwnAccount(authenticatedAgent.agent.id, input, deps.accounts)
       if (result.outcome === 'rejected') return toolError(result.error)
+
+      /**
+       * **The agent got an account, and that is a step of the walk** (`#601`).
+       *
+       * Recorded here rather than asked for later, which is the distinction the
+       * whole record rests on: what is written down is what the Colony saw
+       * happen. `noteWalkStep` opens the walk if this is the first thing that
+       * happened — an agent that joined a provider unaided has no handoff, and
+       * its walk is one agent step.
+       *
+       * `provider` is optional on a declaration and a walk is about one
+       * provider, so a declaration that names none records nothing. That is the
+       * honest outcome: a walk of *somewhere* is not a walk.
+       */
+      if (result.response.account.provider !== null) {
+        await noteWalkStep(
+          deps.walks,
+          authenticatedAgent.agent.id,
+          {
+            kind: result.response.account.kind,
+            provider: result.response.account.provider,
+          },
+          { actor: 'agent' },
+        )
+      }
 
       return {
         content: [
@@ -1035,6 +1067,19 @@ export function registerAccountTools(
         )
         if (result.outcome === 'rejected') return toolError(result.error)
 
+        /**
+         * **An operator step, and a sealed one** (`#601`). What is recorded is
+         * that a drop was used — never a reference to it and never anything in
+         * it. The Colony cannot read a drop back out and this must not become
+         * the place it can.
+         */
+        await noteWalkStep(
+          deps.walks,
+          authenticatedAgent.agent.id,
+          { kind: AccountKindSchema.parse(input.kind), provider: input.provider },
+          { actor: 'operator', secret: true, ask: resolved.step.ask },
+        )
+
         return {
           content: [
             {
@@ -1070,6 +1115,19 @@ export function registerAccountTools(
         })
       }
 
+      /**
+       * **An operator step, carrying the ask the Colony actually sent**
+       * (`#601`). That sentence is real and already public on the recipe it
+       * came from, which is what lets a derived draft's operator step satisfy
+       * `RecipeStepSchema` without anybody inventing wording.
+       */
+      await noteWalkStep(
+        deps.walks,
+        authenticatedAgent.agent.id,
+        { kind: AccountKindSchema.parse(input.kind), provider: input.provider },
+        { actor: 'operator', ask: resolved.step.ask },
+      )
+
       return {
         content: [
           {
@@ -1082,6 +1140,109 @@ export function registerAccountTools(
           },
         ],
         structuredContent: { channel: 'request', ...asked.response },
+      }
+    },
+  )
+
+  /**
+   * The one question an agent is asked at the end of a walk (`#601`).
+   *
+   * **Everything else on the record is observed.** A handoff opening, a drop
+   * being used, an account being declared — the Colony writes each of those
+   * down as it happens. What it cannot observe is whether the walk went the way
+   * the agent was told it would, and whether it ended at a wall or simply
+   * stopped. So there is one tool, three fields, and only one of them is a
+   * question:
+   *
+   * > The agent is asked one question at the end, and only one. *Did this match
+   * > what you were told?* Free text, optional, refused if it looks like a
+   * > credential. An agent that has just finished a signup should not be handed
+   * > a form.
+   *
+   * **What it does to the catalogue is not the agent's to choose.** A walk that
+   * got through against an entry nobody has written produces a draft; against a
+   * published one it confirms or raises a divergence; a walk that ended at a
+   * wall proposes a refusal. `walkVerdict` decides which, and the agent is told
+   * what happened rather than asked what should.
+   *
+   * **Nothing it writes is public.** A draft reaches no public surface
+   * (`#604`), a divergence goes to a steward, and `#600`'s rule is unchanged:
+   * what the Colony says about somebody else's product passes a person.
+   */
+  server.registerTool(
+    'kolonie.accounts.walk-report',
+    {
+      title: 'Say how obtaining an account went',
+      description:
+        'Close the record of obtaining one account. The Colony already knows which steps ' +
+        'happened and which needed your operator — it wrote those down as they happened. This ' +
+        'says how it ended, and it is what turns a walk into a catalogue entry that the next ' +
+        'agent reads instead of discovering the same thing again. If it did not work, say what ' +
+        'stopped you: a refusal is worth as much as a working recipe.',
+      inputSchema: {
+        kind: AccountKindArgumentSchema.describe('The kind of account, as you declared it.'),
+        provider: z.string().describe('The provider you were joining.'),
+        outcome: WalkReportSchema.shape.outcome.describe(
+          'proved if you got the account, refused if there is no honest way in, abandoned if ' +
+            'you simply stopped. Abandoned proposes nothing — half a path is worse than none.',
+        ),
+        wall: z
+          .string()
+          .optional()
+          .describe('Required when refused: what stopped you, in a sentence.'),
+        note: z
+          .string()
+          .optional()
+          .describe(
+            'Optional, and the only question: did this match what you were told? Never put a ' +
+              'password, a code or a token here.',
+          ),
+      },
+      annotations: { readOnlyHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    async (input) => {
+      const authenticatedAgent = await authenticate(credential, deps.store)
+      if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
+
+      const report = WalkReportSchema.safeParse({
+        outcome: input.outcome,
+        ...(input.wall === undefined ? {} : { wall: input.wall }),
+        ...(input.note === undefined ? {} : { note: input.note }),
+      })
+
+      if (!report.success) {
+        return toolError({
+          code: 'validation_failed',
+          message: report.error.issues.map((issue) => issue.message).join(' '),
+        })
+      }
+
+      if (deps.walks === undefined) return toolError(NO_WALK_IN_PROGRESS)
+
+      const provider = AccountProviderSchema.safeParse(input.provider)
+      if (!provider.success) {
+        return toolError({
+          code: 'validation_failed',
+          message: 'A provider is one lowercase token — the host, as you would type it.',
+        })
+      }
+
+      const open = await deps.walks.inProgress(authenticatedAgent.agent.id, {
+        kind: AccountKindSchema.parse(input.kind),
+        provider: provider.data,
+      })
+      if (open === undefined) return toolError(NO_WALK_IN_PROGRESS)
+
+      const finished = await deps.walks.finish(open.id, report.data)
+      if (finished === undefined) return toolError(NO_WALK_IN_PROGRESS)
+
+      return {
+        content: [{ type: 'text', text: walkVerdictAsText(finished.verdict) }],
+        structuredContent: {
+          walkId: finished.walk.id,
+          outcome: finished.walk.outcome,
+          proposes: finished.verdict.kind,
+        },
       }
     },
   )

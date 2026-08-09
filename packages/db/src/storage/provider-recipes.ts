@@ -19,7 +19,17 @@ import {
   type RecipeStep,
   type ReferralArrangement,
 } from '@kolonie-ai/core'
-import type { Database } from '../client.js'
+import type { Database, Transaction } from '../client.js'
+
+/**
+ * **These take a transaction as well as a pool** (`#601`).
+ *
+ * `finishWalk` reads an entry and writes a draft inside the transaction that
+ * closes the walk, because a walk marked `proved` whose draft was not written
+ * is a record claiming a recipe that does not exist. Widening the parameter is
+ * the whole of what that needed — the queries are unchanged.
+ */
+type Handle = Database | Transaction
 import { providerRecipes } from '../schema/provider-recipes.js'
 import { toTimestamp } from './rows.js'
 
@@ -101,7 +111,7 @@ function toRecipe(row: typeof providerRecipes.$inferSelect): ProviderRecipe {
  * somebody's product on a public page.
  */
 export async function providerRecipeList(
-  db: Database,
+  db: Handle,
   kind?: AccountKind,
   options?: { readonly includeInternal?: boolean },
 ): Promise<readonly ProviderRecipe[]> {
@@ -140,7 +150,7 @@ export async function providerRecipeList(
 
 /** One entry, by the pair that identifies it. */
 export async function providerRecipe(
-  db: Database,
+  db: Handle,
   kind: AccountKind,
   provider: string,
 ): Promise<ProviderRecipe | undefined> {
@@ -169,7 +179,7 @@ export async function providerRecipe(
  * entry expects it to behave.
  */
 export async function writeProviderRecipe(
-  db: Database,
+  db: Handle,
   entry: {
     readonly kind: AccountKind
     readonly provider: string

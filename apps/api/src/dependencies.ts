@@ -4,6 +4,7 @@ import type { AcademyDependencies } from './academy.js'
 import type { AccountDependencies } from './accounts.js'
 import type { ProviderRecipes } from './provider-recipes.js'
 import type { SiteChromeSource } from './atlas/site-chrome.js'
+import type { WalkStore } from './account-walks.js'
 import type { AtlasRenames } from './atlas/renames.js'
 import type { Attestations } from './attestations.js'
 import type { AgentStore } from './authentication.js'
@@ -384,6 +385,14 @@ export interface AppDependencies {
    * new configuration.
    */
   readonly siteChrome?: SiteChromeSource | undefined
+  /**
+   * Walks, recorded as they happen (`#601`).
+   *
+   * Optional at every layer for the reason `account-walks.ts` gives: a
+   * deployment with no walk recording behaves exactly as it did before the
+   * record existed.
+   */
+  readonly walks?: WalkStore | undefined
   /**
    * What the Colony will confirm about one agent, to anybody (`#519`).
    *

@@ -1,4 +1,11 @@
-import { isStale, type AtlasEntry, type EntryProposal, type ProviderRecipe } from '@kolonie-ai/core'
+import {
+  isStale,
+  type AccountWalk,
+  type AtlasEntry,
+  type EntryProposal,
+  type ProviderRecipe,
+  type WalkVerdict,
+} from '@kolonie-ai/core'
 import type { FallingRate } from '@kolonie-ai/db'
 import { escape } from './html.js'
 import { relative } from './time.js'
@@ -181,14 +188,87 @@ function unpublishedSection(entries: readonly ProviderRecipe[]): string {
   ].join('\n')
 }
 
+/**
+ * **A walk that did not go the way the entry says it goes** (`#601`).
+ *
+ * `#549` named this as the one signal on the curation screen that would
+ * actually get used — *a provider changing its signup form without telling
+ * anybody* — and until now nothing fed it. The falling-rate table above says
+ * something changed; this says **what**, with both sequences side by side.
+ *
+ * **Shape and never wording.** A walk cannot disagree with an instruction it
+ * never read, and comparing text would make every reworded step look like a
+ * provider changing its form. What is compared is who acted, in what order, and
+ * through which channel.
+ *
+ * **Nothing here has changed the entry.** A divergence is raised, not applied:
+ * `#600`'s rule is that what the Colony says about somebody else's product
+ * passes a person, and a walk is one agent's experience at one moment.
+ */
+function divergencesSection(
+  divergences: readonly {
+    readonly walk: AccountWalk
+    readonly entry: ProviderRecipe
+    readonly verdict: Extract<WalkVerdict, { kind: 'diverges' }>
+  }[],
+): string {
+  if (divergences.length === 0) {
+    return (
+      '<p class="note">No walk has diverged from what its entry says. An empty one is the good ' +
+      'answer here — it means every citizen who walked a published recipe lately found it where ' +
+      'the Colony said it would be.</p>'
+    )
+  }
+
+  const shape = (
+    steps: readonly { readonly actor: string; readonly secret?: boolean }[],
+  ): string =>
+    steps.length === 0
+      ? 'no steps'
+      : steps
+          .map((step, at) => `${at + 1}. ${step.actor}${step.secret === true ? ' (sealed)' : ''}`)
+          .join(' · ')
+
+  const rows = divergences
+    .map(
+      ({ walk, entry, verdict }) =>
+        `<tr><td>${escape(walk.provider)}</td><td>${escape(walk.kind)}</td>` +
+        `<td><small>published: ${escape(shape(verdict.published))}<br>` +
+        `walked: ${escape(shape(verdict.walked))}</small></td>` +
+        `<td>${escape(walk.note ?? '—')}</td>` +
+        `<td>${escape(relative(walk.finishedAt ?? entry.updatedAt))}</td></tr>`,
+    )
+    .join('')
+
+  return [
+    '<table>',
+    '<thead><tr><th>Provider</th><th>Kind</th><th>Published against walked</th>' +
+      '<th>What the citizen said</th><th>When</th></tr></thead>',
+    `<tbody>${rows}</tbody>`,
+    '</table>',
+  ].join('\n')
+}
+
 /** The whole section, headings and all, for whichever page is placing it. */
 export function curationSections(input: {
   readonly proposals: readonly EntryProposal[]
   readonly falling: readonly FallingRate[]
   readonly entries: readonly AtlasEntry[]
   readonly unpublished: readonly ProviderRecipe[]
+  readonly divergences: readonly {
+    readonly walk: AccountWalk
+    readonly entry: ProviderRecipe
+    readonly verdict: Extract<WalkVerdict, { kind: 'diverges' }>
+  }[]
 }): string {
   return [
+    '<h2>Walks that did not match the entry</h2>',
+    '<p class="note">A citizen walked a published recipe and it did not go the way the entry ' +
+      'says it goes. That is how a provider changing its signup form announces itself — the ' +
+      'rate table below notices that something changed, and this says what. Nothing has been ' +
+      'applied: a walk is one agent’s experience at one moment, and what the Colony says about ' +
+      'somebody else’s product passes a person.</p>',
+    divergencesSection(input.divergences),
     '<h2>Entries whose success rate has fallen</h2>',
     '<p class="note">Measured over the last 30 days against the 30 before it, both sides above ' +
       'the aggregate floor. This is the section that catches a provider changing its signup ' +

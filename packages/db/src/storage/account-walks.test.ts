@@ -1,0 +1,506 @@
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { AccountKindSchema, type AgentId } from '@kolonie-ai/core'
+import type { Database } from '../client.js'
+import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
+import {
+  accountWalk,
+  divergentWalks,
+  finishWalk,
+  openWalkId,
+  recordWalkStep,
+  walkInProgress,
+} from './account-walks.js'
+import { providerRecipe, writeProviderRecipe } from './provider-recipes.js'
+import { registerAgent } from './agents.js'
+
+const target = databaseTestTarget()
+const kind = (value: string) => AccountKindSchema.parse(value)
+
+/**
+ * A walk writes the recipe (`#601`).
+ *
+ * **What is asserted here is that the record is a record**: it accumulates as
+ * things happen, it closes once, and what it does to the catalogue is decided
+ * by the walk rather than by whoever calls this. The derivation itself —
+ * `walkVerdict` and `walkToSteps` — is tested in `packages/core`, where it is a
+ * pure function; this is the half that only a database can answer.
+ */
+describe('the record of one agent obtaining one account', () => {
+  let db: Database
+  let agentId: AgentId
+
+  beforeAll(async () => {
+    db = await connectForTests(target.url)
+  })
+
+  afterAll(async () => {
+    await db?.close()
+  })
+
+  beforeEach(async () => {
+    await truncateAll(db)
+    const agent = await registerAgent(db, { name: 'walker', platform: 'openclaw', operator: null })
+    if (agent.outcome !== 'registered') throw new Error('could not register the walking agent')
+    agentId = agent.agent.id
+  })
+
+  const where = { kind: kind('mailbox'), provider: 'somewhere.example' }
+
+  it('opens one walk and then finds the same one', async () => {
+    const first = await walkInProgress(db, agentId, where)
+    const again = await walkInProgress(db, agentId, where)
+
+    expect(again).toBe(first)
+  })
+
+  /**
+   * The read that reporting needs: *is a walk open* has to be answerable
+   * without opening one, or an agent reporting a walk it never started is
+   * handed an empty record it just created.
+   */
+  it('answers that no walk is open, without opening one', async () => {
+    expect(await openWalkId(db, agentId, where)).toBeUndefined()
+    expect(await openWalkId(db, agentId, where)).toBeUndefined()
+  })
+
+  it('numbers steps in the order they happened, and never from the caller', async () => {
+    const walkId = await walkInProgress(db, agentId, where)
+    await recordWalkStep(db, walkId, { actor: 'agent' })
+    await recordWalkStep(db, walkId, { actor: 'operator', ask: 'Please open this URL.' })
+    await recordWalkStep(db, walkId, { actor: 'operator', secret: true, ask: 'The code, sealed.' })
+
+    const walk = await accountWalk(db, walkId)
+
+    expect(walk?.steps.map((step) => step.position)).toEqual([1, 2, 3])
+    expect(walk?.steps.map((step) => step.actor)).toEqual(['agent', 'operator', 'operator'])
+    expect(walk?.steps[2]?.secret).toBe(true)
+  })
+
+  /**
+   * **Nothing an agent step carries can be an ask or a secret** — the shape
+   * `RecipeStepSchema` has, held one table down. An agent step with an ask is a
+   * step with nobody to ask it of.
+   */
+  it('drops an ask on an agent step rather than storing one', async () => {
+    const walkId = await walkInProgress(db, agentId, where)
+    await recordWalkStep(db, walkId, { actor: 'agent', ask: 'this should not be stored' })
+
+    expect((await accountWalk(db, walkId))?.steps[0]?.ask).toBeUndefined()
+  })
+
+  describe('what a finished walk does to the catalogue', () => {
+    it('writes a draft with the steps it observed, and no wording', async () => {
+      const walkId = await walkInProgress(db, agentId, where)
+      await recordWalkStep(db, walkId, { actor: 'agent' })
+      await recordWalkStep(db, walkId, { actor: 'operator', ask: 'Please open this URL.' })
+
+      const finished = await finishWalk(db, walkId, { outcome: 'proved' })
+
+      expect(finished?.verdict.kind).toBe('draft')
+
+      const entry = await providerRecipe(db, where.kind, where.provider)
+      expect(entry?.status).toBe('draft')
+      expect(entry?.steps).toHaveLength(2)
+      /** The actions, with the wording genuinely absent — which is the issue. */
+      expect(entry?.steps[0]?.instruction).toBeUndefined()
+      /** And the one piece of wording that is real: the ask the Colony sent. */
+      expect(entry?.steps[1]?.ask).toBe('Please open this URL.')
+    })
+
+    /**
+     * **The rejection case `#601` asks for by name**: *a walk that ended
+     * halfway proposing nothing*. Half a path published as a recipe is one that
+     * fails at step three.
+     */
+    it('proposes nothing for a walk that was abandoned', async () => {
+      const walkId = await walkInProgress(db, agentId, where)
+      await recordWalkStep(db, walkId, { actor: 'agent' })
+
+      const finished = await finishWalk(db, walkId, { outcome: 'abandoned' })
+
+      expect(finished?.verdict.kind).toBe('nothing')
+      expect(await providerRecipe(db, where.kind, where.provider)).toBeUndefined()
+    })
+
+    it('proposes a refusal with the wall, and no steps', async () => {
+      const walkId = await walkInProgress(db, agentId, where)
+      await recordWalkStep(db, walkId, { actor: 'agent' })
+
+      const finished = await finishWalk(db, walkId, {
+        outcome: 'refused',
+        wall: 'It demands a phone number before it will create the account.',
+      })
+
+      expect(finished?.verdict.kind).toBe('refusal')
+
+      const entry = await providerRecipe(db, where.kind, where.provider)
+      expect(entry?.status).toBe('refused')
+      expect(entry?.refusal).toContain('phone number')
+      expect(entry?.steps).toEqual([])
+    })
+
+    /**
+     * **The two columns `#601` names as written by nothing.** `#525` added them
+     * and nothing has ever set them; a walk that matched the published shape is
+     * the only thing that should.
+     */
+    it('confirms a published entry whose shape it matched', async () => {
+      await writeProviderRecipe(db, {
+        kind: where.kind,
+        provider: where.provider,
+        title: 'Somewhere',
+        category: 'mailbox',
+        status: 'joinable',
+        proves: 'rung',
+        steps: [
+          { actor: 'agent', instruction: 'Open the signup form.' },
+          { actor: 'operator', instruction: 'A person is needed.', ask: 'Please open this URL.' },
+        ],
+      })
+
+      const walkId = await walkInProgress(db, agentId, where)
+      await recordWalkStep(db, walkId, { actor: 'agent' })
+      await recordWalkStep(db, walkId, { actor: 'operator', ask: 'Please open this URL.' })
+
+      const finished = await finishWalk(db, walkId, { outcome: 'proved' })
+
+      expect(finished?.verdict.kind).toBe('confirms')
+
+      const entry = await providerRecipe(db, where.kind, where.provider)
+      expect(entry?.lastConfirmedAt).not.toBeNull()
+
+      /**
+       * **`last_confirmed_by` is read in SQL because the shape does not carry
+       * it.** `ProviderRecipe` exposes the date and not the citizen — a page
+       * says *last confirmed on* and never *by whom*, which is `#523`'s
+       * direction. The column exists, `#601` names it as written by nothing,
+       * and this is where it is checked that it now is.
+       */
+      const [row] = await db.execute<{ last_confirmed_by: string | null }>(
+        `select last_confirmed_by from provider_recipes where provider = '${where.provider}'`,
+      )
+      expect(row?.last_confirmed_by).toBe(agentId)
+
+      /** And the recipe is untouched: confirming is a date, not a rewrite. */
+      expect(entry?.steps).toHaveLength(2)
+      expect(entry?.status).toBe('joinable')
+    })
+
+    /**
+     * **A walk that diverged does not overwrite what a steward published.**
+     * `#600`'s rule holds inside the mechanism: what the Colony says about
+     * somebody else's product passes a person.
+     */
+    it('raises a divergence and changes nothing about the entry', async () => {
+      await writeProviderRecipe(db, {
+        kind: where.kind,
+        provider: where.provider,
+        title: 'Somewhere',
+        category: 'mailbox',
+        status: 'joinable',
+        proves: 'rung',
+        steps: [{ actor: 'agent', instruction: 'Open the signup form.' }],
+      })
+
+      const walkId = await walkInProgress(db, agentId, where)
+      await recordWalkStep(db, walkId, { actor: 'agent' })
+      await recordWalkStep(db, walkId, { actor: 'operator', ask: 'This is new.' })
+
+      const finished = await finishWalk(db, walkId, { outcome: 'proved' })
+
+      expect(finished?.verdict.kind).toBe('diverges')
+
+      const entry = await providerRecipe(db, where.kind, where.provider)
+      expect(entry?.steps).toHaveLength(1)
+      expect(entry?.lastConfirmedAt).toBeNull()
+
+      const queued = await divergentWalks(db)
+      expect(queued).toHaveLength(1)
+      expect(queued[0]?.walk.provider).toBe(where.provider)
+    })
+
+    /**
+     * Closing twice must not propose twice. A proof arriving after a
+     * declaration already closed the walk is the realistic version of this.
+     */
+    it('closes once, and a second close writes nothing', async () => {
+      const walkId = await walkInProgress(db, agentId, where)
+      await recordWalkStep(db, walkId, { actor: 'agent' })
+
+      expect(await finishWalk(db, walkId, { outcome: 'proved' })).toBeDefined()
+      expect(await finishWalk(db, walkId, { outcome: 'refused', wall: 'x' })).toBeUndefined()
+
+      const entry = await providerRecipe(db, where.kind, where.provider)
+      expect(entry?.status).toBe('draft')
+    })
+
+    /** And a finished walk is not the open one any more. */
+    it('leaves no walk open once it has finished', async () => {
+      const walkId = await walkInProgress(db, agentId, where)
+      await recordWalkStep(db, walkId, { actor: 'agent' })
+      await finishWalk(db, walkId, { outcome: 'proved' })
+
+      expect(await openWalkId(db, agentId, where)).toBeUndefined()
+    })
+  })
+
+  /**
+   * **The walk this issue was written about, replayed** (`#601`, criterion nine).
+   *
+   * On 2026-08-08 an agent and its operator walked the `github.com` recipe end
+   * to end. It was the first real one, and everything learned from it was filed
+   * as four GitHub issues — `#595`, `#596`, `#597` and two findings that reached
+   * nowhere at all. The entry itself did not change.
+   *
+   * `kolonie-platform#597` records what actually happened, step by step:
+   *
+   * | Recipe step | What happened |
+   * |---|---|
+   * | 1 · agent decides handle and address | happened |
+   * | 2 · operator creates the account | happened — **the only step a person was genuinely required for** |
+   * | 3 · operator mints a token and seals it | **did not happen** — the agent held the password and minted it itself in four minutes |
+   * | 4 · agent declares the account | happened |
+   *
+   * So the walk was agent, operator, agent, agent — and the published recipe
+   * says operator three times. **This test replays it through the real
+   * mechanism and asserts that the finding `#597` had to be written by hand
+   * falls out of it**: the walk diverges, both sequences are on a steward's
+   * queue, and nothing was overwritten.
+   *
+   * That is the whole claim of this issue in one case. A second agent walking
+   * `github.com` tomorrow does not file a fifth issue.
+   */
+  describe('the walk of 2026-08-08, replayed (#597)', () => {
+    const github = { kind: kind('github'), provider: 'github.com' }
+
+    /** The recipe as it was published that day: three operator steps. */
+    const asPublished = [
+      { actor: 'agent' as const, instruction: 'Decide the handle and the address.' },
+      {
+        actor: 'operator' as const,
+        instruction: 'Create the account.',
+        ask: 'Please create the account and accept the terms.',
+      },
+      {
+        actor: 'operator' as const,
+        instruction: 'Mint a token and seal it.',
+        ask: 'Please mint a token with these scopes and put it in the sealed box.',
+        secret: true,
+      },
+      { actor: 'agent' as const, instruction: 'Declare the account.' },
+    ]
+
+    it('reproduces #597’s finding instead of somebody having to write it', async () => {
+      await writeProviderRecipe(db, {
+        ...github,
+        title: 'GitHub',
+        category: 'code-hosting',
+        status: 'joinable',
+        proves: 'rung',
+        steps: asPublished,
+      })
+
+      /** What the Colony would have observed, in the order it happened. */
+      const walkId = await walkInProgress(db, agentId, github)
+      await recordWalkStep(db, walkId, { actor: 'agent' })
+      await recordWalkStep(db, walkId, {
+        actor: 'operator',
+        ask: 'Please create the account and accept the terms.',
+      })
+      /** The step `#597` is named for: the agent minted the token itself. */
+      await recordWalkStep(db, walkId, { actor: 'agent' })
+      await recordWalkStep(db, walkId, { actor: 'agent' })
+
+      const finished = await finishWalk(db, walkId, {
+        outcome: 'proved',
+        note: 'The operator was only needed to accept the terms. I minted the token myself.',
+      })
+
+      expect(finished?.verdict.kind).toBe('diverges')
+
+      /**
+       * **The finding, as data rather than as prose in an issue**: one operator
+       * step where the entry claims two, and the sealed one did not happen.
+       */
+      if (finished?.verdict.kind !== 'diverges') throw new Error('expected a divergence')
+      expect(finished.verdict.walked.filter((step) => step.actor === 'operator')).toHaveLength(1)
+      expect(finished.verdict.published.filter((step) => step.actor === 'operator')).toHaveLength(2)
+      expect(finished.verdict.walked.some((step) => step.secret === true)).toBe(false)
+
+      /** It is on a steward's queue, with both sequences. */
+      const queued = await divergentWalks(db)
+      expect(queued).toHaveLength(1)
+      expect(queued[0]?.walk.note).toContain('minted the token myself')
+
+      /** And nothing about the published entry moved. */
+      const entry = await providerRecipe(db, github.kind, github.provider)
+      expect(entry?.status).toBe('joinable')
+      expect(entry?.steps).toHaveLength(4)
+      expect(entry?.lastConfirmedAt).toBeNull()
+    })
+
+    /**
+     * And the other half: the same walk against a provider the Atlas merely
+     * lists writes the entry rather than raising a disagreement with one. This
+     * is what *nobody authors a recipe from imagination* looks like from the
+     * catalogue's side.
+     */
+    it('writes the entry when there was nothing to disagree with', async () => {
+      const walkId = await walkInProgress(db, agentId, github)
+      await recordWalkStep(db, walkId, { actor: 'agent' })
+      await recordWalkStep(db, walkId, {
+        actor: 'operator',
+        ask: 'Please create the account and accept the terms.',
+      })
+      await recordWalkStep(db, walkId, { actor: 'agent' })
+      await recordWalkStep(db, walkId, { actor: 'agent' })
+
+      await finishWalk(db, walkId, { outcome: 'proved' })
+
+      const entry = await providerRecipe(db, github.kind, github.provider)
+
+      expect(entry?.status).toBe('draft')
+      expect(entry?.steps.map((step) => step.actor)).toEqual([
+        'agent',
+        'operator',
+        'agent',
+        'agent',
+      ])
+      /** The operator's own sentence, carried forward and not composed. */
+      expect(entry?.steps[1]?.ask).toBe('Please create the account and accept the terms.')
+      /** And nothing else: a steward writes what each step says. */
+      expect(entry?.steps.every((step) => step.instruction === undefined)).toBe(true)
+    })
+  })
+
+  describe('what the table refuses', () => {
+    const refusedBy = async (statement: string): Promise<string | undefined> => {
+      try {
+        await db.execute(statement)
+      } catch (error: unknown) {
+        for (let current: unknown = error; current != null;) {
+          if (typeof current === 'object' && 'constraint_name' in current) {
+            return (current as { constraint_name?: string }).constraint_name
+          }
+          current =
+            typeof current === 'object' && current !== null && 'cause' in current
+              ? (current as { cause?: unknown }).cause
+              : null
+        }
+
+        return 'refused by something that named no constraint'
+      }
+
+      return undefined
+    }
+
+    it('refuses an outcome nobody defined', async () => {
+      expect(
+        await refusedBy(
+          `insert into account_walks (agent_id, kind, provider, finished_at, outcome)
+           values ('${agentId}', 'mailbox', 'a.example', now(), 'probably')`,
+        ),
+      ).toBe('account_walks_outcome_is_known')
+    })
+
+    it('refuses a walk that is half finished', async () => {
+      expect(
+        await refusedBy(
+          `insert into account_walks (agent_id, kind, provider, outcome)
+           values ('${agentId}', 'mailbox', 'b.example', 'proved')`,
+        ),
+      ).toBe('account_walks_finished_together')
+    })
+
+    it('refuses a refusal that names no wall', async () => {
+      expect(
+        await refusedBy(
+          `insert into account_walks (agent_id, kind, provider, finished_at, outcome)
+           values ('${agentId}', 'mailbox', 'c.example', now(), 'refused')`,
+        ),
+      ).toBe('account_walks_wall_only_on_a_refusal')
+    })
+
+    it('refuses a wall on a walk that got through', async () => {
+      expect(
+        await refusedBy(
+          `insert into account_walks (agent_id, kind, provider, finished_at, outcome, wall)
+           values ('${agentId}', 'mailbox', 'd.example', now(), 'proved', 'but also a wall')`,
+        ),
+      ).toBe('account_walks_wall_only_on_a_refusal')
+    })
+
+    /**
+     * **The rejection case that is about the red line rather than about a
+     * shape.** An agent step with a sealed answer would say a drop carried
+     * something the agent generated itself, which `#528` is explicit does not
+     * happen — and it is the row that would make this table look like somewhere
+     * a drop's contents could be traced.
+     */
+    it('refuses an agent step that claims a sealed answer', async () => {
+      const walkId = await walkInProgress(db, agentId, where)
+
+      expect(
+        await refusedBy(
+          `insert into account_walk_steps (walk_id, position, actor, secret)
+           values ('${walkId}', 1, 'agent', true)`,
+        ),
+      ).toBe('account_walk_steps_only_an_operator_is_asked')
+    })
+
+    it('refuses a step outside the range a recipe can hold', async () => {
+      const walkId = await walkInProgress(db, agentId, where)
+
+      expect(
+        await refusedBy(
+          `insert into account_walk_steps (walk_id, position, actor)
+           values ('${walkId}', 21, 'agent')`,
+        ),
+      ).toBe('account_walk_steps_position_is_in_range')
+    })
+  })
+
+  /**
+   * **The constraint `#601` needed on the other table** — the one that makes
+   * *optional instruction* safe rather than merely convenient.
+   */
+  describe('a wordless step cannot be published', () => {
+    it('takes a draft whose steps have no wording', async () => {
+      const written = await writeProviderRecipe(db, {
+        kind: kind('mailbox'),
+        provider: 'wordless.example',
+        title: 'Wordless',
+        category: 'mailbox',
+        status: 'draft',
+        steps: [{ actor: 'agent' }],
+      })
+
+      expect(written.status).toBe('draft')
+      expect(written.steps[0]?.instruction).toBeUndefined()
+    })
+
+    it('refuses to publish one', async () => {
+      let refused: string | undefined
+      try {
+        await db.execute(
+          `insert into provider_recipes (kind, provider, title, status, category, steps, proves)
+           values ('mailbox', 'published-blank.example', 'Blank', 'joinable', 'mailbox',
+                   '[{"actor":"agent"}]', 'rung')`,
+        )
+      } catch (error: unknown) {
+        for (let current: unknown = error; current != null;) {
+          if (typeof current === 'object' && 'constraint_name' in current) {
+            refused = (current as { constraint_name?: string }).constraint_name
+            break
+          }
+          current =
+            typeof current === 'object' && current !== null && 'cause' in current
+              ? (current as { cause?: unknown }).cause
+              : null
+        }
+      }
+
+      expect(refused).toBe('provider_recipes_published_steps_are_written')
+    })
+  })
+})

@@ -130,6 +130,18 @@ describe('schema', () => {
          */
         'account_proofs',
         /**
+         * #601. One agent obtaining one account, and what happened during it.
+         * A walk writes the recipe: the first successful one against a provider
+         * nobody has walked produces a draft entry a steward publishes, and a
+         * later one confirms it or says the signup form changed.
+         *
+         * **There is no column here for a value.** An actor, a channel, a
+         * position and a time; the one text field is the ask the Colony itself
+         * sent, which is already public on the recipe it came from.
+         */
+        'account_walk_steps',
+        'account_walks',
+        /**
          * #150. What a citizen holds, beside what it can do — the layer under
          * the skills, which existed six times over as one proof-event log per
          * kind.

@@ -865,6 +865,27 @@ describe('the erasure boundary', () => {
        * they are the citizen's, at somebody else's service.
        */
       /**
+       * The record of obtaining an account (`#601`). **Cascades**, and that
+       * costs the Colony something it would rather keep — which is why the
+       * choice is written down here rather than taken by whichever rule was
+       * nearest.
+       *
+       * A walk is a fact about one citizen: which steps it took, which needed
+       * its operator, how long it spent. Keeping it after erasure would keep a
+       * behavioural record of a citizen that asked to be forgotten, and the
+       * erasure boundary does not admit *but it was useful* as an argument.
+       *
+       * **What survives is what the walk produced**, and that is the point:
+       * a draft or a refusal is written into `provider_recipes` at the moment
+       * the walk closes, as a statement about the *provider* rather than about
+       * the citizen. It carries no reference back. So the finding outlives the
+       * walker, and nothing about the walker outlives them.
+       *
+       * `account_walk_steps` is not in this list because it references the walk
+       * rather than the agent, and cascades from it.
+       */
+      'account_walks.agent_id c',
+      /**
        * The shared list (`#527`). Cascades: a wish is a fact about one
        * citizen's plan and about nobody else, including the operator who wrote
        * half of it — what an erased citizen leaves behind must not include a

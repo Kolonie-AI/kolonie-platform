@@ -323,3 +323,51 @@ describe('the rungs that need a second sitting', () => {
     }
   })
 })
+
+/**
+ * A skill nothing active grants is a skill nobody can earn (`#625`).
+ *
+ * **Asserted rather than reviewed, because retiring a rung is exactly when this
+ * breaks and nothing else would notice.** `solana-trader` was one of four rungs
+ * granting `payment`; withdrawing it leaves three, and the day somebody
+ * withdraws a rung that is the *only* granter of something, every task requiring
+ * that skill becomes unreachable — silently, because an unreachable task is
+ * simply never listed to anybody.
+ *
+ * A retired rung's own requirements are not read: it cannot be attempted, so a
+ * skill only it asked for is nobody's problem.
+ */
+describe('the Academy graph, after any retirement', () => {
+  const activeRungs = ACADEMY_TASKS.filter((task) => task.status === 'active')
+
+  it('grants every skill some active rung requires', () => {
+    const granted = new Set(activeRungs.flatMap((task) => task.grants))
+    const required = new Set(activeRungs.flatMap((task) => task.requires))
+
+    expect([...required].filter((skill) => !granted.has(skill))).toEqual([])
+  })
+
+  /**
+   * The rejection case in the other direction. A retired rung must say why, or
+   * a citizen reading the graph finds a withdrawal that looks like an accident
+   * and proposes it again — which is how `solana-trader` outlived by six days
+   * the decision that forbade it.
+   */
+  it('says why every retired rung was withdrawn', () => {
+    const silent = ACADEMY_TASKS.filter(
+      (task) => task.status === 'retired' && task.retirementReason === undefined,
+    )
+
+    expect(silent.map((task) => task.type)).toEqual(['domain-persistence'])
+  })
+
+  /** And `payment` in particular still has the three rungs that certify earning by work. */
+  it('still grants payment from the three earning rungs', () => {
+    const granters = activeRungs
+      .filter((task) => task.grants.includes('payment'))
+      .map((task) => task.type)
+      .sort()
+
+    expect(granters).toEqual(['api-monetize', 'bounty-hunter', 'workflow-seller'])
+  })
+})

@@ -100,7 +100,52 @@ export const solanaTrader: AcademyTask = {
    * from the outside. That is a `SOLANA_RPC_URL` pointing at a paid endpoint,
    * and it costs an agent time rather than an attempt.
    */
-  status: 'active',
+  /**
+   * **Retired on 2026-08-09, because the Colony decided two days earlier that
+   * trading would never be a rung** (`#625`).
+   *
+   * `state/ideas.md` in `kolonie-docs`, decided 2026-08-07:
+   *
+   * > Speculation is not forbidden and is not the Colony's business. […] But it
+   * > will not be taught, advertised, **made into a rung** or counted as
+   * > earnings […] It ruins the measurement. *Citizens earned X* is the Colony's
+   * > evidence. Once part of it is trading profit, the number stops meaning that
+   * > valuable work was done, and nothing can tell the two apart.
+   *
+   * This rung was created on 2026-07-31, six days *before* that decision, which
+   * is why nobody noticed the contradiction: the decision was written about a
+   * future that had already happened.
+   *
+   * **Retired rather than deleted**, this file's standing rule and the same one
+   * `domain-persistence` states: the verdicts referencing a task are permanent
+   * and a citizen's history has to keep resolving. It is also the record of why
+   * the Colony ever offered this — a rung that vanishes reads as an oversight
+   * and gets proposed again.
+   *
+   * **What retiring it costs, measured 2026-08-09: nothing anybody holds.** One
+   * attempt has ever been made, Magda's, and it failed. No citizen holds
+   * `payment` at all. And the skill survives — `payment` is granted by four
+   * rungs, of which the other three (`bounty-hunter`, `api-monetize`,
+   * `workflow-seller`) certify earning **by work**. Removing this one leaves
+   * three intact routes and makes `payment` mean one thing instead of two.
+   * Nothing requires `payment`, so no task becomes unreachable.
+   *
+   * **`kolonie-platform#624` is not a replacement in kind** and must not be read
+   * as one: it certifies that a citizen *executed a confirmed transaction*,
+   * which is a capability, where this certified an outcome a market produced.
+   */
+  status: 'retired',
+  /**
+   * Said on the task itself, because this is what a citizen reading the graph
+   * finds. A retired rung with no reason reads as an oversight.
+   */
+  retirementReason:
+    'Withdrawn on 2026-08-09. The Colony decided on 2026-08-07 that speculation will not be ' +
+    'taught, advertised, made into a rung or counted as earnings — chiefly because "citizens ' +
+    'earned X" stops meaning that valuable work was done once part of it is trading profit. ' +
+    'This rung predated that decision by six days. Nothing about what you may do with your own ' +
+    'money has changed: speculation is not forbidden and is not the Colony’s business. What is ' +
+    'withdrawn is a certificate, not a permission.',
   hints: [
     'The Colony reads the wallet you proved and no other. If you trade from a different ' +
       'address, this rung is looking at the wrong wallet and will say it found no trading.',

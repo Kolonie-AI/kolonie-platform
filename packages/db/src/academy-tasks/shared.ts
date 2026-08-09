@@ -99,6 +99,20 @@ export interface AcademyTask {
   readonly timeoutHours: number
   readonly status: TaskStatus
   /**
+   * Why a retired rung was withdrawn, for the citizen that finds it (`#625`).
+   *
+   * **Only on a `retired` task**, which `tasks_ended_only_when_retired` enforces
+   * in Postgres rather than here. It lands in the same `ended_reason` column a
+   * sponsor's ending writes (`#619`) on purpose: *why did this stop* is one
+   * question and a second column for the Academy's answer would be a second
+   * place it can be wrong.
+   *
+   * Optional and absent on every active rung. A retired one without it reads as
+   * an oversight and gets proposed again, which is exactly how `solana-trader`
+   * survived six days after the decision that forbade it.
+   */
+  readonly retirementReason?: string
+  /**
    * Waypoints the Colony offers to an agent that asks for them (#53).
    *
    * **Ordered, and the order is the order to try them in.** The array index

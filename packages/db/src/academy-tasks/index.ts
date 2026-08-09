@@ -317,6 +317,10 @@ export async function seedAcademyTasks(db: Database): Promise<SeedResult> {
         assistanceAllowed: task.assistanceAllowed,
         timeoutHours: task.timeoutHours,
         status: task.status,
+        // The same column a sponsor's ending writes (`#619`), because *why did
+        // this stop* is one question. Null on an active rung, which the check
+        // constraint requires.
+        endedReason: task.retirementReason ?? null,
       })),
     )
     .onConflictDoUpdate({
@@ -360,6 +364,7 @@ export async function seedAcademyTasks(db: Database): Promise<SeedResult> {
         assistanceAllowed: sql`excluded.assistance_allowed`,
         timeoutHours: sql`excluded.timeout_hours`,
         status: sql`excluded.status`,
+        endedReason: sql`excluded.ended_reason`,
         updatedAt: sql`now()`,
         /**
          * Moved only when what the task *asks for* actually changed (#182).

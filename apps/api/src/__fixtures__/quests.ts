@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import {
   QUEST_PENDING_LIMIT,
   QUEST_TASK_TYPE,
+  QUEST_MAX_SLOTS,
   QUEST_TIER_CAPS_LAMPORTS,
   QuestDraftSchema,
   QuestPatchSchema,
@@ -147,6 +148,8 @@ export function fakeQuests(): FakeQuestDesk {
   let caps: Readonly<Record<QuestTier, number>> | null = null
   /** Whether an obstacle report filed here counts as work (`#632`). */
   let earnsObstacleBonus = true
+  /** Places bought and waiting on money, per quest (`#629`). */
+  const pendingSlots = new Map<string, number>()
 
   const task = (input: {
     readonly id: TaskId
@@ -689,6 +692,56 @@ export function fakeQuests(): FakeQuestDesk {
      * The reservation needs no unwinding here for the same reason it needs none
      * in storage — `reserved` is summed from the quests currently in the queue.
      */
+    /**
+     * Buying more places (`#629`), in memory.
+     *
+     * The invariant the real one enforces in a locked transaction — capacity and
+     * the money for it moving together — is `packages/db`'s and is asserted
+     * there against a real Postgres. What these routes need is the ownership
+     * rule, the status rule and the sentence a sponsor reads.
+     */
+    async topUp({ sponsorId, taskId, slots }) {
+      const held = mine(sponsorId, taskId)
+      if (held === undefined) {
+        return quests.has(taskId) ? { outcome: 'not-yours' } : { outcome: 'unknown-quest' }
+      }
+
+      const { status } = held.own.task
+      if (status !== 'active') return { outcome: 'not-running', status }
+      if (pendingSlots.has(taskId)) {
+        return { outcome: 'already-topping-up', pendingSlots: pendingSlots.get(taskId) ?? 0 }
+      }
+
+      const capacity = (held.own.task.slots ?? 0) + slots
+      if (capacity > QUEST_MAX_SLOTS) {
+        return { outcome: 'over-capacity', ceiling: QUEST_MAX_SLOTS }
+      }
+
+      const owed = held.own.task.reward.lamports * slots
+      if (owed === 0) {
+        const quest = put(
+          { ...held.own, task: { ...held.own.task, slots: capacity } },
+          held.moderated,
+        )
+        return {
+          outcome: 'bought',
+          quest,
+          invoice: { lamports: 0, paidLamports: 0 },
+          pendingSlots: 0,
+          expiresAt: held.own.task.expiresAt,
+        }
+      }
+
+      pendingSlots.set(taskId, slots)
+      return {
+        outcome: 'bought',
+        quest: held.own,
+        invoice: { lamports: owed, paidLamports: 0 },
+        pendingSlots: slots,
+        expiresAt: held.own.task.expiresAt,
+      }
+    },
+
     async withdraw({ authorId, taskId }) {
       const held = mine(authorId, taskId)
       if (held === undefined) {

@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, sql } from 'drizzle-orm'
+import { and, eq, inArray, isNotNull, or, sql } from 'drizzle-orm'
 import {
   INVOICE_EXPIRY_DAYS,
   applyToInvoice,
@@ -58,15 +58,37 @@ export async function applyPaymentToInvoice(
   tx: Transaction,
   command: { readonly sponsorId: AgentId; readonly lamports: number },
 ): Promise<InvoiceApplication> {
+  /**
+   * **A running quest with a top-up outstanding is waiting for money too**
+   * (`#629`), and it is picked before any quest in `awaiting_payment`.
+   *
+   * The order is the argument. A top-up is capacity on a quest citizens are
+   * answering *right now*, and every hour it waits is an hour a citizen arrives
+   * to a quest that reads as full. A quest in `awaiting_payment` has not started
+   * and nobody is looking at it. Both are the sponsor's own money and both are
+   * refunded if unused, so the only thing the order changes is which one stops
+   * costing something sooner.
+   *
+   * `awaiting_payment_since` is null on the topped-up row, so `nulls first`
+   * expresses that ordering rather than a second query and a branch.
+   */
   const [waiting] = await tx
     .select({
       id: tasks.id,
       invoiceLamports: tasks.invoiceLamports,
       paidLamports: tasks.paidLamports,
+      slots: tasks.slots,
+      pendingSlots: tasks.pendingSlots,
+      status: tasks.status,
     })
     .from(tasks)
-    .where(and(eq(tasks.createdBy, command.sponsorId), eq(tasks.status, 'awaiting_payment')))
-    .orderBy(asc(tasks.awaitingPaymentSince))
+    .where(
+      and(
+        eq(tasks.createdBy, command.sponsorId),
+        or(eq(tasks.status, 'awaiting_payment'), isNotNull(tasks.pendingSlots)),
+      ),
+    )
+    .orderBy(sql`${tasks.awaitingPaymentSince} asc nulls first`)
     // Locked for the length of the transaction, so two arrivals in the same
     // second cannot both read the same outstanding amount and both settle it.
     .for('update')
@@ -81,17 +103,33 @@ export async function applyPaymentToInvoice(
   const paid = waiting.paidLamports + applied
   const settled = invoiceIsSettled(paid, invoice)
 
+  /**
+   * **The top-up completes here or not at all** (`#629`).
+   *
+   * `pending_slots` exists precisely so that capacity and the money for it move
+   * in one transaction, and this is that transaction: the places become
+   * answerable in the same write that records the payment for them. A part
+   * payment settles nothing and adds nothing — a sponsor that sent half of a
+   * top-up has bought half a place, and there is no such thing.
+   */
+  const completingTopUp = settled && waiting.pendingSlots !== null
+
   await tx
     .update(tasks)
     .set({
       paidLamports: paid,
-      ...(settled && {
-        status: 'active' as const,
-        // The clock stops when the waiting does, and the check constraint
-        // requires it: a quest that is not awaiting payment carries no
-        // awaiting-payment timestamp.
-        awaitingPaymentSince: null,
+      ...(completingTopUp && {
+        slots: (waiting.slots ?? 0) + (waiting.pendingSlots ?? 0),
+        pendingSlots: null,
       }),
+      ...(settled &&
+        waiting.status === 'awaiting_payment' && {
+          status: 'active' as const,
+          // The clock stops when the waiting does, and the check constraint
+          // requires it: a quest that is not awaiting payment carries no
+          // awaiting-payment timestamp.
+          awaitingPaymentSince: null,
+        }),
     })
     .where(eq(tasks.id, waiting.id))
 

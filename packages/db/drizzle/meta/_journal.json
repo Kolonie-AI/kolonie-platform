@@ -1345,6 +1345,13 @@
       "when": 1786267029918,
       "tag": "0191_the_obstacle_bonus_is_a_quarter",
       "breakpoints": true
+    },
+    {
+      "idx": 192,
+      "version": "7",
+      "when": 1786267899512,
+      "tag": "0192_a_sponsor_buys_more_places",
+      "breakpoints": true
     }
   ]
 }

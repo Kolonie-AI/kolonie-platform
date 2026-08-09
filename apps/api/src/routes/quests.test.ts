@@ -686,6 +686,86 @@ describe('POST /v1/quests/:questId/submit', () => {
   })
 })
 
+/**
+ * `#629`. The route half: who may buy places, on what, and what the sponsor is
+ * told before it pays. The invariant — capacity and its money moving together —
+ * is `packages/db`'s and is asserted there against a real Postgres.
+ */
+describe('POST /v1/quests/:questId/slots', () => {
+  /** A quest a steward has published, which is the only kind capacity is sold on. */
+  const aPublishedQuest = async (): Promise<string> => {
+    const id = await awaitingReview(aDraft({ reward: { reputation: 0, lamports: 100 }, slots: 3 }))
+    await post(`/v1/quests/${id}/publish`, stewardKey)
+    return id
+  }
+
+  it('buys places, and says what is owed and how long the quest has left', async () => {
+    const id = await aPublishedQuest()
+
+    const response = await post(`/v1/quests/${id}/slots`, sponsorKey, { slots: 3 })
+
+    expect(response.statusCode).toBe(200)
+    const body = response.json()
+    expect(body.pendingSlots).toBe(3)
+    expect(body.invoice.lamports).toBe(300)
+    // The expiry is the one thing a top-up cannot move, so it is said before
+    // the sponsor pays rather than discovered afterwards.
+    expect(body.notice).toContain('hour(s)')
+    expect(typeof body.hoursLeft).toBe('number')
+  })
+
+  /** The rejection case: somebody else's quest is not yours to spend on. */
+  it('answers a steward buying places on a sponsor’s quest as it answers a stranger', async () => {
+    const id = await aPublishedQuest()
+
+    const response = await post(`/v1/quests/${id}/slots`, stewardKey, { slots: 3 })
+
+    expect(response.statusCode).toBe(404)
+  })
+
+  /** The other rejection case: there is no field for a price, so it cannot arrive. */
+  it('ignores an attempt to change the reward, because there is no field for one', async () => {
+    const id = await aPublishedQuest()
+
+    const response = await post(`/v1/quests/${id}/slots`, sponsorKey, {
+      slots: 2,
+      reward: { reputation: 0, lamports: 100_000 },
+    })
+
+    expect(response.statusCode).toBe(200)
+    // Two more at the price the quest already carries, and not at the one sent.
+    expect(response.json().invoice.lamports).toBe(200)
+    expect(response.json().quest.quest.reward.lamports).toBe(100)
+  })
+
+  it('refuses a capacity that is not a whole number of places, and one that is zero', async () => {
+    const id = await aPublishedQuest()
+
+    expect((await post(`/v1/quests/${id}/slots`, sponsorKey, { slots: 0 })).statusCode).toBe(422)
+    expect((await post(`/v1/quests/${id}/slots`, sponsorKey, { slots: -3 })).statusCode).toBe(422)
+    expect((await post(`/v1/quests/${id}/slots`, sponsorKey, {})).statusCode).toBe(422)
+  })
+
+  it('refuses a quest that is still a draft, and says where capacity is bought', async () => {
+    const id = (await write(aDraft())).json().quest.id
+
+    const response = await post(`/v1/quests/${id}/slots`, sponsorKey, { slots: 3 })
+
+    expect(response.statusCode).toBe(409)
+    expect(response.json().message).toContain('draft')
+  })
+
+  it('refuses a second purchase while the first is waiting for its money', async () => {
+    const id = await aPublishedQuest()
+    await post(`/v1/quests/${id}/slots`, sponsorKey, { slots: 3 })
+
+    const response = await post(`/v1/quests/${id}/slots`, sponsorKey, { slots: 1 })
+
+    expect(response.statusCode).toBe(409)
+    expect(response.json().message).toContain('already bought')
+  })
+})
+
 describe('GET /v1/quests', () => {
   it('lists the caller’s own quests and nobody else’s', async () => {
     await write(aDraft())

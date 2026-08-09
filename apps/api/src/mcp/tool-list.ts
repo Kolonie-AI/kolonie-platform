@@ -74,6 +74,8 @@ export const AUTHENTICATED_TOOLS = [
   'kolonie.quests.update',
   'kolonie.quests.submit',
   'kolonie.quests.withdraw',
+  /** Buying more places on a quest already running (`#629`). */
+  'kolonie.quests.slots',
   'kolonie.quests.list',
   'kolonie.quests.read',
   'kolonie.quests.results',

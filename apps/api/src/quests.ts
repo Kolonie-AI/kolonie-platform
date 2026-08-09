@@ -11,6 +11,8 @@ import {
   QuestPatchSchema,
   QuestRefusalSchema,
   QuestReportSchema,
+  QuestTopUpSchema,
+  QUEST_MAX_SLOTS,
   SubmissionIdSchema,
   TaskIdSchema,
   audienceSentence,
@@ -73,6 +75,7 @@ import {
   refuseQuest as refuseQuestInDatabase,
   submitQuestForReview as submitQuestForReviewInDatabase,
   updateQuestDraft as updateQuestDraftInDatabase,
+  topUpQuest as topUpQuestInDatabase,
   withdrawQuestFromReview as withdrawQuestFromReviewInDatabase,
   type AudienceCriteria,
   type Database,
@@ -85,6 +88,7 @@ import {
   type FileQuestReportOutcome,
   type QuestSubmitOutcome,
   type QuestWithdrawOutcome,
+  type QuestTopUpOutcome,
   type QuestWriteOutcome,
   type Arrivals,
   type BackendSections,
@@ -166,6 +170,19 @@ export interface QuestDesk {
     readonly at: Timestamp
   }): Promise<QuestSubmitOutcome>
   /** Take it back out of the queue, to `draft` (`#323`). */
+  /**
+   * Buy more places on a running quest (`#629`).
+   *
+   * Optional for the reason every recent addition to this desk is: a fake or a
+   * deployment assembled before it existed keeps compiling, and absent is
+   * answered as `not_found` — which is what a route for a thing this deployment
+   * cannot do should say.
+   */
+  topUp?(input: {
+    readonly sponsorId: AgentId
+    readonly taskId: TaskId
+    readonly slots: number
+  }): Promise<QuestTopUpOutcome>
   withdraw(input: {
     readonly authorId: AgentId
     readonly taskId: TaskId
@@ -382,6 +399,7 @@ export function databaseQuests(
       }),
     submit: (input) => submitQuestForReviewInDatabase(db, input),
     withdraw: (input) => withdrawQuestFromReviewInDatabase(db, input),
+    topUp: (input) => topUpQuestInDatabase(db, input),
     audience: (criteria) => countAudience(db, criteria),
     listOwn: (authorId) => listOwnQuestsInDatabase(db, authorId),
     readOwn: (authorId, taskId) => readOwnQuestInDatabase(db, authorId, taskId),
@@ -1767,4 +1785,149 @@ export function questAuditPolicy(env: NodeJS.ProcessEnv = process.env): QuestAud
     enabled: env[QUEST_AUDIT_VAR] === 'true',
     ...(Number.isFinite(rate) && rate > 0 && rate <= 1 && { rate }),
   }
+}
+
+/** A quest that just gained capacity, and what the sponsor owes for it (`#629`). */
+export interface QuestToppedUpResponse {
+  readonly quest: OwnQuestResponse
+  /** The places bought, and zero where the quest pays nothing and they are already live. */
+  readonly pendingSlots: number
+  readonly invoice: { readonly lamports: number; readonly paidLamports: number }
+  /**
+   * How long the quest has left, in whole hours.
+   *
+   * **Stated before the sponsor pays, which is the whole reason it is here**
+   * (`#629`): a top-up on a quest expiring tomorrow buys places nobody has time
+   * to fill, and the expiry is not something a top-up may move. `null` where the
+   * quest carries no expiry, which no quest a sponsor wrote does.
+   */
+  readonly hoursLeft: number | null
+  /** The same fact as a sentence, because a number alone is not a warning. */
+  readonly notice: string
+}
+
+/**
+ * Buy more places on a quest that is already running (`#629`).
+ *
+ * **The sponsor's own quest and nobody else's.** A steward may publish, refuse
+ * and end; it may not spend somebody's money on their behalf, and `not-yours` is
+ * answered as `not_found` for the reason every other read of somebody else's
+ * quest is — a caller learns nothing about what exists.
+ */
+export async function topUpQuest(
+  input: {
+    readonly sponsorId: AgentId
+    readonly questId: string | undefined
+    readonly body: unknown
+    readonly now?: Date | undefined
+  },
+  desk: QuestDesk,
+): Promise<QuestResult<QuestToppedUpResponse>> {
+  const taskId = questIdFrom(input.questId)
+  if (taskId === undefined) return notFound()
+
+  const parsed = QuestTopUpSchema.safeParse(input.body)
+  if (!parsed.success) {
+    return {
+      outcome: 'rejected',
+      error: invalid(
+        `Say how many more places you are buying — \`slots\`, between 1 and ${QUEST_MAX_SLOTS}. ` +
+          'Nothing else about a published quest can change: the price, the questions and the ' +
+          'expiry are what the citizens answering it relied on.',
+      ),
+    }
+  }
+
+  if (desk.topUp === undefined) return notFound()
+
+  const result = await desk.topUp({
+    sponsorId: input.sponsorId,
+    taskId,
+    slots: parsed.data.slots,
+  })
+
+  switch (result.outcome) {
+    case 'bought': {
+      const hoursLeft = hoursUntil(result.expiresAt, input.now ?? new Date())
+
+      return {
+        outcome: 'ok',
+        response: {
+          quest: await responding(result.quest, desk),
+          pendingSlots: result.pendingSlots,
+          invoice: result.invoice,
+          hoursLeft,
+          notice: topUpNotice(result.pendingSlots, result.invoice, hoursLeft),
+        },
+      }
+    }
+    case 'not-running':
+      return {
+        outcome: 'rejected',
+        error: {
+          code: 'conflict',
+          message:
+            `Capacity is bought on a quest that is running, and this one is ${result.status}. ` +
+            'A draft still has its capacity to edit; a quest waiting for its first payment is ' +
+            'already owed money, and a second invoice on top of it would make what you owe two ' +
+            'questions rather than one.',
+        },
+      }
+    case 'already-topping-up':
+      return {
+        outcome: 'rejected',
+        error: {
+          code: 'conflict',
+          message:
+            `${result.pendingSlots} place(s) are already bought on this quest and waiting for ` +
+            'payment. They become answerable when the lamports arrive, and you may buy more ' +
+            'after that — one purchase at a time, so what you owe is always one number.',
+        },
+      }
+    case 'over-capacity':
+      return {
+        outcome: 'rejected',
+        error: invalid(
+          `One quest may hold at most ${result.ceiling} places, and this would take it past ` +
+            'that. A larger cohort than this is a second quest.',
+        ),
+      }
+    default:
+      return notFound()
+  }
+}
+
+/** Whole hours from now until then, or `null` where there is no then. */
+const hoursUntil = (expiresAt: Timestamp | null, now: Date): number | null => {
+  if (expiresAt === null) return null
+  return Math.max(0, Math.floor((new Date(expiresAt).getTime() - now.getTime()) / 3_600_000))
+}
+
+/**
+ * What a sponsor is told about what it just bought.
+ *
+ * **The time left comes first when it is short.** A top-up is not refused for
+ * being late — a sponsor may have a reason to buy places on a quest with a day
+ * to run — but it must not be able to happen quietly, and the expiry is the one
+ * thing about this purchase that a sponsor cannot change afterwards.
+ */
+const topUpNotice = (
+  pendingSlots: number,
+  invoice: { readonly lamports: number; readonly paidLamports: number },
+  hoursLeft: number | null,
+): string => {
+  const outstanding = invoice.lamports - invoice.paidLamports
+  const window =
+    hoursLeft === null
+      ? 'This quest carries no expiry.'
+      : `This quest ends in ${hoursLeft} hour(s), and a top-up does not move that.`
+
+  if (pendingSlots === 0) {
+    return `${window} The places are live now: this quest pays reputation only, so there was nothing to invoice.`
+  }
+
+  return (
+    `${pendingSlots} more place(s) are bought and waiting for ${outstanding} lamports. They ` +
+    `become answerable when the payment arrives; nothing else about the quest changed. ${window}`
+  )
 }

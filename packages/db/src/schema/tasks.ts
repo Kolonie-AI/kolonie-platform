@@ -352,6 +352,30 @@ export const tasks = pgTable(
     obstacleBonusPercent: integer('obstacle_bonus_percent'),
 
     /**
+     * Capacity a sponsor has bought on a published quest and not yet paid for
+     * (`#629`).
+     *
+     * **Slots and the money for them move together, and this column is what
+     * makes that true across the gap between the two.** A sponsor topping up
+     * cannot pay in the same request — attribution is by sender address and a
+     * transfer carries no reference — so there is a window between *I want three
+     * more* and the lamports arriving. Adding the slots at the start of that
+     * window would offer places the Colony has no escrow for, which is the one
+     * thing `#629` says must be impossible; adding them at the end needs
+     * somewhere to remember how many, and this is it.
+     *
+     * `invoice_lamports` rises with it, so the outstanding amount is what the
+     * quest is owed and `paid_lamports <= invoice_lamports` still holds. When
+     * the payment settles, `applyPaymentToInvoice` moves this into `slots` and
+     * clears it, in one transaction.
+     *
+     * **Null is the ordinary state** — no top-up outstanding — and is not the
+     * same as zero, which the constraint refuses: a row claiming a pending
+     * top-up of nothing would be a purchase nobody made.
+     */
+    pendingSlots: integer('pending_slots'),
+
+    /**
      * What one accepted report pays, in lamports — D-106 (`#504`, `#505`).
      *
      * **The column `reward_coins` becomes.** Settlement is SOL between wallets,
@@ -634,6 +658,17 @@ export const tasks = pgTable(
           = (${table.awaitingPaymentSince} is not null)`,
     ),
     check('tasks_slots_positive', sql`${table.slots} is null or ${table.slots} > 0`),
+    /**
+     * A pending top-up is a positive number of places on a quest (`#629`).
+     *
+     * Both halves are load-bearing. Zero would be a purchase nobody made, and
+     * an Academy rung has no sponsor to buy one — the same boundary
+     * `tasks_only_colony_grants_skills` draws, one column over.
+     */
+    check(
+      'tasks_pending_slots_bought_on_a_quest',
+      sql`${table.pendingSlots} is null or (${table.pendingSlots} > 0 and ${table.kind} = 'quest')`,
+    ),
     /**
      * A task can only have been ended if it is ended (`#619`).
      *

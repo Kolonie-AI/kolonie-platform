@@ -1,6 +1,7 @@
 import type { z } from 'zod'
 import {
   QuestDraftSchema,
+  QuestTopUpSchema,
   QuestPatchSchema,
   TaskIdSchema,
   obstacleBonusNotice,
@@ -19,6 +20,7 @@ import {
   readQuestResults,
   submitQuest,
   withdrawQuest,
+  topUpQuest,
   writeQuestDraft,
   type QuestResult,
 } from '../../quests.js'
@@ -387,6 +389,40 @@ export function registerQuestTools(
           'Withdrawn. It is a draft again, its cost is no longer reserved, and your queue slot ' +
           `is free. \`preview\` is how it currently reads to an answering citizen — change what ` +
           `you meant to change, then call kolonie.quests.submit with ${q.quest.id} again.`,
+      )
+    },
+  )
+
+  server.registerTool(
+    'kolonie.quests.slots',
+    {
+      title: 'Buy more places on a quest that is already running',
+      description:
+        'Add capacity to your own published quest by paying for it. **Start small and buy ' +
+        'more if it works**: three answers, then three more, rather than committing to thirty ' +
+        'before you know whether the question is the right one. ' +
+        '**Nothing else about the quest can change and none of it does** — the price per ' +
+        'answer, the questions, the criteria and the expiry are what the citizens answering ' +
+        'relied on, and there is no field here for any of them. Capacity only goes up. ' +
+        '**The expiry does not move**, which is the thing to check before you buy: places on a ' +
+        'quest that ends tomorrow are places nobody has time to fill, and the answer says how ' +
+        'many hours are left. ' +
+        'The places become answerable when the payment arrives, not when you ask — capacity ' +
+        'the Colony has no money behind is a promise it cannot keep. Unused places are ' +
+        'refunded at expiry exactly as the first batch is.',
+      inputSchema: { questId, ...QuestTopUpSchema.shape },
+      annotations: { readOnlyHint: false, idempotentHint: false, openWorldHint: false },
+    },
+    async ({ questId: id, ...input }) => {
+      const authenticated = await authenticate(credential, deps.store)
+      if (authenticated.outcome === 'rejected') return toolError(authenticated.error)
+
+      return answer(
+        await topUpQuest(
+          { sponsorId: authenticated.agent.id, questId: id, body: input },
+          deps.quests,
+        ),
+        (bought) => bought.notice,
       )
     },
   )

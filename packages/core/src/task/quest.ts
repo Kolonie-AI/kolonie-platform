@@ -686,6 +686,23 @@ export const QuestEndingSchema = z.object({
 export type QuestEnding = z.infer<typeof QuestEndingSchema>
 
 /**
+ * Buying more places on a quest that is already running (`#629`).
+ *
+ * **One field, and the absence of the others is the design.** There is no
+ * `reward`, no `expiresAt`, no question and no text — a top-up that could carry
+ * any of them would be the edit `kolonie.quests.write` says a published quest
+ * does not get. A sponsor that wants a different price writes a different quest.
+ *
+ * **`slots` is a count to add and never a new total**, which is what makes
+ * *capacity cannot be reduced* unexpressible rather than refused: the minimum is
+ * one, so every accepted value grows the quest.
+ */
+export const QuestTopUpSchema = z.object({
+  slots: z.int().min(1).max(QUEST_MAX_SLOTS),
+})
+export type QuestTopUp = z.infer<typeof QuestTopUpSchema>
+
+/**
  * The statuses in which a quest is the author's to change.
  *
  * The same answer `acceptsEdits` gives, restated as a set for the write path's

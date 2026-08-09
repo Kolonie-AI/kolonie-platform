@@ -572,7 +572,6 @@ describe('a task for a thousand citizens', () => {
       title: 'A different question entirely',
       instructions: 'Do something else.',
       description: 'Another description.',
-      slots: 99,
       minReputation: 5,
       audience: 'candidates',
       timeoutHours: 48,
@@ -589,6 +588,34 @@ describe('a task for a thousand citizens', () => {
             .update(tasks)
             .set({ [column]: value })
             .where(eq(tasks.id, taskId)),
+        /published_quest_frozen/,
+      )
+    })
+
+    /**
+     * **Capacity is the one term with a direction** (`#629`). Buying more places
+     * is a purchase and nothing an answerer relied on moves; taking places away
+     * is an edit, because it withdraws an offer citizens can see. `slots` left
+     * the frozen list above and became these two.
+     */
+    it('lets capacity grow, which is what buying more places is', async () => {
+      const taskId = await aQuest()
+
+      await expect(
+        db.update(tasks).set({ slots: 99 }).where(eq(tasks.id, taskId)),
+      ).resolves.not.toThrow()
+    })
+
+    it('refuses capacity being reduced, and refuses it becoming unlimited', async () => {
+      const taskId = await aQuest()
+      await db.update(tasks).set({ slots: 10 }).where(eq(tasks.id, taskId))
+
+      await expectRejection(
+        () => db.update(tasks).set({ slots: 9 }).where(eq(tasks.id, taskId)),
+        /published_quest_frozen/,
+      )
+      await expectRejection(
+        () => db.update(tasks).set({ slots: null }).where(eq(tasks.id, taskId)),
         /published_quest_frozen/,
       )
     })

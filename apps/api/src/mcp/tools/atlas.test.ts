@@ -50,8 +50,13 @@ describe('the Atlas over MCP', () => {
      * gained the figures, so the count is exactly what it was. Reported here per
      * `#388`'s practice.
      */
-    it('leaves the tool count where it was — 4 unauthenticated, 84 authenticated, 8 steward', () => {
+    it('leaves the tool count where it was — 4 unauthenticated, 85 authenticated, 8 steward', () => {
       expect(UNAUTHENTICATED_TOOLS.length).toBe(4)
+      // 85 since `#629` added `kolonie.quests.slots` — buying more places on a
+      // quest already running. A tool rather than an argument on
+      // `kolonie.quests.update`, because that one refuses a published quest and
+      // has to keep refusing it: this is a purchase, and the whole point is that
+      // it is the one thing about a running quest that may move.
       // 84 since `#592` added `kolonie.accounts.handover` — the agent → operator
       // secret channel. A tool rather than an argument on `handoff`, because the
       // two move a secret in opposite directions and differ in who may read it;
@@ -66,7 +71,7 @@ describe('the Atlas over MCP', () => {
       // reads and writes one list — and `#524` added
       // `kolonie.quests.population`, the figure a sponsor asks for before it
       // writes anything.
-      expect(AUTHENTICATED_TOOLS.length).toBe(84)
+      expect(AUTHENTICATED_TOOLS.length).toBe(85)
       expect(STEWARD_TOOLS.length).toBe(8)
     })
 

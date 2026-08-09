@@ -15,6 +15,7 @@ import {
   readReviewQueue,
   refuseQuest,
   submitQuest,
+  topUpQuest,
   withdrawQuest,
   writeQuestDraft,
   type QuestResult,
@@ -172,6 +173,27 @@ export function registerQuestRoutes(v1: FastifyInstance, deps: RouteDependencies
 
     const { questId } = request.params as { questId?: string }
     return send(reply, await withdrawQuest({ authorId: caller.id, questId, at: now() }, quests))
+  })
+
+  /**
+   * Buy more places on a running quest (`#629`).
+   *
+   * **The sponsor's route alone, unlike the one below it.** Ending a quest is
+   * something a steward may do to somebody else's, because a quest that should
+   * not be running is the Colony's problem. Spending a sponsor's money is not,
+   * and `topUpQuest` answers a caller that is not the author with `not_found`
+   * rather than a refusal — the same rule every other read of somebody else's
+   * quest follows.
+   */
+  v1.post('/quests/:questId/slots', async (request, reply) => {
+    const caller = await acting(request, reply)
+    if (caller === null) return reply
+
+    const { questId } = request.params as { questId?: string }
+    return send(
+      reply,
+      await topUpQuest({ sponsorId: caller.id, questId, body: request.body }, quests),
+    )
   })
 
   /**

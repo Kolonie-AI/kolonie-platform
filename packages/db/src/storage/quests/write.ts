@@ -1,6 +1,7 @@
 import { and, eq, sql } from 'drizzle-orm'
 import {
   QUEST_EDITABLE_STATUSES,
+  QUEST_MAX_SLOTS,
   QUEST_PENDING_LIMIT,
   QUEST_TASK_TYPE,
   type AgentId,
@@ -514,6 +515,150 @@ export async function endQuest(
         awaitingModeration: false,
       },
       attemptsStillOpen: Number(live?.open ?? 0),
+    }
+  })
+}
+
+/** What buying more places on a published quest came to (`#629`). */
+export type QuestTopUpOutcome =
+  | {
+      readonly outcome: 'bought'
+      readonly quest: OwnQuest
+      /** What the sponsor now owes, in lamports, and what it has paid so far. */
+      readonly invoice: { readonly lamports: number; readonly paidLamports: number }
+      /** The places bought, waiting on the money. */
+      readonly pendingSlots: number
+      /** When the quest ends, so a sponsor buying places nobody has time to fill is told. */
+      readonly expiresAt: Timestamp | null
+    }
+  | { readonly outcome: 'unknown-quest' }
+  /** The caller is not the author. Indistinguishable from `unknown-quest` at the route. */
+  | { readonly outcome: 'not-yours' }
+  /** Capacity is bought on a running quest, and this one is somewhere else. */
+  | { readonly outcome: 'not-running'; readonly status: Task['status'] }
+  /** A top-up is already outstanding on this quest, and it is one at a time. */
+  | { readonly outcome: 'already-topping-up'; readonly pendingSlots: number }
+  /** The total would exceed what one quest may hold. */
+  | { readonly outcome: 'over-capacity'; readonly ceiling: number }
+
+/**
+ * Buy more places on a quest that is already running (`#629`).
+ *
+ * ## Why this is not an exception to *a published quest cannot be edited*
+ *
+ * Nothing an answerer relied on moves. The questions, the criteria, the price
+ * per answer, the tier and the expiry are read and written back unchanged —
+ * there is no parameter for any of them, which is a stronger guarantee than
+ * refusing to change them. What changes is how many citizens may be paid, and no
+ * citizen is worse off for there being more places.
+ *
+ * **It is a purchase and it takes the shape the first purchase took**: capacity
+ * against money, up front, refunded at expiry for whatever is not used.
+ *
+ * ## Why the slots do not move here
+ *
+ * They move when the money arrives. A sponsor cannot pay in the same request —
+ * attribution is by sender address and a transfer carries no reference to a
+ * quest — so between *I want three more* and the lamports there is a window, and
+ * places offered inside it would be places the Colony has no escrow for.
+ * `pending_slots` holds the purchase and `applyPaymentToInvoice` completes it,
+ * in the transaction that books the payment.
+ *
+ * **A quest that pays nothing settles immediately**, because there is nothing to
+ * wait for: the invoice does not move, so the places are added here.
+ *
+ * ## What it does not do
+ *
+ * **It does not go back to a steward.** One accepted this text and buying more
+ * of the same answer is not a new question. **This is the argument to check
+ * hardest** (`#629`): if a later batch ever needs review, this is the sentence
+ * that was wrong.
+ *
+ * **The obstacle pool does not grow.** The invoice rises by capacity times
+ * reward and by nothing else — the pool compensates a discovery cost that has
+ * already been paid by whoever went first, and it does not scale with capacity.
+ *
+ * **It cannot lower capacity or change the price.** There is no parameter for
+ * either, and `slots` is only ever added to.
+ */
+export async function topUpQuest(
+  db: Database,
+  command: {
+    readonly sponsorId: AgentId
+    readonly taskId: TaskId
+    readonly slots: number
+  },
+): Promise<QuestTopUpOutcome> {
+  return await db.transaction(async (tx) => {
+    const [row] = await tx
+      .select()
+      .from(tasks)
+      .where(and(eq(tasks.id, command.taskId), eq(tasks.kind, 'quest')))
+      // Locked, so two top-ups in the same second cannot both read the same
+      // capacity and both add to it.
+      .for('update')
+      .limit(1)
+
+    if (row === undefined) return { outcome: 'unknown-quest' as const }
+    if (row.createdBy !== command.sponsorId) return { outcome: 'not-yours' as const }
+
+    /**
+     * **Running, and nothing else.** A draft has capacity the sponsor can simply
+     * edit; one in review is a text nobody has accepted yet; one retired or
+     * ended is over, and selling places on it would be selling an answer nobody
+     * may give. `awaiting_payment` is the interesting refusal: that quest is
+     * already owed money for its first batch, and a second invoice on top would
+     * make *what is outstanding* two questions.
+     */
+    if (row.status !== 'active') {
+      return { outcome: 'not-running' as const, status: toTask(row).status }
+    }
+
+    if (row.pendingSlots !== null) {
+      return { outcome: 'already-topping-up' as const, pendingSlots: row.pendingSlots }
+    }
+
+    const capacity = (row.slots ?? 0) + command.slots
+    if (capacity > QUEST_MAX_SLOTS) {
+      return { outcome: 'over-capacity' as const, ceiling: QUEST_MAX_SLOTS }
+    }
+
+    /**
+     * **Capacity times the price this quest already carries.** Read from the row
+     * rather than taken as an argument, which is what makes *the price cannot be
+     * changed* a property of the shape rather than a check: a second batch
+     * paying more than the first would make the order citizens answered in worth
+     * money.
+     */
+    const owed = (row.rewardLamports ?? 0) * command.slots
+    const settlesNow = owed === 0
+
+    const [updated] = await tx
+      .update(tasks)
+      .set({
+        // Free capacity is added here; paid capacity waits for the lamports.
+        ...(settlesNow
+          ? { slots: capacity }
+          : { pendingSlots: command.slots, invoiceLamports: (row.invoiceLamports ?? 0) + owed }),
+      })
+      .where(eq(tasks.id, command.taskId))
+      .returning()
+
+    if (updated === undefined) throw new Error('topping up a quest returned no row')
+
+    // Through `toTask` rather than off the row: Postgres hands back
+    // `2026-08-20 12:00:00+00` and every other surface here reads ISO.
+    const task = toTask(updated)
+
+    return {
+      outcome: 'bought' as const,
+      quest: { task, rejectionReason: updated.rejectionReason, awaitingModeration: false },
+      invoice: {
+        lamports: updated.invoiceLamports ?? 0,
+        paidLamports: updated.paidLamports,
+      },
+      pendingSlots: updated.pendingSlots ?? 0,
+      expiresAt: task.expiresAt,
     }
   })
 }

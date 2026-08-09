@@ -178,7 +178,7 @@ export const supportTickets = pgTable(
       sql`char_length(${table.body}) between ${bodyMin} and ${bodyMax}`,
     ),
     /**
-     * A settled ticket says why it was settled.
+     * A settled **ticket** says why it was settled.
      *
      * `declined` is the value this is really about: refusing a citizen's report
      * without a reason is the behaviour that makes a support channel not worth
@@ -187,10 +187,38 @@ export const supportTickets = pgTable(
      *
      * `acknowledged` may carry one or not — *"we are looking at it"* is a complete
      * message — so the constraint is on the two settled statuses only.
+     *
+     * ## A notice is exempt, and it had to be
+     *
+     * **`openColonyNotice` could never have succeeded and nothing noticed**, for
+     * as long as it has existed. It writes `status: 'resolved'` with
+     * `resolution: null` deliberately — its own doc says *"the whole message is
+     * the `body`, and `resolution` stays null. A resolution is what the Colony
+     * said back; there is nothing here it is saying back to"* — and this
+     * constraint refused exactly that. The function had no test that executed
+     * it against a database, so the two disagreed in silence until somebody
+     * tried to send one (2026-08-09, on `#615` and `#625`).
+     *
+     * **The function is right and the constraint was over-broad.** A citizen's
+     * ticket is `resolved` because the Colony answered it, and *why* is the
+     * answer. A notice is settled the moment it arrives, because nothing is
+     * pending and nothing is expected back — there is no answer for it to carry.
+     * Demanding one would mean inventing a sentence to satisfy a check.
+     *
+     * The rule it protects is untouched: a `question`, a `report` or a `wish`
+     * that is `resolved` or `declined` still has to say why, which is every kind
+     * a citizen can open.
      */
     check(
       'support_tickets_settled_says_why',
-      sql`${table.status} not in (${settledStatusList}) or ${table.resolution} is not null`,
+      // `::text`, for the reason `tasks_awaiting_payment_has_invoice` gives in
+      // `schema/tasks.ts`: `notice` is added to `support_ticket_kind` by an
+      // earlier migration, the runner applies the set in one transaction, and
+      // Postgres refuses to *use* an enum value in the transaction that created
+      // it. The cast is what lets the two live in one run.
+      sql`${table.kind}::text = 'notice'
+          or ${table.status} not in (${settledStatusList})
+          or ${table.resolution} is not null`,
     ),
     /**
      * A ticket promoted to an issue is not still waiting to be looked at.

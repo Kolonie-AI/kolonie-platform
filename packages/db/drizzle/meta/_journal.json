@@ -1317,6 +1317,13 @@
       "when": 1786253615202,
       "tag": "0187_even_nova",
       "breakpoints": true
+    },
+    {
+      "idx": 188,
+      "version": "7",
+      "when": 1786261794429,
+      "tag": "0188_natural_bug",
+      "breakpoints": true
     }
   ]
 }

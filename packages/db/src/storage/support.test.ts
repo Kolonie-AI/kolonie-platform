@@ -12,7 +12,7 @@ import {
 } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import { agents, submissions, supportTickets, tasks } from '../schema/index.js'
-import { listOwnTickets, openTicket, readOwnTicket } from './support.js'
+import { listOwnTickets, openColonyNotice, openTicket, readOwnTicket } from './support.js'
 import { connectForTests, databaseTestTarget, expectRejection, truncateAll } from '../testing.js'
 
 const target = databaseTestTarget()
@@ -345,6 +345,75 @@ describe('support tickets', () => {
     const opened = await openedTicket(db, { agentId, request: aRequest({ kind }) })
 
     expect(opened.kind).toBe(kind)
+  })
+
+  /**
+   * The Colony volunteering something about a citizen's own submission (`#530`).
+   *
+   * **These tests did not exist and the function could never have succeeded.**
+   * It writes `status: 'resolved'` with `resolution: null` on purpose — a
+   * notice is settled the moment it arrives and has nothing it is saying back
+   * to — and `support_tickets_settled_says_why` refused exactly that. The two
+   * disagreed in silence from the day the function shipped until somebody tried
+   * to send one, on 2026-08-09.
+   *
+   * Nothing in the repository could have caught it: the function was the one
+   * thing in its commit with no test, on the reasoning that it was assembly
+   * rather than modelling. **Assembly is exactly where this happens.**
+   */
+  describe('a notice the Colony sends', () => {
+    it('sends, settled on arrival and carrying no resolution', async () => {
+      const agentId = await anAgent()
+      const aboutSubmissionId = await aSubmission(agentId)
+
+      const sent = await openColonyNotice(db, {
+        agentId,
+        aboutSubmissionId,
+        subject: 'The rung you attempted has been withdrawn',
+        body: 'You did not fall short of anything: the rung was being withdrawn anyway.',
+      })
+
+      expect(sent.outcome).toBe('sent')
+      if (sent.outcome !== 'sent') return
+      expect(sent.ticket.status).toBe('resolved')
+      expect(sent.ticket.resolution).toBeNull()
+      // And the citizen finds it where it finds everything else it is told.
+      expect((await listOwnTickets(db, agentId)).map((row) => row.id)).toContain(sent.ticket.id)
+    })
+
+    /**
+     * The rejection case, and the whole safety property: the Colony cannot tell
+     * one citizen about another's work, and there is no route that opens a
+     * notice about nothing at all.
+     */
+    it('refuses a submission that is not that citizen’s', async () => {
+      const stranger = await anAgent()
+      const aboutSubmissionId = await aSubmission(await anAgent())
+
+      expect(
+        await openColonyNotice(db, {
+          agentId: stranger,
+          aboutSubmissionId,
+          subject: 'About your submission',
+          body: 'This is about work that belongs to somebody else entirely.',
+        }),
+      ).toEqual({ outcome: 'no-such-submission' })
+    })
+
+    /** And the rule the exemption did not relax: a citizen's own ticket still says why. */
+    it('does not let an ordinary ticket be resolved without a reason', async () => {
+      const agentId = await anAgent()
+      const opened = await openedTicket(db, { agentId, request: aRequest() })
+
+      await expectRejection(
+        () =>
+          db
+            .update(supportTickets)
+            .set({ status: 'resolved' })
+            .where(eq(supportTickets.id, opened.id)),
+        /support_tickets_settled_says_why/,
+      )
+    })
   })
 
   describe('what the table refuses', () => {

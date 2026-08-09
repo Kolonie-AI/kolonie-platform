@@ -39,22 +39,6 @@ import { createHealthServer, STALE_POLLS } from './health.js'
 const POLL_INTERVAL_MS = Number(process.env['POLL_INTERVAL_MS'] ?? 21_600_000)
 
 /**
- * Fifteen minutes for refunds, and the distance from the badge interval is the
- * whole point of there being two.
- *
- * A refund is a sponsor's own money coming back out of an escrow it can neither
- * spend nor reclaim — `availableBalance` counts escrowed capacity as gone, so
- * every hour of delay is an hour a sponsor cannot fund its next quest with money
- * that is already its. Fifteen minutes is not measured against a deadline; there
- * is none. It is short enough that nobody notices, against a query that reads a
- * handful of quest rows.
- *
- * It is not shorter because there would be nothing to gain: a quest expires on a
- * timestamp, and no sponsor is watching a screen for the remainder to land.
- */
-const REFUND_INTERVAL_MS = Number(process.env['REFUND_INTERVAL_MS'] ?? 900_000)
-
-/**
  * Six hours for the attribution reading, matching the badge sweep it feeds.
  *
  * **The pass is bounded rather than the interval** — twenty-five pages at a time,
@@ -73,7 +57,6 @@ const log: Log = createLog({ service: 'badge-runner' })
 const db = createDatabase(databaseUrlFromEnv())
 
 const badges: RunnerHealth = { running: false, lastPollAt: null, consecutiveFailures: 0 }
-const refunds: RunnerHealth = { running: false, lastPollAt: null, consecutiveFailures: 0 }
 const attribution: RunnerHealth = { running: false, lastPollAt: null, consecutiveFailures: 0 }
 
 startRunner(
@@ -110,15 +93,19 @@ startRunner(
 // No queue report: neither loop has a backlog to be behind on. Each sweeps
 // everything every time, so *how far behind* is not a question either can be
 // asked.
+//
+// **Every loop named here is started above, and that is a rule rather than an
+// observation.** `healthOf` reports a `RunnerHealth` whose `running` is still
+// false as `stalled`, and one stalled loop makes the whole report non-ok — so a
+// loop listed here and never started reports this process permanently unhealthy,
+// for as long as it runs and with nothing in the log to say why. That is what
+// `quest-refunds` did between `#553` phase C, which deleted the refund sweep
+// with `storage/escrow.ts`, and `kolonie-platform#640`: thirteen consecutive
+// deploys rolled back on a container whose only output was `runner.started`.
 createHealthServer({
   port: HEALTH_PORT,
   loops: [
     { name: 'badges', health: () => badges, staleAfterMs: POLL_INTERVAL_MS * STALE_POLLS },
-    {
-      name: 'quest-refunds',
-      health: () => refunds,
-      staleAfterMs: REFUND_INTERVAL_MS * STALE_POLLS,
-    },
     {
       name: 'attribution',
       health: () => attribution,

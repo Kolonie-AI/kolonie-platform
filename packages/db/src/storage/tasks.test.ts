@@ -59,6 +59,8 @@ describe('listTasks', () => {
     readonly audience?: 'candidates' | 'citizens'
     /** The account kinds the task names, which `equipped` is answered from (`#559`). */
     readonly accountKinds?: string[]
+    /** Capacity. Absent is `null`, which is a quest buying an unlimited number (`#346`). */
+    readonly slots?: number
   }
 
   const seed = async (...seeds: Seed[]): Promise<void> => {
@@ -78,6 +80,7 @@ describe('listTasks', () => {
         kind: task.kind ?? ('academy' as const),
         audience: task.audience ?? ('candidates' as const),
         accountKinds: task.accountKinds ?? [],
+        ...(task.slots === undefined ? {} : { slots: task.slots }),
         ...(task.createdAt === undefined ? {} : { createdAt: task.createdAt }),
       })),
     )
@@ -1048,6 +1051,131 @@ describe('listTasks', () => {
       const task = await readTask(db, { taskId })
 
       expect(task?.submission).toBeUndefined()
+    })
+  })
+
+  /**
+   * *What you may take right now* contains only what can be taken right now
+   * (`#618`).
+   *
+   * On 2026-08-09 the list returned a quest whose single place had been filled
+   * two days earlier and which had five days left to run. The counting was never
+   * wrong — `full` and `freeSlots` were both correct on the row — so every test
+   * here is about whether the row appears at all.
+   */
+  describe('a quest with no places left', () => {
+    /** Somebody other than the caller, holding a place. */
+    const anotherAgent = async (name: string): Promise<AgentId> => anAgent(name)
+
+    const taskIdByTitle = async (title: string): Promise<TaskId> => {
+      const [row] = await db.select({ id: tasks.id }).from(tasks).where(eq(tasks.title, title))
+      if (row === undefined) throw new Error(`no task titled ${title}`)
+      return row.id as TaskId
+    }
+
+    /** A passed submission, which consumes a place permanently. */
+    const fillPlace = async (title: string, holder: AgentId): Promise<void> => {
+      await db.insert(submissions).values({
+        taskId: await taskIdByTitle(title),
+        agentId: holder,
+        payload: {},
+        attempt: 1,
+        status: 'passed',
+        verifiedAt: new Date().toISOString(),
+      })
+    }
+
+    /** A live claim, which holds a place until it resolves or lapses. */
+    const openAttempt = async (
+      title: string,
+      holder: AgentId,
+      expiresAt: string | null = '2099-01-01T00:00:00.000Z',
+    ): Promise<void> => {
+      await db.insert(taskAttempts).values({
+        taskId: await taskIdByTitle(title),
+        agentId: holder,
+        attempt: 1,
+        opener: 'challenge' as const,
+        outcome: null,
+        openedAt: '2026-08-01T10:00:00.000Z',
+        ...(expiresAt === null ? {} : { expiresAt }),
+      })
+    }
+
+    it('is absent from the list that promises what can be started', async () => {
+      await seed({ title: 'One place, taken', kind: 'quest', slots: 1 })
+      await fillPlace('One place, taken', await anotherAgent('faster'))
+
+      expect(titles((await list()).items)).toEqual([])
+    })
+
+    /**
+     * The rejection case that matters most. The caller's own live claim is what
+     * consumed the last place — `slotsTaken` counts it — so a naive exclusion
+     * hides the quest from precisely the citizen that is working it, which is
+     * the burnt work this change exists to prevent.
+     */
+    it('is present while the caller’s own attempt is open on it', async () => {
+      await seed({ title: 'Mine, in flight', kind: 'quest', slots: 1 })
+      await openAttempt('Mine, in flight', agentId)
+
+      expect(titles((await list()).items)).toEqual(['Mine, in flight'])
+    })
+
+    it('is absent again once somebody else holds the last place', async () => {
+      await seed({ title: 'Not mine', kind: 'quest', slots: 1 })
+      await openAttempt('Not mine', await anotherAgent('somebody else'))
+
+      expect(titles((await list()).items)).toEqual([])
+    })
+
+    /**
+     * A lapsed claim holds nothing, on the same clause `slotsTaken` uses. The
+     * place is free again and the quest is takeable again — with nothing having
+     * to run to make that true.
+     */
+    it('is present again when the claim holding the last place has lapsed', async () => {
+      await seed({ title: 'Abandoned by another', kind: 'quest', slots: 1 })
+      await openAttempt(
+        'Abandoned by another',
+        await anotherAgent('walked away'),
+        '2026-08-02T10:00:00.000Z',
+      )
+
+      expect(titles((await list()).items)).toEqual(['Abandoned by another'])
+    })
+
+    /** `slots is null` is unlimited capacity, and unlimited is never full. */
+    it('does not touch a quest with unlimited places', async () => {
+      await seed({ title: 'As many as answer', kind: 'quest' })
+      await fillPlace('As many as answer', await anotherAgent('first'))
+
+      expect(titles((await list()).items)).toEqual(['As many as answer'])
+    })
+
+    /** Only *no places left*. Capacity that is merely small is capacity. */
+    it('does not touch a quest that still has a place', async () => {
+      await seed({ title: 'One of two gone', kind: 'quest', slots: 2 })
+      await fillPlace('One of two gone', await anotherAgent('half'))
+
+      expect(titles((await list()).items)).toEqual(['One of two gone'])
+    })
+
+    /**
+     * The wider list is where a citizen finds what it missed, and `readTask`
+     * resolves it by id. Neither reads capacity, and this is what makes the
+     * exclusion a change of *list* rather than a disappearance.
+     */
+    it('stays in the wider list and readable by id', async () => {
+      await seed({ title: 'Gone but readable', kind: 'quest', slots: 1 })
+      await fillPlace('Gone but readable', await anotherAgent('winner'))
+
+      const wider = await list({ availableOnly: false })
+      expect(titles(wider.items)).toEqual(['Gone but readable'])
+
+      const byId = await readTask(db, { taskId: await taskIdByTitle('Gone but readable') })
+      expect(byId?.full).toBe(true)
+      expect(byId?.freeSlots).toBe(0)
     })
   })
 })

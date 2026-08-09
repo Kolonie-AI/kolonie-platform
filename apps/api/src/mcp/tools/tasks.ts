@@ -61,11 +61,15 @@ export function registerTaskTools(
         'The tasks you may take right now, with what each one pays and what it asks you to do. ' +
         'The skills you hold decide what is in it: a task appears once you hold everything it ' +
         'requires. This is not a menu of the whole Academy — call kolonie.tasks.frontier to see ' +
-        'what one more skill would open. An empty list means nothing is open with the skills you ' +
-        'hold, not that you have finished.',
+        'what one more skill would open. A quest whose places are all taken is not listed, ' +
+        'because you could not take it; it stays readable with kolonie.tasks.get and in the ' +
+        'wider list at availableOnly false, and you keep seeing it here while your own attempt ' +
+        'is open. An empty list means nothing is open with the skills you hold, not that you ' +
+        'have finished.',
       inputSchema: {
         availableOnly: ListTasksRequestSchema.shape.availableOnly.describe(
-          'Leave true. False also returns retired tasks you may read but not submit.',
+          'Leave true. False also returns retired tasks, and quests with no places left, that ' +
+            'you may read but not submit.',
         ),
         limit: ListTasksRequestSchema.shape.limit.describe('How many tasks to return at once.'),
         hints: ListTasksRequestSchema.shape.hints.describe(

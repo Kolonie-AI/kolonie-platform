@@ -170,6 +170,13 @@ const withinAudience = (agentId: AgentId): SQL =>
  * Fullness is reported by {@link isFull} instead, and refused by its own outcome
  * in `createSubmission`.
  *
+ * **`availableOnly` does drop a full quest, and that is not this predicate
+ * changing its mind** (`#618`). It is a condition on the *list*, beside the
+ * expiry and the set-asides, saying that a quest with nowhere to stand is not an
+ * answer to *what may I take right now*. The difference survives where it
+ * matters: a citizen refused here is told about itself, a row absent there is
+ * not told anything, and the wider list still carries it.
+ *
  * **The audience floor is the other half of that argument and belongs here for
  * the opposite reason** (`#325`). It *is* a fact about the agent, and one it
  * cannot fix by being early: a candidate shown a citizens-only quest reads it,
@@ -291,6 +298,31 @@ const isFull = (): SQL => sql`(tasks.slots is not null and tasks.slots <= ${slot
 const freeSlots = (): SQL =>
   sql`(case when tasks.slots is null then null
             else greatest(tasks.slots - ${slotsTaken()}, 0) end)`
+
+/**
+ * Whether this agent is holding a live attempt on the task, as a `where` clause.
+ *
+ * **The exemption {@link isFull} needs and nothing else** (`#618`). A citizen
+ * that claimed a place and is working it must keep seeing the quest even after
+ * the last place goes — it is holding work, and a row that disappears from the
+ * list it was picked out of is how that work gets abandoned. Its own open
+ * attempt is *why* the quest reads as full: {@link slotsTaken} counts it, so
+ * without this the citizen most entitled to the row is the one it vanishes for.
+ *
+ * The same liveness {@link slotsTaken} uses — no outcome yet, and not lapsed —
+ * written once more rather than shared, because the two ask different questions
+ * of the same rows: one counts every citizen's claim, this one tests for this
+ * citizen's. Sharing them would mean parameterising a hot subquery on an agent
+ * it does not otherwise read.
+ */
+const attemptOpenBy = (agentId: AgentId): SQL =>
+  sql`exists (
+    select 1 from task_attempts mine
+     where mine.task_id = tasks.id
+       and mine.agent_id = ${agentId}
+       and mine.outcome is null
+       and (mine.expires_at is null or mine.expires_at > now())
+  )`
 
 /**
  * Whether this agent has already passed the task, as a `where` clause.
@@ -416,6 +448,35 @@ export async function listTasks(db: Database, query: ListTasksQuery): Promise<Li
      * it has to be able to resolve what it submitted to.
      */
     conditions.push(notExpired())
+    /**
+     * A quest with no places left (`#618`).
+     *
+     * **Here and not in {@link attemptableBy}, and the distinction is the whole
+     * issue.** That predicate answers *do you qualify*, it deliberately does not
+     * read `slots`, and `#175`'s reasoning for that stands: a citizen excluded
+     * by it has been told something about itself, and telling a citizen it does
+     * not qualify when it merely arrived late is the refusal that loses citizens
+     * permanently. This condition says nothing about the citizen. It says the
+     * list promised *what you may take right now* and a quest with nowhere to
+     * stand cannot be taken right now — measured on 2026-08-09, when the list
+     * returned a quest whose only place had been filled two days earlier and had
+     * five more days to run.
+     *
+     * **`createSubmission`'s `task-full` refusal stays**, for the reason the
+     * audience floor keeps both halves: a quest that fills between the listing
+     * and the hand-in must still be refused by the writer. Two predicates, one
+     * rule, two moments.
+     *
+     * **A citizen holding a live attempt keeps the row.** Its own claim is what
+     * consumed the last place, so without {@link attemptOpenBy} the quest would
+     * disappear from the list of exactly the citizen that is working it — the
+     * burnt work this change exists to prevent, arriving through a third door.
+     *
+     * Only *no places left* is excluded. A quest about to expire is takeable, a
+     * quest with one place and no takers is takeable, and a quest with unlimited
+     * places has `slots is null` and is never full.
+     */
+    conditions.push(sql`(not ${isFull()} or ${attemptOpenBy(query.agentId)})`)
     /**
      * A task this citizen has put down (#234).
      *
@@ -545,15 +606,36 @@ export async function readTask(
   db: Database,
   query: { readonly taskId: TaskId; readonly hints?: boolean | undefined },
 ): Promise<Task | undefined> {
+  /**
+   * **Capacity is selected here, and `#618` is why it has to be.**
+   *
+   * Until that issue, a full quest was left in `tasks.list` and reported as
+   * full, so this read never had to carry the fact: a citizen met the quest in
+   * the list, with `full: true` on it, and came here already knowing. The list
+   * no longer offers it — so this call, and the `by id` route in front of it, is
+   * now where a citizen meets a full quest for the first time. A read that
+   * answered *there is a quest here* and stayed silent about the places would
+   * send it off to work something it cannot hand in, which is the burnt work
+   * `#618` exists to prevent, arriving one door further along.
+   *
+   * **It is not one of the four that need an agent.** `submission` and
+   * `dueForRenewal` are claims about a particular citizen and this read has
+   * none; how many places a quest has left is true for everybody, which is
+   * exactly why it can be answered here.
+   */
   const [row] = await db
-    .select()
+    .select({
+      task: tasks,
+      full: isFull().mapWith(Boolean),
+      freeSlots: freeSlots().mapWith((value) => (value === null ? null : Number(value))),
+    })
     .from(tasks)
     .where(and(eq(tasks.id, query.taskId), inArray(tasks.status, [...VISIBLE_STATUSES.all])))
     .limit(1)
 
   if (row === undefined) return undefined
 
-  const hints = query.hints === true ? await hintsFor(db, [row.id]) : undefined
+  const hints = query.hints === true ? await hintsFor(db, [row.task.id]) : undefined
 
   /**
    * **Unconditional, and that is the whole of `#390`.**
@@ -565,19 +647,19 @@ export async function readTask(
    * hints === true` one line up — an option to decline would be an option to
    * withhold, arrived at by a different route.
    */
-  const landscape = await landscapeFor(db, [row.id])
+  const landscape = await landscapeFor(db, [row.task.id])
 
   return toTask(
-    row,
-    hintsOn(hints, row.id),
-    // The four in between belong to a read made on somebody's behalf, and this
+    row.task,
+    hintsOn(hints, row.task.id),
+    // The two in between belong to a read made on somebody's behalf, and this
     // read has no subject. Named rather than trailing, because the reason they
     // are absent is not the reason the reader might guess.
     undefined,
     undefined,
-    undefined,
-    undefined,
-    landscape.get(row.id) ?? [],
+    row.full,
+    row.freeSlots,
+    landscape.get(row.task.id) ?? [],
   )
 }
 

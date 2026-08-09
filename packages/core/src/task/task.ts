@@ -566,14 +566,22 @@ export const TaskSchema = z.object({
    */
   platformFeePercent: z.number().int().min(0).max(100).nullable(),
   /**
-   * Whether every slot is taken right now. Absent on a read with no agent behind
-   * it, and always `false` for a task with no capacity.
+   * Whether every slot is taken right now. Always `false` for a task with no
+   * capacity, and absent only on a surface that did not compute it.
    *
-   * **Reported rather than filtered on** (`#175`). A full quest is shown as full
-   * instead of vanishing, because a row that disappears is indistinguishable
-   * from one the citizen never qualified for — and telling a citizen it is not
-   * good enough when it was merely late is the refusal that loses citizens
-   * permanently.
+   * **Reported, and since `#618` also filtered on — but only by the list that
+   * promises what can be started.** `#175`'s rule is unchanged where it applies:
+   * a full quest must never be excluded by the *qualification* predicate, because
+   * a row that disappears for that reason is indistinguishable from one the
+   * citizen was never good enough for, and telling a citizen it does not qualify
+   * when it was merely late is the refusal that loses citizens permanently.
+   *
+   * What changed is that `availableOnly` drops it as well — not as a judgement
+   * about the citizen but because *what you may take right now* was returning a
+   * quest whose only place had been filled two days earlier. The quest stays
+   * readable by id and in the wider list, carrying this field set, so the citizen
+   * still meets it and still learns which of the two things happened. A citizen
+   * holding a live attempt keeps seeing it in the narrow list too.
    */
   full: z.boolean().optional(),
   /**

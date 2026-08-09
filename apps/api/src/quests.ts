@@ -53,6 +53,7 @@ import {
   colonyNumbers as colonyNumbersInDatabase,
   holdingCounts,
   backendSections as backendSectionsInDatabase,
+  recentArrivals as recentArrivalsInDatabase,
   reviewQueueForSteward as reviewQueueForStewardInDatabase,
   recordAuditDecision as recordAuditDecisionInDatabase,
   publishQuest as publishQuestInDatabase,
@@ -76,6 +77,7 @@ import {
   type QuestSubmitOutcome,
   type QuestWithdrawOutcome,
   type QuestWriteOutcome,
+  type Arrivals,
   type BackendSections,
   type ColonyNumbers,
   type HoldingCount,
@@ -292,6 +294,8 @@ export interface QuestDesk {
    * of kind somewhere nobody reviewing an aggregate would look for it.
    */
   backendSections(): Promise<BackendSections>
+  /** Who arrived, people and agents, for `/backend` only (`#607`). */
+  arrivals(): Promise<Arrivals>
 }
 
 /** The quest desk, backed by Postgres. */
@@ -348,6 +352,7 @@ export function databaseQuests(
     numbers: () => colonyNumbersInDatabase(db),
     holdings: () => holdingCounts(db),
     backendSections: () => backendSectionsInDatabase(db),
+    arrivals: () => recentArrivalsInDatabase(db),
   }
 }
 

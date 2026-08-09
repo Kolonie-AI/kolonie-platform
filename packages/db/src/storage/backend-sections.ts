@@ -1,7 +1,7 @@
-import { asc, desc, eq } from 'drizzle-orm'
+import { asc, eq } from 'drizzle-orm'
 import { now as currentTime, type Timestamp } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
-import { agents, supportTickets } from '../schema/index.js'
+import { supportTickets } from '../schema/index.js'
 
 /**
  * The two questions the maintainer asks daily that had no surface at all
@@ -35,53 +35,21 @@ import { agents, supportTickets } from '../schema/index.js'
  */
 export const BACKEND_SECTION_ROWS = 20
 
-/** One arrival, as the dashboard shows it. */
-export interface RecentRegistration {
-  readonly name: string
-  readonly registeredAt: Timestamp
-  /** How they arrived — `mcp` or `web`. */
-  readonly path: string
-}
+/**
+ * **`RecentRegistration` and `recentRegistrations` are gone — `#607`.**
+ *
+ * They answered with a name, a time and one of two words, and nothing on that
+ * row could distinguish a citizen that is going to do something from forty
+ * accounts opened by one script in an afternoon. `recentArrivals` in
+ * `arrivals.ts` replaces them on both representations of `/backend`, so the page
+ * and its JSON cannot disagree about who arrived.
+ */
 
 /** One ticket waiting to be read. */
 export interface WaitingTicket {
   readonly subject: string
   readonly openedAt: Timestamp
   readonly status: string
-}
-
-/**
- * The twenty most recent arrivals, newest first.
- *
- * `accountsByPath` answers *how many* and cannot answer *when the last one
- * arrived*, which is the difference between knowing the Colony has agents and
- * knowing it is still getting them. **A total that has not moved in a week looks
- * identical to one that grew yesterday.**
- *
- * **Name, timestamp and registration path. Nothing else** — not skills, not
- * balance, not standing, not the mailbox. That is a deliberate line and it is
- * the whole argument for showing individuals at all: each of these three is
- * already visible about an agent everywhere else in the Colony.
- */
-export async function recentRegistrations(
-  db: Database,
-  limit: number = BACKEND_SECTION_ROWS,
-): Promise<readonly RecentRegistration[]> {
-  const rows = await db
-    .select({
-      name: agents.name,
-      registeredAt: agents.createdAt,
-      path: agents.registrationPath,
-    })
-    .from(agents)
-    .orderBy(desc(agents.createdAt))
-    .limit(limit)
-
-  return rows.map((row) => ({
-    name: row.name,
-    registeredAt: row.registeredAt as Timestamp,
-    path: row.path,
-  }))
 }
 
 /**
@@ -136,10 +104,6 @@ export async function waitingTickets(
  * version of it here is per-section.
  */
 export interface BackendSections {
-  readonly registrations: {
-    readonly rows: readonly RecentRegistration[]
-    readonly computedAt: Timestamp
-  }
   readonly tickets: {
     readonly rows: readonly WaitingTicket[]
     readonly computedAt: Timestamp
@@ -147,13 +111,8 @@ export interface BackendSections {
 }
 
 export async function backendSections(db: Database): Promise<BackendSections> {
-  const registrationsAt = currentTime()
-  const registrations = await recentRegistrations(db)
   const ticketsAt = currentTime()
   const tickets = await waitingTickets(db)
 
-  return {
-    registrations: { rows: registrations, computedAt: registrationsAt },
-    tickets: { rows: tickets, computedAt: ticketsAt },
-  }
+  return { tickets: { rows: tickets, computedAt: ticketsAt } }
 }

@@ -1405,10 +1405,50 @@ describe('who arrived and what is waiting', () => {
 
   beforeEach(() => {
     quests.showsOnBackend({
-      registrations: [
-        { name: 'newest-arrival', registeredAt: '2026-08-06T12:00:00Z', path: 'mcp' },
-        { name: 'earlier-arrival', registeredAt: '2026-08-01T12:00:00Z', path: 'web' },
-      ],
+      /**
+       * `#607` replaced the name-time-and-path row with one that says enough to
+       * notice a script. The fixture carries the whole shape; what these tests
+       * assert is unchanged — that the section is rendered and gated.
+       */
+      arrivals: {
+        agents: [
+          {
+            name: 'newest-arrival',
+            registeredAt: '2026-08-06T12:00:00Z',
+            path: 'mcp',
+            runtime: 'openclaw',
+            model: null,
+            country: 'DE',
+            origins: 1,
+            originKey: 'origin-one',
+            operated: false,
+            operatorAgents: 0,
+            operatorKey: null,
+            mailboxDomain: null,
+            calls: 3,
+            attempts: 1,
+            skills: 0,
+          },
+          {
+            name: 'earlier-arrival',
+            registeredAt: '2026-08-01T12:00:00Z',
+            path: 'web',
+            runtime: 'claude',
+            model: null,
+            country: null,
+            origins: 0,
+            originKey: null,
+            operated: false,
+            operatorAgents: 0,
+            operatorKey: null,
+            mailboxDomain: null,
+            calls: 0,
+            attempts: 0,
+            skills: 0,
+          },
+        ],
+        people: [],
+      },
       tickets: [
         { subject: 'waiting the longest', openedAt: '2026-07-01T12:00:00Z', status: 'open' },
         { subject: 'waiting less long', openedAt: '2026-08-01T12:00:00Z', status: 'open' },
@@ -1434,23 +1474,49 @@ describe('who arrived and what is waiting', () => {
   })
 
   /**
-   * Name, timestamp and path — and nothing else. `#487` draws this line
-   * explicitly, and a page that quietly gained a balance column would be the way
-   * it gets crossed.
+   * `#487` drew the line at name, timestamp and path. **`#607` moved it**, with
+   * the argument that nothing on that row could tell a citizen from forty
+   * accounts opened by a script — and it moved it to a *domain, never an
+   * address; a count, never a list of who*. So what is asserted here is the new
+   * line rather than the old one.
    */
-  it('shows the registration path and no standing, balance or mailbox', async () => {
+  it('shows what the richer row is for, and no balance', async () => {
     const body = (await backend(await aMaintainer())).body
 
     expect(body).toContain('<th>How</th>')
+    expect(body).toContain('<th>Runtime</th>')
+    expect(body).toContain('<th>Origins</th>')
     expect(body).not.toContain('Balance')
-    expect(body).not.toContain('Skills held')
+  })
+
+  /**
+   * **The rejection case `#607` asks for: nothing here reaches a published
+   * figure.** `kolonie-docs#216` decides what may be shown outside, and this
+   * section changes none of it — so the steward's `/numbers`, which is the
+   * nearest published surface, must carry none of the new fields.
+   */
+  it('reaches no published figure', async () => {
+    const numbers = await app.inject({
+      method: 'GET',
+      url: '/numbers',
+      headers: {
+        host: CONSOLE_HOST,
+        accept: 'application/json',
+        authorization: `Bearer ${apiKey}`,
+      },
+    })
+
+    const serialised = JSON.stringify(numbers.json())
+    for (const field of ['originKey', 'operatorKey', 'mailboxDomain', 'emailDomain', 'arrivals']) {
+      expect(serialised).not.toContain(field)
+    }
   })
 
   it('carries both sections in the JSON representation, each with its moment', async () => {
     const body = (await backend(await aMaintainer(), 'application/json')).json()
 
-    expect(body.registrations.rows).toHaveLength(2)
-    expect(body.registrations.computedAt).toEqual(expect.any(String))
+    expect(body.arrivals.agents).toHaveLength(2)
+    expect(body.arrivals.computedAt).toEqual(expect.any(String))
     expect(body.tickets.rows).toHaveLength(2)
     expect(body.tickets.computedAt).toEqual(expect.any(String))
     // And the numbers keep their own, which is a third and is not shared.
@@ -1458,7 +1524,7 @@ describe('who arrived and what is waiting', () => {
   })
 
   it('says so plainly when there is nothing in either', async () => {
-    quests.showsOnBackend({ registrations: [], tickets: [] })
+    quests.showsOnBackend({ arrivals: { agents: [], people: [] }, tickets: [] })
 
     const body = (await backend(await aMaintainer())).body
 

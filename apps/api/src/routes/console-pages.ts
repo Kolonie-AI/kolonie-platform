@@ -1067,6 +1067,8 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
     // entirely, and showing individuals is a change of kind rather than one
     // more figure.
     const sections = await deps.quests.backendSections()
+    // Who arrived (`#607`). Its own read, and it reaches no published figure.
+    const arrivals = await deps.quests.arrivals()
     const settings = await deps.settings.effective()
     // Providers writing in about the Atlas (`#544`). On the page before the form
     // is announced anywhere, because an enquiry nobody answers is worse than no
@@ -1091,6 +1093,7 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
             nav: navFor(request, ['maintainer']),
             numbers,
             sections,
+            arrivals,
             settings,
             enquiries,
             notice,
@@ -1101,6 +1104,8 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
       : reply.send({
           numbers,
           ...sections,
+          // The same answer the page renders (`#607`), not a thinner one.
+          arrivals,
           enquiries,
           wanted,
           settings: settings.map((setting) => ({

@@ -2,12 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import type { Database } from '../client.js'
 import { agents, supportTickets } from '../schema/index.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
-import {
-  BACKEND_SECTION_ROWS,
-  backendSections,
-  recentRegistrations,
-  waitingTickets,
-} from './backend-sections.js'
+import { BACKEND_SECTION_ROWS, backendSections, waitingTickets } from './backend-sections.js'
 
 const target = databaseTestTarget()
 
@@ -64,55 +59,12 @@ describe('the two sections on /backend', () => {
     })
   }
 
-  describe('who arrived', () => {
-    it('answers newest first', async () => {
-      await arrived('oldest', '2026-01-01T00:00:00Z')
-      await arrived('middle', '2026-05-01T00:00:00Z')
-      await arrived('newest', '2026-08-01T00:00:00Z')
-
-      const rows = await recentRegistrations(db)
-
-      expect(rows.map((row) => row.name)).toEqual(['newest', 'middle', 'oldest'])
-    })
-
-    /**
-     * Twenty is one screen: enough rows to see a gap in, few enough to read
-     * without scrolling. A caller-supplied limit would make this a query
-     * interface over `agents`, which is a different thing.
-     */
-    it('stops at twenty', async () => {
-      for (let n = 0; n < 25; n++) {
-        await arrived(
-          `agent-${String(n).padStart(2, '0')}`,
-          `2026-0${(n % 8) + 1}-01T00:00:0${n % 10}Z`,
-        )
-      }
-
-      const rows = await recentRegistrations(db)
-
-      expect(rows).toHaveLength(BACKEND_SECTION_ROWS)
-      expect(BACKEND_SECTION_ROWS).toBe(20)
-    })
-
-    /**
-     * **Name, timestamp and registration path. Nothing else.** The line is
-     * deliberate — `/numbers` is otherwise entirely aggregates, and showing
-     * individuals is defensible only for facts already visible about an agent.
-     */
-    it('carries three fields and no fourth', async () => {
-      await arrived('somebody', '2026-08-01T00:00:00Z', 'web')
-
-      const [row] = await recentRegistrations(db)
-
-      expect(Object.keys(row ?? {}).sort()).toEqual(['name', 'path', 'registeredAt'])
-      expect(row?.path).toBe('web')
-    })
-
-    it('says nothing rather than failing when there are none', async () => {
-      expect(await recentRegistrations(db)).toEqual([])
-    })
-  })
-
+  /**
+   * **`who arrived` moved to `arrivals.test.ts` with `#607`.** The section it
+   * covered answered with a name, a time and one of two words; `recentArrivals`
+   * replaces it with a row that can tell a citizen from forty accounts opened by
+   * a script, and its tests live beside it.
+   */
   describe('what is waiting', () => {
     /**
      * The one ordering that puts the ticket that has waited longest at the top.
@@ -172,22 +124,20 @@ describe('the two sections on /backend', () => {
   })
 
   /**
-   * **Two moments and not one.** These are two live queries and were not
-   * computed with `ColonyNumbers`; one page-wide timestamp would be claiming
-   * they were. `AGENTS.md` §7 applies to a page that reprints itself, and the
-   * honest version of it here is per-section.
+   * **A section carries its own moment and not the page's.** This is one live
+   * query and it was not computed with `ColonyNumbers`; one page-wide timestamp
+   * would be claiming it was. `AGENTS.md` §7 applies to a page that reprints
+   * itself, and the honest version of it here is per-section.
+   *
+   * It was two sections until `#607` moved the arrivals to `recentArrivals`,
+   * which carries a moment of its own on the same terms.
    */
-  it('gives each section its own moment', async () => {
-    await arrived('somebody', '2026-08-01T00:00:00Z')
+  it('gives the section its own moment', async () => {
     await ticket('something is waiting here', '2026-01-01T00:00:00Z')
 
     const sections = await backendSections(db)
 
-    expect(sections.registrations.computedAt).toEqual(expect.any(String))
     expect(sections.tickets.computedAt).toEqual(expect.any(String))
-    // Two, because a ticket needs an author and an author is an agent — the
-    // arrivals list holds `somebody` and the ticket's author both.
-    expect(sections.registrations.rows).toHaveLength(2)
     expect(sections.tickets.rows).toHaveLength(1)
   })
 })

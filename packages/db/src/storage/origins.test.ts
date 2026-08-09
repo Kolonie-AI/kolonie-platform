@@ -224,7 +224,21 @@ describe('observed origins', () => {
  * be argued for and added below, which is the point.
  */
 describe('nothing decides on an origin', () => {
-  const ALLOWED = new Set(['origins.ts', 'origins.test.ts'])
+  /**
+   * **`arrivals.ts` was argued for and added on 2026-08-09 (`#607`).**
+   *
+   * It reads `agent_origins` to *show* a maintainer who arrived together, and it
+   * decides nothing: no gate keys on a fingerprint, no limit, no rank, no score —
+   * `arrivals.test.ts` asserts the absence of the last of those by name. That is
+   * the use `origins.ts`'s own header describes — *"it exists to be looked at
+   * after something has gone wrong"* — and it is the one shape of reference this
+   * rule was never aimed at.
+   *
+   * **What the exemption does not cover** is the thing the rule is about: if
+   * anything in that file ever branches on a fingerprint, it is in breach whether
+   * or not it is on this list, and the list is not the argument.
+   */
+  const ALLOWED = new Set(['origins.ts', 'origins.test.ts', 'arrivals.ts', 'arrivals.test.ts'])
 
   it('is referenced by no storage module that decides anything', async () => {
     const storage = fileURLToPath(new URL('.', import.meta.url))

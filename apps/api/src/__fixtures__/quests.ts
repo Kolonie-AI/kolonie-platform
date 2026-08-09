@@ -47,7 +47,8 @@ export interface FakeQuestDesk extends QuestDesk {
   readonly credit: (agentId: AgentId, amount: number) => void
   /** Put rows into the two `/backend` sections (`#487`). */
   readonly showsOnBackend: (input: {
-    readonly registrations?: readonly { name: string; registeredAt: string; path: string }[]
+    /** Who arrived (`#607`). Shapes are the storage's; a test fills what it asserts on. */
+    readonly arrivals?: { agents: readonly unknown[]; people: readonly unknown[] }
     readonly tickets?: readonly { subject: string; openedAt: string; status: string }[]
   }) => void
   /**
@@ -117,9 +118,10 @@ export function fakeQuests(): FakeQuestDesk {
   /** `#524`'s figure. Empty until a test says otherwise. */
   let holdings: readonly HoldingCount[] = []
   const sections: {
-    registrations: readonly { name: string; registeredAt: string; path: string }[]
     tickets: readonly { subject: string; openedAt: string; status: string }[]
-  } = { registrations: [], tickets: [] }
+    /** Who arrived (`#607`). Empty until a test says otherwise. */
+    arrivals: { agents: readonly unknown[]; people: readonly unknown[] }
+  } = { tickets: [], arrivals: { agents: [], people: [] } }
   let fixedAudience: number | null = null
 
   const task = (input: {
@@ -319,8 +321,8 @@ export function fakeQuests(): FakeQuestDesk {
     },
 
     showsOnBackend: (input) => {
-      if (input.registrations !== undefined) sections.registrations = input.registrations
       if (input.tickets !== undefined) sections.tickets = input.tickets
+      if (input.arrivals !== undefined) sections.arrivals = input.arrivals
     },
 
     /**
@@ -364,9 +366,17 @@ export function fakeQuests(): FakeQuestDesk {
      * asserted against a real Postgres in `packages/db`, which is where a fake
      * would only be a second opinion.
      */
+    /** Who arrived (`#607`). In memory, and empty unless a test fills it. */
+    async arrivals() {
+      return {
+        agents: sections.arrivals.agents,
+        people: sections.arrivals.people,
+        computedAt: new Date().toISOString(),
+      } as never
+    },
+
     async backendSections() {
       return {
-        registrations: { rows: sections.registrations, computedAt: new Date().toISOString() },
         tickets: { rows: sections.tickets, computedAt: new Date().toISOString() },
       } as never
     },

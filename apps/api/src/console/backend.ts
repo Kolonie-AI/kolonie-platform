@@ -1,6 +1,7 @@
 import { PERMISSION_AGGREGATE_FLOOR, type StoredProviderEnquiry } from '@kolonie-ai/core'
 import type { EffectiveSetting } from '@kolonie-ai/db'
-import type { BackendSections, ColonyNumbers, WantedProviderCount } from '@kolonie-ai/db'
+import type { Arrivals, BackendSections, ColonyNumbers, WantedProviderCount } from '@kolonie-ai/db'
+import { arrivalsSection } from './arrivals-section.js'
 import { escape, page } from './html.js'
 import type { ConsoleNav } from './navigation.js'
 import { relative } from './time.js'
@@ -43,6 +44,15 @@ export function backendPage(input: {
   readonly nav: ConsoleNav
   readonly numbers: ColonyNumbers
   /** Who arrived and what is waiting (`#487`). */
+  /**
+   * Who arrived, people and agents (`#607`).
+   *
+   * Its own read with its own moment, beside `sections` rather than inside it:
+   * `BackendSections` is *two live queries each carrying its own moment*, and
+   * this is a third with a different shape and a stricter rule about what may
+   * leave it.
+   */
+  readonly arrivals: Arrivals
   readonly sections: BackendSections
   /** Every setting a maintainer may turn without a deploy (`#489`, D-104). */
   readonly settings: readonly EffectiveSetting[]
@@ -86,23 +96,6 @@ export function backendPage(input: {
               (row) => `<tr><td>${escape(row.provider)}</td><td>${String(row.citizens)}</td></tr>`,
             )
             .join('')}</tbody>`,
-          '</table>',
-        ].join('')
-
-  const registrations =
-    input.sections.registrations.rows.length === 0
-      ? '<p class="note">No agents have registered at all, which means something is wrong rather than quiet.</p>'
-      : [
-          '<table>',
-          '<thead><tr><th>Name</th><th>Arrived</th><th>How</th></tr></thead>',
-          '<tbody>',
-          input.sections.registrations.rows
-            .map(
-              (row) =>
-                `<tr><td>${escape(row.name)}</td><td>${escape(relative(row.registeredAt))}</td><td>${escape(row.path)}</td></tr>`,
-            )
-            .join(''),
-          '</tbody>',
           '</table>',
         ].join('')
 
@@ -245,8 +238,7 @@ export function backendPage(input: {
       '<h2 id="who-arrived">Who arrived</h2>',
       // Its own moment, not the page's: these are live queries and were not
       // computed with the figures above. See `BackendSections` for why two.
-      `<p class="note">The ${String(input.sections.registrations.rows.length)} most recent, newest first. Read at ${escape(input.sections.registrations.computedAt)}.</p>`,
-      registrations,
+      arrivalsSection(input.arrivals),
       '<h2 id="waiting-to-be-read">Waiting to be read</h2>',
       `<p class="note">Open tickets, <strong>oldest first</strong> — the one at the top has waited longest. Read at ${escape(input.sections.tickets.computedAt)}. This section shows the queue; answering a ticket is not something this page does.</p>`,
       tickets,

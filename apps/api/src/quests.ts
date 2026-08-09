@@ -18,7 +18,9 @@ import {
   audienceSentence,
   capabilityMismatches,
   invoiceNotice,
-  questCommitment,
+  questCommitmentBreakdown,
+  questCommitmentLines,
+  platformFeePercentFromEnv,
   questRewardRejection,
   questSubmissionRejection,
   reportAudience,
@@ -31,6 +33,7 @@ import {
   type QuestReportCounts,
   type QuestAudience,
   type QuestReportKind,
+  type QuestCommitmentBreakdown,
   type QuestTier,
   type SubmissionId,
   type Task,
@@ -560,6 +563,23 @@ export interface QuestCommitment {
    * air of authority. What it can say is what the quest costs, which is this.
    */
   readonly cost: number
+  /**
+   * What that figure is made of (`#628`).
+   *
+   * **`cost` alone was a number with an unexplained part in it.** A draft of
+   * three answers at 0.01 SOL costs 0.045: thirty million for the answers and
+   * fifteen million of obstacle pool that appeared on no surface a sponsor
+   * reads. The design was right and documented — in a source file.
+   */
+  readonly breakdown: QuestCommitmentBreakdown
+  /**
+   * The same thing as a person reads it.
+   *
+   * **Here rather than composed per surface**, so the browser, the MCP answer
+   * and the REST body cannot itemise one commitment three ways. A caller that
+   * wants its own layout has `breakdown`.
+   */
+  readonly lines: readonly string[]
 }
 
 /**
@@ -683,20 +703,37 @@ const respond = (
   walletAddress?: string,
   obstacleBonusPercent: number = QUEST_OBSTACLE_BONUS_DEFAULT_PERCENT,
 ): OwnQuestResponse => {
-  const cost = questCommitment(
-    {
-      reward: quest.task.reward,
-      slots: quest.task.slots ?? 0,
-      publishObstacles: quest.task.publishObstacles,
-    },
-    obstacleBonusPercent,
-  )
+  /**
+   * **Itemised as well as totalled** (`#628`). The sponsor was shown one figure
+   * and had to read `quest.ts` to learn what the part above capacity × price
+   * was. `questCommitmentBreakdown` derives both from the functions the escrow
+   * uses, so the lines cannot sum to something other than what is taken.
+   */
+  const priced = {
+    reward: quest.task.reward,
+    slots: quest.task.slots ?? 0,
+    publishObstacles: quest.task.publishObstacles,
+  }
+  const breakdown = questCommitmentBreakdown(priced, {
+    // The rate a draft *would* be published under: nothing has recorded one yet,
+    // and `tasks.platform_fee_percent` is written at publication.
+    feePercent: quest.task.platformFeePercent ?? platformFeePercentFromEnv(),
+    obstaclePercent: obstacleBonusPercent,
+  })
+  const cost = breakdown.total
 
   return {
     quest: quest.task,
     rejectionReason: quest.rejectionReason,
     awaitingModeration: quest.awaitingModeration,
-    commitment: { cost },
+    commitment: {
+      cost,
+      breakdown,
+      /** The same thing as a person reads it, so no surface writes its own. */
+      lines: questCommitmentLines(breakdown, {
+        publishObstacles: quest.task.publishObstacles,
+      }),
+    },
     /**
      * Rendered with the citizen's own renderer, called as it is called for a
      * citizen that has never attempted this: no struggle count, no briefing

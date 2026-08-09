@@ -270,7 +270,10 @@ export function registerQuestTools(
       return answer(
         await writeQuestDraft({ authorId: authenticated.agent.id, body: input }, deps.quests),
         (q) =>
-          `Drafted. It would cost ${q.commitment.cost}, invoiced to you after a steward ` +
+          // The commitment, itemised (`#628`). The bare total had an
+          // unexplained part in it — the obstacle pool — and a sponsor had to
+          // read a source file to find out what it was.
+          `Drafted. ${q.commitment.lines.join('\n')}\nInvoiced to you after a steward ` +
           'publishes it and paid from your own wallet. ' +
           // Where the committed money goes, in the same answer that names the
           // commitment (`#472`). The browser has shown this since `#463` and
@@ -324,7 +327,7 @@ export function registerQuestTools(
           deps.quests,
         ),
         (q) =>
-          `Changed. It would now cost ${q.commitment.cost}, invoiced after publication. ` +
+          `Changed. ${q.commitment.lines.join('\n')}\nInvoiced after publication. ` +
           `${q.audience === undefined ? '' : `${q.audience.sentence} `}` +
           `${obstaclePublicationNotice(q.quest.publishObstacles) ?? ''}${q.quest.publishObstacles ? '' : ' '}` +
           `${bonusSentence(q.quest)}` +

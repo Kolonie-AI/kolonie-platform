@@ -17,6 +17,9 @@ import {
   QuestRefusalSchema,
   platformFeePercentFromEnv,
   questCommitment,
+  questCommitmentBreakdown,
+  questCommitmentLines,
+  QUEST_OBSTACLE_BONUS_WINNERS,
   questFeeBreakdown,
   questPayNotice,
   questPayoutSplit,
@@ -188,6 +191,93 @@ describe('what a quest commits', () => {
         publishObstacles: true,
       }),
     ).toBe(10)
+  })
+})
+
+describe('what the commitment is made of (#628)', () => {
+  const quest = { reward: { lamports: 10_000_000 }, slots: 3, publishObstacles: true }
+
+  /** The definition of done: the itemised lines sum to the committed total. */
+  it('itemises a total that its own parts add up to', () => {
+    const breakdown = questCommitmentBreakdown(quest, { feePercent: 25 })
+
+    expect(breakdown.answers.total + (breakdown.obstacles?.total ?? 0)).toBe(breakdown.total)
+    expect(breakdown.total).toBe(questCommitment(quest))
+  })
+
+  it('names the answers and the pool separately, which the total never did', () => {
+    const breakdown = questCommitmentBreakdown(quest, { feePercent: 25 })
+
+    expect(breakdown.answers).toEqual({ slots: 3, each: 10_000_000, total: 30_000_000 })
+    expect(breakdown.obstacles).toEqual({
+      winners: QUEST_OBSTACLE_BONUS_WINNERS,
+      each: 2_500_000,
+      total: 7_500_000,
+    })
+  })
+
+  /**
+   * `null` and not a zero: a sponsor that turned obstacles off made a choice,
+   * and a quest priced too low to take a share of has nothing to hold. Neither
+   * should read as *0 lamports of obstacle pool*.
+   */
+  it('holds no pool where the sponsor turned obstacles off, and says so', () => {
+    const breakdown = questCommitmentBreakdown(
+      { ...quest, publishObstacles: false },
+      { feePercent: 25 },
+    )
+
+    expect(breakdown.obstacles).toBeNull()
+    expect(breakdown.total).toBe(30_000_000)
+    expect(questCommitmentLines(breakdown, { publishObstacles: false }).join(' ')).toContain(
+      'publishObstacles to false',
+    )
+  })
+
+  it('holds no pool on a quest priced too low to take a share of', () => {
+    expect(
+      questCommitmentBreakdown(
+        { reward: { lamports: 1 }, slots: 3, publishObstacles: true },
+        {
+          feePercent: 25,
+        },
+      ).obstacles,
+    ).toBeNull()
+  })
+
+  it('states what the sponsor commits and what the citizen receives, without arithmetic', () => {
+    const said = questCommitmentLines(questCommitmentBreakdown(quest, { feePercent: 25 })).join(
+      '\n',
+    )
+
+    expect(said).toContain('37500000 lamports held')
+    expect(said).toContain('3 answer(s) at 10000000')
+    expect(said).toContain('the citizen receives 7500000')
+    expect(said).toContain('the Colony 2500000')
+    expect(said).toContain('refunded at expiry')
+  })
+
+  it('says nothing about money for a quest that pays reputation only', () => {
+    const said = questCommitmentLines(
+      questCommitmentBreakdown(
+        { reward: { lamports: 0 }, slots: 3, publishObstacles: true },
+        {
+          feePercent: 25,
+        },
+      ),
+    )
+
+    expect(said).toEqual([
+      'This quest pays reputation and nothing else, so nothing is held and there is no invoice.',
+    ])
+  })
+
+  /** The share is a setting (`#632`), and the itemisation has to follow it. */
+  it('itemises at the obstacle share it is given', () => {
+    const breakdown = questCommitmentBreakdown(quest, { feePercent: 25, obstaclePercent: 50 })
+
+    expect(breakdown.obstacles?.each).toBe(5_000_000)
+    expect(breakdown.answers.total + (breakdown.obstacles?.total ?? 0)).toBe(breakdown.total)
   })
 })
 

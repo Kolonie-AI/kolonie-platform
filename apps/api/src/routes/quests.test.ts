@@ -201,7 +201,11 @@ describe('what comes back with a quest of your own', () => {
     // the answers; since `#371` the commitment is more, because the first three
     // published obstacle reports are held on top of the capacity rather than out
     // of it — a quarter of one answer each since `#632`, so `300 + 3 × 3`.
-    expect(written.json().commitment).toEqual({ cost: 309 })
+    expect(written.json().commitment).toMatchObject({ cost: 309 })
+    // Itemised since `#628`, and the parts add up to the total a sponsor commits.
+    const { breakdown } = written.json().commitment
+    expect(breakdown.answers).toEqual({ slots: 20, each: 15, total: 300 })
+    expect(breakdown.answers.total + breakdown.obstacles.total).toBe(309)
   })
 
   it('carries the quest as an answering citizen reads it', async () => {

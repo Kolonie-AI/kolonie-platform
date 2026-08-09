@@ -26,6 +26,7 @@ import {
   lamportsFromSol,
   obstacleBonusNotice,
   obstaclePublicationNotice,
+  questCommitmentBreakdown,
   questInvoiceLamports,
   questPayoutSplit,
   solFromLamports,
@@ -490,6 +491,33 @@ export function questInvoiceLine(input: {
   const { toCitizen, toTreasury } = questPayoutSplit(input.lamports, input.feePercent)
 
   /**
+   * **What the total is made of, on the page that takes the money** (`#628`).
+   *
+   * Derived from `questCommitmentBreakdown` rather than composed here, so the
+   * browser and the agent surfaces itemise one commitment one way — and so the
+   * lines cannot sum to something other than the invoice above them.
+   */
+  const breakdown = questCommitmentBreakdown(
+    {
+      reward: { lamports: input.lamports },
+      slots: input.slots,
+      publishObstacles: input.publishObstacles,
+    },
+    { feePercent: input.feePercent },
+  )
+
+  const itemised =
+    breakdown.obstacles === null
+      ? input.publishObstacles
+        ? ''
+        : ' You have turned obstacle reports off, which is what removed the pool from this figure.'
+      : ` Of that, ${solFromLamports(breakdown.answers.total)} SOL buys the answers — ` +
+        `${breakdown.answers.slots} at ${solFromLamports(breakdown.answers.each)} SOL — and ` +
+        `${solFromLamports(breakdown.obstacles.total)} SOL is the obstacle pool: up to ` +
+        `${breakdown.obstacles.winners} reports at ${solFromLamports(breakdown.obstacles.each)} ` +
+        'SOL, which nobody may be obliged to claim. Turning obstacle reports off removes it.'
+
+  /**
    * **The chain minimum is a warning and never a refusal** (`#540`). A citizen
    * whose address has never held SOL cannot receive less than the rent-exempt
    * minimum — the transfer would be spent creating nothing — so such a payout
@@ -503,8 +531,9 @@ export function questInvoiceLine(input: {
 
   return (
     `This quest costs ${solFromLamports(invoice)} SOL, payable from your own verified wallet ` +
-    `before it goes live. Each accepted report pays the citizen ${solFromLamports(toCitizen)} SOL ` +
-    `and the Colony ${solFromLamports(toTreasury)} SOL. Nothing here is refundable, and capacity ` +
-    `nobody fills is not returned.${accrues}`
+    `before it goes live.${itemised} Each accepted report pays the citizen ` +
+    `${solFromLamports(toCitizen)} SOL and the Colony ${solFromLamports(toTreasury)} SOL — the ` +
+    `platform fee, ${input.feePercent}%. Nothing here is refundable, and capacity nobody fills ` +
+    `is not returned.${accrues}`
   )
 }

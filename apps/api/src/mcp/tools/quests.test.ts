@@ -135,7 +135,7 @@ describe('the sponsor over MCP', () => {
     // the quest would hold, which is what a sponsor is deciding about.
     // The commitment is the cost and nothing else since `#553`: `available` and
     // `affordable` read a balance the Colony does not hold.
-    expect(structured(written).commitment).toEqual({ cost: 309 })
+    expect(structured(written).commitment).toMatchObject({ cost: 309 })
     expect(String(structured(written).preview)).toContain('A thousand registrations')
     expect(JSON.stringify(written.content)).toContain('309')
   })

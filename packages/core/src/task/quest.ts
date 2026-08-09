@@ -884,6 +884,137 @@ export function questObstacleBonusPool(
 }
 
 /**
+ * What a commitment is made of (`#628`).
+ *
+ * **The sponsor was shown a total and not what it was made of.** A draft with
+ * three slots at 0.01 SOL answered `commitment: 45000000` — thirty million for
+ * the answers and fifteen million that appears nowhere the sponsor can see. To
+ * learn what the rest was it had to read `quest.ts`.
+ *
+ * **One function, and both the preview and the invoice read it.** That is this
+ * issue's last criterion and the reason this is here rather than in the two
+ * renderers: `questInvoiceLamports` and `questCommitment` already sum to the
+ * same figure through `questObstacleBonusPool`, and an itemisation computed
+ * separately would be a third arithmetic that agrees until it does not.
+ */
+export interface QuestCommitmentBreakdown {
+  /** Capacity times the price of one answer. */
+  readonly answers: { readonly slots: number; readonly each: number; readonly total: number }
+  /**
+   * The obstacle pool, or `null` where the sponsor is not holding one.
+   *
+   * `null` rather than a zero, because the two are different facts: a sponsor
+   * that turned obstacles off made a choice, and a quest priced too low to halve
+   * has nothing to hold. Both read as *no line*, and neither reads as *0*.
+   */
+  readonly obstacles: {
+    readonly winners: number
+    readonly each: number
+    readonly total: number
+  } | null
+  /** The whole of what is held while the quest runs. */
+  readonly total: number
+  /** What one accepted answer pays each party, at the rate in force. */
+  readonly perAnswer: {
+    readonly toCitizen: number
+    readonly toColony: number
+    readonly feePercent: number
+  }
+}
+
+/**
+ * The commitment, itemised (`#628`).
+ *
+ * **Derived from the same functions the escrow is**, so the lines cannot sum to
+ * something other than what is taken — `answers.total + obstacles.total` is
+ * `questCommitment` by construction rather than by agreement.
+ */
+export function questCommitmentBreakdown(
+  quest: {
+    readonly reward: Partial<TaskReward> & Pick<TaskReward, 'lamports'>
+    readonly slots: number
+    readonly publishObstacles: boolean
+  },
+  rates: {
+    readonly feePercent: number
+    readonly obstaclePercent?: number
+  },
+): QuestCommitmentBreakdown {
+  const obstaclePercent = rates.obstaclePercent ?? QUEST_OBSTACLE_BONUS_DEFAULT_PERCENT
+  const each = questObstacleBonus(quest.reward, obstaclePercent)
+  const pool = questObstacleBonusPool(quest, obstaclePercent)
+  const split = questPayoutSplit(quest.reward.lamports, rates.feePercent)
+
+  return {
+    answers: {
+      slots: quest.slots,
+      each: quest.reward.lamports,
+      total: quest.reward.lamports * quest.slots,
+    },
+    obstacles: pool === 0 ? null : { winners: QUEST_OBSTACLE_BONUS_WINNERS, each, total: pool },
+    total: questCommitment(quest, obstaclePercent),
+    perAnswer: {
+      toCitizen: split.toCitizen,
+      toColony: split.toTreasury,
+      feePercent: rates.feePercent,
+    },
+  }
+}
+
+/**
+ * The commitment as a person reads it — one line per part, then the total
+ * (`#628`).
+ *
+ * **Two figures that do not have to be reconciled by the reader**, which is the
+ * criterion this exists for. A sponsor was shown *the citizen receives 0.0075*
+ * and *you commit 0.045* and had to work out that both were true; now the fee is
+ * named where the money is taken as well as per answer.
+ *
+ * Lamports rather than SOL, because this is the unit every other figure on the
+ * agent-facing surfaces is in. The browser converts; a caller that wants SOL has
+ * `solFromLamports`.
+ */
+export function questCommitmentLines(
+  breakdown: QuestCommitmentBreakdown,
+  options: { readonly publishObstacles: boolean } = { publishObstacles: true },
+): readonly string[] {
+  if (breakdown.total === 0) {
+    return [
+      'This quest pays reputation and nothing else, so nothing is held and there is no invoice.',
+    ]
+  }
+
+  const lines = [
+    `${breakdown.total} lamports held while this runs:`,
+    `  ${breakdown.answers.total} — ${breakdown.answers.slots} answer(s) at ` +
+      `${breakdown.answers.each}`,
+  ]
+
+  if (breakdown.obstacles !== null) {
+    lines.push(
+      `  ${breakdown.obstacles.total} — obstacle reports, up to ` +
+        `${breakdown.obstacles.winners} at ${breakdown.obstacles.each}. Nobody may claim them, ` +
+        'and setting publishObstacles to false removes this line entirely',
+    )
+  } else if (!options.publishObstacles) {
+    lines.push(
+      '  nothing for obstacle reports — you set publishObstacles to false, which is what ' +
+        'removed that line',
+    )
+  }
+
+  lines.push(
+    `Of each answer, the citizen receives ${breakdown.perAnswer.toCitizen} and the Colony ` +
+      `${breakdown.perAnswer.toColony} — the platform fee, ${breakdown.perAnswer.feePercent}%. ` +
+      'You commit the whole figure above; what the citizen is paid is the first of those two, ' +
+      'and neither has to be worked out from the other.',
+    'Capacity nobody fills and bonuses nobody claims are refunded at expiry.',
+  )
+
+  return lines
+}
+
+/**
  * What the obstacle bonus costs the sponsor, said where the money is committed
  * (`#371`).
  *

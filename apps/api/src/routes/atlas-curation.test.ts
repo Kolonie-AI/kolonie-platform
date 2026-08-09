@@ -62,9 +62,9 @@ describe('the curation section', () => {
   it('says an empty signal is the good answer rather than a quiet one', async () => {
     const { curationSections } = await import('../console/curation.js')
 
-    expect(curationSections({ proposals: [], falling: [], entries: [] })).toContain(
-      'an empty one is the good answer',
-    )
+    expect(
+      curationSections({ proposals: [], falling: [], entries: [], unpublished: [] }),
+    ).toContain('an empty one is the good answer')
   })
 
   /**
@@ -78,6 +78,7 @@ describe('the curation section', () => {
       proposals: [proposal()],
       falling: [],
       entries: [],
+      unpublished: [],
     })
 
     expect(rendered).toContain('caution')
@@ -106,6 +107,7 @@ describe('the curation section', () => {
         },
       ],
       entries: [],
+      unpublished: [],
     })
 
     for (const control of ['position', 'rank', 'move-up', 'moveUp', 'reorder', 'drag']) {

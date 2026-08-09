@@ -271,13 +271,112 @@ describe('the provider catalogue', () => {
       ).toBe('provider_recipes_operator_guess_is_known')
     })
 
-    it('refuses a fourth state nobody defined', async () => {
+    it('refuses a seventh state nobody defined', async () => {
       expect(
         await refusedBy(
           `insert into provider_recipes (kind, provider, title, status, category)
            values ('mailbox', 'maybe.example', 'Maybe', 'probably', 'mailbox')`,
         ),
       ).toBe('provider_recipes_status_is_known')
+    })
+
+    /**
+     * The three states `#604` added, one rejection case per constraint.
+     *
+     * **In SQL and not only in `WriteProviderRecipeSchema`**, for the reason the
+     * block above states: the seed and a psql prompt write through neither Zod
+     * schema, and every one of these is a shape somebody would reasonably type
+     * by hand.
+     */
+    it('takes a proposal, which carries nothing at all', async () => {
+      expect(
+        await refusedBy(
+          `insert into provider_recipes (kind, provider, title, status, category)
+           values ('mailbox', 'asked.example', 'Asked for', 'proposed', 'mailbox')`,
+        ),
+      ).toBeUndefined()
+    })
+
+    it('refuses a proposal that carries steps', async () => {
+      expect(
+        await refusedBy(
+          `insert into provider_recipes (kind, provider, title, status, category, steps)
+           values ('mailbox', 'asked2.example', 'Asked', 'proposed', 'mailbox',
+                   '[{"actor":"agent","instruction":"sign up"}]')`,
+        ),
+      ).toBe('provider_recipes_unjoinable_is_empty')
+    })
+
+    /**
+     * **The one state that carries steps without a proof**, and the reason it is
+     * allowed to is that no public surface reads it: a walk that got an account
+     * and did not work out how to prove it is a real outcome and a reviewable
+     * one. Refusing to store it would leave the walk in a GitHub issue, which is
+     * the defect `#601` is named for.
+     */
+    it('takes a draft with steps and no proof', async () => {
+      expect(
+        await refusedBy(
+          `insert into provider_recipes (kind, provider, title, status, category, steps)
+           values ('mailbox', 'walked.example', 'Walked', 'draft', 'mailbox',
+                   '[{"actor":"agent","instruction":"sign up"}]')`,
+        ),
+      ).toBeUndefined()
+    })
+
+    it('refuses a draft with no steps, because that is an unwritten entry', async () => {
+      expect(
+        await refusedBy(
+          `insert into provider_recipes (kind, provider, title, status, category)
+           values ('mailbox', 'empty.example', 'Empty draft', 'draft', 'mailbox')`,
+        ),
+      ).toBe('provider_recipes_joinable_has_steps')
+    })
+
+    it('takes a withdrawal that keeps its steps, its proof and a reason', async () => {
+      expect(
+        await refusedBy(
+          `insert into provider_recipes
+             (kind, provider, title, status, category, steps, proves, retired_at, retired_reason)
+           values ('mailbox', 'gone.example', 'Gone', 'retired', 'mailbox',
+                   '[{"actor":"agent","instruction":"sign up"}]', 'rung', now(),
+                   'the provider began demanding a phone number')`,
+        ),
+      ).toBeUndefined()
+    })
+
+    it('refuses a withdrawal that does not say why', async () => {
+      expect(
+        await refusedBy(
+          `insert into provider_recipes (kind, provider, title, status, category, retired_at)
+           values ('mailbox', 'silent-exit.example', 'Silent exit', 'retired', 'mailbox', now())`,
+        ),
+      ).toBe('provider_recipes_retirement_says_when_and_why')
+    })
+
+    it('refuses a withdrawal with no date on it', async () => {
+      expect(
+        await refusedBy(
+          `insert into provider_recipes (kind, provider, title, status, category, retired_reason)
+           values ('mailbox', 'undated.example', 'Undated', 'retired', 'mailbox', 'it closed')`,
+        ),
+      ).toBe('provider_recipes_retirement_says_when_and_why')
+    })
+
+    /**
+     * The other direction, and it is the one that catches an un-retiring that
+     * forgot to clear the columns: a row that says it is joinable while carrying
+     * a withdrawal date is two answers to *is this on offer*.
+     */
+    it('refuses a withdrawal date on an entry that is not withdrawn', async () => {
+      expect(
+        await refusedBy(
+          `insert into provider_recipes
+             (kind, provider, title, status, category, steps, proves, retired_at, retired_reason)
+           values ('mailbox', 'confused.example', 'Confused', 'joinable', 'mailbox',
+                   '[{"actor":"agent","instruction":"sign up"}]', 'rung', now(), 'but also open')`,
+        ),
+      ).toBe('provider_recipes_retirement_says_when_and_why')
     })
 
     it('holds one entry per provider per kind', async () => {
@@ -302,6 +401,135 @@ describe('the provider catalogue', () => {
    * derivation runs where rows come from — a surface that read the column
    * directly could not get a different answer, because there is no column.
    */
+  /**
+   * **Which states a stranger can see, asserted against the real query** (`#604`).
+   *
+   * `recipeStatusIsPublic` is the rule and `providerRecipeList` is where it is
+   * applied; a unit test of the predicate would pass while the query published
+   * everything, which is the failure that matters. So this writes one row in
+   * each of the six states and reads the list back twice.
+   */
+  describe('what a stranger is shown', () => {
+    const write = async (provider: string, status: string, extra = '') =>
+      db.execute(
+        `insert into provider_recipes (kind, provider, title, status, category${extra === '' ? '' : ', ' + extra.split('::')[0]})
+         values ('mailbox', '${provider}', '${provider}', '${status}', 'mailbox'${
+           extra === '' ? '' : ', ' + extra.split('::')[1]
+         })`,
+      )
+
+    beforeEach(async () => {
+      await write(
+        'open.example',
+        'joinable',
+        `steps, proves::'[{"actor":"agent","instruction":"go"}]', 'rung'`,
+      )
+      await write('walked.example', 'draft', `steps::'[{"actor":"agent","instruction":"go"}]'`)
+      await write('listed.example', 'unwritten')
+      await write('closed.example', 'refused', `refusal::'no honest route'`)
+      await write('gone.example', 'retired', `retired_at, retired_reason::now(), 'it closed'`)
+      await write('asked.example', 'proposed')
+    })
+
+    it('shows the four public states and hides the two internal ones', async () => {
+      const providers = (await providerRecipeList(db)).map((entry) => entry.provider)
+
+      expect(providers).toEqual(
+        expect.arrayContaining([
+          'open.example',
+          'listed.example',
+          'closed.example',
+          'gone.example',
+        ]),
+      )
+      expect(providers).not.toContain('walked.example')
+      expect(providers).not.toContain('asked.example')
+    })
+
+    /**
+     * The rejection case for the flag itself: asking for the internal list has
+     * to actually change the answer, or the filter above is untested and the
+     * curation queue is empty for a reason nobody notices.
+     */
+    it('shows all six when the caller asks for the internal list', async () => {
+      const providers = (await providerRecipeList(db, undefined, { includeInternal: true })).map(
+        (entry) => entry.provider,
+      )
+
+      expect(providers).toHaveLength(6)
+      expect(providers).toContain('walked.example')
+      expect(providers).toContain('asked.example')
+    })
+
+    /** Joinable first, then the draft, then unwritten, then the two closed states. */
+    it('orders them so what can be acted on is at the top', async () => {
+      const order = (await providerRecipeList(db, undefined, { includeInternal: true })).map(
+        (entry) => entry.status,
+      )
+
+      expect(order).toEqual(['joinable', 'draft', 'unwritten', 'refused', 'retired', 'proposed'])
+    })
+
+    it('reads a withdrawal back with its date and its reason', async () => {
+      const entry = await providerRecipe(db, kind('mailbox'), 'gone.example')
+
+      expect(entry?.status).toBe('retired')
+      expect(entry?.retiredReason).toBe('it closed')
+      expect(entry?.retiredAt).not.toBeNull()
+    })
+  })
+
+  /**
+   * Withdrawing and un-withdrawing through the write surface (`#604`).
+   *
+   * **The date is storage's and the reason is the caller's**, and the second
+   * half of that is what this asserts: moving a row out of `retired` has to
+   * clear both columns, or the constraint refuses the write and the failure
+   * reads as a bug in the un-retiring rather than as the leftover it is.
+   */
+  describe('withdrawing an entry', () => {
+    const joinable = {
+      kind: kind('mailbox'),
+      provider: 'comeback.example',
+      title: 'Comeback',
+      category: 'mailbox' as const,
+      steps: [{ actor: 'agent' as const, instruction: 'sign up' }],
+      proves: 'rung' as const,
+      status: 'joinable' as const,
+    }
+
+    it('stamps the date itself rather than taking one from the caller', async () => {
+      await writeProviderRecipe(db, joinable)
+
+      const retired = await writeProviderRecipe(db, {
+        ...joinable,
+        status: 'retired',
+        retiredReason: 'the provider began demanding a phone number',
+      })
+
+      expect(retired.status).toBe('retired')
+      expect(retired.retiredAt).not.toBeNull()
+      expect(retired.retiredReason).toBe('the provider began demanding a phone number')
+      /** The steps are kept, which is the whole difference from deleting the row. */
+      expect(retired.steps).toHaveLength(1)
+    })
+
+    it('clears both columns when the entry comes back', async () => {
+      await writeProviderRecipe(db, joinable)
+      await writeProviderRecipe(db, {
+        ...joinable,
+        status: 'retired',
+        retiredReason: 'it closed',
+      })
+
+      const back = await writeProviderRecipe(db, joinable)
+
+      expect(back.status).toBe('joinable')
+      expect(back.retiredAt).toBeNull()
+      expect(back.retiredReason).toBeNull()
+    })
+  })
+
   describe('who has to be there', () => {
     it('reads operator-needed off a walked step, with no stored answer anywhere', async () => {
       await writeProviderRecipe(db, {

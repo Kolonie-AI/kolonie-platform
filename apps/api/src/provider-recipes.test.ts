@@ -82,6 +82,8 @@ describe('what the recipe says to the agent walking it', () => {
         operatorNeed: 'operator-needed' as const,
         operatorNeedIsGuess: false,
         refusal: null,
+        retiredAt: null,
+        retiredReason: null,
         steps: [
           { actor: 'agent', instruction: 'Vault a password.' },
           {
@@ -125,6 +127,8 @@ describe('what the recipe says to the agent walking it', () => {
         operatorNeed: 'operator-needed' as const,
         operatorNeedIsGuess: false,
         refusal: null,
+        retiredAt: null,
+        retiredReason: null,
         steps: [
           {
             actor: 'operator',
@@ -173,6 +177,8 @@ describe('what the recipe says to the agent walking it', () => {
       operatorNeed: 'operator-needed' as const,
       operatorNeedIsGuess: false,
       refusal: null,
+      retiredAt: null,
+      retiredReason: null,
       steps: [
         { actor: 'agent' as const, instruction: 'Fill in the form.' },
         {
@@ -234,6 +240,8 @@ describe('what the recipe says to the agent walking it', () => {
         operatorNeed: 'unknown' as const,
         operatorNeedIsGuess: false,
         refusal: 'It requires a phone number no citizen has (measured 2026-08-08).',
+        retiredAt: null,
+        retiredReason: null,
         steps: [],
         proves: null,
         caution: null,
@@ -248,6 +256,92 @@ describe('what the recipe says to the agent walking it', () => {
     expect(text).toContain('**Do not attempt this.**')
     expect(text).toContain('phone number')
     expect(text).toContain('provider-report')
+  })
+})
+
+/**
+ * **Every way there is nothing to hand over is a different sentence** (`#604`).
+ *
+ * The issue's own words: *nobody has walked this yet*, *this is waiting for
+ * review* and *this was withdrawn in March* are three different answers and an
+ * agent can act on each. So what is asserted is not that the handoff is refused
+ * — it was already — but that the refusal **names the state** and ends on the
+ * thing that would change it.
+ */
+describe('what a handoff says when there is nothing to hand over (#604)', () => {
+  it('refuses a draft by saying it is waiting for review, and asks nothing of the agent', async () => {
+    const recipes = fakeProviderRecipes()
+    recipes.write({ kind: 'mailbox', provider: 'walked.example', status: 'draft' })
+    const [row] = await recipes.listInternal()
+    if (row === undefined) throw new Error('the fake wrote no row')
+
+    const result = handoffStep(row, 1)
+    if (!('error' in result)) throw new Error('a draft must not be handed over')
+
+    expect(result.error.message).toContain('no steward has published it')
+    expect(result.error.message).toContain('Nothing is needed from you')
+    /** Not the unwritten sentence, which would send the agent to walk it again. */
+    expect(result.error.message).not.toContain('nobody has written the recipe yet')
+  })
+
+  it('refuses a withdrawal by saying when and why, and points at the report', async () => {
+    const recipes = fakeProviderRecipes()
+    recipes.write({
+      kind: 'mailbox',
+      provider: 'gone.example',
+      status: 'retired',
+      retiredReason: 'the provider began demanding a phone number',
+    })
+    const [row] = await recipes.listInternal()
+    if (row === undefined) throw new Error('the fake wrote no row')
+
+    const result = handoffStep(row, 1)
+    if (!('error' in result)) throw new Error('a withdrawn entry must not be handed over')
+
+    expect(result.error.message).toContain('withdrew')
+    expect(result.error.message).toContain('demanding a phone number')
+    expect(result.error.message).toContain('provider-report')
+  })
+
+  /** `#588`'s two sentences are unchanged, which is the regression this catches. */
+  it('still refuses a refusal and an unwritten entry in their own words', async () => {
+    const recipes = fakeProviderRecipes()
+    recipes.write({ kind: 'mailbox', provider: 'closed.example', status: 'refused' })
+    recipes.write({ kind: 'mailbox', provider: 'listed.example', status: 'unwritten' })
+    const rows = await recipes.listInternal()
+
+    const closed = rows.find((row) => row.provider === 'closed.example')
+    const listed = rows.find((row) => row.provider === 'listed.example')
+    if (closed === undefined || listed === undefined) throw new Error('the fake wrote no rows')
+
+    const refused = handoffStep(closed, 1)
+    const unwritten = handoffStep(listed, 1)
+    if (!('error' in refused) || !('error' in unwritten)) {
+      throw new Error('neither may be handed over')
+    }
+
+    expect(refused.error.message).toContain('is a refusal')
+    expect(unwritten.error.message).toContain('nobody has written the recipe yet')
+  })
+
+  /**
+   * And the one state that may be walked still is — which is what makes the
+   * four refusals above about the *state* rather than about the handoff being
+   * broken. The step is the operator's, because that is the other gate and this
+   * test is not about it.
+   */
+  it('hands over an operator step on a published entry', async () => {
+    const recipes = fakeProviderRecipes()
+    recipes.write({
+      kind: 'mailbox',
+      provider: 'open.example',
+      status: 'joinable',
+      steps: [{ actor: 'operator', instruction: 'accept the terms', ask: 'Please accept them.' }],
+    })
+    const [row] = await recipes.listInternal()
+    if (row === undefined) throw new Error('the fake wrote no row')
+
+    expect('step' in handoffStep(row, 1)).toBe(true)
   })
 })
 
@@ -267,6 +361,8 @@ describe('the handoff a recipe names', () => {
     operatorNeed: 'operator-needed' as const,
     operatorNeedIsGuess: false,
     refusal: null,
+    retiredAt: null,
+    retiredReason: null,
     steps: [
       { actor: 'agent' as const, instruction: 'Name the handle you want.' },
       {

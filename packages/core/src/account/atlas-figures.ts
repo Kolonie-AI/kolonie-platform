@@ -200,13 +200,26 @@ export function throughRate(figures: AtlasFigures): number | null {
  * Colony has walked the refusal and knows the road is closed, and it has not
  * walked the unwritten one at all. Ranking them together would put a provider
  * that may well work underneath one that is known not to.
+ *
+ * **It is four rows since `#604`, and the two new ones sit at the ends.** A
+ * `draft` outranks `unwritten` because something was walked and the entry is
+ * waiting on a person rather than on anybody at all — it still sorts below every
+ * measured entry, because a rate the Colony has not published is not a rate. A
+ * `retired` entry sorts last of everything: it is not on offer, and a provider
+ * the Colony withdrew should not appear above one it merely has not walked.
+ *
+ * `proposed` is not in the ladder and cannot be: nothing that ranks entries ever
+ * sees one, because no public surface reads them (`recipeStatusIsPublic`). It
+ * shares `retired`'s floor if one ever arrives, which is the safe direction.
  */
 export function atlasRank(input: {
   readonly status: RecipeStatus
   readonly figures: readonly AtlasFigures[]
 }): number {
+  if (input.status === 'retired' || input.status === 'proposed') return -3
   if (input.status === 'refused') return -2
   if (input.status === 'unwritten') return -1
+  if (input.status === 'draft') return -0.5
 
   const attempted = input.figures.reduce((sum, one) => sum + one.attempted, 0)
   const proved = input.figures.reduce((sum, one) => sum + one.proved, 0)

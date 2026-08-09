@@ -1,4 +1,4 @@
-import { and, asc, eq, sql } from 'drizzle-orm'
+import { and, asc, eq, inArray, sql } from 'drizzle-orm'
 import {
   AccountKindSchema,
   AccountProviderSchema,
@@ -8,6 +8,7 @@ import {
   RecipeStatusSchema,
   RecipeStepSchema,
   operatorNeed,
+  recipeStatusIsPublic,
   ReferralArrangementSchema,
   type AccountKind,
   type AtlasCategory,
@@ -63,6 +64,8 @@ function toRecipe(row: typeof providerRecipes.$inferSelect): ProviderRecipe {
     operatorNeed: need.need,
     operatorNeedIsGuess: need.isGuess,
     refusal: row.refusal,
+    retiredAt: row.retiredAt === null ? null : toTimestamp(row.retiredAt),
+    retiredReason: row.retiredReason,
     /**
      * **Parsed on the way out, not trusted.** `jsonb` accepts whatever was written,
      * and a row inserted by hand is exactly the case this catalogue is built to
@@ -81,26 +84,52 @@ function toRecipe(row: typeof providerRecipes.$inferSelect): ProviderRecipe {
 /**
  * Every entry, or every entry for one kind.
  *
- * **Joinable first, then unwritten, then refusals; within each, by provider.** A
- * reader scanning the catalogue wants what it can act on at the top; an entry
- * nobody has looked at yet may still work and so sits above one known not to
- * (`#588`). The ordering is stated here rather than left to the caller, so two
- * surfaces cannot present one catalogue differently — and it agrees with
- * `atlasRank`, which orders the entries the same way one level up.
+ * **Joinable first, then drafts, then unwritten, then refusals and withdrawals;
+ * within each, by provider.** A reader scanning the catalogue wants what it can
+ * act on at the top; an entry nobody has looked at yet may still work and so
+ * sits above one known not to (`#588`). The ordering is stated here rather than
+ * left to the caller, so two surfaces cannot present one catalogue differently —
+ * and it agrees with `atlasRank`, which orders the entries the same way one
+ * level up.
+ *
+ * **`includeInternal` is the parameter `#604` added, and the default is the safe
+ * direction.** Two of the six states never reach a stranger: a `proposed` entry
+ * is somebody else's suggestion, unread; a `draft` is the Colony's own work in
+ * progress. Every existing caller keeps the reading it had, and a caller that
+ * wants the curation queue has to ask for it by name — which is the only shape
+ * where forgetting produces *too little* rather than an unreviewed claim about
+ * somebody's product on a public page.
  */
 export async function providerRecipeList(
   db: Database,
   kind?: AccountKind,
+  options?: { readonly includeInternal?: boolean },
 ): Promise<readonly ProviderRecipe[]> {
+  const publicOnly = options?.includeInternal !== true
+  const filters = [
+    kind === undefined ? undefined : eq(providerRecipes.kind, kind),
+    /**
+     * **The list is `core`'s and not typed here**, so a seventh state added there
+     * cannot be silently published by a filter nobody updated. `recipeStatusIsPublic`
+     * is the one answer to *may a stranger see this*.
+     */
+    publicOnly
+      ? inArray(providerRecipes.status, RecipeStatusSchema.options.filter(recipeStatusIsPublic))
+      : undefined,
+  ].filter((one) => one !== undefined)
+
   const rows = await db
     .select()
     .from(providerRecipes)
-    .where(kind === undefined ? undefined : eq(providerRecipes.kind, kind))
+    .where(filters.length === 0 ? undefined : and(...filters))
     .orderBy(
       sql`case ${providerRecipes.status}
             when 'joinable' then 0
-            when 'unwritten' then 1
-            else 2
+            when 'draft' then 1
+            when 'unwritten' then 2
+            when 'refused' then 3
+            when 'retired' then 4
+            else 5
           end`,
       asc(providerRecipes.kind),
       asc(providerRecipes.provider),
@@ -157,6 +186,15 @@ export async function writeProviderRecipe(
     /** A guess, and only where there are no steps to derive the answer from. */
     readonly operatorGuess?: RecipeOperatorGuess | null
     readonly refusal?: string | null
+    /**
+     * Why the Colony withdrew this entry (`#604`).
+     *
+     * **The reason is the caller's and the date is not** — `retiredAt` is
+     * stamped below from the clock, the way `lastConfirmedAt` is. A
+     * caller-supplied date could be backdated, and being read against *when did
+     * I last look at this* is the date's only job.
+     */
+    readonly retiredReason?: string | null
     readonly steps: readonly RecipeStep[]
     readonly proves?: ProviderRecipe['proves']
     readonly caution?: string | null
@@ -184,6 +222,14 @@ export async function writeProviderRecipe(
     category: entry.category,
     operatorGuess: entry.operatorGuess ?? null,
     refusal: entry.refusal ?? null,
+    /**
+     * **Stamped here, and cleared here** (`#604`). An entry moved out of
+     * `retired` — a provider that came back — must lose both columns together,
+     * or the constraint refuses the write and the reason reads as a bug in the
+     * un-retiring rather than as the leftover it is.
+     */
+    retiredAt: entry.status === 'retired' ? sql`now()` : null,
+    retiredReason: entry.status === 'retired' ? (entry.retiredReason ?? null) : null,
     steps: [...entry.steps],
     proves: entry.proves ?? null,
     caution: entry.caution ?? null,

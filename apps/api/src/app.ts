@@ -370,6 +370,7 @@ export function buildApp({
    */
   const providerCatalogue: ProviderRecipes = recipes ?? {
     list: async () => [],
+    listInternal: async () => [],
     one: async () => undefined,
     figures: async () => [],
     proposals: async () => [],

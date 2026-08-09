@@ -5,6 +5,8 @@ import {
   atlasEntries,
   throughRate,
   figureKey,
+  recipeStatusIsOfferable,
+  recipeStatusIsPublic,
   type AccountKind,
   type ApiError,
   type AtlasAudience,
@@ -49,6 +51,17 @@ export interface ProviderRecipes {
     readonly audience?: AtlasAudience
     readonly provider?: string
   }): Promise<readonly AtlasFigures[]>
+  /**
+   * Every entry including the two states no stranger sees (`#604`).
+   *
+   * **A second method rather than a flag on `list`**, and that is the whole of
+   * the safety here. `list` is what every public surface calls, and a boolean it
+   * could be handed is a boolean somebody passes `true` to on the wrong call —
+   * on `/atlas`, that publishes a stranger's unread suggestion about somebody
+   * else's product. A separate name cannot be reached by accident, and every
+   * caller of it is one grep away.
+   */
+  listInternal(): Promise<readonly ProviderRecipe[]>
   /** The review queue `#549` works through: proposals nobody has decided. */
   proposals(): Promise<readonly EntryProposal[]>
   /** The signal `#549` says will actually be used: rates that have fallen sharply. */
@@ -60,6 +73,7 @@ export interface ProviderRecipes {
 export function databaseProviderRecipes(db: Database): ProviderRecipes {
   return {
     list: (kind) => providerRecipeList(db, kind),
+    listInternal: () => providerRecipeList(db, undefined, { includeInternal: true }),
     one: (kind, provider) => providerRecipe(db, kind, provider),
     figures: (options) => atlasFigures(db, options ?? {}),
     proposals: () => pendingProposals(db),
@@ -338,7 +352,35 @@ export function recipeAsText(recipe: ProviderRecipe, secretHandoff: boolean): st
    * — and the true sentence is more useful than either that or a refusal, because
    * it is an invitation: the entry becomes a recipe when somebody walks it.
    */
-  if (recipe.status === 'unwritten') {
+  if (recipe.status === 'retired') {
+    return (
+      `${recipe.title} · ${recipe.category}\n\n**The Colony withdrew this entry` +
+      `${recipe.retiredAt === null ? '' : ` on ${recipe.retiredAt.slice(0, 10)}`}.** ` +
+      `${recipe.retiredReason ?? ''}\n\n` +
+      `It is not on offer. What follows is kept as the record of what the path was while it ` +
+      `worked, and is not a recipe any more:\n\n` +
+      recipe.steps.map((step, index) => `${index + 1}. ${step.instruction}`).join('\n') +
+      `\n\nIf you have evidence that what closed this has changed, ` +
+      `kolonie.accounts.provider-report is where that goes.`
+    )
+  }
+
+  /**
+   * **A draft is described and never handed over as steps to follow** (`#604`).
+   * An agent given four steps and no warning walks them, and the whole of what
+   * publishing decides is whether anybody has checked them.
+   */
+  if (recipe.status === 'draft') {
+    return (
+      `${recipe.title} · ${recipe.category}\n\n**Walked, not published.** Somebody wrote down ` +
+      `${recipe.steps.length} step${recipe.steps.length === 1 ? '' : 's'} for ` +
+      `${recipe.provider} and no steward has reviewed them yet, so they are not here: the ` +
+      `Colony does not hand an agent a path it has not stood behind.\n\n` +
+      `Nothing is needed from you. This becomes a recipe when it is reviewed.`
+    )
+  }
+
+  if (recipe.status === 'unwritten' || recipe.status === 'proposed') {
     return (
       `${recipe.title} · ${recipe.category}\n\n${operatorNeedAsText(recipe)}\n\n` +
       `**Nobody has written this one up yet.** The Colony lists ` +
@@ -503,27 +545,57 @@ export function handoffStep(
   step: number,
 ): { readonly step: RecipeStep } | { readonly error: ApiError } {
   /**
-   * **The two ways there is nothing to hand over are different sentences**
-   * (`#588`), and answering both with *there is no step N* is what sends an agent
-   * looking for a step number it can never find. A refusal has been walked and
-   * closed; an unwritten entry has not been looked at, and the honest answer names
-   * the report that would change that.
+   * **Every way there is nothing to hand over is a different sentence** (`#588`,
+   * `#604`), and answering them all with *there is no step N* is what sends an
+   * agent looking for a step number it can never find.
+   *
+   * `#604`'s requirement, verbatim: *nobody has walked this yet*, *this is
+   * waiting for review* and *this was withdrawn in March* are three different
+   * answers and an agent can act on each. So the refusal names the state rather
+   * than only reporting that the entry is not joinable, and each sentence ends
+   * on the thing that would change it.
+   *
+   * **A `switch` and not a chain of ternaries**, because the exhaustiveness is
+   * the point: `recipeStatusIsOfferable` is what decides that this branch is
+   * taken at all, and a seventh state would otherwise fall through to whichever
+   * message happened to be last.
    */
-  if (recipe.status !== 'joinable') {
-    return {
-      error: {
-        code: 'validation_failed',
-        message:
-          recipe.status === 'refused'
-            ? `The catalogue's entry for ${recipe.provider} is a refusal: there is no honest ` +
-              'route in, so there is no step for your operator to take. Read the entry with ' +
-              'kolonie.accounts.recipes — the reason is the whole of it.'
-            : `The catalogue lists ${recipe.provider} but nobody has written the recipe yet, so ` +
-              'there are no steps and nothing to hand over. That is an absence and not a ' +
-              'refusal — if you walk it, kolonie.accounts.provider-report is where what you ' +
-              'found goes, and it is what turns this entry into one.',
-      },
-    }
+  if (!recipeStatusIsOfferable(recipe.status)) {
+    const message = ((): string => {
+      switch (recipe.status) {
+        case 'refused':
+          return (
+            `The catalogue's entry for ${recipe.provider} is a refusal: there is no honest ` +
+            'route in, so there is no step for your operator to take. Read the entry with ' +
+            'kolonie.accounts.recipes — the reason is the whole of it.'
+          )
+        case 'retired':
+          return (
+            `The Colony withdrew its entry for ${recipe.provider}${
+              recipe.retiredAt === null ? '' : ` on ${recipe.retiredAt.slice(0, 10)}`
+            }, so it is not on offer and there is no step for your operator to take. ` +
+            `${recipe.retiredReason ?? ''} The steps are kept on the entry as a record of ` +
+            'what the path was; they are not a recipe any more. If you have evidence that ' +
+            'what closed this has changed, kolonie.accounts.provider-report is where that goes.'
+          )
+        case 'draft':
+          return (
+            `Somebody has walked ${recipe.provider} and no steward has published it yet, so ` +
+            'the steps exist and are not on offer — following an unreviewed walk is the one ' +
+            'thing publishing decides against. Nothing is needed from you: this is waiting ' +
+            'for review, and the entry becomes a recipe when it gets one.'
+          )
+        default:
+          return (
+            `The catalogue lists ${recipe.provider} but nobody has written the recipe yet, so ` +
+            'there are no steps and nothing to hand over. That is an absence and not a ' +
+            'refusal — if you walk it, kolonie.accounts.provider-report is where what you ' +
+            'found goes, and it is what turns this entry into one.'
+          )
+      }
+    })()
+
+    return { error: { code: 'validation_failed', message } }
   }
 
   const found = recipe.steps[step - 1]
@@ -566,12 +638,24 @@ export async function atlasCuration(recipes: ProviderRecipes): Promise<{
   readonly proposals: readonly EntryProposal[]
   readonly falling: readonly FallingRate[]
   readonly entries: readonly AtlasEntry[]
+  readonly unpublished: readonly ProviderRecipe[]
 }> {
-  const [proposals, falling, entries] = await Promise.all([
+  const [proposals, falling, entries, all] = await Promise.all([
     recipes.proposals(),
     recipes.fallingRates(),
     atlasCatalogue(recipes),
+    recipes.listInternal(),
   ])
 
-  return { proposals, falling, entries }
+  /**
+   * The two states that reach no public surface (`#604`).
+   *
+   * **Filtered here rather than queried separately**, because the curation page
+   * wants them in one list and in the order storage already put them in — a
+   * second query would come back in its own order and the two would disagree the
+   * day somebody changed one.
+   */
+  const unpublished = all.filter((entry) => !recipeStatusIsPublic(entry.status))
+
+  return { proposals, falling, entries, unpublished }
 }

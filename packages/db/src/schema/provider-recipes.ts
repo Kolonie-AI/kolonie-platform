@@ -126,9 +126,32 @@ export const providerRecipes = pgTable(
      * the value could never be removed. `proves` beside it is text-with-a-check
      * for the same reason and this follows it rather than inventing a second
      * convention in one table.
+     *
+     * **`#604` is the case that argument was written for, and it collected.** It
+     * added three states and warned that the migration would have to be split
+     * around `ALTER TYPE`; because `#588` chose text-with-a-check, the migration
+     * is one `ALTER TABLE … DROP CONSTRAINT` and one `ADD CONSTRAINT`, in one
+     * transaction, and reversible.
      */
     status: text('status').notNull().default('joinable'),
     refusal: text('refusal'),
+
+    /**
+     * When the Colony withdrew this entry, and why (`#604`).
+     *
+     * **The row is kept rather than deleted**, which is the whole of what these
+     * two columns buy. Deleting it destroys the record of why the Colony ever
+     * recommended the provider and answers a reader arriving from an old link
+     * with nothing — `growth/README.md`'s standing rule is that *a refusal is a
+     * page, not an omission*, and a withdrawal is the same class of fact.
+     *
+     * Both null unless `status = 'retired'` and both required when it is, by the
+     * constraint below. `retired_at` is stamped by storage rather than supplied:
+     * a caller-chosen date could be backdated, and being read against *when did
+     * I last look at this* is the date's only job.
+     */
+    retiredAt: timestamp('retired_at', { withTimezone: true, mode: 'string' }),
+    retiredReason: text('retired_reason'),
 
     /**
      * What sort of thing this is (`#589`).
@@ -225,7 +248,8 @@ export const providerRecipes = pgTable(
     uniqueIndex('provider_recipes_kind_provider_unique').on(table.kind, table.provider),
 
     /**
-     * The three states, in SQL, so a psql prompt cannot invent a fourth (`#588`).
+     * The six states, in SQL, so a psql prompt cannot invent a seventh (`#588`,
+     * `#604`).
      *
      * **`sql.raw` and not an interpolated value**, which `RECIPE_MAX_STEPS`
      * above needs for the same reason: an interpolated one becomes a bind
@@ -283,30 +307,69 @@ export const providerRecipes = pgTable(
      * seed writes through neither: a hand-written entry with `status = 'refused'` and
      * no reason would be a dead end a reader cannot act on, and nothing in the
      * request shape can stop a psql prompt.
+     *
+     * **`retired` is exempted here rather than added to the pair** (`#604`). An
+     * entry withdrawn while it was refused keeps its reason, and re-checking the
+     * old shape at withdrawal time would make some rows unretireable because of
+     * a rule written after them. A withdrawal that can fail is one somebody
+     * works around by deleting the row, which is the thing these two columns
+     * exist to stop.
      */
     check(
       'provider_recipes_refusal_says_why',
-      sql`(${table.status} = 'refused' and ${table.refusal} is not null)
+      sql`${table.status} = 'retired'
+          or (${table.status} = 'refused' and ${table.refusal} is not null)
           or (${table.status} <> 'refused' and ${table.refusal} is null)`,
     ),
 
+    /**
+     * A withdrawal says when and why, and nothing else claims to be one
+     * (`#604`).
+     *
+     * The same pair as `refused`/`refusal` one state along: a state whose
+     * explanation is optional is one that arrives without an explanation on the
+     * row nobody reviewed.
+     */
     check(
-      'provider_recipes_joinable_has_steps',
-      sql`${table.status} <> 'joinable'
-          or (jsonb_array_length(${table.steps}) between 1 and ${sql.raw(String(RECIPE_MAX_STEPS))}
-              and ${table.proves} is not null)`,
+      'provider_recipes_retirement_says_when_and_why',
+      sql`(${table.status} = 'retired'
+           and ${table.retiredAt} is not null
+           and ${table.retiredReason} is not null)
+          or (${table.status} <> 'retired'
+              and ${table.retiredAt} is null
+              and ${table.retiredReason} is null)`,
     ),
 
     /**
-     * Anything but a joinable entry has nothing to walk and nothing to prove.
+     * A published entry has a walk and a proof; a draft has a walk (`#604`).
+     *
+     * **`draft` is the one state that carries steps without `proves`**, and it is
+     * safe because no public surface reads a draft. A walk that got an account
+     * and did not establish how to prove it is a real outcome and a reviewable
+     * one; refusing to store it would leave the walk's output in a GitHub issue,
+     * which is the defect `#601` is named for.
+     */
+    check(
+      'provider_recipes_joinable_has_steps',
+      sql`${table.status} not in ('joinable', 'draft')
+          or (jsonb_array_length(${table.steps}) between 1 and ${sql.raw(String(RECIPE_MAX_STEPS))}
+              and (${table.status} = 'draft' or ${table.proves} is not null))`,
+    ),
+
+    /**
+     * A state with no walk behind it has nothing to walk and nothing to prove.
      *
      * **This is the one that carries `unwritten`'s whole meaning.** A row marked
      * *nobody has looked* that carries three steps is a half-written recipe
      * wearing the honest label, and it fails at step three for whoever trusts it.
+     * `proposed` is held to the same rule for the same reason, one step earlier.
+     *
+     * `retired` is exempt: it keeps whatever it had, which is what makes its page
+     * a record rather than an empty apology.
      */
     check(
       'provider_recipes_unjoinable_is_empty',
-      sql`${table.status} = 'joinable'
+      sql`${table.status} in ('joinable', 'draft', 'retired')
           or (jsonb_array_length(${table.steps}) = 0 and ${table.proves} is null)`,
     ),
 

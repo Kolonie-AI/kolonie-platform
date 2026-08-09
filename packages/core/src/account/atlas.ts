@@ -196,7 +196,7 @@ export function atlasEntries(
 }
 
 /**
- * What one provider is, from what its rows are (`#588`).
+ * What one provider is, from what its rows are (`#588`, `#604`).
  *
  * **Not `some(joinable)` with a boolean's two answers.** The rollup has to keep
  * *walked and closed* apart from *nobody looked*, and a provider whose every row
@@ -204,14 +204,38 @@ export function atlasEntries(
  * *cannot be joined*, which is a claim about the provider the Colony has not
  * earned.
  *
+ * **The order is a finding first, and `unwritten` last**, which is the principle
+ * `#588` set and `#604` extended rather than changed: four of the six states are
+ * something the Colony learned, and one is the admission that it has not looked.
+ * A row that says something outranks a row that says nothing about the same
+ * provider.
+ *
+ * **This is the opposite of `atlasRank`'s order and that is not a bug.** There,
+ * `refused` sorts *below* `unwritten`, because ranking answers *where should a
+ * reader look first* and a road that may work beats one known to be closed. Here
+ * the question is *which row describes this provider*, and a walked refusal
+ * describes it better than a row nobody has opened. The two functions answer two
+ * questions and the answers point in different directions; a test asserts each,
+ * because the natural instinct on reading one is to make the other match it.
+ *
+ * `#604`'s two visible states slot in by the same rule. `draft` is a finding —
+ * somebody walked it — so it sits under `joinable`. `retired` is a finding too,
+ * and sits under `refused`: both say the road is not open, and a reader learns
+ * more from *there is no honest route* than from *the Colony withdrew this*.
+ *
+ * **`proposed` never reaches here.** Nothing public reads a proposed row — see
+ * `recipeStatusIsPublic` — and if every row of a provider is proposed the
+ * provider is not on the Atlas at all, so there is nothing to roll up. The
+ * fallback below is `unwritten` rather than `proposed` for that reason: an empty
+ * rollup means *on the map, nobody has looked*.
+ *
  * Exported because `#591`'s browsing surface and the website's index group by it,
  * and a second implementation of this ordering is a second answer to it.
  */
 export function atlasEntryStatus(rows: readonly { readonly status: RecipeStatus }[]): RecipeStatus {
-  if (rows.some((row) => row.status === 'joinable')) return 'joinable'
-  if (rows.some((row) => row.status === 'refused')) return 'refused'
+  const order: readonly RecipeStatus[] = ['joinable', 'draft', 'refused', 'retired', 'unwritten']
 
-  return 'unwritten'
+  return order.find((status) => rows.some((row) => row.status === status)) ?? 'unwritten'
 }
 
 /**

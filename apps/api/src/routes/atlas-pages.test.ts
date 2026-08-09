@@ -42,6 +42,28 @@ describe('the Atlas on the website host', () => {
       status: 'refused',
       refusal: 'No honest signup route exists for a citizen without a phone number.',
     })
+    /** `#604`'s three, one row each, so every public surface can be checked against them. */
+    colony.recipes.write({
+      kind: 'mailbox',
+      provider: 'withdrawn.example',
+      title: 'Withdrawn',
+      status: 'retired',
+      retiredReason: 'The provider began demanding a phone number in June.',
+      steps: [{ actor: 'agent', instruction: 'Open the signup form.' }],
+    })
+    colony.recipes.write({
+      kind: 'mailbox',
+      provider: 'unreviewed.example',
+      title: 'Unreviewed',
+      status: 'draft',
+      steps: [{ actor: 'agent', instruction: 'A step no steward has read.' }],
+    })
+    colony.recipes.write({
+      kind: 'mailbox',
+      provider: 'suggested.example',
+      title: 'Suggested',
+      status: 'proposed',
+    })
 
     return buildApp({ ...colony, websiteUrl })
   }
@@ -87,6 +109,67 @@ describe('the Atlas on the website host', () => {
 
       expect(response.statusCode).toBe(200)
       expect(response.body).toContain('without a phone number')
+    })
+
+    /**
+     * **A withdrawal is a page too** (`#604`), on the same rule as the refusal
+     * above: `growth/README.md` says a refusal is a page and not an omission,
+     * and a withdrawal is the same class of fact. Deleting the row would answer
+     * a reader arriving from an old link with a 404 that teaches them nothing —
+     * and would destroy the record of why the Colony ever recommended it.
+     */
+    it('gives a withdrawn provider a page that says what happened and keeps the steps', async () => {
+      const response = await get('/atlas/withdrawn.example')
+
+      expect(response.statusCode).toBe(200)
+      expect(response.body).toContain('demanding a phone number in June')
+      expect(response.body).toContain('Withdrawn')
+      /** The record of what the path was, which is the argument for keeping the row. */
+      expect(response.body).toContain('Open the signup form.')
+    })
+
+    /**
+     * **The two states no stranger may see** (`#604`).
+     *
+     * A `proposed` entry is somebody's suggestion about a third party's product
+     * that nobody at the Colony has read; a `draft` is a path no steward has
+     * stood behind. Asserted against the served bytes rather than against the
+     * filter, because the filter passing while a page renders the row is exactly
+     * the failure that matters.
+     */
+    it('shows neither a draft nor a proposal on the index', async () => {
+      const response = await get('/atlas')
+
+      expect(response.body).not.toContain('unreviewed.example')
+      expect(response.body).not.toContain('suggested.example')
+      expect(response.body).not.toContain('A step no steward has read.')
+      /** And the withdrawal is on it, which is what makes the assertion above about state. */
+      expect(response.body).toContain('withdrawn.example')
+    })
+
+    it('answers 404 for a draft and for a proposal, as if the row were not there', async () => {
+      expect((await get('/atlas/unreviewed.example')).statusCode).toBe(404)
+      expect((await get('/atlas/suggested.example')).statusCode).toBe(404)
+    })
+
+    it('leaves both out of catalogue.json', async () => {
+      const response = await get('/atlas/catalogue.json')
+      const document = JSON.parse(response.body) as {
+        entries: readonly { provider: string }[]
+      }
+      const providers = document.entries.map((entry) => entry.provider)
+
+      expect(providers).not.toContain('unreviewed.example')
+      expect(providers).not.toContain('suggested.example')
+      expect(providers).toContain('withdrawn.example')
+    })
+
+    it('leaves both out of the sitemap', async () => {
+      const response = await get('/atlas/sitemap.xml')
+
+      expect(response.body).not.toContain('unreviewed.example')
+      expect(response.body).not.toContain('suggested.example')
+      expect(response.body).toContain('withdrawn.example')
     })
 
     it('carries a title, a description and a canonical on every page', async () => {

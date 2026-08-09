@@ -48,7 +48,7 @@
  *   agent has written something, and not as an empty heading.
  */
 
-import type { Wish } from '@kolonie-ai/core'
+import type { RecipeStatus, Wish } from '@kolonie-ai/core'
 import type { BundleView } from '@kolonie-ai/db'
 import type { OperatorPageView } from '@kolonie-ai/db'
 import { escape, page } from './html.js'
@@ -192,9 +192,17 @@ export interface AdoptionSection {
   readonly live?: { readonly expiresAt: string } | undefined
 }
 
-/** What the catalogue holds about one provider on the list (`#581`). */
+/**
+ * What the catalogue holds about one provider on the list (`#581`).
+ *
+ * **`RecipeStatus` rather than three literals spelled out** (`#604`). The three
+ * were written when there were three, and adding a state to `core` left this
+ * compiling against a type that could no longer describe a row it would be
+ * handed. It is the domain's type now, so a seventh state is a compiler error
+ * here rather than a `draft` rendering as *ready*.
+ */
 export interface WishCatalogueEntry {
-  readonly status: 'joinable' | 'refused' | 'unwritten'
+  readonly status: RecipeStatus
   readonly operatorNeed: 'unaided' | 'operator-needed' | 'unknown'
   readonly refusal: string | null
 }
@@ -227,8 +235,28 @@ function wishCatalogueCell(entry: WishCatalogueEntry | undefined): string {
     )
   }
 
-  if (entry.status === 'unwritten') {
+  if (entry.status === 'retired') {
+    return (
+      '<strong>withdrawn</strong><br><small>the Colony no longer offers this one — nothing ' +
+      'will be attempted</small>'
+    )
+  }
+
+  if (entry.status === 'unwritten' || entry.status === 'proposed') {
     return '<small>listed, but no recipe written yet — nothing will be attempted</small>'
+  }
+
+  /**
+   * **A draft is not *ready*, and saying so is the whole of `#604` on this
+   * surface.** An operator told a recipe exists will mark the provider and wait
+   * for a handoff that `kolonie.accounts.handoff` refuses, because nobody has
+   * approved the steps yet.
+   */
+  if (entry.status === 'draft') {
+    return (
+      '<small>walked, but not published yet — a steward has to review the steps before ' +
+      'anything is attempted</small>'
+    )
   }
 
   return (
@@ -260,7 +288,15 @@ function bundleEntryNote(entry: BundleView['entries'][number]): string {
     }</strong>`
   }
 
-  if (entry.status === 'unwritten') {
+  if (entry.status === 'retired') {
+    return ' <strong>— withdrawn by the Colony and no longer offered</strong>'
+  }
+
+  if (entry.status === 'draft') {
+    return ' <small>— walked, waiting on a steward to publish it</small>'
+  }
+
+  if (entry.status === 'unwritten' || entry.status === 'proposed') {
     return ' <small>— listed, but nobody has walked the signup yet</small>'
   }
 

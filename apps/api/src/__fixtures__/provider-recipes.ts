@@ -2,6 +2,8 @@ import {
   AccountKindSchema,
   noFigures,
   operatorNeed,
+  recipeStatusAllowsSteps,
+  recipeStatusIsPublic,
   now as currentTime,
   type AtlasFigures,
   type EntryProposal,
@@ -12,16 +14,26 @@ import type { FallingRate } from '@kolonie-ai/db'
 import type { ProviderRecipes } from '../provider-recipes.js'
 
 /**
- * The catalogue's own order, in the fake (`#588`).
+ * The catalogue's own order, in the fake (`#588`, `#604`).
  *
- * Joinable, then unwritten, then refusals — the same three-way order
- * `providerRecipeList` gives in SQL. A fake that sorted a boolean would put an
- * unwritten entry below a refusal and hide the ordering half of the issue.
+ * The same order `providerRecipeList` gives in SQL, spelled out rather than
+ * derived: a fake that sorted a boolean would put an unwritten entry below a
+ * refusal and hide the ordering half of `#588`, and one that fell through to a
+ * default for `#604`'s three would sort a withdrawal above a refusal.
  */
-function listOrder(status: ProviderRecipe['status']): number {
-  if (status === 'joinable') return 0
+const LIST_ORDER: readonly ProviderRecipe['status'][] = [
+  'joinable',
+  'draft',
+  'unwritten',
+  'refused',
+  'retired',
+  'proposed',
+]
 
-  return status === 'unwritten' ? 1 : 2
+function listOrder(status: ProviderRecipe['status']): number {
+  const at = LIST_ORDER.indexOf(status)
+
+  return at === -1 ? LIST_ORDER.length : at
 }
 
 /**
@@ -105,10 +117,21 @@ export function fakeProviderRecipes(): FakeProviderRecipes {
       falling.push(rate)
     },
 
+    /**
+     * **The public reading, and the fake has to hide the same two states the SQL
+     * hides** (`#604`). A fake that returned everything would let a page test
+     * pass while `/atlas` published an unread suggestion about somebody else's
+     * product — which is the one failure this state is for.
+     */
     async list(kind) {
       return rows
         .filter((row) => kind === undefined || row.kind === kind)
+        .filter((row) => recipeStatusIsPublic(row.status))
         .sort((a, b) => listOrder(a.status) - listOrder(b.status))
+    },
+
+    async listInternal() {
+      return [...rows].sort((a, b) => listOrder(a.status) - listOrder(b.status))
     },
 
     async one(kind, provider) {
@@ -119,9 +142,11 @@ export function fakeProviderRecipes(): FakeProviderRecipes {
 
     write(entry) {
       const status = entry.status ?? 'joinable'
-      const joinable = status === 'joinable'
       const steps =
-        entry.steps ?? (joinable ? [{ actor: 'agent' as const, instruction: 'sign up' }] : [])
+        entry.steps ??
+        (recipeStatusAllowsSteps(status) && status !== 'retired'
+          ? [{ actor: 'agent' as const, instruction: 'sign up' }]
+          : [])
       const need = operatorNeed({ steps, operatorGuess: entry.operatorGuess })
       rows.push({
         kind: AccountKindSchema.parse(entry.kind),
@@ -138,8 +163,17 @@ export function fakeProviderRecipes(): FakeProviderRecipes {
         operatorNeed: need.need,
         operatorNeedIsGuess: need.isGuess,
         refusal: entry.refusal ?? (status === 'refused' ? 'no honest route in' : null),
+        /**
+         * A withdrawal carries both or neither, exactly as the column does
+         * (`#604`) — a fake that let one through would let a page test pass over
+         * a row the database would refuse.
+         */
+        retiredAt: entry.retiredAt ?? (status === 'retired' ? currentTime() : null),
+        retiredReason:
+          entry.retiredReason ??
+          (status === 'retired' ? 'the provider stopped taking agents' : null),
         steps,
-        proves: entry.proves ?? (joinable ? 'provider-post' : null),
+        proves: entry.proves ?? (status === 'joinable' ? 'provider-post' : null),
         caution: entry.caution ?? null,
         pacePerDay: entry.pacePerDay ?? null,
         updatedAt: currentTime(),

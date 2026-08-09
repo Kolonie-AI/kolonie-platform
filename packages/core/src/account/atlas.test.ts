@@ -43,6 +43,8 @@ const recipe = (input: {
     contact: null,
     lastConfirmedAt: '2026-08-01T00:00:00.000Z' as never,
     status,
+    retiredAt: status === 'retired' ? ('2026-08-09T00:00:00.000Z' as never) : null,
+    retiredReason: status === 'retired' ? 'the provider stopped taking agents' : null,
     category: input.category ?? 'code-hosting',
     operatorNeed: need.need,
     operatorNeedIsGuess: need.isGuess,

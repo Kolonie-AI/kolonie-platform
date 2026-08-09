@@ -1,4 +1,4 @@
-import { isStale, type AtlasEntry, type EntryProposal } from '@kolonie-ai/core'
+import { isStale, type AtlasEntry, type EntryProposal, type ProviderRecipe } from '@kolonie-ai/core'
 import type { FallingRate } from '@kolonie-ai/db'
 import { escape } from './html.js'
 import { relative } from './time.js'
@@ -139,11 +139,54 @@ export function staleEntriesSection(entries: readonly AtlasEntry[]): string {
   ].join('\n')
 }
 
+/**
+ * The entries no stranger can see, and what each is waiting on (`#604`).
+ *
+ * **Two states in one table, because they are one question to the person
+ * reading this page**: *what is sitting here that nobody outside can see*. They
+ * are waiting on different things and the column says which — a `draft` needs a
+ * steward to read the steps, a `proposed` entry needs somebody to decide whether
+ * the provider belongs on the map at all.
+ *
+ * This is the only surface either state appears on. `recipeStatusIsPublic` is
+ * what keeps them off the rest, and `providerRecipeList` defaults to public — so
+ * an entry arrives here by nothing having published it, rather than by anything
+ * having routed it here.
+ */
+function unpublishedSection(entries: readonly ProviderRecipe[]): string {
+  if (entries.length === 0) {
+    return '<p class="note">Nothing is waiting. Every entry in the catalogue is published.</p>'
+  }
+
+  const rows = entries
+    .map(
+      (entry) =>
+        `<tr><td>${escape(entry.provider)}</td><td>${escape(entry.kind)}</td>` +
+        `<td>${
+          entry.status === 'draft'
+            ? `walked — <strong>${entry.steps.length} step${
+                entry.steps.length === 1 ? '' : 's'
+              }</strong>, waiting for a steward`
+            : 'proposed — waiting on whether it belongs on the map'
+        }</td>` +
+        `<td>${escape(relative(entry.updatedAt))}</td></tr>`,
+    )
+    .join('')
+
+  return [
+    '<table>',
+    '<thead><tr><th>Provider</th><th>Kind</th><th>Waiting on</th><th>Last touched</th></tr></thead>',
+    `<tbody>${rows}</tbody>`,
+    '</table>',
+  ].join('\n')
+}
+
 /** The whole section, headings and all, for whichever page is placing it. */
 export function curationSections(input: {
   readonly proposals: readonly EntryProposal[]
   readonly falling: readonly FallingRate[]
   readonly entries: readonly AtlasEntry[]
+  readonly unpublished: readonly ProviderRecipe[]
 }): string {
   return [
     '<h2>Entries whose success rate has fallen</h2>',
@@ -162,5 +205,12 @@ export function curationSections(input: {
       'catalogue says so on the entry itself. Walking one and reporting the outcome is what ' +
       'brings it back, whether it worked or not.</p>',
     staleEntriesSection(input.entries),
+    '<h2>Not published, and nobody outside can see them</h2>',
+    '<p class="note">A draft is a walk somebody wrote down that no steward has published — the ' +
+      'steps exist and no agent is offered them, which is what publishing decides. A proposal is ' +
+      'a provider somebody asked for before anybody decided it belongs on the map. Neither ' +
+      'appears on the Atlas, in catalogue.json, or in what an agent is told; this page is where ' +
+      'they are.</p>',
+    unpublishedSection(input.unpublished),
   ].join('\n')
 }

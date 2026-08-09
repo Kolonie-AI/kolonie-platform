@@ -1,5 +1,6 @@
 import {
   ATLAS_PATH,
+  RETIRED_ENTRY_NOTE,
   STALE_ENTRY_NOTE,
   UNWRITTEN_ENTRY_NOTE,
   isStale,
@@ -240,17 +241,27 @@ function entryDescription(entry: AtlasEntry): string {
 }
 
 /**
- * The one word the index has room for about an entry's state (`#588`).
+ * The one word the index has room for about an entry's state (`#588`, `#604`).
  *
- * **Three answers and never a blank for two of them.** A joinable entry is
+ * **Every state but `joinable` is marked, in words.** A joinable entry is
  * unmarked because it is the ordinary case and the figures beside it already say
- * how it went; the other two are marked, in words, because an unmarked unwritten
- * entry is indistinguishable from a working recipe — which is the catalogue
- * pretending, and the thing `growth/README.md` refuses.
+ * how it went; an unmarked entry in any other state is indistinguishable from a
+ * working recipe — which is the catalogue pretending, and the thing
+ * `growth/README.md` refuses.
+ *
+ * `proposed` and `draft` cannot reach this function: nothing public reads them
+ * (`recipeStatusIsPublic`). The `draft` branch exists anyway, because a state
+ * with no branch here would render as a working recipe if it ever did — and a
+ * silent default is exactly how the next state added arrives on the index
+ * pretending to be joinable.
  */
 function indexStatusMark(status: AtlasEntry['status']): string {
   if (status === 'refused') return ' <span class="k-refused">cannot be joined</span>'
+  if (status === 'retired') return ' <span class="k-refused">withdrawn</span>'
   if (status === 'unwritten') return ' <span class="k-unwritten">nobody has looked yet</span>'
+  if (status === 'draft' || status === 'proposed') {
+    return ' <span class="k-unwritten">not published yet</span>'
+  }
 
   return ''
 }
@@ -281,6 +292,32 @@ function recipeSection(recipe: AtlasEntry['recipes'][number]): string {
       `<section><h2>${escape(recipe.kind)}</h2>`,
       `<p><small>${escape(operatorLine(recipe))}</small></p>`,
       `<p class="k-unwritten">${escape(UNWRITTEN_ENTRY_NOTE)}</p>`,
+      '</section>',
+    ].join('')
+  }
+
+  /**
+   * **A withdrawn row keeps its page and keeps its steps** (`#604`).
+   *
+   * The steps are rendered below by the ordinary path, under a heading that says
+   * what they now are. That is the whole argument for `retired` existing rather
+   * than the row being deleted: a reader arriving from an old link learns what
+   * the path was, when it closed and why, instead of meeting a 404 that teaches
+   * them nothing. `growth/README.md`'s rule — *a refusal is a page, not an
+   * omission* — is the same rule one state along.
+   */
+  if (recipe.status === 'retired') {
+    return [
+      `<section><h2>${escape(recipe.kind)}</h2>`,
+      '<p class="k-refused"><strong>Withdrawn' +
+        (recipe.retiredAt === null ? '' : ` on ${escape(recipe.retiredAt.slice(0, 10))}`) +
+        `.</strong> ${escape(recipe.retiredReason ?? '')}</p>`,
+      `<p class="k-unwritten">${escape(RETIRED_ENTRY_NOTE)}</p>`,
+      recipe.steps.length === 0
+        ? ''
+        : '<h3>What the path was</h3><ol>' +
+          recipe.steps.map((step) => `<li>${escape(step.instruction)}</li>`).join('') +
+          '</ol>',
       '</section>',
     ].join('')
   }

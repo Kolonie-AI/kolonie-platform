@@ -1359,6 +1359,13 @@
       "when": 1786269896251,
       "tag": "0193_an_entry_names_its_rung_and_its_quests",
       "breakpoints": true
+    },
+    {
+      "idx": 194,
+      "version": "7",
+      "when": 1786286639689,
+      "tag": "0194_numerous_tinkerer",
+      "breakpoints": true
     }
   ]
 }

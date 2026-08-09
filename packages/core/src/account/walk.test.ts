@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  WALK_NOTE_MAX_LENGTH,
   WalkNoteSchema,
   WalkOutcomeSchema,
   walkMatchesRecipe,
@@ -247,6 +248,12 @@ describe('the one question an agent is asked', () => {
       WalkNoteSchema.safeParse('It matched, except the second step now opens a different page.')
         .success,
     ).toBe(true)
+  })
+
+  it('takes one ordinary note and no transcript', () => {
+    expect(WALK_NOTE_MAX_LENGTH).toBe(2000)
+    expect(WalkNoteSchema.safeParse('a'.repeat(2000)).success).toBe(true)
+    expect(WalkNoteSchema.safeParse('a'.repeat(2001)).success).toBe(false)
   })
 
   /**

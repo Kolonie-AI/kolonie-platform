@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { FastifyInstance } from 'fastify'
 import { buildApp } from '../app.js'
 import { fakeColony, type FakeColony } from '../__fixtures__/colony/index.js'
-import { AccountKindSchema, now, type EntryProposal } from '@kolonie-ai/core'
+import { AccountKindSchema, now, type AccountWalk, type EntryProposal } from '@kolonie-ai/core'
 
 const proposal = (overrides: Partial<EntryProposal> = {}): EntryProposal => ({
   id: '11111111-1111-4111-8111-111111111111',
@@ -71,6 +71,50 @@ describe('the curation section', () => {
         divergences: [],
       }),
     ).toContain('an empty one is the good answer')
+  })
+
+  it('shows a complete 2000-character walk note to the steward', async () => {
+    const { curationSections } = await import('../console/curation.js')
+    const note = 'a'.repeat(2000)
+    const walk = {
+      id: '11111111-1111-4111-8111-111111111111',
+      agentId: '22222222-2222-4222-8222-222222222222',
+      kind: 'mailbox',
+      provider: 'somewhere.example',
+      startedAt: now(),
+      finishedAt: now(),
+      outcome: 'proved',
+      wall: null,
+      note,
+      steps: [{ position: 1, actor: 'agent', secret: false, at: now() }],
+    } as AccountWalk
+    colony.recipes.write({
+      kind: walk.kind,
+      provider: walk.provider,
+      steps: [{ actor: 'operator', instruction: 'Complete the signup.' }],
+    })
+    const entry = (await colony.recipes.listInternal())[0]
+    if (entry === undefined) throw new Error('expected a published entry')
+
+    const rendered = curationSections({
+      proposals: [],
+      falling: [],
+      entries: [],
+      unpublished: [],
+      divergences: [
+        {
+          walk,
+          entry,
+          verdict: {
+            kind: 'diverges',
+            walked: [{ actor: 'agent' }],
+            published: [{ actor: 'operator' }],
+          },
+        },
+      ],
+    })
+
+    expect(rendered).toContain(note)
   })
 
   /**

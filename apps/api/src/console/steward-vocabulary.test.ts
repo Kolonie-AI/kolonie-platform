@@ -24,6 +24,7 @@ describe('the numbers page', () => {
     citizens: 3,
     skillsGranted: { profile: 21 },
     questsByStatus: { active: 1 },
+    smsYesterdayByCountry: { DE: 3 },
     acceptedQuestReports: { market: 1, intraSwarm: 0 },
     escrowHeld: 0,
     ledgerSum: 0,

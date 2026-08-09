@@ -74,6 +74,29 @@ export const smsSends = pgTable(
     priceAmount: text('price_amount'),
     priceCurrency: text('price_currency'),
 
+    /**
+     * Where it went, ISO 3166-1 alpha-2, or `null` when the vendor could not say
+     * (`#616`).
+     *
+     * **Without it there is no way to notice SMS pumping.** The attack is
+     * traffic driven at a range whose terminating carrier shares revenue with
+     * whoever drove it, so *how many messages went to one country today* is the
+     * question that distinguishes it from ordinary use — and `to` cannot answer
+     * that without a dialling-prefix table this repository deliberately does not
+     * have (`#617`).
+     *
+     * **Nullable, and null is a real state.** The country comes from the same
+     * vendor lookup the geography check uses, and that lookup can be unknown; a
+     * send whose country nobody could name still happened and still costs money,
+     * so it is recorded. It counts toward the global ceiling and toward no
+     * country's.
+     *
+     * Far less identifying than `to` beside it: a country is a fact about a
+     * range rather than about a person. It cascades with the citizen regardless,
+     * because the row does.
+     */
+    country: text('country'),
+
     sentAt: timestamp('sent_at', { withTimezone: true, mode: 'string' }).notNull().defaultNow(),
   },
   (table) => [
@@ -81,6 +104,13 @@ export const smsSends = pgTable(
     index('sms_sends_agent_sent_idx').on(table.agentId, table.sentAt),
     /** "How many have we sent since?" — the global cap's. */
     index('sms_sends_sent_idx').on(table.sentAt),
+    /**
+     * "How many have gone to this country since?" — the per-country ceiling's
+     * question, and the one that actually stops pumping (`#616`). An attacker
+     * with many agents defeats a per-agent limit and does not defeat *forty
+     * messages to one country in a day*.
+     */
+    index('sms_sends_country_sent_idx').on(table.country, table.sentAt),
   ],
 )
 

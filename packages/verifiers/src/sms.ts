@@ -145,6 +145,14 @@ export interface SmsSpendLedger {
   sentToCitizen(agentId: string, since: Date): Promise<number>
   /** How many messages the Colony has sent in total within the window. */
   sentInTotal(since: Date): Promise<number>
+  /**
+   * How many the Colony has sent to one country within the window (`#616`).
+   *
+   * The count the per-country ceiling is answered from, and the one that
+   * actually bounds pumping: an attacker with many agents defeats a per-agent
+   * limit, and registering costs nothing by design.
+   */
+  sentToCountry(country: string, since: Date): Promise<number>
   /** Record one send, priced or not. */
   record(entry: SmsSendRecord): Promise<void>
 }
@@ -154,6 +162,14 @@ export interface SmsSendRecord {
   readonly to: string
   readonly vendorId: string
   readonly price: SmsPrice | null
+  /**
+   * Where it went, ISO 3166-1 alpha-2, or `null` where the vendor could not say
+   * (`#616`).
+   *
+   * There is no way to notice pumping without it, and no figure on `/backend`
+   * can exist without it either.
+   */
+  readonly country: string | null
   readonly sentAt: Date
 }
 
@@ -190,6 +206,28 @@ export interface SmsLimits {
    * is not doing what the rung is for.
    */
   readonly perCitizen: number
+  /**
+   * How many messages may go to one country inside {@link windowHours},
+   * Colony-wide (`#616`).
+   *
+   * **Forty, and this is the ceiling that stops SMS pumping.** The attack points
+   * the Colony's challenge at a range whose terminating carrier pays whoever
+   * drives traffic to it, and it needs volume at *one destination*. A per-agent
+   * ceiling does not bound it, because a citizen may register freely
+   * (`kolonie-docs#170`) and one attacker is many agents; a Colony-wide total
+   * does not bound it either, because two hundred messages to one expensive
+   * range is the whole attack inside the existing budget.
+   *
+   * Forty is generous against real use — three challenges have ever been minted,
+   * by two agents, measured 2026-08-09 — and it is deliberately far above what
+   * one country's citizens plausibly need in a day, because the cost of it being
+   * too low is a real citizen refused and the cost of it being a little high is
+   * bounded by the Colony-wide ceiling above it.
+   *
+   * A send whose country the vendor could not name counts toward no country's
+   * ceiling. It is still bounded by {@link globalPerWindow}.
+   */
+  readonly perCountry: number
   /**
    * How many messages the Colony may send in total inside {@link windowHours}.
    *
@@ -230,6 +268,7 @@ export const DEFAULT_SMS_DESTINATIONS: readonly SmsDestination[] = [
 export const DEFAULT_SMS_LIMITS: SmsLimits = {
   allowedPrefixes: DEFAULT_SMS_DESTINATIONS,
   perCitizen: 5,
+  perCountry: 40,
   globalPerWindow: 200,
   windowHours: 24,
 }
@@ -466,7 +505,16 @@ export function twilioAdapter(
 export function guardedSmsSender(dependencies: {
   readonly adapter: SmsAdapter
   readonly ledger: SmsSpendLedger
-  readonly limits?: SmsLimits
+  /**
+   * The ceilings, or a function that reads them at the point of use (`#616`).
+   *
+   * **A function is what makes them a setting rather than a release.** D-104's
+   * rule, which the wake channel follows for `WAKE_MAX_PER_HOUR`: a ceiling
+   * chosen at startup cannot be moved while an incident is happening, which is
+   * exactly when somebody wants to move it. Passing a plain object is still
+   * allowed and is what a test does.
+   */
+  readonly limits?: SmsLimits | (() => Promise<SmsLimits>)
   readonly now?: () => Date
   /**
    * What the vendor says the Colony may text (`#617`).
@@ -480,11 +528,14 @@ export function guardedSmsSender(dependencies: {
    */
   readonly geography?: SmsGeography
 }): SmsSender {
-  const limits = dependencies.limits ?? DEFAULT_SMS_LIMITS
+  const configured = dependencies.limits ?? DEFAULT_SMS_LIMITS
+  const readLimits: () => Promise<SmsLimits> =
+    typeof configured === 'function' ? configured : async () => configured
   const now = dependencies.now ?? (() => new Date())
 
   return {
     send: async (agentId, to, body) => {
+      const limits = await readLimits()
       /**
        * Geography, before anything is spent and before any cap is counted.
        *
@@ -501,6 +552,8 @@ export function guardedSmsSender(dependencies: {
        * 2026-08-09 did, after an agent said it was stuck. It got there by writing
        * to its operator rather than because the message told it to.
        */
+      let country: string | null = null
+
       if (dependencies.geography !== undefined) {
         const verdict = await dependencies.geography.check(to)
 
@@ -510,6 +563,10 @@ export function guardedSmsSender(dependencies: {
             reason: unreachableCountryRefusal(verdict.country),
           }
         }
+
+        // Carried from here to the ceiling and to the record, so one lookup
+        // answers both: a second one could disagree with the first.
+        if (verdict.verdict === 'reachable') country = verdict.country
       } else {
         const destination = destinationFor(to, limits.allowedPrefixes)
 
@@ -533,6 +590,36 @@ export function guardedSmsSender(dependencies: {
           reason:
             `You have been sent ${toCitizen} messages in the last ${limits.windowHours} hours, ` +
             `which is the limit. This resets on its own; nothing is held against you.`,
+        }
+      }
+
+      /**
+       * The ceiling that actually bounds SMS pumping (`#616`).
+       *
+       * Checked after the citizen's own and before the Colony's total, in
+       * increasing order of how much it says about the caller: a citizen over
+       * its own ceiling has been told something about itself, one over a
+       * country's has been told about its neighbours, and one over the Colony's
+       * has been told about the Colony.
+       *
+       * **Skipped where the country is unknown**, which is the same rule the
+       * geography check follows and for the same reason: an unnamed destination
+       * must not be refused on a bound it cannot be measured against. It is
+       * bounded by the Colony-wide ceiling below.
+       */
+      if (country !== null) {
+        const toCountry = await dependencies.ledger.sentToCountry(country, since)
+        if (toCountry >= limits.perCountry) {
+          return {
+            outcome: 'refused',
+            reason:
+              `The Colony has sent ${toCountry} messages to ${country} in the last ` +
+              `${limits.windowHours} hours, which is its ceiling for one country. This is the ` +
+              'Colony’s own budget rather than anything about you: nothing counts against you, ' +
+              `nothing is spent, and it lifts as the oldest of those messages passes ` +
+              `${limits.windowHours} hours old. Try again then, or open a ticket with ` +
+              'kolonie.support.open if you are still stuck tomorrow.',
+          }
         }
       }
 
@@ -561,6 +648,7 @@ export function guardedSmsSender(dependencies: {
           to,
           vendorId: result.vendorId,
           price: result.price,
+          country,
           sentAt,
         })
       }

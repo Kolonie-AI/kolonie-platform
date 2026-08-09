@@ -68,7 +68,7 @@ const sentMessage = (over: Record<string, unknown> = {}): Record<string, unknown
 
 /** A ledger that answers fixed counts and remembers what it was told. */
 const ledgerWith = (
-  counts: { citizen?: number; total?: number } = {},
+  counts: { citizen?: number; total?: number; country?: number } = {},
 ): { ledger: SmsSpendLedger; written: SmsSendRecord[] } => {
   const written: SmsSendRecord[] = []
   return {
@@ -76,6 +76,7 @@ const ledgerWith = (
     ledger: {
       sentToCitizen: async () => counts.citizen ?? 0,
       sentInTotal: async () => counts.total ?? 0,
+      sentToCountry: async () => counts.country ?? 0,
       record: async (entry) => {
         written.push(entry)
       },
@@ -282,6 +283,8 @@ describe('guardedSmsSender', () => {
         to: GERMAN_MOBILE,
         vendorId: SENT.vendorId,
         price: { amount: '0.11200', currency: 'USD' },
+        // No geography configured here, so nothing named the country (`#616`).
+        country: null,
         sentAt: expect.any(Date),
       },
     ])
@@ -331,6 +334,7 @@ describe('guardedSmsSender', () => {
         asked.push(since)
         return 0
       },
+      sentToCountry: async () => 0,
       record: async () => {},
     }
     const { adapter } = adapterAnswering(SENT)
@@ -468,5 +472,107 @@ describe('guardedSmsSender, with the vendor’s own geography', () => {
 
     expect(result.outcome).toBe('refused')
     expect(sends).toEqual([])
+  })
+})
+
+/**
+ * The ceiling that bounds SMS pumping (`#616`).
+ *
+ * On 2026-08-09 the account's geographic permissions went from one country to
+ * fifty-nine, so the surface that was theoretical became real: an agent names
+ * the destination, the Colony dials it, and registering costs nothing — which
+ * means neither *one agent* nor *the Colony's daily total* is a bound on traffic
+ * driven at one revenue-sharing range.
+ */
+describe('guardedSmsSender, bounding one country', () => {
+  const reachable = (country: string): SmsGeography => ({
+    reachable: async () => ({
+      countries: [{ name: 'germany', iso: 'DE' }],
+      measuredAt: new Date(),
+    }),
+    check: async () => ({ verdict: 'reachable', country }),
+  })
+
+  it('records where each message went', async () => {
+    const { adapter } = adapterAnswering(SENT)
+    const { ledger, written } = ledgerWith()
+
+    await guardedSmsSender({ adapter, ledger, geography: reachable('DE') }).send(
+      AGENT,
+      GERMAN_MOBILE,
+      'code',
+    )
+
+    expect(written[0]?.country).toBe('DE')
+  })
+
+  it('refuses once one country has had its day’s worth, and says when it lifts', async () => {
+    const { adapter, sends } = adapterAnswering(SENT)
+    const { ledger } = ledgerWith({ country: DEFAULT_SMS_LIMITS.perCountry })
+
+    const result = await guardedSmsSender({
+      adapter,
+      ledger,
+      geography: reachable('DE'),
+    }).send(AGENT, GERMAN_MOBILE, 'code')
+
+    expect(result.outcome).toBe('refused')
+    const reason = result.outcome === 'refused' ? result.reason : ''
+    expect(reason).toContain('DE')
+    expect(reason).toContain('24 hours old')
+    expect(reason).toContain('nothing counts against you')
+    expect(sends).toEqual([])
+  })
+
+  /**
+   * The rejection case that keeps the ceiling honest. A citizen whose first
+   * message was eaten by a carrier must be able to try again the same hour —
+   * `#616` bounds the day, not the minute.
+   */
+  it('does not refuse a legitimate retry within the hour', async () => {
+    const { adapter, sends } = adapterAnswering(SENT)
+    const { ledger } = ledgerWith({ citizen: 1, country: 1, total: 1 })
+    const sender = guardedSmsSender({ adapter, ledger, geography: reachable('DE') })
+
+    expect((await sender.send(AGENT, GERMAN_MOBILE, 'code')).outcome).toBe('sent')
+    expect((await sender.send(AGENT, GERMAN_MOBILE, 'code')).outcome).toBe('sent')
+    expect(sends).toHaveLength(2)
+  })
+
+  /** An unnamed destination is bounded by the Colony's total and by nothing else. */
+  it('does not refuse on a country ceiling it cannot measure against', async () => {
+    const { adapter, sends } = adapterAnswering(SENT)
+    const { ledger, written } = ledgerWith({ country: DEFAULT_SMS_LIMITS.perCountry })
+    const unknown: SmsGeography = {
+      reachable: async () => undefined,
+      check: async () => ({ verdict: 'unknown' }),
+    }
+
+    const result = await guardedSmsSender({ adapter, ledger, geography: unknown }).send(
+      AGENT,
+      GERMAN_MOBILE,
+      'code',
+    )
+
+    expect(result.outcome).toBe('sent')
+    expect(sends).toHaveLength(1)
+    expect(written[0]?.country).toBeNull()
+  })
+
+  /** Read at the point of use, so a ceiling can be moved during an incident (D-104). */
+  it('reads the ceilings on every send rather than at construction', async () => {
+    const { adapter } = adapterAnswering(SENT)
+    const { ledger } = ledgerWith({ country: 10 })
+    let perCountry = 40
+    const sender = guardedSmsSender({
+      adapter,
+      ledger,
+      geography: reachable('DE'),
+      limits: async () => ({ ...DEFAULT_SMS_LIMITS, perCountry }),
+    })
+
+    expect((await sender.send(AGENT, GERMAN_MOBILE, 'code')).outcome).toBe('sent')
+    perCountry = 5
+    expect((await sender.send(AGENT, GERMAN_MOBILE, 'code')).outcome).toBe('refused')
   })
 })

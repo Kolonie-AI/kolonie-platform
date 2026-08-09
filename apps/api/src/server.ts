@@ -47,9 +47,19 @@ import { auth0Tenant } from './humans/auth0.js'
 import { operatorNoteLimiter, signInAddressLimiter, signInClientLimiter } from './rate-limit.js'
 import { cloudflareMailer, databaseEmailChallenges } from './email.js'
 import { databaseSmsChallenges } from './sms.js'
-import { countSmsSentInTotal, countSmsSentToAgent, recordSmsSend } from '@kolonie-ai/db'
+import {
+  countSmsSentInTotal,
+  countSmsSentToAgent,
+  countSmsSentToCountry,
+  recordSmsSend,
+} from '@kolonie-ai/db'
 import { redeemAdoptionCode } from '@kolonie-ai/db'
-import { guardedSmsSender, twilioAdapter, twilioSmsGeography } from '@kolonie-ai/verifiers'
+import {
+  DEFAULT_SMS_LIMITS,
+  guardedSmsSender,
+  twilioAdapter,
+  twilioSmsGeography,
+} from '@kolonie-ai/verifiers'
 import type { SmsSendRecord } from '@kolonie-ai/verifiers'
 import { mailerFromEnv } from './mail-config.js'
 import { databaseKeyChallenges } from './keys.js'
@@ -153,6 +163,34 @@ const smsSender = ((): ReturnType<typeof guardedSmsSender> | undefined => {
 
   return guardedSmsSender({
     adapter,
+    /**
+     * The ceilings, read at the point of use rather than at startup (`#616`,
+     * D-104).
+     *
+     * **The whole reason they are settings** is that the moment somebody wants
+     * to move one is the moment an incident is happening, and a value chosen at
+     * boot cannot be moved then. Each falls back to the default in
+     * `packages/verifiers/src/sms.ts`, which holds every number and the argument
+     * for it — a value nobody set, or one somebody set to nonsense, behaves as
+     * though it had never been touched, the same shape `WAKE_MAX_PER_HOUR` uses.
+     */
+    limits: async () => {
+      const ceiling = async (name: string, fallback: number): Promise<number> => {
+        // `liveSettings` is declared further down this module and is read here
+        // only when a send happens, which is long after the module has finished
+        // evaluating.
+        const held = await liveSettings.read(name)
+        const parsed = held === undefined ? Number.NaN : Number.parseInt(held, 10)
+        return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback
+      }
+
+      return {
+        ...DEFAULT_SMS_LIMITS,
+        perCitizen: await ceiling('SMS_MAX_PER_CITIZEN_PER_DAY', DEFAULT_SMS_LIMITS.perCitizen),
+        perCountry: await ceiling('SMS_MAX_PER_COUNTRY_PER_DAY', DEFAULT_SMS_LIMITS.perCountry),
+        globalPerWindow: await ceiling('SMS_MAX_PER_DAY', DEFAULT_SMS_LIMITS.globalPerWindow),
+      }
+    },
     // Present whenever Twilio is configured at all, which makes the read list
     // the answer and `DEFAULT_SMS_LIMITS.allowedPrefixes` the fallback for a
     // deployment that has no vendor to ask.
@@ -161,6 +199,8 @@ const smsSender = ((): ReturnType<typeof guardedSmsSender> | undefined => {
       sentToCitizen: (agentId: string, since: Date) =>
         countSmsSentToAgent(db, agentId as AgentId, since.toISOString() as Timestamp),
       sentInTotal: (since: Date) => countSmsSentInTotal(db, since.toISOString() as Timestamp),
+      sentToCountry: (country: string, since: Date) =>
+        countSmsSentToCountry(db, country, since.toISOString() as Timestamp),
       record: (entry: SmsSendRecord) =>
         recordSmsSend(db, {
           agentId: entry.agentId as AgentId,
@@ -168,6 +208,7 @@ const smsSender = ((): ReturnType<typeof guardedSmsSender> | undefined => {
           vendorId: entry.vendorId,
           priceAmount: entry.price?.amount ?? null,
           priceCurrency: entry.price?.currency ?? null,
+          country: entry.country,
           sentAt: entry.sentAt.toISOString() as Timestamp,
         }),
     },

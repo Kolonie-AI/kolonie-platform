@@ -180,6 +180,22 @@ export interface ColonyNumbers {
   readonly skillsGranted: Readonly<Record<string, number>>
   readonly questsByStatus: Readonly<Record<string, number>>
   /**
+   * How many text messages went to each country yesterday (`#616`).
+   *
+   * **One line beside the numbers already here, not a dashboard.** It is what
+   * makes SMS pumping visible before it is a bill: a country that has never had
+   * traffic appearing with forty messages against it is the shape of the attack,
+   * and until this existed nothing on `/backend` could have shown it.
+   *
+   * **Yesterday and not today**, because a whole day is comparable with the day
+   * before it and a partial one is not — a figure that climbs all day and resets
+   * at midnight teaches a reader to ignore it.
+   *
+   * `unknown` is a real key: a send whose destination country the carrier could
+   * not name still happened and still cost money.
+   */
+  readonly smsYesterdayByCountry: Readonly<Record<string, number>>
+  /**
    * Accepted quest reports, split by whose swarm answered them (D-107, `#513`).
    *
    * **Two figures and never a total.** A single number covering both is exactly
@@ -258,6 +274,21 @@ export async function colonyNumbers(db: Database): Promise<ColonyNumbers> {
 
   const skills = await db.execute<{ skill: string; count: string }>(
     sql`select skill, count(distinct agent_id)::text as count from agent_skills group by skill`,
+  )
+
+  /**
+   * Yesterday, in whole days, in the database's own clock (`#616`).
+   *
+   * `date_trunc` rather than a window counted back from now, for the reason the
+   * field's own comment gives: a whole day compares with the day before it.
+   */
+  const smsYesterday = await db.execute<{ country: string | null; sent: string }>(
+    sql`select country, count(*)::text as sent
+          from sms_sends
+         where sent_at >= date_trunc('day', now()) - interval '1 day'
+           and sent_at < date_trunc('day', now())
+         group by country
+         order by count(*) desc, country asc`,
   )
 
   const questStatuses = await db.execute<{ status: string; count: string }>(
@@ -340,6 +371,9 @@ export async function colonyNumbers(db: Database): Promise<ColonyNumbers> {
     citizens: Number(totals?.citizens ?? 0),
     skillsGranted: toRecord(skills, (row: { skill: string }) => row.skill),
     questsByStatus: toRecord(questStatuses, (row: { status: string }) => row.status),
+    smsYesterdayByCountry: Object.fromEntries(
+      [...smsYesterday].map((row) => [row.country ?? 'unknown', Number(row.sent)]),
+    ),
     acceptedQuestReports: {
       market: Number(totals?.market_reports ?? 0),
       intraSwarm: Number(totals?.intra_swarm_reports ?? 0),

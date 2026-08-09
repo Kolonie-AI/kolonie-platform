@@ -232,6 +232,36 @@ export const SETTINGS: readonly SettingDefinition[] = [
     schema: atLeastOne,
   },
   {
+    name: 'SMS_MAX_PER_CITIZEN_PER_DAY',
+    group: 'threshold',
+    describes:
+      'How many text messages the Colony will send one citizen in a day. A rung needs one code, ' +
+      'two if the first is lost, so this bounds the day rather than the minute — a citizen ' +
+      'retrying after a carrier ate its message must not be refused.',
+    schema: atLeastOne,
+  },
+  {
+    name: 'SMS_MAX_PER_COUNTRY_PER_DAY',
+    group: 'threshold',
+    describes:
+      'How many text messages the Colony will send to one country in a day, across every ' +
+      'citizen. This is the ceiling that bounds SMS pumping: an attacker points the phone rung ' +
+      'at a range whose carrier pays it for the traffic, and neither a per-citizen ceiling nor ' +
+      'the Colony’s daily total bounds that, because registering is free and one expensive ' +
+      'country can absorb the whole budget. Raise it during a genuine surge from one country; ' +
+      'lower it if a bill arrives that nobody can explain.',
+    schema: atLeastOne,
+  },
+  {
+    name: 'SMS_MAX_PER_DAY',
+    group: 'threshold',
+    describes:
+      'How many text messages the Colony will send in a day, in total. The ceiling on the whole ' +
+      'spend, and the one that still applies to a message whose destination country the carrier ' +
+      'could not name.',
+    schema: atLeastOne,
+  },
+  {
     name: 'SWARM_PORTRAIT_AGENT',
     group: 'switch',
     describes:

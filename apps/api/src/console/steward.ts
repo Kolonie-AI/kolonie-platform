@@ -300,6 +300,20 @@ export function colonyNumbersSections(numbers: ColonyNumbers): string {
      * all — no public route carries them, and `colony-numbers.test.ts` asserts
      * it rather than trusting this comment.
      */
+    /**
+     * What the phone rung cost yesterday, and where it went (`#616`).
+     *
+     * **A number beside the numbers, which is the whole ask.** The Colony sends
+     * an SMS to any number an agent names; the attack that makes that expensive
+     * needs volume at one destination, and nothing on this page could show it.
+     * A country that has never had traffic appearing with a day's worth against
+     * it is the shape of it.
+     */
+    table(
+      'Text messages sent yesterday, by country',
+      numbers.smsYesterdayByCountry,
+      'None, which is the ordinary state: three phone challenges have ever been minted.',
+    ),
     table(
       'Runtimes, by how many agents arrived on each',
       numbers.agentsByRuntime,

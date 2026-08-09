@@ -19,6 +19,7 @@ describe('the catalogue’s work queue on /backend', () => {
     citizens: 0,
     skillsGranted: {},
     questsByStatus: {},
+    smsYesterdayByCountry: {},
     acceptedQuestReports: { market: 0, intraSwarm: 0 },
     permissionBlocks: [],
     escrowHeld: 0,

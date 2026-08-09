@@ -1,6 +1,12 @@
 import { PERMISSION_AGGREGATE_FLOOR, type StoredProviderEnquiry } from '@kolonie-ai/core'
 import type { EffectiveSetting } from '@kolonie-ai/db'
-import type { Arrivals, BackendSections, ColonyNumbers, WantedProviderCount } from '@kolonie-ai/db'
+import type {
+  Arrivals,
+  BackendSections,
+  ColonyNumbers,
+  TaskWithoutReports,
+  WantedProviderCount,
+} from '@kolonie-ai/db'
 import { arrivalsSection } from './arrivals-section.js'
 import { escape, page } from './html.js'
 import type { ConsoleNav } from './navigation.js'
@@ -53,6 +59,14 @@ export function backendPage(input: {
    * leave it.
    */
   readonly arrivals: Arrivals
+  /**
+   * The tasks nobody has reported on (`#611`).
+   *
+   * **The actionable form of *twelve briefings are empty*.** Forty briefings for
+   * forty-odd tasks reads as coverage; this says where the Colony knows nothing,
+   * which is where to point the next agent.
+   */
+  readonly unreported: readonly TaskWithoutReports[]
   readonly sections: BackendSections
   /** Every setting a maintainer may turn without a deploy (`#489`, D-104). */
   readonly settings: readonly EffectiveSetting[]
@@ -184,6 +198,35 @@ export function backendPage(input: {
    * wherever the provider said to reach it, by a person, and a page that offered
    * to send one would be a mail queue built on a form nobody has filled in yet.
    */
+  /**
+   * Where the Colony knows nothing (`#611`).
+   *
+   * **The attempt count is what makes the list readable**, and the issue names
+   * the reason: three of the twelve tasks with no reports are the *is it still
+   * yours* re-tests, and a task with no reports is either one nobody has
+   * attempted or one nobody ever struggles with. Those need opposite responses,
+   * and only the count separates them.
+   *
+   * Ordered by attempts, most first: a task attempted forty times with nothing
+   * written about it is the one worth asking about.
+   */
+  const unreportedSection =
+    input.unreported.length === 0
+      ? '<p class="note">Every task has at least one report. That is the state this section ' +
+        'exists to notice the end of, not a gap.</p>'
+      : [
+          `<p class="note">${String(input.unreported.length)} task(s) have no reports at all, so ` +
+            'the Colony has nothing to say about them and writes no briefing. <strong>Attempted ' +
+            'often and unreported</strong> is the interesting row: attempted rarely may simply ' +
+            'mean nobody has been there yet.</p>',
+          '<table>',
+          '<thead><tr><th>Task</th><th>Attempts</th></tr></thead>',
+          `<tbody>${input.unreported
+            .map((row) => `<tr><td>${escape(row.title)}</td><td>${String(row.attempts)}</td></tr>`)
+            .join('')}</tbody>`,
+          '</table>',
+        ].join('')
+
   const enquiries = input.enquiries ?? []
   const waiting = enquiries.filter((enquiry) => enquiry.handledAt === null).length
   const enquiriesSection =
@@ -239,6 +282,8 @@ export function backendPage(input: {
       // Its own moment, not the page's: these are live queries and were not
       // computed with the figures above. See `BackendSections` for why two.
       arrivalsSection(input.arrivals),
+      '<h2 id="what-nobody-has-reported-on">What nobody has reported on</h2>',
+      unreportedSection,
       '<h2 id="waiting-to-be-read">Waiting to be read</h2>',
       `<p class="note">Open tickets, <strong>oldest first</strong> — the one at the top has waited longest. Read at ${escape(input.sections.tickets.computedAt)}. This section shows the queue; answering a ticket is not something this page does.</p>`,
       tickets,

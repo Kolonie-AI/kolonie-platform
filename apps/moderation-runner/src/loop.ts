@@ -1036,10 +1036,25 @@ export async function synthesiseNow(
     const corpus = await store.corpus(taskId)
     const { claims, proposed, unsourced, blank } = await synthesise({ task, corpus }, model)
     await store.write({ taskId, claims, model: model.name })
-    log.info(
-      `briefing for ${taskId} written from ${corpus.length} entries, ${claims.length} claims`,
-      { event: 'briefing.written', taskId, entries: corpus.length, claims: claims.length },
-    )
+
+    /**
+     * **A pass that produced no claims writes no row** (`#611`), and the line
+     * says which of the two happened rather than reporting *written, 0 claims* —
+     * which is what the twelve empty briefings looked like in the log for as
+     * long as they existed.
+     */
+    if (claims.length === 0) {
+      log.info(`no briefing for ${taskId}: nothing to say from ${corpus.length} entries`, {
+        event: 'briefing.none',
+        taskId,
+        entries: corpus.length,
+      })
+    } else {
+      log.info(
+        `briefing for ${taskId} written from ${corpus.length} entries, ${claims.length} claims`,
+        { event: 'briefing.written', taskId, entries: corpus.length, claims: claims.length },
+      )
+    }
 
     // **A corpus with entries in it should never produce nothing**, and this is
     // the line that says so out loud. Every entry cleared a moderator who judged

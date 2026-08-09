@@ -1523,6 +1523,27 @@ describe('who arrived and what is waiting', () => {
     expect(body.numbers.computedAt).toEqual(expect.any(String))
   })
 
+  /**
+   * Where the Colony knows nothing (`#611`).
+   *
+   * *Forty briefings* reads as coverage; this names the tasks with no reports
+   * and puts the attempt count beside each, which is what separates *nobody has
+   * tried this* from *nobody ever struggles with it*.
+   */
+  it('names the tasks nobody has reported on, with their attempt counts', async () => {
+    quests.showsOnBackend({
+      unreported: [
+        { taskId: randomUUID(), title: 'Come back the way you said you would', attempts: 12 },
+      ],
+    })
+
+    const body = (await backend(await aMaintainer())).body
+
+    expect(body).toContain('What nobody has reported on')
+    expect(body).toContain('Come back the way you said you would')
+    expect(body).toContain('>12<')
+  })
+
   it('says so plainly when there is nothing in either', async () => {
     quests.showsOnBackend({ arrivals: { agents: [], people: [] }, tickets: [] })
 

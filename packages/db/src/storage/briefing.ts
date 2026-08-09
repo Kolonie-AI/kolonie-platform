@@ -288,6 +288,33 @@ export async function writeBriefing(
     readonly model: string
   },
 ): Promise<void> {
+  /**
+   * **No claims, no row** (`#611`).
+   *
+   * A briefing with nothing in it makes an offer that cannot be met: `#610` tells
+   * an agent after a failed attempt that the Colony knows something about this
+   * task, and an agent that follows that and receives an empty answer learns to
+   * stop following it — the cost of which lands on the tasks where the hints are
+   * good. It also hides the gap: forty briefings for forty-odd tasks reads as
+   * coverage, while twenty-eight with claims and twelve tasks nobody has reported
+   * on is the truer and more useful picture.
+   *
+   * **Deleted rather than written and hidden.** A row kept for bookkeeping would
+   * need every reader-facing surface to remember to skip it, and *remember to* is
+   * how the twelve got read in the first place. The absence carries the same
+   * information and cannot be misread.
+   *
+   * **The flag goes with the row, which is what stops the rewrite loop.** The
+   * task is no longer stale because there is nothing left to be stale; the next
+   * approved report calls `markBriefingStale`, which recreates the row, and the
+   * next tick synthesises it. So an empty briefing costs one synthesis per change
+   * rather than one per tick.
+   */
+  if (input.claims.length === 0) {
+    await db.delete(taskBriefings).where(eq(taskBriefings.taskId, input.taskId))
+    return
+  }
+
   const at = new Date().toISOString()
 
   await db
@@ -811,4 +838,65 @@ export async function recordProviderChange(db: Database, taskId: TaskId): Promis
       target: taskBriefings.taskId,
       set: { changeDetectedAt: at, dirty: true },
     })
+}
+
+/** One task nobody has reported on, with how often it has been attempted. */
+export interface TaskWithoutReports {
+  readonly taskId: TaskId
+  readonly title: string
+  /** Attempts closed against it, whatever the outcome. */
+  readonly attempts: number
+}
+
+/**
+ * The tasks the Colony knows nothing about, with the attempt count beside them
+ * (`#611`).
+ *
+ * **This is the figure the twelve empty briefings were standing in for**, and it
+ * is the more actionable form of the same fact: *forty briefings* reads as
+ * coverage, *twelve tasks have no reports* says where to point the next agent.
+ *
+ * **The attempt count is what makes the list readable**, and `#611` names the
+ * reason: three of the twelve are the *is it still yours* re-tests, and a task
+ * with no reports may be one nobody has attempted or one nobody ever struggles
+ * with. Those need opposite responses and the count is what tells them apart.
+ *
+ * Academy tasks only. A quest carries its own reports through a different
+ * surface, and mixing them would make the count answer two questions.
+ */
+export async function tasksWithoutReports(db: Database): Promise<readonly TaskWithoutReports[]> {
+  const rows = await db
+    .select({
+      taskId: tasks.id,
+      title: tasks.title,
+      attempts: sql<number>`count(distinct ${taskAttempts.id})::int`,
+    })
+    .from(tasks)
+    .leftJoin(taskAttempts, eq(taskAttempts.taskId, tasks.id))
+    .where(
+      and(
+        eq(tasks.kind, 'academy'),
+        /**
+         * **A report reaches its task through its attempt**, and only falls back
+         * to its own column when it has none — which is exactly what
+         * `briefingCorpus` does one function up. Matching on `task_reports.task_id`
+         * alone reports a task as unreported while agents are filing on it,
+         * because the ordinary report is attached to an attempt.
+         */
+        sql`not exists (
+          select 1
+          from ${taskReports}
+          left join ${taskAttempts} on ${taskAttempts.id} = ${taskReports.attemptId}
+          where coalesce(${taskAttempts.taskId}, ${taskReports.taskId}) = ${tasks.id}
+        )`,
+      ),
+    )
+    .groupBy(tasks.id, tasks.title)
+    .orderBy(desc(sql`count(distinct ${taskAttempts.id})`), asc(tasks.title))
+
+  return rows.map((row) => ({
+    taskId: row.taskId as TaskId,
+    title: row.title,
+    attempts: row.attempts,
+  }))
 }

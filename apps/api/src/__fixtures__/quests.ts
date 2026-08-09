@@ -49,6 +49,8 @@ export interface FakeQuestDesk extends QuestDesk {
   readonly showsOnBackend: (input: {
     /** Who arrived (`#607`). Shapes are the storage's; a test fills what it asserts on. */
     readonly arrivals?: { agents: readonly unknown[]; people: readonly unknown[] }
+    /** Tasks with no reports (`#611`). */
+    readonly unreported?: readonly { taskId: string; title: string; attempts: number }[]
     readonly tickets?: readonly { subject: string; openedAt: string; status: string }[]
   }) => void
   /**
@@ -121,7 +123,9 @@ export function fakeQuests(): FakeQuestDesk {
     tickets: readonly { subject: string; openedAt: string; status: string }[]
     /** Who arrived (`#607`). Empty until a test says otherwise. */
     arrivals: { agents: readonly unknown[]; people: readonly unknown[] }
-  } = { tickets: [], arrivals: { agents: [], people: [] } }
+    /** Tasks with no reports (`#611`). */
+    unreported: readonly { taskId: string; title: string; attempts: number }[]
+  } = { tickets: [], arrivals: { agents: [], people: [] }, unreported: [] }
   let fixedAudience: number | null = null
 
   const task = (input: {
@@ -323,6 +327,7 @@ export function fakeQuests(): FakeQuestDesk {
     showsOnBackend: (input) => {
       if (input.tickets !== undefined) sections.tickets = input.tickets
       if (input.arrivals !== undefined) sections.arrivals = input.arrivals
+      if (input.unreported !== undefined) sections.unreported = input.unreported
     },
 
     /**
@@ -366,6 +371,11 @@ export function fakeQuests(): FakeQuestDesk {
      * asserted against a real Postgres in `packages/db`, which is where a fake
      * would only be a second opinion.
      */
+    /** Where the Colony knows nothing (`#611`). Empty unless a test fills it. */
+    async unreported() {
+      return sections.unreported as never
+    },
+
     /** Who arrived (`#607`). In memory, and empty unless a test fills it. */
     async arrivals() {
       return {

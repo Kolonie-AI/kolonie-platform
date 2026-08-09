@@ -29,9 +29,11 @@ import {
   readBriefing,
   readTaskTitle,
   staleBriefings,
+  tasksWithoutReports,
   writeBriefing,
 } from './briefing.js'
 import { fileReport, listOwnReports, recordModeration } from './guidance.js'
+import { taskBriefings } from '../schema/index.js'
 
 const target = databaseTestTarget()
 
@@ -863,5 +865,97 @@ describe('the Colony’s write-up of a task', () => {
 
     expect(row?.status).toBe('pending')
     expect(await briefingCorpus(db, taskId)).toEqual([])
+  })
+
+  /**
+   * **No briefing row exists with zero claims** (`#611`).
+   *
+   * An empty briefing made an offer that could not be met — `#610` tells an agent
+   * that hints exist, and one that follows that and finds nothing learns to stop
+   * following it — and it hid the gap: forty briefings for forty-odd tasks reads
+   * as coverage. The absence carries the same information and cannot be misread.
+   */
+  describe('a briefing with nothing in it', () => {
+    const aClaim = (sources: readonly string[]) => ({
+      section: 'wall' as const,
+      text: 'One mail provider asks for a phone number.',
+      reports: 1,
+      platforms: { openclaw: 1 },
+      lastSupportedAt: new Date().toISOString(),
+      sources: [...sources],
+    })
+
+    const rowsFor = async (id: TaskId) =>
+      (
+        await db
+          .select({ taskId: taskBriefings.taskId })
+          .from(taskBriefings)
+          .where(eq(taskBriefings.taskId, id))
+      ).length
+
+    /** The rejection case: a corpus that produces no claims writes no briefing. */
+    it('writes no row at all', async () => {
+      await writeBriefing(db, { taskId, claims: [], model: 'vendor/some-model-v1' })
+
+      expect(await readBriefing(db, taskId)).toBeUndefined()
+      expect(await rowsFor(taskId)).toBe(0)
+    })
+
+    it('removes a row that had claims when the next pass produces none', async () => {
+      const entry = await approvedReport('reporter', CONTENT)
+      await writeBriefing(db, { taskId, claims: [aClaim([entry])], model: 'vendor/some-model-v1' })
+      expect(await readBriefing(db, taskId)).toBeDefined()
+
+      await writeBriefing(db, { taskId, claims: [], model: 'vendor/some-model-v1' })
+
+      expect(await readBriefing(db, taskId)).toBeUndefined()
+      expect(await rowsFor(taskId)).toBe(0)
+    })
+
+    /**
+     * **The runner does not rewrite an empty row on every tick.** The flag went
+     * with the row, so nothing is stale until something changes — and when it
+     * does, `markBriefingStale` recreates the row and the task is queued again.
+     */
+    it('leaves nothing stale, and is queued again by the next change', async () => {
+      await writeBriefing(db, { taskId, claims: [], model: 'vendor/some-model-v1' })
+      expect(await staleBriefings(db, 10)).toEqual([])
+
+      await markBriefingStale(db, taskId)
+
+      expect(await staleBriefings(db, 10)).toEqual([taskId])
+    })
+  })
+
+  /**
+   * Which tasks the Colony knows nothing about (`#611`).
+   *
+   * The actionable form of *twelve briefings are empty*: it says where to point
+   * the next agent. The attempt count is what separates *nobody has tried this*
+   * from *nobody ever struggles with it*, and `#611` names the three re-tests
+   * that make the distinction matter.
+   */
+  describe('tasks with no reports', () => {
+    it('lists a task nobody has reported on, and not one that has been', async () => {
+      const silent = await aTask('nobody-says-anything')
+      await approvedReport('reporter', CONTENT)
+
+      const without = await tasksWithoutReports(db)
+
+      expect(without.map((row) => row.taskId)).toContain(silent)
+      expect(without.map((row) => row.taskId)).not.toContain(taskId)
+    })
+
+    it('says how often each has been attempted', async () => {
+      const silent = await aTask('attempted-never-reported')
+      const one = await anAgent('one')
+      const two = await anAgent('two')
+      await anAttempt(one, silent, 'failed')
+      await anAttempt(two, silent, 'failed')
+
+      const without = await tasksWithoutReports(db)
+
+      expect(without.find((row) => row.taskId === silent)?.attempts).toBe(2)
+    })
   })
 })

@@ -208,9 +208,32 @@ describe('a subquery never interpolates columns of two tables', () => {
    * `read.ts` (the unmoderated-ids read). Nothing was re-measured, because
    * nothing was rewritten: this list is keyed by file name and the file names
    * are what changed.
+   *
+   * ## `briefing.ts`, added 2026-08-09 (`#611`)
+   *
+   * `tasksWithoutReports` asks which tasks nobody has reported on, and a report
+   * reaches its task through its attempt — so the fragment names
+   * `task_reports`, `task_attempts` and `tasks`. Three tables, which is exactly
+   * the shape this rule flags.
+   *
+   * **It is in a `where`, and it was measured rather than assumed.** Rendered
+   * through this dialect on 2026-08-09:
+   *
+   * ```
+   * not exists (
+   *   select 1
+   *   from "task_reports"
+   *   left join "task_attempts" on "task_attempts"."id" = "task_reports"."attempt_id"
+   *   where coalesce("task_attempts"."task_id", "task_reports"."task_id") = "tasks"."id")
+   * ```
+   *
+   * Every column qualified, including the outward correlation to `"tasks"."id"`.
+   * The statement also joins, which is the second half of the condition `#301`
+   * established — Drizzle omits a table only when exactly one is in scope.
    */
   const MEASURED_SAFE: Readonly<Record<string, number>> = {
     'tasks.ts': 2,
+    'briefing.ts': 1,
     'guidance.ts': 1,
     'submissions.ts': 1,
     'steward.ts': 4,

@@ -54,6 +54,7 @@ import {
   holdingCounts,
   backendSections as backendSectionsInDatabase,
   recentArrivals as recentArrivalsInDatabase,
+  tasksWithoutReports as tasksWithoutReportsInDatabase,
   reviewQueueForSteward as reviewQueueForStewardInDatabase,
   recordAuditDecision as recordAuditDecisionInDatabase,
   publishQuest as publishQuestInDatabase,
@@ -79,6 +80,7 @@ import {
   type QuestWriteOutcome,
   type Arrivals,
   type BackendSections,
+  type TaskWithoutReports,
   type ColonyNumbers,
   type HoldingCount,
   type QuestUnderReview,
@@ -296,6 +298,8 @@ export interface QuestDesk {
   backendSections(): Promise<BackendSections>
   /** Who arrived, people and agents, for `/backend` only (`#607`). */
   arrivals(): Promise<Arrivals>
+  /** Which tasks the Colony knows nothing about, with attempt counts (`#611`). */
+  unreported(): Promise<readonly TaskWithoutReports[]>
 }
 
 /** The quest desk, backed by Postgres. */
@@ -353,6 +357,7 @@ export function databaseQuests(
     holdings: () => holdingCounts(db),
     backendSections: () => backendSectionsInDatabase(db),
     arrivals: () => recentArrivalsInDatabase(db),
+    unreported: () => tasksWithoutReportsInDatabase(db),
   }
 }
 

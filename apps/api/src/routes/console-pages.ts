@@ -1069,6 +1069,8 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
     const sections = await deps.quests.backendSections()
     // Who arrived (`#607`). Its own read, and it reaches no published figure.
     const arrivals = await deps.quests.arrivals()
+    // Where the Colony knows nothing (`#611`).
+    const unreported = await deps.quests.unreported()
     const settings = await deps.settings.effective()
     // Providers writing in about the Atlas (`#544`). On the page before the form
     // is announced anywhere, because an enquiry nobody answers is worse than no
@@ -1094,6 +1096,7 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
             numbers,
             sections,
             arrivals,
+            unreported,
             settings,
             enquiries,
             notice,
@@ -1106,6 +1109,7 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
           ...sections,
           // The same answer the page renders (`#607`), not a thinner one.
           arrivals,
+          unreported,
           enquiries,
           wanted,
           settings: settings.map((setting) => ({

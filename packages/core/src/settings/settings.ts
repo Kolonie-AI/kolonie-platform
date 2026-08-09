@@ -205,6 +205,37 @@ export const SETTINGS: readonly SettingDefinition[] = [
     schema: percent,
   },
   {
+    name: 'QUEST_TIER_CAP_HARD_LAMPORTS',
+    group: 'threshold',
+    describes:
+      'The most a hard quest — one whose answers a third-party verifier checks — may pay per ' +
+      'accepted report, in lamports. Unset means the figure in governance/quests.md, which is ' +
+      'what every ceiling falls back to: there is no value meaning “no ceiling”. The ceilings ' +
+      'are what stands between the tier names and their meaning, so raising one is not the ' +
+      'same kind of act as lowering it — a raise lets the Colony advertise more money for ' +
+      'evidence it has not made any stronger.',
+    schema: lamports,
+  },
+  {
+    name: 'QUEST_TIER_CAP_COLONY_JUDGED_LAMPORTS',
+    group: 'threshold',
+    describes:
+      'The most a colony-judged quest — one a model reads against the sponsor’s own stated ' +
+      'criteria — may pay per accepted report, in lamports. Unset means the figure in ' +
+      'governance/quests.md.',
+    schema: lamports,
+  },
+  {
+    name: 'QUEST_TIER_CAP_SOFT_LAMPORTS',
+    group: 'threshold',
+    describes:
+      'The most a soft quest — one where only the citizen’s own word says it happened — may ' +
+      'pay per accepted report, in lamports. Unset means the figure in governance/quests.md. ' +
+      'This is the one the rule was written for: a softly verified quest must never pay more ' +
+      'than the reputation it risks.',
+    schema: lamports,
+  },
+  {
     name: 'QUEST_AUDIT_DISAGREEMENT_THRESHOLD',
     group: 'threshold',
     describes:

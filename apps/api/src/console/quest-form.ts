@@ -31,6 +31,7 @@ import {
   solFromLamports,
   type ActivityWindow,
   type QuestProofVerifier,
+  type QuestTier,
 } from '@kolonie-ai/core'
 import { SKILLS_THE_ACADEMY_GRANTS } from '@kolonie-ai/db'
 
@@ -114,16 +115,28 @@ export function activityNote(days: ActivityWindow | null): string {
  *
  * This is the field most likely to be skipped by somebody who does not yet know
  * it exists, and it is the one that decides whether the results mean anything.
+ *
+ * **The ceilings are passed rather than read** (`#630`). They are settings now,
+ * and a form that quoted the constant while the write path enforced the setting
+ * would be two records of one fact with the sponsor reading the wrong one. The
+ * default keeps every renderer test callable without a database.
+ *
+ * **`lamports` rather than `credit(s)`**, which this sentence still said. The
+ * number was already lamports — D-106 left `credits` with nothing to be credits
+ * of — so the unit named here was off by a factor nobody could see.
  */
-export function proofNote(verifier: string | null): string {
+export function proofNote(
+  verifier: string | null,
+  caps: Readonly<Record<QuestTier, number>> = QUEST_TIER_CAPS_LAMPORTS,
+): string {
   const tier = questTier({ proofVerifier: verifier, questions: [] })
-  const cap = QUEST_TIER_CAPS_LAMPORTS[tier]
+  const cap = caps[tier]
 
   return verifier === null
     ? `No proof stage: you are buying the citizen's own word. That makes this a ${tier} quest, ` +
-        `which may pay at most ${cap} credit(s) per accepted report.`
+        `which may pay at most ${cap} lamports per accepted report.`
     : `A third party answers yes or no. That makes this a ${tier} quest, which may pay at most ` +
-        `${cap} credit(s) per accepted report.`
+        `${cap} lamports per accepted report.`
 }
 
 /**

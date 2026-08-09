@@ -1,8 +1,11 @@
 import { and, asc, desc, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm'
 import {
+  QUEST_TIER_CAP_SETTINGS,
   StoredQuestQuestionsSchema,
+  questTierCaps,
   type AgentId,
   type QuestQuestion,
+  type QuestTier,
   type SubmissionId,
   type TaskId,
   type Timestamp,
@@ -10,7 +13,39 @@ import {
 import type { Database } from '../../client.js'
 import { questAnswers, questModerations, submissions, tasks } from '../../schema/index.js'
 import { toTask, toTimestamp } from '../rows.js'
+import type { SettingsReader } from '../settings.js'
 import { ownQuestRow, type OwnQuest, type ScrubbedAnswer } from './shared.js'
+
+/**
+ * What a quest of each tier may pay right now (`#630`).
+ *
+ * **Read at the point of use through the settings cache** (D-104), the way
+ * `WAKE_MAX_PER_HOUR` is: resolved at startup it would be an environment
+ * variable with extra steps, and the whole reason these moved into the table is
+ * that the right numbers are least known in the week they matter most.
+ *
+ * The reader's own thirty-second cache is what keeps this off the hot path, so
+ * the three reads here are three map lookups in the ordinary case rather than
+ * three queries.
+ *
+ * **The fallback lives in `questTierCaps` rather than here**, so that the rule —
+ * an unset or nonsensical value means the constant, never the absence of a
+ * ceiling — is stated once, in the package that has no database to hide it in.
+ */
+export async function questTierCapsInDatabase(
+  settings: SettingsReader,
+): Promise<Readonly<Record<QuestTier, number>>> {
+  const held = new Map<string, string>()
+
+  await Promise.all(
+    Object.values(QUEST_TIER_CAP_SETTINGS).map(async (name) => {
+      const value = await settings.read(name)
+      if (value !== undefined) held.set(name, value)
+    }),
+  )
+
+  return questTierCaps((name) => held.get(name))
+}
 
 /** The quest as the `quest-report` verifier needs it (`#177`). */
 export interface QuestDefinition {

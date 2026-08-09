@@ -2,12 +2,14 @@ import { randomUUID } from 'node:crypto'
 import {
   QUEST_PENDING_LIMIT,
   QUEST_TASK_TYPE,
+  QUEST_TIER_CAPS_LAMPORTS,
   QuestDraftSchema,
   QuestPatchSchema,
   TaskIdSchema,
   TaskTypeSchema,
   questCommitment,
   type AgentId,
+  type QuestTier,
   type SubmissionId,
   type Task,
   type TaskId,
@@ -45,6 +47,14 @@ export interface FakeQuestDesk extends QuestDesk {
   readonly moderate: (taskId: TaskId, decision?: 'approved' | 'rejected') => void
   /** Credit a sponsor's balance, which is `packages/db`'s job in the real one. */
   readonly credit: (agentId: AgentId, amount: number) => void
+  /**
+   * Turn a tier's ceiling, which is a settings row in the real one (`#630`).
+   *
+   * Absent means the desk carries no `tierCaps` at all, so the routes fall back
+   * to the constants — the state every deployment is in until somebody writes a
+   * setting, and the one most of these tests want.
+   */
+  readonly setTierCaps: (caps: Readonly<Record<QuestTier, number>>) => void
   /** Put rows into the two `/backend` sections (`#487`). */
   readonly showsOnBackend: (input: {
     /** Who arrived (`#607`). Shapes are the storage's; a test fills what it asserts on. */
@@ -127,6 +137,8 @@ export function fakeQuests(): FakeQuestDesk {
     unreported: readonly { taskId: string; title: string; attempts: number }[]
   } = { tickets: [], arrivals: { agents: [], people: [] }, unreported: [] }
   let fixedAudience: number | null = null
+  /** Unset until a test turns one, exactly as the settings table is. */
+  let caps: Readonly<Record<QuestTier, number>> | null = null
 
   const task = (input: {
     readonly id: TaskId
@@ -692,6 +704,14 @@ export function fakeQuests(): FakeQuestDesk {
     audienceAsked,
     populationHolds: (counts) => {
       holdings = counts
+    },
+
+    setTierCaps: (turned) => {
+      caps = turned
+    },
+
+    async tierCaps() {
+      return caps ?? QUEST_TIER_CAPS_LAMPORTS
     },
 
     async audience(criteria) {

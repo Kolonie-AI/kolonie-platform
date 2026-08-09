@@ -2,7 +2,13 @@ import { fakeHumans } from '../__fixtures__/humans.js'
 import { fakeArtefactChallenges } from '../__fixtures__/artefact.js'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { FastifyInstance } from 'fastify'
-import { AUDIENCE_FLOOR, ERROR_STATUS, QUEST_TASK_TYPE, type TaskId } from '@kolonie-ai/core'
+import {
+  AUDIENCE_FLOOR,
+  ERROR_STATUS,
+  QUEST_TASK_TYPE,
+  QUEST_TIER_CAPS_LAMPORTS,
+  type TaskId,
+} from '@kolonie-ai/core'
 import { buildApp } from '../app.js'
 import { fakeRegistry } from '../__fixtures__/registry.js'
 import { fakeStore, type FakeStore } from '../__fixtures__/store.js'
@@ -430,6 +436,53 @@ describe('POST /v1/quests', () => {
 
     expect(response.statusCode).toBe(401)
   })
+
+  /**
+   * `#630`. The ceiling had been written, tested in `packages/core` and named in
+   * `governance/quests.md` since `#175`, and **no write path called it** — a soft
+   * quest could be drafted at any price. These are the tests that would have
+   * failed before it was wired in.
+   */
+  describe('the tier ceiling', () => {
+    /** No verifier and no criteria, so this is a soft quest at any price. */
+    const soft = (lamports: number) =>
+      aDraft({ reward: { reputation: 0, lamports }, proofVerifier: null })
+
+    it('refuses a soft quest priced above what a soft quest may pay', async () => {
+      const response = await write(soft(QUEST_TIER_CAPS_LAMPORTS.soft + 1))
+
+      expect(response.statusCode).toBe(422)
+      expect(response.json().message).toContain('soft')
+      expect(response.json().message).toContain(String(QUEST_TIER_CAPS_LAMPORTS.soft))
+    })
+
+    it('accepts the same price once the quest can be checked', async () => {
+      const response = await write(
+        aDraft({
+          reward: { reputation: 0, lamports: QUEST_TIER_CAPS_LAMPORTS.soft + 1 },
+          proofVerifier: 'email-inbox',
+        }),
+      )
+
+      expect(response.statusCode).toBe(201)
+    })
+
+    it('judges against the setting rather than the constant when one is turned', async () => {
+      quests.setTierCaps({ ...QUEST_TIER_CAPS_LAMPORTS, soft: 1 })
+
+      expect((await write(soft(2))).statusCode).toBe(422)
+      expect((await write(soft(1))).statusCode).toBe(201)
+    })
+
+    /**
+     * The rejection case that matters for a dial: a ceiling nobody has turned
+     * must behave as it always did rather than as no ceiling. The desk here
+     * carries no override, so this is the constants doing the refusing.
+     */
+    it('still refuses when nothing has been set', async () => {
+      expect((await write(soft(QUEST_TIER_CAPS_LAMPORTS.soft * 2))).statusCode).toBe(422)
+    })
+  })
 })
 
 describe('PATCH /v1/quests/:questId', () => {
@@ -510,6 +563,39 @@ describe('POST /v1/quests/:questId/submit', () => {
 
     expect(response.statusCode).toBe(422)
     expect(response.json().message).toContain('expires in the future')
+  })
+
+  /**
+   * Submission is where the ceiling is load-bearing (`#630`): a draft can be
+   * edited after it is written, and `editQuestDraft` takes a patch without ever
+   * seeing the merged quest, so this is the last point at which the whole thing
+   * exists in one place before a steward reads it and an invoice is computed.
+   */
+  it('refuses a draft an edit pushed above its tier ceiling', async () => {
+    const id = (await write(aDraft({ reward: { reputation: 0, lamports: 1 } }))).json().quest.id
+
+    const changed = await app.inject({
+      method: 'PATCH',
+      url: `/v1/quests/${id}`,
+      headers: { authorization: `Bearer ${sponsorKey}`, 'content-type': 'application/json' },
+      payload: { reward: { reputation: 0, lamports: QUEST_TIER_CAPS_LAMPORTS.soft + 1 } } as never,
+    })
+    expect(changed.statusCode).toBe(200)
+
+    const response = await post(`/v1/quests/${id}/submit`, sponsorKey)
+
+    expect(response.statusCode).toBe(422)
+    expect(response.json().message).toContain('soft')
+  })
+
+  it('applies a ceiling lowered between drafting and submitting', async () => {
+    const id = (
+      await write(aDraft({ reward: { reputation: 0, lamports: QUEST_TIER_CAPS_LAMPORTS.soft } }))
+    ).json().quest.id
+
+    quests.setTierCaps({ ...QUEST_TIER_CAPS_LAMPORTS, soft: 1 })
+
+    expect((await post(`/v1/quests/${id}/submit`, sponsorKey)).statusCode).toBe(422)
   })
 
   it('refuses a quest the sponsor cannot pay for', async () => {

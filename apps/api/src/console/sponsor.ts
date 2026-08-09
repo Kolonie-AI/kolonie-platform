@@ -22,6 +22,7 @@ import {
   questPayNotice,
   reportAudience,
   type QuestReportCounts,
+  type QuestTier,
   type Task,
 } from '@kolonie-ai/core'
 import type { QuestResult as AcceptedReport, SponsorQuestReport } from '@kolonie-ai/db'
@@ -308,6 +309,15 @@ export function questsPage(input: {
 export function questFormPage(input: {
   /** Who is reading and where they are, for the navigation (`#608`). */
   readonly nav: ConsoleNav
+  /**
+   * The tier ceilings in force, where the caller has read them (`#630`).
+   *
+   * Optional for the reason `audience` is: a renderer test has no settings
+   * behind it, and absent means the constants rather than a blank. It reaches
+   * exactly one sentence — `proofNote` — which is the only place this page
+   * quotes a ceiling.
+   */
+  readonly caps?: Readonly<Record<QuestTier, number>> | undefined
   readonly problems?: readonly string[]
   readonly prefill?: Record<string, string> | undefined
   readonly copiedFrom?: { readonly title: string; readonly reason: string } | undefined
@@ -421,7 +431,7 @@ export function questFormPage(input: {
       // this is the checkbox that decides whether the pool is held at all (#371).
       '<p class="note">The first three published accounts are paid half of what one answer pays, on top of the capacity you bought rather than out of it. Whatever is not earned is refunded with the rest.</p></fieldset>',
       `<fieldset><legend>Proof</legend><select id="proofVerifier" name="proofVerifier">${proofs}</select>`,
-      `<p class="note">${escape(proofNote(null))}</p></fieldset>`,
+      `<p class="note">${escape(proofNote(null, input.caps))}</p></fieldset>`,
       '<button type="submit">Save as a draft</button>',
       '</form>',
       '<p class="note">Nothing here targets an individual. Skills and reputation are earned and visible; there is no exclusion list and no free-text criterion.</p>',
@@ -433,6 +443,15 @@ export function questFormPage(input: {
 export function questDraftPage(input: {
   /** Who is reading and where they are, for the navigation (`#608`). */
   readonly nav: ConsoleNav
+  /**
+   * The tier ceilings in force, where the caller has read them (`#630`).
+   *
+   * Optional for the reason `audience` is: a renderer test has no settings
+   * behind it, and absent means the constants rather than a blank. It reaches
+   * exactly one sentence — `proofNote` — which is the only place this page
+   * quotes a ceiling.
+   */
+  readonly caps?: Readonly<Record<QuestTier, number>> | undefined
   readonly quest: Task
   readonly rejectionReason: string | null
   readonly awaitingModeration: boolean
@@ -599,7 +618,7 @@ export function questDraftPage(input: {
       problems,
       cost,
       audience,
-      `<p class="note">${escape(proofNote(quest.proofVerifier ?? null))}</p>`,
+      `<p class="note">${escape(proofNote(quest.proofVerifier ?? null, input.caps))}</p>`,
       refused,
       submit,
       withdraw,

@@ -199,6 +199,14 @@ export function questTier(quest: {
  * `890_880`), so a citizen's first payout at that price accrues until it clears.
  * Named here because it looks like a defect and is not: `#505` does this for
  * every payout and calls it physics rather than a threshold policy.
+ *
+ * **These are the defaults and no longer the whole answer** (`#630`). Each tier
+ * has a setting beside it ({@link QUEST_TIER_CAP_SETTINGS}) read at the point of
+ * use, so a figure that is provisional — and in the Colony's first week of paid
+ * quests all three are — can be turned without a deploy. What is in force is
+ * {@link questTierCaps}; this is what it falls back to, which is why the ratio
+ * argument above still belongs here and the absolute figures still have to be
+ * defensible on their own.
  */
 export const QUEST_TIER_CAPS_LAMPORTS: Readonly<Record<QuestTier, number>> = {
   /** 0.1 SOL a report. A third party said yes; the Colony is not the evidence. */
@@ -210,19 +218,85 @@ export const QUEST_TIER_CAPS_LAMPORTS: Readonly<Record<QuestTier, number>> = {
 }
 
 /**
+ * Which setting overrides which tier's ceiling (`#630`, D-104).
+ *
+ * **A map rather than three names spelled out at each call site**, so a tier
+ * added to {@link QuestTierSchema} without a setting beside it is a type error
+ * rather than a ceiling that silently cannot be turned.
+ *
+ * The names are in the allow-list in `settings/settings.ts`, which is what makes
+ * them readable and writable at all — a name absent from it is refused on both
+ * paths, so this map on its own grants nothing.
+ */
+export const QUEST_TIER_CAP_SETTINGS: Readonly<Record<QuestTier, string>> = {
+  hard: 'QUEST_TIER_CAP_HARD_LAMPORTS',
+  'colony-judged': 'QUEST_TIER_CAP_COLONY_JUDGED_LAMPORTS',
+  soft: 'QUEST_TIER_CAP_SOFT_LAMPORTS',
+}
+
+/**
+ * The three ceilings in force, given whatever the settings hold (`#630`).
+ *
+ * **Defaulted per tier rather than all-or-nothing.** A maintainer lowering
+ * `soft` for a test week should not have to restate `hard` to keep it, and a row
+ * that was written wrong should cost its own tier and no other.
+ *
+ * **An unset or unreadable value falls back to {@link QUEST_TIER_CAPS_LAMPORTS},
+ * and never to the absence of a ceiling.** That direction is the whole of the
+ * rule: a missing row means *nobody has turned this dial*, which is the ordinary
+ * state of every deployment, and a ceiling that read it as *no limit* would let
+ * an empty table advertise a soft quest at any price. `WAKE_MAX_PER_HOUR` fails
+ * the same way for the same reason (`storage/wake.ts`).
+ *
+ * **Zero and negative are unreadable, not low.** The schema refuses both on the
+ * way in; this refuses them again on the way out, because a value can also
+ * arrive from the environment, which nothing validates.
+ *
+ * **Whole digits and nothing else, rather than `parseInt`.** `parseInt` reads
+ * the leading digits of anything and discards the rest, so `1.5e9` — a plausible
+ * way for somebody to write 1.5 billion — comes back as `1`, which is a positive
+ * finite number and would silently become a one-lamport ceiling. A value that is
+ * not the shape of a number is *unreadable*, and the whole rule here is that
+ * unreadable means the default.
+ *
+ * Pure, and takes what is held rather than reading it, because this package
+ * reaches no database — `questTierCapsInDatabase` is the half that does.
+ */
+export function questTierCaps(
+  held: (name: string) => string | undefined,
+): Readonly<Record<QuestTier, number>> {
+  const capFor = (tier: QuestTier): number => {
+    const raw = held(QUEST_TIER_CAP_SETTINGS[tier])?.trim()
+    if (raw === undefined || !/^[1-9][0-9]*$/.test(raw)) return QUEST_TIER_CAPS_LAMPORTS[tier]
+
+    const parsed = Number(raw)
+    return Number.isSafeInteger(parsed) ? parsed : QUEST_TIER_CAPS_LAMPORTS[tier]
+  }
+
+  return { hard: capFor('hard'), 'colony-judged': capFor('colony-judged'), soft: capFor('soft') }
+}
+
+/**
  * Why this quest may not pay what it says, or `undefined` if it may.
  *
  * A sentence rather than a boolean, and it names the tier: a sponsor told only
  * that its price is too high will lower the price, where the useful answer is
  * usually to add criteria or a proof stage and keep it.
+ *
+ * **The ceilings are an argument and default to the constants** (`#630`). They
+ * are settings now, so the caller that has read them passes them; a caller that
+ * has not gets the figures this file has always used rather than no ceiling.
  */
-export function questRewardRejection(quest: {
-  readonly proofVerifier?: string | null | undefined
-  readonly questions: readonly Pick<QuestQuestion, 'criteria'>[]
-  readonly reward: Pick<TaskReward, 'lamports'>
-}): string | undefined {
+export function questRewardRejection(
+  quest: {
+    readonly proofVerifier?: string | null | undefined
+    readonly questions: readonly Pick<QuestQuestion, 'criteria'>[]
+    readonly reward: Pick<TaskReward, 'lamports'>
+  },
+  caps: Readonly<Record<QuestTier, number>> = QUEST_TIER_CAPS_LAMPORTS,
+): string | undefined {
   const tier = questTier(quest)
-  const cap = QUEST_TIER_CAPS_LAMPORTS[tier]
+  const cap = caps[tier]
   if (quest.reward.lamports <= cap) return undefined
 
   return (

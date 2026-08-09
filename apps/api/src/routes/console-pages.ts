@@ -9,6 +9,7 @@ import {
   type ApiError,
   type HumanId,
   type Log,
+  type QuestTier,
   type Task,
   type TaskId,
   type Timestamp,
@@ -2372,6 +2373,21 @@ function registerSponsorPages(
   }
 
   /**
+   * The tier ceilings in force, for the pages that quote one (`#630`).
+   *
+   * **Per render rather than per process**, which is the whole of what D-104
+   * bought: a maintainer who lowers a ceiling sees the form say so within the
+   * settings cache's thirty seconds, without a deploy and without a restart.
+   * The cost is one map lookup — the reader caches — so this is not a query per
+   * page view.
+   *
+   * A desk without the method falls back to the constants inside `capsOf`; here
+   * it means the page renders exactly what it rendered before this existed.
+   */
+  const tierCaps = async (): Promise<Readonly<Record<QuestTier, number>> | undefined> =>
+    await deps.quests.tierCaps?.()
+
+  /**
    * The identity this caller writes quests through (`#455`).
    *
    * ## Three ways to be one, in this order
@@ -2494,14 +2510,16 @@ function registerSponsorPages(
           })
     }
 
+    const caps = await tierCaps()
+
     return wantsHtml(request)
-      ? html(reply, questFormPage({ nav: navFor(request) }))
+      ? html(reply, questFormPage({ nav: navFor(request), caps }))
       : reply.send({
           fields: QUEST_FORM_FIELDS,
           skills: SKILL_CHOICES,
           audiences: AUDIENCE_CHOICES,
           proofVerifiers: PROOF_CHOICES,
-          proofNote: proofNote(null),
+          proofNote: proofNote(null, caps),
         })
   })
 
@@ -2720,7 +2738,11 @@ function registerSponsorPages(
       return wantsHtml(request)
         ? html(
             reply.status(ERROR_STATUS.validation_failed),
-            questFormPage({ nav: navFor(request), problems: parsed.problems }),
+            questFormPage({
+              nav: navFor(request),
+              problems: parsed.problems,
+              caps: await tierCaps(),
+            }),
           )
         : reply.status(ERROR_STATUS.validation_failed).send({
             code: 'validation_failed',
@@ -2734,7 +2756,11 @@ function registerSponsorPages(
       return wantsHtml(request)
         ? html(
             reply.status(ERROR_STATUS[written.error.code]),
-            questFormPage({ nav: navFor(request), problems: [written.error.message] }),
+            questFormPage({
+              nav: navFor(request),
+              problems: [written.error.message],
+              caps: await tierCaps(),
+            }),
           )
         : reply.status(ERROR_STATUS[written.error.code]).send(written.error)
     }
@@ -2901,6 +2927,7 @@ function registerSponsorPages(
             nav: navFor(request),
             quest: own.response.quest,
             feePercent: platformFeePercentFromEnv(),
+            caps: await tierCaps(),
             audience,
             rejectionReason: own.response.rejectionReason,
             awaitingModeration: own.response.awaitingModeration,
@@ -3059,7 +3086,10 @@ function registerSponsorPages(
         : { title: quest.title, reason: own.response.rejectionReason }
 
     return wantsHtml(request)
-      ? html(reply, questFormPage({ nav: navFor(request), prefill, copiedFrom }))
+      ? html(
+          reply,
+          questFormPage({ nav: navFor(request), prefill, copiedFrom, caps: await tierCaps() }),
+        )
       : reply.send({ prefill, copiedFrom: copiedFrom ?? null })
   })
 

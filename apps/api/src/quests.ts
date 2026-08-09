@@ -4,6 +4,7 @@ import {
   QUEST_AUDIT_OFF,
   QUEST_ENDING_REASON_MAX_LENGTH,
   QUEST_REFUSAL_MIN_LENGTH,
+  QUEST_TIER_CAPS_LAMPORTS,
   QuestDraftSchema,
   QuestEndingSchema,
   QuestPatchSchema,
@@ -15,6 +16,7 @@ import {
   capabilityMismatches,
   invoiceNotice,
   questCommitment,
+  questRewardRejection,
   questSubmissionRejection,
   reportAudience,
   type AgentId,
@@ -26,6 +28,7 @@ import {
   type QuestReportCounts,
   type QuestAudience,
   type QuestReportKind,
+  type QuestTier,
   type SubmissionId,
   type Task,
   type TaskId,
@@ -59,9 +62,11 @@ import {
   recordAuditDecision as recordAuditDecisionInDatabase,
   publishQuest as publishQuestInDatabase,
   questReviewQueue as questReviewQueueInDatabase,
+  questTierCapsInDatabase,
   readOwnQuest as readOwnQuestInDatabase,
   SKILLS_THE_ACADEMY_GRANTS,
   countAudience,
+  type SettingsReader,
   refuseQuest as refuseQuestInDatabase,
   submitQuestForReview as submitQuestForReviewInDatabase,
   updateQuestDraft as updateQuestDraftInDatabase,
@@ -121,6 +126,19 @@ export interface QuestDesk {
    * the reason every other value on it is: this module holds no configuration.
    */
   readonly walletAddress?: string | undefined
+  /**
+   * What a quest of each tier may pay right now — D-104, `#630`.
+   *
+   * **Optional, and absent means the constants**, which is the same shape and
+   * the same argument as `walletAddress` above: a desk assembled before this
+   * existed keeps working, and what it falls back to is the figure
+   * `governance/quests.md` has always named rather than the absence of a
+   * ceiling. `capsOf` is the one place that reads it.
+   *
+   * A method rather than a value, because the whole point is that it is read at
+   * the moment a quest is priced instead of when the process started.
+   */
+  tierCaps?(): Promise<Readonly<Record<QuestTier, number>>>
   create(input: { readonly authorId: AgentId; readonly draft: unknown }): Promise<OwnQuest>
   update(input: {
     readonly authorId: AgentId
@@ -315,9 +333,20 @@ export function databaseQuests(
    * same thing it means everywhere else.
    */
   walletAddress?: string,
+  /**
+   * The settings reader the tier ceilings are read through (`#630`).
+   *
+   * Appended for the reason `walletAddress` was, and optional for a narrower
+   * one: absent means the constants, which is what every deployment had before
+   * the settings existed. It is the process's one reader rather than a new one —
+   * two caches would be two answers to *what is the ceiling* for up to thirty
+   * seconds after a maintainer changed it.
+   */
+  settings?: SettingsReader,
 ): QuestDesk {
   return {
     ...(walletAddress === undefined ? {} : { walletAddress }),
+    ...(settings === undefined ? {} : { tierCaps: () => questTierCapsInDatabase(settings) }),
     create: (input) =>
       createQuestDraftInDatabase(db, {
         authorId: input.authorId,
@@ -656,6 +685,15 @@ const responding = async (quest: OwnQuest, desk: QuestDesk): Promise<OwnQuestRes
   return respond(quest, audience, desk.walletAddress)
 }
 
+/**
+ * The ceilings in force, or the constants where a desk does not carry them.
+ *
+ * One reader, so the fallback is decided once rather than at each of the two
+ * call sites that price a quest.
+ */
+const capsOf = async (desk: QuestDesk): Promise<Readonly<Record<QuestTier, number>>> =>
+  desk.tierCaps === undefined ? QUEST_TIER_CAPS_LAMPORTS : await desk.tierCaps()
+
 /** Write a new draft. */
 export async function writeQuestDraft(
   input: { readonly authorId: AgentId; readonly body: unknown },
@@ -675,9 +713,38 @@ export async function writeQuestDraft(
   const ungranted = skillsTheAcademyDoesNotGrant(parsed.data.requires)
   if (ungranted !== undefined) return { outcome: 'rejected', error: ungranted }
 
+  /**
+   * **The tier ceiling, enforced — which nothing did until `#630`.**
+   *
+   * `questRewardRejection` was written with `#175`, tested, and named in
+   * `governance/quests.md` as the rule that gives the tier names their meaning.
+   * It had no caller outside its own test file: every write path reached
+   * `createQuestDraft` without it, and a soft quest could be drafted at any
+   * price. Making the ceilings turnable without also making them bite would
+   * have shipped a dial connected to nothing.
+   *
+   * **Here rather than in storage**, beside the requirement check, because both
+   * are the same kind of refusal — a quest that is well-formed and would be
+   * wrong to accept — and this is where the sentence a sponsor reads is written.
+   */
+  const overCeiling = questRewardRejection(parsed.data, await capsOf(desk))
+  if (overCeiling !== undefined) {
+    return { outcome: 'rejected', error: invalid(capitalised(overCeiling)) }
+  }
+
   const quest = await desk.create({ authorId: input.authorId, draft: parsed.data })
   return { outcome: 'ok', response: await responding(quest, desk) }
 }
+
+/**
+ * The core sentence, as the start of one.
+ *
+ * `questRewardRejection` returns a clause the seed and the write path each embed
+ * in their own error — the shape `rewardRejection` established — so the caller
+ * that uses it as the whole message is the one that has to capitalise it.
+ */
+const capitalised = (sentence: string): string =>
+  `${sentence.charAt(0).toUpperCase()}${sentence.slice(1)}`
 
 /**
  * Why this requirement set cannot be met by anybody, or `undefined` (`#352`).
@@ -793,6 +860,26 @@ export async function submitQuest(
   )
   if (rejection !== undefined) {
     return { outcome: 'rejected', error: invalid(rejection) }
+  }
+
+  /**
+   * **The ceiling again, and this is the one that is load-bearing** (`#630`).
+   *
+   * `writeQuestDraft` refuses early so a sponsor learns at the moment it types
+   * the number, but a draft can be edited afterwards — `editQuestDraft` takes a
+   * patch and never sees the merged quest, so the tier it would land in is not
+   * computable there. Submission is where the whole quest exists in one place,
+   * and it is where the price stops being provisional: this is what a steward
+   * reviews and what the invoice is computed from.
+   *
+   * **Read here rather than carried from the draft**, so a ceiling lowered
+   * between drafting and submitting applies. The other direction is the one the
+   * acceptance criteria name and it holds by placement: a quest already
+   * published is never re-checked, because nothing after this reads a cap.
+   */
+  const overCeiling = questRewardRejection(own.task, await capsOf(desk))
+  if (overCeiling !== undefined) {
+    return { outcome: 'rejected', error: invalid(capitalised(overCeiling)) }
   }
 
   const result = await desk.submit({ authorId: input.authorId, taskId, at: input.at })

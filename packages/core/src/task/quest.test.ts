@@ -6,6 +6,7 @@ import {
   PLATFORM_FEE_PERCENT_VAR,
   QUEST_EDITABLE_STATUSES,
   QUEST_TIER_CAPS_LAMPORTS,
+  QUEST_TIER_CAP_SETTINGS,
   QUEST_REVIEW_REWARD_LAMPORTS,
   QUEST_MAX_DURATION_DAYS,
   QUEST_MAX_SLOTS,
@@ -20,7 +21,10 @@ import {
   questRewardRejection,
   questSubmissionRejection,
   questTier,
+  questTierCaps,
+  QuestTierSchema,
 } from './quest.js'
+import { settingNamed } from '../settings/settings.js'
 import { checkQuestAnswers } from './questions.js'
 import { TaskStatusSchema, acceptsEdits } from './task.js'
 
@@ -324,6 +328,69 @@ describe('the tier and its ceiling', () => {
         reward: { lamports: QUEST_TIER_CAPS_LAMPORTS.hard + 1 },
       }),
     ).toContain('hard')
+  })
+
+  describe('the ceilings a setting may turn (#630)', () => {
+    const nothingHeld = (): undefined => undefined
+
+    it('is the constants when nothing is set', () => {
+      expect(questTierCaps(nothingHeld)).toEqual(QUEST_TIER_CAPS_LAMPORTS)
+    })
+
+    it('takes the value a maintainer wrote', () => {
+      const caps = questTierCaps((name) =>
+        name === QUEST_TIER_CAP_SETTINGS.soft ? '250000' : undefined,
+      )
+
+      expect(caps.soft).toBe(250_000)
+    })
+
+    it('defaults each tier on its own, so lowering one keeps the other two', () => {
+      const caps = questTierCaps((name) =>
+        name === QUEST_TIER_CAP_SETTINGS.soft ? '1' : undefined,
+      )
+
+      expect(caps.soft).toBe(1)
+      expect(caps.hard).toBe(QUEST_TIER_CAPS_LAMPORTS.hard)
+      expect(caps['colony-judged']).toBe(QUEST_TIER_CAPS_LAMPORTS['colony-judged'])
+    })
+
+    /**
+     * The rejection case the definition of done asks for, in the direction that
+     * matters: a value that cannot be read must never be read as *no ceiling*.
+     * Zero and a negative arrive from the environment, which nothing validates.
+     */
+    it.each([['not a number'], [''], ['0'], ['-1'], ['1.5e9']])(
+      'falls back to the constant rather than to no ceiling on %j',
+      (held) => {
+        const caps = questTierCaps((name) =>
+          name === QUEST_TIER_CAP_SETTINGS.soft ? held : undefined,
+        )
+
+        expect(caps.soft).toBe(QUEST_TIER_CAPS_LAMPORTS.soft)
+      },
+    )
+
+    it('is what questRewardRejection judges against when it is passed one', () => {
+      const quest = {
+        proofVerifier: null,
+        questions: [without],
+        reward: { lamports: QUEST_TIER_CAPS_LAMPORTS.soft },
+      }
+
+      // At the constant it passes; under a lowered ceiling the same quest does not.
+      expect(questRewardRejection(quest)).toBeUndefined()
+      expect(questRewardRejection(quest, { ...QUEST_TIER_CAPS_LAMPORTS, soft: 1 })).toContain(
+        'soft',
+      )
+    })
+
+    it('names a setting for every tier, so none can be left unturnable', () => {
+      for (const tier of QuestTierSchema.options) {
+        expect(QUEST_TIER_CAP_SETTINGS[tier]).toMatch(/^QUEST_TIER_CAP_/)
+        expect(settingNamed(QUEST_TIER_CAP_SETTINGS[tier])).toBeDefined()
+      }
+    })
   })
 })
 

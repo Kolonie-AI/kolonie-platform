@@ -577,7 +577,7 @@ const app = buildApp({
     read: (agentId, skill) => readSkillNote(db, agentId, skill),
     readMany: (agentId, skills) => readSkillNotes(db, agentId, skills),
   },
-  quests: databaseQuests(db, questAuditPolicy(), payoutWalletAddress),
+  quests: databaseQuests(db, questAuditPolicy(), payoutWalletAddress, liveSettings),
   // The citizen's side of the payout table, present whether or not this
   // deployment can pay (`#535`).
   earnings: databaseEarnings(db),

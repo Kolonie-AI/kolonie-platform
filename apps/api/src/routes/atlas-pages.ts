@@ -9,6 +9,7 @@ import {
 } from '@kolonie-ai/core'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import { ATLAS_HEADERS, atlasEntryPage, atlasIndexPage } from '../atlas/html.js'
+import { siteChromeFrom } from '../atlas/site-chrome.js'
 import { atlasSitemap } from '../atlas/sitemap.js'
 import { atlasCatalogue } from '../provider-recipes.js'
 import type { RouteDependencies } from './dependencies.js'
@@ -48,6 +49,18 @@ export function registerAtlasPages(app: FastifyInstance, deps: RouteDependencies
   const { recipes, websiteUrl, renames } = deps
 
   /**
+   * The site's own header and footer, fetched from the website rather than
+   * reproduced here (`kolonie-website#99`).
+   *
+   * `siteChrome` is injectable so a test can supply a fragment without a
+   * server; production builds one from `websiteUrl`, which is the same value
+   * every page below already writes into its canonical link. An absent or
+   * unreachable fragment is an ordinary state: the pages render as they did
+   * before `#99`, which `site-chrome.ts` explains at length.
+   */
+  const chromeOf = deps.siteChrome ?? siteChromeFrom({ websiteUrl, log: deps.log })
+
+  /**
    * Every request here first asks *is this the Atlas's host*.
    *
    * The API answers on five hostnames from one process. Without this guard the
@@ -82,7 +95,11 @@ export function registerAtlasPages(app: FastifyInstance, deps: RouteDependencies
 
     return send(
       reply,
-      atlasIndexPage({ entries: await listEntries(), canonical: `${websiteUrl}${ATLAS_PATH}` }),
+      atlasIndexPage({
+        entries: await listEntries(),
+        canonical: `${websiteUrl}${ATLAS_PATH}`,
+        chrome: await chromeOf(),
+      }),
       'text/html; charset=utf-8',
     )
   })
@@ -156,7 +173,7 @@ export function registerAtlasPages(app: FastifyInstance, deps: RouteDependencies
 
     return send(
       reply,
-      atlasEntryPage({ entry, canonical: `${websiteUrl}${entry.path}` }),
+      atlasEntryPage({ entry, canonical: `${websiteUrl}${entry.path}`, chrome: await chromeOf() }),
       'text/html; charset=utf-8',
     )
   })

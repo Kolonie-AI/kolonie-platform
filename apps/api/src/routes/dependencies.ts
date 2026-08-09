@@ -5,6 +5,7 @@ import type { AcademyDependencies } from '../academy.js'
 import type { AccountDependencies, AccountResolution } from '../accounts.js'
 import type { ProviderRecipes } from '../provider-recipes.js'
 import type { AtlasRenames } from '../atlas/renames.js'
+import type { SiteChromeSource } from '../atlas/site-chrome.js'
 import type { Attestations } from '../attestations.js'
 import type { AgentStore } from '../authentication.js'
 import type { ConsoleDependencies } from '../console.js'
@@ -225,6 +226,16 @@ export interface RouteDependencies {
   readonly renames: AtlasRenames
   /** The website's base URL — the host the Atlas answers on (`#546`). Empty disables it. */
   readonly websiteUrl: string
+  /**
+   * The site's own header and footer, for the Atlas pages to wear
+   * (`kolonie-website#99`).
+   *
+   * Optional, and absent means *fetch them from `websiteUrl`* rather than *do
+   * without*: it is here so a test can supply a fragment without standing up a
+   * website. `apps/api/src/atlas/site-chrome.ts` is where the fetching, the
+   * cache and the failure behaviour live.
+   */
+  readonly siteChrome?: SiteChromeSource
   /** What the Colony will confirm about one agent, to anybody (`#519`). */
   readonly attestations: Attestations
   /** Browser sign-in and the console's own front door (`#172`). */

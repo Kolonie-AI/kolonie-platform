@@ -12,6 +12,7 @@ import {
 import { escape } from '../console/html.js'
 import { CONSOLE_MAST } from '../console/mark.js'
 import { CONSOLE_STYLE } from '../console/theme.js'
+import type { SiteChrome } from './site-chrome.js'
 
 /**
  * The Atlas's HTML (`#546`).
@@ -61,17 +62,37 @@ export const ATLAS_HEADERS: Readonly<Record<string, string>> = {
   'strict-transport-security': 'max-age=31536000; includeSubDomains',
 }
 
-/** One Atlas page, wrapped in the layout. */
+/**
+ * One Atlas page, wrapped in the layout.
+ *
+ * **The site's own header and footer go around it when they can be reached**
+ * (`kolonie-website#99`). They are fetched from `kolonie.ai/site-chrome/` and
+ * never reproduced here — see `site-chrome.ts` for why that is the shape, and
+ * for what happens when the fetch fails.
+ *
+ * `chrome` being absent is an ordinary state and not an error: the page renders
+ * exactly as it did before `#99`, with its own mast and one navigation link.
+ * That is what the two fallbacks below are, and they are the reason a static
+ * site being down cannot take the catalogue with it.
+ *
+ * **`data-theme="dark"` is written on the `<html>` element when the chrome is
+ * present.** The site's own layout writes it, its components are styled against
+ * it, and a header lifted out of a page that had it into one that did not is a
+ * header rendering in a theme nothing selected.
+ */
 export function atlasPage(input: {
   readonly title: string
   readonly description: string
   /** Absolute, and always present: a public page with no canonical is a duplicate. */
   readonly canonical: string
   readonly body: string
+  readonly chrome?: SiteChrome | undefined
 }): string {
+  const { chrome } = input
+
   return [
     '<!doctype html>',
-    '<html lang="en">',
+    chrome === undefined ? '<html lang="en">' : '<html lang="en" data-theme="dark">',
     '<head>',
     '<meta charset="utf-8">',
     '<meta name="viewport" content="width=device-width, initial-scale=1">',
@@ -79,14 +100,22 @@ export function atlasPage(input: {
     `<meta name="description" content="${escape(input.description)}">`,
     `<link rel="canonical" href="${escape(input.canonical)}">`,
     `<style>${CONSOLE_STYLE}</style>`,
+    chrome?.head ?? '',
     '</head>',
     '<body>',
-    CONSOLE_MAST,
-    `<nav class="console-header"><a href="${ATLAS_PATH}">The Atlas</a></nav>`,
+    /**
+     * The site's header, or the mast this page had before there was one. Never
+     * both: two identities at the top of one page is what `#50` is named for.
+     */
+    chrome?.header ??
+      `${CONSOLE_MAST}\n<nav class="console-header"><a href="${ATLAS_PATH}">The Atlas</a></nav>`,
     input.body,
+    chrome?.footer ?? '',
     '</body>',
     '</html>',
-  ].join('\n')
+  ]
+    .filter((line) => line !== '')
+    .join('\n')
 }
 
 /**
@@ -107,11 +136,13 @@ const ATLAS_STANDFIRST =
 export function atlasIndexPage(input: {
   readonly entries: readonly AtlasEntry[]
   readonly canonical: string
+  readonly chrome?: SiteChrome | undefined
 }): string {
   return atlasPage({
     title: 'The Atlas',
     description: ATLAS_STANDFIRST,
     canonical: input.canonical,
+    chrome: input.chrome,
     body: [
       '<main>',
       '<h1>The Atlas</h1>',
@@ -190,6 +221,7 @@ function operatorLine(entry: {
 export function atlasEntryPage(input: {
   readonly entry: AtlasEntry
   readonly canonical: string
+  readonly chrome?: SiteChrome | undefined
 }): string {
   const { entry } = input
 
@@ -197,6 +229,7 @@ export function atlasEntryPage(input: {
     title: entry.title,
     description: entryDescription(entry),
     canonical: input.canonical,
+    chrome: input.chrome,
     body: [
       '<main>',
       `<h1>${escape(entry.title)}</h1>`,

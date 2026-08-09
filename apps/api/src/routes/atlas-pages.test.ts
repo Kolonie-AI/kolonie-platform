@@ -3,6 +3,7 @@ import type { FastifyInstance } from 'fastify'
 import { buildApp } from '../app.js'
 import { fakeColony, type FakeColony } from '../__fixtures__/colony/index.js'
 import { noFigures } from '@kolonie-ai/core'
+import type { SiteChrome } from '../atlas/site-chrome.js'
 
 const SITE = 'https://site.test'
 const SITE_HOST = 'site.test'
@@ -65,8 +66,29 @@ describe('the Atlas on the website host', () => {
       status: 'proposed',
     })
 
-    return buildApp({ ...colony, websiteUrl })
+    return buildApp({ ...colony, websiteUrl, siteChrome })
   }
+
+  /**
+   * The site's chrome, supplied rather than fetched (`kolonie-website#99`).
+   *
+   * The real source fetches `kolonie.ai/site-chrome/`; injecting it here is
+   * what lets these tests assert *the pages wear it* without standing up a
+   * website. `src/atlas/site-chrome.test.ts` is where the fetching, the cache
+   * and the failure behaviour are asserted, against the shape the website
+   * actually builds.
+   */
+  let chrome: SiteChrome | undefined = {
+    head: '<link rel="stylesheet" href="/_astro/theme.css">',
+    header:
+      '<header class="site-header"><a href="/" class="site-header__mark">Kolonie AI</a></header>',
+    footer:
+      '<footer class="site-footer"><a href="/privacy/">Privacy</a>' +
+      '<a href="/terms/">Terms</a><a href="/imprint/">Imprint</a>' +
+      '<a href="/citizen-terms/">Citizen terms</a></footer>',
+  }
+
+  const siteChrome = async (): Promise<SiteChrome | undefined> => chrome
 
   const get = (url: string, host: string = SITE_HOST) =>
     app.inject({ method: 'GET', url, headers: { host, accept: 'text/html' } })
@@ -170,6 +192,102 @@ describe('the Atlas on the website host', () => {
       expect(response.body).not.toContain('unreviewed.example')
       expect(response.body).not.toContain('suggested.example')
       expect(response.body).toContain('withdrawn.example')
+    })
+
+    /**
+     * **A page on `kolonie.ai` looks like a page on `kolonie.ai`, whichever
+     * process rendered it** (`kolonie-website#99`).
+     *
+     * Measured on 2026-08-08, `/atlas` had no `<header>`, no `<footer>`, no
+     * `.site-footer` and one link in a `nav`. A visitor arriving from a search
+     * result saw a page with no navigation, no way back to the site, and no
+     * link to the privacy policy, the terms or the imprint.
+     */
+    it('wears the site’s own header and footer on the index and on an entry', async () => {
+      for (const url of ['/atlas', '/atlas/github']) {
+        const body = (await get(url)).body
+
+        expect(body, `${url} has no site header`).toContain('<header class="site-header"')
+        expect(body, `${url} has no site footer`).toContain('<footer class="site-footer"')
+        expect(body, `${url} cannot get back to the site`).toContain(
+          'href="/" class="site-header__mark',
+        )
+      }
+    })
+
+    /**
+     * `#42` and `#44` require all four on every page, and the Atlas pages were
+     * the ones that had none of them.
+     */
+    it('reaches all four legal pages from an Atlas page', async () => {
+      const body = (await get('/atlas/github')).body
+
+      for (const legal of ['/privacy/', '/terms/', '/imprint/', '/citizen-terms/']) {
+        expect(body, `${legal} is not reachable from an Atlas page`).toContain(`href="${legal}"`)
+      }
+    })
+
+    it('loads the site’s stylesheet so the chrome is not unstyled links', async () => {
+      expect((await get('/atlas')).body).toContain('rel="stylesheet" href="/_astro/theme.css"')
+    })
+
+    /**
+     * **One identity at the top of the page, never two.** The mast this page
+     * carried before `#99` is the fallback and not an addition — `#50` is named
+     * for the state where a site has two headers that disagree.
+     */
+    it('drops its own mast when it is wearing the site’s header', async () => {
+      const body = (await get('/atlas')).body
+
+      expect(body.match(/<header\b/g)).toHaveLength(1)
+      expect(body).not.toContain('class="console-header"')
+    })
+
+    /**
+     * **The degradation, and it is the reason this is a fetch and not a
+     * requirement.** A static website being down must not take the catalogue
+     * with it: the pages render exactly as they did before `#99`.
+     */
+    it('serves the pages without chrome when the website cannot be reached', async () => {
+      chrome = undefined
+      try {
+        const response = await get('/atlas/github')
+
+        expect(response.statusCode).toBe(200)
+        expect(response.body).not.toContain('site-header')
+        /** Its own mast comes back, so the page is still navigable. */
+        expect(response.body).toContain('class="console-header"')
+        expect(response.body).toContain('Open the signup form.')
+      } finally {
+        chrome = {
+          head: '<link rel="stylesheet" href="/_astro/theme.css">',
+          header:
+            '<header class="site-header"><a href="/" class="site-header__mark">Kolonie AI</a></header>',
+          footer:
+            '<footer class="site-footer"><a href="/privacy/">Privacy</a>' +
+            '<a href="/terms/">Terms</a><a href="/imprint/">Imprint</a>' +
+            '<a href="/citizen-terms/">Citizen terms</a></footer>',
+        }
+      }
+    })
+
+    /**
+     * **The catalogue is still live, which is `#99`'s criterion and the whole
+     * reason option 2 was refused.** Nothing about the chrome is baked: an
+     * entry curated now is on the page now.
+     */
+    it('serves a curated entry without a deploy, chrome and all', async () => {
+      colony.recipes.write({
+        kind: 'mailbox',
+        provider: 'curated-just-now.example',
+        title: 'Curated just now',
+        status: 'unwritten',
+      })
+
+      const body = (await get('/atlas')).body
+
+      expect(body).toContain('curated-just-now.example')
+      expect(body).toContain('<header class="site-header"')
     })
 
     it('carries a title, a description and a canonical on every page', async () => {

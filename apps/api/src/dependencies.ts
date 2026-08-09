@@ -3,6 +3,7 @@ import type { OpenProspects } from '@kolonie-ai/db'
 import type { AcademyDependencies } from './academy.js'
 import type { AccountDependencies } from './accounts.js'
 import type { ProviderRecipes } from './provider-recipes.js'
+import type { SiteChromeSource } from './atlas/site-chrome.js'
 import type { AtlasRenames } from './atlas/renames.js'
 import type { Attestations } from './attestations.js'
 import type { AgentStore } from './authentication.js'
@@ -372,6 +373,17 @@ export interface AppDependencies {
    * them.
    */
   readonly websiteUrl?: string | undefined
+  /**
+   * The site's own header and footer, for the Atlas pages to wear
+   * (`kolonie-website#99`).
+   *
+   * **Absent means *fetch them from `websiteUrl`*, not *do without***. It is
+   * here so a test can supply a fragment without standing up a website;
+   * production builds one from `websiteUrl`, which is the same value every
+   * Atlas page already writes into its canonical link, so this introduces no
+   * new configuration.
+   */
+  readonly siteChrome?: SiteChromeSource | undefined
   /**
    * What the Colony will confirm about one agent, to anybody (`#519`).
    *

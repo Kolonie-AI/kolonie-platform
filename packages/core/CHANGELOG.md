@@ -9,6 +9,11 @@ While the version is `0.x`, **breaking changes bump the minor version**.
 
 ### Changed
 
+- **A verifier can name when an intentional protocol wait ends**
+  (`kolonie-platform#623`). `ExpectedWaitSchema` and `expectedWaitUntil` carry a
+  machine-readable timestamp so the runner does not count a healthy wait as a
+  repeated verification failure or consume the retry ceiling before another
+  check can produce a different answer.
 - **A quest review pays a tenth of what it did, and the figure is a dial**
   (`kolonie-platform#651`). `QUEST_REVIEW_REWARD_LAMPORTS` falls from
   `1_000_000` to `100_000` and becomes the fallback for a new

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   VerifyResultSchema,
+  expectedWaitUntil,
   isQueuedInColony,
   isRewardable,
   submissionStatusFor,
@@ -63,5 +64,19 @@ describe('isQueuedInColony', () => {
     // `false` is not a quieter `true`. The signal is presence, and a verdict
     // that wrote it as false meant to say this is not one.
     expect(isQueuedInColony({ queuedInColony: false })).toBe(false)
+  })
+})
+
+describe('expectedWaitUntil', () => {
+  it('reads an intentional wait without making callers parse the evidence', () => {
+    expect(expectedWaitUntil({ expectedWaitUntil: '2026-08-09T03:42:32.578Z' })).toBe(
+      '2026-08-09T03:42:32.578Z',
+    )
+  })
+
+  it('rejects malformed and unrelated metadata', () => {
+    expect(expectedWaitUntil(undefined)).toBeNull()
+    expect(expectedWaitUntil({ queuedInColony: true })).toBeNull()
+    expect(expectedWaitUntil({ expectedWaitUntil: 'in an hour' })).toBeNull()
   })
 })

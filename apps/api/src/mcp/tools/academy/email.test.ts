@@ -1,6 +1,7 @@
 import { fakeHumans } from '../../../__fixtures__/humans.js'
 import { fakeArtefactChallenges } from '../../../__fixtures__/artefact.js'
-import { API_BASE_PATH, DEFAULT_RHYTHM_BOUNDS } from '@kolonie-ai/core'
+import { randomUUID } from 'node:crypto'
+import { API_BASE_PATH, DEFAULT_RHYTHM_BOUNDS, type AgentId } from '@kolonie-ai/core'
 import { describe, expect, it } from 'vitest'
 import { fakeAcademy } from '../../../__fixtures__/academy.js'
 import { fakeProviderRecipes } from '../../../__fixtures__/provider-recipes.js'
@@ -514,6 +515,98 @@ describe('kolonie.academy.answer with kind "email.challenge" and .code', () => {
         reissued: false,
       })
       expect(JSON.stringify(again.content)).not.toMatch(/issued in its place/)
+      await close()
+    })
+
+    /**
+     * A mailbox that can only receive satisfies `requiresAccounts: ['mailbox']`
+     * and cannot finish this badge (`#615`).
+     *
+     * `antigravity` walked into it on 2026-08-08: one disposable inbox, the
+     * badge taken, and its operator asked for SMTP credentials the provider does
+     * not issue. Nothing told it at any point that this was possible.
+     */
+    it('warns before the attempt when nobody has ever sent from that provider', async () => {
+      const { client, challenges, codeFromMail, close } = await bothDoors()
+      // Two other citizens, stranded there. The evidence is per citizen rather
+      // than per challenge, so one determined agent cannot manufacture this.
+      challenges.strandSendAttempt(randomUUID() as AgentId, 'someone@example.org')
+      challenges.strandSendAttempt(randomUUID() as AgentId, 'another@example.org')
+
+      await client.callTool({
+        name: 'kolonie.academy.answer',
+        arguments: { kind: 'email.challenge', email: CLAIMED },
+      })
+      await client.callTool({
+        name: 'kolonie.academy.answer',
+        arguments: { kind: 'email.code', code: codeFromMail() },
+      })
+
+      const minted = await client.callTool({
+        name: 'kolonie.academy.challenge',
+        arguments: { kind: 'email-send' },
+      })
+
+      // A warning and not a refusal: the challenge is minted, the address is
+      // there, and the citizen may attempt the badge.
+      expect(minted.isError).toBeFalsy()
+      expect(minted.structuredContent).toMatchObject({ from: CLAIMED })
+      const text = JSON.stringify(minted.content)
+      expect(text).toMatch(/2 other citizens have/)
+      expect(text).toMatch(/signal and not a fact/)
+      expect(text).toMatch(/kolonie.mailboxes.promote/)
+      await close()
+    })
+
+    /**
+     * The rejection case, and the one that keeps the sentence worth reading. One
+     * citizen having passed from a provider settles the question the warning
+     * exists to raise, so it goes quiet — a warning that fired anyway would be
+     * the Colony repeating a coincidence.
+     */
+    it('says nothing once somebody has passed from that provider', async () => {
+      const { client, challenges, codeFromMail, close } = await bothDoors()
+      challenges.strandSendAttempt(randomUUID() as AgentId, 'someone@example.org')
+      challenges.passSendAttempt(randomUUID() as AgentId, 'worked@example.org')
+
+      await client.callTool({
+        name: 'kolonie.academy.answer',
+        arguments: { kind: 'email.challenge', email: CLAIMED },
+      })
+      await client.callTool({
+        name: 'kolonie.academy.answer',
+        arguments: { kind: 'email.code', code: codeFromMail() },
+      })
+
+      const minted = await client.callTool({
+        name: 'kolonie.academy.challenge',
+        arguments: { kind: 'email-send' },
+      })
+
+      expect(minted.structuredContent).toMatchObject({ caution: null })
+      expect(JSON.stringify(minted.content)).not.toMatch(/signal and not a fact/)
+      await close()
+    })
+
+    /** And silence is the honest answer where the Colony has watched nothing. */
+    it('says nothing about a provider it has never seen anybody try', async () => {
+      const { client, codeFromMail, close } = await bothDoors()
+
+      await client.callTool({
+        name: 'kolonie.academy.answer',
+        arguments: { kind: 'email.challenge', email: CLAIMED },
+      })
+      await client.callTool({
+        name: 'kolonie.academy.answer',
+        arguments: { kind: 'email.code', code: codeFromMail() },
+      })
+
+      const minted = await client.callTool({
+        name: 'kolonie.academy.challenge',
+        arguments: { kind: 'email-send' },
+      })
+
+      expect(minted.structuredContent).toMatchObject({ caution: null })
       await close()
     })
 

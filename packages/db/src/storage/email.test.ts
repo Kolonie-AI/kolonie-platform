@@ -21,6 +21,7 @@ import {
   provedMailboxes,
   recordInboundMail,
   redeemEmailCode,
+  sendingRecordFor,
 } from './email.js'
 
 const target = databaseTestTarget()
@@ -1069,6 +1070,66 @@ describe('the mailbox nodes', () => {
 
       expect(await recordInboundMail(db, granting.token, 'citizen@example.org')).toEqual({
         outcome: 'unknown_token',
+      })
+    })
+  })
+
+  /**
+   * What the Colony has watched happen when citizens sent from one provider
+   * (`#615`).
+   *
+   * Counted over the challenges themselves rather than against a list of
+   * providers, because which providers can send is a fact about the outside
+   * world that goes stale without telling anybody.
+   */
+  describe('the record of sending from a provider', () => {
+    /** A badge challenge that ran out with no mail — the evidence this counts. */
+    const strandedAt = async (agent: AgentId, address: string) => {
+      await earnMailbox(agent, address)
+      const badge = await mintEmailSendChallenge(db, agent, address)
+      if (badge.outcome !== 'minted') throw new Error(badge.outcome)
+      await db
+        .update(emailChallenges)
+        .set({
+          createdAt: sql`now() - interval '10 days'`,
+          expiresAt: sql`now() - interval '9 days'`,
+        })
+        .where(eq(emailChallenges.token, badge.challenge.token))
+    }
+
+    it('counts distinct citizens who ran out, and none who are still trying', async () => {
+      await strandedAt(agentId, 'first@shut.example')
+      // Open, not expired: it has not failed and has not finished, and counting
+      // it would warn a citizen about its own attempt in progress.
+      const third = await register('still-going')
+      await earnMailbox(third, 'third@shut.example')
+      await mintEmailSendChallenge(db, third, 'third@shut.example')
+
+      expect(await sendingRecordFor(db, 'mine@shut.example')).toEqual({
+        domain: 'shut.example',
+        proved: 0,
+        triedWithout: 1,
+      })
+    })
+
+    it('is a fact about the domain and not about the address', async () => {
+      await strandedAt(agentId, 'one@shut.example')
+      await strandedAt(otherId, 'two@shut.example')
+
+      expect(await sendingRecordFor(db, 'THIRD@Shut.Example')).toMatchObject({
+        domain: 'shut.example',
+        triedWithout: 2,
+      })
+    })
+
+    /** The rejection case: another provider's record is not this one's. */
+    it('says nothing about a provider nobody has tried', async () => {
+      await strandedAt(agentId, 'one@shut.example')
+
+      expect(await sendingRecordFor(db, 'someone@unwatched.example')).toEqual({
+        domain: 'unwatched.example',
+        proved: 0,
+        triedWithout: 0,
       })
     })
   })

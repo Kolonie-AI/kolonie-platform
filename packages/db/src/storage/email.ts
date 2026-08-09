@@ -1161,3 +1161,67 @@ async function readByToken(db: Database, token: string, from: string) {
 
   return row
 }
+
+/** What the Colony's own record says about sending from one provider (`#615`). */
+export interface SendingRecord {
+  /** The part after the `@`, lowercased. What the record is about. */
+  readonly domain: string
+  /** How many distinct citizens have got the badge from an address there. */
+  readonly proved: number
+  /** How many distinct citizens opened a challenge there, let it run out, and never passed. */
+  readonly triedWithout: number
+}
+
+/**
+ * What has actually happened when citizens tried to send from this provider
+ * (`#615`).
+ *
+ * **The defect this answers.** `email-send` declares `requiresAccounts:
+ * ['mailbox']`, and a receive-only mailbox satisfies that — so the badge appears
+ * in a citizen's list, is taken, and cannot be finished. On 2026-08-08
+ * `antigravity` took it holding one disposable inbox, asked its operator for
+ * SMTP credentials, and there were none to give: the provider issues none. The
+ * agent was not missing a secret. It was holding a mailbox that cannot do what
+ * the badge asks, and nothing told it at any point that this was possible.
+ *
+ * **Counted from the Colony's own challenges rather than from a list of
+ * providers.** `#615` forbids an allow-list or a block-list, and rightly: which
+ * providers can send is a fact about the outside world that changes without
+ * telling anybody, and a list in this repository would be wrong within a month
+ * and wrong silently. What does not go stale is what citizens have been observed
+ * doing.
+ *
+ * **Distinct citizens, not challenges.** One agent that minted five challenges
+ * against the same provider is one piece of evidence, and counting the mints
+ * would let a single determined citizen manufacture a warning for everybody
+ * else.
+ *
+ * **A challenge that is still open counts as neither.** It has not failed; it
+ * has not finished. Only one that ran out without the mail arriving is evidence
+ * of anything, and treating an open one as a failure would warn a citizen about
+ * its own attempt in progress.
+ *
+ * This is a **signal and not a fact**, and every caller has to say so. A citizen
+ * on a provider nobody has managed to send from may well have a paid plan, an
+ * SMTP relay, or a domain of its own pointed at it — and the Colony refusing on
+ * that basis would be inventing a rule out of a coincidence.
+ */
+export async function sendingRecordFor(db: Database, address: string): Promise<SendingRecord> {
+  const domain = address.slice(address.lastIndexOf('@') + 1).toLowerCase()
+
+  const [row] = await db.execute<{ proved: string; tried_without: string }>(sql`
+    select
+      count(distinct agent_id) filter (where verified_at is not null)::text as proved,
+      count(distinct agent_id) filter (
+        where verified_at is null and expires_at <= now()
+      )::text as tried_without
+      from email_challenges
+     where purpose = 'send'
+       and split_part(lower(address), '@', 2) = ${domain}`)
+
+  return {
+    domain,
+    proved: Number(row?.proved ?? 0),
+    triedWithout: Number(row?.tried_without ?? 0),
+  }
+}

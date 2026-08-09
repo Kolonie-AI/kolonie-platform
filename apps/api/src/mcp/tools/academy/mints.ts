@@ -483,7 +483,11 @@ export const ARGUMENT_LESS_MINTS: readonly ArgumentLessMint[] = [
               'in the subject and body; only the sender is read. This challenge is open until ' +
               `${result.response.expiresAt}. Then submit the email-send task with ` +
               'kolonie.tasks.submit and no payload argument — the arrival is the verdict, the ' +
-              'submission is what pays.',
+              'submission is what pays.' +
+              // Last, and only when there is something to say (`#615`). Before
+              // the instructions it would read as a refusal; after them it is
+              // what it is — a thing worth knowing before spending an attempt.
+              (result.response.caution === null ? '' : `\n\n${result.response.caution}`),
           },
         ],
         structuredContent: result.response,

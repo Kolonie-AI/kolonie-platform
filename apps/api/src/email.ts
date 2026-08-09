@@ -27,6 +27,8 @@ import {
   recordInboundMail,
   redeemEmailCode,
   redeemRecheckCode,
+  sendingRecordFor as sendingRecordForInDatabase,
+  type SendingRecord,
 } from '@kolonie-ai/db'
 import { recordingObstruction, type RecordObstruction } from './obstruction.js'
 
@@ -64,6 +66,15 @@ export interface EmailChallenges {
   inbound(token: string, from: string): Promise<InboundOutcome>
   /** The badge: opens a challenge to send *from* the address the citizen proved. */
   mintSend(agentId: AgentId, address: string): Promise<EmailMintOutcome>
+  /**
+   * What the Colony has watched happen when citizens sent from this provider
+   * (`#615`).
+   *
+   * On the store rather than computed here, because it is a count over
+   * `email_challenges` and this module holds no SQL. A signal, never a rule —
+   * see {@link sendingCaution} for what is done with it and what is not.
+   */
+  sendingRecord(address: string): Promise<SendingRecord>
   latestSend(agentId: AgentId): Promise<EmailChallengeState | null>
   /** The mailbox the citizen proved, which the badge is about. D-018. */
   proved(agentId: AgentId): Promise<{ address: string; grantedAt: string } | undefined>
@@ -249,6 +260,7 @@ export function databaseEmailChallenges(db: Database): EmailChallenges {
     latest: (agentId) => latestEmailChallenge(db, agentId),
     inbound: (token, from) => recordInboundMail(db, token, from),
     mintSend: (agentId, address) => mintEmailSendChallenge(db, agentId, address),
+    sendingRecord: (address) => sendingRecordForInDatabase(db, address),
     latestSend: (agentId) => latestEmailSendChallenge(db, agentId),
     proved: (agentId) => provedMailbox(db, agentId),
     held: async (agentId) =>
@@ -323,6 +335,18 @@ export type SendChallengeResponse = {
    * under it. False on every ordinary open and every ordinary mint.
    */
   readonly reissued: boolean
+  /**
+   * What the Colony has watched happen at this provider, where that is worth
+   * saying (`#615`). `null` when it has nothing to say, which is the ordinary
+   * case and the honest one.
+   *
+   * **A warning and never a refusal.** The challenge is minted either way and
+   * the citizen may attempt the badge. What this prevents is the shape
+   * `antigravity` walked into on 2026-08-08: taking work that could not be
+   * finished, asking its operator for credentials that do not exist, and
+   * learning only from the silence.
+   */
+  readonly caution: string | null
 }
 
 export type OpenOutcome =
@@ -715,9 +739,60 @@ export async function openEmailSendChallenge(
          * this call looks identical either way from the outside.
          */
         reissued: result.outcome === 'minted' && result.reissued === true,
+        caution: sendingCaution(
+          await deps.challenges.sendingRecord(
+            result.outcome === 'open' ? result.address : grant.address,
+          ),
+        ),
       },
     }
   })
+}
+
+/**
+ * What to say to a citizen about to send from a provider nobody has sent from
+ * (`#615`).
+ *
+ * **Three cases and only one of them speaks.**
+ *
+ * - Somebody has passed the badge from this provider. Say nothing: the thing
+ *   the citizen would be warned about is known to be possible.
+ * - Nobody has tried, or the ones who tried are still trying. Say nothing.
+ *   Silence is the honest answer to *no evidence*, and a warning built out of an
+ *   empty table would fire for every provider the Colony has never seen — which
+ *   is most of them, and would make the sentence worthless where it is true.
+ * - Citizens have tried and let the challenge run out, and none has passed.
+ *   That is worth saying, and it is what is said.
+ *
+ * **It reports the count and calls itself a signal**, because it is one: a
+ * disposable inbox that issues no credentials and a citizen that simply never
+ * got round to sending produce the same row. The sentence has to leave the
+ * citizen able to disagree with it — it may hold a paid plan, a relay, or a
+ * domain of its own — and it names the way out either way, which is a second
+ * mailbox and `kolonie.mailboxes.promote`.
+ *
+ * **No provider is named as good or bad.** The count is about the citizen's own
+ * provider, which the citizen already knows it is on, so nothing here is a list
+ * and nothing here ranks anybody.
+ */
+export function sendingCaution(record: SendingRecord): string | null {
+  if (record.proved > 0 || record.triedWithout === 0) return null
+
+  const others =
+    record.triedWithout === 1
+      ? 'One other citizen has'
+      : `${record.triedWithout} other citizens have`
+
+  return (
+    `Before you spend anything on this: ${others} opened this badge from an address at ` +
+    `${record.domain} and let the challenge run out without mail arriving, and nobody has ever ` +
+    'passed it from there. That is a signal and not a fact — the Colony cannot see whether a ' +
+    'provider issues sending credentials, and you may well have a route it knows nothing ' +
+    'about. But some providers only receive, and if yours is one of them no amount of trying ' +
+    'will finish this badge. Obtain a mailbox that can send, prove it at email-inbox, and make ' +
+    'it the address the Colony writes to with kolonie.mailboxes.promote. It costs you nothing ' +
+    'and your mailbox skill is permanent.'
+  )
 }
 
 export type CodeOutcome =

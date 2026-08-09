@@ -54,6 +54,18 @@ export interface FakeEmailChallenges extends EmailChallenges {
    * any future path that moves the grant without coming through `promote`.
    */
   readonly moveReachSilently: (agentId: AgentId, address: string) => void
+  /**
+   * Somebody else's `email-send` attempt that ran out without mail arriving
+   * (`#615`).
+   *
+   * The evidence the caution is counted from, and there is no way to produce it
+   * through the tools: it needs a challenge to expire, which is a clock rather
+   * than a call. `passSendAttempt` beside it is the other half — a provider
+   * somebody has actually sent from — because the property worth asserting is
+   * that the warning goes quiet as soon as one citizen proves it possible.
+   */
+  readonly strandSendAttempt: (agentId: AgentId, address: string) => void
+  readonly passSendAttempt: (agentId: AgentId, address: string) => void
 }
 
 /**
@@ -266,6 +278,32 @@ export function fakeEmailChallenges(): FakeEmailChallenges {
       } satisfies EmailMintOutcome
     },
 
+    /**
+     * What the Colony has watched happen at one provider (`#615`), over the same
+     * rows the real storage counts: `send` challenges that ran out without the
+     * mail arriving, and the ones that passed, by distinct citizen.
+     *
+     * Reproduced rather than stubbed, because the property the API depends on is
+     * that a provider somebody has passed from produces no warning — and a stub
+     * returning zeroes would make every test agree with that by accident.
+     */
+    async sendingRecord(address) {
+      const domain = address.slice(address.lastIndexOf('@') + 1).toLowerCase()
+      const there = rows.filter(
+        (row) =>
+          row.purpose === 'send' &&
+          row.address.slice(row.address.lastIndexOf('@') + 1).toLowerCase() === domain,
+      )
+
+      const distinct = (matching: typeof there) => new Set(matching.map((row) => row.agentId)).size
+
+      return {
+        domain,
+        proved: distinct(there.filter((row) => row.verifiedAt !== null)),
+        triedWithout: distinct(there.filter((row) => row.verifiedAt === null && row.expired)),
+      }
+    },
+
     async latestSend(agentId) {
       const row = latestFor(agentId, 'send')
       if (row === undefined) return null
@@ -422,6 +460,38 @@ export function fakeEmailChallenges(): FakeEmailChallenges {
 
     claimForAnother(address) {
       provenElsewhere.add(identity(address))
+    },
+
+    strandSendAttempt(agentId, address) {
+      rows.push({
+        agentId,
+        address,
+        token: randomUUID().replace(/-/g, '').slice(0, 18),
+        purpose: 'send',
+        expired: true,
+        sentAt: null,
+        inboundAt: null,
+        code: null,
+        verifiedAt: null,
+        createdAt: Date.now(),
+        primaryAt: null,
+      })
+    },
+
+    passSendAttempt(agentId, address) {
+      rows.push({
+        agentId,
+        address,
+        token: randomUUID().replace(/-/g, '').slice(0, 18),
+        purpose: 'send',
+        expired: false,
+        sentAt: null,
+        inboundAt: new Date().toISOString(),
+        code: null,
+        verifiedAt: new Date().toISOString(),
+        createdAt: Date.now(),
+        primaryAt: null,
+      })
     },
 
     moveReachSilently(agentId, address) {

@@ -19,6 +19,7 @@
 
 import {
   QUEST_TIER_CAPS_LAMPORTS,
+  QUEST_VERIFIER_PROVES,
   ACTIVITY_WINDOW_DAYS,
   QUEST_PROOF_VERIFIERS,
   activityWindowNotice,
@@ -27,7 +28,6 @@ import {
   obstaclePublicationNotice,
   questInvoiceLamports,
   questPayoutSplit,
-  questTier,
   solFromLamports,
   type ActivityWindow,
   type QuestProofVerifier,
@@ -124,19 +124,37 @@ export function activityNote(days: ActivityWindow | null): string {
  * **`lamports` rather than `credit(s)`**, which this sentence still said. The
  * number was already lamports — D-106 left `credits` with nothing to be credits
  * of — so the unit named here was off by a factor nobody could see.
+ *
+ * **And it no longer says that naming one makes the quest hard** (`#626`). It
+ * did, and that was the defect: a verifier proves the citizen holds something at
+ * a third party, and until the quest's questions ask for that same thing, it has
+ * said nothing about the answers. The note now says what naming one buys and
+ * what raising the ceiling additionally requires, because a sponsor that reads
+ * the old sentence chooses a verifier expecting a ceiling it will not get.
  */
 export function proofNote(
   verifier: string | null,
   caps: Readonly<Record<QuestTier, number>> = QUEST_TIER_CAPS_LAMPORTS,
 ): string {
-  const tier = questTier({ proofVerifier: verifier, questions: [] })
-  const cap = caps[tier]
+  if (verifier === null) {
+    return (
+      'No proof stage: you are buying the citizen’s own word. Unless a question states what a ' +
+      `good answer has to do, this is a soft quest and may pay at most ${caps.soft} lamports ` +
+      'per accepted report.'
+    )
+  }
 
-  return verifier === null
-    ? `No proof stage: you are buying the citizen's own word. That makes this a ${tier} quest, ` +
-        `which may pay at most ${cap} lamports per accepted report.`
-    : `A third party answers yes or no. That makes this a ${tier} quest, which may pay at most ` +
-        `${cap} lamports per accepted report.`
+  const proves = QUEST_VERIFIER_PROVES[verifier as QuestProofVerifier]
+  const subject = proves === undefined ? 'something at a third party' : proves.subject
+  const format = proves === undefined ? 'the shape it proves' : `'${proves.format}'`
+
+  return (
+    `A third party answers yes or no about whether the citizen holds ${subject}. That is a gate ` +
+    'on who may answer, and on its own it does not raise what the quest may pay. It becomes a ' +
+    `hard quest — up to ${caps.hard} lamports per accepted report — only when every required ` +
+    `question is one this stage establishes: marked as proven by it, and asking for ${format}. ` +
+    'A quest that asks about a deed the verifier cannot see pays what its questions earn.'
+  )
 }
 
 /**

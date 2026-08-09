@@ -752,7 +752,25 @@ describe('the sponsor’s pages', () => {
    * reports* is the number that changes a mind and *25 %* is not.
    */
   it('shows the invoice and the split before the quest is published', async () => {
-    const created = await postForm('/quests', aForm({ rewardSol: '0.002', slots: '40' }))
+    // 0.002 SOL an answer is above the soft and colony-judged ceilings, so this
+    // has to be a hard quest to exist at all — which under `#626` means asking
+    // for the thing `email-inbox` proves rather than merely naming it.
+    const created = await postForm(
+      '/quests',
+      aForm({
+        rewardSol: '0.002',
+        slots: '40',
+        questions: JSON.stringify([
+          {
+            key: 'address',
+            prompt: 'Which address did you register?',
+            required: true,
+            format: 'email',
+            provenBy: true,
+          },
+        ]),
+      }),
+    )
     const draft = await asBrowser(created.headers['location'] as string, { signedIn: true })
 
     // The rejection case: a figure on this page that is not what the payout

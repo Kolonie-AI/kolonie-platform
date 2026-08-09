@@ -2,7 +2,7 @@ import { z } from 'zod'
 import { QuestDeliverableSchema } from './catalogue-quest.js'
 import { SkillSchema, TimestampSchema } from '../common/index.js'
 import { ActivityWindowSchema } from '../agent/activity.js'
-import { QuestQuestionsSchema, type QuestQuestion } from './questions.js'
+import { QuestQuestionsSchema, type QuestAnswerFormat, type QuestQuestion } from './questions.js'
 import {
   MAX_TASK_SKILLS,
   TaskAudienceSchema,
@@ -158,17 +158,144 @@ export const QuestTierSchema = z.enum(['hard', 'colony-judged', 'soft'])
 export type QuestTier = z.infer<typeof QuestTierSchema>
 
 /**
+ * What each proof verifier establishes, and what its Academy rung records
+ * (`#626`).
+ *
+ * **A verifier answers *does this citizen control this thing at a third party*,
+ * and nothing else.** It never reads a quest's answers — `quest-report.ts` runs
+ * the same module the Academy runs, against the citizen, and then the judge
+ * reads the answers separately. So a named verifier is evidence about the
+ * *answerer*, and it becomes evidence about the *answer* only where the quest
+ * asks for the very thing the verifier proves control of. `format` is what makes
+ * that connection checkable rather than claimed.
+ *
+ * **`grants` is the same list the rung of that name grants**, and it is here for
+ * the rule below: a verifier whose skills the quest already requires is
+ * guaranteed to re-prove what the Colony recorded. `verifier-rungs.test.ts` in
+ * `packages/db` pins this map against the seeded tasks, so the two cannot drift.
+ */
+export const QUEST_VERIFIER_PROVES: Readonly<
+  Record<
+    QuestProofVerifier,
+    {
+      /** The answer shape this verifier proves control of. */
+      readonly format: QuestAnswerFormat
+      /** What its Academy rung grants, for the re-proving rule. */
+      readonly grants: readonly string[]
+      /** How the refusal names it to a sponsor. */
+      readonly subject: string
+    }
+  >
+> = {
+  'email-inbox': { format: 'email', grants: ['mailbox'], subject: 'a mailbox it can read' },
+  'email-send': { format: 'email', grants: [], subject: 'an address it can send from' },
+  'github-account': { format: 'handle', grants: ['github'], subject: 'a GitHub account' },
+  'domain-verify': { format: 'domain', grants: ['domain'], subject: 'a domain name' },
+  'social-account': { format: 'handle', grants: ['social'], subject: 'a social account' },
+  'website-verify': { format: 'url', grants: ['website'], subject: 'a website it serves' },
+  'solana-wallet': {
+    format: 'solana-address',
+    grants: ['wallet'],
+    subject: 'a Solana wallet it holds the key to',
+  },
+}
+
+/**
+ * Why the named proof verifier does not make this quest `hard`, or `undefined`
+ * when it does (`#626`).
+ *
+ * ## The defect this exists to close
+ *
+ * The tier used to be `hard` whenever a verifier was named, and **nothing
+ * checked that the verifier bore on what the quest was asking.** Naming one
+ * raised the ceiling two hundredfold over `soft`. A quest asking citizens to
+ * star and fork a repository could name `github-account` — which proves the
+ * answerer holds a GitHub account, passes trivially for anyone who does, and
+ * says nothing whatever about whether a single star was given — and be priced as
+ * though a third party had confirmed the deed.
+ *
+ * ## The two things it asks
+ *
+ * **Every required question is one this verifier establishes.** A question
+ * claims the connection with `provenBy`, and the claim holds only where the
+ * question's `format` is the shape the verifier proves control of — so a prose
+ * question about a deed cannot carry it, however the sponsor marks it. It has to
+ * be *every* required question rather than *some*, because the tier is one value
+ * for the whole quest: a quest that pairs a proven handle with an unproven deed
+ * would otherwise price the deed at the proven rate, which is the original
+ * defect one question over.
+ *
+ * **The verifier is not re-proving what the quest already requires.** A quest
+ * requiring `github` and proved by `github-account` asks every citizen who may
+ * answer to demonstrate something the Colony has already recorded about it. The
+ * stage runs, passes for everyone, and adds no evidence — which is the issue's
+ * own fallback rule, in the only form that is decidable before an answerer
+ * exists.
+ *
+ * ## What it deliberately does not do
+ *
+ * **It does not stop a sponsor naming a verifier as a gate.** Requiring a GitHub
+ * account to keep out citizens who never proved one is legitimate and useful.
+ * What does not follow from it is the ceiling: such a quest earns whatever its
+ * questions earn, which is what this returns a sentence about.
+ */
+export function questProofRejection(quest: {
+  readonly proofVerifier?: string | null | undefined
+  readonly questions: readonly Pick<QuestQuestion, 'format' | 'provenBy' | 'required'>[]
+  readonly requires?: readonly string[] | undefined
+}): string | undefined {
+  const named = quest.proofVerifier
+  if (named === null || named === undefined) return 'no proof verifier is named'
+
+  const proves = QUEST_VERIFIER_PROVES[named as QuestProofVerifier]
+  if (proves === undefined) return `'${named}' is not a verifier the Colony runs`
+
+  const required = quest.questions.filter((question) => question.required)
+  if (required.length === 0) return 'the quest asks no required question for it to prove'
+
+  const unproven = required.filter(
+    (question) => !question.provenBy || question.format !== proves.format,
+  )
+  if (unproven.length > 0) {
+    return (
+      `'${named}' proves that a citizen holds ${proves.subject}, and ${unproven.length} of this ` +
+      `quest's questions ask for something else. A question it proves is one marked provenBy ` +
+      `whose format is '${proves.format}'`
+    )
+  }
+
+  const requires = quest.requires ?? []
+  if (proves.grants.length > 0 && proves.grants.every((skill) => requires.includes(skill))) {
+    return (
+      `every citizen this quest is open to has already passed '${named}' as an Academy rung — ` +
+      `the quest requires ${proves.grants.join(', ')} — so the proof stage re-proves what the ` +
+      'Colony already recorded and adds no evidence about this quest'
+    )
+  }
+
+  return undefined
+}
+
+/**
  * The tier, derived and never settable.
  *
  * A stored tier is a second record of a fact the quest already carries — the
  * same duplication D-002 refuses — and it is the one a sponsor would have an
  * interest in getting wrong.
+ *
+ * **`hard` is no longer *a verifier is named*** (`#626`). It is
+ * {@link questProofRejection} returning nothing, which is a narrower and more
+ * defensible claim: a third party confirmed the thing this quest asked for.
  */
 export function questTier(quest: {
   readonly proofVerifier?: string | null | undefined
-  readonly questions: readonly Pick<QuestQuestion, 'criteria'>[]
+  readonly questions: readonly Pick<
+    QuestQuestion,
+    'criteria' | 'format' | 'provenBy' | 'required'
+  >[]
+  readonly requires?: readonly string[] | undefined
 }): QuestTier {
-  if (quest.proofVerifier !== null && quest.proofVerifier !== undefined) return 'hard'
+  if (questProofRejection(quest) === undefined) return 'hard'
   if (quest.questions.some((question) => question.criteria !== undefined)) return 'colony-judged'
   return 'soft'
 }
@@ -290,7 +417,11 @@ export function questTierCaps(
 export function questRewardRejection(
   quest: {
     readonly proofVerifier?: string | null | undefined
-    readonly questions: readonly Pick<QuestQuestion, 'criteria'>[]
+    readonly questions: readonly Pick<
+      QuestQuestion,
+      'criteria' | 'format' | 'provenBy' | 'required'
+    >[]
+    readonly requires?: readonly string[] | undefined
     readonly reward: Pick<TaskReward, 'lamports'>
   },
   caps: Readonly<Record<QuestTier, number>> = QUEST_TIER_CAPS_LAMPORTS,
@@ -299,10 +430,24 @@ export function questRewardRejection(
   const cap = caps[tier]
   if (quest.reward.lamports <= cap) return undefined
 
+  /**
+   * **Why it is not `hard`, where a verifier was named** (`#626`).
+   *
+   * Without this the sponsor reads *a soft quest may pay at most 500000* beside
+   * a quest it believes it has proved, concludes the ceiling is wrong, and
+   * lowers the price — where the useful answer is almost always to say which
+   * question the proof stage actually bears on. A price is the symptom; the
+   * unproven question is the cause, and the message names it.
+   */
+  const unproven =
+    tier === 'hard' || quest.proofVerifier === null || quest.proofVerifier === undefined
+      ? ''
+      : ` It is not hard because ${questProofRejection(quest) ?? ''}.`
+
   return (
     `a ${tier} quest may pay at most ${cap} lamports per report and this one pays ` +
     `${quest.reward.lamports}. The ceiling belongs to the tier rather than to the quest ` +
-    '(governance/quests.md): name a proof verifier, or state what a good answer has to do.'
+    `(governance/quests.md): name a proof verifier, or state what a good answer has to do.${unproven}`
   )
 }
 

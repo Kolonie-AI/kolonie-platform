@@ -25,7 +25,28 @@ import { z } from 'zod'
  * is what a proof-stage verifier is for. This only stops an answer that cannot
  * possibly be right from consuming a slot and reaching the judge.
  */
-export const QuestAnswerFormatSchema = z.enum(['email', 'url', 'uuid', 'integer'])
+export const QuestAnswerFormatSchema = z.enum([
+  'email',
+  'url',
+  'uuid',
+  'integer',
+  /**
+   * The three the proof verifiers establish, added by `#626`.
+   *
+   * **A format is what makes a proof stage mean something about the answer.** A
+   * verifier proves that the citizen controls a mailbox, a handle, a domain or a
+   * wallet; without a format saying *this question asks for one of those*, a
+   * quest could name a verifier beside a question about anything at all and be
+   * priced as though the two were connected. `QUEST_VERIFIER_PROVES` is the map,
+   * and these are the shapes it points at.
+   *
+   * Loose, like `email` above and for its reason: whether the handle exists is
+   * what the verifier answers, and a stricter pattern refuses real ones.
+   */
+  'handle',
+  'domain',
+  'solana-address',
+])
 export type QuestAnswerFormat = z.infer<typeof QuestAnswerFormatSchema>
 
 /** The longest answer any question may ask for, and the shortest it may demand. */
@@ -64,6 +85,23 @@ export const QuestQuestionSchema = z.object({
   minLength: z.int().min(0).max(QUEST_ANSWER_MAX_LENGTH).default(0),
   maxLength: z.int().min(1).max(QUEST_ANSWER_MAX_LENGTH).default(2000),
   format: QuestAnswerFormatSchema.optional(),
+  /**
+   * Whether the quest's proof verifier is what establishes this answer (`#626`).
+   *
+   * **The sponsor's claim that the proof stage bears on *this* question**, and
+   * the reason a quest may be priced `hard` at all. It is not taken on trust:
+   * `questTier` accepts it only where the question's {@link format} is the shape
+   * that verifier proves control of, so a prose question about a deed cannot
+   * carry it however it is marked.
+   *
+   * **Optional, like {@link format} beside it, rather than defaulted** — and
+   * absent is the safe direction: a sponsor that says nothing about the
+   * connection has not claimed one, and the quest earns the tier its questions
+   * earn. A default would also have meant rewriting every question literal in
+   * the repository to say `provenBy: false`, which is a lot of noise for a field
+   * whose whole meaning is that it is usually not there.
+   */
+  provenBy: z.boolean().optional(),
   /**
    * The answers this question accepts, if it is closed-form (`#178`).
    *
@@ -180,6 +218,30 @@ const FORMAT_CHECKS: Readonly<Record<QuestAnswerFormat, (value: string) => boole
   url: (value) => /^https?:\/\/[^\s]+$/i.test(value),
   uuid: (value) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value),
   integer: (value) => /^-?\d+$/.test(value),
+  // A username at a provider: letters, digits, and the separators the large
+  // ones allow. A leading `@` is stripped by nothing here — an agent that sends
+  // one is told what the shape is rather than silently corrected.
+  handle: (value) => /^[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$/i.test(value),
+  // A hostname, not a URL: this is what `domain-verify` proves control of, and
+  // an answer carrying a scheme or a path is a different claim.
+  domain: (value) =>
+    /^(?=.{4,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/i.test(
+      value,
+    ),
+  // Base58, 32 bytes — the length range every Solana address falls in. The
+  // alphabet excludes `0`, `O`, `I` and `l` by construction.
+  'solana-address': (value) => /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(value),
+}
+
+/** What a format is called in the sentence stage 1 writes when an answer misses it. */
+const FORMAT_NAMES: Readonly<Record<QuestAnswerFormat, string>> = {
+  email: 'an email address',
+  url: 'a URL',
+  uuid: 'a UUID',
+  integer: 'a whole number',
+  handle: 'a handle',
+  domain: 'a domain name, without a scheme or a path',
+  'solana-address': 'a Solana address',
 }
 
 /**
@@ -270,7 +332,7 @@ export function checkQuestAnswers(
       problems.push({
         key: question.key,
         problem: 'malformed',
-        message: `"${question.key}" asks for ${question.format === 'url' ? 'a URL' : `a ${question.format}`} and "${answer}" is not one.`,
+        message: `"${question.key}" asks for ${FORMAT_NAMES[question.format]} and "${answer}" is not one.`,
       })
     }
   }

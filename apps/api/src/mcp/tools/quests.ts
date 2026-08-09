@@ -236,6 +236,16 @@ export function registerQuestTools(
         '`reward` times `slots`, reserved at submission. ' +
         '**What you may pay per answer depends on how it is proven, and the ceiling belongs to ' +
         'the tier rather than to you.** ' +
+        // `#626`: the old sentence stopped here, and a sponsor read *naming a
+        // verifier is how it is proven*. It is not — a verifier answers whether
+        // the citizen holds something at a third party, which is a gate on who
+        // may answer. This is the one thing about pricing that cannot be moved
+        // to the docs URL, because acting on the wrong belief costs a redraft.
+        '**Naming `proofVerifier` is a gate on who may answer and does not by itself raise that ' +
+        'ceiling.** It raises it only where every required question asks for the very thing the ' +
+        'verifier proves control of — a mailbox, a handle, a domain, a website, a wallet — ' +
+        'marked `provenBy` and carrying the matching `format`. A quest asking about a deed the ' +
+        'verifier cannot see is priced on what its questions state, not on the stage it named. ' +
         '**Size it knowing that unfilled slots are refunded**: the whole cost is held while ' +
         'the quest runs, and whatever the answers did not use comes back to you. ' +
         'You never judge an individual answer — you decide whether to ask, and the Colony ' +

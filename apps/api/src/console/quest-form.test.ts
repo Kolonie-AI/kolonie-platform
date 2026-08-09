@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { KNOWN_SKILLS, QUEST_PROOF_VERIFIERS, QUEST_TIER_CAPS_LAMPORTS } from '@kolonie-ai/core'
+import { KNOWN_SKILLS, QUEST_TIER_CAPS_LAMPORTS } from '@kolonie-ai/core'
 import { SKILLS_THE_ACADEMY_GRANTS } from '@kolonie-ai/db'
 import {
   questInvoiceLine,
@@ -255,14 +255,24 @@ describe('the quest form', () => {
       expect(note).toContain('soft')
       expect(note).toContain(String(QUEST_TIER_CAPS_LAMPORTS.soft))
       // The sentence a sponsor needs at the moment it skips the field.
-      expect(note).toContain("citizen's own word")
+      expect(note).toContain('citizen\u2019s own word')
     })
 
-    it('names the tier and the cap when a verifier is chosen', () => {
-      const note = proofNote(QUEST_PROOF_VERIFIERS[0] as string)
+    /**
+     * `#626`: it names the ceiling a verifier *could* reach and what reaching it
+     * takes, rather than saying the quest is already hard — which is what it
+     * said, and what made a sponsor choose a verifier expecting a ceiling it
+     * would not get.
+     */
+    it('says a verifier is a gate and what would raise the ceiling', () => {
+      const note = proofNote('email-inbox')
 
       expect(note).toContain('hard')
       expect(note).toContain(String(QUEST_TIER_CAPS_LAMPORTS.hard))
+      expect(note).toContain('does not raise what the quest may pay')
+      expect(note).toContain('every required question')
+      // Named, so a sponsor knows which shape of question would qualify.
+      expect(note).toContain('a mailbox it can read')
     })
   })
 

@@ -456,15 +456,36 @@ describe('POST /v1/quests', () => {
       expect(response.json().message).toContain(String(QUEST_TIER_CAPS_LAMPORTS.soft))
     })
 
+    /**
+     * **Naming the verifier is not enough on its own** (`#626`) — the quest has
+     * to be asking for the thing it proves, which is what the second draft here
+     * does and the first does not.
+     */
     it('accepts the same price once the quest can be checked', async () => {
-      const response = await write(
+      const named = await write(
         aDraft({
           reward: { reputation: 0, lamports: QUEST_TIER_CAPS_LAMPORTS.soft + 1 },
           proofVerifier: 'email-inbox',
         }),
       )
+      expect(named.statusCode).toBe(422)
 
-      expect(response.statusCode).toBe(201)
+      const proven = await write(
+        aDraft({
+          reward: { reputation: 0, lamports: QUEST_TIER_CAPS_LAMPORTS.soft + 1 },
+          proofVerifier: 'email-inbox',
+          questions: [
+            {
+              key: 'address',
+              prompt: 'Which address did you register?',
+              format: 'email',
+              provenBy: true,
+            },
+          ],
+        }),
+      )
+
+      expect(proven.statusCode).toBe(201)
     })
 
     it('judges against the setting rather than the constant when one is turned', async () => {
@@ -481,6 +502,58 @@ describe('POST /v1/quests', () => {
      */
     it('still refuses when nothing has been set', async () => {
       expect((await write(soft(QUEST_TIER_CAPS_LAMPORTS.soft * 2))).statusCode).toBe(422)
+    })
+
+    /**
+     * `#626`. The founding case, end to end: star and fork, proved by
+     * `github-account`, at the hard rate. Before this it was written and
+     * published; now it is refused with the reason rather than only the price.
+     */
+    it('refuses a quest whose verifier bears on nothing it asks, and says why', async () => {
+      const response = await write(
+        aDraft({
+          reward: { reputation: 0, lamports: QUEST_TIER_CAPS_LAMPORTS.hard },
+          proofVerifier: 'github-account',
+          questions: [{ key: 'starred', prompt: 'Which of our repositories did you star?' }],
+        }),
+      )
+
+      expect(response.statusCode).toBe(422)
+      expect(response.json().message).toContain('github-account')
+      expect(response.json().message).toContain('a GitHub account')
+    })
+
+    it('accepts the hard rate once every required question is one the verifier proves', async () => {
+      const response = await write(
+        aDraft({
+          reward: { reputation: 0, lamports: QUEST_TIER_CAPS_LAMPORTS.hard },
+          proofVerifier: 'github-account',
+          questions: [
+            {
+              key: 'handle',
+              prompt: 'Which GitHub account did you register?',
+              format: 'handle',
+              provenBy: true,
+            },
+          ],
+        }),
+      )
+
+      expect(response.statusCode).toBe(201)
+    })
+
+    it('still lets a verifier be named purely as a gate', async () => {
+      const response = await write(
+        aDraft({
+          reward: { reputation: 0, lamports: QUEST_TIER_CAPS_LAMPORTS['colony-judged'] },
+          proofVerifier: 'github-account',
+          questions: [
+            { key: 'what-happened', prompt: 'What happened?', criteria: 'Say what the page did.' },
+          ],
+        }),
+      )
+
+      expect(response.statusCode).toBe(201)
     })
   })
 })

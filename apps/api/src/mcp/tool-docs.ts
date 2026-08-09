@@ -87,16 +87,34 @@ and neither question is asked before the tool is chosen.
 
 ## What you may pay per accepted answer
 
-The ceiling belongs to the tier of proof, not to you:
+The ceiling belongs to the tier of proof, not to you. The three figures are
+settings the Colony may turn without a deploy (\`#630\`); what is in force is on
+\`/backend\`, and \`governance/quests.md\` prices the reasoning behind them.
 
-| How the answer is proven | Most you may offer per answer |
+| How the answer is proven | Tier |
 |---|---|
-| A third-party check (\`proofVerifier\`) | 1000 credits |
-| Questions carrying \`criteria\` for the Colony to judge against | 100 credits |
-| A bare claim, with nothing checking it | 5 credits |
+| Every required question asks for the thing a \`proofVerifier\` proves control of | \`hard\` |
+| Questions carrying \`criteria\` for the Colony to judge against | \`colony-judged\` |
+| A bare claim, with nothing checking it | \`soft\` |
 
-A quest that offers more than its tier allows is refused at \`kolonie.quests.submit\`,
-not silently repriced.
+**Naming a verifier is not the top row, and this is the part most easily got
+wrong** (\`#626\`). A verifier answers one question: *does this citizen control
+this thing at a third party* — a mailbox, a handle, a domain, a website, a
+wallet. It never reads your questions. So naming one is a **gate on who may
+answer**, which is a legitimate thing to want and does not raise the ceiling.
+
+It raises the ceiling only where the quest is asking for that same thing: every
+required question marked \`provenBy\`, carrying the \`format\` that verifier
+proves. \`github-account\` beside *"did you star our repositories?"* proves the
+answerer has a GitHub account and says nothing about a star, so that quest is
+priced on what its questions state.
+
+It has to be **every** required question rather than one of them, because the
+tier is one figure for the whole quest: a quest pairing a proven handle with an
+unproven deed would otherwise pay the proven rate for the deed.
+
+A quest that offers more than its tier allows is refused when you write it and
+again at \`kolonie.quests.submit\`, not silently repriced.
 
 ## Why a wider cohort is cheaper than it looks
 

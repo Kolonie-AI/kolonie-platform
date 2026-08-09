@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { QuestQuestionSchema } from './questions.js'
+import { QuestAnswerFormatSchema, QuestQuestionSchema } from './questions.js'
 import { RENT_EXEMPT_MINIMUM_FALLBACK } from '../ledger/transfer.js'
 import {
   DEFAULT_PLATFORM_FEE_PERCENT,
@@ -7,6 +7,8 @@ import {
   QUEST_EDITABLE_STATUSES,
   QUEST_TIER_CAPS_LAMPORTS,
   QUEST_TIER_CAP_SETTINGS,
+  QUEST_PROOF_VERIFIERS,
+  QUEST_VERIFIER_PROVES,
   QUEST_REVIEW_REWARD_LAMPORTS,
   QUEST_MAX_DURATION_DAYS,
   QUEST_MAX_SLOTS,
@@ -289,8 +291,16 @@ describe('the tier and its ceiling', () => {
   })
   const without = QuestQuestionSchema.parse({ key: 'a', prompt: 'What happened?' })
 
-  it('is hard when a proof verifier is named', () => {
-    expect(questTier({ proofVerifier: 'email-inbox', questions: [without] })).toBe('hard')
+  /** `#626`: proven means the question asks for what the verifier establishes. */
+  const provenEmail = QuestQuestionSchema.parse({
+    key: 'address',
+    prompt: 'Which address did you register?',
+    format: 'email',
+    provenBy: true,
+  })
+
+  it('is hard when every required question is one the verifier establishes', () => {
+    expect(questTier({ proofVerifier: 'email-inbox', questions: [provenEmail] })).toBe('hard')
   })
 
   it('is colony-judged when a question states criteria', () => {
@@ -324,10 +334,116 @@ describe('the tier and its ceiling', () => {
     expect(
       questRewardRejection({
         proofVerifier: 'email-inbox',
-        questions: [without],
+        questions: [provenEmail],
         reward: { lamports: QUEST_TIER_CAPS_LAMPORTS.hard + 1 },
       }),
     ).toContain('hard')
+  })
+
+  /**
+   * `#626`. The tier used to be *a verifier is named*, so naming one raised the
+   * ceiling two hundredfold whether or not it bore on what the quest asked.
+   */
+  describe('a verifier has to prove what the quest asks', () => {
+    /** The case that found it: star and fork, proved by `github-account`. */
+    const starAndFork = {
+      proofVerifier: 'github-account',
+      questions: [
+        QuestQuestionSchema.parse({
+          key: 'starred',
+          prompt: 'Which of our repositories did you star?',
+        }),
+      ],
+    }
+
+    it('is not hard when the verifier bears on no question the quest asks', () => {
+      expect(questTier(starAndFork)).toBe('soft')
+    })
+
+    it('is colony-judged rather than soft when the questions state criteria', () => {
+      expect(
+        questTier({
+          ...starAndFork,
+          questions: [
+            QuestQuestionSchema.parse({
+              ...starAndFork.questions[0],
+              criteria: 'Name the repository.',
+            }),
+          ],
+        }),
+      ).toBe('colony-judged')
+    })
+
+    it('refuses the claim when the format is not the shape the verifier proves', () => {
+      const marked = QuestQuestionSchema.parse({
+        key: 'starred',
+        prompt: 'Which repository did you star?',
+        provenBy: true,
+      })
+
+      expect(questTier({ proofVerifier: 'github-account', questions: [marked] })).toBe('soft')
+      expect(
+        questTier({
+          proofVerifier: 'github-account',
+          questions: [QuestQuestionSchema.parse({ ...marked, format: 'email' })],
+        }),
+      ).toBe('soft')
+    })
+
+    it('needs every required question proven, not merely one of them', () => {
+      const deed = QuestQuestionSchema.parse({ key: 'starred', prompt: 'Did you star it?' })
+      const optionalDeed = QuestQuestionSchema.parse({ ...deed, required: false })
+
+      expect(questTier({ proofVerifier: 'email-inbox', questions: [provenEmail, deed] })).toBe(
+        'soft',
+      )
+      // An optional question is not part of what the sponsor is buying, so it
+      // does not hold the tier down.
+      expect(
+        questTier({ proofVerifier: 'email-inbox', questions: [provenEmail, optionalDeed] }),
+      ).toBe('hard')
+    })
+
+    it('is not hard when the quest already requires what the verifier proves', () => {
+      expect(
+        questTier({
+          proofVerifier: 'email-inbox',
+          questions: [provenEmail],
+          requires: ['mailbox'],
+        }),
+      ).toBe('soft')
+    })
+
+    it('still lets a verifier be a gate, at whatever tier the questions earn', () => {
+      const judged = QuestQuestionSchema.parse({
+        key: 'what-happened',
+        prompt: 'What happened?',
+        criteria: 'Say what the page did.',
+      })
+
+      expect(questTier({ proofVerifier: 'github-account', questions: [judged] })).toBe(
+        'colony-judged',
+      )
+    })
+
+    it('names the unproven question in the refusal rather than only the price', () => {
+      const rejection = questRewardRejection({
+        ...starAndFork,
+        reward: { lamports: QUEST_TIER_CAPS_LAMPORTS.hard },
+      })
+
+      expect(rejection).toContain('not hard because')
+      expect(rejection).toContain('github-account')
+      expect(rejection).toContain('a GitHub account')
+    })
+
+    it('names a subject and a format for every verifier the Colony runs', () => {
+      for (const verifier of QUEST_PROOF_VERIFIERS) {
+        const proves = QUEST_VERIFIER_PROVES[verifier]
+        expect(proves.subject.length).toBeGreaterThan(0)
+        expect(QuestAnswerFormatSchema.options).toContain(proves.format)
+      }
+    })
   })
 
   describe('the ceilings a setting may turn (#630)', () => {

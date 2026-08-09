@@ -403,3 +403,113 @@ describe('which calls a standing line arrives on', () => {
     await close()
   })
 })
+
+/**
+ * `#646`: a duty a role owes travels beside the citizen's one line, not instead
+ * of it.
+ *
+ * The failure these are named after: `quests-awaiting-review` sat in
+ * `STANDING_HINT_RANK` and was never reached, because two conditions above it —
+ * `attempts-unreported` and `pass-unreported` — stay true until a citizen files
+ * reports nothing obliges it to file. A steward woke fourteen minutes after a
+ * quest entered the queue, was told about a report it owed, and heard nothing
+ * about the quest.
+ *
+ * Which line wins is `packages/core`'s question and whether the Colony has one
+ * is `packages/db`'s. These are about the channel carrying two.
+ */
+describe('a duty a role owes', () => {
+  const both = async () => {
+    const { colony, agent, apiKey } = await registeredCitizen()
+    const hints = fakeStandingHints()
+    hints.answers('rhythm-undeclared')
+    hints.owes('quests-awaiting-review')
+
+    const { client, close } = await connectedClient(
+      { ...colony, hints },
+      `Bearer ${apiKey}`,
+      agent.id,
+    )
+    return { client, hints, close }
+  }
+
+  const RHYTHM = standingHintText({ code: 'rhythm-undeclared', subject: null })
+  const REVIEW = standingHintText({ code: 'quests-awaiting-review', subject: null })
+
+  /** The whole of the issue: the steward hears both, and neither displaces the other. */
+  it('arrives beside the citizen’s own line rather than instead of it', async () => {
+    const { client, close } = await both()
+
+    const result = await client.callTool({ name: 'kolonie.me', arguments: {} })
+    const text = (result.content as { type: string; text: string }[]).map((part) => part.text)
+
+    expect(text).toContain(REVIEW.text)
+    expect(text).toContain(RHYTHM.text)
+    await close()
+  })
+
+  /**
+   * `hint` is the field it always was and `duty` is a new key beside it, so a
+   * client that parses one is unaffected by the other existing.
+   */
+  it('carries its own field, leaving hint exactly where it was', async () => {
+    const { client, close } = await both()
+
+    const result = await client.callTool({ name: 'kolonie.me', arguments: {} })
+    const structured = result.structuredContent as Record<string, unknown>
+
+    expect(structured['hint']).toMatchObject({ code: 'rhythm-undeclared' })
+    expect(structured['duty']).toMatchObject({ code: 'quests-awaiting-review' })
+    await close()
+  })
+
+  /**
+   * **It spends nothing, so it repeats.** The citizen's own line is claimed by
+   * asking and is gone after one; the duty stands until the queue is empty, and
+   * a steward that calls `kolonie.me` twice is owed it twice.
+   */
+  it('repeats after the citizen’s one line has been spent', async () => {
+    const { client, close } = await both()
+
+    await client.callTool({ name: 'kolonie.me', arguments: {} })
+    const second = await client.callTool({ name: 'kolonie.me', arguments: {} })
+    const text = (second.content as { type: string; text: string }[]).map((part) => part.text)
+
+    expect(text).toContain(REVIEW.text)
+    expect(text).not.toContain(RHYTHM.text)
+    await close()
+  })
+
+  /** Same routing rule as the line it travels with: two tools, and no fallback. */
+  it('does not arrive on a call about something else', async () => {
+    const { client, close } = await both()
+
+    const result = await client.callTool({
+      name: 'kolonie.academy.answer',
+      arguments: { kind: 'memory.code' },
+    })
+
+    expect(JSON.stringify(result)).not.toContain(REVIEW.text)
+    await close()
+  })
+
+  /** A citizen holding no role is unaffected, which is every citizen but two. */
+  it('is absent for a citizen that owes none', async () => {
+    const { colony, agent, apiKey } = await registeredCitizen()
+    const hints = fakeStandingHints()
+    hints.answers('rhythm-undeclared')
+
+    const { client, close } = await connectedClient(
+      { ...colony, hints },
+      `Bearer ${apiKey}`,
+      agent.id,
+    )
+
+    const result = await client.callTool({ name: 'kolonie.me', arguments: {} })
+    const structured = result.structuredContent as Record<string, unknown>
+
+    expect(structured['duty']).toBeUndefined()
+    expect(structured['hint']).toMatchObject({ code: 'rhythm-undeclared' })
+    await close()
+  })
+})

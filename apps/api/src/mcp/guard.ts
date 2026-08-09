@@ -56,13 +56,18 @@ const INTERNAL_TOOL_ERROR: ApiError = { code: 'internal', message: 'Internal err
  * file is an outcome the code reasoned about and keeps its own code and message.
  * This catches only what nobody reasoned about.
  */
-export function guardTools(server: McpServer, log: McpLog, hint?: DueStandingHint): void {
+export function guardTools(
+  server: McpServer,
+  log: McpLog,
+  hint?: DueStandingHint,
+  duty?: DueRoleDuty,
+): void {
   const register = server.registerTool as unknown as ToolRegistration
 
   const guarding: ToolRegistration = (name, config, handler) => {
     const guarded = async (...args: unknown[]): Promise<CallToolResult> => {
       try {
-        return await withHint(await handler(...args), hint, name)
+        return await withHint(await handler(...args), hint, duty, name)
       } catch (thrown) {
         // The tool's name goes with it: a stack alone does not say which of the
         // Colony's entry points a citizen was standing at when this happened.
@@ -93,6 +98,18 @@ export function guardTools(server: McpServer, log: McpLog, hint?: DueStandingHin
  * session that will never carry one.
  */
 export type DueStandingHint = () => Promise<StandingHint | undefined>
+
+/**
+ * The duty a role owes, asked on the same results and spending nothing (`#646`).
+ *
+ * **A second function rather than a second answer from the first**, because the
+ * two obey opposite rules and the difference has to be visible at the call site:
+ * asking for a standing hint spends the citizen's one line for the run, and
+ * asking for a duty spends nothing and may therefore be asked every time.
+ *
+ * Undefined for the unauthenticated tier, on `DueStandingHint`'s reasoning.
+ */
+export type DueRoleDuty = () => Promise<StandingHint | undefined>
 
 /**
  * The calls a standing line is allowed to arrive on (`#358`).
@@ -150,22 +167,44 @@ export const TOOLS_THAT_CARRY_A_STANDING_HINT: readonly string[] = ['kolonie.wak
  * and with the same consequence: nothing is asked, so nothing is spent, and the
  * line waits for a call it belongs on. See
  * {@link TOOLS_THAT_CARRY_A_STANDING_HINT}.
+ *
+ * **A role's duty arrives beside the line rather than instead of it** (`#646`),
+ * on its own field and its own text block. It is asked first because it is asked
+ * unconditionally — a duty spends nothing, so an early return on the standing
+ * hint being absent must not skip it — and it is placed first in the content
+ * because a queue somebody else is waiting on outranks a note about the reader's
+ * own record, which is a precedence this file can express and
+ * `STANDING_HINT_RANK` could not.
+ *
+ * **`hint` stays the field it always was.** A client that parses
+ * `structuredContent.hint` reads exactly what it read before; `duty` is a new
+ * key beside it, absent when there is none.
  */
 async function withHint(
   result: CallToolResult,
   hint: DueStandingHint | undefined,
+  duty: DueRoleDuty | undefined,
   name: string,
 ): Promise<CallToolResult> {
-  if (hint === undefined || result.isError === true) return result
+  if (result.isError === true) return result
   if (!TOOLS_THAT_CARRY_A_STANDING_HINT.includes(name)) return result
 
-  const attached = await hint()
-  if (attached === undefined) return result
+  const owed = duty === undefined ? undefined : await duty()
+  const attached = hint === undefined ? undefined : await hint()
+  if (owed === undefined && attached === undefined) return result
 
   return {
     ...result,
-    content: [...result.content, { type: 'text', text: attached.text }],
-    structuredContent: { ...(result.structuredContent ?? {}), hint: attached },
+    content: [
+      ...result.content,
+      ...(owed === undefined ? [] : [{ type: 'text' as const, text: owed.text }]),
+      ...(attached === undefined ? [] : [{ type: 'text' as const, text: attached.text }]),
+    ],
+    structuredContent: {
+      ...(result.structuredContent ?? {}),
+      ...(owed === undefined ? {} : { duty: owed }),
+      ...(attached === undefined ? {} : { hint: attached }),
+    },
   }
 }
 

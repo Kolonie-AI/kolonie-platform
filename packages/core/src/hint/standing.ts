@@ -525,18 +525,28 @@ export function generalHintText(code: string): string | undefined {
  * allowlist belongs to the operator, which is why the sentence points at the
  * operator channel as well as at the frontier.
  *
- * **`quests-awaiting-review` sits directly above `credits-uncommitted`**
- * (`#492`), and the reason is the sentence about the three lowest that it is the
- * exception to. They are down there because *they name a door rather than a
- * deadline, so they yield to anything with a clock on it* — and this one has a
- * clock. Escrow is committed at publication, so a sponsor's balance is held for
- * nothing while the queue is unread. What makes it unlike everything above it is
- * whose clock it is: **somebody else's.**
+ * **`quests-awaiting-review` is not on this list at all**, and it used to be
+ * (`#492`, removed by `#646`). It sat above `account-kind-proved` on a reading
+ * that was correct as far as it went — it has a clock, and the clock is somebody
+ * else's — and the placement still failed, because the argument was about the
+ * wrong thing.
  *
- * It ranks below `quest-open-to-you` all the same, and that is this list's own
- * rule applied to a steward rather than an exception made for one: work the
- * citizen can be paid for now outranks work it does for the Colony. A steward is
- * a citizen first.
+ * **Every other code here is a fact about the reader**: its badge, its skill, its
+ * money, its attempt, its runtime. One line per waking is the right budget for
+ * those, because they are all claims on the same attention and ranking them is
+ * choosing what this citizen most needs to hear about itself. This one is a fact
+ * about *the Colony*, addressed to whoever holds a role — and it was competing
+ * for a slot sized for the other kind.
+ *
+ * Measured 2026-08-09: of the two stewards, one had six unreported failures and
+ * thirteen unreported passes standing. `attempts-unreported` and
+ * `pass-unreported` are both true until that citizen files reports nothing
+ * obliges it to file, so they fired every waking and the queue line was never
+ * reached. It woke fourteen minutes after a quest entered the queue, was told
+ * about a report it owed, acted on it, and heard nothing about the quest. The
+ * other steward had a clear record and would have been told — and was asleep.
+ *
+ * So it is served beside this list rather than inside it. See `ROLE_DUTY_HINTS`.
  */
 /**
  * **`model-undeclared` is the lowest of the doors** (`#511`), directly under
@@ -600,7 +610,6 @@ export const STANDING_HINT_RANK: readonly StandingHintCode[] = [
   'quest-open-to-you',
   'quest-unreported',
   'runtime-shell-absent',
-  'quests-awaiting-review',
   'account-kind-proved',
   /**
    * **The second of the doors** (`#577`), under `account-kind-proved` and above
@@ -625,6 +634,46 @@ export const STANDING_HINT_RANK: readonly StandingHintCode[] = [
   'task-considered',
   'general',
 ]
+
+/**
+ * The codes served beside {@link STANDING_HINT_RANK} rather than inside it
+ * (`#646`).
+ *
+ * **A duty of a role, not a fact about the reader.** A citizen either holds the
+ * role or never sees one of these, so there is nothing for them to compete
+ * with — which is the whole reason they are not ranked. Adding one costs the
+ * ordinary citizen nothing, because the role is asked first and a non-steward is
+ * answered by one indexed read.
+ *
+ * **These do not spend the one line per waking**, and that is the point rather
+ * than a side effect: a steward is a citizen first, and being told about the
+ * Colony's queue must not cost it the line about its own record. Both arrive.
+ *
+ * **So they repeat**, for as long as the duty stands, on the two tools that
+ * carry a standing line. That is what a duty is: `attempts-unreported` also
+ * repeats until the citizen acts, and nobody has argued it should stop. What
+ * would be wrong is a duty said once into an empty room.
+ */
+export const ROLE_DUTY_HINTS: readonly StandingHintCode[] = ['quests-awaiting-review']
+
+/**
+ * The duty this citizen owes a role, or nothing.
+ *
+ * Same shape and same reason as {@link chooseStandingHint}: what applies is a
+ * question about the database and this is the rule about precedence, so the two
+ * can be tested without a Postgres. There is one duty today and the list is
+ * ordered anyway — a second one arriving should not be the moment somebody first
+ * decides which comes first.
+ */
+export function chooseRoleDuty(
+  applicable: readonly StandingHintFinding[],
+): StandingHintFinding | undefined {
+  for (const code of ROLE_DUTY_HINTS) {
+    const found = applicable.find((finding) => finding.code === code)
+    if (found !== undefined) return found
+  }
+  return undefined
+}
 
 /**
  * What a citizen is handed: a code a client can branch on, and a sentence.

@@ -6,7 +6,7 @@ import type {
   StandingHintFinding,
 } from '@kolonie-ai/core'
 import { GENERAL_HINTS, generalHintText, whatAKindOpens } from '@kolonie-ai/core'
-import { dueStandingHint, standingHintDueFor, type Database } from '@kolonie-ai/db'
+import { dueRoleDuty, dueStandingHint, standingHintDueFor, type Database } from '@kolonie-ai/db'
 
 /**
  * The one line a citizen did not ask for (`#231`).
@@ -39,6 +39,20 @@ export interface StandingHintSource {
    * about what is wrong.
    */
   facing(agentId: AgentId): Promise<StandingHintFinding | null>
+  /**
+   * The duty this agent owes a role, beside its one line rather than instead of
+   * it (`#646`).
+   *
+   * **A third method rather than a branch inside `due`**, because it obeys a
+   * different rule: it claims no slot, so it does not spend the citizen's line,
+   * and it therefore repeats for as long as the duty stands. Folding it into
+   * `due` would make that difference a condition inside one function instead of
+   * a fact about which function was called.
+   *
+   * Safe to call on every result that carries a line: a citizen holding no role
+   * is answered by one indexed read.
+   */
+  duty(agentId: AgentId): Promise<StandingHintFinding | null>
 }
 
 /**
@@ -59,6 +73,7 @@ export function databaseStandingHints(db: Database, releases: SkillReleases): St
   return {
     due: (agentId) => dueStandingHint(db, agentId, urls),
     facing: (agentId) => standingHintDueFor(db, agentId, urls),
+    duty: (agentId) => dueRoleDuty(db, agentId),
   }
 }
 

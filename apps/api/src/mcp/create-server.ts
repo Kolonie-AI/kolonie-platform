@@ -160,6 +160,19 @@ export function createMcpServer(
           const due = await deps.hints.due(agentId)
           return due === null ? undefined : standingHintText(due)
         },
+    /**
+     * The duty a role owes (`#646`), beside the line rather than instead of it.
+     *
+     * Same tier rule as above and a different budget: this spends nothing, so it
+     * is asked on every result that carries a line, and a citizen holding no
+     * role is answered by one indexed read.
+     */
+    agentId === undefined
+      ? undefined
+      : async () => {
+          const owed = await deps.hints.duty(agentId)
+          return owed === null ? undefined : standingHintText(owed)
+        },
   )
 
   /**

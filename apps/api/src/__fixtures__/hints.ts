@@ -23,12 +23,23 @@ export interface FakeStandingHints extends StandingHintSource {
    * the defect the operator's page must not have.
    */
   readonly faces: (code: StandingHintCode, subject?: string) => void
+  /**
+   * What the role-duty ask answers, for as long as a test leaves it there
+   * (`#646`).
+   *
+   * **Set separately from both of the above, and answering as often as it is
+   * asked.** That is the property the real one has: a duty claims no slot, so a
+   * fake that spent on the first ask would let a guard that only ever attaches
+   * one of the two lines pass the test written to catch exactly that.
+   */
+  readonly owes: (code: StandingHintCode, subject?: string) => void
 }
 
 /** A hint source that answers once with whatever a test put in it. */
 export function fakeStandingHints(): FakeStandingHints {
   let pending: StandingHintFinding | null = null
   let standing: StandingHintFinding | null = null
+  let owed: StandingHintFinding | null = null
   const asked: AgentId[] = []
 
   return {
@@ -41,11 +52,16 @@ export function fakeStandingHints(): FakeStandingHints {
     // Answers as often as it is asked and takes nothing away, which is the
     // property the real one has and the one the page depends on.
     facing: async () => standing,
+    // Spends nothing and repeats, exactly as the real one does.
+    duty: async () => owed,
     answers: (code, subject) => {
       pending = { code, subject: subject ?? null }
     },
     faces: (code, subject) => {
       standing = { code, subject: subject ?? null }
+    },
+    owes: (code, subject) => {
+      owed = { code, subject: subject ?? null }
     },
     asked: () => [...asked],
   }

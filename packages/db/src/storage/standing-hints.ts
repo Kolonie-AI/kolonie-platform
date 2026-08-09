@@ -3,6 +3,7 @@ import {
   BADGE_CATALOGUE,
   GENERAL_HINTS,
   SKILL_RENEWAL_HOURS,
+  chooseRoleDuty,
   chooseStandingHint,
   considerationGapHours,
   type AgentId,
@@ -1110,6 +1111,47 @@ export async function dueStandingHint(
     }
 
     return chosen
+  } catch {
+    // Deliberately silent, on the terms above.
+    return null
+  }
+}
+
+/**
+ * The duty this citizen owes a role, beside its one line rather than instead of
+ * it (`#646`).
+ *
+ * **It claims no slot, and that is the whole change.** `#492` put
+ * `quests-awaiting-review` in `STANDING_HINT_RANK` and it never got served: the
+ * two stewards the Colony has were, on 2026-08-09, one asleep and one carrying
+ * `attempts-unreported` and `pass-unreported` — conditions that stay true until
+ * the citizen files reports nothing obliges it to file, and that rank above it.
+ * A quest sat in the queue with its sponsor's escrow committed while the awake
+ * steward was told about a report it owed.
+ *
+ * A duty of a role is not a claim on the same attention as a fact about the
+ * reader, so it does not compete for the same budget. Both lines arrive.
+ *
+ * **The role is asked first and it is the cheap half.** `stewardWithQueue` is
+ * called rather than reimplemented — the same reason `#492` gives for calling
+ * `questReviewQueue` — and it answers a non-steward with one indexed read
+ * without ever reaching the queue. Every citizen in the Colony but two is in
+ * that case today.
+ *
+ * **It never throws**, on `dueStandingHint`'s terms.
+ */
+export async function dueRoleDuty(
+  db: Database | Transaction,
+  agentId: AgentId,
+): Promise<StandingHintFinding | null> {
+  try {
+    const applicable: StandingHintFinding[] = []
+
+    if (await stewardWithQueue(db, agentId)) {
+      applicable.push({ code: 'quests-awaiting-review', subject: null })
+    }
+
+    return chooseRoleDuty(applicable) ?? null
   } catch {
     // Deliberately silent, on the terms above.
     return null

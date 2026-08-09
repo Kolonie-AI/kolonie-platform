@@ -130,11 +130,21 @@ export function page(input: {
 /**
  * The one navigation the console has (`#431`).
  *
- * Five links and a sign-out, because that is everything a signed-in person can
+ * Three links and a sign-out, because that is everything a signed-in person can
  * be looking for: where their agents are, what those agents have asked the
- * Colony for, where money goes in, which sessions they hold, and the way out. It is a `POST` rather than a link — a sign-out reachable by `GET` is a
- * sign-out anybody can trigger with an image tag on another page, and the
- * `SameSite=Lax` cookie is the only thing that would be standing in the way.
+ * Colony for, which sessions they hold, and the way out. It is a `POST` rather
+ * than a link — a sign-out reachable by `GET` is a sign-out anybody can trigger
+ * with an image tag on another page, and the `SameSite=Lax` cookie is the only
+ * thing that would be standing in the way.
+ *
+ * **`Funding` was the fourth and is gone — `#605`.** `/funding` was deleted with
+ * the deposit module (`#506`, D-106) and the navigation was not told, so it
+ * answered 404 for a person who had just signed in. `#460`'s argument for
+ * keeping it here — that a funding page reached only from a shortfall message is
+ * one you meet at the worst moment — was right while there was a page; it is not
+ * an argument for a link to nothing. The question that link answered is answered
+ * where a person now has it, on `/quests`: the Colony invoices a published quest
+ * and the sponsor pays it from a wallet the Colony has no key to.
  */
 const CONSOLE_HEADER = [
   '<nav class="console-header">',
@@ -143,10 +153,6 @@ const CONSOLE_HEADER = [
   // Beside the agents rather than under one of them: it is a join over all of
   // them, and it is the first thing somebody running four agents looks for.
   '<a href="/quests">Quests</a>',
-  // Where money goes in (`#460`). In the navigation rather than only linked
-  // from a shortfall message: a funding page somebody can only reach by first
-  // failing to afford something is a page they meet at the worst moment.
-  '<a href="/funding">Funding</a>',
   '<a href="/sessions">Sessions</a>',
   '<form method="post" action="/sign-out"><button type="submit">Sign out</button></form>',
   '</nav>',

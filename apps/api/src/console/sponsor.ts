@@ -210,7 +210,28 @@ export function operatedQuestsPage(input: {
             : []),
         ]
 
-  return page({ title: 'Quests', body: body.join('\n'), signedIn: true })
+  /**
+   * **How you pay for something, said here because this is where the question
+   * arises — `#605`.**
+   *
+   * The navigation used to carry a `Funding` link, and a person clicking it
+   * wanted one answer: *how do I pay for this*. The page behind it was deleted
+   * with the deposit module (`#506`, D-106) and the link was left pointing at a
+   * 404. The honest replacement is not a second page explaining that the first
+   * one is gone — it is the answer itself, on the page a sponsor is already on
+   * when the question occurs to them.
+   *
+   * On both empty states as well as the list: somebody who has written nothing
+   * yet is exactly the reader deciding whether to, and the cost of doing so is
+   * part of that decision. The quest form says the same thing at the moment of
+   * writing (`#553`); this says it at the moment of asking.
+   */
+  const paying =
+    '<p class="note">There is nothing to top up here. A quest is reviewed by a steward, and if ' +
+    'it is published the Colony invoices it — you send the payment in SOL from a wallet you ' +
+    'control. The Colony holds no balance of yours and no key to that wallet.</p>'
+
+  return page({ title: 'Quests', body: [...body, paying].join('\n'), signedIn: true })
 }
 
 export function questsPage(input: {

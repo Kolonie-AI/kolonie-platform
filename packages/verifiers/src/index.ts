@@ -144,6 +144,7 @@ export {
   destinationFor,
   guardedSmsSender,
   twilioAdapter,
+  unreachableCountryRefusal,
   type SmsAdapter,
   type SmsLimits,
   type SmsMessage,
@@ -153,6 +154,13 @@ export {
   type SmsSpendLedger,
   type TwilioCredentials,
 } from './sms.js'
+export {
+  twilioSmsGeography,
+  type CountryVerdict,
+  type Reachability,
+  type ReachableCountry,
+  type SmsGeography,
+} from './sms-geography.js'
 export {
   SmsReceiveVerifier,
   type SmsChallenges,

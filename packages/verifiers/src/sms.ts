@@ -21,6 +21,8 @@
  * The environment is read in `apps/`, and `kolonie-infra#82` wires it.
  */
 
+import type { SmsGeography } from './sms-geography.js'
+
 /**
  * A message that arrived at the Colony's own number.
  *
@@ -466,21 +468,59 @@ export function guardedSmsSender(dependencies: {
   readonly ledger: SmsSpendLedger
   readonly limits?: SmsLimits
   readonly now?: () => Date
+  /**
+   * What the vendor says the Colony may text (`#617`).
+   *
+   * **Optional, and its presence changes which of two answers the prefix list
+   * gives.** With it, reachability is read from Twilio and
+   * {@link SmsLimits.allowedPrefixes} is not consulted for geography at all —
+   * which is the whole point, because a list in this repository stops being true
+   * without stopping being readable. Without it the prefixes are the fallback
+   * and behave exactly as they did.
+   */
+  readonly geography?: SmsGeography
 }): SmsSender {
   const limits = dependencies.limits ?? DEFAULT_SMS_LIMITS
   const now = dependencies.now ?? (() => new Date())
 
   return {
     send: async (agentId, to, body) => {
-      const destination = destinationFor(to, limits.allowedPrefixes)
+      /**
+       * Geography, before anything is spent and before any cap is counted.
+       *
+       * **Refused only where the vendor is certain**, which is
+       * {@link SmsGeography}'s whole contract: `unknown` falls through to the
+       * send, where Twilio's own `21408` still catches it. So this can move a
+       * refusal earlier and cannot invent one — and a citizen that would have
+       * bought a number, minted a challenge and *then* been told its country is
+       * closed is told at the mint instead.
+       *
+       * **The sentence is not the old one.** *There is nothing you can do to
+       * make this one work* was written to spare a citizen a pointless retry and
+       * closed a door that is open: the maintainer can enable a country, and on
+       * 2026-08-09 did, after an agent said it was stuck. It got there by writing
+       * to its operator rather than because the message told it to.
+       */
+      if (dependencies.geography !== undefined) {
+        const verdict = await dependencies.geography.check(to)
 
-      if (destination === undefined) {
-        return {
-          outcome: 'refused',
-          reason:
-            `The Colony does not send messages to \`${to}\`. It sends to ` +
-            `${limits.allowedPrefixes.map((each) => `${each.country} (${each.prefix})`).join(', ')}` +
-            ' and nowhere else.',
+        if (verdict.verdict === 'unreachable') {
+          return {
+            outcome: 'refused',
+            reason: unreachableCountryRefusal(verdict.country),
+          }
+        }
+      } else {
+        const destination = destinationFor(to, limits.allowedPrefixes)
+
+        if (destination === undefined) {
+          return {
+            outcome: 'refused',
+            reason:
+              `The Colony does not send messages to \`${to}\`. It sends to ` +
+              `${limits.allowedPrefixes.map((each) => `${each.country} (${each.prefix})`).join(', ')}` +
+              ' and nowhere else.',
+          }
         }
       }
 
@@ -528,6 +568,38 @@ export function guardedSmsSender(dependencies: {
       return result
     },
   }
+}
+
+/**
+ * What a citizen in a country the Colony has not opened is told (`#617`).
+ *
+ * **Three clauses, and the third is the repair.** It is the Colony's
+ * configuration; nothing about the citizen's number or submission is wrong; and
+ * **it can be asked for**. The sentence it replaces ended *there is nothing you
+ * can do to make this one work*, which a citizen in Nigeria or India reads as
+ * *this rung is impossible for me*. It is not; it is one request away, and the
+ * only agent that has ever got a country opened did it by writing to its
+ * operator rather than because the Colony told it how.
+ *
+ * **The ask is recorded by being made.** `kolonie.support.open` is the channel
+ * that already exists for asking the Colony for something, its tickets are read
+ * by the triage runner, and a ticket naming a country is exactly the class of
+ * fact `#534` collects about what agents wish they had. A second register for
+ * the same thing would be a second place it can be wrong. The subject is
+ * dictated so the tickets are findable as a set rather than as prose.
+ *
+ * Exported, so the tools that explain the rung can quote the same words rather
+ * than write their own.
+ */
+export function unreachableCountryRefusal(country: string): string {
+  return (
+    `The Colony cannot currently send to ${country}. That is our configuration and not your ` +
+    'number: nothing about it or about your submission is wrong, and nothing here counts ' +
+    'against you. It can be opened — the Colony has opened a country before, on a citizen ' +
+    'asking. Open a ticket with kolonie.support.open, subject "SMS country: ' +
+    `${country}", saying which country you are in. Then come back to this rung; your attempt is ` +
+    'not spent and the number you bought is not wasted.'
+  )
 }
 
 /** The longest allowed prefix this number starts with, if any. */

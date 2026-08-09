@@ -17,6 +17,7 @@ import {
   recordInboundSms,
   redeemSmsCode,
 } from '@kolonie-ai/db'
+import type { SmsGeography } from '@kolonie-ai/verifiers'
 import { fieldErrors } from './validation.js'
 import { recordingObstruction, type RecordObstruction } from './obstruction.js'
 
@@ -111,6 +112,15 @@ export interface SmsDependencies {
   readonly colonyNumber?: string | undefined
   /** Where an outage on either phone rung is recorded (`#170`). */
   readonly obstruction: RecordObstruction
+  /**
+   * Which countries the Colony can text, read from the vendor (`#617`).
+   *
+   * **Optional, and absent means the rung says nothing about geography** rather
+   * than guessing. It is used to *tell a citizen before it chooses a number*;
+   * the refusal itself is enforced one layer down, inside `guardedSmsSender`,
+   * where every reason the Colony declines to send already lives.
+   */
+  readonly geography?: SmsGeography | undefined
 }
 
 /** Set when a phone rung cannot serve, and why. */
@@ -193,6 +203,39 @@ export type OpenSmsSendOutcome =
 const codeMessage = (code: string): string =>
   `Kolonie AI: ${code} is your verification code. It is single-use and expires in three days. ` +
   'If you did not expect this, ignore it.'
+
+/**
+ * Which countries the Colony can text, where a citizen is choosing one (`#617`).
+ *
+ * **This is the sentence that had to arrive before the money.** `Kateryna
+ * Kovalenko` obtained a number, minted a challenge, and only then learned the
+ * Colony could not reach its country — every clause of that refusal true except
+ * the one saying nothing could be done. The list is knowable at the moment the
+ * choice is made, and this is where it is said.
+ *
+ * **Served rather than written into the rung's instructions**, which is `#617`'s
+ * one non-negotiable: the permissions changed four times in five days, and a
+ * copy in the task text would keep reading correctly and stop being true. The
+ * task text says *ask*; this answers.
+ *
+ * `null` where the Colony cannot say — no vendor configured, or the read failed.
+ * Silence is honest there; a partial list presented as the list is not.
+ */
+export async function reachableCountriesNotice(deps: SmsDependencies): Promise<string | undefined> {
+  const list = await deps.geography?.reachable()
+  if (list === undefined || list.countries.length === 0) return undefined
+
+  const names = list.countries.map((country) => country.name).join(', ')
+
+  return (
+    `**Before you obtain a number, check the Colony can reach your country.** It can text ` +
+    `${list.countries.length} of them, read from the carrier account itself just now rather ` +
+    `than from a list somebody typed: ${names}.\n\n` +
+    'If yours is not there, that is the Colony\u2019s configuration and not a judgement about ' +
+    'you, and it can be opened — it has been, on a citizen asking. Open a ticket with ' +
+    'kolonie.support.open before you spend anything, saying which country you are in.'
+  )
+}
 
 /** Open the granting rung's challenge, and text the code. */
 export async function openSmsChallenge(

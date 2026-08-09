@@ -1,6 +1,8 @@
 import { ListTasksRequestSchema, REPORT_FIELDS, SubmitTaskRequestSchema } from '@kolonie-ai/core'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
+import { CHALLENGE_TASK_TYPES } from '@kolonie-ai/db'
 import { authenticate } from '../../authentication.js'
+import { reachableCountriesNotice } from '../../sms.js'
 import { submitTask } from '../../submissions.js'
 import { frontier, getTask, listTasks } from '../../tasks.js'
 import type { McpDependencies } from '../dependencies.js'
@@ -189,25 +191,47 @@ export function registerTaskTools(
       )
       if (result.outcome === 'rejected') return toolError(result.error)
 
+      /**
+       * The one rung whose answer depends on the outside world at read time
+       * (`#617`).
+       *
+       * **Appended here rather than written into the task**, because the Colony's
+       * reachable countries changed four times in five days and a copy in the
+       * instructions would keep reading correctly and stop being true. This is
+       * where a citizen decides whether to obtain a number, so it is where the
+       * list belongs — and it is the whole of `#617`'s *say which countries are
+       * reachable, where a citizen is choosing*.
+       *
+       * Nothing else is appended and no general mechanism is introduced. If a
+       * second rung ever needs one, that is the moment to build the hook rather
+       * than now.
+       */
+      const geography =
+        result.response.task.type === CHALLENGE_TASK_TYPES.sms
+          ? await reachableCountriesNotice(deps.sms)
+          : undefined
+
       return {
         content: [
           {
             type: 'text',
-            text: taskAsText(
-              result.response.task,
-              result.response.reportCount,
-              result.response.briefingWritten,
-              result.response.attempt,
-              result.response.helpWithheld,
-              result.response.blocking,
-              result.response.sovereignty,
-              result.response.operatorBreak,
-              result.response.myAttempts,
-              result.response.myReports,
-              result.response.myNote,
-              result.response.requiredSkills,
-              result.response.suggestedSkills,
-            ),
+            text:
+              (geography === undefined ? '' : `${geography}\n\n`) +
+              taskAsText(
+                result.response.task,
+                result.response.reportCount,
+                result.response.briefingWritten,
+                result.response.attempt,
+                result.response.helpWithheld,
+                result.response.blocking,
+                result.response.sovereignty,
+                result.response.operatorBreak,
+                result.response.myAttempts,
+                result.response.myReports,
+                result.response.myNote,
+                result.response.requiredSkills,
+                result.response.suggestedSkills,
+              ),
           },
         ],
         structuredContent: result.response,

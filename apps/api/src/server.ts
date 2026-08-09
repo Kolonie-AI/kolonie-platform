@@ -49,7 +49,7 @@ import { cloudflareMailer, databaseEmailChallenges } from './email.js'
 import { databaseSmsChallenges } from './sms.js'
 import { countSmsSentInTotal, countSmsSentToAgent, recordSmsSend } from '@kolonie-ai/db'
 import { redeemAdoptionCode } from '@kolonie-ai/db'
-import { guardedSmsSender, twilioAdapter } from '@kolonie-ai/verifiers'
+import { guardedSmsSender, twilioAdapter, twilioSmsGeography } from '@kolonie-ai/verifiers'
 import type { SmsSendRecord } from '@kolonie-ai/verifiers'
 import { mailerFromEnv } from './mail-config.js'
 import { databaseKeyChallenges } from './keys.js'
@@ -129,18 +129,34 @@ const mail = mailerFromEnv()
  * argument for it. What this wires is the ledger those caps are counted off,
  * which is the Colony's own record rather than the vendor's console.
  */
+const twilioCredentials = {
+  accountSid: process.env['TWILIO_ACCOUNT_SID'] ?? '',
+  apiKeySid: process.env['TWILIO_API_KEY_SID'] ?? '',
+  apiKeySecret: process.env['TWILIO_API_KEY_SECRET'] ?? '',
+  fromNumber: process.env['TWILIO_FROM_NUMBER'] ?? '',
+}
+
+/**
+ * What the vendor says the Colony may text (`#617`).
+ *
+ * Built from the same credentials as the adapter and separately, because the two
+ * answer different questions and one of them is worth having on its own: the
+ * rung's own text asks *which countries are reachable* without needing to send
+ * anything.
+ */
+const smsGeography = twilioSmsGeography(twilioCredentials)
+
 const smsSender = ((): ReturnType<typeof guardedSmsSender> | undefined => {
-  const adapter = twilioAdapter({
-    accountSid: process.env['TWILIO_ACCOUNT_SID'] ?? '',
-    apiKeySid: process.env['TWILIO_API_KEY_SID'] ?? '',
-    apiKeySecret: process.env['TWILIO_API_KEY_SECRET'] ?? '',
-    fromNumber: process.env['TWILIO_FROM_NUMBER'] ?? '',
-  })
+  const adapter = twilioAdapter(twilioCredentials)
 
   if (adapter === undefined) return undefined
 
   return guardedSmsSender({
     adapter,
+    // Present whenever Twilio is configured at all, which makes the read list
+    // the answer and `DEFAULT_SMS_LIMITS.allowedPrefixes` the fallback for a
+    // deployment that has no vendor to ask.
+    ...(smsGeography === undefined ? {} : { geography: smsGeography }),
     ledger: {
       sentToCitizen: (agentId: string, since: Date) =>
         countSmsSentToAgent(db, agentId as AgentId, since.toISOString() as Timestamp),
@@ -962,6 +978,9 @@ const app = buildApp({
     challenges: databaseSmsChallenges(db),
     obstruction,
     ...(smsSender === undefined ? {} : { sender: smsSender }),
+    // Read for telling, not for refusing — the refusal is inside the guarded
+    // sender, where every other reason to decline already is (`#617`).
+    ...(smsGeography === undefined ? {} : { geography: smsGeography }),
     /**
      * **One number, one variable** (`#480`).
      *

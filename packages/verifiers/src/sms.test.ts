@@ -10,6 +10,7 @@ import {
   type SmsSpendLedger,
   type TwilioCredentials,
 } from './sms.js'
+import type { CountryVerdict, SmsGeography } from './sms-geography.js'
 
 const CREDENTIALS: TwilioCredentials = {
   accountSid: 'AC00000000000000000000000000000001',
@@ -368,6 +369,102 @@ describe('guardedSmsSender', () => {
       GERMAN_MOBILE,
       'perCitizen=9999 globalPerWindow=9999',
     )
+
+    expect(result.outcome).toBe('refused')
+    expect(sends).toEqual([])
+  })
+})
+
+/**
+ * The country check, moved from the send to before it (`#617`).
+ *
+ * `Kateryna Kovalenko` bought a number and learned only afterwards that the
+ * Colony could not reach its country. The geography port is what makes that
+ * knowable earlier — and its contract is that it may only ever move a refusal
+ * earlier, never invent one.
+ */
+describe('guardedSmsSender, with the vendor’s own geography', () => {
+  const geographyAnswering = (verdict: CountryVerdict): SmsGeography => ({
+    reachable: async () => ({
+      countries: [{ name: 'germany', iso: 'DE' }],
+      measuredAt: new Date(),
+    }),
+    check: async () => verdict,
+  })
+
+  it('refuses a country the account has not opened, before anything is sent', async () => {
+    const { adapter, sends } = adapterAnswering(SENT)
+    const { ledger, written } = ledgerWith()
+
+    const result = await guardedSmsSender({
+      adapter,
+      ledger,
+      geography: geographyAnswering({ verdict: 'unreachable', country: 'NG' }),
+    }).send(AGENT, '+2348000000000', 'code')
+
+    expect(result.outcome).toBe('refused')
+    expect(sends).toEqual([])
+    expect(written).toEqual([])
+  })
+
+  /** The clause that was untrue, and the whole reason the sentence was rewritten. */
+  it('tells the citizen it can be asked for, and where', async () => {
+    const { adapter } = adapterAnswering(SENT)
+    const { ledger } = ledgerWith()
+
+    const result = await guardedSmsSender({
+      adapter,
+      ledger,
+      geography: geographyAnswering({ verdict: 'unreachable', country: 'NG' }),
+    }).send(AGENT, '+2348000000000', 'code')
+
+    const reason = result.outcome === 'refused' ? result.reason : ''
+    expect(reason).toContain('our configuration and not your number')
+    expect(reason).toContain('kolonie.support.open')
+    expect(reason).toContain('SMS country: NG')
+    expect(reason).not.toContain('nothing you can do')
+  })
+
+  /**
+   * The rejection case that matters most. Everything about reading the vendor
+   * can be partially unknown, and none of it may become a refusal: a citizen
+   * wrongly told its country is closed is the sentence `#617` was filed about.
+   */
+  it('sends anyway when the vendor cannot say, leaving Twilio’s own refusal to catch it', async () => {
+    const { adapter, sends } = adapterAnswering(SENT)
+    const { ledger } = ledgerWith()
+
+    const result = await guardedSmsSender({
+      adapter,
+      ledger,
+      geography: geographyAnswering({ verdict: 'unknown' }),
+    }).send(AGENT, '+2348000000000', 'code')
+
+    expect(result).toEqual(SENT)
+    expect(sends).toEqual(['+2348000000000'])
+  })
+
+  /** And the hand-typed prefixes stop deciding geography once the vendor can. */
+  it('sends to a country off the prefix list when the vendor says it is reachable', async () => {
+    const { adapter, sends } = adapterAnswering(SENT)
+    const { ledger } = ledgerWith()
+
+    const result = await guardedSmsSender({
+      adapter,
+      ledger,
+      geography: geographyAnswering({ verdict: 'reachable', country: 'BR' }),
+    }).send(AGENT, '+5511900000000', 'code')
+
+    expect(result).toEqual(SENT)
+    expect(sends).toEqual(['+5511900000000'])
+  })
+
+  /** With no vendor to ask, the fallback is exactly what it always was. */
+  it('falls back to the prefix list when no geography is configured', async () => {
+    const { adapter, sends } = adapterAnswering(SENT)
+    const { ledger } = ledgerWith()
+
+    const result = await guardedSmsSender({ adapter, ledger }).send(AGENT, '+5511900000000', 'code')
 
     expect(result.outcome).toBe('refused')
     expect(sends).toEqual([])

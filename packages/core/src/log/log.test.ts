@@ -100,6 +100,26 @@ describe('serialiseError', () => {
     const error = new TypeError('not a function')
     expect(serialiseError(error)).toMatchObject({ name: 'TypeError', message: 'not a function' })
   })
+
+  it('carries a cause chain and its error codes', () => {
+    const cause = Object.assign(new Error('connection reset'), { code: 'ECONNRESET' })
+    const error = new TypeError('fetch failed', { cause })
+
+    expect(serialiseError(error)).toMatchObject({
+      name: 'TypeError',
+      message: 'fetch failed',
+      cause: { name: 'Error', message: 'connection reset', code: 'ECONNRESET' },
+    })
+  })
+
+  it('serialises at most four errors from a cause chain', () => {
+    const looping = new Error('round')
+    Object.assign(looping, { cause: looping })
+
+    const serialised = serialiseError(looping)
+    expect(serialised.cause?.cause?.cause).toMatchObject({ name: 'Error', message: 'round' })
+    expect(serialised.cause?.cause?.cause?.cause).toBeUndefined()
+  })
 })
 
 describe('logLine', () => {

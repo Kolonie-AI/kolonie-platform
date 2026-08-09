@@ -65,6 +65,8 @@ export interface SerialisedError {
   readonly name: string
   readonly message: string
   readonly stack?: string
+  readonly code?: string
+  readonly cause?: SerialisedError
 }
 
 /**
@@ -79,11 +81,21 @@ export interface SerialisedError {
  * likely to be an `Error`.
  */
 export function serialiseError(error: unknown): SerialisedError {
+  return serialiseErrorAtDepth(error, 0)
+}
+
+function serialiseErrorAtDepth(error: unknown, depth: number): SerialisedError {
   if (error instanceof Error) {
+    const code = (error as { code?: unknown }).code
+    const cause = (error as { cause?: unknown }).cause
     return {
       name: error.name,
       message: error.message,
       ...(error.stack === undefined ? {} : { stack: error.stack }),
+      ...(typeof code === 'string' ? { code } : {}),
+      ...(depth >= 3 || cause === undefined
+        ? {}
+        : { cause: serialiseErrorAtDepth(cause, depth + 1) }),
     }
   }
 

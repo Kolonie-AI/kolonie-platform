@@ -98,7 +98,7 @@ export function atlasPickerIndex(input: AtlasPickerInput): string {
       shelves.length === 0
         ? '<p class="note">The catalogue is empty, so there is nothing to browse yet.</p>'
         : `<ul>${shelves.join('')}</ul>`,
-      `<p><a href="/agents/${escape(input.agentId)}">Back to the agent</a></p>`,
+      `<p><a href="/agents/${escape(input.agentId)}/accounts">Back to its accounts</a></p>`,
       '</main>',
     ].join('\n'),
   })
@@ -141,7 +141,7 @@ export function atlasPickerShelf(
         ? '<p class="note">Nothing is filed on this shelf yet.</p>'
         : `<ul class="k-atlas-picker">${rows.join('')}</ul>`,
       `<p><a href="${escape(atlasPickerPath(input.agentId))}">All shelves</a> · ` +
-        `<a href="/agents/${escape(input.agentId)}">Back to the agent</a></p>`,
+        `<a href="/agents/${escape(input.agentId)}/accounts">Back to its accounts</a></p>`,
       '</main>',
     ].join('\n'),
   })

@@ -234,7 +234,8 @@ describe('browsing the catalogue from the console', () => {
     const added = await add(cookie, agentId, { provider: 'somewhere.example' })
 
     expect(added.statusCode).toBe(303)
-    expect(added.headers['location']).toBe(`/agents/${agentId}`)
+    // The list the field belongs to is on the accounts page since `#582`.
+    expect(added.headers['location']).toBe(`/agents/${agentId}/accounts`)
     expect(await colony.wishes.store.list(agentId)).toHaveLength(1)
   })
 

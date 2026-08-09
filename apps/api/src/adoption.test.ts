@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { adoptIdentity, type AdoptionDesk } from './adoption.js'
 import { adoptionLimiter, ADOPTION_LIMIT } from './rate-limit.js'
 import { fakeAdoption } from './__fixtures__/adoption.js'
-import { agentPage } from './console/agent-page.js'
+import { agentAccountsPage } from './console/agent-accounts.js'
 
 /**
  * The door an agent walks through carrying somebody's account (`#459`).
@@ -176,20 +176,20 @@ describe('adopting an identity', () => {
  * in, and that is asserted where the route is.
  */
 describe('the hand-over section on a person’s own identity', () => {
+  /**
+   * **The section moved to the accounts page with `#582`.** It is one of the
+   * three account blocks that used to sit scattered down the agent page, and
+   * handing an identity over is an account act — so it is asserted where it now
+   * renders. What is asserted has not changed.
+   */
   const view = {
     nav: {},
     zone: 'UTC',
     agentId: '11111111-1111-4111-8111-111111111111',
     name: 'ariadne',
-    runtime: 'other',
-    citizenship: 'candidate',
-    arrivedOn: '2026-08-01T00:00:00.000Z',
-    facts: { lastSeenAt: null, skills: [], rungs: [], attempts: [], accounts: [] },
-    balance: { available: 0, reserved: 0 },
-    walletAddress: null,
-    opensNext: [],
-    quests: [],
-  } as unknown as Parameters<typeof agentPage>[0]
+    held: [],
+    wishes: [],
+  } as unknown as Parameters<typeof agentAccountsPage>[0]
 
   /**
    * **`#578` removed the `you` flag this used to turn on.** No row is *the
@@ -199,13 +199,13 @@ describe('the hand-over section on a person’s own identity', () => {
    * button whose only answer would be a refusal (D-013).
    */
   it('is absent on an agent that cannot be handed over', () => {
-    expect(agentPage({ ...view })).not.toContain('Hand this account to an agent')
+    expect(agentAccountsPage({ ...view })).not.toContain('Handing this identity over')
   })
 
   it('says in one sentence how it differs from the link code', () => {
-    const html = agentPage({ ...view, adoption: {} })
+    const html = agentAccountsPage({ ...view, adoption: {} })
 
-    expect(html).toContain('Hand this account to an agent')
+    expect(html).toContain('Handing this identity over')
     // The whole risk of this feature is somebody confusing the two codes in
     // this console, so the page says it rather than trusting the names.
     expect(html).toContain('This is not the code on your dashboard')
@@ -214,11 +214,11 @@ describe('the hand-over section on a person’s own identity', () => {
   })
 
   it('shows the code once and then only that one is out', () => {
-    const issued = agentPage({
+    const issued = agentAccountsPage({
       ...view,
       adoption: { issued: { code: 'ABCD-EFGH', expiresAt: '2099-01-01T00:00:00.000Z' } },
     })
-    const later = agentPage({
+    const later = agentAccountsPage({
       ...view,
       adoption: { live: { expiresAt: '2099-01-01T00:00:00.000Z' } },
     })

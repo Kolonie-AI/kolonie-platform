@@ -43,6 +43,7 @@ import {
 import type { ConsoleNav } from '../console/navigation.js'
 import { zoneFrom } from '../console/time.js'
 import { agentPage } from '../console/agent-page.js'
+import { agentAccountsPage } from '../console/agent-accounts.js'
 import { numbersPage, reviewQueuePage } from '../console/steward.js'
 import { backendPage } from '../console/backend.js'
 import { curationSections } from '../console/curation.js'
@@ -83,7 +84,7 @@ import { operatorAnsweredPage, operatorNoteSentPage } from '../autonomy-page.js'
 import { writeOperatorNote } from '../operator-notes.js'
 import { answerOperatorRequest, isWaitingOnTheOperator } from '../operator-requests.js'
 import { markWishWanted, putOnWishList, selectBundle } from '../account-wishes.js'
-import type { WishCatalogueEntry } from '../console/agent-page.js'
+import type { WishCatalogueEntry } from '../console/agent-accounts.js'
 import {
   atlasPickerIndex,
   atlasPickerPath,
@@ -1630,7 +1631,6 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
       /** For the navigation, which is role aware on every page (`#608`). */
       readonly roles: readonly string[]
     },
-    issued?: { readonly code: string; readonly expiresAt: string },
   ) => {
     const held = await deps.autonomy.pages.factsOf(operated.agentId)
     if (held === null) return consoleNotFound(reply, request)
@@ -1719,27 +1719,20 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
     }
 
     /**
-     * The hand-over section, and only on the person's own identity (`#459`).
+     * Accounts, as the one line this page keeps (`#582`).
      *
-     * `liveAdoptionCode` answers `undefined` once a code has been used, so an
-     * identity an agent has already adopted shows the *Generate* button — which
-     * would be wrong. `issueAdoptionCode` refuses it, but a button whose only
-     * answer is a refusal is the thing D-013 refuses to build, so the section is
-     * absent for an identity that holds a key at all.
+     * On both representations, because a route here answers the same thing two
+     * ways and never two different things.
      */
-    const adoption = !(await deps.humans.store.identityHoldsKey(operated.agentId))
-      ? {
-          ...(issued === undefined ? {} : { issued }),
-          ...(issued !== undefined
-            ? {}
-            : await deps.humans.store
-                .liveAdoptionCode(operated.agentId)
-                .then((live) => (live === undefined ? {} : { live }))),
-        }
-      : undefined
+    const planned = await deps.wishes.store.list(operated.agentId)
+    const accounts = {
+      held: held.facts.accounts.reduce((sum, account) => sum + account.count, 0),
+      planned: planned.length,
+      wanted: planned.filter((wish) => wish.wantedAt !== null).length,
+    }
 
     if (!wantsHtml(request)) {
-      return reply.send({ ...view, ...(adoption === undefined ? {} : { adoption }) })
+      return reply.send({ ...view, accounts })
     }
 
     /**
@@ -1753,28 +1746,14 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
       agentPage({
         nav: navFor(request, operated.roles),
         ...view,
-        ...(adoption === undefined ? {} : { adoption }),
         /**
-         * The shared list (`#527`).
+         * Accounts as one line (`#582`).
          *
-         * **Only on the HTML representation and only for an operated agent**,
-         * which is the same rule the operator section below follows: this page
-         * is reached by the person who operates the agent, and the list is the
-         * half of the plan they write.
+         * Counted here rather than rendered: the rows are on
+         * `/agents/:agentId/accounts`, and a page that drew both would be two
+         * records of one fact.
          */
-        wishes: await deps.wishes.store.list(operated.agentId),
-        /**
-         * What the catalogue holds for each provider on that list (`#581`).
-         *
-         * **Read here rather than joined in storage**, because a wish is what
-         * somebody asked for and the catalogue is what the Colony knows today —
-         * two facts with different lifetimes. Assembled from `atlasCatalogue`,
-         * which is the same read the public Atlas and the picker make, so the
-         * three cannot disagree about one provider.
-         */
-        catalogue: await wishCatalogue(deps, operated.agentId),
-        // The recommendation, beside the list it fills (`#531`).
-        bundles: await deps.wishes.store.bundles(),
+        accounts,
         ...(token === undefined || door === null
           ? {}
           : {
@@ -1834,6 +1813,101 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
   })
 
   /**
+   * One agent's accounts, on a page of their own (`#582`).
+   *
+   * **Three blocks became one page.** *Accounts proved*, *Hand this account to
+   * an agent* and *Accounts you and this agent are planning* sat at three places
+   * on the agent page with four unrelated sections between them, and three
+   * headings imply three subjects. The agent page keeps a count and a link and
+   * renders none of the rows — two records of one fact drift, which is D-002's
+   * reason and not a new one.
+   *
+   * **The guard is `operatedAgent` and nothing else**, so somebody who does not
+   * operate this agent gets exactly what they get from the agent page itself:
+   * the console's 404, identical to the answer for an id that names nothing.
+   * This page cannot be used to test for agents either.
+   */
+  const renderAgentAccounts = async (
+    request: FastifyRequest,
+    reply: FastifyReply,
+    operated: {
+      readonly agentId: AgentId
+      readonly humanId: HumanId
+      readonly roles: readonly string[]
+    },
+    issued?: { readonly code: string; readonly expiresAt: string },
+  ) => {
+    const held = await deps.autonomy.pages.factsOf(operated.agentId)
+    if (held === null) return consoleNotFound(reply, request)
+
+    /**
+     * The hand-over section, and only on the person's own identity (`#459`).
+     *
+     * `liveAdoptionCode` answers `undefined` once a code has been used, so an
+     * identity an agent has already adopted would show the *Generate* button —
+     * which would be wrong. `issueAdoptionCode` refuses it, but a button whose
+     * only answer is a refusal is the thing D-013 refuses to build, so the
+     * section is absent for an identity that holds a key at all.
+     */
+    const adoption = !(await deps.humans.store.identityHoldsKey(operated.agentId))
+      ? {
+          ...(issued === undefined ? {} : { issued }),
+          ...(issued !== undefined
+            ? {}
+            : await deps.humans.store
+                .liveAdoptionCode(operated.agentId)
+                .then((live) => (live === undefined ? {} : { live }))),
+        }
+      : undefined
+
+    const wishes = await deps.wishes.store.list(operated.agentId)
+
+    if (!wantsHtml(request)) {
+      return reply.send({
+        agentId: String(operated.agentId),
+        name: held.name,
+        held: held.facts.accounts,
+        wishes,
+        ...(adoption === undefined ? {} : { adoption }),
+      })
+    }
+
+    return html(
+      reply,
+      agentAccountsPage({
+        nav: navFor(request, operated.roles),
+        agentId: String(operated.agentId),
+        name: held.name,
+        zone: zoneFrom(request.headers),
+        held: held.facts.accounts,
+        wishes,
+        /**
+         * What the catalogue holds for each provider on that list (`#581`).
+         *
+         * **Read here rather than joined in storage**, because a wish is what
+         * somebody asked for and the catalogue is what the Colony knows today —
+         * two facts with different lifetimes. Assembled from `atlasCatalogue`,
+         * which is the same read the public Atlas and the picker make, so the
+         * three cannot disagree about one provider.
+         */
+        catalogue: await wishCatalogue(deps, operated.agentId),
+        // The recommendation, beside the list it fills (`#531`).
+        bundles: await deps.wishes.store.bundles(),
+        ...(adoption === undefined ? {} : { adoption }),
+      }),
+    )
+  }
+
+  app.get('/agents/:agentId/accounts', async (request, reply) => {
+    if (!(await guard(request, reply))) return reply
+
+    const operated = await operatedAgent(request, reply)
+    if (operated === null) return reply
+
+    return renderAgentAccounts(request, reply, operated)
+  })
+
+  /**
    * Issue a code that hands this identity to an agent (`#459`).
    *
    * **It renders the page rather than redirecting to it**, which is the one
@@ -1868,7 +1942,7 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
     if (issued.outcome === 'refused') return consoleNotFound(reply, request)
 
     return wantsHtml(request)
-      ? renderAgentPage(request, reply, operated, issued.code)
+      ? renderAgentAccounts(request, reply, operated, issued.code)
       : reply.status(200).send(issued.code)
   })
 
@@ -1887,7 +1961,7 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
     return wantsHtml(request)
       ? reply
           .status(303)
-          .header('location', `/agents/${String(operated.agentId)}`)
+          .header('location', `/agents/${String(operated.agentId)}/accounts`)
           .send()
       : reply.status(200).send({ revoked })
   })
@@ -1932,7 +2006,7 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
     const shelf = pickerCategory((request.body as { category?: unknown } | undefined)?.category)
     const back =
       shelf === undefined
-        ? `/agents/${String(operated.agentId)}`
+        ? `/agents/${String(operated.agentId)}/accounts`
         : `${atlasPickerPath(String(operated.agentId), shelf)}` +
           (added.outcome === 'already-listed'
             ? `&already=${encodeURIComponent(added.wish.provider)}`
@@ -2051,7 +2125,7 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
     return wantsHtml(request)
       ? reply
           .status(303)
-          .header('location', `/agents/${String(operated.agentId)}`)
+          .header('location', `/agents/${String(operated.agentId)}/accounts`)
           .send()
       : reply.status(200).send({ added: result.added, alreadyListed: result.alreadyListed })
   })
@@ -2090,7 +2164,7 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
     return wantsHtml(request)
       ? reply
           .status(303)
-          .header('location', `/agents/${String(operated.agentId)}`)
+          .header('location', `/agents/${String(operated.agentId)}/accounts`)
           .send()
       : reply.status(200).send({ marked })
   })
@@ -2122,7 +2196,7 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
     return wantsHtml(request)
       ? reply
           .status(303)
-          .header('location', `/agents/${String(operated.agentId)}`)
+          .header('location', `/agents/${String(operated.agentId)}/accounts`)
           .send()
       : reply.status(200).send({ removed })
   })

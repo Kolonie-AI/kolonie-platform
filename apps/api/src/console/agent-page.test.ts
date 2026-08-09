@@ -16,6 +16,7 @@ const aView = (overrides: Partial<Parameters<typeof agentPage>[0]> = {}) =>
     walletAddress: null,
     opensNext: [],
     quests: [],
+    accounts: { held: 0, planned: 0, wanted: 0 },
     ...overrides,
   }) as unknown as Parameters<typeof agentPage>[0]
 

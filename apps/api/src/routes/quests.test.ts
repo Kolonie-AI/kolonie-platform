@@ -198,10 +198,10 @@ describe('what comes back with a quest of your own', () => {
     const written = await write(aDraft({ reward: { reputation: 0, lamports: 15 }, slots: 20 }))
 
     // The sponsor that reported this computed 300 by hand and was right about
-    // the answers; since `#371` the commitment is 321, because the first three
+    // the answers; since `#371` the commitment is more, because the first three
     // published obstacle reports are held on top of the capacity rather than out
-    // of it.
-    expect(written.json().commitment).toEqual({ cost: 321 })
+    // of it — a quarter of one answer each since `#632`, so `300 + 3 × 3`.
+    expect(written.json().commitment).toEqual({ cost: 309 })
   })
 
   it('carries the quest as an answering citizen reads it', async () => {
@@ -232,7 +232,7 @@ describe('what comes back with a quest of your own', () => {
     })
 
     // 10 × 2 for the answers, plus 1 each for the first three obstacles.
-    expect(patched.json().commitment.cost).toBe(23)
+    expect(patched.json().commitment.cost).toBe(20)
     expect(patched.json().preview).toContain('A thousand mailboxes')
   })
 })
@@ -682,7 +682,7 @@ describe('POST /v1/quests/:questId/submit', () => {
     // 10 × 100 for the answers and 150 for the obstacle pool, against 500 held:
     // the refusal names the shortfall rather than the balance (`#371` changed
     // the number, not the shape).
-    expect(response.json().message).toContain('650')
+    expect(response.json().message).toContain('575')
   })
 })
 
@@ -819,9 +819,10 @@ describe('POST /v1/quests/:questId/publish', () => {
     const response = await post(`/v1/quests/${id}/publish`, stewardKey)
 
     expect(response.statusCode).toBe(200)
-    // 10 × 10 for the answers, plus 15 held for the first three published
-    // obstacle reports — escrowed together, refunded together (`#371`).
-    expect(response.json()).toEqual({ escrowed: 115 })
+    // 10 × 10 for the answers, plus a quarter of one answer for each of the
+    // first three published obstacle reports — held together, refunded together
+    // (`#371`, `#632`).
+    expect(response.json()).toEqual({ escrowed: 106 })
   })
 
   it('refuses a steward publishing its own quest, and says why', async () => {

@@ -55,6 +55,8 @@ export interface FakeQuestDesk extends QuestDesk {
    * setting, and the one most of these tests want.
    */
   readonly setTierCaps: (caps: Readonly<Record<QuestTier, number>>) => void
+  /** Say that the citizen filing an obstacle report never attempted (`#632`). */
+  readonly neverAttempted: () => void
   /** Put rows into the two `/backend` sections (`#487`). */
   readonly showsOnBackend: (input: {
     /** Who arrived (`#607`). Shapes are the storage's; a test fills what it asserts on. */
@@ -143,6 +145,8 @@ export function fakeQuests(): FakeQuestDesk {
   let fixedAudience: number | null = null
   /** Unset until a test turns one, exactly as the settings table is. */
   let caps: Readonly<Record<QuestTier, number>> | null = null
+  /** Whether an obstacle report filed here counts as work (`#632`). */
+  let earnsObstacleBonus = true
 
   const task = (input: {
     readonly id: TaskId
@@ -267,7 +271,13 @@ export function fakeQuests(): FakeQuestDesk {
         // which is the rule being reproduced.
         scrubbed: input.kind === 'declined' ? null : text,
       })
-      return { outcome: 'filed' as const, replaced }
+      /**
+       * The fake has no attempts table, so an obstacle report is treated as
+       * earning the bonus unless a test says otherwise (`#632`). The rule itself
+       * is `packages/db`'s and is asserted there against a real Postgres; what
+       * the routes need is that the sentence reaches the citizen when it is set.
+       */
+      return { outcome: 'filed' as const, replaced, earnsBonus: earnsObstacleBonus }
     },
 
     async reports(taskId) {
@@ -718,6 +728,10 @@ export function fakeQuests(): FakeQuestDesk {
 
     setTierCaps: (turned) => {
       caps = turned
+    },
+
+    neverAttempted: () => {
+      earnsObstacleBonus = false
     },
 
     async tierCaps() {

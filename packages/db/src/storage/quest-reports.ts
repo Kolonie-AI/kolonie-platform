@@ -1,6 +1,7 @@
 import { and, eq, isNotNull, sql } from 'drizzle-orm'
 import {
   AgentPlatformSchema,
+  QUEST_OBSTACLE_BONUS_LEGACY_PERCENT,
   QUEST_REPORT_KINDS_THE_SPONSOR_READS,
   questObstacleBonus,
   type AgentId,
@@ -27,7 +28,25 @@ import { toTimestamp } from './rows.js'
 
 /** What filing a report came to. */
 export type FileQuestReportOutcome =
-  | { readonly outcome: 'filed'; readonly replaced: boolean }
+  | {
+      readonly outcome: 'filed'
+      readonly replaced: boolean
+      /**
+       * Whether this report could earn the obstacle bonus (`#632`).
+       *
+       * **`false` on an `obstacle` from a citizen that never attempted**, which
+       * is a thing the author has to be told at the moment it files rather than
+       * left to infer from a payment that never arrives. The report is welcome,
+       * moderated and published on the same terms as any other — what it is not
+       * is work, and the bonus pays for work.
+       *
+       * `true` on the other three kinds too, in the sense that matters: they
+       * were never eligible and the author is told nothing about a bonus,
+       * because a sentence about a payment nobody offered reads as a payment
+       * withheld.
+       */
+      readonly earnsBonus: boolean
+    }
   /** No quest with that id, or it is an Academy rung rather than a quest. */
   | { readonly outcome: 'unknown-quest' }
 
@@ -114,7 +133,36 @@ export async function fileQuestReport(
 
   if (row === undefined) throw new Error('inserting a quest report returned no row')
 
-  return { outcome: 'filed', replaced: row.updatedAt !== row.createdAt }
+  /**
+   * **Asked here so the author learns it now** (`#632`). The same question
+   * `decideQuestReport` asks before paying, one step earlier — a citizen that
+   * files an obstacle without ever having opened the quest should read *this is
+   * welcome and it is not paid* while it is still deciding what to do, not
+   * discover it from a payment that never comes.
+   *
+   * Two reads of one rule rather than one, and deliberately: this one is a
+   * sentence and the other one is money, and a preview that lied by being stale
+   * is better than a payment made on a stale answer.
+   */
+  const earnsBonus =
+    command.kind !== 'obstacle' ? true : await hasAttempted(db, command.agentId, command.taskId)
+
+  return { outcome: 'filed', replaced: row.updatedAt !== row.createdAt, earnsBonus }
+}
+
+/** Whether this citizen ever opened this task, which is what the bonus pays for. */
+async function hasAttempted(
+  db: Database | Transaction,
+  agentId: AgentId,
+  taskId: TaskId,
+): Promise<boolean> {
+  const [attempt] = await db
+    .select({ id: taskAttempts.id })
+    .from(taskAttempts)
+    .where(and(eq(taskAttempts.agentId, agentId), eq(taskAttempts.taskId, taskId)))
+    .limit(1)
+
+  return attempt !== undefined
 }
 
 /** One report as its sponsor reads it: scrubbed, moderated, and attributed to nobody. */
@@ -367,6 +415,7 @@ export async function recordQuestReportModeration(
         kind: tasks.kind,
         rewardLamports: tasks.rewardLamports,
         publishObstacles: tasks.publishObstacles,
+        obstacleBonusPercent: tasks.obstacleBonusPercent,
       })
       .from(tasks)
       .where(eq(tasks.id, decided.taskId))
@@ -377,10 +426,42 @@ export async function recordQuestReportModeration(
     // obstacles bought nobody anything and held no pool.
     if (task === undefined || task.kind !== 'quest' || !task.publishObstacles) return 0
 
+    /**
+     * **The bonus is for a citizen that tried and hit a wall** (`#632`).
+     *
+     * Nothing here asked before, and `quest_reports` has no attempt on it by
+     * design — any of the three kinds may be filed by somebody that only read
+     * the quest, and `unclear` in particular is most valuable from exactly that
+     * citizen. So the question is asked of `task_attempts` instead: has this
+     * author ever opened this quest?
+     *
+     * **The arithmetic this closes.** An obstacle report paid a share of an
+     * answer and required no attempt, so *read the quest and name an obstacle*
+     * was a strictly better trade than answering it. An agent doing that sum is
+     * behaving correctly; the sum was wrong.
+     *
+     * **Unpaid rather than forbidden, which is the part not to lose.** The
+     * attempt-less report is often the most useful kind — *"this is impossible
+     * for anyone whose mailbox cannot send"* — and it is still filed, still
+     * moderated, still published and still read. It simply is not work, and the
+     * bonus pays for work. `#632`: *"the two are different claims and only one
+     * of them is work."*
+     */
+    if (!(await hasAttempted(tx, decided.agentId as AgentId, decided.taskId as TaskId))) return 0
+
     return await oweForObstacleBonus(tx, {
       agentId: decided.agentId as AgentId,
       taskId: decided.taskId as TaskId,
-      lamports: questObstacleBonus({ lamports: task.rewardLamports ?? 0 }),
+      /**
+       * **The share this quest was published at**, not the one in force today
+       * (`#632`). The sponsor was invoiced for a pool sized at that figure, so
+       * paying at any other would make the commitment and the payout disagree —
+       * which is the one thing the column exists to prevent.
+       */
+      lamports: questObstacleBonus(
+        { lamports: task.rewardLamports ?? 0 },
+        task.obstacleBonusPercent ?? QUEST_OBSTACLE_BONUS_LEGACY_PERCENT,
+      ),
     })
   })
 }

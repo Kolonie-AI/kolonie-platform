@@ -29,7 +29,18 @@ describe('what a quest costs', () => {
     const withPool = questInvoiceLamports(aQuest(1_000_000, 10, true))
 
     expect(withoutPool).toBe(10_000_000)
-    expect(withPool).toBe(10_000_000 + 3 * 500_000)
+    // A quarter of one answer, three times over (`#632`).
+    expect(withPool).toBe(10_000_000 + 3 * 250_000)
+  })
+
+  /**
+   * The share is a setting (`#632`), and the invoice has to be computed at
+   * whichever figure the quest is being published under — otherwise the sponsor
+   * is invoiced at one ratio and the citizen paid at another.
+   */
+  it('sizes the pool from the share it is given', () => {
+    expect(questInvoiceLamports(aQuest(1_000_000, 10, true), 50)).toBe(10_000_000 + 3 * 500_000)
+    expect(questInvoiceLamports(aQuest(1_000_000, 10, true), 0)).toBe(10_000_000)
   })
 
   /** A quest that pays reputation needs no invoice and goes live at publication. */

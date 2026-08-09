@@ -111,6 +111,9 @@ export function registerQuestReportTools(
               result.replaced ? 'Your earlier report on this quest has been replaced.' : 'Filed.',
               destination,
               'This cost you nothing: no reward, no reputation, no standing.',
+              // Only where there is something to say (`#632`). A sentence about
+              // a bonus on a kind that never had one reads as one withheld.
+              ...(result.notice === undefined ? [] : [result.notice]),
             ].join(' '),
           },
         ],

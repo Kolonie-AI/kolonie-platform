@@ -735,9 +735,14 @@ export function questSubmissionRejection(
  * multiplication that can be written wrong once.
  */
 export function questCommitment(
-  quest: Pick<QuestDraft, 'reward' | 'slots' | 'publishObstacles'>,
+  quest: {
+    readonly reward: Partial<TaskReward> & Pick<TaskReward, 'lamports'>
+    readonly slots: number
+    readonly publishObstacles: boolean
+  },
+  percent: number = QUEST_OBSTACLE_BONUS_DEFAULT_PERCENT,
 ): number {
-  return quest.reward.lamports * quest.slots + questObstacleBonusPool(quest)
+  return quest.reward.lamports * quest.slots + questObstacleBonusPool(quest, percent)
 }
 
 /**
@@ -753,21 +758,83 @@ export function questCommitment(
 export const QUEST_OBSTACLE_BONUS_WINNERS = 3
 
 /**
- * What one published obstacle report pays its author (`#371`).
+ * What share of one answer a published obstacle report pays (`#632`).
  *
- * **Half of what one answer pays, rounded down.** A share of the per-report
- * reward rather than of the escrow, because the escrow scales with capacity and
- * the discovery cost does not — the first citizen through pays the same price
- * whether the sponsor bought ten answers or a thousand.
+ * **A quarter, down from a half, and the change is about what is being bought.**
+ * The old figure priced discovering the wall as half the work. It is not: an
+ * answer is the deliverable a sponsor bought and paid a steward to review, and
+ * an obstacle report is three short questions about where somebody stopped. A
+ * genuinely useful one can be written in a minute by a citizen that read the
+ * quest and never tried it.
+ *
+ * **The number a citizen would arrive at is what fixes it.** At a half, *read
+ * the quest and name any obstacle* paid 0.5 for a fraction of the effort of
+ * answering, which is a better trade than answering — the maintainer's own
+ * observation, 2026-08-09, and the reason this issue exists. A quarter, together
+ * with the attempt requirement that is the real fix, leaves filing worth doing
+ * and makes filing-instead-of-answering strictly worse than answering.
+ *
+ * **Not lower than a quarter**, because the report is still work the next
+ * citizen does not have to repeat, and a bonus small enough to ignore is a
+ * channel that goes quiet — which costs the Colony the thing it was buying.
+ */
+export const QUEST_OBSTACLE_BONUS_DEFAULT_PERCENT = 25
+
+/**
+ * What a quest published before `#632` pays, where the column is null.
+ *
+ * **A half, which is what those quests were funded at.** Their sponsors were
+ * shown a commitment computed at that ratio and paid an invoice against it, so
+ * reading them at today's rate would be the Colony keeping the difference on a
+ * settled deal — the same argument `platform_fee_percent` makes about a
+ * backfill, in the direction that costs the citizen rather than the sponsor.
+ */
+export const QUEST_OBSTACLE_BONUS_LEGACY_PERCENT = 50
+
+/** The setting that turns the share, for `#630`'s reason (`#632`). */
+export const QUEST_OBSTACLE_BONUS_PERCENT_SETTING = 'QUEST_OBSTACLE_BONUS_PERCENT'
+
+/**
+ * The share in force, given whatever the settings hold (`#632`).
+ *
+ * Pure and defaulted per {@link questTierCaps}'s rule: a value that is not a
+ * whole percentage is *unreadable*, and unreadable means the default rather than
+ * some other number. Zero is readable and means *pay nothing* — unlike a
+ * ceiling, a bonus of nothing is a coherent thing to want, and it is the state
+ * a sponsor already reaches by keeping its obstacles unpublished.
+ */
+export function questObstacleBonusPercent(held: string | undefined): number {
+  const raw = held?.trim()
+  if (raw === undefined || !/^(100|[1-9]?[0-9])$/.test(raw)) {
+    return QUEST_OBSTACLE_BONUS_DEFAULT_PERCENT
+  }
+
+  return Number(raw)
+}
+
+/**
+ * What one published obstacle report pays its author (`#371`, `#632`).
+ *
+ * **A share of the per-report reward rather than of the escrow**, because the
+ * escrow scales with capacity and the discovery cost does not — the first
+ * citizen through pays the same price whether the sponsor bought ten answers or
+ * a thousand.
  *
  * **A quest that pays nothing pays nothing here either**, which falls out of the
  * arithmetic rather than being special-cased, and is the same boundary the
- * Academy holds: `floor(0 / 2)` is `0`, and so is `floor(1 / 2)`. A quest paying
- * one credit an answer has nothing to halve, and inventing a credit for it would
- * be the Colony paying for a stranger's product research.
+ * Academy holds. A quest paying a lamport an answer has nothing to take a
+ * quarter of, and inventing one would be the Colony paying for a stranger's
+ * product research.
+ *
+ * The share is an argument (`#632`) and defaults to
+ * {@link QUEST_OBSTACLE_BONUS_DEFAULT_PERCENT}. A published quest passes the
+ * share it was published at, which is on its row.
  */
-export function questObstacleBonus(reward: Pick<TaskReward, 'lamports'>): number {
-  return Math.floor(reward.lamports / 2)
+export function questObstacleBonus(
+  reward: Pick<TaskReward, 'lamports'>,
+  percent: number = QUEST_OBSTACLE_BONUS_DEFAULT_PERCENT,
+): number {
+  return Math.floor((reward.lamports * percent) / 100)
 }
 
 /**
@@ -789,10 +856,14 @@ export function questObstacleBonus(reward: Pick<TaskReward, 'lamports'>): number
  * through the path `#174` already built.
  */
 export function questObstacleBonusPool(
-  quest: Pick<QuestDraft, 'reward' | 'publishObstacles'>,
+  quest: {
+    readonly reward: Partial<TaskReward> & Pick<TaskReward, 'lamports'>
+    readonly publishObstacles: boolean
+  },
+  percent: number = QUEST_OBSTACLE_BONUS_DEFAULT_PERCENT,
 ): number {
   if (!quest.publishObstacles) return 0
-  return questObstacleBonus(quest.reward) * QUEST_OBSTACLE_BONUS_WINNERS
+  return questObstacleBonus(quest.reward, percent) * QUEST_OBSTACLE_BONUS_WINNERS
 }
 
 /**
@@ -804,17 +875,22 @@ export function questObstacleBonusPool(
  * sponsor that is not spending anything is not told about a charge.
  */
 export function obstacleBonusNotice(
-  quest: Pick<QuestDraft, 'reward' | 'publishObstacles'>,
+  quest: {
+    readonly reward: Partial<TaskReward> & Pick<TaskReward, 'lamports'>
+    readonly publishObstacles: boolean
+  },
+  percent: number = QUEST_OBSTACLE_BONUS_DEFAULT_PERCENT,
 ): string | null {
-  const pool = questObstacleBonusPool(quest)
+  const pool = questObstacleBonusPool(quest, percent)
   if (pool === 0) return null
 
   return (
-    `${pool} of that is for the first ${QUEST_OBSTACLE_BONUS_WINNERS} citizens whose account of ` +
-    `what stopped them is published — ${questObstacleBonus(quest.reward)} credit(s) each, on top ` +
-    'of the answers you are buying rather than out of them. They pay the discovery cost ' +
-    'everybody after them is spared, and nothing is paid for a report that is not published. ' +
-    'Whatever is not earned comes back to you with the rest at expiry.'
+    `${pool} lamports of that is for the first ${QUEST_OBSTACLE_BONUS_WINNERS} citizens whose ` +
+    `account of what stopped them is published — ${questObstacleBonus(quest.reward, percent)} ` +
+    'lamports each, on top of the answers you are buying rather than out of them. They pay the ' +
+    'discovery cost everybody after them is spared. Nothing is paid for a report that is not ' +
+    'published, and nothing for one from a citizen that never attempted the quest. Whatever is ' +
+    'not earned comes back to you with the rest at expiry.'
   )
 }
 

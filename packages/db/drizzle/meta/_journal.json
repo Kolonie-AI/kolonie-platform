@@ -1338,6 +1338,13 @@
       "when": 1786265808424,
       "tag": "0190_flippant_night_thrasher",
       "breakpoints": true
+    },
+    {
+      "idx": 191,
+      "version": "7",
+      "when": 1786267029918,
+      "tag": "0191_the_obstacle_bonus_is_a_quarter",
+      "breakpoints": true
     }
   ]
 }

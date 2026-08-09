@@ -136,15 +136,24 @@ describe('submitting for review', () => {
 
 describe('what a quest commits', () => {
   it('is the price of a report times the number bought, plus what the obstacles cost', () => {
-    // 10 × 10 for the answers, and 5 each for the first three published
-    // obstacles — held on top of the capacity rather than out of it (`#371`).
+    // 10 × 10 for the answers, and a quarter of one each for the first three
+    // published obstacles — held on top of the capacity rather than out of it
+    // (`#371`), and a quarter rather than a half since `#632`.
     expect(
       questCommitment({
         reward: { reputation: 1, lamports: 10 },
         slots: 10,
         publishObstacles: true,
       }),
-    ).toBe(115)
+    ).toBe(106)
+  })
+
+  /** The share it is given, so the commitment cannot disagree with the payout. */
+  it('sizes the obstacle pool from the share it is given (#632)', () => {
+    const quest = { reward: { reputation: 1, lamports: 10 }, slots: 10, publishObstacles: true }
+
+    expect(questCommitment(quest, 50)).toBe(115)
+    expect(questCommitment(quest, 0)).toBe(100)
   })
 
   it('holds nothing for obstacles a sponsor chose not to publish', () => {

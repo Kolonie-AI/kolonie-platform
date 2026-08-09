@@ -1,4 +1,4 @@
-import { QUEST_OBSTACLE_BONUS_WINNERS } from './quest.js'
+import { QUEST_OBSTACLE_BONUS_DEFAULT_PERCENT, questObstacleBonusPool } from './quest.js'
 import { LAMPORTS_PER_SOL, solFromLamports } from '../ledger/payments.js'
 import type { TaskReward } from './task.js'
 
@@ -34,18 +34,23 @@ export const INVOICE_EXPIRY_DAYS = 7
  *
  * Zero is an ordinary answer: a quest that pays reputation needs no invoice and
  * goes live when a steward publishes it.
+ *
+ * **The pool is `questObstacleBonusPool` and no longer this function's own
+ * arithmetic** (`#632`). It held `WINNERS × floor(lamports / 2)` inline — the
+ * same rule written twice, in the two places that must never disagree: this is
+ * what the sponsor is invoiced and `questObstacleBonus` is what the citizen is
+ * paid. The share became a setting, and a second copy of it would have been a
+ * commitment computed at one ratio and a payout made at another.
  */
-export function questInvoiceLamports(quest: {
-  readonly reward: Pick<TaskReward, 'lamports'>
-  readonly slots: number
-  readonly publishObstacles: boolean
-}): number {
-  const answers = quest.reward.lamports * quest.slots
-  const pool = quest.publishObstacles
-    ? QUEST_OBSTACLE_BONUS_WINNERS * Math.floor(quest.reward.lamports / 2)
-    : 0
-
-  return answers + pool
+export function questInvoiceLamports(
+  quest: {
+    readonly reward: Partial<TaskReward> & Pick<TaskReward, 'lamports'>
+    readonly slots: number
+    readonly publishObstacles: boolean
+  },
+  percent: number = QUEST_OBSTACLE_BONUS_DEFAULT_PERCENT,
+): number {
+  return quest.reward.lamports * quest.slots + questObstacleBonusPool(quest, percent)
 }
 
 /** Whether this quest has to be paid for before it goes live. */

@@ -4,6 +4,7 @@ import {
   QUEST_AUDIT_OFF,
   QUEST_ENDING_REASON_MAX_LENGTH,
   QUEST_REFUSAL_MIN_LENGTH,
+  QUEST_OBSTACLE_BONUS_DEFAULT_PERCENT,
   QUEST_TIER_CAPS_LAMPORTS,
   QuestDraftSchema,
   QuestEndingSchema,
@@ -63,6 +64,7 @@ import {
   recordAuditDecision as recordAuditDecisionInDatabase,
   publishQuest as publishQuestInDatabase,
   questReviewQueue as questReviewQueueInDatabase,
+  questObstacleBonusPercentInDatabase,
   questTierCapsInDatabase,
   readOwnQuest as readOwnQuestInDatabase,
   SKILLS_THE_ACADEMY_GRANTS,
@@ -141,6 +143,16 @@ export interface QuestDesk {
    * the moment a quest is priced instead of when the process started.
    */
   tierCaps?(): Promise<Readonly<Record<QuestTier, number>>>
+  /**
+   * What share of an answer a published obstacle report pays, right now
+   * (`#632`).
+   *
+   * Optional and defaulted exactly as `tierCaps` above. It is read at two
+   * moments and they are different questions: here, so a sponsor previewing a
+   * draft is shown the pool it *would* commit; and at publication, where the
+   * figure is frozen onto the row and stops being a setting at all.
+   */
+  obstacleBonusPercent?(): Promise<number>
   create(input: { readonly authorId: AgentId; readonly draft: unknown }): Promise<OwnQuest>
   update(input: {
     readonly authorId: AgentId
@@ -350,7 +362,12 @@ export function databaseQuests(
 ): QuestDesk {
   return {
     ...(walletAddress === undefined ? {} : { walletAddress }),
-    ...(settings === undefined ? {} : { tierCaps: () => questTierCapsInDatabase(settings) }),
+    ...(settings === undefined
+      ? {}
+      : {
+          tierCaps: () => questTierCapsInDatabase(settings),
+          obstacleBonusPercent: () => questObstacleBonusPercentInDatabase(settings),
+        }),
     create: (input) =>
       createQuestDraftInDatabase(db, {
         authorId: input.authorId,
@@ -369,7 +386,15 @@ export function databaseQuests(
     listOwn: (authorId) => listOwnQuestsInDatabase(db, authorId),
     readOwn: (authorId, taskId) => readOwnQuestInDatabase(db, authorId, taskId),
     reviewQueue: () => questReviewQueueInDatabase(db),
-    publish: (input) => publishQuestInDatabase(db, { ...input, audit }),
+    publish: async (input) =>
+      await publishQuestInDatabase(db, {
+        ...input,
+        audit,
+        // Frozen onto the row here and read back at every payout (`#632`).
+        ...(settings === undefined
+          ? {}
+          : { obstacleBonusPercent: await questObstacleBonusPercentInDatabase(settings) }),
+      }),
     refuse: (input) => refuseQuestInDatabase(db, input),
     results: (taskId) => questResultsInDatabase(db, taskId),
     withheld: (taskId) => withheldReportCountInDatabase(db, taskId),
@@ -409,7 +434,10 @@ export async function fileQuestReport(
   agentId: AgentId,
   input: unknown,
   desk: QuestDesk,
-): Promise<{ readonly filed: true; readonly replaced: boolean } | { readonly error: ApiError }> {
+): Promise<
+  | { readonly filed: true; readonly replaced: boolean; readonly notice?: string }
+  | { readonly error: ApiError }
+> {
   const parsed = QuestReportSchema.safeParse(input)
   if (!parsed.success) {
     return {
@@ -448,7 +476,29 @@ export async function fileQuestReport(
     }
   }
 
-  return { filed: true, replaced: result.replaced }
+  /**
+   * **What an unpaid obstacle report is told, at the moment it is filed**
+   * (`#632`).
+   *
+   * The bonus pays a citizen that tried and hit a wall. A citizen that read the
+   * quest and noticed something may still file — that report is often the most
+   * useful kind, because it is the one that says *nobody like me can even
+   * start* — and it is not paid. Saying so here is the difference between a
+   * rule and the Colony appearing to have lost a payment.
+   *
+   * **One sentence and no instruction to go and attempt one.** Telling a citizen
+   * how to qualify for a payment is telling it to open a quest it has already
+   * decided not to do, and an attempt opened for a bonus is worth less than the
+   * report it came with.
+   */
+  const notice = result.earnsBonus
+    ? undefined
+    : 'Filed, and it is read on the same terms as any other. It does not earn the obstacle ' +
+      'bonus: that pays a citizen that attempted this quest and hit a wall, and the Colony ' +
+      'has no attempt of yours on it. What you have said is still moderated, still published ' +
+      'if it is good, and still reaches the sponsor.'
+
+  return { filed: true, replaced: result.replaced, ...(notice === undefined ? {} : { notice }) }
 }
 
 /**
@@ -605,12 +655,16 @@ const respond = (
   quest: OwnQuest,
   audience?: QuestAudience,
   walletAddress?: string,
+  obstacleBonusPercent: number = QUEST_OBSTACLE_BONUS_DEFAULT_PERCENT,
 ): OwnQuestResponse => {
-  const cost = questCommitment({
-    reward: quest.task.reward,
-    slots: quest.task.slots ?? 0,
-    publishObstacles: quest.task.publishObstacles,
-  })
+  const cost = questCommitment(
+    {
+      reward: quest.task.reward,
+      slots: quest.task.slots ?? 0,
+      publishObstacles: quest.task.publishObstacles,
+    },
+    obstacleBonusPercent,
+  )
 
   return {
     quest: quest.task,
@@ -687,8 +741,14 @@ const audienceOf = async (task: Task, desk: QuestDesk): Promise<QuestAudience> =
 const responding = async (quest: OwnQuest, desk: QuestDesk): Promise<OwnQuestResponse> => {
   const audience = await audienceOf(quest.task, desk)
 
-  return respond(quest, audience, desk.walletAddress)
+  return respond(quest, audience, desk.walletAddress, await obstacleShareOf(desk))
 }
+
+/** The share in force, or the constant where a desk does not carry it (`#632`). */
+const obstacleShareOf = async (desk: QuestDesk): Promise<number> =>
+  desk.obstacleBonusPercent === undefined
+    ? QUEST_OBSTACLE_BONUS_DEFAULT_PERCENT
+    : await desk.obstacleBonusPercent()
 
 /**
  * The ceilings in force, or the constants where a desk does not carry them.

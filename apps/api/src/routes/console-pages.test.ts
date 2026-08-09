@@ -776,8 +776,8 @@ describe('the sponsor’s pages', () => {
     // The rejection case: a figure on this page that is not what the payout
     // computes fails here. Nothing in the console does its own arithmetic.
     // 40 × 0.002 for the answers, plus the obstacle pool the form publishes by
-    // default: three at half a report each (`#371`).
-    expect(draft.body).toContain('0.083 SOL')
+    // default: three at a quarter of a report each (`#371`, `#632`).
+    expect(draft.body).toContain('0.0815 SOL')
     expect(draft.body).toContain('0.0015 SOL')
     expect(draft.body).toContain('0.0005 SOL')
     // Said before the sponsor commits, because neither can be undone.

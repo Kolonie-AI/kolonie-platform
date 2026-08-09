@@ -130,14 +130,14 @@ describe('the sponsor over MCP', () => {
       aDraft({ reward: { reputation: 0, lamports: 15 }, slots: 20 }),
     )
 
-    // 20 × 15 for the answers, plus 7 each for the first three published
-    // obstacle reports (`#371`) — the commitment is the whole of what the quest
-    // would hold, which is what a sponsor is deciding about.
+    // 20 × 15 for the answers, plus 3 each for the first three published
+    // obstacle reports (`#371`, `#632`) — the commitment is the whole of what
+    // the quest would hold, which is what a sponsor is deciding about.
     // The commitment is the cost and nothing else since `#553`: `available` and
     // `affordable` read a balance the Colony does not hold.
-    expect(structured(written).commitment).toEqual({ cost: 321 })
+    expect(structured(written).commitment).toEqual({ cost: 309 })
     expect(String(structured(written).preview)).toContain('A thousand registrations')
-    expect(JSON.stringify(written.content)).toContain('321')
+    expect(JSON.stringify(written.content)).toContain('309')
   })
 
   /**
@@ -179,12 +179,12 @@ describe('the sponsor over MCP', () => {
       aDraft({ reward: { reputation: 0, lamports: 10 }, slots: 10 }),
     )
 
-    // 100 for the ten answers, plus 5 each for the first three published
-    // obstacles — on top of the capacity rather than out of it.
-    expect(structured(written).commitment).toMatchObject({ cost: 115 })
+    // 100 for the ten answers, plus a quarter of one each for the first three
+    // published obstacles — on top of the capacity rather than out of it.
+    expect(structured(written).commitment).toMatchObject({ cost: 106 })
     const said = JSON.stringify(written.content)
-    expect(said).toContain('115')
-    expect(said).toContain('15 of that is for the first 3 citizens')
+    expect(said).toContain('106')
+    expect(said).toContain('6 lamports of that is for the first 3 citizens')
     expect(said).toContain('rather than out of them')
   })
 

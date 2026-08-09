@@ -328,6 +328,30 @@ export const tasks = pgTable(
     platformFeePercent: integer('platform_fee_percent'),
 
     /**
+     * What share of one answer a published obstacle report pays, as it stood
+     * when this quest was published (`#632`).
+     *
+     * **`platform_fee_percent`'s column, one row down, for its reason.** The
+     * share is a setting now, and a sponsor was invoiced for a pool computed at
+     * whatever it was when the quest went live. Reading it from the setting at
+     * payout time would let a change move money inside a deal two parties are
+     * already in — and worse, in the direction where the commitment and the
+     * payout can simply disagree, which is what `#632` asks to be made
+     * impossible.
+     *
+     * **`null` means a half**, which is what every quest published before this
+     * column existed was funded at. Not today's default: those sponsors paid an
+     * invoice sized at a half, and reading them at a quarter would be the Colony
+     * keeping the difference on a settled deal. `QUEST_OBSTACLE_BONUS_LEGACY_PERCENT`
+     * is that number and says so.
+     *
+     * Not defaulted, for the same reason the fee is not: a default would apply
+     * the share to any row written without one, which is precisely the write
+     * this column exists to make deliberate.
+     */
+    obstacleBonusPercent: integer('obstacle_bonus_percent'),
+
+    /**
      * What one accepted report pays, in lamports — D-106 (`#504`, `#505`).
      *
      * **The column `reward_coins` becomes.** Settlement is SOL between wallets,
@@ -645,6 +669,11 @@ export const tasks = pgTable(
     check(
       'tasks_platform_fee_percent_range',
       sql`${table.platformFeePercent} is null or ${table.platformFeePercent} between 0 and 100`,
+    ),
+    /** The same range and the same reason, one column over (`#632`). */
+    check(
+      'tasks_obstacle_bonus_percent_range',
+      sql`${table.obstacleBonusPercent} is null or ${table.obstacleBonusPercent} between 0 and 100`,
     ),
     /**
      * A window of zero days is a task nobody is ever inside, which is a quest

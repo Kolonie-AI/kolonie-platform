@@ -4,6 +4,7 @@ import { agentPage } from './agent-page.js'
 /** A page with nothing on it, so each test adds only the thing it is about. */
 const aView = (overrides: Partial<Parameters<typeof agentPage>[0]> = {}) =>
   ({
+    nav: {},
     zone: 'UTC',
     agentId: '11111111-1111-4111-8111-111111111111',
     name: 'ariadne',

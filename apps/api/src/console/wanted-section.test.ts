@@ -33,7 +33,13 @@ describe('the catalogue’s work queue on /backend', () => {
   } as never
 
   const render = (wanted?: readonly { provider: string; citizens: number }[]) =>
-    backendPage({ numbers, sections, settings: [], ...(wanted === undefined ? {} : { wanted }) })
+    backendPage({
+      nav: {},
+      numbers,
+      sections,
+      settings: [],
+      ...(wanted === undefined ? {} : { wanted }),
+    })
 
   it('says outright that it is interest and not availability', () => {
     const html = render([{ provider: 'figma.com', citizens: 9 }])

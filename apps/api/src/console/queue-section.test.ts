@@ -33,13 +33,13 @@ describe('the operator queue on the fleet page', () => {
   })
 
   it('is absent entirely when nothing is waiting', () => {
-    const html = dashboardPage({ zone: 'UTC', agents: [agent], waiting: [] })
+    const html = dashboardPage({ nav: {}, zone: 'UTC', agents: [agent], waiting: [] })
 
     expect(html).not.toContain('Waiting on you')
   })
 
   it('names the agent, what was asked, and how long it has waited', () => {
-    const html = dashboardPage({ zone: 'UTC', agents: [agent], waiting: [item()] })
+    const html = dashboardPage({ nav: {}, zone: 'UTC', agents: [agent], waiting: [item()] })
 
     expect(html).toContain('Waiting on you (1)')
     expect(html).toContain('virio')
@@ -48,7 +48,7 @@ describe('the operator queue on the fleet page', () => {
   })
 
   it('says that answering wakes the agent, and that this is not a control panel', () => {
-    const html = dashboardPage({ zone: 'UTC', agents: [agent], waiting: [item()] })
+    const html = dashboardPage({ nav: {}, zone: 'UTC', agents: [agent], waiting: [item()] })
 
     expect(html).toContain('Answering wakes the agent')
     expect(html).toContain('Nothing here starts, stops or instructs an agent')
@@ -63,6 +63,7 @@ describe('the operator queue on the fleet page', () => {
   describe('a drop, which the queue could name and not clear', () => {
     const withDrop = () =>
       dashboardPage({
+        nav: {},
         zone: 'UTC',
         agents: [agent],
         waiting: [item({ kind: 'code', dropId: '22222222-2222-4222-8222-222222222222' })],
@@ -99,6 +100,7 @@ describe('the operator queue on the fleet page', () => {
    */
   it('links a question to the console’s own door, carrying no token', () => {
     const html = dashboardPage({
+      nav: {},
       zone: 'UTC',
       agents: [agent],
       waiting: [
@@ -124,6 +126,7 @@ describe('the operator queue on the fleet page', () => {
   /** A question with no id lands on the door itself rather than on a dead fragment. */
   it('links to the door with no fragment when the row names no exchange', () => {
     const html = dashboardPage({
+      nav: {},
       zone: 'UTC',
       agents: [agent],
       waiting: [item({ kind: 'question', answerAt: '/operator/page/abc', requestId: null })],
@@ -140,6 +143,7 @@ describe('the operator queue on the fleet page', () => {
    */
   it('draws the rows in the order it was given', () => {
     const html = dashboardPage({
+      nav: {},
       zone: 'UTC',
       agents: [agent],
       waiting: [

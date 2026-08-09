@@ -2,6 +2,7 @@ import { PERMISSION_AGGREGATE_FLOOR, type StoredProviderEnquiry } from '@kolonie
 import type { EffectiveSetting } from '@kolonie-ai/db'
 import type { BackendSections, ColonyNumbers, WantedProviderCount } from '@kolonie-ai/db'
 import { escape, page } from './html.js'
+import type { ConsoleNav } from './navigation.js'
 import { relative } from './time.js'
 import { colonyNumbersSections } from './steward.js'
 
@@ -38,6 +39,8 @@ import { colonyNumbersSections } from './steward.js'
  * from one route.
  */
 export function backendPage(input: {
+  /** Who is reading and where they are, for the navigation (`#608`). */
+  readonly nav: ConsoleNav
   readonly numbers: ColonyNumbers
   /** Who arrived and what is waiting (`#487`). */
   readonly sections: BackendSections
@@ -225,6 +228,8 @@ export function backendPage(input: {
 
   return page({
     title: 'The Colony, from the inside',
+    signedIn: true,
+    nav: input.nav,
     body: [
       '<h1>The Colony, from the inside</h1>',
       ...(input.notice === undefined ? [] : [`<p><strong>${escape(input.notice)}</strong></p>`]),
@@ -237,17 +242,17 @@ export function backendPage(input: {
         'The figures below are the same measurement the steward’s page reads, taken by the same ' +
         'query at the moment named under this line.</p>',
       colonyNumbersSections(input.numbers),
-      '<h2>Who arrived</h2>',
+      '<h2 id="who-arrived">Who arrived</h2>',
       // Its own moment, not the page's: these are live queries and were not
       // computed with the figures above. See `BackendSections` for why two.
       `<p class="note">The ${String(input.sections.registrations.rows.length)} most recent, newest first. Read at ${escape(input.sections.registrations.computedAt)}.</p>`,
       registrations,
-      '<h2>Waiting to be read</h2>',
+      '<h2 id="waiting-to-be-read">Waiting to be read</h2>',
       `<p class="note">Open tickets, <strong>oldest first</strong> — the one at the top has waited longest. Read at ${escape(input.sections.tickets.computedAt)}. This section shows the queue; answering a ticket is not something this page does.</p>`,
       tickets,
-      '<h2>Providers writing in</h2>',
+      '<h2 id="providers-writing-in">Providers writing in</h2>',
       enquiriesSection,
-      '<h2>What agents are asking for</h2>',
+      '<h2 id="what-agents-are-asking-for">What agents are asking for</h2>',
       /**
        * The two sentences this section cannot be read correctly without
        * (`#534`).
@@ -271,8 +276,10 @@ export function backendPage(input: {
       wantedSection,
       // Curating the Atlas (`#549`). A section on this page rather than a new
       // tool, and the same section a steward sees on `/review`.
-      ...(input.curation === undefined ? [] : ['<h2>The Atlas</h2>', input.curation]),
-      '<h2>Settings</h2>',
+      ...(input.curation === undefined
+        ? []
+        : ['<h2 id="the-atlas">The Atlas</h2>', input.curation]),
+      '<h2 id="settings">Settings</h2>',
       '<p class="note">Changing one of these does not need a deploy. What is <strong>not</strong> ' +
         'here cannot be put here: every credential, everything the deploy checks for, and the ' +
         'ports — D-104 makes that an allow-list in the code rather than a rule on a page.</p>',

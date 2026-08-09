@@ -110,8 +110,18 @@ const linksIn = (html: string, origin: string): string[] => {
     const raw = match[1]
     if (raw === undefined) continue
     const value = raw.replaceAll('&amp;', '&')
-    if (value.startsWith('/')) found.add(value)
-    else if (value.startsWith(`${origin}/`)) found.add(value.slice(origin.length))
+    /**
+     * **The fragment is dropped, because a browser never sends one.**
+     * `/backend#settings` is a request for `/backend`; injecting the whole
+     * string asks the router for a path with a `#` in it and gets a 404 that
+     * says nothing about the link. `#608` puts six such anchors in the
+     * navigation, so this is the difference between a useful crawl and one that
+     * reports six failures on a working page.
+     */
+    const path = value.split('#')[0] ?? ''
+    if (path === '') continue
+    if (path.startsWith('/')) found.add(path)
+    else if (path.startsWith(`${origin}/`)) found.add(path.slice(origin.length))
   }
   return [...found]
 }
@@ -268,6 +278,27 @@ describe('the console emits no link that answers 404', () => {
    * Removing the link and saying nothing would leave *how do I pay for this*
    * with no answer anywhere a sponsor looks.
    */
+  /**
+   * The same crawl for somebody holding `maintainer` (`#608`, `#606`).
+   *
+   * The role adds a whole section to the navigation, and a section of links is
+   * a section of ways to reach a 404. Without this the crawl only ever walks
+   * what an ordinary person sees, and the role-gated half — the half that is
+   * hardest to notice is broken, because almost nobody holds the role — goes
+   * unchecked.
+   */
+  it('reaches everything the role-gated section offers, and none of it is missing', async () => {
+    const cookie = await signedInCookie()
+    const people = humans.people()
+    humans.maintains(people[people.length - 1]?.id as never)
+
+    const { visited } = await crawl(cookie)
+
+    const missing = [...visited].filter(([, status]) => status === 404).map(([url]) => url)
+    expect(missing).toEqual([])
+    expect(visited.has('/backend')).toBe(true)
+  })
+
   it('says on the quests page how a quest is paid for', async () => {
     const cookie = await signedInCookie()
     const response = await app.inject({

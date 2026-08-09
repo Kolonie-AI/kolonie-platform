@@ -150,6 +150,15 @@ export const CONSOLE_TOKENS: Readonly<Record<string, string>> = {
 const LOCAL_TOKENS: Readonly<Record<string, string>> = {
   '--k-font-mono':
     "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace",
+  /**
+   * The smallest tap target a finger reliably hits (`#608`).
+   *
+   * 44px is Apple's figure and the one WCAG 2.5.8 rounds to. Measured on
+   * `kolonie.ai` at 390px on 2026-08-08, most controls there are under 40 —
+   * this is here so the console does not reproduce that, and it is a token so
+   * that the next control added is not a new judgement call.
+   */
+  '--k-tap': '44px',
 }
 
 function declarations(tokens: Readonly<Record<string, string>>): string {
@@ -318,32 +327,149 @@ ${declarations(LOCAL_TOKENS)}
   .console-mast:hover { color: var(--k-text-strong); }
   .console-mast__mark { display: block; width: 1.55em; height: 1.55em; }
 
-  /* The console's one navigation (#431). Its sign-out is a form because a
-     sign-out reachable by GET is one anybody can trigger from another page. */
-  .console-header {
+  /* The console's navigation (#608), replacing #431's row of links.
+
+     One column on a phone with the navigation above the content, two from 60rem
+     up with it beside. Same markup and the same document order in both — the
+     narrow case is not a drawer, because a drawer that slides needs a script or
+     the checkbox hack, and D-062 rules out the first while the second traps
+     focus and lies to a screen reader about what it is.
+
+     min-width: 0 on the content is load-bearing: a grid item's default is
+     auto, so one wide table would push the whole layout past the viewport and
+     produce the horizontal scrollbar this design exists to avoid. */
+  /* The mark and the sign-out on one row, above everything (#608). The
+     sign-out is here rather than in the navigation because one inside a
+     collapsible section is one people cannot find. */
+  .console-topbar {
     display: flex;
-    gap: var(--k-space-4);
     align-items: center;
+    justify-content: space-between;
+    gap: var(--k-space-4);
     flex-wrap: wrap;
-    padding-bottom: var(--k-space-4);
-    margin-bottom: var(--k-space-5);
-    border-bottom: var(--k-border) solid var(--k-hairline);
-    font-size: var(--k-text-sm);
   }
-  .console-header form { margin: 0 0 0 auto; }
-  .console-header button {
+  .console-topbar .console-mast { margin-bottom: 0; }
+  .console-topbar form { margin: 0; }
+  .console-topbar button {
     margin-top: 0;
-    padding: var(--k-space-1) var(--k-space-3);
+    min-height: var(--k-tap);
+    padding: var(--k-space-1) var(--k-space-4);
     font-weight: 400;
     color: var(--k-text-muted);
     background: none;
     border-color: var(--k-hairline-strong);
   }
-  .console-header button:hover {
+  .console-topbar button:hover {
     color: var(--k-text-strong);
     background: var(--k-surface-raised);
     border-color: var(--k-hairline-strong);
   }
+
+  .console-shell {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: var(--k-space-5);
+    align-items: start;
+    margin-top: var(--k-space-5);
+  }
+  /* min-width: 0 is load-bearing and not enough on its own. A grid item's
+     default width is auto, so one wide table pushes the layout past the
+     viewport — that part min-width fixes. What it does not fix is the table
+     itself being wider than the column it now sits in, and at 390px the
+     console has several: a Solana address is 44 characters with nowhere to
+     break.
+
+     So the content scrolls inside its own column and the page does not. This
+     was measured rather than reasoned about: at 390px with a wide table,
+     document.scrollWidth exceeded clientWidth until this line existed. */
+  .console-main {
+    min-width: 0;
+    overflow-x: auto;
+  }
+
+  @media (min-width: 60rem) {
+    .console-shell {
+      grid-template-columns: 15rem minmax(0, 1fr);
+      gap: var(--k-space-7);
+    }
+    /* Beside the content and staying there while it scrolls. The navigation is
+       short enough that this needs no scroll container of its own; if it ever
+       is not, the fix is overflow on this element and not a shorter list. */
+    .console-nav { position: sticky; top: var(--k-space-4); }
+  }
+
+  .console-nav {
+    font-size: var(--k-text-sm);
+    padding-bottom: var(--k-space-4);
+    border-bottom: var(--k-border) solid var(--k-hairline);
+  }
+  @media (min-width: 60rem) {
+    .console-nav { padding-bottom: 0; border-bottom: 0; }
+  }
+
+  /* <details>/<summary> is the disclosure: native, keyboard operable, and it
+     still works with no stylesheet at all. */
+  .console-nav details { border-bottom: var(--k-border) solid var(--k-hairline); }
+  .console-nav details:last-of-type { border-bottom: 0; }
+  .console-nav summary {
+    display: flex;
+    align-items: center;
+    min-height: var(--k-tap);
+    cursor: pointer;
+    color: var(--k-text-muted);
+    letter-spacing: var(--k-tracking-label);
+    text-transform: uppercase;
+    font-size: var(--k-text-xs);
+  }
+  /* The disclosure marker, drawn rather than inherited. display: flex on the
+     summary suppresses the browser's own triangle, and a closed section with no
+     affordance reads as a heading nobody can open — which is worse than the row
+     of links this replaced. Looked at in a browser at 390px, which is where it
+     was noticed. */
+  .console-nav summary::-webkit-details-marker { display: none; }
+  .console-nav summary::after {
+    content: "▸";
+    margin-left: auto;
+    color: var(--k-text-faint);
+  }
+  .console-nav details[open] > summary::after { content: "▾"; }
+  .console-nav summary:hover { color: var(--k-text-strong); }
+  .console-nav summary:focus-visible {
+    outline: 2px solid var(--k-accent);
+    outline-offset: 2px;
+  }
+
+  .console-nav ul {
+    list-style: none;
+    margin: 0 0 var(--k-space-2);
+    padding: 0;
+  }
+  .console-nav li a {
+    display: flex;
+    align-items: center;
+    /* The tap target, and the reason it is a min-height rather than padding: a
+       two-line label on a narrow screen has to grow past 44px, not be clipped
+       to it. */
+    min-height: var(--k-tap);
+    padding: 0 var(--k-space-3);
+    color: var(--k-text-muted);
+    text-decoration: none;
+    border-left: 2px solid transparent;
+  }
+  .console-nav li a:hover {
+    color: var(--k-text-strong);
+    background: var(--k-surface);
+  }
+
+  /* Where you are, styled off aria-current rather than off a class — the
+     attribute is what tells a screen reader, and hanging the appearance on the
+     same thing means the two cannot disagree. */
+  .console-nav li a[aria-current="page"] {
+    color: var(--k-text-strong);
+    border-left-color: var(--k-accent);
+    background: var(--k-surface);
+  }
+
 
   .note { color: var(--k-text-faint); font-size: var(--k-text-sm); }
   .note strong { color: var(--k-text-muted); }

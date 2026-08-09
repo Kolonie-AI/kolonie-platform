@@ -254,7 +254,10 @@ describe('the quests a person’s identities have written', () => {
       headers: { host: CONSOLE_HOST, accept: 'text/html', cookie },
     })
 
-    expect(dashboard.body).toContain('<a href="/quests">Quests</a>')
+    // `#608`: the navigation is sections and items, so the entry carries the
+    // label the item has rather than the section's name.
+    expect(dashboard.body).toContain('<summary>Quests</summary>')
+    expect(dashboard.body).toContain('<a href="/quests">Written by your identities</a>')
   })
 
   it('is not reachable without a session', async () => {

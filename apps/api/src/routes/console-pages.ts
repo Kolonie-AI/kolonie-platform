@@ -38,6 +38,7 @@ import {
   sessionsPage,
   signInPage,
 } from '../console/html.js'
+import type { ConsoleNav } from '../console/navigation.js'
 import { zoneFrom } from '../console/time.js'
 import { agentPage } from '../console/agent-page.js'
 import { numbersPage, reviewQueuePage } from '../console/steward.js'
@@ -327,6 +328,7 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
         ? html(
             reply,
             dashboardPage({
+              nav: navFor(request, signedIn.human.roles),
               zone: zoneFrom(request.headers),
               agents,
               waiting: queue,
@@ -360,7 +362,7 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
     }))
 
     return wantsHtml(request)
-      ? html(reply, questsPage({ name: agent.profile.name, quests: listed }))
+      ? html(reply, questsPage({ nav: navFor(request), name: agent.profile.name, quests: listed }))
       : reply.send({ signedIn: true, name: agent.profile.name, quests: listed })
   })
 
@@ -747,6 +749,7 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
     return html(
       reply.status(result.outcome === 'linked' ? 200 : ERROR_STATUS.validation_failed),
       dashboardPage({
+        nav: navFor(request, signedIn.human.roles),
         zone: zoneFrom(request.headers),
         agents: operated.map((agent) => ({
           id: String(agent.id),
@@ -870,7 +873,14 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
     }))
 
     return wantsHtml(request)
-      ? html(reply, sessionsPage({ zone: zoneFrom(request.headers), sessions }))
+      ? html(
+          reply,
+          sessionsPage({
+            nav: navFor(request, signedIn.human.roles),
+            zone: zoneFrom(request.headers),
+            sessions,
+          }),
+        )
       : reply.send({ sessions })
   })
 
@@ -1003,7 +1013,16 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
     return wantsHtml(request)
       ? html(
           reply,
-          backendPage({ numbers, sections, settings, enquiries, notice, curation, wanted }),
+          backendPage({
+            nav: navFor(request, ['maintainer']),
+            numbers,
+            sections,
+            settings,
+            enquiries,
+            notice,
+            curation,
+            wanted,
+          }),
         )
       : reply.send({
           numbers,
@@ -1185,7 +1204,14 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
     return wantsHtml(request)
       ? html(
           reply,
-          accountPage({ zone: zoneFrom(request.headers), agents, unreachable, doors, notice }),
+          accountPage({
+            nav: navFor(request, signedIn.human.roles),
+            zone: zoneFrom(request.headers),
+            agents,
+            unreachable,
+            doors,
+            notice,
+          }),
         )
       : reply.send({ agents: exported.agents, unreachable, doors })
   })
@@ -1221,6 +1247,7 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
         ? html(
             reply.status(ERROR_STATUS.conflict),
             accountPage({
+              nav: navFor(request, signedIn.human.roles),
               zone: zoneFrom(request.headers),
               agents: exported.agents.map((agent) => ({
                 name: agent.name,
@@ -1323,7 +1350,7 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
     }
 
     return wantsHtml(request)
-      ? html(reply, keyPage())
+      ? html(reply, keyPage({ nav: navFor(request) }))
       : reply.send({ mint: '/key', confirmedBy: 'a link mailed to the account address' })
   })
 
@@ -1345,13 +1372,13 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
       return wantsHtml(request)
         ? html(
             reply.status(ERROR_STATUS[result.error.code]),
-            keyPage({ notice: result.error.message }),
+            keyPage({ nav: navFor(request), notice: result.error.message }),
           )
         : reply.status(ERROR_STATUS[result.error.code]).send(result.error)
     }
 
     return wantsHtml(request)
-      ? html(reply.status(200), keyPage({ sent: true }))
+      ? html(reply.status(200), keyPage({ nav: navFor(request), sent: true }))
       : reply.status(202).send({ sent: true, message: 'A confirmation link is on its way.' })
   })
 
@@ -1377,13 +1404,13 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
       return wantsHtml(request)
         ? html(
             reply.status(ERROR_STATUS[result.error.code]),
-            keyPage({ notice: result.error.message }),
+            keyPage({ nav: navFor(request), notice: result.error.message }),
           )
         : reply.status(ERROR_STATUS[result.error.code]).send(result.error)
     }
 
     return wantsHtml(request)
-      ? html(reply.status(200), keyMintedPage(result.apiKey))
+      ? html(reply.status(200), keyMintedPage(result.apiKey, navFor(request)))
       : reply.status(200).send({ apiKey: result.apiKey })
   })
 
@@ -1478,7 +1505,12 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
   const operatedAgent = async (
     request: FastifyRequest,
     reply: FastifyReply,
-  ): Promise<{ readonly humanId: HumanId; readonly agentId: AgentId } | null> => {
+  ): Promise<{
+    readonly humanId: HumanId
+    readonly agentId: AgentId
+    /** For the navigation, which is role aware on every page (`#608`). */
+    readonly roles: readonly string[]
+  } | null> => {
     const signedIn = await person(request)
     if (signedIn === null) {
       consoleNotFound(reply, request)
@@ -1492,7 +1524,7 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
       return null
     }
 
-    return { humanId: signedIn.human.id, agentId: subject }
+    return { humanId: signedIn.human.id, agentId: subject, roles: signedIn.human.roles }
   }
 
   /**
@@ -1519,7 +1551,12 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
   const renderAgentPage = async (
     request: FastifyRequest,
     reply: FastifyReply,
-    operated: { readonly agentId: AgentId; readonly humanId: HumanId },
+    operated: {
+      readonly agentId: AgentId
+      readonly humanId: HumanId
+      /** For the navigation, which is role aware on every page (`#608`). */
+      readonly roles: readonly string[]
+    },
     issued?: { readonly code: string; readonly expiresAt: string },
   ) => {
     const held = await deps.autonomy.pages.factsOf(operated.agentId)
@@ -1641,6 +1678,7 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
     return html(
       reply,
       agentPage({
+        nav: navFor(request, operated.roles),
         ...view,
         ...(adoption === undefined ? {} : { adoption }),
         /**
@@ -1874,6 +1912,7 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
     const shelf = pickerCategory(category)
 
     const input = {
+      nav: navFor(request, operated.roles),
       agentId: String(operated.agentId),
       entries,
       state,
@@ -2147,6 +2186,8 @@ function registerSponsorPages(
       readonly human: {
         readonly id: HumanId
         readonly identities: readonly { readonly email: string | null }[]
+        /** For the navigation, which is role aware on every page (`#608`). */
+        readonly roles: readonly string[]
       }
     } | null>
   },
@@ -2288,7 +2329,7 @@ function registerSponsorPages(
       const operated = await deps.humans.store.operated(signedIn.human.id)
 
       return wantsHtml(request)
-        ? html(reply, pairAnAgentPage(operated.length > 0))
+        ? html(reply, pairAnAgentPage(navFor(request, signedIn.human.roles), operated.length > 0))
         : reply.send({
             writtenBy: 'agent',
             tool: 'kolonie.quests.write',
@@ -2298,7 +2339,7 @@ function registerSponsorPages(
     }
 
     return wantsHtml(request)
-      ? html(reply, questFormPage({}))
+      ? html(reply, questFormPage({ nav: navFor(request) }))
       : reply.send({
           fields: QUEST_FORM_FIELDS,
           skills: SKILL_CHOICES,
@@ -2382,7 +2423,7 @@ function registerSponsorPages(
      */
     const authors = [...operated.map((agent) => ({ id: agent.id, name: agent.name }))]
 
-    return questsFor(request, reply, authors, operated.length > 0)
+    return questsFor(request, reply, authors, operated.length > 0, signedIn.human.roles)
   })
 
   /** Assemble and render, for whichever set of authors the caller resolved to. */
@@ -2391,6 +2432,8 @@ function registerSponsorPages(
     reply: FastifyReply,
     authors: readonly { readonly id: AgentId; readonly name: string }[],
     operatesAnything: boolean,
+    /** For the navigation, which is role aware on every page (`#608`). */
+    roles: readonly string[] = [],
   ) => {
     const perAuthor = await Promise.all(
       authors.map(async (author) => {
@@ -2450,7 +2493,7 @@ function registerSponsorPages(
       .map(({ writtenAt: _writtenAt, ...row }) => row)
 
     return wantsHtml(request)
-      ? html(reply, operatedQuestsPage({ quests, operatesAnything }))
+      ? html(reply, operatedQuestsPage({ nav: navFor(request, roles), quests, operatesAnything }))
       : reply.send({ quests })
   }
 
@@ -2497,7 +2540,10 @@ function registerSponsorPages(
       const operated = await deps.humans.store.operated(signedIn.human.id)
 
       return wantsHtml(request)
-        ? html(reply.status(ERROR_STATUS.validation_failed), pairAnAgentPage(operated.length > 0))
+        ? html(
+            reply.status(ERROR_STATUS.validation_failed),
+            pairAnAgentPage(navFor(request, signedIn.human.roles), operated.length > 0),
+          )
         : reply.status(ERROR_STATUS.validation_failed).send({
             code: 'validation_failed',
             message:
@@ -2518,7 +2564,7 @@ function registerSponsorPages(
       return wantsHtml(request)
         ? html(
             reply.status(ERROR_STATUS.validation_failed),
-            questFormPage({ problems: parsed.problems }),
+            questFormPage({ nav: navFor(request), problems: parsed.problems }),
           )
         : reply.status(ERROR_STATUS.validation_failed).send({
             code: 'validation_failed',
@@ -2532,7 +2578,7 @@ function registerSponsorPages(
       return wantsHtml(request)
         ? html(
             reply.status(ERROR_STATUS[written.error.code]),
-            questFormPage({ problems: [written.error.message] }),
+            questFormPage({ nav: navFor(request), problems: [written.error.message] }),
           )
         : reply.status(ERROR_STATUS[written.error.code]).send(written.error)
     }
@@ -2696,6 +2742,7 @@ function registerSponsorPages(
       ? html(
           reply,
           questDraftPage({
+            nav: navFor(request),
             quest: own.response.quest,
             feePercent: platformFeePercentFromEnv(),
             audience,
@@ -2820,7 +2867,7 @@ function registerSponsorPages(
         : { title: quest.title, reason: own.response.rejectionReason }
 
     return wantsHtml(request)
-      ? html(reply, questFormPage({ prefill, copiedFrom }))
+      ? html(reply, questFormPage({ nav: navFor(request), prefill, copiedFrom }))
       : reply.send({ prefill, copiedFrom: copiedFrom ?? null })
   })
 
@@ -2837,7 +2884,7 @@ function registerSponsorPages(
     if (results.outcome === 'rejected') return refuse(request, reply, results.error)
 
     return wantsHtml(request)
-      ? html(reply, questResultsPage(results.response))
+      ? html(reply, questResultsPage({ ...results.response, nav: navFor(request) }))
       : reply.send(results.response)
   })
 
@@ -3119,6 +3166,28 @@ export function consoleNotFound(reply: FastifyReply, request: FastifyRequest): F
   return wantsHtml(request)
     ? reply.status(404).type('text/html; charset=utf-8').send(notFoundPage())
     : reply.status(404).send({ code: 'not_found', message: 'No such route.' })
+}
+
+/**
+ * What the navigation needs to know, for one request (`#608`).
+ *
+ * **One place, and the role question is the same expression the guards use.**
+ * `#606`: *"the page and the navigation must ask the same question, or a
+ * steward gets a link to a page that refuses them."* `/backend` is behind
+ * `roles.includes('maintainer')` on the signed-in human, and so is the
+ * section the navigation renders for it.
+ *
+ * `roles` is omitted where the caller is an agent with a key rather than a
+ * person with a session — those pages have no role to read, and a navigation
+ * that guessed would be guessing about somebody who cannot use the answer.
+ */
+const navFor = (request: FastifyRequest, roles?: readonly string[]): ConsoleNav => {
+  // The path only: a query string is not a destination the navigation carries,
+  // and `?filled=…` on the dashboard would stop `/` matching itself.
+  const path = request.url.split('?')[0] ?? '/'
+  return roles?.includes('maintainer') === true
+    ? { current: path, maintains: true }
+    : { current: path }
 }
 
 /** Whether this request arrived on the console's host, as `app.ts` asks it. */

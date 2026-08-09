@@ -362,9 +362,12 @@ describe('a person who is signed in', () => {
     const inside = await signedIn('/')
     const outside = await asBrowser('/')
 
-    expect(inside.body).toContain('class="console-header"')
+    // `#608` replaced `#431`'s row with `<nav class="console-nav">`. The needle
+    // is the element and not the class name, which is also in the inline
+    // stylesheet on every page including the signed-out one.
+    expect(inside.body).toContain('<nav class="console-nav"')
     expect(inside.body).toContain('action="/sign-out"')
-    expect(outside.body).not.toContain('class="console-header"')
+    expect(outside.body).not.toContain('<nav class="console-nav"')
   })
 
   describe('signing out', () => {

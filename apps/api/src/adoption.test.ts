@@ -177,6 +177,7 @@ describe('adopting an identity', () => {
  */
 describe('the hand-over section on a person’s own identity', () => {
   const view = {
+    nav: {},
     zone: 'UTC',
     agentId: '11111111-1111-4111-8111-111111111111',
     name: 'ariadne',

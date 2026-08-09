@@ -19,13 +19,14 @@
  */
 
 import type { WaitingItem, WaitingKind } from '@kolonie-ai/core'
+import { escape } from './escape.js'
+import { consoleNavigation, type ConsoleNav } from './navigation.js'
 import { CONSOLE_MAST } from './mark.js'
 import { CONSOLE_STYLE } from './theme.js'
 import { absolute, relative } from './time.js'
 import { exchangeAnchor } from '../autonomy-page.js'
 import { consoleOperatorPath } from '../operator-page-body.js'
 
-/** The five characters that turn text into markup. */
 /**
  * Where the console sends an operator to answer one question (`#587`).
  *
@@ -52,14 +53,7 @@ function consoleAnswerLink(item: WaitingItem): string {
   return item.requestId === null ? door : `${door}#${exchangeAnchor(item.requestId)}`
 }
 
-export function escape(value: string): string {
-  return value
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#39;')
-}
+export { escape } from './escape.js'
 
 /**
  * The headers every console response carries.
@@ -87,21 +81,31 @@ export const CONSOLE_HEADERS: Readonly<Record<string, string>> = {
   'cache-control': 'no-store',
 }
 
-/** One page, wrapped in the layout. */
-export function page(input: {
+/**
+ * One page, wrapped in the layout.
+ *
+ * **`signedIn: true` obliges the caller to supply `nav`, and the compiler is
+ * what enforces it** (`#608`). The navigation carries a section that only a
+ * `maintainer` may see, so a page that rendered it from a default would show
+ * every reader either too much or too little — and it would do so silently, on
+ * whichever page somebody forgot. Making the two fields one union means a new
+ * signed-in page cannot be added without answering who is reading it.
+ *
+ * **Not *is somebody authenticated*, and the difference is the whole of the
+ * flag.** The mail-linked operator page is reached without a session by somebody
+ * who has no account, and a navigation offering them a sign-out is furniture
+ * that lies. So the pages a session authorises pass this and the
+ * token-authorised ones do not.
+ */
+export type PageInput = {
   readonly title: string
   readonly body: string
-  /**
-   * Whether this page is being read by a signed-in person (`#431`).
-   *
-   * **Not *is somebody authenticated*, and the difference is the whole of the
-   * flag.** The mail-linked operator page is reached without a session by
-   * somebody who has no account, and a header offering them a sign-out is
-   * furniture that lies. So the pages a session authorises pass this and the
-   * token-authorised ones do not.
-   */
-  readonly signedIn?: boolean
-}): string {
+} & (
+  | { readonly signedIn: true; readonly nav: ConsoleNav }
+  | { readonly signedIn?: false; readonly nav?: undefined }
+)
+
+export function page(input: PageInput): string {
   return [
     '<!doctype html>',
     '<html lang="en">',
@@ -115,48 +119,59 @@ export function page(input: {
     `<style>${CONSOLE_STYLE}</style>`,
     '</head>',
     '<body>',
-    // The mark, on every page and above the navigation (`#498`). Outside the
-    // `signedIn` branch deliberately: the pages this issue is about — the
-    // operator page reached from a mail link, and the autonomy form — are read
-    // by somebody with no session and no account.
-    CONSOLE_MAST,
-    ...(input.signedIn === true ? [CONSOLE_HEADER] : []),
-    input.body,
+    /**
+     * The mark, on every page and above the navigation (`#498`). Outside the
+     * `signedIn` branch deliberately: the pages this issue is about — the
+     * operator page reached from a mail link, and the autonomy form — are read
+     * by somebody with no session and no account.
+     *
+     * **Signed in, it shares a row with the sign-out** (`#608`): *"the masthead
+     * keeps the mark and the sign-out — a sign-out inside a collapsible section
+     * is a sign-out people cannot find."* It is a `POST` for the reason `#431`
+     * gave and this does not reopen — a sign-out reachable by `GET` is one
+     * anybody can trigger with an image tag on another page, and `SameSite=Lax`
+     * would be the only thing standing in the way.
+     *
+     * The shell below is a grid and it is the whole of the responsive behaviour:
+     * one column on a phone with the navigation above the content, two columns
+     * from 60rem up with the navigation beside it. Same markup, same document
+     * order, no script and no second navigation for the narrow case.
+     *
+     * A page with no session has no navigation and no shell — its content is the
+     * page, and wrapping it would change the operator page's layout for nothing.
+     */
+    ...(input.signedIn === true
+      ? [
+          '<div class="console-topbar">',
+          CONSOLE_MAST,
+          '<form method="post" action="/sign-out"><button type="submit">Sign out</button></form>',
+          '</div>',
+          '<div class="console-shell">',
+          consoleNavigation(input.nav),
+          '<main class="console-main">',
+          input.body,
+          '</main>',
+          '</div>',
+        ]
+      : [CONSOLE_MAST, input.body]),
     '</body>',
     '</html>',
   ].join('\n')
 }
 
 /**
- * The one navigation the console has (`#431`).
+ * **`CONSOLE_HEADER` is gone — `#608`.** It was `#431`'s row of links and it had
+ * run out: a person gained a role (`#485`), `/backend` grew five sections, the
+ * Atlas gained a curation queue (`#549`), and one of the five links pointed at a
+ * page deleted with the deposit module (`#605`). The replacement is
+ * {@link consoleNavigation} in `./navigation.ts`, which is two levels, role
+ * aware, and laid out for a phone first.
  *
- * Three links and a sign-out, because that is everything a signed-in person can
- * be looking for: where their agents are, what those agents have asked the
- * Colony for, which sessions they hold, and the way out. It is a `POST` rather
- * than a link — a sign-out reachable by `GET` is a sign-out anybody can trigger
- * with an image tag on another page, and the `SameSite=Lax` cookie is the only
- * thing that would be standing in the way.
- *
- * **`Funding` was the fourth and is gone — `#605`.** `/funding` was deleted with
- * the deposit module (`#506`, D-106) and the navigation was not told, so it
- * answered 404 for a person who had just signed in. `#460`'s argument for
- * keeping it here — that a funding page reached only from a shortfall message is
- * one you meet at the worst moment — was right while there was a page; it is not
- * an argument for a link to nothing. The question that link answered is answered
- * where a person now has it, on `/quests`: the Colony invoices a published quest
- * and the sponsor pays it from a wallet the Colony has no key to.
+ * `#460`'s argument for keeping `Funding` in the navigation — that a funding
+ * page reached only from a shortfall message is one you meet at the worst
+ * moment — was right while there was a page. The question it answered is
+ * answered on `/quests` now.
  */
-const CONSOLE_HEADER = [
-  '<nav class="console-header">',
-  '<a href="/">Your agents</a>',
-  // Everything the identities this person operates have written (`#456`).
-  // Beside the agents rather than under one of them: it is a join over all of
-  // them, and it is the first thing somebody running four agents looks for.
-  '<a href="/quests">Quests</a>',
-  '<a href="/sessions">Sessions</a>',
-  '<form method="post" action="/sign-out"><button type="submit">Sign out</button></form>',
-  '</nav>',
-].join('')
 
 /**
  * Unauthenticated, the console is one page.
@@ -289,10 +304,17 @@ function providerDoors(providers: readonly string[]): readonly string[] {
  * citizenship. That is D-039 and it is untouched by anything here: a key lets you
  * *call*.
  */
-export function keyPage(input: { readonly sent?: boolean; readonly notice?: string } = {}): string {
+export function keyPage(input: {
+  readonly sent?: boolean
+  readonly notice?: string
+  /** Who is reading and where they are, for the navigation (`#608`). */
+  readonly nav: ConsoleNav
+}): string {
   if (input.sent === true) {
     return page({
       title: 'Check your mail',
+      signedIn: true,
+      nav: input.nav,
       body: [
         '<h1>Check your mail</h1>',
         '<p>A link to confirm the key is on its way to your account’s address. The key is',
@@ -305,6 +327,8 @@ export function keyPage(input: { readonly sent?: boolean; readonly notice?: stri
 
   return page({
     title: 'An API key for this account',
+    signedIn: true,
+    nav: input.nav,
     body: [
       ...(input.notice === undefined ? [] : [`<p><strong>${escape(input.notice)}</strong></p>`]),
       '<h1>An API key for this account</h1>',
@@ -339,9 +363,11 @@ export function keyPage(input: { readonly sent?: boolean; readonly notice?: stri
  * rather than below it: a reader who has already copied what they came for does
  * not read the paragraph under it.
  */
-export function keyMintedPage(apiKey: string): string {
+export function keyMintedPage(apiKey: string, nav: ConsoleNav): string {
   return page({
     title: 'Your API key',
+    signedIn: true,
+    nav,
     body: [
       '<h1>Your API key</h1>',
       '<p><strong>This is the only time it is shown.</strong> The Colony keeps a hash and',
@@ -452,6 +478,8 @@ export function errorPage(errorId: string): string {
  * question nobody asked and is a record the Colony would then have to hold.
  */
 export function sessionsPage(input: {
+  /** Who is reading and where they are, for the navigation (`#608`). */
+  readonly nav: ConsoleNav
   /** The zone every absolute time on this page is rendered in (`#461`). */
   readonly zone: string
   readonly sessions: readonly {
@@ -510,7 +538,7 @@ export function sessionsPage(input: {
       'does not, and could not.</p>',
   ].join('\n')
 
-  return page({ title: 'Your sessions', body, signedIn: true })
+  return page({ title: 'Your sessions', body, signedIn: true, nav: input.nav })
 }
 
 /**
@@ -548,6 +576,8 @@ const WAITING_LABEL: Readonly<Record<WaitingKind, string>> = {
 }
 
 export function dashboardPage(input: {
+  /** Who is reading and where they are, for the navigation (`#608`). */
+  readonly nav: ConsoleNav
   /** The zone every absolute time on this page is rendered in (`#461`). */
   readonly zone: string
   readonly agents: readonly {
@@ -849,7 +879,7 @@ export function dashboardPage(input: {
       : []),
   ].join('\n')
 
-  return page({ title: 'Your agents', body, signedIn: true })
+  return page({ title: 'Your agents', body, signedIn: true, nav: input.nav })
 }
 
 /**
@@ -888,6 +918,8 @@ const JOIN_PROMPT =
  * not the check.
  */
 export function accountPage(input: {
+  /** Who is reading and where they are, for the navigation (`#608`). */
+  readonly nav: ConsoleNav
   /** The zone every absolute time on this page is rendered in (`#461`). */
   readonly zone: string
   readonly agents: readonly { readonly name: string; readonly linkedAt: string }[]
@@ -1021,7 +1053,7 @@ export function accountPage(input: {
     ...deletion,
   ].join('\n')
 
-  return page({ title: 'Your account', body, signedIn: true })
+  return page({ title: 'Your account', body, signedIn: true, nav: input.nav })
 }
 
 /** What a person sees once their account is gone. There is no session left to show it in. */

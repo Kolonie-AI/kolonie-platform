@@ -24,6 +24,7 @@ import {
 } from '@kolonie-ai/core'
 import type { QuestResult as AcceptedReport, SponsorQuestReport } from '@kolonie-ai/db'
 import { escape, page } from './html.js'
+import type { ConsoleNav } from './navigation.js'
 import {
   ACTIVITY_CHOICES,
   AUDIENCE_CHOICES,
@@ -138,6 +139,8 @@ export function questAsCitizenReads(quest: {
  * a quest the human may not act on, none appears.
  */
 export function operatedQuestsPage(input: {
+  /** Who is reading and where they are, for the navigation (`#608`). */
+  readonly nav: ConsoleNav
   readonly quests: readonly {
     readonly id: string
     readonly title: string
@@ -231,10 +234,17 @@ export function operatedQuestsPage(input: {
     'it is published the Colony invoices it — you send the payment in SOL from a wallet you ' +
     'control. The Colony holds no balance of yours and no key to that wallet.</p>'
 
-  return page({ title: 'Quests', body: [...body, paying].join('\n'), signedIn: true })
+  return page({
+    title: 'Quests',
+    body: [...body, paying].join('\n'),
+    signedIn: true,
+    nav: input.nav,
+  })
 }
 
 export function questsPage(input: {
+  /** Who is reading and where they are, for the navigation (`#608`). */
+  readonly nav: ConsoleNav
   readonly name: string
   readonly quests: readonly {
     readonly id: string
@@ -262,6 +272,8 @@ export function questsPage(input: {
 
   return page({
     title: 'Your quests',
+    signedIn: true,
+    nav: input.nav,
     body: [
       `<h1>Signed in as ${escape(input.name)}</h1>`,
       '<p><a href="/quests/new">Write a quest</a></p>',
@@ -292,6 +304,8 @@ export function questsPage(input: {
  * (`#180`), so the copy starts here with the words and none of the history.
  */
 export function questFormPage(input: {
+  /** Who is reading and where they are, for the navigation (`#608`). */
+  readonly nav: ConsoleNav
   readonly problems?: readonly string[]
   readonly prefill?: Record<string, string> | undefined
   readonly copiedFrom?: { readonly title: string; readonly reason: string } | undefined
@@ -349,6 +363,8 @@ export function questFormPage(input: {
 
   return page({
     title: 'Write a quest',
+    signedIn: true,
+    nav: input.nav,
     body: [
       '<h1>Write a quest</h1>',
       copied,
@@ -413,6 +429,8 @@ export function questFormPage(input: {
 
 /** One draft: what it costs, what a citizen will read, and what to do next. */
 export function questDraftPage(input: {
+  /** Who is reading and where they are, for the navigation (`#608`). */
+  readonly nav: ConsoleNav
   readonly quest: Task
   readonly rejectionReason: string | null
   readonly awaitingModeration: boolean
@@ -533,6 +551,8 @@ export function questDraftPage(input: {
 
   return page({
     title: quest.title,
+    signedIn: true,
+    nav: input.nav,
     body: [
       `<h1>${escape(quest.title)}</h1>`,
       `<p class="note">Status: ${escape(input.awaitingModeration ? 'awaiting moderation' : quest.status)}</p>`,
@@ -597,6 +617,8 @@ function questReportList(reports: readonly SponsorQuestReport[]): string {
 
 /** The answers as they arrive, with the counts and the two downloads. */
 export function questResultsPage(input: {
+  /** Who is reading and where they are, for the navigation (`#608`). */
+  readonly nav: ConsoleNav
   readonly quest: { readonly id: string; readonly title: string }
   readonly accepted: number
   readonly results: readonly AcceptedReport[]
@@ -650,6 +672,8 @@ export function questResultsPage(input: {
 
   return page({
     title: `Answers — ${input.quest.title}`,
+    signedIn: true,
+    nav: input.nav,
     body: [
       `<h1>${escape(input.quest.title)}</h1>`,
       `<p>${input.accepted} accepted report(s).</p>`,
@@ -709,7 +733,7 @@ export function questResultsPage(input: {
  * dashboard is where both directions of it already live: a code to give an
  * agent, and a field for a code an agent gave.
  */
-export function pairAnAgentPage(operatesAny = false): string {
+export function pairAnAgentPage(nav: ConsoleNav, operatesAny = false): string {
   const body = operatesAny
     ? [
         '<h1>Your agent writes this</h1>',
@@ -736,5 +760,5 @@ export function pairAnAgentPage(operatesAny = false): string {
           'to install.</p>',
       ]
 
-  return page({ title: 'Write a quest', body: body.join('\n'), signedIn: true })
+  return page({ title: 'Write a quest', body: body.join('\n'), signedIn: true, nav })
 }

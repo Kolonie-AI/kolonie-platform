@@ -52,6 +52,7 @@ import type { RecipeStatus, Wish } from '@kolonie-ai/core'
 import type { BundleView } from '@kolonie-ai/db'
 import type { OperatorPageView } from '@kolonie-ai/db'
 import { escape, page } from './html.js'
+import type { ConsoleNav } from './navigation.js'
 import { absolute, relative } from './time.js'
 
 /**
@@ -70,6 +71,8 @@ export interface OpensNext {
 }
 
 export interface AgentPageInput {
+  /** Who is reading and where they are, for the navigation (`#608`). */
+  readonly nav: ConsoleNav
   readonly zone: string
   readonly agentId: string
   readonly name: string
@@ -812,5 +815,5 @@ export function agentPage(input: AgentPageInput): string {
     '<p><a href="/">Back to your agents</a></p>',
   ].join('\n')
 
-  return page({ title: heading, body, signedIn: true })
+  return page({ title: heading, body, signedIn: true, nav: input.nav })
 }

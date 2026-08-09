@@ -60,9 +60,9 @@ describe('the mark on a console page', () => {
     // The needle is the `<nav>` and not the class name: the class name is also
     // in the inline stylesheet, on every page, so the obvious assertion passes
     // and proves nothing.
-    const nav = '<nav class="console-header">'
+    const nav = '<nav class="console-nav"'
 
-    const signedIn = page({ title: 'A page', body: '<p>x</p>', signedIn: true })
+    const signedIn = page({ title: 'A page', body: '<p>x</p>', signedIn: true, nav: {} })
     expect(signedIn).toContain(nav)
     expect(signedIn.indexOf('<a class="console-mast"')).toBeLessThan(signedIn.indexOf(nav))
 

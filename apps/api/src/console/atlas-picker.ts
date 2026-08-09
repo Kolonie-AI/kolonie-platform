@@ -1,5 +1,6 @@
 import { AtlasCategorySchema, type AtlasCategory, type AtlasEntry } from '@kolonie-ai/core'
 import { escape, page } from './html.js'
+import type { ConsoleNav } from './navigation.js'
 
 /**
  * Browsing the Atlas from inside the console (`#591`).
@@ -49,6 +50,8 @@ export interface PickerState {
 }
 
 export interface AtlasPickerInput {
+  /** Who is reading and where they are, for the navigation (`#608`). */
+  readonly nav: ConsoleNav
   readonly agentId: string
   readonly entries: readonly AtlasEntry[]
   readonly state: PickerState
@@ -87,6 +90,7 @@ export function atlasPickerIndex(input: AtlasPickerInput): string {
   return page({
     title: 'Browse the Atlas',
     signedIn: true,
+    nav: input.nav,
     body: [
       '<main>',
       '<h1>Browse the Atlas</h1>',
@@ -123,6 +127,7 @@ export function atlasPickerShelf(
   return page({
     title: `Browse the Atlas — ${input.category}`,
     signedIn: true,
+    nav: input.nav,
     body: [
       '<main>',
       `<h1>${escape(input.category)}</h1>`,

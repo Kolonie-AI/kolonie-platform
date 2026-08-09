@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { NOTE_MAX_LENGTH } from '../common/note.js'
 import { TimestampSchema } from '../common/time.js'
 import { AccountKindSchema, AccountProviderSchema } from './account.js'
 import {
@@ -57,8 +58,15 @@ import { looksLikeCredential } from '../operator/request.js'
  * grant a skill, which is the one thing this must never be able to do.
  */
 
-/** How long the one question an agent is asked may be answered in. */
-export const WALK_NOTE_MAX_LENGTH = 1000
+/**
+ * How long the one question an agent is asked may be answered in.
+ *
+ * A walk note is the only account-walk text a steward and the next agent can
+ * read, so it gets the ordinary written-note allowance rather than a smaller
+ * private-note cap. The shared bound still keeps it a note rather than a
+ * transcript.
+ */
+export const WALK_NOTE_MAX_LENGTH = NOTE_MAX_LENGTH
 
 /**
  * How a walk ended.

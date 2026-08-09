@@ -394,6 +394,27 @@ describe('the record of one agent obtaining one account', () => {
       return undefined
     }
 
+    it('stores one ordinary 2000-character note', async () => {
+      await db.execute(
+        `insert into account_walks (agent_id, kind, provider, note)
+         values ('${agentId}', 'mailbox', 'note.example', repeat('a', 2000))`,
+      )
+
+      const rows = await db.execute<{ note: string }>(
+        `select note from account_walks where provider = 'note.example'`,
+      )
+      expect(rows[0]?.note).toHaveLength(2000)
+    })
+
+    it('refuses a walk note longer than 2000 characters', async () => {
+      expect(
+        await refusedBy(
+          `insert into account_walks (agent_id, kind, provider, note)
+           values ('${agentId}', 'mailbox', 'long-note.example', repeat('a', 2001))`,
+        ),
+      ).toBe('account_walks_note_is_short')
+    })
+
     it('refuses an outcome nobody defined', async () => {
       expect(
         await refusedBy(

@@ -291,10 +291,24 @@ export function taskAsText(
    */
   suggestedSkills: readonly SkillStanding[] = [],
 ): string {
-  const standing =
-    task.status === 'active'
-      ? `Open to you if you hold ${task.requires.length === 0 ? 'nothing in particular' : task.requires.join(', ')}.`
-      : 'Retired — readable, but no longer accepting submissions.'
+  const standing = (() => {
+    switch (task.status) {
+      case 'draft':
+        return 'Nobody has seen this. Submit it and a steward reads it.'
+      case 'pending_review':
+        return 'With a steward. Nothing is owed yet.'
+      case 'rejected':
+        return `Refused — ${task.rejectionReason ?? 'no reason was recorded'}; a new quest is how to change it.`
+      case 'active':
+        return `Open to you if you hold ${task.requires.length === 0 ? 'nothing in particular' : task.requires.join(', ')}.`
+      case 'awaiting_payment':
+        return 'Accepted; the invoice is what starts it.'
+      case 'retired':
+        return 'Retired — readable, but no longer accepting submissions.'
+    }
+
+    throw new Error(`Unhandled task status: ${task.status satisfies never}`)
+  })()
 
   return [
     `${task.title} — ${describeReward(task)}${describeEdges(task)}`,

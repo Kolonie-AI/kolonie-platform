@@ -10,7 +10,7 @@ While the version is `0.x`, **breaking changes bump the minor version**.
 ### Changed
 
 - **A quest review pays a tenth of what it did, and the figure is a dial**
-  (`kolonie-platform#647`). `QUEST_REVIEW_REWARD_LAMPORTS` falls from
+  (`kolonie-platform#651`). `QUEST_REVIEW_REWARD_LAMPORTS` falls from
   `1_000_000` to `100_000` and becomes the fallback for a new
   `QUEST_REVIEW_REWARD_LAMPORTS` setting, read by `questReviewReward`. At the
   old figure one decision paid exactly what a colony-judged quest paid its

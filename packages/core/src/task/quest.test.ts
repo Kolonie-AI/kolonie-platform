@@ -835,7 +835,7 @@ describe('the prices D-106 left without a unit', () => {
 
   /**
    * **Half of D-105's shape survives the tenfold cut, and half does not** — and
-   * the half that does not is asserted rather than quietly dropped (`#647`).
+   * the half that does not is asserted rather than quietly dropped (`#651`).
    *
    * The cut was the maintainer's, on a ratio: at `1_000_000` one decision paid
    * exactly what a colony-judged quest paid its answerer, so a steward earned as
@@ -851,7 +851,7 @@ describe('the prices D-106 left without a unit', () => {
    * maintainer's dial and not this file's.** Lowering `soft` to restore the
    * ladder would be re-pricing quests to make a test pass. It is written down
    * here so that whoever next reads this file meets the question instead of
-   * inheriting the answer, and `kolonie-platform#647` carries it.
+   * inheriting the answer, and `kolonie-platform#651` carries it.
    */
   it('pays a steward far more than a transaction fee, and less than a colony-judged report', () => {
     expect(QUEST_REVIEW_REWARD_LAMPORTS).toBeGreaterThan(5_000 * 10)
@@ -868,7 +868,7 @@ describe('the prices D-106 left without a unit', () => {
     expect(QUEST_REVIEW_REWARD_LAMPORTS).toBeLessThan(QUEST_TIER_CAPS_LAMPORTS.soft)
   })
 
-  /** The dial overrides the constant, and nonsense falls back to it (`#647`). */
+  /** The dial overrides the constant, and nonsense falls back to it (`#651`). */
   it('takes its figure from a setting, and refuses nonsense in it', () => {
     expect(questReviewReward(() => '250000')).toBe(250_000)
     expect(questReviewReward(() => undefined)).toBe(QUEST_REVIEW_REWARD_LAMPORTS)

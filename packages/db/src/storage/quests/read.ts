@@ -52,7 +52,7 @@ export async function questTierCapsInDatabase(
 }
 
 /**
- * What one review pays, right now (`#647`).
+ * What one review pays, right now (`#651`).
  *
  * **Read at the decision rather than at submission**, which is the one thing
  * about it worth stating: a quest sitting in the queue when the dial moves is

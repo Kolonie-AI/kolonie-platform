@@ -128,7 +128,7 @@ export const QUEST_REVIEW_REWARD_CREDITS = 5
  * and a steward's first review accrues through it exactly as a citizen's first
  * report does (`#505`).
  *
- * **This is the fallback and not the figure.** It is a setting since `#647`, on
+ * **This is the fallback and not the figure.** It is a setting since `#651`, on
  * `#630`'s argument applied to the number that was left behind: the right amount
  * is least known in the week it matters most, and a deploy is the wrong
  * instrument for a dial. {@link questReviewReward} is what reads it.
@@ -141,7 +141,7 @@ export const QUEST_REVIEW_REWARD_LAMPORTS = 100_000
 export const QUEST_REVIEW_REWARD_SETTING = 'QUEST_REVIEW_REWARD_LAMPORTS'
 
 /**
- * What one review pays right now (`#647`).
+ * What one review pays right now (`#651`).
  *
  * **The fallback rule is `questTierCaps`', stated once and here**: an unset value,
  * a nonsensical one, or one that is not a positive safe integer means the

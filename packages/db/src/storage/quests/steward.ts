@@ -113,7 +113,7 @@ export async function publishQuest(
     readonly taskId: TaskId
     readonly at: Timestamp
     /**
-     * What this decision pays the steward (`#647`).
+     * What this decision pays the steward (`#651`).
      *
      * **Optional and falling back to the constant**, on `obstacleBonusPercent`'s
      * terms rather than `audit`'s: a caller that omits it pays the default,
@@ -348,7 +348,7 @@ export async function refuseQuest(
     readonly taskId: TaskId
     readonly reason: string
     readonly at: Timestamp
-    /** What this decision pays, on `publishQuest`'s terms (`#647`). */
+    /** What this decision pays, on `publishQuest`'s terms (`#651`). */
     readonly reviewRewardLamports?: number
   },
 ): Promise<QuestRefuseOutcome> {

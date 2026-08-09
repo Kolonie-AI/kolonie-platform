@@ -424,7 +424,7 @@ export function databaseQuests(
         ...(settings === undefined
           ? {}
           : { obstacleBonusPercent: await questObstacleBonusPercentInDatabase(settings) }),
-        // Read at the decision rather than frozen (`#647`) — it is the Colony's
+        // Read at the decision rather than frozen (`#651`) — it is the Colony's
         // own money for work being done now, not a sponsor's for work already
         // committed.
         ...(settings === undefined

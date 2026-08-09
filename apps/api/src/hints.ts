@@ -326,14 +326,14 @@ const STANDING_HINT_TEXT: Record<StandingHintCode, (subject: string | null) => s
     'an unpaid invoice expires after seven days and anything already sent towards it is ' +
     'forfeited, so a quest left waiting can cost you money as well as time.',
   /**
-   * **It says that the work is paid** (`#647`).
+   * **It says that the work is paid** (`#651`).
    *
    * The sentence argued only from the sponsor's side — somebody else's escrow,
    * somebody else's waiting — and left out that the Colony pays the steward for
    * the decision either way. On a channel whose whole purpose is to get somebody
    * to act, an unmentioned payment is a motivation left on the floor.
    *
-   * **The amount is not named, deliberately.** It is a setting since `#647`, so
+   * **The amount is not named, deliberately.** It is a setting since `#651`, so
    * a figure written here would be a second answer that goes stale without
    * anybody editing it — `brand/README.md`'s rule about hex codes, applied to
    * money. `kolonie.quests.review` carries the real one.

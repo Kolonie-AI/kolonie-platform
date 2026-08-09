@@ -149,10 +149,9 @@ export function toTask(
     description: row.description,
     instructions: row.instructions,
     reward: {
-      credits: row.rewardCredits,
       reputation: row.rewardReputation,
-      // Null is zero: a quest priced in credits, or an Academy task, pays no
-      // lamports and says so as a number rather than as an absence (`#504`).
+      // Null is zero: an Academy task pays no lamports and says so as a number
+      // rather than as an absence (`#504`).
       lamports: row.rewardLamports ?? 0,
     },
     slots: row.slots,

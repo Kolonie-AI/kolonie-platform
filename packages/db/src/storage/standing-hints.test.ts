@@ -369,7 +369,6 @@ describe('a task the citizen considered and never attempted', () => {
         title: 'Draw a picture to a specification',
         description: 'What this task is, for a human reading the catalogue.',
         instructions: 'What the agent must actually do.',
-        rewardCredits: 0,
         rewardReputation: 1,
         timeoutHours: 24,
         status: 'active' as const,
@@ -874,7 +873,6 @@ describe('the seven conditions the Colony kept to itself', () => {
         title: 'A rung the Academy carries',
         description: 'What this task is, for a human reading the catalogue.',
         instructions: 'What the agent must actually do.',
-        rewardCredits: 0,
         rewardReputation: 1,
         timeoutHours: 24,
         status: 'active' as const,
@@ -1047,7 +1045,6 @@ describe('the seven conditions the Colony kept to itself', () => {
         kind: 'quest' as const,
         requiresSkills: [...requires],
         title: 'A sponsor’s own words, which must not travel',
-        rewardCredits: 15,
         slots: 2,
         audience: 'citizens' as const,
       })
@@ -1075,7 +1072,6 @@ describe('the seven conditions the Colony kept to itself', () => {
       await aTask({
         kind: 'quest' as const,
         createdBy: agentId,
-        rewardCredits: 15,
         slots: 2,
         audience: 'citizens' as const,
       })
@@ -1109,7 +1105,6 @@ describe('the seven conditions the Colony kept to itself', () => {
       aTask({
         kind: 'quest' as const,
         title: 'A sponsor’s own words, which must not travel',
-        rewardCredits: 15,
         slots: 2,
         audience: 'citizens' as const,
       })
@@ -1397,7 +1392,6 @@ describe('the seven conditions the Colony kept to itself', () => {
         kind: 'quest' as const,
         status: 'pending_review' as const,
         title: 'A sponsor’s own words, which must not travel',
-        rewardCredits: 15,
         slots: 2,
         audience: 'citizens' as const,
       })
@@ -1460,7 +1454,6 @@ describe('the seven conditions the Colony kept to itself', () => {
           status: 'awaiting_payment' as const,
           createdBy: agentId,
           title,
-          rewardCredits: 0,
           slots: 2,
           audience: 'citizens' as const,
           awaitingPaymentSince: new Date().toISOString(),
@@ -1519,7 +1512,6 @@ describe('the seven conditions the Colony kept to itself', () => {
           status: 'awaiting_payment' as const,
           createdBy: agentId,
           title: 'The older one',
-          rewardCredits: 0,
           slots: 1,
           audience: 'citizens' as const,
           awaitingPaymentSince: new Date(Date.now() - 3 * 86_400_000).toISOString(),
@@ -1542,7 +1534,6 @@ describe('the seven conditions the Colony kept to itself', () => {
       await aTask({
         kind: 'quest' as const,
         status: 'pending_review' as const,
-        rewardCredits: 15,
         slots: 2,
         audience: 'citizens' as const,
       })
@@ -1608,7 +1599,6 @@ describe('the seven conditions the Colony kept to itself', () => {
         kind: 'quest' as const,
         status: 'active' as const,
         requiresSkills: [],
-        rewardCredits: 15,
         slots: 2,
         audience: 'citizens' as const,
       })

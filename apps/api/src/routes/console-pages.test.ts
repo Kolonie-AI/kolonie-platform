@@ -203,7 +203,7 @@ describe('the console surface', () => {
         title: 'A thousand registrations',
         description: 'We want to know whether agents can register.',
         instructions: 'Register and report.',
-        reward: { credits: 0, reputation: 5 },
+        reward: { reputation: 5, lamports: 0 },
         slots: 10,
         expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
         questions: [{ key: 'what-happened', prompt: 'What happened?' }],
@@ -767,12 +767,13 @@ describe('the sponsor’s pages', () => {
   })
 
   /**
-   * At the pilot's one cent the fee rounds away, and the page says the citizen
+   * At a price small enough that the fee rounds away, the page says the citizen
    * receives the whole amount rather than printing a zero that reads as a
-   * charge.
+   * charge. One lamport is the smallest such price and the clearest case
+   * (`#553` phase C: it used to be the pilot's one cent).
    */
   it('says the Colony takes nothing where the fee rounds to zero', async () => {
-    const created = await postForm('/quests', aForm({ rewardSol: '1', slots: '10' }))
+    const created = await postForm('/quests', aForm({ rewardSol: '0.000000001', slots: '10' }))
     const draft = await asBrowser(created.headers['location'] as string, { signedIn: true })
 
     expect(draft.body).toContain('the Colony takes nothing')

@@ -174,30 +174,6 @@ export function questTier(quest: {
 }
 
 /**
- * What one report may pay, per tier, in credits — which are cents (`#218`).
- *
- * **Numbers, because a ceiling that is a sentence is not a ceiling.**
- * `governance/quests.md` prices the tiers in words: full, reduced, capped low.
- * These are the words as figures, and they are deliberately conservative — the
- * pilot pays one cent, so every one of them is far above what anything pays
- * today, and raising one later is a decision somebody takes rather than a limit
- * nobody noticed.
- *
- * `hard` is capped too. *Full* means the tier imposes no ceiling of its own, and
- * the escrow already bounds what a sponsor can commit — but an unbounded
- * per-report figure is a typo away from a quest that empties a balance on its
- * first accepted report.
- */
-export const QUEST_TIER_CAPS: Readonly<Record<QuestTier, number>> = {
-  /** Ten dollars a report. A third party said yes; the Colony is not the evidence. */
-  hard: 1000,
-  /** One dollar. A model read it against the sponsor's own stated criteria. */
-  'colony-judged': 100,
-  /** Five cents — *"must never pay more than the reputation it risks."* */
-  soft: 5,
-}
-
-/**
  * The same three ceilings, in lamports, which is what a quest is priced in
  * (D-110, `kolonie-docs#225`).
  *
@@ -243,15 +219,15 @@ export const QUEST_TIER_CAPS_LAMPORTS: Readonly<Record<QuestTier, number>> = {
 export function questRewardRejection(quest: {
   readonly proofVerifier?: string | null | undefined
   readonly questions: readonly Pick<QuestQuestion, 'criteria'>[]
-  readonly reward: Pick<TaskReward, 'credits'>
+  readonly reward: Pick<TaskReward, 'lamports'>
 }): string | undefined {
   const tier = questTier(quest)
-  const cap = QUEST_TIER_CAPS[tier]
-  if (quest.reward.credits <= cap) return undefined
+  const cap = QUEST_TIER_CAPS_LAMPORTS[tier]
+  if (quest.reward.lamports <= cap) return undefined
 
   return (
-    `a ${tier} quest may pay at most ${cap} credit(s) per report and this one pays ` +
-    `${quest.reward.credits}. The ceiling belongs to the tier rather than to the quest ` +
+    `a ${tier} quest may pay at most ${cap} lamports per report and this one pays ` +
+    `${quest.reward.lamports}. The ceiling belongs to the tier rather than to the quest ` +
     '(governance/quests.md): name a proof verifier, or state what a good answer has to do.'
   )
 }
@@ -515,7 +491,7 @@ export function questSubmissionRejection(
 export function questCommitment(
   quest: Pick<QuestDraft, 'reward' | 'slots' | 'publishObstacles'>,
 ): number {
-  return quest.reward.credits * quest.slots + questObstacleBonusPool(quest)
+  return quest.reward.lamports * quest.slots + questObstacleBonusPool(quest)
 }
 
 /**
@@ -544,8 +520,8 @@ export const QUEST_OBSTACLE_BONUS_WINNERS = 3
  * one credit an answer has nothing to halve, and inventing a credit for it would
  * be the Colony paying for a stranger's product research.
  */
-export function questObstacleBonus(reward: Pick<TaskReward, 'credits'>): number {
-  return Math.floor(reward.credits / 2)
+export function questObstacleBonus(reward: Pick<TaskReward, 'lamports'>): number {
+  return Math.floor(reward.lamports / 2)
 }
 
 /**
@@ -846,11 +822,20 @@ export function platformFeePercentFromEnv(env: NodeJS.ProcessEnv = process.env):
  * is what makes that the ordinary case rather than an edge one.
  */
 export function questPayoutSplit(
-  credits: number,
+  /**
+   * The price of one report, **in lamports** since `#553` phase C.
+   *
+   * **The name does not change and that is deliberate.** This is the one
+   * function the payout books against; a second one for lamports beside a
+   * `questPayoutSplit` for credits is exactly the drift that produced three
+   * defects in one afternoon on 2026-08-07, where a price had moved and a rule
+   * had not.
+   */
+  lamports: number,
   feePercent: number,
 ): { readonly toCitizen: number; readonly toTreasury: number } {
-  const toTreasury = Math.floor((credits * feePercent) / 100)
-  return { toCitizen: credits - toTreasury, toTreasury }
+  const toTreasury = Math.floor((lamports * feePercent) / 100)
+  return { toCitizen: lamports - toTreasury, toTreasury }
 }
 
 /**
@@ -867,7 +852,7 @@ export function questPayoutSplit(
  * number that changes a sponsor's mind and *25 %* is not.
  */
 export function questFeeBreakdown(input: {
-  readonly credits: number
+  readonly lamports: number
   readonly slots: number
   readonly feePercent: number
 }): {
@@ -879,12 +864,12 @@ export function questFeeBreakdown(input: {
   /** True when the fee rounds away, so a surface can say so instead of printing a zero. */
   readonly free: boolean
 } {
-  const perReport = questPayoutSplit(input.credits, input.feePercent)
+  const perReport = questPayoutSplit(input.lamports, input.feePercent)
 
   return {
     feePercent: input.feePercent,
     perReport,
-    funded: input.credits * input.slots,
+    funded: input.lamports * input.slots,
     toCitizens: perReport.toCitizen * input.slots,
     toColony: perReport.toTreasury * input.slots,
     free: perReport.toTreasury === 0,
@@ -910,11 +895,11 @@ export function questFeeBreakdown(input: {
  * charge.
  */
 export function questPayNotice(input: {
-  readonly credits: number
+  readonly lamports: number
   readonly reputation: number
   readonly feePercent: number
 }): string {
-  const { toCitizen } = questPayoutSplit(input.credits, input.feePercent)
+  const { toCitizen } = questPayoutSplit(input.lamports, input.feePercent)
   const paid = `Pays you ${toCitizen} credit(s) and ${input.reputation} reputation per accepted report.`
 
   return `${paid} ${questFeeSentence(input)}`
@@ -936,15 +921,15 @@ export function questPayNotice(input: {
  * *"the platform fee is 0"* clause reads as a charge to somebody skimming.
  */
 export function questFeeSentence(input: {
-  readonly credits: number
+  readonly lamports: number
   readonly feePercent: number
 }): string {
-  const { toTreasury } = questPayoutSplit(input.credits, input.feePercent)
+  const { toTreasury } = questPayoutSplit(input.lamports, input.feePercent)
 
   if (toTreasury === 0) return 'You receive the full reward; the Colony takes nothing.'
 
   return (
-    `The sponsor funds ${input.credits} of which the Colony's share — the platform ` +
+    `The sponsor funds ${input.lamports} lamports of which the Colony's share — the platform ` +
     `fee, ${input.feePercent}% — is ${toTreasury}.`
   )
 }

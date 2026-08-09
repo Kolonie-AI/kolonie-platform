@@ -63,7 +63,6 @@ describe('skill currency', () => {
         title: 'The rung that granted it',
         description: 'A description.',
         instructions: 'Instructions.',
-        rewardCredits: 0,
         rewardReputation: 1,
         grantsSkills: [skill],
         timeoutHours: 24,

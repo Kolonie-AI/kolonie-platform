@@ -5,6 +5,7 @@ import {
   type PayoutRefusal,
   type SubmissionId,
   type TaskId,
+  QUEST_OBSTACLE_BONUS_WINNERS,
 } from '@kolonie-ai/core'
 import type { Database, Transaction } from '../client.js'
 import { payoutObligations, solanaWalletChallenges, tasks } from '../schema/index.js'
@@ -80,7 +81,17 @@ export async function oweForReport(
       lamports: command.lamports,
       ...(verified?.address != null && { address: verified.address }),
     })
-    .onConflictDoNothing({ target: payoutObligations.submissionId })
+    /**
+     * **Untargeted, because the index it arbitrates on is partial** (`#553`
+     * phase C). `payout_obligations_submission_unique` gained
+     * `where submission_id is not null` when a review row stopped having one,
+     * and Postgres refuses to infer a partial index as an arbiter unless the
+     * statement repeats the predicate: `42P10 there is no unique or exclusion
+     * constraint matching the ON CONFLICT specification`. Naming no target
+     * catches any unique violation, which is the one that matters here and is
+     * what the targeted form was doing anyway.
+     */
+    .onConflictDoNothing()
     .returning({ id: payoutObligations.id })
 
   return row?.id
@@ -154,6 +165,87 @@ export async function oweForReview(
     .returning({ id: payoutObligations.id })
 
   return row?.id
+}
+
+/**
+ * Record what a published obstacle report owes its author (`#553` phase C).
+ *
+ * ## It was a defect before it was a payout
+ *
+ * `questInvoiceLamports` charges the sponsor for the bonus pool in SOL —
+ * `QUEST_OBSTACLE_BONUS_WINNERS × floor(price / 2)`, added to capacity × price.
+ * The only thing that ever paid a bonus computed it from `reward_credits`, which
+ * `#540` set to zero on every quest the console writes. So the amount was zero,
+ * the payment returned early, and a sponsor publishing obstacles was paying for
+ * a prize nobody could receive. Measured 2026-08-08: no live quest had reached
+ * it — `publish_obstacles` was false on the one active quest — so nothing is
+ * owed retrospectively.
+ *
+ * ## What decides whether it is paid, and what no longer does
+ *
+ * Three of `payQuestObstacleBonus`'s four conditions are the caller's and stay
+ * there: the task is a quest, the obstacle is published, and the quest publishes
+ * its obstacles. The fourth — **fewer than
+ * {@link QUEST_OBSTACLE_BONUS_WINNERS} have been paid** — is counted here, from
+ * the obligations rather than from the ledger's reference prefix, because the
+ * obligations are now where the answer lives.
+ *
+ * **The escrow-held guard is gone with the escrow.** It existed so a bonus could
+ * not overdraw a sponsor's credit balance; under D-106 the sponsor has already
+ * paid the invoice that included this pool, and there is no balance to overdraw.
+ *
+ * Idempotent on `(task_id, agent_id)` where the kind is `obstacle-bonus`, which
+ * mirrors `quest_reports_one_per_citizen` — a citizen files one report per
+ * quest, so it can earn one bonus.
+ *
+ * Returns the amount owed, or `0` where nothing was. Zero is the ordinary
+ * answer and not a failure.
+ */
+export async function oweForObstacleBonus(
+  tx: Transaction,
+  command: {
+    readonly agentId: AgentId
+    readonly taskId: TaskId
+    readonly lamports: number
+  },
+): Promise<number> {
+  if (command.lamports <= 0) return 0
+
+  const [counted] = await tx
+    .select({ paid: sql<string>`count(*)::text` })
+    .from(payoutObligations)
+    .where(
+      andSql(
+        eq(payoutObligations.taskId, command.taskId),
+        eq(payoutObligations.kind, 'obstacle-bonus'),
+      ),
+    )
+  if (Number(counted?.paid ?? 0) >= QUEST_OBSTACLE_BONUS_WINNERS) return 0
+
+  const [verified] = await tx
+    .select({ address: solanaWalletChallenges.address })
+    .from(solanaWalletChallenges)
+    .where(
+      andSql(
+        eq(solanaWalletChallenges.agentId, command.agentId),
+        sql`${solanaWalletChallenges.verifiedAt} is not null`,
+      ),
+    )
+    .limit(1)
+
+  const [row] = await tx
+    .insert(payoutObligations)
+    .values({
+      agentId: command.agentId,
+      taskId: command.taskId,
+      kind: 'obstacle-bonus',
+      lamports: command.lamports,
+      ...(verified?.address != null && { address: verified.address }),
+    })
+    .onConflictDoNothing()
+    .returning({ id: payoutObligations.id })
+
+  return row === undefined ? 0 : command.lamports
 }
 
 /**
@@ -363,7 +455,7 @@ export interface CitizenEarning {
    * for reading it and one for reporting on it — and nothing in the amount, the
    * date or the title tells them apart.
    */
-  readonly kind: 'report' | 'review'
+  readonly kind: 'report' | 'review' | 'obstacle-bonus'
   readonly lamports: number
   /** When the work was accepted and the amount became owed. */
   readonly owedSince: string

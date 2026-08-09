@@ -63,7 +63,6 @@ describe('linking a person to an agent', () => {
         title: 'A rung the Academy carries',
         description: 'What this task is.',
         instructions: 'What the agent must do.',
-        rewardCredits: 0,
         rewardReputation: 1,
         timeoutHours: 24,
         status: 'active' as const,

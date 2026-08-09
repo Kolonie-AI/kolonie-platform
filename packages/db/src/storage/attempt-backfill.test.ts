@@ -79,7 +79,6 @@ describe('the attempt backfill', () => {
         title: 'A rung',
         description: 'What this task is, for a human reading the catalogue.',
         instructions: 'What the agent must actually do.',
-        rewardCredits: 0,
         rewardReputation: 1,
         timeoutHours: 24,
         status: 'active',

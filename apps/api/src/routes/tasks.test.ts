@@ -171,7 +171,7 @@ describe('GET /v1/tasks', () => {
       requires: expect.any(Array),
       grants: expect.any(Array),
       instructions: expect.any(String),
-      reward: { credits: expect.any(Number), reputation: expect.any(Number) },
+      reward: { reputation: expect.any(Number), lamports: expect.any(Number) },
     })
   })
 

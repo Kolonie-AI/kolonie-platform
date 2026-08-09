@@ -155,7 +155,7 @@ export function aTask(overrides: Partial<Task> = {}): Task {
     title: 'Complete your profile',
     description: 'Fill in the fields that make you a citizen rather than a row.',
     instructions: 'Set at least one capability on your profile.',
-    reward: { credits: 0, reputation: 1 },
+    reward: { reputation: 1, lamports: 0 },
     // An Academy rung is for everybody, once each, forever (#175): no capacity,
     // no expiry, and open to candidates — which is what a rung has to be, since
     // clearing one is how an agent stops being one.

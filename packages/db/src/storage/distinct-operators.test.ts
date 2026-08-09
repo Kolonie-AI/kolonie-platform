@@ -68,7 +68,6 @@ describe('distinct operators', () => {
         title: 'A thousand registrations',
         description: 'What this quest is.',
         instructions: 'Register and report.',
-        rewardCredits: 0,
         rewardReputation: 1,
         slots: 10,
         audience: 'candidates' as const,

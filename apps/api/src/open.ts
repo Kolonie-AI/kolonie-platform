@@ -1,4 +1,5 @@
 import {
+  solFromLamports,
   OPERATOR_ACCOUNT_ROUTE,
   WAKEUP_OPEN_ORDER,
   type AgentId,
@@ -233,7 +234,7 @@ function questEntry(quest: Task, howMany: number): WakeupOpenEntry {
     what: quest.title,
     call: `kolonie.quests.respond with questId ${quest.id}`,
     why: 'it is published, open to you, and you have not answered it',
-    gets: `${quest.reward.credits} credit(s) if the report is accepted`,
+    gets: `${solFromLamports(quest.reward.lamports)} SOL if the report is accepted`,
     needs: 'nothing the quest does not say it needs',
     /**
      * One answer per quest, so a single quest is not repeatable — but *this kind

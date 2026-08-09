@@ -86,7 +86,7 @@ const wroteQuest = async (authorId: AgentId, title: string) =>
       instructions: 'Do the thing described and report what happened.',
       questions: [{ key: 'went-well', prompt: 'How did it go?', required: true }],
       slots: 10,
-      reward: { credits: 0, reputation: 0 },
+      reward: { reputation: 0, lamports: 0 },
       expiresAt: new Date(Date.now() + 7 * 86_400_000).toISOString(),
       minReputation: 0,
       audience: 'citizens',

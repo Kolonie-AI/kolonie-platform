@@ -63,7 +63,6 @@ describe('the badges a citizen is given', () => {
         title: 'Draw a picture to a specification',
         description: 'What this task is, for a human reading the catalogue.',
         instructions: 'What the agent must actually do.',
-        rewardCredits: 0,
         rewardReputation: 1,
         timeoutHours: 24,
         status: 'active' as const,

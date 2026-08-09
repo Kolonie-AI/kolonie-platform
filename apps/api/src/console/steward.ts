@@ -10,7 +10,7 @@
  */
 
 import type { ColonyNumbers, QuestUnderReview } from '@kolonie-ai/db'
-import { capabilityMismatches, platformFeePercentFromEnv } from '@kolonie-ai/core'
+import { solFromLamports, capabilityMismatches, platformFeePercentFromEnv } from '@kolonie-ai/core'
 import { escape, page } from './html.js'
 import { questAsCitizenReads } from './sponsor.js'
 
@@ -165,9 +165,8 @@ function reviewRow(quest: QuestUnderReview): string {
   const facts = [
     ['Written by', quest.sponsor.name ?? '— erased'],
     ['Capacity', String(task.slots ?? '—')],
-    ['Price per accepted report', String(task.reward.credits)],
+    ['Price per accepted report', `${solFromLamports(task.reward.lamports)} SOL`],
     ['Total', String(quest.total)],
-    ['Its available balance', String(quest.sponsorBalance.available)],
     [
       'Moderation',
       quest.moderation === null

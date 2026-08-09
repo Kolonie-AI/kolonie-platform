@@ -31,12 +31,17 @@ export const CREDIT_RENAME_MIGRATION = '0074_the_ledger_holds_credits_not_coins.
  * The alternative — writing a conversion path for values that do not exist — is
  * untested code that looks tested, which `#218` refused for exactly that reason.
  *
- * It takes the column name because the test has to drive it *after* the rename
- * has happened, when the column it guards is called `reward_credits`. The
- * migration passes the pre-rename name; the test passes the post-rename one and
- * gets the same statement.
+ * It takes the column name because the test has to drive it against a column
+ * that exists *now*. The migration passes `reward_coins`, which is what the
+ * table had when it ran. `reward_credits` was what the test drove it with until
+ * `#553` phase C dropped that column too; the test now passes `reward_lamports`,
+ * which is a live column of the same shape. **What is under test is the
+ * statement, not the column** — that it counts non-zero rows and raises with the
+ * issue number when it finds any.
  */
-export function rewardRenameGuardSql(column: 'reward_coins' | 'reward_credits'): string {
+export function rewardRenameGuardSql(
+  column: 'reward_coins' | 'reward_credits' | 'reward_lamports',
+): string {
   return `DO $$
 DECLARE offending bigint;
 BEGIN
@@ -59,7 +64,7 @@ export const REWARD_RENAME_GUARD_SQL = rewardRenameGuardSql('reward_coins')
  */
 export async function assertNoRewardToConvert(
   db: Database,
-  column: 'reward_coins' | 'reward_credits',
+  column: 'reward_coins' | 'reward_credits' | 'reward_lamports',
 ): Promise<void> {
   await db.execute(sql.raw(rewardRenameGuardSql(column)))
 }

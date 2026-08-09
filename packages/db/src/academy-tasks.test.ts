@@ -1326,13 +1326,13 @@ describe('seeding the Academy', () => {
     /**
      * The reward an agent sees is **reputation**, and the credit half is zero (#43).
      * Both are asserted, because the failure this guards against is a task that
-     * pays nothing at all — and after the credits were retired, `reward.credits > 0`
+     * pays nothing at all — and after the credits were retired, `reward.lamports > 0`
      * would have been the assertion that stopped noticing.
      */
     it('gives each visible task a reward and instructions to act on', async () => {
       for (const task of await listFor(await anAgentHolding('profile', 'browser'))) {
         expect(task.reward.reputation).toBeGreaterThan(0)
-        expect(task.reward.credits).toBe(0)
+        expect(task.reward.lamports).toBe(0)
         expect(task.kind).toBe('academy')
         expect(task.instructions.length).toBeGreaterThan(50)
         expect(task.status).toBe('active')
@@ -1615,7 +1615,6 @@ describe('seeding the hints', () => {
         title: 'Something a citizen wrote',
         description: 'Not part of the Academy seed.',
         instructions: 'Whatever its author asked for.',
-        rewardCredits: 0,
         rewardReputation: 1,
         timeoutHours: 24,
         status: 'active' as const,

@@ -2,6 +2,7 @@ import { and, eq, isNotNull, sql } from 'drizzle-orm'
 import {
   AgentPlatformSchema,
   QUEST_REPORT_KINDS_THE_SPONSOR_READS,
+  questObstacleBonus,
   type AgentId,
   type QuestReportCounts,
   type QuestReportKind,
@@ -11,7 +12,7 @@ import {
 import type { Database, Transaction } from '../client.js'
 import { agents, questAnswers, questReports, taskAttempts, tasks } from '../schema/index.js'
 import type { BriefingSource } from './briefing.js'
-import { payQuestObstacleBonus } from './escrow.js'
+import { oweForObstacleBonus } from './payouts.js'
 import { toTimestamp } from './rows.js'
 
 /**
@@ -353,17 +354,33 @@ export async function recordQuestReportModeration(
      * Colony cannot find, and a second job that reconciled them would be a
      * second place the rule lives.
      *
-     * Nothing here decides *whether* to pay — `payQuestObstacleBonus` owns every
-     * one of those conditions, and this is the one call site.
+     * Nothing here decides *whether* to pay beyond the three conditions it can
+     * see — `oweForObstacleBonus` owns the winners cap, and this is its one call
+     * site.
      */
     if (decided === undefined || decided.kind !== 'obstacle' || decided.published === null) {
       return 0
     }
 
-    return await payQuestObstacleBonus(tx, {
-      taskId: decided.taskId as TaskId,
-      reportId: decided.id,
+    const [task] = await tx
+      .select({
+        kind: tasks.kind,
+        rewardLamports: tasks.rewardLamports,
+        publishObstacles: tasks.publishObstacles,
+      })
+      .from(tasks)
+      .where(eq(tasks.id, decided.taskId))
+      .limit(1)
+
+    // An Academy rung reaches here only through a bug, and paying on one would
+    // break the boundary `governance/quests.md` draws. A sponsor that kept its
+    // obstacles bought nobody anything and held no pool.
+    if (task === undefined || task.kind !== 'quest' || !task.publishObstacles) return 0
+
+    return await oweForObstacleBonus(tx, {
       agentId: decided.agentId as AgentId,
+      taskId: decided.taskId as TaskId,
+      lamports: questObstacleBonus({ lamports: task.rewardLamports ?? 0 }),
     })
   })
 }

@@ -82,7 +82,7 @@ const bonusSentence = (quest: {
  */
 const splitSentence = (quest: { readonly reward: TaskReward; readonly slots: number | null }) => {
   const split = questFeeBreakdown({
-    credits: quest.reward.credits,
+    lamports: quest.reward.lamports,
     slots: quest.slots ?? 0,
     feePercent: platformFeePercentFromEnv(),
   })

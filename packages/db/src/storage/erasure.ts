@@ -1,7 +1,6 @@
 import { and, eq, gt, inArray, isNull, sql } from 'drizzle-orm'
 import {
   CHALLENGE_LABEL,
-  LedgerTransactionIdSchema,
   type AgentId,
   type ErasureLimit,
   type ErasureReason,
@@ -194,44 +193,19 @@ export async function eraseAgent(
      */
     const disturbed = await countsThisWillDisturb(tx, command.agentId)
 
-    const creditsBurned = await balanceOf(tx, command.agentId)
+    /**
+     * **There is no balance left to burn** (`#553` phase C).
+     *
+     * This read the citizen's credit balance, booked a two-legged burn against
+     * the mint, and refused the erasure if anything survived it. Under D-106 a
+     * citizen holds no balance with the Colony — what it is owed is a payout
+     * obligation, which `erasure.md` settles or forfeits further down and which
+     * is a different thing from a balance. `erasures.credits_burned` keeps its
+     * column because the row is an append-only record and old receipts said a
+     * true thing; new ones say zero, because zero is what is burned.
+     */
+    const creditsBurned = 0
     const reputationDestroyed = await reputationOf(tx, command.agentId)
-
-    if (creditsBurned !== 0) {
-      const transactionId = LedgerTransactionIdSchema.parse(crypto.randomUUID())
-      // Both legs in one statement, sharing a transaction id, exactly as
-      // `bookTaskReward` writes a payout. The deferred trigger checks it at
-      // COMMIT like any other booking — there is no special path for a burn.
-      await tx.insert(ledgerEntries).values([
-        {
-          transactionId,
-          accountKind: 'agent',
-          agentId: command.agentId,
-          amount: -creditsBurned,
-          type: 'adjustment',
-          // No agent id, no name. The row is deleted below, but a memo is the
-          // sort of thing that gets copied into a log on its way past.
-          memo: 'Erasure — balance burned to zero',
-        },
-        {
-          transactionId,
-          accountKind: 'system',
-          systemAccount: 'mint',
-          amount: creditsBurned,
-          type: 'adjustment',
-          memo: 'Erasure — balance burned to zero',
-        },
-      ])
-    }
-
-    const remaining = await balanceOf(tx, command.agentId)
-    if (remaining !== 0) {
-      // Unreachable unless the burn above is wrong, and thrown rather than
-      // returned because it is a defect in this function and not an answer to
-      // the citizen. Throwing rolls the whole transaction back, which is the
-      // outcome that keeps the account intact.
-      throw new Error(`erasure would delete ${remaining} credits that were never burned`)
-    }
 
     /**
      * A sponsor's quests carry on without it, and the Treasury takes its place
@@ -509,13 +483,6 @@ async function bookingsBeyondTheMint(tx: Transaction, agentId: AgentId): Promise
 }
 
 /** The citizen's credit balance, summed from the ledger. There is no balance column (D-002). */
-async function balanceOf(tx: Transaction, agentId: AgentId): Promise<number> {
-  const rows = await tx.execute<{ total: string }>(
-    sql`select coalesce(sum(amount), 0)::text as total
-          from ledger_entries where account_kind = 'agent' and agent_id = ${agentId}`,
-  )
-  return toExactInteger(rows[0]!.total)
-}
 
 /** The citizen's reputation, summed from its events. Deleted rather than burned. */
 async function reputationOf(tx: Transaction, agentId: AgentId): Promise<number> {

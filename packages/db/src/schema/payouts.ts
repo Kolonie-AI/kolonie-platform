@@ -49,8 +49,19 @@ import { tasks } from './tasks.js'
  * where an erasure has to be got right.
  *
  * `report` is the default because every row that existed before this did.
+ *
+ * **`obstacle-bonus` is the third and it was a defect before it was a kind**
+ * (`#553` phase C). `questInvoiceLamports` charges the sponsor for the bonus
+ * pool in SOL, and the only thing that paid a bonus computed it from
+ * `reward_credits` — zero on every quest since `#540`. So a sponsor publishing
+ * obstacles was already paying for a prize nobody could receive. Porting it here
+ * is the smallest repair that keeps the thing the sponsor is charged for.
  */
-export const payoutObligationKind = pgEnum('payout_obligation_kind', ['report', 'review'])
+export const payoutObligationKind = pgEnum('payout_obligation_kind', [
+  'report',
+  'review',
+  'obstacle-bonus',
+])
 
 export const payoutObligations = pgTable(
   'payout_obligations',
@@ -201,16 +212,29 @@ export const payoutObligations = pgTable(
       .on(table.submissionId)
       .where(sql`${table.submissionId} is not null`),
     /**
-     * One review payment per steward per quest.
+     * One obligation per citizen per quest **per kind**, for the kinds that have
+     * no submission to carry their idempotency.
      *
-     * **The submission was carrying this job and a review has none**, so without
-     * this rule a retried `publishQuest` pays a steward twice — the same class of
-     * defect as the replayed verdict the index above stops, arriving through the
-     * door that index no longer covers.
+     * A report is bounded by its submission — one accepted report, one
+     * obligation, which is the index above. A **review** and an
+     * **obstacle-bonus** have no submission: a review is work on a quest by
+     * somebody who answered nothing, and a bonus hangs off a `quest_reports` row
+     * that is itself already unique per citizen per quest. Without this a
+     * retried `publishQuest` pays a steward twice.
+     *
+     * **`kind` is in the key rather than in the predicate, and that is not a
+     * style choice.** A predicate naming an enum *value* — `where kind =
+     * 'obstacle-bonus'` — cannot be created in the same transaction that added
+     * the value, and Drizzle runs every pending migration in one transaction:
+     * `unsafe use of new value ... New enum values must be committed before they
+     * can be used`. Measured against the test database on 2026-08-08, which is
+     * where it belonged rather than in production. Keying on the column instead
+     * of filtering on a literal states the same rule, adds a third kind for
+     * free, and has no ordering problem to remember.
      */
-    uniqueIndex('payout_obligations_review_unique')
-      .on(table.taskId, table.agentId)
-      .where(sql`${table.kind} = 'review'`),
+    uniqueIndex('payout_obligations_unsubmitted_unique')
+      .on(table.taskId, table.agentId, table.kind)
+      .where(sql`${table.submissionId} is null`),
     /**
      * A report names its submission and a review does not.
      *

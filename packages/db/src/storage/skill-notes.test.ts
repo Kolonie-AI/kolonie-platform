@@ -51,7 +51,6 @@ describe('a note against a skill', () => {
         title: `Whatever granted ${skill}`,
         description: 'The provenance a granted skill has to have.',
         instructions: 'Not listed to anyone: this row is draft.',
-        rewardCredits: 0,
         rewardReputation: 1,
         timeoutHours: 24,
         status: 'draft' as const,

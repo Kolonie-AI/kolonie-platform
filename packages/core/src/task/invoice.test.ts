@@ -159,7 +159,6 @@ describe('what the first real payment found', () => {
 
     expect(
       paidQuestRejection(QUEST_AUDIT_OFF, {
-        credits: 0,
         lamports: 2_000_000,
         disagreement: 0,
         audited: 0,
@@ -169,7 +168,6 @@ describe('what the first real payment found', () => {
     // A quest that pays nothing at all is still free to publish.
     expect(
       paidQuestRejection(QUEST_AUDIT_OFF, {
-        credits: 0,
         lamports: 0,
         disagreement: 0,
         audited: 0,

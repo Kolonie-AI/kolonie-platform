@@ -303,7 +303,6 @@ describe('agents.operator', () => {
     'packages/db/src/storage/submissions.ts',
     'packages/db/src/storage/rewards.ts',
     'packages/db/src/storage/balance.ts',
-    'packages/db/src/storage/escrow.ts',
     'packages/db/src/storage/quests/read.ts',
     'packages/db/src/storage/quests/write.ts',
     'packages/db/src/storage/quests/steward.ts',

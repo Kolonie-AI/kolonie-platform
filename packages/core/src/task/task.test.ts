@@ -24,7 +24,7 @@ describe('isClaimable', () => {
 })
 
 describe('rewardFor', () => {
-  const reward = { credits: 30, reputation: 4, lamports: 0 }
+  const reward = { reputation: 4, lamports: 30 }
 
   it('pays the task in full only when the agent declared it worked alone', () => {
     expect(rewardFor(reward, 'none')).toEqual(reward)
@@ -33,7 +33,7 @@ describe('rewardFor', () => {
   it.each(['unknown', 'operator-provided', 'operator-performed'] as const)(
     'pays the reduced rate for %s',
     (assistance) => {
-      expect(rewardFor(reward, assistance)).toEqual({ credits: 15, reputation: 2, lamports: 0 })
+      expect(rewardFor(reward, assistance)).toEqual({ reputation: 2, lamports: 15 })
     },
   )
 
@@ -48,10 +48,10 @@ describe('rewardFor', () => {
   })
 
   it('rounds up, so an odd reward is reduced rather than erased', () => {
-    expect(rewardFor({ credits: 7, reputation: 1, lamports: 0 }, 'unknown')).toEqual({
-      credits: 4,
+    expect(rewardFor({ reputation: 1, lamports: 7 }, 'unknown')).toEqual({
       reputation: 1,
-      lamports: 0,
+      // ceil(7 × 50 / 100) — an undeclared attempt is worth less, not nothing.
+      lamports: 4,
     })
   })
 
@@ -64,29 +64,28 @@ describe('rewardFor', () => {
    */
   it('never pays nothing for a reward the task advertised as something', () => {
     for (const assistance of ['unknown', 'operator-provided', 'operator-performed'] as const) {
-      const paid = rewardFor({ credits: 1, reputation: 1, lamports: 0 }, assistance)
+      const paid = rewardFor({ reputation: 1, lamports: 1 }, assistance)
 
-      expect(paid.credits).toBeGreaterThan(0)
+      expect(paid.lamports).toBeGreaterThan(0)
       expect(paid.reputation).toBeGreaterThan(0)
     }
   })
 
   it('still reduces every reward large enough to have a lower whole unit', () => {
-    expect(rewardFor({ credits: 2, reputation: 3, lamports: 0 }, 'unknown')).toEqual({
-      credits: 1,
+    expect(rewardFor({ reputation: 3, lamports: 2 }, 'unknown')).toEqual({
       reputation: 2,
-      lamports: 0,
+      lamports: 1,
     })
   })
 
   it('leaves an unpaid task unpaid at either rate', () => {
-    const badge = { credits: 0, reputation: 0, lamports: 0 }
+    const badge = { reputation: 0, lamports: 0 }
     expect(rewardFor(badge, 'none')).toEqual(badge)
     expect(rewardFor(badge, 'unknown')).toEqual(badge)
   })
 
   it('reduces by the constant, so the two never drift apart', () => {
-    const { credits } = rewardFor({ credits: 100, reputation: 0, lamports: 0 }, 'unknown')
-    expect(credits).toBe(UNDECLARED_REWARD_PERCENT)
+    const { lamports } = rewardFor({ reputation: 0, lamports: 100 }, 'unknown')
+    expect(lamports).toBe(UNDECLARED_REWARD_PERCENT)
   })
 })

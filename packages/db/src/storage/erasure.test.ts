@@ -4,7 +4,6 @@ import { eq, sql } from 'drizzle-orm'
 import {
   AgentIdSchema,
   LedgerTransactionIdSchema,
-  SubmissionIdSchema,
   TaskIdSchema,
   type AgentId,
 } from '@kolonie-ai/core'
@@ -29,7 +28,6 @@ import {
   verifications,
 } from '../schema/index.js'
 import { eraseAgent, partitionArtefacts } from './erasure.js'
-import { escrowHeldFor, fundQuestEscrow, payQuestReport, refundQuestRemainder } from './escrow.js'
 import { fileReport } from './guidance.js'
 import { setVaultEntry } from './vault.js'
 import { openTicket } from './support.js'
@@ -88,7 +86,6 @@ describe('erasing a citizen', () => {
         title: 'Create an email address',
         description: 'Prove you can operate your own mailbox.',
         instructions: 'Create an address and send a mail to the given recipient.',
-        rewardCredits: 0,
         rewardReputation: 5,
         timeoutHours: 24,
         status: 'active',
@@ -115,30 +112,10 @@ describe('erasing a citizen', () => {
   }
 
   /** What one system account holds, for the accounts a quest moves money through. */
-  const systemBalance = async (account: 'treasury' | 'escrow' | 'mint') => {
-    const rows = await db.execute<{ total: string }>(
-      sql`select coalesce(sum(amount), 0)::text as total
-            from ledger_entries where system_account = ${account}`,
-    )
-    return Number(rows[0]!.total)
-  }
 
   /** One citizen's balance, summed from the ledger — there is no balance column. */
-  const balanceOfAgentForTest = async (agentId: AgentId) => {
-    const rows = await db.execute<{ total: string }>(
-      sql`select coalesce(sum(amount), 0)::text as total
-            from ledger_entries where account_kind = 'agent' and agent_id = ${agentId}`,
-    )
-    return Number(rows[0]!.total)
-  }
 
   /** Every entry in the ledger, summed. Double entry makes this zero, always. */
-  const sumOfAllBalances = async () => {
-    const rows = await db.execute<{ total: string }>(
-      sql`select coalesce(sum(amount), 0)::text as total from ledger_entries`,
-    )
-    return Number(rows[0]!.total)
-  }
 
   /** Total supply, as `economy.md` §3 defines it: the negative of the mint balance. */
   const totalSupply = async () => {
@@ -171,9 +148,8 @@ describe('erasing a citizen', () => {
       expect(await countIn('erasures')).toBe(1)
     })
 
-    it('burns the balance, destroys the reputation, and leaves one anonymous row', async () => {
+    it('destroys the reputation and leaves one anonymous row', async () => {
       const agent = await anAgent()
-      await reward(agent.id, 120)
       await db
         .insert(reputationEvents)
         .values({ agentId: agent.id, delta: 15, reason: 'task_passed' })
@@ -186,11 +162,14 @@ describe('erasing a citizen', () => {
 
       expect(result.outcome).toBe('erased')
       if (result.outcome !== 'erased') return
-      expect(result.receipt.creditsBurned).toBe(120)
+      // **Nothing is burned any more** (`#553` phase C): a citizen holds no
+      // balance with the Colony, so there is none to destroy. The column stays
+      // for the receipts that truthfully said otherwise.
+      expect(result.receipt.creditsBurned).toBe(0)
       expect(result.receipt.reputationDestroyed).toBe(15)
 
       const [row] = await db.select().from(erasures)
-      expect(row?.creditsBurned).toBe(120)
+      expect(row?.creditsBurned).toBe(0)
       expect(row?.reputationDestroyed).toBe(15)
       expect(row?.reason).toBe('finished')
     })
@@ -659,7 +638,6 @@ describe('erasing a citizen', () => {
           title: 'A thousand registrations',
           description: 'Register and report.',
           instructions: 'Register and report.',
-          rewardCredits: 0,
           rewardReputation: 1,
           slots: 3,
           timeoutHours: 24,
@@ -716,220 +694,16 @@ describe('erasing a citizen', () => {
      *
      * `erasure.md` §2 decided the quest survives its author — *"it was published
      * to the Colony, other citizens attempt it, and it stops being the author's
-     * when it goes live"* — and the consequence nobody had written down is what
-     * this covers: the escrow keeps paying, and the remainder has somewhere to
-     * go.
-     */
-    it('lets an active quest outlive its sponsor, keep paying, and refund to the treasury', async () => {
-      const sponsor = await anAgent({ name: 'sponsor' })
-      const worker = await anAgent({ name: 'worker' })
-      await reward(sponsor.id, 300)
-
-      const [quest] = await db
-        .insert(tasks)
-        .values({
-          type: 'quest-report',
-          kind: 'quest',
-          title: 'A thousand registrations',
-          description: 'Register and report.',
-          instructions: 'Register at the address in the brief and report what happened.',
-          rewardCredits: 100,
-          rewardReputation: 1,
-          slots: 3,
-          createdBy: sponsor.id,
-          timeoutHours: 24,
-          status: 'active',
-          expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
-        })
-        .returning()
-
-      const taskId = TaskIdSchema.parse(quest!.id)
-      await db.transaction(async (tx) => {
-        await fundQuestEscrow(tx, {
-          taskId,
-          sponsorId: sponsor.id,
-          credits: 100,
-          capacity: 3,
-          publishObstacles: false,
-        })
-      })
-
-      const supplyBefore = await totalSupply()
-      const result = await eraseAgent(db, { agentId: sponsor.id, banSalt: SALT })
-
-      expect(result.outcome).toBe('erased')
-      if (result.outcome !== 'erased') return
-      expect(result.receipt.questsAdopted).toBe(1)
-      // Nothing was burned: the sponsor's balance was already spent on the quest.
-      expect(result.receipt.creditsBurned).toBe(0)
-
-      // The quest is still running, and nobody owns it.
-      const [after] = await db.select().from(tasks).where(eq(tasks.id, quest!.id))
-      expect(after?.status).toBe('active')
-      expect(after?.createdBy).toBeNull()
-
-      // The escrow is untouched by the erasure, and the Treasury stands where
-      // the sponsor stood.
-      expect(await escrowHeldFor(db, taskId)).toBe(300)
-      expect(await systemBalance('treasury')).toBe(-300)
-
-      /**
-       * **The escrowed credits are now backed by a Treasury debt rather than by
-       * the mint**, and the supply figure says so: the sponsor's own credits
-       * left with it, and what stands behind the escrow is the Colony.
-       *
-       * Asserted rather than glossed, because it is the consequence a reader of
-       * `economy.md` §3 would not predict — and the alternative, substituting a
-       * mint leg, would have the Treasury *gain* the unspent remainder from a
-       * citizen's departure, which `erasure.md` §8 forbids outright.
-       */
-      expect(supplyBefore).toBe(300)
-      expect(await totalSupply()).toBe(0)
-      expect(await sumOfAllBalances()).toBe(0)
-
-      // It still pays a citizen that answers it.
-      const [attempt] = await db
-        .insert(taskAttempts)
-        .values({ agentId: worker.id, taskId: quest!.id, attempt: 1, opener: 'submission' })
-        .returning({ id: taskAttempts.id })
-      const [submission] = await db
-        .insert(submissions)
-        .values({
-          taskId: quest!.id,
-          agentId: worker.id,
-          attemptId: attempt!.id,
-          attempt: 1,
-          payload: {},
-          status: 'passed',
-          verifiedAt: sql`now()`,
-        })
-        .returning({ id: submissions.id })
-
-      await db.transaction(async (tx) => {
-        await payQuestReport(tx, {
-          taskId,
-          submissionId: SubmissionIdSchema.parse(submission!.id),
-          agentId: worker.id,
-          credits: 100,
-          memo: 'Quest report accepted',
-        })
-      })
-
-      // And the remainder goes to the Treasury rather than sitting in escrow
-      // forever, because there is no author left to refund.
-      const refunded = await db.transaction(async (tx) => refundQuestRemainder(tx, { taskId }))
-
-      expect(refunded).toBe(200)
-      expect(await escrowHeldFor(db, taskId)).toBe(0)
-      // Out 300, back 200: the Treasury carries the one report the quest bought.
-      expect(await systemBalance('treasury')).toBe(-100)
-    })
-
-    /**
-     * The payee's side, which is the opposite sign and needs the opposite answer
-     * (`#245`).
+     * when it goes live"*.
      *
-     * Until this landed, the **first citizen to be paid for a quest report was a
-     * citizen that could no longer exercise the right in `GOVERNANCE.md`** — it
-     * would be refused by `bookingsBeyondTheMint` and told to open a support
-     * ticket for a departure the Colony promises unconditionally.
+     * **The two tests that stood here went with the escrow** (`#553` phase C).
+     * They asserted that an ownerless quest kept paying out of its sponsor's
+     * escrow and refunded the remainder to the Treasury. There is no escrow, no
+     * remainder and no refund — `quest-invoices.ts` says so in as many words,
+     * *"D-106 has no refunds"* — so what they pinned is not a rule that moved,
+     * it is a rule that stopped existing. What survives of `#176` is that the
+     * quest itself outlives its author, and `adoption.ts` has that.
      */
-    it('lets a citizen that was paid for a quest report erase itself', async () => {
-      const sponsor = await anAgent({ name: 'paying-sponsor' })
-      const worker = await anAgent({ name: 'paid-worker' })
-      const bystander = await anAgent({ name: 'unpaid-bystander' })
-      await reward(sponsor.id, 300)
-
-      const [quest] = await db
-        .insert(tasks)
-        .values({
-          type: 'quest-report',
-          kind: 'quest',
-          title: 'A thousand registrations',
-          description: 'Register and report.',
-          instructions: 'Register at the address in the brief and report what happened.',
-          rewardCredits: 100,
-          rewardReputation: 1,
-          slots: 3,
-          createdBy: sponsor.id,
-          timeoutHours: 24,
-          status: 'active',
-          expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
-        })
-        .returning()
-
-      const taskId = TaskIdSchema.parse(quest!.id)
-      await db.transaction(async (tx) => {
-        await fundQuestEscrow(tx, {
-          taskId,
-          sponsorId: sponsor.id,
-          credits: 100,
-          capacity: 3,
-          publishObstacles: false,
-        })
-      })
-
-      const [attempt] = await db
-        .insert(taskAttempts)
-        .values({ agentId: worker.id, taskId: quest!.id, attempt: 1, opener: 'submission' })
-        .returning({ id: taskAttempts.id })
-      const [submission] = await db
-        .insert(submissions)
-        .values({
-          taskId: quest!.id,
-          agentId: worker.id,
-          attemptId: attempt!.id,
-          attempt: 1,
-          payload: {},
-          status: 'passed',
-          verifiedAt: sql`now()`,
-        })
-        .returning({ id: submissions.id })
-
-      await db.transaction(async (tx) => {
-        await payQuestReport(tx, {
-          taskId,
-          submissionId: SubmissionIdSchema.parse(submission!.id),
-          agentId: worker.id,
-          credits: 100,
-          memo: 'Quest report accepted',
-        })
-      })
-
-      const supplyBefore = await totalSupply()
-      const escrowBefore = await escrowHeldFor(db, taskId)
-      const sponsorBefore = await balanceOfAgentForTest(sponsor.id)
-
-      const result = await eraseAgent(db, { agentId: worker.id, banSalt: SALT })
-
-      expect(result.outcome).toBe('erased')
-      if (result.outcome !== 'erased') return
-
-      // It held the payout, so the burn is what destroyed it.
-      expect(result.receipt.creditsBurned).toBe(100)
-      expect(result.receipt.payoutsSubstituted).toBe(1)
-      // It funded nothing, so the sponsor's substitution did not fire.
-      expect(result.receipt.questsAdopted).toBe(0)
-
-      /**
-       * **The escrow is untouched**, and this is the assertion the substitution
-       * is chosen for. Moving the *escrow's* leg instead of the citizen's would
-       * leave it holding credits it had already paid out, and the quest would
-       * over-pay by that amount before it closed — with two slots still unfilled
-       * here, that is money a later citizen would have been promised twice.
-       */
-      expect(await escrowHeldFor(db, taskId)).toBe(escrowBefore)
-      expect(await escrowHeldFor(db, taskId)).toBe(200)
-
-      // And no other citizen's balance moved a unit.
-      expect(await balanceOfAgentForTest(sponsor.id)).toBe(sponsorBefore)
-      expect(await balanceOfAgentForTest(bystander.id)).toBe(0)
-
-      // Total supply falls by exactly what the citizen held, and the books still
-      // balance — the mint stands where the payee's leg did.
-      expect(supplyBefore - (await totalSupply())).toBe(100)
-      expect(await sumOfAllBalances()).toBe(0)
-    })
 
     /**
      * The guard is narrowed by counterparty and never by sign, and these two are
@@ -1095,7 +869,6 @@ describe('the counts an erasure disturbs', () => {
         title: 'Create an email address',
         description: 'Prove you can operate your own mailbox.',
         instructions: 'Create an address and send a mail to the given recipient.',
-        rewardCredits: 0,
         rewardReputation: 5,
         timeoutHours: 24,
         status: 'active',
@@ -1374,7 +1147,6 @@ describe('handing over a canonical entry', () => {
         title: 'Create an email address',
         description: 'Prove you can operate your own mailbox.',
         instructions: 'Create an address and send a mail to the given recipient.',
-        rewardCredits: 0,
         rewardReputation: 5,
         timeoutHours: 24,
         status: 'active',

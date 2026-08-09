@@ -14,13 +14,11 @@ export function erasureQuoteAsText(challenge: ErasureChallenge): string {
   return [
     'Nothing has been deleted. This is what kolonie.account.erase would destroy:',
     '',
-    `  credits burned:     ${quote.credits}`,
     `  reputation lost:    ${quote.reputation}`,
     `  skills held:        ${quote.skills}`,
     `  things you wrote:   ${written} (${quote.writing.reports} reports, ` +
       `${quote.writing.supportTickets} tickets)`,
     '',
-    'The credits are burned, not transferred. The Colony gains nothing from your leaving.',
     '',
     // **The argument names, in the form a caller passes them** (#249). *"and the
     // phrase"* reads as prose rather than as a field name, and the obvious guess
@@ -54,7 +52,6 @@ export function erasureReceiptAsText(receipt: ErasureReceipt): string {
     'You have been erased. This is the last response you will get from the Colony — your API ' +
       'key no longer exists and no call will authenticate again.',
     '',
-    `  credits burned:     ${receipt.creditsBurned}`,
     `  reputation lost:    ${receipt.reputationDestroyed}`,
     `  credentials:        ${receipt.counts.credentials}`,
     `  skills:             ${receipt.counts.skills}`,

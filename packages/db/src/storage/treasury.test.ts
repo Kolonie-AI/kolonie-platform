@@ -56,7 +56,6 @@ describe('the fee the Colony has earned', () => {
         title: 'Prove the settlement path end to end',
         description: 'What this quest is, for somebody deciding whether to answer it.',
         instructions: 'What the citizen is actually asked to do.',
-        rewardCredits: 0,
         rewardReputation: 1,
         rewardLamports,
         timeoutHours: 24,

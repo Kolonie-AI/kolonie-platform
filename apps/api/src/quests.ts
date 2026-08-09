@@ -56,7 +56,6 @@ import {
   questReviewQueue as questReviewQueueInDatabase,
   readOwnQuest as readOwnQuestInDatabase,
   SKILLS_THE_ACADEMY_GRANTS,
-  commitmentsBy,
   countAudience,
   refuseQuest as refuseQuestInDatabase,
   submitQuestForReview as submitQuestForReviewInDatabase,
@@ -65,7 +64,6 @@ import {
   type AudienceCriteria,
   type Database,
   type OwnQuest,
-  type QuestCommitmentRow,
   type QuestPublishOutcome,
   type QuestRefuseOutcome,
   type AuditCandidate,
@@ -156,7 +154,6 @@ export interface QuestDesk {
    * even to somebody watching for it. This is the same rows summed differently
    * rather than a second record of the same fact.
    */
-  commitments(authorId: AgentId): Promise<readonly QuestCommitmentRow[]>
   /**
    * How many citizens this targeting could reach today (`#227`).
    *
@@ -313,7 +310,6 @@ export function databaseQuests(
       }),
     submit: (input) => submitQuestForReviewInDatabase(db, input),
     withdraw: (input) => withdrawQuestFromReviewInDatabase(db, input),
-    commitments: (authorId) => commitmentsBy(db, authorId),
     audience: (criteria) => countAudience(db, criteria),
     listOwn: (authorId) => listOwnQuestsInDatabase(db, authorId),
     readOwn: (authorId, taskId) => readOwnQuestInDatabase(db, authorId, taskId),

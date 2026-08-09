@@ -156,7 +156,6 @@ export const tasks = pgTable(
      * `governance/economy.md` §1 puts credits and the credit in different layers
      * precisely so that a reader of this row cannot confuse the two.
      */
-    rewardCredits: integer('reward_credits').notNull(),
     rewardReputation: integer('reward_reputation').notNull(),
 
     /**
@@ -508,39 +507,35 @@ export const tasks = pgTable(
     check('tasks_title_min_length', sql`char_length(${table.title}) >= 3`),
     check('tasks_description_length', sql`char_length(${table.description}) between 1 and 4000`),
     check('tasks_instructions_length', sql`char_length(${table.instructions}) between 1 and 8000`),
-    check(
-      'tasks_reward_non_negative',
-      sql`${table.rewardCredits} >= 0 and ${table.rewardReputation} >= 0`,
-    ),
+    check('tasks_reward_non_negative', sql`${table.rewardReputation} >= 0`),
     /**
-     * `governance/economy.md` §2, as a constraint: *"The Academy pays reputation.
-     * Quests pay coins. No coin is ever minted as a reward for work."*
+     * `governance/economy.md` §2, as a constraint: *"The Academy pays
+     * reputation. Quests pay coins. No coin is ever minted as a reward for
+     * work."*
      *
-     * **This is the whole of #43.** Setting every Academy task's `reward_credits` to
-     * zero satisfies the sentence today; this constraint is what keeps it
-     * satisfied against a write path that does not exist yet. Citizen-authored
-     * tasks are already modelled (`created_by`), and the day one of them is
-     * written by an agent rather than by the seed, the only thing standing between
-     * the Colony and an emission schedule is a line of SQL or a comment somebody
-     * read.
+     * **This is the whole of #43**, and since `#553` phase C there is one unit
+     * left for it to be about. It used to name `reward_credits` as well; credits
+     * are gone, and the argument was always stronger about SOL — an Academy rung
+     * that paid it would be the emission schedule this constraint refuses,
+     * funded out of the Colony's own wallet and convertible today rather than
+     * one day.
      *
-     * Stated as an implication rather than as `reward_credits = 0` on every row,
-     * because a Quest genuinely does pay — the boundary is what is being
-     * enforced, not the number.
-     */
-    /**
-     * **`reward_lamports` is inside this rule and not beside it** (`#504`).
-     * D-038's argument is about the Academy paying anything transferable, and
-     * SOL is more transferable than a credit ever was — an Academy rung that
-     * paid it would be the emission schedule this constraint exists to refuse,
-     * funded out of the Colony's own wallet. The name is left alone: renaming a
-     * constraint is a migration paying for a word.
+     * Stated as an implication rather than as `reward_lamports = 0` on every
+     * row, because a Quest genuinely does pay — the boundary is what is being
+     * enforced, not the number. It keeps working against a write path that does
+     * not exist yet: citizen-authored tasks are already modelled
+     * (`created_by`), and the day one is written by an agent rather than by the
+     * seed, the only thing standing between the Colony and an emission schedule
+     * is a line of SQL or a comment somebody read.
+     *
+     * **Renamed with the unit**, because `tasks_academy_pays_no_credits` would
+     * name a column the database no longer has.
      */
     check(
-      'tasks_academy_pays_no_credits',
+      'tasks_academy_pays_nothing_convertible',
       sql`${table.kind} = 'quest'
-          or (${table.rewardCredits} = 0
-              and (${table.rewardLamports} is null or ${table.rewardLamports} = 0))`,
+          or ${table.rewardLamports} is null
+          or ${table.rewardLamports} = 0`,
     ),
     check('tasks_timeout_hours_range', sql`${table.timeoutHours} between 1 and 720`),
     /**

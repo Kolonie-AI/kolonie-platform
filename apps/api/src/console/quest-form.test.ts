@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { KNOWN_SKILLS, QUEST_PROOF_VERIFIERS, QUEST_TIER_CAPS } from '@kolonie-ai/core'
+import { KNOWN_SKILLS, QUEST_PROOF_VERIFIERS, QUEST_TIER_CAPS_LAMPORTS } from '@kolonie-ai/core'
 import { SKILLS_THE_ACADEMY_GRANTS } from '@kolonie-ai/db'
 import {
   questInvoiceLine,
@@ -39,7 +39,7 @@ describe('the quest form', () => {
     if (result.outcome !== 'parsed') return
     expect(result.draft['title']).toBe('A thousand registrations')
     expect(result.draft['slots']).toBe(100)
-    expect(result.draft['reward']).toEqual({ credits: 0, reputation: 1, lamports: 2_000_000 })
+    expect(result.draft['reward']).toEqual({ reputation: 1, lamports: 2_000_000 })
   })
 
   /**
@@ -253,7 +253,7 @@ describe('the quest form', () => {
       const note = proofNote(null)
 
       expect(note).toContain('soft')
-      expect(note).toContain(String(QUEST_TIER_CAPS.soft))
+      expect(note).toContain(String(QUEST_TIER_CAPS_LAMPORTS.soft))
       // The sentence a sponsor needs at the moment it skips the field.
       expect(note).toContain("citizen's own word")
     })
@@ -262,7 +262,7 @@ describe('the quest form', () => {
       const note = proofNote(QUEST_PROOF_VERIFIERS[0] as string)
 
       expect(note).toContain('hard')
-      expect(note).toContain(String(QUEST_TIER_CAPS.hard))
+      expect(note).toContain(String(QUEST_TIER_CAPS_LAMPORTS.hard))
     })
   })
 

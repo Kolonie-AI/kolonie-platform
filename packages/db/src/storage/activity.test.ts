@@ -81,7 +81,6 @@ describe('activity', () => {
         title: 'A quest',
         description: 'Something a sponsor wants',
         instructions: 'Do it',
-        rewardCredits: 0,
         rewardReputation: 1,
         timeoutHours: 24,
         audience: 'candidates',
@@ -330,7 +329,6 @@ describe('activity', () => {
           title: 'A rung',
           description: 'Something the Academy verifies',
           instructions: 'Do it',
-          rewardCredits: 0,
           rewardReputation: 1,
           timeoutHours: 24,
         })

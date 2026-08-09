@@ -60,27 +60,27 @@ describe('refusing to reinterpret a coin as a cent', () => {
     await truncateAll(db)
   })
 
-  const aQuestPaying = (rewardCredits: number) =>
+  const aQuestPaying = (rewardLamports: number) =>
     db.insert(tasks).values({
       type: 'some-quest',
       kind: 'quest' as const,
       title: 'A quest somebody wrote',
       description: 'What this quest is, for a human reading the catalogue.',
       instructions: 'What the citizen must actually do.',
-      rewardCredits,
+      rewardLamports,
       rewardReputation: 0,
       timeoutHours: 24,
       status: 'active' as const,
     })
 
   it('passes on the table the rename actually ran against', async () => {
-    await expect(assertNoRewardToConvert(db, 'reward_credits')).resolves.not.toThrow()
+    await expect(assertNoRewardToConvert(db, 'reward_lamports')).resolves.not.toThrow()
   })
 
   it('passes when every reward is zero', async () => {
     await aQuestPaying(0)
 
-    await expect(assertNoRewardToConvert(db, 'reward_credits')).resolves.not.toThrow()
+    await expect(assertNoRewardToConvert(db, 'reward_lamports')).resolves.not.toThrow()
   })
 
   /**
@@ -97,7 +97,7 @@ describe('refusing to reinterpret a coin as a cent', () => {
     // `rejects.toThrow`, which cannot see past Drizzle's wrapper and would pass
     // on the query text alone.
     await expectRejection(
-      () => assertNoRewardToConvert(db, 'reward_credits'),
+      () => assertNoRewardToConvert(db, 'reward_lamports'),
       /2 row\(s\) are non-zero/,
     )
   })
@@ -106,7 +106,7 @@ describe('refusing to reinterpret a coin as a cent', () => {
     await aQuestPaying(1)
 
     await expectRejection(
-      () => assertNoRewardToConvert(db, 'reward_credits'),
+      () => assertNoRewardToConvert(db, 'reward_lamports'),
       /1 row\(s\) are non-zero[\s\S]*conversion decision is owed/,
     )
   })
@@ -118,7 +118,7 @@ describe('refusing to reinterpret a coin as a cent', () => {
    */
   it('holds no non-zero reward at all', async () => {
     const [row] = await db
-      .select({ offending: sql<number>`count(*) filter (where ${tasks.rewardCredits} <> 0)::int` })
+      .select({ offending: sql<number>`count(*) filter (where ${tasks.rewardLamports} <> 0)::int` })
       .from(tasks)
 
     expect(row?.offending).toBe(0)

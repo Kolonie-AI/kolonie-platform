@@ -57,7 +57,6 @@ describe('leaving the Colony over HTTP', () => {
       const response = await mint(agent.key)
 
       expect(response.statusCode).toBe(201)
-      expect(response.json().quote.credits).toBe(120)
       expect(response.json().phrase).toBe(ERASURE_CONFIRMATION_PHRASE)
     })
 
@@ -85,7 +84,8 @@ describe('leaving the Colony over HTTP', () => {
       expect(response.statusCode).toBe(200)
       // 200 and a body rather than 204: a `DELETE` that returned nothing would
       // throw away the receipt, which is the honest half of the operation.
-      expect(response.json().creditsBurned).toBe(120)
+      // Nothing is burned any more (`#553` phase C) — the field stays for old receipts.
+      expect(response.json().creditsBurned).toBe(0)
       expect(response.json().beyondReach).toHaveLength(5)
       expect(colony.erasureDesk.erased()).toEqual([agent.id])
     })

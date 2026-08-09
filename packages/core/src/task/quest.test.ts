@@ -5,7 +5,6 @@ import {
   DEFAULT_PLATFORM_FEE_PERCENT,
   PLATFORM_FEE_PERCENT_VAR,
   QUEST_EDITABLE_STATUSES,
-  QUEST_TIER_CAPS,
   QUEST_TIER_CAPS_LAMPORTS,
   QUEST_REVIEW_REWARD_LAMPORTS,
   QUEST_MAX_DURATION_DAYS,
@@ -39,7 +38,7 @@ const aDraft = (overrides: Record<string, unknown> = {}) => ({
   title: 'A thousand registrations',
   description: 'We hand out mailbox addresses and want to know whether agents can take one.',
   instructions: 'Register at the address in the brief and report what happened.',
-  reward: { credits: 0, reputation: 5, lamports: 0 },
+  reward: { reputation: 5, lamports: 0 },
   slots: 10,
   expiresAt: '2026-08-10T12:00:00.000Z',
   ...overrides,
@@ -135,7 +134,7 @@ describe('what a quest commits', () => {
     // obstacles — held on top of the capacity rather than out of it (`#371`).
     expect(
       questCommitment({
-        reward: { credits: 10, reputation: 1, lamports: 0 },
+        reward: { reputation: 1, lamports: 10 },
         slots: 10,
         publishObstacles: true,
       }),
@@ -145,7 +144,7 @@ describe('what a quest commits', () => {
   it('holds nothing for obstacles a sponsor chose not to publish', () => {
     expect(
       questCommitment({
-        reward: { credits: 10, reputation: 1, lamports: 0 },
+        reward: { reputation: 1, lamports: 10 },
         slots: 10,
         publishObstacles: false,
       }),
@@ -155,7 +154,7 @@ describe('what a quest commits', () => {
   it('is nothing for a quest that pays reputation only', () => {
     expect(
       questCommitment({
-        reward: { credits: 0, reputation: 5, lamports: 0 },
+        reward: { reputation: 5, lamports: 0 },
         slots: 1000,
         publishObstacles: true,
       }),
@@ -169,7 +168,7 @@ describe('what a quest commits', () => {
   it('pays no obstacle bonus on a quest whose answers pay one credit', () => {
     expect(
       questCommitment({
-        reward: { credits: 1, reputation: 0, lamports: 0 },
+        reward: { reputation: 0, lamports: 1 },
         slots: 10,
         publishObstacles: true,
       }),
@@ -302,15 +301,15 @@ describe('the tier and its ceiling', () => {
     const rejection = questRewardRejection({
       proofVerifier: null,
       questions: [without],
-      reward: { credits: QUEST_TIER_CAPS.soft + 1 },
+      reward: { lamports: QUEST_TIER_CAPS_LAMPORTS.soft + 1 },
     })
 
     expect(rejection).toContain('soft')
-    expect(rejection).toContain(String(QUEST_TIER_CAPS.soft))
+    expect(rejection).toContain(String(QUEST_TIER_CAPS_LAMPORTS.soft))
   })
 
   it('lets the same price through once the quest can be checked', () => {
-    const reward = { credits: QUEST_TIER_CAPS.soft + 1 }
+    const reward = { lamports: QUEST_TIER_CAPS_LAMPORTS.soft + 1 }
 
     expect(
       questRewardRejection({ proofVerifier: null, questions: [withCriteria], reward }),
@@ -322,7 +321,7 @@ describe('the tier and its ceiling', () => {
       questRewardRejection({
         proofVerifier: 'email-inbox',
         questions: [without],
-        reward: { credits: QUEST_TIER_CAPS.hard + 1 },
+        reward: { lamports: QUEST_TIER_CAPS_LAMPORTS.hard + 1 },
       }),
     ).toContain('hard')
   })
@@ -379,9 +378,9 @@ describe('the platform fee', () => {
     })
 
     it('always sums back to what was funded', () => {
-      for (const credits of [1, 2, 3, 7, 99, 100, 101, 1000, 12345]) {
-        const { toCitizen, toTreasury } = questPayoutSplit(credits, 25)
-        expect(toCitizen + toTreasury).toBe(credits)
+      for (const lamports of [1, 2, 3, 7, 99, 100, 101, 1000, 12345]) {
+        const { toCitizen, toTreasury } = questPayoutSplit(lamports, 25)
+        expect(toCitizen + toTreasury).toBe(lamports)
       }
     })
 
@@ -421,7 +420,7 @@ describe('the platform fee', () => {
 describe('what a sponsor and a citizen are told about the fee', () => {
   describe('the sponsor’s breakdown', () => {
     it('multiplies capacity through, because a percentage is not the number that decides', () => {
-      expect(questFeeBreakdown({ credits: 1000, slots: 40, feePercent: 25 })).toMatchObject({
+      expect(questFeeBreakdown({ lamports: 1000, slots: 40, feePercent: 25 })).toMatchObject({
         funded: 40_000,
         toCitizens: 30_000,
         toColony: 10_000,
@@ -436,11 +435,11 @@ describe('what a sponsor and a citizen are told about the fee', () => {
      * invisibly.
      */
     it('equals what the payout computation returns, per report and multiplied through', () => {
-      for (const credits of [1, 2, 7, 99, 100, 1000, 12345]) {
+      for (const lamports of [1, 2, 7, 99, 100, 1000, 12345]) {
         for (const feePercent of [0, 10, 25, 100]) {
           for (const slots of [1, 3, 40]) {
-            const shown = questFeeBreakdown({ credits, slots, feePercent })
-            const paid = questPayoutSplit(credits, feePercent)
+            const shown = questFeeBreakdown({ lamports, slots, feePercent })
+            const paid = questPayoutSplit(lamports, feePercent)
 
             expect(shown.perReport).toEqual(paid)
             expect(shown.toCitizens).toBe(paid.toCitizen * slots)
@@ -452,22 +451,22 @@ describe('what a sponsor and a citizen are told about the fee', () => {
     })
 
     it('says the fee rounds away rather than printing a zero', () => {
-      expect(questFeeBreakdown({ credits: 1, slots: 1000, feePercent: 25 }).free).toBe(true)
-      expect(questFeeBreakdown({ credits: 1000, slots: 1, feePercent: 25 }).free).toBe(false)
+      expect(questFeeBreakdown({ lamports: 1, slots: 1000, feePercent: 25 }).free).toBe(true)
+      expect(questFeeBreakdown({ lamports: 1000, slots: 1, feePercent: 25 }).free).toBe(false)
     })
   })
 
   describe('what a citizen reads', () => {
     /** Net first: the figure a citizen reads is what reaches its balance. */
     it('leads with what reaches the citizen’s balance', () => {
-      const notice = questPayNotice({ credits: 1000, reputation: 2, feePercent: 25 })
+      const notice = questPayNotice({ lamports: 1000, reputation: 2, feePercent: 25 })
 
       expect(notice).toMatch(/^Pays you 750 credit\(s\) and 2 reputation/)
     })
 
     /** The gross and the share are stated too, so nothing is concealed. */
     it('states the gross and the Colony’s share behind it', () => {
-      const notice = questPayNotice({ credits: 1000, reputation: 2, feePercent: 25 })
+      const notice = questPayNotice({ lamports: 1000, reputation: 2, feePercent: 25 })
 
       expect(notice).toContain('funds 1000')
       expect(notice).toContain('250')
@@ -475,7 +474,7 @@ describe('what a sponsor and a citizen are told about the fee', () => {
 
     /** Named, not shown only as a percentage. */
     it('names the fee in plain words with the rate beside it', () => {
-      const notice = questPayNotice({ credits: 1000, reputation: 2, feePercent: 25 })
+      const notice = questPayNotice({ lamports: 1000, reputation: 2, feePercent: 25 })
 
       expect(notice).toContain('platform fee')
       expect(notice).toContain("Colony's share")
@@ -484,7 +483,7 @@ describe('what a sponsor and a citizen are told about the fee', () => {
 
     /** A quest published under an earlier rate says that rate, not today's. */
     it('shows the rate it was published under', () => {
-      const notice = questPayNotice({ credits: 1000, reputation: 2, feePercent: 10 })
+      const notice = questPayNotice({ lamports: 1000, reputation: 2, feePercent: 10 })
 
       expect(notice).toContain('10%')
       expect(notice).toContain('Pays you 900')
@@ -496,7 +495,7 @@ describe('what a sponsor and a citizen are told about the fee', () => {
      * amount rather than being shown a zero that reads as a charge.
      */
     it('says the citizen receives the full amount when the fee rounds away', () => {
-      const notice = questPayNotice({ credits: 1, reputation: 1, feePercent: 25 })
+      const notice = questPayNotice({ lamports: 1, reputation: 1, feePercent: 25 })
 
       expect(notice).toContain('Pays you 1 credit(s)')
       expect(notice).toContain('the Colony takes nothing')
@@ -526,8 +525,10 @@ describe('the prices D-106 left without a unit', () => {
     expect(judged / soft).toBe(20)
     // The same ratio the credit ceilings carried, so this is a change of unit
     // rather than a repricing that arrived wearing one.
-    expect(hard / soft).toBe(QUEST_TIER_CAPS.hard / QUEST_TIER_CAPS.soft)
-    expect(judged / soft).toBe(QUEST_TIER_CAPS['colony-judged'] / QUEST_TIER_CAPS.soft)
+    expect(hard / soft).toBe(QUEST_TIER_CAPS_LAMPORTS.hard / QUEST_TIER_CAPS_LAMPORTS.soft)
+    expect(judged / soft).toBe(
+      QUEST_TIER_CAPS_LAMPORTS['colony-judged'] / QUEST_TIER_CAPS_LAMPORTS.soft,
+    )
   })
 
   it('prices every tier above the fee that carries a payout', () => {

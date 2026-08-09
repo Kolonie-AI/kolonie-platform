@@ -176,16 +176,16 @@ export const QUEST_AUDIT_OFF: QuestAuditPolicy = {
 export function paidQuestRejection(
   policy: QuestAuditPolicy,
   input: {
-    readonly credits: number
     /**
      * What one accepted report pays in lamports — D-106 (`#504`).
      *
-     * **Appended, and load-bearing.** This function's first line used to be
-     * `if (input.credits === 0) return undefined`, which was true of every quest
-     * the moment the price moved to a different column: a quest paying SOL
-     * escaped the audit precondition entirely, because it paid no credits. The
-     * brake is about a quest that pays *anything*, not about which column the
-     * amount is in.
+     * **This is the whole price now** (`#553` phase C). It arrived beside a
+     * `credits` field, and that pairing was load-bearing at the time: this
+     * function's first line was `if (input.credits === 0) return undefined`,
+     * which was true of every quest the moment the price moved to a different
+     * column — a quest paying SOL escaped the audit precondition entirely
+     * because it paid no credits. The brake is about a quest that pays
+     * *anything*, and there is now one column it can pay from.
      */
     readonly lamports: number
     readonly disagreement: number
@@ -200,7 +200,7 @@ export function paidQuestRejection(
     readonly audited: number
   },
 ): string | undefined {
-  if (input.credits === 0 && input.lamports === 0) return undefined
+  if (input.lamports === 0) return undefined
 
   if (!policy.enabled) {
     return (

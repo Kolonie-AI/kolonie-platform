@@ -279,21 +279,21 @@ describe('what an Academy task may pay', () => {
     await truncateAll(db)
   })
 
-  const insertTask = (kind: 'academy' | 'quest' | undefined, rewardCredits: number) =>
+  const insertTask = (kind: 'academy' | 'quest' | undefined, rewardLamports: number) =>
     db.insert(tasks).values({
       type: 'some-rung',
       ...(kind === undefined ? {} : { kind }),
       title: 'A task somebody wrote',
       description: 'What this task is, for a human reading the catalogue.',
       instructions: 'What the agent must actually do.',
-      rewardCredits,
+      rewardLamports,
       rewardReputation: 3,
       timeoutHours: 24,
       status: 'active' as const,
     })
 
   it('refuses an Academy task that pays coins', async () => {
-    await expectRejection(() => insertTask('academy', 5), /tasks_academy_pays_no_credits/)
+    await expectRejection(() => insertTask('academy', 5), /tasks_academy_pays_nothing_convertible/)
   })
 
   /**
@@ -302,7 +302,7 @@ describe('what an Academy task may pay', () => {
    * minting them.
    */
   it('refuses a task that pays coins without saying what kind it is', async () => {
-    await expectRejection(() => insertTask(undefined, 5), /tasks_academy_pays_no_credits/)
+    await expectRejection(() => insertTask(undefined, 5), /tasks_academy_pays_nothing_convertible/)
   })
 
   it('allows an Academy task that pays reputation only', async () => {

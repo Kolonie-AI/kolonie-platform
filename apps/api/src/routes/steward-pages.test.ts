@@ -78,7 +78,7 @@ const aQuestAwaitingReview = async (): Promise<void> => {
       title: 'A thousand registrations',
       description: 'We want to know whether agents can register.',
       instructions: 'Register and report.',
-      reward: { credits: 1, reputation: 5 },
+      reward: { reputation: 5, lamports: 1 },
       slots: 10,
       expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
       questions: [{ key: 'what-happened', prompt: 'What happened?' }],
@@ -99,7 +99,7 @@ const aQuestAwaitingReview = async (): Promise<void> => {
  * by anybody without database access.
  */
 describe('the review queue', () => {
-  it('shows who wrote it, the cost, the balance and the moderation result', async () => {
+  it('shows who wrote it, the cost and the moderation result', async () => {
     quests.credit(stewardId as never, 1_000_000)
     const authorId = String(store.issue({}).agent.id)
     quests.credit(authorId as never, 1000)
@@ -109,7 +109,7 @@ describe('the review queue', () => {
         title: 'A thousand registrations',
         description: 'We want to know whether agents can register.',
         instructions: 'Register and report.',
-        reward: { credits: 1, reputation: 5 },
+        reward: { reputation: 5, lamports: 1 },
         slots: 10,
         expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
         questions: [{ key: 'what-happened', prompt: 'What happened?' }],
@@ -132,7 +132,6 @@ describe('the review queue', () => {
     // still uses it that way — and retires it as a bare label, which reads as a
     // kind of person rather than a party to this quest.
     expect(page.body).toContain('Written by')
-    expect(page.body).toContain('available balance')
   })
 
   /**
@@ -247,7 +246,7 @@ describe('a steward’s own quest', () => {
         title: 'My own quest',
         description: 'Written by the steward reading this.',
         instructions: 'Do it.',
-        reward: { credits: 1, reputation: 5 },
+        reward: { reputation: 5, lamports: 1 },
         slots: 10,
         expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
         questions: [{ key: 'how', prompt: 'How?' }],
@@ -279,7 +278,7 @@ describe('a steward’s own quest', () => {
         title: 'My own quest',
         description: 'Written by the steward reading this.',
         instructions: 'Do it.',
-        reward: { credits: 1, reputation: 5 },
+        reward: { reputation: 5, lamports: 1 },
         slots: 10,
         expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
         questions: [{ key: 'how', prompt: 'How?' }],
@@ -463,7 +462,7 @@ describe('when the Colony declines a review action', () => {
         title: 'A quest somebody else wrote',
         description: 'Not the steward’s own, so the review is an ordinary one.',
         instructions: 'Do it.',
-        reward: { credits: 1, reputation: 5 },
+        reward: { reputation: 5, lamports: 1 },
         slots: 10,
         expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
         questions: [{ key: 'how', prompt: 'How?' }],
@@ -563,7 +562,7 @@ describe('when the Colony declines a review action', () => {
         title: 'My own quest',
         description: 'Written by the steward reading this.',
         instructions: 'Do it.',
-        reward: { credits: 1, reputation: 5 },
+        reward: { reputation: 5, lamports: 1 },
         slots: 10,
         expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
         questions: [{ key: 'how', prompt: 'How?' }],

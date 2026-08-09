@@ -27,7 +27,6 @@ import {
   tasks,
   verifications,
 } from '../../schema/index.js'
-import { availableBalance, fundQuestEscrow } from '../escrow.js'
 import { oweForReview } from '../payouts.js'
 import { recordAuthorityEvent } from '../roles.js'
 import { toTask, toTimestamp } from '../rows.js'
@@ -167,7 +166,6 @@ export async function publishQuest(
      */
     const disagreement = await questDisagreementRate(tx, command.audit)
     const refusal = paidQuestRejection(command.audit, {
-      credits: row.rewardCredits,
       // The quest pays in whichever column its price is in (`#504`). Passing
       // only credits is how a SOL-priced quest escaped this brake entirely.
       lamports: row.rewardLamports ?? 0,
@@ -232,31 +230,16 @@ export async function publishQuest(
       return { outcome: 'awaiting-payment', invoiceLamports }
     }
 
-    const total = row.rewardCredits * capacity
-
-    if (sponsorId !== null && total > 0) {
-      const { balance, reserved } = await availableBalance(tx, sponsorId)
-      // `reserved` includes this quest, since it is still `pending_review`. What
-      // has to be covered is therefore the whole reservation and not this quest
-      // alone — a sponsor with two quests queued and money for one must not
-      // publish either on the strength of the other's reservation lapsing later.
-      if (balance < reserved) {
-        return { outcome: 'insufficient-funds', shortfall: reserved - balance }
-      }
-    }
-
-    const escrowed =
-      sponsorId === null
-        ? 0
-        : await fundQuestEscrow(tx, {
-            taskId: command.taskId,
-            sponsorId,
-            credits: row.rewardCredits,
-            capacity,
-            // The obstacle pool is part of what is escrowed, and only when the
-            // sponsor is publishing them (`#370`, `#371`).
-            publishObstacles: row.publishObstacles,
-          })
+    /**
+     * **Neither an escrow nor a balance check any more** (`#553` phase C).
+     *
+     * A sponsor held credits with the Colony, this reserved them, and publishing
+     * refused when the balance was short. Under D-106 the sponsor pays an
+     * invoice in SOL — computed above by `questInvoiceLamports` — and a quest
+     * that is not paid for waits in `awaiting_payment` rather than going live on
+     * a promise. There is nothing left here to reserve and nothing to be short
+     * of.
+     */
 
     await tx
       .update(tasks)
@@ -297,7 +280,7 @@ export async function publishQuest(
       lamports: QUEST_REVIEW_REWARD_LAMPORTS,
     })
 
-    return { outcome: 'published', escrowed }
+    return { outcome: 'published', escrowed: 0 }
   })
 }
 

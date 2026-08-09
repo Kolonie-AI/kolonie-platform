@@ -266,8 +266,6 @@ async function signatureChecksOut(
 async function quoteFor(tx: Transaction, agentId: AgentId): Promise<ErasureQuote> {
   const rows = await tx.execute<Record<string, string>>(
     sql`select
-      (select coalesce(sum(amount), 0)::text from ledger_entries
-        where account_kind = 'agent' and agent_id = ${agentId}) as credits,
       (select coalesce(sum(delta), 0)::text from reputation_events
         where agent_id = ${agentId}) as reputation,
       (select count(*)::text from agent_skills where agent_id = ${agentId}) as skills,
@@ -279,7 +277,6 @@ async function quoteFor(tx: Transaction, agentId: AgentId): Promise<ErasureQuote
 
   const row = rows[0]!
   return {
-    credits: Number(row.credits),
     reputation: Number(row.reputation),
     skills: Number(row.skills),
     writing: {

@@ -133,7 +133,7 @@ const aDraft = (overrides: Record<string, unknown> = {}) => ({
   title: 'A thousand registrations',
   description: 'We hand out mailbox addresses and want to know whether agents can take one.',
   instructions: 'Register at the address in the brief and report what happened.',
-  reward: { credits: 0, reputation: 5 },
+  reward: { reputation: 5, lamports: 0 },
   slots: 10,
   expiresAt: new Date(Date.now() + 7 * 24 * 3_600_000).toISOString(),
   ...overrides,
@@ -189,7 +189,7 @@ describe('what comes back with a quest of your own', () => {
    * more than is available* — was asserting an answer to it.
    */
   it('echoes what the draft would cost', async () => {
-    const written = await write(aDraft({ reward: { credits: 15, reputation: 0 }, slots: 20 }))
+    const written = await write(aDraft({ reward: { reputation: 0, lamports: 15 }, slots: 20 }))
 
     // The sponsor that reported this computed 300 by hand and was right about
     // the answers; since `#371` the commitment is 321, because the first three
@@ -222,7 +222,7 @@ describe('what comes back with a quest of your own', () => {
       method: 'PATCH',
       url: `/v1/quests/${id}`,
       headers: { authorization: `Bearer ${sponsorKey}`, 'content-type': 'application/json' },
-      payload: { title: 'A thousand mailboxes', reward: { credits: 2, reputation: 0 } } as never,
+      payload: { title: 'A thousand mailboxes', reward: { reputation: 0, lamports: 2 } } as never,
     })
 
     // 10 × 2 for the answers, plus 1 each for the first three obstacles.
@@ -263,7 +263,7 @@ describe('POST /v1/quests/:questId/withdraw', () => {
    * while the first held the slot, and can once it is withdrawn.
    */
   it('frees the queue slot', async () => {
-    const id = await awaitingReview(aDraft({ reward: { credits: 10, reputation: 0 }, slots: 5 }))
+    const id = await awaitingReview(aDraft({ reward: { reputation: 0, lamports: 10 }, slots: 5 }))
 
     await post(`/v1/quests/${id}/withdraw`, sponsorKey)
 
@@ -443,7 +443,7 @@ describe('POST /v1/quests/:questId/submit', () => {
   })
 
   it('refuses a quest the sponsor cannot pay for', async () => {
-    const id = (await write(aDraft({ reward: { credits: 100, reputation: 0 }, slots: 10 }))).json()
+    const id = (await write(aDraft({ reward: { reputation: 0, lamports: 100 }, slots: 10 }))).json()
       .quest.id
     quests.credit(sponsorId as never, 500)
 
@@ -585,7 +585,7 @@ describe('GET /v1/quests/review', () => {
 
 describe('POST /v1/quests/:questId/publish', () => {
   it('publishes and reports what was escrowed', async () => {
-    const id = await awaitingReview(aDraft({ reward: { credits: 10, reputation: 0 }, slots: 10 }))
+    const id = await awaitingReview(aDraft({ reward: { reputation: 0, lamports: 10 }, slots: 10 }))
 
     const response = await post(`/v1/quests/${id}/publish`, stewardKey)
 
@@ -928,7 +928,7 @@ describe('the sampling audit', () => {
  */
 describe('the notice on a paid quest', () => {
   it('is gone, and the field with it', async () => {
-    const written = await write(aDraft({ reward: { credits: 5, reputation: 0 } }))
+    const written = await write(aDraft({ reward: { reputation: 0, lamports: 5 } }))
 
     expect(written.json().quest).not.toHaveProperty('rewardNotice')
   })

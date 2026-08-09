@@ -3,7 +3,6 @@ import {
   QUEST_EDITABLE_STATUSES,
   QUEST_PENDING_LIMIT,
   QUEST_TASK_TYPE,
-  questCommitment,
   type AgentId,
   type QuestDraft,
   type QuestPatch,
@@ -13,7 +12,6 @@ import {
 } from '@kolonie-ai/core'
 import type { Database } from '../../client.js'
 import { tasks } from '../../schema/index.js'
-import { availableBalance } from '../escrow.js'
 import { toTask } from '../rows.js'
 import { ownQuestRow, type OwnQuest } from './shared.js'
 
@@ -86,7 +84,6 @@ export async function createQuestDraft(
       title: command.draft.title,
       description: command.draft.description,
       instructions: command.draft.instructions,
-      rewardCredits: command.draft.reward.credits,
       rewardReputation: command.draft.reward.reputation,
       // D-106 (`#504`). Written from the draft like the other two, and its
       // absence here was a defect the first mainnet run found: a quest priced in
@@ -162,7 +159,6 @@ export async function updateQuestDraft(
         ...(patch.description !== undefined && { description: patch.description }),
         ...(patch.instructions !== undefined && { instructions: patch.instructions }),
         ...(patch.reward !== undefined && {
-          rewardCredits: patch.reward.credits,
           rewardReputation: patch.reward.reputation,
           rewardLamports: patch.reward.lamports,
         }),
@@ -253,20 +249,15 @@ export async function submitQuestForReview(
     if (first !== undefined) return { outcome: 'queue-occupied', by: first.id as TaskId }
 
     /**
-     * Read while this quest is still a draft, so it contributes nothing to
-     * `reserved` and the arithmetic reads as what it is: *what is left after
-     * everything already committed, against what this one costs*. Checking after
-     * the status moved would ask whether the sponsor can afford this quest plus
-     * itself.
+     * **There is no balance to check against any more** (`#553` phase C).
+     *
+     * This read `availableBalance` and refused a submission the sponsor could
+     * not cover in credits. Under D-106 a sponsor holds no balance with the
+     * Colony: it is invoiced in SOL when a steward publishes, and a quest that
+     * is not paid for simply does not go live. The affordability question moved
+     * to the moment money is actually asked for, which is where a sponsor can
+     * answer it.
      */
-    const { balance, reserved } = await availableBalance(tx, command.authorId)
-    const wanted = questCommitment({
-      reward: { credits: row.rewardCredits, reputation: row.rewardReputation, lamports: 0 },
-      slots: row.slots ?? 0,
-      publishObstacles: row.publishObstacles,
-    })
-    const free = balance - reserved
-    if (free < wanted) return { outcome: 'insufficient-funds', shortfall: wanted - free }
 
     const [submitted] = await tx
       .update(tasks)

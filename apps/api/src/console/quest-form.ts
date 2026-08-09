@@ -18,9 +18,9 @@
  */
 
 import {
+  QUEST_TIER_CAPS_LAMPORTS,
   ACTIVITY_WINDOW_DAYS,
   QUEST_PROOF_VERIFIERS,
-  QUEST_TIER_CAPS,
   activityWindowNotice,
   lamportsFromSol,
   obstacleBonusNotice,
@@ -117,7 +117,7 @@ export function activityNote(days: ActivityWindow | null): string {
  */
 export function proofNote(verifier: string | null): string {
   const tier = questTier({ proofVerifier: verifier, questions: [] })
-  const cap = QUEST_TIER_CAPS[tier]
+  const cap = QUEST_TIER_CAPS_LAMPORTS[tier]
 
   return verifier === null
     ? `No proof stage: you are buying the citizen's own word. That makes this a ${tier} quest, ` +
@@ -136,7 +136,7 @@ export function proofNote(verifier: string | null): string {
 export function obstacleBonusLine(reward: number, publish: boolean): string {
   return (
     obstacleBonusNotice({
-      reward: { credits: reward, reputation: 0, lamports: 0 },
+      reward: { reputation: 0, lamports: reward },
       publishObstacles: publish,
     }) ??
     'Nothing extra is held for obstacle reports on this quest: they pay a share of what an ' +
@@ -352,7 +352,7 @@ export function parseQuestForm(body: unknown): FormParse {
       distinctOperators,
       publishObstacles,
       proofVerifier,
-      reward: { credits: 0, reputation: 1, lamports: rewardLamports ?? 0 },
+      reward: { reputation: 1, lamports: rewardLamports ?? 0 },
     },
   }
 }

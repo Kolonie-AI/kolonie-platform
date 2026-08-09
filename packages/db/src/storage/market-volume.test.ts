@@ -72,7 +72,6 @@ describe('what counts as market volume', () => {
         title: 'A thousand registrations',
         description: 'What this quest is.',
         instructions: 'Register and report.',
-        rewardCredits: 0,
         rewardReputation: 1,
         slots: 10,
         audience: 'candidates' as const,
@@ -100,7 +99,6 @@ describe('what counts as market volume', () => {
         title: 'A rung the Academy carries',
         description: 'What this task is.',
         instructions: 'What the agent must do.',
-        rewardCredits: 0,
         rewardReputation: 1,
         timeoutHours: 24,
         status: 'active' as const,
@@ -263,14 +261,7 @@ describe('what counts as market volume', () => {
    * where it could stop being true, on `accounts.test.ts`' pattern.
    */
   it('is read by nothing that pays, grants or ranks', () => {
-    const forbidden = [
-      'rewards.ts',
-      'balance.ts',
-      'skills.ts',
-      'citizenship.ts',
-      'escrow.ts',
-      'payouts.ts',
-    ]
+    const forbidden = ['rewards.ts', 'balance.ts', 'skills.ts', 'citizenship.ts', 'payouts.ts']
 
     for (const file of forbidden) {
       const source = readFileSync(fileURLToPath(new URL(`./${file}`, import.meta.url)), 'utf8')

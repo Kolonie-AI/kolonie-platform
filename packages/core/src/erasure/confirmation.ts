@@ -64,8 +64,6 @@ export const ERASURE_CHALLENGE_TTL_SECONDS = 300
  */
 export const ErasureQuoteSchema = z
   .object({
-    /** Credits that will be burned. Not transferred — the Treasury receives nothing. */
-    credits: z.number().int().nonnegative(),
     /** Reputation that will be destroyed. It is not transferable, so it is simply gone. */
     reputation: z.number().int().nonnegative(),
     /** How many skills are held. The career, as a number. */

@@ -50,7 +50,6 @@ describe('the operator’s durable page', () => {
     kind: 'academy' as const,
     description: 'Whatever this rung is for.',
     instructions: 'What the agent must actually do.',
-    rewardCredits: 0,
     rewardReputation: 1,
     timeoutHours: 24,
   })

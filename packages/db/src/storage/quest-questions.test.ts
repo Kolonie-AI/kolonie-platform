@@ -46,7 +46,6 @@ describe('a quest question carries its key', () => {
         title: 'Prove the settlement path end to end',
         description: 'What this quest is, for somebody deciding whether to answer it.',
         instructions: 'What the citizen is actually asked to do.',
-        rewardCredits: 0,
         rewardReputation: 1,
         timeoutHours: 24,
         status: 'active',

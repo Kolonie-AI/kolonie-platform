@@ -7,7 +7,6 @@ import {
   type Timestamp,
 } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
-import { availableBalance } from './escrow.js'
 import { questReviewQueue } from './quests/index.js'
 import { permissionBlockCounts, type PermissionBlockCount } from './permission-reports.js'
 import { type toTask } from './rows.js'
@@ -44,19 +43,14 @@ export interface QuestUnderReview {
   /** Who wrote it, by the name everybody sees. `null` once the author is erased. */
   readonly sponsor: { readonly id: AgentId | null; readonly name: string | null }
   /**
-   * What that sponsor could still commit, from `#174`.
+   * What the whole quest will cost: capacity × price, in lamports.
    *
-   * **Beside the quest rather than a click away.** A steward approving a quest is
-   * committing somebody else's money, and publication refuses on a shortfall —
-   * so a queue that showed the total without the balance would send stewards to
-   * approve quests that cannot be published.
+   * **The sponsor's balance used to sit beside it** and does not any more
+   * (`#553` phase C): a sponsor holds no balance with the Colony. It is invoiced
+   * when a steward publishes, and a quest that is not paid for does not go live
+   * — so the shortfall a steward could once cause has moved to a moment the
+   * sponsor answers for itself.
    */
-  readonly sponsorBalance: {
-    readonly balance: number
-    readonly reserved: number
-    readonly available: number
-  }
-  /** What the total will cost: capacity × price. */
   readonly total: number
   /** What the moderation stage answered, and with which model. */
   readonly moderation: { readonly decision: string; readonly model: string } | null
@@ -118,14 +112,11 @@ export async function reviewQueueForSteward(
     enriched.push({
       task,
       sponsor: { id: authorId, name: author?.name ?? null },
-      // A quest with no author left is a quest whose sponsor erased itself; there
-      // is no balance to read and `null` would be a worse answer than zero here,
-      // because a steward reading it is deciding whether to spend it.
-      sponsorBalance:
-        authorId === null
-          ? { balance: 0, reserved: 0, available: 0 }
-          : await availableBalance(db, authorId),
-      total: task.reward.credits * (task.slots ?? 0),
+      // **No sponsor balance any more** (`#553` phase C). A sponsor holds no
+      // balance with the Colony: it is invoiced in SOL when a steward publishes,
+      // and what a steward needs to know is what the quest will cost, which is
+      // the line below.
+      total: task.reward.lamports * (task.slots ?? 0),
       moderation:
         verdict === undefined ? null : { decision: verdict.decision, model: verdict.model },
       ownedByReader: authorId === stewardId,

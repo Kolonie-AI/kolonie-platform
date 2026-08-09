@@ -67,7 +67,6 @@ describe('a quest waiting for its invoice', () => {
         description: 'Do the thing and say how it went.',
         instructions: 'Do the thing.',
         // Priced in lamports and not in credits, which is what D-106 replaces.
-        rewardCredits: 0,
         rewardReputation: 5,
         timeoutHours: 24,
         expiresAt: '2026-12-31T00:00:00.000Z',

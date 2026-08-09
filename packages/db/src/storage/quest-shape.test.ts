@@ -51,7 +51,7 @@ describe('a task for a thousand citizens', () => {
     readonly expiresAt?: string | null
     readonly audience?: 'citizens' | 'candidates'
     readonly requires?: string[]
-    readonly rewardCredits?: number
+    readonly rewardLamports?: number
     /** Who sponsored it. Absent means the Colony, which is what a rung is. */
     readonly createdBy?: AgentId
   }
@@ -65,7 +65,7 @@ describe('a task for a thousand citizens', () => {
         title: 'A thousand registrations',
         description: 'What this quest is, for a human reading the catalogue.',
         instructions: 'Register an account and tell us what happened.',
-        rewardCredits: seed.rewardCredits ?? 1,
+        rewardLamports: seed.rewardLamports ?? 1,
         rewardReputation: 1,
         requiresSkills: seed.requires ?? [],
         slots: seed.slots === undefined ? 2 : seed.slots,
@@ -97,7 +97,6 @@ describe('a task for a thousand citizens', () => {
         title: 'The rung that granted it',
         description: 'A description.',
         instructions: 'Instructions.',
-        rewardCredits: 0,
         rewardReputation: 1,
         grantsSkills: [skill],
         timeoutHours: 24,
@@ -471,14 +470,14 @@ describe('a task for a thousand citizens', () => {
      * overruling a sponsor that `governance/quests.md` says decides this.
      */
     it('lets a paying quest be open to candidates', async () => {
-      const taskId = await aQuest({ audience: 'candidates', rewardCredits: 100 })
+      const taskId = await aQuest({ audience: 'candidates', rewardLamports: 100 })
       const candidate = await anAgent('newcomer', 'candidate')
 
       expect((await submit(taskId, candidate)).outcome).toBe('accepted')
     })
 
     it('lets a citizens-only quest pay nothing', async () => {
-      const taskId = await aQuest({ audience: 'citizens', rewardCredits: 0 })
+      const taskId = await aQuest({ audience: 'citizens', rewardLamports: 0 })
 
       expect((await submit(taskId, await anAgent('established'))).outcome).toBe('accepted')
     })
@@ -513,7 +512,6 @@ describe('a task for a thousand citizens', () => {
             title: 'A rung',
             description: 'What this rung is.',
             instructions: 'Do the thing.',
-            rewardCredits: 0,
             rewardReputation: 3,
             audience: 'citizens' as const,
             timeoutHours: 24,
@@ -556,7 +554,6 @@ describe('a task for a thousand citizens', () => {
           title: 'A rung',
           description: 'What this rung is.',
           instructions: 'Do the thing.',
-          rewardCredits: 0,
           rewardReputation: 3,
           timeoutHours: 24,
           status: 'active' as const,
@@ -576,7 +573,6 @@ describe('a task for a thousand citizens', () => {
       instructions: 'Do something else.',
       description: 'Another description.',
       slots: 99,
-      rewardCredits: 500,
       minReputation: 5,
       audience: 'candidates',
       timeoutHours: 48,
@@ -614,7 +610,6 @@ describe('a task for a thousand citizens', () => {
           title: 'Still being written',
           description: 'A description.',
           instructions: 'Instructions.',
-          rewardCredits: 1,
           rewardReputation: 0,
           timeoutHours: 24,
           status: 'draft' as const,
@@ -665,7 +660,6 @@ describe('a task for a thousand citizens', () => {
           title: 'Waiting',
           description: 'A description.',
           instructions: 'Instructions.',
-          rewardCredits: 1,
           rewardReputation: 0,
           timeoutHours: 24,
           status: 'pending_review' as const,
@@ -686,7 +680,6 @@ describe('a task for a thousand citizens', () => {
             title: 'Refused',
             description: 'A description.',
             instructions: 'Instructions.',
-            rewardCredits: 1,
             rewardReputation: 0,
             timeoutHours: 24,
             status: 'rejected' as const,
@@ -702,7 +695,6 @@ describe('a task for a thousand citizens', () => {
             title: 'Not refused',
             description: 'A description.',
             instructions: 'Instructions.',
-            rewardCredits: 1,
             rewardReputation: 0,
             timeoutHours: 24,
             status: 'draft' as const,

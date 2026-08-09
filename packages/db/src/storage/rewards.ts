@@ -2,14 +2,11 @@ import { and, eq, isNull } from 'drizzle-orm'
 import {
   AgentIdSchema,
   isUnattended,
-  LedgerTransactionIdSchema,
   questPayoutSplit,
   rewardFor,
-  submissionReference,
   TaskIdSchema,
   UNDECLARED_REWARD_PERCENT,
   type AgentId,
-  type LedgerTransactionId,
   type Role,
   type Skill,
   type SubmissionId,
@@ -17,15 +14,7 @@ import {
   type Timestamp,
 } from '@kolonie-ai/core'
 import type { Transaction } from '../client.js'
-import {
-  agents,
-  ledgerEntries,
-  questAnswers,
-  reputationEvents,
-  submissions,
-  tasks,
-} from '../schema/index.js'
-import { payQuestReport } from './escrow.js'
+import { agents, questAnswers, reputationEvents, submissions, tasks } from '../schema/index.js'
 import { oweForReport } from './payouts.js'
 import { recordAccountsFromVerdict } from './accounts.js'
 import { promoteIfEarned } from './citizenship.js'
@@ -37,15 +26,8 @@ export interface BookedReward {
   readonly submissionId: SubmissionId
   readonly agentId: AgentId
   readonly taskId: TaskId
-  /** Credits credited to the agent and debited from the mint. Zero books nothing. */
-  readonly credits: number
   /** Reputation awarded. Zero books nothing. */
   readonly reputation: number
-  /**
-   * The id grouping the two ledger entries, or `null` when the task paid no
-   * credits and there was therefore nothing to group.
-   */
-  readonly transactionId: LedgerTransactionId | null
   /**
    * The skills this pass granted that the agent did not already hold.
    *
@@ -118,7 +100,6 @@ export async function bookTaskReward(
       taskType: tasks.type,
       taskGrants: tasks.grantsSkills,
       taskGrantsRoles: tasks.grantsRoles,
-      rewardCredits: tasks.rewardCredits,
       rewardReputation: tasks.rewardReputation,
       // What the report pays in SOL, and the rate the quest was published under
       // — both read from the row for the reason `feeRateOf` gives (`#505`).
@@ -153,7 +134,6 @@ export async function bookTaskReward(
 
   const agentId = AgentIdSchema.parse(row.agentId)
   const taskId = TaskIdSchema.parse(row.taskId)
-  const reference = submissionReference(command.submissionId)
 
   /**
    * What this pass is worth, given what the agent declared (`#39`).
@@ -195,9 +175,9 @@ export async function bookTaskReward(
 
   const paid =
     row.testRerun || renewal
-      ? { credits: 0, reputation: 0, lamports: 0 }
+      ? { reputation: 0, lamports: 0 }
       : rewardFor(
-          { credits: row.rewardCredits, reputation: row.rewardReputation, lamports: 0 },
+          { reputation: row.rewardReputation, lamports: row.rewardLamports ?? 0 },
           row.assistance,
         )
 
@@ -240,16 +220,8 @@ export async function bookTaskReward(
    * cannot find.
    */
   if (row.taskKind === 'quest') {
-    await payQuestReport(tx, {
-      taskId: row.taskId as TaskId,
-      submissionId: command.submissionId,
-      agentId,
-      credits: paid.credits,
-      memo,
-    })
-
     /**
-     * The SOL half — D-106 (`#505`).
+     * What an accepted report owes its author — D-106 (`#505`).
      *
      * **Written here, in the verdict's own transaction, and sent elsewhere.**
      * What this records is the *obligation*: this citizen is owed this much for
@@ -258,11 +230,15 @@ export async function bookTaskReward(
      * when an endpoint does — and a report accepted but not recorded as owed is
      * the debt this whole table exists to make findable.
      *
-     * `questPayoutSplit` against the rate recorded at publication, so the
-     * citizen's share is computed exactly as the credits path computes it and a
-     * later rate change cannot move the split of a quest already running.
+     * `questPayoutSplit` against the rate recorded at publication, so a later
+     * rate change cannot move the split of a quest already running.
+     *
+     * **This used to sit beside a credits booking** and does not any more
+     * (`#553` phase C). Nothing else in this function branched on the kind of
+     * task: reputation, skills, roles, the register and citizenship are the same
+     * event whichever it was, and they always were.
      */
-    const lamports = row.rewardLamports ?? 0
+    const lamports = paid.lamports
     if (lamports > 0) {
       const { toCitizen } = questPayoutSplit(lamports, row.platformFeePercent ?? 0)
       await oweForReport(tx, {
@@ -272,41 +248,6 @@ export async function bookTaskReward(
         lamports: toCitizen,
       })
     }
-  }
-
-  // Generated here rather than by the database: both entries of one booking must
-  // carry the *same* id, and a column default would give each of them its own.
-  const transactionId =
-    row.taskKind !== 'quest' && paid.credits > 0
-      ? LedgerTransactionIdSchema.parse(crypto.randomUUID())
-      : null
-
-  if (transactionId !== null) {
-    // Both sides in one statement. `ledger_entries_amount_non_zero` is why a
-    // zero-credit task books nothing at all: an entry of 0 would sum to zero on its
-    // own and record that the Colony paid, which it did not.
-    await tx.insert(ledgerEntries).values([
-      {
-        transactionId,
-        accountKind: 'system',
-        systemAccount: 'mint',
-        amount: -paid.credits,
-        type: 'task_reward',
-        memo,
-        reference,
-        createdAt: command.bookedAt,
-      },
-      {
-        transactionId,
-        accountKind: 'agent',
-        agentId,
-        amount: paid.credits,
-        type: 'task_reward',
-        memo,
-        reference,
-        createdAt: command.bookedAt,
-      },
-    ])
   }
 
   if (paid.reputation > 0) {
@@ -450,9 +391,7 @@ export async function bookTaskReward(
     submissionId: command.submissionId,
     agentId,
     taskId,
-    credits: paid.credits,
     reputation: paid.reputation,
-    transactionId,
     grantedSkills: granted,
     grantedRoles,
     promotedToCitizen: promoted,

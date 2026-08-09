@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
+  solFromLamports,
   DEFAULT_PLATFORM_FEE_PERCENT,
   questPayNotice,
   questPayoutSplit,
-  solFromLamports,
   type Task,
 } from '@kolonie-ai/core'
 import { aTask } from '../../__fixtures__/catalogue.js'
@@ -24,7 +24,7 @@ describe('what a quest says it pays over MCP', () => {
     aTask({
       kind: 'quest',
       status: 'active',
-      reward: { credits: 1000, reputation: 2, lamports: 0 },
+      reward: { reputation: 2, lamports: 1000 },
       platformFeePercent: DEFAULT_PLATFORM_FEE_PERCENT,
       ...overrides,
     })
@@ -32,23 +32,23 @@ describe('what a quest says it pays over MCP', () => {
   describe('the reward clause', () => {
     /** The defect, stated as the assertion that would have caught it. */
     it('names what reaches the citizen, not what the sponsor funded', () => {
-      expect(describeReward(aQuest())).toBe('pays you 750 credits and 2 reputation')
+      expect(describeReward(aQuest())).toBe(`pays you ${solFromLamports(750)} SOL and 2 reputation`)
       expect(describeReward(aQuest())).not.toContain('1000')
     })
 
     it('agrees with the payout computation rather than doing its own arithmetic', () => {
-      for (const credits of [1, 7, 99, 1000, 12345]) {
+      for (const lamports of [1, 7, 99, 1000, 12345]) {
         for (const feePercent of [0, 10, 25]) {
-          const { toCitizen } = questPayoutSplit(credits, feePercent)
+          const { toCitizen } = questPayoutSplit(lamports, feePercent)
 
           expect(
             describeReward(
               aQuest({
-                reward: { credits, reputation: 0, lamports: 0 },
+                reward: { reputation: 0, lamports },
                 platformFeePercent: feePercent,
               }),
             ),
-          ).toBe(`pays you ${toCitizen} credits`)
+          ).toBe(`pays you ${solFromLamports(toCitizen)} SOL`)
         }
       }
     })
@@ -64,7 +64,7 @@ describe('what a quest says it pays over MCP', () => {
      * paid.
      */
     it('names the SOL an accepted report pays, net of the fee', () => {
-      const quest = aQuest({ reward: { credits: 0, reputation: 2, lamports: 2_000_000 } })
+      const quest = aQuest({ reward: { reputation: 2, lamports: 2_000_000 } })
 
       expect(describeReward(quest)).toBe('pays you 0.0015 SOL and 2 reputation')
     })
@@ -77,7 +77,7 @@ describe('what a quest says it pays over MCP', () => {
           expect(
             describeReward(
               aQuest({
-                reward: { credits: 0, reputation: 0, lamports },
+                reward: { reputation: 0, lamports },
                 platformFeePercent: feePercent,
               }),
             ),
@@ -88,7 +88,7 @@ describe('what a quest says it pays over MCP', () => {
 
     /** A quest that pays no SOL says nothing about SOL, rather than 0. */
     it('says nothing about SOL where a quest is not priced in it', () => {
-      expect(describeReward(aQuest())).not.toMatch(/SOL/)
+      expect(describeReward(aQuest({ reward: { reputation: 2, lamports: 0 } }))).not.toMatch(/SOL/)
     })
 
     /**
@@ -97,7 +97,7 @@ describe('what a quest says it pays over MCP', () => {
      * be told nothing.
      */
     it('leaves an Academy rung reading exactly as it did', () => {
-      const rung = aTask({ kind: 'academy', reward: { credits: 0, reputation: 3, lamports: 0 } })
+      const rung = aTask({ kind: 'academy', reward: { reputation: 3, lamports: 0 } })
 
       expect(describeReward(rung)).toBe('pays 3 reputation')
       expect(describeReward(rung)).not.toContain('you')
@@ -105,9 +105,7 @@ describe('what a quest says it pays over MCP', () => {
     })
 
     it('still says a task pays nothing when it pays nothing', () => {
-      expect(describeReward(aTask({ reward: { credits: 0, reputation: 0, lamports: 0 } }))).toBe(
-        'pays nothing',
-      )
+      expect(describeReward(aTask({ reward: { reputation: 0, lamports: 0 } }))).toBe('pays nothing')
     })
   })
 
@@ -115,7 +113,7 @@ describe('what a quest says it pays over MCP', () => {
     /** A recorded rate always wins, which is why `#462` records it. */
     it('quotes the rate it was published under, not the configured one', () => {
       expect(describeReward(aQuest({ platformFeePercent: 10 }))).toBe(
-        'pays you 900 credits and 2 reputation',
+        `pays you ${solFromLamports(900)} SOL and 2 reputation`,
       )
     })
 
@@ -129,7 +127,7 @@ describe('what a quest says it pays over MCP', () => {
       'charges nothing on a %s quest published before the fee existed',
       (status) => {
         expect(describeReward(aQuest({ status, platformFeePercent: null }))).toBe(
-          'pays you 1000 credits and 2 reputation',
+          `pays you ${solFromLamports(1000)} SOL and 2 reputation`,
         )
       },
     )
@@ -139,7 +137,7 @@ describe('what a quest says it pays over MCP', () => {
       'shows the configured rate on a %s quest, which has none recorded yet',
       (status) => {
         expect(describeReward(aQuest({ status, platformFeePercent: null }))).toBe(
-          'pays you 750 credits and 2 reputation',
+          `pays you ${solFromLamports(750)} SOL and 2 reputation`,
         )
       },
     )
@@ -149,7 +147,7 @@ describe('what a quest says it pays over MCP', () => {
     it('states both on the single-quest view, which has a line for them', () => {
       const text = taskAsText(aQuest(), 0, false, 1, false)
 
-      expect(text).toContain('pays you 750 credits')
+      expect(text).toContain(`pays you ${solFromLamports(750)} SOL`)
       expect(text).toContain('The sponsor funds 1000')
       expect(text).toContain('platform fee, 25%')
       expect(text).toContain('250')
@@ -161,21 +159,21 @@ describe('what a quest says it pays over MCP', () => {
      */
     it('says the Colony takes nothing where the fee rounds away', () => {
       const text = taskAsText(
-        aQuest({ reward: { credits: 1, reputation: 1, lamports: 0 } }),
+        aQuest({ reward: { reputation: 1, lamports: 1 } }),
         0,
         false,
         1,
         false,
       )
 
-      expect(text).toContain('pays you 1 credits')
+      expect(text).toContain(`pays you ${solFromLamports(1)} SOL`)
       expect(text).toContain('the Colony takes nothing')
       expect(text).not.toContain('platform fee')
     })
 
     it('says nothing about a fee on an Academy rung', () => {
       const text = taskAsText(
-        aTask({ kind: 'academy', reward: { credits: 0, reputation: 3, lamports: 0 } }),
+        aTask({ kind: 'academy', reward: { reputation: 3, lamports: 0 } }),
         0,
         false,
         1,
@@ -210,12 +208,12 @@ describe('what a quest says it pays over MCP', () => {
       [1000, 10],
       [7, 25],
       [1, 25],
-    ])('report the same reward for %i credits at %i%%', (credits, feePercent) => {
+    ])('report the same reward for %i lamports at %i%%', (lamports, feePercent) => {
       const quest = aQuest({
-        reward: { credits, reputation: 2, lamports: 0 },
+        reward: { reputation: 2, lamports },
         platformFeePercent: feePercent,
       })
-      const { toCitizen } = questPayoutSplit(credits, feePercent)
+      const { toCitizen } = questPayoutSplit(lamports, feePercent)
 
       const browser = questAsCitizenReads({
         title: quest.title,
@@ -231,14 +229,14 @@ describe('what a quest says it pays over MCP', () => {
 
       // The net, in both.
       expect(browser).toContain(`Pays you ${toCitizen} credit(s)`)
-      expect(mcp).toContain(`pays you ${toCitizen} credits`)
+      expect(mcp).toContain(`pays you ${solFromLamports(toCitizen)} SOL`)
 
       // And the gross-and-fee sentence, which is one function and therefore one
       // wording: a rate change on either surface alone fails here. Compared
       // through `escape`, because the browser half is HTML and *the Colony's
       // share* carries an apostrophe — the difference is the encoding and not
       // the claim.
-      const shared = questPayNotice({ credits, reputation: 2, feePercent })
+      const shared = questPayNotice({ lamports, reputation: 2, feePercent })
         .split('. ')
         .slice(1)
         .join('. ')

@@ -22,7 +22,6 @@ import {
   verifications,
 } from '../schema/index.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
-import { availableBalance, escrowHeldFor } from './escrow.js'
 import { createSubmission } from './submissions.js'
 import { expireOverdueSubmissions } from './verifications.js'
 import { eraseAgent } from './erasure.js'
@@ -120,7 +119,6 @@ describe('the quest write path', () => {
         title: `Quest for ${name}`,
         description: 'A description.',
         instructions: 'Answer the question.',
-        rewardCredits: 0,
         rewardReputation: 1,
         slots: 10,
         timeoutHours: 24,
@@ -230,7 +228,7 @@ describe('the quest write path', () => {
     title: 'A thousand registrations',
     description: 'We hand out mailbox addresses and want to know whether agents can take one.',
     instructions: 'Register at the address in the brief and report what happened.',
-    reward: { credits: 0, reputation: 5, lamports: 0 },
+    reward: { reputation: 5, lamports: 0 },
     slots: 10,
     expiresAt: new Date(Date.now() + 7 * 24 * 3_600_000).toISOString(),
     audience: 'citizens',
@@ -360,36 +358,26 @@ describe('the quest write path', () => {
       expect(result).toEqual({ outcome: 'queue-occupied', by: first.task.id })
     })
 
-    it('refuses a quest the sponsor cannot pay for, and leaves it a draft', async () => {
+    /**
+     * **A sponsor can no longer fall short at this moment** (`#553` phase C).
+     *
+     * This asserted `insufficient-funds` against a credit balance. There is no
+     * balance: a quest is invoiced in SOL when a steward publishes it, and one
+     * that is not paid for waits in `awaiting_payment` rather than going live —
+     * so the affordability question moved to the moment money is actually asked
+     * for, which is where a sponsor can answer it. The queue cap below is what
+     * still bounds a submission.
+     */
+
+    it('holds the queue to one quest at a time', async () => {
       const sponsor = await anAgent('sponsor')
-      await credit(sponsor, 100)
-      const { task } = await createQuestDraft(db, {
-        authorId: sponsor,
-        draft: aDraft({ reward: { credits: 50, reputation: 0, lamports: 0 }, slots: 10 }),
-      })
-
-      const result = await submitQuestForReview(db, {
-        authorId: sponsor,
-        taskId: task.id,
-        at: now(),
-      })
-
-      // 10 × 50 for the answers and 75 for the obstacle pool, against 100 held (`#371`).
-      expect(result).toEqual({ outcome: 'insufficient-funds', shortfall: 475 })
-      expect((await readOwnQuest(db, sponsor, task.id))?.task.status).toBe('draft')
-    })
-
-    it('counts what is already reserved, so the same credit is not committed twice', async () => {
-      const sponsor = await anAgent('sponsor')
-      // 10 × 10 for the answers and 15 for the obstacle pool, twice over (`#371`).
-      await credit(sponsor, 130)
       const first = await createQuestDraft(db, {
         authorId: sponsor,
-        draft: aDraft({ reward: { credits: 10, reputation: 0, lamports: 0 }, slots: 10 }),
+        draft: aDraft({ reward: { reputation: 0, lamports: 10 }, slots: 10 }),
       })
       const second = await createQuestDraft(db, {
         authorId: sponsor,
-        draft: aDraft({ reward: { credits: 10, reputation: 0, lamports: 0 }, slots: 10 }),
+        draft: aDraft({ reward: { reputation: 0, lamports: 10 }, slots: 10 }),
       })
 
       expect(
@@ -397,8 +385,7 @@ describe('the quest write path', () => {
           .outcome,
       ).toBe('submitted')
 
-      // Refused for the queue cap before the money is even asked about — and
-      // once the first is decided, the reservation is what refuses the second.
+      // Refused for the queue cap: one quest at a time, whatever it costs.
       await moderate(first.task.id)
       const steward = await anAgent('steward', ['steward'])
       await publishQuest(db, {
@@ -414,7 +401,10 @@ describe('the quest write path', () => {
         at: now(),
       })
 
-      expect(result).toEqual({ outcome: 'insufficient-funds', shortfall: 100 })
+      // Once the first is published it is no longer in the queue, so the second
+      // is accepted. What this pins is that the cap is the *queue* and not the
+      // sponsor's money, which is the whole of what survived `#553` phase C.
+      expect(result.outcome).toBe('submitted')
     })
 
     it('is not editable once it is awaiting review', async () => {
@@ -465,26 +455,25 @@ describe('the quest write path', () => {
     })
 
     /**
-     * By arithmetic and not by a second write: `availableBalance` sums the
-     * quests in `pending_review`, so a quest that leaves the queue stops being
-     * reserved without anything being unbooked.
+     * **The reservation is gone; the queue slot is what is released** (`#553`
+     * phase C).
+     *
+     * This also asserted that `availableBalance(...).reserved` fell back to
+     * zero. A sponsor holds no balance with the Colony, so there is nothing to
+     * reserve — what `pending_review` still bounds is the queue, one quest at a
+     * time, and that is the property this test is now entirely about.
      */
-    it('releases the reservation and the queue slot', async () => {
+    it('releases the queue slot', async () => {
       const sponsor = await anAgent('sponsor')
-      // Enough for the answers and the obstacle pool both (`#371`).
-      await credit(sponsor, 200)
       const first = await createQuestDraft(db, {
         authorId: sponsor,
-        draft: aDraft({ reward: { credits: 10, reputation: 0, lamports: 0 }, slots: 10 }),
+        draft: aDraft({ reward: { reputation: 0, lamports: 10 }, slots: 10 }),
       })
       const second = await createQuestDraft(db, { authorId: sponsor, draft: aDraft() })
       await submitQuestForReview(db, { authorId: sponsor, taskId: first.task.id, at: now() })
 
-      expect((await availableBalance(db, sponsor)).reserved).toBe(115)
-
       await withdrawQuestFromReview(db, { authorId: sponsor, taskId: first.task.id, at: now() })
 
-      expect((await availableBalance(db, sponsor)).reserved).toBe(0)
       expect(
         (await submitQuestForReview(db, { authorId: sponsor, taskId: second.task.id, at: now() }))
           .outcome,
@@ -626,74 +615,13 @@ describe('the quest write path', () => {
   })
 
   describe('the steward’s decision', () => {
-    it('publishes and escrows in one transaction', async () => {
-      const sponsor = await anAgent('sponsor')
-      const steward = await anAgent('steward', ['steward'])
-      await credit(sponsor, 500)
-      const { task } = await createQuestDraft(db, {
-        authorId: sponsor,
-        draft: aDraft({ reward: { credits: 10, reputation: 0, lamports: 0 }, slots: 10 }),
-      })
-      await submitQuestForReview(db, { authorId: sponsor, taskId: task.id, at: now() })
-      await moderate(task.id)
-
-      const result = await publishQuest(db, {
-        stewardId: steward,
-        taskId: task.id,
-        at: now(),
-        audit: AUDIT_ON,
-      })
-
-      // 10 × 10 for the answers, plus 15 for the first three published obstacle
-      // reports — one booking, refunded together (`#371`).
-      expect(result).toEqual({ outcome: 'published', escrowed: 115 })
-      expect((await readOwnQuest(db, sponsor, task.id))?.task.status).toBe('active')
-      expect(await escrowHeldFor(db, task.id)).toBe(115)
-    })
-
-    it('leaves the quest awaiting review when the escrow booking fails', async () => {
-      const sponsor = await anAgent('sponsor')
-      const steward = await anAgent('steward', ['steward'])
-      await credit(sponsor, 500)
-      const { task } = await createQuestDraft(db, {
-        authorId: sponsor,
-        draft: aDraft({ reward: { credits: 10, reputation: 0, lamports: 0 }, slots: 10 }),
-      })
-      await submitQuestForReview(db, { authorId: sponsor, taskId: task.id, at: now() })
-      await moderate(task.id)
-
-      /**
-       * The booking is forced to fail by pre-writing the funding entries this
-       * publication would write: `ledger_entries_quest_money_agent_unique`
-       * refuses the second, which is the same refusal two stewards publishing in
-       * the same millisecond would produce.
-       */
-      const transactionId = crypto.randomUUID()
-      await db.insert(ledgerEntries).values([
-        {
-          transactionId,
-          accountKind: 'agent' as const,
-          agentId: sponsor,
-          amount: -100,
-          type: 'task_funding' as const,
-          reference: `quest:${task.id}:funding`,
-        },
-        {
-          transactionId,
-          accountKind: 'system' as const,
-          systemAccount: 'escrow' as const,
-          amount: 100,
-          type: 'task_funding' as const,
-          reference: `quest:${task.id}:funding`,
-        },
-      ])
-
-      await expect(
-        publishQuest(db, { stewardId: steward, taskId: task.id, at: now(), audit: AUDIT_ON }),
-      ).rejects.toThrow()
-
-      expect((await readOwnQuest(db, sponsor, task.id))?.task.status).toBe('pending_review')
-    })
+    /**
+     * **Publication no longer escrows anything** (`#553` phase C). The two tests
+     * that stood here asserted a funding booking in the publishing transaction
+     * and the rollback when that booking collided. There is no escrow and no
+     * booking: a priced quest goes to `awaiting_payment` with an invoice, which
+     * `quest-invoices.ts` and its own tests cover, and a free one goes live.
+     */
 
     it('refuses a steward publishing its own quest', async () => {
       const steward = await anAgent('steward', ['steward'])
@@ -747,7 +675,7 @@ describe('the quest write path', () => {
       await credit(sponsor, 200)
       const { task } = await createQuestDraft(db, {
         authorId: sponsor,
-        draft: aDraft({ reward: { credits: 10, reputation: 0, lamports: 0 }, slots: 10 }),
+        draft: aDraft({ reward: { reputation: 0, lamports: 10 }, slots: 10 }),
       })
       await submitQuestForReview(db, { authorId: sponsor, taskId: task.id, at: now() })
       await moderate(task.id)
@@ -763,8 +691,6 @@ describe('the quest write path', () => {
       const own = await readOwnQuest(db, sponsor, task.id)
       expect(own?.task.status).toBe('rejected')
       expect(own?.rejectionReason).toBe('Say which page the citizen should register on.')
-      // Nothing was booked, so nothing is unbooked.
-      expect(await escrowHeldFor(db, task.id)).toBe(0)
 
       const [event] = await db
         .select()
@@ -776,7 +702,7 @@ describe('the quest write path', () => {
       // The reservation stopped counting, so the sponsor may commit again.
       const next = await createQuestDraft(db, {
         authorId: sponsor,
-        draft: aDraft({ reward: { credits: 10, reputation: 0, lamports: 0 }, slots: 10 }),
+        draft: aDraft({ reward: { reputation: 0, lamports: 10 }, slots: 10 }),
       })
       expect(
         (await submitQuestForReview(db, { authorId: sponsor, taskId: next.task.id, at: now() }))
@@ -1118,7 +1044,6 @@ describe('the quest write path', () => {
           title: 'Prove a mailbox',
           description: 'A description.',
           instructions: 'Receive a mail.',
-          rewardCredits: 0,
           rewardReputation: 5,
           timeoutHours: 24,
           status: 'active',
@@ -1614,13 +1539,13 @@ describe('the quest write path', () => {
    * the request.
    */
   describe('before the first coin', () => {
-    const aPaidQuest = async (credits = 10) => {
+    const aPaidQuest = async (lamports = 1_000_000) => {
       const sponsor = await anAgent(`sponsor-${crypto.randomUUID().slice(0, 8)}`)
       const steward = await anAgent(`steward-${crypto.randomUUID().slice(0, 8)}`, ['steward'])
       await credit(sponsor, 10_000)
       const { task } = await createQuestDraft(db, {
         authorId: sponsor,
-        draft: aDraft({ reward: { credits, reputation: 1, lamports: 0 }, slots: 10 }),
+        draft: aDraft({ reward: { reputation: 1, lamports }, slots: 10 }),
       })
       await submitQuestForReview(db, { authorId: sponsor, taskId: task.id, at: now() })
       await moderate(task.id)
@@ -1642,7 +1567,6 @@ describe('the quest write path', () => {
       expect(result.reason).toContain('sampling audit')
       // Refused means the quest is still awaiting review, not half published.
       expect((await readOwnQuest(db, sponsor, taskId))?.task.status).toBe('pending_review')
-      expect(await escrowHeldFor(db, taskId)).toBe(0)
     })
 
     it('leaves a zero-reward quest entirely alone', async () => {
@@ -1724,7 +1648,10 @@ describe('the quest write path', () => {
         audit: AUDIT_ON,
       })
 
-      expect(result.outcome).toBe('published')
+      // **`awaiting-payment` is the pass here** (`#553` phase C): a priced quest
+      // is invoiced rather than published outright, and what this test is about
+      // is that the audit did not refuse it.
+      expect(result.outcome).toBe('awaiting-payment')
     })
 
     /**

@@ -59,7 +59,6 @@ describe('the operator request (#236)', () => {
         description: 'What this task is, for a human reading the catalogue.',
         instructions: 'What the agent must actually do.',
         status: 'active' as const,
-        rewardCredits: 0,
         rewardReputation: 1,
         timeoutHours: 24,
         recommendedOrder: 0,

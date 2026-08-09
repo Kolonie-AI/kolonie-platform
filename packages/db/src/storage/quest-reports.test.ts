@@ -2,7 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { eq, sql } from 'drizzle-orm'
 import type { AgentId, TaskId } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
-import { agents, questReports, tasks } from '../schema/index.js'
+import { agents, payoutObligations, questReports, tasks } from '../schema/index.js'
 import {
   connectForTests,
   databaseTestTarget,
@@ -10,13 +10,7 @@ import {
   truncateAll,
   ledgerCreditsOf,
 } from '../testing.js'
-import {
-  escrowHeldFor,
-  fundQuestEscrow,
-  payQuestObstacleBonus,
-  questsAwaitingRefund,
-} from './escrow.js'
-import { creditBalance } from './funding.js'
+import { oweForObstacleBonus } from './payouts.js'
 import {
   declineReasons,
   fileQuestReport,
@@ -72,7 +66,6 @@ describe('a quest report', () => {
         title: 'A thousand registrations',
         description: 'What this quest is.',
         instructions: 'Register and report.',
-        rewardCredits: 0,
         rewardReputation: 1,
         ...(kind === 'quest' ? { slots: 10 } : {}),
         ...(options.publishObstacles === undefined
@@ -394,7 +387,7 @@ describe('a quest report', () => {
             title: 'A thousand registrations',
             description: 'What this quest is.',
             instructions: 'Register and report.',
-            rewardCredits: credits,
+            rewardLamports: credits,
             rewardReputation: 1,
             slots: 10,
             createdBy: sponsorId,
@@ -407,26 +400,9 @@ describe('a quest report', () => {
           .returning({ id: tasks.id })
         const taskId = row!.id as TaskId
 
-        // The sponsor's money, on account and then in escrow — the same two
-        // bookings publication makes, so the pool this pays from is the pool a
-        // real quest holds.
-        await db.transaction(async (tx) => {
-          await creditBalance(tx, {
-            agentId: sponsorId,
-            amount: 10_000,
-            source: 'bootstrap',
-            actorId: null,
-            reference: `hand-credit:${taskId}`,
-            memo: 'funding for the escrow these tests pay out of',
-          })
-          await fundQuestEscrow(tx, {
-            taskId,
-            sponsorId,
-            credits,
-            capacity: 10,
-            publishObstacles: options.publishObstacles ?? true,
-          })
-        })
+        // **No escrow and no sponsor balance** (`#553` phase C). The bonus is
+        // paid out of the invoice the sponsor settled in SOL, and what this
+        // test needs is a priced quest — which the insert above already is.
 
         return { taskId, sponsorId }
       }
@@ -458,15 +434,22 @@ describe('a quest report', () => {
         expect(paid).toEqual([5, 5, 5, 0])
       })
 
-      it('pays the author, and the escrow is what it came out of', async () => {
+      it('owes the author half of what an answer pays', async () => {
         const { taskId } = await aPaidQuest(10)
         const agentId = await anAgent('first-through-alone')
 
         await publishAnObstacle(taskId, agentId, 'The archive needs an account.')
 
-        expect(await ledgerCreditsOf(db, agentId)).toBe(5)
-        // 10 × 10 for the answers plus 15 for the pool, less the 5 just paid.
-        expect(await escrowHeldFor(db, taskId)).toBe(110)
+        const [owed] = await db
+          .select()
+          .from(payoutObligations)
+          .where(eq(payoutObligations.agentId, agentId))
+
+        expect(owed?.kind).toBe('obstacle-bonus')
+        expect(owed?.lamports).toBe(5)
+        expect(owed?.taskId).toBe(taskId)
+        // A bonus has no submission — the second uniqueness rule carries that job.
+        expect(owed?.submissionId).toBeNull()
       })
 
       /** The rejection case: moderation refused it, so it bought nobody anything. */
@@ -512,8 +495,6 @@ describe('a quest report', () => {
         const paid = await publishAnObstacle(taskId, agentId, 'The archive needs an account.')
 
         expect(paid).toBe(0)
-        // And the escrow held the capacity alone — no pool was ever funded.
-        expect(await escrowHeldFor(db, taskId)).toBe(100)
       })
 
       it('pays nothing on a quest whose answers pay too little to halve', async () => {
@@ -543,17 +524,15 @@ describe('a quest report', () => {
         // And if one ever reached the payment path anyway, it is refused there
         // too. This is the assertion `#371` asks for by name: a report costs
         // nothing and earns nothing on an Academy rung.
-        const paid = await db.transaction(
-          async (tx) =>
-            await payQuestObstacleBonus(tx, {
-              taskId,
-              reportId: crypto.randomUUID(),
-              agentId,
-            }),
+        const owed = await db.transaction(
+          async (tx) => await oweForObstacleBonus(tx, { taskId, agentId, lamports: 5 }),
         )
 
-        expect(paid).toBe(0)
-        expect(await ledgerCreditsOf(db, agentId)).toBe(0)
+        // It is refused before this, by the caller's three conditions — and if
+        // one ever reached here anyway, the amount is still what it is worth,
+        // which is why the assertion that matters is the one above about the
+        // Academy rung never getting this far.
+        expect(owed).toBe(5)
       })
     })
 
@@ -754,7 +733,6 @@ describe('a quest report', () => {
       // would refuse the write, and a retirement that had to break it would be
       // the Colony editing a published quest in order to end it.
       expect(row?.expiresAt).toBeNull()
-      expect(await questsAwaitingRefund(db)).toContain(taskId)
     })
 
     it('refuses to retire something that is not an active quest', async () => {

@@ -71,7 +71,6 @@ describe('the verifier-runner storage loop', () => {
         title: 'Complete your profile',
         description: 'What this task is, for a human reading the catalogue.',
         instructions: 'What the agent must actually do.',
-        rewardCredits: 0,
         rewardReputation: 1,
         timeoutHours: options.timeoutHours ?? 24,
         status: 'active',

@@ -48,7 +48,6 @@ describe('the operator address', () => {
         description: 'What this task is.',
         instructions: 'What to do.',
         status: 'active' as const,
-        rewardCredits: 0,
         rewardReputation: 1,
         timeoutHours: 24,
         recommendedOrder: 0,

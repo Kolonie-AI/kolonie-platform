@@ -21,7 +21,9 @@ export interface FakeErasureDesk extends ErasureDesk {
 
 const RECEIPT: ErasureReceipt = {
   erasedAt: '2026-07-30T12:00:00.000Z',
-  creditsBurned: 120,
+  // Zero since `#553` phase C: there is no balance to burn, and the field
+  // stays only so old receipts keep meaning what they said.
+  creditsBurned: 0,
   reputationDestroyed: 15,
   counts: {
     credentials: 1,
@@ -88,7 +90,6 @@ export function fakeErasureDesk(): FakeErasureDesk {
         nonce,
         expiresAt: new Date(Date.now() + ERASURE_CHALLENGE_TTL_SECONDS * 1000).toISOString(),
         quote: {
-          credits: 120,
           reputation: 15,
           skills: 3,
           writing: { reports: 2, supportTickets: 1 },

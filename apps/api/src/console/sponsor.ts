@@ -60,7 +60,7 @@ export function questAsCitizenReads(quest: {
   }[]
   readonly requires: readonly string[]
   readonly minReputation: number
-  readonly reward: { readonly credits: number; readonly reputation: number }
+  readonly reward: { readonly lamports: number; readonly reputation: number }
   /**
    * The Colony's share, as this quest will actually pay it (`#463`).
    *
@@ -105,7 +105,7 @@ export function questAsCitizenReads(quest: {
     // with the payout (`#463`).
     `<p class="note">${escape(
       questPayNotice({
-        credits: quest.reward.credits,
+        lamports: quest.reward.lamports,
         reputation: quest.reward.reputation,
         feePercent: quest.feePercent,
       }),

@@ -1,11 +1,8 @@
-import { randomUUID } from 'node:crypto'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { eq, sql, or } from 'drizzle-orm'
 import {
   now,
   RegisterAgentRequestSchema,
-  questFundingReference,
-  questPayoutReference,
   submissionReference,
   SubmissionIdSchema,
   TaskIdSchema,
@@ -25,6 +22,7 @@ import {
   submissions,
   tasks,
   verifications,
+  payoutObligations,
 } from '../schema/index.js'
 import {
   connectForTests,
@@ -71,7 +69,7 @@ describe('booking a passed submission', () => {
 
   const aTask = async (
     options: {
-      credits?: number
+      lamports?: number
       reputation?: number
       grants?: string[]
       grantsRoles?: string[]
@@ -106,8 +104,8 @@ describe('booking a passed submission', () => {
          * `bookTaskReward` is the one booking path for both kinds, the pair sums
          * to zero, and a reward books exactly once.
          */
-        kind: (options.credits ?? 10) > 0 ? ('quest' as const) : ('academy' as const),
-        rewardCredits: options.credits ?? 10,
+        kind: (options.lamports ?? 10) > 0 ? ('quest' as const) : ('academy' as const),
+        rewardLamports: options.lamports ?? 10,
         rewardReputation: options.reputation ?? 5,
         timeoutHours: 24,
         status: 'active',
@@ -116,35 +114,6 @@ describe('booking a passed submission', () => {
 
     if (row === undefined) throw new Error('insert into tasks returned no row')
     const taskId = TaskIdSchema.parse(row.id)
-
-    /**
-     * Fund the escrow, the way publication does (`#174`), so a paying quest can
-     * actually pay. Treasury → escrow rather than sponsor → escrow because these
-     * tests are about the verdict's booking and not about where the sponsor's
-     * money came from; what matters is that the escrow holds enough and that the
-     * ledger still sums to zero.
-     */
-    if ((options.credits ?? 10) > 0) {
-      const transactionId = randomUUID()
-      await db.insert(ledgerEntries).values([
-        {
-          transactionId,
-          accountKind: 'system' as const,
-          systemAccount: 'treasury' as const,
-          amount: -1000,
-          type: 'task_funding' as const,
-          reference: questFundingReference(taskId),
-        },
-        {
-          transactionId,
-          accountKind: 'system' as const,
-          systemAccount: 'escrow' as const,
-          amount: 1000,
-          type: 'task_funding' as const,
-          reference: questFundingReference(taskId),
-        },
-      ])
-    }
 
     return taskId
   }
@@ -228,6 +197,10 @@ describe('booking a passed submission', () => {
         ),
       )
 
+  /** What this citizen is owed, as rows. */
+  const owedTo = async (agentId: AgentId) =>
+    await db.select().from(payoutObligations).where(eq(payoutObligations.agentId, agentId))
+
   /** What the whole ledger sums to. Must be zero, always, whatever happened. */
   const ledgerTotal = async (): Promise<number> => {
     const [row] = await db
@@ -237,36 +210,51 @@ describe('booking a passed submission', () => {
   }
 
   describe('a pass', () => {
-    it('credits the agent and debits the escrow, and the two sum to zero', async () => {
+    /**
+     * **An accepted quest report is an obligation, not a booking** (`#553`
+     * phase C).
+     *
+     * This asserted a two-entry ledger booking out of the sponsor's escrow.
+     * There is no escrow and no credit: the citizen is owed lamports, the
+     * payout runner sends them, and what the verdict's transaction writes is
+     * the debt. The property that mattered — *a pass is recorded exactly once,
+     * in the verdict's own transaction* — is the same one, one table over.
+     */
+    it('records what an accepted report owes its author, in the verdict’s transaction', async () => {
       const agentId = await anAgent()
-      const taskId = await aTask({ credits: 10 })
+      const taskId = await aTask({ lamports: 1_000_000 })
       const submissionId = await aClaimedSubmission({ taskId, agentId })
 
       const written = await pass(submissionId)
 
       expect(written.outcome).toBe('recorded')
-      if (written.outcome !== 'recorded') return
-      expect(written.booking?.credits).toBe(10)
+      const owed = await db
+        .select()
+        .from(payoutObligations)
+        .where(eq(payoutObligations.agentId, agentId))
 
-      const entries = await entriesFor(submissionId)
-      expect(entries).toHaveLength(2)
+      expect(owed).toHaveLength(1)
+      expect(owed[0]?.kind).toBe('report')
+      expect(owed[0]?.submissionId).toBe(submissionId)
+      expect(owed[0]?.taskId).toBe(taskId)
+      // The citizen's share after the platform fee, computed by the one function
+      // the payout books against.
+      expect(owed[0]?.lamports).toBeGreaterThan(0)
+      expect(owed[0]?.lamports).toBeLessThanOrEqual(1_000_000)
+    })
 
-      const agentEntry = entries.find((entry) => entry.accountKind === 'agent')
-      const systemEntry = entries.find((entry) => entry.accountKind === 'system')
+    /** Nothing writes a ledger entry for a task reward any more. */
+    it('writes no ledger entry at all, because credits are gone', async () => {
+      const taskId = await aTask({ lamports: 1_000_000 })
+      const submissionId = await aClaimedSubmission({ taskId })
 
-      expect(agentEntry?.amount).toBe(10)
-      expect(agentEntry?.agentId).toBe(agentId)
-      expect(systemEntry?.amount).toBe(-10)
-      // A quest pays out of its sponsor's escrow, and the mint is never touched
-      // (D-038, `#174`). An Academy pass is the one that debits the mint.
-      expect(systemEntry?.systemAccount).toBe('escrow')
+      await pass(submissionId)
 
-      // One booking, one transaction id — the deferred trigger checks the set.
-      expect(agentEntry?.transactionId).toBe(systemEntry?.transactionId)
+      expect(await entriesFor(submissionId)).toHaveLength(0)
       expect(await ledgerTotal()).toBe(0)
     })
 
-    it('writes reputation alongside the credits', async () => {
+    it('writes reputation alongside what is owed', async () => {
       const agentId = await anAgent()
       const taskId = await aTask({ reputation: 5 })
       const submissionId = await aClaimedSubmission({ taskId, agentId })
@@ -290,70 +278,38 @@ describe('booking a passed submission', () => {
      * writes has to name the submission it came from, or the audit trail has a
      * gap exactly where the payout is.
      */
-    it('references the submission on every entry it writes', async () => {
-      const taskId = await aTask({ credits: 10 })
+    /**
+     * The acceptance criterion is "no unexplained money". The row a pass writes
+     * has to name the submission it came from, or the audit trail has a gap
+     * exactly where the payout is. It was every ledger entry; it is the
+     * obligation now, and the rule is unchanged.
+     */
+    it('names the submission on what it writes', async () => {
+      const taskId = await aTask({ lamports: 1_000_000 })
       const submissionId = await aClaimedSubmission({ taskId })
 
       await pass(submissionId)
 
-      for (const entry of await entriesFor(submissionId)) {
-        // A quest payout carries the quest as well as the submission, so that
-        // everything one quest's money did is a prefix scan (`#174`). The
-        // property this test is about — every entry of a booking names what it
-        // paid for — holds either way.
-        expect(entry.reference).toBe(questPayoutReference(taskId, submissionId))
-        expect(entry.type).toBe('task_payout')
-      }
+      const [owed] = await db
+        .select()
+        .from(payoutObligations)
+        .where(eq(payoutObligations.submissionId, submissionId))
+
+      expect(owed?.submissionId).toBe(submissionId)
     })
 
-    /**
-     * The memo no longer names a number (`#35`). It still names the task type,
-     * which is the part an audit reads: an entry has to say what was paid for,
-     * and `Academy Level 3` said where the task sat rather than what it was.
-     */
-    it('writes a memo naming the task type, the rate it booked at, and no level', async () => {
+    it('owes nothing for a task that pays no money', async () => {
       const agentId = await anAgent()
-      const taskId = await aTask({ credits: 10 })
+      const taskId = await aTask({ reputation: 3, lamports: 0 })
       const submissionId = await aClaimedSubmission({ taskId, agentId })
 
       await pass(submissionId)
 
-      for (const entry of await entriesFor(submissionId)) {
-        expect(entry.memo).toBe(`Quest — ${EXAMPLE_TASK} (unattended)`)
-        expect(entry.memo).not.toMatch(/Level/)
-      }
-    })
-
-    it('is visible to the balance read the moment it commits', async () => {
-      const agentId = await anAgent()
-      const taskId = await aTask({ credits: 10, reputation: 5 })
-      const submissionId = await aClaimedSubmission({ taskId, agentId })
-
-      // No wait, no second poll: `GET /v1/agents/me` reads this function, and an
-      // agent that is told its submission passed must be able to see the credit.
-      await pass(submissionId)
-
-      expect(await balanceOfAgent(db, agentId)).toEqual({ agentId, reputation: 5 })
-      expect(await ledgerCreditsOf(db, agentId)).toBe(10)
-    })
-
-    /**
-     * A task may teach without paying. `ledger_entries_amount_non_zero` refuses
-     * an entry of 0, so the honest booking is no entry at all — the alternative
-     * would be two rows recording that the Colony paid nothing.
-     */
-    it('books no ledger entry for a task that pays no credits', async () => {
-      const agentId = await anAgent()
-      const taskId = await aTask({ credits: 0, reputation: 3 })
-      const submissionId = await aClaimedSubmission({ taskId, agentId })
-
-      const written = await pass(submissionId)
-
-      expect(await entriesFor(submissionId)).toHaveLength(0)
-      if (written.outcome === 'recorded') expect(written.booking?.transactionId).toBeNull()
+      expect(
+        await db.select().from(payoutObligations).where(eq(payoutObligations.agentId, agentId)),
+      ).toHaveLength(0)
       // The reputation still happens.
       expect(await balanceOfAgent(db, agentId)).toEqual({ agentId: agentId, reputation: 3 })
-      expect(await ledgerCreditsOf(db, agentId)).toBe(0)
     })
   })
 
@@ -371,7 +327,7 @@ describe('booking a passed submission', () => {
   describe('a renewal', () => {
     const passTwice = async (options: { grants?: string[]; reputation?: number } = {}) => {
       const agentId = await anAgent()
-      const taskId = await aTask({ credits: 0, reputation: options.reputation ?? 5, ...options })
+      const taskId = await aTask({ lamports: 0, reputation: options.reputation ?? 5, ...options })
 
       const first = await aClaimedSubmission({ taskId, agentId })
       await pass(first)
@@ -425,7 +381,7 @@ describe('booking a passed submission', () => {
 
     it('leaves a first pass paying exactly what it always did', async () => {
       const agentId = await anAgent()
-      const taskId = await aTask({ credits: 0, reputation: 5 })
+      const taskId = await aTask({ reputation: 5, lamports: 0 })
       const only = await aClaimedSubmission({ taskId, agentId })
 
       await pass(only)
@@ -577,12 +533,14 @@ describe('booking a passed submission', () => {
      */
     it('grants nothing for a badge, while still paying it', async () => {
       const agentId = await anAgent()
-      const taskId = await aTask({ grants: [], credits: 25 })
+      const taskId = await aTask({ grants: [], lamports: 1_000_000 })
 
       const written = await pass(await aClaimedSubmission({ taskId, agentId }))
 
       if (written.outcome !== 'recorded') throw new Error(written.outcome)
-      expect(written.booking?.credits).toBe(25)
+      expect(
+        await db.select().from(payoutObligations).where(eq(payoutObligations.agentId, agentId)),
+      ).toHaveLength(1)
       expect(await heldBy(agentId)).toEqual([])
     })
 
@@ -721,7 +679,7 @@ describe('booking a passed submission', () => {
   describe('booking exactly once', () => {
     it('drops a second verdict rather than paying twice', async () => {
       const agentId = await anAgent()
-      const taskId = await aTask({ credits: 10, reputation: 5 })
+      const taskId = await aTask({ reputation: 5, lamports: 10 })
       const submissionId = await aClaimedSubmission({ taskId, agentId })
 
       await pass(submissionId)
@@ -730,9 +688,8 @@ describe('booking a passed submission', () => {
       // The submission is no longer `verifying`, so the second verdict is stale
       // and never reaches the booking at all.
       expect(second.outcome).toBe('stale')
-      expect(await entriesFor(submissionId)).toHaveLength(2)
+      expect(await owedTo(agentId)).toHaveLength(1)
       expect(await balanceOfAgent(db, agentId)).toEqual({ agentId: agentId, reputation: 5 })
-      expect(await ledgerCreditsOf(db, agentId)).toBe(10)
     })
 
     /**
@@ -743,7 +700,7 @@ describe('booking a passed submission', () => {
      */
     it('books once when two runners decide the same submission at once', async () => {
       const agentId = await anAgent()
-      const taskId = await aTask({ credits: 10, reputation: 5 })
+      const taskId = await aTask({ reputation: 5, lamports: 10 })
       const submissionId = await aClaimedSubmission({ taskId, agentId })
 
       const other = createDatabase(target.url, {
@@ -770,9 +727,8 @@ describe('booking a passed submission', () => {
         await other.close()
       }
 
-      expect(await entriesFor(submissionId)).toHaveLength(2)
+      expect(await owedTo(agentId)).toHaveLength(1)
       expect(await balanceOfAgent(db, agentId)).toEqual({ agentId: agentId, reputation: 5 })
-      expect(await ledgerCreditsOf(db, agentId)).toBe(10)
       expect(await ledgerTotal()).toBe(0)
     })
 
@@ -796,14 +752,17 @@ describe('booking a passed submission', () => {
 
       await db.transaction((tx) => bookTaskReward(tx, { submissionId, bookedAt }))
 
+      // The submission's uniqueness moved from the ledger to the obligations
+      // when credits went (`#553` phase C); the reputation index refuses this
+      // one first, and either way the second booking cannot land.
       await expectRejection(
         () => db.transaction((tx) => bookTaskReward(tx, { submissionId, bookedAt })),
-        /ledger_entries_(task_reward|quest_money_\w+)_unique/,
+        /reputation_events_task_passed_unique/,
       )
     })
 
     it('refuses a second reputation event for the same submission', async () => {
-      const taskId = await aTask({ credits: 0, reputation: 5 })
+      const taskId = await aTask({ reputation: 5, lamports: 0 })
       const submissionId = await aClaimedSubmission({ taskId })
       const bookedAt = now()
 
@@ -824,9 +783,9 @@ describe('booking a passed submission', () => {
    * the system can be trusted either.
    */
   it('leaves the ledger summing to zero after a run of mixed bookings', async () => {
-    const paying = await aTask({ credits: 7, reputation: 2 })
-    const generous = await aTask({ credits: 41, reputation: 3 })
-    const unpaid = await aTask({ credits: 0, reputation: 1 })
+    const paying = await aTask({ reputation: 2, lamports: 7 })
+    const generous = await aTask({ reputation: 3, lamports: 41 })
+    const unpaid = await aTask({ reputation: 1, lamports: 0 })
 
     for (const taskId of [paying, generous, unpaid, paying, generous]) {
       await pass(await aClaimedSubmission({ taskId }))
@@ -835,15 +794,15 @@ describe('booking a passed submission', () => {
       await fail(await aClaimedSubmission({ taskId }))
     }
 
+    // **Zero because nothing writes to it any anymore** (`#553` phase C), which
+    // is a weaker statement than it was and still worth making: a task reward
+    // that started booking again would show up here first.
     expect(await ledgerTotal()).toBe(0)
 
-    // And the other side of the same fact: everything the agents hold was minted.
-    const [minted] = await db
-      .select({ total: sql<string>`coalesce(sum(${ledgerEntries.amount}), 0)::text` })
-      .from(ledgerEntries)
-      .where(eq(ledgerEntries.accountKind, 'system'))
-
-    expect(Number(minted?.total ?? '0')).toBe(-(7 + 41 + 7 + 41))
+    // What the passes actually produced, one obligation per paying report.
+    const owed = await db.select().from(payoutObligations)
+    expect(owed).toHaveLength(4)
+    expect(owed.every((row) => row.kind === 'report')).toBe(true)
   })
   /**
    * What the declaration is worth (`#39`).
@@ -856,20 +815,20 @@ describe('booking a passed submission', () => {
   describe('what the declaration is worth', () => {
     it('pays the full reward for a pass declared unattended', async () => {
       const agentId = await anAgent()
-      const taskId = await aTask({ credits: 10, reputation: 5 })
+      const taskId = await aTask({ reputation: 5, lamports: 10 })
       const submissionId = await aClaimedSubmission({ taskId, agentId, assistance: 'none' })
 
       await pass(submissionId)
 
       expect(await balanceOfAgent(db, agentId)).toMatchObject({ reputation: 5 })
-      expect(await ledgerCreditsOf(db, agentId)).toBe(10)
+      expect(await owedTo(agentId)).toHaveLength(1)
     })
 
     it.each(['operator-provided', 'operator-performed', 'unknown'] as const)(
       'pays the reduced rate for %s, and says so in the memo',
       async (assistance) => {
         const agentId = await anAgent()
-        const taskId = await aTask({ credits: 10, reputation: 5 })
+        const taskId = await aTask({ reputation: 5, lamports: 10 })
         const submissionId = await aClaimedSubmission({ taskId, agentId, assistance })
 
         await pass(submissionId)
@@ -878,16 +837,12 @@ describe('booking a passed submission', () => {
         expect(await balanceOfAgent(db, agentId)).toMatchObject({
           reputation: Math.ceil((5 * UNDECLARED_REWARD_PERCENT) / 100),
         })
-        expect(await ledgerCreditsOf(db, agentId)).toBe(
-          Math.ceil((10 * UNDECLARED_REWARD_PERCENT) / 100),
-        )
-
-        // An entry that booked 5 where the task says 10 has to say why, or an
-        // audit has to go and reconstruct the reason from a submission row.
-        for (const entry of await entriesFor(submissionId)) {
-          expect(entry.memo).toContain(assistance)
-          expect(entry.memo).toContain(`${UNDECLARED_REWARD_PERCENT}%`)
-        }
+        // The money follows the same reduction, one table over (`#553` phase C).
+        // The memo assertions went with the ledger entries: an obligation
+        // carries an amount and a submission, and *why it is that amount* is the
+        // rate on the task, which the verdict already records.
+        const [owed] = await owedTo(agentId)
+        expect(owed?.lamports).toBe(Math.ceil((10 * UNDECLARED_REWARD_PERCENT) / 100))
       },
     )
 
@@ -900,7 +855,7 @@ describe('booking a passed submission', () => {
     it('charges the same for saying nothing as for admitting an operator', async () => {
       const quiet = await anAgent()
       const honest = await anAgent()
-      const taskId = await aTask({ credits: 10, reputation: 5 })
+      const taskId = await aTask({ reputation: 5, lamports: 10 })
 
       await pass(await aClaimedSubmission({ taskId, agentId: quiet, assistance: 'unknown' }))
       await pass(
@@ -922,7 +877,7 @@ describe('booking a passed submission', () => {
      */
     it('grants the skill on an assisted pass, and still books the reduced credits', async () => {
       const agentId = await anAgent()
-      const taskId = await aTask({ credits: 10, reputation: 5, grants: ['mailbox'] })
+      const taskId = await aTask({ lamports: 10, reputation: 5, grants: ['mailbox'] })
       const submissionId = await aClaimedSubmission({
         taskId,
         agentId,
@@ -934,12 +889,13 @@ describe('booking a passed submission', () => {
       )
 
       expect(written.grantedSkills).toEqual(['mailbox'])
-      expect(written.credits).toBe(5)
+      // Half rate for an assisted pass, on the amount that survives (`#39`).
+      expect(written.reputation).toBe(3)
     })
 
     /** The books still balance when the two rates are mixed. */
     it('leaves the ledger summing to zero across both rates', async () => {
-      const taskId = await aTask({ credits: 11, reputation: 2 })
+      const taskId = await aTask({ reputation: 2, lamports: 11 })
 
       await pass(await aClaimedSubmission({ taskId, assistance: 'none' }))
       await pass(await aClaimedSubmission({ taskId, assistance: 'unknown' }))
@@ -947,13 +903,11 @@ describe('booking a passed submission', () => {
 
       expect(await ledgerTotal()).toBe(0)
 
-      const [minted] = await db
-        .select({ total: sql<string>`coalesce(sum(${ledgerEntries.amount}), 0)::text` })
-        .from(ledgerEntries)
-        .where(eq(ledgerEntries.accountKind, 'system'))
-
       // 11 at the full rate, then 6 twice — half of an odd reward rounds up.
-      expect(Number(minted?.total ?? '0')).toBe(-(11 + 6 + 6))
+      // The sum lives in the obligations now rather than in the mint's column
+      // (`#553` phase C); the arithmetic it is checking is the same.
+      const owed = await db.select().from(payoutObligations)
+      expect(owed.reduce((total, row) => total + row.lamports, 0)).toBe(11 + 6 + 6)
     })
   })
 })

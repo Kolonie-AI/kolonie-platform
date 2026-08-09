@@ -110,7 +110,6 @@ describe('the erasure boundary', () => {
         title: 'Create an email address',
         description: 'Prove you can operate your own mailbox.',
         instructions: 'Create an address and send a mail to the given recipient.',
-        rewardCredits: 0,
         rewardReputation: 5,
         timeoutHours: 24,
         status: 'active',

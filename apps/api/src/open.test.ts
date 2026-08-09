@@ -428,7 +428,6 @@ describe('what the open section may propose beyond a rung', () => {
       ['profile'],
       sourceWith({
         listed: [aTask({ title: 'One' }), aTask({ title: 'Two' }), aQuest(), aQuest()],
-        credits: 40,
         prospects: { hasOperator: false, failedAttempts: 2, ticketsOpened: 0, unreported: wall },
       }),
     )

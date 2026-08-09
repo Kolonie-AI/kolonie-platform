@@ -88,7 +88,7 @@ describe('what a steward is paid for deciding a quest', () => {
     instructions: 'Register at the address in the brief and report what happened.',
     // Nothing, so no escrow and no audit guard stand between this test and the
     // decision it is about. `#499` is not about the sponsor's money.
-    reward: { credits: 0, reputation: 5, lamports: 0 },
+    reward: { reputation: 5, lamports: 0 },
     slots: 10,
     expiresAt: new Date(Date.now() + 7 * 24 * 3_600_000).toISOString(),
     audience: 'citizens',

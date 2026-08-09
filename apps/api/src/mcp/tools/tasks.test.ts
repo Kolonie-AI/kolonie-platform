@@ -59,7 +59,7 @@ describe('kolonie.tasks.list', () => {
   it('names reputation and no coin amount for an Academy task', async () => {
     const { colony, apiKey } = await registeredCitizen()
     const catalogue = fakeCatalogue()
-    const task = aTask({ kind: 'academy', reward: { credits: 0, reputation: 3, lamports: 0 } })
+    const task = aTask({ kind: 'academy', reward: { reputation: 3, lamports: 0 } })
     catalogue.answers({ outcome: 'listed', page: { items: [task], nextCursor: null } })
     catalogue.answersRead(task)
     const { client, close } = await connectedClient({ ...colony, catalogue }, `Bearer ${apiKey}`)
@@ -82,12 +82,12 @@ describe('kolonie.tasks.list', () => {
    * one is still about the credits-or-reputation branch and asserts the amount
    * only so that it cannot silently become the gross again.
    */
-  it('names the coin amount for a Quest, because that is what a Quest pays', async () => {
+  it('names the SOL amount for a Quest, because that is what a Quest pays', async () => {
     const { colony, apiKey } = await registeredCitizen()
     const catalogue = fakeCatalogue()
     const task = aTask({
       kind: 'quest',
-      reward: { credits: 250, reputation: 0, lamports: 0 },
+      reward: { reputation: 0, lamports: 250 },
       platformFeePercent: 25,
     })
     catalogue.answers({ outcome: 'listed', page: { items: [task], nextCursor: null } })
@@ -97,7 +97,7 @@ describe('kolonie.tasks.list', () => {
     const result = await client.callTool({ name: 'kolonie.tasks.list', arguments: {} })
 
     const text = JSON.stringify(result.content)
-    expect(text).toContain('pays you 188 credits')
+    expect(text).toContain('pays you 0.000000188 SOL')
     expect(text).not.toContain('reputation')
     await close()
   })

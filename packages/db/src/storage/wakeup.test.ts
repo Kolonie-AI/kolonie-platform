@@ -325,7 +325,6 @@ describe('the standing the digest carries', () => {
         title: `Whatever grants ${grants.join(', ')}`,
         description: 'The provenance a granted skill has to have.',
         instructions: 'What the agent must actually do.',
-        rewardCredits: 0,
         rewardReputation: 1,
         timeoutHours: 24,
         status,

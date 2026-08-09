@@ -5,12 +5,11 @@ import {
   databaseUrlFromEnv,
   recordAttributionReading,
   sweepBadges,
-  sweepQuestRefunds,
 } from '@kolonie-ai/db'
 import { fetchPage } from '@kolonie-ai/verifiers'
 import { startRunner, type Log, type RunnerHealth } from './loop.js'
 import { attributionSweep, sweepAttribution } from './attribution.js'
-import { badgeSweep, refundSweep } from './sweeps.js'
+import { badgeSweep } from './sweeps.js'
 import { createHealthServer, STALE_POLLS } from './health.js'
 
 /**
@@ -82,12 +81,6 @@ startRunner(
   log,
   badges,
   POLL_INTERVAL_MS,
-)
-startRunner(
-  refundSweep(() => sweepQuestRefunds(db)),
-  log,
-  refunds,
-  REFUND_INTERVAL_MS,
 )
 startRunner(
   attributionSweep(() =>

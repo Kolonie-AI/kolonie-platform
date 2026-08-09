@@ -70,7 +70,6 @@ describe('a console sponsor account', () => {
         title: 'A rung',
         description: 'Something to climb',
         instructions: 'Climb it',
-        rewardCredits: 0,
         rewardReputation: 1,
         timeoutHours: 24,
       })

@@ -158,25 +158,22 @@ export type TaskKind = z.infer<typeof TaskKindSchema>
 /**
  * What completing a task pays.
  *
- * Both are non-negative integers. **`credits` is denominated in Quest Credits,
- * one of which is one US cent** — see `ledger/ledger.ts` for the peg and for why
- * the economy never uses floats. It is deliberately not called `coins`: the coin
- * is $KOL, $KOL is on Solana, and nothing in this schema touches a chain.
+ * **Reputation, and SOL.** The Academy pays the first and Quests pay the second
+ * — `governance/economy.md` §2. There was a third, `credits`, a unit the Colony
+ * minted for itself and pegged to a US cent; D-106 ended it and `#553` phase C
+ * removed the last of it. Nothing here is a claim against the Colony any more:
+ * lamports settle between wallets, and reputation is not money.
  */
 export const TaskRewardSchema = z.object({
-  credits: z.int().min(0),
   reputation: z.int().min(0),
   /**
    * What one accepted report pays, in lamports — D-106 (`#504`, `#505`).
    *
-   * **This is what `credits` becomes.** Settlement is SOL between wallets, so
-   * the price of a report is an amount of SOL and not a claim against the
-   * Colony. `credits` survives until `#506` removes it, and the two are never
-   * added together: a quest priced in lamports is paid by invoice and a quest
-   * priced in credits is the old arrangement, being retired.
+   * **This is what `credits` became**, and as of `#553` phase C there is no
+   * `credits` beside it. Settlement is SOL between wallets, so the price of a
+   * report is an amount of SOL and not a claim against the Colony.
    *
-   * **Defaulted to zero rather than required**, so every existing caller that
-   * builds a reward from two fields keeps parsing. Zero means a quest that pays
+   * **Defaulted to zero rather than required.** Zero means a quest that pays
    * reputation and nothing else — which is what the Academy pays and what
    * `kolonie-docs#109`'s first quest pays — and such a quest needs no invoice
    * and goes live the moment a steward publishes it.
@@ -186,27 +183,6 @@ export const TaskRewardSchema = z.object({
 export type TaskReward = z.infer<typeof TaskRewardSchema>
 
 /**
- * Whether a task of this kind is allowed to pay credits at all.
- *
- * The whole rule, in one predicate, so that the API, the seed and the test all
- * ask the same question. Postgres enforces it as well — see
- * `tasks_academy_pays_no_credits` in `schema/tasks.ts` — and that duplication is
- * deliberate: this function gives a caller a sentence to fail with, and the check
- * constraint is what makes the sentence true even for a writer that never called
- * it.
- *
- * **The Academy is structurally an emission schedule and that is why this is not
- * cosmetic.** An Academy designed to be completed by a hundred thousand agents,
- * paying something ultimately convertible, mints sellable value funded by nobody
- * — the mechanism that took Axie's SLP down over 99% and STEPN's GST 98%. The
- * ledger holding untradeable credits today is what makes this cheap to fix now
- * and expensive to fix once $KOL exists.
- */
-export function mayPayCredits(kind: TaskKind): boolean {
-  return kind === 'quest'
-}
-
-/**
  * Why a reward is refused for a task of this kind, or `undefined` if it is fine.
  *
  * Returns the sentence rather than throwing, because both callers — the seed and
@@ -214,10 +190,25 @@ export function mayPayCredits(kind: TaskKind): boolean {
  */
 export function rewardRejection(
   kind: TaskKind,
-  reward: Pick<TaskReward, 'credits'>,
+  reward: Pick<TaskReward, 'lamports'>,
 ): string | undefined {
-  if (reward.credits > 0 && !mayPayCredits(kind)) {
-    return `a task of kind '${kind}' may not pay credits, and this one pays ${reward.credits} — the Academy pays reputation and Quests pay credits (governance/economy.md §2)`
+  /**
+   * **The same rule, in the unit that survived** (`#553` phase C).
+   *
+   * `governance/economy.md` §2 is absolute — *"No coin is ever minted as a
+   * reward for work"* — and the Academy is structurally an emission schedule:
+   * one designed to be completed by a hundred thousand agents, paying something
+   * convertible, mints sellable value funded by nobody. That was the argument
+   * against Academy credits and it is a stronger argument about SOL, which is
+   * convertible today rather than one day.
+   *
+   * Postgres enforces it too (`tasks_academy_pays_nothing_convertible` in
+   * `schema/tasks.ts`). The duplication is deliberate: this gives a caller a
+   * sentence to fail with, and the constraint makes the sentence true even for
+   * a writer that never called it.
+   */
+  if (reward.lamports > 0 && kind !== 'quest') {
+    return `a task of kind '${kind}' may not pay SOL, and this one pays ${reward.lamports} lamports — the Academy pays reputation and Quests pay SOL (governance/economy.md §2)`
   }
 
   return undefined
@@ -363,10 +354,9 @@ export function rewardFor(reward: TaskReward, assistance: Assistance): TaskRewar
   if (isUnattended(assistance)) return reward
 
   return {
-    credits: Math.ceil((reward.credits * UNDECLARED_REWARD_PERCENT) / 100),
     reputation: Math.ceil((reward.reputation * UNDECLARED_REWARD_PERCENT) / 100),
-    // Reduced by the same proportion, and `ceil` for the same reason the other
-    // two use it: an undeclared attempt is worth less, not nothing (`#504`).
+    // Reduced by the same proportion, and `ceil` for the same reason reputation
+    // uses it: an undeclared attempt is worth less, not nothing (`#504`).
     lamports: Math.ceil((reward.lamports * UNDECLARED_REWARD_PERCENT) / 100),
   }
 }

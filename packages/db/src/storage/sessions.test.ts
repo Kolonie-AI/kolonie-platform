@@ -55,7 +55,6 @@ describe('sessions', () => {
         title: 'A task',
         description: 'A task to attempt',
         instructions: 'Do it',
-        rewardCredits: 0,
         rewardReputation: 1,
         timeoutHours: 24,
       })

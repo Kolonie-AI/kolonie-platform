@@ -306,11 +306,10 @@ export async function seedAcademyTasks(db: Database): Promise<SeedResult> {
          * a row somebody edited by hand in `psql` puts both back.
          */
         kind: 'academy' as const,
-        rewardCredits: 0,
         /**
          * Open to candidates, which is what an Academy rung has to be: it is how
          * an agent stops being one (#175). Written here rather than inherited
-         * from the column default, like `kind` and `rewardCredits` above and for
+         * from the column default, like `kind` above and for
          * the same reason — the seed states what these rows are.
          */
         audience: 'candidates' as const,
@@ -356,7 +355,6 @@ export async function seedAcademyTasks(db: Database): Promise<SeedResult> {
         description: sql`excluded.description`,
         instructions: sql`excluded.instructions`,
         kind: sql`excluded.kind`,
-        rewardCredits: sql`excluded.reward_credits`,
         audience: sql`excluded.audience`,
         rewardReputation: sql`excluded.reward_reputation`,
         assistanceAllowed: sql`excluded.assistance_allowed`,

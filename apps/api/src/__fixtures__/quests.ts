@@ -294,7 +294,7 @@ export function fakeQuests(): FakeQuestDesk {
           task: held.own.task,
           sponsor: { id: held.own.task.createdBy ?? null, name: 'a-sponsor' },
           sponsorBalance: { balance: 0, reserved: 0, available: 0 },
-          total: held.own.task.reward.credits * (held.own.task.slots ?? 0),
+          total: held.own.task.reward.lamports * (held.own.task.slots ?? 0),
           moderation: { decision: 'approved', model: 'test-model' },
           ownedByReader: held.own.task.createdBy === stewardId,
         })) as never
@@ -611,39 +611,6 @@ export function fakeQuests(): FakeQuestDesk {
      * The same money per quest (`#324`), reproducing the one property the route
      * relies on: the rows sum to the scalar above.
      */
-    async commitments(authorId) {
-      return [...quests.values()]
-        .filter((held) => held.own.task.createdBy === authorId)
-        .filter(
-          (held) => held.own.task.status === 'pending_review' || held.own.task.status === 'active',
-        )
-        .map((held) => ({
-          taskId: held.own.task.id,
-          title: held.own.task.title,
-          status: held.own.task.status,
-          reserved:
-            held.own.task.status === 'pending_review'
-              ? questCommitment({
-                  reward: held.own.task.reward,
-                  slots: held.own.task.slots ?? 0,
-                  publishObstacles: held.own.task.publishObstacles,
-                })
-              : 0,
-          escrowed:
-            held.own.task.status === 'active'
-              ? questCommitment({
-                  reward: held.own.task.reward,
-                  slots: held.own.task.slots ?? 0,
-                  publishObstacles: held.own.task.publishObstacles,
-                })
-              : 0,
-          // The fixture never books a payout, so the whole cost is still in
-          // escrow and this is zero. It is present rather than omitted because
-          // the route contract is `escrowed + paid` adds up to what was funded,
-          // and a fixture that dropped the field would let a caller forget it.
-          paid: 0,
-        }))
-    },
 
     /**
      * The undo for `submit` (`#323`), reproducing the one rule the route is

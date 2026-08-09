@@ -197,7 +197,6 @@ describe('the operator drop', () => {
           kind: 'academy',
           description: 'Whatever this rung is for.',
           instructions: 'What the agent must actually do.',
-          rewardCredits: 0,
           rewardReputation: 1,
           timeoutHours: 24,
         })

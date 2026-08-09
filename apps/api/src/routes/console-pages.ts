@@ -11,6 +11,7 @@ import {
   type Task,
   type TaskId,
   type Timestamp,
+  questCommitment,
 } from '@kolonie-ai/core'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import { authenticate } from '../authentication.js'
@@ -2393,12 +2394,7 @@ function registerSponsorPages(
   ) => {
     const perAuthor = await Promise.all(
       authors.map(async (author) => {
-        const [written, committed] = await Promise.all([
-          deps.quests.listOwn(author.id),
-          deps.quests.commitments(author.id),
-        ])
-
-        const cost = new Map(committed.map((row) => [String(row.taskId), row]))
+        const written = await deps.quests.listOwn(author.id)
 
         return Promise.all(
           written.map(async (quest) => {
@@ -2411,7 +2407,6 @@ function registerSponsorPages(
              * other one.
              */
             const accepted = (await deps.quests.results(quest.task.id)).length
-            const held = cost.get(String(quest.task.id))
 
             return {
               id: String(quest.task.id),
@@ -2423,19 +2418,23 @@ function registerSponsorPages(
                   ? `${String(accepted)} (no limit)`
                   : `${String(accepted)} of ${String(quest.task.slots)}`,
               /**
-               * Reserved *or* escrowed, per `governance/quests.md`'s four steps —
-               * never summed. They are the same credits at two different stages
-               * and adding them would double-count money a sponsor has not spent
-               * twice.
+               * **What the quest was invoiced and what has arrived** (`#553`
+               * phase C). This read *reserved or escrowed, never summed* — the
+               * four steps `governance/quests.md` describes for a credit
+               * balance. There is no balance and no escrow now: a sponsor is
+               * invoiced in SOL when a steward publishes, and the two numbers
+               * worth showing are what was asked for and what has been paid.
                */
               cost:
-                held === undefined
+                quest.task.reward.lamports === 0
                   ? '—'
-                  : held.escrowed > 0
-                    ? `${String(held.escrowed)} escrowed, ${String(held.paid)} paid`
-                    : held.reserved > 0
-                      ? `${String(held.reserved)} reserved`
-                      : `${String(held.paid)} paid`,
+                  : `${solFromLamports(
+                      questCommitment({
+                        reward: quest.task.reward,
+                        slots: quest.task.slots ?? 0,
+                        publishObstacles: quest.task.publishObstacles ?? false,
+                      }),
+                    )} SOL`,
               yours: author.name === 'You',
               writtenAt: quest.task.createdAt,
             }

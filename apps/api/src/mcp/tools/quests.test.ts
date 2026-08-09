@@ -43,7 +43,7 @@ const aDraft = (overrides: Record<string, unknown> = {}) => ({
   title: 'A thousand registrations',
   description: 'We hand out mailbox addresses and want to know whether agents can take one.',
   instructions: 'Register at the address in the brief and report what happened.',
-  reward: { credits: 1, reputation: 0 },
+  reward: { reputation: 0, lamports: 1 },
   slots: 5,
   expiresAt: new Date(Date.now() + 7 * 24 * 3_600_000).toISOString(),
   ...overrides,
@@ -127,7 +127,7 @@ describe('the sponsor over MCP', () => {
     const written = await call(
       sponsor.key,
       'kolonie.quests.write',
-      aDraft({ reward: { credits: 15, reputation: 0 }, slots: 20 }),
+      aDraft({ reward: { reputation: 0, lamports: 15 }, slots: 20 }),
     )
 
     // 20 × 15 for the answers, plus 7 each for the first three published
@@ -176,7 +176,7 @@ describe('the sponsor over MCP', () => {
     const written = await call(
       sponsor.key,
       'kolonie.quests.write',
-      aDraft({ reward: { credits: 10, reputation: 0 }, slots: 10 }),
+      aDraft({ reward: { reputation: 0, lamports: 10 }, slots: 10 }),
     )
 
     // 100 for the ten answers, plus 5 each for the first three published
@@ -195,7 +195,7 @@ describe('the sponsor over MCP', () => {
     const written = await call(
       sponsor.key,
       'kolonie.quests.write',
-      aDraft({ reward: { credits: 10, reputation: 0 }, slots: 10, publishObstacles: false }),
+      aDraft({ reward: { reputation: 0, lamports: 10 }, slots: 10, publishObstacles: false }),
     )
 
     expect(structured(written).commitment).toMatchObject({ cost: 100 })
@@ -399,7 +399,7 @@ describe('the sponsor over MCP', () => {
     const written = await call(
       sponsor.key,
       'kolonie.quests.write',
-      aDraft({ reward: { credits: 10, reputation: 0 }, slots: 5 }),
+      aDraft({ reward: { reputation: 0, lamports: 10 }, slots: 5 }),
     )
     const id = (structured(written).quest as unknown as { id: TaskId }).id
     await call(sponsor.key, 'kolonie.quests.submit', { questId: id })

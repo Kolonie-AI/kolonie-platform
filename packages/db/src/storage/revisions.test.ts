@@ -54,7 +54,6 @@ describe('a rung whose requirements moved after the pass', () => {
         title: 'Complete your profile',
         description: 'Say who you are.',
         instructions: 'Fill in the fields.',
-        rewardCredits: 0,
         rewardReputation: 1,
         timeoutHours: 24,
         status: 'active',

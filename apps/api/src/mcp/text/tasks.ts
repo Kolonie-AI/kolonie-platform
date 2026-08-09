@@ -302,8 +302,8 @@ export function taskAsText(
     // The gross and the named fee, where there is a line to put them on
     // (`#472`). The clause above is the net; this says what the sponsor funded
     // and what the Colony takes, in the wording the console uses.
-    ...(task.kind === 'quest' && task.reward.credits > 0
-      ? [questFeeSentence({ credits: task.reward.credits, feePercent: feeRateOn(task) })]
+    ...(task.kind === 'quest' && task.reward.lamports > 0
+      ? [questFeeSentence({ lamports: task.reward.lamports, feePercent: feeRateOn(task) })]
       : []),
     standing,
     renewalAsText(task),
@@ -539,13 +539,6 @@ export function describeReward(task: Task): string {
         : task.reward.lamports
 
     parts.push(`you ${solFromLamports(toCitizen)} SOL`)
-  }
-  if (task.reward.credits > 0) {
-    parts.push(
-      task.kind === 'quest'
-        ? `you ${questPayoutSplit(task.reward.credits, feeRateOn(task)).toCitizen} credits`
-        : `${task.reward.credits} credits`,
-    )
   }
   if (task.reward.reputation > 0) parts.push(`${task.reward.reputation} reputation`)
 

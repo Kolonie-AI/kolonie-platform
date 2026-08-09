@@ -102,7 +102,7 @@ export const QUEST_REVIEW_REWARD_CREDITS = 5
 /**
  * What a steward is paid per quest decided, in lamports (D-110).
  *
- * **`0.001 SOL`, flat, either verdict** — D-105 unchanged in everything except
+ * **`0.0001 SOL`, flat, either verdict** — D-105 unchanged in everything except
  * its unit and its amount. Five credits was five US cents, and D-106 left that
  * with nothing to be five cents *of*.
  *
@@ -113,19 +113,49 @@ export const QUEST_REVIEW_REWARD_CREDITS = 5
  * and a lamport is not, so stopping would have been reversing D-105 under cover
  * of porting it.
  *
- * **A transaction fee is not a meaningful fraction of it**, which
- * `kolonie-docs#225` reasonably feared: a Solana base fee is `5_000` lamports,
- * half a per cent of this. The real chain constraint is the rent-exempt minimum
- * ({@link RENT_EXEMPT_MINIMUM_FALLBACK}), and a steward's first review accrues
- * through it exactly as a citizen's first report does (`#505`).
+ * **Lowered tenfold from `1_000_000` on 2026-08-09**, and the reason is a ratio
+ * rather than a price. At the old figure one decision paid exactly what a whole
+ * colony-judged quest paid its answerer — the maintainer's own test-phase
+ * price — so a steward earned as much for a verdict as a citizen earned for
+ * doing the work the verdict was about. Nothing in D-105 asked for that; it
+ * arrived because the two numbers were set in different weeks and never read
+ * side by side.
  *
- * Three orders of magnitude above the fee that carries it, in the same ladder as
- * {@link QUEST_TIER_CAPS_LAMPORTS}, and about seven and a half cents at USD
- * 74.52/SOL rather than the old five — a small rise, said plainly in D-110.
+ * **A transaction fee is still not a meaningful fraction of it.** A Solana base
+ * fee is `5_000` lamports, five per cent of this rather than the half a per cent
+ * it was — worth knowing and not disqualifying, because the real chain
+ * constraint is the rent-exempt minimum ({@link RENT_EXEMPT_MINIMUM_FALLBACK})
+ * and a steward's first review accrues through it exactly as a citizen's first
+ * report does (`#505`).
+ *
+ * **This is the fallback and not the figure.** It is a setting since `#647`, on
+ * `#630`'s argument applied to the number that was left behind: the right amount
+ * is least known in the week it matters most, and a deploy is the wrong
+ * instrument for a dial. {@link questReviewReward} is what reads it.
  * **Whether a steward is paid enough is a different question** from which unit
  * it is paid in, and it belongs to `kolonie-docs#194` rather than here.
  */
-export const QUEST_REVIEW_REWARD_LAMPORTS = 1_000_000
+export const QUEST_REVIEW_REWARD_LAMPORTS = 100_000
+
+/** The setting that overrides {@link QUEST_REVIEW_REWARD_LAMPORTS}. */
+export const QUEST_REVIEW_REWARD_SETTING = 'QUEST_REVIEW_REWARD_LAMPORTS'
+
+/**
+ * What one review pays right now (`#647`).
+ *
+ * **The fallback rule is `questTierCaps`', stated once and here**: an unset value,
+ * a nonsensical one, or one that is not a positive safe integer means the
+ * constant. There is no value meaning *unpaid* — zero is refused by the schema,
+ * because a role that is paid nothing is a decision D-105 made and this dial is
+ * not where it would be reversed.
+ */
+export function questReviewReward(held: (name: string) => string | undefined): number {
+  const raw = held(QUEST_REVIEW_REWARD_SETTING)?.trim()
+  if (raw === undefined || !/^[1-9][0-9]*$/.test(raw)) return QUEST_REVIEW_REWARD_LAMPORTS
+
+  const parsed = Number(raw)
+  return Number.isSafeInteger(parsed) ? parsed : QUEST_REVIEW_REWARD_LAMPORTS
+}
 
 export const QUEST_REFUSAL_MIN_LENGTH = 10
 export const QUEST_REFUSAL_MAX_LENGTH = 1000

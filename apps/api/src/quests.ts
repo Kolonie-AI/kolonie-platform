@@ -70,6 +70,7 @@ import {
   publishQuest as publishQuestInDatabase,
   questReviewQueue as questReviewQueueInDatabase,
   questObstacleBonusPercentInDatabase,
+  questReviewRewardInDatabase,
   questTierCapsInDatabase,
   readOwnQuest as readOwnQuestInDatabase,
   SKILLS_THE_ACADEMY_GRANTS,
@@ -423,8 +424,23 @@ export function databaseQuests(
         ...(settings === undefined
           ? {}
           : { obstacleBonusPercent: await questObstacleBonusPercentInDatabase(settings) }),
+        // Read at the decision rather than frozen (`#647`) — it is the Colony's
+        // own money for work being done now, not a sponsor's for work already
+        // committed.
+        ...(settings === undefined
+          ? {}
+          : { reviewRewardLamports: await questReviewRewardInDatabase(settings) }),
       }),
-    refuse: (input) => refuseQuestInDatabase(db, input),
+    refuse: async (input) =>
+      await refuseQuestInDatabase(db, {
+        ...input,
+        // The same figure and the same moment as publishing: D-105's rule is
+        // that the amount carries no opinion about the verdict, so a refusal
+        // that read a different dial would be that opinion in another form.
+        ...(settings === undefined
+          ? {}
+          : { reviewRewardLamports: await questReviewRewardInDatabase(settings) }),
+      }),
     results: (taskId) => questResultsInDatabase(db, taskId),
     withheld: (taskId) => withheldReportCountInDatabase(db, taskId),
     takenPartIn: (agentId) => questsTakenPartInInDatabase(db, agentId),

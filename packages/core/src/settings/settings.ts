@@ -217,6 +217,19 @@ export const SETTINGS: readonly SettingDefinition[] = [
     schema: percent,
   },
   {
+    name: 'QUEST_REVIEW_REWARD_LAMPORTS',
+    group: 'threshold',
+    describes:
+      'What one steward is paid for deciding one quest, in lamports — the same amount for ' +
+      'publishing and for refusing, because the figure must carry no opinion about the verdict ' +
+      '(D-105). Unset means the constant in `packages/core`. It is read when the decision is ' +
+      'made rather than when the quest was submitted, so a change here applies to everything ' +
+      'still in the queue. The number worth watching is its ratio to what a quest pays its ' +
+      'answerer: a review that pays what the work pays is a role priced as if deciding were ' +
+      'the work.',
+    schema: lamports,
+  },
+  {
     name: 'QUEST_TIER_CAP_HARD_LAMPORTS',
     group: 'threshold',
     describes:

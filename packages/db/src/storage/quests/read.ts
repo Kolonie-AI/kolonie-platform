@@ -1,9 +1,11 @@
 import { and, asc, desc, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm'
 import {
   QUEST_OBSTACLE_BONUS_PERCENT_SETTING,
+  QUEST_REVIEW_REWARD_SETTING,
   QUEST_TIER_CAP_SETTINGS,
   StoredQuestQuestionsSchema,
   questObstacleBonusPercent,
+  questReviewReward,
   questTierCaps,
   type AgentId,
   type QuestQuestion,
@@ -47,6 +49,25 @@ export async function questTierCapsInDatabase(
   )
 
   return questTierCaps((name) => held.get(name))
+}
+
+/**
+ * What one review pays, right now (`#647`).
+ *
+ * **Read at the decision rather than at submission**, which is the one thing
+ * about it worth stating: a quest sitting in the queue when the dial moves is
+ * decided at the new figure. That is the same rule the tier caps do *not*
+ * follow — a ceiling is frozen onto a quest when it is published because it
+ * governs money a sponsor committed, and this governs money the Colony pays out
+ * of its own pocket for work not yet done.
+ *
+ * The fallback lives in `questReviewReward`, for `questTierCapsInDatabase`'s
+ * reason: the rule that an unset or nonsensical value means the constant is
+ * stated in the package with no database to hide it in.
+ */
+export async function questReviewRewardInDatabase(settings: SettingsReader): Promise<number> {
+  const value = await settings.read(QUEST_REVIEW_REWARD_SETTING)
+  return questReviewReward(() => value)
 }
 
 /**

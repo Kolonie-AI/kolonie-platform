@@ -113,6 +113,16 @@ export async function publishQuest(
     readonly taskId: TaskId
     readonly at: Timestamp
     /**
+     * What this decision pays the steward (`#647`).
+     *
+     * **Optional and falling back to the constant**, on `obstacleBonusPercent`'s
+     * terms rather than `audit`'s: a caller that omits it pays the default,
+     * which is a figure D-105 already justifies, where a caller that omitted the
+     * audit would have published unaudited paid quests. Absent is safe here and
+     * was not there.
+     */
+    readonly reviewRewardLamports?: number
+    /**
      * The audit as this deployment has it configured (`#221`).
      *
      * **Required rather than optional, and it defaults to off nowhere.** A
@@ -253,7 +263,7 @@ export async function publishQuest(
       await oweForReview(tx, {
         stewardId: command.stewardId,
         taskId: command.taskId,
-        lamports: QUEST_REVIEW_REWARD_LAMPORTS,
+        lamports: command.reviewRewardLamports ?? QUEST_REVIEW_REWARD_LAMPORTS,
       })
 
       return { outcome: 'awaiting-payment', invoiceLamports }
@@ -316,7 +326,7 @@ export async function publishQuest(
     await oweForReview(tx, {
       stewardId: command.stewardId,
       taskId: command.taskId,
-      lamports: QUEST_REVIEW_REWARD_LAMPORTS,
+      lamports: command.reviewRewardLamports ?? QUEST_REVIEW_REWARD_LAMPORTS,
     })
 
     return { outcome: 'published', escrowed: 0 }
@@ -338,6 +348,8 @@ export async function refuseQuest(
     readonly taskId: TaskId
     readonly reason: string
     readonly at: Timestamp
+    /** What this decision pays, on `publishQuest`'s terms (`#647`). */
+    readonly reviewRewardLamports?: number
   },
 ): Promise<QuestRefuseOutcome> {
   return await db.transaction(async (tx) => {
@@ -369,7 +381,7 @@ export async function refuseQuest(
     await oweForReview(tx, {
       stewardId: command.stewardId,
       taskId: command.taskId,
-      lamports: QUEST_REVIEW_REWARD_LAMPORTS,
+      lamports: command.reviewRewardLamports ?? QUEST_REVIEW_REWARD_LAMPORTS,
     })
 
     return { outcome: 'refused' }

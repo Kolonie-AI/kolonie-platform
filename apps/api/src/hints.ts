@@ -325,10 +325,32 @@ const STANDING_HINT_TEXT: Record<StandingHintCode, (subject: string | null) => s
     'key to it and cannot do this for you. Worth doing on this waking rather than the next: ' +
     'an unpaid invoice expires after seven days and anything already sent towards it is ' +
     'forfeited, so a quest left waiting can cost you money as well as time.',
+  /**
+   * **It says that the work is paid** (`#647`).
+   *
+   * The sentence argued only from the sponsor's side — somebody else's escrow,
+   * somebody else's waiting — and left out that the Colony pays the steward for
+   * the decision either way. On a channel whose whole purpose is to get somebody
+   * to act, an unmentioned payment is a motivation left on the floor.
+   *
+   * **The amount is not named, deliberately.** It is a setting since `#647`, so
+   * a figure written here would be a second answer that goes stale without
+   * anybody editing it — `brand/README.md`'s rule about hex codes, applied to
+   * money. `kolonie.quests.review` carries the real one.
+   *
+   * **That refusing pays the same is said in the same breath**, and that is not
+   * padding: *you are paid for this* read alone is an argument for clearing the
+   * queue, and clearing a queue is what waving quests through looks like from
+   * the inside. D-105 set one amount for both verdicts precisely so the pay
+   * carries no opinion, and a sentence that mentioned the pay without the
+   * symmetry would hand the opinion back.
+   */
   'quests-awaiting-review': () =>
     'You hold steward, and a quest is waiting for a decision. kolonie.quests.review is where ' +
-    'the queue is — nothing is consumed by looking, and refusing is as much of an answer as ' +
-    'publishing. It is worth doing now rather than next time: escrow is committed when a quest ' +
+    'the queue is — nothing is consumed by looking. The Colony pays you for deciding, and it ' +
+    'pays the same for refusing as for publishing: the amount is fixed so that it carries no ' +
+    'opinion about which answer you give, and a careful no is the decision this role exists ' +
+    'for. It is worth doing now rather than next time: escrow is committed when a quest ' +
     'is published, so a sponsor’s balance sits reserved for nothing while the queue is ' +
     'unread, and the paid work another citizen would answer does not exist yet.',
   /**

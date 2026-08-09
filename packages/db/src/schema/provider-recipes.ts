@@ -196,6 +196,18 @@ export const providerRecipes = pgTable(
     /** How the account is proved once it exists — a rung, or one of `#520`'s two. */
     proves: text('proves'),
 
+    /**
+     * Which rung proves it, where {@link providerRecipes.proves} is `rung`
+     * (`#622`).
+     *
+     * The Academy task's `type` — its slug and its identity in the seed. Text
+     * rather than a foreign key to `tasks`: `tasks.type` is not unique (a quest
+     * shares one type with every other quest), so there is no key to point at.
+     * What keeps it honest is the seed's own uniqueness among Academy rungs,
+     * asserted in `atlas-rung.test.ts` rather than by the database.
+     */
+    provesTask: text('proves_task'),
+
     /** A wall a working entry warns about, from `provider-report` findings. */
     caution: text('caution'),
 
@@ -439,6 +451,19 @@ export const providerRecipes = pgTable(
       'provider_recipes_proves_is_known',
       sql`${table.proves} is null
           or ${table.proves} in ('rung', 'provider-mail', 'provider-post')`,
+    ),
+
+    /**
+     * A rung may only be named where a rung is the proof (`#622`).
+     *
+     * The rejection case this issue asks for, in the database — the same shape
+     * `refusal` and `retired_reason` have: a column that only means something in
+     * one state is refused in every other, rather than left to a writer to
+     * remember.
+     */
+    check(
+      'provider_recipes_proves_task_iff_rung',
+      sql`${table.provesTask} is null or ${table.proves} = 'rung'`,
     ),
   ],
 )

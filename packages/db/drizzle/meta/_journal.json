@@ -1352,6 +1352,13 @@
       "when": 1786267899512,
       "tag": "0192_a_sponsor_buys_more_places",
       "breakpoints": true
+    },
+    {
+      "idx": 193,
+      "version": "7",
+      "when": 1786269896251,
+      "tag": "0193_an_entry_names_its_rung_and_its_quests",
+      "breakpoints": true
     }
   ]
 }

@@ -376,6 +376,23 @@ export const tasks = pgTable(
     pendingSlots: integer('pending_slots'),
 
     /**
+     * Which provider a catalogue-entry quest is about (`#622`).
+     *
+     * **The provider was in the prose and nowhere a query could reach.** `#525`
+     * made a quest whose deliverable is a catalogue entry; which provider it is
+     * for lived in the title and the instructions, so an Atlas entry could not
+     * say *two quests are open on this provider* and a quest could not link to
+     * what the Atlas already knows. `#622` reads that as *a query rather than a
+     * column, the provider is already on both sides* — it is on the **answer**,
+     * through `entry_proposals`, and an answer is not an open quest.
+     *
+     * Null on every other deliverable, refused by the constraint below: a
+     * `report` quest is about whatever its author wrote and naming a provider on
+     * one would be a claim nothing honours.
+     */
+    catalogueProvider: text('catalogue_provider'),
+
+    /**
      * What one accepted report pays, in lamports — D-106 (`#504`, `#505`).
      *
      * **The column `reward_coins` becomes.** Settlement is SOL between wallets,
@@ -799,6 +816,16 @@ export const tasks = pgTable(
       sql`${table.kind} = 'quest' or ${table.proofVerifier} is null`,
     ),
     check('tasks_deliverable_is_known', sql`${table.deliverable} in ('report', 'catalogue-entry')`),
+    /**
+     * A provider is named only on the deliverable that is about one (`#622`).
+     *
+     * The same shape `provider_recipes_proves_task_iff_rung` has: a column that
+     * only means something in one state is refused in every other.
+     */
+    check(
+      'tasks_catalogue_provider_iff_catalogue_entry',
+      sql`${table.catalogueProvider} is null or ${table.deliverable} = 'catalogue-entry'`,
+    ),
     /** An Academy rung hands in what its verifier reads, and never a catalogue entry. */
     check(
       'tasks_catalogue_deliverable_belongs_to_quests',

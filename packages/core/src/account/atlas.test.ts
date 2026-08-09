@@ -51,6 +51,7 @@ const recipe = (input: {
     refusal: status === 'refused' ? 'no honest route in' : null,
     steps,
     proves: joinable ? 'provider-post' : null,
+    provesTask: null,
     caution: null,
     pacePerDay: null,
     updatedAt: (input.updatedAt ?? '2026-08-01T00:00:00.000Z') as ProviderRecipe['updatedAt'],

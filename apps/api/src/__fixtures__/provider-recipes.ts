@@ -181,6 +181,7 @@ export function fakeProviderRecipes(): FakeProviderRecipes {
           (status === 'retired' ? 'the provider stopped taking agents' : null),
         steps,
         proves: entry.proves ?? (status === 'joinable' ? 'provider-post' : null),
+        provesTask: entry.provesTask ?? null,
         caution: entry.caution ?? null,
         pacePerDay: entry.pacePerDay ?? null,
         updatedAt: currentTime(),

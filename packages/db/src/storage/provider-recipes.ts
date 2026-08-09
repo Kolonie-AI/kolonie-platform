@@ -85,6 +85,7 @@ function toRecipe(row: typeof providerRecipes.$inferSelect): ProviderRecipe {
      */
     steps,
     proves: row.proves as ProviderRecipe['proves'],
+    provesTask: row.provesTask,
     caution: row.caution,
     pacePerDay: row.pacePerDay,
     updatedAt: toTimestamp(row.updatedAt),
@@ -207,6 +208,8 @@ export async function writeProviderRecipe(
     readonly retiredReason?: string | null
     readonly steps: readonly RecipeStep[]
     readonly proves?: ProviderRecipe['proves']
+    /** The rung that proves it, where the method is `rung` (`#622`). */
+    readonly provesTask?: string | null
     readonly caution?: string | null
     readonly pacePerDay?: number | null
   },
@@ -242,6 +245,14 @@ export async function writeProviderRecipe(
     retiredReason: entry.status === 'retired' ? (entry.retiredReason ?? null) : null,
     steps: [...entry.steps],
     proves: entry.proves ?? null,
+    /**
+     * **Cleared when the method is not `rung`**, rather than carried (`#622`).
+     * An entry moved off the rung proof would otherwise keep pointing at a task
+     * that no longer proves it, and the check constraint would refuse the write
+     * — which reads as a bug in the edit rather than as the leftover it is. The
+     * same rule `retiredAt` follows four lines up.
+     */
+    provesTask: entry.proves === 'rung' ? (entry.provesTask ?? null) : null,
     caution: entry.caution ?? null,
     pacePerDay: entry.pacePerDay ?? null,
   }

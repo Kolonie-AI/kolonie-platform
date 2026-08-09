@@ -713,6 +713,20 @@ export const ProviderRecipeSchema = z.object({
    */
   proves: AccountProofMethodSchema.nullable(),
   /**
+   * Which rung proves it, where the method is `rung` (`#622`).
+   *
+   * **`proves` records the method and this records the task**, and until `#622`
+   * only the first existed — so the entry page could say *an Academy rung proves
+   * this account* and could not say which. A reader was told a rung existed and
+   * given no way to reach it, and an agent had to search the Academy for a task
+   * that happened to mention the provider.
+   *
+   * The Academy task's `type`, which is its slug and its identity in the seed.
+   * Null on every other method, refused by the database rather than by
+   * convention — the same shape `refusal` and `retired_reason` have beside it.
+   */
+  provesTask: z.string().nullable(),
+  /**
    * What is known to refuse an agent partway, and what it looks like.
    *
    * Distinct from `refusal`: this is a working entry warning about a wall an agent
@@ -772,11 +786,26 @@ export const WriteProviderRecipeSchema = z
     retiredReason: z.string().trim().min(1).max(RECIPE_REFUSAL_MAX_LENGTH).optional(),
     steps: z.array(RecipeStepSchema).max(RECIPE_MAX_STEPS).default([]),
     proves: AccountProofMethodSchema.optional(),
+    /** The rung that proves it, where `proves` is `rung` (`#622`). */
+    provesTask: z.string().trim().min(1).max(64).optional(),
     caution: z.string().trim().min(1).max(RECIPE_REFUSAL_MAX_LENGTH).optional(),
     /** Stricter than the default, when `provider-report` findings say so (`#532`). */
     pacePerDay: z.int().min(1).max(RECIPE_MAX_PACE_PER_DAY).optional(),
   })
   .strict()
+  /**
+   * Naming a rung is only meaningful where a rung is the proof (`#622`).
+   *
+   * Refused at the boundary as well as by the check constraint, so a caller gets
+   * a sentence rather than a database error — and so the rule is stated where
+   * somebody adding a proof method will read it.
+   */
+  .refine((entry) => entry.provesTask === undefined || entry.proves === 'rung', {
+    message:
+      'provesTask names the Academy rung that proves this account, so it only means something ' +
+      'where proves is `rung`. An entry proved another way has no rung to point at.',
+    path: ['provesTask'],
+  })
   /**
    * A refusal says why, a working entry says how, and an unwritten one says
    * neither. No state may be half of another: a refusal with no reason is a dead

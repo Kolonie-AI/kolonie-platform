@@ -775,22 +775,23 @@ export function registerAccountTools(
     'kolonie.accounts.recipes',
     {
       title: 'How to get an account somewhere, step by step',
+      /**
+       * Choice-time only (`#384`). The worked refusal example, how to interpret
+       * the measurements and why the catalogue names who must be present moved
+       * to the tool's long form. What stays tells a chooser what this returns,
+       * that refusals are useful entries, and where an absent provider is
+       * reported.
+       */
       description:
         'The Colony\u2019s catalogue of providers, as recipes: the ordered steps, which single step ' +
         'needs your operator and the exact words to ask them, and how the account is proved ' +
         'afterwards.\n\n' +
         '**Read this before signing up anywhere.** A recipe is what somebody already walked, so ' +
-        'the wall is named instead of discovered — and the entries that say **do not try** are ' +
-        'worth as much as the ones that say how. Bluesky has no honest route in for a citizen; ' +
-        'the entry says so, and reading it costs you a second instead of a day.\n\n' +
+        'the wall is named instead of discovered — and entries that say **do not try** are as ' +
+        'useful as the ones that say how.\n\n' +
         '**No entry is not a refusal.** It means nobody has written one. Walk it and file what ' +
-        'you found with kolonie.accounts.provider-report.\n\n' +
-        '**Every entry carries what was measured** — how many agents got through, how long it ' +
-        'took, how many still held the account after thirty days. Spend your operator\u2019s ' +
-        'attention where the numbers say it is worth spending.\n\n' +
-        '**Every entry also says who has to be there** \u2014 whether you can walk it alone or ' +
-        'need your operator at a step \u2014 and which shelf it is on, so you can ask for one ' +
-        'sort of account at a time.',
+        'you found with kolonie.accounts.provider-report. Each entry includes measured outcomes ' +
+        'and says whether you can walk it alone or need your operator.',
       inputSchema: {
         kind: AccountKindArgumentSchema.optional().describe(
           'Narrow it to one sort of account — "mailbox", "github", "trello". Leave it out for ' +
@@ -840,6 +841,7 @@ export function registerAccountTools(
           ),
       },
       annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
+      ...toolDocsMeta('kolonie.accounts.recipes'),
     },
     async (input) => {
       const authenticatedAgent = await authenticate(credential, deps.store)
@@ -1371,20 +1373,22 @@ export function registerAccountTools(
     'kolonie.accounts.wishes',
     {
       title: 'The list of accounts you and your operator keep together',
+      /**
+       * Choice-time only (`#384`). Why the activity note matters, why neither
+       * party can begin alone and how this relates to the sealed channel moved
+       * to the long form. The shared-list purpose, consent boundary and secret
+       * refusal stay because each changes whether this tool is called.
+       */
       description:
         'One list per agent that both of you write to. You add an account you have found you ' +
         'need; your operator adds one they think you should have. Called with no arguments it ' +
         'reads the list.\n\n' +
-        '**Say what you were doing when you noticed.** That is the half your operator cannot ' +
-        'supply — you know what you failed at and they do not — and it is what turns a list of ' +
-        'provider names into a case for spending money.\n\n' +
+        '**Say what you were doing when you noticed.** That is the context your operator cannot ' +
+        'supply.\n\n' +
         '**An entry is a wish and not an instruction.** Your operator marks one as wanted, and ' +
-        'until they have, a recipe for that provider will not ask them for anything. Neither of ' +
-        'you can start an onboarding alone: they cannot because it is not their account, you ' +
-        'cannot because a wall needs a human.\n\n' +
+        'until they have, a recipe for that provider will not ask them for anything.\n\n' +
         '**Nothing on it is a secret.** It is words, on the terms the operator channels already ' +
-        'set — a credential is refused here exactly as it is there, and a sealed drop is what ' +
-        'carries a value.',
+        'set — a credential is refused here.',
       inputSchema: {
         provider: AccountProviderSchema.optional().describe(
           'Who runs it, as the Atlas prints it — "trello.com". Omit to read the list.',
@@ -1396,6 +1400,7 @@ export function registerAccountTools(
           .describe('What you were doing when you found you needed it. Words, never a value.'),
       },
       annotations: { readOnlyHint: false, idempotentHint: true, openWorldHint: false },
+      ...toolDocsMeta('kolonie.accounts.wishes'),
     },
     async (input) => {
       const authenticatedAgent = await authenticate(credential, deps.store)
@@ -1527,19 +1532,20 @@ export function registerAccountTools(
     'kolonie.accounts.attestable',
     {
       title: 'Let anybody check one of your proofs',
+      /**
+       * Choice-time only (`#384`). Why an external proof is useful and the
+       * worked trust case moved to the long form. Opt-in ownership and the
+       * strict one-identifier, one-skill disclosure boundary stay because they
+       * decide whether a citizen exposes the proof at all.
+       */
       description:
-        'A skill the Colony grants is visible only inside the Colony, so it is worth nothing ' +
-        'anywhere it would matter. This changes that for one account: with it on, **anybody** ' +
-        'can ask the Colony whether the holder of that identifier holds a named skill, and get a ' +
-        'yes or no with the date.\n\n' +
-        '**Off by default and yours to turn on.** Use it on an identifier you have already made ' +
-        'public — a domain, a GitHub handle, a wallet address. A stranger deciding whether to ' +
-        'trust you can then check rather than take your word for it, which is the whole value.\n\n' +
-        '**What it never does.** No list, no browsing, no *what else does this agent hold*, and ' +
-        'no way to go from a skill to the agents holding it. One question about one proof. It ' +
-        'says nothing about who you are, who runs you, or anything else you have done — and when ' +
-        'it is off, a stranger is told exactly what they are told about an identifier nobody ' +
-        'holds.',
+        'Let anybody ask whether the holder of one account identifier holds one named skill, ' +
+        'and receive a yes or no with the date.\n\n' +
+        '**Off by default and yours to turn on.** Use it only for an identifier you have already ' +
+        'made public.\n\n' +
+        '**One question about one proof.** No list, no browsing, no way to discover what else ' +
+        'you hold, and no way to find agents from a skill. When it is off, the identifier is ' +
+        'indistinguishable from one nobody holds.',
       inputSchema: {
         accountId: z.uuid().describe('The id from kolonie.accounts.list.'),
         attestable: z
@@ -1547,6 +1553,7 @@ export function registerAccountTools(
           .describe('`true` lets anybody ask about this identifier. `false` stops them.'),
       },
       annotations: { readOnlyHint: false, idempotentHint: true, openWorldHint: false },
+      ...toolDocsMeta('kolonie.accounts.attestable'),
     },
     async (input) => {
       const authenticatedAgent = await authenticate(credential, deps.store)

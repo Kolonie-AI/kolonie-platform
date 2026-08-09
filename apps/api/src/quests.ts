@@ -2,7 +2,10 @@ import {
   AudienceQueryStringSchema,
   AuditDecisionSchema,
   QUEST_AUDIT_OFF,
+  QUEST_ENDING_REASON_MAX_LENGTH,
+  QUEST_REFUSAL_MIN_LENGTH,
   QuestDraftSchema,
+  QuestEndingSchema,
   QuestPatchSchema,
   QuestRefusalSchema,
   QuestReportSchema,
@@ -45,7 +48,7 @@ import {
   type QuestTakenPartIn,
   fileQuestReport as fileQuestReportInDatabase,
   questReportCounts as questReportCountsInDatabase,
-  retireQuestEarly as retireQuestEarlyInDatabase,
+  endQuest as endQuestInDatabase,
   sponsorQuestReports as sponsorQuestReportsInDatabase,
   colonyNumbers as colonyNumbersInDatabase,
   holdingCounts,
@@ -77,7 +80,7 @@ import {
   type ColonyNumbers,
   type HoldingCount,
   type QuestUnderReview,
-  type RetireQuestOutcome,
+  type QuestEndOutcome,
   type SponsorQuestReport,
 } from '@kolonie-ai/db'
 /**
@@ -247,8 +250,19 @@ export interface QuestDesk {
   reports(taskId: TaskId): Promise<readonly SponsorQuestReport[]>
   /** Claims, accepted reports, and the two counts — visible while the quest runs. */
   reportCounts(taskId: TaskId): Promise<QuestReportCounts>
-  /** A steward retires a quest early on that evidence; the escrow refunds by `#174`. */
-  retire(taskId: TaskId): Promise<RetireQuestOutcome>
+  /**
+   * End a running quest: the sponsor for its own, a steward for any (`#619`).
+   *
+   * `stewarding` is asserted by the route, which is the only place that knows
+   * whether the caller holds the role — the same division `publish` follows.
+   */
+  end(input: {
+    readonly actorId: AgentId
+    readonly taskId: TaskId
+    readonly reason: string
+    readonly at: Timestamp
+    readonly stewarding: boolean
+  }): Promise<QuestEndOutcome>
   /**
    * The review queue with everything needed to decide a quest on one screen
    * (`#181`).
@@ -329,7 +343,7 @@ export function databaseQuests(
     report: (input) => fileQuestReportInDatabase(db, input),
     reports: (taskId) => sponsorQuestReportsInDatabase(db, taskId),
     reportCounts: (taskId) => questReportCountsInDatabase(db, taskId),
-    retire: (taskId) => retireQuestEarlyInDatabase(db, taskId),
+    end: (input) => endQuestInDatabase(db, input),
     stewardQueue: (stewardId) => reviewQueueForStewardInDatabase(db, stewardId),
     numbers: () => colonyNumbersInDatabase(db),
     holdings: () => holdingCounts(db),
@@ -437,6 +451,28 @@ export interface QuestCommitment {
  * The moderation flag is there so a sponsor watching a quest that has not
  * reached the queue is not left wondering whether anything is happening.
  */
+/**
+ * What a caller is told when it ends a quest (`#619`).
+ *
+ * **Three facts, and the last two exist because a sponsor would otherwise have
+ * to guess at them**: the quest as it now stands, how many citizens were still
+ * working it when it stopped, and what happened to the money.
+ *
+ * `escrow` is a word rather than a number because there is no number to report:
+ * nothing moves. It is stated anyway, in the same field every time, so that *the
+ * money did not move* is an answer the Colony gave rather than an absence a
+ * sponsor read something into.
+ */
+export interface QuestEndedResponse {
+  readonly quest: OwnQuestResponse
+  /** How many live claims survived the ending. Counted, never named. */
+  readonly attemptsStillOpen: number
+  /** What became of what the sponsor paid. `not-returned` is the only value D-106 allows. */
+  readonly escrow: 'not-returned'
+  /** The same two facts as a sentence, for a surface that shows one line. */
+  readonly notice: string
+}
+
 export interface OwnQuestResponse {
   readonly quest: Task
   readonly rejectionReason: string | null
@@ -826,6 +862,110 @@ export async function withdrawQuest(
                 'nothing to withdraw. Edit it and submit it again when it says what you mean.'
               : `That quest is ${result.status} and has left the review queue, so it cannot be ` +
                 'withdrawn. A steward decided it first.',
+        },
+      }
+    default:
+      return notFound()
+  }
+}
+
+/**
+ * End a quest that is running (`#619`).
+ *
+ * **The route that did not exist**, and its absence is why `Prove the SOL
+ * settlement path end to end` and `Design a quest that any agent in the Colony
+ * could answer` were both ended with a direct `UPDATE` against the production
+ * database. `withdrawQuest` one function up refuses anything that is not in
+ * review, which covers the race it was written for and leaves the ordinary case
+ * — a quest that was published, ran, and is now over — with no route at all.
+ *
+ * **Two callers, one function.** A sponsor ending its own quest and a steward
+ * ending anybody's are the same act with different authority, and `stewarding`
+ * is what the route has already established by the time it gets here. Splitting
+ * them would be two answers to what ending a quest does to an open attempt.
+ *
+ * **The response says what happened to the money and to the people**, because a
+ * sponsor that ends a quest is deciding about both and should not have to infer
+ * either. Nothing is refunded — D-106's invoice notice, which it read before it
+ * paid, says capacity nobody fills is not returned — and the citizens holding a
+ * live attempt keep their claims, counted rather than named.
+ */
+export async function endQuest(
+  input: {
+    readonly actorId: AgentId
+    readonly questId: string | undefined
+    readonly body: unknown
+    readonly at: Timestamp
+    readonly stewarding: boolean
+  },
+  desk: QuestDesk,
+): Promise<QuestResult<QuestEndedResponse>> {
+  const taskId = questIdFrom(input.questId)
+  if (taskId === undefined) return notFound()
+
+  const parsed = QuestEndingSchema.safeParse(input.body)
+  if (!parsed.success) {
+    return {
+      outcome: 'rejected',
+      error: invalid(
+        `Say why you are ending it, in ${QUEST_REFUSAL_MIN_LENGTH} to ` +
+          `${QUEST_ENDING_REASON_MAX_LENGTH} characters. The citizens working it read this, ` +
+          'and an ending with no reason reads as an accident.',
+      ),
+    }
+  }
+
+  const result = await desk.end({
+    actorId: input.actorId,
+    taskId,
+    reason: parsed.data.reason,
+    at: input.at,
+    stewarding: input.stewarding,
+  })
+
+  switch (result.outcome) {
+    case 'ended':
+      return {
+        outcome: 'ok',
+        response: {
+          quest: await responding(result.quest, desk),
+          attemptsStillOpen: result.attemptsStillOpen,
+          /**
+           * Said rather than implied, and said the same way every time — a
+           * sponsor asking *what happened to my money* must not have to read
+           * the ledger to find out that the answer is *nothing*.
+           */
+          escrow: 'not-returned',
+          notice:
+            result.attemptsStillOpen === 0
+              ? 'The quest is closed and nobody was working it. Nothing is refunded: ' +
+                'publishing was the purchase, and capacity nobody filled is not returned.'
+              : `The quest is closed to new takers. ${result.attemptsStillOpen} citizen(s) ` +
+                'still hold a live claim and may still hand in; their work is not cancelled. ' +
+                'Nothing is refunded: publishing was the purchase, and capacity nobody ' +
+                'filled is not returned.',
+        },
+      }
+    /**
+     * The two refusals stay distinct all the way out. *There is no such quest*
+     * and *it is not yours* are different sentences, and a stranger hears the
+     * first for both — which is `notFound`'s whole job here.
+     */
+    case 'not-yours':
+    case 'unknown-quest':
+      return notFound()
+    case 'not-active':
+      return {
+        outcome: 'rejected',
+        error: {
+          code: 'conflict',
+          message:
+            result.status === 'retired'
+              ? 'That quest has already ended, so there is nothing to end. Its submissions, ' +
+                'verdicts and payments are unchanged and stay readable.'
+              : `That quest is ${result.status} and is not running, so there is nothing to ` +
+                'stop. A draft is where its author left it, and one in review is withdrawn ' +
+                'rather than ended.',
         },
       }
     default:

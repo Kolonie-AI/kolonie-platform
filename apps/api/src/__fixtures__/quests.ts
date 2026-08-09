@@ -153,6 +153,7 @@ export function fakeQuests(): FakeQuestDesk {
     // A draft, so no rate has been recorded yet (`#463`).
     platformFeePercent: null,
     rejectionReason: null,
+    endedReason: null,
     assistanceAllowed: input.draft.assistanceAllowed,
     prerequisiteTaskIds: [],
     timeoutHours: input.draft.timeoutHours,
@@ -267,16 +268,33 @@ export function fakeQuests(): FakeQuestDesk {
       }
     },
 
-    async retire(taskId) {
+    /**
+     * Ending a running quest (`#619`), reproducing the three rules the route is
+     * allowed to rely on: it works from `active` and nowhere else, a steward may
+     * end anybody's while everybody else may end only its own, and the count of
+     * surviving claims comes back with it.
+     *
+     * The claims themselves are `packages/db`'s question — they are rows in
+     * `task_attempts` with a liveness clause the capacity count shares — so this
+     * reports zero rather than modelling them. A second definition of *live
+     * claim* here would agree until one of them grew a condition.
+     */
+    async end({ actorId, taskId, reason, stewarding }) {
       const held = quests.get(taskId)
-      if (held === undefined || held.own.task.status !== 'active') {
-        return { outcome: 'not-active' as const }
+      if (held === undefined) return { outcome: 'unknown-quest' as const }
+      if (!stewarding && held.own.task.createdBy !== actorId) {
+        return { outcome: 'not-yours' as const }
       }
-      quests.set(taskId, {
-        ...held,
-        own: { ...held.own, task: { ...held.own.task, status: 'retired' } },
-      })
-      return { outcome: 'retired' as const }
+      if (held.own.task.status !== 'active') {
+        return { outcome: 'not-active' as const, status: held.own.task.status }
+      }
+
+      const ended = {
+        ...held.own,
+        task: { ...held.own.task, status: 'retired' as const, endedReason: reason },
+      }
+      quests.set(taskId, { ...held, own: ended })
+      return { outcome: 'ended' as const, quest: ended, attemptsStillOpen: 0 }
     },
 
     /**

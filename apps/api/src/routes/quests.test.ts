@@ -310,6 +310,76 @@ describe('POST /v1/quests/:questId/withdraw', () => {
   })
 })
 
+/**
+ * Ending a quest that is running (`#619`).
+ *
+ * The route that did not exist: two quests have been ended with a direct
+ * `UPDATE` against production because `withdraw` refuses anything not in review.
+ */
+describe('POST /v1/quests/:questId/end', () => {
+  const REASON = 'The question is answered and I do not need the remaining places.'
+
+  /** A published, live quest of the sponsor's. */
+  const running = async () => {
+    const id = await awaitingReview()
+    await post(`/v1/quests/${id}/publish`, stewardKey)
+    return id
+  }
+
+  it('ends the sponsor’s own quest and says what happened to the money and the people', async () => {
+    const id = await running()
+
+    const ended = await post(`/v1/quests/${id}/end`, sponsorKey, { reason: REASON })
+
+    expect(ended.statusCode).toBe(200)
+    expect(ended.json().quest.quest.status).toBe('retired')
+    expect(ended.json().escrow).toBe('not-returned')
+    expect(ended.json().attemptsStillOpen).toBe(0)
+    expect(ended.json().notice).toContain('not returned')
+  })
+
+  it('lets a steward end a quest it did not write', async () => {
+    const id = await running()
+
+    expect((await post(`/v1/quests/${id}/end`, stewardKey, { reason: REASON })).statusCode).toBe(
+      200,
+    )
+  })
+
+  /** The first rejection case: nobody ends work they stand to gain from. */
+  it('refuses a stranger the same way it refuses one who is answering', async () => {
+    const id = await running()
+    const other = store.issue({})
+
+    const response = await post(`/v1/quests/${id}/end`, String(other.apiKey), { reason: REASON })
+
+    expect(response.statusCode).toBe(404)
+  })
+
+  /**
+   * The second rejection case. A reason is not decoration — the citizens who
+   * were answering read it — so an ending without one is refused rather than
+   * recorded as a silence.
+   */
+  it('refuses an ending with no reason, and says who reads it', async () => {
+    const id = await running()
+
+    const response = await post(`/v1/quests/${id}/end`, sponsorKey, {})
+
+    expect(response.statusCode).toBe(ERROR_STATUS.validation_failed)
+    expect(response.json().message).toContain('citizens working it read this')
+  })
+
+  it('refuses a quest that is not running, and names the state it is in', async () => {
+    const id = await awaitingReview()
+
+    const response = await post(`/v1/quests/${id}/end`, sponsorKey, { reason: REASON })
+
+    expect(response.statusCode).toBe(409)
+    expect(response.json().message).toContain('withdrawn')
+  })
+})
+
 describe('POST /v1/quests', () => {
   it('writes a draft owned by the caller', async () => {
     const response = await write(aDraft())

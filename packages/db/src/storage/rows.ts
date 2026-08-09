@@ -173,6 +173,7 @@ export function toTask(
     ...(full === undefined ? {} : { full }),
     ...(freeSlots === undefined ? {} : { freeSlots }),
     rejectionReason: row.rejectionReason,
+    endedReason: row.endedReason,
     assistanceAllowed: row.assistanceAllowed,
     prerequisiteTaskIds: row.prerequisiteTaskIds,
     timeoutHours: row.timeoutHours,

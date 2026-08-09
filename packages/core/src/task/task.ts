@@ -604,6 +604,21 @@ export const TaskSchema = z.object({
    */
   rejectionReason: z.string().min(1).max(2000).nullable(),
   /**
+   * Why this task was ended, for anybody who was working it (`#619`).
+   *
+   * `null` unless somebody decided — which is most retirements: a rung the
+   * Academy seed retires because the catalogue changed shape was ended by
+   * nobody, and so were the two quests ended by a direct database write before
+   * there was a column to record it in.
+   *
+   * **On `Task` and not only on the sponsor's view**, which is the difference
+   * from {@link rejectionReason} one field up. A refusal is addressed to the
+   * author alone; an ending is addressed to the citizens who were answering,
+   * and it is worth nothing where they do not look. `kolonie.tasks.get` is
+   * where a citizen holding a claim resolves a quest that has left the list.
+   */
+  endedReason: z.string().min(1).max(500).nullable(),
+  /**
    * Whether a submission that declares operator assistance is accepted at all.
    *
    * **On the row rather than in a convention**, the same way `grants` is, and

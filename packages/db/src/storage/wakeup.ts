@@ -201,7 +201,15 @@ export async function wakeupChanges(
      * a waking citizen to act on.
      */
     db
-      .select({ taskId: tasks.id, title: tasks.title, kind: tasks.kind })
+      .select({
+        taskId: tasks.id,
+        title: tasks.title,
+        kind: tasks.kind,
+        // Why, where anybody said (`#619`). The half a citizen holding a live
+        // claim reads: without it a quest ending and a quest filling are the
+        // same silence.
+        endedReason: tasks.endedReason,
+      })
       .from(tasks)
       .where(and(eq(tasks.status, 'retired'), gte(tasks.retiredAt, since)))
       .orderBy(desc(tasks.retiredAt)),
@@ -361,11 +369,20 @@ export async function wakeupChanges(
    * — see {@link ListTasksQuery.createdSince}. `null` says *not computed*, which
    * is the honest thing for a read that did not ask the question.
    */
-  const asTask = (row: { taskId: string; title: string; kind: string }): WakeupTask => ({
+  const asTask = (row: {
+    taskId: string
+    title: string
+    kind: string
+    endedReason?: string | null
+  }): WakeupTask => ({
     taskId: row.taskId as WakeupTask['taskId'],
     title: row.title,
     kind: row.kind,
     startable: null,
+    // Absent on `tasksAdded`, which has no ending to explain, and `null` on a
+    // retirement nobody decided. The two are different answers and both are
+    // written as they are.
+    ...(row.endedReason === undefined ? {} : { endedReason: row.endedReason }),
   })
 
   return {

@@ -1224,6 +1224,13 @@ describe('the erasure boundary', () => {
       // The model for anything that outlives a citizen: the task stays, its
       // author is unset.
       'tasks.created_by n',
+      /**
+       * `#619`. The same rule one line up, for the other end of a task's life:
+       * erasing the citizen that ended a quest must not erase the fact that the
+       * quest ended, or the record stops being able to say that anybody decided.
+       * The reason it was ended stays and stops naming an actor.
+       */
+      'tasks.ended_by n',
       /** `#206`. Cascades: `erasure.md` §2 lists what a citizen proved among what goes. */
       'totp_secrets.agent_id c',
       /** `#45`. Cascades, like every other challenge table. */

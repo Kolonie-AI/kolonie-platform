@@ -69,6 +69,7 @@ import {
   refuseQuest,
   submitQuest,
   withdrawQuest,
+  endQuest,
   writeQuestDraft,
 } from '../quests.js'
 import { stewardFor } from './privileged.js'
@@ -2788,6 +2789,42 @@ function registerSponsorPages(
     return wantsHtml(request)
       ? reply.status(303).header('location', `/quests/${withdrawn.response.quest.id}`).send()
       : reply.send(withdrawn.response)
+  })
+
+  /**
+   * End a quest that is running (`#619`).
+   *
+   * A form post for the reason the withdrawal above is one, and it carries a
+   * reason rather than only a confirmation — the citizens who were answering
+   * read it.
+   *
+   * **The sponsor's door and not the steward's.** `questAuthor` resolves the
+   * author and turns everybody else away, which is right for this page — it is
+   * the sponsor's own quest page. A steward ending somebody else's quest goes
+   * through `POST /v1/quests/:questId/end`, where the role is read; adding a
+   * role check here would make this page pretend to be a review surface.
+   */
+  app.post('/quests/:questId/end', async (request, reply) => {
+    const resolved = await writeAs(request, reply)
+    if (resolved === null) return reply
+
+    const questId = (request.params as { questId?: string }).questId
+    const ended = await endQuest(
+      {
+        actorId: resolved.id,
+        questId,
+        body: request.body,
+        at: new Date().toISOString() as Timestamp,
+        stewarding: false,
+      },
+      deps.quests,
+    )
+
+    if (ended.outcome === 'rejected') return refuse(request, reply, ended.error)
+
+    return wantsHtml(request)
+      ? reply.status(303).header('location', `/quests/${ended.response.quest.quest.id}`).send()
+      : reply.send(ended.response)
   })
 
   /** Submit a draft for review. */

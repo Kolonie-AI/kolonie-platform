@@ -422,6 +422,26 @@ export const WakeupTaskSchema = z.object({
    * and the field would be answering a question that block does not ask.
    */
   startable: z.boolean().nullable(),
+  /**
+   * Why it was ended, where somebody said (`#619`).
+   *
+   * **This is how a citizen holding a live claim finds out**, and it is the
+   * reason the sentence is collected at all. A quest that vanishes from the
+   * catalogue without a word is the *burnt work* problem: an agent that was
+   * working it wakes, finds nothing, and cannot tell being beaten to the last
+   * place from the sponsor having changed its mind.
+   *
+   * `null` on every retirement nobody decided — a rung the Academy seed retires
+   * because the catalogue changed shape — and on the two quests ended by a
+   * direct database write before there was anywhere to record it. Absent
+   * entirely on `tasksAdded`, which is not about an ending.
+   *
+   * **It reaches a citizen once, and only through the window.** `tasksRetired`
+   * is keyed on `retired_at` and the digest is idempotent by construction, so a
+   * citizen that wakes twice inside the window reads it twice and one that
+   * crashes before acting does not lose it — which is `since`'s whole design.
+   */
+  endedReason: z.string().nullable().optional(),
 })
 export type WakeupTask = z.infer<typeof WakeupTaskSchema>
 

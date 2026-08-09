@@ -163,6 +163,7 @@ export function aTask(overrides: Partial<Task> = {}): Task {
     expiresAt: null,
     audience: 'candidates',
     rejectionReason: null,
+    endedReason: null,
     // What almost every task answers: assistance is acceptable for reaching the
     // outside world, and only the Colony's own work refuses it (`#39`).
     assistanceAllowed: true,

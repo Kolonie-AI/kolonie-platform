@@ -2,6 +2,7 @@ import { ERROR_STATUS, type Timestamp } from '@kolonie-ai/core'
 import type { FastifyInstance, FastifyReply } from 'fastify'
 import {
   editQuestDraft,
+  endQuest,
   exportQuestResults,
   readAudience,
   readAuditQueue,
@@ -171,6 +172,37 @@ export function registerQuestRoutes(v1: FastifyInstance, deps: RouteDependencies
 
     const { questId } = request.params as { questId?: string }
     return send(reply, await withdrawQuest({ authorId: caller.id, questId, at: now() }, quests))
+  })
+
+  /**
+   * End it (`#619`).
+   *
+   * **The sponsor's route and the steward's, deliberately one path.** A steward
+   * is recognised by the role and a sponsor by having written the quest, and
+   * `endQuest` refuses everybody else — so this cannot be `stewardFor`, which
+   * would lock the sponsor out of its own quest, nor `acting` alone, which would
+   * lose the steward's authority over somebody else's.
+   *
+   * A quest in review is withdrawn rather than ended, and the refusal says so.
+   */
+  v1.post('/quests/:questId/end', async (request, reply) => {
+    const caller = await acting(request, reply)
+    if (caller === null) return reply
+
+    const { questId } = request.params as { questId?: string }
+    return send(
+      reply,
+      await endQuest(
+        {
+          actorId: caller.id,
+          questId,
+          body: request.body,
+          at: now(),
+          stewarding: caller.roles.includes('steward'),
+        },
+        quests,
+      ),
+    )
   })
 
   /** Publish it, which is also when its money moves. */

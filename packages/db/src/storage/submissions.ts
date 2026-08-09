@@ -297,7 +297,36 @@ export async function createSubmission(
       .limit(1)
 
     if (task === undefined || task.status === 'draft') return { outcome: 'unknown-task' }
-    if (task.status === 'retired') return { outcome: 'task-retired' }
+    /**
+     * Retirement closes a task to new takers and **does not cancel a claim
+     * somebody is already holding** (`#619`).
+     *
+     * A quest ends while citizens are working it — that is the ordinary case,
+     * not the edge one — and a citizen with a live attempt has spent effort on a
+     * promise the Colony made when it handed out the claim. Refusing its hand-in
+     * is burning that work from the other end, which is the failure `#175` and
+     * `#618` are both about.
+     *
+     * **Only a live attempt, and only this citizen's.** A lapsed claim holds
+     * nothing — the same `expires_at` clause the capacity count uses, so one
+     * expiry decides both and they cannot disagree — and a citizen that never
+     * claimed a place is refused exactly as before. So a retired task cannot be
+     * started; it can only be finished by somebody who had already started.
+     *
+     * This is what makes ending a quest safe: `endQuest` moves the status
+     * immediately rather than waiting for the attempts to drain, precisely
+     * because the status no longer decides what an open attempt may do.
+     */
+    if (task.status === 'retired') {
+      const [claim] = await tx.execute<{ open: string }>(sql`
+        select count(*)::text as open from ${taskAttempts}
+         where ${taskAttempts.taskId} = ${command.taskId}
+           and ${taskAttempts.agentId} = ${command.agentId}
+           and ${taskAttempts.outcome} is null
+           and (${taskAttempts.expiresAt} is null or ${taskAttempts.expiresAt} > now())`)
+
+      if (Number(claim?.open ?? 0) === 0) return { outcome: 'task-retired' }
+    }
     /**
      * A task awaiting review or refused is invisible for the same reason a draft
      * is: nobody outside its author has agreed it may be asked of citizens, and

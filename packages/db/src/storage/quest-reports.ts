@@ -450,42 +450,29 @@ export async function questObstacleCorpus(
 }
 
 /**
- * The one thing a quest report can cause, and it is a steward's decision rather
- * than an automatic one (`#240`).
+ * **`retireQuestEarly` stood here, and `endQuest` in `quests/write.ts` replaced
+ * it** (`#619`).
  *
- * A published quest collecting `unclear` reports and no claims can be retired
- * early and refunded rather than left to occupy its capacity until expiry. The
- * refund path already exists (`#174`); what was missing was a reason for
- * somebody to use it in time, and the counts above are it.
+ * It was written for `#240`: a published quest collecting `unclear` reports and
+ * no claims can be ended early rather than left to occupy its capacity until
+ * expiry, and the counts above are the reason somebody would. That case is
+ * unchanged and is exactly what the new route serves — a steward may end any
+ * quest, and this evidence is why one would.
  *
- * **Nothing here is automatic**, and that is deliberate: a threshold that retired
- * a quest by itself would be the Colony overruling a sponsor on evidence a model
- * moderated, and `governance/quests.md` gives the sponsor its remedies rather
- * than taking them.
+ * **Three reasons it went rather than gained a caller.** It was reachable from
+ * nothing: the desk declared `retire` and no route or page ever called it, so
+ * the only way a quest has ever actually been ended is the direct `UPDATE`
+ * against production that `#619` was filed about. It recorded neither who ended
+ * the quest nor why, which is the half a citizen holding an attempt reads. And
+ * a second function that moves a quest to `retired` is a second answer to what
+ * ending one means — the D-002 duplication this package argues against
+ * everywhere else.
+ *
+ * **Its doc claimed a refund this repository does not perform**, and that is
+ * worth recording rather than quietly dropping: *"the unspent capacity refunds
+ * by `#174`'s existing path"*. There is no such path. `questRefundReference` is
+ * defined in core and booked by nothing, and D-106's invoice notice — which
+ * every sponsor reads before paying — says the opposite outright: *capacity
+ * nobody fills is not returned at expiry*. `endQuest` says what became of the
+ * money instead of leaving a sponsor to infer it.
  */
-export type RetireQuestOutcome =
-  | { readonly outcome: 'retired' }
-  /** It was not an active quest — already closed, still a draft, or not a quest. */
-  | { readonly outcome: 'not-active' }
-
-export async function retireQuestEarly(db: Database, taskId: TaskId): Promise<RetireQuestOutcome> {
-  /**
-   * The status and nothing else, which is what makes the refund happen without
-   * a second mechanism.
-   *
-   * **The expiry is deliberately untouched.** `tasks_published_quest_frozen`
-   * refuses any change to a live quest's terms and the expiry is one of them —
-   * that rule is right, and a retirement that had to break it would be the
-   * Colony editing a published quest to end it. So `questsAwaitingRefund` reads
-   * `retired` as finished instead, and the unspent capacity refunds by `#174`'s
-   * existing path rather than by a second one that could disagree with it about
-   * a quest with a claim still open.
-   */
-  const [row] = await db
-    .update(tasks)
-    .set({ status: 'retired', retiredAt: sql`now()` })
-    .where(and(eq(tasks.id, taskId), eq(tasks.kind, 'quest'), eq(tasks.status, 'active')))
-    .returning({ id: tasks.id })
-
-  return row === undefined ? { outcome: 'not-active' } : { outcome: 'retired' }
-}

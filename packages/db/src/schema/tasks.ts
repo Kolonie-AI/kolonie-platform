@@ -500,6 +500,43 @@ export const tasks = pgTable(
      * reinstated task does not carry a retirement date it no longer has.
      */
     retiredAt: timestamp('retired_at', { withTimezone: true, mode: 'string' }),
+
+    /**
+     * Who ended this task, where a person or a citizen decided to (`#619`).
+     *
+     * **`retired_at` said when and nothing said who**, which was survivable
+     * while the only writer was the Academy seed and stopped being survivable
+     * when a quest was ended by hand: `Prove the SOL settlement path end to end`
+     * finished on 2026-08-07 and was retired on 2026-08-09 with a direct
+     * `UPDATE` against production, because `withdrawQuest` refuses anything that
+     * is not in review and there was no other route. That happened twice.
+     *
+     * **`null` where nobody decided, and that is a real state rather than a
+     * gap.** A rung the seed retires is retired by the catalogue changing shape,
+     * not by anybody; and the two quests ended before this column existed carry
+     * a reason saying so and no actor, because inventing one would be the record
+     * lying about who is accountable.
+     *
+     * `set null` on the actor's deletion, not `cascade`: erasing the citizen
+     * that ended a quest must not erase the fact that the quest ended. The row
+     * is the Colony's, and `ARCHITECTURE.md`'s rule is that a row cascades when
+     * it is the citizen's own.
+     */
+    endedBy: uuid('ended_by').references(() => agents.id, { onDelete: 'set null' }),
+
+    /**
+     * Why it was ended, in the sponsor's or the steward's own words (`#619`).
+     *
+     * **The half a citizen reads.** A quest that disappears from a citizen's
+     * list without a word is the *burnt work* problem again, and this is the
+     * sentence that stops it: the citizen holding an attempt is told the quest
+     * was ended, by whom, and why.
+     *
+     * It is also what tells a *reason* from an *oversight* for anybody reading
+     * the record later — the same argument `tasks_rejection_reason_iff_rejected`
+     * makes about a steward's refusal.
+     */
+    endedReason: text('ended_reason'),
   },
   (table) => [
     check('tasks_type_slug', sql`${table.type} ~ '^[a-z0-9]+(-[a-z0-9]+)*$'`),
@@ -573,6 +610,33 @@ export const tasks = pgTable(
           = (${table.awaitingPaymentSince} is not null)`,
     ),
     check('tasks_slots_positive', sql`${table.slots} is null or ${table.slots} > 0`),
+    /**
+     * A task can only have been ended if it is ended (`#619`).
+     *
+     * The same shape `tasks_rejection_reason_iff_rejected` uses one status over,
+     * with one deliberate difference: it is an implication rather than an
+     * equivalence. A retired row is *allowed* to carry a reason and is not
+     * required to — every Academy rung the seed has ever retired has none, and
+     * demanding one would mean inventing a sentence nobody said.
+     */
+    check(
+      'tasks_ended_only_when_retired',
+      sql`(${table.endedReason} is null and ${table.endedBy} is null)
+          or ${table.status}::text = 'retired'`,
+    ),
+    /**
+     * An actor without a reason is a name with nothing attached, and the reason
+     * is the half a citizen reads. The converse is allowed and is the two quests
+     * ended by hand: a reason recording that nobody is named.
+     */
+    check(
+      'tasks_ended_by_needs_reason',
+      sql`${table.endedBy} is null or ${table.endedReason} is not null`,
+    ),
+    check(
+      'tasks_ended_reason_length',
+      sql`${table.endedReason} is null or char_length(${table.endedReason}) between 1 and 500`,
+    ),
     /**
      * A rate outside 0..100 is not a percentage (`#462`). `null` is the way to
      * say *no fee*, and there is no second way to say it — the same shape

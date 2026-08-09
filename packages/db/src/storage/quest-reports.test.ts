@@ -17,7 +17,6 @@ import {
   questObstacleCorpus,
   questReportCounts,
   recordQuestReportModeration,
-  retireQuestEarly,
   sponsorQuestReports,
   unmoderatedQuestReports,
 } from './quest-reports.js'
@@ -714,35 +713,13 @@ describe('a quest report', () => {
     })
   })
 
-  describe('retiring a quest early on that evidence', () => {
-    /**
-     * The refund path already exists (`#174`) and is reached by bringing the
-     * expiry forward — `questsAwaitingRefund` sweeps `('active','retired')`
-     * whose expiry has passed. A second refund call here would be a second way
-     * for escrow to be released.
-     */
-    it('retires it, and the refund sweep picks it up without touching the expiry', async () => {
-      const taskId = await aQuest()
-
-      expect(await retireQuestEarly(db, taskId)).toEqual({ outcome: 'retired' })
-
-      const [row] = await db.select().from(tasks).where(eq(tasks.id, taskId))
-      expect(row?.status).toBe('retired')
-      expect(row?.retiredAt).not.toBeNull()
-      // The terms are frozen and stay frozen — `tasks_published_quest_frozen`
-      // would refuse the write, and a retirement that had to break it would be
-      // the Colony editing a published quest in order to end it.
-      expect(row?.expiresAt).toBeNull()
-    })
-
-    it('refuses to retire something that is not an active quest', async () => {
-      const taskId = await aQuest()
-      await retireQuestEarly(db, taskId)
-
-      expect(await retireQuestEarly(db, taskId)).toEqual({ outcome: 'not-active' })
-      expect(await retireQuestEarly(db, await aQuest('academy'))).toEqual({
-        outcome: 'not-active',
-      })
-    })
-  })
+  /**
+   * **The tests for `retireQuestEarly` stood here and moved with it** (`#619`).
+   *
+   * The counts above are still exactly the evidence a steward ends a quest on;
+   * what changed is that ending one is `endQuest` in `quests/write.ts`, which
+   * records who ended it and why and refuses everybody but the sponsor and a
+   * steward. Its tests are in `quests.test.ts` beside the rest of the write
+   * path, which is where the reader of this file should look.
+   */
 })

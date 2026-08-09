@@ -14,6 +14,8 @@
  */
 
 import {
+  QUEST_ENDING_REASON_MAX_LENGTH,
+  QUEST_REFUSAL_MIN_LENGTH,
   RENT_EXEMPT_MINIMUM_FALLBACK,
   audienceFragment,
   distinctOperatorsNotice,
@@ -544,6 +546,32 @@ export function questDraftPage(input: {
           '<p class="note">It becomes a draft again, exactly as you left it — the reservation and your one queue slot come back, and you can edit it. This works until a steward decides it.</p>',
         ].join('\n')
 
+  /**
+   * The way to stop a quest that is running (`#619`).
+   *
+   * Shown only while it is `active`, for the reason {@link withdraw} is shown
+   * only in review: a draft has not started and a decided quest has already
+   * stopped. **The reason is required and is a text field rather than a
+   * confirmation**, because it is not addressed to the sponsor — the citizens
+   * who were answering read it, and an ending with no reason is the silence
+   * that makes a quest ending and a quest filling indistinguishable.
+   *
+   * The note says the two things a sponsor would otherwise find out afterwards:
+   * that nothing is refunded, which its own invoice already told it, and that
+   * anybody mid-answer keeps their claim.
+   */
+  const end =
+    readOnly || quest.status !== 'active'
+      ? ''
+      : [
+          `<form method="post" action="/quests/${escape(quest.id)}/end">`,
+          '<label for="end-reason">Why are you ending it?</label>',
+          `<input type="text" id="end-reason" name="reason" required minlength="${QUEST_REFUSAL_MIN_LENGTH}" maxlength="${QUEST_ENDING_REASON_MAX_LENGTH}">`,
+          '<button type="submit">End this quest</button>',
+          '</form>',
+          '<p class="note">It closes to new takers at once. Anyone holding a live claim keeps it and can still hand in — ending is not cancelling their work. Nothing is refunded: publishing was the purchase, and capacity nobody filled is not returned. The quest, its answers and its payments stay readable.</p>',
+        ].join('\n')
+
   const problems =
     input.problems === undefined || input.problems.length === 0
       ? ''
@@ -575,6 +603,7 @@ export function questDraftPage(input: {
       refused,
       submit,
       withdraw,
+      end,
       '<h2>What a citizen will read</h2>',
       '<div>',
       questAsCitizenReads({

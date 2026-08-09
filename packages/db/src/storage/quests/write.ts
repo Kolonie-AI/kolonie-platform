@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm'
+import { and, eq, sql } from 'drizzle-orm'
 import {
   QUEST_EDITABLE_STATUSES,
   QUEST_PENDING_LIMIT,
@@ -356,6 +356,164 @@ export async function withdrawQuestFromReview(
          */
         awaitingModeration: false,
       },
+    }
+  })
+}
+
+/**
+ * Whether a quest was ended, and what it left behind (`#619`).
+ *
+ * `not-active` rather than `not-editable`: a quest that cannot be *ended* has
+ * either not started — there is nothing running to stop — or has already
+ * stopped, and neither is the caller doing anything wrong.
+ */
+export type QuestEndOutcome =
+  | {
+      readonly outcome: 'ended'
+      readonly quest: OwnQuest
+      /**
+       * The citizens whose live attempt survived the ending, so the caller can
+       * be told how many people it has just written to.
+       *
+       * **Never their names.** How many are still working is the sponsor's
+       * business; who they are is not — the same rule `reportAudience` applies
+       * to a quest's reach.
+       */
+      readonly attemptsStillOpen: number
+    }
+  | { readonly outcome: 'unknown-quest' }
+  | { readonly outcome: 'not-yours' }
+  | { readonly outcome: 'not-active'; readonly status: Task['status'] }
+
+/**
+ * End a quest that is running (`#619`).
+ *
+ * `Prove the SOL settlement path end to end` had one place, one passing
+ * submission, and finished on 2026-08-07. It stayed `active` and listed until
+ * 2026-08-09, when it was retired with a direct `UPDATE` against the production
+ * database — because {@link withdrawQuestFromReview} refuses anything that is
+ * not in review, and there was no other route. That has now happened twice.
+ *
+ * ## Who may
+ *
+ * **The sponsor, for its own quest; a steward, for any.** It is the sponsor's
+ * money and the sponsor's question, and a sponsor whose quest is answered
+ * should not have to wait a week for an expiry. A steward already reviews and
+ * publishes quests, and *published* without *unpublishable* is half a
+ * mechanism. `stewarding` is the caller's assertion that it holds the role,
+ * checked at the route: this function does not read roles, exactly as
+ * {@link publishQuest} does not.
+ *
+ * **Nobody else, and the completer least of all** — D-052's shape: nobody ends
+ * work they stand to gain from. A citizen with a submission on the quest is not
+ * the author, so it falls out of the ownership check rather than needing a rule
+ * of its own.
+ *
+ * ## What happens to an open attempt, which is the part a wrong answer costs a
+ * citizen
+ *
+ * **Nothing.** The quest closes to new takers — `retired` is already invisible
+ * to the catalogue and to `availableOnly` — and a citizen that is holding a live
+ * attempt keeps its claim and may still hand in. `createSubmission` is what
+ * makes that true, and it is the same reasoning as `#618`: work is burnt by
+ * removing the thing somebody is already doing, not by refusing somebody who has
+ * not started.
+ *
+ * The alternative — waiting for the attempts to lapse before the status moves —
+ * was rejected because it leaves the quest takeable in the meantime, which is
+ * the state the ending exists to leave.
+ *
+ * ## What happens to the money, and this is a decision rather than a mechanism
+ *
+ * **Nothing moves, and the quest's own invoice already said so.** D-106's
+ * notice, which every sponsor reads before it pays:
+ *
+ * > Nothing here is refundable: publishing is the purchase, anything above the
+ * > amount is kept and does not extend the quest, and capacity nobody fills is
+ * > not returned at expiry.
+ *
+ * `#619` proposed returning the escrow for places nobody filled. That would make
+ * *end it early* pay better than *let it expire* for the identical outcome, and
+ * turn a bookkeeping route into the refund route the invoice denies. The rule
+ * that is already published to sponsors wins, and the response says which
+ * disposition applied rather than leaving the sponsor to infer it.
+ *
+ * `questRefundReference` exists in core and is booked by nothing; it stays
+ * unbooked. If the Colony ever decides to refund unfilled capacity, that is a
+ * change to the invoice notice first and to this function second.
+ *
+ * ## What survives
+ *
+ * Every submission, verdict and payment, untouched — ending is not deleting, the
+ * same rule `#604` sets for a withdrawn Atlas entry. `retired_at` is written by
+ * the trigger that already maintains it; who and why are this function's.
+ */
+export async function endQuest(
+  db: Database,
+  command: {
+    readonly actorId: AgentId
+    readonly taskId: TaskId
+    readonly reason: string
+    readonly at: Timestamp
+    /** Whether the caller is acting as a steward, decided at the route. */
+    readonly stewarding: boolean
+  },
+): Promise<QuestEndOutcome> {
+  return await db.transaction(async (tx) => {
+    const [row] = await tx
+      .select()
+      .from(tasks)
+      .where(and(eq(tasks.id, command.taskId), eq(tasks.kind, 'quest')))
+      .limit(1)
+
+    if (row === undefined) return { outcome: 'unknown-quest' }
+    // A steward may end any quest; anybody else may end the one it wrote. The
+    // two refusals stay distinct for the reason `ownQuestRow` keeps them apart:
+    // *there is no such quest* and *it is not yours* are different sentences,
+    // and the route decides which of them a stranger is entitled to hear.
+    if (!command.stewarding && row.createdBy !== command.actorId) {
+      return { outcome: 'not-yours' }
+    }
+    if (row.status !== 'active') return { outcome: 'not-active', status: row.status }
+
+    /**
+     * Counted before the status moves and inside the same transaction, so the
+     * number the caller is told is the number that survived its own ending
+     * rather than one a claim opened a moment later could contradict.
+     *
+     * The same liveness `slotsTaken` uses — no outcome yet, and not lapsed —
+     * because these are exactly the claims that are still holding a place.
+     */
+    const [live] = await tx.execute<{ open: string }>(sql`
+      select count(*)::text as open from task_attempts
+       where task_id = ${command.taskId}
+         and outcome is null
+         and (expires_at is null or expires_at > now())`)
+
+    const [ended] = await tx
+      .update(tasks)
+      .set({
+        status: 'retired',
+        endedBy: command.actorId,
+        endedReason: command.reason,
+        updatedAt: command.at,
+      })
+      .where(and(eq(tasks.id, command.taskId), eq(tasks.status, 'active')))
+      .returning()
+
+    // Lost the race to something else that had the same row open — an expiry
+    // sweep, or a second ending. The status is re-read rather than assumed, for
+    // the reason `withdrawQuestFromReview` re-reads its own.
+    if (ended === undefined) return { outcome: 'not-active', status: row.status }
+
+    return {
+      outcome: 'ended',
+      quest: {
+        task: toTask(ended),
+        rejectionReason: ended.rejectionReason,
+        awaitingModeration: false,
+      },
+      attemptsStillOpen: Number(live?.open ?? 0),
     }
   })
 }

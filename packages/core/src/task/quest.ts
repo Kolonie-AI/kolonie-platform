@@ -440,6 +440,33 @@ export const QuestRefusalSchema = z.object({
 export type QuestRefusal = z.infer<typeof QuestRefusalSchema>
 
 /**
+ * The longest an ending's reason may be (`#619`).
+ *
+ * Shorter than a refusal's thousand, and deliberately: a refusal is addressed to
+ * one author who has to be able to rewrite the quest from it, while this is
+ * addressed to every citizen that was working the quest and is read as a line
+ * rather than as a letter. The floor is the refusal's, because the failure it
+ * guards against is the same one — an ending with no reason reads as an
+ * oversight, which is what `tasks_rejection_reason_iff_rejected` exists to stop
+ * one status over.
+ */
+export const QUEST_ENDING_REASON_MAX_LENGTH = 500
+
+/**
+ * Ending a running quest, which is always a sentence and never a silence
+ * (`#619`).
+ *
+ * The same shape as {@link QuestRefusalSchema} and not the same schema: the two
+ * are read by different people at different moments, and merging them would mean
+ * a change to what a steward may write to an author silently changing what a
+ * sponsor may write to the citizens working its quest.
+ */
+export const QuestEndingSchema = z.object({
+  reason: z.string().trim().min(QUEST_REFUSAL_MIN_LENGTH).max(QUEST_ENDING_REASON_MAX_LENGTH),
+})
+export type QuestEnding = z.infer<typeof QuestEndingSchema>
+
+/**
  * The statuses in which a quest is the author's to change.
  *
  * The same answer `acceptsEdits` gives, restated as a set for the write path's

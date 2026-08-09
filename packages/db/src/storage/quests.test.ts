@@ -55,6 +55,7 @@ import {
   submitQuestForReview,
   withdrawQuestFromReview,
   updateQuestDraft,
+  endQuest,
 } from './quests/index.js'
 
 const target = databaseTestTarget()
@@ -516,6 +517,237 @@ describe('the quest write path', () => {
       expect(
         await withdrawQuestFromReview(db, { authorId: stranger, taskId: task.id, at: now() }),
       ).toEqual({ outcome: 'not-yours' })
+    })
+  })
+
+  /**
+   * Ending a quest that is running (`#619`).
+   *
+   * Two quests have been ended with a direct `UPDATE` against the production
+   * database, because `withdrawQuestFromReview` refuses anything that is not in
+   * review and no other route existed. These are the properties the route it
+   * replaces has to have.
+   */
+  describe('ending a running quest', () => {
+    /** A published, live quest and the two identities around it. */
+    const aRunningQuest = async (label: string) => {
+      const sponsor = await anAgent(`sponsor-${label}`)
+      const steward = await anAgent(`steward-${label}`, ['steward'])
+      await credit(sponsor, 10_000)
+      const { task } = await createQuestDraft(db, { authorId: sponsor, draft: aDraft() })
+      await submitQuestForReview(db, { authorId: sponsor, taskId: task.id, at: now() })
+      await moderate(task.id)
+      await publishQuest(db, { stewardId: steward, taskId: task.id, at: now(), audit: AUDIT_ON })
+      return { sponsor, steward, taskId: task.id }
+    }
+
+    /** A live claim on the quest, which is what an ending must not cancel. */
+    const aClaim = async (taskId: TaskId, holder: AgentId, expiresAt: string | null) => {
+      await db.insert(taskAttempts).values({
+        taskId,
+        agentId: holder,
+        attempt: 1,
+        opener: 'challenge' as const,
+        outcome: null,
+        openedAt: now(),
+        ...(expiresAt === null ? {} : { expiresAt }),
+      })
+    }
+
+    const ANSWER = 'The question is answered and I do not need the remaining places.'
+
+    it('lets the sponsor end its own quest, recording who, when and why', async () => {
+      const { sponsor, taskId } = await aRunningQuest('own')
+
+      const result = await endQuest(db, {
+        actorId: sponsor,
+        taskId,
+        reason: ANSWER,
+        at: now(),
+        stewarding: false,
+      })
+
+      expect(result).toMatchObject({ outcome: 'ended', attemptsStillOpen: 0 })
+
+      const [row] = await db.select().from(tasks).where(eq(tasks.id, taskId))
+      expect(row?.status).toBe('retired')
+      expect(row?.endedBy).toBe(sponsor)
+      expect(row?.endedReason).toBe(ANSWER)
+      // Written by the trigger that already maintains it, rather than by this
+      // function — which is what makes it true of every retirement.
+      expect(row?.retiredAt).not.toBeNull()
+    })
+
+    it('lets a steward end somebody else’s', async () => {
+      const { steward, taskId } = await aRunningQuest('steward')
+
+      const result = await endQuest(db, {
+        actorId: steward,
+        taskId,
+        reason: 'The brief asks for something the Colony cannot publish.',
+        at: now(),
+        stewarding: true,
+      })
+
+      expect(result.outcome).toBe('ended')
+      const [row] = await db.select().from(tasks).where(eq(tasks.id, taskId))
+      expect(row?.endedBy).toBe(steward)
+    })
+
+    /**
+     * The first rejection case, and D-052's shape: nobody ends work they stand
+     * to gain from. A citizen with a submission on the quest is not its author,
+     * so it is refused by ownership rather than by a rule of its own.
+     */
+    it('refuses a citizen that is answering it', async () => {
+      const { taskId } = await aRunningQuest('answering')
+      const citizen = await anAgent('citizen-answering')
+      await aClaim(taskId, citizen, null)
+
+      expect(
+        await endQuest(db, {
+          actorId: citizen,
+          taskId,
+          reason: 'I would rather this quest stopped existing.',
+          at: now(),
+          stewarding: false,
+        }),
+      ).toEqual({ outcome: 'not-yours' })
+
+      const [row] = await db.select().from(tasks).where(eq(tasks.id, taskId))
+      expect(row?.status).toBe('active')
+    })
+
+    /**
+     * The second rejection case. Ending is not idempotent and must not read as
+     * though it were: a sponsor told *ended* twice cannot tell its own second
+     * click from somebody else's decision in between.
+     */
+    it('refuses a quest that is not running, and says which state it is in', async () => {
+      const { sponsor, taskId } = await aRunningQuest('twice')
+      await endQuest(db, { actorId: sponsor, taskId, reason: ANSWER, at: now(), stewarding: false })
+
+      expect(
+        await endQuest(db, {
+          actorId: sponsor,
+          taskId,
+          reason: ANSWER,
+          at: now(),
+          stewarding: false,
+        }),
+      ).toEqual({ outcome: 'not-active', status: 'retired' })
+
+      const draft = await createQuestDraft(db, { authorId: sponsor, draft: aDraft() })
+      expect(
+        await endQuest(db, {
+          actorId: sponsor,
+          taskId: draft.task.id,
+          reason: ANSWER,
+          at: now(),
+          stewarding: false,
+        }),
+      ).toEqual({ outcome: 'not-active', status: 'draft' })
+    })
+
+    /**
+     * **The property a wrong answer costs a citizen.** An open claim is not
+     * cancelled by the ending: the quest closes to new takers, and the citizen
+     * holding one may still hand in.
+     */
+    it('counts the live claims it did not cancel, and lets one still hand in', async () => {
+      const { sponsor, taskId } = await aRunningQuest('in-flight')
+      const working = await anAgent('citizen-in-flight')
+      const lapsed = await anAgent('citizen-lapsed')
+      await aClaim(taskId, working, new Date(Date.now() + 3_600_000).toISOString())
+      // Already lapsed, so it holds nothing — the same clause the capacity count
+      // uses, which is why the two cannot disagree about what is open.
+      await aClaim(taskId, lapsed, new Date(Date.now() - 3_600_000).toISOString())
+
+      const result = await endQuest(db, {
+        actorId: sponsor,
+        taskId,
+        reason: ANSWER,
+        at: now(),
+        stewarding: false,
+      })
+
+      expect(result).toMatchObject({ outcome: 'ended', attemptsStillOpen: 1 })
+
+      const handedIn = await createSubmission(db, {
+        agentId: working,
+        taskId,
+        payload: {
+          answers: { 'what-happened': 'I registered and the provider asked for a phone number.' },
+        },
+      })
+      expect(handedIn.outcome).toBe('accepted')
+    })
+
+    /** And nobody who had not started may start after the ending. */
+    it('refuses a hand-in from a citizen that never held a claim', async () => {
+      const { sponsor, taskId } = await aRunningQuest('late')
+      const latecomer = await anAgent('citizen-late')
+      await endQuest(db, { actorId: sponsor, taskId, reason: ANSWER, at: now(), stewarding: false })
+
+      expect(
+        (
+          await createSubmission(db, {
+            agentId: latecomer,
+            taskId,
+            payload: { answers: { 'what-happened': 'I would like to answer this one now.' } },
+          })
+        ).outcome,
+      ).toBe('task-retired')
+    })
+
+    /** Ending is not deleting: what the quest already bought stays exactly as it is. */
+    it('leaves the submissions and the expiry untouched', async () => {
+      const { sponsor, taskId } = await aRunningQuest('intact')
+      const citizen = await anAgent('citizen-intact')
+      await aClaim(taskId, citizen, null)
+      await createSubmission(db, {
+        agentId: citizen,
+        taskId,
+        payload: {
+          answers: { 'what-happened': 'I registered and it worked on the second attempt.' },
+        },
+      })
+      const [before] = await db.select().from(tasks).where(eq(tasks.id, taskId))
+
+      await endQuest(db, { actorId: sponsor, taskId, reason: ANSWER, at: now(), stewarding: false })
+
+      const kept = await db.select().from(submissions).where(eq(submissions.taskId, taskId))
+      expect(kept).toHaveLength(1)
+      // The terms of a published quest are frozen and stay frozen: an ending
+      // that had to move the expiry would be the Colony editing a quest in
+      // order to stop it.
+      const [after] = await db.select().from(tasks).where(eq(tasks.id, taskId))
+      expect(after?.expiresAt).toEqual(before?.expiresAt)
+    })
+
+    /** It is gone from the list that promises what can be started (`#618`). */
+    it('takes the quest out of the catalogue', async () => {
+      const { sponsor, taskId } = await aRunningQuest('listed')
+      const reader = await anAgent('citizen-reading')
+      await endQuest(db, { actorId: sponsor, taskId, reason: ANSWER, at: now(), stewarding: false })
+
+      const listed = await listTasks(db, { agentId: reader, availableOnly: true, limit: 25 })
+      if (listed.outcome !== 'listed') throw new Error(listed.outcome)
+      expect(listed.page.items.map((task) => task.id)).not.toContain(taskId)
+    })
+
+    it('refuses a quest nobody has heard of', async () => {
+      const sponsor = await anAgent('sponsor-nothing')
+
+      expect(
+        await endQuest(db, {
+          actorId: sponsor,
+          taskId: crypto.randomUUID() as TaskId,
+          reason: ANSWER,
+          at: now(),
+          stewarding: true,
+        }),
+      ).toEqual({ outcome: 'unknown-quest' })
     })
   })
 

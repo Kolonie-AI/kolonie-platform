@@ -103,6 +103,8 @@ export interface FakeGuidance extends TaskGuidance {
    * the *not written up yet* path, which is the one most likely to be got wrong.
    */
   readonly answersBriefing: (briefing: TaskBriefing | undefined) => void
+  /** Every briefing read this fixture was asked to count (`#609`). */
+  readonly briefingReads: () => readonly TaskId[]
   /** What the Colony reads this citizen's declared vocation as (`#140`). */
   readonly answersDirection: (direction: DirectionClassification | null) => void
   /**
@@ -224,6 +226,7 @@ export function fakeGuidance(): FakeGuidance {
   let reportCount = 0
   let standing: AttemptStanding = { closed: 1, attempt: 2, passed: false }
   let briefing: TaskBriefing | undefined
+  const briefingReads: TaskId[] = []
   let direction: DirectionClassification | null = null
   /**
    * Nothing divides anything and the reader has declared nothing — the state
@@ -323,6 +326,11 @@ export function fakeGuidance(): FakeGuidance {
     countReports: async () => reportCount,
     standing: async () => standing,
     briefing: async () => briefing,
+
+    /** Reads counted in memory (`#609`), so a test can assert one was recorded. */
+    countBriefingRead: async (taskId) => {
+      briefingReads.push(taskId)
+    },
     // `#140`. Null by default and by design: a citizen that declared nothing is
     // the ordinary case, and a fake that answered a classification would let
     // every listing test assert an ordering it never asked for.
@@ -402,6 +410,8 @@ export function fakeGuidance(): FakeGuidance {
     answersDirection: (next) => {
       direction = next
     },
+    briefingReads: () => briefingReads,
+
     answersBriefing: (next) => {
       briefing = next
     },

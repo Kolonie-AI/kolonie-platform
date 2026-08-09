@@ -80,6 +80,7 @@ import {
   writeTaskNote as writeTaskNoteInDatabase,
   listReports as listReportsInDatabase,
   readBriefing as readBriefingInDatabase,
+  recordBriefingRead as recordBriefingReadInDatabase,
   directionOf as directionInDatabase,
   recordConsideration,
   readerContext as readerContextInDatabase,
@@ -151,6 +152,13 @@ export interface TaskGuidance {
    * briefing is that corpus rewritten rather than a property of the task.
    */
   briefing(taskId: TaskId): Promise<TaskBriefing | undefined>
+  /**
+   * Count one reading of a briefing (`#609`).
+   *
+   * Fire-and-forget by contract: it never rejects and the caller never awaits it
+   * into an answer.
+   */
+  countBriefingRead(taskId: TaskId): Promise<void>
   /**
    * What the Colony can see about this reader and this task (#114).
    *
@@ -345,6 +353,7 @@ export function databaseGuidance(db: Database): TaskGuidance {
     countReports: (taskId) => countReportsInDatabase(db, taskId),
     standing: (agentId, taskId) => attemptStanding(db, agentId, taskId),
     briefing: (taskId) => readBriefingInDatabase(db, taskId),
+    countBriefingRead: (taskId) => recordBriefingReadInDatabase(db, taskId),
     direction: (agentId) => directionInDatabase(db, agentId),
     readerContext: (agentId, taskId) => readerContextInDatabase(db, agentId, taskId),
     declareRuntime: (agentId, taskId, declaration) =>
@@ -540,6 +549,24 @@ export async function listReports(
    */
   const withheld = isFirstAttempt(standing)
   const personalised = personalise({ briefing: withheld ? undefined : briefing, context })
+
+  /**
+   * **One reading of a briefing, counted** (`#609`).
+   *
+   * This is the path that serves a briefing to a citizen, so it is where *is a
+   * briefing read at all* becomes answerable. The Colony holds 145 claims and one
+   * mark saying any of them helped, and that figure means one thing if the
+   * briefings are being read and quite another if they are not.
+   *
+   * **Not awaited into the answer**, on the same terms `guidance.consider` is
+   * already handled: instrumentation that can stand between an agent and its next
+   * attempt is worse than no instrumentation. `recordBriefingRead` swallows its
+   * own failures for the same reason.
+   *
+   * **Only when one was actually served.** A withheld first attempt read no
+   * briefing, and a task with none has nothing to have read.
+   */
+  if (!withheld && briefing !== undefined) void guidance.countBriefingRead(read.taskId)
 
   return {
     outcome: 'listed',

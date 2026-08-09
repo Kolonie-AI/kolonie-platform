@@ -40,6 +40,7 @@ describe('the catalogue’s work queue on /backend', () => {
       sections,
       arrivals: { agents: [], people: [], computedAt: '2026-08-08T00:00:00.000Z' } as never,
       unreported: [],
+      briefings: [],
       settings: [],
       ...(wanted === undefined ? {} : { wanted }),
     })

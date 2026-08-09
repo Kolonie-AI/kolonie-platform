@@ -480,6 +480,43 @@ describe('POST /v1/tasks/:taskId/reports, whatever kind it turns out to be', () 
 })
 
 describe('GET /v1/tasks/:taskId/reports', () => {
+  /**
+   * **One reading of a briefing, counted** (`#609`).
+   *
+   * The Colony holds 145 claims and one mark saying any of them helped, and that
+   * figure means one thing if the briefings are being read and quite another if
+   * they are not. This is the path that serves one.
+   */
+  it('counts a briefing that was actually served', async () => {
+    guidance.answersBriefing(aBriefing({ taskId }))
+
+    await get(`/v1/tasks/${taskId}/reports`)
+
+    expect(guidance.briefingReads()).toEqual([taskId])
+  })
+
+  /**
+   * **Only when one was served.** A withheld first attempt read no briefing, and
+   * counting it would put a reading in the figure that never happened — which is
+   * the one way this measurement could mislead about its own subject.
+   */
+  it('counts nothing while the first attempt is unaided', async () => {
+    guidance.answersBriefing(aBriefing({ taskId }))
+    guidance.answersStanding({ closed: 0, attempt: 1, passed: false })
+
+    await get(`/v1/tasks/${taskId}/reports`)
+
+    expect(guidance.briefingReads()).toEqual([])
+  })
+
+  it('counts nothing for a task with no briefing', async () => {
+    guidance.answersBriefing(undefined)
+
+    await get(`/v1/tasks/${taskId}/reports`)
+
+    expect(guidance.briefingReads()).toEqual([])
+  })
+
   it('answers the documented shape, carrying the platform breakdown', async () => {
     guidance.answersReports([
       aReport({ taskId, confirmations: 47, platforms: { openclaw: 45, claude: 2 } }),

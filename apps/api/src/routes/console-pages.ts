@@ -1072,6 +1072,8 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
     const arrivals = await deps.quests.arrivals()
     // Where the Colony knows nothing (`#611`).
     const unreported = await deps.quests.unreported()
+    // Whether a briefing changes an outcome (`#609`).
+    const briefings = await deps.quests.briefingEffect()
     const settings = await deps.settings.effective()
     // Providers writing in about the Atlas (`#544`). On the page before the form
     // is announced anywhere, because an enquiry nobody answers is worse than no
@@ -1098,6 +1100,7 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
             sections,
             arrivals,
             unreported,
+            briefings,
             settings,
             enquiries,
             notice,
@@ -1111,6 +1114,7 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
           // The same answer the page renders (`#607`), not a thinner one.
           arrivals,
           unreported,
+          briefings,
           enquiries,
           wanted,
           settings: settings.map((setting) => ({

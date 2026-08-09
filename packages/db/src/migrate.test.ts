@@ -360,7 +360,12 @@ describe('the migrations', () => {
     // Ninety-six since `#592`: `agent_handovers` is the agent → operator secret
     // channel, its own table rather than a column on `operator_drops` because
     // the two differ in who may read the value out.
-    expect(afterFirst.tables).toBe('96')
+    // **Ninety-seven** (`#609`): `task_briefing_reads` counts how often each
+    // task's briefing is actually read. Its own table rather than a column on
+    // `task_briefings`, because `#611` made an empty briefing no row at all and
+    // a counter living there would be deleted by a synthesis that found nothing
+    // to say — while the reads had still happened.
+    expect(afterFirst.tables).toBe('97')
     // Twenty: `task_kind` (#43) tells an Academy task from a Quest and therefore
     // what may pay credits; `support_ticket_kind` and `support_ticket_status` (#11)
     // carry what a citizen wrote about and where it stands; `erasure_reason` and

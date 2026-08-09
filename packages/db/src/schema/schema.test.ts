@@ -559,6 +559,19 @@ describe('schema', () => {
          * outcome, and the authority for which try a submission belongs to.
          */
         'task_attempts',
+        /**
+         * How often each task's briefing is actually read (`#609`).
+         *
+         * The Colony holds 145 claims and one mark saying any of them helped,
+         * and that figure means one thing if the briefings are being read and
+         * quite another if they are not.
+         *
+         * **Its own table rather than a column on `task_briefings`.** `#611`
+         * made an empty briefing no row at all, so a counter living there would
+         * be deleted by an ordinary synthesis that found nothing to say — and
+         * the reads would still have happened.
+         */
+        'task_briefing_reads',
         'task_briefings',
         /**
          * The task a citizen read and never attempted (`#232`).

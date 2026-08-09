@@ -61,6 +61,8 @@ export interface FakeQuestDesk extends QuestDesk {
     readonly arrivals?: { agents: readonly unknown[]; people: readonly unknown[] }
     /** Tasks with no reports (`#611`). */
     readonly unreported?: readonly { taskId: string; title: string; attempts: number }[]
+    /** Whether briefings help (`#609`). */
+    readonly briefings?: readonly unknown[]
     readonly tickets?: readonly { subject: string; openedAt: string; status: string }[]
   }) => void
   /**
@@ -135,7 +137,9 @@ export function fakeQuests(): FakeQuestDesk {
     arrivals: { agents: readonly unknown[]; people: readonly unknown[] }
     /** Tasks with no reports (`#611`). */
     unreported: readonly { taskId: string; title: string; attempts: number }[]
-  } = { tickets: [], arrivals: { agents: [], people: [] }, unreported: [] }
+    /** Whether briefings help (`#609`). */
+    briefings: readonly unknown[]
+  } = { tickets: [], arrivals: { agents: [], people: [] }, unreported: [], briefings: [] }
   let fixedAudience: number | null = null
   /** Unset until a test turns one, exactly as the settings table is. */
   let caps: Readonly<Record<QuestTier, number>> | null = null
@@ -340,6 +344,7 @@ export function fakeQuests(): FakeQuestDesk {
       if (input.tickets !== undefined) sections.tickets = input.tickets
       if (input.arrivals !== undefined) sections.arrivals = input.arrivals
       if (input.unreported !== undefined) sections.unreported = input.unreported
+      if (input.briefings !== undefined) sections.briefings = input.briefings
     },
 
     /**
@@ -383,6 +388,11 @@ export function fakeQuests(): FakeQuestDesk {
      * asserted against a real Postgres in `packages/db`, which is where a fake
      * would only be a second opinion.
      */
+    /** Whether briefings help (`#609`). Empty unless a test fills it. */
+    async briefingEffect() {
+      return sections.briefings as never
+    },
+
     /** Where the Colony knows nothing (`#611`). Empty unless a test fills it. */
     async unreported() {
       return sections.unreported as never

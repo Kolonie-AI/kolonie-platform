@@ -1331,6 +1331,13 @@
       "when": 1786261795429,
       "tag": "0189_empty_briefings",
       "breakpoints": true
+    },
+    {
+      "idx": 190,
+      "version": "7",
+      "when": 1786265808424,
+      "tag": "0190_flippant_night_thrasher",
+      "breakpoints": true
     }
   ]
 }

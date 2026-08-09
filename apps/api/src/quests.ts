@@ -58,6 +58,7 @@ import {
   backendSections as backendSectionsInDatabase,
   recentArrivals as recentArrivalsInDatabase,
   tasksWithoutReports as tasksWithoutReportsInDatabase,
+  briefingEffect as briefingEffectInDatabase,
   reviewQueueForSteward as reviewQueueForStewardInDatabase,
   recordAuditDecision as recordAuditDecisionInDatabase,
   publishQuest as publishQuestInDatabase,
@@ -86,6 +87,7 @@ import {
   type Arrivals,
   type BackendSections,
   type TaskWithoutReports,
+  type BriefingEffect,
   type ColonyNumbers,
   type HoldingCount,
   type QuestUnderReview,
@@ -318,6 +320,8 @@ export interface QuestDesk {
   arrivals(): Promise<Arrivals>
   /** Which tasks the Colony knows nothing about, with attempt counts (`#611`). */
   unreported(): Promise<readonly TaskWithoutReports[]>
+  /** Whether a briefing changes an outcome (`#609`). */
+  briefingEffect(): Promise<readonly BriefingEffect[]>
 }
 
 /** The quest desk, backed by Postgres. */
@@ -387,6 +391,7 @@ export function databaseQuests(
     backendSections: () => backendSectionsInDatabase(db),
     arrivals: () => recentArrivalsInDatabase(db),
     unreported: () => tasksWithoutReportsInDatabase(db),
+    briefingEffect: () => briefingEffectInDatabase(db),
   }
 }
 

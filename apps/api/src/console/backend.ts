@@ -3,11 +3,13 @@ import type { EffectiveSetting } from '@kolonie-ai/db'
 import type {
   Arrivals,
   BackendSections,
+  BriefingEffect,
   ColonyNumbers,
   TaskWithoutReports,
   WantedProviderCount,
 } from '@kolonie-ai/db'
 import { arrivalsSection } from './arrivals-section.js'
+import { briefingEffectSection } from './briefing-effect-section.js'
 import { escape, page } from './html.js'
 import type { ConsoleNav } from './navigation.js'
 import { relative } from './time.js'
@@ -67,6 +69,14 @@ export function backendPage(input: {
    * which is where to point the next agent.
    */
   readonly unreported: readonly TaskWithoutReports[]
+  /**
+   * Whether a briefing changes an outcome (`#609`).
+   *
+   * The machinery works and nothing knew whether it helped. Every decision about
+   * the hint system — how much to write, whether to gate it, whether to keep the
+   * runner — was being taken on the strength of the artefacts looking good.
+   */
+  readonly briefings: readonly BriefingEffect[]
   readonly sections: BackendSections
   /** Every setting a maintainer may turn without a deploy (`#489`, D-104). */
   readonly settings: readonly EffectiveSetting[]
@@ -282,6 +292,8 @@ export function backendPage(input: {
       // Its own moment, not the page's: these are live queries and were not
       // computed with the figures above. See `BackendSections` for why two.
       arrivalsSection(input.arrivals),
+      '<h2 id="whether-briefings-help">Whether briefings help</h2>',
+      briefingEffectSection(input.briefings),
       '<h2 id="what-nobody-has-reported-on">What nobody has reported on</h2>',
       unreportedSection,
       '<h2 id="waiting-to-be-read">Waiting to be read</h2>',

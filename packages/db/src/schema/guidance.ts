@@ -746,3 +746,42 @@ export const taskBriefings = pgTable(
       .where(sql`${table.dirty}`),
   ],
 )
+
+/**
+ * How often each task's briefing has actually been read (`#609`).
+ *
+ * The Colony holds 145 claims and one mark saying any of them helped. Before
+ * anything is concluded from that, the cheaper question has to be answerable:
+ * **is a briefing being read at all?** A pass rate that has not moved means one
+ * thing if the briefings are being read and quite another if they are not, and
+ * only one of those is a problem with what the synthesis writes.
+ *
+ * **A count per task and nothing else.** Not who read it, not when each read
+ * happened, not from where — `governance/privacy.md` is strict and a measurement
+ * is not a reason to loosen it. The two timestamps bound the window the count
+ * covers, so a rate can be computed from a single row.
+ *
+ * **Its own table rather than a column on {@link taskBriefings}.** `#611` made an
+ * empty briefing no row at all, so a counter living there would be deleted by an
+ * ordinary synthesis that found nothing to say — and the reads would still have
+ * happened. This outlives the briefing it counts.
+ *
+ * **Nothing decides on it.** No claim is ranked by it, nothing is removed
+ * because of it, and no agent is told what it says. It exists to be looked at.
+ */
+export const taskBriefingReads = pgTable(
+  'task_briefing_reads',
+  {
+    taskId: uuid('task_id')
+      .primaryKey()
+      .references(() => tasks.id, { onDelete: 'cascade' }),
+    reads: integer('reads').notNull().default(0),
+    firstReadAt: timestamp('first_read_at', { withTimezone: true, mode: 'string' })
+      .notNull()
+      .defaultNow(),
+    lastReadAt: timestamp('last_read_at', { withTimezone: true, mode: 'string' })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [check('task_briefing_reads_not_negative', sql`${table.reads} >= 0`)],
+)

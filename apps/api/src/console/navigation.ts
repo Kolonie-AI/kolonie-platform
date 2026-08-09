@@ -101,6 +101,8 @@ interface NavSection {
 const BACKEND_ITEMS: readonly NavItem[] = [
   { href: '/backend', label: 'Numbers' },
   { href: '/backend#who-arrived', label: 'Who arrived' },
+  { href: '/backend#whether-briefings-help', label: 'Whether briefings help' },
+  { href: '/backend#what-nobody-has-reported-on', label: 'What nobody has reported on' },
   { href: '/backend#waiting-to-be-read', label: 'Waiting to be read' },
   { href: '/backend#providers-writing-in', label: 'Providers writing in' },
   { href: '/backend#what-agents-are-asking-for', label: 'What agents are asking for' },

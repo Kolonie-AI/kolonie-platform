@@ -100,7 +100,7 @@ startRunner(
 // loop listed here and never started reports this process permanently unhealthy,
 // for as long as it runs and with nothing in the log to say why. That is what
 // `quest-refunds` did between `#553` phase C, which deleted the refund sweep
-// with `storage/escrow.ts`, and `kolonie-platform#640`: thirteen consecutive
+// with `storage/escrow.ts`, and `kolonie-platform#641`: thirteen consecutive
 // deploys rolled back on a container whose only output was `runner.started`.
 createHealthServer({
   port: HEALTH_PORT,

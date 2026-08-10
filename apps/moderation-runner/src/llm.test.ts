@@ -22,6 +22,17 @@ const stubFetch = (body: unknown, status = 200) => {
   return { impl, sent }
 }
 
+/** A `fetch` that returns each canned body once, then repeats the last. */
+const stubFetchSequence = (...bodies: readonly unknown[]) => {
+  const sent: { url: string; init: RequestInit | undefined }[] = []
+  const impl = (async (url: string | URL | Request, init?: RequestInit) => {
+    sent.push({ url: String(url), init })
+    const body = bodies[Math.min(sent.length - 1, bodies.length - 1)]
+    return { ok: true, status: 200, json: async () => body } as Response
+  }) as unknown as typeof fetch
+  return { impl, sent }
+}
+
 const aVerdict = (content: string) => ({ choices: [{ message: { content } }] })
 
 describe('classifying', () => {
@@ -174,6 +185,37 @@ describe('classifying', () => {
         choices: ['approve', 'reject'],
       }),
     ).rejects.toThrow('finish_reason length')
+  })
+
+  /** `stop` with no answer is transient provider behaviour, not a model verdict. */
+  it('retries once when a stopped completion contains no content', async () => {
+    const { impl, sent } = stubFetchSequence(
+      { choices: [{ message: { content: null }, finish_reason: 'stop' }] },
+      aVerdict('{"decision":"approve","reason":"concrete"}'),
+    )
+
+    const verdict = await openRouterModel('a-key', { fetch: impl }).classify({
+      system: 's',
+      user: 'u',
+      choices: ['approve', 'reject'],
+    })
+
+    expect(verdict).toEqual({ decision: 'approve', reason: 'concrete' })
+    expect(sent).toHaveLength(2)
+  })
+
+  it('fails after one retry when stopped completions remain empty', async () => {
+    const empty = { choices: [{ message: { content: null }, finish_reason: 'stop' }] }
+    const { impl, sent } = stubFetchSequence(empty, empty)
+
+    await expect(
+      openRouterModel('a-key', { fetch: impl }).classify({
+        system: 's',
+        user: 'u',
+        choices: ['approve', 'reject'],
+      }),
+    ).rejects.toThrow('finish_reason stop')
+    expect(sent).toHaveLength(2)
   })
 
   /**

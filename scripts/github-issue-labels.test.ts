@@ -181,3 +181,82 @@ describe('GitHub issue labels used by source', () => {
     ])
   })
 })
+
+/**
+ * Provenance — `#686`, and `kolonie-docs#259`'s last row is what consumes it.
+ *
+ * **An issue's provenance decides how carefully it must be triaged**, and it was
+ * recorded inconsistently and by hand: measured 2026-08-10 across the four
+ * repositories, `from:citizen` was on 7 open issues, `from:watcher` on 3, and
+ * nothing at all on everything a maintainer or the maintainer agent opened. The
+ * labels existed; nothing set them reliably.
+ *
+ * `from:citizen` is the one that earns the rest. A support ticket becomes an
+ * issue body through a model, and that body becomes an instruction to a coding
+ * agent — the only path in the Colony from *anyone with an API key* to *a
+ * commit*. The chain is legitimate; the label is what lets the routing rule see
+ * it. `from:watcher` marks the opposite, text the Colony generated about itself,
+ * which is why those can be routed briskly.
+ */
+describe('every machine path says where its issue came from', () => {
+  const PROVENANCE = /^from:/
+
+  /**
+   * Sources that create an issue without a human choosing to. The list is
+   * explicit because the point is that **none** of them may be missing — a
+   * discovery rule that quietly returned fewer sources would pass this suite by
+   * having nothing left to check.
+   */
+  const MACHINE_PATHS = [
+    'apps/support-triage-runner/src/triage.ts',
+    'apps/support-triage-runner/src/defects.ts',
+    'apps/moderation-runner/src/tripwire.ts',
+    '.github/workflows/skill-platforms.yml',
+  ]
+
+  /**
+   * **Distinct labels, not occurrences.** The extractor above deliberately reads
+   * a source several ways — every string literal, every `labels:` property,
+   * every `*_LABELS` declaration — so one label reached by two of them arrives
+   * twice. That is the right behaviour for *is this label in the vocabulary* and
+   * the wrong unit for *how many did it set*. A source naming two different
+   * provenances is still caught, which is what the rule is for.
+   */
+  it.each(MACHINE_PATHS)('%s sets exactly one from: label', (source) => {
+    const provenance = new Set(
+      applied
+        .filter((entry) => relative(ROOT, resolve(ROOT, entry.source)) === source)
+        .map(({ label }) => label)
+        .filter((label) => PROVENANCE.test(label)),
+    )
+
+    expect([...provenance]).toHaveLength(1)
+  })
+
+  /**
+   * **The one that must not be forgeable.** `from:external` is applied by
+   * whatever reads the board, from the author's organisation membership — a
+   * fact GitHub already holds. An issue opened by a stranger claiming
+   * `from:maintainer` is the whole attack, and an issue *template* is the file
+   * a stranger fills in.
+   *
+   * So a template carries no provenance at all, and this asserts the absence
+   * rather than trusting it. It is the reason the rule above is scoped to
+   * machine paths instead of to everything that touches a label.
+   */
+  it('lets no issue template claim a provenance for its author', () => {
+    const claimed = issueTemplates
+      .flatMap(templateLabels)
+      .filter(({ label }) => PROVENANCE.test(label))
+
+    expect(claimed).toEqual([])
+  })
+
+  it('refuses a template that tried to', () => {
+    const claimed = [{ source: 'bug.md', label: 'from:maintainer' }].filter(({ label }) =>
+      PROVENANCE.test(label),
+    )
+
+    expect(claimed).toEqual([{ source: 'bug.md', label: 'from:maintainer' }])
+  })
+})

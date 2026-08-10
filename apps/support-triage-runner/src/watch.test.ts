@@ -143,7 +143,10 @@ describe('the log defect detector', () => {
     expect(outcome.filed).toBe(1)
     const [filed] = issues.filed()
     expect(filed?.issue.repository).toBe('Kolonie-AI/kolonie-platform')
-    expect(filed?.issue.labels).toEqual(['bug', 'p1', 'area:platform'])
+    // `from:watcher` since `#686`: a log signature is a measurement, not a
+    // judgement — nobody read this and decided it mattered, which is the
+    // claim the label marks the absence of.
+    expect(filed?.issue.labels).toEqual(['bug', 'p1', 'area:platform', 'from:watcher'])
     // The signature is in the title, because that is the closed corpus's only
     // handle on it — see `closedIssueFor`.
     expect(filed?.issue.title.startsWith('api/poll.failed — ')).toBe(true)
@@ -285,7 +288,7 @@ describe('the log defect detector', () => {
     expect(body).toContain('This came back')
     expect(body).toContain('issues/7')
     // Known before, so no `p1`: the priority is for what has never been seen.
-    expect(issues.filed()[0]?.issue.labels).toEqual(['bug', 'area:platform'])
+    expect(issues.filed()[0]?.issue.labels).toEqual(['bug', 'area:platform', 'from:watcher'])
   })
 
   it('holds back what the per-run cap will not take, and says how much', async () => {

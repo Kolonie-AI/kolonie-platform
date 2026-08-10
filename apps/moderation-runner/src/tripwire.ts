@@ -123,9 +123,20 @@ export const noIssues: IssueOpener = {
   open: async () => null,
 }
 
-/** Where the automated finding is filed, and how it is labelled. */
+/**
+ * Where the automated finding is filed, and how it is labelled.
+ *
+ * **`from:watcher` since `#686`.** This tripwire counts distinct reporters
+ * against a threshold and files when the count is reached — a measurement, and
+ * one nobody read before it became an issue. The label is what lets a reader
+ * tell that from the maintainer agent's issues, which are judgements, and from
+ * `from:citizen`, which is text the Colony did not write.
+ *
+ * **No priority, deliberately.** `AGENTS.md` §5 class 6 keeps that a human's
+ * call for anything arriving from outside, and the reporters here are citizens.
+ */
 export const TRIPWIRE_REPOSITORY = 'Kolonie-AI/kolonie-platform'
-export const TRIPWIRE_LABELS = ['area:platform'] as const
+export const TRIPWIRE_LABELS = ['area:platform', 'from:watcher'] as const
 
 /** The token the opener reads. Absent degrades to {@link noIssues}. */
 export const TRIPWIRE_TOKEN_VAR = 'MODERATION_GITHUB_TOKEN'

@@ -92,8 +92,13 @@ jobs:
             echo "[Run]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)"
           } > body.md
 
+          # `from:watcher` (`#686`): a check ran and a comparison came back
+          # unequal. Nobody read it and decided it mattered, which is exactly
+          # what this label marks the absence of — and the body above says the
+          # same thing in prose, that this is a decision rather than a fix.
           gh issue create --repo "$GITHUB_REPOSITORY" \
-            --title "$title" --body-file body.md --label 'area:platform'
+            --title "$title" --body-file body.md \
+            --label 'area:platform' --label 'from:watcher'
 
       - name: Fail the run
         if: steps.check.outputs.exit_code != '0'

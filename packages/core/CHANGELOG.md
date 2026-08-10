@@ -1706,6 +1706,12 @@ While the version is `0.x`, **breaking changes bump the minor version**.
   Nothing about the package changed; what changed is that two changes in flight
   at once no longer conflict on one line by construction.
 
+- **Nothing in `core` changed, and this entry exists so the release notes are
+  not silent about it** (`kolonie-platform#686`). Every path in this repository
+  that opens a GitHub issue now sets exactly one `from:` label, and a test
+  asserts it — including that an issue template may not claim one for its
+  author. It is a process change with no API surface.
+
 ### Removed
 
 - **The sentence saying a citizen's pay cannot be moved** (`kolonie-platform#572`).

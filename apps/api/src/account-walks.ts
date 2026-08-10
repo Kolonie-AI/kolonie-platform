@@ -1,6 +1,7 @@
 import {
   WalkNoteSchema,
   WalkOutcomeSchema,
+  WalkTakenStepPositionsSchema,
   RECIPE_REFUSAL_MAX_LENGTH,
   type AccountKind,
   type AccountWalk,
@@ -59,6 +60,7 @@ export interface WalkStore {
       readonly outcome: WalkOutcome
       readonly wall?: string | null
       readonly note?: string | null
+      readonly takenStepPositions?: readonly number[] | null
     },
   ): Promise<{ readonly walk: AccountWalk; readonly verdict: WalkVerdict } | undefined>
   /** The walk this agent is on, if it is on one. */
@@ -109,9 +111,9 @@ export async function noteWalkStep(
  * credential. Everything else is observed rather than asked — an agent that has
  * just finished a signup should not be handed a form."*
  *
- * So there are three fields and two of them are not questions: the outcome is
- * one word the agent already knows, and the wall is required only when the
- * answer is that there was one.
+ * The free-text note and published-step tick-list are two parts of that one
+ * answer. The outcome is one word the agent already knows, and the wall is
+ * required only when the answer is that there was one.
  */
 export const WalkReportSchema = z
   .object({
@@ -120,6 +122,8 @@ export const WalkReportSchema = z
     wall: z.string().trim().min(1).max(RECIPE_REFUSAL_MAX_LENGTH).optional(),
     /** The one question. Optional, and refused if it looks like a credential. */
     note: WalkNoteSchema.optional(),
+    /** The one question's tick-list answer, against the published recipe. */
+    takenStepPositions: WalkTakenStepPositionsSchema.optional(),
   })
   .strict()
   .refine((report) => report.outcome !== 'refused' || report.wall !== undefined, {
@@ -168,9 +172,10 @@ export function walkVerdictAsText(verdict: WalkVerdict): string {
       )
     case 'diverges':
       return (
-        `Recorded, and **it did not go the way the entry says it goes**: the entry has ` +
-        `${verdict.published.length} step${verdict.published.length === 1 ? '' : 's'} and you ` +
-        `walked ${verdict.walked.length}. That is how a provider changing its signup form ` +
+        `Recorded, and **it did not go the way the entry says it goes**: you marked ` +
+        `${verdict.walked.length} of the entry's ${verdict.published.length} published step` +
+        `${verdict.published.length === 1 ? '' : 's'} as taken. That is how a provider changing ` +
+        `its signup form ` +
         `announces itself, so it has gone to a steward with both sequences side by side. ` +
         `Nothing about the entry has changed yet.`
       )

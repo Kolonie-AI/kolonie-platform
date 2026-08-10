@@ -30,7 +30,7 @@ const WALK_ACTORS = RecipeActorSchema.options
  * to have and not merely intend: **the shape of the walk and never its
  * contents.** There is no column here for a handle, a code or a password, and
  * the one free-text field an agent writes is refused if it looks like a
- * credential.
+ * credential; the other answer is a bounded integer tick-list.
  */
 export const accountWalks = pgTable(
   'account_walks',
@@ -73,12 +73,15 @@ export const accountWalks = pgTable(
     /**
      * The answer to the one question an agent is asked.
      *
-     * *Did this match what you were told?* — `WALK_QUESTION`. Optional, and the
-     * only thing on this record the agent writes. Everything else is observed,
-     * because `#601` is explicit that an agent which has just finished a signup
-     * should not be handed a form.
+     * *Did this match what you were told?* — `WALK_QUESTION`. Optional, and one
+     * part of the answer beside the published-step tick-list. Everything else
+     * is observed, because `#601` is explicit that an agent which has just
+     * finished a signup should not be handed a form.
      */
     note: text('note'),
+
+    /** The one tick-list answer, as 1-based positions in the published recipe. */
+    takenStepPositions: integer('taken_step_positions').array(),
   },
   (table) => [
     /** A citizen's own walks, newest first, which is every read of this table. */
@@ -121,6 +124,14 @@ export const accountWalks = pgTable(
       'account_walks_note_is_short',
       sql`${table.note} is null
           or length(${table.note}) <= ${sql.raw(String(WALK_NOTE_MAX_LENGTH))}`,
+    ),
+
+    check(
+      'account_walks_taken_steps_are_in_range',
+      sql`${table.takenStepPositions} is null
+          or (cardinality(${table.takenStepPositions}) <= ${sql.raw(String(RECIPE_MAX_STEPS))}
+              and 1 <= all(${table.takenStepPositions})
+              and ${sql.raw(String(RECIPE_MAX_STEPS))} >= all(${table.takenStepPositions}))`,
     ),
   ],
 )

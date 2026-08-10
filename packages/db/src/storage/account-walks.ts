@@ -42,6 +42,7 @@ function toWalk(walk: WalkRow, steps: readonly StepRow[]): AccountWalk {
     outcome: walk.outcome === null ? null : WalkOutcomeSchema.parse(walk.outcome),
     wall: walk.wall,
     note: walk.note,
+    takenStepPositions: walk.takenStepPositions,
     steps: steps
       .map((step) => ({
         position: step.position,
@@ -196,6 +197,8 @@ export async function finishWalk(
     readonly wall?: string | null
     /** The answer to the one question, already checked against `WalkNoteSchema`. */
     readonly note?: string | null
+    /** Published recipe positions checked by the agent, in order. */
+    readonly takenStepPositions?: readonly number[] | null
   },
 ): Promise<{ readonly walk: AccountWalk; readonly verdict: WalkVerdict } | undefined> {
   return db.transaction(async (tx) => {
@@ -206,6 +209,7 @@ export async function finishWalk(
         outcome: input.outcome,
         wall: input.outcome === 'refused' ? (input.wall ?? null) : null,
         note: input.note ?? null,
+        takenStepPositions: input.takenStepPositions == null ? null : [...input.takenStepPositions],
       })
       .where(and(eq(accountWalks.id, walkId), isNull(accountWalks.finishedAt)))
       .returning()

@@ -144,7 +144,7 @@ describe('the record of one agent obtaining one account', () => {
      * and nothing has ever set them; a walk that matched the published shape is
      * the only thing that should.
      */
-    it('confirms a published entry whose shape it matched', async () => {
+    it('confirms a multi-step published entry from the agent tick-list, not the call count', async () => {
       await writeProviderRecipe(db, {
         kind: where.kind,
         provider: where.provider,
@@ -162,7 +162,10 @@ describe('the record of one agent obtaining one account', () => {
       await recordWalkStep(db, walkId, { actor: 'agent' })
       await recordWalkStep(db, walkId, { actor: 'operator', ask: 'Please open this URL.' })
 
-      const finished = await finishWalk(db, walkId, { outcome: 'proved' })
+      const finished = await finishWalk(db, walkId, {
+        outcome: 'proved',
+        takenStepPositions: [1, 2],
+      })
 
       expect(finished?.verdict.kind).toBe('confirms')
 
@@ -206,7 +209,10 @@ describe('the record of one agent obtaining one account', () => {
       await recordWalkStep(db, walkId, { actor: 'agent' })
       await recordWalkStep(db, walkId, { actor: 'operator', ask: 'This is new.' })
 
-      const finished = await finishWalk(db, walkId, { outcome: 'proved' })
+      const finished = await finishWalk(db, walkId, {
+        outcome: 'proved',
+        takenStepPositions: [1],
+      })
 
       expect(finished?.verdict.kind).toBe('diverges')
 
@@ -313,6 +319,7 @@ describe('the record of one agent obtaining one account', () => {
 
       const finished = await finishWalk(db, walkId, {
         outcome: 'proved',
+        takenStepPositions: [1, 2, 4],
         note: 'The operator was only needed to accept the terms. I minted the token myself.',
       })
 

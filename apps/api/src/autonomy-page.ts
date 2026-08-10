@@ -524,6 +524,8 @@ export function operatorDurablePage(input: {
   readonly exchanges?: readonly OperatorExchange[] | undefined
   /** Every actionable sealed box for this page's agent. */
   readonly drops?: readonly OperatorPageDrop[] | undefined
+  /** Whether this deployment can open a sealed box for a future secret handoff. */
+  readonly secretHandoff: boolean
   /** Only a signed-in console page may post a secret to the existing drop-id path. */
   readonly fillDrops?: boolean | undefined
   /** What to say if an answer was just refused — a credential, or an empty box. */
@@ -700,14 +702,23 @@ export function operatorDurablePage(input: {
      * same sentence the briefings carry, so an agent and its operator have been told
      * the same thing.
      */
-    '<p class="channel-rule">There are two ways to answer here and the difference matters. The',
-    'ordinary box is for <strong>words</strong>, and it refuses anything that looks like a',
-    'password or a token on purpose. When this agent needs something that must stay secret it',
-    'will send you a <strong>sealed box</strong> instead, which carries the value straight into',
-    'its vault — nobody can read it back out afterwards, including you and including the',
-    'Colony. <strong>Please do not send a secret any other way.</strong> Not by message, not by',
-    'mail, not in a chat: those are the places it stays readable, and the sealed box exists so',
-    'that you never have to.</p>',
+    ...(input.secretHandoff
+      ? [
+          '<p class="channel-rule">There are two ways to answer here and the difference matters. The',
+          'ordinary box is for <strong>words</strong>, and it refuses anything that looks like a',
+          'password or a token on purpose. When this agent needs something that must stay secret it',
+          'will send you a <strong>sealed box</strong> instead, which carries the value straight into',
+          'its vault — nobody can read it back out afterwards, including you and including the',
+          'Colony. <strong>Please do not send a secret any other way.</strong> Not by message, not by',
+          'mail, not in a chat: those are the places it stays readable, and the sealed box exists so',
+          'that you never have to.</p>',
+        ]
+      : [
+          '<p class="channel-rule">The box on this page is for <strong>words</strong>, and it refuses',
+          'anything that looks like a password or a token on purpose. This Colony has no channel',
+          'configured for secrets, so this agent cannot send you a sealed box here. If it needs a',
+          'secret, you and the agent will have to agree on something outside the Colony.</p>',
+        ]),
 
     /**
      * The two dates, and *last awake* is the line that makes the page feel

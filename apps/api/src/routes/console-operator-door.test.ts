@@ -150,6 +150,16 @@ describe('the operator page opens on a session', () => {
     )
   })
 
+  it('promises a sealed box when the secret channel is configured', async () => {
+    const token = await pages.issue(agentId, 'op@example.org')
+
+    const response = await app.inject({ method: 'GET', url: `/operator/page/${token}` })
+
+    expect(response.body).toContain('will send you a <strong>sealed box</strong>')
+    expect(response.body).toContain('Please do not send a secret any other way')
+    expect(response.body).not.toContain('no channel configured for secrets')
+  })
+
   /**
    * **The token never appears in a page behind a login.**
    *

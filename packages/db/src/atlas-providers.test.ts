@@ -4,6 +4,7 @@ import type { Database } from './client.js'
 import { connectForTests, databaseTestTarget, truncateAll } from './testing.js'
 import {
   LISTED_ATLAS_ENTRIES,
+  WALKED_PROVIDERS,
   curateListedAtlasEntries,
   seedListedAtlasEntries,
 } from './atlas-providers.js'
@@ -46,6 +47,45 @@ describe('the providers the Atlas lists', () => {
       expect(new Set(providers).size).toBe(providers.length)
     })
 
+    /**
+     * `#678`: the Academy has two rungs — `sms-receive` and `sms-send` — that
+     * need a phone number an agent controls, and the catalogue had no shelf for
+     * one. A citizen told *earn `phone`* opened fourteen shelves, none of which
+     * was the one it was sent for.
+     *
+     * **The shelf is asserted to have more than one entry**, which is not
+     * decoration: a category with a single provider reads as a recommendation,
+     * and the Atlas makes no recommendations. It is also what stops the shelf
+     * quietly becoming *use Twilio* the next time somebody prunes it.
+     */
+    it('has somewhere to send a citizen that needs a phone number', () => {
+      const telephony = LISTED_ATLAS_ENTRIES.filter((entry) => entry.category === 'telephony')
+
+      expect(telephony.map((entry) => entry.provider)).toEqual([
+        'twilio.com',
+        'vonage.com',
+        'telnyx.com',
+      ])
+      expect(telephony.length).toBeGreaterThan(1)
+    })
+
+    /**
+     * **The one measurement on the list says what it costs a citizen.** `#678`
+     * asks for the Colony's own Twilio walk to land in the entry rather than be
+     * rediscovered: the geography step has no API, and a number that has not
+     * been enabled for the destination answers `21408` instead of failing where
+     * you set it up. Both halves, because the error code is what a citizen
+     * searches for at the moment it goes wrong.
+     */
+    it('records what the Colony learned from running Twilio', () => {
+      const twilio = LISTED_ATLAS_ENTRIES.find((entry) => entry.provider === 'twilio.com')
+
+      expect(WALKED_PROVIDERS).toContain('twilio.com')
+      expect(twilio?.agentApi).toBe('partial')
+      expect(twilio?.caution).toContain('console-only')
+      expect(twilio?.caution).toContain('21408')
+    })
+
     it('gives every entry a category from the closed vocabulary', () => {
       for (const entry of LISTED_ATLAS_ENTRIES) {
         expect(AtlasCategorySchema.safeParse(entry.category).success).toBe(true)
@@ -66,7 +106,18 @@ describe('the providers the Atlas lists', () => {
       }
     })
 
-    /** A guess is defensible on two shelves; everywhere else the answer is silence. */
+    /**
+     * A guess is defensible on three shelves; everywhere else the answer is
+     * silence.
+     *
+     * **`telephony` was the third and it arrived on `#678`.** The test is the
+     * same one — a statute has to put the person there, not a product decision
+     * somebody would have to check — and a number that can send or receive is
+     * regulated supply in most jurisdictions. What it must not become is a list
+     * of shelves that feel like they need an operator; that is the guess `#590`
+     * forbids, and the reason this assertion names the set rather than counting
+     * it.
+     */
     it('guesses at the operator answer only where a statute puts a person in the way', () => {
       const guessed = new Set(
         LISTED_ATLAS_ENTRIES.filter((entry) => entry.operatorGuess !== undefined).map(
@@ -74,7 +125,7 @@ describe('the providers the Atlas lists', () => {
         ),
       )
 
-      expect(guessed).toEqual(new Set(['payments-finance', 'commerce-marketplace']))
+      expect(guessed).toEqual(new Set(['payments-finance', 'commerce-marketplace', 'telephony']))
     })
   })
 
@@ -339,29 +390,63 @@ describe('the providers the Atlas lists', () => {
     })
 
     /**
-     * **A caution on a listing must say nothing has been walked.** `#590`'s rule
-     * is that no listed entry may imply work was done, and a warning is the
-     * easiest place to imply it by accident.
+     * **Every caution says which of the two kinds it is.** `#590`'s rule is that
+     * no listed entry may imply work was done, and a warning is the easiest
+     * place to imply it by accident — so an unwalked entry's caution has to say
+     * nobody has walked it.
+     *
+     * **`#678` added the other half rather than relaxing this one.** The Colony
+     * runs `twilio.com`, so its caution is a finding, and requiring it to claim
+     * nobody has walked it would have made the catalogue lie to protect a test.
+     * Both directions are asserted: a walked entry may not borrow the unwalked
+     * disclaimer either, because that is the same defect pointing the other way
+     * and it would throw away the one measurement on the list.
      */
-    it('says in every caution that nobody has walked it', async () => {
+    it('says in every caution which kind of claim it is making', async () => {
       await seedListedAtlasEntries(db)
 
       const cautioned = (await providerRecipeList(db)).filter((entry) => entry.caution !== null)
 
+      expect(cautioned.length).toBeGreaterThan(0)
+
       for (const entry of cautioned) {
-        expect(entry.caution?.toLowerCase()).toContain('walk')
+        const caution = entry.caution?.toLowerCase() ?? ''
+
+        if (WALKED_PROVIDERS.includes(entry.provider)) {
+          expect(caution).toContain('measured')
+          expect(caution).not.toContain('nobody has walked')
+        } else {
+          expect(caution).toContain('walk')
+        }
       }
     })
 
-    /** Everywhere nobody has looked still says so, which is most of the catalogue. */
-    it('leaves every other shelf answering nobody has looked', async () => {
+    /**
+     * Everywhere nobody has looked still says so, which is most of the
+     * catalogue.
+     *
+     * **Derived from the answers rather than from a shelf name.** This filtered
+     * on `category !== 'compute-hosting'` until `#678`, which was the same fact
+     * written twice — the shelf somebody had read, and the map of what they
+     * found. Adding `twilio.com` to the second broke the first, which is the
+     * duplication announcing itself. Asking *which entries carry no answer* is
+     * one record and stays true wherever the next walk happens.
+     */
+    it('leaves every entry nobody has looked at answering so', async () => {
       await seedListedAtlasEntries(db)
 
-      const elsewhere = (await providerRecipeList(db)).filter(
-        (entry) => entry.category !== 'compute-hosting',
+      const answered = new Set(
+        LISTED_ATLAS_ENTRIES.filter((entry) => entry.agentApi !== undefined).map(
+          (entry) => entry.provider,
+        ),
+      )
+      const unanswered = (await providerRecipeList(db)).filter(
+        (entry) => !answered.has(entry.provider),
       )
 
-      for (const entry of elsewhere) expect(entry.agentApi).toBe('unknown')
+      expect(unanswered.length).toBeGreaterThan(0)
+
+      for (const entry of unanswered) expect(entry.agentApi).toBe('unknown')
     })
   })
 

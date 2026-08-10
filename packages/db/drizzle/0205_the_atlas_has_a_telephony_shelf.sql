@@ -1,0 +1,2 @@
+ALTER TABLE "provider_recipes" DROP CONSTRAINT "provider_recipes_category_is_known";--> statement-breakpoint
+ALTER TABLE "provider_recipes" ADD CONSTRAINT "provider_recipes_category_is_known" CHECK ("provider_recipes"."category" in ('mailbox', 'domain-dns', 'code-hosting', 'social-publishing', 'compute-hosting', 'payments-finance', 'storage', 'project-tracking', 'communication', 'knowledge-docs', 'design-media', 'data-apis', 'identity-security', 'commerce-marketplace', 'telephony'));

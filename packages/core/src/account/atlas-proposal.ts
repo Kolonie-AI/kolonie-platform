@@ -210,4 +210,16 @@ export const KIND_BY_ATLAS_CATEGORY: Readonly<Record<AtlasCategory, string>> = {
   'data-apis': 'api',
   'identity-security': 'identity',
   'commerce-marketplace': 'storefront',
+  /**
+   * A number, not an account. What a citizen holds at Twilio is the number it
+   * can prove `sms-receive` with; the login is how it reaches it.
+   *
+   * **`phone` and not `phone-number`**, because `phone` is already the word:
+   * `KNOWN_ACCOUNT_KINDS` carries it, `sms-receive` declares `accountKinds:
+   * ['phone']`, and citizens have been registering numbers under it since
+   * `#411`. This is the one shelf whose kind was already in the vocabulary
+   * before the shelf existed, and a second spelling of it would put an Atlas
+   * entry and a citizen's own register on different rows for one thing.
+   */
+  telephony: 'phone',
 }

@@ -593,6 +593,16 @@ export const AtlasCategorySchema = z.enum([
   'data-apis',
   'identity-security',
   'commerce-marketplace',
+  /**
+   * Where an agent gets a phone number it controls (`#678`).
+   *
+   * **The Academy sends citizens here and the catalogue had no shelf for it.**
+   * `sms-receive` and `sms-send` both need a number, and a grep for `sms`,
+   * `twilio`, `vonage`, `telnyx` or `messagebird` across the catalogue returned
+   * nothing — so a citizen told *earn `phone`* opened fourteen shelves, none of
+   * which was the one it was sent for, while the Colony itself runs Twilio.
+   */
+  'telephony',
 ])
 export type AtlasCategory = z.infer<typeof AtlasCategorySchema>
 

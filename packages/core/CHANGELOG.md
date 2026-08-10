@@ -67,6 +67,10 @@ While the version is `0.x`, **breaking changes bump the minor version**.
   `SerialisedError` now carries string `code` values and recursively serialises
   `cause`, bounded to four error records so logging a hostile cause chain cannot
   fail indefinitely on the failure path.
+- **Configured service hosts are removed at the error-log seam**
+  (`kolonie-platform#676`). `createLog` accepts deployment URLs whose hosts are
+  replaced in error messages, stacks and nested causes without changing error
+  codes.
 - **A quest whose deliverable is a catalogue entry**
   (`kolonie-platform#525`). `QuestDeliverableSchema`, `RECIPE_STALE_AFTER_DAYS`,
   `CatalogueDeliverableSchema`, `isStale` and `STALE_ENTRY_NOTE` in

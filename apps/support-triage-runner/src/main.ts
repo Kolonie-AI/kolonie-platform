@@ -44,7 +44,10 @@ const HEALTH_PORT = Number(process.env['HEALTH_PORT'] ?? 3003)
 // The three methods that forwarded to `console` printed prose, and
 // `console.error(message, error)` printed a stack through Node's inspector —
 // one failure, N lines, and nothing able to rejoin them.
-const log: Log = createLog({ service: 'support-triage-runner' })
+const log: Log = createLog({
+  service: 'support-triage-runner',
+  redactUrls: [process.env['LLM_GATEWAY_BASE_URL']],
+})
 
 // Throws with an explanation if DATABASE_URL is missing (D-009), like every other
 // process here.

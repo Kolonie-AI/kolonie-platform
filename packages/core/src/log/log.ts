@@ -69,6 +69,30 @@ export interface SerialisedError {
   readonly cause?: SerialisedError
 }
 
+const REDACTED_HOST = '[configured-host]'
+
+/**
+ * Removes deployment-specific hosts without making core know the environment.
+ *
+ * Invalid values are ignored: logging runs on the failure path, so bad optional
+ * redaction configuration must not replace the original failure with another.
+ */
+export function redactConfiguredHosts(
+  text: string,
+  configuredUrls: readonly (string | undefined)[],
+): string {
+  return configuredUrls.reduce<string>((redacted, configuredUrl) => {
+    if (configuredUrl === undefined || configuredUrl === '') return redacted
+
+    try {
+      const host = new URL(configuredUrl).hostname
+      return host === '' ? redacted : redacted.replaceAll(host, REDACTED_HOST)
+    } catch {
+      return redacted
+    }
+  }, text)
+}
+
 /**
  * An error flattened to three strings, on one line.
  *
@@ -80,26 +104,41 @@ export interface SerialisedError {
  * that gets thrown when something is truly wrong is exactly the thing least
  * likely to be an `Error`.
  */
-export function serialiseError(error: unknown): SerialisedError {
-  return serialiseErrorAtDepth(error, 0)
+export function serialiseError(
+  error: unknown,
+  configuredUrls: readonly (string | undefined)[] = [],
+): SerialisedError {
+  return serialiseErrorAtDepth(error, 0, configuredUrls)
 }
 
-function serialiseErrorAtDepth(error: unknown, depth: number): SerialisedError {
+function serialiseErrorAtDepth(
+  error: unknown,
+  depth: number,
+  configuredUrls: readonly (string | undefined)[],
+): SerialisedError {
   if (error instanceof Error) {
     const code = (error as { code?: unknown }).code
     const cause = (error as { cause?: unknown }).cause
     return {
       name: error.name,
-      message: error.message,
-      ...(error.stack === undefined ? {} : { stack: error.stack }),
+      message: redactConfiguredHosts(error.message, configuredUrls),
+      ...(error.stack === undefined
+        ? {}
+        : { stack: redactConfiguredHosts(error.stack, configuredUrls) }),
       ...(typeof code === 'string' ? { code } : {}),
       ...(depth >= 3 || cause === undefined
         ? {}
-        : { cause: serialiseErrorAtDepth(cause, depth + 1) }),
+        : { cause: serialiseErrorAtDepth(cause, depth + 1, configuredUrls) }),
     }
   }
 
-  return { name: 'NonError', message: typeof error === 'string' ? error : String(error) }
+  return {
+    name: 'NonError',
+    message: redactConfiguredHosts(
+      typeof error === 'string' ? error : String(error),
+      configuredUrls,
+    ),
+  }
 }
 
 /** One log line, before it is written. */
@@ -133,6 +172,7 @@ export function logRecord(input: {
   readonly fields?: LogFields
   /** Absent, rather than `undefined`, when there was nothing thrown to report. */
   readonly error?: unknown
+  readonly redactUrls?: readonly (string | undefined)[]
 }): LogRecord {
   const { event, ...rest } = input.fields ?? {}
 
@@ -143,7 +183,7 @@ export function logRecord(input: {
     service: input.service,
     event: event ?? UNSPECIFIED_EVENT,
     msg: input.message,
-    ...(input.error === undefined ? {} : { err: serialiseError(input.error) }),
+    ...(input.error === undefined ? {} : { err: serialiseError(input.error, input.redactUrls) }),
   }
 }
 
@@ -188,6 +228,8 @@ export function logLine(record: LogRecord): string {
  */
 export function createLog(options: {
   readonly service: string
+  /** Configured URLs whose hosts must never enter an error log. */
+  readonly redactUrls?: readonly (string | undefined)[]
   readonly write?: (line: string) => void
   readonly now?: () => Date
 }): Log {
@@ -201,7 +243,17 @@ export function createLog(options: {
     error: unknown,
   ): void => {
     write(
-      logLine(logRecord({ level, service: options.service, message, now: now(), fields, error })),
+      logLine(
+        logRecord({
+          level,
+          service: options.service,
+          message,
+          now: now(),
+          fields,
+          error,
+          redactUrls: options.redactUrls,
+        }),
+      ),
     )
   }
 

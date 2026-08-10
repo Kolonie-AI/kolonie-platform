@@ -20,6 +20,7 @@ import {
   type RecipeStep,
   type ReferralArrangement,
   AgentApiSchema,
+  SignupCodeSchema,
 } from '@kolonie-ai/core'
 
 /**
@@ -33,6 +34,7 @@ const RECIPE_STATUSES = RecipeStatusSchema.options
 const ATLAS_CATEGORIES = AtlasCategorySchema.options
 const OPERATOR_GUESSES = RecipeOperatorGuessSchema.options
 const AGENT_APIS = AgentApiSchema.options
+const SIGNUP_CODES = SignupCodeSchema.options
 
 /**
  * One provider, as a recipe (`#521`).
@@ -230,6 +232,15 @@ export const providerRecipes = pgTable(
     agentApi: text('agent_api').notNull().default('unknown'),
 
     /**
+     * Where this provider's signup code arrives (`#597`).
+     *
+     * `not null` with an `unknown` default, for the reason `agent_api` above it
+     * is: there is an honest word for the empty answer, so a null would be a
+     * second spelling of it.
+     */
+    signupCode: text('signup_code').notNull().default('unknown'),
+
+    /**
      * How many accounts one operator may create here in a day (`#532`).
      *
      * Null means the configured default applies. **It can only lower the ceiling**,
@@ -318,6 +329,12 @@ export const providerRecipes = pgTable(
     check(
       'provider_recipes_agent_api_is_known',
       sql`${table.agentApi} in (${sql.raw(AGENT_APIS.map((one) => `'${one}'`).join(', '))})`,
+    ),
+
+    /** The same, from `SignupCodeSchema` (`#597`). */
+    check(
+      'provider_recipes_signup_code_is_known',
+      sql`${table.signupCode} in (${sql.raw(SIGNUP_CODES.map((one) => `'${one}'`).join(', '))})`,
     ),
 
     /**

@@ -4,6 +4,7 @@ import {
   AccountProviderSchema,
   AgentApiSchema,
   AtlasCategorySchema,
+  SignupCodeSchema,
   RecipeOperatorGuessSchema,
   RecipeRuntimeNoteSchema,
   RecipeStatusSchema,
@@ -14,6 +15,7 @@ import {
   type AccountKind,
   type AgentApi,
   type AtlasCategory,
+  type SignupCode,
   type ProviderRecipe,
   type RecipeOperatorGuess,
   type RecipeRuntimeNote,
@@ -90,6 +92,7 @@ function toRecipe(row: typeof providerRecipes.$inferSelect): ProviderRecipe {
     provesTask: row.provesTask,
     caution: row.caution,
     agentApi: AgentApiSchema.parse(row.agentApi),
+    signupCode: SignupCodeSchema.parse(row.signupCode),
     pacePerDay: row.pacePerDay,
     updatedAt: toTimestamp(row.updatedAt),
   }
@@ -216,6 +219,8 @@ export async function writeProviderRecipe(
     readonly caution?: string | null
     /** The answer to admission question two (`#680`). Absent means nobody looked. */
     readonly agentApi?: AgentApi
+    /** Where the signup code arrives (`#597`). Absent means nobody looked. */
+    readonly signupCode?: SignupCode
     readonly pacePerDay?: number | null
   },
 ): Promise<ProviderRecipe> {
@@ -266,6 +271,7 @@ export async function writeProviderRecipe(
      * to `about` silently re-assert an API answer nobody re-checked.
      */
     agentApi: entry.agentApi ?? 'unknown',
+    signupCode: entry.signupCode ?? 'unknown',
     pacePerDay: entry.pacePerDay ?? null,
   }
 

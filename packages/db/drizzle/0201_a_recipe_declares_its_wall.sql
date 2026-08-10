@@ -1,0 +1,2 @@
+ALTER TABLE "provider_recipes" ADD COLUMN "signup_code" text DEFAULT 'unknown' NOT NULL;--> statement-breakpoint
+ALTER TABLE "provider_recipes" ADD CONSTRAINT "provider_recipes_signup_code_is_known" CHECK ("provider_recipes"."signup_code" in ('agent-address', 'elsewhere', 'none', 'unknown'));

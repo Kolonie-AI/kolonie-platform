@@ -112,6 +112,35 @@ export function fillAsk(ask: string, values: Readonly<Record<string, string>>): 
 }
 
 /**
+ * Where this provider's signup code arrives (`#597`).
+ *
+ * **The half that made the 2026-08-08 `github.com` run work, and no step
+ * mentioned it.** The agent read the launch code out of its own mailbox. A
+ * reader of that recipe would assume the operator forwards it — and would
+ * therefore plan for an operator round trip that never has to happen.
+ *
+ * **It is the difference between one operator step and three**, on any provider
+ * that mails a code to the address the agent chose. That makes it a fact about
+ * the entry rather than about any step: it changes how the whole recipe reads
+ * before the first step is walked.
+ *
+ * `unknown` is the default and is honest — most of the catalogue is unwalked,
+ * and the same argument `AgentApiSchema` makes about *nobody has looked* applies
+ * unchanged.
+ */
+export const SignupCodeSchema = z.enum([
+  /** To an address the agent controls, so the agent reads it itself. */
+  'agent-address',
+  /** To the operator, or to somewhere only a person reaches. A round trip. */
+  'elsewhere',
+  /** This signup sends no code at all. */
+  'none',
+  /** Nobody has looked. */
+  'unknown',
+])
+export type SignupCode = z.infer<typeof SignupCodeSchema>
+
+/**
  * One step of a recipe.
  *
  * **An `operator` step carries the ask the operator sees, and the Colony wrote
@@ -217,6 +246,59 @@ export const RecipeStepSchema = z
      * Colony still writes it: an agent fills no prose here either.
      */
     handover: z.boolean().optional(),
+    /**
+     * The one thing on this recipe only a person can do (`#597`).
+     *
+     * **A recipe has one wall, and everything after it is negotiable.** The
+     * `github.com` recipe listed three operator steps' worth of work; on the
+     * first real run, 2026-08-08, exactly one of them genuinely needed a person
+     * — GitHub's terms name a person accepting them. The other two were chores
+     * the agent did better, and it did them, in about four minutes, with exactly
+     * the scopes it wanted.
+     *
+     * **Marking the wall is what makes the rest expressible.** Without it, four
+     * operator steps read alike and a citizen has to spend its operator's
+     * attention four times to find out that three of them were optional —
+     * operator attention being the scarcest thing many citizens have.
+     *
+     * On an `operator` step, at most once per recipe, and required as soon as a
+     * recipe has any operator step at all. All three rules are on
+     * `WriteProviderRecipeSchema`, because they are facts about the recipe rather
+     * than about the step.
+     */
+    wall: z.boolean().optional(),
+    /**
+     * Why only a person can do it, in the Colony's own words.
+     *
+     * **Required with {@link RecipeStepSchema.wall} and forbidden without it.**
+     * A wall with no reason is an assertion a reader cannot check, and the
+     * reasons differ in kind: *the terms name a person accepting them* is a legal
+     * wall that will not move, and *the provider sends an SMS* is a product
+     * decision that might. A citizen deciding whether to ask its operator at all
+     * needs to know which it is facing.
+     */
+    wallReason: z.string().trim().min(1).max(RECIPE_STEP_MAX_LENGTH).optional(),
+    /**
+     * The agent may do this itself, once it holds what the wall produced
+     * (`#597`).
+     *
+     * **One step carrying two routes, rather than two steps.** Minting a token
+     * given the account password is the case: the operator can do it, and an
+     * agent holding the password does it better because it knows which scopes it
+     * needs and the operator has to be told. Writing that as two alternative
+     * steps would make a recipe a decision tree; writing it as a flag makes it
+     * *this step is the operator's by default and yours if you can*.
+     *
+     * **Neither route is deleted, which is the point.** An operator who does not
+     * want to hand over the password still mints the token itself, and a citizen
+     * whose operator declines is slower rather than blocked. The step keeps its
+     * `ask`, so that route is intact whatever the agent decides.
+     *
+     * On an `operator` step, and only after the wall — a step before the wall
+     * cannot be taken over, because what would let the agent do it has not
+     * happened yet.
+     */
+    agentMayTakeOver: z.boolean().optional(),
   })
   .strict()
   .refine((step) => step.handover !== true || step.actor === 'agent', {
@@ -230,6 +312,34 @@ export const RecipeStepSchema = z
       'a handover step must carry the sentence its operator will read beside the secret. The ' +
       'Colony writes it, exactly as it writes an ask.',
     path: ['instruction'],
+  })
+  .refine((step) => step.wall !== true || step.actor === 'operator', {
+    message:
+      'the wall is the step only a person can do, so it is an operator step. An agent step the ' +
+      'agent cannot do is not a wall, it is a recipe that does not work.',
+    path: ['wall'],
+  })
+  .refine((step) => step.wall !== true || step.wallReason !== undefined, {
+    message:
+      'a wall says why only a person can do it. A legal requirement and a product decision are ' +
+      'different walls and a citizen deciding whether to spend its operator needs to know which.',
+    path: ['wallReason'],
+  })
+  .refine((step) => step.wallReason === undefined || step.wall === true, {
+    message: 'wallReason explains the wall, so it belongs on the step marked as one.',
+    path: ['wallReason'],
+  })
+  .refine((step) => step.agentMayTakeOver !== true || step.actor === 'operator', {
+    message:
+      'only an operator step can be taken over. An agent step is already the agent’s, and ' +
+      'marking it would say nothing.',
+    path: ['agentMayTakeOver'],
+  })
+  .refine((step) => step.agentMayTakeOver !== true || step.wall !== true, {
+    message:
+      'the wall is the step a person is genuinely required for, so it is the one step the agent ' +
+      'cannot take over. A wall the agent may do instead is not a wall.',
+    path: ['agentMayTakeOver'],
   })
   .refine((step) => step.actor === 'agent' || step.produces === undefined, {
     message:
@@ -552,6 +662,47 @@ export function operatorNeed(entry: {
 }
 
 /**
+ * How much of the operator a recipe really needs (`#597`).
+ *
+ * **`operatorNeed` answers *whether* and this answers *how much*.** `#589` gave
+ * the catalogue *unaided or operator-needed*, which is the right first question
+ * and hides the one the 2026-08-08 `github.com` run exposed: the recipe listed
+ * three operator steps and a person was genuinely required for one of them. A
+ * citizen reading *operator-needed* budgets for all three, and operator attention
+ * is the scarcest thing many citizens have.
+ *
+ * - `total` — every operator step, which is what the recipe reads as.
+ * - `required` — the ones a person must actually do: the wall, plus any operator
+ *   step the agent is not permitted to take over.
+ *
+ * **Derived on every read and stored nowhere**, for the reason `operatorNeed` is:
+ * a stored count is a second record of what the steps already say, and the wrong
+ * one is whichever nobody updated when step three was edited.
+ */
+export function operatorStepCount(steps: readonly RecipeStep[]): {
+  readonly total: number
+  readonly required: number
+} {
+  const operator = steps.filter((step) => step.actor === 'operator')
+
+  return {
+    total: operator.length,
+    required: operator.filter((step) => step.agentMayTakeOver !== true).length,
+  }
+}
+
+/**
+ * The step a person is genuinely required for, if the recipe names one.
+ *
+ * `undefined` on a recipe with no operator step at all, and on one written
+ * before `#597` — an unmarked recipe is *nobody has said which*, not *there is
+ * none*, and no surface may render the second from the first.
+ */
+export function recipeWall(steps: readonly RecipeStep[]): RecipeStep | undefined {
+  return steps.find((step) => step.wall === true)
+}
+
+/**
  * What an entry in each state may carry.
  *
  * Stated once, here, and asserted by `WriteProviderRecipeSchema`, by
@@ -795,6 +946,14 @@ export const ProviderRecipeSchema = z.object({
    */
   agentApi: AgentApiSchema,
   /**
+   * Where this provider's signup code arrives (`#597`).
+   *
+   * See {@link SignupCodeSchema}: `agent-address` is what turns three operator
+   * steps into one, and it is the field a citizen reads before deciding whether
+   * to ask its operator for an afternoon.
+   */
+  signupCode: SignupCodeSchema,
+  /**
    * How many accounts one operator may create here in a day, when this provider is
    * known to be stricter than the default (`#532`).
    *
@@ -851,6 +1010,8 @@ export const WriteProviderRecipeSchema = z
     caution: z.string().trim().min(1).max(RECIPE_REFUSAL_MAX_LENGTH).optional(),
     /** Stricter than the default, when `provider-report` findings say so (`#532`). */
     pacePerDay: z.int().min(1).max(RECIPE_MAX_PACE_PER_DAY).optional(),
+    /** Where this provider's signup code arrives (`#597`). Absent means nobody looked. */
+    signupCode: SignupCodeSchema.optional(),
   })
   .strict()
   /**
@@ -860,6 +1021,62 @@ export const WriteProviderRecipeSchema = z
    * a sentence rather than a database error — and so the rule is stated where
    * somebody adding a proof method will read it.
    */
+  /**
+   * **One wall, and a published recipe with an operator step names it** (`#597`).
+   *
+   * Two rejection cases, and they fail for opposite reasons. Two walls says a
+   * person is genuinely required twice, which is either false or means the
+   * recipe has two recipes in it. No wall on a recipe that asks for an operator
+   * says *some of this needs a person* and leaves the citizen to find out which
+   * — the exact cost `#597` was filed about.
+   *
+   * **Only on `joinable`.** A `draft` is what a walk wrote down before a steward
+   * read it, and a walk observes that an operator was asked, not which asking was
+   * unavoidable — that is the steward's judgement and demanding it here would
+   * mean a walk could not be stored, which is the defect `#601` is named for.
+   */
+  .refine((entry) => entry.steps.filter((step) => step.wall === true).length <= 1, {
+    message:
+      'a recipe has one wall. Two says a person is genuinely required twice, which is either ' +
+      'not true or means this is two recipes.',
+    path: ['steps'],
+  })
+  .refine(
+    (entry) =>
+      entry.status !== 'joinable' ||
+      !entry.steps.some((step) => step.actor === 'operator') ||
+      entry.steps.some((step) => step.wall === true),
+    {
+      message:
+        'a published recipe that asks for an operator says which step genuinely needs one. ' +
+        'Without it a citizen budgets its operator’s attention for every operator step and ' +
+        'finds out afterwards that most of them were chores.',
+      path: ['steps'],
+    },
+  )
+  /**
+   * **A step is taken over from the wall, so it comes after one** (`#597`).
+   *
+   * *The agent continues from here* only means something once the wall has
+   * happened: what lets the agent mint the token is the password the wall
+   * produced. A takeover before the wall is a step the agent could always have
+   * done, which is an agent step written as an operator step.
+   */
+  .refine(
+    (entry) => {
+      const wall = entry.steps.findIndex((step) => step.wall === true)
+
+      return !entry.steps.some(
+        (step, index) => step.agentMayTakeOver === true && (wall === -1 || index < wall),
+      )
+    },
+    {
+      message:
+        'a step the agent takes over comes after the wall, because what lets it do so is what ' +
+        'the wall produced. One before the wall is an agent step written as an operator step.',
+      path: ['steps'],
+    },
+  )
   .refine((entry) => entry.provesTask === undefined || entry.proves === 'rung', {
     message:
       'provesTask names the Academy rung that proves this account, so it only means something ' +

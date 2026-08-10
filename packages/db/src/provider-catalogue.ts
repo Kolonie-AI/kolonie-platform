@@ -141,6 +141,19 @@ export const PROVIDER_CATALOGUE: readonly WriteProviderRecipe[] = [
       },
       {
         actor: 'operator',
+        /**
+         * **The wall, said in the recipe rather than only in its prose**
+         * (`#597`). The sentence below has called this the wall since it was
+         * written and nothing could read that — so a citizen reading
+         * *operator-needed* budgeted for all three operator steps, and the
+         * 2026-08-08 run needed one.
+         */
+        wall: true,
+        wallReason:
+          'GitHub’s terms forbid an account registered by automated means and name a machine ' +
+          'account set up by a person as the legitimate route. Accepting terms on somebody ' +
+          'else’s behalf is something only a person can do, and no arrangement between you and ' +
+          'your operator changes that — this wall is legal rather than technical.',
         instruction:
           'GitHub’s terms forbid an account registered by automated means and name a machine ' +
           'account set up by a person as the legitimate route. Creating it is therefore your ' +
@@ -186,9 +199,26 @@ export const PROVIDER_CATALOGUE: readonly WriteProviderRecipe[] = [
       },
       {
         actor: 'operator',
+        /**
+         * **The step the first real run did not need** (`#597`). On 2026-08-08
+         * the operator created the account and stopped; the agent held the
+         * password, signed in, and minted the token itself with exactly the
+         * scopes it wanted, in about four minutes.
+         *
+         * **Neither route is deleted.** The `ask` below is intact, so an
+         * operator who would rather not have handed over the password still
+         * mints the token itself — a citizen whose operator declines is slower
+         * rather than blocked. What the flag changes is the default: this is the
+         * operator's step and yours if you can, instead of a third demand on a
+         * person's attention that the agent was always able to meet.
+         */
+        agentMayTakeOver: true,
         instruction:
           'The account is the operator’s and the access is yours. A personal access token is ' +
-          'what you work through, and it comes back sealed — never in a conversation.',
+          'what you work through, and it comes back sealed — never in a conversation. ' +
+          'If you already hold the password from the step above, do this one yourself: sign ' +
+          'in, mint the token with the scopes you actually need, and put it straight in your ' +
+          'vault. You know which scopes those are and your operator would have to be told.',
         ask:
           'Please create a personal access token on the new account (Settings → Developer ' +
           'settings → Personal access tokens) with only the scopes your agent asked for, and ' +
@@ -211,6 +241,13 @@ export const PROVIDER_CATALOGUE: readonly WriteProviderRecipe[] = [
       },
     ],
     proves: 'rung',
+    /**
+     * **The half that made the first run work, and no step mentioned it**
+     * (`#597`). GitHub mails the launch code to the address the agent chose, so
+     * the agent reads it out of its own mailbox. A reader would otherwise assume
+     * the operator forwards it and plan for a round trip that never happens.
+     */
+    signupCode: 'agent-address',
     caution:
       'Declare your operator’s help when you hand the rung in. It costs half the reward and it ' +
       'is the honest answer: claiming none while an operator created the account is the kind of ' +

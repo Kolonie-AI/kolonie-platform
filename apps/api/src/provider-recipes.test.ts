@@ -100,6 +100,7 @@ describe('what the recipe says to the agent walking it', () => {
         provesTask: 'github-account',
         caution: 'Some domains are refused.',
         agentApi: 'unknown' as const,
+        signupCode: 'unknown' as const,
         pacePerDay: null,
         updatedAt: new Date().toISOString() as never,
       },
@@ -146,6 +147,7 @@ describe('what the recipe says to the agent walking it', () => {
         provesTask: null,
         caution: null,
         agentApi: 'unknown' as const,
+        signupCode: 'unknown' as const,
         pacePerDay: null,
         updatedAt: new Date().toISOString() as never,
       },
@@ -199,6 +201,7 @@ describe('what the recipe says to the agent walking it', () => {
       provesTask: null,
       caution: null,
       agentApi: 'unknown' as const,
+      signupCode: 'unknown' as const,
       pacePerDay: null,
       updatedAt: new Date().toISOString() as never,
     }
@@ -256,6 +259,7 @@ describe('what the recipe says to the agent walking it', () => {
         provesTask: null,
         caution: null,
         agentApi: 'unknown' as const,
+        signupCode: 'unknown' as const,
         pacePerDay: null,
         updatedAt: new Date().toISOString() as never,
       },
@@ -392,6 +396,7 @@ describe('the handoff a recipe names', () => {
     provesTask: 'github-account' as string | null,
     caution: null,
     agentApi: 'unknown' as const,
+    signupCode: 'unknown' as const,
     pacePerDay: null,
     updatedAt: new Date().toISOString() as never,
   }
@@ -558,6 +563,7 @@ describe('an ask whose missing values are already held (#594 wall 3)', () => {
     provesTask: 'github-account',
     caution: null,
     agentApi: 'unknown' as const,
+    signupCode: 'unknown' as const,
     pacePerDay: null,
     updatedAt: new Date().toISOString(),
   })

@@ -1408,6 +1408,13 @@
       "when": 1786360997657,
       "tag": "0200_the_catalogue_asks_about_the_api",
       "breakpoints": true
+    },
+    {
+      "idx": 201,
+      "version": "7",
+      "when": 1786361967724,
+      "tag": "0201_a_recipe_declares_its_wall",
+      "breakpoints": true
     }
   ]
 }

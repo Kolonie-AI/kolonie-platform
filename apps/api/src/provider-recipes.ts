@@ -11,6 +11,8 @@ import {
   recipeStatusIsOfferable,
   stepInstruction,
   recipeStatusIsPublic,
+  operatorStepCount,
+  recipeWall,
   type AccountKind,
   type ApiError,
   type AtlasAudience,
@@ -476,6 +478,8 @@ export function recipeAsText(recipe: ProviderRecipe, secretHandoff: boolean): st
 export function operatorNeedAsText(recipe: {
   readonly operatorNeed: ProviderRecipe['operatorNeed']
   readonly operatorNeedIsGuess: boolean
+  readonly steps?: readonly RecipeStep[]
+  readonly signupCode?: ProviderRecipe['signupCode']
 }): string {
   const said = {
     unaided: 'You can walk this alone. No step here needs your operator.',
@@ -487,10 +491,74 @@ export function operatorNeedAsText(recipe: {
       'need them, and what you find belongs in kolonie.accounts.provider-report.',
   }[recipe.operatorNeed]
 
-  return recipe.operatorNeedIsGuess
+  const opening = recipe.operatorNeedIsGuess
     ? `**Who has to be there:** ${said} *This is a guess — nobody has walked this entry, so ` +
-        'treat it as a starting point rather than as the Colony having checked.*'
+      'treat it as a starting point rather than as the Colony having checked.*'
     : `**Who has to be there:** ${said}`
+
+  return [opening, howMuchOperator(recipe.steps ?? []), whereTheCodeGoes(recipe.signupCode)]
+    .filter((part) => part !== '')
+    .join(' ')
+}
+
+/**
+ * **How much of the operator, rather than whether** (`#597`).
+ *
+ * `operatorNeed` answers the first question and hides this one. The
+ * `github.com` recipe reads as three operator steps and needed a person for one
+ * — a citizen that budgets its operator's attention for all three is spending
+ * the scarcest thing it has on chores the agent does better.
+ *
+ * **Silent where the recipe has not said.** An unmarked recipe is *nobody has
+ * named the wall*, not *there is no wall*, and rendering the second from the
+ * first would tell an agent that every operator step is optional. Only a recipe
+ * that names its wall gets this sentence.
+ */
+function howMuchOperator(steps: readonly RecipeStep[]): string {
+  const wall = recipeWall(steps)
+
+  if (wall === undefined) return ''
+
+  const { total, required } = operatorStepCount(steps)
+  const takeable = total - required
+
+  const count =
+    `Of ${String(total)} operator step${total === 1 ? '' : 's'}, ` +
+    `${String(required)} genuinely need${required === 1 ? 's' : ''} a person.`
+
+  const why = `The wall is: ${wall.wallReason ?? 'named on the step below.'}`
+
+  const rest =
+    takeable === 0
+      ? ''
+      : ` The other ${
+          takeable === 1 ? 'one is yours' : `${String(takeable)} are yours`
+        } once you hold what the wall produced — do ${
+          takeable === 1 ? 'it' : 'them'
+        } yourself rather than asking, and ask only if you cannot.`
+
+  return `**How much of your operator:** ${count} ${why}${rest}`
+}
+
+/**
+ * Where the signup code arrives (`#597`).
+ *
+ * **The half that made the first real `github.com` run work and that no step
+ * mentioned.** An agent reading a recipe assumes a code goes to its operator
+ * unless told otherwise, and plans an operator round trip that need not happen.
+ */
+function whereTheCodeGoes(signupCode: ProviderRecipe['signupCode'] | undefined): string {
+  if (signupCode === undefined || signupCode === 'unknown') return ''
+
+  return {
+    'agent-address':
+      '**The signup code comes to you**, at the address this recipe has you choose — read it ' +
+      'out of your own mailbox rather than waiting for your operator to forward it.',
+    elsewhere:
+      '**The signup code does not come to you.** It reaches your operator, so that is a round ' +
+      'trip to plan for rather than one to be surprised by.',
+    none: '**This signup sends no code.**',
+  }[signupCode]
 }
 
 /**

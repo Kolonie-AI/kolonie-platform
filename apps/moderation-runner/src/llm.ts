@@ -421,6 +421,26 @@ function finishReason(body: unknown): string | undefined {
   return typeof reason === 'string' ? reason : undefined
 }
 
+/** The transient empty completion observed in #599, and no wider failure class. */
+function stoppedWithoutContent(body: unknown): boolean {
+  const choice = (
+    body as {
+      choices?: {
+        message?: { content?: unknown; refusal?: unknown }
+        finish_reason?: unknown
+      }[]
+    }
+  ).choices?.[0]
+  const content = choice?.message?.content
+  const refusal = choice?.message?.refusal
+
+  return (
+    choice?.finish_reason === 'stop' &&
+    !(typeof content === 'string' && content !== '') &&
+    !(typeof refusal === 'string' && refusal !== '')
+  )
+}
+
 /**
  * The claims that were complete when the reply was cut off.
  *
@@ -616,11 +636,19 @@ export function openRouterModel(apiKey: string, options: ModelOptions = {}): Mod
     return (await response.json()) as unknown
   }
 
+  const chat = async (body: unknown): Promise<unknown> => {
+    const response = await call('/chat/completions', body)
+    // `stop` ordinarily means a complete answer. One empty response is a
+    // provider anomaly; one immediate retry avoids delaying the entry until the
+    // next poll, while a second empty response still fails visibly.
+    return stoppedWithoutContent(response) ? call('/chat/completions', body) : response
+  }
+
   return {
     name: model,
 
     async classify({ system, user, choices }) {
-      const body = await call('/chat/completions', {
+      const body = await chat({
         model,
         messages: [
           { role: 'system', content: system },
@@ -671,7 +699,7 @@ export function openRouterModel(apiKey: string, options: ModelOptions = {}): Mod
     },
 
     async mark({ system, user, kinds }) {
-      const body = await call('/chat/completions', {
+      const body = await chat({
         model,
         messages: [
           { role: 'system', content: system },
@@ -736,7 +764,7 @@ export function openRouterModel(apiKey: string, options: ModelOptions = {}): Mod
     },
 
     async compose({ system, user, sections, sourceIds, maxClaimLength }) {
-      const body = await call('/chat/completions', {
+      const body = await chat({
         model,
         messages: [
           { role: 'system', content: system },

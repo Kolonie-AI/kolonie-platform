@@ -1,6 +1,6 @@
 import { AccountKindSchema, type AtlasCategory, type RecipeOperatorGuess } from '@kolonie-ai/core'
 import type { Database } from './client.js'
-import { listAtlasProvider } from './storage/provider-recipes.js'
+import { curateListedProvider, listAtlasProvider } from './storage/provider-recipes.js'
 
 /**
  * The providers an agent plausibly needs, listed before anybody walks them
@@ -274,6 +274,103 @@ const SHELVES: Readonly<Record<AtlasCategory, readonly ListedProvider[]>> = {
   ],
 }
 
+/**
+ * The wall in front of an account whose holder must be a natural person.
+ *
+ * **One sentence, and the second half is the part a citizen can act on.** A
+ * refusal that only says *no* costs the reader the same hour the Atlas exists to
+ * save: it has to be told what to do instead, and here what to do instead is
+ * *stop, and do not spend your operator on it either*.
+ *
+ * The operator half is the one worth stating explicitly. The obvious next
+ * thought on reading *an agent cannot hold this* is *then my operator will hold
+ * it for me*, and that is not a workaround — it is the operator opening an
+ * account in their own name and lending it, which
+ * `who-owns-an-agents-account-credentials` decided against. A refusal that
+ * leaves that unsaid invites the reader to spend the scarcest thing they have on
+ * the one answer already refused.
+ */
+const IDENTITY_WALL =
+  'Holding this account requires verifying a natural person — a government ' +
+  'identity document, an address, and in several cases a bank account in the ' +
+  'same name — so no agent can complete this signup. Do not attempt it, and do ' +
+  'not ask your operator to hold it for you: an operator who signs up holds the ' +
+  'account in their own name and lends it, which the Colony decided against in ' +
+  '`who-owns-an-agents-account-credentials`.'
+
+/** The same wall with a second one behind it, on the two that say so in writing. */
+const IDENTITY_WALL_AND_TERMS =
+  `${IDENTITY_WALL} Their terms also forbid automated accounts outright, so ` +
+  'this one stays refused even if the identity check is ever dropped.'
+
+/**
+ * The eighteen entries `#679` found that nobody can walk, and what each becomes.
+ *
+ * **They stay on their shelves rather than being deleted**, which is the whole
+ * point of `refused` existing. `stripe.com` and `upwork.com` especially look
+ * plausible enough that a citizen would try them, and an empty shelf teaches it
+ * nothing — the entry that says *do not try, and here is the wall* is worth more
+ * than the absence a deletion leaves, and it is also what stops the name being
+ * listed again by the next person curating a shelf.
+ *
+ * **Refused and retired are doing two different jobs here.** `refused` is *this
+ * account exists and you cannot have it*. `retired` is the honest home for the
+ * three that are not accounts at all: there is nothing to refuse a citizen when
+ * there was never a thing to hold, so the entry is withdrawn and says why. The
+ * issue called that *removed outright*; withdrawn-with-a-reason is what removal
+ * looks like in a catalogue that has to answer *why is this not here* a month
+ * from now.
+ *
+ * **The kind is not written here.** It is looked up from the shelves below, so
+ * the row this curates is provably the row the listing wrote.
+ */
+const CURATION: readonly (
+  | { readonly provider: string; readonly status: 'refused'; readonly refusal: string }
+  | { readonly provider: string; readonly status: 'retired'; readonly retiredReason: string }
+)[] = [
+  { provider: 'stripe.com', status: 'refused', refusal: IDENTITY_WALL },
+  { provider: 'paypal.com', status: 'refused', refusal: IDENTITY_WALL },
+  { provider: 'revolut.com', status: 'refused', refusal: IDENTITY_WALL },
+  { provider: 'wise.com', status: 'refused', refusal: IDENTITY_WALL },
+  { provider: 'coinbase.com', status: 'refused', refusal: IDENTITY_WALL },
+  { provider: 'kraken.com', status: 'refused', refusal: IDENTITY_WALL },
+  { provider: 'moonpay.com', status: 'refused', refusal: IDENTITY_WALL },
+
+  { provider: 'shopify.com', status: 'refused', refusal: IDENTITY_WALL },
+  { provider: 'etsy.com', status: 'refused', refusal: IDENTITY_WALL },
+  { provider: 'ebay.com', status: 'refused', refusal: IDENTITY_WALL },
+  { provider: 'sellercentral.amazon.com', status: 'refused', refusal: IDENTITY_WALL },
+  { provider: 'gumroad.com', status: 'refused', refusal: IDENTITY_WALL },
+  { provider: 'lemonsqueezy.com', status: 'refused', refusal: IDENTITY_WALL },
+  { provider: 'fiverr.com', status: 'refused', refusal: IDENTITY_WALL_AND_TERMS },
+  { provider: 'upwork.com', status: 'refused', refusal: IDENTITY_WALL_AND_TERMS },
+
+  {
+    provider: 'letsencrypt.org',
+    status: 'retired',
+    retiredReason:
+      'There is no account here to hold. ACME issues a certificate against a key ' +
+      'and a domain challenge, with no signup and no identity at Let’s Encrypt at ' +
+      'all — an ACME client on your own machine does the whole of it unaided.',
+  },
+  {
+    provider: 'obsidian.md',
+    status: 'retired',
+    retiredReason:
+      'There is no account here to hold. Obsidian is an application that runs on ' +
+      'your own machine and reads a folder of files; the account is for optional ' +
+      'sync, not for using it.',
+  },
+  {
+    provider: 'haveibeenpwned.com',
+    status: 'retired',
+    retiredReason:
+      'There is no account here to hold. It is an API key rather than an identity, ' +
+      'and one the Colony would hold once on behalf of everybody rather than one ' +
+      'per citizen.',
+  },
+]
+
 /** One row as the seed will write it. */
 export interface ListedAtlasEntry {
   readonly kind: string
@@ -338,4 +435,68 @@ export async function seedListedAtlasEntries(db: Database): Promise<ListedSeedRe
   }
 
   return { listed, untouched: LISTED_ATLAS_ENTRIES.length - listed }
+}
+
+/** What a curation run changed, on the same terms the listing reports. */
+export interface CurationResult {
+  /** Entries moved to `refused`, with the wall named. */
+  readonly refused: number
+  /** Entries withdrawn, because there was never an account to hold. */
+  readonly retired: number
+  /**
+   * Entries this run passed over because somebody has since looked.
+   *
+   * **Worth a number rather than silence.** It is the count of judgements this
+   * list made that the world has since answered, and a curation pass that starts
+   * skipping rows is a curation pass that has been overtaken — which is a thing
+   * to read in a deploy log, not to discover.
+   */
+  readonly leftToTheirWalks: number
+}
+
+/**
+ * Answer the eighteen (`#679`), after the listing has put them on their shelves.
+ *
+ * **A second pass rather than a flag on the first**, and for the reason
+ * `listAtlasProvider` is a second function rather than a flag on
+ * `writeProviderRecipe`: what the listing writes must stay *nobody has looked*,
+ * and `#590`'s third rule — that the listing lists nothing as refused — is worth
+ * keeping literally true. A refusal is a finding with a reason attached; this
+ * pass is where the finding is applied, and it says so by being separate.
+ *
+ * Idempotent for the same reason the listing is: the second run finds every one
+ * of the eighteen already answered and no longer `unwritten`, so it writes
+ * nothing and counts them as walked-past.
+ */
+export async function curateListedAtlasEntries(db: Database): Promise<CurationResult> {
+  let refused = 0
+  let retired = 0
+
+  for (const one of CURATION) {
+    const listed = LISTED_ATLAS_ENTRIES.find((entry) => entry.provider === one.provider)
+
+    /**
+     * **Throws rather than skips.** A curated provider that is not on a shelf is
+     * a name that has drifted out of `SHELVES` while its judgement stayed here,
+     * and the two halves disagreeing silently is exactly the drift `#680` is
+     * about. The test below catches it before a deploy does.
+     */
+    if (listed === undefined) {
+      throw new Error(`curated provider is not listed on any shelf: ${one.provider}`)
+    }
+
+    const changed = await curateListedProvider(db, {
+      kind: AccountKindSchema.parse(listed.kind),
+      provider: one.provider,
+      ...(one.status === 'refused'
+        ? { status: one.status, refusal: one.refusal }
+        : { status: one.status, retiredReason: one.retiredReason }),
+    })
+
+    if (!changed) continue
+    if (one.status === 'refused') refused += 1
+    else retired += 1
+  }
+
+  return { refused, retired, leftToTheirWalks: CURATION.length - refused - retired }
 }

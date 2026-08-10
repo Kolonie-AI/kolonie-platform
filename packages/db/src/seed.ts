@@ -1,6 +1,6 @@
 import { seedAcademyTasks } from './academy-tasks.js'
 import { seedProviderCatalogue } from './provider-catalogue.js'
-import { seedListedAtlasEntries } from './atlas-providers.js'
+import { curateListedAtlasEntries, seedListedAtlasEntries } from './atlas-providers.js'
 import { seedBundles } from './storage/provider-bundles.js'
 import { createDatabase, databaseUrlFromEnv } from './client.js'
 
@@ -62,6 +62,17 @@ async function main(): Promise<void> {
     console.log(
       `atlas providers: ${listed} newly listed, ${untouched} already in the catalogue and ` +
         'left untouched',
+    )
+
+    /**
+     * The eighteen nobody can walk (`#679`), immediately after the listing that
+     * puts them on their shelves — a curation pass that ran before them would
+     * have nothing to answer on a fresh database.
+     */
+    const { refused, retired, leftToTheirWalks } = await curateListedAtlasEntries(db)
+    console.log(
+      `atlas curation: ${refused} refused with a named wall, ${retired} withdrawn as not ` +
+        `accounts, ${leftToTheirWalks} left to the walk that has since answered them`,
     )
 
     const bundles = await seedBundles(db)

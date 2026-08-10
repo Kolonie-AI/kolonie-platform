@@ -14,7 +14,9 @@ export {
 } from './provider-catalogue.js'
 export {
   LISTED_ATLAS_ENTRIES,
+  curateListedAtlasEntries,
   seedListedAtlasEntries,
+  type CurationResult,
   type ListedAtlasEntry,
   type ListedSeedResult,
 } from './atlas-providers.js'

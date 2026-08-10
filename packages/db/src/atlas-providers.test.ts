@@ -2,9 +2,17 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { AtlasCategorySchema } from '@kolonie-ai/core'
 import type { Database } from './client.js'
 import { connectForTests, databaseTestTarget, truncateAll } from './testing.js'
-import { LISTED_ATLAS_ENTRIES, seedListedAtlasEntries } from './atlas-providers.js'
+import {
+  LISTED_ATLAS_ENTRIES,
+  curateListedAtlasEntries,
+  seedListedAtlasEntries,
+} from './atlas-providers.js'
 import { PROVIDER_CATALOGUE, seedProviderCatalogue } from './provider-catalogue.js'
-import { providerRecipe, providerRecipeList } from './storage/provider-recipes.js'
+import {
+  providerRecipe,
+  providerRecipeList,
+  writeProviderRecipe,
+} from './storage/provider-recipes.js'
 
 const target = databaseTestTarget()
 
@@ -164,6 +172,133 @@ describe('the providers the Atlas lists', () => {
       expect(await providerRecipeList(db)).not.toContainEqual(
         expect.objectContaining({ status: 'refused' }),
       )
+    })
+  })
+
+  /**
+   * The eighteen nobody can walk (`#679`).
+   *
+   * **What is asserted here is that a judgement never overwrites evidence.** The
+   * listing seed's one rule is that it must not write over a walk; this pass
+   * makes a stronger claim than a listing does — *do not try* — so the same rule
+   * matters more, not less.
+   */
+  describe('the eighteen nobody can walk', () => {
+    const REFUSED = [
+      'stripe.com',
+      'paypal.com',
+      'revolut.com',
+      'wise.com',
+      'coinbase.com',
+      'kraken.com',
+      'moonpay.com',
+      'shopify.com',
+      'etsy.com',
+      'ebay.com',
+      'sellercentral.amazon.com',
+      'gumroad.com',
+      'lemonsqueezy.com',
+      'fiverr.com',
+      'upwork.com',
+    ]
+    const WITHDRAWN = ['letsencrypt.org', 'obsidian.md', 'haveibeenpwned.com']
+
+    it('refuses the fifteen that need a natural person, and withdraws the three that are not accounts', async () => {
+      await seedListedAtlasEntries(db)
+
+      expect(await curateListedAtlasEntries(db)).toEqual({
+        refused: REFUSED.length,
+        retired: WITHDRAWN.length,
+        leftToTheirWalks: 0,
+      })
+
+      const stored = await providerRecipeList(db, undefined, { includeInternal: true })
+      const byProvider = new Map(stored.map((entry) => [entry.provider, entry]))
+
+      for (const provider of REFUSED) expect(byProvider.get(provider)?.status).toBe('refused')
+      for (const provider of WITHDRAWN) expect(byProvider.get(provider)?.status).toBe('retired')
+    })
+
+    /** `#679`'s second criterion, and the one a citizen actually reads. */
+    it('names a wall on every refusal and a reason on every withdrawal', async () => {
+      await seedListedAtlasEntries(db)
+      await curateListedAtlasEntries(db)
+
+      const stored = await providerRecipeList(db, undefined, { includeInternal: true })
+      const byProvider = new Map(stored.map((entry) => [entry.provider, entry]))
+
+      for (const provider of REFUSED) {
+        expect(byProvider.get(provider)?.refusal).toEqual(expect.stringContaining('natural person'))
+      }
+      for (const provider of WITHDRAWN) {
+        expect(byProvider.get(provider)?.retiredReason).toEqual(
+          expect.stringContaining('no account here to hold'),
+        )
+      }
+    })
+
+    /** `#679`'s first criterion, stated over the whole catalogue rather than the list. */
+    it('leaves nothing joinable that nobody can join', async () => {
+      await seedProviderCatalogue(db)
+      await seedListedAtlasEntries(db)
+      await curateListedAtlasEntries(db)
+
+      const stored = await providerRecipeList(db, undefined, { includeInternal: true })
+      const joinable = stored.filter((entry) => entry.status === 'joinable')
+
+      for (const provider of [...REFUSED, ...WITHDRAWN]) {
+        expect(joinable.map((entry) => entry.provider)).not.toContain(provider)
+      }
+    })
+
+    it('changes nothing on a second run', async () => {
+      await seedListedAtlasEntries(db)
+      await curateListedAtlasEntries(db)
+      const before = await providerRecipeList(db, undefined, { includeInternal: true })
+
+      expect(await curateListedAtlasEntries(db)).toEqual({
+        refused: 0,
+        retired: 0,
+        leftToTheirWalks: REFUSED.length + WITHDRAWN.length,
+      })
+      expect(await providerRecipeList(db, undefined, { includeInternal: true })).toEqual(before)
+    })
+
+    /**
+     * **The one that matters most, and it is the mirror of the listing's.** A
+     * citizen who walked `stripe.com` and got through has produced evidence, and
+     * this list is a judgement made by somebody who did not walk it. Evidence
+     * wins, and it wins silently rather than by the curator remembering to check.
+     */
+    it('passes over a provider somebody has since walked', async () => {
+      await seedListedAtlasEntries(db)
+
+      const listed = LISTED_ATLAS_ENTRIES.find((entry) => entry.provider === 'stripe.com')
+      const walked = await writeProviderRecipe(db, {
+        kind: listed?.kind as never,
+        provider: 'stripe.com',
+        title: 'Stripe',
+        status: 'joinable',
+        category: 'payments-finance',
+        steps: [{ actor: 'agent', instruction: 'sign up' }],
+        proves: 'provider-mail',
+      })
+
+      const result = await curateListedAtlasEntries(db)
+
+      expect(result.refused).toBe(REFUSED.length - 1)
+      expect(result.leftToTheirWalks).toBe(1)
+      expect(await providerRecipe(db, walked.kind, 'stripe.com')).toEqual(walked)
+    })
+
+    /**
+     * The drift `#680` is about, caught here rather than on a deploy: a name
+     * curated in one list and dropped from the other is two halves disagreeing.
+     */
+    it('curates only providers that are on a shelf', async () => {
+      await seedListedAtlasEntries(db)
+
+      await expect(curateListedAtlasEntries(db)).resolves.toBeDefined()
     })
   })
 

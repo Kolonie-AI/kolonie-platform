@@ -319,6 +319,60 @@ export async function listAtlasProvider(
 }
 
 /**
+ * Answer a listing that nobody can walk (`#679`).
+ *
+ * A listing says *nobody has looked*. Eighteen of them were entries where
+ * looking was never going to help: an account whose holder must be a natural
+ * person cannot be held by an agent, and an entry that cannot be walked by
+ * anybody is not a hard recipe but a wrong answer to the question the catalogue
+ * exists to ask.
+ *
+ * **It only ever touches a row still in `unwritten`, and that is the whole
+ * design.** This is the same argument `listAtlasProvider` makes one function up,
+ * from the other direction: there, a listing must not overwrite a walk; here, a
+ * curator's judgement about a provider nobody examined must not overwrite a walk
+ * either. If somebody has since walked `stripe.com` and got through, their
+ * finding outranks this list and the update passes over it — a refusal written
+ * over evidence is worse than a stale refusal, because it also erases the
+ * evidence.
+ *
+ * Returns whether a row changed, so the seed can report what it curated rather
+ * than printing the same line on every deploy.
+ */
+export async function curateListedProvider(
+  db: Database,
+  entry: {
+    readonly kind: AccountKind
+    readonly provider: string
+  } & (
+    | { readonly status: 'refused'; readonly refusal: string }
+    | { readonly status: 'retired'; readonly retiredReason: string }
+  ),
+): Promise<boolean> {
+  const changed = await db
+    .update(providerRecipes)
+    .set({
+      status: entry.status,
+      refusal: entry.status === 'refused' ? entry.refusal : null,
+      /** Stamped from the clock here, for the reason `writeProviderRecipe` states. */
+      retiredAt: entry.status === 'retired' ? sql`now()` : null,
+      retiredReason: entry.status === 'retired' ? entry.retiredReason : null,
+      updatedAt: sql`now()`,
+    })
+    .where(
+      and(
+        eq(providerRecipes.kind, entry.kind),
+        eq(providerRecipes.provider, AccountProviderSchema.parse(entry.provider)),
+        /** The guard, and not a caller's responsibility: see above. */
+        eq(providerRecipes.status, 'unwritten'),
+      ),
+    )
+    .returning({ id: providerRecipes.id })
+
+  return changed.length > 0
+}
+
+/**
  * A citizen walked this entry and it worked (`#525`).
  *
  * Separate from `writeProviderRecipe` because it changes nothing about the

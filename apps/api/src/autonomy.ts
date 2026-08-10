@@ -3,6 +3,7 @@ import {
   type AgentId,
   type ApiError,
   type AutonomyContract,
+  type AutonomyContractVersion,
   type StoredAutonomyContract,
   type Timestamp,
 } from '@kolonie-ai/core'
@@ -19,6 +20,8 @@ import {
   inviteOperator,
   openAutonomyForm,
   readAutonomyContract,
+  listAutonomyContracts,
+  recordAutonomyContractForAgent,
   recordAutonomyContract,
   issueOperatorPage,
   listOperatorPages,
@@ -46,6 +49,8 @@ export interface AutonomyStore {
     alsoFor?: readonly AgentId[],
   ): Promise<StoredAutonomyContract | null>
   read(agentId: AgentId): Promise<StoredAutonomyContract | null>
+  history(agentId: AgentId): Promise<readonly AutonomyContractVersion[]>
+  recordForAgent(agentId: AgentId, contract: AutonomyContract): Promise<StoredAutonomyContract>
   isRecorded(agentId: AgentId): Promise<boolean>
 }
 
@@ -149,6 +154,8 @@ export function databaseAutonomyStore(db: Database): AutonomyStore {
     openForm: (token) => openAutonomyForm(db, token),
     record: (token, contract, alsoFor) => recordAutonomyContract(db, token, contract, alsoFor),
     read: (agentId) => readAutonomyContract(db, agentId),
+    history: (agentId) => listAutonomyContracts(db, agentId),
+    recordForAgent: (agentId, contract) => recordAutonomyContractForAgent(db, agentId, contract),
     isRecorded: (agentId) => hasAutonomyContract(db, agentId),
   }
 }
@@ -334,4 +341,26 @@ export async function answerAutonomyForm(
   }
 
   return { outcome: 'recorded', response: contract }
+}
+
+/** The same answer process after the console has proved who operates the citizen (#658). */
+export async function answerAutonomyFormForAgent(
+  agentId: AgentId,
+  body: unknown,
+  deps: AutonomyDependencies,
+): Promise<AutonomyOutcome<StoredAutonomyContract>> {
+  const parsed = AutonomyContractSchema.safeParse(body ?? {})
+  if (!parsed.success) {
+    return {
+      outcome: 'rejected',
+      error: {
+        code: 'validation_failed',
+        message:
+          'Every question needs an answer, including how your agent should reach you. There is ' +
+          'no wrong answer here, but a half-filled contract leaves your agent guessing.',
+      },
+    }
+  }
+
+  return { outcome: 'recorded', response: await deps.store.recordForAgent(agentId, parsed.data) }
 }

@@ -4,8 +4,10 @@ import {
   AUTONOMY_LEVEL_DESCRIPTIONS,
   AUTONOMY_SKILL,
   AutonomyContractSchema,
+  AutonomyContractVersionSchema,
   AutonomyLevelSchema,
   OPERATOR_ROUTE_MAX_LENGTH,
+  compareAutonomyContracts,
   contractIsComplete,
 } from './autonomy.js'
 
@@ -118,5 +120,60 @@ describe('AutonomyContractSchema strictness', () => {
     // would then see.
     expect(AUTONOMY_LEVELS.every((level) => typeof level === 'string')).toBe(true)
     expect(AutonomyContractSchema.shape.level.safeParse('free').success).toBe(true)
+  })
+})
+
+describe('autonomy contract revisions', () => {
+  it('parses a historical version with its own dates', () => {
+    expect(
+      AutonomyContractVersionSchema.safeParse({
+        ...complete,
+        recordedAt: '2026-08-09T10:00:00.000Z',
+        reviewDueAt: '2027-08-09T10:00:00.000Z',
+        supersededAt: '2026-08-10T10:00:00.000Z',
+      }).success,
+    ).toBe(true)
+    expect(
+      AutonomyContractVersionSchema.safeParse({
+        ...complete,
+        recordedAt: '2026-08-09T10:00:00.000Z',
+        reviewDueAt: '2027-08-09T10:00:00.000Z',
+        supersededAt: 'not-a-date',
+      }).success,
+    ).toBe(false)
+  })
+
+  it('names every permission that became narrower', () => {
+    expect(
+      compareAutonomyContracts(
+        { ...complete, level: 'free', challengesAllowed: true, defaultRule: 'ask' },
+        { ...complete, level: 'accompanied', challengesAllowed: false, defaultRule: 'refrain' },
+      ),
+    ).toEqual({
+      direction: 'narrowed',
+      narrowed: [
+        { field: 'level', from: 'free', to: 'accompanied' },
+        { field: 'challengesAllowed', from: 'allowed', to: 'not allowed' },
+        { field: 'defaultRule', from: 'ask', to: 'refrain' },
+      ],
+    })
+  })
+
+  it('reports a mixed revision without hiding its withdrawal', () => {
+    expect(
+      compareAutonomyContracts(
+        { ...complete, level: 'accompanied', challengesAllowed: true },
+        { ...complete, level: 'independent', challengesAllowed: false },
+      ),
+    ).toEqual({
+      direction: 'mixed',
+      narrowed: [{ field: 'challengesAllowed', from: 'allowed', to: 'not allowed' }],
+    })
+  })
+
+  it('does not call a route-only correction a permission change', () => {
+    expect(
+      compareAutonomyContracts(complete, { ...complete, operatorRoute: 'Use the console.' }),
+    ).toEqual({ direction: 'unchanged', narrowed: [] })
   })
 })

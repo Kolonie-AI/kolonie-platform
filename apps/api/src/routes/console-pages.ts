@@ -44,6 +44,7 @@ import {
 import type { ConsoleNav } from '../console/navigation.js'
 import { zoneFrom } from '../console/time.js'
 import { agentPage } from '../console/agent-page.js'
+import { answerAutonomyFormForAgent } from '../autonomy.js'
 import { agentAccountsPage } from '../console/agent-accounts.js'
 import { numbersPage, reviewQueuePage } from '../console/steward.js'
 import { backendPage } from '../console/backend.js'
@@ -81,7 +82,12 @@ import { clientIp } from '../client-ip.js'
 import { cookieValue, sessionCookie } from './authenticated.js'
 import { consoleOperatorPath, operatorPageBody } from '../operator-page-body.js'
 import type { OperatorPageView } from '@kolonie-ai/db'
-import { operatorAnsweredPage, operatorNoteSentPage } from '../autonomy-page.js'
+import {
+  autonomyFormPage,
+  autonomyRevisedPage,
+  operatorAnsweredPage,
+  operatorNoteSentPage,
+} from '../autonomy-page.js'
 import { writeOperatorNote } from '../operator-notes.js'
 import { answerOperatorRequest, isWaitingOnTheOperator } from '../operator-requests.js'
 import { markWishWanted, putOnWishList, selectBundle } from '../account-wishes.js'
@@ -1660,7 +1666,7 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
     const token = await deps.autonomy.pages.liveToken(operated.agentId)
     const door = token === undefined ? null : await deps.autonomy.pages.open(token)
 
-    const [open, quests, written, walletAddress] = await Promise.all([
+    const [open, quests, written, walletAddress, autonomyHistory] = await Promise.all([
       /**
        * **`availableOnly`, not the frontier**, and `openTasksFor` in `tasks.ts`
        * already argues this exact point for a different reader: the frontier
@@ -1695,6 +1701,7 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
        * free-text `wallet`, which is two questions with one shape of answer.
        */
       deps.store.verifiedWalletOf(operated.agentId),
+      deps.autonomy.store.history(operated.agentId),
     ])
 
     const view = {
@@ -1730,6 +1737,7 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
         title: quest.task.title,
         status: quest.awaitingModeration ? 'awaiting moderation' : quest.task.status,
       })),
+      autonomyHistory,
     }
 
     /**
@@ -1824,6 +1832,76 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
     if (operated === null) return reply
 
     return renderAgentPage(request, reply, operated)
+  })
+
+  /** The operator may revisit its own consent without waiting for the citizen to ask (#658). */
+  app.get('/agents/:agentId/autonomy', async (request, reply) => {
+    if (!(await guard(request, reply))) return reply
+    const operated = await operatedAgent(request, reply)
+    if (operated === null) return reply
+    const facts = await deps.autonomy.pages.factsOf(operated.agentId)
+    if (facts === null) return consoleNotFound(reply, request)
+    const current = await deps.autonomy.store.read(operated.agentId)
+    const { agentId } = request.params as { agentId: string }
+
+    return html(
+      reply,
+      autonomyFormPage({
+        agentName: facts.name,
+        action: `/agents/${agentId}/autonomy`,
+        source: 'console',
+        ...(current === null
+          ? {}
+          : {
+              values: {
+                level: current.level,
+                challengesAllowed: current.challengesAllowed ? 'yes' : 'no',
+                defaultRule: current.defaultRule,
+                operatorRoute: current.operatorRoute,
+              },
+            }),
+      }),
+    )
+  })
+
+  app.post('/agents/:agentId/autonomy', async (request, reply) => {
+    if (!(await guard(request, reply))) return reply
+    const operated = await operatedAgent(request, reply)
+    if (operated === null) return reply
+    const facts = await deps.autonomy.pages.factsOf(operated.agentId)
+    if (facts === null) return consoleNotFound(reply, request)
+    const submitted = (request.body ?? {}) as Record<string, unknown>
+    const result = await answerAutonomyFormForAgent(
+      operated.agentId,
+      {
+        level: submitted['level'],
+        challengesAllowed: submitted['challengesAllowed'] === 'yes',
+        defaultRule: submitted['defaultRule'],
+        operatorRoute: submitted['operatorRoute'],
+      },
+      deps.autonomy,
+    )
+
+    if (result.outcome === 'recorded') return html(reply, autonomyRevisedPage(facts.name))
+
+    const { agentId } = request.params as { agentId: string }
+    const text = (value: unknown): string | undefined =>
+      typeof value === 'string' ? value : undefined
+    return html(
+      reply.status(422),
+      autonomyFormPage({
+        agentName: facts.name,
+        action: `/agents/${agentId}/autonomy`,
+        source: 'console',
+        error: result.error.message,
+        values: {
+          level: text(submitted['level']),
+          challengesAllowed: text(submitted['challengesAllowed']),
+          defaultRule: text(submitted['defaultRule']),
+          operatorRoute: text(submitted['operatorRoute']),
+        },
+      }),
+    )
   })
 
   /**

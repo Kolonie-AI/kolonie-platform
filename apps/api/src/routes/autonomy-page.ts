@@ -50,7 +50,7 @@ export function registerAutonomyPageRoutes(app: FastifyInstance, deps: RouteDepe
       .send(
         autonomyFormPage({
           agentName: form.agentName,
-          token: token as string,
+          action: `/operator/autonomy/${token as string}`,
           // The operator's other agents, each named and none ticked (`#514`).
           alsoFor: form.alsoFor.map((sibling) => ({
             agentId: String(sibling.agentId),
@@ -133,7 +133,7 @@ export function registerAutonomyPageRoutes(app: FastifyInstance, deps: RouteDepe
           ? autonomyClosedPage()
           : autonomyFormPage({
               agentName: form.agentName,
-              token: token as string,
+              action: `/operator/autonomy/${token as string}`,
               error: result.error.message,
               // The ticks survive the retry, for the reason every other field's
               // value does (`#484`): the link is single-use, so friction here is

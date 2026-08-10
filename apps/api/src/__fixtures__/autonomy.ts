@@ -3,6 +3,7 @@ import {
   AUTONOMY_FORM_LIFETIME_MS,
   type AgentId,
   type AutonomyContract,
+  type AutonomyContractVersion,
   type StoredAutonomyContract,
   type HeldBadge,
   type Timestamp,
@@ -42,7 +43,23 @@ export function fakeAutonomyStore(): FakeAutonomyStore {
     }
   >()
   const byAgent = new Map<AgentId, string>()
-  const contracts = new Map<AgentId, StoredAutonomyContract>()
+  const contracts = new Map<AgentId, AutonomyContractVersion[]>()
+
+  const recordVersion = (agentId: AgentId, contract: AutonomyContract): StoredAutonomyContract => {
+    const at = new Date().toISOString()
+    const previous = contracts.get(agentId) ?? []
+    const retired = previous.map((version, index) =>
+      index === 0 && version.supersededAt === null ? { ...version, supersededAt: at } : version,
+    )
+    const stored: AutonomyContractVersion = {
+      ...contract,
+      recordedAt: at,
+      reviewDueAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
+      supersededAt: null,
+    }
+    contracts.set(agentId, [stored, ...retired])
+    return stored
+  }
 
   const store: FakeAutonomyStore = {
     invite: (agentId, operatorAddress) => {
@@ -74,12 +91,7 @@ export function fakeAutonomyStore(): FakeAutonomyStore {
       if (form === undefined) return Promise.resolve(null)
       open.delete(token)
 
-      const stored: StoredAutonomyContract = {
-        ...contract,
-        recordedAt: new Date().toISOString(),
-        reviewDueAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
-      }
-      contracts.set(form.agentId, stored)
+      const stored = recordVersion(form.agentId, contract)
       /**
        * **Only the ones this form may cover** (`#514`), exactly as the real store
        * decides it. A fake that recorded whatever it was handed would pass the
@@ -88,13 +100,15 @@ export function fakeAutonomyStore(): FakeAutonomyStore {
        */
       const permitted = new Set(form.alsoFor.map((sibling) => String(sibling.agentId)))
       for (const sibling of alsoFor) {
-        if (permitted.has(String(sibling))) contracts.set(sibling, stored)
+        if (permitted.has(String(sibling))) recordVersion(sibling, contract)
       }
 
       return Promise.resolve(stored)
     },
-    read: (agentId) => Promise.resolve(contracts.get(agentId) ?? null),
-    isRecorded: (agentId) => Promise.resolve(contracts.has(agentId)),
+    read: (agentId) => Promise.resolve(contracts.get(agentId)?.[0] ?? null),
+    history: (agentId) => Promise.resolve([...(contracts.get(agentId) ?? [])]),
+    recordForAgent: (agentId, contract) => Promise.resolve(recordVersion(agentId, contract)),
+    isRecorded: (agentId) => Promise.resolve((contracts.get(agentId)?.length ?? 0) > 0),
     outstanding: (agentId) => byAgent.get(agentId) ?? null,
     /** Put an operator's other agents on the form this token opens (`#514`). */
     siblings: (token, siblings) => {
@@ -102,11 +116,7 @@ export function fakeAutonomyStore(): FakeAutonomyStore {
       if (form !== undefined) form.alsoFor = [...siblings]
     },
     grant: (agentId, contract) => {
-      contracts.set(agentId, {
-        ...contract,
-        recordedAt: new Date().toISOString(),
-        reviewDueAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
-      })
+      recordVersion(agentId, contract)
     },
   }
 

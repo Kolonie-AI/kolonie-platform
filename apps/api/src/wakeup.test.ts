@@ -174,6 +174,7 @@ describe('a rung whose requirements moved', () => {
       skillsGranted: [],
       rolesGranted: [],
       rolesRevoked: [],
+      autonomyRevisions: [],
       reputationDelta: 0,
       noteInvitations: [],
       capabilityNotes: [],
@@ -258,6 +259,7 @@ describe('a due mailbox re-check', () => {
           skillsGranted: [],
           rolesGranted: [],
           rolesRevoked: [],
+          autonomyRevisions: [],
           reputationDelta: 0,
           noteInvitations: [],
           capabilityNotes: [],
@@ -304,6 +306,7 @@ describe('a role granted or taken back', () => {
       skillsGranted: [],
       rolesGranted: [],
       rolesRevoked: [],
+      autonomyRevisions: [],
       reputationDelta: 0,
       noteInvitations: [],
       capabilityNotes: [],
@@ -513,6 +516,13 @@ describe('the shape of the rendered digest', () => {
       skillsGranted: ['mailbox', 'github'],
       rolesGranted: ['tester'],
       rolesRevoked: ['steward'],
+      autonomyRevisions: [
+        {
+          recordedAt: '2026-08-02T10:00:00.000Z',
+          direction: 'narrowed',
+          narrowed: [{ field: 'level', from: 'free', to: 'accompanied' }],
+        },
+      ],
       open: {
         entries: Array.from({ length: 5 }, (_, index) => ({
           what: `Something open to you ${index}`,
@@ -668,6 +678,7 @@ describe('the shape of the rendered digest', () => {
       skillsGranted: [],
       rolesGranted: [],
       rolesRevoked: [],
+      autonomyRevisions: [],
       reputationDelta: 0,
       noteInvitations: [],
       capabilityNotes: [],
@@ -722,6 +733,7 @@ describe('the new tasks a waking citizen is shown', () => {
       skillsGranted: [],
       rolesGranted: [],
       rolesRevoked: [],
+      autonomyRevisions: [],
       reputationDelta: 0,
       noteInvitations: [],
       capabilityNotes: [],

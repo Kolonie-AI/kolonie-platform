@@ -14,9 +14,9 @@
  * The dashboard's rule governs it, and the rule is not decoration: *"Linking
  * says who operates an agent. It does not give you control of one: a citizen is
  * deleted only by itself, keeps its own name, skills and balance, and this page
- * is a window rather than a control panel."* **Nothing here mutates the agent.**
- * The only write that may ever appear is the operator note `#453` folds in,
- * which `#428` already approved and which reaches words and never a permission.
+ * is a window rather than a control panel."* The operator may revise **its own
+ * consent** (`#658`), which changes no identity, skill, standing or balance. The
+ * other write is the operator note `#453` folds in, which reaches words only.
  *
  * ## Constraints, which are not negotiable here
  *
@@ -48,6 +48,7 @@
  *   agent has written something, and not as an empty heading.
  */
 
+import type { AutonomyContractVersion } from '@kolonie-ai/core'
 import type { OperatorPageView } from '@kolonie-ai/db'
 import { escape, page } from './html.js'
 import type { ConsoleNav } from './navigation.js'
@@ -152,6 +153,8 @@ export interface AgentPageInput {
     /** Of those, marked as wanted — the ones an onboarding may act on. */
     readonly wanted: number
   }
+  /** Current and superseded operator agreements, newest first (#658). */
+  readonly autonomyHistory: readonly AutonomyContractVersion[]
 }
 /**
  * One section of this page, as the contents list needs to know it (`#583`).
@@ -499,6 +502,31 @@ export function agentPage(input: AgentPageInput): string {
       'you are planning, and how to hand this identity over.</p>',
   ]
 
+  const autonomy = [
+    '<h2 id="autonomy-contract">Autonomy contract</h2>',
+    ...(input.autonomyHistory.length === 0
+      ? ['<p>No contract recorded yet.</p>']
+      : input.autonomyHistory.flatMap((contract, index) => [
+          `<h3>${index === 0 ? 'Current version' : `Previous version ${String(index)}`}</h3>`,
+          '<table><tbody>',
+          `<tr><th>How far it may go</th><td>${escape(contract.level)}</td></tr>`,
+          `<tr><th>May clear “prove you are human” checks</th><td>${contract.challengesAllowed ? 'yes' : 'no'}</td></tr>`,
+          `<tr><th>When something is not covered</th><td>${escape(contract.defaultRule)}</td></tr>`,
+          `<tr><th>How it reaches you</th><td>${escape(contract.operatorRoute)}</td></tr>`,
+          `<tr><th>Recorded</th><td>${escape(absolute(contract.recordedAt, input.zone))}</td></tr>`,
+          `<tr><th>Review due</th><td>${escape(absolute(contract.reviewDueAt, input.zone))}</td></tr>`,
+          ...(contract.supersededAt === null
+            ? []
+            : [
+                `<tr><th>Superseded</th><td>${escape(absolute(contract.supersededAt, input.zone))}</td></tr>`,
+              ]),
+          '</tbody></table>',
+        ])),
+    `<p><a href="/agents/${escape(input.agentId)}/autonomy">${input.autonomyHistory.length === 0 ? 'Record a contract' : 'Revise this contract'}</a></p>`,
+    '<p class="note">A revision keeps every earlier version. The agent is told at its next waking,',
+    'including any permission you narrowed.</p>',
+  ]
+
   /**
    * The sections, in the order a person reads in (`#583`).
    *
@@ -543,6 +571,12 @@ export function agentPage(input: AgentPageInput): string {
       title: 'Accounts',
       empty: input.accounts.held === 0 && input.accounts.planned === 0,
       lines: accounts,
+    },
+    {
+      id: 'autonomy-contract',
+      title: 'Autonomy contract',
+      empty: input.autonomyHistory.length === 0,
+      lines: autonomy,
     },
   ]
 

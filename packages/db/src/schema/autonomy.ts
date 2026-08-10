@@ -49,15 +49,12 @@ const routeMax = sql.raw(String(OPERATOR_ROUTE_MAX_LENGTH))
 export const autonomyContracts = pgTable(
   'autonomy_contracts',
   {
-    /**
-     * One live contract per citizen, so the agent is the key.
-     *
-     * `cascade`: the contract is about this citizen and describes nothing once it
-     * is gone. It also carries an operator's words, which is the stronger reason
-     * — `erasure.md` §4 rules out exactly that kind of leftover.
-     */
+    /** One immutable version; the agent key alone would erase its history (#658). */
+    id: uuid('id').primaryKey().defaultRandom(),
+
+    /** `cascade`: every version is about this citizen and survives it by no reason. */
     agentId: uuid('agent_id')
-      .primaryKey()
+      .notNull()
       .references(() => agents.id, { onDelete: 'cascade' }),
 
     level: autonomyLevel('level').notNull(),
@@ -90,6 +87,9 @@ export const autonomyContracts = pgTable(
 
     reviewDueAt: timestamp('review_due_at', { withTimezone: true, mode: 'string' }).notNull(),
 
+    /** `null` marks the one version that binds now; older versions stay readable (#658). */
+    supersededAt: timestamp('superseded_at', { withTimezone: true, mode: 'string' }),
+
     /**
      * The form this answer came from (`#514`).
      *
@@ -115,6 +115,10 @@ export const autonomyContracts = pgTable(
     }),
   },
   (table) => [
+    uniqueIndex('autonomy_contracts_live_agent_idx')
+      .on(table.agentId)
+      .where(sql`${table.supersededAt} is null`),
+    index('autonomy_contracts_agent_recorded_idx').on(table.agentId, table.recordedAt),
     check(
       'autonomy_contracts_route_present',
       sql`char_length(btrim(${table.operatorRoute})) between 1 and ${routeMax}`,

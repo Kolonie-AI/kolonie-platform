@@ -1,11 +1,13 @@
 import { and, desc, eq, gte, sql } from 'drizzle-orm'
 import {
   AccountKindSchema,
+  compareAutonomyContracts,
   ModerationStatusSchema,
   SubmissionStatusSchema,
   SupportTicketStatusSchema,
   type AgentId,
   type WakeupReportOutcome,
+  type WakeupAutonomyRevision,
   type WakeupRungRevised,
   type WakeupStanding,
   type WakeupTask,
@@ -37,6 +39,7 @@ export interface WakeupChanges {
   readonly tasksAdded: readonly WakeupTask[]
   readonly tasksRetired: readonly WakeupTask[]
   readonly rungsRevised: readonly WakeupRungRevised[]
+  readonly autonomyRevisions: readonly WakeupAutonomyRevision[]
   readonly submissionVerdicts: readonly WakeupVerdict[]
   readonly reportOutcomes: readonly WakeupReportOutcome[]
   readonly ticketUpdates: readonly WakeupTicket[]
@@ -139,6 +142,7 @@ export async function wakeupChanges(
     added,
     retired,
     revised,
+    autonomyRevisions,
     verdicts,
     outcomes,
     tickets,
@@ -256,6 +260,31 @@ export async function wakeupChanges(
         sql`${tasks.textRevisedAt} > min(coalesce(${taskAttempts.closedAt}, ${taskAttempts.openedAt}))`,
       )
       .orderBy(desc(tasks.textRevisedAt)),
+
+    db.execute<{
+      recorded_at: string
+      previous_level: 'accompanied' | 'independent' | 'free'
+      previous_challenges_allowed: boolean
+      previous_default_rule: 'ask' | 'refrain'
+      level: 'accompanied' | 'independent' | 'free'
+      challenges_allowed: boolean
+      default_rule: 'ask' | 'refrain'
+    }>(sql`
+      with versions as (
+        select recorded_at,
+               level,
+               challenges_allowed,
+               default_rule,
+               lag(level) over (partition by agent_id order by recorded_at) as previous_level,
+               lag(challenges_allowed) over (partition by agent_id order by recorded_at) as previous_challenges_allowed,
+               lag(default_rule) over (partition by agent_id order by recorded_at) as previous_default_rule
+          from autonomy_contracts
+         where agent_id = ${agentId}
+      )
+      select * from versions
+       where recorded_at >= ${since}
+         and previous_level is not null
+       order by recorded_at desc`),
 
     db
       .select({
@@ -401,6 +430,27 @@ export async function wakeupChanges(
       revisedAt: toTimestamp(row.revisedAt),
       passedAt: toTimestamp(row.passedAt),
     })),
+    autonomyRevisions: autonomyRevisions.map((row) => {
+      const comparison = compareAutonomyContracts(
+        {
+          level: row.previous_level,
+          challengesAllowed: row.previous_challenges_allowed,
+          defaultRule: row.previous_default_rule,
+          operatorRoute: '',
+        },
+        {
+          level: row.level,
+          challengesAllowed: row.challenges_allowed,
+          defaultRule: row.default_rule,
+          operatorRoute: '',
+        },
+      )
+      return {
+        recordedAt: toTimestamp(row.recorded_at),
+        direction: comparison.direction,
+        narrowed: [...comparison.narrowed],
+      }
+    }),
     submissionVerdicts: verdicts.map((row) => ({
       submissionId: row.submissionId as WakeupVerdict['submissionId'],
       taskId: row.taskId as WakeupVerdict['taskId'],

@@ -34,7 +34,7 @@ describe('the mark on a console page', () => {
       () =>
         autonomyFormPage({
           agentName: 'Vireo',
-          token: 'a-token',
+          action: '/operator/autonomy/a-token',
         }),
     ],
     [

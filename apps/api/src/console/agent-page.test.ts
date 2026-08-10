@@ -17,8 +17,49 @@ const aView = (overrides: Partial<Parameters<typeof agentPage>[0]> = {}) =>
     opensNext: [],
     quests: [],
     accounts: { held: 0, planned: 0, wanted: 0 },
+    autonomyHistory: [],
     ...overrides,
   }) as unknown as Parameters<typeof agentPage>[0]
+
+describe('the autonomy contract', () => {
+  it('offers the operator a route to record one without waiting for the agent', () => {
+    const html = agentPage(aView())
+    expect(html).toContain('No contract recorded yet')
+    expect(html).toContain('/agents/11111111-1111-4111-8111-111111111111/autonomy')
+  })
+
+  it('keeps a superseded version readable with its own dates', () => {
+    const html = agentPage(
+      aView({
+        autonomyHistory: [
+          {
+            level: 'accompanied',
+            challengesAllowed: false,
+            defaultRule: 'refrain',
+            operatorRoute: 'Use the console.',
+            recordedAt: '2026-08-10T10:00:00.000Z',
+            reviewDueAt: '2027-08-10T10:00:00.000Z',
+            supersededAt: null,
+          },
+          {
+            level: 'free',
+            challengesAllowed: true,
+            defaultRule: 'ask',
+            operatorRoute: 'Use mail.',
+            recordedAt: '2026-08-09T10:00:00.000Z',
+            reviewDueAt: '2027-08-09T10:00:00.000Z',
+            supersededAt: '2026-08-10T10:00:00.000Z',
+          },
+        ],
+      }),
+    )
+
+    expect(html).toContain('Current version')
+    expect(html).toContain('Previous version 1')
+    expect(html).toContain('Superseded')
+    expect(html).toContain('Use mail.')
+  })
+})
 
 /**
  * The half `#454` left out, and the sentence it waited on (`#466`).
@@ -180,6 +221,7 @@ describe('the contents list on the agent page', () => {
       'quests',
       'quests-it-wrote',
       'accounts',
+      'autonomy-contract',
     ])
     expect(listed(html)).toEqual(rendered(html))
   })
@@ -189,8 +231,8 @@ describe('the contents list on the agent page', () => {
     const start = html.indexOf('<nav class="page-contents"')
     const contents = html.slice(start, html.indexOf('</nav>', start))
 
-    // Seven sections, seven marks: this agent has nothing anywhere.
-    expect([...contents.matchAll(/\(empty\)/g)]).toHaveLength(7)
+    // Eight sections, eight marks: this agent has nothing anywhere.
+    expect([...contents.matchAll(/\(empty\)/g)]).toHaveLength(8)
   })
 
   /**

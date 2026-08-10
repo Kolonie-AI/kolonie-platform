@@ -135,6 +135,7 @@ export function databaseWakeup(db: Database, rechecks?: RecheckDependencies): Wa
         tasksAdded: [...found.tasksAdded],
         tasksRetired: [...found.tasksRetired],
         rungsRevised: [...found.rungsRevised],
+        autonomyRevisions: [...found.autonomyRevisions],
         submissionVerdicts: [...found.submissionVerdicts],
         reportOutcomes: [...found.reportOutcomes],
         ticketUpdates: [...found.ticketUpdates],

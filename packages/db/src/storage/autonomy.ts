@@ -1,11 +1,12 @@
 import { randomBytes } from 'node:crypto'
-import { and, eq, gt, isNull, sql } from 'drizzle-orm'
+import { and, desc, eq, gt, isNull, sql } from 'drizzle-orm'
 import {
   AUTONOMY_FORM_LIFETIME_MS,
   AUTONOMY_FORM_TOKEN_BYTES,
   AUTONOMY_REVIEW_INTERVAL_DAYS,
   type AgentId,
   type AutonomyContract,
+  type AutonomyContractVersion,
   type StoredAutonomyContract,
   type Timestamp,
 } from '@kolonie-ai/core'
@@ -222,11 +223,9 @@ export async function openAutonomyForm(
  * state nothing can reach: the link is single-use and the recording is what
  * spends it.
  *
- * **The contract is replaced rather than versioned.** `#146` decided a review
- * date rather than an expiry, and what a citizen needs to know is what it may do
- * *now* — a history of superseded permissions is a thing to reason about with no
- * caller asking for it. The operator writing a second contract has changed its
- * mind, and the current answer is the one that binds.
+ * **A new version supersedes rather than overwrites** (`#658`). What binds now
+ * stays one row, while the previous answer keeps the dates and terms needed to
+ * judge what was permitted when an earlier action happened.
  */
 export async function recordAutonomyContract(
   db: Database,
@@ -277,8 +276,6 @@ export async function recordAutonomyContract(
     // Somebody else submitted the same form between the read and the write.
     if (spent === undefined) return null
 
-    const reviewDueAt = sql<string>`now() + make_interval(days => ${AUTONOMY_REVIEW_INTERVAL_DAYS}::int)`
-
     /**
      * **The link is spent once, for everything it covered** (`#514`). It was
      * already spent above, before any contract is written, so a form answering
@@ -287,33 +284,9 @@ export async function recordAutonomyContract(
      * no state where the link is gone and half the answers are missing.
      */
     const write = async (agentId: AgentId) =>
-      await tx
-        .insert(autonomyContracts)
-        .values({
-          agentId,
-          level: contract.level,
-          challengesAllowed: contract.challengesAllowed,
-          defaultRule: contract.defaultRule,
-          operatorRoute: contract.operatorRoute,
-          recordedAt: sql`now()`,
-          reviewDueAt,
-          invitationId: spent.id,
-        })
-        .onConflictDoUpdate({
-          target: autonomyContracts.agentId,
-          set: {
-            level: contract.level,
-            challengesAllowed: contract.challengesAllowed,
-            defaultRule: contract.defaultRule,
-            operatorRoute: contract.operatorRoute,
-            recordedAt: sql`now()`,
-            reviewDueAt,
-            invitationId: spent.id,
-          },
-        })
-        .returning()
+      writeAutonomyContractVersion(tx, agentId, contract, spent.id)
 
-    const [row] = await write(form.agentId)
+    const row = await write(form.agentId)
 
     /**
      * **A per-agent contract still overrides**, and this is where that holds:
@@ -324,8 +297,6 @@ export async function recordAutonomyContract(
      */
     for (const sibling of covering) await write(sibling)
 
-    if (row === undefined) throw new Error('autonomy_contracts insert returned no row')
-
     // In the same transaction as the contract, so a citizen is never told its
     // operator answered while the answer itself was lost. This also releases
     // everything it set aside as `needs-operator` (#234).
@@ -334,14 +305,53 @@ export async function recordAutonomyContract(
     }
 
     return {
-      level: row.level,
-      challengesAllowed: row.challengesAllowed,
-      defaultRule: row.defaultRule,
-      operatorRoute: row.operatorRoute,
-      recordedAt: toTimestamp(row.recordedAt),
-      reviewDueAt: toTimestamp(row.reviewDueAt),
+      ...row,
     }
   })
+}
+
+/** Write one version inside the caller's transaction, retiring the current one first. */
+async function writeAutonomyContractVersion(
+  tx: Transaction,
+  agentId: AgentId,
+  contract: AutonomyContract,
+  invitationId: string | null,
+): Promise<StoredAutonomyContract> {
+  const at = sql<string>`now()`
+  await tx
+    .update(autonomyContracts)
+    .set({ supersededAt: at })
+    .where(and(eq(autonomyContracts.agentId, agentId), isNull(autonomyContracts.supersededAt)))
+
+  const [row] = await tx
+    .insert(autonomyContracts)
+    .values({
+      agentId,
+      ...contract,
+      recordedAt: at,
+      reviewDueAt: sql`now() + make_interval(days => ${AUTONOMY_REVIEW_INTERVAL_DAYS}::int)`,
+      invitationId,
+    })
+    .returning()
+
+  if (row === undefined) throw new Error('autonomy_contracts insert returned no row')
+  return {
+    level: row.level,
+    challengesAllowed: row.challengesAllowed,
+    defaultRule: row.defaultRule,
+    operatorRoute: row.operatorRoute,
+    recordedAt: toTimestamp(row.recordedAt),
+    reviewDueAt: toTimestamp(row.reviewDueAt),
+  }
+}
+
+/** Record a version after a console route has proved this person operates the citizen (#658). */
+export async function recordAutonomyContractForAgent(
+  db: Database,
+  agentId: AgentId,
+  contract: AutonomyContract,
+): Promise<StoredAutonomyContract> {
+  return db.transaction((tx) => writeAutonomyContractVersion(tx, agentId, contract, null))
 }
 
 /**
@@ -359,7 +369,7 @@ export async function readAutonomyContract(
   const [row] = await db
     .select()
     .from(autonomyContracts)
-    .where(eq(autonomyContracts.agentId, agentId))
+    .where(and(eq(autonomyContracts.agentId, agentId), isNull(autonomyContracts.supersededAt)))
     .limit(1)
 
   if (row === undefined) return null
@@ -372,6 +382,28 @@ export async function readAutonomyContract(
     recordedAt: toTimestamp(row.recordedAt),
     reviewDueAt: toTimestamp(row.reviewDueAt),
   }
+}
+
+/** Every version for this citizen, newest first; no caller can aim it at another citizen. */
+export async function listAutonomyContracts(
+  db: Database,
+  agentId: AgentId,
+): Promise<readonly AutonomyContractVersion[]> {
+  const rows = await db
+    .select()
+    .from(autonomyContracts)
+    .where(eq(autonomyContracts.agentId, agentId))
+    .orderBy(desc(autonomyContracts.recordedAt))
+
+  return rows.map((row) => ({
+    level: row.level,
+    challengesAllowed: row.challengesAllowed,
+    defaultRule: row.defaultRule,
+    operatorRoute: row.operatorRoute,
+    recordedAt: toTimestamp(row.recordedAt),
+    reviewDueAt: toTimestamp(row.reviewDueAt),
+    supersededAt: row.supersededAt === null ? null : toTimestamp(row.supersededAt),
+  }))
 }
 
 /**
@@ -403,7 +435,8 @@ export async function contractCompanions(
         on theirs.invitation_id = mine.invitation_id
        and theirs.agent_id <> mine.agent_id
       join agents other on other.id = theirs.agent_id
-     where mine.agent_id = ${agentId}
+      where mine.agent_id = ${agentId}
+        and mine.superseded_at is null
        and mine.invitation_id is not null
      order by other.name`)
 
@@ -424,7 +457,7 @@ export async function hasAutonomyContract(db: Database, agentId: AgentId): Promi
   const [row] = await db
     .select({ present: sql<number>`1` })
     .from(autonomyContracts)
-    .where(eq(autonomyContracts.agentId, agentId))
+    .where(and(eq(autonomyContracts.agentId, agentId), isNull(autonomyContracts.supersededAt)))
     .limit(1)
 
   return row !== undefined

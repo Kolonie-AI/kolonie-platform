@@ -4729,6 +4729,22 @@ explanation, those are two contradictory instructions — so the rung, and both
 tools, say why this question is different: what a citizen may do is a fact about
 an agreement between two parties, and only the other party can state their half.
 
+### Amendment, 2026-08-10: withdrawal belongs to the operator too
+
+`kolonie-platform#658` keeps the authorship boundary and removes the lockout.
+The agent may still only ask; it cannot write its own permission. A signed-in
+person may open the same form from an agent they operate and record a new answer
+without waiting for that agent to ask again.
+
+The new answer **supersedes rather than overwrites**. One row is current and the
+older versions retain their terms, recorded date, review date and superseded
+date, so an action can be read against what was permitted when it happened.
+
+The next wakeup reports the direction of the revision and names every permission
+that narrowed. This comparison is between two versions for one citizen, never a
+score or ordering between citizens; the contract remains ungraded. The durable
+bearer page still carries words only and cannot change permissions.
+
 ## D-068 — One link per pair, read-only, and a timestamp that exists for exactly one reader
 
 **2026-08-03 · kolonie-platform#257**

@@ -117,23 +117,31 @@ export function fakeSmsStore(): FakeSmsStore {
   })
 
   return {
-    async mint(agentId, number): Promise<SmsMintOutcome> {
+    async mint(agentId, number, replace): Promise<SmsMintOutcome> {
       const existing = open(agentId, 'receive')
       if (existing !== undefined) {
-        return {
-          outcome: 'open',
-          matchesRequested: identity(existing.number ?? '') === identity(number),
-          sent: existing.sentAt !== null,
-          challenge: {
-            id: existing.id,
-            number: existing.number ?? number,
-            expiresAt: state(existing).expiresAt,
-            code: existing.code ?? '',
-          },
+        const matchesRequested = identity(existing.number ?? '') === identity(number)
+        if (matchesRequested || !replace || existing.sentAt !== null) {
+          return {
+            outcome: 'open',
+            matchesRequested,
+            sent: existing.sentAt !== null,
+            challenge: {
+              id: existing.id,
+              number: existing.number ?? number,
+              expiresAt: state(existing).expiresAt,
+              code: existing.code ?? '',
+            },
+          }
         }
+
+        if (takenByAnother(agentId, number)) return { outcome: 'number_taken' }
+        existing.expired = true
       }
 
-      if (takenByAnother(agentId, number)) return { outcome: 'number_taken' }
+      if (existing === undefined && takenByAnother(agentId, number)) {
+        return { outcome: 'number_taken' }
+      }
 
       const row: Row = {
         id: randomUUID(),

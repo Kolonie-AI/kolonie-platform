@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { randomUUID } from 'node:crypto'
 import type { AgentId, Submission, VerificationContext } from '@kolonie-ai/core'
 import { SmsReceiveVerifier, type SmsReceiveState } from './sms-receive.js'
-import { SmsSendVerifier, type SmsSendState } from './sms-send.js'
+import { nextSmsSendCheck, SmsSendVerifier, type SmsSendState } from './sms-send.js'
 
 /**
  * The two phone rungs, judged (`#411`).
@@ -230,6 +230,92 @@ describe('sms-send', () => {
     expect(result.evidence).toMatch(/recorded it as yours/i)
     expect(result.evidence).toMatch(/it receives and it sends/i)
     expect(result.metadata).toMatchObject({ certifies: 'message-sent', ownershipRecorded: true })
+  })
+
+  /**
+   * The window the Colony looks over is the window it says is open (`#709`).
+   *
+   * Without a declared wait the retry ceiling ended these submissions after five
+   * checks — about seven and a half minutes against a challenge open for a day,
+   * so an ordinary carrier delay was guaranteed to be missed while the citizen
+   * was still being told to send.
+   */
+  it('keeps looking for as long as the challenge it says is open', async () => {
+    const expiresAt = inThreeDays()
+    const result = await sending({
+      expiresAt,
+      inboundAt: null,
+      inboundFrom: null,
+      ownsSendingNumber: false,
+      verifiedAt: null,
+    })
+
+    expect(result.status).toBe('pending')
+    const until = (result.metadata as { expectedWaitUntil?: string }).expectedWaitUntil
+    expect(until).toBeDefined()
+    expect(Date.parse(until as string)).toBeGreaterThan(Date.now())
+    expect(Date.parse(until as string)).toBeLessThanOrEqual(Date.parse(expiresAt))
+    // The citizen is told it does not have to hand the task in again.
+    expect(result.evidence).toMatch(/do not need to hand this in again/i)
+  })
+
+  /**
+   * **And stops when it closes**, which is what turns the poll off: with no
+   * declared wait the ceiling applies again and the submission reaches `timeout`
+   * — the Colony gave up, which by then is what happened. Never `fail`.
+   */
+  it('stops looking once the challenge has closed, without failing the citizen', async () => {
+    const result = await sending({
+      expiresAt: yesterday(),
+      inboundAt: null,
+      inboundFrom: null,
+      ownsSendingNumber: false,
+      verifiedAt: null,
+    })
+
+    expect(result.status).toBe('pending')
+    expect(result.metadata).not.toHaveProperty('expectedWaitUntil')
+    expect(result.evidence).toMatch(/stopped looking/i)
+    expect(result.evidence).toMatch(/cost you nothing/i)
+  })
+
+  /**
+   * The cadence itself, asserted directly rather than through a verdict: the
+   * minutes are the trade between noticing a message quickly and writing a day
+   * of polling into the verdict trail, and a later reader changing one should
+   * see which one they changed.
+   */
+  describe('nextSmsSendCheck', () => {
+    const now = Date.parse('2026-08-11T12:00:00.000Z')
+    const ago = (ms: number) => new Date(now - ms).toISOString()
+    const at = (ms: number) => new Date(now + ms).toISOString()
+    const minutes = (n: number) => n * 60 * 1000
+
+    it('checks every three minutes while the message could still be in a carrier queue', () => {
+      expect(nextSmsSendCheck(now, ago(minutes(1)), at(minutes(2000)))).toBe(at(minutes(3)))
+    })
+
+    it('stands further back once the first quarter of an hour has passed', () => {
+      expect(nextSmsSendCheck(now, ago(minutes(30)), at(minutes(2000)))).toBe(at(minutes(15)))
+    })
+
+    it('falls to hourly for the rest of the day', () => {
+      expect(nextSmsSendCheck(now, ago(minutes(300)), at(minutes(2000)))).toBe(at(minutes(60)))
+    })
+
+    it('never names an instant past the challenge’s own expiry', () => {
+      expect(nextSmsSendCheck(now, ago(minutes(300)), at(minutes(10)))).toBe(at(minutes(10)))
+    })
+
+    it('gives up once the challenge has expired', () => {
+      expect(nextSmsSendCheck(now, ago(minutes(300)), ago(minutes(1)))).toBeNull()
+    })
+
+    /** The shortest step, because checking too often is the lesser fault here. */
+    it('assumes a fresh submission when it has no submission time to read', () => {
+      expect(nextSmsSendCheck(now, undefined, at(minutes(2000)))).toBe(at(minutes(3)))
+      expect(nextSmsSendCheck(now, 'not a timestamp', at(minutes(2000)))).toBe(at(minutes(3)))
+    })
   })
 
   /** A pooled sender is not told to go away: it is told what would ground it. */

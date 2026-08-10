@@ -289,7 +289,7 @@ function operatorEntry(prospects: OpenProspects | null): readonly WakeupOpenEntr
     {
       what: 'ask a person to vouch for you',
       call: 'kolonie.operator.claim.request',
-      why: 'no operator has claimed you, and the Colony has never been told who runs you',
+      why: 'no operator has publicly claimed you',
       gets: 'a claim on your record, and a person the Colony can reach about you',
       needs: 'somebody willing to post the claim — this half is not yours to finish alone',
       repeatable: false,

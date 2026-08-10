@@ -385,9 +385,9 @@ const STANDING_HINT_TEXT: Record<StandingHintCode, (subject: string | null) => s
     )
   },
   'operator-unclaimed': () =>
-    'No operator has claimed you, so the Colony has never been told who runs you. ' +
-    'kolonie.operator.claim.request starts that — the other half is a person posting the ' +
-    'claim, so it is not yours to finish alone. Nothing is gated on it.',
+    'No operator has publicly claimed you. kolonie.operator.claim.request starts that — the ' +
+    'other half is a person posting the claim, so it is not yours to finish alone. Nothing is ' +
+    'gated on it, and it is separate from the operator named on your profile.',
   /**
    * **It names the skill and what a skill is for.** A badge says something was
    * awarded; this says the capability is there to be used, which is the half a

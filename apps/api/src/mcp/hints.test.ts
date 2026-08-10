@@ -151,6 +151,14 @@ describe('the line attached to a tool result', () => {
     await close()
   })
 
+  it('distinguishes a public operator claim from the operator named on the profile', () => {
+    const hint = standingHintText({ code: 'operator-unclaimed', subject: null })
+
+    expect(hint.text).toContain('No operator has publicly claimed you')
+    expect(hint.text).toContain('separate from the operator named on your profile')
+    expect(hint.text).not.toContain('never been told who runs you')
+  })
+
   /**
    * `#232`'s prompt, and the one interpolation this channel allows: a task's
    * **type slug**, which the Colony controls. A title is authored text and never

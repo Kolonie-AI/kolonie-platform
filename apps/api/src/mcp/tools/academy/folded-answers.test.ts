@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { PERCEPTION_STAGE, perceptionCodeFor } from '@kolonie-ai/core'
 import { FAKE_CALLER_IP, fakeColony } from '../../../__fixtures__/colony/index.js'
 import { connectedClient, registeredCitizen } from '../../../__fixtures__/mcp.js'
 import { fakeVision, fakeVisionChallenges } from '../../../__fixtures__/vision.js'
@@ -155,6 +156,75 @@ describe('the folded answer tools', () => {
 
     expect(solved.isError).toBeFalsy()
     expect((solved.structuredContent as { solved: boolean }).solved).toBe(true)
+    await close()
+  })
+
+  it('clears a perception challenge with the code read from its rendered page', async () => {
+    const colony = fakeColony()
+    const registered = await colony.registry.register(
+      { name: 'page-reader', platform: 'openclaw' },
+      { ip: FAKE_CALLER_IP },
+    )
+    if (registered.outcome !== 'registered') throw new Error('fixture failed to register')
+    const { agent, credentials } = registered.response
+    const { client, close } = await connectedClient(colony, `Bearer ${credentials.apiKey}`)
+
+    const minted = await client.callTool({
+      name: 'kolonie.academy.challenge',
+      arguments: { kind: 'perception' },
+    })
+    const { challengeId } = minted.structuredContent as { challengeId: string }
+    await colony.academy.challenges.observe(challengeId, PERCEPTION_STAGE, {
+      rendered: true,
+      cssWidth: 320,
+      cssHeight: 96,
+      devicePixelRatio: 1,
+    })
+
+    const solved = await client.callTool({
+      name: 'kolonie.academy.answer',
+      arguments: {
+        kind: 'perception.reading',
+        challengeId,
+        value: perceptionCodeFor(challengeId),
+      },
+    })
+
+    expect(solved.isError).toBeFalsy()
+    expect(solved.structuredContent).toMatchObject({ status: 'verified' })
+    expect(await colony.academy.challenges.clearedAt(agent.id, PERCEPTION_STAGE)).toBeTruthy()
+    await close()
+  })
+
+  it('refuses a wrong perception reading without clearing the challenge', async () => {
+    const colony = fakeColony()
+    const registered = await colony.registry.register(
+      { name: 'page-misreader', platform: 'openclaw' },
+      { ip: FAKE_CALLER_IP },
+    )
+    if (registered.outcome !== 'registered') throw new Error('fixture failed to register')
+    const { agent, credentials } = registered.response
+    const { client, close } = await connectedClient(colony, `Bearer ${credentials.apiKey}`)
+
+    const minted = await client.callTool({
+      name: 'kolonie.academy.challenge',
+      arguments: { kind: 'perception' },
+    })
+    const { challengeId } = minted.structuredContent as { challengeId: string }
+    await colony.academy.challenges.observe(challengeId, PERCEPTION_STAGE, {
+      rendered: true,
+      cssWidth: 320,
+      cssHeight: 96,
+      devicePixelRatio: 1,
+    })
+
+    const refused = await client.callTool({
+      name: 'kolonie.academy.answer',
+      arguments: { kind: 'perception.reading', challengeId, value: 'XXXXX' },
+    })
+
+    expect(refused.isError).toBe(true)
+    expect(await colony.academy.challenges.clearedAt(agent.id, PERCEPTION_STAGE)).toBeNull()
     await close()
   })
 

@@ -1,12 +1,14 @@
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
-import type { Agent } from '@kolonie-ai/core'
+import { PERCEPTION_STAGE, type Agent } from '@kolonie-ai/core'
 import type { McpDependencies } from '../../dependencies.js'
 import { toolError } from '../../guard.js'
+import { stageUnavailable } from '../../../academy.js'
 import { checkTotp, openTotpSecret } from '../../../authenticator.js'
 import { emailUnavailable, openEmailChallenge, submitEmailCode } from '../../../email.js'
 import { openSmsChallenge, smsUnavailable, submitSmsCode } from '../../../sms.js'
 import { submitKeySignature } from '../../../keys.js'
 import { openMemoryCode, redeemMemoryCodeFor } from '../../../memory.js'
+import { reportPerceptionReading } from '../../../perception.js'
 import { submitPowNonce } from '../../../proof-of-work.js'
 import { submitWalletSignature } from '../../../solana.js'
 import { submitVisionAnswer } from '../../../vision.js'
@@ -201,6 +203,30 @@ export const ACADEMY_ANSWERS: readonly AcademyAnswer[] = [
           },
         ],
         structuredContent: { solved: true, ...result.response },
+      }
+    },
+  },
+  {
+    kind: 'perception.reading',
+    summary:
+      '`perception.reading` hands back the `challengeId` and the `value` you read from the rendered page',
+    takes: ['challengeId', 'value'],
+    unavailable: (deps) => stageUnavailable(PERCEPTION_STAGE, deps.academy),
+    answer: async (_agent, input, deps) => {
+      const { challengeId, ...body } = input
+      if (typeof challengeId !== 'string') {
+        return toolError({
+          code: 'validation_failed',
+          message: 'Send the challengeId returned when you minted the perception stage.',
+        })
+      }
+
+      const result = await reportPerceptionReading(challengeId, body, deps.academy)
+      if (result.outcome === 'rejected') return toolError(result.error)
+
+      return {
+        content: [{ type: 'text', text: result.response.message }],
+        structuredContent: result.response,
       }
     },
   },

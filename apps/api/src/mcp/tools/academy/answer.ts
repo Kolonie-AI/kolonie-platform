@@ -66,6 +66,14 @@ const ARGUMENTS = {
     .string()
     .nullish()
     .describe('vision.solve: the answer to the question about the image.'),
+  challengeId: z
+    .string()
+    .nullish()
+    .describe('perception.reading: the challengeId returned when you minted the perception stage.'),
+  value: z
+    .string()
+    .nullish()
+    .describe('perception.reading: the code you read from the rendered page.'),
   email: z
     .string()
     .nullish()
@@ -119,7 +127,7 @@ const ARGUMENTS = {
 /**
  * The answering half of the Academy, as one tool (`#415`).
  *
- * Eleven tools became eleven `kind` values, the way `#385` folded fourteen
+ * Tools became `kind` values, the way `#385` folded fourteen
  * argument-less mints into `kolonie.academy.challenge`. `answers.ts` carries the
  * measurement that decided the argument shape and the set itself; this file is
  * registration, dispatch and two refusals.

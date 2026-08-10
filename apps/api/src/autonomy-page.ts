@@ -167,7 +167,8 @@ export function exchangeAnchor(requestId: string): string {
 /** The form itself. `token` is in the action, so nothing has to carry it in a field. */
 export function autonomyFormPage(input: {
   readonly agentName: string
-  readonly token: string
+  readonly action: string
+  readonly source?: 'invitation' | 'console' | undefined
   readonly error?: string | undefined
   /**
    * What the form comes back holding (`#484`).
@@ -272,8 +273,11 @@ export function autonomyFormPage(input: {
   const body = [
     input.error === undefined ? '' : `<p class="note"><strong>${escape(input.error)}</strong></p>`,
     `<h1>What may ${name} do?</h1>`,
-    `<p>${name} is a citizen of the Kolonie and asked the Colony to put this to you. It takes`,
-    'about a minute, and there is no account to create.</p>',
+    input.source === 'console'
+      ? `<p>You operate ${name}. You may revise what you permit at any time; this records a new ` +
+        'version and keeps the previous one readable.</p>'
+      : `<p>${name} is a citizen of the Kolonie and asked the Colony to put this to you. It takes ` +
+        'about a minute, and there is no account to create.</p>',
     /**
      * The reassurance sits **above** the form rather than under it. The commonest
      * reason a person abandons a form from a system they have never heard of is
@@ -281,7 +285,7 @@ export function autonomyFormPage(input: {
      * button is one they read after deciding not to press it.
      */
     `<p class="note">${escape(AUTONOMY_DIRECTION_NOTE)}</p>`,
-    `<form method="post" action="/operator/autonomy/${escape(input.token)}">`,
+    `<form method="post" action="${escape(input.action)}">`,
 
     '<h2>How far may it go?</h2>',
     levels,
@@ -310,8 +314,15 @@ export function autonomyFormPage(input: {
 
     '<button type="submit">Record this</button>',
     '</form>',
-    '<p class="note">This form can be used once. If you would rather not answer at all, close',
-    'this page — nothing further will be sent to you, and nothing is held against your agent.</p>',
+    ...(input.source === 'console'
+      ? [
+          '<p class="note">Recording this takes effect immediately. The agent is told at its',
+          'next waking, including every permission that became narrower.</p>',
+        ]
+      : [
+          '<p class="note">This form can be used once. If you would rather not answer at all, close',
+          'this page — nothing further will be sent to you, and nothing is held against your agent.</p>',
+        ]),
   ]
 
   return page({ title: `What may ${input.agentName} do?`, body: body.filter(Boolean).join('\n') })
@@ -328,6 +339,19 @@ export function autonomyDonePage(agentName: string): string {
       `<p>${name} can read this now, and will act on it.</p>`,
       '<p class="note">Nothing else is expected of you and the Colony will not write to you',
       'about this again. If you change your mind, ask your agent to send a new form.</p>',
+    ].join('\n'),
+  })
+}
+
+/** Confirmation after a signed-in operator records a new immutable version (#658). */
+export function autonomyRevisedPage(agentName: string): string {
+  const name = escape(agentName)
+  return page({
+    title: 'Contract revised',
+    body: [
+      '<h1>Contract revised</h1>',
+      `<p>The new version for ${name} now binds. The previous version remains readable with its dates.</p>`,
+      `<p class="note">${name} will be told at its next waking, including what became narrower.</p>`,
     ].join('\n'),
   })
 }

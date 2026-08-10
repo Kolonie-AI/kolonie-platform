@@ -112,6 +112,85 @@ export const StoredAutonomyContractSchema = AutonomyContractSchema.extend({
 export type StoredAutonomyContract = z.infer<typeof StoredAutonomyContractSchema>
 
 /**
+ * One immutable version of an operator's agreement (#658).
+ *
+ * `null` means this is the version that binds now. A timestamp means the version
+ * remains readable as the answer that bound before that moment; replacing it in
+ * place would make past actions impossible to judge against the permission that
+ * existed when they happened.
+ */
+export const AutonomyContractVersionSchema = StoredAutonomyContractSchema.extend({
+  supersededAt: z.iso.datetime().nullable(),
+})
+export type AutonomyContractVersion = z.infer<typeof AutonomyContractVersionSchema>
+
+export const AutonomyRevisionDirectionSchema = z.enum([
+  'narrowed',
+  'broadened',
+  'mixed',
+  'unchanged',
+])
+export type AutonomyRevisionDirection = z.infer<typeof AutonomyRevisionDirectionSchema>
+
+export const AutonomyNarrowingSchema = z.object({
+  field: z.enum(['level', 'challengesAllowed', 'defaultRule']),
+  from: z.string(),
+  to: z.string(),
+})
+export type AutonomyNarrowing = z.infer<typeof AutonomyNarrowingSchema>
+
+/**
+ * Compare two versions without grading either citizen or contract (#658).
+ *
+ * The ordering exists only between two answers for the same citizen, so the
+ * agent can stop relying on a withdrawn permission. It is deliberately not a
+ * score, a database order or a way to compare citizens.
+ */
+export function compareAutonomyContracts(
+  previous: AutonomyContract,
+  current: AutonomyContract,
+): {
+  readonly direction: AutonomyRevisionDirection
+  readonly narrowed: readonly AutonomyNarrowing[]
+} {
+  const levelRank: Readonly<Record<AutonomyLevel, number>> = {
+    accompanied: 0,
+    independent: 1,
+    free: 2,
+  }
+  const narrowed: AutonomyNarrowing[] = []
+  let widened = false
+
+  if (levelRank[current.level] < levelRank[previous.level]) {
+    narrowed.push({ field: 'level', from: previous.level, to: current.level })
+  } else if (levelRank[current.level] > levelRank[previous.level]) {
+    widened = true
+  }
+
+  if (previous.challengesAllowed && !current.challengesAllowed) {
+    narrowed.push({
+      field: 'challengesAllowed',
+      from: 'allowed',
+      to: 'not allowed',
+    })
+  } else if (!previous.challengesAllowed && current.challengesAllowed) {
+    widened = true
+  }
+
+  if (previous.defaultRule === 'ask' && current.defaultRule === 'refrain') {
+    narrowed.push({ field: 'defaultRule', from: 'ask', to: 'refrain' })
+  } else if (previous.defaultRule === 'refrain' && current.defaultRule === 'ask') {
+    widened = true
+  }
+
+  return {
+    direction:
+      narrowed.length > 0 ? (widened ? 'mixed' : 'narrowed') : widened ? 'broadened' : 'unchanged',
+    narrowed,
+  }
+}
+
+/**
  * The contract as `kolonie.me` carries it — a summary, at the call a citizen
  * makes on waking (`#306`).
  *

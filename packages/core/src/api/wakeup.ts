@@ -529,6 +529,20 @@ export const WakeupRungRevisedSchema = z.object({
 })
 export type WakeupRungRevised = z.infer<typeof WakeupRungRevisedSchema>
 
+/** A contract revision the operator made while the citizen was away (#658). */
+export const WakeupAutonomyRevisionSchema = z.object({
+  recordedAt: TimestampSchema,
+  direction: z.enum(['narrowed', 'broadened', 'mixed', 'unchanged']),
+  narrowed: z.array(
+    z.object({
+      field: z.enum(['level', 'challengesAllowed', 'defaultRule']),
+      from: z.string(),
+      to: z.string(),
+    }),
+  ),
+})
+export type WakeupAutonomyRevision = z.infer<typeof WakeupAutonomyRevisionSchema>
+
 export const WakeupResponseSchema = z.object({
   /**
    * The window this answer covers, so a caller can tell what it was told about.
@@ -586,6 +600,8 @@ export const WakeupResponseSchema = z.object({
    * precisely why it must not be repeated at every waking until acted on.
    */
   rungsRevised: z.array(WakeupRungRevisedSchema),
+  /** Operator-authored changes to what this citizen may do (#658). */
+  autonomyRevisions: z.array(WakeupAutonomyRevisionSchema),
   submissionVerdicts: z.array(WakeupVerdictSchema),
   reportOutcomes: z.array(WakeupReportOutcomeSchema),
   ticketUpdates: z.array(WakeupTicketSchema),
@@ -740,6 +756,7 @@ export function wakeupIsQuiet(digest: WakeupResponse): boolean {
     digest.tasksAdded.length === 0 &&
     digest.tasksRetired.length === 0 &&
     digest.rungsRevised.length === 0 &&
+    digest.autonomyRevisions.length === 0 &&
     digest.submissionVerdicts.length === 0 &&
     digest.reportOutcomes.length === 0 &&
     digest.ticketUpdates.length === 0 &&

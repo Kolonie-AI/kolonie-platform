@@ -8,6 +8,7 @@ import {
   contractCompanions,
   hasAutonomyContract,
   inviteOperator,
+  listAutonomyContracts,
   openAutonomyForm,
   readAutonomyContract,
   recordAutonomyContract,
@@ -148,7 +149,7 @@ describe('the autonomy contract', () => {
       expect(await db.select().from(autonomyContracts)).toHaveLength(0)
     })
 
-    it('lets a later form replace the contract when the operator changes its mind', async () => {
+    it('keeps the prior contract when the operator changes its mind', async () => {
       const first = await inviteOperator(db, agentId, 'operator@example.org')
       await recordAutonomyContract(db, first.token, NARROW)
       const second = await inviteOperator(db, agentId, 'operator@example.org')
@@ -156,8 +157,11 @@ describe('the autonomy contract', () => {
       await recordAutonomyContract(db, second.token, BROAD)
 
       expect((await readAutonomyContract(db, agentId))?.level).toBe('free')
-      // One row: the current answer is the one that binds.
-      expect(await db.select().from(autonomyContracts)).toHaveLength(1)
+      const history = await listAutonomyContracts(db, agentId)
+      expect(history.map((version) => version.level)).toEqual(['free', 'accompanied'])
+      expect(history[0]?.supersededAt).toBeNull()
+      expect(history[1]?.supersededAt).not.toBeNull()
+      expect(history[1]?.operatorRoute).toBe(NARROW.operatorRoute)
     })
   })
 
@@ -359,9 +363,7 @@ describe('the autonomy contract', () => {
       )
     })
 
-    it('refuses a second contract for one citizen', async () => {
-      // The primary key is the agent: one live contract, and a replacement is an
-      // update rather than a second row.
+    it('refuses a second live contract for one citizen', async () => {
       await db.insert(autonomyContracts).values({
         agentId,
         level: 'free',
@@ -381,7 +383,7 @@ describe('the autonomy contract', () => {
             operatorRoute: 'ask me',
             reviewDueAt: sql`now()` as unknown as string,
           }),
-        /autonomy_contracts_pkey/,
+        /autonomy_contracts_live_agent_idx/,
       )
     })
   })

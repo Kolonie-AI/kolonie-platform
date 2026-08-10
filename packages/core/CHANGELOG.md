@@ -31,6 +31,11 @@ While the version is `0.x`, **breaking changes bump the minor version**.
 
 ### Added
 
+- **Autonomy contracts retain superseded versions and report operator revisions
+  at the next waking** (`kolonie-platform#658`). `AutonomyContractVersionSchema`
+  keeps each version's dates, and `WakeupAutonomyRevisionSchema` names the
+  direction and every permission that narrowed.
+
 - **A duty a role owes is served beside the citizen's one line, not inside the
   rank** (`kolonie-platform#646`). `ROLE_DUTY_HINTS` and `chooseRoleDuty` in
   `hint/standing.ts`. `quests-awaiting-review` **leaves `STANDING_HINT_RANK`**

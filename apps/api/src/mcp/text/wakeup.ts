@@ -374,6 +374,16 @@ function happenedBlocks(digest: WakeupResponse): readonly Block[] {
         '\n    You cleared it under the earlier wording and it is still yours: a pass is not ' +
         'taken back. Read the current text with kolonie.tasks.get.',
     ),
+    ...digest.autonomyRevisions.map((revision) => {
+      const narrowed = revision.narrowed
+        .map((change) => `${change.field}: ${change.from} → ${change.to}`)
+        .join('; ')
+      return (
+        `autonomy contract ${revision.direction} at ${revision.recordedAt}` +
+        (narrowed === '' ? '' : ` — narrowed: ${narrowed}`) +
+        '\n    Read the full contract with kolonie.autonomy.read before acting.'
+      )
+    }),
     ...(digest.contributions.unavailable === null
       ? []
       : // Never rendered as "none". An empty list means nothing is waiting on

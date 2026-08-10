@@ -22,9 +22,10 @@ import { OAUTH_STATE_COOKIE } from '../humans/humans.js'
  *
  * **A window rather than a control panel**, and that is the property most of
  * these tests are circling. The page assembles what the Colony already holds
- * about one agent for the person paying for its runtime; nothing on it mutates
- * the agent, and an agent somebody does not operate is indistinguishable from
- * one that does not exist.
+ * about one agent for the person paying for its runtime. The operator may revise
+ * its own consent, but nothing here changes the agent's identity or standing,
+ * and an agent somebody does not operate is indistinguishable from one that does
+ * not exist.
  */
 const CONSOLE_URL = 'https://console.example'
 const CONSOLE_HOST = 'console.example'
@@ -227,8 +228,8 @@ describe('the agent page', () => {
     expect(body).toContain('finds paid work itself')
   })
 
-  /** Nothing on it writes, and the rule that says so is on the page. */
-  it('offers nothing that changes the agent', async () => {
+  /** Its one permission write changes the operator's agreement, not the agent's identity. */
+  it('offers no control beyond revising the operator’s own consent', async () => {
     const cookie = await signedInCookie()
     await link(agentId)
 
@@ -236,8 +237,8 @@ describe('the agent page', () => {
 
     expect(body).toContain('a window rather than a control panel')
     /**
-     * **Every form on this page is named, and each one reaches words or a
-     * plan** — never the agent's own state.
+     * **Every form on this page is named.** Notes reach words, wishes reach a
+     * shared plan, and autonomy reaches only the operator's own permission.
      *
      * This was *no form posting at this agent at all* until `#527`, and it held
      * only because the fixture has no operator page: `#453`'s note form posts to
@@ -251,6 +252,8 @@ describe('the agent page', () => {
      *   list (`#527`). A plan both parties write; nothing on it starts anything,
      *   and the mark is what the operator has to make before a recipe may ask
      *   them for anything.
+     * - `…/autonomy` — the operator's own consent, versioned and reported to the
+     *   citizen at its next waking.
      *
      * Nothing else may appear here without being argued for in this list.
      */
@@ -259,12 +262,95 @@ describe('the agent page', () => {
       expect(
         action?.startsWith(`/agents/${agentId}/wishes`) === true ||
           action === `/agents/${agentId}/operator` ||
+          action === `/agents/${agentId}/autonomy` ||
           action?.startsWith('/agents/') !== true,
         `unexpected form target on the agent page: ${String(action)}`,
       ).toBe(true)
     }
 
     expect(body).not.toContain('<script')
+  })
+
+  describe('revising the autonomy contract', () => {
+    it('opens and answers the form without an invitation from the agent', async () => {
+      const cookie = await signedInCookie()
+      await link(agentId)
+
+      const form = await app.inject({
+        method: 'GET',
+        url: `/agents/${agentId}/autonomy`,
+        headers: { host: CONSOLE_HOST, accept: 'text/html', cookie },
+      })
+      expect(form.statusCode).toBe(200)
+      expect(form.body).toContain(`action="/agents/${agentId}/autonomy"`)
+
+      const recorded = await app.inject({
+        method: 'POST',
+        url: `/agents/${agentId}/autonomy`,
+        payload: new URLSearchParams({
+          level: 'accompanied',
+          challengesAllowed: 'no',
+          defaultRule: 'refrain',
+          operatorRoute: 'Use the console.',
+        }).toString(),
+        headers: {
+          host: CONSOLE_HOST,
+          accept: 'text/html',
+          cookie,
+          'content-type': 'application/x-www-form-urlencoded',
+        },
+      })
+
+      expect(recorded.statusCode).toBe(200)
+      expect((await contracts.read(agentId))?.level).toBe('accompanied')
+      expect(recorded.body).toContain('will be told at its next waking')
+    })
+
+    it('keeps the earlier version after a revision', async () => {
+      const cookie = await signedInCookie()
+      await link(agentId)
+      contracts.grant(agentId, {
+        level: 'free',
+        challengesAllowed: true,
+        defaultRule: 'ask',
+        operatorRoute: 'Use mail.',
+      })
+
+      await app.inject({
+        method: 'POST',
+        url: `/agents/${agentId}/autonomy`,
+        payload: new URLSearchParams({
+          level: 'accompanied',
+          challengesAllowed: 'no',
+          defaultRule: 'refrain',
+          operatorRoute: 'Use the console.',
+        }).toString(),
+        headers: {
+          host: CONSOLE_HOST,
+          accept: 'text/html',
+          cookie,
+          'content-type': 'application/x-www-form-urlencoded',
+        },
+      })
+
+      expect((await contracts.history(agentId)).map((version) => version.level)).toEqual([
+        'accompanied',
+        'free',
+      ])
+      expect((await openPage(cookie, agentId)).body).toContain('Previous version 1')
+    })
+
+    it('is unreachable for an agent this person does not operate', async () => {
+      const cookie = await signedInCookie()
+      await link(agentId)
+
+      const response = await app.inject({
+        method: 'GET',
+        url: `/agents/${strangersAgentId}/autonomy`,
+        headers: { host: CONSOLE_HOST, accept: 'text/html', cookie },
+      })
+      expect(response.statusCode).toBe(404)
+    })
   })
 
   /** `#461`'s rule reaches this page too: no time is printed without its clock. */

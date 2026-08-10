@@ -320,11 +320,13 @@ export function taskAsText(
       ? [questFeeSentence({ lamports: task.reward.lamports, feePercent: feeRateOn(task) })]
       : []),
     standing,
-    renewalAsText(task),
-    attemptAsText(attempt, helpWithheld),
-    sovereigntyAsText(sovereignty),
-    operatorBreakAsText(operatorBroke),
-    blockingAsText(blocking),
+    ...[
+      renewalAsText(task),
+      attemptAsText(attempt, helpWithheld),
+      sovereigntyAsText(sovereignty),
+      operatorBreakAsText(operatorBroke),
+      blockingAsText(blocking),
+    ].filter((part) => part !== ''),
     '',
     task.instructions,
     questionsAsText(task),

@@ -182,8 +182,8 @@ const AREA_BY_REPOSITORY: Readonly<Record<string, string>> = {
 /**
  * Where a new issue is filed and how it is labelled.
  *
- * `needs-triage` on everything, always. The board's own workflow puts a new issue
- * in **Inbox**, and `inbound-triage.yml` in kolonie-docs says why no automated
+ * The board's own workflow puts a new issue in **Inbox**, which already says it
+ * has not been triaged. `inbound-triage.yml` in kolonie-docs says why no automated
  * writer sets a priority: *"`p1` and `p2` encode what the Colony is currently
  * trying to achieve, which a contributor has no way to know and a workflow has no
  * way to compute."* That applies to a model at least as much.
@@ -201,7 +201,7 @@ export function filing(decision: Extract<TriageDecision, { kind: 'new' }>): {
 
   return {
     repository,
-    labels: [AREA_BY_REPOSITORY[repository] ?? 'area:platform', 'needs-triage', 'from:citizen'],
+    labels: [AREA_BY_REPOSITORY[repository] ?? 'area:platform', 'from:citizen'],
   }
 }
 

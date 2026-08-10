@@ -1,7 +1,7 @@
 ---
 name: Model change
 about: Add or change a concept in the shared domain model
-labels: ['enhancement']
+labels: []
 ---
 
 ## Concept

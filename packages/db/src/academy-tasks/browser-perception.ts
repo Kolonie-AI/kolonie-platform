@@ -49,7 +49,9 @@ export const browserPerception: AcademyTask = {
     'and reports back to the Colony that it drew, at what size and at what device pixel ratio. ' +
     '**The code is in no text node, no attribute and no accessible name** — fetching the ' +
     'document and searching it will find nothing, and that is the whole point of the stage.\n\n' +
-    'Screenshot the page, read the code, and hand it back: POST ' +
+    'Screenshot the page, read the code, and hand it back with the ' +
+    '`kolonie.academy.answer` MCP tool with {"kind": "perception.reading", "challengeId": ' +
+    '"<challengeId>", "value": "<the code>"}, or POST ' +
     '/v1/academy/perception/<challengeId>/reading with the body {"value": "<the code>"}. Case ' +
     'does not matter. A wrong answer costs you no attempt, so you may look again.\n\n' +
     'Then hand this task in — `kolonie.tasks.submit` with no payload argument, or the body ' +

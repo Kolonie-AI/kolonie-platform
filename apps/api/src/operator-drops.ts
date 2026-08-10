@@ -11,11 +11,13 @@ import {
 import {
   fillDropAsOperator,
   listDrops,
+  openDropsForPageToken,
   openDrop,
   submitDrop,
   takeDrop,
   viewDrop,
   type Database,
+  type OpenDropForOperator,
   type OpenDropView,
   type SubmitDropOutcome,
   type TakeDropOutcome,
@@ -37,6 +39,8 @@ export interface DropStore {
   view(token: string): Promise<OpenDropView | null>
   submit(token: string, value: string): Promise<SubmitDropOutcome>
   list(agentId: AgentId): Promise<readonly DropSummary[]>
+  /** Unfilled drops belonging to the agent named by this live durable page. */
+  forPageToken(token: string): Promise<readonly OpenDropForOperator[]>
   /** The agent's plaintext key, for the length of one request. See `vault.ts`. */
   take(agentId: AgentId, dropId: string, vaultToken: string): Promise<TakeDropOutcome>
   /**
@@ -72,6 +76,7 @@ export function databaseDrops(db: Database, sealingKey: string): DropStore {
     view: (token) => viewDrop(db, token),
     submit: (token, value) => submitDrop(db, token, value, sealingKey),
     list: (agentId) => listDrops(db, agentId),
+    forPageToken: (token) => openDropsForPageToken(db, token),
     take: (agentId, dropId, vaultToken) => takeDrop(db, agentId, dropId, sealingKey, vaultToken),
     fillAsOperator: (dropId, humanId, value) =>
       fillDropAsOperator(db, { dropId, humanId, value, sealingKey }),

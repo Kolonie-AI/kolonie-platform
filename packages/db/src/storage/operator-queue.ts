@@ -68,7 +68,7 @@ export async function waitingForOperator(
           where m.request_id = r.id
           order by m.written_at asc
           limit 1) as ask,
-        t.title as about,
+        coalesce(t.title, w.provider) as about,
         r.opened_at as since,
         p.token as answer_at,
         r.id as request_id,
@@ -77,6 +77,7 @@ export async function waitingForOperator(
       join mine on mine.agent_id = r.agent_id
       join agents a on a.id = r.agent_id
       left join tasks t on t.id = r.task_id
+      left join account_wishes w on w.id = r.wish_id
       left join operator_pages p
         on p.agent_id = r.agent_id and p.revoked_at is null
       where r.closed_at is null

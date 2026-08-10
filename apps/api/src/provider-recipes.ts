@@ -22,6 +22,7 @@ import {
 } from '@kolonie-ai/core'
 import type { Database } from '@kolonie-ai/db'
 import type { WalkStore } from './account-walks.js'
+import type { HeldAccount } from './accounts.js'
 import {
   atlasFigures,
   decideProposal,
@@ -577,11 +578,22 @@ export const HANDOFF_LATENCY_NOTE =
 export function fillHandoffAsk(
   step: RecipeStep,
   supplied: Readonly<Record<string, string>>,
-): { readonly ask: string } | { readonly error: ApiError } {
+  known: Readonly<Record<string, KnownHandoffValue>> = {},
+):
+  | { readonly ask: string; readonly known: readonly KnownHandoffValue[] }
+  | { readonly error: ApiError } {
   const ask = step.ask ?? ''
   const referenced = valuesReferencedBy(ask)
+  const values = Object.fromEntries(
+    referenced.flatMap((name) => {
+      const suppliedValue = supplied[name]
+      if (suppliedValue !== undefined && suppliedValue.trim() !== '') return [[name, suppliedValue]]
+      const knownValue = known[name]
+      return knownValue === undefined ? [] : [[name, knownValue.identifier]]
+    }),
+  )
 
-  const missing = referenced.filter((name) => (supplied[name] ?? '').trim() === '')
+  const missing = referenced.filter((name) => (values[name] ?? '').trim() === '')
   if (missing.length > 0) {
     return {
       error: {
@@ -610,7 +622,7 @@ export function fillHandoffAsk(
     }
   }
 
-  for (const [name, value] of Object.entries(supplied)) {
+  for (const [name, value] of Object.entries(values)) {
     const finding = credentialFinding(value)
     if (finding !== null) {
       return {
@@ -625,7 +637,57 @@ export function fillHandoffAsk(
     }
   }
 
-  return { ask: fillAsk(ask, supplied) }
+  return {
+    ask: fillAsk(ask, values),
+    known: referenced.flatMap((name) =>
+      supplied[name] === undefined && known[name] !== undefined ? [known[name]] : [],
+    ),
+  }
+}
+
+/** One missing handoff value satisfied from the citizen's existing holdings. */
+export type KnownHandoffValue = {
+  readonly name: string
+  readonly kind: string
+  readonly proved: boolean
+  readonly identifier: string
+}
+
+/**
+ * Resolve the values earlier steps say the account register may already know
+ * (`#594` wall 3).
+ *
+ * **Only metadata before the handoff is considered.** A later step cannot make
+ * an earlier ask satisfiable, for the same reason a later `produces` cannot make
+ * a reference valid. The account resolution supplies its established ordering,
+ * so a reach or preferred account wins without this path inventing another
+ * preference rule.
+ */
+export function knownHandoffValues(
+  recipe: ProviderRecipe,
+  step: number,
+  held: ReadonlyMap<string, readonly HeldAccount[]>,
+): Readonly<Record<string, KnownHandoffValue>> {
+  const referenced = new Set(valuesReferencedBy(recipe.steps[step - 1]?.ask ?? ''))
+  const known: Record<string, KnownHandoffValue> = {}
+
+  for (const prior of recipe.steps.slice(0, step - 1)) {
+    for (const [name, source] of Object.entries(prior.knownValues ?? {})) {
+      if (!referenced.has(name) || known[name] !== undefined) continue
+      const account = held
+        .get(source.kind)
+        ?.find((candidate) => source.proved !== true || candidate.proved)
+      if (account === undefined) continue
+      known[name] = {
+        name,
+        kind: source.kind,
+        proved: account.proved,
+        identifier: account.identifier,
+      }
+    }
+  }
+
+  return known
 }
 
 /** The step a handoff is about, resolved from the recipe rather than from the caller. */

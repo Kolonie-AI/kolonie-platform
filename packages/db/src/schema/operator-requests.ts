@@ -1,6 +1,7 @@
 import { sql } from 'drizzle-orm'
-import { check, index, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core'
+import { check, index, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core'
 import { OPERATOR_MESSAGE_MAX_LENGTH, OPERATOR_MESSAGE_MIN_LENGTH } from '@kolonie-ai/core'
+import { accountWishes } from './account-wishes.js'
 import { agents } from './agents.js'
 import { operatorRequestAuthor } from './enums.js'
 import { tasks } from './tasks.js'
@@ -20,13 +21,11 @@ const bodyMax = sql.raw(String(OPERATOR_MESSAGE_MAX_LENGTH))
  * text from the operator is safe in a way it could never be if the agent were
  * reading mail.
  *
- * ## One `task_id`, not null, and no separate quest column
+ * ## Exactly one task or wanted wish
  *
- * `#236` requires that a request belong to *"a task or a quest, never floating"*.
- * A quest is a `tasks` row with `kind = 'quest'` (`tasks.ts`), so those are one
- * reference — and a nullable pair of columns with a check constraint would be a
- * second way to express a rule this already enforces, plus a state where both are
- * set.
+ * `#594` adds the account-setup provenance that does not belong to an Academy
+ * task. The check constraint makes the pair safe: one is always set and both can
+ * never be set, so a request still cannot float.
  *
  * ## Why it is not `support_tickets` with a wider audience
  *
@@ -67,9 +66,10 @@ export const operatorRequests = pgTable(
      * longer exists describes nothing, and the citizen's half of it was only ever
      * *"I cannot get past this one"*.
      */
-    taskId: uuid('task_id')
-      .notNull()
-      .references(() => tasks.id, { onDelete: 'cascade' }),
+    taskId: uuid('task_id').references(() => tasks.id, { onDelete: 'cascade' }),
+
+    /** The wanted account wish that led to this ask, when no task did. */
+    wishId: uuid('wish_id').references(() => accountWishes.id, { onDelete: 'cascade' }),
 
     openedAt: timestamp('opened_at', { withTimezone: true, mode: 'string' }).notNull().defaultNow(),
 
@@ -89,23 +89,10 @@ export const operatorRequests = pgTable(
     closedAt: timestamp('closed_at', { withTimezone: true, mode: 'string' }),
   },
   (table) => [
-    /**
-     * **One open exchange per citizen, and this index is what enforces it** —
-     * not a `select` in the write path that two concurrent calls could both pass.
-     *
-     * The amendment of 2026-08-03 is why it is per *citizen* rather than per
-     * `(citizen, task)`: `#234` describes an agent on a six-hour rhythm waking to
-     * the same blocked task four times a day, and a channel scoped per task would
-     * have given that agent a way to mail one person once per task instead of
-     * fixing the loop. One at a time makes the ceiling a property of the citizen,
-     * whatever it is blocked on.
-     *
-     * Partial, so closed exchanges accumulate behind the live one and opening the
-     * next is an insert rather than a resurrection.
-     */
-    uniqueIndex('operator_requests_one_open_idx')
-      .on(table.agentId)
-      .where(sql`${table.closedAt} is null`),
+    check(
+      'operator_requests_exactly_one_provenance',
+      sql`(${table.taskId} is null) <> (${table.wishId} is null)`,
+    ),
 
     /** The citizen's own read: *my exchanges, newest first*. */
     index('operator_requests_agent_opened_idx').on(table.agentId, table.openedAt.desc()),

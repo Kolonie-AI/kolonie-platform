@@ -68,13 +68,16 @@ export function registerOperatorRequestTools(
         '**You never touch a mailbox** — the Colony sends the note and your operator answers on ' +
         'the page they already hold, so nothing anybody mails you can ever reach you as an ' +
         'instruction.\n\n' +
-        '**One open request at a time**, and you need an operator page out before you can ask — ' +
+        '**Open requests are bounded**, and you need an operator page out before you can ask — ' +
         'kolonie.operator.page issues it. Do not wait on the answer: carry on with something ' +
         'else and read it on a later waking with kolonie.operator.request.read.',
       inputSchema: {
         taskId: OpenOperatorRequestSchema.shape.taskId.describe(
           'The task or quest you are blocked on, from kolonie.tasks.list. A request always ' +
-            'belongs to one — it is what tells your operator which thing you mean.',
+            'belongs to this or to one wanted wish, never both.',
+        ),
+        wishId: OpenOperatorRequestSchema.shape.wishId.describe(
+          'The wanted account wish this handoff is for. Use this instead of taskId, never with it.',
         ),
         body: OpenOperatorRequestSchema.shape.body.describe(
           'What you need, in your own words, written for a person rather than for the Colony. ' +
@@ -85,8 +88,8 @@ export function registerOperatorRequestTools(
       annotations: {
         readOnlyHint: false,
         // Each call opens a new exchange and sends a mail to a person. A client
-        // retrying on a timeout is refused by the one-at-a-time rule rather than
-        // mailing twice, but the honest hint is still that this is not idempotent.
+        // Retrying on a timeout could open and mail another request while below
+        // the ceiling, so the honest hint is that this is not idempotent.
         idempotentHint: false,
         openWorldHint: true,
       },

@@ -93,15 +93,20 @@ describe('kolonie.operator.request', () => {
     await close()
   })
 
-  it('refuses a second while the first is open, and names it', async () => {
+  it('refuses past the simultaneous-open ceiling, and names what is open', async () => {
     const { colony, apiKey, taskId } = await aBlockedCitizen()
-    const first = await openA(colony, apiKey, taskId)
-    const { request } = OperatorRequestResponseSchema.parse(first.result.structuredContent)
-    await first.close()
+    let firstId = ''
+    for (let n = 0; n < 8; n += 1) {
+      const opened = await openA(colony, apiKey, taskId, `Question number ${n} needs an answer.`)
+      const { request } = OperatorRequestResponseSchema.parse(opened.result.structuredContent)
+      if (n === 0) firstId = request.id
+      await opened.close()
+    }
 
     const second = await openA(colony, apiKey, taskId)
     expect(second.result.isError).toBe(true)
-    expect(JSON.stringify(second.result.content)).toContain(request.id)
+    expect(JSON.stringify(second.result.content)).toContain(firstId)
+    expect(JSON.stringify(second.result.content)).toContain('github-account')
     await second.close()
   })
 

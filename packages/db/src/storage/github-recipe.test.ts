@@ -112,6 +112,10 @@ describe('the github.com recipe', () => {
       const recipe = await providerRecipe(db, AccountKindSchema.parse('github'), 'github.com')
 
       expect(recipe?.steps[0]?.produces).toEqual(['handle', 'address'])
+      expect(recipe?.steps[0]?.knownValues).toEqual({
+        handle: { kind: 'social' },
+        address: { kind: 'mailbox', proved: true },
+      })
     })
 
     it('refers to them inside the operator’s ask, not below it', async () => {

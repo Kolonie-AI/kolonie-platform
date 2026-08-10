@@ -13,6 +13,7 @@ import {
   type OperatorRequestId,
   type OperatorRequestResponse,
   type TaskId,
+  type WishId,
 } from '@kolonie-ai/core'
 import {
   answerOperatorRequest as answerInDatabase,
@@ -28,6 +29,7 @@ import {
   type OpenExchangeForOperator,
   type OpenOperatorRequestOutcome,
   type OperatorRequestRecipient,
+  type SettingsReader,
 } from '@kolonie-ai/db'
 import type { OperatorMailer } from './email.js'
 import type { OutboundAllowance } from './support.js'
@@ -63,11 +65,12 @@ import { exchangeAnchor } from './autonomy-page.js'
 
 /** Storage, behind a port, so this workspace's tests need no PostgreSQL. */
 export interface OperatorRequestStore {
-  open(input: {
-    readonly agentId: AgentId
-    readonly taskId: TaskId
-    readonly body: string
-  }): Promise<OpenOperatorRequestOutcome>
+  open(
+    input: { readonly agentId: AgentId; readonly body: string } & (
+      | { readonly taskId: TaskId; readonly wishId?: never }
+      | { readonly taskId?: never; readonly wishId: WishId }
+    ),
+  ): Promise<OpenOperatorRequestOutcome>
   reply(input: {
     readonly agentId: AgentId
     readonly requestId: OperatorRequestId
@@ -100,9 +103,12 @@ export interface OperatorRequestStore {
 }
 
 /** Wired to a real database. The only place the two meet. */
-export function databaseOperatorRequestStore(db: Database): OperatorRequestStore {
+export function databaseOperatorRequestStore(
+  db: Database,
+  settings: SettingsReader,
+): OperatorRequestStore {
   return {
-    open: (input) => openInDatabase(db, input),
+    open: (input) => openInDatabase(db, input, settings),
     reply: (input) => replyInDatabase(db, input),
     close: (input) => closeInDatabase(db, input),
     read: (query) => readInDatabase(db, query),
@@ -206,8 +212,9 @@ export async function openOperatorRequest(
     return {
       outcome: 'rejected',
       error: invalid(
-        'A request names one of your tasks and says what you need. Send the taskId from ' +
-          'kolonie.tasks.list and a message for the person who answers for you.',
+        'A request names exactly one task or wanted account wish and says what you need. Send ' +
+          'taskId from kolonie.tasks.list or wishId from kolonie.accounts.wishes, plus a message ' +
+          'for the person who answers for you.',
         Object.fromEntries(
           parsed.error.issues.map((issue) => [issue.path.join('.'), issue.message]),
         ),
@@ -263,23 +270,37 @@ export async function openOperatorRequest(
     return { outcome: 'rate-limited', retryAfterSeconds: verdict.retryAfterSeconds }
   }
 
-  const opened = await deps.store.open({
-    agentId: input.agentId,
-    taskId: parsed.data.taskId,
-    body: parsed.data.body,
-  })
+  const opened =
+    parsed.data.taskId === undefined
+      ? await deps.store.open({
+          agentId: input.agentId,
+          body: parsed.data.body,
+          wishId: parsed.data.wishId!,
+        })
+      : await deps.store.open({
+          agentId: input.agentId,
+          body: parsed.data.body,
+          taskId: parsed.data.taskId,
+        })
 
-  if (opened.outcome === 'already-open') {
+  if (opened.outcome === 'at-ceiling') {
     return {
       outcome: 'rejected',
       error: {
         code: 'conflict',
         message:
-          'You already have a request open, and one at a time is the rule. Read it with ' +
-          'kolonie.operator.request.read — if it has been answered, close it and open the next ' +
-          'one; if it has not, you can add to it with kolonie.operator.request.reply or close ' +
-          'it to ask about something else. Nothing is held against you either way.',
-        details: { openRequestId: String(opened.openRequestId) },
+          'You already have as many requests open as the Colony carries at once. Finish or ' +
+          'withdraw one of these before opening another: ' +
+          opened.openRequests
+            .map((request) => `“${request.context}” (${request.requestId})`)
+            .join(', ') +
+          '. Read them with kolonie.operator.request.read; nothing is held against you for ' +
+          'closing one unanswered.',
+        details: {
+          openRequests: opened.openRequests
+            .map((request) => `${request.requestId}:${request.context}`)
+            .join(','),
+        },
       },
     }
   }
@@ -291,6 +312,17 @@ export async function openOperatorRequest(
         'There is no task with that id. kolonie.tasks.list is where the ids are — send the id ' +
           'of the task you are actually blocked on, so your operator is told which one it is.',
         { taskId: 'must be an existing task' },
+      ),
+    }
+  }
+
+  if (opened.outcome === 'no-such-wish') {
+    return {
+      outcome: 'rejected',
+      error: invalid(
+        'There is no wanted account wish of yours with that id. Read kolonie.accounts.wishes ' +
+          'and use the id of the provider your operator marked as wanted.',
+        { wishId: 'must be a wanted wish belonging to you' },
       ),
     }
   }
@@ -313,7 +345,7 @@ export async function openOperatorRequest(
     subject: `${input.agentName} is stuck and has asked you something`,
     text: operatorRequestNotificationText({
       agentName: input.agentName,
-      taskTitle: opened.request.taskTitle,
+      context: opened.request.context,
       link,
     }),
   })
@@ -351,12 +383,12 @@ export async function openOperatorRequest(
  */
 export function operatorRequestNotificationText(input: {
   readonly agentName: string
-  readonly taskTitle: string
+  readonly context: string
   readonly link: string
 }): string {
   return [
-    `Your agent ${input.agentName} has run into something it cannot do without you, on a task`,
-    `called "${input.taskTitle}". It has written you a short note explaining what it needs.`,
+    `Your agent ${input.agentName} has run into something it cannot do without you, while`,
+    `working on "${input.context}". It has written you a short note explaining what it needs.`,
     '',
     'It is on the page you already have for it — the same page as before, no new account and',
     'nothing to sign up for:',

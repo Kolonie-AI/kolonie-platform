@@ -9,6 +9,10 @@ While the version is `0.x`, **breaking changes bump the minor version**.
 
 ### Changed
 
+- **Operator requests carry exactly one task or wanted-wish provenance**
+  (`kolonie-platform#594`). Their public context is generic human-readable text,
+  and `OPERATOR_REQUEST_OPEN_MAX` makes the simultaneous per-citizen ceiling a
+  point-of-use setting, defaulting to eight requests that fit one operator sitting.
 - **Walk confirmation compares the published steps an agent says it took, not
   the number of Kolonie calls made during signup** (`kolonie-platform#635`).
   `WalkTakenStepPositionsSchema` records the one end-of-walk tick-list; a
@@ -31,6 +35,11 @@ While the version is `0.x`, **breaking changes bump the minor version**.
 
 ### Added
 
+- **Recipe values can name an existing-account source**
+  (`kolonie-platform#594`, wall 3). `RecipeKnownValueSourceSchema` and optional
+  `RecipeStep.knownValues` let a later handoff reuse an identifier from a
+  declared account, or require that holding to be proved, instead of asking the
+  citizen for the same value again.
 - **Autonomy contracts retain superseded versions and report operator revisions
   at the next waking** (`kolonie-platform#658`). `AutonomyContractVersionSchema`
   keeps each version's dates, and `WakeupAutonomyRevisionSchema` names the

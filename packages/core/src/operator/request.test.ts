@@ -163,9 +163,19 @@ describe('looksLikeCredential', () => {
 })
 
 describe('OpenOperatorRequestSchema', () => {
-  it('requires a task, because a request that belongs to nothing is refused', () => {
+  it('requires exactly one task or wish provenance', () => {
+    const taskId = '3f2504e0-4f89-11d3-9a0c-0305e82c3301'
+    const wishId = '4f2504e0-4f89-11d3-9a0c-0305e82c3302'
+
     const parsed = OpenOperatorRequestSchema.safeParse({ body: 'I am blocked, please help.' })
     expect(parsed.success).toBe(false)
+    expect(
+      OpenOperatorRequestSchema.safeParse({ taskId, wishId, body: 'I am blocked, please help.' })
+        .success,
+    ).toBe(false)
+    expect(
+      OpenOperatorRequestSchema.safeParse({ wishId, body: 'Please create this account.' }).success,
+    ).toBe(true)
   })
 
   it('holds the message between its bounds', () => {

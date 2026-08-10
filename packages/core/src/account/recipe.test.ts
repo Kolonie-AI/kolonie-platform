@@ -111,3 +111,49 @@ describe('the life of an Atlas entry (#604)', () => {
     })
   })
 })
+
+describe('values a prior recipe step can satisfy from the account register (#594 wall 3)', () => {
+  const entry = {
+    kind: 'github',
+    provider: 'github.com',
+    title: 'GitHub',
+    category: 'code-hosting',
+    status: 'joinable',
+    proves: 'rung',
+    steps: [
+      {
+        actor: 'agent',
+        instruction: 'Choose a handle and an address.',
+        produces: ['handle', 'address'],
+        knownValues: {
+          handle: { kind: 'social' },
+          address: { kind: 'mailbox', proved: true },
+        },
+      },
+      {
+        actor: 'operator',
+        instruction: 'Create the account.',
+        ask: 'Create it as {handle}, using {address}.',
+      },
+    ],
+  }
+
+  it('accepts a declared account and a proved account as named value sources', () => {
+    expect(WriteProviderRecipeSchema.safeParse(entry).success).toBe(true)
+  })
+
+  it('refuses source metadata for a value the step does not produce', () => {
+    expect(
+      WriteProviderRecipeSchema.safeParse({
+        ...entry,
+        steps: [
+          {
+            ...entry.steps[0],
+            knownValues: { login: { kind: 'social' } },
+          },
+          entry.steps[1],
+        ],
+      }).success,
+    ).toBe(false)
+  })
+})

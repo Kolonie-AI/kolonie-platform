@@ -1,9 +1,10 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { eq } from 'drizzle-orm'
-import type { AgentId, OperatorRequestId, TaskId } from '@kolonie-ai/core'
+import type { AgentId, OperatorRequestId, TaskId, WishId } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import {
   agents,
+  accountWishes,
   autonomyContracts,
   operatorRequestMessages,
   operatorRequests,
@@ -32,6 +33,15 @@ describe('the operator request (#236)', () => {
   let db: Database
   let agentId: AgentId
   let taskId: TaskId
+
+  const aWantedWish = async (owner: AgentId, provider = 'github.com'): Promise<WishId> => {
+    const [row] = await db
+      .insert(accountWishes)
+      .values({ agentId: owner, provider, author: 'citizen', wantedAt: new Date().toISOString() })
+      .returning({ id: accountWishes.id })
+    if (row === undefined) throw new Error('inserting a wish returned no row')
+    return row.id as WishId
+  }
 
   beforeAll(async () => {
     db = await connectForTests(target.url)
@@ -88,7 +98,8 @@ describe('the operator request (#236)', () => {
       if (opened.outcome !== 'opened') return
 
       expect(opened.request.taskId).toBe(taskId)
-      expect(opened.request.taskTitle).toBe('github-account')
+      expect(opened.request.wishId).toBeNull()
+      expect(opened.request.context).toBe('github-account')
       expect(opened.request.closedAt).toBeNull()
       expect(opened.request.answered).toBe(false)
       expect(opened.request.messages).toHaveLength(1)
@@ -101,13 +112,31 @@ describe('the operator request (#236)', () => {
      * been fixed — it has acquired a recipient, and the first operator it happens
      * to will stop reading.
      */
-    it('refuses a second while the first is open, and names the open one', async () => {
-      const first = await anOpenRequest()
-      const second = await openOperatorRequest(db, { agentId, taskId, body: ASK })
+    it('allows several open requests up to the configured ceiling', async () => {
+      const setting = { read: async () => '2', forget: () => undefined }
+      const first = await openOperatorRequest(db, { agentId, taskId, body: ASK }, setting)
+      const second = await openOperatorRequest(db, { agentId, taskId, body: ASK }, setting)
+      const third = await openOperatorRequest(db, { agentId, taskId, body: ASK }, setting)
 
-      expect(second.outcome).toBe('already-open')
-      if (second.outcome !== 'already-open') return
-      expect(second.openRequestId).toBe(first)
+      expect(first.outcome).toBe('opened')
+      expect(second.outcome).toBe('opened')
+      expect(third.outcome).toBe('at-ceiling')
+      if (third.outcome !== 'at-ceiling') return
+      expect(third.openRequests).toHaveLength(2)
+      expect(third.openRequests.every((request) => request.context === 'github-account')).toBe(true)
+    })
+
+    it('reads the ceiling at each open attempt rather than once at startup', async () => {
+      let value = '2'
+      const setting = { read: async () => value, forget: () => undefined }
+
+      expect((await openOperatorRequest(db, { agentId, taskId, body: ASK }, setting)).outcome).toBe(
+        'opened',
+      )
+      value = '1'
+      expect((await openOperatorRequest(db, { agentId, taskId, body: ASK }, setting)).outcome).toBe(
+        'at-ceiling',
+      )
     })
 
     it('allows the next one once the citizen has closed the first', async () => {
@@ -139,18 +168,43 @@ describe('the operator request (#236)', () => {
       expect(outcome.outcome).toBe('no-such-task')
     })
 
-    /**
-     * The index rather than the `select` is what enforces one-at-a-time, so it is
-     * asserted against the database directly: a check in the write path is one two
-     * concurrent calls can both pass.
-     */
-    it('is refused by the database itself, not only by the read above it', async () => {
-      await anOpenRequest()
-
+    it('is refused by the database when both or neither provenance is set', async () => {
+      const wishId = await aWantedWish(agentId)
       await expectRejection(
-        () => db.insert(operatorRequests).values({ agentId, taskId }),
-        /operator_requests_one_open_idx/,
+        () => db.insert(operatorRequests).values({ agentId, taskId, wishId }),
+        /operator_requests_exactly_one_provenance/,
       )
+      await expectRejection(
+        () => db.insert(operatorRequests).values({ agentId }),
+        /operator_requests_exactly_one_provenance/,
+      )
+    })
+
+    it('opens against a wanted wish belonging to the citizen', async () => {
+      const wishId = await aWantedWish(agentId)
+      const opened = await openOperatorRequest(db, { agentId, wishId, body: ASK })
+
+      expect(opened.outcome).toBe('opened')
+      if (opened.outcome !== 'opened') return
+      expect(opened.request.taskId).toBeNull()
+      expect(opened.request.wishId).toBe(wishId)
+      expect(opened.request.context).toBe('github.com')
+    })
+
+    it('refuses an unmarked wish or another citizen’s wanted wish', async () => {
+      const [unmarked] = await db
+        .insert(accountWishes)
+        .values({ agentId, provider: 'unmarked.example', author: 'citizen' })
+        .returning({ id: accountWishes.id })
+      const stranger = await anAgent('stranger')
+      const theirs = await aWantedWish(stranger, 'theirs.example')
+
+      expect(
+        await openOperatorRequest(db, { agentId, wishId: unmarked!.id as WishId, body: ASK }),
+      ).toEqual({ outcome: 'no-such-wish' })
+      expect(await openOperatorRequest(db, { agentId, wishId: theirs, body: ASK })).toEqual({
+        outcome: 'no-such-wish',
+      })
     })
   })
 
@@ -265,6 +319,24 @@ describe('the operator request (#236)', () => {
       if (answered.outcome !== 'answered') return
       expect(answered.clearedSetAside).toBe(true)
       expect(await listSetAsides(db, agentId)).toHaveLength(0)
+    })
+
+    it('does not clear a task set-aside when answering a wish request', async () => {
+      const wishId = await aWantedWish(agentId)
+      const opened = await openOperatorRequest(db, { agentId, wishId, body: ASK })
+      if (opened.outcome !== 'opened') throw new Error('expected opened')
+      const token = await issueOperatorPage(db, agentId, OPERATOR)
+      await setAside(db, agentId, taskId, 'needs-operator')
+
+      const answered = await answerOperatorRequest(db, {
+        token,
+        requestId: opened.request.id,
+        body: 'It is made.',
+      })
+
+      expect(answered.outcome).toBe('answered')
+      expect(answered.outcome === 'answered' && answered.clearedSetAside).toBe(false)
+      expect(await listSetAsides(db, agentId)).toHaveLength(1)
     })
 
     /**
@@ -386,7 +458,7 @@ describe('the operator request (#236)', () => {
 
       const [exchange] = await exchangesForToken(db, token)
       expect(exchange?.requestId).toBe(requestId)
-      expect(exchange?.taskTitle).toBe('github-account')
+      expect(exchange?.context).toBe('github-account')
       expect(exchange?.messages).toHaveLength(1)
     })
 
@@ -406,24 +478,16 @@ describe('the operator request (#236)', () => {
       expect(await exchangesForToken(db, token)).toEqual([])
     })
 
-    /**
-     * **`#593` says an agent can have two open questions, and it cannot** —
-     * `operator_requests_one_open_idx` is a partial unique index on `agent_id`
-     * where `closed_at is null`, so the database refuses the second. Verified
-     * against production 2026-08-08: no agent has more than one.
-     *
-     * The test is here rather than the two-open-exchange one the issue asked
-     * for, because a test asserting a state the schema forbids would be a test
-     * asserting a fiction. What `#593` describes an operator seeing is real and
-     * is the anchor problem `#587` fixes.
-     */
-    it('refuses a second open request, which is why one can never be picked wrongly', async () => {
+    it('shows every open request oldest first', async () => {
       const first = await anOpenRequest()
-
       const second = await openOperatorRequest(db, { agentId, taskId, body: ASK })
+      if (second.outcome !== 'opened') throw new Error('expected second opened')
+      const token = await issueOperatorPage(db, agentId, OPERATOR)
 
-      expect(second.outcome).toBe('already-open')
-      expect(second.outcome === 'already-open' ? second.openRequestId : undefined).toBe(first)
+      expect((await exchangesForToken(db, token)).map((exchange) => exchange.requestId)).toEqual([
+        first,
+        second.request.id,
+      ])
     })
 
     /**

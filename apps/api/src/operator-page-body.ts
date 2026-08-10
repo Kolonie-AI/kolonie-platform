@@ -44,6 +44,8 @@ export async function operatorPageBody(
   errors: {
     readonly answerError?: string
     readonly noteError?: string
+    /** The authenticated console may use its existing drop-id route; the bearer page may not. */
+    readonly fillDrops?: boolean
     /**
      * Render only the operator's own sections, for the agent page (`#453`).
      *
@@ -57,8 +59,9 @@ export async function operatorPageBody(
     readonly as?: 'page' | 'section' | undefined
   } = {},
 ): Promise<string> {
-  const [exchanges, room] = await Promise.all([
+  const [exchanges, drops, room] = await Promise.all([
     deps.operatorRequests.store.exchangesForToken(token),
+    deps.drops?.forPageToken(token) ?? Promise.resolve([]),
     deps.operatorNotes.store.roomForToken(token),
   ])
 
@@ -92,13 +95,16 @@ export async function operatorPageBody(
      */
     exchanges: exchanges.map((exchange) => ({
       requestId: String(exchange.requestId),
-      taskTitle: exchange.taskTitle,
+      context: exchange.context,
+      openedAt: exchange.openedAt,
       messages: exchange.messages,
       // Whether the page renders a box under it (`#359`). A closed exchange is
       // here because the citizen answered a question the operator asked in the
       // notes channel, and it is read-only.
       closed: exchange.closed,
     })),
+    drops,
+    fillDrops: errors.fillDrops === true,
   })
 }
 

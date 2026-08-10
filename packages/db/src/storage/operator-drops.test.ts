@@ -2,12 +2,21 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { eq, sql } from 'drizzle-orm'
 import { MAX_DROP_ATTEMPTS, VAULT_MAX_ENTRIES, type AgentId } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
-import { agentVault, agents, humanAgents, humans, operatorDrops, tasks } from '../schema/index.js'
+import {
+  agentVault,
+  agents,
+  humanAgents,
+  humans,
+  operatorDrops,
+  operatorPages,
+  tasks,
+} from '../schema/index.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
 import { openVaultValue } from '../vault-crypto.js'
 import {
   fillDropAsOperator,
   listDrops,
+  openDropsForPageToken,
   openDrop,
   submitDrop,
   takeDrop,
@@ -91,6 +100,43 @@ describe('the operator drop', () => {
 
       expect(row?.tokenHash).not.toBe(drop.token)
       expect(JSON.stringify(row)).not.toContain(drop.token)
+    })
+
+    it('lists every actionable drop for the live durable page, oldest first', async () => {
+      await db.insert(operatorPages).values({
+        agentId,
+        operatorAddress: 'operator@example.org',
+        token: 'page-token',
+      })
+      const later = await aCredentialDrop('later-password')
+      const earlier = await aCredentialDrop('earlier-password')
+      const filled = await aCredentialDrop('filled-password')
+      const expired = await aCredentialDrop('expired-password')
+      await db
+        .update(operatorDrops)
+        .set({ createdAt: '2026-08-02T00:00:00.000Z' })
+        .where(eq(operatorDrops.id, later.id))
+      await db
+        .update(operatorDrops)
+        .set({ createdAt: '2026-08-01T00:00:00.000Z' })
+        .where(eq(operatorDrops.id, earlier.id))
+      await submitDrop(db, filled.token, SECRET, SEALING_KEY)
+      await db
+        .update(operatorDrops)
+        .set({ expiresAt: sql`now() - interval '1 minute'` })
+        .where(eq(operatorDrops.id, expired.id))
+
+      expect((await openDropsForPageToken(db, 'page-token')).map((drop) => drop.id)).toEqual([
+        earlier.id,
+        later.id,
+      ])
+
+      await db
+        .update(operatorPages)
+        .set({ revokedAt: new Date().toISOString() })
+        .where(eq(operatorPages.token, 'page-token'))
+      expect(await openDropsForPageToken(db, 'page-token')).toEqual([])
+      expect(await openDropsForPageToken(db, 'unknown-token')).toEqual([])
     })
   })
 

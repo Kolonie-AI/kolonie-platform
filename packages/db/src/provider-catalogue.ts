@@ -128,6 +128,16 @@ export const PROVIDER_CATALOGUE: readonly WriteProviderRecipe[] = [
          * handoff refuse to open until they are supplied.
          */
         produces: ['handle', 'address'],
+        /**
+         * **Use what the citizen already established** (`#594` wall 3). A
+         * declared social account supplies a reusable public handle; the address
+         * is narrower because this recipe relies on receiving GitHub's launch
+         * mail, so only a mailbox the Colony has seen it read is reused.
+         */
+        knownValues: {
+          handle: { kind: AccountKindSchema.parse('social') },
+          address: { kind: AccountKindSchema.parse('mailbox'), proved: true },
+        },
       },
       {
         actor: 'operator',

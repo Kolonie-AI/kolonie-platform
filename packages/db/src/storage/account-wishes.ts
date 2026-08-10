@@ -13,6 +13,7 @@ import {
   type RecipeStep,
   type Wish,
   type WishAuthor,
+  type WishId,
 } from '@kolonie-ai/core'
 import type { Database, Transaction } from '../client.js'
 import { accounts, accountWishes, providerRecipes } from '../schema/index.js'
@@ -321,7 +322,7 @@ export async function wantedWishesFor(
 
 function asWish(row: typeof accountWishes.$inferSelect): Wish {
   return {
-    id: row.id,
+    id: row.id as WishId,
     provider: row.provider,
     author: row.author as WishAuthor,
     noticedWhile: row.noticedWhile,

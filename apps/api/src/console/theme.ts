@@ -286,6 +286,34 @@ ${declarations(LOCAL_TOKENS)}
   }
   button:hover { background: var(--k-accent-strong); border-color: var(--k-accent-strong); }
 
+  .operator-asks { list-style: none; padding: 0; }
+  .operator-ask {
+    padding: var(--k-space-3);
+    background: var(--k-surface);
+    border-left: var(--k-space-1) solid var(--k-accent);
+  }
+  .operator-answer-controls {
+    display: flex;
+    align-items: flex-start;
+    flex-wrap: wrap;
+    gap: var(--k-space-3);
+  }
+  .operator-answer-controls button { margin-top: 0; }
+  .operator-answer-explanation { flex: 1 1 28rem; }
+  .operator-answer-explanation textarea { display: block; }
+  .operator-answer-explanation button { margin-top: var(--k-space-2); }
+  details.operator-context {
+    margin-top: var(--k-space-4);
+    border-top: var(--k-border) solid var(--k-hairline);
+    padding-top: var(--k-space-3);
+  }
+  details.operator-context > summary {
+    color: var(--k-text-strong);
+    font-size: var(--k-text-lg);
+    font-weight: 600;
+    cursor: pointer;
+  }
+
   /* A link that starts a redirect, dressed as the button it is doing the job of
      (#425). It is an anchor and not a form so that a GET hands the browser to
      the provider — which is what leaves form-action 'self' and the absence of

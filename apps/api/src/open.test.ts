@@ -327,7 +327,7 @@ describe('what the open section may propose beyond a rung', () => {
     const entry = open.entries.find(
       (candidate) => candidate.call === 'kolonie.operator.claim.request',
     )
-    expect(entry?.why).toContain('no operator has claimed you')
+    expect(entry?.why).toBe('no operator has publicly claimed you')
     // Half of it is not the citizen's to finish, and the entry says so rather
     // than promising an outcome it cannot deliver.
     expect(entry?.needs).toContain('not yours to finish alone')

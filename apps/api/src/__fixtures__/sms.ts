@@ -121,7 +121,10 @@ export function fakeSmsStore(): FakeSmsStore {
       const existing = open(agentId, 'receive')
       if (existing !== undefined) {
         const matchesRequested = identity(existing.number ?? '') === identity(number)
-        if (matchesRequested || !replace || existing.sentAt !== null) {
+        // `sentAt` is deliberately not consulted (`#702`): a delivered
+        // challenge is replaceable too, and the spend it costs is counted by
+        // the sender's per-citizen cap rather than by this table.
+        if (matchesRequested || !replace) {
           return {
             outcome: 'open',
             matchesRequested,

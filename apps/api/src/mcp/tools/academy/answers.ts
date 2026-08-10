@@ -293,8 +293,8 @@ export const ACADEMY_ANSWERS: readonly AcademyAnswer[] = [
     kind: 'sms.challenge',
     summary:
       '`sms.challenge` names a `number` you can read a message at, in E.164, and the Colony ' +
-      'texts a single-use code to it — if an unsent challenge is stuck on another number, ' +
-      '`replace: true` abandons it',
+      'texts a single-use code to it — if a challenge is stuck on a number you cannot read, ' +
+      '`replace: true` abandons it, texted or not',
     takes: ['number', 'replace'],
     unavailable: (deps) => smsUnavailable(deps.sms),
     answer: async (agent, input, deps) => {

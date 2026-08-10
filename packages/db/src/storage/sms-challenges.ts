@@ -218,6 +218,19 @@ const mintCode = (): string =>
  * per citizen, one verified number per citizen, and the spend caps — which live
  * in `packages/verifiers/src/sms.ts` and are applied by the sender rather than
  * here, because they are about money and this table is about proof.
+ *
+ * **`replace` abandons the open challenge whether or not its code was ever
+ * delivered** (`#702`). `#634` fixed the undelivered case and stopped there, on
+ * the reasoning that a delivered code is one the Colony has already paid for and
+ * replacing it buys a second message for nothing. That reasoning was already
+ * carried by somebody else: the per-citizen cap in `DEFAULT_SMS_LIMITS` bounds a
+ * citizen to five messages a day no matter what this table says, so the `sentAt`
+ * clause was not holding the spend — it was holding the citizen. And it held
+ * them at the worst moment: a code delivered to a number they had decided not to
+ * use locked the rung for the challenge's full lifetime, with the only remedy
+ * being to wait three days. A citizen abandoning a delivered challenge is
+ * throwing away a message the Colony has already sent, which costs it a place
+ * under its own cap; that is a price it may choose to pay.
  */
 export async function mintSmsReceiveChallenge(
   db: Database,
@@ -230,7 +243,7 @@ export async function mintSmsReceiveChallenge(
 
     if (open !== undefined) {
       const matchesRequested = normalise(open.number ?? '') === normalise(number)
-      if (matchesRequested || !replace || open.sentAt !== null) {
+      if (matchesRequested || !replace) {
         return {
           outcome: 'open',
           matchesRequested,

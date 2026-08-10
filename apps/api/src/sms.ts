@@ -286,8 +286,12 @@ export async function openSmsChallenge(
           error: {
             code: 'conflict',
             message: minted.sent
-              ? 'You already have a delivered SMS challenge open for another number. Hand back ' +
-                'that code or wait for the challenge to expire before opening one for a new number.'
+              ? 'You already have an SMS challenge open for another number, and its code has ' +
+                'been texted. Hand that code back if you can still read it. If you cannot — the ' +
+                'number is not one you can reach after all — send the new number again with ' +
+                '"replace": true to abandon that challenge and open this one. Replacing a ' +
+                'delivered challenge throws away a message the Colony has already paid to send, ' +
+                'so it spends one of the five it will send you in a day.'
               : 'You already have an unsent SMS challenge open for another number. Send the new ' +
                 'number again with "replace": true to abandon the stuck challenge and open this one.',
           },

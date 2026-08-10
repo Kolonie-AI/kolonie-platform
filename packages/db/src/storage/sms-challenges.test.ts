@@ -220,16 +220,66 @@ describe('the phone nodes', () => {
       ).toBeLessThanOrEqual(Date.now())
     })
 
-    it('does not replace a challenge after its message was delivered', async () => {
+    /**
+     * **A delivered challenge is replaceable too** (`#702`).
+     *
+     * `#634` stopped at the undelivered case, which left the expensive one
+     * unfixed: a code texted to a number the citizen turns out not to hold — a
+     * public free-inbox number, a handset nobody will read — locked the rung for
+     * the challenge's full three days. The spend argument for refusing belongs
+     * to `DEFAULT_SMS_LIMITS`, which caps a citizen at five messages a day
+     * whichever challenge they are on, so this clause was costing the citizen
+     * without saving the Colony anything.
+     */
+    it('replaces a challenge whose message was already delivered', async () => {
       const first = await mintAndSend(agentId, CITIZEN_NUMBER)
 
       const replacement = await mintSmsReceiveChallenge(db, agentId, OTHER_NUMBER, true)
 
-      expect(replacement.outcome).toBe('open')
-      if (replacement.outcome !== 'open') throw new Error('expected an open challenge')
-      expect(replacement.challenge.id).toBe(first.id)
-      expect(replacement.matchesRequested).toBe(false)
-      expect(replacement.sent).toBe(true)
+      expect(replacement.outcome).toBe('minted')
+      if (replacement.outcome !== 'minted') throw new Error('expected a minted challenge')
+      expect(replacement.challenge.id).not.toBe(first.id)
+      expect(replacement.challenge.number).toBe(OTHER_NUMBER)
+      // The abandoned one is closed rather than deleted: what was texted stays
+      // on the record, which is what the spend ledger is reconciled against.
+      const abandoned = await db
+        .select({ expiresAt: smsChallenges.expiresAt })
+        .from(smsChallenges)
+        .where(eq(smsChallenges.id, first.id))
+      expect(new Date(abandoned[0]?.expiresAt ?? 0).getTime()).toBeLessThanOrEqual(Date.now())
+    })
+
+    /** And only when it is asked for: `replace` stays explicit on both routes. */
+    it('keeps a delivered challenge when replacement was not asked for', async () => {
+      const first = await mintAndSend(agentId, CITIZEN_NUMBER)
+
+      const again = await mintSmsReceiveChallenge(db, agentId, OTHER_NUMBER)
+
+      expect(again.outcome).toBe('open')
+      if (again.outcome !== 'open') throw new Error('expected an open challenge')
+      expect(again.challenge.id).toBe(first.id)
+      expect(again.matchesRequested).toBe(false)
+      expect(again.sent).toBe(true)
+    })
+
+    /**
+     * The number check runs before the abandonment on this route as well: a
+     * replacement that cannot succeed must leave the citizen holding what it
+     * had, rather than exchanging a delivered challenge for nothing.
+     */
+    it('leaves a delivered challenge standing when the new number is another citizen’s', async () => {
+      await mintAndSend(agentId, CITIZEN_NUMBER)
+      const theirs = await mintAndSend(otherId, OTHER_NUMBER)
+      await redeemSmsCode(db, otherId, theirs.code)
+
+      expect(await mintSmsReceiveChallenge(db, agentId, OTHER_NUMBER, true)).toEqual({
+        outcome: 'number_taken',
+      })
+
+      const state = await latestSmsChallenge(db, agentId, 'receive')
+      expect(state?.number).toBe(CITIZEN_NUMBER)
+      expect(new Date(state?.expiresAt ?? 0).getTime()).toBeGreaterThan(Date.now())
+      expect(state?.sentAt).not.toBeNull()
     })
 
     it('refuses a number that already certifies another citizen', async () => {

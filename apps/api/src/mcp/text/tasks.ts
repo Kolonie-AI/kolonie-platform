@@ -16,6 +16,7 @@ import {
   type TaskNotice,
   type TaskSkillStanding,
   type TaskSovereignty,
+  ENTRY_WALKS_TERMS,
 } from '@kolonie-ai/core'
 import { attemptAsText, blockingAsText, briefingAsNoticeText, reportsAsText } from './attempts.js'
 import { reportLine } from './history.js'
@@ -329,6 +330,7 @@ export function taskAsText(
     ].filter((part) => part !== ''),
     '',
     task.instructions,
+    entryWalksTermsAsText(task),
     questionsAsText(task),
     landscapeAsText(task),
     hintsAsText(task, '').trimStart(),
@@ -343,6 +345,24 @@ export function taskAsText(
   ]
     .join('\n')
     .trimEnd()
+}
+
+/**
+ * What a quest measured in walks says about its own figures (`#602`).
+ *
+ * **In the quest's own text rather than in a policy document**, because the
+ * moment it matters is the moment somebody is deciding whether to sponsor or to
+ * answer one — and a rule discovered afterwards is a rule both sides will
+ * reasonably feel misled by.
+ *
+ * It is shown to the answering citizen as well as to the sponsor, and that is
+ * deliberate: an agent asked to walk something for money should know that its
+ * failure is a result and is paid, or it will read a failed walk as a wasted
+ * afternoon and stop reporting them — which is the one outcome that would make
+ * the figures worthless.
+ */
+function entryWalksTermsAsText(task: { readonly deliverable: Task['deliverable'] }): string {
+  return task.deliverable === 'entry-walks' ? `\n${ENTRY_WALKS_TERMS}` : ''
 }
 
 /**

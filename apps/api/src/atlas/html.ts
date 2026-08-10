@@ -317,6 +317,14 @@ export function atlasEntryPage(input: {
   readonly entry: AtlasEntry
   readonly canonical: string
   readonly chrome?: SiteChrome | undefined
+  /**
+   * Quests naming this entry, so the page can say who paid for the figures
+   * (`#602`).
+   *
+   * Optional at every layer, like the walk store one file over: a deployment
+   * that has no quests renders the page it rendered before this existed.
+   */
+  readonly quests?: readonly SponsoringQuest[] | undefined
 }): string {
   const { entry } = input
 
@@ -369,6 +377,7 @@ export function atlasEntryPage(input: {
       )}</a> — ${escape(operatorLine(entry))}</p>`,
       paidMarker(entry),
       ...entry.recipes.map(recipeSection),
+      sponsorSection(input.quests ?? []),
       confirmedLine(entry),
       runtimesSection(entry),
       counterpartySection(entry),
@@ -579,6 +588,50 @@ function figuresSection(figures: AtlasFigures): string {
   ].filter((line) => line !== '')
 
   return `<h3>What we measured</h3><ul>${lines.join('')}</ul>`
+}
+
+/** A quest that bought walks of this entry, as the page names it (`#602`). */
+export interface SponsoringQuest {
+  readonly id: string
+  readonly title: string
+  readonly walksAsked: number | null
+}
+
+/**
+ * Who paid for these figures, and what exactly they bought (`#602`).
+ *
+ * **Stated on the entry rather than left to be inferred**, and it has to be
+ * both halves. *Somebody paid for this to be tested* on its own reads as a
+ * reason to distrust the numbers; what makes it readable is saying what the
+ * money bought — a number of attempts — and what it did not.
+ *
+ * **`growth/README.md`'s rule, said on the page it applies to.** Measured
+ * figures are shown whether or not they flatter, and the ranking is not
+ * purchasable: `atlasRank` derives the order from the measurements on every
+ * read and there is no field a payment could move. A reader who has just been
+ * told a provider paid needs that sentence in the same breath, not in a policy
+ * document it will never open.
+ *
+ * Only quests that bought walks appear. A `report` quest naming this provider is
+ * somebody asking a question about it, which is not a claim on these numbers.
+ */
+function sponsorSection(quests: readonly SponsoringQuest[]): string {
+  const bought = quests.filter((quest) => quest.walksAsked !== null)
+
+  if (bought.length === 0) return ''
+
+  const lines = bought
+    .map((quest) => `<li>${escape(quest.title)} — ${String(quest.walksAsked)} walks bought.</li>`)
+    .join('')
+
+  return (
+    '<h3>Who paid for these figures</h3>' +
+    `<ul>${lines}</ul>` +
+    '<p><small>What was bought is the attempts, not what they show. These figures are ' +
+    'published whether or not they flatter, and no payment moves this entry’s position — the ' +
+    'order is recomputed from the measurements on every read and there is no field to ' +
+    'move.</small></p>'
+  )
 }
 
 /**

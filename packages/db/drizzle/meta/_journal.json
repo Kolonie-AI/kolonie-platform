@@ -1422,6 +1422,13 @@
       "when": 1786362598596,
       "tag": "0202_one_proposal_queue_three_doors",
       "breakpoints": true
+    },
+    {
+      "idx": 203,
+      "version": "7",
+      "when": 1786363658072,
+      "tag": "0203_a_quest_tests_an_entry_at_scale",
+      "breakpoints": true
     }
   ]
 }

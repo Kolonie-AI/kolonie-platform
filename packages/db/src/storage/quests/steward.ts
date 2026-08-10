@@ -24,6 +24,7 @@ import {
   questAnswers,
   questAudits,
   questModerations,
+  providerRecipes,
   submissions,
   tasks,
   verifications,
@@ -65,6 +66,15 @@ export type QuestPublishOutcome =
    * because both refusals name what would change them.
    */
   | { readonly outcome: 'audit-missing'; readonly reason: string }
+  /**
+   * A quest measured in walks naming an entry with no published recipe (`#602`).
+   *
+   * The rejection case that issue names, and it belongs at publish rather than
+   * at drafting: an entry can be withdrawn between the sponsor writing the quest
+   * and a steward reading it, and the moment that matters is the one where money
+   * is about to be escrowed against twenty agents walking something.
+   */
+  | { readonly outcome: 'entry-not-walkable'; readonly provider: string }
 
 export type QuestRefuseOutcome =
   | { readonly outcome: 'refused' }
@@ -162,6 +172,32 @@ export async function publishQuest(
      * already holds both sides in memory; this is the one no route can skip.
      */
     if (row.createdBy === command.stewardId) return { outcome: 'own-quest' }
+
+    /**
+     * **Twenty agents cannot walk steps that are not there** (`#602`).
+     *
+     * `joinable` and not merely present: a `draft` is a walk no steward has
+     * published, and paying twenty agents to follow steps nobody approved is
+     * the failure `recipeStatusIsOfferable` exists to prevent. A provider with
+     * no entry at all is `#600`'s light instrument, not a quest — the sponsor
+     * would be paying for twenty agents to discover there is no recipe.
+     */
+    if (row.deliverable === 'entry-walks') {
+      const [entry] = await tx
+        .select({ status: providerRecipes.status })
+        .from(providerRecipes)
+        .where(
+          and(
+            eq(providerRecipes.provider, row.catalogueProvider ?? ''),
+            eq(providerRecipes.status, 'joinable'),
+          ),
+        )
+        .limit(1)
+
+      if (entry === undefined) {
+        return { outcome: 'entry-not-walkable', provider: row.catalogueProvider ?? '' }
+      }
+    }
 
     const [cleared] = await tx
       .select({ id: questModerations.id })

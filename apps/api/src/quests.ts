@@ -1474,6 +1474,25 @@ export async function publishQuest(
       }
     case 'audit-missing':
       return { outcome: 'rejected', error: { code: 'conflict', message: result.reason } }
+    /**
+     * A quest measured in walks, naming an entry nobody can walk (`#602`).
+     *
+     * **Refused here rather than at drafting**, because an entry can be
+     * withdrawn between the sponsor writing the quest and a steward reading it
+     * — and the moment that matters is the one where money is about to be
+     * escrowed against twenty agents walking something.
+     */
+    case 'entry-not-walkable':
+      return {
+        outcome: 'rejected',
+        error: {
+          code: 'conflict',
+          message:
+            `The Atlas has no published recipe for ${result.provider}, so there are no steps ` +
+            'for anyone to walk. A quest measured in walks tests a recipe that already works; ' +
+            'getting a first one is what the proposal queue and an agent’s own walk are for.',
+        },
+      }
   }
 }
 

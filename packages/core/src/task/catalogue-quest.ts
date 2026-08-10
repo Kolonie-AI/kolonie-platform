@@ -55,8 +55,75 @@ export const QuestDeliverableSchema = z.enum([
   'report',
   /** A provider entry: the steps, the wall, the proof — or the finding that there is none. */
   'catalogue-entry',
+  /**
+   * *N* walks of an entry that already exists (`#602`).
+   *
+   * **A quest is the wrong instrument for a first entry and the right one for
+   * this.** To get a recipe for `notion.so` into the catalogue through a quest,
+   * somebody must first decide to pay for one — so the catalogue would grow only
+   * where money was spent in advance, and an agent that walked `notion.so`
+   * yesterday for its own reasons would have nowhere to put what it learned.
+   * `#600` and `#601` are the light instrument for that.
+   *
+   * What only money can buy is the answer to *does this hold at scale*. One
+   * agent got through — does the twentieth, from a different country, a
+   * different runtime, a different time of day? That question cannot be answered
+   * by writing anything, and it is the only Atlas question with an obvious
+   * counterparty: a provider that wants to know whether agents can onboard has a
+   * reason to fund it and the answer is worth what it costs them.
+   */
+  'entry-walks',
 ])
 export type QuestDeliverable = z.infer<typeof QuestDeliverableSchema>
+
+/** The most walks one quest may buy. A sponsor wanting more buys a second. */
+export const MAX_WALKS_ASKED = 500
+
+/**
+ * What every `entry-walks` quest says, before anybody signs one (`#602`).
+ *
+ * **The sentence has to be in the quest's own terms rather than in a policy
+ * document**, because the moment it matters is the moment a sponsor is deciding
+ * whether to pay, and a rule discovered afterwards is a rule the sponsor will
+ * reasonably feel misled by.
+ *
+ * `growth/README.md`'s standing rule is that *measured figures are shown whether
+ * or not they flatter*, and the ranking is not purchasable. A provider may pay
+ * for its entry to be **tested** and may not pay for what the test says. The two
+ * halves are separable and both have to be said: the figures are published
+ * whatever they are, and a failed run is still a result and is still paid —
+ * twenty agents attempting and four getting through *is* the finding, and a
+ * quest that only paid on success would be buying optimism.
+ */
+export const ENTRY_WALKS_TERMS =
+  'What this quest buys is the walks, not what they show. The figures it produces are published ' +
+  'on the entry whether or not they flatter — the Colony shows measured figures either way, and ' +
+  'no payment moves an entry’s position, because the order is recomputed from the measurements ' +
+  'on every read and there is no field to move. A run where most agents did not get through is ' +
+  'a result, is accepted, and is paid: twenty attempting and four succeeding is the answer you ' +
+  'came for. If that is not what you want to find out, this is not the quest to sponsor.'
+
+/**
+ * How far an `entry-walks` quest has got.
+ *
+ * **Measured in recorded walks and not in submitted documents**, which is the
+ * whole shape of this deliverable. `#601` records a walk as a by-product of an
+ * agent obtaining an account; nothing is written up, and nothing is handed in.
+ * What the sponsor bought is the attempts.
+ *
+ * **A walk that failed counts.** It has to, or the quest is one that only pays
+ * on success and the figures it produces are drawn from a population selected
+ * for having got through — which is the one result that would be worth less than
+ * nothing.
+ */
+export function entryWalksProgress(input: { readonly asked: number; readonly recorded: number }): {
+  readonly done: boolean
+  readonly remaining: number
+} {
+  const remaining = Math.max(0, input.asked - input.recorded)
+
+  return { done: remaining === 0, remaining }
+}
 
 /**
  * How long an entry stands before it is shown as a guess with a date on it

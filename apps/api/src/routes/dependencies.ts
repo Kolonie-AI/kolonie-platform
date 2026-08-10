@@ -6,6 +6,7 @@ import type { AcademyDependencies } from '../academy.js'
 import type { AccountDependencies, AccountResolution } from '../accounts.js'
 import type { ProviderRecipes } from '../provider-recipes.js'
 import type { AtlasRenames } from '../atlas/renames.js'
+import type { AtlasQuestReader } from '../atlas/links.js'
 import type { SiteChromeSource } from '../atlas/site-chrome.js'
 import type { Attestations } from '../attestations.js'
 import type { AgentStore } from '../authentication.js'
@@ -236,6 +237,14 @@ export interface RouteDependencies {
   readonly recipes: ProviderRecipes
   /** Where a provider used to be, for the Atlas's redirects (`#546`). */
   readonly renames: AtlasRenames
+  /**
+   * Who paid for an entry's figures (`#602`).
+   *
+   * Optional, like every other reader that only one page needs: a deployment
+   * without it renders the entry page exactly as it did before quests could buy
+   * walks.
+   */
+  readonly atlasQuests?: AtlasQuestReader | undefined
   /** The website's base URL — the host the Atlas answers on (`#546`). Empty disables it. */
   readonly websiteUrl: string
   /**

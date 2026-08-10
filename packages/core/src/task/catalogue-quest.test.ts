@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest'
+import { ENTRY_WALKS_TERMS, entryWalksProgress } from './catalogue-quest.js'
+import { QuestDraftSchema } from './quest.js'
 import { CatalogueDeliverableSchema, RECIPE_STALE_AFTER_DAYS, isStale } from './catalogue-quest.js'
 
 const walked = {
@@ -100,5 +102,118 @@ describe('whether an entry is still trusted', () => {
 
   it('treats an unreadable date as unconfirmed rather than as current', () => {
     expect(isStale('not a date')).toBe(true)
+  })
+})
+
+/**
+ * A quest tests an entry at scale (`#602`).
+ *
+ * **The reframing this issue is: a quest is the wrong instrument for a first
+ * entry and the right one for finding out whether one holds.** To get a recipe
+ * into the catalogue through a quest, somebody must first decide to pay for one
+ * — so the catalogue would grow only where money was spent in advance. What only
+ * money can buy is twenty walks of something that already works.
+ */
+describe('a quest measured in walks (#602)', () => {
+  const quest = {
+    title: 'Does the Notion recipe hold at twenty walks?',
+    description: 'Twenty agents walk a recipe one agent already walked.',
+    instructions: 'Walk the published Notion recipe and report what happened, whatever happened.',
+    slots: 20,
+    expiresAt: '2026-12-01T00:00:00.000Z',
+    reward: { lamports: 1_000_000, reputation: 1 },
+    questions: [{ key: 'stopped-at', prompt: 'How far did you get, and where did it stop?' }],
+  }
+
+  it('names the entry it is about and the number of walks it buys', () => {
+    expect(
+      QuestDraftSchema.safeParse({
+        ...quest,
+        deliverable: 'entry-walks',
+        catalogueProvider: 'notion.so',
+        walksAsked: 20,
+      }).success,
+    ).toBe(true)
+  })
+
+  it('refuses one that names no entry, because there is nothing to walk', () => {
+    expect(
+      QuestDraftSchema.safeParse({ ...quest, deliverable: 'entry-walks', walksAsked: 20 }).success,
+    ).toBe(false)
+  })
+
+  it('refuses one that buys no number of walks, because there is nothing to fill', () => {
+    expect(
+      QuestDraftSchema.safeParse({
+        ...quest,
+        deliverable: 'entry-walks',
+        catalogueProvider: 'notion.so',
+      }).success,
+    ).toBe(false)
+  })
+
+  /** A count on a deliverable not measured in walks is a promise nothing honours. */
+  it('refuses a walk count on a report quest', () => {
+    expect(QuestDraftSchema.safeParse({ ...quest, walksAsked: 20 }).success).toBe(false)
+  })
+
+  it('leaves the two deliverables that came before it alone', () => {
+    expect(QuestDraftSchema.safeParse(quest).success).toBe(true)
+    expect(QuestDraftSchema.safeParse({ ...quest, deliverable: 'catalogue-entry' }).success).toBe(
+      true,
+    )
+  })
+
+  describe('what it is measured in', () => {
+    /**
+     * **Recorded walks and not submitted documents.** `#601` records a walk as a
+     * by-product of an agent obtaining an account; nothing is written up.
+     */
+    it('counts down to done as walks arrive', () => {
+      expect(entryWalksProgress({ asked: 20, recorded: 0 })).toEqual({
+        done: false,
+        remaining: 20,
+      })
+      expect(entryWalksProgress({ asked: 20, recorded: 19 })).toEqual({
+        done: false,
+        remaining: 1,
+      })
+      expect(entryWalksProgress({ asked: 20, recorded: 20 })).toEqual({ done: true, remaining: 0 })
+    })
+
+    /**
+     * **A run where most agents failed is done and is paid.** Twenty attempting
+     * and four getting through is the finding; a quest that only filled on
+     * success would draw its figures from a population selected for having
+     * succeeded.
+     */
+    it('is done on attempts, whatever the attempts found', () => {
+      expect(entryWalksProgress({ asked: 20, recorded: 24 })).toEqual({ done: true, remaining: 0 })
+    })
+  })
+
+  /**
+   * The other half of *an attempt to withhold figures after a run*: there is no
+   * way to ask. What the sponsor buys is stated in the quest's own terms, and
+   * the terms say the figures are published either way.
+   */
+  it('says in its own terms that unflattering figures are published, and a failed run is paid', () => {
+    expect(ENTRY_WALKS_TERMS).toContain('whether or not they flatter')
+    expect(ENTRY_WALKS_TERMS).toContain('is paid')
+    expect(ENTRY_WALKS_TERMS).toContain('no payment moves')
+  })
+
+  /**
+   * **No position field is introduced, and this is what checks it** rather than
+   * a paragraph asking the next person to remember. `#548` requires that none
+   * exist anywhere in the Atlas; a quest that could buy one would be that rule
+   * dying at the one moment money is involved.
+   */
+  it('introduces nothing a sponsor could pay to move', () => {
+    const settable = Object.keys(QuestDraftSchema.shape)
+
+    for (const forbidden of [/\bposition\b/i, /\brank\b/i, /sortOrder/i, /pinned/i, /featured/i]) {
+      expect(settable.filter((name) => forbidden.test(name))).toEqual([])
+    }
   })
 })

@@ -101,6 +101,9 @@ describe('what a steward is paid for deciding a quest', () => {
     assistanceAllowed: true,
     // Prose, which is what a sponsor that says nothing about it gets (#525).
     deliverable: 'report',
+    // Neither belongs to a report quest, and the database refuses them on one (#602).
+    catalogueProvider: null,
+    walksAsked: null,
     ...overrides,
   })
 

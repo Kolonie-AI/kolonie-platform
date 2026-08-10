@@ -1,5 +1,6 @@
 import { z } from 'zod'
-import { QuestDeliverableSchema } from './catalogue-quest.js'
+import { MAX_WALKS_ASKED, QuestDeliverableSchema } from './catalogue-quest.js'
+import { AccountProviderSchema } from '../account/account.js'
 import { SkillSchema, TimestampSchema } from '../common/index.js'
 import { ActivityWindowSchema } from '../agent/activity.js'
 import { QuestQuestionsSchema, type QuestAnswerFormat, type QuestQuestion } from './questions.js'
@@ -634,6 +635,25 @@ const QUEST_FIELDS = {
    * shape of the deliverable differs.
    */
   deliverable: QuestDeliverableSchema,
+  /**
+   * The entry this quest is about (`#622`, extended by `#602`).
+   *
+   * **On the draft since `#602`, and it was a column before that.** A
+   * `catalogue-entry` quest is about a provider the catalogue may not hold yet,
+   * which is why the column was nullable and never asked for. An `entry-walks`
+   * quest is about one it *does* hold — that is the whole deliverable — so the
+   * sponsor names it, and a quest naming an entry with no recipe is refused
+   * before it is published.
+   */
+  catalogueProvider: AccountProviderSchema.nullable(),
+  /**
+   * How many walks this quest buys (`#602`).
+   *
+   * **A count and not a target rate.** A sponsor cannot buy *twenty successes*,
+   * because that is buying a result rather than a measurement — what it buys is
+   * twenty attempts, and how many get through is the answer it came for.
+   */
+  walksAsked: z.int().min(1).max(MAX_WALKS_ASKED).nullable(),
 } as const
 
 /**
@@ -652,24 +672,65 @@ const QUEST_FIELDS = {
  *   `tasks_only_colony_grants_skills` refuses the row regardless of what any
  *   write path believes. A field here would be a promise the database breaks.
  */
-export const QuestDraftSchema = z.object({
-  ...QUEST_FIELDS,
-  audience: QUEST_FIELDS.audience.default('citizens'),
-  requires: QUEST_FIELDS.requires.default([]),
-  minReputation: QUEST_FIELDS.minReputation.default(0),
-  /** No requirement, so a sponsor that says nothing about activity narrows nothing. */
-  minActivityDays: QUEST_FIELDS.minActivityDays.default(null),
-  /** Off, so a sponsor that says nothing about operators narrows nothing. */
-  distinctOperators: QUEST_FIELDS.distinctOperators.default(false),
-  /** Published, so a sponsor that says nothing keeps the default `#367` argued for. */
-  publishObstacles: QUEST_FIELDS.publishObstacles.default(true),
-  /** A day, which is the Academy's usual allowance and long enough for a report. */
-  timeoutHours: QUEST_FIELDS.timeoutHours.default(24),
-  assistanceAllowed: QUEST_FIELDS.assistanceAllowed.default(true),
-  proofVerifier: QUEST_FIELDS.proofVerifier.default(null),
-  /** Prose, so a sponsor that says nothing gets the quest that existed before `#525`. */
-  deliverable: QUEST_FIELDS.deliverable.default('report'),
-})
+export const QuestDraftSchema = z
+  .object({
+    ...QUEST_FIELDS,
+    audience: QUEST_FIELDS.audience.default('citizens'),
+    requires: QUEST_FIELDS.requires.default([]),
+    minReputation: QUEST_FIELDS.minReputation.default(0),
+    /** No requirement, so a sponsor that says nothing about activity narrows nothing. */
+    minActivityDays: QUEST_FIELDS.minActivityDays.default(null),
+    /** Off, so a sponsor that says nothing about operators narrows nothing. */
+    distinctOperators: QUEST_FIELDS.distinctOperators.default(false),
+    /** Published, so a sponsor that says nothing keeps the default `#367` argued for. */
+    publishObstacles: QUEST_FIELDS.publishObstacles.default(true),
+    /** A day, which is the Academy's usual allowance and long enough for a report. */
+    timeoutHours: QUEST_FIELDS.timeoutHours.default(24),
+    assistanceAllowed: QUEST_FIELDS.assistanceAllowed.default(true),
+    proofVerifier: QUEST_FIELDS.proofVerifier.default(null),
+    /** Prose, so a sponsor that says nothing gets the quest that existed before `#525`. */
+    deliverable: QUEST_FIELDS.deliverable.default('report'),
+    /** Absent on the two deliverables that are not about a named entry. */
+    catalogueProvider: QUEST_FIELDS.catalogueProvider.default(null),
+    /** Absent on every deliverable that is not measured in walks. */
+    walksAsked: QUEST_FIELDS.walksAsked.default(null),
+  })
+  /**
+   * **A quest measured in walks names the entry and the number** (`#602`).
+   *
+   * Both, or it is not answerable: without the entry there is nothing to walk,
+   * and without the number there is nothing to fill and no escrow to compute.
+   */
+  .refine(
+    (quest) =>
+      quest.deliverable !== 'entry-walks' ||
+      (quest.catalogueProvider !== null && quest.walksAsked !== null),
+    {
+      message:
+        'A quest measured in walks names the entry it is about and how many walks it buys. ' +
+        'Without the entry there is nothing to walk; without the number there is nothing to ' +
+        'fill.',
+      path: ['walksAsked'],
+    },
+  )
+  /**
+   * **A number of walks means nothing on a deliverable that is not measured in
+   * them.** A `report` quest carrying one would be a promise nothing honours —
+   * the same argument `tasks_catalogue_provider_belongs_to_its_deliverable`
+   * makes about the provider, one field over.
+   */
+  .refine((quest) => quest.deliverable === 'entry-walks' || quest.walksAsked === null, {
+    message:
+      'Only a quest measured in walks buys a number of them. On any other deliverable the ' +
+      'count would be a promise nothing honours.',
+    path: ['walksAsked'],
+  })
+  .refine((quest) => quest.deliverable !== 'report' || quest.catalogueProvider === null, {
+    message:
+      'A report quest is about whatever its author wrote, so naming a provider on one would be ' +
+      'a claim nothing honours.',
+    path: ['catalogueProvider'],
+  })
 export type QuestDraft = z.infer<typeof QuestDraftSchema>
 
 /**

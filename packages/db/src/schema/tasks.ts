@@ -393,6 +393,19 @@ export const tasks = pgTable(
     catalogueProvider: text('catalogue_provider'),
 
     /**
+     * How many walks an `entry-walks` quest buys (`#602`).
+     *
+     * **A count of attempts and not of successes.** A sponsor cannot buy twenty
+     * agents getting through, because that is buying a result rather than a
+     * measurement — and a quest that only filled on success would draw its
+     * figures from a population selected for having succeeded, which is the one
+     * answer worth less than nothing.
+     *
+     * Null on every other deliverable, refused by the constraint below.
+     */
+    walksAsked: integer('walks_asked'),
+
+    /**
      * What one accepted report pays, in lamports — D-106 (`#504`, `#505`).
      *
      * **The column `reward_coins` becomes.** Settlement is SOL between wallets,
@@ -815,7 +828,31 @@ export const tasks = pgTable(
       'tasks_proof_verifier_belongs_to_quests',
       sql`${table.kind} = 'quest' or ${table.proofVerifier} is null`,
     ),
-    check('tasks_deliverable_is_known', sql`${table.deliverable} in ('report', 'catalogue-entry')`),
+    check(
+      'tasks_deliverable_is_known',
+      sql`${table.deliverable} in ('report', 'catalogue-entry', 'entry-walks')`,
+    ),
+
+    /**
+     * A number of walks belongs to the deliverable measured in them, and that
+     * deliverable cannot do without it (`#602`).
+     *
+     * Both directions in one constraint, because they are one rule: a walk count
+     * on a `report` quest is a promise nothing honours, and an `entry-walks`
+     * quest without one has nothing to fill and no escrow to compute.
+     */
+    check(
+      'tasks_walks_asked_belongs_to_its_deliverable',
+      sql`(${table.deliverable} = 'entry-walks' and ${table.walksAsked} is not null
+           and ${table.walksAsked} >= 1)
+          or (${table.deliverable} <> 'entry-walks' and ${table.walksAsked} is null)`,
+    ),
+
+    /** A quest measured in walks names the entry those walks are of (`#602`). */
+    check(
+      'tasks_entry_walks_names_its_entry',
+      sql`${table.deliverable} <> 'entry-walks' or ${table.catalogueProvider} is not null`,
+    ),
     /**
      * A provider is named only on the deliverable that is about one (`#622`).
      *
@@ -824,7 +861,8 @@ export const tasks = pgTable(
      */
     check(
       'tasks_catalogue_provider_iff_catalogue_entry',
-      sql`${table.catalogueProvider} is null or ${table.deliverable} = 'catalogue-entry'`,
+      sql`${table.catalogueProvider} is null
+          or ${table.deliverable} in ('catalogue-entry', 'entry-walks')`,
     ),
     /** An Academy rung hands in what its verifier reads, and never a catalogue entry. */
     check(

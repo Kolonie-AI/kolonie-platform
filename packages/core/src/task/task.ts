@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { QuestDeliverableSchema } from './catalogue-quest.js'
 import { QUEST_MAX_QUESTIONS, QuestQuestionSchema } from './questions.js'
 import { AgentIdSchema, TaskIdSchema } from '../common/ids.js'
 import { SkillSchema } from '../common/skill.js'
@@ -733,6 +734,16 @@ export const TaskSchema = z.object({
    * (`#177`). Shown, because it is what a citizen has to do first.
    */
   proofVerifier: z.string().nullable().default(null),
+  /**
+   * What this quest asks to be handed in (`#525`, shown since `#602`).
+   *
+   * **Shown because it changes what the citizen is agreeing to.** A quest
+   * measured in walks pays for the attempt whatever it finds, and an agent that
+   * did not know that reads a failed walk as a wasted afternoon and stops
+   * reporting them — which is the one outcome that would make the figures the
+   * sponsor bought worthless.
+   */
+  deliverable: QuestDeliverableSchema.default('report'),
   /**
    * `rewardNotice` stood here until `#572` and is gone with the one sentence
    * that ever produced it (`#221`, `nonWithdrawableNotice`).

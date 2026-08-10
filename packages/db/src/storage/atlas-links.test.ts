@@ -74,6 +74,82 @@ describe('what an Atlas entry and the Academy know about each other', () => {
     return row!.id
   }
 
+  /**
+   * A quest measured in walks of an entry that already exists (`#602`).
+   *
+   * **What is asserted here is that the database refuses the shapes the issue
+   * calls rejection cases**, rather than that a route does — a constraint
+   * cannot be forgotten by a second write path and a route can.
+   */
+  describe('a quest measured in walks', () => {
+    const aWalksQuest = async (
+      provider: string | null,
+      walksAsked: number | null,
+    ): Promise<void> => {
+      await db.insert(tasks).values({
+        type: 'quest-report',
+        kind: 'quest',
+        title: `Walk ${provider ?? 'nothing'} twenty times`,
+        description: 'Does this recipe hold at scale?',
+        instructions: 'Walk it and report what happened, whatever happened.',
+        slots: 20,
+        rewardReputation: 1,
+        timeoutHours: 24,
+        status: 'active',
+        deliverable: 'entry-walks',
+        catalogueProvider: provider,
+        walksAsked,
+      })
+    }
+
+    it('takes one that names an entry and a number of walks', async () => {
+      await expect(aWalksQuest('notion', 20)).resolves.toBeUndefined()
+    })
+
+    it('refuses one that names no entry, because there is nothing to walk', async () => {
+      await expect(aWalksQuest(null, 20)).rejects.toThrow()
+    })
+
+    it('refuses one that buys no walks, because there is nothing to fill', async () => {
+      await expect(aWalksQuest('notion', null)).rejects.toThrow()
+    })
+
+    /** A count on a deliverable not measured in walks is a promise nothing honours. */
+    it('refuses a walk count on a report quest', async () => {
+      await expect(
+        db.insert(tasks).values({
+          type: 'quest-report',
+          kind: 'quest',
+          title: 'A report quest',
+          description: 'Prose.',
+          instructions: 'Write it up.',
+          slots: 3,
+          rewardReputation: 1,
+          timeoutHours: 24,
+          status: 'active',
+          walksAsked: 20,
+        }),
+      ).rejects.toThrow()
+    })
+
+    it('carries what it bought back to the entry, so the page can say who paid', async () => {
+      await aWalksQuest('notion', 20)
+
+      const [found] = await questsNamingProvider(db, 'notion' as AccountProvider)
+
+      expect(found?.walksAsked).toBe(20)
+    })
+
+    /** A quest that bought prose bought no walks, and says so rather than zero. */
+    it('says nothing about walks on a quest that bought none', async () => {
+      await aCatalogueQuest('notion')
+
+      const [found] = await questsNamingProvider(db, 'notion' as AccountProvider)
+
+      expect(found?.walksAsked).toBeNull()
+    })
+  })
+
   describe('an entry that a rung proves', () => {
     it('names the rung, and the rung finds its way back', async () => {
       await anEntry('github', { provesTask: 'github-account' })

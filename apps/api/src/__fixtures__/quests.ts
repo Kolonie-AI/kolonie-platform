@@ -189,6 +189,7 @@ export function fakeQuests(): FakeQuestDesk {
     status: input.status,
     questions: input.draft.questions,
     proofVerifier: input.draft.proofVerifier,
+    deliverable: input.draft.deliverable,
     createdBy: input.authorId,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),

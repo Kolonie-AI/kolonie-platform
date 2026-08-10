@@ -1,7 +1,7 @@
-import { and, eq, inArray, isNull, sql } from 'drizzle-orm'
+import { and, eq, gte, inArray, isNull, sql } from 'drizzle-orm'
 import type { AccountProvider } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
-import { providerRecipes, tasks } from '../schema/index.js'
+import { accountWalks, providerRecipes, tasks } from '../schema/index.js'
 
 /**
  * The two links between the Atlas and the Academy that `kolonie-website#97`
@@ -31,6 +31,16 @@ export interface AtlasQuestLink {
   readonly id: string
   readonly title: string
   readonly status: string
+  /**
+   * How many walks this quest bought, where that is what it bought (`#602`).
+   *
+   * Null on a quest whose deliverable is prose or a catalogue entry. **What it
+   * is for is the sentence on the entry**: a reader has to be able to see that
+   * somebody paid for these figures, and what exactly they paid for — twenty
+   * attempts, not twenty successes, and not the figures saying anything in
+   * particular.
+   */
+  readonly walksAsked: number | null
 }
 
 /**
@@ -75,7 +85,12 @@ export async function questsNamingProvider(
   provider: AccountProvider,
 ): Promise<readonly AtlasQuestLink[]> {
   return await db
-    .select({ id: tasks.id, title: tasks.title, status: tasks.status })
+    .select({
+      id: tasks.id,
+      title: tasks.title,
+      status: tasks.status,
+      walksAsked: tasks.walksAsked,
+    })
     .from(tasks)
     .where(
       and(
@@ -156,4 +171,55 @@ export async function atlasEntriesProvedByRungs(
         : [[row.provesTask, { kind: row.kind, provider: row.provider, title: row.title }] as const],
     ),
   )
+}
+
+/**
+ * How many walks of this entry have been recorded since a quest opened
+ * (`#602`).
+ *
+ * **Since the quest opened, and not ever.** A sponsor buys walks it caused; an
+ * entry that had already been walked forty times would otherwise fill its own
+ * quest the moment it was published, and the sponsor would have bought a number
+ * somebody else produced.
+ *
+ * **Every walk counts, whatever it found.** A run where most agents did not get
+ * through is the finding — twenty attempting and four succeeding is the answer
+ * the sponsor came for — and counting only the successful ones would fill the
+ * quest from a population selected for having succeeded, which is the one result
+ * worth less than nothing.
+ */
+export async function walksRecordedSince(
+  db: Database,
+  provider: AccountProvider,
+  since: string,
+): Promise<number> {
+  const [row] = await db
+    .select({ walks: sql<string>`count(*)::text` })
+    .from(accountWalks)
+    .where(and(eq(accountWalks.provider, provider), gte(accountWalks.startedAt, since)))
+
+  return Number(row?.walks ?? 0)
+}
+
+/**
+ * Whether the catalogue holds a walkable recipe for this provider (`#602`).
+ *
+ * The rejection case the issue names: **a quest naming an entry with no
+ * recipe.** An `entry-walks` quest asks twenty agents to walk something, and if
+ * there are no steps there is nothing to walk — the sponsor would be paying for
+ * twenty agents to discover that, which is `#600`'s light instrument and not a
+ * quest.
+ *
+ * `joinable` and not merely present: a `draft` is a walk no steward has
+ * published, and sending twenty agents down steps nobody approved is the failure
+ * `recipeStatusIsOfferable` exists to prevent.
+ */
+export async function entryIsWalkable(db: Database, provider: AccountProvider): Promise<boolean> {
+  const [row] = await db
+    .select({ status: providerRecipes.status })
+    .from(providerRecipes)
+    .where(and(eq(providerRecipes.provider, provider), eq(providerRecipes.status, 'joinable')))
+    .limit(1)
+
+  return row !== undefined
 }

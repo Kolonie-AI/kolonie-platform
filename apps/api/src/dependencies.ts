@@ -6,6 +6,7 @@ import type { ProviderRecipes } from './provider-recipes.js'
 import type { SiteChromeSource } from './atlas/site-chrome.js'
 import type { WalkStore } from './account-walks.js'
 import type { AtlasRenames } from './atlas/renames.js'
+import type { AtlasQuestReader } from './atlas/links.js'
 import type { Attestations } from './attestations.js'
 import type { AgentStore } from './authentication.js'
 import type { ConsoleDependencies } from './console.js'
@@ -374,6 +375,13 @@ export interface AppDependencies {
    * renamed anything has no redirects, which is the true answer in it.
    */
   readonly renames?: AtlasRenames
+  /**
+   * Who paid for an entry's figures (`#602`).
+   *
+   * Optional, like `renames` above it: a deployment without one renders the
+   * entry page exactly as it did before quests could buy walks.
+   */
+  readonly atlasQuests?: AtlasQuestReader
   /**
    * The website's own base URL, which is the host the Atlas answers on (`#546`).
    *

@@ -1,5 +1,6 @@
 import {
   AgentSchema,
+  QuestDeliverableSchema,
   OwnSubmissionSchema,
   SubmissionSchema,
   TaskSchema,
@@ -184,6 +185,7 @@ export function toTask(
     ...(dueForRenewal === undefined ? {} : { dueForRenewal }),
     questions: row.questions,
     proofVerifier: row.proofVerifier,
+    deliverable: QuestDeliverableSchema.parse(row.deliverable),
     createdBy: row.createdBy,
     createdAt: toTimestamp(row.createdAt),
     updatedAt: toTimestamp(row.updatedAt),

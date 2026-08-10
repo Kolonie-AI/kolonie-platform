@@ -47,7 +47,7 @@ import type { RouteDependencies } from './dependencies.js'
  * the same call the console made (`#179`) and the mailed pages after it.
  */
 export function registerAtlasPages(app: FastifyInstance, deps: RouteDependencies): void {
-  const { recipes, websiteUrl, renames } = deps
+  const { recipes, websiteUrl, renames, atlasQuests } = deps
 
   /**
    * The site's own header and footer, fetched from the website rather than
@@ -191,7 +191,17 @@ export function registerAtlasPages(app: FastifyInstance, deps: RouteDependencies
 
     return send(
       reply,
-      atlasEntryPage({ entry, canonical: `${websiteUrl}${entry.path}`, chrome: await chromeOf() }),
+      atlasEntryPage({
+        entry,
+        canonical: `${websiteUrl}${entry.path}`,
+        chrome: await chromeOf(),
+        /**
+         * Who paid for the figures below them (`#602`). Read here rather than
+         * in `listEntries`, so the index page — which shows no figures — pays
+         * nothing for a fact only the entry page states.
+         */
+        quests: await atlasQuests?.naming(asked.data),
+      }),
       'text/html; charset=utf-8',
     )
   })

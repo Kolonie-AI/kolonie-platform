@@ -53,6 +53,7 @@ const recipe = (input: {
     proves: joinable ? 'provider-post' : null,
     provesTask: null,
     caution: null,
+    agentApi: 'unknown' as const,
     pacePerDay: null,
     updatedAt: (input.updatedAt ?? '2026-08-01T00:00:00.000Z') as ProviderRecipe['updatedAt'],
   }

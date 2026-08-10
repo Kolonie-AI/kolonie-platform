@@ -1,7 +1,9 @@
 import type { FastifyInstance } from 'fastify'
 import {
+  ATLAS_ADMISSION_QUESTIONS,
   ERROR_STATUS,
   PROVIDER_ENQUIRY_CONFIRMATION,
+  PROVIDER_ENQUIRY_WHAT_WE_ASK,
   ProviderEnquirySchema,
 } from '@kolonie-ai/core'
 import type { RouteDependencies } from './dependencies.js'
@@ -131,6 +133,26 @@ export function registerProviderEnquiryRoute(v1: FastifyInstance, deps: RouteDep
    * than the origin. An origin header would not stop a script posting this
    * route directly, so it would buy nothing and read as though it had.
    */
+  /**
+   * What an entry has to answer, served so the form can show it (`#680`).
+   *
+   * **Public and unauthenticated, like the write it belongs to.** A provider
+   * deciding whether to write in is exactly who these are for, and putting them
+   * behind anything would mean the only people who meet them are the people who
+   * already asked.
+   *
+   * **Served rather than copied into the page.** `kolonie-website#75` renders
+   * the form; a second copy of these sentences there would disagree with this
+   * one within a month, and the one being read would be the wrong one — the
+   * argument `#428` made about the operator page, applied to the other door.
+   */
+  v1.get('/atlas/admission', async (_request, reply) =>
+    reply.status(200).header(CORS, '*').send({
+      intro: PROVIDER_ENQUIRY_WHAT_WE_ASK,
+      questions: ATLAS_ADMISSION_QUESTIONS,
+    }),
+  )
+
   v1.options('/atlas/enquiries', async (_request, reply) =>
     reply
       .status(204)

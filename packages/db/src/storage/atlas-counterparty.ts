@@ -2,7 +2,9 @@ import { and, asc, eq, sql } from 'drizzle-orm'
 import {
   AccountKindSchema,
   AccountProviderSchema,
+  AgentApiSchema,
   RecipeStatusSchema,
+  atlasAdmissionRefusal,
   refusalIsNotTheirsToRemove,
   type AccountKind,
   type EntryProposal,
@@ -114,6 +116,27 @@ export async function proposeEntryChange(
   })
 
   if (refusal !== undefined) return { outcome: 'refused', reason: refusal }
+
+  /**
+   * The second boundary, and it is here for the reason the first one is
+   * (`#680`).
+   *
+   * **A proposal that answers *there is no API* has refused itself**, and saying
+   * so on arrival is what `#680` asks for: the failure it describes is not a bad
+   * entry passing review, it is a proposal that fails question two being
+   * *accepted and left*, because nobody was asked question two. Filing it and
+   * hoping a steward remembers is exactly the arrangement `#548` refused above.
+   *
+   * **Only an explicit `none` refuses.** `unknown` is the honest answer of
+   * somebody who has not looked, and refusing them for it would teach the next
+   * proposer to write `full` — see `atlasAdmissionRefusal`, which is where that
+   * rule lives so that both doors read it the same way.
+   */
+  const admission = atlasAdmissionRefusal({
+    agentApi: AgentApiSchema.safeParse(input.proposed['agentApi']).data,
+  })
+
+  if (admission !== undefined) return { outcome: 'refused', reason: admission }
 
   const [row] = await db
     .insert(entryProposals)

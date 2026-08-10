@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { sql } from 'drizzle-orm'
-import { AccountKindSchema } from '@kolonie-ai/core'
+import { AccountKindSchema, questionById } from '@kolonie-ai/core'
 import type { RecipeStatus } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
@@ -80,6 +80,60 @@ describe('an entry’s paying counterparty', () => {
 
     it('says nothing about a provider nobody has claimed', async () => {
       expect(await providerClaim(db, 'unclaimed.test')).toBeUndefined()
+    })
+  })
+
+  /**
+   * The second boundary (`#680`): a proposal that answers *there is no API*.
+   *
+   * **Refused on arrival rather than in the queue**, because `#680`'s failure is
+   * not a bad entry passing review — it is a proposal that fails question two
+   * being accepted and left, by a steward who was never asked question two.
+   */
+  describe('a proposal that answers question two with no', () => {
+    it('is refused on arrival, with the question’s own sentence', async () => {
+      const result = await proposeEntryChange(db, {
+        kind,
+        provider: 'clickonly.test',
+        author: 'citizen',
+        proposed: { title: 'Click Only', agentApi: 'none' },
+      })
+
+      expect(result).toEqual({
+        outcome: 'refused',
+        reason: questionById('agent-usable-api').refusal,
+      })
+      expect(await pendingProposals(db)).toHaveLength(0)
+    })
+
+    /**
+     * **`unknown` is not a failed answer.** A proposer who has not looked has
+     * told the truth, and refusing them for it teaches the next one to guess
+     * `full` — which is the state the catalogue was already in.
+     */
+    it('files one that says nobody has looked', async () => {
+      for (const agentApi of ['full', 'partial', 'unknown', undefined]) {
+        const result = await proposeEntryChange(db, {
+          kind,
+          provider: `honest-${String(agentApi)}.test`,
+          author: 'citizen',
+          proposed: agentApi === undefined ? { title: 'Honest' } : { title: 'Honest', agentApi },
+        })
+
+        expect(result.outcome).toBe('filed')
+      }
+    })
+
+    /** A field that is not the vocabulary is not an answer, and does not refuse. */
+    it('ignores a value that is not one of the four answers', async () => {
+      const result = await proposeEntryChange(db, {
+        kind,
+        provider: 'nonsense.test',
+        author: 'citizen',
+        proposed: { agentApi: 'sort of' },
+      })
+
+      expect(result.outcome).toBe('filed')
     })
   })
 

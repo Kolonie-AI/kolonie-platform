@@ -303,6 +303,69 @@ describe('the providers the Atlas lists', () => {
   })
 
   /**
+   * `#680`: eleven `compute-hosting` entries read alike and three of them behave
+   * nothing like the other eight.
+   */
+  describe('the shelf that asked no question about its API', () => {
+    const ODD_ONES_OUT = ['contabo.com', 'oracle.com', 'scaleway.com']
+
+    it('answers question two for every entry on the hosting shelf', async () => {
+      await seedListedAtlasEntries(db)
+
+      const hosting = (await providerRecipeList(db)).filter(
+        (entry) => entry.category === 'compute-hosting',
+      )
+
+      expect(hosting.length).toBeGreaterThan(0)
+      for (const entry of hosting) expect(entry.agentApi).not.toBe('unknown')
+    })
+
+    /** The three are told apart by what they say, not by being left off the shelf. */
+    it('says what makes the three unlike their shelfmates, and leaves the eight alone', async () => {
+      await seedListedAtlasEntries(db)
+
+      const hosting = (await providerRecipeList(db)).filter(
+        (entry) => entry.category === 'compute-hosting',
+      )
+
+      for (const entry of hosting) {
+        if (ODD_ONES_OUT.includes(entry.provider)) {
+          expect(entry.caution).not.toBeNull()
+        } else {
+          expect(entry.caution).toBeNull()
+          expect(entry.agentApi).toBe('full')
+        }
+      }
+    })
+
+    /**
+     * **A caution on a listing must say nothing has been walked.** `#590`'s rule
+     * is that no listed entry may imply work was done, and a warning is the
+     * easiest place to imply it by accident.
+     */
+    it('says in every caution that nobody has walked it', async () => {
+      await seedListedAtlasEntries(db)
+
+      const cautioned = (await providerRecipeList(db)).filter((entry) => entry.caution !== null)
+
+      for (const entry of cautioned) {
+        expect(entry.caution?.toLowerCase()).toContain('walk')
+      }
+    })
+
+    /** Everywhere nobody has looked still says so, which is most of the catalogue. */
+    it('leaves every other shelf answering nobody has looked', async () => {
+      await seedListedAtlasEntries(db)
+
+      const elsewhere = (await providerRecipeList(db)).filter(
+        (entry) => entry.category !== 'compute-hosting',
+      )
+
+      for (const entry of elsewhere) expect(entry.agentApi).toBe('unknown')
+    })
+  })
+
+  /**
    * The rejection case `#590` asks for, at the database rather than in the seed.
    *
    * The listing path cannot write steps — it passes an empty array — so what is

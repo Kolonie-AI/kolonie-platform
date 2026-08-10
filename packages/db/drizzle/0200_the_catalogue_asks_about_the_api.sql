@@ -1,0 +1,2 @@
+ALTER TABLE "provider_recipes" ADD COLUMN "agent_api" text DEFAULT 'unknown' NOT NULL;--> statement-breakpoint
+ALTER TABLE "provider_recipes" ADD CONSTRAINT "provider_recipes_agent_api_is_known" CHECK ("provider_recipes"."agent_api" in ('full', 'partial', 'none', 'unknown'));

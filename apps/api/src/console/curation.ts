@@ -1,4 +1,5 @@
 import {
+  ATLAS_ADMISSION_QUESTIONS,
   isStale,
   type AccountWalk,
   type AtlasEntry,
@@ -110,6 +111,38 @@ export function proposalsSection(proposals: readonly EntryProposal[]): string {
     '<table>',
     '<thead><tr><th>Provider</th><th>Kind</th><th>From</th><th>Changes</th><th>Why</th>' +
       '<th>Waiting</th><th></th></tr></thead>',
+    `<tbody>${rows}</tbody>`,
+    '</table>',
+  ].join('\n')
+}
+
+/**
+ * The three questions an entry must answer (`#680`).
+ *
+ * **Rendered from `ATLAS_ADMISSION_QUESTIONS` rather than written here**, which
+ * is the whole reason they are in `core`: the sentence a steward reads while
+ * deciding and the sentence a refused proposer is sent must be the same
+ * sentence, or the Colony refuses people for a rule it did not show them.
+ *
+ * The refusal is shown beside each question rather than hidden until it fires.
+ * A steward about to refuse a proposal should be able to see what the proposer
+ * will be told before pressing the button — and a wording that reads badly next
+ * to the question it belongs to is a wording worth fixing.
+ */
+export function admissionQuestionsSection(): string {
+  const rows = ATLAS_ADMISSION_QUESTIONS.map(
+    (one) =>
+      '<tr>' +
+      `<td>${escape(one.question)}</td>` +
+      `<td>${escape(one.why)}</td>` +
+      `<td>${escape(one.refusal)}</td>` +
+      '</tr>',
+  ).join('')
+
+  return [
+    '<table>',
+    '<thead><tr><th>Question</th><th>What a yes means</th>' +
+      '<th>What a no is told</th></tr></thead>',
     `<tbody>${rows}</tbody>`,
     '</table>',
   ].join('\n')
@@ -274,11 +307,20 @@ export function curationSections(input: {
       'the aggregate floor. This is the section that catches a provider changing its signup ' +
       'form without telling anybody — the queues below are work somebody filed, and this is not.</p>',
     fallingRatesSection(input.falling),
+    '<h2>What an entry must answer</h2>',
+    '<p class="note">Three questions, and an entry belongs in the Atlas when all three are yes. ' +
+      'They are here because the eighteen entries <code>#679</code> removed were not added ' +
+      'carelessly — they were added by somebody answering <em>is this a provider an agent might ' +
+      'want</em>, which is a different question and a plausible one. Deciding a proposal below ' +
+      'means answering these about it.</p>',
+    admissionQuestionsSection(),
     '<h2>Waiting to be reviewed</h2>',
     '<p class="note">Contributed entries and proposed corrections, from citizens and from ' +
       'providers that have claimed their own entry. A provider proposes and cannot apply, and a ' +
       'finding about a provider is not that provider’s to remove — that is refused before it ' +
-      'reaches this queue, so nothing here needs checking for it.</p>',
+      'reaches this queue, so nothing here needs checking for it. A proposal that answers ' +
+      '<em>there is no API</em> is refused on arrival for the same reason; one that answers ' +
+      '<em>nobody has looked</em> is not, and is yours to decide.</p>',
     proposalsSection(input.proposals),
     '<h2>Entries nobody has walked lately</h2>',
     '<p class="note">A recipe nobody has confirmed is a guess with a date on it, and the ' +

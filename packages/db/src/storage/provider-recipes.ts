@@ -2,6 +2,7 @@ import { and, asc, eq, inArray, sql } from 'drizzle-orm'
 import {
   AccountKindSchema,
   AccountProviderSchema,
+  AgentApiSchema,
   AtlasCategorySchema,
   RecipeOperatorGuessSchema,
   RecipeRuntimeNoteSchema,
@@ -11,6 +12,7 @@ import {
   recipeStatusIsPublic,
   ReferralArrangementSchema,
   type AccountKind,
+  type AgentApi,
   type AtlasCategory,
   type ProviderRecipe,
   type RecipeOperatorGuess,
@@ -87,6 +89,7 @@ function toRecipe(row: typeof providerRecipes.$inferSelect): ProviderRecipe {
     proves: row.proves as ProviderRecipe['proves'],
     provesTask: row.provesTask,
     caution: row.caution,
+    agentApi: AgentApiSchema.parse(row.agentApi),
     pacePerDay: row.pacePerDay,
     updatedAt: toTimestamp(row.updatedAt),
   }
@@ -211,6 +214,8 @@ export async function writeProviderRecipe(
     /** The rung that proves it, where the method is `rung` (`#622`). */
     readonly provesTask?: string | null
     readonly caution?: string | null
+    /** The answer to admission question two (`#680`). Absent means nobody looked. */
+    readonly agentApi?: AgentApi
     readonly pacePerDay?: number | null
   },
 ): Promise<ProviderRecipe> {
@@ -254,6 +259,13 @@ export async function writeProviderRecipe(
      */
     provesTask: entry.proves === 'rung' ? (entry.provesTask ?? null) : null,
     caution: entry.caution ?? null,
+    /**
+     * **`unknown` and not the row's previous value**, because this is an upsert
+     * and a curation edit that omits the field is saying nothing about it rather
+     * than confirming it. Carrying the old value forward here would make an edit
+     * to `about` silently re-assert an API answer nobody re-checked.
+     */
+    agentApi: entry.agentApi ?? 'unknown',
     pacePerDay: entry.pacePerDay ?? null,
   }
 
@@ -292,6 +304,25 @@ export async function listAtlasProvider(
     readonly title: string
     readonly category: AtlasCategory
     readonly operatorGuess?: RecipeOperatorGuess
+    /**
+     * The answer to admission question two, where somebody has looked (`#680`).
+     *
+     * **Not one of the three things a listing must not carry**, and the
+     * distinction is worth stating because it looks like one. Steps, a proof and
+     * a refusal each claim the signup was investigated. This claims only that
+     * somebody read the provider's documentation and found out whether an API
+     * exists — which is a fact about the product rather than about the walk, and
+     * is the fact `#680` says the catalogue was built without.
+     */
+    readonly agentApi?: AgentApi
+    /**
+     * What makes this entry unlike its shelfmates, where that is known (`#680`).
+     *
+     * A caution on a listing says *nobody has walked this and here is why it is
+     * worth knowing that*. It must say so in its own words — see the ones in
+     * `atlas-providers.ts`, each of which names that nothing has been walked.
+     */
+    readonly caution?: string
   },
 ): Promise<boolean> {
   const written = await db
@@ -302,6 +333,8 @@ export async function listAtlasProvider(
       title: entry.title,
       category: entry.category,
       operatorGuess: entry.operatorGuess ?? null,
+      agentApi: entry.agentApi ?? 'unknown',
+      caution: entry.caution ?? null,
       /**
        * The three things a listing must not carry, written explicitly rather
        * than left to the column defaults: steps, a proof and a refusal are each

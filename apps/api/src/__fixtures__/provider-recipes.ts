@@ -183,6 +183,7 @@ export function fakeProviderRecipes(): FakeProviderRecipes {
         proves: entry.proves ?? (status === 'joinable' ? 'provider-post' : null),
         provesTask: entry.provesTask ?? null,
         caution: entry.caution ?? null,
+        agentApi: entry.agentApi ?? 'unknown',
         pacePerDay: entry.pacePerDay ?? null,
         updatedAt: currentTime(),
       })

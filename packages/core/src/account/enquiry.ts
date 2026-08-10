@@ -60,3 +60,26 @@ export const PROVIDER_ENQUIRY_CONFIRMATION =
   'because it is useful to an agent, and that is decided by what the Colony measures rather ' +
   'than by who has written in. What you have said about what you would want from agents is ' +
   'the part that is genuinely useful to us, whichever way that goes.'
+
+/**
+ * What the Colony will ask about your product, said before it asks (`#680`).
+ *
+ * **The three questions, named on the way in rather than in the reply that says
+ * no.** A provider whose account can only be operated by clicking is going to be
+ * refused whatever it writes here, and finding that out in week three costs the
+ * relationship the enquiry form exists to open. Saying it up front costs one
+ * paragraph and lets them answer question two in the `wants` field, which is the
+ * field the form was built for.
+ *
+ * **The questions themselves are not repeated here.** They live in
+ * `atlas-admission.ts` and every surface renders that list, so a provider, a
+ * steward and a refused proposal are reading one set of words. This is the
+ * sentence that points at them.
+ */
+export const PROVIDER_ENQUIRY_WHAT_WE_ASK =
+  'Before you write: an entry has to answer three questions, and the second is the one most ' +
+  'products fall on. Can an agent hold an account with you — with no natural person’s identity ' +
+  'document? Is there an API it can use once it has one? And can the signup be walked, by the ' +
+  'agent or by a person acting for it? The second is worth answering in your own words below, ' +
+  'because a product an agent can sign up for and then cannot operate is not one the Atlas can ' +
+  'list, however good it is.'

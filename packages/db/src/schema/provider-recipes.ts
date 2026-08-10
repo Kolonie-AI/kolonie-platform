@@ -19,6 +19,7 @@ import {
   type RecipeRuntimeNote,
   type RecipeStep,
   type ReferralArrangement,
+  AgentApiSchema,
 } from '@kolonie-ai/core'
 
 /**
@@ -31,6 +32,7 @@ import {
 const RECIPE_STATUSES = RecipeStatusSchema.options
 const ATLAS_CATEGORIES = AtlasCategorySchema.options
 const OPERATOR_GUESSES = RecipeOperatorGuessSchema.options
+const AGENT_APIS = AgentApiSchema.options
 
 /**
  * One provider, as a recipe (`#521`).
@@ -212,6 +214,22 @@ export const providerRecipes = pgTable(
     caution: text('caution'),
 
     /**
+     * Whether an agent can work with this account once it holds it (`#680`).
+     *
+     * **`not null` with an `unknown` default**, rather than nullable. A null and
+     * an `unknown` would be two spellings of *nobody has looked*, and the one
+     * being read would be whichever the last writer happened to produce — the
+     * same argument `operator_guess` makes one screen up, reached the other way
+     * because there is an honest word for the empty answer here and there is not
+     * one there.
+     *
+     * The default is what makes the backfill a no-op: every row that existed
+     * before this column did was written by somebody who was never asked, and
+     * `unknown` is exactly what they said.
+     */
+    agentApi: text('agent_api').notNull().default('unknown'),
+
+    /**
      * How many accounts one operator may create here in a day (`#532`).
      *
      * Null means the configured default applies. **It can only lower the ceiling**,
@@ -294,6 +312,12 @@ export const providerRecipes = pgTable(
           or ${table.operatorGuess} in (${sql.raw(
             OPERATOR_GUESSES.map((one) => `'${one}'`).join(', '),
           )})`,
+    ),
+
+    /** Written from `AgentApiSchema`, for the reason the category check is (`#680`). */
+    check(
+      'provider_recipes_agent_api_is_known',
+      sql`${table.agentApi} in (${sql.raw(AGENT_APIS.map((one) => `'${one}'`).join(', '))})`,
     ),
 
     /**

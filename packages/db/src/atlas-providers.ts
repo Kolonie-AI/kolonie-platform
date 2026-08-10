@@ -1,4 +1,9 @@
-import { AccountKindSchema, type AtlasCategory, type RecipeOperatorGuess } from '@kolonie-ai/core'
+import {
+  AccountKindSchema,
+  type AgentApi,
+  type AtlasCategory,
+  type RecipeOperatorGuess,
+} from '@kolonie-ai/core'
 import type { Database } from './client.js'
 import { curateListedProvider, listAtlasProvider } from './storage/provider-recipes.js'
 
@@ -371,6 +376,63 @@ const CURATION: readonly (
   },
 ]
 
+/**
+ * The answer to admission question two, where somebody has looked (`#680`).
+ *
+ * **`compute-hosting` and nothing else, because that is where somebody looked.**
+ * The maintainer read the shelf on 2026-08-10 and the eleven entries did not
+ * behave alike; every other shelf is still `unwritten` in this respect, and the
+ * column's `unknown` default is the honest word for it. Filling the rest in from
+ * plausibility is exactly what `#590` forbids and what put eighteen unwalkable
+ * entries on the shelves in the first place.
+ *
+ * **Eight of eleven answer `full` and are the strong part of the shelf.** Two
+ * create and destroy machines through an API; six deploy from a token. Both are
+ * *the agent can do the whole job through an API*, and splitting them further
+ * would be a distinction the catalogue does not need — `#680`'s complaint is
+ * that three behave nothing like the other eight, not that the eight differ
+ * among themselves.
+ */
+const AGENT_API_ANSWERS: Readonly<Record<string, AgentApi>> = {
+  'hetzner.com': 'full',
+  'digitalocean.com': 'full',
+  'fly.io': 'full',
+  'railway.app': 'full',
+  'render.com': 'full',
+  'vercel.com': 'full',
+  'netlify.com': 'full',
+  'workers.cloudflare.com': 'full',
+  /** An API for managing what you have, and no self-service ordering. */
+  'contabo.com': 'partial',
+  'oracle.com': 'full',
+  'scaleway.com': 'full',
+}
+
+/**
+ * What the three that answer `full` and still are not alike warn about.
+ *
+ * **A caution rather than a refusal**, and the difference is that nobody has
+ * walked these. `refusal` says an agent cannot join; `caution` says a working
+ * entry has a wall in it — and here it says the honest third thing: *this one is
+ * unlike its shelfmates and somebody should find out how*. Two of the three name
+ * question three and one names question one, which is why they cannot be one
+ * field with the API answer.
+ */
+const SHELF_CAUTIONS: Readonly<Record<string, string>> = {
+  'contabo.com':
+    'The API manages machines you already have; ordering one is not self-service the way it is ' +
+    'on the rest of this shelf, and the signup wants a person. Worth a walk to find where the ' +
+    'wall actually is — and if there is one, this entry becomes a refusal rather than a caution.',
+  'oracle.com':
+    'The free tier is real and the signup is notoriously hostile: card checks, region locks and ' +
+    'silent rejections. An agent sent here can lose an afternoon and still not have an account. ' +
+    'Nobody has walked it, so this is a warning rather than a finding.',
+  'scaleway.com':
+    'A good API, and French identity checks are reported for some accounts — which would put it ' +
+    'behind the same wall as `payments-finance` for the citizens it happens to. Nobody has ' +
+    'walked it, so whether question one is really answered here is unknown.',
+}
+
 /** One row as the seed will write it. */
 export interface ListedAtlasEntry {
   readonly kind: string
@@ -378,6 +440,10 @@ export interface ListedAtlasEntry {
   readonly title: string
   readonly category: AtlasCategory
   readonly operatorGuess: RecipeOperatorGuess | undefined
+  /** The answer to admission question two, where somebody looked (`#680`). */
+  readonly agentApi: AgentApi | undefined
+  /** What makes this entry unlike its shelfmates, where that is known (`#680`). */
+  readonly caution: string | undefined
 }
 
 /**
@@ -396,6 +462,8 @@ export const LISTED_ATLAS_ENTRIES: readonly ListedAtlasEntry[] = Object.entries(
       title: one.title,
       category: category as AtlasCategory,
       operatorGuess: GUESS_BY_CATEGORY[category as AtlasCategory],
+      agentApi: AGENT_API_ANSWERS[one.provider],
+      caution: SHELF_CAUTIONS[one.provider],
     })),
 )
 
@@ -429,6 +497,8 @@ export async function seedListedAtlasEntries(db: Database): Promise<ListedSeedRe
       title: entry.title,
       category: entry.category,
       ...(entry.operatorGuess === undefined ? {} : { operatorGuess: entry.operatorGuess }),
+      ...(entry.agentApi === undefined ? {} : { agentApi: entry.agentApi }),
+      ...(entry.caution === undefined ? {} : { caution: entry.caution }),
     })
 
     if (written) listed += 1

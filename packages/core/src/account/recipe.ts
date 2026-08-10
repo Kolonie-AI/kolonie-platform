@@ -3,6 +3,7 @@ import { TimestampSchema } from '../common/time.js'
 import { looksLikeCredential } from '../operator/request.js'
 import { AgentPlatformSchema } from '../agent/agent.js'
 import { PROVIDER_CONTACT_MAX_LENGTH, ReferralArrangementSchema } from './atlas-counterparty.js'
+import { AgentApiSchema } from './atlas-admission.js'
 import { AccountKindSchema, AccountProofMethodSchema, AccountProviderSchema } from './account.js'
 
 /**
@@ -780,6 +781,19 @@ export const ProviderRecipeSchema = z.object({
    * from `kolonie.accounts.provider-report` findings rather than from guesswork.
    */
   caution: z.string().max(RECIPE_REFUSAL_MAX_LENGTH).nullable(),
+  /**
+   * Whether an agent can work with this account once it holds it (`#680`).
+   *
+   * The recorded answer to the second of the three admission questions — see
+   * `atlas-admission.ts`, which holds the questions themselves and the sentence
+   * a proposal failing this one is refused with.
+   *
+   * **`unknown` and not `none` is the default**, and every entry the listing seed
+   * writes carries it. `none` is a finding: it says somebody looked and there is
+   * no API, which is grounds to refuse the entry. Defaulting to it would make the
+   * catalogue assert that of a hundred providers nobody has examined.
+   */
+  agentApi: AgentApiSchema,
   /**
    * How many accounts one operator may create here in a day, when this provider is
    * known to be stricter than the default (`#532`).

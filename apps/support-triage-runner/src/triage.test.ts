@@ -245,7 +245,7 @@ describe('where a new issue is filed', () => {
     })
 
     expect(where.repository).toBe('Kolonie-AI/kolonie-infra')
-    expect(where.labels).toEqual(['area:infra', 'needs-triage', 'from:citizen'])
+    expect(where.labels).toEqual(['area:infra', 'from:citizen'])
     expect(where.labels).not.toContain('p1')
     expect(where.labels).not.toContain('p2')
   })

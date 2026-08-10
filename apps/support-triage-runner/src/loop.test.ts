@@ -148,7 +148,7 @@ describe('one ticket', () => {
 
     expect(created).toHaveLength(1)
     expect(created[0]?.repository).toBe('Kolonie-AI/kolonie-infra')
-    expect(created[0]?.labels).toContain('needs-triage')
+    expect(created[0]?.labels).toContain('from:citizen')
     expect(written[0]).toMatchObject({ status: 'acknowledged' })
     expect(String(written[0]?.['issueUrl'])).toContain('kolonie-infra/issues/')
   })

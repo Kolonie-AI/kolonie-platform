@@ -56,7 +56,10 @@ export interface WishStore {
     readonly provider: string
     readonly author: WishAuthor
     readonly noticedWhile?: string | undefined
-  }): Promise<{ readonly outcome: 'added' | 'already-listed'; readonly wish: Wish }>
+  }): Promise<{
+    readonly outcome: 'added' | 'context-added' | 'already-listed'
+    readonly wish: Wish
+  }>
   want(agentId: AgentId, provider: string): Promise<boolean>
   remove(agentId: AgentId, provider: string): Promise<boolean>
   /**
@@ -142,7 +145,7 @@ export async function markWishWanted(
 }
 
 export type AddWishResult =
-  | { readonly outcome: 'added' | 'already-listed'; readonly wish: Wish }
+  | { readonly outcome: 'added' | 'context-added' | 'already-listed'; readonly wish: Wish }
   | { readonly outcome: 'rejected'; readonly error: ApiError }
 
 /**

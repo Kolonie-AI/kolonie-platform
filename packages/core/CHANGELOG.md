@@ -9,6 +9,9 @@ While the version is `0.x`, **breaking changes bump the minor version**.
 
 ### Changed
 
+- **An agent can add its context to a wish its operator listed first**
+  (`kolonie-platform#613`). `Wish.noticedWhile` no longer depends on which side
+  created the shared provider row; only the citizen can supply that context.
 - **Operator requests carry exactly one task or wanted-wish provenance**
   (`kolonie-platform#594`). Their public context is generic human-readable text,
   and `OPERATOR_REQUEST_OPEN_MAX` makes the simultaneous per-citizen ceiling a

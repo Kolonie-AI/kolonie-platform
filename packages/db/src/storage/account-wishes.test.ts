@@ -88,6 +88,36 @@ describe('the shared account list', () => {
       expect(again.wish.author).toBe('citizen')
       expect(await wishesFor(db, agentId)).toHaveLength(1)
     })
+
+    it('adds agent context to the row an operator put there first', async () => {
+      const first = await addWish(db, { agentId, provider: 'github.com', author: 'operator' })
+      await markWanted(db, agentId, 'github.com')
+      const [wanted] = await wishesFor(db, agentId)
+
+      const enriched = await addWish(db, {
+        agentId,
+        provider: 'github.com',
+        author: 'citizen',
+        noticedWhile: 'Publishing a proof exposed the account bottleneck.',
+      })
+
+      expect(enriched.outcome).toBe('context-added')
+      expect(enriched.wish).toMatchObject({
+        id: first.wish.id,
+        author: 'operator',
+        noticedWhile: 'Publishing a proof exposed the account bottleneck.',
+        wantedAt: wanted?.wantedAt,
+      })
+      const again = await addWish(db, {
+        agentId,
+        provider: 'github.com',
+        author: 'citizen',
+        noticedWhile: 'A later retry must not replace the original context.',
+      })
+      expect(again.outcome).toBe('already-listed')
+      expect(again.wish.noticedWhile).toBe('Publishing a proof exposed the account bottleneck.')
+      expect(await wishesFor(db, agentId)).toHaveLength(1)
+    })
   })
 
   describe('the operator’s mark', () => {

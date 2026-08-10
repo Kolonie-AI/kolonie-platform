@@ -36,7 +36,18 @@ export function fakeWishes(): FakeWishes {
     add: async ({ agentId, provider, author, noticedWhile }) => {
       const held = listFor(agentId)
       const existing = held.find((wish) => wish.provider === provider)
-      if (existing !== undefined) return { outcome: 'already-listed', wish: existing }
+      if (existing !== undefined) {
+        if (author === 'citizen' && noticedWhile !== undefined && existing.noticedWhile === null) {
+          const enriched = { ...existing, noticedWhile }
+          lists.set(
+            agentId,
+            held.map((wish) => (wish.id === existing.id ? enriched : wish)),
+          )
+          return { outcome: 'context-added', wish: enriched }
+        }
+
+        return { outcome: 'already-listed', wish: existing }
+      }
 
       const wish: Wish = {
         id: randomUUID() as WishId,

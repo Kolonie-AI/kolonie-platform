@@ -1481,6 +1481,20 @@ export function registerAccountTools(
           }
         }
 
+        if (added.outcome === 'context-added') {
+          return {
+            content: [
+              {
+                type: 'text',
+                text:
+                  `${added.wish.provider} was already on the list, and your context was added. ` +
+                  `${added.wish.wantedAt === null ? 'It is not marked as wanted yet.' : 'It is marked as wanted.'}`,
+              },
+            ],
+            structuredContent: { wish: added.wish, added: false, contextAdded: true },
+          }
+        }
+
         return {
           content: [
             {

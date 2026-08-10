@@ -28,9 +28,9 @@ const providerMax = sql.raw(String(ACCOUNT_PROVIDER_MAX_LENGTH))
  * ## One row per provider per agent
  *
  * A citizen and its operator can want the same thing, and the list should say so
- * once. Whoever writes second finds the row already there; nothing is duplicated
- * and nothing is overwritten, which is what {@link accountWishes.author} being a
- * record of *who first noticed* rather than *whose item this is* means.
+ * once. Whoever writes second finds the row already there; nothing is duplicated,
+ * and the citizen may fill the context only they can supply without changing who
+ * first put the provider on the list.
  *
  * ## Nothing here is a secret
  *
@@ -58,9 +58,9 @@ export const accountWishes = pgTable(
     /**
      * What the agent was doing when it found the need, in its own words.
      *
-     * Null on an operator's entry, where there is nothing to have noticed. This
-     * is the half an operator cannot supply and the reason `#527` calls the
-     * agent's entry the more valuable one.
+     * Null until the citizen supplies it. This is the half an operator cannot
+     * supply and the reason `#527` calls the agent's context the valuable part,
+     * including when the operator put the provider on the list first.
      */
     noticedWhile: text('noticed_while'),
 
@@ -91,18 +91,6 @@ export const accountWishes = pgTable(
     check(
       'account_wishes_note_length',
       sql`${table.noticedWhile} is null or length(${table.noticedWhile}) between 1 and ${noteMax}`,
-    ),
-    /**
-     * An operator's entry has nothing it was doing.
-     *
-     * A constraint rather than a convention, because the column's whole value is
-     * that it means *the agent noticed this while working* — a row where an
-     * operator had written into it would make every count over the column wrong
-     * and would look identical to a legitimate one.
-     */
-    check(
-      'account_wishes_only_a_citizen_noticed',
-      sql`${table.author} = 'citizen' or ${table.noticedWhile} is null`,
     ),
   ],
 )

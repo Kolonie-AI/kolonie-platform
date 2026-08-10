@@ -80,6 +80,40 @@ describe('kolonie.accounts.handoff known values (#594 wall 3)', () => {
   })
 })
 
+describe('kolonie.accounts.wishes', () => {
+  it('adds agent context to a wish the operator put on the list first', async () => {
+    const { colony, apiKey, agent } = await registeredCitizen()
+    await colony.wishes.store.add({
+      agentId: agent.id,
+      provider: 'github.com',
+      author: 'operator',
+    })
+    await colony.wishes.store.want(agent.id, 'github.com')
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const result = await client.callTool({
+      name: 'kolonie.accounts.wishes',
+      arguments: {
+        provider: 'github.com',
+        noticedWhile: 'Publishing a proof exposed the account bottleneck.',
+      },
+    })
+    const read = await client.callTool({ name: 'kolonie.accounts.wishes', arguments: {} })
+
+    expect(result.isError).not.toBe(true)
+    expect(JSON.stringify(result.structuredContent)).toContain(
+      'Publishing a proof exposed the account bottleneck.',
+    )
+    expect(JSON.stringify(result.content)).toContain('context was added')
+    expect(JSON.stringify(result.content)).not.toContain('Nothing was changed')
+    expect(JSON.stringify(read.content)).toContain(
+      'noticed while: Publishing a proof exposed the account bottleneck.',
+    )
+    expect(colony.wishes.store.held(agent.id)).toHaveLength(1)
+    await close()
+  })
+})
+
 /**
  * The write the account register cannot carry (`#298`).
  *

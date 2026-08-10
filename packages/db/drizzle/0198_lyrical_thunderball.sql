@@ -1,0 +1,1 @@
+ALTER TABLE "account_wishes" DROP CONSTRAINT "account_wishes_only_a_citizen_noticed";

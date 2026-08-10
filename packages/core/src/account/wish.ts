@@ -66,8 +66,9 @@ export const WishSchema = z.object({
    *
    * **This is the half an operator cannot supply**, and the reason `#527` calls
    * the agent's entry the more valuable one: *I failed three tasks that wanted a
-   * Figma file* is a fact about the world that only the agent holds. Absent on
-   * an operator's entry, where there is nothing to have noticed.
+   * Figma file* is a fact about the world that only the agent holds. It may be
+   * added after an operator put the provider on the shared list first; `author`
+   * still records who created the row.
    */
   noticedWhile: z.string().nullable(),
   /**

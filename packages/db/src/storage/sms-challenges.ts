@@ -111,7 +111,7 @@ export type InboundSmsOutcome =
   | { readonly outcome: 'number_taken'; readonly agentId: AgentId }
 
 const openChallenge = async (
-  db: Database,
+  db: Database | Transaction,
   agentId: AgentId,
   purpose: SmsChallengePurpose,
 ): Promise<typeof smsChallenges.$inferSelect | undefined> => {
@@ -180,7 +180,7 @@ const isOwnProvedNumber = async (
  * one number and the first to prove it takes it.
  */
 const numberBelongsToAnother = async (
-  db: Database,
+  db: Database | Transaction,
   agentId: AgentId,
   number: string,
 ): Promise<boolean> => {
@@ -223,55 +223,72 @@ export async function mintSmsReceiveChallenge(
   db: Database,
   agentId: AgentId,
   number: string,
+  replace = false,
 ): Promise<SmsMintOutcome> {
-  const open = await openChallenge(db, agentId, 'receive')
+  return db.transaction(async (tx) => {
+    const open = await openChallenge(tx, agentId, 'receive')
 
-  if (open !== undefined) {
+    if (open !== undefined) {
+      const matchesRequested = normalise(open.number ?? '') === normalise(number)
+      if (matchesRequested || !replace || open.sentAt !== null) {
+        return {
+          outcome: 'open',
+          matchesRequested,
+          sent: open.sentAt !== null,
+          challenge: {
+            id: open.id,
+            number: open.number ?? number,
+            expiresAt: toTimestamp(open.expiresAt),
+            // Non-null because a `receive` row is always minted with one. An
+            // assertion rather than a cast: texting an empty code would be worse
+            // than failing loudly, and this is the line that says so.
+            code: open.code ?? raise('an open receive challenge carries no code'),
+          },
+        }
+      }
+
+      // Check first: a failed replacement must leave the citizen's existing
+      // challenge intact rather than exchange it for nothing.
+      if (await numberBelongsToAnother(tx, agentId, number)) return { outcome: 'number_taken' }
+
+      await tx
+        .update(smsChallenges)
+        .set({ expiresAt: currentTime() })
+        .where(eq(smsChallenges.id, open.id))
+    }
+
+    if (open === undefined && (await numberBelongsToAnother(tx, agentId, number))) {
+      return { outcome: 'number_taken' }
+    }
+
+    const code = mintCode()
+    const [row] = await tx
+      .insert(smsChallenges)
+      .values({
+        agentId,
+        number,
+        code,
+        purpose: 'receive',
+        expiresAt: new Date(Date.now() + SMS_CHALLENGE_LIFETIME_MS).toISOString(),
+      })
+      .returning({
+        id: smsChallenges.id,
+        number: smsChallenges.number,
+        expiresAt: smsChallenges.expiresAt,
+      })
+
+    if (row === undefined) throw new Error('sms_challenges insert returned no row')
+
     return {
-      outcome: 'open',
-      matchesRequested: normalise(open.number ?? '') === normalise(number),
-      sent: open.sentAt !== null,
+      outcome: 'minted',
       challenge: {
-        id: open.id,
-        number: open.number ?? number,
-        expiresAt: toTimestamp(open.expiresAt),
-        // Non-null because a `receive` row is always minted with one. An
-        // assertion rather than a cast: texting an empty code would be worse
-        // than failing loudly, and this is the line that says so.
-        code: open.code ?? raise('an open receive challenge carries no code'),
+        id: row.id,
+        number: row.number ?? number,
+        expiresAt: toTimestamp(row.expiresAt),
+        code,
       },
     }
-  }
-
-  if (await numberBelongsToAnother(db, agentId, number)) return { outcome: 'number_taken' }
-
-  const code = mintCode()
-  const [row] = await db
-    .insert(smsChallenges)
-    .values({
-      agentId,
-      number,
-      code,
-      purpose: 'receive',
-      expiresAt: new Date(Date.now() + SMS_CHALLENGE_LIFETIME_MS).toISOString(),
-    })
-    .returning({
-      id: smsChallenges.id,
-      number: smsChallenges.number,
-      expiresAt: smsChallenges.expiresAt,
-    })
-
-  if (row === undefined) throw new Error('sms_challenges insert returned no row')
-
-  return {
-    outcome: 'minted',
-    challenge: {
-      id: row.id,
-      number: row.number ?? number,
-      expiresAt: toTimestamp(row.expiresAt),
-      code,
-    },
-  }
+  })
 }
 
 /** The Colony's text left. Only after this does a code count as answerable. */

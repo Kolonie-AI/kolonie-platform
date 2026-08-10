@@ -243,9 +243,8 @@ export const smsChallenges = pgTable(
      * vendor. `receive` only.
      *
      * **Null while a send was refused, and that is what makes a refusal not cost
-     * an attempt.** A challenge whose send never left is retried rather than
-     * replaced; a citizen holding an undeliverable challenge it cannot replace
-     * is a citizen that can never pass the rung.
+     * an attempt.** A challenge whose send never left is retried by default, and
+     * may be explicitly replaced when its destination cannot be used.
      */
     sentAt: timestamp('sent_at', { withTimezone: true, mode: 'string' }),
 

@@ -65,7 +65,10 @@ export const ClaimedNumberSchema = z
       'because guessing a country code would merge two real numbers.',
   })
 
-export const OpenSmsChallengeSchema = z.object({ number: ClaimedNumberSchema })
+export const OpenSmsChallengeSchema = z.object({
+  number: ClaimedNumberSchema,
+  replace: z.boolean().optional().default(false),
+})
 export const SubmitSmsCodeSchema = z.object({ code: z.string().trim().min(4).max(16) })
 
 /** What sending one message came to, as this file needs it. */
@@ -81,7 +84,7 @@ export interface GuardedSender {
 
 /** What the API needs from storage. A port, so the tests need no PostgreSQL. */
 export interface SmsChallengeStore {
-  mint(agentId: AgentId, number: string): Promise<SmsMintOutcome>
+  mint(agentId: AgentId, number: string, replace: boolean): Promise<SmsMintOutcome>
   markSent(challengeId: string): Promise<void>
   markSendFailed(challengeId: string, reason: string): Promise<void>
   redeem(agentId: AgentId, code: string): Promise<SmsRedemption>
@@ -263,7 +266,7 @@ export async function openSmsChallenge(
         }
       }
 
-      const minted = await deps.challenges.mint(agentId, parsed.data.number)
+      const minted = await deps.challenges.mint(agentId, parsed.data.number, parsed.data.replace)
 
       if (minted.outcome === 'number_taken') {
         return {
@@ -273,6 +276,20 @@ export async function openSmsChallenge(
             message:
               'That number already certifies another citizen. One number names exactly one ' +
               'citizen, so use a different one you can read a message at.',
+          },
+        }
+      }
+
+      if (minted.outcome === 'open' && !minted.matchesRequested) {
+        return {
+          outcome: 'rejected',
+          error: {
+            code: 'conflict',
+            message: minted.sent
+              ? 'You already have a delivered SMS challenge open for another number. Hand back ' +
+                'that code or wait for the challenge to expire before opening one for a new number.'
+              : 'You already have an unsent SMS challenge open for another number. Send the new ' +
+                'number again with "replace": true to abandon the stuck challenge and open this one.',
           },
         }
       }
@@ -457,7 +474,7 @@ export async function openSmsSendChallenge(
 /** The storage port, over a real database. Assembled here so `server.ts` names one thing. */
 export function databaseSmsChallenges(db: Database): SmsChallengeStore {
   return {
-    mint: (agentId, number) => mintSmsReceiveChallenge(db, agentId, number),
+    mint: (agentId, number, replace) => mintSmsReceiveChallenge(db, agentId, number, replace),
     markSent: (challengeId) => markSmsSent(db, challengeId),
     markSendFailed: (challengeId, reason) => markSmsSendFailed(db, challengeId, reason),
     redeem: (agentId, code) => redeemSmsCode(db, agentId, code),

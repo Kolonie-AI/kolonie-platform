@@ -187,6 +187,51 @@ describe('the phone nodes', () => {
       expect(again.sent).toBe(false)
     })
 
+    it('keeps an unsent challenge until replacement is explicit', async () => {
+      const first = await mint(agentId, CITIZEN_NUMBER)
+
+      const again = await mintSmsReceiveChallenge(db, agentId, OTHER_NUMBER)
+
+      expect(again.outcome).toBe('open')
+      if (again.outcome !== 'open') throw new Error('expected an open challenge')
+      expect(again.challenge.id).toBe(first.id)
+      expect(again.matchesRequested).toBe(false)
+      expect(again.sent).toBe(false)
+    })
+
+    it('replaces an unsent challenge with one for the newly requested number', async () => {
+      const first = await mint(agentId, CITIZEN_NUMBER)
+      await markSmsSendFailed(db, first.id, 'the destination is not on the allowlist')
+
+      const replacement = await mintSmsReceiveChallenge(db, agentId, OTHER_NUMBER, true)
+
+      expect(replacement.outcome).toBe('minted')
+      if (replacement.outcome !== 'minted') throw new Error('expected a minted challenge')
+      expect(replacement.challenge.id).not.toBe(first.id)
+      expect(replacement.challenge.number).toBe(OTHER_NUMBER)
+
+      const rows = await db
+        .select({ id: smsChallenges.id, expiresAt: smsChallenges.expiresAt })
+        .from(smsChallenges)
+        .where(eq(smsChallenges.agentId, agentId))
+      expect(rows).toHaveLength(2)
+      expect(
+        new Date(rows.find((row) => row.id === first.id)?.expiresAt ?? 0).getTime(),
+      ).toBeLessThanOrEqual(Date.now())
+    })
+
+    it('does not replace a challenge after its message was delivered', async () => {
+      const first = await mintAndSend(agentId, CITIZEN_NUMBER)
+
+      const replacement = await mintSmsReceiveChallenge(db, agentId, OTHER_NUMBER, true)
+
+      expect(replacement.outcome).toBe('open')
+      if (replacement.outcome !== 'open') throw new Error('expected an open challenge')
+      expect(replacement.challenge.id).toBe(first.id)
+      expect(replacement.matchesRequested).toBe(false)
+      expect(replacement.sent).toBe(true)
+    })
+
     it('refuses a number that already certifies another citizen', async () => {
       const theirs = await mintAndSend(otherId, CITIZEN_NUMBER)
       await redeemSmsCode(db, otherId, theirs.code)

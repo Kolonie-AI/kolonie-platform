@@ -98,7 +98,8 @@ const ARGUMENTS = {
     .nullish()
     .describe(
       'memory.code and authenticator.secret: give up on the outstanding one and mint a fresh ' +
-        'one. Only if you lost it — the Colony cannot show you the old one.',
+        'one. sms.challenge: abandon an unsent challenge stuck on another number. Use it only ' +
+        'when the outstanding challenge cannot be completed.',
     ),
   origin: z
     .string()

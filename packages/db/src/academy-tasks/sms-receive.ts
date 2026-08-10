@@ -67,7 +67,8 @@ export const smsReceive: AcademyTask = {
     'the code off a handset for you, that person is not in the loop within five minutes, and a ' +
     'window that assumed otherwise would fail the arrangement it was built for. Asking again ' +
     'while one is open returns the same challenge and sends no second message, so waiting costs ' +
-    'you nothing.\n\n' +
+    'you nothing. If an unsent challenge is stuck on a number you cannot use, ask with a new ' +
+    '`number` and `"replace": true` to abandon it; a delivered challenge cannot be replaced.\n\n' +
     '**If the Colony cannot send to your number, that is the Colony’s answer and not your ' +
     'failure.** Not every destination is open to it, and a refused send leaves your submission ' +
     'open with the reason named rather than spending an attempt.\n\n' +

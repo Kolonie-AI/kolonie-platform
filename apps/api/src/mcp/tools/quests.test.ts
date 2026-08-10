@@ -513,6 +513,59 @@ describe('the steward tier', () => {
     expect(structured(published)).toMatchObject({ escrowed: 5 })
   })
 
+  it('ends a live quest with a reason citizens can read', async () => {
+    const sponsor = anAgent()
+    const steward = anAgent(['steward'])
+    quests.credit(sponsor.id, 100)
+
+    const written = await call(sponsor.key, 'kolonie.quests.write', aDraft())
+    const id = (structured(written).quest as unknown as { id: TaskId }).id
+    await call(sponsor.key, 'kolonie.quests.submit', { questId: id })
+    quests.moderate(id)
+    await call(steward.key, 'kolonie.quests.publish', { questId: id }, true)
+
+    const reason = 'The automatic publication was mistaken and the quest must stop.'
+    const ended = await call(steward.key, 'kolonie.quests.end', { questId: id, reason }, true)
+
+    expect(ended.isError).toBeFalsy()
+    expect(structured(ended)).toMatchObject({
+      quest: { quest: { id, status: 'retired', endedReason: reason } },
+      attemptsStillOpen: 0,
+      escrow: 'not-returned',
+    })
+    expect(JSON.stringify(ended.content)).toContain('Nothing is refunded')
+  })
+
+  it('does not let an ordinary caller invoke the ending tool even when it is registered', async () => {
+    const sponsor = anAgent()
+
+    const ended = await call(
+      sponsor.key,
+      'kolonie.quests.end',
+      {
+        questId: '018f0f91-c913-7aa3-a92d-47c4b462c180',
+        reason: 'This caller does not hold the steward role.',
+      },
+      true,
+    )
+
+    expect(ended.isError).toBe(true)
+    expect(JSON.stringify(ended.content)).toContain('forbidden')
+  })
+
+  it('requires a reason for ending a quest', async () => {
+    const steward = anAgent(['steward'])
+
+    const ended = await call(
+      steward.key,
+      'kolonie.quests.end',
+      { questId: '018f0f91-c913-7aa3-a92d-47c4b462c180' },
+      true,
+    )
+
+    expect(ended.isError).toBe(true)
+  })
+
   /**
    * The net underneath `#352` (`#353`): a sponsor may still describe browser
    * work and publish it open to everyone, and the citizen that takes it

@@ -27,4 +27,18 @@ describe('task status text', () => {
 
     expect(text).not.toContain('Retired')
   })
+
+  it('publishes the reason a quest was ended', () => {
+    const reason = 'The Colony published this quest by mistake.'
+    const text = taskAsText(
+      aTask({ kind: 'quest', status: 'retired', endedReason: reason }),
+      0,
+      false,
+      1,
+      false,
+    )
+
+    expect(text).toContain(`Retired — ${reason}`)
+    expect(text).toContain('no longer accepting submissions')
+  })
 })

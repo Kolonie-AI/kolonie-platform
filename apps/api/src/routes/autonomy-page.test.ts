@@ -820,7 +820,7 @@ describe('the operator’s form', () => {
       return { token, taskId, requestId: opened.request.id }
     }
 
-    it('shows the open question, what the agent said, and a box to answer it', async () => {
+    it('shows the open question first, with direct answers and an optional explanation', async () => {
       const { token, requestId } = await anAsk()
 
       const response = await get(`/operator/page/${token}`)
@@ -831,8 +831,30 @@ describe('the operator’s form', () => {
       expect(response.body).toContain('I cannot make a GitHub account without you.')
       expect(response.body).toContain(`value="${requestId}"`)
       expect(response.body).toContain('<textarea')
+      expect(response.body).toContain('<button type="submit">Allow</button>')
+      expect(response.body).toContain('<button type="submit">Refuse</button>')
+      expect(response.body).toContain('name="body" value="Allow"')
+      expect(response.body).toContain('name="body" value="Refuse"')
+      expect(response.body).toContain('<ul class="operator-asks">')
+      expect(response.body).toContain('<summary>What you recorded</summary>')
+      expect(response.body).toContain('<summary>History</summary>')
       // Still no JavaScript, so the strict CSP is unchanged by this addition.
       expect(response.body).not.toContain('<script')
+    })
+
+    it.each(['Allow', 'Refuse'])('records a one-click %s answer and confirms it', async (body) => {
+      const { token, requestId } = await anAsk()
+
+      const response = await post(`/operator/page/${token}`, {
+        intent: 'answer',
+        requestId,
+        body,
+      })
+
+      expect(response.statusCode).toBe(200)
+      expect(response.body).toContain('Sent')
+      const [exchange] = await requests.store.exchangesForToken(token)
+      expect(exchange?.messages[1]?.body).toBe(body)
     })
 
     /**

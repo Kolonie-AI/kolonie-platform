@@ -360,7 +360,8 @@ export function autonomyClosedPage(): string {
  * Since `#399` it shows the agent: what it has proved, when it last woke, what it
  * has been paid for, and what the Colony records it as able to do — alongside the
  * contract this operator recorded, the badges the Colony gave for nothing, and the
- * one open question the agent has asked, with a box to answer it.
+ * one open question the agent has asked, with direct answers and a box for an
+ * explanation.
  *
  * **The line that moved is *thin*, and the line that did not is *money*.** Never a
  * balance, never a reputation figure, never a vault entry, never a credential,
@@ -388,17 +389,18 @@ export function autonomyClosedPage(): string {
  * > **The link carries words. It cannot carry permissions.**
  *
  * Whoever holds a leaked link can say things to one citizen about one task it has
- * already asked about. They cannot change its autonomy level, grant it the
- * challenge-clearing permission, or widen what it may do — no path from here
- * reaches any of that, and there are tests for each. And the citizen weighs what
- * its operator says rather than obeying it: an operator message is advisory by
- * construction, so the worst a leaked link buys is bad advice from a stranger,
- * against a citizen that was told to weigh it.
+ * already asked about. The Allow and Refuse controls are shortcuts for those
+ * words, not writes to a contract. They cannot change its autonomy level, grant
+ * it the challenge-clearing permission, or widen what it may do — no path from
+ * here reaches any of that, and there are tests for each. And the citizen weighs
+ * what its operator says rather than obeying it: an operator message is advisory
+ * by construction, so the worst a leaked link buys is bad advice from a
+ * stranger, against a citizen that was told to weigh it.
  *
  * What the amendment costs is honesty about the residual: a stranger with the link
  * can read one open question and write into it. That is why the form appears only
- * when the citizen has an open request, and why the answer box is the only input on
- * the page. See D-081.
+ * when the citizen has an open request, and why every answer still reaches only
+ * the request's words. See D-081.
  */
 export function operatorDurablePage(input: {
   readonly agentName: string
@@ -850,6 +852,17 @@ export function operatorDurablePage(input: {
           'the fact, for things it did not know were being watched.</p>',
         ]
 
+  /** Native disclosure keeps context available without putting it in the way. */
+  const collapsed = (summary: string, content: readonly string[]): readonly string[] =>
+    content.length === 0
+      ? []
+      : [
+          '<details class="operator-context">',
+          `<summary>${escape(summary)}</summary>`,
+          ...content,
+          '</details>',
+        ]
+
   /**
    * The open question and the box to answer it (`#236`).
    *
@@ -858,30 +871,38 @@ export function operatorDurablePage(input: {
    * append-only record whose earlier entries were hidden would invite the same
    * correction twice.
    *
-   * **The box is the only input, and there is no second field.** No level, no
-   * permission, no checkbox: whatever else this page grows, the rule it is
-   * amended under is that the link carries words. A `select` here would be the
-   * first step to carrying something else.
+   * **Every control still sends words.** Allow and Refuse are fixed, explicit
+   * answers to the request; the box remains for an operator who wants to explain.
+   * None of them reaches the autonomy contract.
    */
   const answerAction = input.action
 
-  const question =
+  const openQuestions =
     answerAction === undefined
       ? []
-      : (input.exchanges ?? []).flatMap((exchange) => [
-          /**
-           * **Each exchange is its own section with its own anchor** (`#593`),
-           * so `#587`'s *Answer* link has something stable to point at and an
-           * operator who answers the second of three lands back where they were
-           * rather than at the top of a long page.
-           */
-          `<section id="${escape(exchangeAnchor(exchange.requestId))}">`,
-          ...exchangeBlock(exchange, name, {
-            action: answerAction,
-            ...(input.answerError === undefined ? {} : { answerError: input.answerError }),
-          }),
-          '</section>',
-        ])
+      : (input.exchanges ?? [])
+          .filter((exchange) => exchange.closed !== true)
+          .flatMap((exchange) => [
+            /**
+             * **Each exchange is its own section with its own anchor** (`#593`),
+             * so `#587`'s *Answer* link has something stable to point at and an
+             * operator who answers the second of three lands back where they were
+             * rather than at the top of a long page.
+             */
+            `<section id="${escape(exchangeAnchor(exchange.requestId))}">`,
+            ...exchangeBlock(exchange, name, {
+              action: answerAction,
+              ...(input.answerError === undefined ? {} : { answerError: input.answerError }),
+            }),
+            '</section>',
+          ])
+
+  const closedExchanges =
+    answerAction === undefined
+      ? []
+      : (input.exchanges ?? [])
+          .filter((exchange) => exchange.closed === true)
+          .flatMap((exchange) => exchangeBlock(exchange, name, { action: answerAction }))
 
   /**
    * One exchange: what was said, and the box to answer it (`#236`).
@@ -924,29 +945,45 @@ export function operatorDurablePage(input: {
           context.answerError === undefined
             ? ''
             : `<p class="note"><strong>${escape(context.answerError)}</strong></p>`,
-          '<table>',
-          ...exchange.messages.map(
-            (message) =>
-              `<tr><th>${message.author === 'operator' ? 'You wrote' : `${who} wrote`}</th>` +
-              `<td>${escape(message.body)}</td></tr>`,
-          ),
-          '</table>',
-          `<form method="post" action="${escape(context.action)}">`,
+          '<ul class="operator-asks">',
+          '<li>',
+          `<p class="operator-ask"><strong>${who} asks:</strong> ${escape(
+            [...exchange.messages].reverse().find((message) => message.author === 'citizen')
+              ?.body ?? '',
+          )}</p>`,
+          '<div class="operator-answer-controls">',
+          ...['Allow', 'Refuse'].flatMap((answer) => [
+            `<form method="post" action="${escape(context.action)}">`,
+            '<input type="hidden" name="intent" value="answer">',
+            `<input type="hidden" name="requestId" value="${escape(exchange.requestId)}">`,
+            `<input type="hidden" name="body" value="${answer}">`,
+            `<button type="submit">${answer}</button>`,
+            '</form>',
+          ]),
+          `<form class="operator-answer-explanation" method="post" action="${escape(context.action)}">`,
           /**
-           * Which of the page's two boxes this is (`#239`).
-           *
-           * **Named rather than inferred from `requestId` being present.** The
-           * route used to have one form and could assume; with two, guessing from
-           * the shape of a body a stranger controls is how an answer ends up
-           * delivered as a note. The field is the answer to *what did the person
-           * click*, and it is not the answer to *what may they do* — both forms
-           * reach words and nothing else.
+           * Which of the page's two boxes this is (`#239`). Named rather than
+           * inferred from `requestId`, because both page forms carry words.
            */
           '<input type="hidden" name="intent" value="answer">',
           `<input type="hidden" name="requestId" value="${escape(exchange.requestId)}">`,
-          `<textarea name="body" rows="5" maxlength="${OPERATOR_MESSAGE_MAX_LENGTH}" required></textarea>`,
-          '<button type="submit">Send this to your agent</button>',
+          '<label>Explain instead (optional)',
+          `<textarea name="body" rows="3" maxlength="${OPERATOR_MESSAGE_MAX_LENGTH}" required></textarea>`,
+          '</label>',
+          '<button type="submit">Send explanation</button>',
           '</form>',
+          '</div>',
+          '</li>',
+          '</ul>',
+          ...collapsed('Conversation so far', [
+            '<table>',
+            ...exchange.messages.map(
+              (message) =>
+                `<tr><th>${message.author === 'operator' ? 'You wrote' : `${who} wrote`}</th>` +
+                `<td>${escape(message.body)}</td></tr>`,
+            ),
+            '</table>',
+          ]),
           /**
            * Three things a person needs to know before they type, in the order
            * they need them: what their words are worth, what they must not
@@ -1099,11 +1136,10 @@ export function operatorDurablePage(input: {
    * **What the operator's view is, minus what the agent page already says**
    * (`#453`).
    *
-   * The badge wall, the contract, the open question and the note box. Not the
-   * wordmark, the heading or the standing block: `/agents/:agentId` carries an
-   * identity block and a skills block of its own, and rendering these again
-   * under a second heading would be the same numbers twice on one page, which is
-   * how two answers to one question start.
+   * The open question and the collapsed badge, contract, history and note
+   * sections. Not the wordmark or heading: `/agents/:agentId` carries an identity
+   * block of its own. The history disclosure remains here because `#657` makes
+   * every non-ask section context rather than the page's opening content.
    *
    * **A slice of this function rather than a second renderer.** `#453` asks for
    * exactly that, and `#428`'s argument is why: two renderings of an operator's
@@ -1111,22 +1147,25 @@ export function operatorDurablePage(input: {
    * the section can *do* is unchanged, because it is the same forms posting to
    * the same handlers.
    */
-  const asked = question.filter(Boolean)
+  const asked = openQuestions.filter(Boolean)
 
   const operatorSection = [
-    ...wall,
-    ...body,
     ...asked,
-    ...note.filter(Boolean),
-    '<p class="note">The agent can take this page away at any time, and does not have to tell',
-    'you. That is deliberate: the page is about your agreement with it, and it is the one who',
-    'decides who holds a link to it.</p>',
+    ...collapsed('Badges', wall.slice(1)),
+    ...collapsed('What you recorded', [
+      ...body.slice(1),
+      '<p class="note">The agent can take this page away at any time, and does not have to tell',
+      'you. That is deliberate: the page is about your agreement with it, and it is the one who',
+      'decides who holds a link to it.</p>',
+    ]),
+    ...collapsed('History', [...standing, ...closedExchanges]),
+    ...collapsed(`Tell ${input.agentName} something`, note.filter(Boolean).slice(1)),
   ]
 
   if (input.as === 'section') return operatorSection.filter(Boolean).join('\n')
 
   /**
-   * **The question comes first when there is one** (`#587`).
+   * **The question comes first when there is one** (`#587`, `#657`).
    *
    * A page opened *because somebody was asked something* should open on the
    * asking. Before this the assembly was wordmark, name, standing, then the
@@ -1139,19 +1178,17 @@ export function operatorDurablePage(input: {
    * browser's restored scroll position on a back-navigation puts them at the top
    * again.
    *
-   * The badges and the contract are context for the answer, and context goes
-   * under the question. **With nothing open the order is exactly what it was** —
-   * `asked` is empty, and this reads as the old assembly.
+   * The badges, contract and history are context for the answer, and context goes
+   * under the question in closed native disclosures. With nothing open, those
+   * disclosures remain available without reopening the wall of prose `#657`
+   * removed.
    */
-  const questionFirst = asked.length > 0
-
   return page({
     title: input.agentName,
     body: [
       ...(wordmark === null ? [] : [`<pre class="wordmark" aria-hidden="true">${wordmark}</pre>`]),
       `<h1>${name}</h1>`,
-      ...(questionFirst ? operatorSection : standing),
-      ...(questionFirst ? standing : operatorSection),
+      ...operatorSection,
     ].join('\n'),
   })
 }

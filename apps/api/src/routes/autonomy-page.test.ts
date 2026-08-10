@@ -374,6 +374,15 @@ describe('the operator’s form', () => {
       expect(response.body).toContain('Slack, #kolonie.')
     })
 
+    it('says secrets have no route when the sealed channel is not configured', async () => {
+      const response = await get(`/operator/page/${await aPage()}`)
+
+      expect(response.body).toContain('This Colony has no channel')
+      expect(response.body).toContain('configured for secrets')
+      expect(response.body).not.toContain('will send you a <strong>sealed box</strong>')
+      expect(response.body).not.toContain('Please do not send a secret any other way')
+    })
+
     /**
      * `#241`: the reason badges exist at all. A list of rungs is a progress bar;
      * a wall of badges is something a person shows someone else, and that is the

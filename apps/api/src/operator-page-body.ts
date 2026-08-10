@@ -104,6 +104,7 @@ export async function operatorPageBody(
       closed: exchange.closed,
     })),
     drops,
+    secretHandoff: deps.drops !== undefined,
     fillDrops: errors.fillDrops === true,
   })
 }

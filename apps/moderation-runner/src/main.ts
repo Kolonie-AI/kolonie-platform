@@ -292,6 +292,8 @@ const runner = startRunner(
       classifier: openRouterDirectionClassifier(
         process.env[OPENROUTER_API_KEY_VAR],
         process.env[DIRECTION_MODEL_VAR],
+        fetch,
+        log,
       ),
       log,
     },

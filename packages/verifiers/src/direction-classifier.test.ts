@@ -4,10 +4,17 @@ import { directionPrompt, openRouterDirectionClassifier } from './direction-clas
 
 const answering = (content: unknown): typeof fetch =>
   (async () =>
-    new Response(JSON.stringify({ choices: [{ message: { content } }] }), {
-      status: 200,
-      headers: { 'content-type': 'application/json' },
-    })) as unknown as typeof fetch
+    new Response(
+      JSON.stringify({
+        model: 'a/model',
+        usage: { prompt_tokens: 308, completion_tokens: 5, total_tokens: 313 },
+        choices: [{ message: { content } }],
+      }),
+      {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      },
+    )) as unknown as typeof fetch
 
 const declaration = {
   vocation: 'I want to run my own mail',

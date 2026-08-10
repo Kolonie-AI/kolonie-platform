@@ -95,7 +95,7 @@ export async function judgeQuest(
       taskId: quest.id,
       decision: crossed ? 'rejected' : 'approved',
       ...(crossed && { reason: refusal(verdict.reason) }),
-      model: model.name,
+      model: verdict.call?.model ?? model.name,
       stages,
       judged: {
         title: quest.title,

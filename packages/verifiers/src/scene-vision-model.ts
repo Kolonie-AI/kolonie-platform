@@ -3,10 +3,12 @@ import {
   SCENE_PROHIBITION,
   sceneBindingPhrase,
   type SceneConstraints,
+  type Log,
 } from '@kolonie-ai/core'
 import type { SceneChecker, SceneCheckResult } from './image-model.js'
 import { OPENROUTER_API_KEY_VAR } from './vision-model.js'
 import { isPermanentVendorStatus, readVendorRejection } from './vendor.js'
+import { recordOpenRouterCall } from './model-call.js'
 
 /**
  * Which model judges a scene. Its own variable, so the two image rungs are tuned
@@ -113,6 +115,7 @@ export function openRouterSceneVision(
   apiKey: string | undefined,
   model: string | undefined = DEFAULT_SCENE_VISION_MODEL,
   fetchImpl: typeof fetch = fetch,
+  log?: Log,
 ): SceneChecker {
   /**
    * A blank model name is an unset one, and a default parameter would not catch
@@ -193,8 +196,10 @@ export function openRouterSceneVision(
       }
 
       let body: { choices?: Array<{ message?: { content?: unknown } }> }
+      let call
       try {
         body = (await response.json()) as typeof body
+        call = recordOpenRouterCall(body, log)
       } catch {
         return {
           outcome: 'unavailable',
@@ -233,7 +238,7 @@ export function openRouterSceneVision(
         }
       }
 
-      return { outcome: 'checked', check: check.data, model: chosen }
+      return { outcome: 'checked', check: check.data, model: call.model }
     },
   }
 }

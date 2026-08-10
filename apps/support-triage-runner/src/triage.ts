@@ -1,4 +1,4 @@
-import { TICKET_RESOLUTION_MAX_LENGTH, type SupportTicket } from '@kolonie-ai/core'
+import { TICKET_RESOLUTION_MAX_LENGTH, type ModelCall, type SupportTicket } from '@kolonie-ai/core'
 import type { ClosedIssue, KnownIssue } from './github.js'
 
 /**
@@ -46,9 +46,9 @@ export type TriageDecision =
 
 /** What the model is asked and what it is allowed to answer with. */
 export interface TriageModel {
-  /** The name, recorded on nothing but the log — a verdict here is not a ledger entry. */
+  /** The configured name, useful before a response exists. */
   readonly name: string
-  classify(input: TriageInput): Promise<unknown>
+  classify(input: TriageInput): Promise<{ readonly answer: unknown; readonly call: ModelCall }>
 }
 
 export interface TriageInput {
@@ -261,6 +261,7 @@ export function issueBody(
   ticket: SupportTicket,
   summary: string,
   context: TicketContext = NO_CONTEXT,
+  call?: ModelCall,
 ): string {
   const circumstances = [
     `Opened from a support ticket a citizen filed over MCP on ${ticket.createdAt} ` +
@@ -280,6 +281,7 @@ export function issueBody(
 
   return [
     summary,
+    ...(call === undefined ? [] : ['', modelCallLine(call)]),
     '',
     '---',
     '',
@@ -294,6 +296,23 @@ export function issueBody(
       'watching this URL through `kolonie.support.read`, so closing it is how they learn the ' +
       'ending.',
   ].join('\n')
+}
+
+/** The public accounting line under model-authored output. */
+export function modelCallLine(call: ModelCall): string {
+  const fallback =
+    call.fallback === undefined
+      ? ''
+      : ` · fell back to ${routeName(call.fallback.route)} after ${call.fallback.reason}`
+
+  return (
+    `Judged by \`${call.model}\` · ${call.tokens.prompt} prompt + ` +
+    `${call.tokens.completion} completion = ${call.tokens.total} tokens${fallback}`
+  )
+}
+
+function routeName(route: ModelCall['route']): string {
+  return route === 'openrouter' ? 'OpenRouter' : 'the gateway'
 }
 
 /**

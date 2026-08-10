@@ -72,9 +72,15 @@ function fakeIssues(overrides: Partial<Issues> = {}) {
   return { issues, created, comments }
 }
 
+const aCall = {
+  route: 'openrouter',
+  model: 'provider/model-that-answered',
+  tokens: { prompt: 308, completion: 5, total: 313 },
+} as const
+
 const modelAnswering = (answer: unknown): TriageModel => ({
   name: 'fake',
-  classify: async () => answer,
+  classify: async () => ({ answer, call: aCall }),
 })
 
 const knownIssue: KnownIssue = {
@@ -328,14 +334,17 @@ describe('a tick over the queue', () => {
       classify: async (input) => {
         seen.push(input.issues.length)
         // The first sees nothing and files; the second sees what the first filed.
-        return input.issues.length === 0
-          ? {
-              kind: 'new',
-              repository: 'Kolonie-AI/kolonie-platform',
-              title: 'the mailbox rung delivers no code',
-              summary: 'Two citizens minted a challenge and no message arrived at either address.',
-            }
-          : { kind: 'known', issueUrl: input.issues[0]!.url }
+        const answer =
+          input.issues.length === 0
+            ? {
+                kind: 'new',
+                repository: 'Kolonie-AI/kolonie-platform',
+                title: 'the mailbox rung delivers no code',
+                summary:
+                  'Two citizens minted a challenge and no message arrived at either address.',
+              }
+            : { kind: 'known', issueUrl: input.issues[0]!.url }
+        return { answer, call: aCall }
       },
     }
 
@@ -356,7 +365,7 @@ describe('a tick over the queue', () => {
       name: 'fake',
       classify: async () => {
         if (++call === 1) throw new Error('rate limited')
-        return { kind: 'human', why: 'held' }
+        return { answer: { kind: 'human', why: 'held' }, call: aCall }
       },
     }
 
@@ -380,7 +389,7 @@ describe('a tick over the queue', () => {
       name: 'fake',
       classify: async (input) => {
         offered = input.answered.length
-        return { kind: 'human', why: 'held' }
+        return { answer: { kind: 'human', why: 'held' }, call: aCall }
       },
     }
 
@@ -399,7 +408,10 @@ describe('a tick over the queue', () => {
 describe('a runner with no GitHub App', () => {
   it('does not triage, rather than triaging against nothing', async () => {
     const { store, written } = fakeStore([aTicket(), aTicket()])
-    const classify = vi.fn(async () => ({ kind: 'human', why: 'x' }))
+    const classify = vi.fn(async () => ({
+      answer: { kind: 'human', why: 'x' },
+      call: aCall,
+    }))
 
     const outcome = await tick(
       deps({

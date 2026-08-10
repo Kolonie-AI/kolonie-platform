@@ -46,6 +46,8 @@ function endpoint(body: unknown, status = 200) {
 }
 
 const answered = (content: unknown) => ({
+  model: DEFAULT_VISION_MODEL,
+  usage: { prompt_tokens: 308, completion_tokens: 5, total_tokens: 313 },
   choices: [{ message: { content: JSON.stringify(content) } }],
 })
 

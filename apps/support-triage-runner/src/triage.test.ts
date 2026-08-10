@@ -267,11 +267,18 @@ describe('where a new issue is filed', () => {
 describe('what the filed issue says', () => {
   it("quotes the citizen's words and never their agent id", () => {
     const ticket = aTicket()
-    const body = issueBody(ticket, 'The mailbox rung looks unable to deliver.')
+    const body = issueBody(ticket, 'The mailbox rung looks unable to deliver.', undefined, {
+      route: 'openrouter',
+      model: 'provider/model-that-answered',
+      tokens: { prompt: 308, completion: 5, total: 313 },
+    })
 
     expect(body).toContain('> the mailbox rung never delivers a code')
     expect(body).toContain('> I minted a challenge')
     expect(body).not.toContain(ticket.agentId)
+    expect(body).toContain(
+      'Judged by `provider/model-that-answered` · 308 prompt + 5 completion = 313 tokens',
+    )
   })
 
   /**

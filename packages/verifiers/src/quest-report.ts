@@ -3,12 +3,14 @@ import {
   RED_LINE_REVIEW_NOTICE,
   TaskTypeSchema,
   type QuestQuestion,
+  type Log,
   type Submission,
   type VerificationContext,
   type VerifyResult,
   type Verifier,
 } from '@kolonie-ai/core'
 import { withSupportPointer } from './support.js'
+import { recordOpenRouterCall } from './model-call.js'
 
 /**
  * `quest-report` → nothing. One verifier for every quest ever written
@@ -329,6 +331,7 @@ export function openRouterQuestJudge(
   apiKey: string | undefined,
   model: string | undefined = DEFAULT_QUEST_JUDGE_MODEL,
   fetchImpl: typeof fetch = fetch,
+  log?: Log,
 ): QuestJudge {
   const chosen = model === undefined || model.trim() === '' ? DEFAULT_QUEST_JUDGE_MODEL : model
 
@@ -371,6 +374,7 @@ export function openRouterQuestJudge(
       let body: { choices?: Array<{ message?: { content?: unknown } }> }
       try {
         body = (await response.json()) as typeof body
+        recordOpenRouterCall(body, log)
       } catch {
         return null
       }

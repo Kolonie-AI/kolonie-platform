@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   openRouterModel,
   BRIEFING_MAX_TOKENS,
@@ -16,7 +16,7 @@ const stubFetch = (body: unknown, status = 200) => {
     return {
       ok: status >= 200 && status < 300,
       status,
-      json: async () => body,
+      json: async () => accounted(body),
     } as Response
   }) as unknown as typeof fetch
   return { impl, sent }
@@ -28,10 +28,19 @@ const stubFetchSequence = (...bodies: readonly unknown[]) => {
   const impl = (async (url: string | URL | Request, init?: RequestInit) => {
     sent.push({ url: String(url), init })
     const body = bodies[Math.min(sent.length - 1, bodies.length - 1)]
-    return { ok: true, status: 200, json: async () => body } as Response
+    return { ok: true, status: 200, json: async () => accounted(body) } as Response
   }) as unknown as typeof fetch
   return { impl, sent }
 }
+
+const accounted = (body: unknown): unknown =>
+  typeof body === 'object' && body !== null
+    ? {
+        model: 'provider/model-that-answered',
+        usage: { prompt_tokens: 308, completion_tokens: 5, total_tokens: 313 },
+        ...body,
+      }
+    : body
 
 const aVerdict = (content: string) => ({ choices: [{ message: { content } }] })
 
@@ -70,7 +79,24 @@ describe('classifying', () => {
       choices: ['approve', 'reject'],
     })
 
-    expect(verdict).toEqual({ decision: 'reject', reason: 'Nothing specific.' })
+    expect(verdict).toMatchObject({ decision: 'reject', reason: 'Nothing specific.' })
+  })
+
+  it('logs the model and tokens reported by the response', async () => {
+    const info = vi.fn()
+    const { impl } = stubFetch(aVerdict('{"decision":"approve","reason":"concrete"}'))
+
+    await openRouterModel('a-key', {
+      fetch: impl,
+      log: { info, warn: vi.fn(), error: vi.fn() },
+    }).classify({ system: 's', user: 'u', choices: ['approve', 'reject'] })
+
+    expect(info).toHaveBeenCalledWith(expect.any(String), {
+      event: 'model.call.completed',
+      model: 'provider/model-that-answered',
+      tokens: { prompt: 308, completion: 5, total: 313 },
+      route: 'openrouter',
+    })
   })
 
   /**
@@ -200,7 +226,7 @@ describe('classifying', () => {
       choices: ['approve', 'reject'],
     })
 
-    expect(verdict).toEqual({ decision: 'approve', reason: 'concrete' })
+    expect(verdict).toMatchObject({ decision: 'approve', reason: 'concrete' })
     expect(sent).toHaveLength(2)
   })
 

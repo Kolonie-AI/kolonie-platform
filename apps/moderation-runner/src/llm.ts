@@ -13,7 +13,7 @@
  * it that can be tested without a network should be.
  */
 
-import { silentLog, type Log } from '@kolonie-ai/core'
+import { ModelCallSchema, silentLog, type Log, type ModelCall } from '@kolonie-ai/core'
 
 /** The environment variable the key arrives in. Never a literal, anywhere. */
 export const OPENROUTER_API_KEY_VAR = 'OPENROUTER_API_KEY'
@@ -139,6 +139,8 @@ export const MARK_MAX_TOKENS = 4000
 export interface Classification {
   readonly decision: string
   readonly reason: string
+  /** Present on real transports; fakes may omit it when accounting is irrelevant. */
+  readonly call?: ModelCall
 }
 
 /** What this process needs a model for. Injected, so nothing here needs a network. */
@@ -611,8 +613,37 @@ export function openRouterModel(apiKey: string, options: ModelOptions = {}): Mod
   const embeddingModel = options.embeddingModel ?? EMBEDDING_MODEL
   const fetchImpl = options.fetch ?? fetch
   const log = options.log ?? silentLog
+  const account = (body: unknown): ModelCall => {
+    const response = body as {
+      model?: unknown
+      usage?: {
+        prompt_tokens?: unknown
+        completion_tokens?: unknown
+        total_tokens?: unknown
+      }
+    }
+    const call = ModelCallSchema.parse({
+      route: 'openrouter',
+      model: response.model,
+      tokens: {
+        prompt: response.usage?.prompt_tokens,
+        completion: response.usage?.completion_tokens,
+        total: response.usage?.total_tokens,
+      },
+    })
+    log.info(`${call.model} answered through ${call.route}`, {
+      event: 'model.call.completed',
+      model: call.model,
+      tokens: call.tokens,
+      route: call.route,
+    })
+    return call
+  }
 
-  const call = async (path: string, body: unknown): Promise<unknown> => {
+  const call = async (
+    path: string,
+    body: unknown,
+  ): Promise<{ readonly body: unknown; readonly accounting: ModelCall }> => {
     let response: Response
     try {
       response = await fetchImpl(`${OPENROUTER_BASE}${path}`, {
@@ -633,22 +664,25 @@ export function openRouterModel(apiKey: string, options: ModelOptions = {}): Mod
       )
     }
 
-    return (await response.json()) as unknown
+    const result = (await response.json()) as unknown
+    return { body: result, accounting: account(result) }
   }
 
-  const chat = async (body: unknown): Promise<unknown> => {
+  const chat = async (
+    body: unknown,
+  ): Promise<{ readonly body: unknown; readonly accounting: ModelCall }> => {
     const response = await call('/chat/completions', body)
     // `stop` ordinarily means a complete answer. One empty response is a
     // provider anomaly; one immediate retry avoids delaying the entry until the
     // next poll, while a second empty response still fails visibly.
-    return stoppedWithoutContent(response) ? call('/chat/completions', body) : response
+    return stoppedWithoutContent(response.body) ? call('/chat/completions', body) : response
   }
 
   return {
     name: model,
 
     async classify({ system, user, choices }) {
-      const body = await chat({
+      const { body, accounting } = await chat({
         model,
         messages: [
           { role: 'system', content: system },
@@ -690,16 +724,19 @@ export function openRouterModel(apiKey: string, options: ModelOptions = {}): Mod
        * `#416` and these two never did, so the one log line that would have
        * pointed straight at the number did not carry it.
        */
-      return parseVerdict(
-        messageContent(body, CLASSIFY_MAX_TOKENS),
-        choices,
-        finishReason(body),
-        CLASSIFY_MAX_TOKENS,
-      )
+      return {
+        ...parseVerdict(
+          messageContent(body, CLASSIFY_MAX_TOKENS),
+          choices,
+          finishReason(body),
+          CLASSIFY_MAX_TOKENS,
+        ),
+        call: accounting,
+      }
     },
 
     async mark({ system, user, kinds }) {
-      const body = await chat({
+      const { body } = await chat({
         model,
         messages: [
           { role: 'system', content: system },
@@ -743,7 +780,6 @@ export function openRouterModel(apiKey: string, options: ModelOptions = {}): Mod
         max_tokens: MARK_MAX_TOKENS,
         temperature: 0,
       })
-
       const content = messageContent(body, MARK_MAX_TOKENS)
 
       const parsed = JSON.parse(content) as { spans?: unknown }
@@ -764,7 +800,7 @@ export function openRouterModel(apiKey: string, options: ModelOptions = {}): Mod
     },
 
     async compose({ system, user, sections, sourceIds, maxClaimLength }) {
-      const body = await chat({
+      const { body } = await chat({
         model,
         messages: [
           { role: 'system', content: system },
@@ -825,7 +861,6 @@ export function openRouterModel(apiKey: string, options: ModelOptions = {}): Mod
         max_tokens: BRIEFING_MAX_TOKENS,
         temperature: 0,
       })
-
       const content = messageContent(body, BRIEFING_MAX_TOKENS)
       const truncated = finishReason(body) === 'length'
 
@@ -911,7 +946,7 @@ export function openRouterModel(apiKey: string, options: ModelOptions = {}): Mod
     async embed(inputs) {
       if (inputs.length === 0) return []
 
-      const body = await call('/embeddings', { model: embeddingModel, input: [...inputs] })
+      const { body } = await call('/embeddings', { model: embeddingModel, input: [...inputs] })
       const data = (body as { data?: { embedding?: number[]; index?: number }[] }).data
 
       if (!Array.isArray(data) || data.length !== inputs.length) {

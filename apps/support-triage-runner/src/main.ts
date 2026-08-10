@@ -66,6 +66,7 @@ const model =
     ? unavailableModel(`${OPENROUTER_API_KEY_VAR} not set`)
     : openRouterModel(apiKey, {
         ...(process.env['TRIAGE_MODEL'] && { model: process.env['TRIAGE_MODEL'] }),
+        log,
       })
 
 if (apiKey === '') {
@@ -185,7 +186,7 @@ const runner = startRunner(
       store: defects,
       // The prose half, on the key triage already uses. Unavailable is a
       // degradation and not a stop: an issue is complete without a reading.
-      writer: apiKey === '' ? noDefectWriter : openRouterDefectWriter(apiKey),
+      writer: apiKey === '' ? noDefectWriter : openRouterDefectWriter(apiKey, { log }),
       log,
     },
   },

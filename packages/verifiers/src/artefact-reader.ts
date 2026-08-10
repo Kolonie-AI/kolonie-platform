@@ -1,6 +1,8 @@
+import type { Log } from '@kolonie-ai/core'
 import type { ArtefactCodeReader, ArtefactReadResult } from './artefact-publish.js'
 import { isPermanentVendorStatus, readVendorRejection } from './vendor.js'
 import { DEFAULT_VISION_MODEL, OPENROUTER_API_KEY_VAR, OPENROUTER_BASE } from './vision-model.js'
+import { recordOpenRouterCall } from './model-call.js'
 
 /**
  * Read the text a citizen drew into an artefact, with a model (`#389`).
@@ -39,6 +41,7 @@ export function openRouterArtefactReader(
   apiKey: string | undefined,
   model: string | undefined = DEFAULT_VISION_MODEL,
   fetchImpl: typeof fetch = fetch,
+  log?: Log,
 ): ArtefactCodeReader {
   const chosen = model === undefined || model.trim() === '' ? DEFAULT_VISION_MODEL : model
 
@@ -109,8 +112,10 @@ export function openRouterArtefactReader(
       }
 
       let body: { choices?: Array<{ message?: { content?: unknown } }> }
+      let call
       try {
         body = (await response.json()) as typeof body
+        call = recordOpenRouterCall(body, log)
       } catch {
         return { outcome: 'unavailable', reason: 'the model answered something that is not JSON.' }
       }
@@ -134,7 +139,7 @@ export function openRouterArtefactReader(
         return { outcome: 'unavailable', reason: 'the model answered without a transcription.' }
       }
 
-      return { outcome: 'read', text: parsed.text, model: chosen }
+      return { outcome: 'read', text: parsed.text, model: call.model }
     },
   }
 }

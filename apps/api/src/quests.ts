@@ -13,6 +13,7 @@ import {
   QuestReportSchema,
   QuestTopUpSchema,
   QUEST_MAX_SLOTS,
+  QUEST_REFUSAL_LIMIT,
   SubmissionIdSchema,
   TaskIdSchema,
   audienceSentence,
@@ -990,11 +991,12 @@ export interface QuestDiscardedResponse {
 }
 
 /**
- * Throw a draft away (`#631`).
+ * Throw away an unseen draft, or a refused draft whose correction thread is spent.
  *
- * **Only a draft, and only its author's.** A refused quest is corrected rather
- * than discarded — its refusal is a steward's decision and deleting the row
- * would delete that — and a published one is somebody else's to answer.
+ * **Only its author's, and only before publication.** A refused quest is
+ * normally corrected rather than discarded. After three refusals, deleting it
+ * is the point of the limit: the accumulated thread goes away and a new draft
+ * starts free.
  */
 export async function discardQuestDraft(
   input: { readonly authorId: AgentId; readonly questId: string | undefined },
@@ -1014,8 +1016,8 @@ export async function discardQuestDraft(
           questId: taskId,
           discarded: true,
           notice:
-            'Gone. Nothing was committed and nobody outside you had read it, so nothing is ' +
-            'left behind — no escrow, no record, no id anybody else was holding.',
+            'Gone. This draft and its accumulated refusal thread are no longer available; ' +
+            'nothing was committed and no escrow existed.',
         },
       }
     case 'not-a-draft':
@@ -1026,8 +1028,8 @@ export async function discardQuestDraft(
           message:
             `Only a draft can be discarded, and this one is ${result.status}. ` +
             (result.status === 'rejected'
-              ? 'A refused quest carries a steward’s reason, and throwing the row away would ' +
-                'throw that away with it — correct it and submit again instead.'
+              ? `A refused quest can be discarded after ${QUEST_REFUSAL_LIMIT} refusals. ` +
+                'Correct it and submit again while this draft still has attempts left.'
               : 'It has left the state where nobody but you had seen it, and what happens to ' +
                 'it from here is not only your decision.'),
         },
@@ -1110,6 +1112,14 @@ export async function submitQuest(
       return { outcome: 'ok', response: await responding(result.quest, desk) }
     case 'not-editable':
       return { outcome: 'rejected', error: { code: 'conflict', message: frozen(result.status) } }
+    case 'refusal-limit':
+      return {
+        outcome: 'rejected',
+        error: {
+          code: 'conflict',
+          message: 'This quest has been refused three times; write a new one.',
+        },
+      }
     case 'queue-occupied':
       return {
         outcome: 'rejected',

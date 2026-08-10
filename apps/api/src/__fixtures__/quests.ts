@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import {
   QUEST_PENDING_LIMIT,
+  QUEST_REFUSAL_LIMIT,
   QUEST_TASK_TYPE,
   QUEST_MAX_SLOTS,
   QUEST_TIER_CAPS_LAMPORTS,
@@ -128,7 +129,11 @@ export interface FakeQuestDesk extends QuestDesk {
 export function fakeQuests(): FakeQuestDesk {
   const quests = new Map<
     string,
-    { readonly own: OwnQuest; moderated: 'approved' | 'rejected' | null }
+    {
+      readonly own: OwnQuest
+      moderated: 'approved' | 'rejected' | null
+      refusalCount: number
+    }
   >()
   const balances = new Map<string, number>()
   const audienceAsked: AudienceCriteria[] = []
@@ -195,8 +200,12 @@ export function fakeQuests(): FakeQuestDesk {
     updatedAt: new Date().toISOString(),
   })
 
-  const put = (own: OwnQuest, moderated: 'approved' | 'rejected' | null = null): OwnQuest => {
-    quests.set(own.task.id, { own, moderated })
+  const put = (
+    own: OwnQuest,
+    moderated: 'approved' | 'rejected' | null = null,
+    refusalCount = quests.get(own.task.id)?.refusalCount ?? 0,
+  ): OwnQuest => {
+    quests.set(own.task.id, { own, moderated, refusalCount })
     return own
   }
 
@@ -563,6 +572,7 @@ export function fakeQuests(): FakeQuestDesk {
             awaitingModeration: false,
           },
           moderated: decision,
+          refusalCount: held.refusalCount + 1,
         })
       }
     },
@@ -651,6 +661,7 @@ export function fakeQuests(): FakeQuestDesk {
 
       const { status } = held.own.task
       if (status !== 'draft' && status !== 'rejected') return { outcome: 'not-editable', status }
+      if (held.refusalCount >= QUEST_REFUSAL_LIMIT) return { outcome: 'refusal-limit' }
 
       const queued = [...quests.values()].filter(
         (other) =>
@@ -750,7 +761,8 @@ export function fakeQuests(): FakeQuestDesk {
       }
 
       const { status } = held.own.task
-      if (status !== 'draft') return { outcome: 'not-a-draft', status }
+      const spent = status === 'rejected' && held.refusalCount >= QUEST_REFUSAL_LIMIT
+      if (status !== 'draft' && !spent) return { outcome: 'not-a-draft', status }
 
       quests.delete(taskId)
       return { outcome: 'discarded' }
@@ -872,6 +884,7 @@ export function fakeQuests(): FakeQuestDesk {
           awaitingModeration: false,
         },
         held.moderated,
+        held.refusalCount + 1,
       )
 
       return { outcome: 'refused' }

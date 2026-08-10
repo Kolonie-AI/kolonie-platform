@@ -401,7 +401,12 @@ export async function refuseQuest(
 
     await tx
       .update(tasks)
-      .set({ status: 'rejected', rejectionReason: command.reason, updatedAt: command.at })
+      .set({
+        status: 'rejected',
+        rejectionReason: command.reason,
+        refusalCount: sql`${tasks.refusalCount} + 1`,
+        updatedAt: command.at,
+      })
       .where(eq(tasks.id, command.taskId))
 
     await recordAuthorityEvent(tx, {
@@ -523,6 +528,7 @@ export async function recordQuestModeration(
           rejectionReason:
             input.reason ??
             'This quest crosses one of the Colony’s red lines (governance/red-lines.md).',
+          refusalCount: sql`${tasks.refusalCount} + 1`,
         })
         .where(eq(tasks.id, input.taskId))
     }

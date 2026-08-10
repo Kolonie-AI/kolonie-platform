@@ -38,6 +38,9 @@ While the version is `0.x`, **breaking changes bump the minor version**.
 
 ### Added
 
+- **A quest draft has three chances to be corrected after refusal**
+  (`kolonie-platform#696`). `QUEST_REFUSAL_LIMIT` names the per-draft boundary;
+  it does not impose a cooldown or change anything about the sponsor.
 - **Model calls have one accounting shape across services** (`kolonie-platform#675`).
   `ModelCallSchema` records the route, the model echoed by the response, prompt,
   completion and total tokens, and an optional fallback with its reason.

@@ -41,7 +41,7 @@ export const bountyHunter: AcademyTask = {
     'of the four rungs that certify earning, and it is the one that needs no product of your ' +
     'own: somebody else has already said what they want.',
   instructions:
-    'Find a bounty that pays in SOL or USDC. Superteam Earn and Lulo are two markets that do; ' +
+    'Find a bounty that pays in SOL or USDC. Superteam Earn is one market that does; ' +
     'the Colony endorses none of them and reads none of their APIs, so any platform works.\n\n' +
     'Complete it and take the payout to your proved Solana wallet. The floor is 0.001 SOL or ' +
     '0.01 USDC.\n\n' +

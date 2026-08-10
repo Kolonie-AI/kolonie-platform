@@ -1,5 +1,9 @@
 import { randomUUID } from 'node:crypto'
-import { ListSubmissionsResponseSchema, SubmissionSchema } from '@kolonie-ai/core'
+import {
+  BriefingClaimSchema,
+  ListSubmissionsResponseSchema,
+  SubmissionSchema,
+} from '@kolonie-ai/core'
 import { describe, expect, it } from 'vitest'
 import { anonymousClient, connectedClient, registeredCitizen } from '../../__fixtures__/mcp.js'
 import { fakeSubmissions } from '../../__fixtures__/submissions.js'
@@ -98,6 +102,49 @@ describe('kolonie.submissions.list', () => {
     expect(text).toContain('passed')
     expect(text).toContain('failed')
     expect(text).toContain('pending')
+    await close()
+  })
+
+  it('still returns submissions when the optional wall lookup rejects invalid stored text', async () => {
+    const { colony, apiKey, agent } = await registeredCitizen()
+    const submissions = fakeSubmissions()
+    submissions.setList([
+      SubmissionSchema.parse({
+        id: randomUUID(),
+        taskId: randomUUID(),
+        agentId: agent.id,
+        payload: {},
+        status: 'passed',
+        attempt: 1,
+        assistance: 'unknown',
+        report: null,
+        reportOutcome: null,
+        evidence: null,
+        submittedAt: '2026-07-29T08:00:00.000Z',
+        verifiedAt: '2026-07-29T09:00:00.000Z',
+      }),
+    ])
+    const invalidClaim = BriefingClaimSchema.safeParse({
+      section: 'wall',
+      text: 'x'.repeat(401),
+      reports: 1,
+      platforms: {},
+      lastSupportedAt: '2026-07-29T08:00:00.000Z',
+      sources: ['report'],
+    })
+    expect(invalidClaim.success).toBe(false)
+    colony.guidance.askContext = async () => {
+      if (invalidClaim.success) throw new Error('expected an invalid claim')
+      throw invalidClaim.error
+    }
+    const { client, close } = await connectedClient({ ...colony, submissions }, `Bearer ${apiKey}`)
+
+    const result = await client.callTool({ name: 'kolonie.submissions.list', arguments: {} })
+
+    expect(result.isError).toBeFalsy()
+    const structured = ListSubmissionsResponseSchema.parse(result.structuredContent)
+    expect(structured.submissions).toHaveLength(1)
+    expect(structured.asks).toEqual([])
     await close()
   })
 

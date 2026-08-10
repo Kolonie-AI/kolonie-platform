@@ -21,13 +21,26 @@ const aQuest = (overrides: Partial<PendingQuest> = {}): PendingQuest => ({
 const answering = (
   decision: 'clear' | 'crossed',
   reason = 'It asks for a captcha to be solved.',
+  responseModel?: string,
 ) => {
   const asked: { system: string; user: string }[] = []
   const model: Model = {
     name: 'test-model',
     classify: async (request) => {
       asked.push({ system: request.system, user: request.user })
-      return { decision, reason }
+      return {
+        decision,
+        reason,
+        ...(responseModel === undefined
+          ? {}
+          : {
+              call: {
+                route: 'openrouter' as const,
+                model: responseModel,
+                tokens: { prompt: 308, completion: 5, total: 313 },
+              },
+            }),
+      }
     },
     mark: async () => [],
     compose: async () => [],
@@ -83,6 +96,15 @@ describe('moderating a quest', () => {
     expect(written[0]?.reason).toContain('red lines')
     expect(written[0]?.reason).toContain('defeat a captcha')
     expect(written[0]?.stages.redLine.outcome).toBe('crossed')
+  })
+
+  it('records the model that answered rather than the configured model', async () => {
+    const { store, written } = recording()
+    const { model } = answering('clear', '', 'provider/model-that-answered')
+
+    await judgeQuest(aQuest(), { store, model })
+
+    expect(written[0]?.model).toBe('provider/model-that-answered')
   })
 
   it('shows the model the whole brief, and nothing about who wrote it', async () => {

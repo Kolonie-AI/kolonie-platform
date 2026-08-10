@@ -16,7 +16,7 @@ const answering = (
     return {
       ok: (init.status ?? 200) < 400,
       status: init.status ?? 200,
-      json: async () => body,
+      json: async () => accounted(body),
     }
   }) as unknown as typeof fetch
 
@@ -27,6 +27,15 @@ const answering = (
 const reply = (judgement: unknown) => ({
   choices: [{ message: { content: JSON.stringify(judgement) } }],
 })
+
+const accounted = (body: unknown): unknown =>
+  typeof body === 'object' && body !== null
+    ? {
+        model: 'test/model',
+        usage: { prompt_tokens: 308, completion_tokens: 5, total_tokens: 313 },
+        ...body,
+      }
+    : body
 
 describe('openRouterBioJudge', () => {
   it('reads a judgement out of a well-formed answer', async () => {

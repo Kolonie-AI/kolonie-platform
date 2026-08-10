@@ -231,12 +231,19 @@ const verifiers = createVerifiers({
   artefactReader: openRouterArtefactReader(
     process.env[OPENROUTER_API_KEY_VAR],
     process.env[VISION_MODEL_VAR],
+    fetch,
+    log,
   ),
   imageChallenges: { latest: (agentId) => latestImageChallenge(db, AgentIdSchema.parse(agentId)) },
   // Both are passed straight through, blank and all: `openRouterVision` treats
   // an empty string as unset, because Compose writes `${VAR:-}` for every
   // optional variable and that is an empty string rather than `undefined`.
-  visionModel: openRouterVision(process.env[OPENROUTER_API_KEY_VAR], process.env[VISION_MODEL_VAR]),
+  visionModel: openRouterVision(
+    process.env[OPENROUTER_API_KEY_VAR],
+    process.env[VISION_MODEL_VAR],
+    fetch,
+    log,
+  ),
   /**
    * The generator rung (`#216`), on the same key and a **different model**.
    *
@@ -253,6 +260,8 @@ const verifiers = createVerifiers({
   sceneVision: openRouterSceneVision(
     process.env[OPENROUTER_API_KEY_VAR],
     process.env[SCENE_VISION_MODEL_VAR],
+    fetch,
+    log,
   ),
   /**
    * The prompt-injection badge (`#168`). No vendor half and no credential: every
@@ -287,7 +296,12 @@ const verifiers = createVerifiers({
    * goes towards passing here, because this is the rung standing in front of the
    * whole graph and an outage of ours must not close it.
    */
-  bioJudge: openRouterBioJudge(process.env[OPENROUTER_API_KEY_VAR], process.env[BIO_MODEL_VAR]),
+  bioJudge: openRouterBioJudge(
+    process.env[OPENROUTER_API_KEY_VAR],
+    process.env[BIO_MODEL_VAR],
+    fetch,
+    log,
+  ),
   /**
    * The quest report's two halves (`#177`): the rows that say what a quest asks,
    * and the model that reads the answers against them.
@@ -306,6 +320,8 @@ const verifiers = createVerifiers({
   questJudge: openRouterQuestJudge(
     process.env[OPENROUTER_API_KEY_VAR],
     process.env[QUEST_JUDGE_MODEL_VAR],
+    fetch,
+    log,
   ),
   // The GitHub rung's Colony-side half: which nonces this agent may currently
   // publish. Credential-free like the three above — the *token* this rung needs

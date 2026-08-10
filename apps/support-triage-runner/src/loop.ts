@@ -97,8 +97,11 @@ export async function triageOne(
   const full: TriageInput = { ticket, ...input }
 
   let decision: TriageDecision
+  let call
   try {
-    decision = readDecision(await deps.model.classify(full), full)
+    const classified = await deps.model.classify(full)
+    call = classified.call
+    decision = readDecision(classified.answer, full)
   } catch (error) {
     // **A model that cannot answer must not settle a ticket.** Leaving it `open`
     // means the next tick tries again, which is what should happen when the
@@ -171,7 +174,7 @@ export async function triageOne(
       const url = await deps.issues.create({
         repository: where.repository,
         title: decision.title,
-        body: issueBody(ticket, decision.summary, context),
+        body: issueBody(ticket, decision.summary, context, call),
         labels: where.labels,
       })
 

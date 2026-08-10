@@ -4,7 +4,9 @@ import {
   type DirectionClassifier,
   type DispositionStance,
   type Skill,
+  type Log,
 } from '@kolonie-ai/core'
+import { recordOpenRouterCall } from './model-call.js'
 
 /**
  * The model that reads what a citizen said it wants to become (`#140`).
@@ -124,6 +126,7 @@ export function openRouterDirectionClassifier(
   apiKey: string | undefined,
   model: string | undefined = DEFAULT_DIRECTION_MODEL,
   fetchImpl: typeof fetch = fetch,
+  log?: Log,
 ): DirectionClassifier {
   // A blank name is an unset one: Compose writes `${DIRECTION_MODEL:-}`, which
   // hands the process an empty string rather than nothing at all.
@@ -175,6 +178,7 @@ export function openRouterDirectionClassifier(
       let body: { choices?: Array<{ message?: { content?: unknown } }> }
       try {
         body = (await response.json()) as typeof body
+        recordOpenRouterCall(body, log)
       } catch {
         return null
       }

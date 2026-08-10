@@ -1,5 +1,7 @@
+import type { Log } from '@kolonie-ai/core'
 import type { BioJudge, BioJudgement } from './profile-complete.js'
 import { OPENROUTER_API_KEY_VAR } from './vision-model.js'
+import { recordOpenRouterCall } from './model-call.js'
 
 /** Which model reads the bio. Overridable, because the choice will be revisited. */
 export const BIO_MODEL_VAR = 'BIO_MODEL'
@@ -108,6 +110,7 @@ export function openRouterBioJudge(
   apiKey: string | undefined,
   model: string | undefined = DEFAULT_BIO_MODEL,
   fetchImpl: typeof fetch = fetch,
+  log?: Log,
 ): BioJudge {
   /**
    * A blank model name is an unset one, and a default parameter would not catch
@@ -170,8 +173,10 @@ export function openRouterBioJudge(
       }
 
       let body: { choices?: Array<{ message?: { content?: unknown } }> }
+      let call
       try {
         body = (await response.json()) as typeof body
+        call = recordOpenRouterCall(body, log)
       } catch {
         return {
           outcome: 'unavailable',
@@ -213,7 +218,7 @@ export function openRouterBioJudge(
         outcome: 'judged',
         aboutThisAgent: judgement.aboutThisAgent,
         reason: judgement.reason,
-        model: chosen,
+        model: call.model,
       }
     },
   }

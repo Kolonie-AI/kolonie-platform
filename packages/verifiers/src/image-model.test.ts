@@ -383,6 +383,8 @@ describe('the scene judge', () => {
       async () =>
         new Response(
           JSON.stringify({
+            model: 'a-vendor/a-model',
+            usage: { prompt_tokens: 308, completion_tokens: 5, total_tokens: 313 },
             choices: [{ message: { content: JSON.stringify({ ...allTrue, notes: '' }) } }],
           }),
           { status: 200 },

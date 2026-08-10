@@ -1,3 +1,4 @@
+import { ModelCallSchema, silentLog, type Log, type ModelCall } from '@kolonie-ai/core'
 import type { TriageInput, TriageModel } from './triage.js'
 
 /**
@@ -159,11 +160,48 @@ export function unavailableModel(reason: string): TriageModel {
 export interface OpenRouterOptions {
   readonly model?: string
   readonly fetchImpl?: typeof fetch
+  readonly log?: Log
+}
+
+type OpenRouterBody = {
+  readonly model?: unknown
+  readonly usage?: {
+    readonly prompt_tokens?: unknown
+    readonly completion_tokens?: unknown
+    readonly total_tokens?: unknown
+  }
+  readonly choices?: ReadonlyArray<{
+    readonly message?: { readonly content?: string | null }
+    readonly finish_reason?: string
+  }>
+}
+
+function modelCall(body: OpenRouterBody): ModelCall {
+  return ModelCallSchema.parse({
+    route: 'openrouter',
+    model: body.model,
+    tokens: {
+      prompt: body.usage?.prompt_tokens,
+      completion: body.usage?.completion_tokens,
+      total: body.usage?.total_tokens,
+    },
+  })
+}
+
+function logCall(log: Log, call: ModelCall): void {
+  log.info(`${call.model} answered through ${call.route}`, {
+    event: 'model.call.completed',
+    model: call.model,
+    tokens: call.tokens,
+    route: call.route,
+    ...(call.fallback === undefined ? {} : { fallback: call.fallback }),
+  })
 }
 
 export function openRouterModel(apiKey: string, options: OpenRouterOptions = {}): TriageModel {
   const model = options.model ?? TRIAGE_MODEL
   const doFetch = options.fetchImpl ?? fetch
+  const log = options.log ?? silentLog
 
   return {
     name: model,
@@ -194,12 +232,9 @@ export function openRouterModel(apiKey: string, options: OpenRouterOptions = {})
         throw new Error(`the model endpoint answered ${response.status}`)
       }
 
-      const body = (await response.json()) as {
-        choices?: ReadonlyArray<{
-          message?: { content?: string | null }
-          finish_reason?: string
-        }>
-      }
+      const body = (await response.json()) as OpenRouterBody
+      const call = modelCall(body)
+      logCall(log, call)
 
       const choice = body.choices?.[0]
       const text = choice?.message?.content
@@ -211,7 +246,7 @@ export function openRouterModel(apiKey: string, options: OpenRouterOptions = {})
         )
       }
 
-      return JSON.parse(stripFence(text)) as unknown
+      return { answer: JSON.parse(stripFence(text)) as unknown, call }
     },
   }
 }
@@ -246,7 +281,7 @@ export interface DefectWriter {
     readonly count: number
     readonly samples: readonly string[]
     readonly lastStart: string | null
-  }): Promise<{ readonly summary: string; readonly reading: string }>
+  }): Promise<{ readonly summary: string; readonly reading: string; readonly call: ModelCall }>
 }
 
 /** A writer that writes nothing. The issue is filed without prose, and says so. */
@@ -278,6 +313,7 @@ export function openRouterDefectWriter(
 ): DefectWriter {
   const model = options.model ?? TRIAGE_MODEL
   const doFetch = options.fetchImpl ?? fetch
+  const log = options.log ?? silentLog
 
   return {
     available: true,
@@ -316,9 +352,9 @@ export function openRouterDefectWriter(
 
       if (!response.ok) throw new Error(`the model endpoint answered ${response.status}`)
 
-      const body = (await response.json()) as {
-        choices?: ReadonlyArray<{ message?: { content?: string | null }; finish_reason?: string }>
-      }
+      const body = (await response.json()) as OpenRouterBody
+      const call = modelCall(body)
+      logCall(log, call)
       const text = body.choices?.[0]?.message?.content
       if (text === undefined || text === null || text === '') {
         throw new Error(
@@ -334,7 +370,7 @@ export function openRouterDefectWriter(
       // Bounded here rather than trusted from the answer: a title is a board
       // row, and a model that ignored the instruction must not produce one
       // nobody can scan.
-      return { summary: parsed.summary.slice(0, 120), reading: parsed.reading }
+      return { summary: parsed.summary.slice(0, 120), reading: parsed.reading, call }
     },
   }
 }

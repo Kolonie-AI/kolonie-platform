@@ -38,6 +38,9 @@ While the version is `0.x`, **breaking changes bump the minor version**.
 
 ### Added
 
+- **Model calls have one accounting shape across services** (`kolonie-platform#675`).
+  `ModelCallSchema` records the route, the model echoed by the response, prompt,
+  completion and total tokens, and an optional fallback with its reason.
 - **Autonomy contracts carry named capability grants beside their level**
   (`kolonie-platform#659`). The first is `web-server`; omitted capabilities mean
   none were granted, so contracts recorded before this field remain safely readable.

@@ -1,5 +1,7 @@
+import type { ModelCall } from '@kolonie-ai/core'
 import type { ClosedIssue, KnownIssue, NewIssue } from './github.js'
 import type { DefectEvidence, LogSignature } from './logs.js'
+import { modelCallLine } from './triage.js'
 
 /**
  * Turning a defect in the logs into an ordinary issue somebody can take
@@ -223,7 +225,8 @@ export interface DefectReport {
   readonly lastStart: string | null
   readonly history: DefectHistory
   /** What the model wrote, or nothing when it could not be asked. */
-  readonly prose?: { readonly summary: string; readonly reading: string } | undefined
+  readonly prose?:
+    { readonly summary: string; readonly reading: string; readonly call: ModelCall } | undefined
 }
 
 /**
@@ -288,6 +291,10 @@ export function defectBody(report: DefectReport): string {
           'above was measured rather than judged, and stands on its own._'
       : report.prose.reading,
   )
+  if (report.prose !== undefined) {
+    lines.push('')
+    lines.push(modelCallLine(report.prose.call))
+  }
   lines.push('')
   lines.push('---')
   lines.push('')

@@ -1,6 +1,7 @@
-import { ImageCheckSchema, type ImageConstraints } from '@kolonie-ai/core'
+import { ImageCheckSchema, type ImageConstraints, type Log } from '@kolonie-ai/core'
 import type { VisionChecker, VisionCheckResult } from './raster.js'
 import { isPermanentVendorStatus, readVendorRejection } from './vendor.js'
+import { recordOpenRouterCall } from './model-call.js'
 
 /**
  * The environment variable the OpenRouter key arrives in.
@@ -96,6 +97,7 @@ export function openRouterVision(
   apiKey: string | undefined,
   model: string | undefined = DEFAULT_VISION_MODEL,
   fetchImpl: typeof fetch = fetch,
+  log?: Log,
 ): VisionChecker {
   /**
    * A blank model name is an unset one, and a default parameter would not catch
@@ -177,8 +179,10 @@ export function openRouterVision(
       }
 
       let body: { choices?: Array<{ message?: { content?: unknown } }> }
+      let call
       try {
         body = (await response.json()) as typeof body
+        call = recordOpenRouterCall(body, log)
       } catch {
         return {
           outcome: 'unavailable',
@@ -216,7 +220,7 @@ export function openRouterVision(
         }
       }
 
-      return { outcome: 'checked', check: check.data, model: chosen }
+      return { outcome: 'checked', check: check.data, model: call.model }
     },
   }
 }

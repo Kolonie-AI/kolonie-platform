@@ -414,6 +414,8 @@ export const STEWARD_TOOLS = [
   'kolonie.quests.review',
   'kolonie.quests.publish',
   'kolonie.quests.refuse',
+  /** The Colony's escape hatch from a live quest it should no longer offer (`#695`). */
+  'kolonie.quests.end',
   'kolonie.quests.audit',
   'kolonie.quests.audit.record',
   /**

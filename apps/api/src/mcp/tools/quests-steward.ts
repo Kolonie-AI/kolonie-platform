@@ -1,5 +1,6 @@
 import {
   AuditDecisionSchema,
+  QuestEndingSchema,
   QuestRefusalSchema,
   SubmissionIdSchema,
   TaskIdSchema,
@@ -10,6 +11,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { authenticate } from '../../authentication.js'
 import { z } from 'zod'
 import {
+  endQuest,
   publishQuest,
   readAuditQueue,
   readHeldReports,
@@ -171,6 +173,44 @@ export function registerQuestStewardTools(
           deps.quests,
         ),
         () => 'Refused, and its author has been told why.',
+      )
+    },
+  )
+
+  server.registerTool(
+    'kolonie.quests.end',
+    {
+      title: 'End a live quest, with a reason citizens read',
+      description:
+        'Take a live quest out of circulation when the Colony should not keep offering it. ' +
+        '**The reason is required and published verbatim** to citizens reading the retired ' +
+        'quest. New citizens cannot start it; citizens already holding a live attempt keep ' +
+        'that attempt and may still hand in, and accepted answers and their payments are not ' +
+        'disturbed. The response states what happened to the sponsor’s payment.',
+      inputSchema: {
+        questId: TaskIdSchema.describe('The id of the live quest to end.'),
+        reason: QuestEndingSchema.shape.reason.describe(
+          'Why the Colony is ending it, in a sentence citizens can understand.',
+        ),
+      },
+      annotations: { readOnlyHint: false, idempotentHint: false, openWorldHint: false },
+    },
+    async ({ questId, reason }) => {
+      const caller = await steward()
+      if ('error' in caller) return toolError(caller.error)
+
+      return answer(
+        await endQuest(
+          {
+            actorId: caller.id,
+            questId,
+            body: { reason },
+            at: new Date().toISOString(),
+            stewarding: true,
+          },
+          deps.quests,
+        ),
+        (ended) => ended.notice,
       )
     },
   )

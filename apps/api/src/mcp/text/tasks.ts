@@ -305,7 +305,9 @@ export function taskAsText(
       case 'awaiting_payment':
         return 'Accepted; the invoice is what starts it.'
       case 'retired':
-        return 'Retired — readable, but no longer accepting submissions.'
+        return task.endedReason === null
+          ? 'Retired — readable, but no longer accepting submissions.'
+          : `Retired — ${task.endedReason} Readable, but no longer accepting submissions.`
     }
 
     throw new Error(`Unhandled task status: ${task.status satisfies never}`)

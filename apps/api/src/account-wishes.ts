@@ -59,6 +59,8 @@ export interface WishStore {
   }): Promise<{
     readonly outcome: 'added' | 'context-added' | 'already-listed'
     readonly wish: Wish
+    /** Whether this also reached the Colony as a proposal (`#600`). */
+    readonly alsoProposed: boolean
   }>
   want(agentId: AgentId, provider: string): Promise<boolean>
   remove(agentId: AgentId, provider: string): Promise<boolean>
@@ -145,7 +147,11 @@ export async function markWishWanted(
 }
 
 export type AddWishResult =
-  | { readonly outcome: 'added' | 'context-added' | 'already-listed'; readonly wish: Wish }
+  | {
+      readonly outcome: 'added' | 'context-added' | 'already-listed'
+      readonly wish: Wish
+      readonly alsoProposed: boolean
+    }
   | { readonly outcome: 'rejected'; readonly error: ApiError }
 
 /**

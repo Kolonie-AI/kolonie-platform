@@ -19,6 +19,8 @@ import {
   type AtlasEntry,
   type AtlasFigures,
   type EntryProposal,
+  type ProposalAction,
+  type ProposalWithDemand,
   type ProviderRecipe,
   type RecipeStep,
 } from '@kolonie-ai/core'
@@ -28,6 +30,9 @@ import type { HeldAccount } from './accounts.js'
 import {
   atlasFigures,
   decideProposal,
+  decideProviderProposal,
+  pendingProviderProposals,
+  type DecideProposalOutcome,
   fallingSuccessRates,
   pendingProposals,
   providerRecipe,
@@ -76,6 +81,10 @@ export interface ProviderRecipes {
   fallingRates(): Promise<readonly FallingRate[]>
   /** Accept or refuse one, recorded against its author. */
   decide(id: string, status: 'accepted' | 'refused'): Promise<EntryProposal | undefined>
+  /** The one queue three doors feed (`#600`): providers nobody has decided on, with the demand. */
+  providerProposals(): Promise<readonly ProposalWithDemand[]>
+  /** Accept, refuse with a reason, or merge into an entry that exists (`#600`). */
+  decideProvider(id: string, action: ProposalAction): Promise<DecideProposalOutcome>
 }
 
 export function databaseProviderRecipes(db: Database): ProviderRecipes {
@@ -87,6 +96,8 @@ export function databaseProviderRecipes(db: Database): ProviderRecipes {
     proposals: () => pendingProposals(db),
     fallingRates: () => fallingSuccessRates(db),
     decide: (id, status) => decideProposal(db, id, status),
+    providerProposals: () => pendingProviderProposals(db),
+    decideProvider: (id, action) => decideProviderProposal(db, id, action),
   }
 }
 
@@ -863,13 +874,16 @@ export async function atlasCuration(
   walks?: WalkStore | undefined,
 ): Promise<{
   readonly proposals: readonly EntryProposal[]
+  /** The one queue three doors feed (`#600`). */
+  readonly providerProposals: readonly ProposalWithDemand[]
   readonly falling: readonly FallingRate[]
   readonly entries: readonly AtlasEntry[]
   readonly unpublished: readonly ProviderRecipe[]
   readonly divergences: Awaited<ReturnType<WalkStore['divergences']>>
 }> {
-  const [proposals, falling, entries, all, divergences] = await Promise.all([
+  const [proposals, providerProposals, falling, entries, all, divergences] = await Promise.all([
     recipes.proposals(),
+    recipes.providerProposals(),
     recipes.fallingRates(),
     atlasCatalogue(recipes),
     recipes.listInternal(),
@@ -886,5 +900,5 @@ export async function atlasCuration(
    */
   const unpublished = all.filter((entry) => !recipeStatusIsPublic(entry.status))
 
-  return { proposals, falling, entries, unpublished, divergences }
+  return { proposals, providerProposals, falling, entries, unpublished, divergences }
 }

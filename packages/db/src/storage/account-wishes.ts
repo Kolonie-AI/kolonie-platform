@@ -16,6 +16,7 @@ import {
   type WishId,
 } from '@kolonie-ai/core'
 import type { Database, Transaction } from '../client.js'
+import { proposeProvider } from './atlas-proposals.js'
 import { accounts, accountWishes, providerRecipes } from '../schema/index.js'
 
 /**
@@ -29,9 +30,21 @@ import { accounts, accountWishes, providerRecipes } from '../schema/index.js'
  */
 
 /** Put something on the list, or add citizen context to the row already there. */
+/**
+ * Whether this wish also went to the Colony as a proposal (`#600`).
+ *
+ * **On the outcome rather than left for the caller to ask**, because the agent
+ * has to be told and a caller that forgot would leave it believing it had asked
+ * only its operator. It is `false` for a provider the Atlas already holds — the
+ * ordinary case — and for one already in the queue.
+ */
+export interface WishAlsoProposed {
+  readonly alsoProposed: boolean
+}
+
 export type AddWishOutcome =
-  | { readonly outcome: 'added'; readonly wish: Wish }
-  | { readonly outcome: 'context-added'; readonly wish: Wish }
+  | ({ readonly outcome: 'added'; readonly wish: Wish } & WishAlsoProposed)
+  | ({ readonly outcome: 'context-added'; readonly wish: Wish } & WishAlsoProposed)
   /**
    * The same provider is already on this agent's list.
    *
@@ -40,7 +53,7 @@ export type AddWishOutcome =
    * trello* when trello is already there is *it is on the list* — not an error,
    * and not a second row.
    */
-  | { readonly outcome: 'already-listed'; readonly wish: Wish }
+  | ({ readonly outcome: 'already-listed'; readonly wish: Wish } & WishAlsoProposed)
 
 export async function addWish(
   db: Database | Transaction,
@@ -71,10 +84,19 @@ export async function addWish(
         .where(and(eq(accountWishes.id, existing.id), isNull(accountWishes.noticedWhile)))
         .returning()
 
-      if (updated !== undefined) return { outcome: 'context-added', wish: asWish(updated) }
+      if (updated !== undefined)
+        return {
+          outcome: 'context-added',
+          wish: asWish(updated),
+          alsoProposed: await alsoPropose(db, input),
+        }
     }
 
-    return { outcome: 'already-listed', wish: asWish(existing) }
+    return {
+      outcome: 'already-listed',
+      wish: asWish(existing),
+      alsoProposed: await alsoPropose(db, input),
+    }
   }
 
   const [row] = await db
@@ -91,7 +113,41 @@ export async function addWish(
 
   if (row === undefined) throw new Error('account_wishes insert returned no row')
 
-  return { outcome: 'added', wish: asWish(row) }
+  return { outcome: 'added', wish: asWish(row), alsoProposed: await alsoPropose(db, input) }
+}
+
+/**
+ * The agent's door onto the proposal queue (`#600`).
+ *
+ * **No new MCP tool, which was the design.** `kolonie.accounts.wishes` already
+ * takes a provider and a `noticedWhile` — *"say what you were doing when you
+ * noticed; that is the half your operator cannot supply"* — and that **is** a
+ * catalogue proposal, addressed to one operator instead of to the Colony. So the
+ * second address is added to the call that already exists rather than to the MCP
+ * surface, which is deliberately shrinking (`#382`–`#388`).
+ *
+ * **Here rather than in the route**, so a second surface that ever writes a wish
+ * cannot write one without it reaching the Colony — the same argument
+ * `markWishWanted` makes about waking the agent.
+ *
+ * **`noticedWhile` is the `why`**, and it is the citizen's own sentence. An
+ * operator's wish carries none, which the table already enforces one field up.
+ */
+async function alsoPropose(
+  db: Database | Transaction,
+  input: {
+    readonly provider: string
+    readonly author: WishAuthor
+    readonly noticedWhile?: string | undefined
+  },
+): Promise<boolean> {
+  const raised = await proposeProvider(db, {
+    provider: input.provider,
+    source: input.author === 'citizen' ? 'citizen' : 'operator',
+    why: input.noticedWhile ?? null,
+  })
+
+  return raised.outcome === 'raised'
 }
 
 /** The whole list for one agent, oldest first. */

@@ -1,6 +1,8 @@
 import { desc, eq, isNull, sql } from 'drizzle-orm'
 import type { ProviderEnquiry, StoredProviderEnquiry } from '@kolonie-ai/core'
+import { providerFromUrl } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
+import { proposeProvider } from './atlas-proposals.js'
 import { providerEnquiries } from '../schema/provider-enquiries.js'
 
 /**
@@ -28,6 +30,25 @@ export async function recordProviderEnquiry(
   const [row] = await db.insert(providerEnquiries).values(enquiry).returning()
 
   if (row === undefined) throw new Error('provider_enquiries insert returned no row')
+
+  /**
+   * The provider's door onto the one queue (`#600`).
+   *
+   * **This table keeps its own commercial fields and loses its own queue.** What
+   * a provider says about its product, how to reach it and what it wants from
+   * agents is worth holding and is not what a steward decides — the decision is
+   * *does this belong on the map*, which is the same decision an agent's wish
+   * asks for, and it now has one screen instead of two.
+   *
+   * **A url nobody can parse costs the proposal and not the enquiry.** The
+   * commercial record is the point of this write; the proposal is a by-product,
+   * and losing a by-product is not a reason to refuse a provider that wrote in.
+   */
+  const provider = providerFromUrl(row.url)
+
+  if (provider !== undefined) {
+    await proposeProvider(db, { provider, source: 'provider', why: row.wants })
+  }
 
   return {
     id: row.id,

@@ -214,6 +214,14 @@ describe('schema', () => {
          */
         'artefact_challenges',
         /**
+         * `#600`. The one queue three doors feed: a provider writing in, an
+         * agent wishing for one, an operator suggesting one. One row per
+         * provider and no proposer named — the count of who asked is read from
+         * `account_wishes` under its aggregate floor, and this holds the
+         * question rather than the asker.
+         */
+        'atlas_proposals',
+        /**
          * `#546`. Where a provider used to be, so the Atlas's old paths keep
          * answering after a rename. Three columns and no foreign key: the thing
          * it records is a name that no longer exists, which by definition has no

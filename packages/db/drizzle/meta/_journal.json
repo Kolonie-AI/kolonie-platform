@@ -1415,6 +1415,13 @@
       "when": 1786361967724,
       "tag": "0201_a_recipe_declares_its_wall",
       "breakpoints": true
+    },
+    {
+      "idx": 202,
+      "version": "7",
+      "when": 1786362598596,
+      "tag": "0202_one_proposal_queue_three_doors",
+      "breakpoints": true
     }
   ]
 }

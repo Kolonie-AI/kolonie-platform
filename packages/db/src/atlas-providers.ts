@@ -1,5 +1,6 @@
 import {
   AccountKindSchema,
+  KIND_BY_ATLAS_CATEGORY,
   type AgentApi,
   type AtlasCategory,
   type RecipeOperatorGuess,
@@ -55,23 +56,15 @@ import { curateListedProvider, listAtlasProvider } from './storage/provider-reci
  * account is declared, not when a name is listed.
  */
 
-/** What an agent would hold at a provider on each shelf. */
-const KIND_BY_CATEGORY: Readonly<Record<AtlasCategory, string>> = {
-  mailbox: 'mailbox',
-  'domain-dns': 'domain',
-  'code-hosting': 'code-host',
-  'social-publishing': 'social',
-  'compute-hosting': 'hosting',
-  'payments-finance': 'payments',
-  storage: 'storage',
-  'project-tracking': 'project-tracker',
-  communication: 'chat',
-  'knowledge-docs': 'notes',
-  'design-media': 'design',
-  'data-apis': 'api',
-  'identity-security': 'identity',
-  'commerce-marketplace': 'storefront',
-}
+/**
+ * What an agent would hold at a provider on each shelf.
+ *
+ * **`KIND_BY_ATLAS_CATEGORY` in `core`, since `#600`.** A steward accepting a
+ * proposed provider lists it too, and a second copy of this map would let the
+ * two answer differently — which shows up as two rows for one provider on the
+ * Atlas page.
+ */
+const KIND_BY_CATEGORY = KIND_BY_ATLAS_CATEGORY
 
 /**
  * The three the catalogue already holds, and the kind each already carries.

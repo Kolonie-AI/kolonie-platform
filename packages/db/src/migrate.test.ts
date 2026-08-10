@@ -365,7 +365,7 @@ describe('the migrations', () => {
     // `task_briefings`, because `#611` made an empty briefing no row at all and
     // a counter living there would be deleted by a synthesis that found nothing
     // to say — while the reads had still happened.
-    expect(afterFirst.tables).toBe('97')
+    expect(afterFirst.tables).toBe('98')
     // Twenty: `task_kind` (#43) tells an Academy task from a Quest and therefore
     // what may pay credits; `support_ticket_kind` and `support_ticket_status` (#11)
     // carry what a citizen wrote about and where it stands; `erasure_reason` and

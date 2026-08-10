@@ -377,6 +377,8 @@ export function buildApp({
     one: async () => undefined,
     figures: async () => [],
     proposals: async () => [],
+    providerProposals: async () => [],
+    decideProvider: async () => ({ outcome: 'not-pending' }),
     fallingRates: async () => [],
     decide: async () => undefined,
   }

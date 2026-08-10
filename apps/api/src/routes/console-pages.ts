@@ -14,6 +14,7 @@ import {
   type TaskId,
   type Timestamp,
   questCommitment,
+  ProposalActionSchema,
 } from '@kolonie-ai/core'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import { authenticate } from '../authentication.js'
@@ -3352,6 +3353,73 @@ export function registerStewardPages(app: FastifyInstance, deps: RouteDependenci
       if (decided === undefined) return consoleNotFound(reply, request)
 
       return wantsHtml(request) ? reply.redirect('/review', 303) : reply.send(decided)
+    })
+  }
+
+  /**
+   * A steward decides a proposed provider (`#600`).
+   *
+   * **Behind the steward gate, not the maintainer's**, for the reason `#549`
+   * gives one route up: a catalogue only one person can maintain stops when that
+   * person is busy. Every action on this queue is a steward's.
+   *
+   * **Three actions and one of them needs words.** Accepting writes the listing;
+   * merging records that the provider was already on the map under another
+   * hostname; refusing needs a sentence, because the proposer is told the
+   * outcome and *no* with no reason teaches nothing and invites the same
+   * proposal next month.
+   *
+   * **Accepting produces a listing and nothing more.** The entry says the
+   * provider, its shelf and *nobody has looked* — no steps are invented, because
+   * what the Colony says about somebody else's product passes a person who
+   * walked it, and a button that wrote a recipe would be that rule dying
+   * quietly.
+   */
+  for (const action of ['accept', 'refuse', 'merge'] as const) {
+    app.post(`/atlas-proposals/:proposalId/${action}`, async (request, reply) => {
+      const caller = await steward(request, reply)
+      if (caller === null) return reply
+
+      const { proposalId } = request.params as { proposalId?: string }
+      const body = (request.body ?? {}) as Record<string, unknown>
+
+      const parsed = ProposalActionSchema.safeParse(
+        action === 'accept'
+          ? { action, category: body['category'] }
+          : action === 'refuse'
+            ? { action, reason: body['reason'] }
+            : { action, into: body['into'] },
+      )
+
+      if (!parsed.success) {
+        return reply.status(ERROR_STATUS['validation_failed']).send({
+          code: 'validation_failed',
+          message:
+            action === 'refuse'
+              ? 'A refusal needs a sentence the proposer can read. They are told the outcome, ' +
+                'and “no” with no reason teaches nothing.'
+              : action === 'merge'
+                ? 'A merge names the entry this provider turned out to be, as the Atlas prints it.'
+                : 'Listing one needs the shelf it goes on, from the Atlas’s own categories. That ' +
+                  'is the one thing a listing claims, so it is yours to answer rather than the ' +
+                  'proposer’s.',
+        })
+      }
+
+      const decided = await deps.recipes.decideProvider(proposalId ?? '', parsed.data)
+
+      if (decided.outcome === 'not-pending') return consoleNotFound(reply, request)
+
+      if (decided.outcome === 'no-such-entry') {
+        return reply.status(ERROR_STATUS['validation_failed']).send({
+          code: 'validation_failed',
+          message:
+            'Nothing in the catalogue holds that provider, so there is nothing to merge into. ' +
+            'Listing it is the other answer.',
+        })
+      }
+
+      return wantsHtml(request) ? reply.redirect('/review', 303) : reply.send(decided.proposal)
     })
   }
 

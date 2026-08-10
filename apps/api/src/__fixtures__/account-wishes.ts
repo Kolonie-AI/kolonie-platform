@@ -43,10 +43,10 @@ export function fakeWishes(): FakeWishes {
             agentId,
             held.map((wish) => (wish.id === existing.id ? enriched : wish)),
           )
-          return { outcome: 'context-added', wish: enriched }
+          return { outcome: 'context-added', wish: enriched, alsoProposed: false }
         }
 
-        return { outcome: 'already-listed', wish: existing }
+        return { outcome: 'already-listed', wish: existing, alsoProposed: false }
       }
 
       const wish: Wish = {
@@ -61,7 +61,7 @@ export function fakeWishes(): FakeWishes {
       }
 
       lists.set(agentId, [...held, wish])
-      return { outcome: 'added', wish }
+      return { outcome: 'added', wish, alsoProposed: false }
     },
 
     want: async (agentId, provider) => {

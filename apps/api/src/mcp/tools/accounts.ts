@@ -16,6 +16,7 @@ import {
   RECIPE_MAX_STEPS,
   SubmitAccountProofRequestSchema,
   WISH_NOTE_MAX_LENGTH,
+  WISH_ALSO_PROPOSED,
 } from '@kolonie-ai/core'
 import {
   AccountKindArgumentSchema,
@@ -1474,10 +1475,15 @@ export function registerAccountTools(
                   `${added.wish.provider} is already on the list — added ` +
                   `${added.wish.author === 'operator' ? 'by your operator' : 'by you'}, and ` +
                   `${added.wish.wantedAt === null ? 'not marked as wanted yet' : 'marked as wanted'}. ` +
-                  'Nothing was changed and nothing was duplicated.',
+                  'Nothing was changed and nothing was duplicated.' +
+                  (added.alsoProposed ? ` ${WISH_ALSO_PROPOSED}` : ''),
               },
             ],
-            structuredContent: { wish: added.wish, added: false },
+            structuredContent: {
+              wish: added.wish,
+              added: false,
+              alsoProposed: added.alsoProposed,
+            },
           }
         }
 
@@ -1488,10 +1494,16 @@ export function registerAccountTools(
                 type: 'text',
                 text:
                   `${added.wish.provider} was already on the list, and your context was added. ` +
-                  `${added.wish.wantedAt === null ? 'It is not marked as wanted yet.' : 'It is marked as wanted.'}`,
+                  `${added.wish.wantedAt === null ? 'It is not marked as wanted yet.' : 'It is marked as wanted.'}` +
+                  (added.alsoProposed ? ` ${WISH_ALSO_PROPOSED}` : ''),
               },
             ],
-            structuredContent: { wish: added.wish, added: false, contextAdded: true },
+            structuredContent: {
+              wish: added.wish,
+              added: false,
+              contextAdded: true,
+              alsoProposed: added.alsoProposed,
+            },
           }
         }
 
@@ -1503,10 +1515,11 @@ export function registerAccountTools(
                 `${added.wish.provider} is on the list. Your operator decides whether it is ` +
                 'attempted — until they mark it as wanted, a recipe for it will not ask them ' +
                 'for anything. There is nothing to wait for: read the list again on a later ' +
-                'waking.',
+                'waking.' +
+                (added.alsoProposed ? ` ${WISH_ALSO_PROPOSED}` : ''),
             },
           ],
-          structuredContent: { wish: added.wish, added: true },
+          structuredContent: { wish: added.wish, added: true, alsoProposed: added.alsoProposed },
         }
       }
 

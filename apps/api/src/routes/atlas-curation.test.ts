@@ -2,7 +2,13 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { FastifyInstance } from 'fastify'
 import { buildApp } from '../app.js'
 import { fakeColony, type FakeColony } from '../__fixtures__/colony/index.js'
-import { AccountKindSchema, now, type AccountWalk, type EntryProposal } from '@kolonie-ai/core'
+import {
+  AccountKindSchema,
+  now,
+  type AccountWalk,
+  type AtlasProposal,
+  type EntryProposal,
+} from '@kolonie-ai/core'
 
 const proposal = (overrides: Partial<EntryProposal> = {}): EntryProposal => ({
   id: '11111111-1111-4111-8111-111111111111',
@@ -65,6 +71,7 @@ describe('the curation section', () => {
     expect(
       curationSections({
         proposals: [],
+        providerProposals: [],
         falling: [],
         entries: [],
         unpublished: [],
@@ -98,6 +105,7 @@ describe('the curation section', () => {
 
     const rendered = curationSections({
       proposals: [],
+      providerProposals: [],
       falling: [],
       entries: [],
       unpublished: [],
@@ -126,6 +134,7 @@ describe('the curation section', () => {
 
     const rendered = curationSections({
       proposals: [proposal()],
+      providerProposals: [],
       falling: [],
       entries: [],
       unpublished: [],
@@ -148,6 +157,7 @@ describe('the curation section', () => {
 
     const rendered = curationSections({
       proposals: [proposal()],
+      providerProposals: [],
       falling: [
         {
           kind: 'mailbox',
@@ -191,6 +201,82 @@ describe('the curation section', () => {
     await colony.recipes.decide(proposal().id, 'accepted')
 
     expect(await colony.recipes.list()).toHaveLength(0)
+  })
+
+  /**
+   * One proposal queue, three doors (`#600`).
+   *
+   * **The gate is the property worth a route test.** Everything about what a
+   * decision writes is asserted against a real database in
+   * `atlas-proposals.test.ts`; what only exists here is who may press the
+   * buttons, and what happens to a refusal with no words in it.
+   */
+  describe('the one queue three doors feed', () => {
+    const proposedProvider = (): AtlasProposal => ({
+      id: '22222222-2222-4222-8222-222222222222',
+      provider: 'notion.so' as never,
+      source: 'citizen',
+      why: 'I had nowhere to put a walk I had just done',
+      status: 'pending',
+      decidedReason: null,
+      mergedInto: null,
+      proposedAt: now(),
+      decidedAt: null,
+    })
+
+    /** The rejection case `#600` names: a non-steward attempting any action. */
+    it('refuses every action to a caller with no credential', async () => {
+      colony.recipes.proposeProvider(proposedProvider())
+
+      for (const action of ['accept', 'refuse', 'merge']) {
+        const response = await app.inject({
+          method: 'POST',
+          url: `/atlas-proposals/${proposedProvider().id}/${action}`,
+          payload: { category: 'knowledge-docs', reason: 'no', into: 'cloudflare.com' },
+        })
+
+        expect([401, 404]).toContain(response.statusCode)
+      }
+
+      /** The property that matters: nothing was decided. */
+      expect(await colony.recipes.providerProposals()).toHaveLength(1)
+    })
+
+    it('shows the demand and never the proposer', async () => {
+      const { curationSections } = await import('../console/curation.js')
+
+      const html = curationSections({
+        proposals: [],
+        providerProposals: [{ proposal: proposedProvider(), citizens: 7, operators: 2 }],
+        falling: [],
+        entries: [],
+        unpublished: [],
+        divergences: [],
+      })
+
+      expect(html).toContain('notion.so')
+      expect(html).toContain('>7<')
+      expect(html).toContain('>2<')
+      /** The door it came through, and no identity behind it. */
+      expect(html).toContain('an agent')
+      expect(html).not.toContain('22222222-2222-4222-8222-222222222222/nothing')
+    })
+
+    /** A count too small to report reads as nothing, not as a small number. */
+    it('renders a suppressed count as a dash', async () => {
+      const { curationSections } = await import('../console/curation.js')
+
+      const html = curationSections({
+        proposals: [],
+        providerProposals: [{ proposal: proposedProvider(), citizens: 0, operators: 0 }],
+        falling: [],
+        entries: [],
+        unpublished: [],
+        divergences: [],
+      })
+
+      expect(html).toContain('—')
+    })
   })
 
   describe('who may reach it', () => {

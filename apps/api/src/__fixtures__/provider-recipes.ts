@@ -6,6 +6,7 @@ import {
   recipeStatusIsPublic,
   now as currentTime,
   type AtlasFigures,
+  type AtlasProposal,
   type EntryProposal,
   type ProviderRecipe,
   type RecipeOperatorGuess,
@@ -68,6 +69,8 @@ export interface FakeProviderRecipes extends ProviderRecipes {
   readonly measure: (figures: AtlasFigures) => void
   /** A proposal waiting on `#549`'s queue. */
   readonly propose: (proposal: EntryProposal) => void
+  /** Put a provider on the one queue three doors feed (`#600`). */
+  readonly proposeProvider: (proposal: AtlasProposal) => void
   /** An entry whose measured rate has fallen, for the signal on the same screen. */
   readonly fall: (rate: FallingRate) => void
 }
@@ -76,6 +79,7 @@ export function fakeProviderRecipes(): FakeProviderRecipes {
   const rows: ProviderRecipe[] = []
   const measured: AtlasFigures[] = []
   const proposed: EntryProposal[] = []
+  const providersProposed: AtlasProposal[] = []
   const falling: FallingRate[] = []
 
   return {
@@ -107,6 +111,37 @@ export function fakeProviderRecipes(): FakeProviderRecipes {
       proposed[proposed.indexOf(found)] = decided
 
       return decided
+    },
+
+    async providerProposals() {
+      return providersProposed
+        .filter((one) => one.status === 'pending')
+        .map((proposal) => ({ proposal, citizens: 0, operators: 0 }))
+    },
+
+    async decideProvider(id, action) {
+      const found = providersProposed.find((one) => one.id === id && one.status === 'pending')
+      if (found === undefined) return { outcome: 'not-pending' as const }
+
+      const decided: AtlasProposal = {
+        ...found,
+        status:
+          action.action === 'accept'
+            ? 'accepted'
+            : action.action === 'refuse'
+              ? 'refused'
+              : 'merged',
+        decidedReason: action.action === 'refuse' ? action.reason : null,
+        mergedInto: action.action === 'merge' ? action.into : null,
+        decidedAt: currentTime(),
+      }
+      providersProposed[providersProposed.indexOf(found)] = decided
+
+      return { outcome: 'decided' as const, proposal: decided }
+    },
+
+    proposeProvider(proposal) {
+      providersProposed.push(proposal)
     },
 
     propose(proposal) {

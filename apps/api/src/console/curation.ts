@@ -1,9 +1,11 @@
 import {
   ATLAS_ADMISSION_QUESTIONS,
+  AtlasCategorySchema,
   isStale,
   type AccountWalk,
   type AtlasEntry,
   type EntryProposal,
+  type ProposalWithDemand,
   type ProviderRecipe,
   type WalkVerdict,
 } from '@kolonie-ai/core'
@@ -112,6 +114,77 @@ export function proposalsSection(proposals: readonly EntryProposal[]): string {
     '<thead><tr><th>Provider</th><th>Kind</th><th>From</th><th>Changes</th><th>Why</th>' +
       '<th>Waiting</th><th></th></tr></thead>',
     `<tbody>${rows}</tbody>`,
+    '</table>',
+  ].join('\n')
+}
+
+/**
+ * The one queue three doors feed (`#600`).
+ *
+ * **One table, not three sections.** A provider writing in, an agent wishing for
+ * something, and an operator suggesting one are three ways of asking the same
+ * question — *does this belong on the map* — and three screens would be three
+ * sets of accept semantics and a steward who has to remember which holds what.
+ *
+ * **The demand is shown and orders nothing.** `#548` requires that no position
+ * field exist anywhere in the Atlas, and a *most requested* column that sorted
+ * the public catalogue would be that field wearing a hat. It sorts this queue by
+ * age, which is the order the work arrived in.
+ *
+ * **No proposer is named.** A citizen that asks for a mailbox provider has told
+ * you something about itself; the counts come from the wish list under its
+ * aggregate floor, and a count below it reads as `—` rather than as a small
+ * number somebody could work backwards from.
+ */
+export function providerProposalsSection(rows: readonly ProposalWithDemand[]): string {
+  if (rows.length === 0) {
+    return (
+      '<p class="note">Nothing has been proposed. Providers write in through the enquiry form, ' +
+      'agents and operators through the wish list, and all three land here.</p>'
+    )
+  }
+
+  const door = {
+    provider: 'the provider itself',
+    citizen: 'an agent',
+    operator: 'an operator',
+  }
+
+  const body = rows
+    .map(
+      ({ proposal, citizens, operators }) =>
+        '<tr>' +
+        `<td>${escape(proposal.provider)}</td>` +
+        `<td>${escape(door[proposal.source])}</td>` +
+        `<td>${citizens === 0 ? '—' : String(citizens)}</td>` +
+        `<td>${operators === 0 ? '—' : String(operators)}</td>` +
+        `<td>${escape(relative(proposal.proposedAt))}</td>` +
+        `<td>${escape(proposal.why ?? '')}</td>` +
+        '<td>' +
+        `<form method="post" action="/atlas-proposals/${escape(proposal.id)}/accept">` +
+        '<select name="category" required>' +
+        '<option value="">shelf…</option>' +
+        AtlasCategorySchema.options
+          .map((one) => `<option value="${escape(one)}">${escape(one)}</option>`)
+          .join('') +
+        '</select>' +
+        '<button type="submit">List it</button></form>' +
+        `<form method="post" action="/atlas-proposals/${escape(proposal.id)}/refuse">` +
+        '<input type="text" name="reason" placeholder="why not" required />' +
+        '<button type="submit">Refuse</button></form>' +
+        `<form method="post" action="/atlas-proposals/${escape(proposal.id)}/merge">` +
+        '<input type="text" name="into" placeholder="existing provider" required />' +
+        '<button type="submit">Merge</button></form>' +
+        '</td>' +
+        '</tr>',
+    )
+    .join('')
+
+  return [
+    '<table>',
+    '<thead><tr><th>Provider</th><th>First asked by</th><th>Agents</th><th>Operators</th>' +
+      '<th>Waiting</th><th>Why</th><th></th></tr></thead>',
+    `<tbody>${body}</tbody>`,
     '</table>',
   ].join('\n')
 }
@@ -285,6 +358,7 @@ function divergencesSection(
 /** The whole section, headings and all, for whichever page is placing it. */
 export function curationSections(input: {
   readonly proposals: readonly EntryProposal[]
+  readonly providerProposals: readonly ProposalWithDemand[]
   readonly falling: readonly FallingRate[]
   readonly entries: readonly AtlasEntry[]
   readonly unpublished: readonly ProviderRecipe[]
@@ -307,6 +381,17 @@ export function curationSections(input: {
       'the aggregate floor. This is the section that catches a provider changing its signup ' +
       'form without telling anybody — the queues below are work somebody filed, and this is not.</p>',
     fallingRatesSection(input.falling),
+    '<h2>Proposed for the map</h2>',
+    '<p class="note">One queue and three doors: a provider writing in through the enquiry form, ' +
+      'an agent through its wish list, an operator through the same list from its console. The ' +
+      'counts are how many distinct agents and operators asked — <em>interest, never ' +
+      'availability</em> — and they order nothing outside this table. A count too small to ' +
+      'report reads as a dash. <strong>Listing one writes the provider, its shelf and ' +
+      '<em>nobody has looked</em>, and invents no steps</strong>: what the Colony says about ' +
+      'somebody else’s product passes a person who walked it. A refusal needs a sentence, ' +
+      'because the proposer is told the outcome and <em>no</em> with no reason teaches ' +
+      'nothing.</p>',
+    providerProposalsSection(input.providerProposals),
     '<h2>What an entry must answer</h2>',
     '<p class="note">Three questions, and an entry belongs in the Atlas when all three are yes. ' +
       'They are here because the eighteen entries <code>#679</code> removed were not added ' +

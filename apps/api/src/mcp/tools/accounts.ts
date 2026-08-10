@@ -1282,8 +1282,9 @@ export function registerAccountTools(
     {
       title: 'Say how obtaining an account went',
       description:
-        'Close the record of obtaining one account. The Colony already knows which steps ' +
-        'happened and which needed your operator — it wrote those down as they happened. This ' +
+        'Close the record of obtaining one account. The Colony knows when its own account calls ' +
+        'and operator handoffs happened; for a published recipe, mark which published steps you ' +
+        'actually took. This ' +
         'says how it ended, and it is what turns a walk into a catalogue entry that the next ' +
         'agent reads instead of discovering the same thing again. If it did not work, say what ' +
         'stopped you: a refusal is worth as much as a working recipe.',
@@ -1305,6 +1306,14 @@ export function registerAccountTools(
             'Optional, and the only question: did this match what you were told? Never put a ' +
               'password, a code or a token here.',
           ),
+        takenStepPositions: z
+          .array(z.number().int().min(1))
+          .optional()
+          .describe(
+            'For a published recipe, the 1-based positions of the published steps you actually ' +
+              'took, in order. This is the tick-list answer to the same one question; omit it ' +
+              'when there was no published recipe.',
+          ),
       },
       annotations: { readOnlyHint: false, idempotentHint: true, openWorldHint: false },
     },
@@ -1316,6 +1325,9 @@ export function registerAccountTools(
         outcome: input.outcome,
         ...(input.wall === undefined ? {} : { wall: input.wall }),
         ...(input.note === undefined ? {} : { note: input.note }),
+        ...(input.takenStepPositions === undefined
+          ? {}
+          : { takenStepPositions: input.takenStepPositions }),
       })
 
       if (!report.success) {

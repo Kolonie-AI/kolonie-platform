@@ -1,5 +1,23 @@
 import { describe, expect, it } from 'vitest'
+import { WalkReportSchema } from '../../account-walks.js'
 import { connectedClient, registeredCitizen } from '../../__fixtures__/mcp.js'
+
+describe('kolonie.accounts.walk-report', () => {
+  it('takes the published steps as one ordered tick-list', () => {
+    expect(
+      WalkReportSchema.safeParse({ outcome: 'proved', takenStepPositions: [1, 2, 4] }).success,
+    ).toBe(true)
+  })
+
+  it('refuses a duplicated or reordered tick-list', () => {
+    expect(
+      WalkReportSchema.safeParse({ outcome: 'proved', takenStepPositions: [1, 1] }).success,
+    ).toBe(false)
+    expect(
+      WalkReportSchema.safeParse({ outcome: 'proved', takenStepPositions: [2, 1] }).success,
+    ).toBe(false)
+  })
+})
 
 /**
  * The write the account register cannot carry (`#298`).

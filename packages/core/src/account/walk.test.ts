@@ -3,6 +3,7 @@ import {
   WALK_NOTE_MAX_LENGTH,
   WalkNoteSchema,
   WalkOutcomeSchema,
+  WalkTakenStepPositionsSchema,
   walkMatchesRecipe,
   walkToSteps,
   walkVerdict,
@@ -42,6 +43,7 @@ const walk = (steps: readonly WalkStep[], over: Partial<AccountWalk> = {}): Acco
   outcome: 'proved',
   wall: null,
   note: null,
+  takenStepPositions: null,
   steps: [...steps],
   ...over,
 })
@@ -132,30 +134,64 @@ describe('whether a walk went the way the entry says it goes', () => {
     { actor: 'operator', instruction: 'A person is needed.', ask: 'Please open this URL.' },
   ]
 
-  it('matches on shape, whatever the wording says', () => {
-    const matched = walk([step('agent'), step('operator', { ask: 'Completely different.' }, 2)])
+  it('matches the published steps the agent says it took, whatever the wording says', () => {
+    const matched = walk([step('agent'), step('operator', { ask: 'Completely different.' }, 2)], {
+      takenStepPositions: [1, 2],
+    })
 
     expect(walkMatchesRecipe(matched, { steps: [...published] })).toBe(true)
   })
 
-  it('does not match when a step appeared or disappeared', () => {
-    expect(walkMatchesRecipe(walk([step('agent')]), { steps: [...published] })).toBe(false)
+  it('does not match when the agent says a published step disappeared', () => {
+    expect(
+      walkMatchesRecipe(walk([step('agent')], { takenStepPositions: [1] }), {
+        steps: [...published],
+      }),
+    ).toBe(false)
   })
 
-  it('does not match when the order changed', () => {
-    const swapped = walk([step('operator', { ask: 'first now' }), step('agent', {}, 2)])
+  it('does not match when the reported order changed', () => {
+    const swapped = walk([step('agent')], { takenStepPositions: [2, 1] })
 
     expect(walkMatchesRecipe(swapped, { steps: [...published] })).toBe(false)
   })
 
-  /** A step that became sealed is a different step: the channel is the finding. */
-  it('does not match when a step became a sealed one', () => {
-    const sealed = walk([
-      step('agent'),
-      step('operator', { secret: true, ask: 'Please open this URL.' }, 2),
-    ])
+  it('does not infer a mismatch from the number of Kolonie calls', () => {
+    const unaided = walk([step('agent')], { takenStepPositions: [1, 2, 3] })
+    const threePublished = [
+      { actor: 'agent' as const, instruction: 'Start.' },
+      { actor: 'agent' as const, instruction: 'Continue.' },
+      { actor: 'agent' as const, instruction: 'Finish.' },
+    ]
 
-    expect(walkMatchesRecipe(sealed, { steps: [...published] })).toBe(false)
+    expect(walkMatchesRecipe(unaided, { steps: threePublished })).toBe(true)
+  })
+
+  it('does not match when the entry needs an operator and the walk did not', () => {
+    const unaided = walk([step('agent')], { takenStepPositions: [1, 2] })
+
+    expect(walkMatchesRecipe(unaided, { steps: [...published] })).toBe(false)
+  })
+
+  it('matches a long recipe when every operator handoff and sealed drop happened', () => {
+    const longRecipe: readonly RecipeStep[] = [
+      { actor: 'agent', instruction: 'One.' },
+      { actor: 'agent', instruction: 'Two.' },
+      { actor: 'operator', instruction: 'Three.', ask: 'Please.' },
+      { actor: 'agent', instruction: 'Four.' },
+      { actor: 'operator', instruction: 'Five.', ask: 'Seal it.', secret: true },
+      { actor: 'agent', instruction: 'Six.' },
+    ]
+    const observed = walk(
+      [
+        step('agent'),
+        step('operator', { ask: 'Please.' }, 2),
+        step('operator', { ask: 'Seal it.', secret: true }, 3),
+      ],
+      { takenStepPositions: [1, 2, 3, 4, 5, 6] },
+    )
+
+    expect(walkMatchesRecipe(observed, { steps: [...longRecipe] })).toBe(true)
   })
 })
 
@@ -204,7 +240,7 @@ describe('what a finished walk proposes', () => {
 
   it('confirms a published entry it matched', () => {
     expect(
-      walkVerdict(walk(one), {
+      walkVerdict(walk(one, { takenStepPositions: [1] }), {
         status: 'joinable',
         steps: [{ actor: 'agent', instruction: 'Open the signup form.' }],
       }).kind,
@@ -212,7 +248,7 @@ describe('what a finished walk proposes', () => {
   })
 
   it('raises a divergence against a published entry it did not match', () => {
-    const verdict = walkVerdict(walk(one), {
+    const verdict = walkVerdict(walk(one, { takenStepPositions: [1] }), {
       status: 'joinable',
       steps: [
         { actor: 'agent', instruction: 'One.' },
@@ -225,13 +261,28 @@ describe('what a finished walk proposes', () => {
     expect(verdict.kind === 'diverges' && verdict.published).toHaveLength(2)
   })
 
+  it('proposes nothing when a published walk did not answer the step tick-list', () => {
+    const verdict = walkVerdict(walk(one), {
+      status: 'joinable',
+      steps: [
+        { actor: 'agent', instruction: 'One.' },
+        { actor: 'operator', instruction: 'Two.', ask: 'Please.' },
+      ],
+    })
+
+    expect(verdict.kind).toBe('nothing')
+    expect(verdict.kind === 'nothing' && verdict.why).toContain('published steps')
+  })
+
   /**
    * **A successful walk of an entry the Colony publishes as refused is the
    * loudest divergence there is** — the Colony is telling agents not to try
    * something one of them just did.
    */
   it('raises a divergence when it got through an entry published as refused', () => {
-    expect(walkVerdict(walk(one), { status: 'refused', steps: [] }).kind).toBe('diverges')
+    expect(
+      walkVerdict(walk(one, { takenStepPositions: [] }), { status: 'refused', steps: [] }).kind,
+    ).toBe('diverges')
   })
 
   /** A draft is overwritten by a later walk: nobody has stood behind it yet. */
@@ -286,5 +337,11 @@ describe('the one question an agent is asked', () => {
 
   it('has three outcomes and abandoned is one of them', () => {
     expect(WalkOutcomeSchema.options).toEqual(['proved', 'refused', 'abandoned'])
+  })
+
+  it('takes an ordered tick-list and refuses duplicates or reordering', () => {
+    expect(WalkTakenStepPositionsSchema.safeParse([1, 2, 4]).success).toBe(true)
+    expect(WalkTakenStepPositionsSchema.safeParse([1, 1]).success).toBe(false)
+    expect(WalkTakenStepPositionsSchema.safeParse([2, 1]).success).toBe(false)
   })
 })

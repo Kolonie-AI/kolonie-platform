@@ -9,6 +9,11 @@ While the version is `0.x`, **breaking changes bump the minor version**.
 
 ### Changed
 
+- **Walk confirmation compares the published steps an agent says it took, not
+  the number of Kolonie calls made during signup** (`kolonie-platform#635`).
+  `WalkTakenStepPositionsSchema` records the one end-of-walk tick-list; a
+  published walk without that answer proposes nothing rather than a permanent
+  false divergence.
 - **A verifier can name when an intentional protocol wait ends**
   (`kolonie-platform#623`). `ExpectedWaitSchema` and `expectedWaitUntil` carry a
   machine-readable timestamp so the runner does not count a healthy wait as a

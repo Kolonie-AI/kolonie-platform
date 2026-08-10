@@ -49,9 +49,10 @@ import { looksLikeCredential } from '../operator/request.js'
  *
  * So a step carries an actor, whether a sealed channel was used, and when. It
  * carries **no value**: not the handle, not the code, not the password. The one
- * piece of text on the whole record is the ask the *Colony itself* sent, which
- * is already public on the recipe it came from, and the one optional sentence
- * the agent writes at the end — which is refused if it looks like a credential.
+ * pieces the agent adds at the end are an optional sentence — refused if it
+ * looks like a credential — and a tick-list of published step positions. The
+ * only other text is the ask the *Colony itself* sent, already public on the
+ * recipe it came from.
  *
  * **And it is not a second proof.** The Academy proves control of an account;
  * this records how the account was obtained. Conflating them would let a walk
@@ -125,6 +126,23 @@ export const WalkStepSchema = z
   })
 export type WalkStep = z.infer<typeof WalkStepSchema>
 
+/**
+ * The published steps the agent says it actually took, in recipe order.
+ *
+ * Positions keep the answer a tick-list against wording the agent already saw,
+ * rather than a second account of the signup. Missing positions are the
+ * finding; the Colony's own tool-call count is not evidence about a provider's
+ * form (`#635`).
+ */
+export const WalkTakenStepPositionsSchema = z
+  .array(z.int().min(1).max(RECIPE_MAX_STEPS))
+  .max(RECIPE_MAX_STEPS)
+  .refine(
+    (positions) => positions.every((position, at) => at === 0 || position > positions[at - 1]!),
+    { message: 'published step positions must be unique and in recipe order.' },
+  )
+export type WalkTakenStepPositions = z.infer<typeof WalkTakenStepPositionsSchema>
+
 /** One walk, whole. */
 export const AccountWalkSchema = z.object({
   id: z.uuid(),
@@ -147,11 +165,13 @@ export const AccountWalkSchema = z.object({
   /**
    * The answer to the one question the agent is asked.
    *
-   * *Did this match what you were told?* Free text, optional, and the only
-   * thing on this record the agent writes. `#601`: *"an agent that has just
-   * finished a signup should not be handed a form."*
+   * *Did this match what you were told?* Free text, optional, and one part of
+   * the answer alongside the published-step tick-list. `#601`: *"an agent that
+   * has just finished a signup should not be handed a form."*
    */
   note: z.string().max(WALK_NOTE_MAX_LENGTH).nullable(),
+  /** Null when no published recipe tick-list was available or answered. */
+  takenStepPositions: WalkTakenStepPositionsSchema.nullable(),
   steps: z.array(WalkStepSchema).max(RECIPE_MAX_STEPS),
 })
 export type AccountWalk = z.infer<typeof AccountWalkSchema>
@@ -212,10 +232,11 @@ export function walkToSteps(walk: AccountWalk): readonly RecipeStep[] {
 /**
  * Whether a walk went the way the entry says it goes.
  *
- * **Compared on shape and never on wording** — who acted, in what order, through
- * which channel. A walk cannot disagree with an instruction it never read, and
- * comparing text would make every reworded step look like a provider changing
- * its signup form.
+ * **Compared against the published tick-list and never against Kolonie's call
+ * count.** A declaration and a handoff are observable facts, but they are not
+ * one row per provider step. The agent is the only instrument that can say a
+ * provider added or removed a form step, so its ordered tick-list is the source
+ * for this comparison (`#635`).
  *
  * That is the signal `#549` named as the one on the curation screen that would
  * actually get used, and this is what feeds it: **a provider's changed signup
@@ -225,17 +246,31 @@ export function walkMatchesRecipe(
   walk: AccountWalk,
   recipe: Pick<ProviderRecipe, 'steps'>,
 ): boolean {
-  const walked = walkToSteps(walk)
-  if (walked.length !== recipe.steps.length) return false
+  if (walk.takenStepPositions === null) return false
 
-  return walked.every((step, at) => {
-    const published = recipe.steps[at]
+  const reportedEveryPublishedStep =
+    walk.takenStepPositions.length === recipe.steps.length &&
+    walk.takenStepPositions.every((position, at) => position === at + 1)
+  if (!reportedEveryPublishedStep) return false
 
-    return (
-      published !== undefined &&
-      published.actor === step.actor &&
-      (published.secret ?? false) === (step.secret ?? false)
-    )
+  const observedOperatorSteps = walk.steps.filter((step) => step.actor === 'operator')
+  const publishedOperatorSteps = recipe.steps.filter((step) => step.actor === 'operator')
+
+  return (
+    observedOperatorSteps.length === publishedOperatorSteps.length &&
+    observedOperatorSteps.filter((step) => step.secret).length ===
+      publishedOperatorSteps.filter((step) => step.secret === true).length
+  )
+}
+
+function reportedSteps(
+  walk: AccountWalk,
+  recipe: Pick<ProviderRecipe, 'steps'>,
+): readonly RecipeStep[] {
+  if (walk.takenStepPositions === null) return []
+  return walk.takenStepPositions.flatMap((position) => {
+    const step = recipe.steps[position - 1]
+    return step === undefined ? [] : [step]
   })
 }
 
@@ -310,9 +345,22 @@ export function walkVerdict(
    * the same reason: it contradicts what the Colony is publishing.
    */
   if (entry !== undefined && entry.status !== 'unwritten' && entry.status !== 'draft') {
+    if (entry.status === 'refused' || entry.status === 'retired') {
+      return { kind: 'diverges', walked: walkToSteps(walk), published: entry.steps }
+    }
+
+    if (walk.takenStepPositions === null) {
+      return {
+        kind: 'nothing',
+        why:
+          'the walk did not say which published steps it took, so its shape cannot be matched ' +
+          'without mistaking Kolonie calls for provider steps',
+      }
+    }
+
     return walkMatchesRecipe(walk, entry)
       ? { kind: 'confirms' }
-      : { kind: 'diverges', walked: walkToSteps(walk), published: entry.steps }
+      : { kind: 'diverges', walked: reportedSteps(walk, entry), published: entry.steps }
   }
 
   return { kind: 'draft', steps: walkToSteps(walk) }

@@ -3,6 +3,7 @@ import {
   QUEST_EDITABLE_STATUSES,
   QUEST_MAX_SLOTS,
   QUEST_PENDING_LIMIT,
+  QUEST_REFUSAL_LIMIT,
   QUEST_TASK_TYPE,
   type AgentId,
   type QuestDraft,
@@ -40,6 +41,8 @@ export type QuestSubmitOutcome =
   | { readonly outcome: 'unknown-quest' }
   | { readonly outcome: 'not-yours' }
   | { readonly outcome: 'not-editable'; readonly status: Task['status'] }
+  /** This draft has used every correction the refusal loop permits. */
+  | { readonly outcome: 'refusal-limit' }
   /** Another quest of this account is already in the queue, named so the sponsor can find it. */
   | { readonly outcome: 'queue-occupied'; readonly by: TaskId }
   | { readonly outcome: 'insufficient-funds'; readonly shortfall: number }
@@ -138,7 +141,6 @@ export async function updateQuestDraft(
     if (!QUEST_EDITABLE_STATUSES.includes(row.status)) {
       return { outcome: 'not-editable', status: row.status }
     }
-
     const { patch } = command
     /**
      * **The questions count as text**, and that is the whole reason this is not
@@ -233,6 +235,7 @@ export async function submitQuestForReview(
     if (!QUEST_EDITABLE_STATUSES.includes(row.status)) {
       return { outcome: 'not-editable', status: row.status }
     }
+    if (row.refusalCount >= QUEST_REFUSAL_LIMIT) return { outcome: 'refusal-limit' }
 
     const queued = await tx
       .select({ id: tasks.id })
@@ -669,24 +672,23 @@ export type QuestDiscardOutcome =
   | { readonly outcome: 'unknown-quest' }
   /** The caller is not the author. Indistinguishable from `unknown-quest` at the route. */
   | { readonly outcome: 'not-yours' }
-  /** Only a quest nobody has seen is discardable, and this one has left that state. */
+  /** Only an unseen draft or a spent rejected draft is discardable. */
   | { readonly outcome: 'not-a-draft'; readonly status: Task['status'] }
 
 /**
  * Throw a draft away (`#631`).
  *
- * **`draft` and nothing else, which is narrower than what is editable.**
- * `QUEST_EDITABLE_STATUSES` also holds `rejected`, because a refused quest is
- * its author's to correct — and a refusal is a record of a steward's decision.
- * Deleting the row would delete that decision, so a rejected quest stays and is
- * rewritten rather than removed. The state this deletes is the one nobody
- * outside the author has ever seen.
+ * **An unseen draft, or a rejected draft whose three refusals are spent.** An
+ * ordinary rejected quest stays because its author can still correct it. Once
+ * the limit is reached, discarding the row deliberately discards the accumulated
+ * thread that the limit exists to take away; the sponsor remains free to start
+ * a new row.
  *
- * **A real delete rather than a status.** There is nothing to keep: no escrow
- * existed, no steward read it, no citizen was offered it, and a `discarded`
- * status would be a row that every list has to remember to exclude forever. The
- * quest's own description is the argument — *"nothing is committed and nobody
- * else can see it"* — and a thing nobody can see leaves no gap when it goes.
+ * **A real delete rather than a status.** No escrow existed and no citizen was
+ * offered it. For a spent draft, removing its moderation rows is deliberate:
+ * the accumulated thread is the thing the limit takes away. A `discarded`
+ * status would preserve that thread and leave a row every list has to exclude
+ * forever.
  *
  * The status is read in the same statement that deletes, so a draft submitted
  * between a caller's read and its delete is refused rather than removed from
@@ -698,7 +700,11 @@ export async function discardQuestDraft(
 ): Promise<QuestDiscardOutcome> {
   return await db.transaction(async (tx) => {
     const [row] = await tx
-      .select({ status: tasks.status, createdBy: tasks.createdBy })
+      .select({
+        status: tasks.status,
+        createdBy: tasks.createdBy,
+        refusalCount: tasks.refusalCount,
+      })
       .from(tasks)
       .where(and(eq(tasks.id, command.taskId), eq(tasks.kind, 'quest')))
       .for('update')
@@ -706,7 +712,8 @@ export async function discardQuestDraft(
 
     if (row === undefined) return { outcome: 'unknown-quest' as const }
     if (row.createdBy !== command.authorId) return { outcome: 'not-yours' as const }
-    if (row.status !== 'draft') {
+    const spent = row.status === 'rejected' && row.refusalCount >= QUEST_REFUSAL_LIMIT
+    if (row.status !== 'draft' && !spent) {
       return { outcome: 'not-a-draft' as const, status: row.status as Task['status'] }
     }
 

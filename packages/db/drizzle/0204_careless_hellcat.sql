@@ -1,0 +1,2 @@
+ALTER TABLE "tasks" ADD COLUMN "refusal_count" integer DEFAULT 0 NOT NULL;--> statement-breakpoint
+ALTER TABLE "tasks" ADD CONSTRAINT "tasks_refusal_count_non_negative" CHECK ("tasks"."refusal_count" >= 0);

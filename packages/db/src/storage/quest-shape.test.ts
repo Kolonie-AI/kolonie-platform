@@ -730,5 +730,22 @@ describe('a task for a thousand citizens', () => {
         /tasks_rejection_reason_iff_rejected/,
       )
     })
+
+    it('refuses a negative quest refusal count', async () => {
+      await expectRejection(
+        () =>
+          db.insert(tasks).values({
+            type: 'quest-report',
+            kind: 'quest' as const,
+            title: 'Impossible refusal history',
+            description: 'A description.',
+            instructions: 'Instructions.',
+            rewardReputation: 0,
+            timeoutHours: 24,
+            refusalCount: -1,
+          }),
+        /tasks_refusal_count_non_negative/,
+      )
+    })
   })
 })

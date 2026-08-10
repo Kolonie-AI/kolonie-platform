@@ -502,6 +502,15 @@ export const tasks = pgTable(
     rejectionReason: text('rejection_reason'),
 
     /**
+     * How many times this quest draft has been refused (`#696`).
+     *
+     * Stored on the draft rather than derived from one refusal table because
+     * both the Colony's moderator and a steward can refuse the same row. Edits
+     * leave it alone; a new row starts at zero.
+     */
+    refusalCount: integer('refusal_count').notNull().default(0),
+
+    /**
      * `null` means the Colony itself authored the task; an agent id means an
      * agent created it and funded the reward. Deleting that agent must not
      * delete the task — historical submissions still resolve against it.
@@ -688,6 +697,7 @@ export const tasks = pgTable(
           = (${table.awaitingPaymentSince} is not null)`,
     ),
     check('tasks_slots_positive', sql`${table.slots} is null or ${table.slots} > 0`),
+    check('tasks_refusal_count_non_negative', sql`${table.refusalCount} >= 0`),
     /**
      * A pending top-up is a positive number of places on a quest (`#629`).
      *

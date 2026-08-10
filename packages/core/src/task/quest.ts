@@ -60,6 +60,15 @@ export const QUEST_TASK_TYPE = 'quest-report'
 export const QUEST_PENDING_LIMIT = 1
 
 /**
+ * How many refusals one quest draft can accumulate before its thread is spent.
+ *
+ * The limit belongs to the draft rather than its sponsor: an unusual legitimate
+ * quest may need all three corrections, while a new draft deliberately starts
+ * over without a cooldown or a penalty against the citizen.
+ */
+export const QUEST_REFUSAL_LIMIT = 3
+
+/**
  * The largest audience one quest may buy.
  *
  * A ceiling rather than a judgement about what is worth buying: capacity is

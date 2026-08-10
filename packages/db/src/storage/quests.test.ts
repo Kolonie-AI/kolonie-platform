@@ -51,6 +51,7 @@ import {
   questTextDigest,
   readOwnQuest,
   recordQuestModeration,
+  discardQuestDraft,
   refuseQuest,
   submitQuestForReview,
   withdrawQuestFromReview,
@@ -424,6 +425,59 @@ describe('the quest write path', () => {
       })
 
       expect(result).toEqual({ outcome: 'not-editable', status: 'pending_review' })
+    })
+
+    it('spends a draft after three refusals without spending its sponsor', async () => {
+      const sponsor = await anAgent('sponsor')
+      const first = await createQuestDraft(db, { authorId: sponsor, draft: aDraft() })
+
+      for (let refusal = 1; refusal <= 3; refusal += 1) {
+        expect(
+          (
+            await submitQuestForReview(db, {
+              authorId: sponsor,
+              taskId: first.task.id,
+              at: now(),
+            })
+          ).outcome,
+        ).toBe('submitted')
+        await moderate(first.task.id, 'rejected')
+        await updateQuestDraft(db, {
+          authorId: sponsor,
+          taskId: first.task.id,
+          patch: { instructions: `Corrected after refusal ${refusal}.` },
+          at: now(),
+        })
+      }
+
+      expect(
+        await submitQuestForReview(db, {
+          authorId: sponsor,
+          taskId: first.task.id,
+          at: now(),
+        }),
+      ).toEqual({ outcome: 'refusal-limit' })
+
+      const [spent] = await db
+        .select({ status: tasks.status, refusalCount: tasks.refusalCount })
+        .from(tasks)
+        .where(eq(tasks.id, first.task.id))
+      expect(spent).toEqual({ status: 'rejected', refusalCount: 3 })
+
+      expect(await discardQuestDraft(db, { authorId: sponsor, taskId: first.task.id })).toEqual({
+        outcome: 'discarded',
+      })
+
+      const next = await createQuestDraft(db, { authorId: sponsor, draft: aDraft() })
+      expect(
+        (
+          await submitQuestForReview(db, {
+            authorId: sponsor,
+            taskId: next.task.id,
+            at: now(),
+          })
+        ).outcome,
+      ).toBe('submitted')
     })
   })
 
@@ -926,6 +980,12 @@ describe('the quest write path', () => {
       const own = await readOwnQuest(db, sponsor, task.id)
       expect(own?.task.status).toBe('rejected')
       expect(own?.rejectionReason).toBe('Say which page the citizen should register on.')
+
+      const [refused] = await db
+        .select({ refusalCount: tasks.refusalCount })
+        .from(tasks)
+        .where(eq(tasks.id, task.id))
+      expect(refused?.refusalCount).toBe(1)
 
       const [event] = await db
         .select()

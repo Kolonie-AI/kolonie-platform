@@ -722,6 +722,39 @@ describe('POST /v1/quests/:questId/submit', () => {
     expect(response.json().message).toContain(first)
   })
 
+  it('refuses a fourth submission of one draft and leaves a new draft free', async () => {
+    const id = (await write(aDraft())).json().quest.id as TaskId
+
+    for (let refusal = 1; refusal <= 3; refusal += 1) {
+      expect((await post(`/v1/quests/${id}/submit`, sponsorKey)).statusCode).toBe(200)
+      quests.moderate(id, 'rejected')
+      const changed = await app.inject({
+        method: 'PATCH',
+        url: `/v1/quests/${id}`,
+        headers: { authorization: `Bearer ${sponsorKey}`, 'content-type': 'application/json' },
+        payload: { instructions: `Corrected after refusal ${refusal}.` } as never,
+      })
+      expect(changed.statusCode).toBe(200)
+    }
+
+    const spent = await post(`/v1/quests/${id}/submit`, sponsorKey)
+    expect(spent.statusCode).toBe(409)
+    expect(spent.json()).toMatchObject({
+      code: 'conflict',
+      message: 'This quest has been refused three times; write a new one.',
+    })
+
+    const discarded = await app.inject({
+      method: 'DELETE',
+      url: `/v1/quests/${id}`,
+      headers: { authorization: `Bearer ${sponsorKey}` },
+    })
+    expect(discarded.statusCode).toBe(200)
+
+    const next = (await write(aDraft())).json().quest.id
+    expect((await post(`/v1/quests/${next}/submit`, sponsorKey)).statusCode).toBe(200)
+  })
+
   it('refuses an expiry that has already passed', async () => {
     const id = (
       await write(aDraft({ expiresAt: new Date(Date.now() - 3_600_000).toISOString() }))

@@ -10,6 +10,7 @@ import {
   QUEST_PROOF_VERIFIERS,
   QUEST_VERIFIER_PROVES,
   QUEST_REVIEW_REWARD_LAMPORTS,
+  QUEST_REFUSAL_LIMIT,
   questReviewReward,
   QUEST_MAX_DURATION_DAYS,
   QUEST_MAX_SLOTS,
@@ -100,6 +101,10 @@ describe('what a sponsor may write', () => {
 })
 
 describe('submitting for review', () => {
+  it('allows three refusals before a draft is spent', () => {
+    expect(QUEST_REFUSAL_LIMIT).toBe(3)
+  })
+
   it('accepts an expiry in the future', () => {
     expect(questSubmissionRejection(QuestDraftSchema.parse(aDraft()), NOW)).toBeUndefined()
   })

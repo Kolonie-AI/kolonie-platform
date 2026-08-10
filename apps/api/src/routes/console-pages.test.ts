@@ -1684,6 +1684,29 @@ describe('the settings a maintainer turns', () => {
     ])
   })
 
+  it('states the payout wait when a review reward is set below the chain minimum', async () => {
+    const cookie = await aMaintainer()
+
+    const response = await set(cookie, 'QUEST_REVIEW_REWARD_LAMPORTS', '100000')
+
+    expect(response.statusCode).toBe(200)
+    expect(response.body).toContain('890,880 lamport chain minimum')
+    expect(response.body).toContain('9 decisions')
+    expect(response.body).toContain('Nothing is lost')
+    expect(settings_.written()).toEqual([
+      expect.objectContaining({ name: 'QUEST_REVIEW_REWARD_LAMPORTS', value: '100000' }),
+    ])
+  })
+
+  it('does not warn when one review clears the chain minimum', async () => {
+    const cookie = await aMaintainer()
+
+    const response = await set(cookie, 'QUEST_REVIEW_REWARD_LAMPORTS', '890880')
+
+    expect(response.statusCode).toBe(303)
+    expect(response.body).not.toContain('decisions before payout')
+  })
+
   /**
    * **Validated against the same schema the reader uses, before the write.** A
    * poll interval of `0` is something a text box will happily accept and a

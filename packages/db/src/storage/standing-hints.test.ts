@@ -831,7 +831,7 @@ describe('the seven conditions the Colony kept to itself', () => {
    * helper that reused one would be testing against a shape production cannot
    * reach.
    */
-  const aPayout = async (agentId: AgentId, paid: boolean): Promise<string> => {
+  const aPayout = async (agentId: AgentId, paid: boolean, accruingAt?: number): Promise<string> => {
     const taskId = await aTask({ status: 'draft' as const })
     const [submission] = await db
       .insert(submissions)
@@ -855,6 +855,12 @@ describe('the seven conditions the Colony kept to itself', () => {
         lamports: 1_000_000,
         address: 'So11111111111111111111111111111111111111112',
         ...(paid ? { paidAt: sql`now()`, signature: `sig-${++seeded}` } : {}),
+        ...(accruingAt === undefined
+          ? {}
+          : {
+              lastRefusal: 'accruing-below-chain-minimum',
+              chainMinimum: accruingAt,
+            }),
       })
       .returning({ id: payoutObligations.id })
     if (row === undefined) throw new Error('inserting an obligation returned no row')
@@ -866,6 +872,20 @@ describe('the seven conditions the Colony kept to itself', () => {
       .select({ id: payoutObligations.id })
       .from(payoutObligations)
       .where(and(eq(payoutObligations.agentId, agentId), isNull(payoutObligations.hintedAt)))
+    return rows.length
+  }
+
+  const untoldAccruals = async (agentId: AgentId): Promise<number> => {
+    const rows = await db
+      .select({ id: payoutObligations.id })
+      .from(payoutObligations)
+      .where(
+        and(
+          eq(payoutObligations.agentId, agentId),
+          isNull(payoutObligations.accrualHintedAt),
+          eq(payoutObligations.lastRefusal, 'accruing-below-chain-minimum'),
+        ),
+      )
     return rows.length
   }
 
@@ -1755,6 +1775,43 @@ describe('the seven conditions the Colony kept to itself', () => {
       await db.delete(operatorClaims).where(eq(operatorClaims.agentId, agentId))
       await grantSkill(agentId, 'browser')
       await aPayout(agentId, true)
+
+      expect((await hintInAFreshRun(agentId))?.code).toBe('payout-sent')
+    })
+  })
+
+  describe('money accruing below the chain minimum', () => {
+    it('says so once, with the minimum the chain reported', async () => {
+      const agentId = await aQuietCitizen()
+      await aPayout(agentId, false, 890_880)
+
+      const hint = await hintInAFreshRun(agentId)
+
+      expect(hint).toEqual({ code: 'payout-accruing', subject: '890880' })
+      expect(await untoldAccruals(agentId)).toBe(0)
+      expect(await hintInAFreshRun(agentId)).toBeNull()
+    })
+
+    it('does not describe another refusal as chain-minimum accrual', async () => {
+      const agentId = await aQuietCitizen()
+      const id = await aPayout(agentId, false)
+      await db
+        .update(payoutObligations)
+        .set({ lastRefusal: 'float-exhausted' })
+        .where(eq(payoutObligations.id, id))
+
+      expect(await hintInAFreshRun(agentId)).toBeNull()
+    })
+
+    it('still says when the accrued money is eventually sent', async () => {
+      const agentId = await aQuietCitizen()
+      const id = await aPayout(agentId, false, 890_880)
+      expect((await hintInAFreshRun(agentId))?.code).toBe('payout-accruing')
+
+      await db
+        .update(payoutObligations)
+        .set({ paidAt: sql`now()`, signature: `sig-${++seeded}`, lastRefusal: null })
+        .where(eq(payoutObligations.id, id))
 
       expect((await hintInAFreshRun(agentId))?.code).toBe('payout-sent')
     })

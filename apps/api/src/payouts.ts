@@ -51,7 +51,7 @@ export interface PayoutDesk {
    * Colony owes* a number that never comes down.
    */
   forfeit(id: string): Promise<void>
-  recordAttempt(id: string, refusal: PayoutRefusal): Promise<void>
+  recordAttempt(id: string, refusal: PayoutRefusal, chainMinimum?: number): Promise<void>
   paidToday(): Promise<number>
   owed(): Promise<number>
   /**
@@ -160,7 +160,8 @@ export function databasePayouts(db: Database): PayoutDesk {
     outstanding: () => outstandingInDatabase(db),
     markPaid: (id, signature) => markPaidInDatabase(db, id, signature),
     forfeit: (id) => forfeitInDatabase(db, id),
-    recordAttempt: (id, refusal) => recordAttemptInDatabase(db, id, refusal),
+    recordAttempt: (id, refusal, chainMinimum) =>
+      recordAttemptInDatabase(db, id, refusal, chainMinimum),
     paidToday: () => paidTodayInDatabase(db),
     owed: () => owedInDatabase(db),
     stuck: (minAttempts) => stuckInDatabase(db, minAttempts),
@@ -357,7 +358,7 @@ export async function runPayouts(deps: PayoutDependencies): Promise<PayoutPassOu
         continue
       }
 
-      await defer(desk, obligation, refusal, refused)
+      await defer(desk, obligation, refusal, refused, rentMinimum)
       // Every later payout would hit the same wall, and a hundred identical
       // alerts is a hundred fewer people reading them.
       if (refusal === 'above-daily-ceiling') break
@@ -433,9 +434,10 @@ async function defer(
   obligation: OutstandingPayout,
   refusal: PayoutRefusal,
   refused: Record<string, number>,
+  chainMinimum?: number,
 ): Promise<void> {
   refused[refusal] = (refused[refusal] ?? 0) + 1
-  await desk.recordAttempt(obligation.id, refusal)
+  await desk.recordAttempt(obligation.id, refusal, chainMinimum)
 }
 
 /**

@@ -68,6 +68,8 @@ interface Standing {
    * `payout_obligations.hinted_at`.
    */
   readonly payoutUntold: boolean
+  /** The chain minimum behind a `payout-accruing` finding, if untold. */
+  readonly accrualUntold: number | null
 }
 
 /**
@@ -629,6 +631,46 @@ async function claimPayoutHint(db: Database | Transaction, agentId: AgentId): Pr
   return claimed.length > 0
 }
 
+/** The chain minimum behind money whose wait this citizen has not been told about (`#654`). */
+async function untoldAccrual(db: Database | Transaction, agentId: AgentId): Promise<number | null> {
+  const [row] = await db
+    .select({ chainMinimum: payoutObligations.chainMinimum })
+    .from(payoutObligations)
+    .where(
+      and(
+        eq(payoutObligations.agentId, agentId),
+        eq(payoutObligations.lastRefusal, 'accruing-below-chain-minimum'),
+        isNull(payoutObligations.paidAt),
+        isNull(payoutObligations.forfeitedAt),
+        isNull(payoutObligations.accrualHintedAt),
+        isNotNull(payoutObligations.chainMinimum),
+      ),
+    )
+    .orderBy(asc(payoutObligations.createdAt))
+    .limit(1)
+
+  return row?.chainMinimum ?? null
+}
+
+/** Mark every currently accruing obligation explained by the one sentence (`#654`). */
+async function claimAccrualHint(db: Database | Transaction, agentId: AgentId): Promise<boolean> {
+  const claimed = await db
+    .update(payoutObligations)
+    .set({ accrualHintedAt: sql`now()` })
+    .where(
+      and(
+        eq(payoutObligations.agentId, agentId),
+        eq(payoutObligations.lastRefusal, 'accruing-below-chain-minimum'),
+        isNull(payoutObligations.paidAt),
+        isNull(payoutObligations.forfeitedAt),
+        isNull(payoutObligations.accrualHintedAt),
+      ),
+    )
+    .returning({ id: payoutObligations.id })
+
+  return claimed.length > 0
+}
+
 /**
  * Whether this citizen's own latest declaration says the run has no shell
  * (`#372`).
@@ -772,6 +814,7 @@ async function standing(
       ticket: null,
       account: null,
       payoutUntold: false,
+      accrualUntold: null,
     }
   }
 
@@ -802,6 +845,7 @@ async function conditions(
     questsAwaitingReview,
     untoldKind,
     questAwaitingPayment,
+    accrualUntold,
     payoutUntold,
   ] = await Promise.all([
     unpromptedConsideration(db, agentId, cheap.declaredRhythmHours),
@@ -820,6 +864,7 @@ async function conditions(
     stewardWithQueue(db, agentId),
     untoldAccountKind(db, agentId),
     ownQuestAwaitingPayment(db, agentId),
+    untoldAccrual(db, agentId),
     untoldPayout(db, agentId),
   ])
 
@@ -914,6 +959,9 @@ async function conditions(
   if (untoldKind !== null) {
     applicable.push({ code: 'account-kind-proved', subject: untoldKind.kind })
   }
+  if (accrualUntold !== null) {
+    applicable.push({ code: 'payout-accruing', subject: String(accrualUntold) })
+  }
   if (!seven.hasOperator) applicable.push({ code: 'operator-unclaimed', subject: null })
   if (seven.unusedSkill !== null) {
     applicable.push({ code: 'skill-unused', subject: seven.unusedSkill })
@@ -964,6 +1012,7 @@ async function conditions(
     ticket: seven.ticket?.id ?? null,
     account: untoldKind?.id ?? null,
     payoutUntold,
+    accrualUntold,
   }
 }
 
@@ -1108,6 +1157,11 @@ export async function dueStandingHint(
     if (chosen.code === 'payout-sent') {
       if (!found.payoutUntold) return null
       if (!(await claimPayoutHint(db, agentId))) return null
+    }
+
+    if (chosen.code === 'payout-accruing') {
+      if (found.accrualUntold === null) return null
+      if (!(await claimAccrualHint(db, agentId))) return null
     }
 
     return chosen

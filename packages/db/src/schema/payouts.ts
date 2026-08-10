@@ -164,6 +164,14 @@ export const payoutObligations = pgTable(
     lastAttemptAt: timestamp('last_attempt_at', { withTimezone: true, mode: 'string' }),
     /** The last refusal — `PayoutRefusalSchema` in core. Null on a fresh or settled row. */
     lastRefusal: text('last_refusal'),
+    /**
+     * The chain minimum observed when an unfunded wallet made this accrue.
+     *
+     * Persisted rather than copied from the fallback constant because the chain
+     * owns the figure. The standing hint must say the number that actually
+     * stopped the transfer, including when the fallback was not used.
+     */
+    chainMinimum: bigint('chain_minimum', { mode: 'number' }),
 
     /**
      * When the amount was forfeited to the Treasury instead of paid, and why.
@@ -198,6 +206,12 @@ export const payoutObligations = pgTable(
      * wakings, which is `#231`'s wallpaper failure with extra steps.
      */
     hintedAt: timestamp('hinted_at', { withTimezone: true, mode: 'string' }),
+    /**
+     * When the Colony explained that this obligation is accruing below the chain
+     * minimum (`#654`). Separate from `hinted_at`, so saying why the money waited
+     * cannot suppress the later notice that it was sent.
+     */
+    accrualHintedAt: timestamp('accrual_hinted_at', { withTimezone: true, mode: 'string' }),
   },
   (table) => [
     /**

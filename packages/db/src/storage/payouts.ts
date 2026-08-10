@@ -333,6 +333,7 @@ export async function recordPayoutAttempt(
   db: Database,
   id: string,
   refusal: PayoutRefusal,
+  chainMinimum?: number,
 ): Promise<void> {
   await db
     .update(payoutObligations)
@@ -340,6 +341,9 @@ export async function recordPayoutAttempt(
       attempts: sql`${payoutObligations.attempts} + 1`,
       lastAttemptAt: sql`now()`,
       lastRefusal: refusal,
+      ...(refusal === 'accruing-below-chain-minimum' && chainMinimum !== undefined
+        ? { chainMinimum }
+        : {}),
     })
     .where(and(eq(payoutObligations.id, id), isNull(payoutObligations.paidAt)))
 }

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { handoverNotice } from '@kolonie-ai/core'
+import { handoverNotice, RENT_EXEMPT_MINIMUM_FALLBACK } from '@kolonie-ai/core'
 import {
   ERROR_STATUS,
   solFromLamports,
@@ -1207,9 +1207,25 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
             .send({ code: 'validation_failed', message: outcome.reason })
     }
 
+    const reviewAccrualNotice =
+      name === 'QUEST_REVIEW_REWARD_LAMPORTS' && Number(body.value) < RENT_EXEMPT_MINIMUM_FALLBACK
+        ? `At ${Number(body.value).toLocaleString('en-US')} lamports, a new steward with an ` +
+          `unfunded wallet needs ${String(
+            Math.ceil(RENT_EXEMPT_MINIMUM_FALLBACK / Number(body.value)),
+          )} decisions before payout clears the ${RENT_EXEMPT_MINIMUM_FALLBACK.toLocaleString(
+            'en-US',
+          )} lamport chain minimum. Nothing is lost; each reward accrues until then.`
+        : undefined
+
     return wantsHtml(request)
-      ? reply.status(303).header('location', '/backend').send()
-      : reply.status(200).send({ name, written: true })
+      ? reviewAccrualNotice === undefined
+        ? reply.status(303).header('location', '/backend').send()
+        : await renderBackend(request, reply, reviewAccrualNotice)
+      : reply.status(200).send({
+          name,
+          written: true,
+          ...(reviewAccrualNotice && { notice: reviewAccrualNotice }),
+        })
   })
 
   /**

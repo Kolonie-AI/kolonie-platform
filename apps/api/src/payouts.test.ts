@@ -34,7 +34,7 @@ const anObligation = (overrides: Partial<OutstandingPayout> = {}): OutstandingPa
 })
 
 function fakeDesk(outstanding: readonly OutstandingPayout[], owed = 0) {
-  const attempts: { id: string; refusal: PayoutRefusal }[] = []
+  const attempts: { id: string; refusal: PayoutRefusal; chainMinimum?: number }[] = []
   const paid: { id: string; signature: string }[] = []
   const forfeited: string[] = []
 
@@ -47,8 +47,8 @@ function fakeDesk(outstanding: readonly OutstandingPayout[], owed = 0) {
     forfeit: async (id) => {
       forfeited.push(id)
     },
-    recordAttempt: async (id, refusal) => {
-      attempts.push({ id, refusal })
+    recordAttempt: async (id, refusal, chainMinimum) => {
+      attempts.push({ id, refusal, ...(chainMinimum !== undefined && { chainMinimum }) })
     },
     paidToday: async () => 0,
     owed: async () => owed || outstanding.reduce((sum, o) => sum + o.lamports, 0),
@@ -163,6 +163,7 @@ describe('a payout pass', () => {
 
     expect(paid).toEqual([])
     expect(attempts[0]?.refusal).toBe('accruing-below-chain-minimum')
+    expect(attempts[0]?.chainMinimum).toBe(890_880)
   })
 
   /**

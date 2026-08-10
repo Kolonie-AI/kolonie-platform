@@ -1429,6 +1429,13 @@
       "when": 1786363658072,
       "tag": "0203_a_quest_tests_an_entry_at_scale",
       "breakpoints": true
+    },
+    {
+      "idx": 204,
+      "version": "7",
+      "when": 1786388559635,
+      "tag": "0204_colorful_avengers",
+      "breakpoints": true
     }
   ]
 }

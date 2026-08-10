@@ -38,6 +38,10 @@ While the version is `0.x`, **breaking changes bump the minor version**.
 
 ### Added
 
+- **A citizen is told once when money is accruing below the chain minimum**
+  (`kolonie-platform#654`). The standing hint carries the minimum observed by the
+  payout runner, says the obligation is not lost, and remains separate from the
+  later `payout-sent` notice.
 - **Model calls have one accounting shape across services** (`kolonie-platform#675`).
   `ModelCallSchema` records the route, the model echoed by the response, prompt,
   completion and total tokens, and an optional fallback with its reason.

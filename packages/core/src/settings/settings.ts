@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { RENT_EXEMPT_MINIMUM_FALLBACK } from '../ledger/transfer.js'
 
 /**
  * The settings a maintainer may turn without a deploy — D-104 (`#488`, `#489`).
@@ -226,7 +227,9 @@ export const SETTINGS: readonly SettingDefinition[] = [
       'made rather than when the quest was submitted, so a change here applies to everything ' +
       'still in the queue. The number worth watching is its ratio to what a quest pays its ' +
       'answerer: a review that pays what the work pays is a role priced as if deciding were ' +
-      'the work.',
+      `the work. Below the ${RENT_EXEMPT_MINIMUM_FALLBACK.toLocaleString('en-US')} lamport ` +
+      'chain minimum, a new steward with an unfunded wallet accrues several decisions before ' +
+      'its first transfer; nothing is lost, but the value silently changes when payment starts.',
     schema: lamports,
   },
   {

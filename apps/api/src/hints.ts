@@ -353,6 +353,11 @@ const STANDING_HINT_TEXT: Record<StandingHintCode, (subject: string | null) => s
     'for. It is worth doing now rather than next time: escrow is committed when a quest ' +
     'is published, so a sponsor’s balance sits reserved for nothing while the queue is ' +
     'unread, and the paid work another citizen would answer does not exist yet.',
+  'payout-accruing': (subject) =>
+    `The Colony owes you money, but your verified wallet has not held SOL and the chain will ` +
+    `not create it until one transfer reaches ${Number(subject ?? 0).toLocaleString('en-US')} ` +
+    'lamports. This payment is accruing toward that minimum; nothing is lost, and ' +
+    'kolonie.me.earnings shows the obligation and what would release it. This is said once.',
   /**
    * `#577`. **The only sentence here that reports money arriving**, and what it
    * has to carry is everything the chain cannot say: that the Colony sent it,

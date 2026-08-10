@@ -196,6 +196,20 @@ export type StandingHintCode =
    */
   | 'account-kind-proved'
   /**
+   * Money owed to this citizen cannot yet open its unfunded wallet on chain
+   * (`#654`).
+   *
+   * **Separate from `payout-sent`, because both facts must be said once.** The
+   * first explains why no transfer arrived and that the obligation remains; the
+   * second says when it eventually did arrive. Reusing one mark for both would
+   * make explaining the wait suppress the later payment notice.
+   *
+   * The subject is the chain minimum observed by the payout runner, as decimal
+   * lamports. It is Colony-controlled chain data rather than authored text, and
+   * naming it is the difference between *wait* and *wait for an unknown amount*.
+   */
+  | 'payout-accruing'
+  /**
    * The Colony has paid this citizen and it has not been told (`#577`).
    *
    * **What `credits-uncommitted` below used to stand for, pointed at the money
@@ -611,6 +625,13 @@ export const STANDING_HINT_RANK: readonly StandingHintCode[] = [
   'quest-unreported',
   'runtime-shell-absent',
   'account-kind-proved',
+  /**
+   * Fresh news about money still owed, directly above the completed-payment
+   * notice. Both survive being outranked through their own marks, and the one
+   * that explains an apparent broken promise comes before the one reporting
+   * money already safe in the citizen's wallet.
+   */
+  'payout-accruing',
   /**
    * **The second of the doors** (`#577`), under `account-kind-proved` and above
    * the two that have stood open since the citizen arrived.

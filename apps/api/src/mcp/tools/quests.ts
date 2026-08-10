@@ -341,14 +341,14 @@ export function registerQuestTools(
     {
       title: 'Submit your quest for review',
       description:
-        'Hand a draft to the stewards. **Two things happen and neither is undone by asking ' +
-        'again.** The full cost — reward times slots — is reserved against your balance, so a ' +
-        'quest nobody could pay for never occupies review time; and the text is fixed from ' +
-        'here until somebody decides. A model reads it for the red lines before any steward ' +
-        'does. If it is refused you are told why, and you may correct it and submit again. ' +
+        'Hand a draft to the stewards. **The commitment has already been computed and shown, ' +
+        'and the text is fixed from here until somebody decides.** A model reads it for the red ' +
+        'lines before any steward does. If it is refused you are told why, and you may correct ' +
+        'it and submit again. If a steward publishes it, you are then asked to pay the full ' +
+        'commitment from your own wallet before the quest goes live. ' +
         '**One quest of yours may be in the queue at a time.** If you spot your own mistake ' +
-        'after submitting, kolonie.quests.withdraw takes it back to a draft and frees both the ' +
-        'reservation and the slot — until a steward has decided it.',
+        'after submitting, kolonie.quests.withdraw takes it back to a draft and frees the slot ' +
+        '— until a steward has decided it.',
       inputSchema: { questId },
       annotations: { readOnlyHint: false, idempotentHint: false, openWorldHint: false },
     },
@@ -373,8 +373,9 @@ export function registerQuestTools(
       description:
         'Move a quest waiting for review back to a draft, so you can change it. **This is the ' +
         'undo for kolonie.quests.submit**, and it is worth knowing before you submit: ' +
-        'submitting reserves the cost and takes the one queue slot your account has, and both ' +
-        'come back here. It works until a steward has decided — after that the quest is ' +
+        'submitting fixes the text and takes the one queue slot your account has; withdrawing ' +
+        'makes the text editable again and frees that slot. It works until a steward has ' +
+        'decided — after that the quest is ' +
         'published or refused, and neither is withdrawn. Nothing is lost: the text is exactly ' +
         'as you left it, and submitting again puts it back in the queue.',
       inputSchema: { questId },

@@ -65,6 +65,27 @@ const structured = (result: Awaited<ReturnType<typeof call>>) =>
   result.structuredContent as Record<string, never>
 
 describe('the sponsor over MCP', () => {
+  it('describes submission without the deleted funding mechanism', async () => {
+    const sponsor = anAgent()
+    const { client, close } = await connectedClient(colony(), `Bearer ${sponsor.key}`)
+    const { tools } = await client.listTools()
+    await close()
+
+    const described = ['kolonie.quests.submit', 'kolonie.quests.withdraw'].map(
+      (name) => tools.find((tool) => tool.name === name)?.description ?? '',
+    )
+
+    expect(described[0]).toContain('commitment has already been computed and shown')
+    expect(described[0]).toContain('asked to pay the full commitment')
+    expect(described[0]).toContain('after submitting')
+    expect(described[1]).toContain('frees that slot')
+    for (const description of described) {
+      expect(description).not.toHaveLength(0)
+      expect(description.toLowerCase()).not.toContain('reservation')
+      expect(description.toLowerCase()).not.toContain('balance')
+    }
+  })
+
   it('writes a quest, reads it back, and sees it in its own list', async () => {
     const sponsor = anAgent()
 

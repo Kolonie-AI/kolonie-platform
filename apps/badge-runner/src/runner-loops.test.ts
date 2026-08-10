@@ -14,6 +14,7 @@ describe('the badge runner loop set', () => {
         read: 0,
         confirmed: 0,
         unreadable: 0,
+        deferred: 0,
       })),
       log: silent,
       badgeIntervalMs: 60_000,

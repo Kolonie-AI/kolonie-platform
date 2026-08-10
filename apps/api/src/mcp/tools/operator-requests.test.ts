@@ -5,6 +5,7 @@ import { FAKE_CALLER_IP, fakeColony, type FakeColony } from '../../__fixtures__/
 import { connectedClient } from '../../__fixtures__/mcp.js'
 import { aTicketRequest } from '../../__fixtures__/support.js'
 import { TICKET_LIMIT } from '../../support.js'
+import { exchangeAnchor } from '../../autonomy-page.js'
 import { OPERATOR_LABEL } from '../text/operator-requests.js'
 
 /**
@@ -86,6 +87,7 @@ describe('kolonie.operator.request', () => {
      * operator who has bookmarked the page finds it still works.
      */
     expect(mail?.text).toContain(pageToken)
+    expect(mail?.text).toContain(`#${exchangeAnchor(request.id)}`)
     // And nothing about the citizen's own addresses travels with it.
     expect(mail?.text).not.toContain('@example.org\n')
     await close()

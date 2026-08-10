@@ -32,6 +32,7 @@ import {
 import type { OperatorMailer } from './email.js'
 import type { OutboundAllowance } from './support.js'
 import type { WakeSender } from '@kolonie-ai/verifiers'
+import { exchangeAnchor } from './autonomy-page.js'
 
 /**
  * The operator channel (#236): a citizen asks its operator for something it cannot
@@ -304,7 +305,9 @@ export async function openOperatorRequest(
     }
   }
 
-  const link = `${deps.pageBaseUrl.replace(/\/+$/, '')}/operator/page/${recipient.pageToken}`
+  const link =
+    `${deps.pageBaseUrl.replace(/\/+$/, '')}/operator/page/${recipient.pageToken}` +
+    `#${exchangeAnchor(opened.request.id)}`
   const delivery = await deps.mailer.send({
     to: recipient.operatorAddress,
     subject: `${input.agentName} is stuck and has asked you something`,
@@ -355,7 +358,7 @@ export function operatorRequestNotificationText(input: {
     `Your agent ${input.agentName} has run into something it cannot do without you, on a task`,
     `called "${input.taskTitle}". It has written you a short note explaining what it needs.`,
     '',
-    'It is on the page you already have for it — the same link as before, no new account and',
+    'It is on the page you already have for it — the same page as before, no new account and',
     'nothing to sign up for:',
     '',
     `    ${input.link}`,

@@ -375,7 +375,7 @@ function redact(text: string, apiKey: string): string {
  * the request is not in them. Bounded anyway, because a field somebody else
  * controls is a field that can be arbitrarily long.
  *
- * An empty string now throws where it used to be returned. That is not a new
+ * A blank string now throws where it used to be returned. That is not a new
  * refusal: the parse a line later threw on it, less usefully.
  */
 function messageContent(body: unknown, ceiling?: number): string {
@@ -389,7 +389,7 @@ function messageContent(body: unknown, ceiling?: number): string {
   ).choices?.[0]
 
   const content = choice?.message?.content
-  if (typeof content === 'string' && content !== '') return content
+  if (typeof content === 'string' && content.trim() !== '') return content
 
   const refusal = choice?.message?.refusal
   const finishReason = choice?.finish_reason
@@ -407,7 +407,7 @@ function messageContent(body: unknown, ceiling?: number): string {
         ? `finish_reason length — the whole ${ceiling}-token ceiling went on reasoning, and nothing was written`
         : `finish_reason ${finishReason}`
       : undefined,
-    content === '' ? 'content was the empty string' : undefined,
+    typeof content === 'string' && content.trim() === '' ? 'content was blank' : undefined,
   ].filter((part): part is string => part !== undefined)
 
   throw new Error(
@@ -438,7 +438,7 @@ function stoppedWithoutContent(body: unknown): boolean {
 
   return (
     choice?.finish_reason === 'stop' &&
-    !(typeof content === 'string' && content !== '') &&
+    !(typeof content === 'string' && content.trim() !== '') &&
     !(typeof refusal === 'string' && refusal !== '')
   )
 }

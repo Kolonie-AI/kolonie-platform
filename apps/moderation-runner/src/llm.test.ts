@@ -528,6 +528,41 @@ describe('composing', () => {
     ])
   })
 
+  /** A stopped response containing only JSON whitespace is the empty anomaly from #599. */
+  it('retries once when a stopped briefing contains only whitespace', async () => {
+    const { impl, sent } = stubFetchSequence(
+      { choices: [{ message: { content: ' \n' }, finish_reason: 'stop' }] },
+      aBriefing('{"section":"wall","text":"A real wall.","sources":["a"]}'),
+    )
+
+    const claims = await openRouterModel('a-key', { fetch: impl }).compose({
+      system: 's',
+      user: 'u',
+      sections: ['wall'],
+      sourceIds: ['a'],
+      maxClaimLength: 400,
+    })
+
+    expect(claims).toEqual([{ section: 'wall', text: 'A real wall.', sources: ['a'] }])
+    expect(sent).toHaveLength(2)
+  })
+
+  it('fails after one retry when stopped briefings remain blank', async () => {
+    const blank = { choices: [{ message: { content: '\n\t' }, finish_reason: 'stop' }] }
+    const { impl, sent } = stubFetchSequence(blank, blank)
+
+    await expect(
+      openRouterModel('a-key', { fetch: impl }).compose({
+        system: 's',
+        user: 'u',
+        sections: ['wall'],
+        sourceIds: ['a'],
+        maxClaimLength: 400,
+      }),
+    ).rejects.toThrow('content was blank')
+    expect(sent).toHaveLength(2)
+  })
+
   /**
    * **A malformed claim must not cost the good ones beside it.**
    *

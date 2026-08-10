@@ -66,7 +66,14 @@ describe('the providers the Atlas lists', () => {
       }
     })
 
-    /** A guess is defensible on two shelves; everywhere else the answer is silence. */
+    /**
+     * **One shelf since `#679`, and it used to be two.** A guess is defensible
+     * where a statute puts a person in the way, and `commerce-marketplace` was
+     * the other such shelf — until every entry on it turned out to fail the
+     * first listing question outright and the shelf was emptied. What is left is
+     * `payments-finance`, where `ko-fi` and `opencollective` may plausibly be
+     * held and may plausibly need a person.
+     */
     it('guesses at the operator answer only where a statute puts a person in the way', () => {
       const guessed = new Set(
         LISTED_ATLAS_ENTRIES.filter((entry) => entry.operatorGuess !== undefined).map(
@@ -74,7 +81,7 @@ describe('the providers the Atlas lists', () => {
         ),
       )
 
-      expect(guessed).toEqual(new Set(['payments-finance', 'commerce-marketplace']))
+      expect(guessed).toEqual(new Set(['payments-finance']))
     })
   })
 
@@ -113,10 +120,15 @@ describe('the providers the Atlas lists', () => {
     it('marks a guessed operator answer as a guess', async () => {
       await seedListedAtlasEntries(db)
 
-      const stripe = await providerRecipe(db, 'payments' as never, 'stripe.com')
+      // `stripe.com` was this assertion's subject until `#679` removed it: an
+      // agent cannot hold a Stripe account at all, so a guess about whether an
+      // operator is needed was answering the second question while the first
+      // was already no. `ko-fi.com` is the honest version — plausibly holdable,
+      // plausibly needing a person, nobody has looked.
+      const kofi = await providerRecipe(db, 'payments' as never, 'ko-fi.com')
 
-      expect(stripe?.operatorNeed).toBe('operator-needed')
-      expect(stripe?.operatorNeedIsGuess).toBe(true)
+      expect(kofi?.operatorNeed).toBe('operator-needed')
+      expect(kofi?.operatorNeedIsGuess).toBe(true)
     })
 
     it('answers unknown, unguessed, where nobody has looked and nothing was assumed', async () => {

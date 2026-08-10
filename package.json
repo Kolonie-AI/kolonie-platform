@@ -2,7 +2,7 @@
   "name": "kolonie-platform",
   "version": "0.0.0",
   "private": true,
-  "description": "Kolonie AI platform monorepo — domain model, API, MCP, task engine, academy verifiers, coins ledger",
+  "description": "Kolonie AI platform monorepo \u2014 domain model, API, MCP, task engine, academy verifiers, coins ledger",
   "license": "AGPL-3.0-or-later",
   "type": "module",
   "engines": {
@@ -31,10 +31,12 @@
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
     "format:check": "node scripts/cached-lint.mjs prettier",
-    "check": "npm run format:check && npm run lint && npm run build && npm run check:migrations && npm run typecheck && npm run test",
-    "check:fast": "npm run format:check && npm run lint && npm run build && npm run check:migrations && npm run typecheck && echo \"\" && echo \"check:fast finished. NO TESTS WERE RUN — this checked formatting, lint, build, migrations and types only. Run npm run check before you push.\"",
+    "check": "npm run format:check && npm run lint && npm run build && npm run check:migrations && npm run check:changelog && npm run typecheck && npm run test",
+    "check:fast": "npm run format:check && npm run lint && npm run build && npm run check:migrations && npm run check:changelog && npm run typecheck && echo \"\" && echo \"check:fast finished. NO TESTS WERE RUN \u2014 this checked formatting, lint, build, migrations and types only. Run npm run check before you push.\"",
     "check:migrations": "bash packages/db/scripts/check-migrations.sh",
-    "check:counts": "node scripts/check-counts.mjs"
+    "check:counts": "node scripts/check-counts.mjs",
+    "changelog": "node scripts/build-changelog.mjs",
+    "check:changelog": "node scripts/build-changelog.mjs --check"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

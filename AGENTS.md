@@ -246,7 +246,10 @@ A verifier deployed late must never fail submissions that were correct.
 - [ ] New behaviour has tests, including at least one rejection case
 - [ ] New core exports are reachable from `packages/core/src/index.ts`
 - [ ] Public symbols have a doc comment explaining _why_, not just what
-- [ ] `packages/core/CHANGELOG.md` updated if the domain model changed
+- [ ] A file in `packages/core/changes/` if the domain model changed, and
+      `node scripts/build-changelog.mjs` run — **not an edit to
+      `packages/core/CHANGELOG.md`**, which is produced from that directory
+      (`#672`). `npm run check` fails if the two disagree
 - [ ] Breaking changes labelled in the PR, with affected workspaces named
 - [ ] No secrets, hosts or IPs anywhere in the diff
 

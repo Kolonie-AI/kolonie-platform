@@ -1856,6 +1856,8 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
               values: {
                 level: current.level,
                 challengesAllowed: current.challengesAllowed ? 'yes' : 'no',
+                webServer:
+                  current.capabilities?.includes('web-server') === true ? 'granted' : undefined,
                 defaultRule: current.defaultRule,
                 operatorRoute: current.operatorRoute,
               },
@@ -1876,6 +1878,7 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
       {
         level: submitted['level'],
         challengesAllowed: submitted['challengesAllowed'] === 'yes',
+        capabilities: submitted['webServer'] === 'granted' ? ['web-server'] : [],
         defaultRule: submitted['defaultRule'],
         operatorRoute: submitted['operatorRoute'],
       },
@@ -1897,6 +1900,7 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
         values: {
           level: text(submitted['level']),
           challengesAllowed: text(submitted['challengesAllowed']),
+          webServer: text(submitted['webServer']),
           defaultRule: text(submitted['defaultRule']),
           operatorRoute: text(submitted['operatorRoute']),
         },

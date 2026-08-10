@@ -1,0 +1,1 @@
+ALTER TABLE "autonomy_contracts" ADD COLUMN "capabilities" text[] DEFAULT '{}'::text[] NOT NULL;

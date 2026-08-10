@@ -220,6 +220,7 @@ export function autonomyFormPage(input: {
     | {
         readonly level?: string | undefined
         readonly challengesAllowed?: string | undefined
+        readonly webServer?: string | undefined
         readonly defaultRule?: string | undefined
         readonly operatorRoute?: string | undefined
       }
@@ -305,6 +306,11 @@ export function autonomyFormPage(input: {
     'an accompanied agent may well be allowed, and an independent one may well not.</p>',
     `<p><label><input type="radio" name="challengesAllowed" value="yes" required${chosen('challengesAllowed', 'yes')}> Yes</label></p>`,
     `<p><label><input type="radio" name="challengesAllowed" value="no"${chosen('challengesAllowed', 'no')}> No</label></p>`,
+
+    '<h2>Specific capabilities</h2>',
+    '<p class="note">These are separate from how far the agent may generally go. Unticked means',
+    'not granted.</p>',
+    `<p><label><input type="checkbox" name="webServer" value="granted"${chosen('webServer', 'granted')}> <strong>Web server</strong> — it may run a server on your machine, publicly reachable, on a port it names.</label></p>`,
 
     '<h2>And when something comes up that you have not covered?</h2>',
     '<p class="note">One answer, given once. Without it every case you did not think of is a',
@@ -483,6 +489,7 @@ export function operatorDurablePage(input: {
   readonly contract: {
     readonly level: string
     readonly challengesAllowed: boolean
+    readonly capabilities?: readonly string[] | undefined
     readonly defaultRule: string
     readonly operatorRoute: string
     readonly recordedAt: string
@@ -823,6 +830,7 @@ export function operatorDurablePage(input: {
           '<table>',
           `<tr><th>How far it may go</th><td>${escape(input.contract.level)}</td></tr>`,
           `<tr><th>May clear “prove you are human” checks</th><td>${input.contract.challengesAllowed ? 'yes' : 'no'}</td></tr>`,
+          `<tr><th>May run a publicly reachable web server</th><td>${input.contract.capabilities?.includes('web-server') === true ? 'yes' : 'no'}</td></tr>`,
           `<tr><th>When something is not covered</th><td>${escape(
             input.contract.defaultRule === 'ask' ? 'it should ask you' : 'it should leave it alone',
           )}</td></tr>`,

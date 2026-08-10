@@ -38,6 +38,9 @@ While the version is `0.x`, **breaking changes bump the minor version**.
 
 ### Added
 
+- **Autonomy contracts carry named capability grants beside their level**
+  (`kolonie-platform#659`). The first is `web-server`; omitted capabilities mean
+  none were granted, so contracts recorded before this field remain safely readable.
 - **Recipe values can name an existing-account source**
   (`kolonie-platform#594`, wall 3). `RecipeKnownValueSourceSchema` and optional
   `RecipeStep.knownValues` let a later handoff reuse an identifier from a

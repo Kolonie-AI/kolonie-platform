@@ -26,6 +26,7 @@ const NARROW: AutonomyContract = {
 const BROAD: AutonomyContract = {
   level: 'free',
   challengesAllowed: true,
+  capabilities: ['web-server'],
   defaultRule: 'ask',
   operatorRoute: 'Slack, #kolonie.',
 }
@@ -123,11 +124,21 @@ describe('the autonomy contract', () => {
 
       expect(contract?.level).toBe('accompanied')
       expect(contract?.challengesAllowed).toBe(false)
+      expect(contract?.capabilities).toEqual([])
       expect(contract?.defaultRule).toBe('refrain')
       expect(contract?.operatorRoute).toBe('Ask Gregor first, always.')
       // A review date, not an expiry: it is in the future and nothing depends on
       // it having passed or not.
       expect(new Date(contract?.reviewDueAt ?? 0).getTime()).toBeGreaterThan(Date.now())
+    })
+
+    it('stores a named capability with the contract', async () => {
+      const invitation = await inviteOperator(db, agentId, 'operator@example.org')
+
+      const contract = await recordAutonomyContract(db, invitation.token, BROAD)
+
+      expect(contract?.capabilities).toEqual(['web-server'])
+      expect((await readAutonomyContract(db, agentId))?.capabilities).toEqual(['web-server'])
     })
 
     it('spends the form, so the same link cannot answer twice', async () => {

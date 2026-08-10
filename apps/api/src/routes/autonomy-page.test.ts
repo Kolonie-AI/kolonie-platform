@@ -177,6 +177,33 @@ describe('the operator’s form', () => {
       expect((await store.read(agentId))?.challengesAllowed).toBe(true)
     })
 
+    it('stores the web-server toggle as a named capability', async () => {
+      const token = await aForm()
+
+      await post(`/operator/autonomy/${token}`, {
+        level: 'free',
+        challengesAllowed: 'no',
+        webServer: 'granted',
+        defaultRule: 'ask',
+        operatorRoute: 'Slack.',
+      })
+
+      expect((await store.read(agentId))?.capabilities).toEqual(['web-server'])
+    })
+
+    it('stores an unticked web-server capability as not granted', async () => {
+      const token = await aForm()
+
+      await post(`/operator/autonomy/${token}`, {
+        level: 'free',
+        challengesAllowed: 'no',
+        defaultRule: 'ask',
+        operatorRoute: 'Slack.',
+      })
+
+      expect((await store.read(agentId))?.capabilities).toEqual([])
+    })
+
     /**
      * A dead end costs the citizen the whole rung: the person filling this in has
      * no account to come back through, so an incomplete answer has to return the
@@ -1330,6 +1357,15 @@ describe('the operator’s form', () => {
       expect(body).toContain('value="op@example.org"')
     })
 
+    it('asks for the web-server capability beside the level', async () => {
+      const token = await aForm()
+
+      const body = (await get(`/operator/autonomy/${token}`)).body
+
+      expect(body).toContain('name="webServer"')
+      expect(body).toContain('publicly reachable')
+    })
+
     /**
      * **A default, not a constraint.** The field is deliberately free text — *"In
      * your own words — an address, a channel, a name"* — and an operator who would
@@ -1361,12 +1397,13 @@ describe('the operator’s form', () => {
      * outright — *"The form comes back filled with nothing"* — and the cost was an
      * operator answering four questions twice on a link that works once.
      */
-    it('comes back holding all four answers after a rejected submission', async () => {
+    it('comes back holding every answer after a rejected submission', async () => {
       const token = await aForm()
 
       const response = await post(`/operator/autonomy/${token}`, {
         level: 'accompanied',
         challengesAllowed: 'no',
+        webServer: 'granted',
         defaultRule: 'refrain',
         // The one that fails, so the other three have to survive.
         operatorRoute: '',
@@ -1377,6 +1414,7 @@ describe('the operator’s form', () => {
       // `required`, so the attributes are not adjacent in every case.
       expect(response.body).toMatch(/value="accompanied"[^>]*checked/)
       expect(response.body).toMatch(/value="no"[^>]*checked/)
+      expect(response.body).toMatch(/name="webServer"[^>]*checked/)
       expect(response.body).toMatch(/value="refrain"[^>]*checked/)
     })
 

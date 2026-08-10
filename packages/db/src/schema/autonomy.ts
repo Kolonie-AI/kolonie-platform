@@ -68,6 +68,12 @@ export const autonomyContracts = pgTable(
      */
     challengesAllowed: boolean('challenges_allowed').notNull(),
 
+    /** Named grants beside the posture; an empty array means none were granted (#659). */
+    capabilities: text('capabilities')
+      .array()
+      .notNull()
+      .default(sql`'{}'::text[]`),
+
     defaultRule: autonomyDefaultRule('default_rule').notNull(),
 
     /**

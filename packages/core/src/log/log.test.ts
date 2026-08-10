@@ -3,10 +3,11 @@ import { describe, expect, it } from 'vitest'
 import { createLog, logLine, logRecord, serialiseError, UNSPECIFIED_EVENT } from './log.js'
 
 /** A logger writing into an array, with a clock that does not move. */
-function capturing(service = 'api') {
+function capturing(service = 'api', redactUrls?: readonly (string | undefined)[]) {
   const lines: string[] = []
   const log = createLog({
     service,
+    redactUrls,
     write: (line) => lines.push(line),
     now: () => new Date('2026-08-03T09:00:00.000Z'),
   })
@@ -77,6 +78,31 @@ describe('createLog', () => {
     log.error('the queue is empty and should not be', undefined, { event: 'queue.empty' })
 
     expect(records()[0]).not.toHaveProperty('err')
+  })
+
+  it('removes a configured host from every error in a cause chain', () => {
+    const configuredUrl = 'https://gateway.invalid/v1'
+    const dns = Object.assign(new Error('getaddrinfo ENOTFOUND gateway.invalid'), {
+      code: 'ENOTFOUND',
+    })
+    const transport = new Error('request to gateway.invalid failed', { cause: dns })
+    const error = new TypeError('fetch failed', { cause: transport })
+    const { log, lines, records } = capturing('moderation-runner', [configuredUrl])
+
+    log.error('model call failed', error, { event: 'llm.failed' })
+
+    expect(lines[0]).not.toContain('gateway.invalid')
+    expect(records()[0]).toMatchObject({
+      err: {
+        cause: {
+          message: 'request to [configured-host] failed',
+          cause: {
+            message: 'getaddrinfo ENOTFOUND [configured-host]',
+            code: 'ENOTFOUND',
+          },
+        },
+      },
+    })
   })
 
   it('carries the call site’s own ids flat beside the fixed fields', () => {

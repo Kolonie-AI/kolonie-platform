@@ -17,10 +17,16 @@ describe('the health of a process with two loops', () => {
     consecutiveFailures: 0,
   })
 
-  const loop = (name: string, health: RunnerHealth, staleAfterMs: number): LoopUnderWatch => ({
+  const loop = (
+    name: string,
+    health: RunnerHealth,
+    staleAfterMs: number,
+    gatesReadiness = true,
+  ): LoopUnderWatch => ({
     name,
     health: () => health,
     staleAfterMs,
+    gatesReadiness,
   })
 
   it('is ok when every loop has swept inside its own window', () => {
@@ -55,5 +61,17 @@ describe('the health of a process with two loops', () => {
 
     expect(report.reason).toContain('badges')
     expect(report.reason).toContain('quest-refunds')
+  })
+
+  it('reports attribution as stalled without keeping the process out of readiness', () => {
+    const waiting: RunnerHealth = { running: true, lastPollAt: null, consecutiveFailures: 0 }
+    const report = healthOfLoops([
+      loop('badges', alive(1000), 60_000),
+      loop('attribution', waiting, 60_000, false),
+    ])
+
+    expect(report.status).toBe('ok')
+    expect(report.loops['attribution']?.status).toBe('stalled')
+    expect(report.loops['attribution']?.reason).toBe('No poll has completed yet.')
   })
 })

@@ -6,7 +6,7 @@ import {
   recordAttributionReading,
   sweepBadges,
 } from '@kolonie-ai/db'
-import { fetchPage } from '@kolonie-ai/verifiers'
+import { fetchPage, PAGE_TIMEOUT_MS } from '@kolonie-ai/verifiers'
 import type { Log } from './loop.js'
 import { attributionSweep, sweepAttribution } from './attribution.js'
 import { badgeSweep } from './sweeps.js'
@@ -66,6 +66,7 @@ const loops = runnerLoops({
         record: (reading) => recordAttributionReading(db, reading),
       },
       {
+        readTimeoutMs: PAGE_TIMEOUT_MS,
         // The same SSRF-refusing reader the `website` rung uses. `missing` and
         // `unavailable` are one answer here: neither is a page that failed to
         // carry the link, so neither may be written down as a look.

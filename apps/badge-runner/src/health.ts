@@ -97,16 +97,16 @@ export interface LoopUnderWatch {
    * most of a day to look healthy. Each loop is asked about on its own terms.
    */
   readonly staleAfterMs: number
+  /** Whether this loop's state decides if the process is ready. */
+  readonly gatesReadiness: boolean
 }
 
 /**
  * What the endpoint answers when the process runs more than one loop (`#315`).
  *
- * **Any stalled loop stalls the container.** The alternative — reporting the
- * badge loop's health and mentioning the refund loop underneath — is the same
- * class of lie `process.exit(0)` was: a probe that passes while something inside
- * has been dead since its first poll. If the refund sweep is not turning, this
- * container is not doing its job, whatever the badges are doing.
+ * Every loop is reported, but only loops whose work the process controls gate
+ * readiness. Attribution reads other people's websites, so its state belongs in
+ * this report without letting an unreachable host roll back this process.
  */
 export interface ProcessHealthReport {
   readonly status: 'ok' | 'stalled'
@@ -119,22 +119,25 @@ export function healthOfLoops(
   at = Date.now(),
 ): ProcessHealthReport {
   const reports = loops.map(
-    (loop) => [loop.name, healthOf(loop.health(), loop.staleAfterMs, at)] as const,
+    (loop) =>
+      [loop.name, healthOf(loop.health(), loop.staleAfterMs, at), loop.gatesReadiness] as const,
   )
-  const stalled = reports.filter(([, report]) => report.status === 'stalled')
+  const stalled = reports.filter(([, report, gatesReadiness]) => {
+    return gatesReadiness && report.status === 'stalled'
+  })
 
   return {
     status: stalled.length === 0 ? 'ok' : 'stalled',
     ...(stalled.length > 0 && {
       reason: stalled.map(([name, report]) => `${name}: ${report.reason ?? 'stalled'}`).join(' '),
     }),
-    loops: Object.fromEntries(reports),
+    loops: Object.fromEntries(reports.map(([name, report]) => [name, report])),
   }
 }
 
 export interface HealthServerOptions {
   readonly port: number
-  /** Every loop the process runs. All of them decide the status code. */
+  /** Every loop the process runs; each declares whether it decides readiness. */
   readonly loops: readonly LoopUnderWatch[]
   /**
    * How deep the queue is, reported beside the loop's liveness and **never

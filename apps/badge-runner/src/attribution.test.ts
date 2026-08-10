@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { AgentId } from '@kolonie-ai/core'
+import { ATTRIBUTION_HREF, type AgentId } from '@kolonie-ai/core'
 import type { AttributionCandidate } from '@kolonie-ai/db'
 import {
   attributionSweep,
@@ -26,6 +26,7 @@ function fakeStore(candidates: readonly AttributionCandidate[]) {
 /** Pages by URL; anything not listed is unreadable. */
 function fakePages(pages: Readonly<Record<string, string>>): AttributionPages {
   return {
+    readTimeoutMs: 10_000,
     read: async (url) => {
       const html = pages[url]
       return html === undefined
@@ -113,7 +114,7 @@ describe('one pass of the attribution reading', () => {
       }),
     )
 
-    expect(outcome).toEqual({ read: 2, confirmed: 1, unreadable: 0 })
+    expect(outcome).toEqual({ read: 2, confirmed: 1, unreadable: 0, deferred: 0 })
     expect(store.written).toEqual([
       { agentId: 'a', url: 'https://says-so.example', found: true },
       { agentId: 'b', url: 'https://silent.example', found: false },
@@ -131,26 +132,58 @@ describe('one pass of the attribution reading', () => {
 
     const outcome = await sweepAttribution(store, fakePages({}))
 
-    expect(outcome).toEqual({ read: 0, confirmed: 0, unreadable: 1 })
+    expect(outcome).toEqual({ read: 0, confirmed: 0, unreadable: 1, deferred: 0 })
     expect(store.written).toEqual([])
+  })
+
+  it('ends before a read whose full timeout would exceed the pass budget', async () => {
+    const store = fakeStore([
+      { agentId: anAgent('a'), url: ATTRIBUTION_HREF },
+      { agentId: anAgent('b'), url: ATTRIBUTION_HREF },
+    ])
+    let at = 0
+    const pages: AttributionPages = {
+      readTimeoutMs: 10_000,
+      read: async () => {
+        at += 50_001
+        return { outcome: 'read', html: '<p>slow but readable</p>' }
+      },
+    }
+
+    const outcome = await sweepAttribution(store, pages, () => at)
+
+    expect(outcome).toEqual({ read: 1, confirmed: 0, unreadable: 0, deferred: 1 })
+    expect(store.written).toEqual([{ agentId: 'a', url: ATTRIBUTION_HREF, found: false }])
   })
 })
 
 describe('what the attribution pass is worth saying', () => {
-  const spec = attributionSweep(async () => ({ read: 0, confirmed: 0, unreadable: 0 }))
+  const spec = attributionSweep(async () => ({
+    read: 0,
+    confirmed: 0,
+    unreadable: 0,
+    deferred: 0,
+  }))
 
   /**
    * Silent forever, in the ordinary case. Most citizens will never put the badge
    * up, and a line every six hours saying so is a log nobody reads.
    */
   it('says nothing on a pass that confirmed nothing', () => {
-    expect(spec.report({ read: 20, confirmed: 0, unreadable: 3 })).toBeUndefined()
+    expect(spec.report({ read: 20, confirmed: 0, unreadable: 3, deferred: 0 })).toBeUndefined()
   })
 
   it('names how many pages carried the link', () => {
-    const line = spec.report({ read: 20, confirmed: 2, unreadable: 1 })
+    const line = spec.report({ read: 20, confirmed: 2, unreadable: 1, deferred: 0 })
 
     expect(line?.fields['event']).toBe('attribution.confirmed')
     expect(line?.fields['confirmed']).toBe(2)
+  })
+
+  it('says when the pass ended early', () => {
+    const line = spec.report({ read: 5, confirmed: 0, unreadable: 1, deferred: 19 })
+
+    expect(line?.fields['event']).toBe('attribution.pass.budget-exhausted')
+    expect(line?.fields['deferred']).toBe(19)
   })
 })

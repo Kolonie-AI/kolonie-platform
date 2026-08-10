@@ -21,6 +21,8 @@ import type { SweepSpec } from './loop.js'
 
 /** What the sweep needs of the world, so a test needs no web server. */
 export interface AttributionPages {
+  /** The full allowance one read may consume, reserved before it starts. */
+  readonly readTimeoutMs: number
   /** The page at this URL, or why it could not be read. */
   read(
     url: string,
@@ -45,7 +47,12 @@ export interface AttributionOutcome {
   readonly confirmed: number
   /** Pages that could not be read at all — no row is written for these. */
   readonly unreadable: number
+  /** Candidates left for the next pass because this pass spent its time budget. */
+  readonly deferred: number
 }
+
+/** One attribution pass may spend at most a minute on the open web. */
+export const ATTRIBUTION_PASS_BUDGET_MS = 60_000
 
 /**
  * Whether a page links to the Colony.
@@ -95,12 +102,19 @@ export function linksToTheColony(html: string, pageUrl: string): boolean {
 export async function sweepAttribution(
   store: AttributionStore,
   pages: AttributionPages,
+  now: () => number = Date.now,
 ): Promise<AttributionOutcome> {
+  const deadline = now() + ATTRIBUTION_PASS_BUDGET_MS
   const candidates = await store.candidates()
   let confirmed = 0
   let unreadable = 0
+  let attempted = 0
 
   for (const candidate of candidates) {
+    // Do not start a read unless its complete timeout still fits in this pass.
+    if (deadline - now() < pages.readTimeoutMs) break
+
+    attempted += 1
     const page = await pages.read(candidate.url)
 
     if (page.outcome === 'unreadable') {
@@ -114,7 +128,12 @@ export async function sweepAttribution(
     await store.record({ agentId: candidate.agentId, url: candidate.url, found })
   }
 
-  return { read: candidates.length - unreadable, confirmed, unreadable }
+  return {
+    read: attempted - unreadable,
+    confirmed,
+    unreadable,
+    deferred: candidates.length - attempted,
+  }
 }
 
 /**
@@ -130,18 +149,30 @@ export function attributionSweep(
   return {
     name: 'attribution',
     sweep,
-    empty: { read: 0, confirmed: 0, unreadable: 0 },
+    empty: { read: 0, confirmed: 0, unreadable: 0, deferred: 0 },
     report: (outcome) =>
-      outcome.confirmed === 0
-        ? undefined
-        : {
-            message: `attribution: ${outcome.confirmed} of ${outcome.read} pages link to the Colony`,
+      outcome.deferred > 0
+        ? {
+            message: `attribution pass ended early with ${outcome.deferred} pages deferred`,
             fields: {
-              event: 'attribution.confirmed',
+              event: 'attribution.pass.budget-exhausted',
               confirmed: outcome.confirmed,
               read: outcome.read,
               unreadable: outcome.unreadable,
+              deferred: outcome.deferred,
+              budgetMs: ATTRIBUTION_PASS_BUDGET_MS,
             },
-          },
+          }
+        : outcome.confirmed === 0
+          ? undefined
+          : {
+              message: `attribution: ${outcome.confirmed} of ${outcome.read} pages link to the Colony`,
+              fields: {
+                event: 'attribution.confirmed',
+                confirmed: outcome.confirmed,
+                read: outcome.read,
+                unreadable: outcome.unreadable,
+              },
+            },
   }
 }

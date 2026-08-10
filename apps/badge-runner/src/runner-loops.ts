@@ -29,12 +29,14 @@ export function runnerLoops(options: {
       name: 'badges',
       health: () => badges,
       staleAfterMs: options.badgeIntervalMs * STALE_POLLS,
+      gatesReadiness: true,
       start: () => startRunner(options.badges, options.log, badges, options.badgeIntervalMs),
     },
     {
       name: 'attribution',
       health: () => attribution,
       staleAfterMs: options.attributionIntervalMs * STALE_POLLS,
+      gatesReadiness: false,
       start: () =>
         startRunner(options.attribution, options.log, attribution, options.attributionIntervalMs),
     },

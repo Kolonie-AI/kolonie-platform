@@ -110,6 +110,51 @@ describe('the Atlas over MCP', () => {
       expect(result.response.entries[0]?.recipes[0]?.steps.length).toBeGreaterThan(0)
     })
 
+    it('does not promise a sealed box in structured steps when none is configured', async () => {
+      colony.recipes.write({
+        kind: 'github',
+        provider: 'github.com',
+        steps: [
+          {
+            actor: 'operator',
+            instruction: 'Mint a token.',
+            ask: 'Paste the token into the sealed box.',
+            secret: true,
+          },
+        ],
+      })
+      const result = await readAtlas({ provider: 'github.com' }, colony.recipes, false)
+      if (result.outcome !== 'ok') throw new Error('expected the read to succeed')
+
+      const secretStep = result.response.entries[0]?.recipes
+        .flatMap((recipe) => recipe.steps)
+        .find((step) => step.secret === true)
+      expect(secretStep?.ask).toContain('no sealed channel configured')
+      expect(secretStep?.ask).not.toContain('sealed box')
+    })
+
+    it('keeps the recipe ask when the sealed channel is configured', async () => {
+      colony.recipes.write({
+        kind: 'github',
+        provider: 'github.com',
+        steps: [
+          {
+            actor: 'operator',
+            instruction: 'Mint a token.',
+            ask: 'Paste the token into the sealed box.',
+            secret: true,
+          },
+        ],
+      })
+      const result = await readAtlas({ provider: 'github.com' }, colony.recipes, true)
+      if (result.outcome !== 'ok') throw new Error('expected the read to succeed')
+
+      const secretStep = result.response.entries[0]?.recipes
+        .flatMap((recipe) => recipe.steps)
+        .find((step) => step.secret === true)
+      expect(secretStep?.ask).toContain('sealed box')
+    })
+
     /** An absence is not a refusal, and the message has to say which it is. */
     it('says a missing entry is an absence rather than a refusal', async () => {
       const result = await readAtlas({ provider: 'notion.so' }, colony.recipes, true)

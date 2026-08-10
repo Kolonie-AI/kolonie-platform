@@ -235,11 +235,25 @@ export async function readAtlas(
   const entries = all
     .map((entry) => ({
       ...entry,
-      recipes: entry.recipes.filter(
-        (recipe) =>
-          (input.kind === undefined || recipe.kind === input.kind) &&
-          (input.held === undefined || !input.held.has(recipe.kind)),
-      ),
+      recipes: entry.recipes
+        .filter(
+          (recipe) =>
+            (input.kind === undefined || recipe.kind === input.kind) &&
+            (input.held === undefined || !input.held.has(recipe.kind)),
+        )
+        .map((recipe) => ({
+          ...recipe,
+          steps: recipe.steps.map((step) =>
+            step.secret === true && !secretHandoff
+              ? {
+                  ...step,
+                  ask:
+                    'Do not ask your operator for this secret yet. This Colony has no sealed ' +
+                    'channel configured, so there is nowhere for it to arrive.',
+                }
+              : step,
+          ),
+        })),
     }))
     .filter((entry) => entry.recipes.length > 0)
     .filter(

@@ -28,9 +28,10 @@ import { accounts, accountWishes, providerRecipes } from '../schema/index.js'
  * is careful to answer only as counts.
  */
 
-/** Put something on the list, or leave the row that is already there. */
+/** Put something on the list, or add citizen context to the row already there. */
 export type AddWishOutcome =
   | { readonly outcome: 'added'; readonly wish: Wish }
+  | { readonly outcome: 'context-added'; readonly wish: Wish }
   /**
    * The same provider is already on this agent's list.
    *
@@ -58,7 +59,23 @@ export async function addWish(
     )
     .limit(1)
 
-  if (existing !== undefined) return { outcome: 'already-listed', wish: asWish(existing) }
+  if (existing !== undefined) {
+    if (
+      input.author === 'citizen' &&
+      input.noticedWhile !== undefined &&
+      existing.noticedWhile === null
+    ) {
+      const [updated] = await db
+        .update(accountWishes)
+        .set({ noticedWhile: input.noticedWhile })
+        .where(and(eq(accountWishes.id, existing.id), isNull(accountWishes.noticedWhile)))
+        .returning()
+
+      if (updated !== undefined) return { outcome: 'context-added', wish: asWish(updated) }
+    }
+
+    return { outcome: 'already-listed', wish: asWish(existing) }
+  }
 
   const [row] = await db
     .insert(accountWishes)

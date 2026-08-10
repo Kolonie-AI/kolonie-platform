@@ -7,18 +7,19 @@ import {
   sweepBadges,
 } from '@kolonie-ai/db'
 import { fetchPage } from '@kolonie-ai/verifiers'
-import { startRunner, type Log, type RunnerHealth } from './loop.js'
+import type { Log } from './loop.js'
 import { attributionSweep, sweepAttribution } from './attribution.js'
 import { badgeSweep } from './sweeps.js'
-import { createHealthServer, STALE_POLLS } from './health.js'
+import { createHealthServer } from './health.js'
+import { runnerLoops } from './runner-loops.js'
 
 /**
  * Entry point of the sweep runner (`#241`, `#315`).
  *
  * Wiring only, like the other three runners: the loops are in `loop.ts`, what a
  * pass is worth saying is in `sweeps.ts`, the criteria and the bookings are in
- * `packages/db`. Nothing here decides anything, which is why nothing here is
- * tested — everything with behaviour is reachable without starting a process.
+ * `packages/db`. Nothing here decides anything; the loop wiring is reachable in
+ * a test without starting a process.
  *
  * **It is still called `badge-runner`** — in this package, in its image and in
  * its compose service. Renaming it would mean a new image name, a new build job
@@ -56,17 +57,9 @@ const log: Log = createLog({ service: 'badge-runner' })
 // other process here.
 const db = createDatabase(databaseUrlFromEnv())
 
-const badges: RunnerHealth = { running: false, lastPollAt: null, consecutiveFailures: 0 }
-const attribution: RunnerHealth = { running: false, lastPollAt: null, consecutiveFailures: 0 }
-
-startRunner(
-  badgeSweep(() => sweepBadges(db)),
-  log,
-  badges,
-  POLL_INTERVAL_MS,
-)
-startRunner(
-  attributionSweep(() =>
+const loops = runnerLoops({
+  badges: badgeSweep(() => sweepBadges(db)),
+  attribution: attributionSweep(() =>
     sweepAttribution(
       {
         candidates: () => attributionCandidates(db),
@@ -86,32 +79,18 @@ startRunner(
     ),
   ),
   log,
-  attribution,
-  ATTRIBUTION_INTERVAL_MS,
-)
+  badgeIntervalMs: POLL_INTERVAL_MS,
+  attributionIntervalMs: ATTRIBUTION_INTERVAL_MS,
+})
+
+for (const loop of loops) loop.start()
 
 // No queue report: neither loop has a backlog to be behind on. Each sweeps
 // everything every time, so *how far behind* is not a question either can be
 // asked.
-//
-// **Every loop named here is started above, and that is a rule rather than an
-// observation.** `healthOf` reports a `RunnerHealth` whose `running` is still
-// false as `stalled`, and one stalled loop makes the whole report non-ok — so a
-// loop listed here and never started reports this process permanently unhealthy,
-// for as long as it runs and with nothing in the log to say why. That is what
-// `quest-refunds` did between `#553` phase C, which deleted the refund sweep
-// with `storage/escrow.ts`, and `kolonie-platform#641`: thirteen consecutive
-// deploys rolled back on a container whose only output was `runner.started`.
 createHealthServer({
   port: HEALTH_PORT,
-  loops: [
-    { name: 'badges', health: () => badges, staleAfterMs: POLL_INTERVAL_MS * STALE_POLLS },
-    {
-      name: 'attribution',
-      health: () => attribution,
-      staleAfterMs: ATTRIBUTION_INTERVAL_MS * STALE_POLLS,
-    },
-  ],
+  loops,
 }).listen(HEALTH_PORT, () => {
   log.info(`badge-runner health on :${HEALTH_PORT}`, { event: 'runner.started' })
 })

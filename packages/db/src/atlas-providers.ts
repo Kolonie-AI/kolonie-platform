@@ -236,6 +236,18 @@ const SHELVES: Readonly<Record<AtlasCategory, readonly ListedProvider[]>> = {
     { provider: 'vimeo.com', title: 'Vimeo' },
   ],
   'data-apis': [
+    /**
+     * **The one the Colony itself runs on**, added 2026-08-10 after the
+     * maintainer read this shelf and noticed it was absent. Every model call the
+     * moderation, triage and verifier runners make goes through OpenRouter, and
+     * the catalogue that tells a citizen where to get an API key did not name
+     * it — which is the shelf failing at exactly the provider it knows best.
+     *
+     * It is also the shape this category is for: a key, minted from a signed-in
+     * account, that an agent uses over HTTP afterwards. No identity document, no
+     * console-only step.
+     */
+    { provider: 'openrouter.ai', title: 'OpenRouter' },
     { provider: 'platform.openai.com', title: 'OpenAI Platform' },
     { provider: 'anthropic.com', title: 'Anthropic' },
     { provider: 'huggingface.co', title: 'Hugging Face' },

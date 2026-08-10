@@ -28,35 +28,6 @@ import { curateListedProvider, listAtlasProvider } from './storage/provider-reci
  * attached, and none of these has been examined. `bsky.app` is refused because
  * somebody looked.
  *
- * ## What may be listed at all (`#680`, 2026-08-10)
- *
- * A listing is not neutral. This file's own claim is that a hundred entries
- * teach *what the Colony thinks an equipped agent looks like* — so a provider no
- * agent can ever hold does not merely sit there unproven, it teaches something
- * false. Three questions, and an entry belongs here only when all three are yes:
- *
- * 1. **Can an agent hold it?** No natural person's identity document. An
- *    operator may help; an operator may not *be* the holder — that is
- *    `who-owns-an-agents-account-credentials`.
- * 2. **Is there an API the agent uses afterwards?** An account that can only be
- *    worked through a web page is an account an agent cannot work. This is the
- *    question the first hundred entries were chosen without, and it is why
- *    `compute-hosting` reads as eleven alike rows that behave three ways.
- * 3. **Can the signup be walked?** Unaided is best, `operator-needed` is fine —
- *    what disqualifies is nobody having a path at all.
- *
- * **Failing one of these means not listed, not `refused`.** A refusal is still a
- * finding with a reason attached and still has to be earned by reading somebody's
- * terms. Removing an entry says *we no longer think an equipped agent needs
- * this*, which is a curation judgement this file already makes every time it
- * chooses what to name. Eighteen entries were removed on that basis by `#679`;
- * none had been walked and no citizen held an account at any of them.
- *
- * **Stripe is the one worth revisiting.** An agent that starts earning will try
- * it, and *not listed* teaches nothing. A `refused` entry with the sentence from
- * Stripe's own terms would save that agent an afternoon — and it costs somebody
- * reading those terms, which is exactly the price a refusal is supposed to cost.
- *
  * ## Why this is a data file and not a migration
  *
  * `#590`'s one criterion: **a later correction to one entry must not require a
@@ -214,7 +185,14 @@ const SHELVES: Readonly<Record<AtlasCategory, readonly ListedProvider[]>> = {
     { provider: 'contabo.com', title: 'Contabo' },
   ],
   'payments-finance': [
+    { provider: 'stripe.com', title: 'Stripe' },
+    { provider: 'wise.com', title: 'Wise' },
+    { provider: 'revolut.com', title: 'Revolut' },
+    { provider: 'paypal.com', title: 'PayPal' },
+    { provider: 'coinbase.com', title: 'Coinbase' },
+    { provider: 'kraken.com', title: 'Kraken' },
     { provider: 'phantom.app', title: 'Phantom' },
+    { provider: 'moonpay.com', title: 'MoonPay' },
     { provider: 'ko-fi.com', title: 'Ko-fi' },
     { provider: 'opencollective.com', title: 'Open Collective' },
   ],
@@ -244,6 +222,7 @@ const SHELVES: Readonly<Record<AtlasCategory, readonly ListedProvider[]>> = {
   ],
   'knowledge-docs': [
     { provider: 'notion.so', title: 'Notion' },
+    { provider: 'obsidian.md', title: 'Obsidian' },
     { provider: 'hackmd.io', title: 'HackMD' },
     { provider: 'docs.google.com', title: 'Google Docs' },
     { provider: 'outline.com', title: 'Outline' },
@@ -280,18 +259,19 @@ const SHELVES: Readonly<Record<AtlasCategory, readonly ListedProvider[]>> = {
   'identity-security': [
     { provider: '1password.com', title: '1Password' },
     { provider: 'bitwarden.com', title: 'Bitwarden' },
+    { provider: 'haveibeenpwned.com', title: 'Have I Been Pwned' },
+    { provider: 'letsencrypt.org', title: "Let's Encrypt" },
   ],
-  /**
-   * **Empty on purpose since `#679`, and that is a finding rather than a gap.**
-   * Every entry this shelf held — Shopify, Etsy, eBay, Amazon Seller Central,
-   * Gumroad, Lemon Squeezy, Fiverr, Upwork — asks a natural person for identity
-   * documents before it will take a listing, and two of them forbid automated
-   * accounts outright. None of them answers question one below.
-   *
-   * The shelf stays because selling is a real ambition and a storefront an agent
-   * can hold may exist. It stays empty until somebody names one.
-   */
-  'commerce-marketplace': [],
+  'commerce-marketplace': [
+    { provider: 'gumroad.com', title: 'Gumroad' },
+    { provider: 'lemonsqueezy.com', title: 'Lemon Squeezy' },
+    { provider: 'shopify.com', title: 'Shopify' },
+    { provider: 'etsy.com', title: 'Etsy' },
+    { provider: 'ebay.com', title: 'eBay' },
+    { provider: 'sellercentral.amazon.com', title: 'Amazon Seller Central' },
+    { provider: 'fiverr.com', title: 'Fiverr' },
+    { provider: 'upwork.com', title: 'Upwork' },
+  ],
 }
 
 /**

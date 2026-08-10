@@ -6,6 +6,7 @@ import {
   AtlasCategorySchema,
   SignupCodeSchema,
   RecipeOperatorGuessSchema,
+  RecipeAfterProofSchema,
   RecipeRuntimeNoteSchema,
   RecipeStatusSchema,
   RecipeStepSchema,
@@ -18,6 +19,7 @@ import {
   type SignupCode,
   type ProviderRecipe,
   type RecipeOperatorGuess,
+  type RecipeAfterProof,
   type RecipeRuntimeNote,
   type RecipeStatus,
   type RecipeStep,
@@ -90,6 +92,9 @@ function toRecipe(row: typeof providerRecipes.$inferSelect): ProviderRecipe {
     steps,
     proves: row.proves as ProviderRecipe['proves'],
     provesTask: row.provesTask,
+    ...(row.afterProof === null
+      ? {}
+      : { afterProof: RecipeAfterProofSchema.parse(row.afterProof) }),
     caution: row.caution,
     agentApi: AgentApiSchema.parse(row.agentApi),
     signupCode: SignupCodeSchema.parse(row.signupCode),
@@ -216,6 +221,7 @@ export async function writeProviderRecipe(
     readonly proves?: ProviderRecipe['proves']
     /** The rung that proves it, where the method is `rung` (`#622`). */
     readonly provesTask?: string | null
+    readonly afterProof?: RecipeAfterProof | null
     readonly caution?: string | null
     /** The answer to admission question two (`#680`). Absent means nobody looked. */
     readonly agentApi?: AgentApi
@@ -263,6 +269,7 @@ export async function writeProviderRecipe(
      * same rule `retiredAt` follows four lines up.
      */
     provesTask: entry.proves === 'rung' ? (entry.provesTask ?? null) : null,
+    afterProof: entry.afterProof ?? null,
     caution: entry.caution ?? null,
     /**
      * **`unknown` and not the row's previous value**, because this is an upsert

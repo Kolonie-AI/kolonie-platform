@@ -1346,7 +1346,8 @@ export function registerAccountTools(
           .optional()
           .describe(
             'Optional, and the only question: did this match what you were told? Never put a ' +
-              'password, a code or a token here.',
+              'password, a code or a token here. You may say that you obtained the credential ' +
+              'and stored it in your vault; never include its value.',
           ),
         takenStepPositions: z
           .array(z.number().int().min(1))

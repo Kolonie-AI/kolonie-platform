@@ -4,7 +4,12 @@ import { looksLikeCredential } from '../operator/request.js'
 import { AgentPlatformSchema } from '../agent/agent.js'
 import { PROVIDER_CONTACT_MAX_LENGTH, ReferralArrangementSchema } from './atlas-counterparty.js'
 import { AgentApiSchema } from './atlas-admission.js'
-import { AccountKindSchema, AccountProofMethodSchema, AccountProviderSchema } from './account.js'
+import {
+  AccountCapabilitySchema,
+  AccountKindSchema,
+  AccountProofMethodSchema,
+  AccountProviderSchema,
+} from './account.js'
 
 /**
  * A provider is a recipe, not a rung (`#521`).
@@ -410,6 +415,36 @@ export const RecipeStepSchema = z
     path: ['ask'],
   })
 export type RecipeStep = z.infer<typeof RecipeStepSchema>
+
+/**
+ * What the proved account is for, and the short route from possession to use
+ * (`#637`).
+ *
+ * **A second sequence rather than more signup steps.** Proof is the boundary: a
+ * citizen may need the account without needing its API, and treating credential
+ * setup as more signup would make that ordinary walk look incomplete. The target
+ * and its route are one object so neither can be stored without the other.
+ *
+ * **Agent-only for now.** The handoff tools number and authorise the signup
+ * sequence. Allowing an operator step here would publish a handoff the runtime
+ * cannot open; the smaller shape chosen for this issue keeps the later
+ * per-capability model available without making that false promise.
+ */
+export const RecipeAfterProofSchema = z
+  .object({
+    capability: AccountCapabilitySchema,
+    steps: z
+      .array(
+        RecipeStepSchema.refine(
+          (step) => step.actor === 'agent' && step.instruction !== undefined,
+          'a post-proof step is an instruction the agent can take itself',
+        ),
+      )
+      .min(1)
+      .max(RECIPE_MAX_STEPS),
+  })
+  .strict()
+export type RecipeAfterProof = z.infer<typeof RecipeAfterProofSchema>
 
 /** How long a refusal reason may be. */
 export const RECIPE_REFUSAL_MAX_LENGTH = 500
@@ -924,6 +959,8 @@ export const ProviderRecipeSchema = z.object({
    * convention — the same shape `refusal` and `retired_reason` have beside it.
    */
   provesTask: z.string().nullable(),
+  /** The optional route from a proved account to the capability it was obtained for. */
+  afterProof: RecipeAfterProofSchema.optional(),
   /**
    * What is known to refuse an agent partway, and what it looks like.
    *
@@ -1007,6 +1044,8 @@ export const WriteProviderRecipeSchema = z
     proves: AccountProofMethodSchema.optional(),
     /** The rung that proves it, where `proves` is `rung` (`#622`). */
     provesTask: z.string().trim().min(1).max(64).optional(),
+    /** The optional route from proof to a named usable capability (`#637`). */
+    afterProof: RecipeAfterProofSchema.optional(),
     caution: z.string().trim().min(1).max(RECIPE_REFUSAL_MAX_LENGTH).optional(),
     /** Stricter than the default, when `provider-report` findings say so (`#532`). */
     pacePerDay: z.int().min(1).max(RECIPE_MAX_PACE_PER_DAY).optional(),
@@ -1083,6 +1122,16 @@ export const WriteProviderRecipeSchema = z
       'where proves is `rung`. An entry proved another way has no rung to point at.',
     path: ['provesTask'],
   })
+  .refine(
+    (entry) =>
+      entry.afterProof === undefined || entry.status === 'joinable' || entry.status === 'retired',
+    {
+      message:
+        'a post-proof route belongs to a published recipe, or to the retained record of one. ' +
+        'A walk does not invent this wording for a draft.',
+      path: ['afterProof'],
+    },
+  )
   /**
    * A refusal says why, a working entry says how, and an unwritten one says
    * neither. No state may be half of another: a refusal with no reason is a dead

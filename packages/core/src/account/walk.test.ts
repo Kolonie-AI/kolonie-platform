@@ -330,8 +330,9 @@ describe('the one question an agent is asked', () => {
    */
   it('takes a sentence about a credential that carries none', () => {
     expect(
-      WalkNoteSchema.safeParse('I chose the password myself and did not send it to anybody.')
-        .success,
+      WalkNoteSchema.safeParse(
+        'I obtained the API credential and stored it in my vault without putting it here.',
+      ).success,
     ).toBe(true)
   })
 

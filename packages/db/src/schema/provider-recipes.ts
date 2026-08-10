@@ -14,6 +14,7 @@ import {
   AtlasCategorySchema,
   RECIPE_MAX_RUNTIME_NOTES,
   RECIPE_MAX_STEPS,
+  type RecipeAfterProof,
   RecipeOperatorGuessSchema,
   RecipeStatusSchema,
   type RecipeRuntimeNote,
@@ -211,6 +212,9 @@ export const providerRecipes = pgTable(
      * asserted in `atlas-rung.test.ts` rather than by the database.
      */
     provesTask: text('proves_task'),
+
+    /** The optional route from a proved account to the capability it was obtained for (`#637`). */
+    afterProof: jsonb('after_proof').$type<RecipeAfterProof>(),
 
     /** A wall a working entry warns about, from `provider-report` findings. */
     caution: text('caution'),
@@ -444,6 +448,29 @@ export const providerRecipes = pgTable(
        */
       sql`${table.status} in ('draft', 'retired')
           or not jsonb_path_exists(${table.steps}, '$[*] ? (!exists(@.instruction))')`,
+    ),
+
+    /**
+     * The target and its route are atomic, bounded, and agent-walkable (`#637`).
+     * Full validation remains in core; this stops a hand-written row from
+     * carrying an empty route or an operator handoff the runtime cannot open.
+     */
+    check(
+      'provider_recipes_after_proof_is_a_route',
+      sql`${table.afterProof} is null
+          or (${table.status} in ('joinable', 'retired')
+              and jsonb_typeof(${table.afterProof}) = 'object'
+              and jsonb_typeof(${table.afterProof} -> 'capability') = 'string'
+              and length(${table.afterProof} ->> 'capability') between 3 and 32
+              and (${table.afterProof} ->> 'capability') ~ '^[a-z][a-z0-9-]*$'
+              and jsonb_typeof(${table.afterProof} -> 'steps') = 'array'
+              and jsonb_array_length(${table.afterProof} -> 'steps') between 1 and ${sql.raw(
+                String(RECIPE_MAX_STEPS),
+              )}
+              and not jsonb_path_exists(
+                ${table.afterProof},
+                '$.steps[*] ? (@.actor != "agent" || !exists(@.instruction))'
+              ))`,
     ),
 
     /**

@@ -510,12 +510,24 @@ function recipeSection(recipe: AtlasEntry['recipes'][number]): string {
     staleNote(recipe),
     `<ol>${steps}</ol>`,
     `<p>${escape(provesLine(recipe.proves))}</p>`,
+    afterProofSection(recipe),
     figuresSection(recipe.figures),
     recipe.caution === null
       ? ''
       : `<p><strong>Known to go wrong:</strong> ${escape(recipe.caution)}</p>`,
     '</section>',
   ].join('')
+}
+
+/** The distinct path that starts after the account itself has been proved (`#637`). */
+function afterProofSection(recipe: AtlasEntry['recipes'][number]): string {
+  if (recipe.afterProof === undefined) return ''
+
+  return (
+    `<h3>Then reach ${escape(recipe.afterProof.capability)}</h3><ol>` +
+    recipe.afterProof.steps.map((step) => `<li>${escape(stepInstruction(step))}</li>`).join('') +
+    '</ol>'
+  )
 }
 
 function provesLine(proves: AtlasEntry['recipes'][number]['proves']): string {

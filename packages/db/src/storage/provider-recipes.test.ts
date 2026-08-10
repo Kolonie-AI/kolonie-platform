@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import {
   AccountKindSchema,
+  AccountCapabilitySchema,
   AtlasCategorySchema,
   looksLikeCredential,
   WriteProviderRecipeSchema,
@@ -49,6 +50,10 @@ describe('the provider catalogue', () => {
         { actor: 'agent', instruction: 'Forward the welcome mail to close a provider-mail proof.' },
       ],
       proves: 'provider-mail',
+      afterProof: {
+        capability: AccountCapabilitySchema.parse('api'),
+        steps: [{ actor: 'agent', instruction: 'Create an API credential.' }],
+      },
     })
 
     const found = await providerRecipe(db, kind('linear'), 'linear.app')
@@ -61,6 +66,10 @@ describe('the provider catalogue', () => {
       proves: 'provider-mail',
     })
     expect(found?.steps).toHaveLength(2)
+    expect(found?.afterProof).toEqual({
+      capability: 'api',
+      steps: [{ actor: 'agent', instruction: 'Create an API credential.' }],
+    })
   })
 
   it('is found case-insensitively, because a provider is one normalised token', async () => {
@@ -712,6 +721,17 @@ describe('what a recipe may ask an operator for', () => {
     expect(first?.actor).toBe('agent')
     expect(first?.instruction).toContain('kolonie.vault.set')
     expect(trello?.steps.some((step) => step.actor === 'operator')).toBe(false)
+  })
+
+  it('continues the Trello recipe from proof to an API key', () => {
+    const trello = PROVIDER_CATALOGUE.find((entry) => entry.provider === 'trello.com')
+
+    expect(trello?.afterProof?.capability).toBe('api')
+    expect(trello?.afterProof?.steps).toHaveLength(3)
+    expect(trello?.afterProof?.steps[0]?.instruction).toContain('Workspace already exists')
+    expect(trello?.afterProof?.steps[1]?.instruction).toContain('custom dropdown')
+    expect(trello?.afterProof?.steps[2]?.instruction).toContain('authorize link')
+    expect(trello?.afterProof?.steps[2]?.instruction).toContain('href')
   })
 
   /**

@@ -38,6 +38,10 @@ While the version is `0.x`, **breaking changes bump the minor version**.
 
 ### Added
 
+- **A provider recipe can continue from account proof to a named capability**
+  (`kolonie-platform#637`). Optional `RecipeAfterProofSchema` keeps that route
+  separate from signup, so obtaining an API credential is not misread as another
+  condition for obtaining the account.
 - **Model calls have one accounting shape across services** (`kolonie-platform#675`).
   `ModelCallSchema` records the route, the model echoed by the response, prompt,
   completion and total tokens, and an optional fallback with its reason.

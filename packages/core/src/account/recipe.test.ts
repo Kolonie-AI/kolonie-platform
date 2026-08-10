@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  RecipeAfterProofSchema,
   RecipeStatusSchema,
   RecipeStepSchema,
   SignupCodeSchema,
@@ -10,6 +11,50 @@ import {
   recipeStatusIsOfferable,
   recipeStatusIsPublic,
 } from './recipe.js'
+
+describe('what a proved account opens next (#637)', () => {
+  const afterProof = {
+    capability: 'api',
+    steps: [
+      {
+        actor: 'agent',
+        instruction: 'Open the provider console and create the API credential.',
+      },
+    ],
+  }
+
+  it('carries a named capability and an ordered route to it', () => {
+    expect(RecipeAfterProofSchema.safeParse(afterProof).success).toBe(true)
+    expect(
+      WriteProviderRecipeSchema.safeParse({
+        kind: 'project-tracker',
+        provider: 'tracker.example',
+        title: 'Tracker',
+        category: 'project-tracking',
+        status: 'joinable',
+        steps: [{ actor: 'agent', instruction: 'Create the account.' }],
+        proves: 'provider-mail',
+        afterProof,
+      }).success,
+    ).toBe(true)
+  })
+
+  it('refuses an empty route or one that promises an unsupported operator handoff', () => {
+    expect(RecipeAfterProofSchema.safeParse({ ...afterProof, steps: [] }).success).toBe(false)
+    expect(
+      RecipeAfterProofSchema.safeParse({
+        ...afterProof,
+        steps: [
+          {
+            actor: 'operator',
+            instruction: 'Create the credential.',
+            ask: 'Create the credential for the agent.',
+          },
+        ],
+      }).success,
+    ).toBe(false)
+  })
+})
 
 /**
  * The three states `#604` added, and the two properties no surface can infer

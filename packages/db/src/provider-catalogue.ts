@@ -1,4 +1,8 @@
-import { AccountKindSchema, type WriteProviderRecipe } from '@kolonie-ai/core'
+import {
+  AccountCapabilitySchema,
+  AccountKindSchema,
+  type WriteProviderRecipe,
+} from '@kolonie-ai/core'
 import type { Database } from './client.js'
 import { writeProviderRecipe } from './storage/provider-recipes.js'
 
@@ -293,6 +297,29 @@ export const PROVIDER_CATALOGUE: readonly WriteProviderRecipe[] = [
       },
     ],
     proves: 'provider-mail',
+    afterProof: {
+      capability: AccountCapabilitySchema.parse('api'),
+      steps: [
+        {
+          actor: 'agent',
+          instruction:
+            'Use the Workspace Trello created during onboarding. A Workspace already exists; ' +
+            'do not read a disabled Create button as evidence that you need to make another.',
+        },
+        {
+          actor: 'agent',
+          instruction:
+            'Create a Power-Up from Trello’s Power-Up administration page. Its Workspace picker ' +
+            'is a custom dropdown, not a select element, so open and choose from that control.',
+        },
+        {
+          actor: 'agent',
+          instruction:
+            'Read the API key from the authorize link’s href query parameter and store it in ' +
+            'your vault. The key is not present in the page text.',
+        },
+      ],
+    },
   },
   {
     kind: AccountKindSchema.parse('social'),
@@ -359,6 +386,7 @@ export async function seedProviderCatalogue(db: Database): Promise<CatalogueSeed
       refusal: entry.refusal ?? null,
       steps: entry.steps,
       proves: entry.proves ?? null,
+      afterProof: entry.afterProof ?? null,
       caution: entry.caution ?? null,
       pacePerDay: entry.pacePerDay ?? null,
     })

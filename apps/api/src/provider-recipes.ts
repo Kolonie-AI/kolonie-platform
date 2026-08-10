@@ -468,6 +468,14 @@ export function recipeAsText(recipe: ProviderRecipe, secretHandoff: boolean): st
       ? 'An Academy rung proves this account once it exists.'
       : `Prove it afterwards with kolonie.accounts.prove, method \`${recipe.proves ?? ''}\`.`
 
+  const afterProof =
+    recipe.afterProof === undefined
+      ? ''
+      : `\n\n**Then reach \`${recipe.afterProof.capability}\`:**\n` +
+        recipe.afterProof.steps
+          .map((step, index) => `${index + 1}. ${stepInstruction(step)}`)
+          .join('\n')
+
   /**
    * **Above the steps and not only beside the one that fails** (`#566`), because
    * the decision this changes — *do I start this at all* — is taken before step
@@ -482,7 +490,7 @@ export function recipeAsText(recipe: ProviderRecipe, secretHandoff: boolean): st
 
   return (
     `${recipe.title} · ${recipe.category}\n\n${operatorNeedAsText(recipe)}\n\n` +
-    `${unwalkable}${steps}\n\n${proved}` +
+    `${unwalkable}${steps}\n\n${proved}${afterProof}` +
     (recipe.caution === null ? '' : `\n\n**Known to go wrong:** ${recipe.caution}`)
   )
 }

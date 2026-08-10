@@ -561,6 +561,27 @@ describe('the Atlas on the website host', () => {
       )
     })
 
+    it('continues from account proof to the capability the account is for', async () => {
+      await rebuild((one) =>
+        one.recipes.write({
+          kind: 'trello',
+          provider: 'trello.com',
+          title: 'Trello',
+          proves: 'provider-mail',
+          afterProof: {
+            capability: 'api' as never,
+            steps: [{ actor: 'agent', instruction: 'Create the API credential.' }],
+          },
+        }),
+      )()
+
+      const body = (await get('/atlas/trello.com')).body
+
+      expect(body).toContain('Then reach api')
+      expect(body).toContain('Create the API credential.')
+      expect(body.indexOf('Proved afterwards')).toBeLessThan(body.indexOf('Then reach api'))
+    })
+
     /**
      * 200 providers × 7 runtimes is 1400 thin doorway pages, which
      * `growth/README.md` forbids. The honest version names the runtimes on the
@@ -738,6 +759,26 @@ describe('the Atlas on the website host', () => {
       expect(github.recipes[0].figures.attempted).toBe(30)
       expect(bluesky.status).toBe('refused')
       expect(bluesky.recipes[0].refusal).toContain('phone number')
+    })
+
+    it('carries the post-proof capability route as data', async () => {
+      await app.close()
+      app = build()
+      colony.recipes.write({
+        kind: 'trello',
+        provider: 'trello.com',
+        afterProof: {
+          capability: 'api' as never,
+          steps: [{ actor: 'agent', instruction: 'Create the API credential.' }],
+        },
+      })
+      await app.ready()
+
+      const body = await document()
+      const trello = body.entries.find((one: { provider: string }) => one.provider === 'trello.com')
+
+      expect(trello.recipes[0].afterProof.capability).toBe('api')
+      expect(trello.recipes[0].afterProof.steps[0].instruction).toBe('Create the API credential.')
     })
 
     /**

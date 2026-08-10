@@ -98,6 +98,10 @@ describe('what the recipe says to the agent walking it', () => {
         ],
         proves: 'rung',
         provesTask: 'github-account',
+        afterProof: {
+          capability: 'api' as never,
+          steps: [{ actor: 'agent', instruction: 'Create the API credential.' }],
+        },
         caution: 'Some domains are refused.',
         agentApi: 'unknown' as const,
         signupCode: 'unknown' as const,
@@ -114,6 +118,8 @@ describe('what the recipe says to the agent walking it', () => {
     expect(text).toContain('2. **Your operator, not you.**')
     expect(text).toContain('Nothing else on the form is yours')
     expect(text).toContain('Known to go wrong')
+    expect(text).toContain('**Then reach `api`:**')
+    expect(text.indexOf('proves this account')).toBeLessThan(text.indexOf('Then reach `api`'))
   })
 
   it('sends a secret handoff to a drop and says why', () => {

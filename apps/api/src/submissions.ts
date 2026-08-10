@@ -165,7 +165,13 @@ async function asksFor(
 
   const asks = await Promise.all(
     passed.map(async (submission) => {
-      const context = await guidance.askContext(agent.id, submission.taskId)
+      let context
+      try {
+        context = await guidance.askContext(agent.id, submission.taskId)
+      } catch {
+        // A question is optional decoration on the verdict read and may never withhold it.
+        return null
+      }
       if (context.alreadyReported) return null
 
       const ask = askAfterPass({

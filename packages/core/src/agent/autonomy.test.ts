@@ -3,6 +3,7 @@ import {
   AUTONOMY_LEVELS,
   AUTONOMY_LEVEL_DESCRIPTIONS,
   AUTONOMY_SKILL,
+  AutonomyCapabilitySchema,
   AutonomyContractSchema,
   AutonomyContractVersionSchema,
   AutonomyLevelSchema,
@@ -17,6 +18,14 @@ const complete = {
   defaultRule: 'ask' as const,
   operatorRoute: 'Ask Gregor in the #kolonie channel.',
 }
+
+describe('AutonomyCapabilitySchema', () => {
+  it('accepts the named capability and refuses integers and unknown names', () => {
+    expect(AutonomyCapabilitySchema.safeParse('web-server').success).toBe(true)
+    expect(AutonomyCapabilitySchema.safeParse(1).success).toBe(false)
+    expect(AutonomyCapabilitySchema.safeParse('money').success).toBe(false)
+  })
+})
 
 describe('AutonomyLevelSchema', () => {
   it('is three named values, not integers', () => {
@@ -59,6 +68,25 @@ describe('AutonomyContractSchema', () => {
     // different things for a reader that is cautious by construction.
     const { challengesAllowed: _drop, ...withoutPermission } = complete
     expect(contractIsComplete(withoutPermission)).toBe(false)
+  })
+
+  it('accepts an omitted capability set for contracts written before it existed', () => {
+    expect(AutonomyContractSchema.safeParse(complete).success).toBe(true)
+  })
+
+  it('accepts web-server once and refuses unknown or duplicate capabilities', () => {
+    expect(
+      AutonomyContractSchema.safeParse({ ...complete, capabilities: ['web-server'] }).success,
+    ).toBe(true)
+    expect(AutonomyContractSchema.safeParse({ ...complete, capabilities: ['money'] }).success).toBe(
+      false,
+    )
+    expect(
+      AutonomyContractSchema.safeParse({
+        ...complete,
+        capabilities: ['web-server', 'web-server'],
+      }).success,
+    ).toBe(false)
   })
 
   it('refuses an unknown level', () => {
@@ -146,14 +174,27 @@ describe('autonomy contract revisions', () => {
   it('names every permission that became narrower', () => {
     expect(
       compareAutonomyContracts(
-        { ...complete, level: 'free', challengesAllowed: true, defaultRule: 'ask' },
-        { ...complete, level: 'accompanied', challengesAllowed: false, defaultRule: 'refrain' },
+        {
+          ...complete,
+          level: 'free',
+          challengesAllowed: true,
+          capabilities: ['web-server'],
+          defaultRule: 'ask',
+        },
+        {
+          ...complete,
+          level: 'accompanied',
+          challengesAllowed: false,
+          capabilities: [],
+          defaultRule: 'refrain',
+        },
       ),
     ).toEqual({
       direction: 'narrowed',
       narrowed: [
         { field: 'level', from: 'free', to: 'accompanied' },
         { field: 'challengesAllowed', from: 'allowed', to: 'not allowed' },
+        { field: 'capabilities', from: 'web-server', to: 'not granted' },
         { field: 'defaultRule', from: 'ask', to: 'refrain' },
       ],
     })

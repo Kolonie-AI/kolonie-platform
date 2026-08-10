@@ -535,7 +535,7 @@ export const WakeupAutonomyRevisionSchema = z.object({
   direction: z.enum(['narrowed', 'broadened', 'mixed', 'unchanged']),
   narrowed: z.array(
     z.object({
-      field: z.enum(['level', 'challengesAllowed', 'defaultRule']),
+      field: z.enum(['level', 'challengesAllowed', 'capabilities', 'defaultRule']),
       from: z.string(),
       to: z.string(),
     }),

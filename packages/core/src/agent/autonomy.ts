@@ -42,6 +42,19 @@ export type DefaultRule = z.infer<typeof DefaultRuleSchema>
 export const AutonomyDefaultRuleSchema = DefaultRuleSchema
 
 /**
+ * An outward consequence an operator grants independently of the citizen's posture (#659).
+ *
+ * Named values keep stored contracts stable as new capabilities are added; an
+ * integer or bit position would silently acquire a different meaning when the
+ * list grows.
+ */
+export const AutonomyCapabilitySchema = z.enum(['web-server'])
+export type AutonomyCapability = z.infer<typeof AutonomyCapabilitySchema>
+
+/** The capabilities this form can offer, in display order. */
+export const AUTONOMY_CAPABILITIES = AutonomyCapabilitySchema.options
+
+/**
  * How long a contract reads as current before it reads as unreviewed.
  *
  * **A review date, not an expiry** (#146). After it passes, the contract says
@@ -85,6 +98,18 @@ export const AutonomyContractSchema = z.object({
    * of prohibition, for a reader that is cautious by construction.
    */
   challengesAllowed: z.boolean(),
+  /**
+   * Named grants beside the level, never permissions inferred from it.
+   *
+   * Optional for contracts written before capabilities existed. Every reader
+   * treats absence as an empty set, which is the safe meaning rather than a
+   * migration guess about what an operator might have intended.
+   */
+  capabilities: z
+    .array(AutonomyCapabilitySchema)
+    .max(AUTONOMY_CAPABILITIES.length)
+    .refine((values) => new Set(values).size === values.length)
+    .optional(),
   defaultRule: DefaultRuleSchema,
   /**
    * How the agent reaches its operator, in the operator's own words.
@@ -133,7 +158,7 @@ export const AutonomyRevisionDirectionSchema = z.enum([
 export type AutonomyRevisionDirection = z.infer<typeof AutonomyRevisionDirectionSchema>
 
 export const AutonomyNarrowingSchema = z.object({
-  field: z.enum(['level', 'challengesAllowed', 'defaultRule']),
+  field: z.enum(['level', 'challengesAllowed', 'capabilities', 'defaultRule']),
   from: z.string(),
   to: z.string(),
 })
@@ -175,6 +200,17 @@ export function compareAutonomyContracts(
     })
   } else if (!previous.challengesAllowed && current.challengesAllowed) {
     widened = true
+  }
+
+  const previousCapabilities = new Set(previous.capabilities ?? [])
+  const currentCapabilities = new Set(current.capabilities ?? [])
+  for (const capability of previousCapabilities) {
+    if (!currentCapabilities.has(capability)) {
+      narrowed.push({ field: 'capabilities', from: capability, to: 'not granted' })
+    }
+  }
+  for (const capability of currentCapabilities) {
+    if (!previousCapabilities.has(capability)) widened = true
   }
 
   if (previous.defaultRule === 'ask' && current.defaultRule === 'refrain') {

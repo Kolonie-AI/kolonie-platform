@@ -4,6 +4,7 @@ import {
   AUTONOMY_FORM_LIFETIME_MS,
   AUTONOMY_FORM_TOKEN_BYTES,
   AUTONOMY_REVIEW_INTERVAL_DAYS,
+  AutonomyCapabilitySchema,
   type AgentId,
   type AutonomyContract,
   type AutonomyContractVersion,
@@ -14,6 +15,9 @@ import type { Database, Transaction } from '../client.js'
 import { autonomyContracts, autonomyFormInvitations } from '../schema/index.js'
 import { confirmOperatorAddress, recordOperatorAddress } from './operator-addresses.js'
 import { toTimestamp } from './rows.js'
+
+const autonomyCapabilities = (values: readonly string[]) =>
+  AutonomyCapabilitySchema.array().parse(values)
 
 /** An invitation as the citizen needs to see it: nothing of the token. */
 export interface AutonomyInvitation {
@@ -328,6 +332,7 @@ async function writeAutonomyContractVersion(
     .values({
       agentId,
       ...contract,
+      capabilities: contract.capabilities ?? [],
       recordedAt: at,
       reviewDueAt: sql`now() + make_interval(days => ${AUTONOMY_REVIEW_INTERVAL_DAYS}::int)`,
       invitationId,
@@ -338,6 +343,7 @@ async function writeAutonomyContractVersion(
   return {
     level: row.level,
     challengesAllowed: row.challengesAllowed,
+    capabilities: autonomyCapabilities(row.capabilities),
     defaultRule: row.defaultRule,
     operatorRoute: row.operatorRoute,
     recordedAt: toTimestamp(row.recordedAt),
@@ -377,6 +383,7 @@ export async function readAutonomyContract(
   return {
     level: row.level,
     challengesAllowed: row.challengesAllowed,
+    capabilities: autonomyCapabilities(row.capabilities),
     defaultRule: row.defaultRule,
     operatorRoute: row.operatorRoute,
     recordedAt: toTimestamp(row.recordedAt),
@@ -398,6 +405,7 @@ export async function listAutonomyContracts(
   return rows.map((row) => ({
     level: row.level,
     challengesAllowed: row.challengesAllowed,
+    capabilities: autonomyCapabilities(row.capabilities),
     defaultRule: row.defaultRule,
     operatorRoute: row.operatorRoute,
     recordedAt: toTimestamp(row.recordedAt),

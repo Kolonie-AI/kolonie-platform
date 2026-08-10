@@ -3,6 +3,7 @@ import {
   AUTONOMY_LEVELS,
   AUTONOMY_LEVEL_DESCRIPTIONS,
   AUTONOMY_SKILL,
+  AutonomyCapabilitySchema,
   AutonomyContractSchema,
   AutonomyLevelSchema,
   OPERATOR_ROUTE_MAX_LENGTH,
@@ -61,6 +62,19 @@ describe('AutonomyContractSchema', () => {
 
   it('refuses an unknown level', () => {
     expect(contractIsComplete({ ...complete, level: 'unlimited' })).toBe(false)
+  })
+
+  it('accepts named capabilities and refuses unknown ones', () => {
+    expect(contractIsComplete({ ...complete, capabilities: ['web-server'] })).toBe(true)
+    expect(AutonomyCapabilitySchema.safeParse(1).success).toBe(false)
+    expect(contractIsComplete({ ...complete, capabilities: ['listening-socket'] })).toBe(false)
+    expect(contractIsComplete({ ...complete, capabilities: ['web-server', 'web-server'] })).toBe(
+      false,
+    )
+  })
+
+  it('reads an absent capability set as granting none', () => {
+    expect(AutonomyContractSchema.parse(complete).capabilities).toEqual([])
   })
 
   it('refuses a route longer than the bound rather than truncating it', () => {

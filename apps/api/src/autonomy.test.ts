@@ -8,6 +8,7 @@ const AGENT = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' as AgentId
 const CONTRACT: AutonomyContract = {
   level: 'accompanied',
   challengesAllowed: false,
+  capabilities: [],
   defaultRule: 'ask',
   operatorRoute: 'Ask Gregor in the channel.',
 }

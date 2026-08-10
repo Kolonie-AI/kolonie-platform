@@ -182,6 +182,7 @@ describe('kolonie.autonomy.blocked', () => {
       colony.autonomyStore.grant(agent.id, {
         level: 'independent',
         challengesAllowed: true,
+        capabilities: [],
         defaultRule: 'ask',
         operatorRoute: 'Slack.',
       })
@@ -203,6 +204,7 @@ describe('kolonie.autonomy.blocked', () => {
       colony.autonomyStore.grant(agent.id, {
         level: 'independent',
         challengesAllowed: false,
+        capabilities: [],
         defaultRule: 'ask',
         operatorRoute: 'Slack.',
       })

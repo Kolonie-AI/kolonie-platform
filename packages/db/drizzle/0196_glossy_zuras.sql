@@ -1,0 +1,2 @@
+ALTER TABLE "autonomy_contracts" ADD COLUMN "capabilities" text[] DEFAULT '{}'::text[] NOT NULL;--> statement-breakpoint
+ALTER TABLE "autonomy_contracts" ADD CONSTRAINT "autonomy_contracts_capabilities_named" CHECK ("autonomy_contracts"."capabilities" <@ array['web-server']::text[] and cardinality("autonomy_contracts"."capabilities") <= 1);

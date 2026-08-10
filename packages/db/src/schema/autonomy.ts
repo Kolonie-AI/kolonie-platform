@@ -9,7 +9,7 @@ import {
   uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core'
-import { OPERATOR_ROUTE_MAX_LENGTH } from '@kolonie-ai/core'
+import { OPERATOR_ROUTE_MAX_LENGTH, type AutonomyCapability } from '@kolonie-ai/core'
 import { agents } from './agents.js'
 import { autonomyDefaultRule, autonomyLevel } from './enums.js'
 
@@ -71,6 +71,19 @@ export const autonomyContracts = pgTable(
      */
     challengesAllowed: boolean('challenges_allowed').notNull(),
 
+    /**
+     * Named outward consequences granted independently of the level (#659).
+     *
+     * Empty is both the safe default and the meaning of every contract written
+     * before this column existed. Text names rather than a bitmask keep future
+     * additions from changing the meaning of stored values.
+     */
+    capabilities: text('capabilities')
+      .array()
+      .$type<AutonomyCapability[]>()
+      .notNull()
+      .default(sql`'{}'::text[]`),
+
     defaultRule: autonomyDefaultRule('default_rule').notNull(),
 
     /**
@@ -118,6 +131,10 @@ export const autonomyContracts = pgTable(
     check(
       'autonomy_contracts_route_present',
       sql`char_length(btrim(${table.operatorRoute})) between 1 and ${routeMax}`,
+    ),
+    check(
+      'autonomy_contracts_capabilities_named',
+      sql`${table.capabilities} <@ array['web-server']::text[] and cardinality(${table.capabilities}) <= 1`,
     ),
   ],
 )

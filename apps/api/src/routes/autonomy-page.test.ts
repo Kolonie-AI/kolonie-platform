@@ -164,6 +164,23 @@ describe('the operator’s form', () => {
       expect(await store.isRecorded(agentId)).toBe(true)
     })
 
+    it('offers and records the web-server capability', async () => {
+      const token = await aForm()
+      const form = await get(`/operator/autonomy/${token}`)
+
+      expect(form.body).toContain('name="capabilities" value="web-server"')
+
+      await post(`/operator/autonomy/${token}`, {
+        level: 'accompanied',
+        challengesAllowed: 'no',
+        capabilities: 'web-server',
+        defaultRule: 'refrain',
+        operatorRoute: 'Ask in the channel.',
+      })
+
+      expect((await store.read(agentId))?.capabilities).toEqual(['web-server'])
+    })
+
     it('turns the radio value into the boolean the contract holds', async () => {
       const token = await aForm()
 
@@ -333,6 +350,7 @@ describe('the operator’s form', () => {
       pages.contractFor(agentId, {
         level: 'independent',
         challengesAllowed: false,
+        capabilities: [],
         defaultRule: 'ask',
         operatorRoute: 'Slack, #kolonie.',
         recordedAt: '2026-08-03T00:00:00.000Z',
@@ -987,6 +1005,7 @@ describe('the operator’s form', () => {
       pages.contractFor(agentId, {
         level: 'accompanied',
         challengesAllowed: false,
+        capabilities: [],
         defaultRule: 'refrain',
         operatorRoute: 'Ask in the channel.',
         recordedAt: '2026-08-04T00:00:00.000Z',

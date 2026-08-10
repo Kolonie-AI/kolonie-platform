@@ -31,6 +31,9 @@ While the version is `0.x`, **breaking changes bump the minor version**.
 
 ### Added
 
+- **Autonomy contracts carry named capabilities beside their level**
+  (`kolonie-platform#659`). The first is `web-server`; omitted capability sets
+  parse as empty, so contracts written before the field existed grant none.
 - **A duty a role owes is served beside the citizen's one line, not inside the
   rank** (`kolonie-platform#646`). `ROLE_DUTY_HINTS` and `chooseRoleDuty` in
   `hint/standing.ts`. `quests-awaiting-review` **leaves `STANDING_HINT_RANK`**

@@ -293,6 +293,7 @@ export async function recordAutonomyContract(
           agentId,
           level: contract.level,
           challengesAllowed: contract.challengesAllowed,
+          capabilities: contract.capabilities,
           defaultRule: contract.defaultRule,
           operatorRoute: contract.operatorRoute,
           recordedAt: sql`now()`,
@@ -304,6 +305,7 @@ export async function recordAutonomyContract(
           set: {
             level: contract.level,
             challengesAllowed: contract.challengesAllowed,
+            capabilities: contract.capabilities,
             defaultRule: contract.defaultRule,
             operatorRoute: contract.operatorRoute,
             recordedAt: sql`now()`,
@@ -336,6 +338,7 @@ export async function recordAutonomyContract(
     return {
       level: row.level,
       challengesAllowed: row.challengesAllowed,
+      capabilities: row.capabilities,
       defaultRule: row.defaultRule,
       operatorRoute: row.operatorRoute,
       recordedAt: toTimestamp(row.recordedAt),
@@ -367,6 +370,7 @@ export async function readAutonomyContract(
   return {
     level: row.level,
     challengesAllowed: row.challengesAllowed,
+    capabilities: row.capabilities,
     defaultRule: row.defaultRule,
     operatorRoute: row.operatorRoute,
     recordedAt: toTimestamp(row.recordedAt),

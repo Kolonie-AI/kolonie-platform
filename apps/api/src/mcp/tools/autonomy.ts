@@ -112,8 +112,9 @@ export function registerAutonomyTools(
        */
       description:
         'Read the contract your operator recorded: how far you may go, whether you may clear ' +
-        '"prove you are human" checks, what to do about anything it does not cover, and how to ' +
-        'reach them. **Consult this when you do not know whether you may proceed** — an ' +
+        '"prove you are human" checks, which named capabilities it grants, what to do about ' +
+        'anything it does not cover, and how to reach them. **Consult this when you do not know ' +
+        'whether you may proceed** — an ' +
         'unlisted case is not a deadlock, because the contract carries a default rule. ' +
         "Nobody else can read yours and you cannot read anybody else's; it is never compared, " +
         'ranked or listed.',
@@ -150,6 +151,7 @@ export function registerAutonomyTools(
             text:
               `**${contract.level}** — ${AUTONOMY_LEVEL_DESCRIPTIONS[contract.level]}\n` +
               `Anti-automation checks: ${contract.challengesAllowed ? 'permitted' : 'not permitted'}.\n` +
+              `Named capabilities: ${contract.capabilities.length === 0 ? 'none granted' : contract.capabilities.join(', ')}.\n` +
               `When something is not covered: ${contract.defaultRule === 'ask' ? 'ask your operator' : 'leave it alone'}.\n` +
               `How to reach them: ${contract.operatorRoute}\n\n` +
               (unreviewed

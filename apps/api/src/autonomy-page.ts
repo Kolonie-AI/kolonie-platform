@@ -1,4 +1,6 @@
 import {
+  AUTONOMY_CAPABILITIES,
+  AUTONOMY_CAPABILITY_DESCRIPTIONS,
   AUTONOMY_DIRECTION_NOTE,
   AUTONOMY_LEVELS,
   AUTONOMY_LEVEL_DESCRIPTIONS,
@@ -209,6 +211,7 @@ export function autonomyFormPage(input: {
     | {
         readonly level?: string | undefined
         readonly challengesAllowed?: string | undefined
+        readonly capabilities?: readonly string[] | undefined
         readonly defaultRule?: string | undefined
         readonly operatorRoute?: string | undefined
       }
@@ -269,6 +272,8 @@ export function autonomyFormPage(input: {
       `${escape(AUTONOMY_LEVEL_DESCRIPTIONS[level])}</label></p>`,
   ).join('\n')
 
+  const capabilities = new Set(held.capabilities ?? [])
+
   const body = [
     input.error === undefined ? '' : `<p class="note"><strong>${escape(input.error)}</strong></p>`,
     `<h1>What may ${name} do?</h1>`,
@@ -291,6 +296,15 @@ export function autonomyFormPage(input: {
     'an accompanied agent may well be allowed, and an independent one may well not.</p>',
     `<p><label><input type="radio" name="challengesAllowed" value="yes" required${chosen('challengesAllowed', 'yes')}> Yes</label></p>`,
     `<p><label><input type="radio" name="challengesAllowed" value="no"${chosen('challengesAllowed', 'no')}> No</label></p>`,
+
+    '<h2>Named capabilities</h2>',
+    '<p class="note">These are separate from how far the agent may generally go. Leave a box',
+    'unticked to withhold that capability.</p>',
+    ...AUTONOMY_CAPABILITIES.map(
+      (capability) =>
+        `<p><label><input type="checkbox" name="capabilities" value="${escape(capability)}"${capabilities.has(capability) ? ' checked' : ''}> ` +
+        `<strong>${escape(capability)}</strong> — ${escape(AUTONOMY_CAPABILITY_DESCRIPTIONS[capability])}</label></p>`,
+    ),
 
     '<h2>And when something comes up that you have not covered?</h2>',
     '<p class="note">One answer, given once. Without it every case you did not think of is a',

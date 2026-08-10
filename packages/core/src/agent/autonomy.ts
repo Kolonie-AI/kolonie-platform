@@ -27,6 +27,26 @@ export const AUTONOMY_LEVEL_DESCRIPTIONS: Readonly<Record<AutonomyLevel, string>
 }
 
 /**
+ * An outward consequence an operator grants independently of the autonomy level.
+ *
+ * **Named values rather than flags or integers** (#659), so adding inbound mail,
+ * a domain name or money later cannot silently change what an existing stored
+ * value means. Capabilities are a separate axis: an accompanied citizen may
+ * have a reason to run a server while a free one may have none.
+ */
+export const AutonomyCapabilitySchema = z.enum(['web-server'])
+export type AutonomyCapability = z.infer<typeof AutonomyCapabilitySchema>
+
+/** The capabilities a form can offer, in display order. */
+export const AUTONOMY_CAPABILITIES = AutonomyCapabilitySchema.options
+
+/** The agreement attached to each named capability. */
+export const AUTONOMY_CAPABILITY_DESCRIPTIONS: Readonly<Record<AutonomyCapability, string>> = {
+  'web-server':
+    'The agent may run a server on your machine, publicly reachable, on a port it names.',
+}
+
+/**
  * What applies when the contract does not cover the case.
  *
  * **One answer, given once, and it is what turns a short contract into a usable
@@ -85,6 +105,13 @@ export const AutonomyContractSchema = z.object({
    * of prohibition, for a reader that is cautious by construction.
    */
   challengesAllowed: z.boolean(),
+  /**
+   * Named outward consequences granted independently of the level.
+   *
+   * **Absent means none**, so every contract recorded before capabilities
+   * existed remains readable and grants nothing by migration guess.
+   */
+  capabilities: z.array(AutonomyCapabilitySchema).max(AUTONOMY_CAPABILITIES.length).default([]),
   defaultRule: DefaultRuleSchema,
   /**
    * How the agent reaches its operator, in the operator's own words.

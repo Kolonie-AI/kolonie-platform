@@ -114,6 +114,7 @@ describe('the operator address', () => {
       await recordAutonomyContract(db, invitation.token, {
         level: 'accompanied',
         challengesAllowed: false,
+        capabilities: [],
         defaultRule: 'ask',
         operatorRoute: 'Ask me.',
       })
@@ -184,6 +185,7 @@ describe('the operator address', () => {
       await recordAutonomyContract(db, invitation.token, {
         level: 'free',
         challengesAllowed: true,
+        capabilities: [],
         defaultRule: 'ask',
         operatorRoute: 'Slack.',
       })

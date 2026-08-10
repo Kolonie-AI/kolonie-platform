@@ -121,6 +121,7 @@ describe('the operator’s durable page', () => {
       await recordAutonomyContract(db, invitation.token, {
         level: 'independent',
         challengesAllowed: false,
+        capabilities: [],
         defaultRule: 'ask',
         operatorRoute: 'Slack.',
       })

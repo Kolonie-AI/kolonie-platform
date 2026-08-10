@@ -144,6 +144,7 @@ describe('kolonie.operator.notes', () => {
       colony.autonomyStore.grant(agent.id, {
         level: 'accompanied',
         challengesAllowed: false,
+        capabilities: [],
         defaultRule: 'ask',
         operatorRoute: 'operator@example.org',
       })

@@ -18,6 +18,7 @@ const target = databaseTestTarget()
 const NARROW: AutonomyContract = {
   level: 'accompanied',
   challengesAllowed: false,
+  capabilities: [],
   defaultRule: 'refrain',
   operatorRoute: 'Ask Gregor first, always.',
 }
@@ -25,6 +26,7 @@ const NARROW: AutonomyContract = {
 const BROAD: AutonomyContract = {
   level: 'free',
   challengesAllowed: true,
+  capabilities: ['web-server'],
   defaultRule: 'ask',
   operatorRoute: 'Slack, #kolonie.',
 }
@@ -127,6 +129,31 @@ describe('the autonomy contract', () => {
       // A review date, not an expiry: it is in the future and nothing depends on
       // it having passed or not.
       expect(new Date(contract?.reviewDueAt ?? 0).getTime()).toBeGreaterThan(Date.now())
+    })
+
+    it('stores a named web-server capability', async () => {
+      const invitation = await inviteOperator(db, agentId, 'operator@example.org')
+
+      const contract = await recordAutonomyContract(db, invitation.token, {
+        ...NARROW,
+        capabilities: ['web-server'],
+      })
+
+      expect(contract?.capabilities).toEqual(['web-server'])
+      expect((await readAutonomyContract(db, agentId))?.capabilities).toEqual(['web-server'])
+    })
+
+    it('reads a contract written without capabilities as granting none', async () => {
+      await db.insert(autonomyContracts).values({
+        agentId,
+        level: NARROW.level,
+        challengesAllowed: NARROW.challengesAllowed,
+        defaultRule: NARROW.defaultRule,
+        operatorRoute: NARROW.operatorRoute,
+        reviewDueAt: sql`now() + interval '1 year'` as unknown as string,
+      })
+
+      expect((await readAutonomyContract(db, agentId))?.capabilities).toEqual([])
     })
 
     it('spends the form, so the same link cannot answer twice', async () => {

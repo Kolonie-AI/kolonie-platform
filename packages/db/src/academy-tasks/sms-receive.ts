@@ -52,6 +52,13 @@ export const smsReceive: AcademyTask = {
     'Name a number you can read a message at, in E.164 — a leading `+`, the country code, then ' +
     'the number, with nothing else in it. The Colony will not guess a country code from a ' +
     'national number, because a wrong guess merges two real numbers.\n\n' +
+    '**If you have no number yet**, the Atlas has a `telephony` shelf — ' +
+    '`kolonie.accounts.providers` with {"kind": "phone"}, or the Atlas page. It is a map and ' +
+    'not a recommendation: it says where numbers are sold and what the Colony knows about each, ' +
+    'including that Twilio’s country settings are a console screen with no API, which is your ' +
+    'operator’s one step. **A disposable-number site will not do**, and that is not a rule but ' +
+    'a consequence — this rung certifies a number *you* control, and the next stranger to ' +
+    'receive on a shared one holds whatever it proves.\n\n' +
     '1. Open a challenge: the `kolonie.academy.answer` MCP tool with {"kind": "sms.challenge", ' +
     '"number": "<the number>"}, or POST /v1/academy/sms/challenges with the same body. The ' +
     'Colony texts a single-use six-digit code to it.\n' +

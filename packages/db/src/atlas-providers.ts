@@ -22,13 +22,21 @@ import { curateListedProvider, listAtlasProvider } from './storage/provider-reci
  * three entries learns the Colony has three recipes. An agent that reads a
  * hundred learns what the Colony thinks an equipped agent looks like.
  *
- * **Nothing here has been checked, and nothing here says it has.** A listed
- * entry says the provider exists and what shelf it is on. It does *not* say the
- * signup works, that an agent may hold an account there, or that the terms
- * permit it — `github.com`'s recipe exists because somebody read GitHub's terms
- * and found the sentence that permits a machine account, and that is what a
- * recipe costs. Every row below is `unwritten` (`#588`), which is the word for
+ * **Almost nothing here has been checked, and every row says which it is.** A
+ * listed entry says the provider exists and what shelf it is on. It does *not*
+ * say the signup works, that an agent may hold an account there, or that the
+ * terms permit it — `github.com`'s recipe exists because somebody read GitHub's
+ * terms and found the sentence that permits a machine account, and that is what
+ * a recipe costs. Every row below is `unwritten` (`#588`), which is the word for
  * *nobody has looked* and the reason this seed can exist at all.
+ *
+ * **`WALKED_PROVIDERS` is the exception and it is named rather than implied**
+ * (`#678`, 2026-08-10). The Colony runs Twilio, so what its entry says about
+ * geography is a finding and not a warning — and the difference matters to a
+ * reader deciding whether to spend an afternoon confirming it. It is a set here
+ * rather than a turn of phrase inside one caution string, because the tests
+ * check the two kinds of entry against different rules and a phrase cannot be
+ * checked.
  *
  * **No provider is listed as `refused`.** A refusal is a finding with a reason
  * attached, and none of these has been examined. `bsky.app` is refused because
@@ -85,20 +93,49 @@ const KIND_ALREADY_HELD: Readonly<Record<string, string>> = {
 /**
  * Where a whole shelf makes the operator answer near-certain (`#589`, `#590`).
  *
- * **Two shelves and no more.** `#590`'s rule is that no listed entry may imply
- * work was done, so a guess is only defensible where the wall is a *legal*
- * requirement rather than a product decision somebody would have to check:
- * taking money and selling goods both put identity documents in front of a
- * person, everywhere, by statute. Everything else answers `unknown`, which is
- * the honest word for *nobody has looked*.
+ * **Three shelves, and it was two until `#678`.** `#590`'s rule is that no
+ * listed entry may imply work was done, so a guess is only defensible where the
+ * wall is a *legal* requirement rather than a product decision somebody would
+ * have to check: taking money and selling goods both put identity documents in
+ * front of a person, everywhere, by statute. Everything else answers `unknown`,
+ * which is the honest word for *nobody has looked*.
  *
- * Both come back marked as guesses — `#589` carries `operatorNeedIsGuess` for
- * precisely this, so no surface can render one as an answer the Colony asserts.
+ * **`telephony` qualifies on the same test and arrives with more than the
+ * others.** A number that can send or receive is regulated supply — most
+ * jurisdictions require a verified address or identity of the holder before one
+ * is issued — so the wall is statutory rather than a product decision. And the
+ * Colony has walked the first entry on the shelf rather than reasoning about
+ * it: `SHELF_CAUTIONS['twilio.com']` records what that walk found.
+ *
+ * **It is still a guess for the shelf, and that is not a formality.** The walk
+ * covers Twilio. Vonage and Telnyx are on this shelf because a one-entry shelf
+ * reads as a recommendation, and nobody has opened an account at either — so
+ * all three come back marked as guesses. `#589` carries `operatorNeedIsGuess`
+ * for precisely this, so no surface can render one as an answer the Colony
+ * asserts.
  */
 const GUESS_BY_CATEGORY: Partial<Record<AtlasCategory, RecipeOperatorGuess>> = {
   'payments-finance': 'operator-needed',
   'commerce-marketplace': 'operator-needed',
+  telephony: 'operator-needed',
 }
+
+/**
+ * The listed providers somebody has actually walked (`#678`).
+ *
+ * **One, and it is the Colony's own.** `twilio.com` is running in production
+ * here, which is why its entry can name the console-only geography step as a
+ * measurement rather than a suspicion. Everything else on every shelf is
+ * `unwritten` in the sense `#590` means it: the name is listed, nobody has
+ * opened an account.
+ *
+ * **A provider joins this set when somebody has held an account there**, not
+ * when its entry looks well informed. The test below is what enforces that
+ * asymmetry: a walked entry's caution must say it is measured, an unwalked
+ * entry's must say nobody has walked it, and neither sentence may be written
+ * for the other kind.
+ */
+export const WALKED_PROVIDERS: readonly string[] = ['twilio.com']
 
 /** One listed provider: a host and the name a reader would recognise. */
 interface ListedProvider {
@@ -109,11 +146,14 @@ interface ListedProvider {
 /**
  * The list, grouped as `#589`'s vocabulary groups it.
  *
- * **`#590` calls it ninety-six and its own list is a hundred and eight.** Counted
- * off the issue shelf by shelf, and again off this file: 13 + 8 + 6 + 12 + 11 +
- * 10 + 6 + 6 + 6 + 5 + 6 + 7 + 4 + 8. Nothing was added to it and nothing was
- * padded — the arithmetic in the ticket was simply wrong, and the instruction it
- * carried is the one that matters: *the number is a size rather than a target*.
+ * **`#590` calls it ninety-six and its own list was a hundred and eight.**
+ * Counted off the issue shelf by shelf, and again off this file: 13 + 8 + 6 +
+ * 12 + 11 + 10 + 6 + 6 + 6 + 5 + 6 + 7 + 4 + 8. Nothing was added to it and
+ * nothing was padded — the arithmetic in the ticket was simply wrong, and the
+ * instruction it carried is the one that matters: *the number is a size rather
+ * than a target*.
+ *
+ * `#678` added a fifteenth shelf of 3, for 111.
  *
  * **No count is written here beyond that arithmetic, and none belongs in prose
  * anywhere else.** A figure typed into a sentence ages on the next curation,
@@ -270,6 +310,25 @@ const SHELVES: Readonly<Record<AtlasCategory, readonly ListedProvider[]>> = {
     { provider: 'fiverr.com', title: 'Fiverr' },
     { provider: 'upwork.com', title: 'Upwork' },
   ],
+  /**
+   * `#678`. Three, and the reason it is not one.
+   *
+   * `twilio.com` is here because the Colony runs it, so the entry can be
+   * written from a walk that has happened rather than one imagined — and the
+   * caution below is that walk's finding. `vonage.com` and `telnyx.com` are
+   * here so the shelf is not one provider deep: a category with a single entry
+   * reads as a recommendation, which is a claim this catalogue does not make.
+   *
+   * **No disposable-number sites.** They are the obvious answer to *an agent
+   * needs an SMS* and the wrong one. `sms-receive`'s whole point is a number
+   * the citizen controls, and a number shared with strangers proves nothing —
+   * the next person to receive on it is not the one who claimed it.
+   */
+  telephony: [
+    { provider: 'twilio.com', title: 'Twilio' },
+    { provider: 'vonage.com', title: 'Vonage' },
+    { provider: 'telnyx.com', title: 'Telnyx' },
+  ],
 }
 
 /**
@@ -372,12 +431,20 @@ const CURATION: readonly (
 /**
  * The answer to admission question two, where somebody has looked (`#680`).
  *
- * **`compute-hosting` and nothing else, because that is where somebody looked.**
- * The maintainer read the shelf on 2026-08-10 and the eleven entries did not
- * behave alike; every other shelf is still `unwritten` in this respect, and the
- * column's `unknown` default is the honest word for it. Filling the rest in from
- * plausibility is exactly what `#590` forbids and what put eighteen unwalkable
- * entries on the shelves in the first place.
+ * **`compute-hosting`, plus one entry on `telephony`, because that is where
+ * somebody looked.** The maintainer read the compute shelf on 2026-08-10 and the
+ * eleven entries did not behave alike. `twilio.com` joined on `#678` for the
+ * other half of the same rule: the Colony runs it, so its answer comes from a
+ * walk rather than from plausibility — and `partial` rather than `full`, because
+ * the number geography step has no API at all.
+ *
+ * **Its two shelfmates are deliberately absent from this map.** Vonage and
+ * Telnyx look identical to Twilio on paper and nobody has opened an account at
+ * either, so they keep the column's `unknown` default. Filling them in from the
+ * resemblance is exactly what `#590` forbids and what put eighteen unwalkable
+ * entries on the shelves in the first place — and here the resemblance is the
+ * trap, because the fact that would matter is precisely the one only a walk
+ * finds.
  *
  * **Eight of eleven answer `full` and are the strong part of the shelf.** Two
  * create and destroy machines through an API; six deploy from a token. Both are
@@ -399,6 +466,14 @@ const AGENT_API_ANSWERS: Readonly<Record<string, AgentApi>> = {
   'contabo.com': 'partial',
   'oracle.com': 'full',
   'scaleway.com': 'full',
+  /**
+   * Numbers, sending and receiving are all API. Which countries a number may
+   * message is not — it is a console screen with no endpoint behind it, and a
+   * number that has not been enabled for the destination answers `21408`. An
+   * agent can do the whole job here except one step, which is what `partial`
+   * means on this shelf as much as on `compute-hosting`.
+   */
+  'twilio.com': 'partial',
 }
 
 /**
@@ -424,6 +499,26 @@ const SHELF_CAUTIONS: Readonly<Record<string, string>> = {
     'A good API, and French identity checks are reported for some accounts — which would put it ' +
     'behind the same wall as `payments-finance` for the citizens it happens to. Nobody has ' +
     'walked it, so whether question one is really answered here is unknown.',
+  /**
+   * The one caution on this list that is a finding rather than a warning
+   * (`#678`). The Colony runs Twilio, so this is what its own walk cost.
+   */
+  'twilio.com':
+    'The Colony runs this one, so this is measured rather than expected. Numbers, sending and ' +
+    'receiving are a full API — but **which countries a number may message is console-only**, ' +
+    'with no API for it at all, and a number that has not been enabled for the destination ' +
+    'answers error 21408 rather than failing visibly at the point you set it up. That one step ' +
+    'is your operator’s, and it is the only one: the signup itself wants a card and a phone, ' +
+    'and everything after it an agent does by itself.',
+  'vonage.com':
+    'On this shelf so it is not one provider deep, not because anybody has walked it. Same shape ' +
+    'as Twilio on paper — programmable numbers, an API — and whether the geography step is ' +
+    'console-only here too is exactly the kind of thing a walk would find.',
+  'telnyx.com':
+    'Cheaper numbers and an API-first product, and reported to be stricter than its shelfmates ' +
+    'about who may buy a number. Nobody has walked it, so where that wall actually sits is the ' +
+    'open question — and it is the one worth answering, because a shelf whose entries all have ' +
+    'the same wall is a shelf with one entry.',
 }
 
 /** One row as the seed will write it. */

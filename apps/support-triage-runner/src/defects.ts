@@ -214,8 +214,24 @@ export function labelsFor(input: {
   readonly area: string
   readonly firstSeen: boolean
 }): readonly string[] {
-  return input.firstSeen ? ['bug', 'p1', input.area] : ['bug', input.area]
+  return input.firstSeen ? ['bug', 'p1', input.area, PROVENANCE] : ['bug', input.area, PROVENANCE]
 }
+
+/**
+ * Where this issue came from, which decides how carefully it is read (`#686`).
+ *
+ * **`from:watcher`, because a log signature is a measurement and not a
+ * judgement.** Something queried the logs and a threshold answered; nobody read
+ * it and decided it mattered. That is the opposite claim from `from:citizen` on
+ * the same runner's other path — untrusted text a person wrote — and a reader
+ * who cannot tell them apart is paying the difference on every issue.
+ *
+ * **It is set here rather than left to the board to infer.** The author of these
+ * is a machine account, and inferring *watcher* from *not a human* would also
+ * label the maintainer agent's issues, which are judgements. Provenance is a
+ * fact the creating path knows and nothing downstream can recover.
+ */
+const PROVENANCE = 'from:watcher'
 
 /** Everything one issue needs. Assembled deterministically; the prose is separate. */
 export interface DefectReport {

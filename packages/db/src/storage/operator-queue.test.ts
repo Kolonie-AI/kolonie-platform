@@ -1,8 +1,9 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
-import type { AgentId, HumanId, TaskId } from '@kolonie-ai/core'
+import type { AgentId, HumanId, TaskId, WishId } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import {
   agents,
+  accountWishes,
   humanAgents,
   humans,
   operatorRequests,
@@ -75,6 +76,27 @@ describe('the operator queue', () => {
       .values({ requestId: request.id, author: 'citizen', body: ask })
   }
 
+  const aWishQuestion = async (
+    agentId: AgentId,
+    provider: string,
+    ask: string,
+  ): Promise<WishId> => {
+    const [wish] = await db
+      .insert(accountWishes)
+      .values({ agentId, provider, author: 'citizen', wantedAt: new Date().toISOString() })
+      .returning({ id: accountWishes.id })
+    if (wish === undefined) throw new Error('inserting a wish returned no row')
+    const [request] = await db
+      .insert(operatorRequests)
+      .values({ agentId, wishId: wish.id })
+      .returning({ id: operatorRequests.id })
+    if (request === undefined) throw new Error('inserting a request returned no row')
+    await db
+      .insert(operatorRequestMessages)
+      .values({ requestId: request.id, author: 'citizen', body: ask })
+    return wish.id as WishId
+  }
+
   beforeEach(async () => {
     await truncateAll(db)
     await seedAcademyTasks(db)
@@ -100,6 +122,14 @@ describe('the operator queue', () => {
 
     expect(queue.map((row) => row.agentName)).toEqual(['two', 'one'])
     expect(queue.map((row) => row.kind)).toEqual(['code', 'question'])
+  })
+
+  it('uses the wanted provider as the context for a wish request', async () => {
+    const agentId = await anAgent('one', humanId)
+    await aWishQuestion(agentId, 'github.com', 'Please create the account.')
+
+    const [item] = await waitingForOperator(db, humanId)
+    expect(item?.about).toBe('github.com')
   })
 
   it('orders by what each one costs to clear rather than by age', async () => {

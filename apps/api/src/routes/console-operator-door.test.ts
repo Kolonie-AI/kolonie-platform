@@ -13,6 +13,7 @@ import { fakeOperatorNotes } from '../__fixtures__/operator-notes.js'
 import { fakeOperatorRequests } from '../__fixtures__/operator-requests.js'
 import { fakeStore } from '../__fixtures__/store.js'
 import { fakeHumanStore, fakeTenant, type FakeHumanStore } from '../__fixtures__/humans.js'
+import type { DropStore } from '../operator-drops.js'
 import { SESSION_COOKIE } from './console.js'
 import { OAUTH_STATE_COOKIE } from '../humans/humans.js'
 
@@ -30,12 +31,26 @@ const CONSOLE_HOST = 'console.example'
 let app: FastifyInstance
 let humans: FakeHumanStore
 let pages: ReturnType<typeof fakeOperatorPages>
+let requests: ReturnType<typeof fakeOperatorRequests>
+let drops: DropStore
+let pageDrops: Awaited<ReturnType<DropStore['forPageToken']>>
 let agentId: AgentId
 let otherAgentId: AgentId
 
 beforeEach(async () => {
   humans = fakeHumanStore()
   pages = fakeOperatorPages()
+  requests = fakeOperatorRequests({ pages })
+  pageDrops = []
+  drops = {
+    open: () => Promise.reject(new Error('not used')),
+    view: () => Promise.resolve(null),
+    submit: () => Promise.resolve({ outcome: 'closed' }),
+    list: () => Promise.resolve([]),
+    forPageToken: () => Promise.resolve(pageDrops),
+    take: () => Promise.resolve({ outcome: 'nothing' }),
+    fillAsOperator: () => Promise.resolve({ outcome: 'closed' }),
+  }
   const agents = fakeStore()
 
   app = buildApp({
@@ -52,8 +67,9 @@ beforeEach(async () => {
     // The same page store on all three, as production has it: a token is what
     // resolves an exchange and a note, so a second store here would let this
     // file write through a link the revoke path had never heard of.
-    operatorRequests: fakeOperatorRequests({ pages }),
+    operatorRequests: requests,
     operatorNotes: fakeOperatorNotes({ pages }),
+    drops,
   })
   await app.ready()
 
@@ -150,6 +166,43 @@ describe('the operator page opens on a session', () => {
     const response = await openDoor(cookie, agentId)
 
     expect(response.body).not.toContain(token)
+  })
+
+  it('orders questions and sealed boxes by opening, without giving the page token fill authority', async () => {
+    const cookie = await signedInCookie()
+    await link(agentId)
+    const token = await pages.issue(agentId, 'op@example.org')
+    const taskId = requests.store.giveTask()
+    await requests.store.open({ agentId, taskId, body: 'The question between the two drops' })
+    pageDrops = [
+      {
+        id: '11111111-1111-4111-8111-111111111111',
+        kind: 'credential',
+        prompt: 'The older mailbox password',
+        createdAt: '2000-01-01T00:00:00.000Z' as never,
+      },
+      {
+        id: '22222222-2222-4222-8222-222222222222',
+        kind: 'code',
+        prompt: 'The later verification code',
+        createdAt: '2999-01-01T00:00:00.000Z' as never,
+      },
+    ]
+
+    const mailed = await app.inject({ method: 'GET', url: `/operator/page/${token}` })
+    const throughSession = await openDoor(cookie, agentId)
+
+    for (const body of [mailed.body, throughSession.body]) {
+      expect(body.indexOf('The older mailbox password')).toBeLessThan(
+        body.indexOf('The question between the two drops'),
+      )
+      expect(body.indexOf('The question between the two drops')).toBeLessThan(
+        body.indexOf('The later verification code'),
+      )
+    }
+    expect(mailed.body).not.toContain('action="/drops/')
+    expect(throughSession.body).toContain('action="/drops/11111111-1111-4111-8111-111111111111"')
+    expect(throughSession.body).toContain('action="/drops/22222222-2222-4222-8222-222222222222"')
   })
 
   /**

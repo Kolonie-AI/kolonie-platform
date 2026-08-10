@@ -11,12 +11,11 @@ const bodyMax = sql.raw(String(OPERATOR_MESSAGE_MAX_LENGTH))
  *
  * ## Why this is a second table and not a nullable column on `operator_requests`
  *
- * An exchange is *about a task*, *one open at a time*, and *closed by the citizen*.
- * A note is about nothing in particular, arrives whenever the operator has
- * something to say, and is finished when it is read. Sharing a table would mean
- * making `task_id` nullable, which is exactly the column `#236` made non-null on
- * purpose, and losing `operator_requests_one_open_idx` — a rule that is load-bearing
- * for exchanges and meaningless for notes.
+ * An exchange has exactly one task or wanted-wish provenance, expects an answer,
+ * and is closed by the citizen. A note is about nothing in particular, arrives
+ * whenever the operator has something to say, and is finished when it is read.
+ * Sharing a table would still mix those lifecycles and create rows that look like
+ * requests without carrying anything the citizen asked.
  *
  * ## The same length bounds as a message, from the same constants
  *

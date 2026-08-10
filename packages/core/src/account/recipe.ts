@@ -66,6 +66,23 @@ export const RecipeValueNameSchema = z
 export type RecipeValueName = z.infer<typeof RecipeValueNameSchema>
 
 /**
+ * A value the account register may already know (`#594` wall 3).
+ *
+ * **The recipe names the account kind rather than the runtime guessing from the
+ * value name.** `address` might mean a mailbox, a domain or a wallet address;
+ * only the recipe author knows which holding makes that earlier step complete.
+ * `proved` is opt-in because a declaration is enough unless the recipe says the
+ * Colony must already have checked it.
+ */
+export const RecipeKnownValueSourceSchema = z
+  .object({
+    kind: AccountKindSchema,
+    proved: z.boolean().optional(),
+  })
+  .strict()
+export type RecipeKnownValueSource = z.infer<typeof RecipeKnownValueSourceSchema>
+
+/**
  * How a value is referenced inside an ask: `{handle}`.
  *
  * **Braces and nothing cleverer.** The substitution is the only way an agent's
@@ -171,6 +188,16 @@ export const RecipeStepSchema = z
      */
     produces: z.array(RecipeValueNameSchema).max(RECIPE_MAX_PRODUCED_VALUES).optional(),
     /**
+     * Which produced values may be read from accounts the agent already holds
+     * (`#594` wall 3).
+     *
+     * Optional so existing recipes keep meaning exactly what they meant. A
+     * source belongs to the step that would otherwise establish the value, not
+     * to the later operator ask: that preserves the recipe's account of why the
+     * value exists while allowing the runtime to skip asking for it again.
+     */
+    knownValues: z.record(RecipeValueNameSchema, RecipeKnownValueSourceSchema).optional(),
+    /**
      * Whether this step is the agent handing its **operator** a secret (`#592`).
      *
      * **The mirror of {@link RecipeStepSchema.secret} and its opposite in every
@@ -208,6 +235,25 @@ export const RecipeStepSchema = z
       'only an agent step produces values. What an operator step produces is the operator’s ' +
       'answer, and that already has a channel.',
     path: ['produces'],
+  })
+  .refine((step) => step.actor === 'agent' || step.knownValues === undefined, {
+    message:
+      'only an agent step can be satisfied from an account it already holds. An operator step ' +
+      'still names the person’s act and answer.',
+    path: ['knownValues'],
+  })
+  .superRefine((step, ctx) => {
+    const produced = new Set(step.produces ?? [])
+    for (const name of Object.keys(step.knownValues ?? {})) {
+      if (produced.has(name)) continue
+      ctx.addIssue({
+        code: 'custom',
+        path: ['knownValues', name],
+        message:
+          `the source for ${name} is attached to a step that does not produce it. Add ${name} ` +
+          'to `produces`, or remove the source.',
+      })
+    }
   })
   .refine((step) => step.actor === 'operator' || step.ask === undefined, {
     message: 'only an operator step has an ask — an agent step has nobody to ask.',

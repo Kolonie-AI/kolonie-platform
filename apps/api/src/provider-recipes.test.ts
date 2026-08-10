@@ -1,9 +1,11 @@
+import { ProviderRecipeSchema } from '@kolonie-ai/core'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { fakeProviderRecipes, type FakeProviderRecipes } from './__fixtures__/provider-recipes.js'
 import {
   HANDOFF_LATENCY_NOTE,
   fillHandoffAsk,
   handoffStep,
+  knownHandoffValues,
   readRecipe,
   readRecipes,
   recipeAsText,
@@ -510,5 +512,108 @@ describe('an ask that names what an earlier step produced', () => {
     expect('error' in filled).toBe(false)
     if ('error' in filled) return
     expect(filled.ask).toBe('Please create the account and accept the terms.')
+  })
+})
+
+describe('an ask whose missing values are already held (#594 wall 3)', () => {
+  const recipe = ProviderRecipeSchema.parse({
+    kind: 'github',
+    provider: 'github.com',
+    title: 'GitHub',
+    about: null,
+    runtimes: [],
+    paid: false,
+    referral: null,
+    contact: null,
+    lastConfirmedAt: null,
+    status: 'joinable' as const,
+    category: 'code-hosting' as const,
+    operatorNeed: 'operator-needed' as const,
+    operatorNeedIsGuess: false,
+    refusal: null,
+    retiredAt: null,
+    retiredReason: null,
+    steps: [
+      {
+        actor: 'agent' as const,
+        instruction: 'Choose a handle and address.',
+        produces: ['handle', 'address'],
+        knownValues: {
+          handle: { kind: 'social' },
+          address: { kind: 'mailbox', proved: true },
+        },
+      },
+      {
+        actor: 'operator' as const,
+        instruction: 'Create it.',
+        ask: 'Create it as {handle}, using {address}.',
+      },
+    ],
+    proves: 'rung' as const,
+    provesTask: 'github-account',
+    caution: null,
+    pacePerDay: null,
+    updatedAt: new Date().toISOString(),
+  })
+  const handoff = recipe.steps[1]
+  if (handoff === undefined) throw new Error('fixture has no handoff step')
+
+  const held = new Map([
+    [
+      'social',
+      [
+        {
+          identifier: 'colette',
+          proved: false,
+          preferred: true,
+          reach: false,
+          forWork: true,
+        },
+      ],
+    ],
+    [
+      'mailbox',
+      [
+        {
+          identifier: 'unproved@example.org',
+          proved: false,
+          preferred: false,
+          reach: false,
+          forWork: true,
+        },
+        {
+          identifier: 'proved@example.org',
+          proved: true,
+          preferred: false,
+          reach: true,
+          forWork: true,
+        },
+      ],
+    ],
+  ])
+
+  it('fills only missing values from eligible earlier-step sources and says which', () => {
+    const known = knownHandoffValues(recipe, 2, held)
+    const filled = fillHandoffAsk(handoff, { handle: 'chosen' }, known)
+
+    expect('error' in filled).toBe(false)
+    if ('error' in filled) return
+    expect(filled.ask).toBe('Create it as chosen, using proved@example.org.')
+    expect(filled.known).toEqual([
+      { name: 'address', kind: 'mailbox', proved: true, identifier: 'proved@example.org' },
+    ])
+  })
+
+  it('does not use an unproved account where the recipe requires proof', () => {
+    const known = knownHandoffValues(
+      recipe,
+      2,
+      new Map([['mailbox', held.get('mailbox')?.slice(0, 1) ?? []]]),
+    )
+    const filled = fillHandoffAsk(handoff, { handle: 'chosen' }, known)
+
+    expect('error' in filled).toBe(true)
+    if (!('error' in filled)) return
+    expect(filled.error.message).toContain('`address`')
   })
 })

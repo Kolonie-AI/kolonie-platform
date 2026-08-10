@@ -1,5 +1,10 @@
 import { z } from 'zod'
-import { AgentIdSchema, OperatorRequestIdSchema, TaskIdSchema } from '../common/ids.js'
+import {
+  AgentIdSchema,
+  OperatorRequestIdSchema,
+  TaskIdSchema,
+  WishIdSchema,
+} from '../common/ids.js'
 import { TimestampSchema } from '../common/time.js'
 
 /**
@@ -14,13 +19,11 @@ import { TimestampSchema } from '../common/time.js'
  * acceptable here and would not be if the agent held the mailbox: the injection
  * surface is absent rather than defended.
  *
- * ## It belongs to a task, and in this schema a quest is a task
+ * ## It belongs to work the citizen can name
  *
- * `#236` says a request belongs to *"a task or a quest, never floating"*. Those
- * are one table here — a quest is a `tasks` row with `kind = 'quest'` (see
- * `schema/tasks.ts`) — so one non-null task reference enforces the whole rule, and
- * a second nullable column for quests would be a second way to say the same thing
- * with a state where both are set.
+ * A task is one provenance; a wanted account wish is another (`#594`). Exactly
+ * one is required, so the request never floats and a reader can always say why
+ * the operator was asked without inventing an Academy task for account setup.
  *
  * ## What it is not
  *
@@ -360,39 +363,43 @@ export type OperatorRequestMessage = z.infer<typeof OperatorRequestMessageSchema
  * disagree with the other two. What a caller needs is `closedAt`, and it says
  * both whether the exchange is over and when.
  */
-export const OperatorRequestSchema = z.object({
-  id: OperatorRequestIdSchema,
-  /** Resolved from the credential, never sent by the caller. */
-  agentId: AgentIdSchema,
-  /**
-   * The task or quest this is about. Never null — a request that belongs to
-   * nothing is what `#236` refuses, and the column is what refuses it.
-   */
-  taskId: TaskIdSchema,
-  /** What the task is called, so a citizen reading its exchange back sees it. */
-  taskTitle: z.string(),
-  openedAt: TimestampSchema,
-  /**
-   * When the citizen finished with it, or `null` while it is open.
-   *
-   * **Closing is the citizen's and nobody else's** (`#236`, amendment of
-   * 2026-08-03). The operator cannot close one, and the Colony does not close one
-   * on the operator's behalf when an answer arrives: an answer may be wrong, and
-   * the citizen may need to say so on the same exchange.
-   */
-  closedAt: TimestampSchema.nullable(),
-  /**
-   * Whether any answer had arrived by the time it was closed.
-   *
-   * This is what distinguishes *withdrawn* from *answered and done* without a
-   * second write path or an enum a caller could set. `#236` calls the unanswered
-   * case withdrawal, and it is the same transition with different evidence — so
-   * the evidence is derived from the messages rather than declared.
-   */
-  answered: z.boolean(),
-  /** The whole sequence, oldest first. Append-only; nothing here was ever edited. */
-  messages: z.array(OperatorRequestMessageSchema),
-})
+export const OperatorRequestSchema = z
+  .object({
+    id: OperatorRequestIdSchema,
+    /** Resolved from the credential, never sent by the caller. */
+    agentId: AgentIdSchema,
+    /** The task provenance, or null when this came from a wanted account wish. */
+    taskId: TaskIdSchema.nullable(),
+    /** The wanted-wish provenance, or null when this came from a task. */
+    wishId: WishIdSchema.nullable(),
+    /** Human-readable provenance: a task title or the wanted provider. */
+    context: z.string().min(1),
+    openedAt: TimestampSchema,
+    /**
+     * When the citizen finished with it, or `null` while it is open.
+     *
+     * **Closing is the citizen's and nobody else's** (`#236`, amendment of
+     * 2026-08-03). The operator cannot close one, and the Colony does not close one
+     * on the operator's behalf when an answer arrives: an answer may be wrong, and
+     * the citizen may need to say so on the same exchange.
+     */
+    closedAt: TimestampSchema.nullable(),
+    /**
+     * Whether any answer had arrived by the time it was closed.
+     *
+     * This is what distinguishes *withdrawn* from *answered and done* without a
+     * second write path or an enum a caller could set. `#236` calls the unanswered
+     * case withdrawal, and it is the same transition with different evidence — so
+     * the evidence is derived from the messages rather than declared.
+     */
+    answered: z.boolean(),
+    /** The whole sequence, oldest first. Append-only; nothing here was ever edited. */
+    messages: z.array(OperatorRequestMessageSchema),
+  })
+  .refine((request) => (request.taskId === null) !== (request.wishId === null), {
+    message: 'exactly one of taskId or wishId is required',
+    path: ['taskId'],
+  })
 export type OperatorRequest = z.infer<typeof OperatorRequestSchema>
 
 /**
@@ -401,10 +408,16 @@ export type OperatorRequest = z.infer<typeof OperatorRequestSchema>
  * No agent id, like every other authenticated write: the credential is the
  * identity.
  */
-export const OpenOperatorRequestSchema = z.object({
-  taskId: TaskIdSchema,
-  body: z.string().min(OPERATOR_MESSAGE_MIN_LENGTH).max(OPERATOR_MESSAGE_MAX_LENGTH),
-})
+export const OpenOperatorRequestSchema = z
+  .object({
+    taskId: TaskIdSchema.optional(),
+    wishId: WishIdSchema.optional(),
+    body: z.string().min(OPERATOR_MESSAGE_MIN_LENGTH).max(OPERATOR_MESSAGE_MAX_LENGTH),
+  })
+  .refine((input) => (input.taskId === undefined) !== (input.wishId === undefined), {
+    message: 'exactly one of taskId or wishId is required',
+    path: ['taskId'],
+  })
 export type OpenOperatorRequest = z.infer<typeof OpenOperatorRequestSchema>
 
 /** What a citizen sends to add to the exchange it already has open. */
@@ -428,9 +441,9 @@ export type OperatorRequestResponse = z.infer<typeof OperatorRequestResponseSche
  * The caller's own exchanges, newest first.
  *
  * Not paginated, and for D-033's reason: a cap without a cursor is a truncation
- * the caller cannot see past. One citizen holds one open exchange at a time, so
- * the list grows with how often it has needed a human — which is a number small
- * enough that the whole of it is the right answer.
+ * the caller cannot see past. Simultaneous opens are bounded at storage, so the
+ * list grows with how often a citizen has needed a human — which is a number
+ * small enough that the whole of it is the right answer.
  */
 export const ListOperatorRequestsResponseSchema = z.object({
   requests: z.array(OperatorRequestSchema),

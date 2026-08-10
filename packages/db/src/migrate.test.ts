@@ -255,8 +255,8 @@ describe('the migrations', () => {
     // **Seventy-one** (`#410`): `operator_drops`, the one channel a secret may
     // travel down from an operator to its citizen. It is a table rather than a
     // column on `operator_requests` because the four properties that make an
-    // exchange right — about one task, one open at a time, closed by the citizen,
-    // words — are all wrong for this, which is the same argument `#239` made for
+    // exchange right — named task-or-wish provenance, a bounded open queue,
+    // closed by the citizen, words — are all wrong for this, which is the same argument `#239` made for
     // notes one surface along.
     //
     // **Seventy-four** (`#425`): `humans`, `human_identities` and

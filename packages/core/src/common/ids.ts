@@ -72,6 +72,10 @@ export type TaskReportId = z.infer<typeof TaskReportIdSchema>
 export const OperatorRequestIdSchema = z.uuid().brand<'OperatorRequestId'>()
 export type OperatorRequestId = z.infer<typeof OperatorRequestIdSchema>
 
+/** One provider on the account wish list shared by a citizen and its operator. */
+export const WishIdSchema = z.uuid().brand<'WishId'>()
+export type WishId = z.infer<typeof WishIdSchema>
+
 /**
  * One thing an operator said to its citizen without being asked (#239).
  *

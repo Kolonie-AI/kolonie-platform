@@ -1784,7 +1784,7 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
                 token,
                 consoleOperatorPath(String(operated.agentId)),
                 door,
-                { as: 'section' },
+                { as: 'section', fillDrops: true },
               ),
             }),
       }),
@@ -2302,7 +2302,9 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
     const { agentId } = request.params as { agentId: string }
     return html(
       reply,
-      await operatorPageBody(deps, door.token, consoleOperatorPath(agentId), door.view),
+      await operatorPageBody(deps, door.token, consoleOperatorPath(agentId), door.view, {
+        fillDrops: true,
+      }),
     )
   })
 
@@ -2369,7 +2371,7 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
           door.token,
           action,
           door.view,
-          noteError === undefined ? {} : { noteError },
+          noteError === undefined ? { fillDrops: true } : { noteError, fillDrops: true },
         ),
       )
     }
@@ -2392,6 +2394,7 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
       reply.status(422),
       await operatorPageBody(deps, door.token, action, door.view, {
         answerError: result.error.message,
+        fillDrops: true,
       }),
     )
   })

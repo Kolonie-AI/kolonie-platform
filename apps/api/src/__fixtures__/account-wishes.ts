@@ -4,6 +4,7 @@ import {
   type AgentId,
   type Wish,
   type WishAuthor,
+  type WishId,
 } from '@kolonie-ai/core'
 import { BUNDLES } from '@kolonie-ai/db'
 import type { WishDependencies, WishStore } from '../account-wishes.js'
@@ -38,7 +39,7 @@ export function fakeWishes(): FakeWishes {
       if (existing !== undefined) return { outcome: 'already-listed', wish: existing }
 
       const wish: Wish = {
-        id: randomUUID(),
+        id: randomUUID() as WishId,
         provider,
         author: author as WishAuthor,
         // Only a citizen has something it was doing — the table refuses the

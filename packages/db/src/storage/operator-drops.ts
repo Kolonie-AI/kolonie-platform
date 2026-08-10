@@ -14,6 +14,7 @@ import {
 } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import { operatorDrops } from '../schema/operator-drops.js'
+import { operatorPages } from '../schema/operator-pages.js'
 import { agentVault } from '../schema/vault.js'
 import { openVaultValue, sealVaultValue } from '../vault-crypto.js'
 import { toTimestamp } from './rows.js'
@@ -98,6 +99,52 @@ export interface OpenDropView {
   readonly agentName: string
   readonly kind: DropKind
   readonly prompt: string
+}
+
+/** An unfilled sealed box the durable operator page may name, never its token or value. */
+export interface OpenDropForOperator {
+  readonly id: string
+  readonly kind: DropKind
+  readonly prompt: string
+  readonly createdAt: Timestamp
+}
+
+/**
+ * Every sealed box this live page's agent is still able to have filled, oldest first.
+ *
+ * The durable page token resolves the agent and is never returned. Attempts are
+ * deliberately not a condition: they close the mailed drop link, while the
+ * authenticated console path can still fill the row (`#570`).
+ */
+export async function openDropsForPageToken(
+  db: Database,
+  token: string,
+): Promise<readonly OpenDropForOperator[]> {
+  const rows = await db
+    .select({
+      id: operatorDrops.id,
+      kind: operatorDrops.kind,
+      prompt: operatorDrops.prompt,
+      createdAt: operatorDrops.createdAt,
+    })
+    .from(operatorPages)
+    .innerJoin(operatorDrops, eq(operatorDrops.agentId, operatorPages.agentId))
+    .where(
+      and(
+        eq(operatorPages.token, token),
+        isNull(operatorPages.revokedAt),
+        isNull(operatorDrops.submittedAt),
+        sql`${operatorDrops.expiresAt} > now()`,
+      ),
+    )
+    .orderBy(asc(operatorDrops.createdAt), asc(operatorDrops.id))
+
+  return rows.map((row) => ({
+    id: row.id,
+    kind: row.kind as DropKind,
+    prompt: row.prompt,
+    createdAt: toTimestamp(row.createdAt),
+  }))
 }
 
 export async function viewDrop(db: Database, token: string): Promise<OpenDropView | null> {

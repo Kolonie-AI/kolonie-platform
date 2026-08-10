@@ -5,7 +5,9 @@ import type {
   OperatorRequestAuthor,
   OperatorRequestId,
   TaskId,
+  WishId,
 } from '@kolonie-ai/core'
+import { DEFAULT_OPERATOR_REQUEST_OPEN_MAX } from '@kolonie-ai/db'
 import type { OperatorRequestDependencies, OperatorRequestStore } from '../operator-requests.js'
 import { fakeAutonomyMailer, fakeOperatorPages, type FakeOperatorPages } from './autonomy.js'
 import { support } from '../support.js'
@@ -18,6 +20,8 @@ export interface FakeOperatorRequestStore extends OperatorRequestStore {
   readonly revokePage: (agentId: AgentId) => void
   /** Make a task exist, so `open` has something to attach a request to. */
   readonly giveTask: (title?: string) => TaskId
+  /** Make a wanted wish exist for this citizen. */
+  readonly giveWish: (agentId: AgentId, provider?: string, wishId?: WishId) => WishId
   /** What a `needs-operator` shelving looks like from here (`#234`). */
   readonly shelve: (agentId: AgentId, taskId: TaskId) => void
   readonly shelved: (agentId: AgentId, taskId: TaskId) => boolean
@@ -26,7 +30,8 @@ export interface FakeOperatorRequestStore extends OperatorRequestStore {
 interface Row {
   readonly id: OperatorRequestId
   readonly agentId: AgentId
-  readonly taskId: TaskId
+  readonly taskId: TaskId | null
+  readonly wishId: WishId | null
   readonly openedAt: string
   closedAt: string | null
   readonly messages: { author: OperatorRequestAuthor; body: string; writtenAt: string }[]
@@ -37,8 +42,9 @@ interface Row {
  *
  * **The invariants the database holds are held here too**, deliberately, because a
  * fake that is more permissive than PostgreSQL lets a test pass against behaviour
- * the real store refuses: one open exchange per citizen, no answer through a revoked
- * page, no write to a closed exchange, and no read of somebody else's.
+ * the real store refuses: a bounded number of open exchanges per citizen, no
+ * answer through a revoked page, no write to a closed exchange, and no read of
+ * somebody else's.
  *
  * What is *not* modelled is anything about the queries themselves — that one citizen
  * cannot reach another's row is asserted in `packages/db` against a real database,
@@ -58,6 +64,7 @@ export function fakeOperatorRequestStore(
 ): FakeOperatorRequestStore {
   const rows = new Map<OperatorRequestId, Row>()
   const tasks = new Map<TaskId, string>()
+  const wishes = new Map<WishId, { agentId: AgentId; provider: string }>()
   const shelvings = new Set<string>()
 
   const shelfKey = (agentId: AgentId, taskId: TaskId) => `${agentId}::${taskId}`
@@ -66,39 +73,51 @@ export function fakeOperatorRequestStore(
     id: row.id,
     agentId: row.agentId,
     taskId: row.taskId,
-    taskTitle: tasks.get(row.taskId) ?? '',
+    wishId: row.wishId,
+    context:
+      row.taskId === null
+        ? (wishes.get(row.wishId!)?.provider ?? '')
+        : (tasks.get(row.taskId) ?? ''),
     openedAt: row.openedAt,
     closedAt: row.closedAt,
     answered: row.messages.some((message) => message.author === 'operator'),
     messages: row.messages.map((message) => ({ ...message })),
   })
 
-  const openRowFor = (agentId: AgentId): Row | undefined =>
-    [...rows.values()].find((row) => row.agentId === agentId && row.closedAt === null)
-
   return {
-    open: ({ agentId, taskId, body }) => {
-      if (!tasks.has(taskId)) return Promise.resolve({ outcome: 'no-such-task' as const })
+    open: (input) => {
+      if (input.taskId !== undefined && !tasks.has(input.taskId)) {
+        return Promise.resolve({ outcome: 'no-such-task' as const })
+      }
+      if (input.wishId !== undefined) {
+        const wish = wishes.get(input.wishId)
+        if (wish === undefined || wish.agentId !== input.agentId) {
+          return Promise.resolve({ outcome: 'no-such-wish' as const })
+        }
+      }
 
-      const alreadyOpen = openRowFor(agentId)
-      if (alreadyOpen !== undefined) {
+      const open = [...rows.values()].filter(
+        (row) => row.agentId === input.agentId && row.closedAt === null,
+      )
+      if (open.length >= DEFAULT_OPERATOR_REQUEST_OPEN_MAX) {
         return Promise.resolve({
-          outcome: 'already-open' as const,
-          openRequestId: alreadyOpen.id,
+          outcome: 'at-ceiling' as const,
+          openRequests: open.map((row) => ({ requestId: row.id, context: view(row).context })),
         })
       }
 
-      if (pages.liveFor(agentId) === null) {
+      if (pages.liveFor(input.agentId) === null) {
         return Promise.resolve({ outcome: 'no-operator' as const })
       }
 
       const row: Row = {
         id: randomUUID() as OperatorRequestId,
-        agentId,
-        taskId,
+        agentId: input.agentId,
+        taskId: input.taskId ?? null,
+        wishId: input.wishId ?? null,
         openedAt: new Date().toISOString(),
         closedAt: null,
-        messages: [{ author: 'citizen', body, writtenAt: new Date().toISOString() }],
+        messages: [{ author: 'citizen', body: input.body, writtenAt: new Date().toISOString() }],
       }
       rows.set(row.id, row)
 
@@ -182,7 +201,7 @@ export function fakeOperatorRequestStore(
       return Promise.resolve(
         [...open, ...answered].map((row) => ({
           requestId: row.id,
-          taskTitle: tasks.get(row.taskId) ?? '',
+          context: view(row).context,
           openedAt: row.openedAt,
           messages: row.messages.map((message) => ({ ...message })),
           closed: row.closedAt !== null,
@@ -201,8 +220,8 @@ export function fakeOperatorRequestStore(
 
       row.messages.push({ author: 'operator', body, writtenAt: new Date().toISOString() })
 
-      const key = shelfKey(row.agentId, row.taskId)
-      const clearedSetAside = shelvings.delete(key)
+      const clearedSetAside =
+        row.taskId === null ? false : shelvings.delete(shelfKey(row.agentId, row.taskId))
 
       return Promise.resolve({ outcome: 'answered' as const, clearedSetAside, agentId })
     },
@@ -224,6 +243,12 @@ export function fakeOperatorRequestStore(
       const taskId = randomUUID() as TaskId
       tasks.set(taskId, title)
       return taskId
+    },
+
+    giveWish: (agentId, provider = 'github.com', existingId) => {
+      const wishId = existingId ?? (randomUUID() as WishId)
+      wishes.set(wishId, { agentId, provider })
+      return wishId
     },
 
     shelve: (agentId, taskId) => {

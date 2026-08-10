@@ -731,7 +731,7 @@ const app = buildApp({
     wake: liveWake,
   },
   operatorRequests: {
-    store: databaseOperatorRequestStore(db),
+    store: databaseOperatorRequestStore(db, liveSettings),
     allowance: supportSurface,
     // Operator-facing: it writes to a person about their agent, so it takes the
     // mailer with the console's sender bound rather than the Academy's (`#474`).
@@ -828,7 +828,7 @@ const app = buildApp({
   webServer: {
     challenges: databaseWebServerChallenges(db),
     operatorRequests: {
-      store: databaseOperatorRequestStore(db),
+      store: databaseOperatorRequestStore(db, liveSettings),
       allowance: supportSurface,
       // The web-server rung's own operator channel — a second wiring of the same
       // module, and the one a grep for `mailer.send` does not find because it

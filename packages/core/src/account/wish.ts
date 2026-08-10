@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { WishIdSchema } from '../common/ids.js'
 import { TimestampSchema } from '../common/time.js'
 import { AccountProviderSchema } from './account.js'
 
@@ -55,7 +56,7 @@ export type { OperatorRequestAuthor as WishAuthor } from '../operator/request.js
 
 /** One thing on the list. */
 export const WishSchema = z.object({
-  id: z.uuid(),
+  id: WishIdSchema,
   /** Who runs the account, in the form the Atlas prints it — `trello.com`. */
   provider: AccountProviderSchema,
   /** Which side put it there. */

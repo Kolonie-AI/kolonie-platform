@@ -37,7 +37,7 @@ export const OPERATOR_ADVISORY_NOTE =
 /** One exchange, whole, oldest message first. */
 export function operatorRequestAsText(request: OperatorRequest): string {
   const lines = [
-    `Your request about "${request.taskTitle}"`,
+    `Your request about "${request.context}"`,
     `id: ${request.id}`,
     `opened: ${request.openedAt}`,
     request.closedAt === null
@@ -67,7 +67,7 @@ export function operatorRequestAsText(request: OperatorRequest): string {
  * The citizen's exchanges, newest first.
  *
  * **The whole of each one, not a summary.** The list is short by construction —
- * one open at a time — and a rendering that dropped the messages would make the
+ * bounded by the simultaneous-open ceiling — and a rendering that dropped the messages would make the
  * common case (*read what my operator said*) a second call for no saving.
  */
 export function operatorRequestListAsText(requests: readonly OperatorRequest[]): string {

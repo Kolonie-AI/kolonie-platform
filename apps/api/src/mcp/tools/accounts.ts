@@ -45,6 +45,7 @@ import {
   atlasEntryAsText,
   fillHandoffAsk,
   handoffStep,
+  knownHandoffValues,
   readAtlas,
   readRecipe,
 } from '../../provider-recipes.js'
@@ -1081,7 +1082,6 @@ export function registerAccountTools(
         '**Nothing waits on it.** Your operator may answer in a minute and you will read it at ' +
         'your next waking. Go and do something else.',
       inputSchema: {
-        taskId: z.uuid().describe('The task this is part of, from kolonie.tasks.list.'),
         kind: AccountKindArgumentSchema.describe('The account kind the recipe is for.'),
         provider: AccountProviderSchema.describe(
           'Who runs it, exactly as kolonie.accounts.recipes prints it.',
@@ -1102,7 +1102,9 @@ export function registerAccountTools(
               'arrives before the values it refers to is one nobody can follow. Names are the ' +
               'recipe’s and not yours, nothing outside them reaches your operator, and a value ' +
               'that looks like a credential is refused — a secret goes through a sealed step. ' +
-              'Omit it where the ask refers to nothing; the refusal names what is missing.',
+              'Omit values the recipe can take from an account you already hold; explicit values ' +
+              'still win. The result names anything it reused and why. Omit the whole object ' +
+              'where the ask refers to nothing; the refusal names what is still missing.',
           ),
       },
       annotations: { readOnlyHint: false, idempotentHint: false, openWorldHint: true },
@@ -1126,8 +1128,31 @@ export function registerAccountTools(
        * attention — and the agent is told which value rather than discovering it
        * from an operator's confusion.
        */
-      const filled = fillHandoffAsk(resolved.step, input.values ?? {})
+      const sources = recipe.response.steps
+        .slice(0, input.step - 1)
+        .flatMap((step) => Object.values(step.knownValues ?? {}))
+      const kinds = [...new Set(sources.map((source) => source.kind))]
+      const held =
+        kinds.length === 0
+          ? new Map<string, readonly HeldAccount[]>()
+          : await deps.accounts.resolution.heldByKind(authenticatedAgent.agent.id, kinds)
+      const known = knownHandoffValues(recipe.response, input.step, held)
+      const filled = fillHandoffAsk(resolved.step, input.values ?? {}, known)
       if ('error' in filled) return toolError(filled.error)
+
+      const knownNote =
+        filled.known.length === 0
+          ? ''
+          : '\n\nI filled ' +
+            filled.known
+              .map(
+                (value) =>
+                  `\`${value.name}\` from your ${value.proved ? 'proved' : 'declared'} ` +
+                  `${value.kind} account \`${value.identifier}\``,
+              )
+              .join(' and ') +
+            '. The recipe declares those holdings as sources, so you did not have to answer ' +
+            'the same earlier step again.'
 
       /**
        * **The one gate the shared list puts on a recipe** (`#527`).
@@ -1153,6 +1178,18 @@ export function registerAccountTools(
             'starting an onboarding they have not agreed to. Nothing is wrong and nothing is ' +
             'held against you: read the list with kolonie.accounts.wishes, and carry on with ' +
             'something else meanwhile.',
+        })
+      }
+
+      const wish = (await deps.wishes.store.list(authenticatedAgent.agent.id)).find(
+        (candidate) => candidate.provider === input.provider && candidate.wantedAt !== null,
+      )
+      if (wish === undefined) {
+        return toolError({
+          code: 'conflict',
+          message:
+            `${input.provider} is not a wanted wish of yours. Put it on the shared list with ` +
+            'kolonie.accounts.wishes and have your operator mark it wanted before opening a handoff.',
         })
       }
 
@@ -1196,10 +1233,14 @@ export function registerAccountTools(
                 `Give your operator this link: ${result.response.url}\n\n` +
                 `It is a sealed box and it works once. What they put in it lands in your vault ` +
                 `under \`${result.response.vaultKey ?? ''}\` and nobody reads it back out of ` +
-                `here, including them.\n\n${HANDOFF_LATENCY_NOTE}`,
+                `here, including them.${knownNote}\n\n${HANDOFF_LATENCY_NOTE}`,
             },
           ],
-          structuredContent: { channel: 'drop', ...result.response },
+          structuredContent: {
+            channel: 'drop',
+            knownValues: filled.known,
+            ...result.response,
+          },
         }
       }
 
@@ -1207,7 +1248,7 @@ export function registerAccountTools(
         {
           agentId: authenticatedAgent.agent.id,
           agentName: authenticatedAgent.agent.profile.name,
-          body: { taskId: input.taskId, body: filled.ask },
+          body: { wishId: wish.id, body: filled.ask },
         },
         deps.operatorRequests,
       )
@@ -1242,12 +1283,12 @@ export function registerAccountTools(
             type: 'text',
             text:
               `Asked, in the Colony\u2019s own words rather than yours:\n\n` +
-              `> ${resolved.step.ask ?? ''}\n\n` +
+              `> ${filled.ask}\n\n` +
               `One mail has gone to your operator and it is the only one that will be sent about ` +
-              `this.\n\n${HANDOFF_LATENCY_NOTE}`,
+              `this.${knownNote}\n\n${HANDOFF_LATENCY_NOTE}`,
           },
         ],
-        structuredContent: { channel: 'request', ...asked.response },
+        structuredContent: { channel: 'request', knownValues: filled.known, ...asked.response },
       }
     },
   )

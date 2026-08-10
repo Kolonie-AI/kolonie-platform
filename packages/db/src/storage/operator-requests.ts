@@ -6,11 +6,20 @@ import type {
   OperatorRequestId,
   OperatorRequestMessage,
   TaskId,
+  WishId,
 } from '@kolonie-ai/core'
 import type { Database, Transaction } from '../client.js'
-import { operatorPages, operatorRequestMessages, operatorRequests, tasks } from '../schema/index.js'
+import {
+  accountWishes,
+  agents,
+  operatorPages,
+  operatorRequestMessages,
+  operatorRequests,
+  tasks,
+} from '../schema/index.js'
 import { clearSetAside } from './set-asides.js'
 import { toTimestamp } from './rows.js'
+import type { SettingsReader } from './settings.js'
 
 /**
  * The queries behind the operator channel (#236).
@@ -30,9 +39,17 @@ export type OpenOperatorRequestOutcome =
    * There is already an open exchange, and it is named so the citizen can read it
    * rather than guess. The same shape `#176` uses for quests awaiting review.
    */
-  | { readonly outcome: 'already-open'; readonly openRequestId: OperatorRequestId }
+  | {
+      readonly outcome: 'at-ceiling'
+      readonly openRequests: readonly {
+        readonly requestId: OperatorRequestId
+        readonly context: string
+      }[]
+    }
   /** No such task, which for a caller-supplied id includes *not visible to you*. */
   | { readonly outcome: 'no-such-task' }
+  /** No wanted wish of this citizen has that id. */
+  | { readonly outcome: 'no-such-wish' }
   /**
    * The citizen holds no live operator page, so there is nobody to notify and
    * nowhere for an answer to be written.
@@ -42,6 +59,18 @@ export type OpenOperatorRequestOutcome =
    * produces is a route (`kolonie.operator.page`) rather than a refusal.
    */
   | { readonly outcome: 'no-operator' }
+
+/**
+ * Eight small questions fit the issue's account-setup sitting without turning
+ * the operator page into the batch form it explicitly refuses.
+ */
+export const DEFAULT_OPERATOR_REQUEST_OPEN_MAX = 8
+
+type OperatorRequestProvenance =
+  | { readonly taskId: TaskId; readonly wishId?: never }
+  | { readonly taskId?: never; readonly wishId: WishId }
+
+const requestContext = sql<string>`coalesce(${tasks.title}, ${accountWishes.provider})`
 
 /** Where an answer may be written, and to whom the notification goes. */
 export interface OperatorRequestRecipient {
@@ -95,12 +124,14 @@ export async function readOperatorRequest(
       id: operatorRequests.id,
       agentId: operatorRequests.agentId,
       taskId: operatorRequests.taskId,
-      taskTitle: tasks.title,
+      wishId: operatorRequests.wishId,
+      context: requestContext,
       openedAt: operatorRequests.openedAt,
       closedAt: operatorRequests.closedAt,
     })
     .from(operatorRequests)
-    .innerJoin(tasks, eq(tasks.id, operatorRequests.taskId))
+    .leftJoin(tasks, eq(tasks.id, operatorRequests.taskId))
+    .leftJoin(accountWishes, eq(accountWishes.id, operatorRequests.wishId))
     .where(
       and(eq(operatorRequests.id, query.requestId), eq(operatorRequests.agentId, query.agentId)),
     )
@@ -113,8 +144,9 @@ export async function readOperatorRequest(
   return {
     id: row.id as OperatorRequestId,
     agentId: row.agentId as AgentId,
-    taskId: row.taskId as TaskId,
-    taskTitle: row.taskTitle,
+    taskId: row.taskId === null ? null : (row.taskId as TaskId),
+    wishId: row.wishId === null ? null : (row.wishId as WishId),
+    context: row.context,
     openedAt: toTimestamp(row.openedAt),
     closedAt: row.closedAt === null ? null : toTimestamp(row.closedAt),
     answered: messages.some((message) => message.author === 'operator'),
@@ -129,36 +161,83 @@ export async function readOperatorRequest(
  * what it is for — an empty exchange would arrive on the operator's page as a
  * notification about nothing.
  *
- * The one-open-at-a-time rule is enforced by the partial unique index rather than
- * by the `select` below it. The read is there to *name* the open one in the
- * refusal; the index is what makes two concurrent calls impossible to both pass.
+ * The ceiling check and insert share an agent-row lock. A plain count followed by
+ * an insert would let concurrent calls both pass and exceed the configured bound.
  */
 export async function openOperatorRequest(
   db: Database,
-  input: { readonly agentId: AgentId; readonly taskId: TaskId; readonly body: string },
+  input: { readonly agentId: AgentId; readonly body: string } & OperatorRequestProvenance,
+  settings: SettingsReader = {
+    read: async () => undefined,
+    forget: () => undefined,
+  },
 ): Promise<OpenOperatorRequestOutcome> {
-  const [task] = await db
-    .select({ id: tasks.id })
-    .from(tasks)
-    .where(eq(tasks.id, input.taskId))
-    .limit(1)
+  const configured = await settings.read('OPERATOR_REQUEST_OPEN_MAX')
+  const parsedCeiling = configured === undefined ? Number.NaN : Number.parseInt(configured, 10)
+  const ceiling =
+    Number.isFinite(parsedCeiling) && parsedCeiling > 0
+      ? parsedCeiling
+      : DEFAULT_OPERATOR_REQUEST_OPEN_MAX
 
-  if (task === undefined) return { outcome: 'no-such-task' }
+  const result = await db.transaction(async (tx) => {
+    // One lock per citizen serializes count-and-insert without imposing one-open
+    // uniqueness on the rows themselves.
+    await tx
+      .select({ id: agents.id })
+      .from(agents)
+      .where(eq(agents.id, input.agentId))
+      .for('update')
 
-  const [open] = await db
-    .select({ id: operatorRequests.id })
-    .from(operatorRequests)
-    .where(and(eq(operatorRequests.agentId, input.agentId), isNull(operatorRequests.closedAt)))
-    .limit(1)
+    if (input.taskId !== undefined) {
+      const [task] = await tx
+        .select({ id: tasks.id })
+        .from(tasks)
+        .where(eq(tasks.id, input.taskId))
+        .limit(1)
+      if (task === undefined) return { outcome: 'no-such-task' as const }
+    } else {
+      const [wish] = await tx
+        .select({ id: accountWishes.id })
+        .from(accountWishes)
+        .where(
+          and(
+            eq(accountWishes.id, input.wishId),
+            eq(accountWishes.agentId, input.agentId),
+            sql`${accountWishes.wantedAt} is not null`,
+          ),
+        )
+        .limit(1)
+      if (wish === undefined) return { outcome: 'no-such-wish' as const }
+    }
 
-  if (open !== undefined) {
-    return { outcome: 'already-open', openRequestId: open.id as OperatorRequestId }
-  }
+    const open = await tx
+      .select({
+        requestId: operatorRequests.id,
+        context: requestContext,
+      })
+      .from(operatorRequests)
+      .leftJoin(tasks, eq(tasks.id, operatorRequests.taskId))
+      .leftJoin(accountWishes, eq(accountWishes.id, operatorRequests.wishId))
+      .where(and(eq(operatorRequests.agentId, input.agentId), isNull(operatorRequests.closedAt)))
+      .orderBy(asc(operatorRequests.openedAt), asc(operatorRequests.id))
 
-  const requestId = await db.transaction(async (tx) => {
+    if (open.length >= ceiling) {
+      return {
+        outcome: 'at-ceiling' as const,
+        openRequests: open.map((row) => ({
+          requestId: row.requestId as OperatorRequestId,
+          context: row.context,
+        })),
+      }
+    }
+
     const [row] = await tx
       .insert(operatorRequests)
-      .values({ agentId: input.agentId, taskId: input.taskId })
+      .values({
+        agentId: input.agentId,
+        taskId: input.taskId ?? null,
+        wishId: input.wishId ?? null,
+      })
       .returning({ id: operatorRequests.id })
 
     if (row === undefined) throw new Error('operator_requests insert returned no row')
@@ -167,10 +246,15 @@ export async function openOperatorRequest(
       .insert(operatorRequestMessages)
       .values({ requestId: row.id, author: 'citizen', body: input.body })
 
-    return row.id as OperatorRequestId
+    return { outcome: 'inserted' as const, requestId: row.id as OperatorRequestId }
   })
 
-  const request = await readOperatorRequest(db, { requestId, agentId: input.agentId })
+  if (result.outcome !== 'inserted') return result
+
+  const request = await readOperatorRequest(db, {
+    requestId: result.requestId,
+    agentId: input.agentId,
+  })
   if (request === undefined) throw new Error('operator_requests row vanished after insert')
 
   return { outcome: 'opened', request }
@@ -324,7 +408,8 @@ export async function operatorRequestRecipient(
 /** What the operator is shown on the durable page: one exchange, or nothing. */
 export interface OpenExchangeForOperator {
   readonly requestId: OperatorRequestId
-  readonly taskTitle: string
+  /** The task title or wanted provider that explains why this was asked. */
+  readonly context: string
   readonly openedAt: string
   readonly messages: readonly OperatorRequestMessage[]
   /**
@@ -388,12 +473,13 @@ export async function exchangesForToken(
   const open = await db
     .select({
       requestId: operatorRequests.id,
-      taskTitle: tasks.title,
+      context: requestContext,
       openedAt: operatorRequests.openedAt,
     })
     .from(operatorPages)
     .innerJoin(operatorRequests, eq(operatorRequests.agentId, operatorPages.agentId))
-    .innerJoin(tasks, eq(tasks.id, operatorRequests.taskId))
+    .leftJoin(tasks, eq(tasks.id, operatorRequests.taskId))
+    .leftJoin(accountWishes, eq(accountWishes.id, operatorRequests.wishId))
     .where(
       and(
         eq(operatorPages.token, token),
@@ -414,7 +500,7 @@ export async function exchangesForToken(
   for (const row of open) {
     exchanges.push({
       requestId: row.requestId as OperatorRequestId,
-      taskTitle: row.taskTitle,
+      context: row.context,
       openedAt: toTimestamp(row.openedAt),
       messages: await messagesOf(db, row.requestId as OperatorRequestId),
       closed: false,
@@ -441,12 +527,13 @@ async function answeredSinceClosing(
   const [answered] = await db
     .select({
       requestId: operatorRequests.id,
-      taskTitle: tasks.title,
+      context: requestContext,
       openedAt: operatorRequests.openedAt,
     })
     .from(operatorPages)
     .innerJoin(operatorRequests, eq(operatorRequests.agentId, operatorPages.agentId))
-    .innerJoin(tasks, eq(tasks.id, operatorRequests.taskId))
+    .leftJoin(tasks, eq(tasks.id, operatorRequests.taskId))
+    .leftJoin(accountWishes, eq(accountWishes.id, operatorRequests.wishId))
     .where(
       and(
         eq(operatorPages.token, token),
@@ -466,7 +553,7 @@ async function answeredSinceClosing(
 
   return {
     requestId: answered.requestId as OperatorRequestId,
-    taskTitle: answered.taskTitle,
+    context: answered.context,
     openedAt: toTimestamp(answered.openedAt),
     messages: await messagesOf(db, answered.requestId as OperatorRequestId),
     closed: true,
@@ -544,11 +631,10 @@ export async function answerOperatorRequest(
       .insert(operatorRequestMessages)
       .values({ requestId: input.requestId, author: 'operator', body: input.body })
 
-    const clearedSetAside = await clearSetAside(
-      tx,
-      target.agentId as AgentId,
-      target.taskId as TaskId,
-    )
+    const clearedSetAside =
+      target.taskId === null
+        ? false
+        : await clearSetAside(tx, target.agentId as AgentId, target.taskId as TaskId)
 
     return { outcome: 'answered' as const, clearedSetAside, agentId: target.agentId as AgentId }
   })

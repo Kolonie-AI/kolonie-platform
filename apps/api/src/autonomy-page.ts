@@ -132,7 +132,9 @@ function tile(value: number, label: string): string {
  */
 export interface OperatorExchange {
   readonly requestId: string
-  readonly taskTitle: string
+  /** The task title or wanted provider that explains why this was asked. */
+  readonly context: string
+  readonly openedAt: string
   readonly messages: readonly {
     readonly author: 'citizen' | 'operator'
     readonly body: string
@@ -144,12 +146,20 @@ export interface OperatorExchange {
    *
    * A citizen may answer a question its operator asked in the notes channel by
    * replying into an exchange that is already closed — which costs it neither
-   * its one open-request slot nor its one mail. What arrives here is that
+   * one of its bounded open-request places nor another mail. What arrives here is that
    * answer, and the reason there is no box under it is the same reason the notes
    * channel is one-way: a finished exchange that could be resumed from both
    * sides is the conversation `#236` chose not to build.
    */
   readonly closed?: boolean | undefined
+}
+
+/** An unfilled operator drop, shown without a value or bearer link. */
+export interface OperatorPageDrop {
+  readonly id: string
+  readonly kind: 'code' | 'credential'
+  readonly prompt: string
+  readonly createdAt: string
 }
 
 /**
@@ -487,7 +497,7 @@ export function operatorDurablePage(input: {
     readonly alsoCovered?: readonly string[] | undefined
   } | null
   /**
-   * The one open question this citizen has asked, if it has asked one (`#236`).
+   * The open questions this citizen has asked (`#236`, `#594`).
    *
    * Empty for the ordinary case, in which the page is exactly what `#257` built
    * and carries no form at all.
@@ -500,14 +510,15 @@ export function operatorDurablePage(input: {
    * answered it, and found the row they wanted still there — with nothing saying
    * why.
    *
-   * What `#236` actually protects is the citizen's **one open request**, and
-   * that is enforced where a request is opened rather than here. Several
-   * exchanges on this page means one open question and a finished one the
-   * citizen wrote into since (`#359`), or a page reached for an agent that has
-   * more than one — and hiding the extras was never the protection, only the
-   * appearance of it.
+   * What protects the operator is the bounded simultaneous-open ceiling, enforced
+   * where a request is opened. Hiding requests here was never protection, only
+   * disagreement with the queue that sent the operator to this page.
    */
   readonly exchanges?: readonly OperatorExchange[] | undefined
+  /** Every actionable sealed box for this page's agent. */
+  readonly drops?: readonly OperatorPageDrop[] | undefined
+  /** Only a signed-in console page may post a secret to the existing drop-id path. */
+  readonly fillDrops?: boolean | undefined
   /** What to say if an answer was just refused — a credential, or an empty box. */
   readonly answerError?: string | undefined
   /**
@@ -906,20 +917,57 @@ export function operatorDurablePage(input: {
       ? []
       : (input.exchanges ?? [])
           .filter((exchange) => exchange.closed !== true)
-          .flatMap((exchange) => [
-            /**
-             * **Each exchange is its own section with its own anchor** (`#593`),
-             * so `#587`'s *Answer* link has something stable to point at and an
-             * operator who answers the second of three lands back where they were
-             * rather than at the top of a long page.
-             */
-            `<section id="${escape(exchangeAnchor(exchange.requestId))}">`,
-            ...exchangeBlock(exchange, name, {
-              action: answerAction,
-              ...(input.answerError === undefined ? {} : { answerError: input.answerError }),
-            }),
-            '</section>',
-          ])
+          .map((exchange) => ({
+            openedAt: exchange.openedAt,
+            tie: `question-${exchange.requestId}`,
+            body: [
+              /**
+               * **Each exchange is its own section with its own anchor** (`#593`),
+               * so `#587`'s *Answer* link has something stable to point at and an
+               * operator who answers the second of three lands back where they were
+               * rather than at the top of a long page.
+               */
+              `<section id="${escape(exchangeAnchor(exchange.requestId))}">`,
+              ...exchangeBlock(exchange, name, {
+                action: answerAction,
+                ...(input.answerError === undefined ? {} : { answerError: input.answerError }),
+              }),
+              '</section>',
+            ],
+          }))
+
+  /**
+   * Sealed boxes are `operator_drops`, not reverse handovers (`#594`). The
+   * durable page may disclose the ask, but only a signed-in console renders the
+   * existing drop-id form: the page token gains no authority to carry a secret.
+   */
+  const openDrops = (input.drops ?? []).map((drop) => ({
+    openedAt: drop.createdAt,
+    tie: `drop-${drop.id}`,
+    body: [
+      input.fillDrops === true ? `<section id="drop-${escape(drop.id)}">` : '<section>',
+      `<h2>${name} needs something secret</h2>`,
+      `<p class="operator-ask"><strong>${name} asks:</strong> ${escape(drop.prompt)}</p>`,
+      `<p class="note">This is a sealed box for a ${escape(drop.kind)}. Do not put the value in ` +
+        'an answer or message box.</p>',
+      ...(input.fillDrops === true
+        ? [
+            `<form method="post" action="/drops/${escape(drop.id)}">`,
+            '<input type="password" name="value" required maxlength="4096" autocomplete="off">',
+            '<button type="submit">Seal and send</button>',
+            '</form>',
+          ]
+        : [
+            '<p class="note">Use the separate sealed-box link you were sent, or sign in to the',
+            'operator console. This durable page cannot accept secret values.</p>',
+          ]),
+      '</section>',
+    ],
+  }))
+
+  const openActions = [...openQuestions, ...openDrops]
+    .sort((a, b) => a.openedAt.localeCompare(b.openedAt) || a.tie.localeCompare(b.tie))
+    .flatMap((item) => item.body)
 
   const closedExchanges =
     answerAction === undefined
@@ -952,7 +1000,7 @@ export function operatorDurablePage(input: {
            * further down, which is where the first one came from.
            */
           `<h2>${who} answered you</h2>`,
-          `<p>About a task called “${escape(exchange.taskTitle)}”, in an exchange that is`,
+          `<p>About “${escape(exchange.context)}”, in an exchange that is`,
           'now finished. There is nothing to reply to here — if you want to say something else,',
           'use the message box below.</p>',
           '<table>',
@@ -965,7 +1013,7 @@ export function operatorDurablePage(input: {
         ]
       : [
           `<h2>${who} has asked you something</h2>`,
-          `<p>About a task called “${escape(exchange.taskTitle)}”.</p>`,
+          `<p>About “${escape(exchange.context)}”.</p>`,
           context.answerError === undefined
             ? ''
             : `<p class="note"><strong>${escape(context.answerError)}</strong></p>`,
@@ -1171,7 +1219,7 @@ export function operatorDurablePage(input: {
    * the section can *do* is unchanged, because it is the same forms posting to
    * the same handlers.
    */
-  const asked = openQuestions.filter(Boolean)
+  const asked = openActions.filter(Boolean)
 
   const operatorSection = [
     ...asked,

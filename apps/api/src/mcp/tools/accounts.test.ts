@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { WalkReportSchema } from '../../account-walks.js'
 import { connectedClient, registeredCitizen } from '../../__fixtures__/mcp.js'
+import { fakeAccountRegister, fakeAccounts } from '../../__fixtures__/accounts.js'
 
 describe('kolonie.accounts.walk-report', () => {
   it('takes the published steps as one ordered tick-list', () => {
@@ -16,6 +17,66 @@ describe('kolonie.accounts.walk-report', () => {
     expect(
       WalkReportSchema.safeParse({ outcome: 'proved', takenStepPositions: [2, 1] }).success,
     ).toBe(false)
+  })
+})
+
+describe('kolonie.accounts.handoff known values (#594 wall 3)', () => {
+  it('reuses a declared account and proved mailbox, records them in the ask, and says why', async () => {
+    const { colony, apiKey, agent } = await registeredCitizen()
+    const register = fakeAccountRegister()
+    await register.declare(agent.id, { kind: 'social' as never, identifier: 'colette' })
+    register.proveDirectly(agent.id, {
+      kind: 'mailbox' as never,
+      identifier: 'proved@example.org',
+    })
+    colony.recipes.write({
+      kind: 'github',
+      provider: 'github.com',
+      status: 'joinable',
+      steps: [
+        {
+          actor: 'agent',
+          instruction: 'Choose a handle and address.',
+          produces: ['handle', 'address'],
+          knownValues: {
+            handle: { kind: 'social' as never },
+            address: { kind: 'mailbox' as never, proved: true },
+          },
+        },
+        {
+          actor: 'operator',
+          instruction: 'Create the account.',
+          ask: 'Create it as {handle}, using {address}.',
+        },
+      ],
+    })
+    colony.operatorRequestStore.givePage(agent.id)
+    const added = await colony.wishes.store.add({
+      agentId: agent.id,
+      provider: 'github.com',
+      author: 'citizen',
+    })
+    await colony.wishes.store.want(agent.id, 'github.com')
+    colony.operatorRequestStore.giveWish(agent.id, 'github.com', added.wish.id)
+    const { client, close } = await connectedClient(
+      { ...colony, accounts: fakeAccounts(register) },
+      `Bearer ${apiKey}`,
+    )
+
+    const result = await client.callTool({
+      name: 'kolonie.accounts.handoff',
+      arguments: { kind: 'github', provider: 'github.com', step: 2 },
+    })
+    const [request] = await colony.operatorRequestStore.list(agent.id)
+
+    expect(result.isError).not.toBe(true)
+    expect(JSON.stringify(result.content)).toContain('from your declared social account')
+    expect(JSON.stringify(result.content)).toContain('from your proved mailbox account')
+    expect(request?.messages[0]?.body).toBe('Create it as colette, using proved@example.org.')
+    expect(request?.taskId).toBeNull()
+    expect(request?.wishId).toBe(added.wish.id)
+    expect(request?.context).toBe('github.com')
+    await close()
   })
 })
 

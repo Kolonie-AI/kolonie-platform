@@ -1,5 +1,6 @@
 import { createSign } from 'node:crypto'
 import type { Log } from './loop.js'
+import { reachableFetch, REACHES } from './reachable.js'
 
 /**
  * How this process talks to GitHub, and why it is an App rather than a token.
@@ -222,7 +223,7 @@ interface GitHubOptions {
  * to be rotated, and a key that leaks buys an hour rather than a year.
  */
 export function githubIssues(options: GitHubOptions): Issues {
-  const doFetch = options.fetchImpl ?? fetch
+  const doFetch = reachableFetch(REACHES.github, options.fetchImpl ?? fetch)
   const now = options.now ?? Date.now
   const log = options.log
 

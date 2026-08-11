@@ -1,5 +1,6 @@
 import { readModelCall, silentLog, type Log, type ModelCall } from '@kolonie-ai/core'
 import type { TriageInput, TriageModel } from './triage.js'
+import { reachableFetch, REACHES } from './reachable.js'
 
 /**
  * The one place this process talks to a model.
@@ -188,7 +189,7 @@ function modelCall(body: OpenRouterBody, log: Log, http?: Response): ModelCall |
 
 export function openRouterModel(apiKey: string, options: OpenRouterOptions = {}): TriageModel {
   const model = options.model ?? TRIAGE_MODEL
-  const doFetch = options.fetchImpl ?? fetch
+  const doFetch = reachableFetch(REACHES.model, options.fetchImpl ?? fetch)
   const log = options.log ?? silentLog
 
   return {
@@ -299,7 +300,7 @@ export function openRouterDefectWriter(
   options: OpenRouterOptions = {},
 ): DefectWriter {
   const model = options.model ?? TRIAGE_MODEL
-  const doFetch = options.fetchImpl ?? fetch
+  const doFetch = reachableFetch(REACHES.model, options.fetchImpl ?? fetch)
   const log = options.log ?? silentLog
 
   return {

@@ -1,4 +1,5 @@
 import type { Log } from './loop.js'
+import { reachableFetch, REACHES } from './reachable.js'
 
 /**
  * The Colony's own errors, read out of Loki (`#407`).
@@ -155,7 +156,7 @@ interface LokiOptions {
  * credential — this is a second reader of one store, not a second store.
  */
 export function lokiLogs(options: LokiOptions): Logs {
-  const doFetch = options.fetchImpl ?? fetch
+  const doFetch = reachableFetch(REACHES.logs, options.fetchImpl ?? fetch)
   const now = options.now ?? Date.now
   const log = options.log
 

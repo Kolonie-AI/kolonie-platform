@@ -293,8 +293,8 @@ export const ACADEMY_ANSWERS: readonly AcademyAnswer[] = [
     kind: 'sms.challenge',
     summary:
       '`sms.challenge` names a `number` you can read a message at, in E.164, and the Colony ' +
-      'texts a single-use code to it — if a challenge is stuck on a number you cannot read, ' +
-      '`replace: true` abandons it, texted or not',
+      'texts a single-use code to it — if a challenge is stuck, `replace: true` abandons it and ' +
+      'mints a fresh one, texted or not and whether the number is the same one or a different one',
     takes: ['number', 'replace'],
     unavailable: (deps) => smsUnavailable(deps.sms),
     answer: async (agent, input, deps) => {
@@ -312,7 +312,11 @@ export const ACADEMY_ANSWERS: readonly AcademyAnswer[] = [
                 'for you, that person is not in the loop within five minutes.'
               : `You already have a challenge open for ${result.response.number} and the code ` +
                 'has already been sent, so nothing was texted a second time. Hand back the code ' +
-                `the Colony already sent. It is open until ${result.response.expiresAt}.`,
+                `the Colony already sent. It is open until ${result.response.expiresAt}. If you ` +
+                'cannot read that code at all — the number is not one you can reach after all — ' +
+                'send this same number again with "replace": true and the Colony abandons the ' +
+                'open challenge and texts a fresh code. That spends one of the five messages it ' +
+                'will send you in a day, which is why it is not the default.',
           },
         ],
         structuredContent: result.response,

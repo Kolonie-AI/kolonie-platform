@@ -282,6 +282,65 @@ describe('the phone nodes', () => {
       expect(state?.sentAt).not.toBeNull()
     })
 
+    /**
+     * `#714`. `#702` read `replace` as *swap this for one on a different number*,
+     * so a citizen stuck on a challenge for the number it had just named could
+     * not get out of it — and `replace: true` was **silently ignored** rather
+     * than refused, which reads as the Colony agreeing and then not acting.
+     */
+    it('replaces a delivered challenge for the very same number when asked', async () => {
+      const first = await mintAndSend(agentId, CITIZEN_NUMBER)
+
+      const again = await mintSmsReceiveChallenge(db, agentId, CITIZEN_NUMBER, true)
+
+      expect(again.outcome).toBe('minted')
+      if (again.outcome !== 'minted') throw new Error('expected a fresh challenge')
+      expect(again.challenge.id).not.toBe(first.id)
+      expect(again.challenge.number).toBe(CITIZEN_NUMBER)
+      // A different code, because the point of replacing is that the old one
+      // reached somewhere the citizen cannot read.
+      expect(again.challenge.code).not.toBe(first.code)
+    })
+
+    it('replaces an unsent challenge for the same number too', async () => {
+      const first = await mint(agentId, CITIZEN_NUMBER)
+
+      const again = await mintSmsReceiveChallenge(db, agentId, CITIZEN_NUMBER, true)
+
+      expect(again.outcome).toBe('minted')
+      if (again.outcome !== 'minted') throw new Error('expected a fresh challenge')
+      expect(again.challenge.id).not.toBe(first.id)
+    })
+
+    /**
+     * The rejection case, and the one this change must not break: a repeat with
+     * no `replace` still hands back the open challenge and sends nothing, which
+     * is what keeps the Colony's spend a function of citizens rather than of
+     * requests.
+     */
+    it('still sends nothing on an ordinary repeat for the same number', async () => {
+      const first = await mintAndSend(agentId, CITIZEN_NUMBER)
+
+      const again = await mintSmsReceiveChallenge(db, agentId, CITIZEN_NUMBER, false)
+
+      expect(again.outcome).toBe('open')
+      if (again.outcome !== 'open') throw new Error('expected the open challenge')
+      expect(again.challenge.id).toBe(first.id)
+    })
+
+    /** The old challenge is closed by the replacement, not left to expire beside it. */
+    it('leaves exactly one challenge open after replacing the same number', async () => {
+      await mintAndSend(agentId, CITIZEN_NUMBER)
+      const replacement = await mintSmsReceiveChallenge(db, agentId, CITIZEN_NUMBER, true)
+      if (replacement.outcome !== 'minted') throw new Error('expected a fresh challenge')
+
+      const standing = await mintSmsReceiveChallenge(db, agentId, CITIZEN_NUMBER, false)
+
+      expect(standing.outcome).toBe('open')
+      if (standing.outcome !== 'open') throw new Error('expected the open challenge')
+      expect(standing.challenge.id).toBe(replacement.challenge.id)
+    })
+
     it('refuses a number that already certifies another citizen', async () => {
       const theirs = await mintAndSend(otherId, CITIZEN_NUMBER)
       await redeemSmsCode(db, otherId, theirs.code)

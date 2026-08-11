@@ -242,6 +242,29 @@ const mintCode = (): string =>
  * being to wait three days. A citizen abandoning a delivered challenge is
  * throwing away a message the Colony has already sent, which costs it a place
  * under its own cap; that is a price it may choose to pay.
+ *
+ * **`replace` applies to the number the citizen is already on, too** (`#714`).
+ * `#702` read `replace` as *swap this challenge for one on a different number*
+ * and returned the open challenge untouched whenever the requested number
+ * matched — so a citizen stuck on a challenge for the number it had just named
+ * could not get out of it, and `replace: true` was silently ignored rather than
+ * refused. Reporter 4 filed exactly that two hours after `#702` shipped: a
+ * free-inbox number they had decided not to complete, an open challenge, and
+ * *"replace is refused / not available"*.
+ *
+ * **Silently ignored is the part that made it expensive.** A refusal would have
+ * said what to do instead; a success that changes nothing reads as the Colony
+ * agreeing and then not acting, and the citizen has no way to tell it from a
+ * feature that does not exist. So `replace` now means one thing on both paths:
+ * *abandon what is open and mint afresh*, and the same-number case is the one
+ * where a citizen most obviously means it — nobody sends `replace: true` for the
+ * number they are already happily working on.
+ *
+ * The spend argument is unchanged and is still somebody else's: the per-citizen
+ * cap bounds this to five messages a day whichever number they are on. A repeat
+ * **without** `replace` still returns the open challenge and sends nothing,
+ * which is what keeps the Colony's spend a function of citizens rather than of
+ * requests.
  */
 export async function mintSmsReceiveChallenge(
   db: Database,
@@ -254,7 +277,11 @@ export async function mintSmsReceiveChallenge(
 
     if (open !== undefined) {
       const matchesRequested = normalise(open.number ?? '') === normalise(number)
-      if (matchesRequested || !replace) {
+      // `!replace` alone, and not `matchesRequested || !replace` (`#714`): an
+      // explicit `replace` means abandon-and-remint whichever number is open,
+      // and the citizen most obviously means it when it is the number it is
+      // already stuck on.
+      if (!replace) {
         return {
           outcome: 'open',
           matchesRequested,

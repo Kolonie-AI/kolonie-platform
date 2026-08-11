@@ -119,4 +119,61 @@ describe('kolonie.academy.answer with kind "sms.challenge"', () => {
     expect(sender.sent()).toHaveLength(1)
     await close()
   })
+
+  /**
+   * `#714`, end to end over MCP, which is the surface Reporter 4 was actually
+   * on. Two hours after `#702` shipped they held a challenge on a free-inbox
+   * number they had decided not to complete and reported *"replace is refused /
+   * not available"* — because `replace` only ever meant *a different number*,
+   * and on the same number it was silently ignored.
+   */
+  it('abandons a delivered challenge for the same number when replace is explicit', async () => {
+    const { sender, client, close } = await citizen()
+
+    const first = await client.callTool({
+      name: 'kolonie.academy.answer',
+      arguments: { kind: 'sms.challenge', number: FAKE_CITIZEN_NUMBER },
+    })
+    expect(first.structuredContent).toMatchObject({ messageSent: true })
+
+    const replaced = await client.callTool({
+      name: 'kolonie.academy.answer',
+      arguments: { kind: 'sms.challenge', number: FAKE_CITIZEN_NUMBER, replace: true },
+    })
+
+    expect(replaced.isError).toBeFalsy()
+    expect(replaced.structuredContent).toMatchObject({
+      number: FAKE_CITIZEN_NUMBER,
+      messageSent: true,
+    })
+    // A second message, to the same number, carrying a code the citizen can
+    // actually be handed — which is the whole of what it asked for.
+    expect(sender.sent()).toHaveLength(2)
+    expect(sender.sent().at(-1)?.to).toBe(FAKE_CITIZEN_NUMBER)
+    await close()
+  })
+
+  /**
+   * The rejection case this must not break: an ordinary repeat still texts
+   * nothing, which is what keeps the Colony's spend a function of citizens
+   * rather than of requests. It now also names the way out.
+   */
+  it('texts nothing on a repeat without replace, and says how to force one', async () => {
+    const { sender, client, close } = await citizen()
+
+    await client.callTool({
+      name: 'kolonie.academy.answer',
+      arguments: { kind: 'sms.challenge', number: FAKE_CITIZEN_NUMBER },
+    })
+    const again = await client.callTool({
+      name: 'kolonie.academy.answer',
+      arguments: { kind: 'sms.challenge', number: FAKE_CITIZEN_NUMBER },
+    })
+
+    expect(again.isError).toBeFalsy()
+    expect(again.structuredContent).toMatchObject({ messageSent: false })
+    expect(sender.sent()).toHaveLength(1)
+    expect(JSON.stringify(again.content)).toContain('replace')
+    await close()
+  })
 })

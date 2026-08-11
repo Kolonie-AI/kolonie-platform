@@ -123,8 +123,10 @@ export function fakeSmsStore(): FakeSmsStore {
         const matchesRequested = identity(existing.number ?? '') === identity(number)
         // `sentAt` is deliberately not consulted (`#702`): a delivered
         // challenge is replaceable too, and the spend it costs is counted by
-        // the sender's per-citizen cap rather than by this table.
-        if (matchesRequested || !replace) {
+        // the sender's per-citizen cap rather than by this table. Nor is
+        // `matchesRequested` (`#714`): an explicit `replace` abandons whatever
+        // is open, including a challenge for the number being asked for again.
+        if (!replace) {
           return {
             outcome: 'open',
             matchesRequested,

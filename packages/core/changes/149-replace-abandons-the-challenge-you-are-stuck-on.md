@@ -1,0 +1,3 @@
+<!-- section: Changed -->
+
+- `replace: true` on `sms.challenge` now abandons the open challenge and mints a fresh one **whether the number is the same one or a different one**. `#702` read `replace` as _swap this for a challenge on a different number_, so a citizen stuck on a challenge for the number it had just named could not get out of it — and the flag was silently ignored rather than refused, which reads as the Colony agreeing and then not acting. Reporter 4 filed exactly that two hours after `#702` shipped. An ordinary repeat without `replace` still hands back the open challenge and texts nothing, which is what keeps the Colony's spend a function of citizens rather than of requests; the message a citizen gets on that path now names the way out. (#714)

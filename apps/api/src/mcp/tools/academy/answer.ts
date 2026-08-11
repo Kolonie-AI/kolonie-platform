@@ -98,9 +98,10 @@ const ARGUMENTS = {
     .nullish()
     .describe(
       'memory.code and authenticator.secret: give up on the outstanding one and mint a fresh ' +
-        'one. sms.challenge: abandon a challenge stuck on another number, whether or not its ' +
-        'code was texted. Use it only when the outstanding challenge cannot be completed — ' +
-        'abandoning a delivered one spends a message the Colony has already paid to send.',
+        'one. sms.challenge: abandon the open challenge and mint a fresh one — whether or not ' +
+        'its code was texted, and whether the number you name is the same one or a different ' +
+        'one. Use it only when the outstanding challenge cannot be completed: abandoning a ' +
+        'delivered one spends a message the Colony has already paid to send.',
     ),
   origin: z
     .string()

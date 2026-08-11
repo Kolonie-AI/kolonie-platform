@@ -62,8 +62,9 @@ import { createHealthServer, STALE_POLLS } from './health.js'
  */
 
 const POLL_INTERVAL_MS = Number(process.env['POLL_INTERVAL_MS'] ?? 60_000)
-const QUEST_POLL_INTERVAL_MS = Number(
-  process.env['QUEST_POLL_INTERVAL_MS'] ?? Math.min(15_000, POLL_INTERVAL_MS),
+const QUEST_POLL_INTERVAL_MS = Math.min(
+  Number(process.env['QUEST_POLL_INTERVAL_MS'] ?? 15_000),
+  POLL_INTERVAL_MS,
 )
 const HEALTH_PORT = Number(process.env['HEALTH_PORT'] ?? 3002)
 const BRIEFING_INTERVAL_MS = Number(

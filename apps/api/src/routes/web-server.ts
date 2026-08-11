@@ -40,6 +40,16 @@ export function registerWebServerRoute(v1: FastifyInstance, deps: RouteDependenc
       return reply.status(202).send({ awaitingOperator: true, message: result.message })
     }
 
-    return reply.status(201).send({ challenge: result.challenge })
+    /**
+     * `403` where the contract says to refrain (`#660`), and this one *is* a
+     * refusal — unlike the `202` above, nobody was asked and nothing is coming.
+     */
+    if (result.outcome === 'refused-by-contract') {
+      return reply
+        .status(403)
+        .send({ code: 'forbidden', refusedByContract: true, message: result.message })
+    }
+
+    return reply.status(201).send({ challenge: result.challenge, permittedBy: result.permittedBy })
   })
 }

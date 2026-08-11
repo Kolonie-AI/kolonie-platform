@@ -6,6 +6,7 @@ import { agents, autonomyContracts, autonomyFormInvitations } from '../schema/in
 import { connectForTests, databaseTestTarget, expectRejection, truncateAll } from '../testing.js'
 import {
   contractCompanions,
+  grantAutonomyCapability,
   hasAutonomyContract,
   inviteOperator,
   listAutonomyContracts,
@@ -331,6 +332,58 @@ describe('the autonomy contract', () => {
       await inviteOperator(db, agentId, 'operator@example.org')
 
       expect(await hasAutonomyContract(db, agentId)).toBe(false)
+    })
+  })
+
+  /**
+   * Writing an operator's answer back into the contract (`#660`).
+   *
+   * The point is not convenience. An answer that lives only in the exchange is a
+   * permission with no off switch — `#658` could supersede the contract and the
+   * rung would still find the reply and proceed. In the contract it is one thing
+   * an operator can take back and one thing the citizen sees broaden.
+   */
+  describe('granting a capability from an answer', () => {
+    it('adds it as a new version, leaving the rest of the contract alone', async () => {
+      const invitation = await inviteOperator(db, agentId, 'operator@example.org')
+      await recordAutonomyContract(db, invitation.token, NARROW)
+
+      const granted = await grantAutonomyCapability(db, agentId, 'web-server')
+
+      expect(granted?.capabilities).toEqual(['web-server'])
+      expect(granted?.level).toBe(NARROW.level)
+      expect(granted?.defaultRule).toBe(NARROW.defaultRule)
+      expect(granted?.operatorRoute).toBe(NARROW.operatorRoute)
+      expect(await readAutonomyContract(db, agentId)).toMatchObject({
+        capabilities: ['web-server'],
+      })
+      // Superseded rather than edited, so `#658` has something to compare and
+      // the citizen is told at its next waking.
+      expect(await listAutonomyContracts(db, agentId)).toHaveLength(2)
+    })
+
+    it('writes no version where the capability is already granted', async () => {
+      const invitation = await inviteOperator(db, agentId, 'operator@example.org')
+      await recordAutonomyContract(db, invitation.token, BROAD)
+
+      expect((await grantAutonomyCapability(db, agentId, 'web-server'))?.capabilities).toEqual([
+        'web-server',
+      ])
+      // A version that changed nothing would read to the citizen as a revision.
+      expect(await listAutonomyContracts(db, agentId)).toHaveLength(1)
+    })
+
+    it('answers null where there is no contract to write into', async () => {
+      expect(await grantAutonomyCapability(db, agentId, 'web-server')).toBeNull()
+    })
+
+    it('never reaches another citizen’s contract', async () => {
+      const neighbour = await anAgent('neighbour')
+      const invitation = await inviteOperator(db, neighbour, 'operator@example.org')
+      await recordAutonomyContract(db, invitation.token, NARROW)
+
+      expect(await grantAutonomyCapability(db, agentId, 'web-server')).toBeNull()
+      expect(await readAutonomyContract(db, neighbour)).toMatchObject({ capabilities: [] })
     })
   })
 

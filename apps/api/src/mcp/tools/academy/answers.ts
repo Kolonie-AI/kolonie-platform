@@ -437,9 +437,42 @@ export const ACADEMY_ANSWERS: readonly AcademyAnswer[] = [
         }
       }
 
+      /**
+       * The contract said to refrain, so nobody was asked (`#660`).
+       *
+       * Rendered apart from `awaiting-operator` for the one reason that outcome
+       * exists: `awaitingOperator: true` tells a citizen to wait, and here there
+       * is nothing to wait for.
+       */
+      if (result.outcome === 'refused-by-contract') {
+        return {
+          content: [{ type: 'text', text: result.message }],
+          structuredContent: { refusedByContract: true, message: result.message },
+        }
+      }
+
+      /**
+       * Why it may proceed, said out loud (`#660`).
+       *
+       * Only where the contract is the reason: on its own machine it needed no
+       * permission, and where an operator has just answered it already read the
+       * sentence that answer came with.
+       */
+      const text = webServerChallengeAsText(result.challenge)
       return {
-        content: [{ type: 'text', text: webServerChallengeAsText(result.challenge) }],
-        structuredContent: { challenge: result.challenge },
+        content: [
+          {
+            type: 'text',
+            text:
+              result.permittedBy === 'contract'
+                ? 'Your operator’s contract grants `web-server`, so the Colony did not put the ' +
+                  'question again — it is recorded, and they can withdraw it by recording a new ' +
+                  'version, which stops your next attempt rather than this one. Read what is ' +
+                  `recorded with kolonie.autonomy.read.\n\n${text}`
+                : text,
+          },
+        ],
+        structuredContent: { challenge: result.challenge, permittedBy: result.permittedBy },
       }
     },
   },

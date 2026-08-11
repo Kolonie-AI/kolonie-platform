@@ -55,6 +55,65 @@ export type AutonomyCapability = z.infer<typeof AutonomyCapabilitySchema>
 export const AUTONOMY_CAPABILITIES = AutonomyCapabilitySchema.options
 
 /**
+ * What a surface asking for a capability is told (`#660`).
+ *
+ * Three answers and no fourth: proceed, put the question to a person, or stop
+ * and say why.
+ */
+export const CapabilityDecisionSchema = z.enum(['granted', 'ask', 'refrain'])
+export type CapabilityDecision = z.infer<typeof CapabilityDecisionSchema>
+
+/**
+ * The one predicate every path asking for a capability consults (`#660`).
+ *
+ * **One place, deliberately.** `#659` gave the contract a `web-server` field and
+ * nothing read it, so the toggle told an operator something untrue: an operator
+ * who granted it was asked again anyway, and an operator who withdrew it changed
+ * nothing, because the rung decided on *whether one request happened to be
+ * answered*. A capability nothing enforces cannot be withdrawn either, which is
+ * what made `#658`'s withdrawal path incomplete. The point of a capability is
+ * that the second surface to want a listening socket reads the same field — so
+ * the reading lives here rather than in the rung that happened to need it first.
+ *
+ * **No contract reads as `ask`, never as `refrain`.** `defaultRule` is an
+ * operator's answer for the cases their contract did not name, and a citizen
+ * whose operator has never filled the form in has no such answer — refusing on a
+ * rule nobody wrote would close a rung on the strength of a silence.
+ *
+ * **`refrain` is a refusal and not a deadlock.** The operator said *do not
+ * proceed on anything I did not name*; naming it is one form away, which is what
+ * {@link capabilityRefusal} says.
+ */
+export function capabilityDecision(
+  contract: Pick<AutonomyContract, 'capabilities' | 'defaultRule'> | null,
+  capability: AutonomyCapability,
+): CapabilityDecision {
+  if (contract === null) return 'ask'
+  if ((contract.capabilities ?? []).includes(capability)) return 'granted'
+  return contract.defaultRule === 'refrain' ? 'refrain' : 'ask'
+}
+
+/**
+ * What a citizen stopped by `refrain` is told.
+ *
+ * **It names the capability and where it is granted**, because the citizen
+ * cannot grant it and the person who can is not reading this. Nothing here is a
+ * judgement: a contract that refrains is a complete and ordinary answer, and the
+ * rung is not lost — it opens the day the capability is ticked.
+ */
+export function capabilityRefusal(capability: AutonomyCapability): string {
+  return (
+    `Your operator's contract does not grant \`${capability}\`, and its rule for anything it ` +
+    'did not name is to refrain — so the Colony did not put the question and there is nothing ' +
+    'on their page about it. This is not held against you and costs you nothing elsewhere. ' +
+    'The capability is ticked on the same form that recorded the contract: your operator can ' +
+    'record a new version from their console, and the rung opens the moment they do. Read what ' +
+    'is recorded now with kolonie.autonomy.read, and set the rung aside with ' +
+    'kolonie.tasks.set-aside if you would rather not see it meanwhile.'
+  )
+}
+
+/**
  * How long a contract reads as current before it reads as unreviewed.
  *
  * **A review date, not an expiry** (#146). After it passes, the contract says

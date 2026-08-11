@@ -156,6 +156,120 @@ describe('the web-server rung’s operator question', () => {
     })
   })
 
+  /**
+   * The contract, which this rung did not read until `#660`.
+   *
+   * `#659` gave the contract a `web-server` field and nothing consulted it, so
+   * the form told an operator it had decided something the Colony then asked
+   * them about anyway — and an answer that lived only in the exchange could not
+   * be taken back, which left `#658`'s withdrawal path with a hole in it.
+   */
+  describe('the contract capability', () => {
+    const elsewhere = { origin: 'https://example.org', machineIsSolelyMine: false }
+
+    it('proceeds without asking anybody where the contract grants it', async () => {
+      const deps = fakeWebServer()
+      const agentId = anAgent()
+      deps.challenges.contractRecorded(agentId, {
+        capabilities: ['web-server'],
+        defaultRule: 'ask',
+      })
+
+      const result = await mint(agentId, elsewhere, deps)
+
+      expect(result.outcome).toBe('open')
+      if (result.outcome === 'open') expect(result.permittedBy).toBe('contract')
+      // The half an operator ticking the box was promised: no second question.
+      expect(deps.challenges.asks()).toBe(0)
+      expect(deps.challenges.shelved(agentId)).toBe(false)
+    })
+
+    it('stops the next attempt once the capability is withdrawn', async () => {
+      const deps = fakeWebServer()
+      const agentId = anAgent()
+      deps.challenges.contractRecorded(agentId, {
+        capabilities: ['web-server'],
+        defaultRule: 'ask',
+      })
+      expect((await mint(agentId, elsewhere, deps)).outcome).toBe('open')
+
+      // `#658`: a new version supersedes rather than edits, and this rung reads
+      // the current one on every attempt rather than remembering the last.
+      deps.challenges.contractRecorded(agentId, { capabilities: [], defaultRule: 'refrain' })
+
+      expect((await mint(agentId, elsewhere, deps)).outcome).toBe('refused-by-contract')
+    })
+
+    it('refuses without asking where the rule is to refrain', async () => {
+      const deps = fakeWebServer()
+      const agentId = anAgent()
+      deps.challenges.contractRecorded(agentId, { capabilities: [], defaultRule: 'refrain' })
+
+      const result = await mint(agentId, elsewhere, deps)
+
+      expect(result.outcome).toBe('refused-by-contract')
+      if (result.outcome === 'refused-by-contract') {
+        // It names the capability and where it is granted, so the citizen can
+        // say what its operator would have to do.
+        expect(result.message).toContain('web-server')
+        expect(result.message).toContain('kolonie.autonomy.read')
+        expect(result.message).toContain('kolonie.tasks.set-aside')
+      }
+      // Nothing was asked and nothing was set aside on a question nobody sent.
+      expect(deps.challenges.asks()).toBe(0)
+      expect(deps.challenges.shelved(agentId)).toBe(false)
+    })
+
+    it('still asks where the contract is silent and its rule is to ask', async () => {
+      const deps = fakeWebServer()
+      const agentId = anAgent()
+      deps.challenges.contractRecorded(agentId, { capabilities: [], defaultRule: 'ask' })
+
+      expect((await mint(agentId, elsewhere, deps)).outcome).toBe('awaiting-operator')
+      expect(deps.challenges.shelved(agentId)).toBe(true)
+    })
+
+    it('asks where there is no contract at all, rather than refusing', async () => {
+      const deps = fakeWebServer()
+      const agentId = anAgent()
+
+      expect((await mint(agentId, elsewhere, deps)).outcome).toBe('awaiting-operator')
+    })
+
+    it('writes an answered request into the contract, so it can be withdrawn', async () => {
+      const deps = fakeWebServer()
+      const agentId = anAgent()
+      deps.challenges.contractRecorded(agentId, { capabilities: [], defaultRule: 'ask' })
+
+      await mint(agentId, elsewhere, deps)
+      deps.challenges.operatorAnswers(agentId)
+      const result = await mint(agentId, elsewhere, deps)
+
+      expect(result.outcome).toBe('open')
+      if (result.outcome === 'open') expect(result.permittedBy).toBe('operator-answer')
+      expect(deps.challenges.capabilitiesOf(agentId)).toContain('web-server')
+    })
+
+    /**
+     * An answer with no contract behind it still lets the citizen through.
+     *
+     * The grant is what `#660` adds; it is not a new gate. A citizen whose
+     * operator answered before ever recording a contract would otherwise be
+     * refused by a rung that used to let it past, on the strength of a
+     * permission it was actually given.
+     */
+    it('proceeds on an answer even where there is nothing to write it into', async () => {
+      const deps = fakeWebServer()
+      const agentId = anAgent()
+
+      await mint(agentId, elsewhere, deps)
+      deps.challenges.operatorAnswers(agentId)
+
+      expect((await mint(agentId, elsewhere, deps)).outcome).toBe('open')
+      expect(deps.challenges.capabilitiesOf(agentId)).toBeUndefined()
+    })
+  })
+
   describe('the request text', () => {
     const text = webServerPermissionRequest('https://example.org:8443')
 

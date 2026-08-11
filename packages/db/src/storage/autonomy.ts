@@ -6,6 +6,7 @@ import {
   AUTONOMY_REVIEW_INTERVAL_DAYS,
   AutonomyCapabilitySchema,
   type AgentId,
+  type AutonomyCapability,
   type AutonomyContract,
   type AutonomyContractVersion,
   type StoredAutonomyContract,
@@ -349,6 +350,71 @@ async function writeAutonomyContractVersion(
     recordedAt: toTimestamp(row.recordedAt),
     reviewDueAt: toTimestamp(row.reviewDueAt),
   }
+}
+
+/**
+ * Write an operator's answer into the contract as a capability (`#660`).
+ *
+ * **The half of `#660` that stops an occasion becoming a permanent hole.** An
+ * operator who answered a `web-server` request had said yes to *the thing*, and
+ * the Colony recorded only that a request had been answered — so the grant
+ * existed nowhere the contract could be read from, and nowhere `#658` could take
+ * it back from. This puts it where every other grant lives.
+ *
+ * **A new version rather than an edit**, like every other write here: the answer
+ * that bound before this moment stays readable, and the citizen sees the change
+ * on its next waking as a broadening, exactly as it would see a withdrawal.
+ *
+ * **Nothing is written where there is no contract** — `null`, and the caller
+ * carries on. A capability is a field of a contract, and inventing one for a
+ * citizen whose operator never filled the form in would fabricate the operator's
+ * other three answers to hold it.
+ */
+export async function grantAutonomyCapability(
+  db: Database,
+  agentId: AgentId,
+  capability: AutonomyCapability,
+): Promise<StoredAutonomyContract | null> {
+  return db.transaction(async (tx) => {
+    const [row] = await tx
+      .select()
+      .from(autonomyContracts)
+      .where(and(eq(autonomyContracts.agentId, agentId), isNull(autonomyContracts.supersededAt)))
+      .limit(1)
+
+    if (row === undefined) return null
+
+    const held = autonomyCapabilities(row.capabilities)
+    // Already granted: no version, because a version that changed nothing would
+    // read as a revision to the citizen and to `#658`'s comparison.
+    if (held.includes(capability)) {
+      return {
+        level: row.level,
+        challengesAllowed: row.challengesAllowed,
+        capabilities: held,
+        defaultRule: row.defaultRule,
+        operatorRoute: row.operatorRoute,
+        recordedAt: toTimestamp(row.recordedAt),
+        reviewDueAt: toTimestamp(row.reviewDueAt),
+      }
+    }
+
+    return writeAutonomyContractVersion(
+      tx,
+      agentId,
+      {
+        level: row.level,
+        challengesAllowed: row.challengesAllowed,
+        capabilities: [...held, capability],
+        defaultRule: row.defaultRule,
+        operatorRoute: row.operatorRoute,
+      },
+      // Not the invitation that recorded the contract: this version came from an
+      // answered request rather than from that form, and saying otherwise would
+      // attribute it to a link nobody opened again.
+      null,
+    )
+  })
 }
 
 /** Record a version after a console route has proved this person operates the citizen (#658). */

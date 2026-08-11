@@ -5,10 +5,16 @@ import {
   WEB_SERVER_PROBE_WINDOW_MS,
   WEB_SERVER_SEPARATION_MS,
   type AgentId,
+  type AutonomyCapability,
+  type AutonomyContract,
   type TaskId,
   type WebServerChallenge,
 } from '@kolonie-ai/core'
-import type { WebServerChallengeStore, WebServerDependencies } from '../web-server.js'
+import {
+  WEB_SERVER_CAPABILITY,
+  type WebServerChallengeStore,
+  type WebServerDependencies,
+} from '../web-server.js'
 import { noObstruction } from './obstruction.js'
 
 export interface FakeWebServerChallenges extends WebServerChallengeStore {
@@ -26,6 +32,19 @@ export interface FakeWebServerChallenges extends WebServerChallengeStore {
    * had been sent.
    */
   readonly operatorAsks: (agentId: AgentId) => void
+  /**
+   * Record the contract the rung reads (`#660`).
+   *
+   * Takes the two fields `capabilityDecision` consults and nothing else, so a
+   * test states the case it is about — *granted*, *silent and asks*, *silent and
+   * refrains* — rather than assembling a whole contract around it.
+   */
+  readonly contractRecorded: (
+    agentId: AgentId,
+    contract: Pick<AutonomyContract, 'capabilities' | 'defaultRule'> | null,
+  ) => void
+  /** What the contract now grants, so a test can see the answer was written back. */
+  readonly capabilitiesOf: (agentId: AgentId) => readonly AutonomyCapability[] | undefined
   /** Answer the probe the citizen currently holds, as a passing verdict would. */
   readonly serveCurrentProbe: (agentId: AgentId) => void
   /** Move the clock past the separation, so the second probe is disclosed. */
@@ -65,6 +84,7 @@ export function fakeWebServerChallenges(
   const answered = new Set<AgentId>()
   const asked = new Set<AgentId>()
   const shelvedFor = new Set<AgentId>()
+  const contracts = new Map<AgentId, Pick<AutonomyContract, 'capabilities' | 'defaultRule'>>()
   const taskId = ownTaskId ?? (randomUUID() as TaskId)
   let askCount = 0
 
@@ -139,6 +159,24 @@ export function fakeWebServerChallenges(
 
     operatorAsked: async (agentId) => asked.has(agentId),
 
+    contract: async (agentId) => contracts.get(agentId) ?? null,
+
+    /**
+     * Adds the capability to the contract, and says whether there was one
+     * (`#660`) — the same two outcomes the storage has, because a rung that
+     * proceeded on a grant nothing recorded is the case the fake has to be able
+     * to show.
+     */
+    grantCapability: async (agentId) => {
+      const held = contracts.get(agentId)
+      if (held === undefined) return false
+      const capabilities = held.capabilities ?? []
+      if (!capabilities.includes(WEB_SERVER_CAPABILITY)) {
+        contracts.set(agentId, { ...held, capabilities: [...capabilities, WEB_SERVER_CAPABILITY] })
+      }
+      return true
+    },
+
     shelve: async (agentId) => {
       shelvedFor.add(agentId)
       askCount += 1
@@ -153,6 +191,13 @@ export function fakeWebServerChallenges(
     operatorAsks: (agentId) => {
       asked.add(agentId)
     },
+
+    contractRecorded: (agentId, contract) => {
+      if (contract === null) contracts.delete(agentId)
+      else contracts.set(agentId, contract)
+    },
+
+    capabilitiesOf: (agentId) => contracts.get(agentId)?.capabilities,
 
     serveCurrentProbe: (agentId) => {
       const row = rows.get(agentId)

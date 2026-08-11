@@ -8,8 +8,11 @@ import {
   AutonomyContractVersionSchema,
   AutonomyLevelSchema,
   OPERATOR_ROUTE_MAX_LENGTH,
+  capabilityDecision,
+  capabilityRefusal,
   compareAutonomyContracts,
   contractIsComplete,
+  type AutonomyCapability,
 } from './autonomy.js'
 
 const complete = {
@@ -216,5 +219,50 @@ describe('autonomy contract revisions', () => {
     expect(
       compareAutonomyContracts(complete, { ...complete, operatorRoute: 'Use the console.' }),
     ).toEqual({ direction: 'unchanged', narrowed: [] })
+  })
+})
+
+/**
+ * The one predicate every surface asking for a capability consults (`#660`).
+ *
+ * It lives here rather than in the rung so the next thing wanting a listening
+ * socket reads the same field: a capability enforced in one place is one an
+ * operator can withdraw in one place.
+ */
+describe('deciding on a capability', () => {
+  const contract = (capabilities: AutonomyCapability[], defaultRule: 'ask' | 'refrain') => ({
+    capabilities,
+    defaultRule,
+  })
+
+  it('grants what the contract names', () => {
+    expect(capabilityDecision(contract(['web-server'], 'refrain'), 'web-server')).toBe('granted')
+  })
+
+  it('asks where the contract is silent and its rule is to ask', () => {
+    expect(capabilityDecision(contract([], 'ask'), 'web-server')).toBe('ask')
+  })
+
+  it('refrains where the contract is silent and its rule is to refrain', () => {
+    expect(capabilityDecision(contract([], 'refrain'), 'web-server')).toBe('refrain')
+  })
+
+  /**
+   * No contract is the state most citizens are in, and it must not read as a
+   * refusal: `defaultRule` is a rule an operator chose, and nobody has chosen
+   * one here.
+   */
+  it('asks where there is no contract at all', () => {
+    expect(capabilityDecision(null, 'web-server')).toBe('ask')
+  })
+
+  it('says what a citizen stopped by refrain would have to get changed', () => {
+    const refusal = capabilityRefusal('web-server')
+
+    expect(refusal).toContain('web-server')
+    expect(refusal).toContain('kolonie.autonomy.read')
+    // `#518`'s rule, held to here too: being limited by an operator is not a
+    // failure of the citizen's and costs it nothing elsewhere.
+    expect(refusal).toContain('costs you nothing')
   })
 })

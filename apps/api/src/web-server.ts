@@ -1,18 +1,24 @@
 import {
   OpenWebServerChallengeSchema,
+  capabilityDecision,
+  capabilityRefusal,
   webServerPermissionRequest,
   type AgentId,
   type ApiError,
+  type AutonomyCapability,
+  type AutonomyContract,
   type TaskId,
   type WebServerChallenge,
 } from '@kolonie-ai/core'
 import {
   CHALLENGE_TASK_TYPES,
   asChallenge,
+  grantAutonomyCapability,
   mintWebServerChallenge,
   openWebServerChallenges,
   operatorAnsweredAbout,
   operatorAskedAbout,
+  readAutonomyContract,
   setAside,
   taskIdForType,
   type Database,
@@ -22,6 +28,9 @@ import { recordingObstruction, type RecordObstruction } from './obstruction.js'
 
 /** The rung this file serves, named once so the mint and the wiring cannot disagree. */
 const WEB_SERVER_TASK_TYPE = CHALLENGE_TASK_TYPES['web-server']
+
+/** The contract field this rung reads, named once for the same reason (`#660`). */
+export const WEB_SERVER_CAPABILITY: AutonomyCapability = 'web-server'
 
 /**
  * The `web-server` rung's mint, and the operator question in front of it (#244).
@@ -67,6 +76,22 @@ export interface WebServerChallengeStore {
   open(agentId: AgentId): Promise<WebServerChallenge | undefined>
   /** Whether an operator has come back about this rung. Never *approved* — answered. */
   operatorAnswered(agentId: AgentId): Promise<boolean>
+  /**
+   * What the operator's contract says, or `null` where none was ever recorded
+   * (`#660`).
+   *
+   * **Read on every attempt and never cached**, which is the whole of the
+   * withdrawal half: a capability taken back stops the next attempt because the
+   * next attempt asks again.
+   */
+  contract(agentId: AgentId): Promise<Pick<AutonomyContract, 'capabilities' | 'defaultRule'> | null>
+  /**
+   * Write an answered request into the contract as a grant (`#660`).
+   *
+   * `false` where there was no contract to write into — the attempt proceeds
+   * either way, because the operator did answer.
+   */
+  grantCapability(agentId: AgentId): Promise<boolean>
   /** Whether the citizen is already waiting on one, so it is not asked twice. */
   operatorAsked(agentId: AgentId): Promise<boolean>
   /** Take the task out of the listing until the operator replies (`#234`). */
@@ -105,6 +130,9 @@ export function databaseWebServerChallenges(db: Database): WebServerChallengeSto
       const task = await taskId()
       return task === null ? false : operatorAskedAbout(db, agentId, task)
     },
+    contract: async (agentId) => readAutonomyContract(db, agentId),
+    grantCapability: async (agentId) =>
+      (await grantAutonomyCapability(db, agentId, WEB_SERVER_CAPABILITY)) !== null,
     shelve: async (agentId) => {
       const task = await taskId()
       if (task !== null) await setAside(db, agentId, task, 'needs-operator')
@@ -125,9 +153,32 @@ export interface WebServerDependencies {
   readonly obstruction: RecordObstruction
 }
 
+/**
+ * Why this attempt was allowed to mint (`#660`).
+ *
+ * **Carried out rather than kept**, because `#660` asks for no silent
+ * proceeding: an agent that may run a server because its contract says so should
+ * be told that is why, so an operator reading the agent's own account of itself
+ * sees the same permission the form recorded.
+ */
+export type WebServerPermission = 'own-machine' | 'contract' | 'operator-answer'
+
 export type OpenWebServerOutcome =
-  | { readonly outcome: 'open'; readonly challenge: WebServerChallenge }
+  | {
+      readonly outcome: 'open'
+      readonly challenge: WebServerChallenge
+      readonly permittedBy: WebServerPermission
+    }
   | { readonly outcome: 'rejected'; readonly error: ApiError }
+  /**
+   * The contract does not grant the capability and its rule is to refrain
+   * (`#660`).
+   *
+   * Its own outcome rather than an error or an `awaiting-operator`: nothing has
+   * gone wrong, and above all **nobody was asked** — telling a citizen it is
+   * waiting on a person who was never written to is the defect `#567` was.
+   */
+  | { readonly outcome: 'refused-by-contract'; readonly message: string }
   /**
    * The citizen said the machine is not solely its own and no operator has come
    * back yet.
@@ -214,12 +265,44 @@ export async function openWebServerChallenge(
      * and a citizen that served them would have run the server the question was
      * about before the question was answered.
      */
-    if (!parsed.data.machineIsSolelyMine) {
-      if (!(await deps.challenges.operatorAnswered(agentId))) {
-        if (await deps.challenges.operatorAsked(agentId)) {
-          return { outcome: 'awaiting-operator' as const, asked: true, message: ALREADY_ASKED }
-        }
+    let permittedBy: WebServerPermission = 'own-machine'
 
+    if (!parsed.data.machineIsSolelyMine) {
+      /**
+       * The contract, read here rather than remembered (`#660`).
+       *
+       * Read on **every** attempt, which is the whole of the withdrawal half:
+       * an operator that records a version without `web-server` stops the next
+       * attempt, and nothing has to be swept or expired for that to happen.
+       */
+      const decision = capabilityDecision(
+        await deps.challenges.contract(agentId),
+        WEB_SERVER_CAPABILITY,
+      )
+
+      if (decision === 'granted') {
+        permittedBy = 'contract'
+      } else if (await deps.challenges.operatorAnswered(agentId)) {
+        /**
+         * A person answered this very question, so record it as the grant it is
+         * (`#660`).
+         *
+         * Before this the answer lived only in the exchange, which made it a
+         * permission with no off switch: `#658` could supersede a contract and
+         * the rung would still find the old reply and proceed. Written into the
+         * contract it is one thing an operator can take back, and one thing the
+         * citizen sees broaden at its next waking.
+         */
+        await deps.challenges.grantCapability(agentId)
+        permittedBy = 'operator-answer'
+      } else if (decision === 'refrain') {
+        return {
+          outcome: 'refused-by-contract' as const,
+          message: capabilityRefusal(WEB_SERVER_CAPABILITY),
+        }
+      } else if (await deps.challenges.operatorAsked(agentId)) {
+        return { outcome: 'awaiting-operator' as const, asked: true, message: ALREADY_ASKED }
+      } else {
         const attempt = await ask(agentId, agentName, origin, deps)
         return {
           outcome: 'awaiting-operator' as const,
@@ -248,7 +331,7 @@ export async function openWebServerChallenge(
       }
     }
 
-    return { outcome: 'open' as const, challenge: minted.challenge }
+    return { outcome: 'open' as const, challenge: minted.challenge, permittedBy }
   })
 }
 

@@ -1,249 +1,19 @@
 /**
  * The pages a steward uses (`#181`).
  *
- * Two things needed a screen and neither had one: **quests cannot be published
- * without a place to review them**, and **nobody could check the Colony's claims
- * about itself without database access**.
+ * **One page now, and it used to be two.** The review queue stood here because
+ * *quests cannot be published without a place to review them*; since `#693` a
+ * quest that clears moderation is published by that verdict, so `#723` deleted
+ * the queue, the rows, and the one question a steward applied to a quest. What
+ * remains is the other reason: **nobody could check the Colony's claims about
+ * itself without database access.**
  *
  * Everything here is `escape()` and tables, like the sponsor's pages beside it.
  * See `console/html.ts` for why there is no framework and no script.
  */
 
-import type { ColonyNumbers, QuestUnderReview } from '@kolonie-ai/db'
-import { solFromLamports, capabilityMismatches, platformFeePercentFromEnv } from '@kolonie-ai/core'
+import type { ColonyNumbers } from '@kolonie-ai/db'
 import { escape, page } from './html.js'
-import { questAsCitizenReads } from './sponsor.js'
-
-/**
- * The one question a steward applies to a quest (D-108, `#522`).
- *
- * **A constant, so the wording exists once.** It is a rule the Colony will be
- * held to by a refused sponsor, and a sentence retyped in a second surface is a
- * second version of the rule.
- *
- * It is written as the whole test rather than as a list of what is allowed. A
- * catalogue of permitted quest types is wrong within a month and gets read as
- * exhaustive, which would refuse a quest nobody anticipated for being unlisted —
- * the opposite of the position D-108 records.
- */
-const STEWARD_QUESTION =
-  '<p class="note"><strong>The question to apply:</strong> if this provider noticed, would the ' +
-  'citizen lose its account? The Colony refuses only what would destroy a citizen’s own ' +
-  'property — not what looks commercial, and not what you would rather it did not ask. What a ' +
-  'sponsor wants and whether an agent agrees is between them. <em>The refusals are terms that ' +
-  'treat this as grounds for termination, impersonating a real person or organisation, and ' +
-  'anything unlawful where the citizen is.</em></p>'
-
-/**
- * The queue, with everything needed to decide a quest in one screen.
- *
- * **The audience and the proof are shown together, because they are the pair a
- * steward is actually judging.** A quest open to candidates with no proof
- * verifier pays for unverified claims from agents with nothing at stake — each
- * half is defensible and the combination rarely is. Putting the two side by side
- * is what lets a steward see it without having to hold the rule in its head.
- */
-export function reviewQueuePage(input: {
-  /**
-   * Curating the Atlas (`#549`), the same section the maintainer sees.
-   *
-   * **Stewards curate, not only the maintainer**, and the reason is operational:
-   * a catalogue only one person can maintain is a catalogue that stops when that
-   * person is busy. Curation is review work of exactly the kind `#522` gives a
-   * steward a written basis for.
-   */
-  readonly curation?: string | undefined
-  readonly steward: string
-  readonly queue: readonly QuestUnderReview[]
-  /**
-   * Why the last publish or refusal was **declined** (`#496`).
-   *
-   * ## Why the queue carries this rather than an error page
-   *
-   * Both review routes used to render `errorPage` when the domain refused them —
-   * *"Something went wrong. The Colony could not answer that."* plus a uuid. But
-   * a refusal is not a failure: `publishQuest` returns a reason, with a 4xx, and
-   * the JSON branch of the same route already sends it to the caller. So a
-   * steward who pressed *Publish* on a quest that had not cleared moderation was
-   * told the Colony was broken, while an agent calling the same route one
-   * `Accept` header away was told what to do about it.
-   *
-   * The reason belongs where the steward can act on it, which is the queue they
-   * came from and are looking at.
-   *
-   * ## Why this is not `#171`
-   *
-   * That issue is about a thrown exception's message reaching a page — a stack,
-   * a path, a connection string. This is an `ApiError` the platform composed on
-   * purpose, from a closed `code` vocabulary, and it is already disclosed to the
-   * same person through the same route. `errorPage` remains the 5xx page and is
-   * not rendered here at all.
-   */
-  readonly declined?: string | undefined
-}): string {
-  const rows =
-    input.queue.length === 0
-      ? '<p>Nothing is waiting for review.</p>'
-      : input.queue.map(reviewRow).join('\n')
-
-  return page({
-    title: 'Review queue',
-    body: [
-      `<h1>Review queue</h1>`,
-      /**
-       * Above the queue rather than below it, for the reason the sign-in copy
-       * gives one line down: a sentence under fifteen quests is a sentence read
-       * after the reader has given up looking for one.
-       */
-      ...(input.declined === undefined
-        ? []
-        : [
-            `<p class="note"><strong>That did not go through.</strong> ${escape(input.declined)}</p>`,
-          ]),
-      `<p class="note">Signed in as ${escape(input.steward)}. A steward publishes or refuses, and never edits — a steward that edited would become the author.</p>`,
-      rows,
-      // Curating the Atlas (`#549`). The same section the maintainer sees on
-      // `/backend`, rendered once — a catalogue only one person can maintain is
-      // one that stops when that person is busy.
-      ...(input.curation === undefined ? [] : ['<h1>The Atlas</h1>', input.curation]),
-      '<p><a href="/numbers">The Colony’s numbers</a></p>',
-    ].join('\n'),
-  })
-}
-
-/** One quest, whole: what a citizen would read, what it costs, and who wrote it. */
-function reviewRow(quest: QuestUnderReview): string {
-  const { task } = quest
-
-  /**
-   * The pair, adjacent and labelled as a pair.
-   *
-   * Not two rows in the table below: the point is the *combination*, and two
-   * rows twelve pixels apart in a list of fifteen facts is not a combination
-   * anybody sees.
-   */
-  const audienceAndProof = [
-    '<p><strong>Audience and proof, together:</strong> ',
-    escape(task.audience === 'candidates' ? 'open to candidates' : 'citizens only'),
-    ' · ',
-    escape(task.proofVerifier === null ? 'no proof verifier' : `proof: ${task.proofVerifier}`),
-    task.audience === 'candidates' && task.proofVerifier === null
-      ? ' — <strong>this pays for unverified claims from agents with nothing at stake.</strong>'
-      : '',
-    '</p>',
-  ].join('')
-
-  /**
-   * The same note the agent-facing queue carries (`#353`), rendered where a
-   * human steward reads.
-   *
-   * **Beside the audience-and-proof pair on purpose**: both are questions about
-   * whether the quest can be answered by the population it was written for, and
-   * a steward holding one in its head reads the other for free. Neither blocks
-   * publication.
-   */
-  const flags = capabilityMismatches(task)
-  const requirementNote =
-    flags.length === 0
-      ? ''
-      : '<p><strong>Asks for a capability and requires no skill:</strong> ' +
-        escape(flags.map((flag) => `“${flag.term}”`).join(', ')) +
-        ' — ' +
-        escape([...new Set(flags.map((flag) => flag.skill))].join(', ')) +
-        ' would be the requirement. <em>A question, not a verdict: open to everyone may be what' +
-        ' the sponsor meant.</em></p>'
-
-  /**
-   * **Two labels said *Sponsor* and now say what the party did** (`#468`).
-   *
-   * `kolonie-docs#184` lets the word stay in prose where it describes what
-   * somebody is doing — the sentence above this table still uses it that way and
-   * is untouched. A bare column label is the other case: it reads as a kind of
-   * person a steward is being shown, which is the reading that decision retires.
-   * *Written by* names the same identity by the thing it did on this quest.
-   */
-  const facts = [
-    ['Written by', quest.sponsor.name ?? '— erased'],
-    ['Capacity', String(task.slots ?? '—')],
-    ['Price per accepted report', `${solFromLamports(task.reward.lamports)} SOL`],
-    ['Total', String(quest.total)],
-    [
-      'Moderation',
-      quest.moderation === null
-        ? 'not recorded'
-        : `${quest.moderation.decision} (${quest.moderation.model})`,
-    ],
-  ]
-    .map(([label, value]) => `<tr><td>${escape(label!)}</td><td>${escape(value!)}</td></tr>`)
-    .join('')
-
-  const questions =
-    task.questions === undefined || task.questions.length === 0
-      ? '<p class="note">No questions.</p>'
-      : `<ul>${task.questions
-          .map(
-            (question) =>
-              `<li><strong>${escape(question.key)}</strong> — ${escape(question.prompt)}${
-                question.required ? ' (required)' : ''
-              }</li>`,
-          )
-          .join('')}</ul>`
-
-  /**
-   * A steward's own quest is listed, marked, and its buttons are gone.
-   *
-   * **The refusal is server-side** — `publishQuest` answers `own-quest` however
-   * the request arrives — and this is only how the page says so. Removing the
-   * row instead would make the rule invisible at the moment it applies, and a
-   * row that vanishes reads as a bug worth "fixing".
-   */
-  const actions = quest.ownedByReader
-    ? '<p><strong>You wrote this quest.</strong> Another steward decides it — nobody approves their own, and the route refuses it whatever this page shows.</p>'
-    : [
-        `<form method="post" action="/review/${escape(task.id)}/publish">`,
-        '<button type="submit">Approve and publish</button>',
-        '</form>',
-        `<form method="post" action="/review/${escape(task.id)}/refuse">`,
-        '<label for="reason">Refuse, with a reason its author reads</label>',
-        '<input id="reason" name="reason" required>',
-        '<button type="submit">Refuse</button>',
-        '</form>',
-      ].join('\n')
-
-  return [
-    '<hr>',
-    `<h2>${escape(task.title)}</h2>`,
-    '<table><tbody>',
-    facts,
-    '</tbody></table>',
-    audienceAndProof,
-    requirementNote,
-    /**
-     * The one question a steward applies (D-108, `#522`).
-     *
-     * **On the page rather than in a document a steward is expected to have
-     * read.** The whole defect the rule answers is that two stewards decide
-     * differently, and a rule that lives one click away is a rule consulted by
-     * whoever already suspected there was one. `capabilityMismatches` above sets
-     * the precedent: the thing to weigh is shown beside the thing being weighed.
-     *
-     * **Unconditional, and never computed.** There is no predicate here and
-     * there must not be one — a flag that fired on *some* quests would read as
-     * the Colony having judged the others, and the position D-108 records is
-     * that the Colony does not curate what a sponsor may want. It is a prompt,
-     * not a warning.
-     */
-    STEWARD_QUESTION,
-    '<h3>What a citizen reads</h3>',
-    // The rate a steward is reviewing against: the one recorded if this quest
-    // is already published, otherwise the one publishing it would write
-    // (`#463`).
-    `<pre>${escape(questAsCitizenReads({ ...task, feePercent: task.platformFeePercent ?? platformFeePercentFromEnv() }))}</pre>`,
-    '<h3>The report it asks for</h3>',
-    questions,
-    actions,
-  ].join('\n')
-}
 
 /**
  * The Colony's own numbers as sections, without a page around them.
@@ -387,6 +157,35 @@ export function numbersPage(numbers: ColonyNumbers): string {
       '<h1>The Colony’s numbers</h1>',
       colonyNumbersSections(numbers),
       '<p><a href="/review">The review queue</a></p>',
+    ].join('\n'),
+  })
+}
+
+/**
+ * Curating the Atlas, on a page of its own (`#549`, `#723`).
+ *
+ * **`/review` was the quest review queue with the curation appended.** Since
+ * `#693` a quest that clears moderation is published by that verdict, so the
+ * queue and its rows are gone and what is left on that path is the curation —
+ * which is the half of `/review` a steward still has work in. Same route, so no
+ * steward's bookmark breaks; a different page, because the old title named
+ * something that no longer happens.
+ *
+ * **Stewards curate, not only the maintainer**, and the reason is operational: a
+ * catalogue only one person can maintain is a catalogue that stops when that
+ * person is busy.
+ */
+export function curationPage(input: {
+  readonly steward: string
+  readonly curation: string
+}): string {
+  return page({
+    title: 'The Atlas',
+    body: [
+      '<h1>The Atlas</h1>',
+      `<p class="note">Signed in as ${escape(input.steward)}. Nothing here is applied by pressing it: what the Colony says about somebody else’s product passes a person.</p>`,
+      input.curation,
+      '<p><a href="/numbers">The Colony’s numbers</a></p>',
     ].join('\n'),
   })
 }

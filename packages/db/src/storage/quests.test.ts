@@ -48,7 +48,6 @@ import {
   ownerlessQuestDrafts,
   pendingQuestModerations,
   publishQuest,
-  questReviewQueue,
   questsClearedForPublication,
   questTextDigest,
   readOwnQuest,
@@ -811,21 +810,21 @@ describe('the quest write path', () => {
   })
 
   describe('the moderation stage', () => {
-    it('keeps an unmoderated quest out of the steward’s queue', async () => {
+    it('keeps an unmoderated quest out of the queue that publishes', async () => {
       const sponsor = await anAgent('sponsor')
       const { task } = await createQuestDraft(db, { authorId: sponsor, draft: aDraft() })
       await submitQuestForReview(db, { authorId: sponsor, taskId: task.id, at: now() })
 
-      expect(await questReviewQueue(db)).toEqual([])
+      expect(await questsClearedForPublication(db, 10)).toEqual([])
       expect((await pendingQuestModerations(db, 10)).map((quest) => quest.id)).toEqual([task.id])
 
       await moderate(task.id)
 
-      expect((await questReviewQueue(db)).map((quest) => quest.id)).toEqual([task.id])
+      expect(await questsClearedForPublication(db, 10)).toEqual([task.id])
       expect(await pendingQuestModerations(db, 10)).toEqual([])
     })
 
-    it('refuses a red-line quest without a steward seeing it', async () => {
+    it('refuses a red-line quest and never offers it for publication', async () => {
       const sponsor = await anAgent('sponsor')
       const { task } = await createQuestDraft(db, {
         authorId: sponsor,
@@ -838,7 +837,7 @@ describe('the quest write path', () => {
       const own = await readOwnQuest(db, sponsor, task.id)
       expect(own?.task.status).toBe('rejected')
       expect(own?.rejectionReason).toContain('captcha')
-      expect(await questReviewQueue(db)).toEqual([])
+      expect(await questsClearedForPublication(db, 10)).toEqual([])
     })
 
     it('does not apply a verdict to text that has changed since', async () => {
@@ -859,7 +858,7 @@ describe('the quest write path', () => {
       })
 
       expect(result).toEqual({ outcome: 'stale' })
-      expect(await questReviewQueue(db)).toEqual([])
+      expect(await questsClearedForPublication(db, 10)).toEqual([])
     })
 
     it('re-queues a corrected quest, because its text moved past the verdict', async () => {
@@ -881,7 +880,7 @@ describe('the quest write path', () => {
       })
 
       expect((await pendingQuestModerations(db, 10)).map((quest) => quest.id)).toEqual([task.id])
-      expect(await questReviewQueue(db)).toEqual([])
+      expect(await questsClearedForPublication(db, 10)).toEqual([])
       // The refusal it is answering is cleared, and the old verdict stays as the record.
       expect((await readOwnQuest(db, sponsor, task.id))?.rejectionReason).toBeNull()
       expect(await db.select().from(questModerations)).toHaveLength(1)

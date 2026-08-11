@@ -32,7 +32,7 @@ import {
 } from '../../schema/index.js'
 import { oweForReview } from '../payouts.js'
 import { recordAuthorityEvent } from '../roles.js'
-import { toTask, toTimestamp } from '../rows.js'
+import { toTimestamp } from '../rows.js'
 import type { ScrubbedAnswer } from './shared.js'
 
 /** A quest the moderator has not judged since its text last changed. */
@@ -82,26 +82,6 @@ export type QuestRefuseOutcome =
   | { readonly outcome: 'unknown-quest' }
   | { readonly outcome: 'not-in-review'; readonly status: Task['status'] }
   | { readonly outcome: 'own-quest' }
-
-/**
- * The steward's queue: quests awaiting review that the moderator has cleared.
- *
- * **A quest the moderation stage has not answered about is not in this list**,
- * and that is the acceptance criterion rather than an optimisation. A steward
- * should not have to read unmoderated text from strangers as part of its job,
- * and a red-line quest is refused mechanically — so the queue is defined as
- * *approved by the moderator and not yet decided by a human*, never as
- * *everything in `pending_review`*.
- */
-export async function questReviewQueue(db: Database): Promise<readonly Task[]> {
-  const rows = await db
-    .select()
-    .from(tasks)
-    .where(and(eq(tasks.kind, 'quest'), eq(tasks.status, 'pending_review'), moderationCleared()))
-    .orderBy(asc(tasks.updatedAt))
-
-  return rows.map((row) => toTask(row))
-}
 
 /**
  * Publish a quest and move its money, in one transaction.

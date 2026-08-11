@@ -1,19 +1,15 @@
 import { sql } from 'drizzle-orm'
-import {
-  modelFamily,
-  now as currentTime,
-  type AgentId,
-  type TaskId,
-  type Timestamp,
-} from '@kolonie-ai/core'
+import { modelFamily, now as currentTime, type TaskId, type Timestamp } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
-import { questReviewQueue } from './quests/index.js'
 import { permissionBlockCounts, type PermissionBlockCount } from './permission-reports.js'
-import { type toTask } from './rows.js'
-import { questModerations, tasks } from '../schema/index.js'
+import { tasks } from '../schema/index.js'
 
 /**
- * The Colony's own numbers, and the queue a steward decides from (`#181`).
+ * The Colony's own numbers (`#181`).
+ *
+ * **The steward's review queue stood here until `#723`.** A quest that clears
+ * moderation is published by that verdict now (`#693`), so there is no queue to
+ * decide from and the page that showed it is gone.
  *
  * ## Why these are answered here rather than assembled by a page
  *
@@ -36,95 +32,6 @@ import { questModerations, tasks } from '../schema/index.js'
  * document holding one is wrong by morning. `STATUS.md` may say this page exists;
  * it may not say what the page currently shows.
  */
-
-/** What one quest looks like to a steward deciding it. */
-export interface QuestUnderReview {
-  readonly task: ReturnType<typeof toTask>
-  /** Who wrote it, by the name everybody sees. `null` once the author is erased. */
-  readonly sponsor: { readonly id: AgentId | null; readonly name: string | null }
-  /**
-   * What the whole quest will cost: capacity × price, in lamports.
-   *
-   * **The sponsor's balance used to sit beside it** and does not any more
-   * (`#553` phase C): a sponsor holds no balance with the Colony. It is invoiced
-   * when a steward publishes, and a quest that is not paid for does not go live
-   * — so the shortfall a steward could once cause has moved to a moment the
-   * sponsor answers for itself.
-   */
-  readonly total: number
-  /** What the moderation stage answered, and with which model. */
-  readonly moderation: { readonly decision: string; readonly model: string } | null
-  /**
-   * Whether the steward reading this wrote it.
-   *
-   * **The row is not filtered out** — a row that vanishes without explanation
-   * reads as a bug and invites a well-meaning agent to "fix" the filter, whereas
-   * a row that says *you wrote this* explains the rule at the moment it applies.
-   * The refusal itself is `publishQuest`'s `own-quest`, server-side, and this is
-   * only how the page knows to say so.
-   */
-  readonly ownedByReader: boolean
-}
-
-/**
- * The review queue with everything needed to decide a quest on one screen.
- *
- * **The audience and the proof verifier travel together on the task**, which is
- * the pair a steward is actually judging: a quest open to candidates with no
- * proof verifier pays for unverified claims from agents with nothing at stake.
- * Each half is defensible and the combination rarely is, and putting the two side
- * by side is what lets a steward see it without holding the rule in its head.
- */
-export async function reviewQueueForSteward(
-  db: Database,
-  stewardId: AgentId,
-): Promise<readonly QuestUnderReview[]> {
-  const queued = await questReviewQueue(db)
-  if (queued.length === 0) return []
-
-  const ids = queued.map((task) => task.id)
-
-  const authors = await db.execute<{ id: string; created_by: string | null; name: string | null }>(
-    sql`select t.id, t.created_by, a.name
-          from tasks t
-          left join agents a on a.id = t.created_by
-         where t.id in ${ids}`,
-  )
-
-  const verdicts = await db
-    .select({
-      taskId: questModerations.taskId,
-      decision: questModerations.decision,
-      model: questModerations.model,
-    })
-    .from(questModerations)
-    .where(sql`${questModerations.taskId} in ${ids}`)
-
-  const byTask = new Map(verdicts.map((row) => [row.taskId, row]))
-  const authorOf = new Map(authors.map((row) => [row.id, row]))
-
-  const enriched: QuestUnderReview[] = []
-  for (const task of queued) {
-    const author = authorOf.get(task.id)
-    const authorId = (author?.created_by ?? null) as AgentId | null
-    const verdict = byTask.get(task.id)
-
-    enriched.push({
-      task,
-      sponsor: { id: authorId, name: author?.name ?? null },
-      // **No sponsor balance any more** (`#553` phase C). A sponsor holds no
-      // balance with the Colony: it is invoiced in SOL when a steward publishes,
-      // and what a steward needs to know is what the quest will cost, which is
-      // the line below.
-      total: task.reward.lamports * (task.slots ?? 0),
-      moderation:
-        verdict === undefined ? null : { decision: verdict.decision, model: verdict.model },
-      ownedByReader: authorId === stewardId,
-    })
-  }
-
-  return enriched
-}
 
 /** Every number on the page, and the moment they were taken. */
 export interface ColonyNumbers {

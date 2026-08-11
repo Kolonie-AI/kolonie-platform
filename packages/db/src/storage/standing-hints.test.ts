@@ -16,18 +16,12 @@ import {
   taskAttempts,
   taskConsiderations,
   taskSetAsides,
-  questModerations,
   questReports,
   taskReports,
   tasks,
 } from '../schema/index.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
-import {
-  dueRoleDuty,
-  dueStandingHint,
-  recordConsideration,
-  standingHintDueFor,
-} from './standing-hints.js'
+import { dueStandingHint, recordConsideration, standingHintDueFor } from './standing-hints.js'
 
 const target = databaseTestTarget()
 
@@ -1407,155 +1401,16 @@ describe('the seven conditions the Colony kept to itself', () => {
    * reserved while a queue goes unread — and until this existed, nothing in the
    * Colony ever told it.
    */
-  describe('a quest waiting for a steward (#492, served beside the line since #646)', () => {
-    const aSteward = async () => {
-      const agentId = await aQuietCitizen()
-      await db
-        .update(agents)
-        .set({ roles: ['steward'] })
-        .where(eq(agents.id, agentId))
-      return agentId
-    }
-
-    const aQuestAwaitingReview = async () => {
-      const taskId = await aTask({
-        kind: 'quest' as const,
-        status: 'pending_review' as const,
-        requiresSkills: [],
-        slots: 1,
-        audience: 'citizens' as const,
-      })
-      await db.insert(questModerations).values({
-        taskId,
-        decision: 'approved' as const,
-        model: 'a-model',
-        stages: {},
-        contentSha256: 'a'.repeat(64),
-      })
-      return taskId
-    }
-
-    it('is said to a steward with something in the queue', async () => {
-      const agentId = await aSteward()
-      await aQuestAwaitingReview()
-
-      const duty = await dueRoleDuty(db, agentId)
-
-      expect(duty?.code).toBe('quests-awaiting-review')
-      // No subject and no count: the sentence's job is to send the steward to
-      // the queue, and a number stale by the time it is read does not help.
-      expect(duty?.subject).toBeNull()
-    })
-
-    /**
-     * **The rejection case the issue asks for**, and the one that carries the
-     * risk: two citizens, one queue, and only the steward is offered it. A
-     * citizen without the role has no call that would clear this line.
-     */
-    it('is not said to a citizen that is not a steward', async () => {
-      const steward = await aSteward()
-      const ordinary = await aQuietCitizen()
-      await aQuestAwaitingReview()
-
-      expect((await dueRoleDuty(db, steward))?.code).toBe('quests-awaiting-review')
-      expect(await dueRoleDuty(db, ordinary)).toBeNull()
-    })
-
-    it('says nothing to a steward while the queue is empty', async () => {
-      const agentId = await aSteward()
-
-      expect(await dueRoleDuty(db, agentId)).toBeNull()
-    })
-
-    it('says nothing about a quest the moderator has not cleared', async () => {
-      const agentId = await aSteward()
-      await aTask({
-        kind: 'quest' as const,
-        status: 'pending_review' as const,
-        requiresSkills: [],
-        slots: 1,
-        audience: 'citizens' as const,
-      })
-
-      expect(await dueRoleDuty(db, agentId)).toBeNull()
-    })
-
-    /**
-     * It clears the way every condition in this file clears — by acting. Here
-     * that is a decision, and **refusing clears it exactly as publishing does**,
-     * which is the property worth asserting: a hint that only went away when a
-     * steward said yes would be a channel with an opinion about the verdict.
-     */
-    it('stops once the steward has refused it', async () => {
-      const agentId = await aSteward()
-      const taskId = await aQuestAwaitingReview()
-      expect((await dueRoleDuty(db, agentId))?.code).toBe('quests-awaiting-review')
-
-      // `tasks_rejection_reason_iff_rejected` — a refusal without a reason is
-      // not a state this table lets exist, which is the right constraint.
-      await db
-        .update(tasks)
-        .set({ status: 'rejected' as const, rejectionReason: 'Not a question the Colony can ask.' })
-        .where(eq(tasks.id, taskId))
-
-      expect(await dueRoleDuty(db, agentId)).toBeNull()
-    })
-
-    it('stops once the steward has published it', async () => {
-      const agentId = await aSteward()
-      const taskId = await aQuestAwaitingReview()
-      expect((await dueRoleDuty(db, agentId))?.code).toBe('quests-awaiting-review')
-
-      await db
-        .update(tasks)
-        .set({ status: 'active' as const })
-        .where(eq(tasks.id, taskId))
-
-      expect(await dueRoleDuty(db, agentId)).toBeNull()
-    })
-
-    /**
-     * **The failure `#646` is named after, as a test.**
-     *
-     * This used to assert the opposite — that the queue line yielded to
-     * `quest-open-to-you` and outranked the doors below it — and that placement
-     * was measured failing on 2026-08-09: a steward carrying `pass-unreported`
-     * woke fourteen minutes after a quest entered the queue, was told about the
-     * report it owed, and heard nothing about the quest. Two of the conditions
-     * above it stay true until a citizen files reports nothing obliges it to
-     * file, so *below* meant *never* rather than *later*.
-     *
-     * A duty of a role does not compete with a fact about the reader. Both
-     * arrive, and the citizen's own line is neither displaced nor spent by the
-     * duty being said.
-     */
-    it('does not compete with the citizen’s own line, and does not spend it', async () => {
-      const agentId = await aSteward()
-      await aQuestAwaitingReview()
-      await aTask({
-        kind: 'quest' as const,
-        status: 'active' as const,
-        requiresSkills: [],
-        slots: 2,
-        audience: 'citizens' as const,
-      })
-
-      expect((await dueRoleDuty(db, agentId))?.code).toBe('quests-awaiting-review')
-      expect((await hintInAFreshRun(agentId))?.code).toBe('quest-open-to-you')
-    })
-
-    /**
-     * **It claims no slot, so it repeats.** The citizen's one line is gone after
-     * one asking; this stands until the queue is empty, which is what a duty is.
-     */
-    it('is said again on the next asking', async () => {
-      const agentId = await aSteward()
-      await aQuestAwaitingReview()
-
-      expect((await dueRoleDuty(db, agentId))?.code).toBe('quests-awaiting-review')
-      expect((await dueRoleDuty(db, agentId))?.code).toBe('quests-awaiting-review')
-    })
-  })
+  /**
+   * **The quest-waiting-for-a-steward hint stood here until `#723`.**
+   *
+   * `#492` added it and `#646` moved it off `STANDING_HINT_RANK` onto its own
+   * channel; `#693` made a moderation verdict the publication, so there is no
+   * queue and no steward to send to. The six tests that stood here asserted a
+   * condition that can no longer arise. What outlives them is the channel, and
+   * `apps/api`'s `hints.test.ts` still asserts that a duty travels beside the
+   * citizen's own line rather than instead of it.
+   */
 
   /**
    * The first account of a kind (`#558`).

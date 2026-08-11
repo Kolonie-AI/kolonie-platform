@@ -40,13 +40,35 @@ export interface FakeQuestDesk extends QuestDesk {
   /** Say what the population holds, for a test about `#524`'s figure. */
   readonly populationHolds: (counts: readonly HoldingCount[]) => void
   /**
+   * Publish a quest, which no route can do any more (`#723`).
+   *
+   * **Moderation publishes what it approves** (`#693`), and the moderation
+   * runner is in another workspace. So a test that needs a live quest to assert
+   * on — capacity bought, results read, an ending — asks for one here rather
+   * than through a route that no longer exists. Clears moderation on the way,
+   * because the two are one act now.
+   */
+  readonly publish: (taskId: TaskId) => void
+  /**
    * Clear the moderation stage, which no route can do.
    *
    * The runner is the only thing that writes a quest's verdict, and it is in
    * another workspace — so without this, every steward test would be testing the
    * refusal rather than the review.
    */
-  readonly moderate: (taskId: TaskId, decision?: 'approved' | 'rejected') => void
+  readonly moderate: (
+    taskId: TaskId,
+    decision?: 'approved' | 'rejected',
+    /**
+     * What the sponsor is told, where the decision is a refusal (`#723`).
+     *
+     * **The moderator's reason is the only refusal reason there is now.** A
+     * steward's refusal wrote this field until `#693` made the verdict the
+     * decision, so a test about what a sponsor reads after a refusal has to
+     * refuse the way the Colony does.
+     */
+    reason?: string,
+  ) => void
   /** Credit a sponsor's balance, which is `packages/db`'s job in the real one. */
   readonly credit: (agentId: AgentId, amount: number) => void
   /**
@@ -342,27 +364,6 @@ export function fakeQuests(): FakeQuestDesk {
       return { outcome: 'ended' as const, quest: ended, attemptsStillOpen: 0 }
     },
 
-    /**
-     * The queue as a steward reads it (`#181`).
-     *
-     * It reproduces the two rules the page depends on: a steward's **own** quest
-     * is listed and marked rather than filtered out, and the cost shown is
-     * capacity × price. Whether Postgres joins the sponsor and the moderation
-     * verdict correctly is `packages/db`'s question.
-     */
-    async stewardQueue(stewardId) {
-      return [...quests.values()]
-        .filter((held) => held.own.task.status === 'pending_review')
-        .map((held) => ({
-          task: held.own.task,
-          sponsor: { id: held.own.task.createdBy ?? null, name: 'a-sponsor' },
-          sponsorBalance: { balance: 0, reserved: 0, available: 0 },
-          total: held.own.task.reward.lamports * (held.own.task.slots ?? 0),
-          moderation: { decision: 'approved', model: 'test-model' },
-          ownedByReader: held.own.task.createdBy === stewardId,
-        })) as never
-    },
-
     showsOnBackend: (input) => {
       if (input.tickets !== undefined) sections.tickets = input.tickets
       if (input.arrivals !== undefined) sections.arrivals = input.arrivals
@@ -560,7 +561,20 @@ export function fakeQuests(): FakeQuestDesk {
       return { acceptedAt, answers }
     },
 
-    moderate(taskId, decision = 'approved') {
+    publish(taskId) {
+      const held = quests.get(taskId)
+      if (held === undefined) return
+      put(
+        {
+          task: { ...held.own.task, status: 'active' },
+          rejectionReason: null,
+          awaitingModeration: false,
+        },
+        'approved',
+      )
+    },
+
+    moderate(taskId, decision = 'approved', reason = 'It crosses a red line.') {
       const held = quests.get(taskId)
       if (held === undefined) return
       held.moderated = decision
@@ -568,7 +582,7 @@ export function fakeQuests(): FakeQuestDesk {
         quests.set(taskId, {
           own: {
             task: { ...held.own.task, status: 'rejected' },
-            rejectionReason: 'It crosses a red line.',
+            rejectionReason: reason,
             awaitingModeration: false,
           },
           moderated: decision,
@@ -832,62 +846,6 @@ export function fakeQuests(): FakeQuestDesk {
 
     async readOwn(authorId, taskId) {
       return mine(authorId, taskId)?.own
-    },
-
-    async reviewQueue() {
-      return [...quests.values()]
-        .filter(
-          (held) => held.own.task.status === 'pending_review' && held.moderated === 'approved',
-        )
-        .map((held) => held.own.task)
-    },
-
-    async publish({ stewardId, taskId }) {
-      const held = quests.get(taskId)
-      if (held === undefined) return { outcome: 'unknown-quest' }
-      if (held.own.task.status !== 'pending_review') {
-        return { outcome: 'not-in-review', status: held.own.task.status }
-      }
-      if (held.own.task.createdBy === stewardId) return { outcome: 'own-quest' }
-      if (held.moderated !== 'approved') return { outcome: 'awaiting-moderation' }
-
-      const escrowed = questCommitment({
-        reward: held.own.task.reward,
-        slots: held.own.task.slots ?? 0,
-        publishObstacles: held.own.task.publishObstacles,
-      })
-
-      put(
-        {
-          task: { ...held.own.task, status: 'active' },
-          rejectionReason: null,
-          awaitingModeration: false,
-        },
-        'approved',
-      )
-
-      return { outcome: 'published', escrowed }
-    },
-
-    async refuse({ stewardId, taskId, reason }) {
-      const held = quests.get(taskId)
-      if (held === undefined) return { outcome: 'unknown-quest' }
-      if (held.own.task.status !== 'pending_review') {
-        return { outcome: 'not-in-review', status: held.own.task.status }
-      }
-      if (held.own.task.createdBy === stewardId) return { outcome: 'own-quest' }
-
-      put(
-        {
-          task: { ...held.own.task, status: 'rejected' },
-          rejectionReason: reason,
-          awaitingModeration: false,
-        },
-        held.moderated,
-        held.refusalCount + 1,
-      )
-
-      return { outcome: 'refused' }
     },
   }
 }

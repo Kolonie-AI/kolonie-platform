@@ -425,13 +425,21 @@ describe('which calls a standing line arrives on', () => {
  *
  * Which line wins is `packages/core`'s question and whether the Colony has one
  * is `packages/db`'s. These are about the channel carrying two.
+ *
+ * **The code used here is a stand-in** (`#723`). `ROLE_DUTY_HINTS` is empty:
+ * `quests-awaiting-review` was its only member and it is gone, because a quest
+ * that clears moderation is published by that verdict now and there is no queue
+ * for a steward to be sent to. The fake serves whatever code it is given, so
+ * these keep asserting the property `#646` bought — a duty travels beside the
+ * citizen's own line rather than instead of it — against the day a real duty
+ * arrives. Deleting them with the code would have deleted the guarantee too.
  */
 describe('a duty a role owes', () => {
   const both = async () => {
     const { colony, agent, apiKey } = await registeredCitizen()
     const hints = fakeStandingHints()
     hints.answers('rhythm-undeclared')
-    hints.owes('quests-awaiting-review')
+    hints.owes('pass-unreported')
 
     const { client, close } = await connectedClient(
       { ...colony, hints },
@@ -442,7 +450,7 @@ describe('a duty a role owes', () => {
   }
 
   const RHYTHM = standingHintText({ code: 'rhythm-undeclared', subject: null })
-  const REVIEW = standingHintText({ code: 'quests-awaiting-review', subject: null })
+  const DUTY = standingHintText({ code: 'pass-unreported', subject: null })
 
   /** The whole of the issue: the steward hears both, and neither displaces the other. */
   it('arrives beside the citizen’s own line rather than instead of it', async () => {
@@ -451,7 +459,7 @@ describe('a duty a role owes', () => {
     const result = await client.callTool({ name: 'kolonie.me', arguments: {} })
     const text = (result.content as { type: string; text: string }[]).map((part) => part.text)
 
-    expect(text).toContain(REVIEW.text)
+    expect(text).toContain(DUTY.text)
     expect(text).toContain(RHYTHM.text)
     await close()
   })
@@ -467,7 +475,7 @@ describe('a duty a role owes', () => {
     const structured = result.structuredContent as Record<string, unknown>
 
     expect(structured['hint']).toMatchObject({ code: 'rhythm-undeclared' })
-    expect(structured['duty']).toMatchObject({ code: 'quests-awaiting-review' })
+    expect(structured['duty']).toMatchObject({ code: 'pass-unreported' })
     await close()
   })
 
@@ -483,7 +491,7 @@ describe('a duty a role owes', () => {
     const second = await client.callTool({ name: 'kolonie.me', arguments: {} })
     const text = (second.content as { type: string; text: string }[]).map((part) => part.text)
 
-    expect(text).toContain(REVIEW.text)
+    expect(text).toContain(DUTY.text)
     expect(text).not.toContain(RHYTHM.text)
     await close()
   })
@@ -497,7 +505,7 @@ describe('a duty a role owes', () => {
       arguments: { kind: 'memory.code' },
     })
 
-    expect(JSON.stringify(result)).not.toContain(REVIEW.text)
+    expect(JSON.stringify(result)).not.toContain(DUTY.text)
     await close()
   })
 

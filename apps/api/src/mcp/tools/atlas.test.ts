@@ -50,7 +50,7 @@ describe('the Atlas over MCP', () => {
      * gained the figures, so the count is exactly what it was. Reported here per
      * `#388`'s practice.
      */
-    it('leaves the tool count where it was — 4 unauthenticated, 86 authenticated, 9 steward', () => {
+    it('leaves the tool count where it was — 4 unauthenticated, 86 authenticated, 6 steward', () => {
       expect(UNAUTHENTICATED_TOOLS.length).toBe(4)
       // 86 since `#631` added `kolonie.quests.discard` — throwing away a draft.
       // A tool rather than an argument on `update`, because a delete and an edit
@@ -78,7 +78,7 @@ describe('the Atlas over MCP', () => {
       // 9 since `#695` added `kolonie.quests.end` — the Colony's escape hatch
       // from an automatic publication. Steward-only because sponsor withdrawal
       // while citizens may be working is a separate fairness decision.
-      expect(STEWARD_TOOLS.length).toBe(9)
+      expect(STEWARD_TOOLS.length).toBe(6)
     })
 
     it('still carries the catalogue read under the name it already had', () => {

@@ -47,7 +47,7 @@ import { zoneFrom } from '../console/time.js'
 import { agentPage } from '../console/agent-page.js'
 import { answerAutonomyFormForAgent } from '../autonomy.js'
 import { agentAccountsPage } from '../console/agent-accounts.js'
-import { numbersPage, reviewQueuePage } from '../console/steward.js'
+import { curationPage, numbersPage } from '../console/steward.js'
 import { backendPage } from '../console/backend.js'
 import { curationSections } from '../console/curation.js'
 import { atlasCatalogue, atlasCuration } from '../provider-recipes.js'
@@ -69,10 +69,8 @@ import {
 } from '../console/quest-form.js'
 import {
   exportQuestResults,
-  publishQuest,
   readQuest,
   readQuestResults,
-  refuseQuest,
   submitQuest,
   withdrawQuest,
   endQuest,
@@ -3312,18 +3310,17 @@ export function registerStewardPages(app: FastifyInstance, deps: RouteDependenci
     const caller = await steward(request, reply)
     if (caller === null) return reply
 
-    const queue = await deps.quests.stewardQueue(caller.id)
+    const curation = await atlasCuration(deps.recipes)
 
     return wantsHtml(request)
       ? html(
           reply,
-          reviewQueuePage({
+          curationPage({
             steward: caller.profile.name,
-            queue,
-            curation: curationSections(await atlasCuration(deps.recipes)),
+            curation: curationSections(curation),
           }),
         )
-      : reply.send({ queue })
+      : reply.send(curation)
   })
 
   /**
@@ -3422,103 +3419,6 @@ export function registerStewardPages(app: FastifyInstance, deps: RouteDependenci
       return wantsHtml(request) ? reply.redirect('/review', 303) : reply.send(decided.proposal)
     })
   }
-
-  app.post('/review/:questId/publish', async (request, reply) => {
-    const caller = await steward(request, reply)
-    if (caller === null) return reply
-
-    const { questId } = request.params as { questId?: string }
-    const result = await publishQuest(
-      { stewardId: caller.id, questId, at: new Date().toISOString() as Timestamp },
-      deps.quests,
-    )
-
-    if (result.outcome === 'rejected') {
-      /**
-       * **A refusal, rendered as a refusal** (`#496`).
-       *
-       * This used to render `errorPage` — *"Something went wrong. The Colony
-       * could not answer that."* — for a 4xx the domain composed on purpose,
-       * whose reason the JSON branch below already sends to the caller. So a
-       * steward publishing a quest that had not cleared moderation read that the
-       * Colony was broken, while an agent calling the same route with a
-       * different `Accept` header read what to do about it.
-       *
-       * The queue is re-read rather than redirected to, for two reasons: a
-       * `303` would drop the message, there being no flash anywhere in this
-       * console, and the status has to stay the rejection's own — a refusal
-       * answered `200` is a refusal nothing downstream can tell from a success.
-       *
-       * `errorPage` is untouched and stays the 5xx page, which is `#490`'s.
-       */
-      if (wantsHtml(request)) {
-        const queue = await deps.quests.stewardQueue(caller.id)
-        return html(
-          reply.status(ERROR_STATUS[result.error.code]),
-          reviewQueuePage({
-            steward: caller.profile.name,
-            queue,
-            declined: result.error.message,
-          }),
-        )
-      }
-
-      return reply.status(ERROR_STATUS[result.error.code]).send(result.error)
-    }
-
-    return wantsHtml(request) ? reply.redirect('/review', 303) : reply.send(result.response)
-  })
-
-  app.post('/review/:questId/refuse', async (request, reply) => {
-    const caller = await steward(request, reply)
-    if (caller === null) return reply
-
-    const { questId } = request.params as { questId?: string }
-    const result = await refuseQuest(
-      {
-        stewardId: caller.id,
-        questId,
-        body: request.body,
-        at: new Date().toISOString() as Timestamp,
-      },
-      deps.quests,
-    )
-
-    if (result.outcome === 'rejected') {
-      /**
-       * **A refusal, rendered as a refusal** (`#496`).
-       *
-       * This used to render `errorPage` — *"Something went wrong. The Colony
-       * could not answer that."* — for a 4xx the domain composed on purpose,
-       * whose reason the JSON branch below already sends to the caller. So a
-       * steward publishing a quest that had not cleared moderation read that the
-       * Colony was broken, while an agent calling the same route with a
-       * different `Accept` header read what to do about it.
-       *
-       * The queue is re-read rather than redirected to, for two reasons: a
-       * `303` would drop the message, there being no flash anywhere in this
-       * console, and the status has to stay the rejection's own — a refusal
-       * answered `200` is a refusal nothing downstream can tell from a success.
-       *
-       * `errorPage` is untouched and stays the 5xx page, which is `#490`'s.
-       */
-      if (wantsHtml(request)) {
-        const queue = await deps.quests.stewardQueue(caller.id)
-        return html(
-          reply.status(ERROR_STATUS[result.error.code]),
-          reviewQueuePage({
-            steward: caller.profile.name,
-            queue,
-            declined: result.error.message,
-          }),
-        )
-      }
-
-      return reply.status(ERROR_STATUS[result.error.code]).send(result.error)
-    }
-
-    return wantsHtml(request) ? reply.redirect('/review', 303) : reply.send(result.response)
-  })
 
   app.get('/numbers', async (request, reply) => {
     const caller = await steward(request, reply)

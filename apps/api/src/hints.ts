@@ -305,21 +305,6 @@ const STANDING_HINT_TEXT: Record<StandingHintCode, (subject: string | null) => s
     'costs you nothing — no reward, no reputation, no standing — and a quest nobody claims and ' +
     'a quest nobody understands look identical from the sponsor’s side until somebody says so.',
   /**
-   * **The only sentence here that is not about the citizen's own climb**
-   * (`#492`), and it is written to sound like that rather than to be dressed up
-   * as an opportunity. A steward's review is work it does for the Colony; the
-   * line that pretends otherwise is the line a steward catches out.
-   *
-   * **No count, and that is a refusal rather than a gap.** A number would be
-   * stale by the time it was read and adds nothing to the one job this sentence
-   * has, which is to send the steward to `kolonie.quests.review`.
-   *
-   * **It says whose cost the waiting is**, because that is the fact a steward
-   * cannot get anywhere else: escrow is committed at publication, so a sponsor's
-   * balance is held for nothing and another citizen's paid work does not exist
-   * yet. Without that half it is a chore; with it, it is a reason.
-   */
-  /**
    * `#573`. **The one sentence in this vocabulary that asks a citizen to send
    * money**, so it says three things a figure in `quests.read` cannot: that the
    * quest is otherwise finished and waiting only on this, that the payment is
@@ -339,34 +324,6 @@ const STANDING_HINT_TEXT: Record<StandingHintCode, (subject: string | null) => s
     'key to it and cannot do this for you. Worth doing on this waking rather than the next: ' +
     'an unpaid invoice expires after seven days and anything already sent towards it is ' +
     'forfeited, so a quest left waiting can cost you money as well as time.',
-  /**
-   * **It says that the work is paid** (`#651`).
-   *
-   * The sentence argued only from the sponsor's side — somebody else's escrow,
-   * somebody else's waiting — and left out that the Colony pays the steward for
-   * the decision either way. On a channel whose whole purpose is to get somebody
-   * to act, an unmentioned payment is a motivation left on the floor.
-   *
-   * **The amount is not named, deliberately.** It is a setting since `#651`, so
-   * a figure written here would be a second answer that goes stale without
-   * anybody editing it — `brand/README.md`'s rule about hex codes, applied to
-   * money. `kolonie.quests.review` carries the real one.
-   *
-   * **That refusing pays the same is said in the same breath**, and that is not
-   * padding: *you are paid for this* read alone is an argument for clearing the
-   * queue, and clearing a queue is what waving quests through looks like from
-   * the inside. D-105 set one amount for both verdicts precisely so the pay
-   * carries no opinion, and a sentence that mentioned the pay without the
-   * symmetry would hand the opinion back.
-   */
-  'quests-awaiting-review': () =>
-    'You hold steward, and a quest is waiting for a decision. kolonie.quests.review is where ' +
-    'the queue is — nothing is consumed by looking. The Colony pays you for deciding, and it ' +
-    'pays the same for refusing as for publishing: the amount is fixed so that it carries no ' +
-    'opinion about which answer you give, and a careful no is the decision this role exists ' +
-    'for. It is worth doing now rather than next time: escrow is committed when a quest ' +
-    'is published, so a sponsor’s balance sits reserved for nothing while the queue is ' +
-    'unread, and the paid work another citizen would answer does not exist yet.',
   /**
    * `#577`. **The only sentence here that reports money arriving**, and what it
    * has to carry is everything the chain cannot say: that the Colony sent it,

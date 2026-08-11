@@ -20,7 +20,6 @@ import {
   tasks,
 } from '../schema/index.js'
 import { openProspects } from './prospects.js'
-import { questReviewQueue } from './quests/steward.js'
 import { currentSessionIdSql, previousSessionStartSql } from './sessions.js'
 import { markBadgeTold, untoldBadge } from './badges.js'
 
@@ -808,40 +807,6 @@ async function shellDeclaredAbsent(db: Database | Transaction, agentId: AgentId)
 }
 
 /**
- * Whether this citizen is a steward with something waiting for it (`#492`).
- *
- * **The queue is `questReviewQueue`, called rather than reimplemented.** The
- * issue asked for *the same queue `stewardQueue` already reads, not a second
- * query with its own idea of what is waiting* — and the way to guarantee that is
- * to run the same function rather than to copy its `where` clause. A predicate
- * duplicated here would drift the first time the queue's definition changed, and
- * a hint that names a door which is not there is worse than no hint: the steward
- * opens `kolonie.quests.review`, finds nothing, and learns to disbelieve the
- * channel.
- *
- * That queue is *cleared by the moderator and not yet decided by a human*, and
- * it is deliberately not *everything in `pending_review`* — see its own doc
- * comment. Inheriting that distinction is the point of calling it.
- *
- * **The role is asked first, and it is the cheap half.** A non-steward is
- * answered by one indexed read and never reaches the queue, so the ordinary
- * citizen's waking costs nothing for a condition that can never apply to it.
- * Every citizen in the Colony but one is in that case today.
- */
-async function stewardWithQueue(db: Database | Transaction, agentId: AgentId): Promise<boolean> {
-  const [row] = await db
-    .select({ steward: sql<boolean>`'steward'::role = any(${agents.roles})` })
-    .from(agents)
-    .where(eq(agents.id, agentId))
-    .limit(1)
-
-  if (row?.steward !== true) return false
-
-  const queue = await questReviewQueue(db as Database)
-  return queue.length > 0
-}
-
-/**
  * A quest this citizen wrote that is waiting for **its own** payment (`#573`).
  *
  * **The one condition where the Colony is waiting on the citizen for money.**
@@ -943,7 +908,6 @@ async function conditions(
     seven,
     shellAbsent,
     prospects,
-    questsAwaitingReview,
     untoldKind,
     questAwaitingPayment,
     payoutUntold,
@@ -963,7 +927,6 @@ async function conditions(
      * it.
      */
     openProspects(db as Database, agentId),
-    stewardWithQueue(db, agentId),
     untoldAccountKind(db, agentId),
     ownQuestAwaitingPayment(db, agentId),
     untoldPayout(db, agentId),
@@ -1030,13 +993,6 @@ async function conditions(
     applicable.push({ code: 'quest-unreported', subject: null })
   }
   /**
-   * **No subject** (`#492`), and refusing a count here is a decision rather than
-   * an omission. `quest-open-to-you` above refuses a title because it is
-   * sponsor-authored; a count is not, and it is still refused, because the
-   * sentence's whole job is to send the steward to `kolonie.quests.review` and a
-   * number that is stale by the time it is read does not help it do that.
-   */
-  /**
    * **Above everything except a badge and a settled ticket** (`#573`), and it is
    * the only hint where the citizen's own money is already committed and decays:
    * an unpaid invoice expires after seven days and takes any part payment with
@@ -1048,9 +1004,6 @@ async function conditions(
    */
   if (questAwaitingPayment !== null) {
     applicable.push({ code: 'quest-awaiting-your-payment', subject: questAwaitingPayment })
-  }
-  if (questsAwaitingReview) {
-    applicable.push({ code: 'quests-awaiting-review', subject: null })
   }
   /**
    * **The subject is the kind slug** (`#558`) — a Colony-controlled identifier,
@@ -1305,24 +1258,21 @@ export async function dueStandingHint(
  * A duty of a role is not a claim on the same attention as a fact about the
  * reader, so it does not compete for the same budget. Both lines arrive.
  *
- * **The role is asked first and it is the cheap half.** `stewardWithQueue` is
- * called rather than reimplemented — the same reason `#492` gives for calling
- * `questReviewQueue` — and it answers a non-steward with one indexed read
- * without ever reaching the queue. Every citizen in the Colony but two is in
- * that case today.
+ * **There is no duty in the vocabulary today** (`#723`). Its one member sent a
+ * steward to a review queue that no longer exists, because a quest that clears
+ * moderation is published by that verdict (`#693`). This runs no query and
+ * answers `null` for everybody until `ROLE_DUTY_HINTS` gains a member — which is
+ * why the separation above is written down rather than deleted with it.
  *
  * **It never throws**, on `dueStandingHint`'s terms.
  */
 export async function dueRoleDuty(
-  db: Database | Transaction,
-  agentId: AgentId,
+  /** Both are kept for the duty that takes their place — see `ROLE_DUTY_HINTS`. */
+  _db: Database | Transaction,
+  _agentId: AgentId,
 ): Promise<StandingHintFinding | null> {
   try {
     const applicable: StandingHintFinding[] = []
-
-    if (await stewardWithQueue(db, agentId)) {
-      applicable.push({ code: 'quests-awaiting-review', subject: null })
-    }
 
     return chooseRoleDuty(applicable) ?? null
   } catch {

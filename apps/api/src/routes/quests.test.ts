@@ -302,14 +302,14 @@ describe('POST /v1/quests/:questId/withdraw', () => {
     expect(response.json().message).toContain('already a draft')
   })
 
-  it('refuses once a steward has decided it', async () => {
+  it('refuses once the quest has been published', async () => {
     const id = await awaitingReview()
-    await post(`/v1/quests/${id}/publish`, stewardKey)
+    quests.publish(id as never)
 
     const response = await post(`/v1/quests/${id}/withdraw`, sponsorKey)
 
     expect(response.statusCode).toBe(409)
-    expect(response.json().message).toContain('steward decided it first')
+    expect(response.json().message).toContain('Moderation answered first')
   })
 
   it('refuses another sponsor the same way it refuses a stranger', async () => {
@@ -332,7 +332,7 @@ describe('POST /v1/quests/:questId/end', () => {
   /** A published, live quest of the sponsor's. */
   const running = async () => {
     const id = await awaitingReview()
-    await post(`/v1/quests/${id}/publish`, stewardKey)
+    quests.publish(id as never)
     return id
   }
 
@@ -822,7 +822,7 @@ describe('POST /v1/quests/:questId/slots', () => {
   /** A quest a steward has published, which is the only kind capacity is sold on. */
   const aPublishedQuest = async (): Promise<string> => {
     const id = await awaitingReview(aDraft({ reward: { reputation: 0, lamports: 100 }, slots: 3 }))
-    await post(`/v1/quests/${id}/publish`, stewardKey)
+    quests.publish(id as never)
     return id
   }
 
@@ -992,110 +992,6 @@ describe('GET /v1/quests/audience', () => {
   })
 })
 
-describe('GET /v1/quests/review', () => {
-  it('is a steward’s, and reaches the queue rather than the read-one route', async () => {
-    const id = await awaitingReview()
-
-    const response = await get('/v1/quests/review', stewardKey)
-
-    expect(response.statusCode).toBe(200)
-    expect(response.json().quests.map((quest: { id: string }) => quest.id)).toEqual([id])
-  })
-
-  it('refuses a caller that holds no role', async () => {
-    const response = await get('/v1/quests/review', sponsorKey)
-
-    expect(response.statusCode).toBe(403)
-    expect(response.json().code).toBe('forbidden')
-  })
-
-  it('does not carry a quest the moderator has not cleared', async () => {
-    const written = await write(aDraft())
-    await post(`/v1/quests/${written.json().quest.id}/submit`, sponsorKey)
-
-    const response = await get('/v1/quests/review', stewardKey)
-
-    expect(response.json().quests).toEqual([])
-  })
-})
-
-describe('POST /v1/quests/:questId/publish', () => {
-  it('publishes and reports what was escrowed', async () => {
-    const id = await awaitingReview(aDraft({ reward: { reputation: 0, lamports: 10 }, slots: 10 }))
-
-    const response = await post(`/v1/quests/${id}/publish`, stewardKey)
-
-    expect(response.statusCode).toBe(200)
-    // 10 × 10 for the answers, plus a quarter of one answer for each of the
-    // first three published obstacle reports — held together, refunded together
-    // (`#371`, `#632`).
-    expect(response.json()).toEqual({ escrowed: 106 })
-  })
-
-  it('refuses a steward publishing its own quest, and says why', async () => {
-    const written = await write(aDraft(), stewardKey)
-    const id = written.json().quest.id
-    await post(`/v1/quests/${id}/submit`, stewardKey)
-    quests.moderate(id)
-
-    const response = await post(`/v1/quests/${id}/publish`, stewardKey)
-
-    expect(response.statusCode).toBe(403)
-    expect(response.json().message).toContain('Nobody decides their own quest')
-  })
-
-  it('refuses a caller that holds no role', async () => {
-    const id = await awaitingReview()
-
-    const response = await post(`/v1/quests/${id}/publish`, sponsorKey)
-
-    expect(response.statusCode).toBe(403)
-  })
-
-  it('refuses a quest the moderator has not cleared', async () => {
-    const written = await write(aDraft())
-    const id = written.json().quest.id
-    await post(`/v1/quests/${id}/submit`, sponsorKey)
-
-    const response = await post(`/v1/quests/${id}/publish`, stewardKey)
-
-    expect(response.statusCode).toBe(409)
-    expect(response.json().message).toContain('moderation')
-  })
-})
-
-describe('POST /v1/quests/:questId/refuse', () => {
-  it('refuses with a reason the sponsor then reads', async () => {
-    const id = await awaitingReview()
-
-    const refused = await post(`/v1/quests/${id}/refuse`, stewardKey, {
-      reason: 'Say which page the citizen should register on.',
-    })
-
-    expect(refused.statusCode).toBe(200)
-    const own = await get(`/v1/quests/${id}`, sponsorKey)
-    expect(own.json().quest.status).toBe('rejected')
-    expect(own.json().rejectionReason).toBe('Say which page the citizen should register on.')
-  })
-
-  it('refuses a refusal with no reason', async () => {
-    const id = await awaitingReview()
-
-    const response = await post(`/v1/quests/${id}/refuse`, stewardKey, { reason: 'no' })
-
-    expect(response.statusCode).toBe(422)
-  })
-})
-
-/**
- * **A steward has no route that edits a quest's text**, which is a property of
- * the router rather than of any handler — so it is asserted against the router.
- *
- * A steward that edited would become the author, and the self-approval ban in
- * `#173` would have been walked around rather than enforced. The check is on
- * *who may reach the edit route*, because the route itself has to exist for the
- * author.
- */
 describe('the routes a steward does not have', () => {
   it('will not let a steward edit somebody else’s quest through any method', async () => {
     const written = await write(aDraft())
@@ -1129,7 +1025,7 @@ describe('the routes a steward does not have', () => {
 describe('GET /v1/quests/:questId/results', () => {
   const withAccepted = async () => {
     const id = await awaitingReview()
-    await post(`/v1/quests/${id}/publish`, stewardKey)
+    quests.publish(id as never)
     quests.accept({
       taskId: id as TaskId,
       answers: { 'what-happened': 'The signup took two tries.' },
@@ -1207,7 +1103,7 @@ describe('GET /v1/quests/:questId/results', () => {
     quests.credit(sponsorId as never, 1_000_000)
     await post(`/v1/quests/${id}/submit`, sponsorKey)
     quests.moderate(id as TaskId)
-    await post(`/v1/quests/${id}/publish`, stewardKey)
+    quests.publish(id as never)
     quests.accept({
       taskId: id as TaskId,
       answers: { worked: 'yes', notes: 'It was quick.' },
@@ -1229,7 +1125,7 @@ describe('GET /v1/quests/:questId/results', () => {
 describe('GET /v1/quests/:questId/results/export', () => {
   const withAccepted = async () => {
     const id = await awaitingReview()
-    await post(`/v1/quests/${id}/publish`, stewardKey)
+    quests.publish(id as never)
     quests.accept({
       taskId: id as TaskId,
       answers: { 'what-happened': 'It worked, eventually' },
@@ -1291,7 +1187,7 @@ describe('GET /v1/quests/:questId/results/export', () => {
 describe('GET /v1/quests/:questId/answer', () => {
   it('shows a citizen its own answer in the shape the sponsor gets', async () => {
     const id = await awaitingReview()
-    await post(`/v1/quests/${id}/publish`, stewardKey)
+    quests.publish(id as never)
     const citizen = store.issue({})
     quests.accept({
       taskId: id as TaskId,

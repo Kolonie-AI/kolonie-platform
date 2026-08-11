@@ -9,7 +9,6 @@ import {
   QuestDraftSchema,
   QuestEndingSchema,
   QuestPatchSchema,
-  QuestRefusalSchema,
   QuestReportSchema,
   QuestTopUpSchema,
   QUEST_MAX_SLOTS,
@@ -17,7 +16,6 @@ import {
   SubmissionIdSchema,
   TaskIdSchema,
   audienceSentence,
-  capabilityMismatches,
   invoiceNotice,
   questCommitmentBreakdown,
   questCommitmentLines,
@@ -28,7 +26,6 @@ import {
   type AgentId,
   type AudienceQuery,
   type AudienceReport,
-  type RequirementFlag,
   type ApiError,
   type QuestAuditPolicy,
   type QuestReportCounts,
@@ -66,18 +63,13 @@ import {
   recentArrivals as recentArrivalsInDatabase,
   tasksWithoutReports as tasksWithoutReportsInDatabase,
   briefingEffect as briefingEffectInDatabase,
-  reviewQueueForSteward as reviewQueueForStewardInDatabase,
   recordAuditDecision as recordAuditDecisionInDatabase,
-  publishQuest as publishQuestInDatabase,
-  questReviewQueue as questReviewQueueInDatabase,
   questObstacleBonusPercentInDatabase,
-  questReviewRewardInDatabase,
   questTierCapsInDatabase,
   readOwnQuest as readOwnQuestInDatabase,
   SKILLS_THE_ACADEMY_GRANTS,
   countAudience,
   type SettingsReader,
-  refuseQuest as refuseQuestInDatabase,
   submitQuestForReview as submitQuestForReviewInDatabase,
   updateQuestDraft as updateQuestDraftInDatabase,
   discardQuestDraft as discardQuestDraftInDatabase,
@@ -86,8 +78,6 @@ import {
   type AudienceCriteria,
   type Database,
   type OwnQuest,
-  type QuestPublishOutcome,
-  type QuestRefuseOutcome,
   type AuditCandidate,
   type AuditRecordOutcome,
   type QuestResult as AcceptedReport,
@@ -103,7 +93,6 @@ import {
   type BriefingEffect,
   type ColonyNumbers,
   type HoldingCount,
-  type QuestUnderReview,
   type QuestEndOutcome,
   type SponsorQuestReport,
 } from '@kolonie-ai/db'
@@ -234,18 +223,6 @@ export interface QuestDesk {
   audience(criteria: AudienceCriteria): Promise<number>
   listOwn(authorId: AgentId): Promise<readonly OwnQuest[]>
   readOwn(authorId: AgentId, taskId: TaskId): Promise<OwnQuest | undefined>
-  reviewQueue(): Promise<readonly Task[]>
-  publish(input: {
-    readonly stewardId: AgentId
-    readonly taskId: TaskId
-    readonly at: Timestamp
-  }): Promise<QuestPublishOutcome>
-  refuse(input: {
-    readonly stewardId: AgentId
-    readonly taskId: TaskId
-    readonly reason: string
-    readonly at: Timestamp
-  }): Promise<QuestRefuseOutcome>
   /** The accepted reports on one quest (`#178`). */
   results(taskId: TaskId): Promise<readonly AcceptedReport[]>
   /**
@@ -336,7 +313,6 @@ export interface QuestDesk {
    * this*: a steward's own quests appear in the queue, marked and not
    * actionable, rather than being filtered out.
    */
-  stewardQueue(stewardId: AgentId): Promise<readonly QuestUnderReview[]>
   /** The Colony's own numbers, each with the moment it was computed (`#181`). */
   numbers(): Promise<ColonyNumbers>
   /**
@@ -416,32 +392,6 @@ export function databaseQuests(
     audience: (criteria) => countAudience(db, criteria),
     listOwn: (authorId) => listOwnQuestsInDatabase(db, authorId),
     readOwn: (authorId, taskId) => readOwnQuestInDatabase(db, authorId, taskId),
-    reviewQueue: () => questReviewQueueInDatabase(db),
-    publish: async (input) =>
-      await publishQuestInDatabase(db, {
-        ...input,
-        audit,
-        // Frozen onto the row here and read back at every payout (`#632`).
-        ...(settings === undefined
-          ? {}
-          : { obstacleBonusPercent: await questObstacleBonusPercentInDatabase(settings) }),
-        // Read at the decision rather than frozen (`#651`) — it is the Colony's
-        // own money for work being done now, not a sponsor's for work already
-        // committed.
-        ...(settings === undefined
-          ? {}
-          : { reviewRewardLamports: await questReviewRewardInDatabase(settings) }),
-      }),
-    refuse: async (input) =>
-      await refuseQuestInDatabase(db, {
-        ...input,
-        // The same figure and the same moment as publishing: D-105's rule is
-        // that the amount carries no opinion about the verdict, so a refusal
-        // that read a different dial would be that opinion in another form.
-        ...(settings === undefined
-          ? {}
-          : { reviewRewardLamports: await questReviewRewardInDatabase(settings) }),
-      }),
     results: (taskId) => questResultsInDatabase(db, taskId),
     withheld: (taskId) => withheldReportCountInDatabase(db, taskId),
     takenPartIn: (agentId) => questsTakenPartInInDatabase(db, agentId),
@@ -456,7 +406,6 @@ export function databaseQuests(
     reports: (taskId) => sponsorQuestReportsInDatabase(db, taskId),
     reportCounts: (taskId) => questReportCountsInDatabase(db, taskId),
     end: (input) => endQuestInDatabase(db, input),
-    stewardQueue: (stewardId) => reviewQueueForStewardInDatabase(db, stewardId),
     numbers: () => colonyNumbersInDatabase(db),
     holdings: () => holdingCounts(db),
     backendSections: () => backendSectionsInDatabase(db),
@@ -1186,10 +1135,10 @@ export async function withdrawQuest(
           code: 'conflict',
           message:
             result.status === 'draft'
-              ? 'That quest is already a draft: it is not in the review queue, so there is ' +
+              ? 'That quest is already a draft: it is not awaiting a verdict, so there is ' +
                 'nothing to withdraw. Edit it and submit it again when it says what you mean.'
-              : `That quest is ${result.status} and has left the review queue, so it cannot be ` +
-                'withdrawn. A steward decided it first.',
+              : `That quest is ${result.status} and has already been decided, so it cannot be ` +
+                'withdrawn. Moderation answered first.',
         },
       }
     default:
@@ -1376,136 +1325,6 @@ export async function readAudience(
   }
 }
 
-/** One quest in the queue that describes work it requires no skill for (`#353`). */
-export interface FlaggedQuest {
-  readonly questId: TaskId
-  readonly title: string
-  /** The terms that fired, each with the skill it points at. */
-  readonly flags: readonly RequirementFlag[]
-}
-
-/**
- * The steward's queue: moderated quests awaiting a human decision.
- *
- * **`flagged` is beside the queue rather than inside each quest** (`#353`). The
- * quest shape is what a citizen reads and what four other surfaces already
- * parse; a note *about* a quest, addressed to a steward and to nobody else,
- * is not part of it. This also keeps the flag from ever reaching the sponsor or
- * the answering citizen through a shape they share.
- *
- * A quest missing from `flagged` is a quest nothing fired on, which is the
- * ordinary case and stays cheap to read.
- */
-export async function readReviewQueue(
-  desk: QuestDesk,
-): Promise<
-  QuestResult<{ readonly quests: readonly Task[]; readonly flagged: readonly FlaggedQuest[] }>
-> {
-  const quests = await desk.reviewQueue()
-
-  const flagged = quests
-    .map((quest) => ({
-      questId: quest.id,
-      title: quest.title,
-      flags: capabilityMismatches(quest),
-    }))
-    .filter((entry) => entry.flags.length > 0)
-
-  return { outcome: 'ok', response: { quests, flagged } }
-}
-
-/** Publish a quest, moving its escrow in the same transaction. */
-/** What a steward is told when it publishes: money moved, or money awaited. */
-export interface QuestPublished {
-  readonly escrowed: number
-  /**
-   * Present when the quest is waiting for its invoice (`#504`).
-   *
-   * Absent means it is live now — which is the case for a quest that pays
-   * reputation, and for one on the credits path `#506` retires.
-   */
-  readonly awaitingPayment?: { readonly invoiceLamports: number }
-}
-
-export async function publishQuest(
-  input: {
-    readonly stewardId: AgentId
-    readonly questId: string | undefined
-    readonly at: Timestamp
-  },
-  desk: QuestDesk,
-): Promise<QuestResult<QuestPublished>> {
-  const taskId = questIdFrom(input.questId)
-  if (taskId === undefined) return notFound()
-
-  const result = await desk.publish({ stewardId: input.stewardId, taskId, at: input.at })
-
-  switch (result.outcome) {
-    case 'published':
-      return { outcome: 'ok', response: { escrowed: result.escrowed } }
-    /**
-     * Published, and nobody can see it until the sponsor pays — D-106 (`#504`).
-     *
-     * Told apart from `published` in the answer as well as in the outcome,
-     * because a steward that reads *published* and then cannot find the quest in
-     * the live list has been told something false.
-     */
-    case 'awaiting-payment':
-      return {
-        outcome: 'ok',
-        response: { escrowed: 0, awaitingPayment: { invoiceLamports: result.invoiceLamports } },
-      }
-    case 'unknown-quest':
-      return notFound()
-    case 'not-in-review':
-      return {
-        outcome: 'rejected',
-        error: { code: 'conflict', message: notInReview(result.status) },
-      }
-    case 'own-quest':
-      return { outcome: 'rejected', error: SELF_APPROVAL }
-    case 'awaiting-moderation':
-      return {
-        outcome: 'rejected',
-        error: {
-          code: 'conflict',
-          message: 'This quest has not cleared moderation yet, so it is not yours to publish.',
-        },
-      }
-    case 'insufficient-funds':
-      return {
-        outcome: 'rejected',
-        error: {
-          code: 'conflict',
-          message:
-            `Its author is ${result.shortfall} credit(s) short of what this quest commits, ` +
-            'so publishing it would escrow money that is not there.',
-        },
-      }
-    case 'audit-missing':
-      return { outcome: 'rejected', error: { code: 'conflict', message: result.reason } }
-    /**
-     * A quest measured in walks, naming an entry nobody can walk (`#602`).
-     *
-     * **Refused here rather than at drafting**, because an entry can be
-     * withdrawn between the sponsor writing the quest and a steward reading it
-     * — and the moment that matters is the one where money is about to be
-     * escrowed against twenty agents walking something.
-     */
-    case 'entry-not-walkable':
-      return {
-        outcome: 'rejected',
-        error: {
-          code: 'conflict',
-          message:
-            `The Atlas has no published recipe for ${result.provider}, so there are no steps ` +
-            'for anyone to walk. A quest measured in walks tests a recipe that already works; ' +
-            'getting a first one is what the proposal queue and an agent’s own walk are for.',
-        },
-      }
-  }
-}
-
 /**
  * The audit queue, for a steward.
  *
@@ -1675,71 +1494,8 @@ export async function recordAudit(
   }
 }
 
-/** Refuse a quest, with a reason its author reads. */
-export async function refuseQuest(
-  input: {
-    readonly stewardId: AgentId
-    readonly questId: string | undefined
-    readonly body: unknown
-    readonly at: Timestamp
-  },
-  desk: QuestDesk,
-): Promise<QuestResult<{ readonly refused: true }>> {
-  const taskId = questIdFrom(input.questId)
-  if (taskId === undefined) return notFound()
-
-  const parsed = QuestRefusalSchema.safeParse(input.body)
-  if (!parsed.success) {
-    return {
-      outcome: 'rejected',
-      error: invalid(
-        'A refusal carries a `reason`, and it is written for the sponsor to act on: ' +
-          'a quest that is nearly right is refused with what would make it right.',
-      ),
-    }
-  }
-
-  const result = await desk.refuse({
-    stewardId: input.stewardId,
-    taskId,
-    reason: parsed.data.reason,
-    at: input.at,
-  })
-
-  switch (result.outcome) {
-    case 'refused':
-      return { outcome: 'ok', response: { refused: true } }
-    case 'unknown-quest':
-      return notFound()
-    case 'not-in-review':
-      return {
-        outcome: 'rejected',
-        error: { code: 'conflict', message: notInReview(result.status) },
-      }
-    case 'own-quest':
-      return { outcome: 'rejected', error: SELF_APPROVAL }
-  }
-}
-
-/**
- * The refusal a steward gets for its own quest.
- *
- * Named, unlike `UNPRIVILEGED`, because it is not an oracle: the caller already
- * knows it wrote this quest, and telling it why it cannot act saves it from
- * concluding its role was revoked.
- */
-const SELF_APPROVAL: ApiError = {
-  code: 'forbidden',
-  message:
-    'Nobody decides their own quest. Another steward publishes or refuses this one ' +
-    '(kolonie-platform#173).',
-}
-
 const frozen = (status: Task['status']): string =>
   `This quest is ${status}, and only a draft or a refused quest is yours to change.`
-
-const notInReview = (status: Task['status']): string =>
-  `This quest is ${status}, and only a quest awaiting review can be decided.`
 
 /**
  * The id, or nothing.

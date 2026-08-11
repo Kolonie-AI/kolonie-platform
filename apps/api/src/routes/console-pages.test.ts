@@ -985,16 +985,10 @@ describe('the sponsor’s pages', () => {
       },
     })
 
-    // Refused by a steward through the desk rather than through a route: the
-    // steward's own pages are `#181`, and this test is about what the sponsor
-    // is shown afterwards.
-    const steward = store.issue({})
-    await quests.refuse({
-      stewardId: steward.agent.id,
-      taskId: questId as never,
-      reason: 'The instructions ask for something impossible.',
-      at: new Date().toISOString() as never,
-    })
+    // Refused by the moderator, which is the only refusal there is (`#693`):
+    // the verdict is the decision and no steward is in the path. This test is
+    // about what the sponsor is shown afterwards.
+    quests.moderate(questId as never, 'rejected', 'The instructions ask for something impossible.')
 
     const draft = await asBrowser(location, { signedIn: true })
     expect(draft.body).toContain('impossible')

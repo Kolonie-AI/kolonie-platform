@@ -55,6 +55,10 @@ export function toolNamesIn(text: string): readonly string[] {
  * not exist. The parser was right, the hint was right, and this set was one tier
  * out of date: exactly the shape of failure `#196` built the parity check to
  * catch, one level up.
+ *
+ * **Both that hint and that tool are gone** (`#723`): a quest that clears
+ * moderation is published by that verdict. The set still carries `STEWARD_TOOLS`
+ * for the reason above, which was never about which tools were in it.
  */
 export function registeredTools(): ReadonlySet<string> {
   return new Set<string>([...UNAUTHENTICATED_TOOLS, ...AUTHENTICATED_TOOLS, ...STEWARD_TOOLS])

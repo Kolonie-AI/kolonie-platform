@@ -16,7 +16,6 @@ let app: FastifyInstance
 let store: FakeStore
 let quests: FakeQuestDesk
 let stewardKey: string
-let stewardId: string
 let stewardSession: string
 let ordinaryKey: string
 
@@ -33,7 +32,6 @@ beforeEach(async () => {
 
   const issued = store.issue({})
   stewardKey = String(issued.apiKey)
-  stewardId = String(issued.agent.id)
   store.setRoles(issued.agent.id, ['steward'])
   stewardSession = 'a-steward-session'
   store.signIn(issued.agent.id, stewardSession)
@@ -67,142 +65,29 @@ const asStewardAgent = (url: string) =>
     },
   })
 
-/** One quest sitting in the queue, which is what makes a row exist to assert on. */
-const aQuestAwaitingReview = async (): Promise<void> => {
-  quests.credit(stewardId as never, 1_000_000)
-  const authorId = String(store.issue({}).agent.id)
-  quests.credit(authorId as never, 1000)
-  const created = await quests.create({
-    authorId: authorId as never,
-    draft: {
-      title: 'A thousand registrations',
-      description: 'We want to know whether agents can register.',
-      instructions: 'Register and report.',
-      reward: { reputation: 5, lamports: 1 },
-      slots: 10,
-      expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
-      questions: [{ key: 'what-happened', prompt: 'What happened?' }],
-    },
-  })
-  await quests.submit({
-    authorId: authorId as never,
-    taskId: created.task.id,
-    at: new Date().toISOString() as never,
-  })
-}
-
 /**
- * The steward's two pages (`#181`).
+ * The steward's pages (`#181`, `#723`).
  *
- * The queue is where a stranger's text is read and decided, and the numbers page
- * is the first surface on which the Colony's claims about itself can be checked
- * by anybody without database access.
+ * **The review queue stood here and does not any more.** A quest that clears
+ * moderation is published by that verdict (`#693`), so `/review` carries the
+ * Atlas curation — the half of that page a steward still has work in — and the
+ * numbers page is unchanged. It is the first surface on which the Colony's
+ * claims about itself can be checked by anybody without database access.
  */
-describe('the review queue', () => {
-  it('shows who wrote it, the cost and the moderation result', async () => {
-    quests.credit(stewardId as never, 1_000_000)
-    const authorId = String(store.issue({}).agent.id)
-    quests.credit(authorId as never, 1000)
-    const created = await quests.create({
-      authorId: authorId as never,
-      draft: {
-        title: 'A thousand registrations',
-        description: 'We want to know whether agents can register.',
-        instructions: 'Register and report.',
-        reward: { reputation: 5, lamports: 1 },
-        slots: 10,
-        expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
-        questions: [{ key: 'what-happened', prompt: 'What happened?' }],
-      },
-    })
-    await quests.submit({
-      authorId: authorId as never,
-      taskId: created.task.id,
-      at: new Date().toISOString() as never,
-    })
 
+describe('the Atlas, on the page the queue used to share', () => {
+  it('serves the curation to a signed-in steward', async () => {
     const page = await asSteward('/review')
 
     expect(page.statusCode).toBe(200)
-    expect(page.body).toContain('A thousand registrations')
-    // Capacity times price, computed once and shown.
-    expect(page.body).toContain('Total')
-    // *Sponsor* until `#468`. `kolonie-docs#184` lets the word stay in prose
-    // where it says what somebody is doing — the paragraph above this table
-    // still uses it that way — and retires it as a bare label, which reads as a
-    // kind of person rather than a party to this quest.
-    expect(page.body).toContain('Written by')
+    expect(page.body).toContain('The Atlas')
+    // The queue is gone, and so is the sentence that described deciding one.
+    expect(page.body).not.toContain('Review queue')
+    expect(page.body).not.toContain('Nothing is waiting for review')
   })
 
-  /**
-   * **The pair a steward is actually judging.** Each half is defensible and the
-   * combination rarely is, so the two are shown together and the combination is
-   * called out rather than left to be noticed.
-   */
-  it('puts the audience and the proof verifier side by side', async () => {
-    const page = await asSteward('/review')
-
-    expect(page.statusCode).toBe(200)
-    expect(page.body).toContain('Review queue')
-  })
-
-  /**
-   * The basis a steward decides an account-using quest on (D-108, `#522`).
-   *
-   * **Beside the quest, and unconditionally.** The defect the rule answers is
-   * two stewards deciding differently, and a rule that lives one click away is
-   * consulted by whoever already suspected there was one. There is deliberately
-   * no predicate: a prompt that fired on *some* quests would read as the Colony
-   * having judged the others.
-   */
-  describe('the basis an account-using quest is decided on', () => {
-    beforeEach(async () => {
-      await aQuestAwaitingReview()
-    })
-
-    it('shows the one question a steward applies', async () => {
-      const page = await asSteward('/review')
-
-      expect(page.body).toContain('if this provider noticed, would the citizen lose its account?')
-      expect(page.body).toContain('destroy a citizen\u2019s own property')
-    })
-
-    /**
-     * **No list of permitted quest types**, which the issue forbids outright: a
-     * catalogue is wrong within a month, a steward reads it as exhaustive, and a
-     * quest nobody anticipated then gets refused for being unlisted.
-     */
-    it('enumerates nothing a sponsor is allowed to ask for', async () => {
-      const body = (await asSteward('/review')).body.toLowerCase()
-
-      // The quest is on the page, so an assertion about absence is about this
-      // page's content rather than about an empty one.
-      expect(body).toContain('a thousand registrations')
-      for (const phrase of ['permitted quest', 'allowed quest', 'quest types', 'may ask for']) {
-        expect(body).not.toContain(phrase)
-      }
-    })
-  })
-
-  it('answers JSON to a steward holding an API key', async () => {
-    const response = await asStewardAgent('/review')
-
-    expect(response.statusCode).toBe(200)
-    expect(response.json()).toHaveProperty('queue')
-  })
-
-  /**
-   * A browser that is not a steward gets the not-found handler, for the reason
-   * `console-pages.ts` already argues: a `403` would tell a stranger which
-   * console paths are real. An agent, which can act on the answer, gets `403`.
-   */
-  it('hides itself from a browser that is not a steward, and refuses an agent plainly', async () => {
-    const browser = await app.inject({
-      method: 'GET',
-      url: '/review',
-      headers: { host: CONSOLE_HOST, accept: 'text/html' },
-    })
-    const agent = await app.inject({
+  it('refuses a caller that holds no role', async () => {
+    const refused = await app.inject({
       method: 'GET',
       url: '/review',
       headers: {
@@ -212,98 +97,16 @@ describe('the review queue', () => {
       },
     })
 
-    expect(browser.statusCode).toBe(404)
-    expect(agent.statusCode).toBe(403)
+    expect(refused.statusCode).toBe(403)
   })
 
-  it('answers on the console host and nowhere else', async () => {
-    const elsewhere = await app.inject({
-      method: 'GET',
-      url: '/review',
-      headers: {
-        host: 'api.example',
-        accept: 'application/json',
-        authorization: `Bearer ${stewardKey}`,
-      },
-    })
+  it('answers JSON to a steward holding an API key', async () => {
+    const answered = await asStewardAgent('/review')
 
-    expect(elsewhere.statusCode).toBe(404)
+    expect(answered.statusCode).toBe(200)
+    expect(answered.headers['content-type']).toContain('application/json')
   })
 })
-
-describe('a steward’s own quest', () => {
-  /**
-   * **Listed, marked, and refused server-side.** The row is not filtered out: a
-   * row that vanishes without explanation reads as a bug and invites somebody to
-   * "fix" the filter, while a row saying *you wrote this* explains the rule at
-   * the moment it applies.
-   */
-  it('appears in the queue, marked, rather than being filtered out', async () => {
-    quests.credit(stewardId as never, 1000)
-    const created = await quests.create({
-      authorId: stewardId as never,
-      draft: {
-        title: 'My own quest',
-        description: 'Written by the steward reading this.',
-        instructions: 'Do it.',
-        reward: { reputation: 5, lamports: 1 },
-        slots: 10,
-        expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
-        questions: [{ key: 'how', prompt: 'How?' }],
-      },
-    })
-    await quests.submit({
-      authorId: stewardId as never,
-      taskId: created.task.id,
-      at: new Date().toISOString() as never,
-    })
-
-    const page = await asSteward('/review')
-
-    expect(page.body).toContain('My own quest')
-    expect(page.body).toContain('You wrote this quest')
-    // And no approve button on that row.
-    expect(page.body).not.toContain(`/review/${created.task.id}/publish`)
-  })
-
-  /**
-   * The acceptance criterion, and the one that matters: the markup is a
-   * courtesy and the route is the refusal.
-   */
-  it('is refused when the approval is posted straight at the route', async () => {
-    quests.credit(stewardId as never, 1000)
-    const created = await quests.create({
-      authorId: stewardId as never,
-      draft: {
-        title: 'My own quest',
-        description: 'Written by the steward reading this.',
-        instructions: 'Do it.',
-        reward: { reputation: 5, lamports: 1 },
-        slots: 10,
-        expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
-        questions: [{ key: 'how', prompt: 'How?' }],
-      },
-    })
-    await quests.submit({
-      authorId: stewardId as never,
-      taskId: created.task.id,
-      at: new Date().toISOString() as never,
-    })
-
-    const posted = await app.inject({
-      method: 'POST',
-      url: `/review/${created.task.id}/publish`,
-      headers: {
-        host: CONSOLE_HOST,
-        accept: 'application/json',
-        authorization: `Bearer ${stewardKey}`,
-      },
-    })
-
-    expect(posted.statusCode).toBeGreaterThanOrEqual(400)
-  })
-})
-
 describe('the Colony’s numbers', () => {
   it('names what each figure counts, and when it was computed', async () => {
     const page = await asSteward('/numbers')
@@ -430,184 +233,14 @@ describe('what the console can write', () => {
 
     const paths = written.join('\n')
 
-    // The steward's two, which are `#181`'s own.
-    expect(paths).toContain('publish')
-    expect(paths).toContain('refuse')
+    // **Nothing publishes or refuses a quest any more** (`#723`). Those two
+    // were `#181`'s own and they were the reason this test named an allowance
+    // at all; a quest that clears moderation is published by that verdict.
+    expect(paths).not.toContain('/review/')
     // And nothing that edits an identity, a skill, a ledger row or a task.
     expect(paths).not.toContain('/agents')
     expect(paths).not.toContain('/skills')
     expect(paths).not.toContain('/ledger')
     expect(paths).not.toContain('/numbers')
-  })
-})
-
-/**
- * `#496`. Both review routes rendered `errorPage` when the domain **refused**
- * them — *"Something went wrong. The Colony could not answer that."* plus a uuid
- * nothing logged — for a 4xx whose reason the JSON branch of the same route
- * already sent to the caller.
- *
- * So a steward publishing a quest that had not cleared moderation was told the
- * Colony was broken, while an agent calling the same route one `Accept` header
- * away was told what to do about it.
- */
-describe('when the Colony declines a review action', () => {
-  /** A quest by somebody else, submitted and waiting — the ordinary case. */
-  const aQuestInReview = async () => {
-    const authorId = String(store.issue({}).agent.id)
-    quests.credit(authorId as never, 1000)
-    const created = await quests.create({
-      authorId: authorId as never,
-      draft: {
-        title: 'A quest somebody else wrote',
-        description: 'Not the steward’s own, so the review is an ordinary one.',
-        instructions: 'Do it.',
-        reward: { reputation: 5, lamports: 1 },
-        slots: 10,
-        expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
-        questions: [{ key: 'how', prompt: 'How?' }],
-      },
-    })
-    await quests.submit({
-      authorId: authorId as never,
-      taskId: created.task.id,
-      at: new Date().toISOString() as never,
-    })
-    return created.task.id
-  }
-
-  const postAsBrowser = (url: string) =>
-    app.inject({
-      method: 'POST',
-      url,
-      headers: {
-        host: CONSOLE_HOST,
-        accept: 'text/html',
-        cookie: `__Host-kolonie_session=${stewardSession}`,
-        'content-type': 'application/x-www-form-urlencoded',
-      },
-      payload: '',
-    })
-
-  const postAsAgent = (url: string) =>
-    app.inject({
-      method: 'POST',
-      url,
-      headers: {
-        host: CONSOLE_HOST,
-        accept: 'application/json',
-        authorization: `Bearer ${stewardKey}`,
-      },
-    })
-
-  /**
-   * The reason `publishQuest` actually returns for a quest that has not cleared
-   * moderation, which is the case the issue opens on.
-   */
-  it('tells the steward why, in the words the JSON caller gets', async () => {
-    const taskId = await aQuestInReview()
-
-    const response = await postAsBrowser(`/review/${taskId}/publish`)
-
-    expect(response.statusCode).toBeGreaterThanOrEqual(400)
-    expect(response.statusCode).toBeLessThan(500)
-    expect(response.body).toContain('has not cleared moderation')
-    expect(response.body).toContain('That did not go through')
-  })
-
-  /**
-   * **No crash page, and no id.** Printing no id is honest; printing one that
-   * reaches no log costs the reader a support round-trip to discover it leads
-   * nowhere — which is the worse half of this defect.
-   */
-  it('renders no error page and no error id for a refusal', async () => {
-    const taskId = await aQuestInReview()
-
-    const response = await postAsBrowser(`/review/${taskId}/publish`)
-
-    expect(response.body).not.toContain('Error id:')
-    expect(response.body).not.toContain('Something went wrong')
-    expect(response.body).not.toContain('could not answer that')
-  })
-
-  /** They land back on the queue they came from, with it still readable. */
-  it('brings them back to the queue rather than to a dead end', async () => {
-    const taskId = await aQuestInReview()
-
-    const response = await postAsBrowser(`/review/${taskId}/publish`)
-
-    expect(response.body).toContain('Review queue')
-    expect(response.body).toContain('A steward publishes or refuses, and never edits')
-  })
-
-  it('does the same for a refusal that is declined', async () => {
-    const taskId = await aQuestInReview()
-
-    const response = await postAsBrowser(`/review/${taskId}/refuse`)
-
-    expect(response.statusCode).toBeGreaterThanOrEqual(400)
-    expect(response.body).not.toContain('Error id:')
-    expect(response.body).toContain('Review queue')
-  })
-
-  /**
-   * The refusal a steward gets for its **own** quest — D-052, and a different
-   * reason reaching the same page, so this is not one message hard-coded.
-   */
-  it('carries a different reason for a different refusal', async () => {
-    quests.credit(stewardId as never, 1000)
-    const created = await quests.create({
-      authorId: stewardId as never,
-      draft: {
-        title: 'My own quest',
-        description: 'Written by the steward reading this.',
-        instructions: 'Do it.',
-        reward: { reputation: 5, lamports: 1 },
-        slots: 10,
-        expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
-        questions: [{ key: 'how', prompt: 'How?' }],
-      },
-    })
-    await quests.submit({
-      authorId: stewardId as never,
-      taskId: created.task.id,
-      at: new Date().toISOString() as never,
-    })
-
-    const response = await postAsBrowser(`/review/${created.task.id}/publish`)
-
-    expect(response.statusCode).toBeGreaterThanOrEqual(400)
-    expect(response.body).toContain('That did not go through')
-    expect(response.body).not.toContain('Error id:')
-  })
-
-  /**
-   * **The JSON representation is unchanged** — it was already right, and this
-   * issue is about the other branch of the same `if`.
-   */
-  it('leaves the JSON representation exactly as it was', async () => {
-    const taskId = await aQuestInReview()
-
-    const response = await postAsAgent(`/review/${taskId}/publish`)
-
-    expect(response.statusCode).toBeGreaterThanOrEqual(400)
-    const body = response.json() as { code?: string; message?: string }
-    expect(body.code).toEqual(expect.any(String))
-    expect(body.message).toContain('has not cleared moderation')
-  })
-
-  /**
-   * **The status stays the rejection's own.** A refusal answered `200` is a
-   * refusal nothing downstream can tell from a success — and re-rendering the
-   * queue is exactly the shape that would tempt somebody to make it one.
-   */
-  it('answers the rejection’s status and not 200', async () => {
-    const taskId = await aQuestInReview()
-
-    const asHtml = await postAsBrowser(`/review/${taskId}/publish`)
-    const asJson = await postAsAgent(`/review/${taskId}/publish`)
-
-    expect(asHtml.statusCode).toBe(asJson.statusCode)
-    expect(asHtml.statusCode).not.toBe(200)
   })
 })

@@ -250,12 +250,11 @@ describe('the sponsor over MCP', () => {
   it('refuses to change publication once the quest is published', async () => {
     const sponsor = anAgent()
     quests.credit(sponsor.id, 100)
-    const steward = anAgent(['steward'])
 
     const written = await call(sponsor.key, 'kolonie.quests.write', aDraft())
     const id = (structured(written).quest as unknown as { id: TaskId }).id
     await call(sponsor.key, 'kolonie.quests.submit', { questId: id })
-    await call(steward.key, 'kolonie.quests.publish', { questId: id })
+    quests.publish(id)
 
     const changed = await call(sponsor.key, 'kolonie.quests.update', {
       questId: id,
@@ -510,28 +509,10 @@ describe('the steward tier', () => {
   it('refuses a caller without the role even when the tools were registered', async () => {
     const sponsor = anAgent()
 
-    const result = await call(sponsor.key, 'kolonie.quests.review', {}, true)
+    const result = await call(sponsor.key, 'kolonie.quests.audit', {}, true)
 
     expect(result.isError).toBe(true)
     expect(JSON.stringify(result.content)).toContain('forbidden')
-  })
-
-  it('reviews and publishes, and the escrow moves with the publication', async () => {
-    const sponsor = anAgent()
-    const steward = anAgent(['steward'])
-    quests.credit(sponsor.id, 100)
-
-    const written = await call(sponsor.key, 'kolonie.quests.write', aDraft())
-    const id = (structured(written).quest as unknown as { id: TaskId }).id
-    await call(sponsor.key, 'kolonie.quests.submit', { questId: id })
-    quests.moderate(id)
-
-    const queue = await call(steward.key, 'kolonie.quests.review', {}, true)
-    expect(structured(queue).quests).toHaveLength(1)
-
-    const published = await call(steward.key, 'kolonie.quests.publish', { questId: id }, true)
-    expect(published.isError).toBeFalsy()
-    expect(structured(published)).toMatchObject({ escrowed: 5 })
   })
 
   it('ends a live quest with a reason citizens can read', async () => {
@@ -542,8 +523,7 @@ describe('the steward tier', () => {
     const written = await call(sponsor.key, 'kolonie.quests.write', aDraft())
     const id = (structured(written).quest as unknown as { id: TaskId }).id
     await call(sponsor.key, 'kolonie.quests.submit', { questId: id })
-    quests.moderate(id)
-    await call(steward.key, 'kolonie.quests.publish', { questId: id }, true)
+    quests.publish(id)
 
     const reason = 'The automatic publication was mistaken and the quest must stop.'
     const ended = await call(steward.key, 'kolonie.quests.end', { questId: id, reason }, true)
@@ -588,88 +568,13 @@ describe('the steward tier', () => {
   })
 
   /**
-   * The net underneath `#352` (`#353`): a sponsor may still describe browser
-   * work and publish it open to everyone, and the citizen that takes it
-   * discovers the prerequisite mid-attempt.
+   * **`#353`'s flag has no surface here any more** (`#723`). It named quests
+   * asking for a browser, an address, a wallet or a domain while requiring no
+   * skill, and it was shown beside the review queue — which is gone, because a
+   * quest that clears moderation is published by that verdict (`#693`).
+   * `capabilityMismatches` is untouched in `packages/core` and still has its own
+   * tests; what it lost is a reader. `kolonie-platform#694` is where a
+   * judgement about a quest's answerability belongs now, and this comment is
+   * here so the flag is picked up again rather than quietly forgotten.
    */
-  it('flags a quest that asks for a capability while requiring no skill', async () => {
-    const sponsor = anAgent()
-    const steward = anAgent(['steward'])
-    quests.credit(sponsor.id, 100)
-
-    const written = await call(
-      sponsor.key,
-      'kolonie.quests.write',
-      aDraft({
-        title: 'Registering by hand',
-        description: 'Open the sign-up page in a browser and complete it.',
-      }),
-    )
-    const id = (structured(written).quest as unknown as { id: TaskId }).id
-    await call(sponsor.key, 'kolonie.quests.submit', { questId: id })
-    quests.moderate(id)
-
-    const queue = await call(steward.key, 'kolonie.quests.review', {}, true)
-    const flagged = structured(queue).flagged as unknown as readonly {
-      questId: TaskId
-      flags: readonly { term: string; skill: string }[]
-    }[]
-
-    expect(flagged).toHaveLength(1)
-    expect(flagged[0]?.questId).toBe(id)
-    expect(flagged[0]?.flags).toContainEqual({ term: 'browser', skill: 'browser' })
-    // The term is in the text a steward reads, not only in the structure.
-    expect(JSON.stringify(queue.content)).toContain('browser')
-
-    /**
-     * **A flag, not a gate.** Publication is untouched, which is the half of
-     * this feature that would be easiest to get wrong.
-     */
-    const published = await call(steward.key, 'kolonie.quests.publish', { questId: id }, true)
-    expect(published.isError).toBeFalsy()
-  })
-
-  it('does not flag a quest that requires the skill its text asks for', async () => {
-    const sponsor = anAgent()
-    const steward = anAgent(['steward'])
-    quests.credit(sponsor.id, 100)
-
-    const written = await call(
-      sponsor.key,
-      'kolonie.quests.write',
-      aDraft({
-        description: 'Open the sign-up page in a browser and complete it.',
-        requires: ['browser'],
-      }),
-    )
-    const id = (structured(written).quest as unknown as { id: TaskId }).id
-    await call(sponsor.key, 'kolonie.quests.submit', { questId: id })
-    quests.moderate(id)
-
-    const queue = await call(steward.key, 'kolonie.quests.review', {}, true)
-
-    expect(structured(queue).flagged).toEqual([])
-  })
-
-  it('refuses a quest with a reason its author reads', async () => {
-    const sponsor = anAgent()
-    const steward = anAgent(['steward'])
-    quests.credit(sponsor.id, 100)
-
-    const written = await call(sponsor.key, 'kolonie.quests.write', aDraft())
-    const id = (structured(written).quest as unknown as { id: TaskId }).id
-    await call(sponsor.key, 'kolonie.quests.submit', { questId: id })
-    quests.moderate(id)
-
-    const refused = await call(
-      steward.key,
-      'kolonie.quests.refuse',
-      { questId: id, reason: 'The instructions do not say where to register.' },
-      true,
-    )
-    expect(refused.isError).toBeFalsy()
-
-    const read = await call(sponsor.key, 'kolonie.quests.read', { questId: id })
-    expect(structured(read).rejectionReason).toBe('The instructions do not say where to register.')
-  })
 })

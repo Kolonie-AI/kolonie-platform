@@ -400,9 +400,15 @@ export const AUTHENTICATED_TOOLS = [
  *
  * **A third tier, built the way D-013 builds the first two** — by registering
  * fewer tools rather than by refusing more. Its argument is unchanged one role
- * along: a sponsor shown `kolonie.quests.publish` spends context on a tool whose
+ * along: a sponsor shown `kolonie.quests.audit` spends context on a tool whose
  * only possible answer is a refusal, and a list that names it invites a call
  * that cannot succeed.
+ *
+ * **`kolonie.quests.review`, `.publish` and `.refuse` were here until `#723`.**
+ * A quest that clears moderation is published by that verdict now (`#693`), so
+ * there is no queue for a steward to read and no decision for it to take. What
+ * is left is the job that outlives publication: re-reading verdicts that are
+ * already final, and taking a live quest down with a published reason.
  *
  * **Unlisted is not unreachable, and the handlers know it.** Every tool here
  * re-checks the role when it runs, because the tier decides what is *offered*
@@ -411,9 +417,6 @@ export const AUTHENTICATED_TOOLS = [
  * for.
  */
 export const STEWARD_TOOLS = [
-  'kolonie.quests.review',
-  'kolonie.quests.publish',
-  'kolonie.quests.refuse',
   /** The Colony's escape hatch from a live quest it should no longer offer (`#695`). */
   'kolonie.quests.end',
   'kolonie.quests.audit',

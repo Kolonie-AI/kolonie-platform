@@ -89,7 +89,7 @@ export function createMcpServer(
    *
    * **A third tier, built the way D-013 builds the first two** — by registering
    * fewer tools rather than by refusing more. A sponsor shown
-   * `kolonie.quests.publish` spends context on a tool whose only possible answer
+   * `kolonie.quests.audit` spends context on a tool whose only possible answer
    * is a refusal, which is the same argument that keeps `kolonie.me` out of a
    * stranger's list.
    *

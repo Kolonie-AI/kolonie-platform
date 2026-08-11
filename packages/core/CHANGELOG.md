@@ -1766,6 +1766,8 @@ While the version is `0.x`, **breaking changes bump the minor version**.
   stale. `quest-audit.test.ts` now asserts that no citizen-facing source string
   claims the way out is unbuilt.
 
+- The `quests-awaiting-review` standing hint, and with it the only member of `ROLE_DUTY_HINTS`. It sent a steward to `kolonie.quests.review`, which no longer exists: a quest that clears moderation is published by that verdict (`#693`), so there is no queue and no decision for a steward to take. A hint that names a door which is not there is worse than no hint — the steward opens it, finds nothing, and learns to disbelieve the channel. `ROLE_DUTY_HINTS` and `chooseRoleDuty` stay, empty: what `#646` established is the **separation** — a duty of a role must not compete for the line a citizen gets about itself — and that was measured, cost a quest fourteen minutes in a queue nobody was told about, and is more expensive to rediscover than an empty array. `capabilityMismatches` is untouched and still tested; what it lost is the review queue that read it, and `#694` is where a judgement about a quest's answerability belongs now. (#723)
+
 ### Fixed
 
 - **The runtime aggregates see the path that feeds them**

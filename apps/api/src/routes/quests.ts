@@ -10,10 +10,7 @@ import {
   readQuestResults,
   recordAudit,
   listQuests,
-  publishQuest,
   readQuest,
-  readReviewQueue,
-  refuseQuest,
   submitQuest,
   discardQuestDraft,
   topUpQuest,
@@ -26,18 +23,24 @@ import { stewardFor } from './privileged.js'
 import type { RouteDependencies } from './dependencies.js'
 
 /**
- * The quest write path and the review (`#176`).
+ * The quest write path (`#176`).
  *
  * **Two audiences on one prefix, separated by the guard and not by the path.**
- * `/v1/quests/review` is a steward's; everything else belongs to whoever wrote
- * the quest. Splitting them onto different prefixes would suggest a second
- * surface exists, and there is only one — `stewardFor` is the whole difference.
+ * The audit and the held-report routes are a steward's; everything else belongs
+ * to whoever wrote the quest. Splitting them onto different prefixes would
+ * suggest a second surface exists, and there is only one — `stewardFor` is the
+ * whole difference.
+ *
+ * **Nothing here publishes or refuses a quest any more** (`#723`). A quest that
+ * clears moderation is published by that verdict (`#693`), so
+ * `/v1/quests/review`, `/quests/:questId/publish` and `/quests/:questId/refuse`
+ * are gone with the queue behind them.
  *
  * **There is no route here that edits somebody else's quest text**, and that
- * absence is load-bearing rather than incidental. A steward publishes or
- * refuses; a steward that edited would become the author, and the self-approval
- * ban would have been walked around rather than enforced. `quests.test.ts`
- * asserts the router carries no such route.
+ * absence is load-bearing rather than incidental. A steward that edited would
+ * become the author, and the self-approval ban would have been walked around
+ * rather than enforced. `quests.test.ts` asserts the router carries no such
+ * route.
  */
 export function registerQuestRoutes(v1: FastifyInstance, deps: RouteDependencies): void {
   const { store, quests } = deps
@@ -111,21 +114,6 @@ export function registerQuestRoutes(v1: FastifyInstance, deps: RouteDependencies
     if (caller === null) return reply
 
     return send(reply, await readAudience(request.query, quests))
-  })
-
-  /**
-   * The steward's queue.
-   *
-   * Declared before `/quests/:questId` for readability rather than for
-   * correctness — Fastify's radix router prefers a static segment over a
-   * parametric one regardless of registration order — and there is a test
-   * asserting a steward reaches this rather than the read-one route.
-   */
-  v1.get('/quests/review', async (request, reply) => {
-    const steward = await stewardFor(request, reply, store)
-    if (steward === null) return reply
-
-    return send(reply, await readReviewQueue(quests))
   })
 
   /** One of the caller's own quests. */
@@ -244,15 +232,6 @@ export function registerQuestRoutes(v1: FastifyInstance, deps: RouteDependencies
     )
   })
 
-  /** Publish it, which is also when its money moves. */
-  v1.post('/quests/:questId/publish', async (request, reply) => {
-    const steward = await stewardFor(request, reply, store)
-    if (steward === null) return reply
-
-    const { questId } = request.params as { questId?: string }
-    return send(reply, await publishQuest({ stewardId: steward.id, questId, at: now() }, quests))
-  })
-
   /**
    * What the quest has bought so far (`#178`).
    *
@@ -330,20 +309,6 @@ export function registerQuestRoutes(v1: FastifyInstance, deps: RouteDependencies
       reply,
       await recordAudit({ stewardId: steward.id, submissionId, body: request.body }, quests),
     )
-  })
-
-  /** Refuse it, with a reason its author reads. */
-  v1.post('/quests/:questId/refuse', async (request, reply) => {
-    const steward = await stewardFor(request, reply, store)
-    if (steward === null) return reply
-
-    const { questId } = request.params as { questId?: string }
-    const result = await refuseQuest(
-      { stewardId: steward.id, questId, body: request.body, at: now() },
-      quests,
-    )
-
-    return send(reply, result)
   })
 }
 

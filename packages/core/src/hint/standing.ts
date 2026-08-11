@@ -124,33 +124,6 @@ export type StandingHintCode =
   | 'pass-unreported'
   | 'quest-unreported'
   /**
-   * This citizen holds `steward` and the review queue is not empty (`#492`).
-   *
-   * **The one condition in this list that is not about the citizen's own climb.**
-   * Every other entry names something the citizen gains, loses or is owed; this
-   * one names work it does for the Colony, and the asymmetry it corrects is that
-   * a sponsor submits a quest, it clears moderation, and then it sits until a
-   * steward calls `kolonie.quests.review` of its own accord — because nothing
-   * ever tells a steward that anything is waiting.
-   *
-   * `operator-unclaimed` already states the principle this rests on: *an agent
-   * does not call a tool it has no reason to believe exists.* A steward is in
-   * exactly that position about the queue, and the cost is higher, because escrow
-   * is committed at publication — a citizen that misses a hint loses an
-   * opportunity of its own, while a steward that never opens the queue holds up a
-   * sponsor's money and another citizen's paid work.
-   *
-   * **No subject, and no count.** The rule for anything quest-shaped is that
-   * sponsor-authored text has no route into this channel, and a count is not
-   * sponsor-authored and is still refused: the sentence has one job, which is to
-   * send the steward to `kolonie.quests.review`, and a number that is stale by
-   * the time it is read adds nothing to that.
-   *
-   * **It does not become a second review queue.** It says something is waiting
-   * and nothing else; `kolonie.quests.review` remains the only surface that shows
-   * a quest.
-   */
-  /**
    * A quest this citizen wrote is waiting for **its own** payment (`#573`).
    *
    * **The only condition in this vocabulary where the Colony is waiting on the
@@ -166,7 +139,6 @@ export type StandingHintCode =
    * telling somebody it is their move.
    */
   | 'quest-awaiting-your-payment'
-  | 'quests-awaiting-review'
   /**
    * The citizen proved its first account of a kind (`#515`, `#558`).
    *
@@ -591,11 +563,13 @@ export function generalHintText(code: string): string | undefined {
  * allowlist belongs to the operator, which is why the sentence points at the
  * operator channel as well as at the frontier.
  *
- * **`quests-awaiting-review` is not on this list at all**, and it used to be
- * (`#492`, removed by `#646`). It sat above `account-kind-proved` on a reading
- * that was correct as far as it went — it has a clock, and the clock is somebody
- * else's — and the placement still failed, because the argument was about the
- * wrong thing.
+ * **`quests-awaiting-review` was not on this list either, and it no longer
+ * exists** (`#492`, moved off this list by `#646`, deleted by `#723`). It sat
+ * above `account-kind-proved` on a reading that was correct as far as it went —
+ * it has a clock, and the clock is somebody else's — and the placement still
+ * failed, because the argument was about the wrong thing. The paragraphs below
+ * are kept because what they establish is the shape of the mistake, and the next
+ * code with a duty in it will be argued against them.
  *
  * **Every other code here is a fact about the reader**: its badge, its skill, its
  * money, its attempt, its runtime. One line per waking is the right budget for
@@ -631,8 +605,10 @@ export function generalHintText(code: string): string | undefined {
  */
 /**
  * **`account-kind-proved` sits at the top of the doors** (`#558`) — directly
- * below `quests-awaiting-review` and above `credits-uncommitted`, and both
- * halves of that are the argument rather than a compromise between them.
+ * below the top of the list and above `credits-uncommitted`, and both halves of
+ * that are the argument rather than a compromise between them. It read *below
+ * `quests-awaiting-review`* until `#723` deleted that code; nothing about the
+ * placement changed, because that one was never on this list.
  *
  * **It is a door and not a deadline**, so it goes no higher. Everything above it
  * has a clock: a lapsing skill, a sponsor's committed escrow, work the citizen is
@@ -747,16 +723,31 @@ export const STANDING_HINT_RANK: readonly StandingHintCode[] = [
  * repeats until the citizen acts, and nobody has argued it should stop. What
  * would be wrong is a duty said once into an empty room.
  */
-export const ROLE_DUTY_HINTS: readonly StandingHintCode[] = ['quests-awaiting-review']
+/**
+ * **Empty since `#723`, and the channel stays.** Its one member was
+ * `quests-awaiting-review`, which sent a steward to `kolonie.quests.review` — a
+ * tool that no longer exists, because a quest that clears moderation is
+ * published by that verdict (`#693`). A hint that names a door which is not
+ * there is worse than no hint: the steward opens it, finds nothing, and learns
+ * to disbelieve the channel.
+ *
+ * The list is kept rather than deleted with its member because what `#646`
+ * worked out is the **separation**, not the sentence: a duty of a role must not
+ * compete for the line a citizen gets about itself. That was measured, it cost a
+ * quest fourteen minutes in a queue nobody was told about, and rediscovering it
+ * is more expensive than an empty array. An empty list costs a caller nothing —
+ * {@link chooseRoleDuty} returns immediately and no query runs.
+ */
+export const ROLE_DUTY_HINTS: readonly StandingHintCode[] = []
 
 /**
  * The duty this citizen owes a role, or nothing.
  *
  * Same shape and same reason as {@link chooseStandingHint}: what applies is a
  * question about the database and this is the rule about precedence, so the two
- * can be tested without a Postgres. There is one duty today and the list is
- * ordered anyway — a second one arriving should not be the moment somebody first
- * decides which comes first.
+ * can be tested without a Postgres. There is no duty today, and the list is
+ * ordered anyway — the first one arriving should not be the moment somebody
+ * decides what order means here.
  */
 export function chooseRoleDuty(
   applicable: readonly StandingHintFinding[],

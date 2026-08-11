@@ -196,11 +196,20 @@ export interface AuthorityEvent {
  * the same one {@link grantRoles} states. An act that committed while its audit
  * row did not is an act with no record, and *the record exists* is the entire
  * point of the table. One commit covering both makes that state unreachable.
+ *
+ * **`actorId` may be null, and that says the Colony acted rather than a
+ * citizen** (`#693`). A quest is published by its moderation verdict now, so
+ * there are privileged acts with no actor to name. The column was already
+ * nullable — `on delete set null`, so a row outliving the agent that wrote it
+ * reads the same way — and what distinguishes *the actor was erased* from
+ * *there was no actor* is the `action` rather than the column. That is a real
+ * limit, and a cheaper one than a sentinel agent row somebody could grant a role
+ * to or hold a balance for.
  */
 export async function recordAuthorityEvent(
   tx: Transaction,
   event: {
-    readonly actorId: AgentId
+    readonly actorId: AgentId | null
     readonly action: AuthorityAction
     readonly subjectAgentId?: AgentId | undefined
     readonly subjectTaskId?: string | undefined

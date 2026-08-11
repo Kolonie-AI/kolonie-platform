@@ -1926,33 +1926,17 @@ export async function readOwnAnswer(
   return { outcome: 'ok', response: answer }
 }
 
-/** The variable that switches the audit on. Off unless it says `true`. */
-export const QUEST_AUDIT_VAR = 'QUEST_AUDIT_ENABLED'
-export const QUEST_AUDIT_RATE_VAR = 'QUEST_AUDIT_RATE'
-
 /**
- * The audit policy this process runs under (`#221`).
+ * The audit policy and the two variables behind it, re-exported (`#693`).
  *
- * **Off unless the variable says otherwise, and the default is the safe one on
- * purpose** — a deployment that has not thought about the audit refuses to
- * publish paid quests rather than publishing them unguarded. The same shape of
- * default `tasks.kind` has: a writer that says nothing gets the kind that cannot
- * mint.
- *
- * A rate that does not parse is the default rate rather than an error. The
- * failure it would otherwise cause is the API refusing to start over a typo in
- * a number that has a sensible value, and the switch above is the part that
- * matters.
+ * **They live in `packages/core` now**, because the API is no longer the only
+ * process that publishes a quest — the moderation runner does, and the brake is
+ * a property of publishing rather than of serving HTTP. Re-exported here rather
+ * than moved outright so that every caller reading them off this module keeps
+ * working; the definition is in `task/quest-audit.ts` beside the policy it
+ * builds.
  */
-export function questAuditPolicy(env: NodeJS.ProcessEnv = process.env): QuestAuditPolicy {
-  const rate = Number.parseFloat(env[QUEST_AUDIT_RATE_VAR] ?? '')
-
-  return {
-    ...QUEST_AUDIT_OFF,
-    enabled: env[QUEST_AUDIT_VAR] === 'true',
-    ...(Number.isFinite(rate) && rate > 0 && rate <= 1 && { rate }),
-  }
-}
+export { QUEST_AUDIT_VAR, QUEST_AUDIT_RATE_VAR, questAuditPolicy } from '@kolonie-ai/core'
 
 /** A quest that just gained capacity, and what the sponsor owes for it (`#629`). */
 export interface QuestToppedUpResponse {

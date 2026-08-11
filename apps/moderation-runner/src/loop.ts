@@ -566,16 +566,19 @@ async function moderateQuests(deps: LoopDependencies, batchSize: number, log: Lo
 
   try {
     const outcome = await questTick({ log, ...quests }, batchSize)
-    if (outcome.judged > 0) {
+    if (outcome.judged > 0 || outcome.released > 0) {
       log.info(
         `quests: ${outcome.judged} judged, ${outcome.approved} cleared, ` +
-          `${outcome.rejected} refused, ${outcome.failed} deferred`,
+          `${outcome.published} published, ${outcome.rejected} refused, ` +
+          `${outcome.failed} deferred, ${outcome.released} released late`,
         {
           event: 'quests.pass.done',
           judged: outcome.judged,
           approved: outcome.approved,
+          published: outcome.published,
           rejected: outcome.rejected,
           failed: outcome.failed,
+          released: outcome.released,
         },
       )
     }

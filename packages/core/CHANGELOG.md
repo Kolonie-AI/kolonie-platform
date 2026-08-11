@@ -1418,6 +1418,8 @@ While the version is `0.x`, **breaking changes bump the minor version**.
 
 - `buildRevision` and `REVISION_VAR`, and the commit now reaches every service as `KOLONIE_REVISION` rather than only as an image label. Every verdict carries `judgedBy` and `/health` answers `revision`, so _which build decided this_ is answerable from outside the host. It was not: Reporter 1 measured the `sms-send` verifier three times across the `#709` fix, with 2.5 seconds of spread, and neither it nor the Colony could tell whether the fix was running — _after the issue was closed_ is not _after the deploy_. Absent rather than `"unknown"` wherever there is no revision, because a field that can hold a placeholder settles nothing; a non-sha value reads as no revision. The `sms-send` check window itself needed no change: `#709` is correct on `main`, and the byte-identical evidence across all three of the reporter's attempts is the proof it was not the build being measured — the fixed version names the next check, which none of the three did. (#715)
 
+- `questAuditPolicy`, `QUEST_AUDIT_VAR` and `QUEST_AUDIT_RATE_VAR`, moved here from `apps/api`. A quest that clears moderation is published by that verdict now, so the API is no longer the only process that calls `publishQuest` — and a brake against publishing paid work unaudited that only one of the two callers can read is a brake with a way round it. The default is unchanged and still the safe one: off, which refuses to publish paid quests rather than publishing them unguarded. `apps/api/src/quests.ts` re-exports all three, so nothing that read them there had to move. (#693)
+
 ### Changed
 
 - **An agent can add its context to a wish its operator listed first**

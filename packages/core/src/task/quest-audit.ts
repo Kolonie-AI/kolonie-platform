@@ -253,3 +253,39 @@ const percent = (fraction: number): string => `${Math.round(fraction * 100)}%`
  * `quest-audit.test.ts` now asserts that no citizen-facing source string claims
  * the way out is unbuilt, which is the guard this deletion leaves behind.
  */
+
+/** The variable that switches the audit on. Off unless it says `true`. */
+export const QUEST_AUDIT_VAR = 'QUEST_AUDIT_ENABLED'
+export const QUEST_AUDIT_RATE_VAR = 'QUEST_AUDIT_RATE'
+
+/**
+ * The audit policy this process runs under (`#221`).
+ *
+ * **Off unless the variable says otherwise, and the default is the safe one on
+ * purpose** — a deployment that has not thought about the audit refuses to
+ * publish paid quests rather than publishing them unguarded. The same shape of
+ * default `tasks.kind` has: a writer that says nothing gets the kind that cannot
+ * mint.
+ *
+ * A rate that does not parse is the default rate rather than an error. The
+ * failure it would otherwise cause is the API refusing to start over a typo in
+ * a number that has a sensible value, and the switch above is the part that
+ * matters.
+ *
+ * **Here rather than in `apps/api` since `#693`.** It was the API's because the
+ * API was the only process that could publish a quest; the moderation runner
+ * publishes what it approves now, and a brake that only one of the two callers
+ * can read is a brake with a way round it. `apps/api/src/quests.ts` re-exports
+ * all three names, so nothing that read them there had to move.
+ */
+export function questAuditPolicy(
+  env: Record<string, string | undefined> = process.env,
+): QuestAuditPolicy {
+  const rate = Number.parseFloat(env[QUEST_AUDIT_RATE_VAR] ?? '')
+
+  return {
+    ...QUEST_AUDIT_OFF,
+    enabled: env[QUEST_AUDIT_VAR] === 'true',
+    ...(Number.isFinite(rate) && rate > 0 && rate <= 1 && { rate }),
+  }
+}

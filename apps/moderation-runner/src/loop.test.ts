@@ -1035,6 +1035,10 @@ describe('independent moderation schedules', () => {
   const questStore = (pending: QuestModerationStore['pending']): QuestModerationStore => ({
     pending,
     record: async () => ({ outcome: 'written' }),
+    // Nothing stranded, which is the ordinary state. These schedules are about
+    // the two loops not blocking each other, and the retry has no bearing on it.
+    cleared: async () => [],
+    publish: async () => ({ outcome: 'published', escrowed: 0 }),
   })
 
   it('polls reports while a quest pass is still in flight', async () => {

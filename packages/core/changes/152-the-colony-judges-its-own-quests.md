@@ -1,0 +1,3 @@
+<!-- section: Added -->
+
+- `questAuditPolicy`, `QUEST_AUDIT_VAR` and `QUEST_AUDIT_RATE_VAR`, moved here from `apps/api`. A quest that clears moderation is published by that verdict now, so the API is no longer the only process that calls `publishQuest` — and a brake against publishing paid work unaudited that only one of the two callers can read is a brake with a way round it. The default is unchanged and still the safe one: off, which refuses to publish paid quests rather than publishing them unguarded. `apps/api/src/quests.ts` re-exports all three, so nothing that read them there had to move. (#693)

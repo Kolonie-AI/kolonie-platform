@@ -9,6 +9,7 @@ import {
   QUEST_OBSTACLE_BONUS_DEFAULT_PERCENT,
   questInvoiceLamports,
   questNeedsInvoice,
+  now,
   QUEST_REVIEW_REWARD_LAMPORTS,
   type AgentId,
   type ModerationStages,
@@ -119,7 +120,20 @@ export async function questReviewQueue(db: Database): Promise<readonly Task[]> {
 export async function publishQuest(
   db: Database,
   command: {
-    readonly stewardId: AgentId
+    /**
+     * Who decided, and **absent means the Colony did** (`#693`).
+     *
+     * A quest that clears moderation is published by that verdict, so the
+     * ordinary caller is the moderation runner and it has no identity to name.
+     * Optional rather than a sentinel agent id: a row in `agents` standing for
+     * *the Colony* would be an identity somebody could grant a role to, hold a
+     * balance for, or erase.
+     *
+     * What its absence changes is written at each of the three places it
+     * changes something — the self-approval check, the audit row's actor, and
+     * the review payout — and nothing else on this path moves.
+     */
+    readonly stewardId?: AgentId
     readonly taskId: TaskId
     readonly at: Timestamp
     /**
@@ -170,8 +184,18 @@ export async function publishQuest(
      * The self-approval ban, applied at the write rather than only at the route
      * (`#173`). `mayActOnQuest` in the API is the same rule for a caller that
      * already holds both sides in memory; this is the one no route can skip.
+     *
+     * **Skipped when the Colony is the one deciding** (`#693`). The ban exists
+     * so a citizen cannot wave its own quest through; the Colony is not a
+     * competitor for its own quests and there is nothing here for it to be
+     * partial about. Written as an explicit `undefined` guard rather than left
+     * to the comparison, because `row.createdBy` is nullable and a quest whose
+     * author has been erased would otherwise match an absent steward and be
+     * refused as its own.
      */
-    if (row.createdBy === command.stewardId) return { outcome: 'own-quest' }
+    if (command.stewardId !== undefined && row.createdBy === command.stewardId) {
+      return { outcome: 'own-quest' }
+    }
 
     /**
      * **Twenty agents cannot walk steps that are not there** (`#602`).
@@ -287,7 +311,11 @@ export async function publishQuest(
         .where(eq(tasks.id, command.taskId))
 
       await recordAuthorityEvent(tx, {
-        actorId: command.stewardId,
+        // Null, and the row is still written (`#693`). `quest-published` with no
+        // actor is the Colony's own act, which `authority_events.actor_id`
+        // already models — it is nullable so an erased steward's acts survive
+        // them, and *decided by nobody in particular* is the same shape.
+        actorId: command.stewardId ?? null,
         action: 'quest-published',
         subjectTaskId: command.taskId,
         ...(sponsorId !== null && { subjectAgentId: sponsorId }),
@@ -296,11 +324,17 @@ export async function publishQuest(
       // The steward is owed for deciding, published or refused, and a quest
       // waiting for money has been decided (D-105). Making this wait for the
       // sponsor would put a steward's pay in the hands of a third party.
-      await oweForReview(tx, {
-        stewardId: command.stewardId,
-        taskId: command.taskId,
-        lamports: command.reviewRewardLamports ?? QUEST_REVIEW_REWARD_LAMPORTS,
-      })
+      //
+      // **Nobody is owed when the Colony decided** (`#693`). The payout is
+      // removed wholesale in `#724`; this guard is here so the two can land in
+      // either order without the Colony paying itself to review its own quests.
+      if (command.stewardId !== undefined) {
+        await oweForReview(tx, {
+          stewardId: command.stewardId,
+          taskId: command.taskId,
+          lamports: command.reviewRewardLamports ?? QUEST_REVIEW_REWARD_LAMPORTS,
+        })
+      }
 
       return { outcome: 'awaiting-payment', invoiceLamports }
     }
@@ -350,7 +384,8 @@ export async function publishQuest(
       .where(eq(tasks.id, command.taskId))
 
     await recordAuthorityEvent(tx, {
-      actorId: command.stewardId,
+      // Null where the Colony decided, on the invoice path's terms (`#693`).
+      actorId: command.stewardId ?? null,
       action: 'quest-published',
       subjectTaskId: command.taskId,
       ...(sponsorId !== null && { subjectAgentId: sponsorId }),
@@ -359,11 +394,15 @@ export async function publishQuest(
     // The steward's pay, in this transaction (`D-105`, `#499`). Identical to the
     // call in `refuseQuest`, deliberately: the amount carries no opinion about
     // the verdict, so there is nothing here for a verdict to change.
-    await oweForReview(tx, {
-      stewardId: command.stewardId,
-      taskId: command.taskId,
-      lamports: command.reviewRewardLamports ?? QUEST_REVIEW_REWARD_LAMPORTS,
-    })
+    //
+    // Skipped where nobody decided, on the invoice path's terms (`#693`).
+    if (command.stewardId !== undefined) {
+      await oweForReview(tx, {
+        stewardId: command.stewardId,
+        taskId: command.taskId,
+        lamports: command.reviewRewardLamports ?? QUEST_REVIEW_REWARD_LAMPORTS,
+      })
+    }
 
     return { outcome: 'published', escrowed: 0 }
   })
@@ -379,16 +418,47 @@ export async function publishQuest(
  */
 export async function refuseQuest(
   db: Database,
-  command: {
-    readonly stewardId: AgentId
-    readonly taskId: TaskId
-    readonly reason: string
-    readonly at: Timestamp
-    /** What this decision pays, on `publishQuest`'s terms (`#651`). */
-    readonly reviewRewardLamports?: number
-  },
+  command: RefuseQuestCommand,
 ): Promise<QuestRefuseOutcome> {
-  return await db.transaction(async (tx) => {
+  return await db.transaction(async (tx) => await refuseQuestIn(tx, command))
+}
+
+/** What a refusal is told, whoever opened the transaction it runs in. */
+interface RefuseQuestCommand {
+  /** Who refused, and absent means the Colony did — see {@link publishQuest} (`#693`). */
+  readonly stewardId?: AgentId
+  readonly taskId: TaskId
+  /**
+   * What the sponsor is told, and it has to be something it can act on.
+   *
+   * The draft is correctable and resubmittable — `refusalCount` below is what
+   * limits how often — so a refusal that names nothing to correct turns a gate
+   * into a wall. What a refusal may and may not name is
+   * `kolonie-platform#694`'s subject and belongs to whoever composes the
+   * sentence; this function stores it.
+   */
+  readonly reason: string
+  readonly at: Timestamp
+  /** What this decision pays, on `publishQuest`'s terms (`#651`). */
+  readonly reviewRewardLamports?: number
+}
+
+/**
+ * The refusal itself, inside a transaction somebody else opened (`#693`).
+ *
+ * **Extracted so that a refusal is one implementation rather than two.**
+ * {@link recordQuestModeration} rejects the quest in the same transaction as the
+ * verdict that rejected it — which is the property that stops a refusal existing
+ * as a moderation row nothing acted on — and before this it did so with its own
+ * `update`, which meant the audit row and the refusal counter were written on
+ * one path and not the other. A caller with a transaction in hand calls this;
+ * {@link refuseQuest} is the same thing for a caller without one.
+ */
+async function refuseQuestIn(
+  tx: Transaction,
+  command: RefuseQuestCommand,
+): Promise<QuestRefuseOutcome> {
+  {
     const [row] = await tx
       .select()
       .from(tasks)
@@ -397,7 +467,10 @@ export async function refuseQuest(
 
     if (row === undefined) return { outcome: 'unknown-quest' }
     if (row.status !== 'pending_review') return { outcome: 'not-in-review', status: row.status }
-    if (row.createdBy === command.stewardId) return { outcome: 'own-quest' }
+    // Skipped where the Colony is refusing, on {@link publishQuest}'s terms (`#693`).
+    if (command.stewardId !== undefined && row.createdBy === command.stewardId) {
+      return { outcome: 'own-quest' }
+    }
 
     await tx
       .update(tasks)
@@ -410,7 +483,8 @@ export async function refuseQuest(
       .where(eq(tasks.id, command.taskId))
 
     await recordAuthorityEvent(tx, {
-      actorId: command.stewardId,
+      // Null where the Colony refused, on {@link publishQuest}'s terms (`#693`).
+      actorId: command.stewardId ?? null,
       action: 'quest-refused',
       subjectTaskId: command.taskId,
       ...(row.createdBy !== null && { subjectAgentId: row.createdBy as AgentId }),
@@ -419,14 +493,50 @@ export async function refuseQuest(
     // The same call and the same amount as `publishQuest` (`D-105`, `#499`).
     // **Refusing is the decision the Colony most needs done well**, and a model
     // that paid only for publishing would price the careful no at zero.
-    await oweForReview(tx, {
-      stewardId: command.stewardId,
-      taskId: command.taskId,
-      lamports: command.reviewRewardLamports ?? QUEST_REVIEW_REWARD_LAMPORTS,
-    })
+    //
+    // Skipped where nobody decided, on `publishQuest`'s terms (`#693`).
+    if (command.stewardId !== undefined) {
+      await oweForReview(tx, {
+        stewardId: command.stewardId,
+        taskId: command.taskId,
+        lamports: command.reviewRewardLamports ?? QUEST_REVIEW_REWARD_LAMPORTS,
+      })
+    }
 
     return { outcome: 'refused' }
-  })
+  }
+}
+
+/**
+ * Quests an approved verdict has cleared and that are still sitting unpublished.
+ *
+ * **The retry, and the reason the runner does not lose a quest between the two
+ * writes** (`#693`). A verdict is recorded in one transaction and the quest is
+ * published in another, so a process that dies in between — or a publication
+ * that throws — leaves a quest with an approved row still in `pending_review`.
+ * {@link pendingQuestModerations} deliberately does not return it, because it
+ * *has* been judged and re-judging it would buy a second model call and a second
+ * chance to answer differently.
+ *
+ * So it is returned here instead, and publishing it needs no model at all. The
+ * ordinary case is that this is empty: a quest reaches it only when a
+ * publication did not happen, which is the failure `#693` requires to be
+ * survivable rather than merely rare.
+ *
+ * Oldest first, for {@link pendingQuestModerations}' reason.
+ */
+export async function questsClearedForPublication(
+  db: Database,
+  limit: number,
+): Promise<readonly TaskId[]> {
+  const rows = await db
+    .select({ id: tasks.id })
+    .from(tasks)
+    .where(and(eq(tasks.kind, 'quest'), eq(tasks.status, 'pending_review'), moderationCleared()))
+    .orderBy(asc(tasks.updatedAt))
+    .limit(limit)
+
+  return rows.map((row) => row.id as TaskId)
 }
 
 /**
@@ -493,6 +603,8 @@ export async function recordQuestModeration(
     readonly stages: ModerationStages
     /** The text the moderator judged, as it read it. */
     readonly judged: Pick<PendingQuest, 'title' | 'description' | 'instructions'>
+    /** When the refusal happened, where it is one. Defaults to now. */
+    readonly at?: Timestamp
   },
 ): Promise<{ readonly outcome: 'written' | 'stale' }> {
   return await db.transaction(async (tx) => {
@@ -517,20 +629,26 @@ export async function recordQuestModeration(
     })
 
     if (input.decision === 'rejected') {
-      await tx
-        .update(tasks)
-        .set({
-          status: 'rejected',
-          // The constraint requires a reason on a rejected row, and a refusal
-          // the author cannot read is the failure it exists to prevent. The
-          // fallback is never expected to be used and is not an excuse for a
-          // caller that supplies nothing.
-          rejectionReason:
-            input.reason ??
-            'This quest crosses one of the Colony’s red lines (governance/red-lines.md).',
-          refusalCount: sql`${tasks.refusalCount} + 1`,
-        })
-        .where(eq(tasks.id, input.taskId))
+      /**
+       * The refusal, through the one function that refuses (`#693`).
+       *
+       * Before this it was an `update` of its own, which meant a refusal by the
+       * moderator wrote no `quest-refused` authority row while a steward's did.
+       * With the verdict now being the decision, that gap would be the whole
+       * record of every refusal the Colony makes.
+       *
+       * **No `stewardId`**: nobody refused, the Colony did. And the reason still
+       * falls back, because the column's constraint requires one and a refusal
+       * the author cannot read is the failure that constraint exists to prevent
+       * — it is not an excuse for a caller that supplies nothing.
+       */
+      await refuseQuestIn(tx, {
+        taskId: input.taskId,
+        reason:
+          input.reason ??
+          'This quest crosses one of the Colony’s red lines (governance/red-lines.md).',
+        at: input.at ?? now(),
+      })
     }
 
     return { outcome: 'written' as const }

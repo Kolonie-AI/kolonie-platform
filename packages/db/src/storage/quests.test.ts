@@ -14,6 +14,7 @@ import {
   agents,
   authorityEvents,
   ledgerEntries,
+  payoutObligations,
   questAnswers,
   questModerations,
   submissions,
@@ -48,6 +49,7 @@ import {
   pendingQuestModerations,
   publishQuest,
   questReviewQueue,
+  questsClearedForPublication,
   questTextDigest,
   readOwnQuest,
   recordQuestModeration,
@@ -1043,6 +1045,137 @@ describe('the quest write path', () => {
         outcome: 'not-in-review',
         status: 'draft',
       })
+    })
+  })
+
+  /**
+   * The Colony deciding its own quests (`#693`).
+   *
+   * A caller that names no steward is the moderation runner acting on its own
+   * verdict. What changes is three things and nothing else — the self-approval
+   * check does not apply, the audit row has no actor, and nobody is paid — so
+   * these tests assert those three and that everything the publication path does
+   * besides them is unchanged.
+   */
+  describe('a quest the Colony decides for itself', () => {
+    it('publishes without a steward, and records that nobody in particular did', async () => {
+      const sponsor = await anAgent('sponsor')
+      const { task } = await createQuestDraft(db, { authorId: sponsor, draft: aDraft() })
+      await submitQuestForReview(db, { authorId: sponsor, taskId: task.id, at: now() })
+      await moderate(task.id)
+
+      expect(
+        await publishQuest(db, { taskId: task.id, at: now(), audit: QUEST_AUDIT_OFF }),
+      ).toEqual({ outcome: 'published', escrowed: 0 })
+
+      const [event] = await db
+        .select()
+        .from(authorityEvents)
+        .where(eq(authorityEvents.action, 'quest-published'))
+      // Null rather than a sentinel agent: a row standing for *the Colony* would
+      // be an identity somebody could grant a role to or hold a balance for.
+      expect(event?.actorId).toBeNull()
+      expect(event?.subjectTaskId).toBe(task.id)
+      expect(event?.subjectAgentId).toBe(sponsor)
+    })
+
+    /**
+     * The self-approval ban has nothing to protect against here, and the case
+     * that would break a naive implementation is a quest whose author has been
+     * erased: `created_by` is then null, and null matching an absent steward
+     * would refuse the Colony's own quest as its own.
+     */
+    it('does not read an absent steward as the quest’s author', async () => {
+      const sponsor = await anAgent('sponsor')
+      const { task } = await createQuestDraft(db, { authorId: sponsor, draft: aDraft() })
+      await submitQuestForReview(db, { authorId: sponsor, taskId: task.id, at: now() })
+      await moderate(task.id)
+      await db.update(tasks).set({ createdBy: null }).where(eq(tasks.id, task.id))
+
+      expect(
+        await publishQuest(db, { taskId: task.id, at: now(), audit: QUEST_AUDIT_OFF }),
+      ).toEqual({ outcome: 'published', escrowed: 0 })
+    })
+
+    it('pays nobody for deciding', async () => {
+      const sponsor = await anAgent('sponsor')
+      const { task } = await createQuestDraft(db, { authorId: sponsor, draft: aDraft() })
+      await submitQuestForReview(db, { authorId: sponsor, taskId: task.id, at: now() })
+      await moderate(task.id)
+      await publishQuest(db, { taskId: task.id, at: now(), audit: QUEST_AUDIT_OFF })
+
+      // `#724` removes the payout wholesale. This is here so the two can land in
+      // either order without the Colony paying itself to review its own quests.
+      const owed = await db
+        .select()
+        .from(payoutObligations)
+        .where(eq(payoutObligations.kind, 'review'))
+      expect(owed).toEqual([])
+    })
+
+    it('keeps every other guard on the publication path', async () => {
+      const sponsor = await anAgent('sponsor')
+      const { task } = await createQuestDraft(db, { authorId: sponsor, draft: aDraft() })
+      await submitQuestForReview(db, { authorId: sponsor, taskId: task.id, at: now() })
+
+      // Unmoderated, and an absent steward buys no way past it.
+      expect(
+        await publishQuest(db, { taskId: task.id, at: now(), audit: QUEST_AUDIT_OFF }),
+      ).toEqual({ outcome: 'awaiting-moderation' })
+    })
+
+    it('refuses with a reason the sponsor reads, and no actor on the record', async () => {
+      const sponsor = await anAgent('sponsor')
+      const { task } = await createQuestDraft(db, { authorId: sponsor, draft: aDraft() })
+      await submitQuestForReview(db, { authorId: sponsor, taskId: task.id, at: now() })
+      // The moderator's own rejection, which is the only refusal there is now.
+      await moderate(task.id, 'rejected')
+
+      const own = await readOwnQuest(db, sponsor, task.id)
+      expect(own?.task.status).toBe('rejected')
+      expect(own?.rejectionReason).toContain('defeat a captcha')
+
+      const [event] = await db
+        .select()
+        .from(authorityEvents)
+        .where(eq(authorityEvents.action, 'quest-refused'))
+      // The refusal is written by the same function a steward's refusal went
+      // through, so it carries the audit row a bare `update` never wrote.
+      expect(event?.actorId).toBeNull()
+      expect(event?.subjectTaskId).toBe(task.id)
+
+      const [refused] = await db
+        .select({ refusalCount: tasks.refusalCount })
+        .from(tasks)
+        .where(eq(tasks.id, task.id))
+      expect(refused?.refusalCount).toBe(1)
+    })
+
+    /**
+     * The retry queue (`#693`). A verdict is recorded in one transaction and the
+     * publication happens in another, so this is the state a process that died
+     * in between leaves behind — and it must be findable without a model.
+     */
+    it('offers a cleared quest for publication until it is published', async () => {
+      const sponsor = await anAgent('sponsor')
+      const { task } = await createQuestDraft(db, { authorId: sponsor, draft: aDraft() })
+      await submitQuestForReview(db, { authorId: sponsor, taskId: task.id, at: now() })
+      await moderate(task.id)
+
+      expect(await questsClearedForPublication(db, 10)).toContain(task.id)
+
+      await publishQuest(db, { taskId: task.id, at: now(), audit: QUEST_AUDIT_OFF })
+
+      expect(await questsClearedForPublication(db, 10)).not.toContain(task.id)
+    })
+
+    it('does not offer a quest the moderator refused', async () => {
+      const sponsor = await anAgent('sponsor')
+      const { task } = await createQuestDraft(db, { authorId: sponsor, draft: aDraft() })
+      await submitQuestForReview(db, { authorId: sponsor, taskId: task.id, at: now() })
+      await moderate(task.id, 'rejected')
+
+      expect(await questsClearedForPublication(db, 10)).not.toContain(task.id)
     })
   })
 

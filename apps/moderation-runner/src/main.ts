@@ -17,10 +17,14 @@ import {
   recordQuestReportModeration,
   pendingQuestModerations,
   pendingReports,
+  publishQuest,
+  questObstacleBonusPercentInDatabase,
+  questsClearedForPublication,
   readTaskText,
   recordModeration,
   recordProviderChange,
   recordQuestModeration,
+  settingsReader,
   writeScrubbedAnswers,
   staleBriefings,
   writeBriefing,
@@ -44,6 +48,8 @@ import {
   GATEWAY_API_KEY_VARS,
   gatewayFromEnvironment,
   gatewayRoutedFetch,
+  now,
+  questAuditPolicy,
   type TaskId,
 } from '@kolonie-ai/core'
 import { githubIssues, TRIPWIRE_TOKEN_VAR } from './tripwire.js'
@@ -157,9 +163,38 @@ const store: ModerationStore = {
  * quest queue is a handful of rows a day and one model call each. Its separate
  * timer keeps a sponsor's wait independent of any report already being judged.
  */
+/**
+ * The audit brake and the obstacle share, read here (`#693`).
+ *
+ * **This process publishes quests now, so it carries what publishing needs.**
+ * Both were the API's because the API was the only caller of `publishQuest`;
+ * neither is a decision this runner makes. `questAuditPolicy` reads the
+ * deployment's two variables and defaults to *off*, which refuses to publish
+ * paid work rather than publishing it unguarded — a runner started without
+ * `QUEST_AUDIT_ENABLED` behaves like an API started without it, which is the
+ * property that matters when the two are wired by the same compose file.
+ *
+ * The settings reader is this process's one reader, on the API's terms: two
+ * would be two answers to *what is the obstacle share* for as long as the caches
+ * disagree.
+ */
+const questAudit = questAuditPolicy()
+const settings = settingsReader(db)
+
 const questStore: QuestModerationStore = {
   pending: (limit) => pendingQuestModerations(db, limit),
   record: (input) => recordQuestModeration(db, input),
+  cleared: (limit) => questsClearedForPublication(db, limit),
+  publish: async (taskId) =>
+    await publishQuest(db, {
+      // No steward, and that is the whole of `#693`: the verdict published it.
+      taskId,
+      at: now(),
+      audit: questAudit,
+      // Frozen onto the row at publication and read back at every payout
+      // (`#632`), exactly as the quest desk does it.
+      obstacleBonusPercent: await questObstacleBonusPercentInDatabase(settings),
+    }),
 }
 
 /**

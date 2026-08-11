@@ -68,6 +68,14 @@ interface Standing {
    * `payout_obligations.hinted_at`.
    */
   readonly payoutUntold: boolean
+  /**
+   * Whether a `payout-accruing` finding has rows to mark (`#654`).
+   *
+   * A boolean for the same reason as `payoutUntold` above: what is claimed is
+   * every accruing obligation this citizen has not been told about, because the
+   * sentence names no amount and says *money of yours is waiting* once.
+   */
+  readonly accrualUntold: boolean
 }
 
 /**
@@ -602,6 +610,68 @@ async function untoldPayout(db: Database | Transaction, agentId: AgentId): Promi
 }
 
 /**
+ * Whether this citizen is owed something the chain will not yet carry (`#654`).
+ *
+ * **The refusal the payout runner already recorded**, rather than a second
+ * arithmetic here. `payoutRefusal` decides that an amount is below the
+ * rent-exemption against a live balance and a live minimum, and writes
+ * `accruing-below-chain-minimum` to `last_refusal`; recomputing that from
+ * `amount_lamports` and a constant would be a second opinion about somebody's
+ * money that goes stale the moment the address is funded.
+ *
+ * So the condition is a row that has been **tried and refused for that reason** —
+ * which also means the citizen is never told about an accrual before the Colony
+ * has actually attempted to pay it.
+ *
+ * **Unpaid and unforfeited.** A paid row's refusal is history and is
+ * `payout-sent`'s business; a forfeited one is money that went to the Treasury
+ * under `erasure.md` and is nobody's to wait for.
+ */
+async function untoldAccrual(db: Database | Transaction, agentId: AgentId): Promise<boolean> {
+  const rows = await db
+    .select({ id: payoutObligations.id })
+    .from(payoutObligations)
+    .where(
+      and(
+        eq(payoutObligations.agentId, agentId),
+        isNull(payoutObligations.paidAt),
+        isNull(payoutObligations.forfeitedAt),
+        eq(payoutObligations.lastRefusal, 'accruing-below-chain-minimum'),
+        isNull(payoutObligations.accrualHintedAt),
+      ),
+    )
+    .limit(1)
+
+  return rows.length > 0
+}
+
+/**
+ * Mark that this citizen has been told its money is waiting on the chain
+ * minimum (`#654`).
+ *
+ * Every accruing and untold row, on {@link claimPayoutHint}'s argument: the
+ * sentence names no amount and no quest, so a steward owed three unpayable
+ * rewards has heard it once and correctly.
+ */
+async function claimAccrualHint(db: Database | Transaction, agentId: AgentId): Promise<boolean> {
+  const claimed = await db
+    .update(payoutObligations)
+    .set({ accrualHintedAt: sql`now()` })
+    .where(
+      and(
+        eq(payoutObligations.agentId, agentId),
+        isNull(payoutObligations.paidAt),
+        isNull(payoutObligations.forfeitedAt),
+        eq(payoutObligations.lastRefusal, 'accruing-below-chain-minimum'),
+        isNull(payoutObligations.accrualHintedAt),
+      ),
+    )
+    .returning({ id: payoutObligations.id })
+
+  return claimed.length > 0
+}
+
+/**
  * Mark that this citizen has been told the Colony paid it (`#577`).
  *
  * **Every paid and untold row, not the one that produced the finding.** The
@@ -772,6 +842,7 @@ async function standing(
       ticket: null,
       account: null,
       payoutUntold: false,
+      accrualUntold: false,
     }
   }
 
@@ -803,6 +874,7 @@ async function conditions(
     untoldKind,
     questAwaitingPayment,
     payoutUntold,
+    accrualUntold,
   ] = await Promise.all([
     unpromptedConsideration(db, agentId, cheap.declaredRhythmHours),
     untoldBadge(db, agentId),
@@ -821,6 +893,7 @@ async function conditions(
     untoldAccountKind(db, agentId),
     ownQuestAwaitingPayment(db, agentId),
     untoldPayout(db, agentId),
+    untoldAccrual(db, agentId),
   ])
 
   const general = untoldGeneralHint(cheap.generalHintsTold)
@@ -953,6 +1026,13 @@ async function conditions(
    * a sentence.
    */
   if (payoutUntold) applicable.push({ code: 'payout-sent', subject: null })
+  /**
+   * **No subject** (`#654`), and for once that is not a refusal of a figure. The
+   * one number the sentence carries is the chain's rent-exemption, which is a
+   * constant rather than a fact about this citizen — so it belongs in the text
+   * beside the constant it is read from, not in a finding that travels.
+   */
+  if (accrualUntold) applicable.push({ code: 'payout-accruing', subject: null })
   if (general !== null) applicable.push({ code: 'general', subject: general })
 
   return {
@@ -964,6 +1044,7 @@ async function conditions(
     ticket: seven.ticket?.id ?? null,
     account: untoldKind?.id ?? null,
     payoutUntold,
+    accrualUntold,
   }
 }
 
@@ -1108,6 +1189,11 @@ export async function dueStandingHint(
     if (chosen.code === 'payout-sent') {
       if (!found.payoutUntold) return null
       if (!(await claimPayoutHint(db, agentId))) return null
+    }
+
+    if (chosen.code === 'payout-accruing') {
+      if (!found.accrualUntold) return null
+      if (!(await claimAccrualHint(db, agentId))) return null
     }
 
     return chosen

@@ -233,6 +233,38 @@ export type StandingHintCode =
    */
   | 'payout-sent'
   /**
+   * The Colony owes this citizen money it cannot yet send (`#654`).
+   *
+   * **`payout-sent`'s twin, pointed at the money that has not moved.** `#651`
+   * cut a steward's review reward tenfold, which was right — at the old figure a
+   * decision paid exactly what the quest paid its answerer — and the consequence
+   * is that a new steward's first payout no longer clears Solana's
+   * rent-exemption on its own. `#505`'s accrual already handles that correctly:
+   * `payoutRefusal` answers `accruing-below-chain-minimum`, the obligation waits,
+   * and nothing is lost. **What was missing is that nobody is told.**
+   *
+   * **The difference between a delay and a broken promise**, and only one of them
+   * is true. A steward decides a quest, is owed the reward, sees nothing arrive,
+   * and has no way from the outside to tell *the Colony has not paid me* from
+   * *the Colony cannot pay me yet, and here is the number it is counting to*.
+   *
+   * **It names the figure, where `payout-sent` refuses to.** That entry's rule is
+   * that a figure copied into a hint can be stale about somebody's money — which
+   * is a rule about *this citizen's* amount, and the number here is not that. It
+   * is the chain's rent-exemption: a constant of Solana's, the same for every
+   * citizen, and the one fact that makes the wait legible rather than arbitrary.
+   * The amount owed is still `kolonie.me.earnings`'s to state.
+   *
+   * **Once, and then marked**, on the same argument that lets `payout-sent` rank
+   * with the doors: the condition itself would be true on every waking until the
+   * accrual moved, and a line repeated until a number goes up is the standing
+   * channel's one prohibition. `payout_obligations.accrual_hinted_at` holds it to
+   * one telling — a separate column from `hinted_at` rather than a reuse of it,
+   * because marking an unpaid row as told would suppress `payout-sent` on the
+   * day the money finally goes out.
+   */
+  | 'payout-accruing'
+  /**
    * **`credits-uncommitted` stood here** (`#553`, D-106).
    *
    * It fired on a citizen holding credits that had never committed any, on
@@ -628,6 +660,19 @@ export const STANDING_HINT_RANK: readonly StandingHintCode[] = [
    * already arrived safely. Acting outranks knowing.
    */
   'payout-sent',
+  /**
+   * **Directly under `payout-sent`** (`#654`), which is the only place it could
+   * sit: the two are the same sentence about opposite halves of the same
+   * obligation, and a citizen in both states has been paid something and is owed
+   * something else.
+   *
+   * **Money that arrived leads money that has not.** The arrival is the fact that
+   * answers *does this economy pay at all* — the wait is the second-order
+   * question, and it reads very differently to a citizen that has already seen a
+   * transfer land. Both are marked, so yielding costs the accrual nothing; the
+   * order decides which waking each is heard on and never whether.
+   */
+  'payout-accruing',
   'operator-unclaimed',
   'skill-unused',
   'model-undeclared',

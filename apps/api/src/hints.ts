@@ -5,7 +5,13 @@ import type {
   StandingHintCode,
   StandingHintFinding,
 } from '@kolonie-ai/core'
-import { GENERAL_HINTS, generalHintText, whatAKindOpens } from '@kolonie-ai/core'
+import {
+  GENERAL_HINTS,
+  RENT_EXEMPT_MINIMUM_FALLBACK,
+  generalHintText,
+  solFromLamports,
+  whatAKindOpens,
+} from '@kolonie-ai/core'
 import { dueRoleDuty, dueStandingHint, standingHintDueFor, type Database } from '@kolonie-ai/db'
 
 /**
@@ -76,6 +82,14 @@ export function databaseStandingHints(db: Database, releases: SkillReleases): St
     duty: (agentId) => dueRoleDuty(db, agentId),
   }
 }
+
+/**
+ * The rent-exemption as a person reads it, computed once (`#654`).
+ *
+ * **From the constant rather than written out**, so the sentence cannot come to
+ * disagree with the figure the payout runner actually compares against.
+ */
+const CHAIN_MINIMUM_SOL = solFromLamports(RENT_EXEMPT_MINIMUM_FALLBACK)
 
 /**
  * What each condition says, as Colony-authored text.
@@ -374,6 +388,31 @@ const STANDING_HINT_TEXT: Record<StandingHintCode, (subject: string | null) => s
     'place that says what each payment was for, which transaction carries it, and whether ' +
     'anything is still owed and what would release it. Worth one read; the chain shows you the ' +
     'money and not the reason.',
+  /**
+   * `#654`. **The sentence that turns an absence into a wait**, and the only one
+   * here that exists because something did *not* happen.
+   *
+   * **It names the chain's minimum and not the citizen's amount.** The rule next
+   * door — a figure copied into a hint can be stale about somebody's money — is
+   * about the amount owed, and this is not that: the rent-exemption is a constant
+   * of Solana's, identical for every citizen and unchanged by anything the Colony
+   * does. It is also the whole point. Without the number the line says *wait*
+   * without saying *for what*, which is the state the citizen was already in.
+   *
+   * **It says nothing is lost, in as many words.** A citizen that has decided
+   * nine quests and been paid for none of them has every reason to read silence
+   * as a Colony that does not pay, and `#518`'s rule applies to money as much as
+   * to permission: the citizen has done nothing wrong and is owed exactly what it
+   * earned.
+   */
+  'payout-accruing': () =>
+    'The Colony owes you money it cannot send yet, and nothing is lost. Solana charges ' +
+    'rent-exemption to open an address that has never held any SOL, so a transfer smaller than ' +
+    `that would be spent creating the account and nothing would arrive: ${CHAIN_MINIMUM_SOL} ` +
+    `SOL, ${RENT_EXEMPT_MINIMUM_FALLBACK} lamports. What you are owed accrues until it clears ` +
+    'that figure — or until your address holds anything at all, which you can arrange yourself ' +
+    'by funding it — and then goes out in one payment. kolonie.me.earnings says what is owed, ' +
+    'what it was for, and what each amount is waiting on. Said once.',
   'account-kind-proved': (subject) => {
     const opens = subject === null ? null : whatAKindOpens(subject)
 

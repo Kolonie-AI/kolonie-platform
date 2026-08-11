@@ -861,6 +861,35 @@ describe('the seven conditions the Colony kept to itself', () => {
     return row.id
   }
 
+  /**
+   * An obligation the runner has tried to pay and could not, because the amount
+   * is below what the chain will deliver to an empty address (`#654`).
+   *
+   * The refusal is what the condition reads — never a recomputation from
+   * `lamports` — so the fixture writes the same string `payoutRefusal` does.
+   */
+  const anAccruingPayout = async (agentId: AgentId): Promise<string> => {
+    const id = await aPayout(agentId, false)
+    await db
+      .update(payoutObligations)
+      .set({
+        lamports: 100_000,
+        attempts: 1,
+        lastAttemptAt: sql`now()`,
+        lastRefusal: 'accruing-below-chain-minimum',
+      })
+      .where(eq(payoutObligations.id, id))
+    return id
+  }
+
+  const untoldAccruals = async (agentId: AgentId): Promise<number> => {
+    const rows = await db
+      .select({ id: payoutObligations.id })
+      .from(payoutObligations)
+      .where(and(eq(payoutObligations.agentId, agentId), isNull(payoutObligations.accrualHintedAt)))
+    return rows.length
+  }
+
   const untoldPayouts = async (agentId: AgentId): Promise<number> => {
     const rows = await db
       .select({ id: payoutObligations.id })
@@ -1757,6 +1786,124 @@ describe('the seven conditions the Colony kept to itself', () => {
       await aPayout(agentId, true)
 
       expect((await hintInAFreshRun(agentId))?.code).toBe('payout-sent')
+    })
+  })
+
+  /**
+   * `#654`. `#651` cut a steward's reward tenfold and moved its first payout from
+   * one decision to nine; the accrual was already correct and nothing said so, so
+   * a steward could not tell *the Colony has not paid me* from *the Colony cannot
+   * pay me yet*.
+   */
+  describe('the money the Colony owes and cannot yet send', () => {
+    it('says so once the runner has refused for that reason', async () => {
+      const agentId = await aQuietCitizen()
+      await anAccruingPayout(agentId)
+
+      const hint = await hintInAFreshRun(agentId)
+
+      expect(hint?.code).toBe('payout-accruing')
+      // The one figure it carries is the chain's, which is a constant rather
+      // than a fact about this citizen, so it lives in the text.
+      expect(hint?.subject).toBeNull()
+    })
+
+    /**
+     * The condition is the refusal the runner recorded and never arithmetic here:
+     * an obligation nobody has attempted says nothing about whether the chain
+     * would carry it, and the address may have been funded since.
+     */
+    it('says nothing about an amount that has never been attempted', async () => {
+      const agentId = await aQuietCitizen()
+      await aPayout(agentId, false)
+
+      expect(await hintInAFreshRun(agentId)).toBeNull()
+    })
+
+    it('says nothing about an amount held by a limit of the Colony’s own', async () => {
+      const agentId = await aQuietCitizen()
+      const id = await aPayout(agentId, false)
+      await db
+        .update(payoutObligations)
+        .set({ attempts: 1, lastRefusal: 'above-daily-ceiling' })
+        .where(eq(payoutObligations.id, id))
+
+      // A different refusal with a different sentence, and one a maintainer is
+      // told about rather than the citizen.
+      expect(await hintInAFreshRun(agentId)).toBeNull()
+    })
+
+    it('says nothing twice', async () => {
+      const agentId = await aQuietCitizen()
+      await anAccruingPayout(agentId)
+
+      expect((await hintInAFreshRun(agentId))?.code).toBe('payout-accruing')
+      expect(await hintInAFreshRun(agentId)).toBeNull()
+    })
+
+    /**
+     * What was said is *money of yours is waiting*, so a steward owed three
+     * unpayable rewards has heard it. Marking one row would queue three identical
+     * lines across three wakings — `#231`'s wallpaper failure.
+     */
+    it('marks every accruing amount it was silent about, not one', async () => {
+      const agentId = await aQuietCitizen()
+      await anAccruingPayout(agentId)
+      await anAccruingPayout(agentId)
+      await anAccruingPayout(agentId)
+
+      expect((await hintInAFreshRun(agentId))?.code).toBe('payout-accruing')
+      expect(await untoldAccruals(agentId)).toBe(0)
+      expect(await hintInAFreshRun(agentId)).toBeNull()
+    })
+
+    /**
+     * The reason this is a second column rather than a reuse of `hinted_at`: a
+     * citizen told its money is waiting must still be told when it arrives.
+     */
+    it('does not cost the citizen the sentence about the payment arriving', async () => {
+      const agentId = await aQuietCitizen()
+      const id = await anAccruingPayout(agentId)
+
+      expect((await hintInAFreshRun(agentId))?.code).toBe('payout-accruing')
+
+      await db
+        .update(payoutObligations)
+        .set({ paidAt: sql`now()`, signature: `sig-${++seeded}`, lastRefusal: null })
+        .where(eq(payoutObligations.id, id))
+
+      expect((await hintInAFreshRun(agentId))?.code).toBe('payout-sent')
+    })
+
+    /** A door, on `payout-sent`'s argument, and the mark makes yielding free. */
+    it('yields to a lapsing skill, and survives having yielded', async () => {
+      const [skill, hours] = Object.entries(SKILL_RENEWAL_HOURS)[0] ?? []
+      if (skill === undefined || hours === undefined) return
+
+      const agentId = await aQuietCitizen()
+      await anAccruingPayout(agentId)
+      await grantSkill(
+        agentId,
+        skill,
+        new Date(Date.now() - (hours + 1) * 60 * 60 * 1000).toISOString(),
+      )
+
+      expect((await hintInAFreshRun(agentId))?.code).toBe('skill-due-for-renewal')
+      expect(await untoldAccruals(agentId)).toBe(1)
+    })
+
+    /**
+     * The placement in `STANDING_HINT_RANK`: money that arrived leads money that
+     * has not, and the accrual keeps because it is marked rather than because it
+     * won.
+     */
+    it('yields to the payment that did arrive, and keeps', async () => {
+      const agentId = await aQuietCitizen()
+      await aPayout(agentId, true)
+      await anAccruingPayout(agentId)
+
+      expect((await hintInAFreshRun(agentId))?.code).toBe('payout-sent')
+      expect((await hintInAFreshRun(agentId))?.code).toBe('payout-accruing')
     })
   })
 

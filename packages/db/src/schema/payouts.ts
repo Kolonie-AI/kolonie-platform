@@ -198,6 +198,31 @@ export const payoutObligations = pgTable(
      * wakings, which is `#231`'s wallpaper failure with extra steps.
      */
     hintedAt: timestamp('hinted_at', { withTimezone: true, mode: 'string' }),
+
+    /**
+     * When the Colony told this citizen that this amount is accruing below what
+     * the chain will deliver (`#654`).
+     *
+     * **A second column rather than a reuse of `hinted_at` above, and the
+     * separation is the whole correctness of it.** The two marks answer different
+     * questions — *has it been told the money arrived* and *has it been told the
+     * money is waiting* — and an obligation is in the second state before it is
+     * in the first. Marking `hinted_at` on an unpaid row would silence
+     * `payout-sent` on the day the transfer finally goes out, which is `#577`'s
+     * entire sentence lost to a field being borrowed.
+     *
+     * **Same rule as its neighbour otherwise**: a fact about what the Colony
+     * said, never about what the citizen did with it, and the condition holds
+     * open until it has been said once. Without the mark the line would be true
+     * on every waking until the accrual moved, and a sentence repeated until a
+     * number goes up is the one thing the standing channel refuses.
+     *
+     * **It is not cleared when the row is paid.** The two marks are independent
+     * records of two different tellings, and a row that was accruing and then
+     * paid should carry both — a citizen told *it is waiting* and later *it
+     * arrived* has been told the truth twice rather than the same thing twice.
+     */
+    accrualHintedAt: timestamp('accrual_hinted_at', { withTimezone: true, mode: 'string' }),
   },
   (table) => [
     /**

@@ -170,10 +170,29 @@ export function backendPage(input: {
             ? 'From the environment. Nothing has been set here, so the deploy host’s value is in effect.'
             : 'Neither the environment nor this page has a value. Whatever the code falls back to is in effect.'
 
+      /**
+       * **What the value in effect does**, where the definition has anything to
+       * say about it (`#654`).
+       *
+       * It reads `setting.value` — the effective one — rather than what a form
+       * is about to submit, so the consequence of a figure that has been live for
+       * a month is stated on the page that shows it, not only to whoever next
+       * types into the box. `undefined` is the code fallback and is not exempt:
+       * `QUEST_REVIEW_REWARD_LAMPORTS` is below the chain minimum unset.
+       *
+       * **Beside the value and never in place of the form.** Nothing here refuses
+       * anything; `#654` is explicit that a floor on this setting would be the
+       * tool holding an opinion it does not have.
+       */
+      const consequence = definition.consequence?.(setting.value)
+
       return [
         `<h3><code>${escape(definition.name)}</code></h3>`,
         `<p>${escape(definition.describes)}</p>`,
         `<p class="note">${source}</p>`,
+        ...(consequence === undefined
+          ? []
+          : [`<p class="note"><strong>${escape(consequence)}</strong></p>`]),
         ...(definition.reachesRunningProcess === undefined
           ? ['<p class="note">A change reaches a running process within 30 seconds (D-104).</p>']
           : [`<p class="note">${escape(definition.reachesRunningProcess)}</p>`]),

@@ -1,4 +1,6 @@
 import { z } from 'zod'
+import { RENT_EXEMPT_MINIMUM_FALLBACK } from '../ledger/transfer.js'
+import { QUEST_REVIEW_REWARD_LAMPORTS } from '../task/quest.js'
 
 /**
  * The settings a maintainer may turn without a deploy — D-104 (`#488`, `#489`).
@@ -68,6 +70,28 @@ export interface SettingDefinition {
    * one interval, and it is stated here rather than left to be discovered.
    */
   readonly reachesRunningProcess?: string
+  /**
+   * What this value does that the maintainer setting it may not have looked up
+   * (`#654`), or nothing.
+   *
+   * **A consequence and not a rule.** It never refuses a value and never
+   * narrows {@link schema} — `#654` is explicit that a floor here would be *"the
+   * tool having an opinion about economics it does not hold"*, and a maintainer
+   * may have a good reason for a figure whose consequence they have read and
+   * accepted. What it removes is the *silently*: `#651` cut the review reward
+   * tenfold, correctly, and moved a new steward's first payout from one decision
+   * to nine — a fact that existed the moment the value was written and that
+   * nothing said out loud.
+   *
+   * **It reads the effective value, so `undefined` means unset.** The consequence
+   * of the code fallback is as real as the consequence of an override, and a
+   * warning that only appeared once somebody typed a number would be silent about
+   * exactly the case that is live today.
+   *
+   * **It is not a validation hook by another name.** `schema` decides what may be
+   * written; this decides what is worth saying about what was.
+   */
+  readonly consequence?: (value: string | undefined) => string | undefined
 }
 
 /** A positive whole number of milliseconds, as text. */
@@ -122,6 +146,48 @@ const atLeastOne = z
   .string()
   .trim()
   .regex(/^[1-9][0-9]*$/, 'a whole number, one or more')
+
+/**
+ * How many decisions a brand-new steward makes before its first payment can
+ * leave the Colony (`#654`).
+ *
+ * **The whole of `#651`'s consequence in one number.** A steward's first reward
+ * goes to an address that has never held SOL, so it has to clear Solana's
+ * rent-exemption on its own or accrue until it does. At `1_000_000` that was one
+ * decision; at `100_000` it is nine — and neither figure is wrong, only unsaid.
+ */
+function decisionsBeforeFirstPayout(rewardLamports: number): number {
+  return Math.ceil(RENT_EXEMPT_MINIMUM_FALLBACK / rewardLamports)
+}
+
+/**
+ * What paying a steward less than the chain will carry actually does (`#654`).
+ *
+ * **It never refuses**, on {@link SettingDefinition.consequence}'s terms: the
+ * accrual is deliberate machinery (`#505`), the money is owed in full and is not
+ * lost, and a maintainer is entitled to that trade. It states the count and
+ * stops.
+ *
+ * **A value the schema would reject produces nothing**, rather than a sentence
+ * computed from a number that will never be written. The form says what is wrong
+ * with such a value; this has nothing to add to it.
+ */
+function reviewRewardConsequence(value: string | undefined): string | undefined {
+  const reward = value === undefined ? QUEST_REVIEW_REWARD_LAMPORTS : Number(value)
+  if (!Number.isSafeInteger(reward) || reward <= 0) return undefined
+  if (reward >= RENT_EXEMPT_MINIMUM_FALLBACK) return undefined
+
+  const decisions = decisionsBeforeFirstPayout(reward)
+
+  return (
+    `At ${reward} lamports a decision, a steward whose wallet has never held SOL waits ` +
+    `${decisions} decisions for its first payment. Solana charges ${RENT_EXEMPT_MINIMUM_FALLBACK} ` +
+    'lamports to open such an address, so anything smaller accrues rather than being sent — the ' +
+    'amount is owed in full and nothing is lost, and the steward is told once that it is ' +
+    'waiting. This is a consequence and not a refusal: the accrual is deliberate, and paying ' +
+    'below the minimum may well be the right call.'
+  )
+}
 
 export const SETTINGS: readonly SettingDefinition[] = [
   {
@@ -228,6 +294,7 @@ export const SETTINGS: readonly SettingDefinition[] = [
       'answerer: a review that pays what the work pays is a role priced as if deciding were ' +
       'the work.',
     schema: lamports,
+    consequence: reviewRewardConsequence,
   },
   {
     name: 'QUEST_TIER_CAP_HARD_LAMPORTS',

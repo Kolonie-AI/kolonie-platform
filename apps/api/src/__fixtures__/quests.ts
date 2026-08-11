@@ -33,8 +33,15 @@ import type { QuestTakenPartIn } from '@kolonie-ai/db'
  *
  * A named number rather than a literal, so a test asserting the page carries the
  * count says what it is asserting about.
+ *
+ * **It was 7, against draft fixtures that buy 10 and 20 slots** — an
+ * inconsistency that cost nothing until D-116 (`#754`) made capacity above the
+ * reach a refusal, at which point nine tests about withdrawing, patching and
+ * queueing started failing on a rule none of them is about. Raised above every
+ * default draft so that a test which is not about capacity does not have to say
+ * so; a test that *is* about it sets its own figure with `countAudienceAs`.
  */
-export const FAKE_AUDIENCE = 7
+export const FAKE_AUDIENCE = 40
 
 export interface FakeQuestDesk extends QuestDesk {
   /** Every criterion set the audience count was asked about (`#227`). */

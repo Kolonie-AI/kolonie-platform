@@ -109,22 +109,96 @@ export interface QuestAudience {
  * *you have required no skills, so anyone may answer* rather than silence.
  * `#352` is explicit that the default has to read as a decision, because a
  * default nobody is shown keeps its value for ever.
+ *
+ * **And the rule the reach is about to be measured against** (D-116, `#754`).
+ * Submission refuses a quest buying more answers than there are citizens to give
+ * them, and a sponsor should meet that rule while its draft is still free to
+ * change rather than at the moment it is refused. Stated on every draft and not
+ * only on the ones with a requirement, because over-buying is possible either
+ * way — twelve citizens and forty slots is the same mistake with no `requires`
+ * at all.
+ *
+ * **It says the rule and never the comparison.** Naming here whether *this*
+ * capacity exceeds *this* reach would be exactly the bisection
+ * {@link questCapacityRejection} puts behind the queue slot to prevent.
  */
 export function audienceSentence(input: {
   readonly reach: AudienceReport
   readonly unrestricted: AudienceReport
   readonly requires: readonly string[]
 }): string {
+  const capacityRule =
+    ' Capacity above what the quest reaches cannot be filled, and what nobody fills is not ' +
+    'returned at expiry — a submission asking for more answers than there are citizens to ' +
+    'give them is refused.'
+
   if (input.requires.length === 0) {
     return (
       'You have required no skills, so anyone this quest is offered to may answer — ' +
-      `${audienceFragment(input.reach)} today.`
+      `${audienceFragment(input.reach)} today.${capacityRule}`
     )
   }
 
   return (
     `With ${input.requires.join(', ')} required, ${audienceFragment(input.reach)} can answer ` +
-    `this quest, against ${audienceFragment(input.unrestricted)} with no requirement.`
+    `this quest, against ${audienceFragment(input.unrestricted)} with no requirement.` +
+    capacityRule
+  )
+}
+
+/**
+ * Why this quest is buying more answers than there are citizens to give them,
+ * or `undefined` if it is not — D-116 (`#754`).
+ *
+ * ## The gap this closes
+ *
+ * A sponsor commits real money for a fixed number of slots, that purchase is
+ * final under D-106, and until this existed the Colony would not tell it how
+ * many citizens could actually answer. A quest requiring `github` with 3 slots
+ * read *fewer than 5 citizens can answer this quest* — true, and consistent with
+ * {@link AUDIENCE_FLOOR} — so the sponsor was asked to buy three answers against
+ * a number that might be one.
+ *
+ * **The floor is right and is not what this argues with.** A small exact count
+ * filtered by a requirement narrows to individuals, which is the enumeration
+ * `state/decisions/a-citizen-has-something-to-point-at.md` refuses. The defect
+ * was that the suppression stood in front of an irreversible purchase with
+ * nothing in its place.
+ *
+ * ## What it gives up and what it does not
+ *
+ * **The sponsor learns one inequality about a number it chose itself** — *fewer
+ * than the capacity you asked for* — and never the count, the shortfall, or
+ * anything that narrows either. That is a bounded leak bought for a bounded
+ * guarantee, and D-116 records the trade rather than leaving it here.
+ *
+ * **The count is a parameter and the refusal never receives it back.** This
+ * function takes the true number because it has to compare against it; every
+ * sentence it can return is written from `slots` alone, so there is no path by
+ * which the count reaches a caller.
+ *
+ * ## Why it is only asked at submission
+ *
+ * Drafting is free, silent and unlimited, so the same check at `write` would be
+ * a bisection: adjust the capacity, watch the refusal appear, and read the exact
+ * population out in four calls. Submission takes the account's one moderation
+ * queue slot, is visible to a steward and is rate-limited by that alone. Probing
+ * through it is neither free nor quiet, which is what makes the leak acceptable
+ * rather than merely small.
+ */
+export function questCapacityRejection(input: {
+  readonly slots: number
+  /** The true reach, before {@link reportAudience} suppresses anything. */
+  readonly reach: number
+}): string | undefined {
+  if (input.slots <= input.reach) return undefined
+
+  return (
+    `You are buying ${input.slots} answers and fewer citizens than that can answer this quest. ` +
+    'Reduce the capacity, or relax the requirements — capacity above the reach cannot be ' +
+    'filled, and what nobody fills is not returned at expiry. The Colony will not say how many ' +
+    'citizens there are: a count small enough to be useful here is a count small enough to name ' +
+    'them.'
   )
 }
 

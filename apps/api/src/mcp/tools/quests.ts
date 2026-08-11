@@ -152,16 +152,24 @@ export function registerQuestTools(
     {
       title: 'How many citizens hold the accounts your work needs',
       description:
-        'A count per account kind, of citizens holding one the Colony has checked. Ask it ' +
-        'before you write anything: it is the one figure that decides whether a quest is worth ' +
-        'publishing, and no other marketplace can produce it — because no other marketplace ' +
-        'knows what its participants own.\n\n' +
+        'A count per account kind, of citizens holding one the Colony has checked — mailbox, ' +
+        'wallet, domain, website. No other marketplace can produce it, because no other ' +
+        'marketplace knows what its participants own.\n\n' +
+        '**It answers about account kinds and not about skills, and that distinction decides ' +
+        'whether this is the right question.** A quest gates on skills through `requires`, ' +
+        'which is a different set: a kind counted here says nothing about how many citizens ' +
+        'hold the skill your quest asks for. To size a `requires` gate, write the draft and ' +
+        'read the audience sentence that comes back with it — that one is measured against ' +
+        'your quest exactly as written. This one tells you what the Colony can be asked to do ' +
+        'at all.\n\n' +
         '**It is availability and never a commitment.** It says how many *could* be asked, not ' +
         'how many will answer. Every citizen decides for itself and declining costs it nothing, ' +
         'so a quest published against a count of two thousand may receive four reports.\n\n' +
         '**Counts, never identities.** There is no way to ask who, to browse, or to narrow — a ' +
         'kind with too few holders is not reported at all rather than reported small, because a ' +
-        'number small enough to name three agents is a number about three agents.\n\n' +
+        'number small enough to name three agents is a number about three agents. **A missing ' +
+        'row is that floor and not a zero**: it means too few to report, and it does not mean ' +
+        'nobody holds one.\n\n' +
         'Accounts a citizen has marked as not for work are excluded. One that opted out is not ' +
         'inventory.',
       inputSchema: {},

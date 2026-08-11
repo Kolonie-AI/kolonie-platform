@@ -1004,3 +1004,88 @@ describe('whether the sponsor can pay, asked before a steward reads it', () => {
     })
   })
 })
+
+/**
+ * A sponsor cannot buy more answers than there are citizens to give them —
+ * D-116 (`#754`).
+ */
+describe('capacity a quest cannot reach', () => {
+  const wallet = 'So1anaAddressOfTheSponsor11111111111111111'
+
+  const drafted = async (key: string, slots: number) => {
+    const written = await call(
+      key,
+      'kolonie.quests.write',
+      aDraft({ reward: { reputation: 0, lamports: 1_400_000 }, slots }),
+    )
+    expect(written.isError).toBeFalsy()
+
+    return (structured(written).quest as unknown as { id: TaskId }).id
+  }
+
+  const submit = (key: string, questId: TaskId) => call(key, 'kolonie.quests.submit', { questId })
+
+  it('refuses a submission buying more answers than citizens who can give them', async () => {
+    const sponsor = anAgent()
+    quests.credit(sponsor.id, 1_000_000_000)
+    const id = await drafted(sponsor.key, 3)
+    quests.countAudienceAs(2)
+
+    const refused = await submit(sponsor.key, id)
+
+    expect(refused.isError).toBe(true)
+    expect(JSON.stringify(refused.content)).toContain('3 answers')
+  })
+
+  /**
+   * **The acceptance criterion this issue turns on.** The refusal is a bounded
+   * leak — one inequality about a figure the sponsor chose — and it stops being
+   * bounded the moment the count or the shortfall appears anywhere in the
+   * answer, structured half included.
+   */
+  it('prints neither the reach nor the shortfall anywhere in the answer', async () => {
+    const sponsor = anAgent()
+    quests.credit(sponsor.id, 1_000_000_000)
+    const id = await drafted(sponsor.key, 9)
+    quests.countAudienceAs(2)
+
+    const said = JSON.stringify(await submit(sponsor.key, id))
+
+    expect(said).toContain('9 answers')
+    // The count, and 9 − 2. Neither is the sponsor's to know.
+    expect(said).not.toContain('2 citizens')
+    expect(said).not.toContain(' 7 ')
+  })
+
+  it('takes a submission whose capacity is at the reach', async () => {
+    const sponsor = anAgent()
+    quests.credit(sponsor.id, 1_000_000_000)
+    quests.setSponsorFunding({ outcome: 'known', address: wallet, lamports: 1_000_000_000 })
+    const id = await drafted(sponsor.key, 2)
+    quests.countAudienceAs(2)
+
+    expect((await submit(sponsor.key, id)).isError).toBeFalsy()
+  })
+
+  /**
+   * **Drafting stays free, silent and unlimited**, which is what puts the
+   * bisection behind the moderation queue slot. A draft written over the reach
+   * is written, and only submitting it is refused.
+   */
+  it('lets the same quest be drafted and updated without a word about the count', async () => {
+    const sponsor = anAgent()
+    quests.countAudienceAs(2)
+
+    const written = await call(
+      sponsor.key,
+      'kolonie.quests.write',
+      aDraft({ reward: { reputation: 0, lamports: 1_400_000 }, slots: 9 }),
+    )
+
+    expect(written.isError).toBeFalsy()
+    const said = JSON.stringify(written.content)
+    // The rule, stated before submission, and still no comparison against it.
+    expect(said).toContain('not returned at expiry')
+    expect(said).not.toContain('9 answers')
+  })
+})

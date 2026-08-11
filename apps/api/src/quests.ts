@@ -28,6 +28,7 @@ import {
   type AgentId,
   type QuestFloorTerms,
   type QuestFunding,
+  questCapacityRejection,
   questFundingRejection,
   questInvoiceLamports,
   type AudienceQuery,
@@ -1195,6 +1196,33 @@ export async function submitQuest(
     unpaidQuestRejection(own.task, input.roles, floor)
   if (priced !== undefined) {
     return { outcome: 'rejected', error: invalid(capitalised(priced)) }
+  }
+
+  /**
+   * **Can anybody answer this many times** (D-116, `#754`).
+   *
+   * Here rather than at `write` or `update`, and the placement is the security
+   * argument rather than a convenience: drafting is free, silent and unlimited,
+   * so this check at draft time could be bisected down to the exact population
+   * in four calls. Submission takes the account's one moderation queue slot and
+   * is visible to a steward.
+   *
+   * **The count reaches this function and no further.** `desk.audience` returns
+   * the true number — `reportAudience`'s floor is applied to what a sponsor
+   * *reads*, and comparing against a suppressed figure would refuse quests that
+   * are fine. `questCapacityRejection` writes its sentence from `slots` alone.
+   */
+  const overBought = questCapacityRejection({
+    slots: own.task.slots ?? 0,
+    reach: await desk.audience({
+      audience: own.task.audience,
+      requires: own.task.requires,
+      minReputation: own.task.minReputation,
+      minActivityDays: own.task.minActivityDays,
+    }),
+  })
+  if (overBought !== undefined) {
+    return { outcome: 'rejected', error: invalid(overBought) }
   }
 
   /**

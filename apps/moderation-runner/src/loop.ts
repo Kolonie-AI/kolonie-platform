@@ -83,9 +83,10 @@ export interface LoopDependencies {
    * The quest text stage (`#176`), or nothing.
    *
    * **Optional for the reason the tripwire is**: a deployment that has not wired
-   * it moderates reports exactly as before rather than failing to start. It
-   * shares this loop's schedule and its model, and nothing else — a quest is
-   * judged against the Colony's rules and never against the reports.
+   * it moderates reports exactly as before rather than failing to start. The
+   * process entry point gives quests their own runner; keeping the dependency
+   * here lets callers assemble both runners from one object without duplicating
+   * the model and log.
    */
   readonly quests?: QuestLoopDependencies
   /**
@@ -412,7 +413,6 @@ export async function tick(deps: LoopDependencies, batchSize: number): Promise<T
   }
 
   await checkTripwire(touched, deps, log)
-  await moderateQuests(deps, batchSize, log)
   await scrubAnswers(deps, batchSize, log)
   await scrubQuestReports(deps, batchSize, log)
   await scrubProviderReasons(deps, batchSize, log)
@@ -554,13 +554,11 @@ async function scrubProviderReasons(
 }
 
 /**
- * Run the quest stage on the same poll (`#176`).
+ * Run one quest pass (`#176`).
  *
  * **Its failure is swallowed, exactly as the tripwire's is.** A quest queue that
- * throws must not stop reports being published: the two share a process and a
- * schedule, and nothing else. What the quests lose is a poll, which is a delay a
- * sponsor can wait out — where a dead moderation loop is a corpus that never
- * publishes at all.
+ * throws must not stop the quest runner: what the quests lose is one poll, which
+ * is a delay a sponsor can wait out rather than a dead queue.
  */
 async function moderateQuests(deps: LoopDependencies, batchSize: number, log: Log): Promise<void> {
   const { quests } = deps
@@ -761,6 +759,75 @@ export function startRunner(deps: LoopDependencies, options: RunnerOptions = {})
           {
             event: 'poll.failed',
             message: `poll failed (${consecutiveFailures} in a row); retrying in ${Math.round(wait / 1000)}s`,
+            retryInMs: wait,
+          },
+          error,
+          consecutiveFailures,
+        )
+        if (running) await pause(wait)
+      }
+    }
+  })()
+
+  return {
+    finished,
+    async stop() {
+      running = false
+      wake?.()
+      await finished
+    },
+    health: () => ({ running, lastPollAt, consecutiveFailures }),
+  }
+}
+
+/**
+ * Run quest moderation independently of the queues nobody is waiting on.
+ *
+ * A sponsor is waiting for this verdict after submitting a quest, so its faster
+ * schedule must not be delayed by a report moderation pass already in flight.
+ */
+export function startQuestRunner(deps: LoopDependencies, options: RunnerOptions = {}): Runner {
+  const pollIntervalMs = options.pollIntervalMs ?? DEFAULTS.pollIntervalMs
+  const maxBackoffMs = options.maxBackoffMs ?? DEFAULTS.maxBackoffMs
+  const batchSize = options.batchSize ?? DEFAULTS.batchSize
+  const sleep = options.sleep ?? realSleep
+  const log = deps.log ?? silentLog
+
+  let running = true
+  let lastPollAt: string | null = null
+  let consecutiveFailures = 0
+  let wake: (() => void) | undefined
+
+  const pause = async (ms: number): Promise<void> => {
+    await Promise.race([
+      sleep(ms),
+      new Promise<void>((resolve) => {
+        wake = resolve
+      }),
+    ])
+    wake = undefined
+  }
+
+  const finished = (async () => {
+    while (running) {
+      try {
+        await moderateQuests(deps, batchSize, log)
+        lastPollAt = new Date().toISOString()
+        consecutiveFailures = 0
+        if (running) await pause(pollIntervalMs)
+      } catch (error) {
+        if (running) consecutiveFailures++
+        const wait = Math.min(pollIntervalMs * 2 ** consecutiveFailures, maxBackoffMs)
+        reportPollThrow(
+          log,
+          running,
+          {
+            event: 'quests.poll.interrupted',
+            message: 'quest poll interrupted by shutdown; the runner is stopping',
+          },
+          {
+            event: 'quests.poll.failed',
+            message: `quest poll failed (${consecutiveFailures} in a row); retrying in ${Math.round(wait / 1000)}s`,
             retryInMs: wait,
           },
           error,

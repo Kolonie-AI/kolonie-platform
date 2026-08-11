@@ -5,6 +5,7 @@ import type {
   BriefingSource,
   ModerationVerdict,
   PendingReport,
+  PendingQuest,
 } from '@kolonie-ai/db'
 import type {
   BriefingClaim,
@@ -18,6 +19,7 @@ import {
   briefingTick,
   judge,
   startBriefingRunner,
+  startQuestRunner,
   startRunner,
   tick,
   type BriefingStore,
@@ -26,6 +28,7 @@ import {
 import { segmentsOf, SIMILARITY_THRESHOLD } from './dedup.js'
 import { fakeModel, type FakeModel } from './__fixtures__/model.js'
 import { ProviderUnreachable } from './llm.js'
+import type { QuestModerationStore } from './quests.js'
 import {
   FIRST_REPORT,
   MEASURED_CLAIM_SIMILARITY,
@@ -1025,6 +1028,75 @@ describe('a request that never reached the provider', () => {
     const error = new ProviderUnreachable('/embeddings', 'the socket closed')
 
     expect(error.message).toContain('the socket closed')
+  })
+})
+
+describe('independent moderation schedules', () => {
+  const questStore = (pending: QuestModerationStore['pending']): QuestModerationStore => ({
+    pending,
+    record: async () => ({ outcome: 'written' }),
+  })
+
+  it('polls reports while a quest pass is still in flight', async () => {
+    let releaseQuest: ((quests: readonly PendingQuest[]) => void) | undefined
+    const reportSleep = vi.fn(() => new Promise<void>(() => {}))
+    const questRunner = startQuestRunner(
+      {
+        store,
+        model,
+        quests: {
+          store: questStore(
+            () =>
+              new Promise((resolve) => {
+                releaseQuest = resolve
+              }),
+          ),
+          model,
+        },
+      },
+      { sleep: () => new Promise<void>(() => {}) },
+    )
+    const reportRunner = startRunner({ store, model }, { sleep: reportSleep })
+
+    await vi.waitFor(() => expect(releaseQuest).toBeDefined())
+    await vi.waitFor(() => expect(reportSleep).toHaveBeenCalled())
+
+    await reportRunner.stop()
+    releaseQuest?.([])
+    await questRunner.stop()
+  })
+
+  it('polls quests while a report pass is still in flight', async () => {
+    let releaseReports: ((reports: readonly PendingReport[]) => void) | undefined
+    const questSleep = vi.fn(() => new Promise<void>(() => {}))
+    const reportRunner = startRunner(
+      {
+        store: {
+          ...store,
+          pending: () =>
+            new Promise((resolve) => {
+              releaseReports = resolve
+            }),
+        },
+        model,
+      },
+      { sleep: () => new Promise<void>(() => {}) },
+    )
+    const questRunner = startQuestRunner(
+      {
+        store,
+        model,
+        quests: { store: questStore(async () => []), model },
+      },
+      { sleep: questSleep },
+    )
+
+    await vi.waitFor(() => expect(releaseReports).toBeDefined())
+    await vi.waitFor(() => expect(questSleep).toHaveBeenCalled())
+
+    await questRunner.stop()
+    releaseReports?.([])
+    await reportRunner.stop()
   })
 })
 

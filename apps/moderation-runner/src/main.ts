@@ -28,6 +28,7 @@ import {
 import {
   BRIEFING_TICK_MULTIPLIER,
   startBriefingRunner,
+  startQuestRunner,
   startRunner,
   synthesiseNow,
   type BriefingStore,
@@ -61,6 +62,10 @@ import { createHealthServer, STALE_POLLS } from './health.js'
  */
 
 const POLL_INTERVAL_MS = Number(process.env['POLL_INTERVAL_MS'] ?? 60_000)
+const QUEST_POLL_INTERVAL_MS = Math.min(
+  Number(process.env['QUEST_POLL_INTERVAL_MS'] ?? 15_000),
+  POLL_INTERVAL_MS,
+)
 const HEALTH_PORT = Number(process.env['HEALTH_PORT'] ?? 3002)
 const BRIEFING_INTERVAL_MS = Number(
   process.env['BRIEFING_INTERVAL_MS'] ?? POLL_INTERVAL_MS * BRIEFING_TICK_MULTIPLIER,
@@ -144,12 +149,13 @@ const store: ModerationStore = {
 }
 
 /**
- * The quest text stage (`#176`), on the same poll as the reports.
+ * The quest text stage (`#176`), on its own faster poll.
  *
  * **One process rather than a fifth container**, the same trade the synthesis
  * loop was given: a second deployable would buy isolation this workload does not
  * need, at the cost of a compose service, a health check and a deploy step. A
- * quest queue is a handful of rows a day and one model call each.
+ * quest queue is a handful of rows a day and one model call each. Its separate
+ * timer keeps a sponsor's wait independent of any report already being judged.
  */
 const questStore: QuestModerationStore = {
   pending: (limit) => pendingQuestModerations(db, limit),
@@ -311,7 +317,6 @@ const runner = startRunner(
     model,
     log,
     tripwire,
-    quests: { store: questStore, model, log },
     answers: { store: answerStore, model, log },
     questReports: { store: questReportStore, model, log },
     providerReasons: { store: providerReasonStore, model, log },
@@ -327,6 +332,10 @@ const runner = startRunner(
     },
   },
   { pollIntervalMs: POLL_INTERVAL_MS },
+)
+const questRunner = startQuestRunner(
+  { store, model, log, quests: { store: questStore, model, log } },
+  { pollIntervalMs: QUEST_POLL_INTERVAL_MS },
 )
 const briefingRunner = startBriefingRunner(
   { store: briefings, model, log },
@@ -346,10 +355,12 @@ const health = createHealthServer({
 
 log.info(
   `kolonie-moderation-runner started; polling every ${POLL_INTERVAL_MS}ms, ` +
-    `briefings every ${BRIEFING_INTERVAL_MS}ms, health on :${HEALTH_PORT}/health`,
+    `quests every ${QUEST_POLL_INTERVAL_MS}ms, briefings every ${BRIEFING_INTERVAL_MS}ms, ` +
+    `health on :${HEALTH_PORT}/health`,
   {
     event: 'service.started',
     pollIntervalMs: POLL_INTERVAL_MS,
+    questPollIntervalMs: QUEST_POLL_INTERVAL_MS,
     briefingIntervalMs: BRIEFING_INTERVAL_MS,
     healthPort: HEALTH_PORT,
   },
@@ -361,7 +372,7 @@ for (const signal of ['SIGTERM', 'SIGINT'] as const) {
       event: 'service.stopping',
       signal,
     })
-    void Promise.all([runner.stop(), briefingRunner.stop()])
+    void Promise.all([runner.stop(), questRunner.stop(), briefingRunner.stop()])
       .then(() => new Promise<void>((resolve) => health.close(() => resolve())))
       .then(() => db.close())
       .then(() => process.exit(0))

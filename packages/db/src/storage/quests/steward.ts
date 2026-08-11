@@ -41,6 +41,21 @@ export interface PendingQuest {
   readonly instructions: string
 }
 
+/**
+ * Another quest by the same sponsor, as the dedup stage compares against
+ * (`#694`).
+ *
+ * **No author, deliberately.** The set is already one sponsor's, so an id would
+ * add nothing and cost one thing: a prompt that has seen an identity is a prompt
+ * that can mention one. The same refusal `BriefingSource` makes about the
+ * synthesis corpus.
+ */
+export interface SponsorQuest {
+  readonly id: TaskId
+  readonly title: string
+  readonly description: string
+}
+
 export type QuestPublishOutcome =
   | { readonly outcome: 'published'; readonly escrowed: number }
   /**
@@ -502,6 +517,56 @@ export async function pendingQuestModerations(
     title: row.title,
     description: row.description,
     instructions: row.instructions,
+  }))
+}
+
+/**
+ * The same sponsor's other quests, for the dedup stage (`#694`).
+ *
+ * **Only that sponsor's, and that is the whole width of the question.** Two
+ * sponsors asking similar things is a market working; one sponsor asking the
+ * same thing twice is a mistake or an attempt to have one piece of work paid for
+ * at two prices. So the comparison set is never widened to the Colony.
+ *
+ * **What counts as *already asked* is anything past drafting** — in review,
+ * awaiting payment, live, or finished. A draft is not a request the Colony has
+ * seen, and a refused one is a request it turned down, so neither is something
+ * to be a duplicate of. The quest itself is excluded.
+ *
+ * Empty for a quest whose author has been erased, which is correct: there is no
+ * sponsor to have asked twice.
+ */
+export async function questsBySameSponsor(
+  db: Database,
+  taskId: TaskId,
+  limit: number,
+): Promise<readonly SponsorQuest[]> {
+  const [row] = await db
+    .select({ createdBy: tasks.createdBy })
+    .from(tasks)
+    .where(eq(tasks.id, taskId))
+    .limit(1)
+
+  if (row?.createdBy == null) return []
+
+  const rows = await db
+    .select({ id: tasks.id, title: tasks.title, description: tasks.description })
+    .from(tasks)
+    .where(
+      and(
+        eq(tasks.kind, 'quest'),
+        eq(tasks.createdBy, row.createdBy),
+        sql`${tasks.id} <> ${taskId}`,
+        inArray(tasks.status, ['pending_review', 'awaiting_payment', 'active', 'retired']),
+      ),
+    )
+    .orderBy(asc(tasks.createdAt))
+    .limit(limit)
+
+  return rows.map((quest) => ({
+    id: quest.id as TaskId,
+    title: quest.title,
+    description: quest.description,
   }))
 }
 

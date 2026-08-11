@@ -19,6 +19,7 @@ import {
   pendingReports,
   publishQuest,
   questObstacleBonusPercentInDatabase,
+  questsBySameSponsor,
   questsClearedForPublication,
   readTaskText,
   recordModeration,
@@ -73,6 +74,17 @@ const QUEST_POLL_INTERVAL_MS = Math.min(
   POLL_INTERVAL_MS,
 )
 const HEALTH_PORT = Number(process.env['HEALTH_PORT'] ?? 3002)
+
+/**
+ * How many of a sponsor's other quests the dedup stage is shown (`#694`).
+ *
+ * **The bound is what one call costs**, on `RECENT_REPORTS_IN_CONTEXT`'s terms:
+ * the set goes into a prompt, so an unbounded one means a sponsor with two
+ * hundred quests pays for a two-hundred-entry comparison on every new brief.
+ * Oldest first, so what falls off the end is the sponsor's most recent work —
+ * which is the half it is least likely to have forgotten it already asked.
+ */
+const QUEST_SIBLINGS_IN_CONTEXT = 25
 const BRIEFING_INTERVAL_MS = Number(
   process.env['BRIEFING_INTERVAL_MS'] ?? POLL_INTERVAL_MS * BRIEFING_TICK_MULTIPLIER,
 )
@@ -214,6 +226,9 @@ const questStore: QuestModerationStore = {
   pending: (limit) => pendingQuestModerations(db, limit),
   record: (input) => recordQuestModeration(db, input),
   cleared: (limit) => questsClearedForPublication(db, limit),
+  // Bounded, for `pendingQuestModerations`' reason: the comparison set is read
+  // into a prompt, so its size is what one dedup call costs (`#694`).
+  siblings: (taskId) => questsBySameSponsor(db, taskId, QUEST_SIBLINGS_IN_CONTEXT),
   publish: async (taskId) =>
     await publishQuest(db, {
       // No steward, and that is the whole of `#693`: the verdict published it.

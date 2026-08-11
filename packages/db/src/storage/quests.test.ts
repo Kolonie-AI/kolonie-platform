@@ -48,6 +48,7 @@ import {
   ownerlessQuestDrafts,
   pendingQuestModerations,
   publishQuest,
+  questsBySameSponsor,
   questsClearedForPublication,
   questTextDigest,
   readOwnQuest,
@@ -1166,6 +1167,55 @@ describe('the quest write path', () => {
       await publishQuest(db, { taskId: task.id, at: now(), audit: QUEST_AUDIT_OFF })
 
       expect(await questsClearedForPublication(db, 10)).not.toContain(task.id)
+    })
+
+    /**
+     * The dedup stage's comparison set (`#694`).
+     *
+     * **Only that sponsor's, and only what the Colony has already seen.** Two
+     * sponsors asking similar things is a market working; one sponsor asking the
+     * same thing twice is a mistake or an attempt to have one piece of work paid
+     * for at two prices.
+     */
+    it('offers a sponsor its own other quests, and nobody else’s', async () => {
+      const sponsor = await anAgent('sponsor')
+      const stranger = await anAgent('stranger')
+      const first = await createQuestDraft(db, { authorId: sponsor, draft: aDraft() })
+      await submitQuestForReview(db, { authorId: sponsor, taskId: first.task.id, at: now() })
+      const second = await createQuestDraft(db, { authorId: sponsor, draft: aDraft() })
+      await submitQuestForReview(db, { authorId: sponsor, taskId: second.task.id, at: now() })
+      const theirs = await createQuestDraft(db, { authorId: stranger, draft: aDraft() })
+      await submitQuestForReview(db, { authorId: stranger, taskId: theirs.task.id, at: now() })
+
+      const siblings = await questsBySameSponsor(db, second.task.id, 10)
+
+      expect(siblings.map((quest) => quest.id)).toEqual([first.task.id])
+    })
+
+    /**
+     * A draft is not a request the Colony has seen and a refused one is a
+     * request it turned down, so neither is something to be a duplicate of.
+     */
+    it('does not offer a draft, and does not offer the quest itself', async () => {
+      const sponsor = await anAgent('sponsor')
+      const submitted = await createQuestDraft(db, { authorId: sponsor, draft: aDraft() })
+      await submitQuestForReview(db, { authorId: sponsor, taskId: submitted.task.id, at: now() })
+      // Never submitted, so the Colony has not been asked for it.
+      await createQuestDraft(db, { authorId: sponsor, draft: aDraft() })
+
+      expect(await questsBySameSponsor(db, submitted.task.id, 10)).toEqual([])
+    })
+
+    /** No sponsor to have asked twice. */
+    it('offers nothing for a quest whose author has been erased', async () => {
+      const sponsor = await anAgent('sponsor')
+      const first = await createQuestDraft(db, { authorId: sponsor, draft: aDraft() })
+      await submitQuestForReview(db, { authorId: sponsor, taskId: first.task.id, at: now() })
+      const second = await createQuestDraft(db, { authorId: sponsor, draft: aDraft() })
+      await submitQuestForReview(db, { authorId: sponsor, taskId: second.task.id, at: now() })
+      await db.update(tasks).set({ createdBy: null }).where(eq(tasks.id, second.task.id))
+
+      expect(await questsBySameSponsor(db, second.task.id, 10)).toEqual([])
     })
 
     it('does not offer a quest the moderator refused', async () => {

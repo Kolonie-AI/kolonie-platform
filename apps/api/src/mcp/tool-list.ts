@@ -357,6 +357,22 @@ export const AUTHENTICATED_TOOLS = [
   'kolonie.operator.drops',
   'kolonie.operator.drop.read',
   /**
+   * The third channel's other half, and the one that carries neither (`#737`).
+   *
+   * Named `browser.share` rather than `operator.share`, which is a decision and
+   * not an oversight: the other two are named for the *person*, because words and
+   * a secret are things only a person has. This one is named for the *thing being
+   * handed over*, because what makes it different from every other call in the
+   * Colony is that a live browser is on the end of it. A citizen looking for the
+   * channel that solves a challenge on a page looks under what it is holding.
+   *
+   * Three entries, and there is deliberately no fourth for the operator's side:
+   * the operator has a browser and a queue and no account here.
+   */
+  'kolonie.browser.share.open',
+  'kolonie.browser.share.status',
+  'kolonie.browser.share.close',
+  /**
    * Blocked by permission rather than by ability (#147) — saying so, reading the case
    * it makes, and taking one back.
    *

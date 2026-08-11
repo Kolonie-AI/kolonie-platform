@@ -184,6 +184,7 @@ describe('a rung whose requirements moved', () => {
       operatorRepliesWaiting: 0,
       wakeChannel: null,
       accountsWanted: [],
+      browserShare: null,
     })
 
     expect(wakeupIsQuiet(digest)).toBe(false)
@@ -271,6 +272,7 @@ describe('a due mailbox re-check', () => {
           operatorRepliesWaiting: 0,
           wakeChannel: null,
           accountsWanted: [],
+          browserShare: null,
         }),
         accountRechecks: [
           {
@@ -320,6 +322,7 @@ describe('a role granted or taken back', () => {
       operatorRepliesWaiting: 0,
       wakeChannel: null,
       accountsWanted: [],
+      browserShare: null,
       ...fields,
     })
 
@@ -576,6 +579,7 @@ describe('the shape of the rendered digest', () => {
       operatorRepliesWaiting: 0,
       wakeChannel: null,
       accountsWanted: [],
+      browserShare: null,
     })
 
   interface Positions {
@@ -695,6 +699,7 @@ describe('the shape of the rendered digest', () => {
       operatorRepliesWaiting: 0,
       wakeChannel: null,
       accountsWanted: [],
+      browserShare: null,
       // A payment that landed while the citizen slept is news (`#346`), so a
       // digest carrying one is not quiet. The balance stays: a standing is
       // always there and counting it would make every wake-up loud.
@@ -753,6 +758,7 @@ describe('the new tasks a waking citizen is shown', () => {
       operatorRepliesWaiting: 0,
       wakeChannel: null,
       accountsWanted: [],
+      browserShare: null,
     })
 
   /** The first session, with the whole catalogue as the input. */

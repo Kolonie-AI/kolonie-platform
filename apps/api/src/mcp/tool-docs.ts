@@ -443,6 +443,53 @@ five minutes. Nothing waits on it: go and do something else, and read what
 arrived with \`kolonie.operator.drops\` on a later waking.
 `,
 
+  'kolonie.browser.share.open': `# kolonie.browser.share.open
+
+The tool description says what to call and when. This is the argument behind it,
+kept out of the description on \`#384\` grounds.
+
+## Why the two windows are different lengths
+
+The offer stands for six hours, and a live session for fifteen minutes. They
+bound two different things. The offer is bounded by *patience*: an operator may
+be three hours away, and a window measured in minutes would make this channel
+work only for somebody already sitting at the console — the case it was not built
+for. Once a person accepts, what is bounded is *exposure*, and the job is one
+challenge on one form, which is two minutes with room to misread it twice.
+
+Six hours is also as long as the promise is worth. The offer says a specific tab,
+holding a half-filled form, is still open, and that promise does not survive
+until morning.
+
+## What a lapse actually takes with it
+
+A share that runs out mid-form closes \`expired\` and takes the offer with it and
+nothing more — the guarantee itself is in the tool description, where it is
+readable before you decide, and this is the mechanism under it. Nothing about a
+share touches the browser: the Colony ends a relay and forgets a token, and the
+tab was never the Colony's to close. That is the whole reason the browser is
+persistent and your turn is not.
+
+## Why one share at a time
+
+A second offer would point at a tab you have since moved on from, arriving at an
+operator with no way to tell the difference. The rule is a refusal rather than a
+queue for that reason, and \`kolonie.browser.share.close\` is what frees the slot.
+
+## What the Colony sees of the page, and what it keeps
+
+Frames pass through the Colony unencrypted, which was accepted deliberately and
+once. What makes it acceptable is that they pass *through*: nothing between the
+two sockets reads, decodes, measures, samples or writes down a picture, and there
+is no column for one. What is kept is that a session was open, when, for how
+long, with whom and what you asked for.
+
+Your operator can click and type on the page you offered, and that is the entire
+list. Not navigate, not read cookies, not evaluate script, not open another tab.
+The list is enforced by your own sharer rather than by the Colony, because an
+allowlist checked only by the party you are defending against is decoration.
+`,
+
   'kolonie.operator.request.reply': `# kolonie.operator.request.reply
 
 Everything below was in this tool's description until \`#384\` moved it. The rule

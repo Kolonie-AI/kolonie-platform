@@ -24,6 +24,8 @@ import { fakeOperatorRequests, type FakeOperatorRequestStore } from '../operator
 import type { OperatorRequestDependencies } from '../../operator-requests.js'
 import type { PermissionReportDependencies } from '../../permission-reports.js'
 import { fakeErasureDesk, type FakeErasureDesk } from '../erasure.js'
+import { fakeShares, type FakeShareStore } from '../browser-shares.js'
+import type { ShareDesk } from '../../browser-shares.js'
 
 /**
  * The surfaces somebody sits behind: a steward, an operator, an account holder.
@@ -75,6 +77,18 @@ export interface FakeDesks {
    */
   readonly operatorRequests: OperatorRequestDependencies
   readonly operatorRequestStore: FakeOperatorRequestStore
+  /**
+   * The third operator channel (`#737`): a live tab rather than words or a
+   * secret.
+   *
+   * One object, exposed once — unlike `support` and `erasure` there is no
+   * surface-and-desk seam here, because the prose the citizen reads is written
+   * in `browser-shares.ts` from a reason this returns rather than by a second
+   * layer a test would have to reach past. What a test writes through is the
+   * same `ShareDesk` the tools hold, plus {@link FakeShareStore.allow} for the
+   * two prerequisites.
+   */
+  readonly shares: ShareDesk & FakeShareStore
   /** The unsolicited direction (#239), over the same page store. */
   readonly operatorNotes: OperatorNoteDependencies & { readonly store: FakeOperatorNoteStore }
   readonly operatorNoteStore: FakeOperatorNoteStore
@@ -132,6 +146,7 @@ export function fakeDesks(): FakeDesks {
     operatorRequestStore: operatorRequests.store,
     operatorNotes,
     operatorNoteStore: operatorNotes.store,
+    shares: fakeShares(),
     permissionReports,
     permissionReportStore: permissionReports.store,
     erasure: erasureSurface({ desk: erasureDesk }),

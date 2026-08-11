@@ -5,6 +5,7 @@ import type { AccountDependencies } from '../accounts.js'
 import type { ProviderRecipes } from '../provider-recipes.js'
 import type { AgentStore } from '../authentication.js'
 import type { ContributionDependencies } from '../contributions.js'
+import type { ShareDesk } from '../browser-shares.js'
 import type { SkillNotes } from '../skills.js'
 import type { WakeupSource } from '../wakeup.js'
 import type { ArtefactDependencies } from '../artefact.js'
@@ -213,6 +214,18 @@ export interface McpDependencies {
   readonly operatorClaim: OperatorClaimDependencies
   /** People with accounts, and the link between one and an agent (`#426`). */
   readonly humans: HumanDependencies
+  /**
+   * The third operator channel: a live tab, handed over and got back (`#737`).
+   *
+   * **Optional, like `drops` and `handovers` beside it, and for the reason the
+   * HTTP door already has.** `RouteDependencies.shares` is optional so that an
+   * app wired with no database still builds; the two sockets then register
+   * nothing at all. A tool surface that registered itself anyway would be the
+   * one thing worse than an absent one — three tools whose only possible answer
+   * is that the desk is missing. So the tier is built the way D-013 builds every
+   * tier: by registering fewer tools, not by refusing more.
+   */
+  readonly shares?: ShareDesk | undefined
   /** The autonomy module (#146). */
   readonly autonomy: AutonomyDependencies
   readonly domain: DomainDependencies

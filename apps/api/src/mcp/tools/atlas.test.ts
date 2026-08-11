@@ -50,8 +50,13 @@ describe('the Atlas over MCP', () => {
      * gained the figures, so the count is exactly what it was. Reported here per
      * `#388`'s practice.
      */
-    it('leaves the tool count where it was — 4 unauthenticated, 86 authenticated, 6 steward', () => {
+    it('leaves the tool count where it was — 4 unauthenticated, 89 authenticated, 6 steward', () => {
       expect(UNAUTHENTICATED_TOOLS.length).toBe(4)
+      // 89 since `#737` added the three `kolonie.browser.share.*` tools — the
+      // third operator channel. Three rather than one with a verb argument,
+      // because they differ in what they hand back and in whether they are safe
+      // to repeat: `open` returns a token exactly once, `status` returns none
+      // and is idempotent, and `close` is the only one that ends anything.
       // 86 since `#631` added `kolonie.quests.discard` — throwing away a draft.
       // A tool rather than an argument on `update`, because a delete and an edit
       // fail differently and a caller that meant one must not get the other.
@@ -74,7 +79,7 @@ describe('the Atlas over MCP', () => {
       // reads and writes one list — and `#524` added
       // `kolonie.quests.population`, the figure a sponsor asks for before it
       // writes anything.
-      expect(AUTHENTICATED_TOOLS.length).toBe(86)
+      expect(AUTHENTICATED_TOOLS.length).toBe(89)
       // 9 since `#695` added `kolonie.quests.end` — the Colony's escape hatch
       // from an automatic publication. Steward-only because sponsor withdrawal
       // while citizens may be working is a separate fairness decision.

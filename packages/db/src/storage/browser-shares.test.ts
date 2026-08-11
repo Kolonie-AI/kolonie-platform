@@ -3,11 +3,20 @@ import { eq, sql } from 'drizzle-orm'
 import {
   BROWSER_SHARE_LIVE_MINUTES,
   BROWSER_SHARE_OFFER_HOURS,
+  BROWSER_SHARE_SKILL,
   type AgentId,
   type HumanId,
 } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
-import { agents, browserShares, humanAgents, humans } from '../schema/index.js'
+import {
+  agentSkills,
+  agents,
+  browserShares,
+  humanAgents,
+  humans,
+  submissions,
+  tasks,
+} from '../schema/index.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
 import {
   acceptShare,
@@ -17,6 +26,7 @@ import {
   liveShare,
   offerShare,
   shareForToken,
+  shareForWakeup,
   sharesWaitingFor,
 } from './browser-shares.js'
 
@@ -24,6 +34,9 @@ const target = databaseTestTarget()
 
 /** The one tab an offer names. A CDP target id is opaque and this one is invented. */
 const TAB = 'CDP-TARGET-0123456789ABCDEF'
+
+/** What the agent asks for, in the sentence the queue entry will show (`#737`). */
+const PURPOSE = 'Solve the image challenge and press Continue'
 
 describe('the browser share', () => {
   let db: Database
@@ -44,13 +57,66 @@ describe('the browser share', () => {
     otherAgentId = await anAgent('somebody-else')
   })
 
+  /**
+   * A citizen that can offer: it holds the rung and somebody is linked to it.
+   *
+   * Both are prerequisites of {@link offerShare} rather than of the channel
+   * (`#737`), so they are set up once here and the tests about them take them
+   * away again. A fixture that left them out would make every test in this file
+   * about the refusals instead of about what it is testing.
+   */
   const anAgent = async (name: string): Promise<AgentId> => {
     const [row] = await db
       .insert(agents)
       .values({ name, platform: 'openclaw' })
       .returning({ id: agents.id })
     if (row === undefined) throw new Error('inserting an agent returned no row')
-    return row.id as AgentId
+
+    const id = row.id as AgentId
+    await grantTheRung(id)
+    await operates(await aPerson(), id)
+    return id
+  }
+
+  /**
+   * The rung, with the passed submission `agent_skills` insists on.
+   *
+   * A skill row carries the provenance of the capability — the check constraint
+   * admits exactly one demonstrated skill and `browser-session` is not it — so a
+   * fixture that wanted the rung has to walk the whole way: a task, a passed
+   * submission against it, then the grant.
+   */
+  const grantTheRung = async (agent: AgentId): Promise<void> => {
+    const [task] = await db
+      .insert(tasks)
+      .values({
+        type: `rung-${BROWSER_SHARE_SKILL}`,
+        title: 'A rung the Academy carries',
+        description: 'What this task is.',
+        instructions: 'What the agent must do.',
+        rewardReputation: 1,
+        timeoutHours: 24,
+        status: 'active' as const,
+      })
+      .returning({ id: tasks.id })
+    if (task === undefined) throw new Error('inserting a task returned no row')
+
+    const [submission] = await db
+      .insert(submissions)
+      .values({
+        taskId: task.id,
+        agentId: agent,
+        payload: {},
+        attempt: 1,
+        status: 'passed' as const,
+        verifiedAt: sql`now()`,
+      })
+      .returning({ id: submissions.id })
+    if (submission === undefined) throw new Error('inserting a submission returned no row')
+
+    await db
+      .insert(agentSkills)
+      .values({ agentId: agent, skill: BROWSER_SHARE_SKILL, submissionId: submission.id })
   }
 
   const aPerson = async (): Promise<HumanId> => {
@@ -59,13 +125,20 @@ describe('the browser share', () => {
     return row.id as HumanId
   }
 
+  /**
+   * Hand a citizen to a person — replacing whoever held it, because
+   * `human_agents` is keyed on the agent alone and every citizen here arrives
+   * already linked. *Moving* the link is also the only way `taken` is reachable,
+   * which one test below relies on.
+   */
   const operates = async (humanId: HumanId, agent: AgentId): Promise<void> => {
+    await db.delete(humanAgents).where(eq(humanAgents.agentId, agent))
     await db.insert(humanAgents).values({ humanId, agentId: agent })
   }
 
   /** An offer, unwrapped, because every test past the first one needs its token. */
   const anOffer = async (agent: AgentId = agentId) => {
-    const offered = await offerShare(db, { agentId: agent, targetId: TAB })
+    const offered = await offerShare(db, { agentId: agent, targetId: TAB, purpose: PURPOSE })
     if (offered.outcome !== 'offered') throw new Error(`expected an offer, got ${offered.reason}`)
     return offered.share
   }
@@ -108,7 +181,7 @@ describe('the browser share', () => {
     it('refuses a second while one is still open', async () => {
       await anOffer()
 
-      expect(await offerShare(db, { agentId, targetId: 'ANOTHER-TAB' })).toEqual({
+      expect(await offerShare(db, { agentId, targetId: 'ANOTHER-TAB', purpose: PURPOSE })).toEqual({
         outcome: 'refused',
         reason: 'already-open',
       })
@@ -118,22 +191,89 @@ describe('the browser share', () => {
       const first = await anOffer()
       await closeShare(db, first.id, 'cancelled')
 
-      const second = await offerShare(db, { agentId, targetId: TAB })
+      const second = await offerShare(db, { agentId, targetId: TAB, purpose: PURPOSE })
       expect(second.outcome).toBe('offered')
     })
 
     it('does not count another citizen’s open share against this one', async () => {
       await anOffer(otherAgentId)
 
-      expect((await offerShare(db, { agentId, targetId: TAB })).outcome).toBe('offered')
+      expect((await offerShare(db, { agentId, targetId: TAB, purpose: PURPOSE })).outcome).toBe(
+        'offered',
+      )
     })
 
     it('sweeps a lapsed offer out of the way rather than blocking on it', async () => {
       const stale = await anOffer()
       await windUp(stale.id)
 
-      expect((await offerShare(db, { agentId, targetId: TAB })).outcome).toBe('offered')
+      expect((await offerShare(db, { agentId, targetId: TAB, purpose: PURPOSE })).outcome).toBe(
+        'offered',
+      )
       expect((await latestShare(db, agentId))?.state).toBe('offered')
+    })
+
+    /**
+     * Refused at the offer rather than at the acceptance nobody would make: an
+     * unlinked citizen's share would otherwise sit for six hours and close
+     * `expired`, and it would learn on its next waking that it had been waiting
+     * on nobody.
+     */
+    it('refuses a citizen nobody is linked to', async () => {
+      await db.delete(humanAgents).where(eq(humanAgents.agentId, agentId))
+
+      expect(await offerShare(db, { agentId, targetId: TAB, purpose: PURPOSE })).toEqual({
+        outcome: 'refused',
+        reason: 'no-operator',
+      })
+    })
+
+    it('refuses a citizen that does not hold the rung', async () => {
+      await db.delete(agentSkills).where(eq(agentSkills.agentId, agentId))
+
+      expect(await offerShare(db, { agentId, targetId: TAB, purpose: PURPOSE })).toEqual({
+        outcome: 'refused',
+        reason: 'no-skill',
+      })
+    })
+
+    /**
+     * Cheapest-to-fix first: an agent holding an open share is told *that*, not
+     * sent off to earn a rung it may already hold or to find an operator it may
+     * already have.
+     */
+    it('says already-open before it says anything about an operator or a rung', async () => {
+      await anOffer()
+      await db.delete(humanAgents).where(eq(humanAgents.agentId, agentId))
+      await db.delete(agentSkills).where(eq(agentSkills.agentId, agentId))
+
+      expect(await offerShare(db, { agentId, targetId: TAB, purpose: PURPOSE })).toEqual({
+        outcome: 'refused',
+        reason: 'already-open',
+      })
+    })
+
+    it('carries the agent’s sentence, and what it left out, back to the agent', async () => {
+      const placed = await offerShare(db, {
+        agentId,
+        targetId: TAB,
+        purpose: PURPOSE,
+        provider: 'mail.tm',
+        step: 3,
+      })
+      if (placed.outcome !== 'offered') throw new Error(placed.reason)
+
+      expect(await liveShare(db, agentId)).toMatchObject({
+        purpose: PURPOSE,
+        provider: 'mail.tm',
+        step: 3,
+      })
+
+      // Where a page belongs to nobody in particular and is nobody's numbered
+      // step, which is most of them: null rather than an invented placeholder.
+      await closeShare(db, placed.share.id, 'cancelled')
+      await anOffer()
+      expect(await liveShare(db, agentId)).toMatchObject({ provider: null, step: null })
     })
   })
 
@@ -268,6 +408,27 @@ describe('the browser share', () => {
       expect(waiting.map((share) => share.agentName)).toEqual(['colette', 'somebody-else'])
     })
 
+    /**
+     * The sentence travels with the entry (`#737`), because it is the only thing
+     * the person reads before deciding. A row saying *colette is stuck* asks them
+     * to open a live session to find out what for.
+     */
+    it('carries what the agent asked for into the entry', async () => {
+      const person = await aPerson()
+      await operates(person, agentId)
+      await offerShare(db, {
+        agentId,
+        targetId: TAB,
+        purpose: PURPOSE,
+        provider: 'mail.tm',
+        step: 3,
+      })
+
+      expect(await sharesWaitingFor(db, person)).toMatchObject([
+        { agentName: 'colette', purpose: PURPOSE, provider: 'mail.tm', step: 3 },
+      ])
+    })
+
     it('drops one somebody is already watching, and one that lapsed', async () => {
       const person = await aPerson()
       await operates(person, agentId)
@@ -325,6 +486,70 @@ describe('the browser share', () => {
 
     it('is quiet about an id that names nothing', async () => {
       expect(await closeShare(db, '00000000-0000-0000-0000-000000000000', 'cancelled')).toBe(false)
+    })
+  })
+
+  /**
+   * The half that makes *offer, end the turn, sleep* a real sequence rather than
+   * a slogan (`#737`): the agent that slept has to be told on waking, and it is
+   * not going to remember to ask.
+   */
+  describe('what the wake-up says about one', () => {
+    /** Long enough ago that nothing in these tests falls outside it. */
+    const anHourAgo = (): string => new Date(Date.now() - 3_600_000).toISOString()
+
+    it('reports an open offer however old it is, because it is still owed an answer', async () => {
+      const share = await anOffer()
+
+      const reported = await shareForWakeup(db, agentId, new Date().toISOString())
+      expect(reported).toMatchObject({ id: share.id, state: 'offered', purpose: PURPOSE })
+    })
+
+    it('reports one that ended inside the window', async () => {
+      const share = await anOffer()
+      await closeShare(db, share.id, 'completed')
+
+      expect(await shareForWakeup(db, agentId, anHourAgo())).toMatchObject({
+        id: share.id,
+        state: 'closed',
+        closedFor: 'completed',
+      })
+    })
+
+    /** Otherwise every waking for the rest of the agent's life reports it again. */
+    it('is silent about one that ended before the window', async () => {
+      const share = await anOffer()
+      await closeShare(db, share.id, 'completed')
+
+      expect(
+        await shareForWakeup(db, agentId, new Date(Date.now() + 1_000).toISOString()),
+      ).toBeNull()
+    })
+
+    /**
+     * The sweep runs first, so an offer nobody came to reads `expired` rather
+     * than `offered` — the agent is told it waited on nobody, which is the whole
+     * reason the field is there.
+     */
+    it('reports a lapsed offer as expired rather than as still waiting', async () => {
+      const share = await anOffer()
+      await windUp(share.id)
+
+      expect(await shareForWakeup(db, agentId, anHourAgo())).toMatchObject({
+        id: share.id,
+        state: 'closed',
+        closedFor: 'expired',
+      })
+    })
+
+    it('says nothing about a citizen that has never offered one', async () => {
+      expect(await shareForWakeup(db, otherAgentId, anHourAgo())).toBeNull()
+    })
+
+    it('says nothing about another citizen’s share', async () => {
+      await anOffer(otherAgentId)
+
+      expect(await shareForWakeup(db, agentId, anHourAgo())).toBeNull()
     })
   })
 

@@ -1,4 +1,6 @@
 import { z } from 'zod'
+import { AccountProviderSchema } from '../account/account.js'
+import { RECIPE_MAX_STEPS } from '../account/recipe.js'
 import { TimestampSchema } from '../common/time.js'
 
 /**
@@ -98,6 +100,61 @@ export function isRelayableCdpMethod(method: string): method is CdpRelayMethod {
 }
 
 /**
+ * The one skill a citizen has to hold before it may offer a share (`#737`).
+ *
+ * **`browser-session` and not `browser`**, and the difference is the whole
+ * reason there is a gate at all. What is being handed over is a *tab with state
+ * in it* — cookies, a half-filled form, a session at a third party — and the
+ * upper browser stage is the one that proves a citizen has that at all. An agent
+ * that has only ever driven a fresh headless browser has nothing an operator
+ * could usefully be handed: the person would arrive at a page the agent could
+ * have reloaded itself.
+ *
+ * It is also the cheapest honest way to keep the channel away from an agent that
+ * has not yet demonstrated it can hold a browser open across a restart, which is
+ * exactly the property `offer, end the turn, sleep` depends on.
+ */
+export const BROWSER_SHARE_SKILL = 'browser-session'
+
+/**
+ * How long the agent's sentence to its operator may be. **280 characters.**
+ *
+ * The operator opens a queue entry knowing nothing about what the agent was
+ * doing, and has to decide in a few seconds whether to spend two minutes on it.
+ * What they need is *what to do on this page*, and that is one sentence — so the
+ * bound is a sentence's worth and not a paragraph's. A field that allowed a
+ * paragraph would be filled with one, and a queue of paragraphs is a queue
+ * nobody reads.
+ */
+export const SHARE_PURPOSE_MAX_LENGTH = 280
+
+/**
+ * The sentence the agent writes for the person who will look at the page
+ * (`#737`).
+ *
+ * **Written by the agent, unlike every other operator-facing wording in the
+ * Colony.** A recipe handoff has the recipe's own sentence, precisely so that an
+ * agent cannot talk its operator into doing the whole job; there is no recipe
+ * wording for *solve whatever is in front of you*, because what is in front of
+ * it is a thing only the agent can see. So this one is the agent's, and the
+ * length is what keeps it an instruction rather than an argument.
+ *
+ * It is shown to one person — the operator who already operates this citizen —
+ * and to nobody else. Nothing aggregates it, counts it or publishes it.
+ */
+export const SharePurposeSchema = z.string().trim().min(1).max(SHARE_PURPOSE_MAX_LENGTH)
+
+/**
+ * Which step of a recipe the agent is stuck on, when it is stuck on one.
+ *
+ * Nullable, and the null case is the ordinary one: the page an agent gets stuck
+ * on is often not a step anybody wrote down. `kolonie.accounts.recipes` numbers
+ * steps from 1 and this is that number, so an operator who has walked the recipe
+ * before recognises where the agent is without reading the sentence twice.
+ */
+export const ShareStepSchema = z.int().min(1).max(RECIPE_MAX_STEPS)
+
+/**
  * How a share ended. Every share that is not still open has exactly one of
  * these, because *it stopped* without *why* is not something the agent can act
  * on.
@@ -144,6 +201,17 @@ export const ShareSummarySchema = z.object({
   state: ShareStateSchema,
   /** The CDP target the offer names. Chosen by the agent, never by the operator. */
   targetId: z.string(),
+  /**
+   * What the agent asked its operator to do, and where.
+   *
+   * Read back rather than remembered: an agent that offered a share, ended its
+   * turn and slept wakes with no memory of what it wrote, and *what did I ask
+   * for* is the first thing it needs in order to make sense of an answer. The
+   * same three fields are what the operator's queue renders (`#738`).
+   */
+  provider: AccountProviderSchema.nullable(),
+  step: ShareStepSchema.nullable(),
+  purpose: SharePurposeSchema,
   offeredAt: TimestampSchema,
   /** When the offer lapses if nobody arrives, or when the live window runs out once somebody has. */
   expiresAt: TimestampSchema,

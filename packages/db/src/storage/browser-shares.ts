@@ -1,8 +1,9 @@
 import { createHash, randomBytes } from 'node:crypto'
-import { and, eq, isNull, lte, sql, type SQL } from 'drizzle-orm'
+import { and, eq, isNull, lte, or, sql, type SQL } from 'drizzle-orm'
 import {
   BROWSER_SHARE_LIVE_MINUTES,
   BROWSER_SHARE_OFFER_HOURS,
+  BROWSER_SHARE_SKILL,
   now as currentTime,
   type AgentId,
   type HumanId,
@@ -10,6 +11,7 @@ import {
   type ShareSummary,
 } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
+import { agentSkills } from '../schema/agent-skills.js'
 import { agents } from '../schema/agents.js'
 import { browserShares } from '../schema/browser-shares.js'
 import { humanAgents } from '../schema/human-links.js'
@@ -34,6 +36,12 @@ export interface OfferShareCommand {
   readonly agentId: AgentId
   /** The CDP target the agent is stuck on. One tab, chosen here and never afterwards. */
   readonly targetId: string
+  /** The agent's own sentence about what the operator should do on the page (`#737`). */
+  readonly purpose: string
+  /** Who runs the service, where there is one to name. */
+  readonly provider?: string | null | undefined
+  /** Which numbered recipe step, where there is a recipe. */
+  readonly step?: number | null | undefined
 }
 
 export interface OfferedShare {
@@ -53,8 +61,16 @@ export interface OfferedShare {
  * refusal rather than a queue on purpose: a queued second offer would be an
  * offer against a tab the agent has since moved on from, arriving at an operator
  * who has no way to tell.
+ *
+ * `no-operator` and `no-skill` are the other two of the three the issue names,
+ * and they are decided **here rather than in the caller** (`#737`) because both
+ * are one query against state this function is already inside. The caller does
+ * the wording: a reason is an enum and a refusal is prose, and the same
+ * separation is what {@link AcceptRefusal} already relies on. What must not
+ * happen is two layers each holding half the rule, which is how they come to
+ * disagree about which half ran.
  */
-export type OfferRefusal = 'already-open'
+export type OfferRefusal = 'already-open' | 'no-operator' | 'no-skill'
 
 export type OfferShareOutcome =
   | { readonly outcome: 'offered'; readonly share: OfferedShare }
@@ -64,6 +80,11 @@ export type OfferShareOutcome =
  * Mint one share. Only ever called on an agent's own authenticated request —
  * *the agent initiates, always* is the first of the decision's five limits, and
  * there is no path in this file that creates a row for anybody else.
+ *
+ * **All three refusals are decided before the insert and in this order**:
+ * already-open, then no operator, then no skill. The order is what a citizen
+ * reads, so it runs cheapest-to-fix first — an agent with a share already open
+ * should be told that, not sent off to earn a rung it may already hold.
  */
 export async function offerShare(
   db: Database,
@@ -75,6 +96,31 @@ export async function offerShare(
   const open = await liveShare(db, command.agentId)
   if (open !== null) return { outcome: 'refused', reason: 'already-open' }
 
+  /**
+   * *Only the linked operator may accept* is checked again at acceptance, and
+   * checking it here as well is not redundancy: a share nobody could ever accept
+   * is a share that will sit for six hours and close `expired`, and the agent
+   * would learn on its next waking that it had been waiting on nobody. Refusing
+   * at the offer is the difference between a wasted six hours and a sentence.
+   */
+  const [operator] = await db
+    .select({ humanId: humanAgents.humanId })
+    .from(humanAgents)
+    .where(eq(humanAgents.agentId, command.agentId))
+    .limit(1)
+
+  if (operator === undefined) return { outcome: 'refused', reason: 'no-operator' }
+
+  const [held] = await db
+    .select({ skill: agentSkills.skill })
+    .from(agentSkills)
+    .where(
+      and(eq(agentSkills.agentId, command.agentId), eq(agentSkills.skill, BROWSER_SHARE_SKILL)),
+    )
+    .limit(1)
+
+  if (held === undefined) return { outcome: 'refused', reason: 'no-skill' }
+
   const token = randomBytes(SHARE_TOKEN_BYTES).toString('base64url')
   const expiresAt = new Date(Date.parse(at) + BROWSER_SHARE_OFFER_HOURS * 3_600_000)
 
@@ -84,6 +130,9 @@ export async function offerShare(
       agentId: command.agentId,
       tokenHash: hashToken(token),
       targetId: command.targetId,
+      purpose: command.purpose,
+      provider: command.provider ?? null,
+      step: command.step ?? null,
       expiresAt: expiresAt.toISOString(),
     })
     .returning({ id: browserShares.id, expiresAt: browserShares.expiresAt })
@@ -108,6 +157,9 @@ export async function liveShare(db: Database, agentId: AgentId): Promise<ShareSu
     .select({
       id: browserShares.id,
       targetId: browserShares.targetId,
+      purpose: browserShares.purpose,
+      provider: browserShares.provider,
+      step: browserShares.step,
       offeredAt: browserShares.offeredAt,
       expiresAt: browserShares.expiresAt,
       acceptedAt: browserShares.acceptedAt,
@@ -133,6 +185,9 @@ export async function latestShare(db: Database, agentId: AgentId): Promise<Share
     .select({
       id: browserShares.id,
       targetId: browserShares.targetId,
+      purpose: browserShares.purpose,
+      provider: browserShares.provider,
+      step: browserShares.step,
       offeredAt: browserShares.offeredAt,
       expiresAt: browserShares.expiresAt,
       acceptedAt: browserShares.acceptedAt,
@@ -141,6 +196,66 @@ export async function latestShare(db: Database, agentId: AgentId): Promise<Share
     })
     .from(browserShares)
     .where(eq(browserShares.agentId, agentId))
+    .orderBy(sql`${browserShares.offeredAt} desc`)
+    .limit(1)
+
+  return row === undefined ? null : toSummary(row)
+}
+
+/**
+ * The share a waking citizen needs to be told about, or null (`#737`).
+ *
+ * **This is the call that makes *offer, end the turn, sleep* a real sequence
+ * rather than a slogan.** An agent that offered a share and slept has no memory
+ * of having done it; if nothing greeted it on waking, the only way back to the
+ * answer would be to remember to ask, which is precisely the thing a stateless
+ * citizen cannot be relied on to do.
+ *
+ * Two kinds of share qualify, and between them they cover every outcome the
+ * agent could act on:
+ *
+ * - **Still open** — offered and waiting, or live with somebody on it. Reported
+ *   regardless of when it was offered, because an obligation does not stop being
+ *   one for being older than the window. This follows the same *standing rather
+ *   than news* rule that unread operator notes and the wake channel already
+ *   follow.
+ * - **Closed inside the window** — completed, expired, lost or cancelled since
+ *   the citizen was last here. This is the answer arriving, and it is the only
+ *   half that is bounded by `since`: a share that closed three sessions ago has
+ *   been read and does not deserve to be re-announced forever.
+ *
+ * The sweep runs first, so an offer that lapsed while the citizen was away is
+ * reported as `expired` rather than as still waiting. Nobody wakes to a promise
+ * that a tab is being watched when the six hours ran out at three in the
+ * morning.
+ */
+export async function shareForWakeup(
+  db: Database,
+  agentId: AgentId,
+  since: string,
+): Promise<ShareSummary | null> {
+  await expireStaleShares(db, currentTime())
+
+  const [row] = await db
+    .select({
+      id: browserShares.id,
+      targetId: browserShares.targetId,
+      purpose: browserShares.purpose,
+      provider: browserShares.provider,
+      step: browserShares.step,
+      offeredAt: browserShares.offeredAt,
+      expiresAt: browserShares.expiresAt,
+      acceptedAt: browserShares.acceptedAt,
+      closedAt: browserShares.closedAt,
+      closedFor: browserShares.closedFor,
+    })
+    .from(browserShares)
+    .where(
+      and(
+        eq(browserShares.agentId, agentId),
+        or(isNull(browserShares.closedAt), sql`${browserShares.closedAt} >= ${since}`),
+      ),
+    )
     .orderBy(sql`${browserShares.offeredAt} desc`)
     .limit(1)
 
@@ -336,10 +451,20 @@ export async function expireStaleShares(db: Database, at: string = currentTime()
   return rows.length
 }
 
-/** One offer waiting on one person, for the queue that shows it. */
+/**
+ * One offer waiting on one person, for the queue that shows it.
+ *
+ * The agent's sentence travels with it (`#737`), because the queue entry is the
+ * only thing the person will read before deciding: a row saying *colette is
+ * stuck* asks them to open a live session to find out what for, and a row saying
+ * what to do on the page is a two-minute job they can accept or leave.
+ */
 export interface WaitingShare {
   readonly shareId: string
   readonly agentName: string
+  readonly purpose: string
+  readonly provider: string | null
+  readonly step: number | null
   readonly offeredAt: string
   readonly expiresAt: string
 }
@@ -361,6 +486,9 @@ export async function sharesWaitingFor(
     .select({
       shareId: browserShares.id,
       agentName: agents.name,
+      purpose: browserShares.purpose,
+      provider: browserShares.provider,
+      step: browserShares.step,
       offeredAt: browserShares.offeredAt,
       expiresAt: browserShares.expiresAt,
     })
@@ -381,6 +509,9 @@ export async function sharesWaitingFor(
 interface SummaryRow {
   readonly id: string
   readonly targetId: string
+  readonly purpose: string
+  readonly provider: string | null
+  readonly step: number | null
   readonly offeredAt: string
   readonly expiresAt: string
   readonly acceptedAt: string | null
@@ -393,6 +524,9 @@ function toSummary(row: SummaryRow): ShareSummary {
     id: row.id,
     state: row.closedAt !== null ? 'closed' : row.acceptedAt !== null ? 'live' : 'offered',
     targetId: row.targetId,
+    purpose: row.purpose,
+    provider: row.provider,
+    step: row.step,
     offeredAt: toTimestamp(row.offeredAt),
     expiresAt: toTimestamp(row.expiresAt),
     acceptedAt: row.acceptedAt === null ? null : toTimestamp(row.acceptedAt),

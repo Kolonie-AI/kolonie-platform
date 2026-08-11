@@ -65,6 +65,7 @@ export function registerMcpRoutes(app: FastifyInstance, deps: RouteDependencies)
     vault,
     drops,
     handovers,
+    shares,
     dropBaseUrl,
     accounts,
     rhythm,
@@ -214,6 +215,9 @@ export function registerMcpRoutes(app: FastifyInstance, deps: RouteDependencies)
            */
           ...(drops === undefined ? {} : { drops }),
           ...(handovers === undefined ? {} : { handovers }),
+          // The third channel (`#737`), absent for the same reason the two
+          // sockets are: an app wired with no database has no desk to give.
+          ...(shares === undefined ? {} : { shares }),
           dropBaseUrl,
           accounts,
           rhythm,

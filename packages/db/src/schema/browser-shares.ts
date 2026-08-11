@@ -1,5 +1,15 @@
 import { sql } from 'drizzle-orm'
-import { check, index, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core'
+import {
+  check,
+  index,
+  integer,
+  pgTable,
+  text,
+  timestamp,
+  uniqueIndex,
+  uuid,
+} from 'drizzle-orm/pg-core'
+import { RECIPE_MAX_STEPS, SHARE_PURPOSE_MAX_LENGTH } from '@kolonie-ai/core'
 import { agents } from './agents.js'
 import { humans } from './humans.js'
 
@@ -23,9 +33,11 @@ import { humans } from './humans.js'
  * every citizen was looking at, and no amount of later care would undo the first
  * dump.
  *
- * So a row says **that** a session was open, **when**, **for how long** and
- * **with whom** — and never what was on it. That is the whole record, and it is
- * also exactly what the agent needs to read back afterwards.
+ * So a row says **that** a session was open, **when**, **for how long**, **with
+ * whom** and **what was asked for** — and never what was on it. The distinction
+ * is the one the whole channel rests on: the sentence the agent wrote is a
+ * sentence the agent wrote, and the page is the page. That is the whole record,
+ * and it is also exactly what the agent needs to read back afterwards.
  *
  * ## Why the third channel gets its own table rather than a column on the second
  *
@@ -81,6 +93,48 @@ export const browserShares = pgTable(
      * limits and this is where it is written down.
      */
     targetId: text('target_id').notNull(),
+
+    /**
+     * The one sentence the agent wrote for the person who will look at the page
+     * (`#737`).
+     *
+     * **Not null, because a share without it is a share nobody can decide
+     * about.** An operator opens a queue entry knowing only that a citizen is
+     * stuck somewhere; *what to do on this page* is the whole of what turns that
+     * into a two-minute job. The length bound is in
+     * `packages/core/src/browser/share.ts` and is a sentence's worth, checked
+     * here as well so that no writer can be the one that forgot.
+     *
+     * **It is the agent's own words, which no other operator-facing wording in
+     * the Colony is.** A recipe handoff carries the recipe's sentence precisely
+     * so an agent cannot talk its operator into doing the whole job — and there
+     * is no recipe wording for *solve whatever is in front of you*, because what
+     * is in front of it is visible only to the agent. So this one is written by
+     * the citizen, bounded rather than authored.
+     */
+    purpose: text('purpose').notNull(),
+
+    /**
+     * Who runs the service the stuck page belongs to, as the citizen names it —
+     * or null.
+     *
+     * Nullable and the null case is ordinary: an agent gets stuck on pages that
+     * are not at a provider anybody catalogued. Where it *is* one, the same
+     * vocabulary `accounts.provider` uses, so a person who has walked this
+     * signup before recognises it at a glance and the two registers group on the
+     * same token.
+     */
+    provider: text('provider'),
+
+    /**
+     * Which numbered step of that provider's recipe, when the agent is on one.
+     *
+     * Null whenever there is no recipe, which is most of the time. Deliberately
+     * **no foreign key**: a recipe is a document that gets rewritten, and a share
+     * is a thing that happened at a moment — a share pinned to a step that was
+     * later renumbered should keep saying what the agent meant when it wrote it.
+     */
+    step: integer('step'),
 
     /**
      * The person who accepted, null while the offer is still waiting.
@@ -156,6 +210,26 @@ export const browserShares = pgTable(
       'browser_shares_closed_shape',
       sql`(${table.closedAt} is null and ${table.closedFor} is null)
           or (${table.closedAt} is not null and ${table.closedFor} is not null)`,
+    ),
+
+    /**
+     * The sentence is present and is a sentence.
+     *
+     * Both halves in SQL rather than only in the request schema, because the
+     * request schema guards one door and this table will grow others: the queue
+     * (`#738`) and the `browser-captcha` rung (`#739`) both read this column and
+     * both would rather find something legible in it than discover that some
+     * writer trusted the caller.
+     */
+    check(
+      'browser_shares_purpose_length',
+      sql`char_length(btrim(${table.purpose})) between 1 and ${sql.raw(String(SHARE_PURPOSE_MAX_LENGTH))}`,
+    ),
+
+    /** A recipe step is one of the positions a recipe can actually have. */
+    check(
+      'browser_shares_step_range',
+      sql`${table.step} is null or ${table.step} between 1 and ${sql.raw(String(RECIPE_MAX_STEPS))}`,
     ),
 
     /** A share cannot have been accepted by nobody, nor by somebody at no time. */

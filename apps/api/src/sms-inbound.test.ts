@@ -2,7 +2,11 @@ import { describe, expect, it } from 'vitest'
 import type { AgentId } from '@kolonie-ai/core'
 import type { SmsMessage, SmsReceiveResult } from '@kolonie-ai/verifiers'
 import { FAKE_CITIZEN_NUMBER, FAKE_OTHER_NUMBER, fakeSmsStore } from './__fixtures__/sms.js'
-import { collectInboundSms, INBOUND_SMS_LOOKBACK_MS } from './sms-inbound.js'
+import {
+  collectInboundSms,
+  INBOUND_SMS_LOOKBACK_MS,
+  INBOUND_SMS_UNAVAILABLE_RUN,
+} from './sms-inbound.js'
 
 /**
  * `#690`: the badge's inbound half, which did not exist.
@@ -15,16 +19,23 @@ const AGENT = '00000000-0000-4000-8000-0000000000aa' as AgentId
 
 function silentLog(): {
   readonly info: (message: string, fields?: Record<string, unknown>) => void
+  readonly warn: (message: string, fields?: Record<string, unknown>) => void
   readonly error: (message: string, detail?: unknown, fields?: Record<string, unknown>) => void
   readonly errors: () => readonly { message: string; fields?: Record<string, unknown> }[]
+  readonly warnings: () => readonly { message: string; fields?: Record<string, unknown> }[]
 } {
   const errors: { message: string; fields?: Record<string, unknown> }[] = []
+  const warnings: { message: string; fields?: Record<string, unknown> }[] = []
   return {
     info: () => undefined,
+    warn: (message, fields) => {
+      warnings.push({ message, ...(fields === undefined ? {} : { fields }) })
+    },
     error: (message, _detail, fields) => {
       errors.push({ message, ...(fields === undefined ? {} : { fields }) })
     },
     errors: () => errors,
+    warnings: () => warnings,
   }
 }
 
@@ -71,7 +82,7 @@ describe('collectInboundSms', () => {
       log,
     })
 
-    expect(pass).toEqual({ outcome: 'read', read: 1, matched: 1 })
+    expect(pass).toEqual({ outcome: 'read', read: 1, matched: 1, unavailableRun: 0 })
     expect((await challenges.latest(AGENT, 'send'))?.verifiedAt).not.toBeNull()
   })
 
@@ -141,9 +152,71 @@ describe('collectInboundSms', () => {
       log,
     })
 
-    expect(pass).toEqual({ outcome: 'unavailable', read: 0, matched: 0 })
+    expect(pass).toEqual({ outcome: 'unavailable', read: 0, matched: 0, unavailableRun: 1 })
+    expect(log.warnings()).toHaveLength(1)
+    expect(log.warnings()[0]?.fields?.['event']).toBe('sms.inbound.unavailable')
+  })
+
+  /**
+   * `#733`: the level is a trigger and not a severity. One failed `fetch` filed a
+   * GitHub issue and had a model write a paragraph about it, on a poll that runs
+   * 1440 times a day — so the first pass says it at `warn` and only a run says it
+   * at `error`.
+   */
+  it('says a single unreachable pass quietly and does not file it as an error', async () => {
+    const log = silentLog()
+
+    await collectInboundSms(
+      {
+        adapter: adapterReturning({
+          outcome: 'unavailable',
+          reason: 'Twilio could not be reached: fetch failed',
+        }),
+        challenges: fakeSmsStore(),
+        log,
+      },
+      INBOUND_SMS_UNAVAILABLE_RUN - 2,
+    )
+
+    expect(log.errors()).toEqual([])
+    expect(log.warnings()[0]?.fields?.['consecutive']).toBe(INBOUND_SMS_UNAVAILABLE_RUN - 1)
+  })
+
+  it('raises the run to an error once the vendor has been unreachable long enough', async () => {
+    const log = silentLog()
+
+    const pass = await collectInboundSms(
+      {
+        adapter: adapterReturning({ outcome: 'unavailable', reason: 'Twilio answered 503.' }),
+        challenges: fakeSmsStore(),
+        log,
+      },
+      INBOUND_SMS_UNAVAILABLE_RUN - 1,
+    )
+
+    expect(pass.unavailableRun).toBe(INBOUND_SMS_UNAVAILABLE_RUN)
+    expect(log.warnings()).toEqual([])
     expect(log.errors()).toHaveLength(1)
     expect(log.errors()[0]?.fields?.['event']).toBe('sms.inbound.unavailable')
+    expect(log.errors()[0]?.fields?.['consecutive']).toBe(INBOUND_SMS_UNAVAILABLE_RUN)
+  })
+
+  /**
+   * The half that makes the run mean anything: a pass that read clears it, so an
+   * outage has to be continuous to reach the threshold rather than merely
+   * frequent.
+   */
+  it('clears the run on any pass that reached the vendor', async () => {
+    const pass = await collectInboundSms(
+      {
+        adapter: adapterReturning({ outcome: 'ok', messages: [] }),
+        challenges: fakeSmsStore(),
+        log: silentLog(),
+      },
+      INBOUND_SMS_UNAVAILABLE_RUN - 1,
+    )
+
+    expect(pass.unavailableRun).toBe(0)
   })
 
   it('carries on past a message it could not record', async () => {
@@ -165,7 +238,7 @@ describe('collectInboundSms', () => {
       log,
     })
 
-    expect(pass).toEqual({ outcome: 'read', read: 2, matched: 1 })
+    expect(pass).toEqual({ outcome: 'read', read: 2, matched: 1, unavailableRun: 0 })
     expect(log.errors()[0]?.fields?.['vendorId']).toBe('SM-broken')
   })
 
@@ -179,7 +252,7 @@ describe('collectInboundSms', () => {
       log: silentLog(),
     })
 
-    expect(pass).toEqual({ outcome: 'read', read: 1, matched: 0 })
+    expect(pass).toEqual({ outcome: 'read', read: 1, matched: 0, unavailableRun: 0 })
     expect((await challenges.latest(AGENT, 'send'))?.verifiedAt).toBeNull()
   })
 })

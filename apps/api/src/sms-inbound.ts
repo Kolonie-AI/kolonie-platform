@@ -59,9 +59,31 @@ export const INBOUND_SMS_LOOKBACK_MS = SMS_CHALLENGE_LIFETIME_MS
  */
 export const INBOUND_SMS_POLL_INTERVAL_MS = 60_000
 
+/**
+ * How many passes in a row have to fail to reach the vendor before the Colony
+ * calls it an outage rather than a blip (`#733`).
+ *
+ * **The level is the whole of this**, because `error` is not a severity here, it
+ * is a trigger: the log detector in `apps/support-triage-runner` queries
+ * `level="error"` and files one GitHub issue per signature. A single failed
+ * `fetch` is therefore an issue in somebody's queue, and a poll that runs 1440
+ * times a day will produce one — `#733` is exactly that, one line, one
+ * occurrence, filed and triaged by a model for a network hiccup that had already
+ * healed by the next minute.
+ *
+ * Five passes is five minutes, which no transient failure survives and which is
+ * still nothing against a three-day challenge lifetime — so the issue is filed
+ * while there are days left to act on it, rather than after the citizens it
+ * affects have expired. Below the threshold the line is still written, at `warn`,
+ * so a run of near-misses is readable in Loki by anyone who goes looking; what
+ * changes is only whether it wakes a person.
+ */
+export const INBOUND_SMS_UNAVAILABLE_RUN = 5
+
 /** The narrow log shape, matching the runners'. */
 export interface InboundSmsLog {
   info(message: string, fields?: Record<string, unknown>): void
+  warn(message: string, fields?: Record<string, unknown>): void
   error(message: string, detail?: unknown, fields?: Record<string, unknown>): void
 }
 
@@ -82,6 +104,13 @@ export interface InboundSmsPass {
   readonly outcome: 'read' | 'unavailable'
   readonly read: number
   readonly matched: number
+  /**
+   * How many passes in a row have now failed to reach the vendor, `0` after any
+   * pass that read. Returned rather than kept here because a pass is a pass and
+   * the run belongs to whoever is repeating it — `startInboundSmsPolling` carries
+   * it between passes, and a test drives it by hand.
+   */
+  readonly unavailableRun: number
 }
 
 /**
@@ -90,25 +119,43 @@ export interface InboundSmsPass {
  * Separated from the timer so it is reachable in a test without starting a
  * process, the same arrangement all four runners use.
  */
-export async function collectInboundSms(deps: InboundSmsDependencies): Promise<InboundSmsPass> {
+export async function collectInboundSms(
+  deps: InboundSmsDependencies,
+  unavailableRun = 0,
+): Promise<InboundSmsPass> {
   const at = deps.clock?.() ?? Date.now()
   const since = new Date(at - (deps.lookbackMs ?? INBOUND_SMS_LOOKBACK_MS))
 
   const answer = await deps.adapter.received(since)
 
   /**
-   * Logged as an error rather than passed over, because the two answers this
-   * distinguishes mean opposite things and only one of them is quiet on purpose.
-   * A vendor the Colony cannot reach leaves citizens deferring at a rung they
-   * have passed — which is exactly what `#690` looked like from the outside, and
-   * the reason it took a code read rather than a log read to find.
+   * Logged rather than passed over, because the two answers this distinguishes
+   * mean opposite things and only one of them is quiet on purpose. A vendor the
+   * Colony cannot reach leaves citizens deferring at a rung they have passed —
+   * which is exactly what `#690` looked like from the outside, and the reason it
+   * took a code read rather than a log read to find.
+   *
+   * **The run decides the level, not the failure** (`#733`): see
+   * `INBOUND_SMS_UNAVAILABLE_RUN`. One unreachable pass is a hiccup and is
+   * written at `warn`; a run of them is an outage and is written at `error`,
+   * which is what files the issue.
    */
   if (answer.outcome === 'unavailable') {
-    deps.log.error('inbound SMS could not be read', undefined, {
+    const run = unavailableRun + 1
+    const fields = {
       event: 'sms.inbound.unavailable',
       reason: answer.reason,
-    })
-    return { outcome: 'unavailable', read: 0, matched: 0 }
+      // So the line says which of the two it is without anyone counting lines.
+      consecutive: run,
+    }
+
+    if (run >= INBOUND_SMS_UNAVAILABLE_RUN) {
+      deps.log.error('inbound SMS could not be read', undefined, fields)
+    } else {
+      deps.log.warn('inbound SMS could not be read on this pass', fields)
+    }
+
+    return { outcome: 'unavailable', read: 0, matched: 0, unavailableRun: run }
   }
 
   let matched = 0
@@ -155,7 +202,7 @@ export async function collectInboundSms(deps: InboundSmsDependencies): Promise<I
     }
   }
 
-  return { outcome: 'read', read: answer.messages.length, matched }
+  return { outcome: 'read', read: answer.messages.length, matched, unavailableRun: 0 }
 }
 
 /**
@@ -170,10 +217,19 @@ export function startInboundSmsPolling(
   deps: InboundSmsDependencies,
   intervalMs: number = INBOUND_SMS_POLL_INTERVAL_MS,
 ): NodeJS.Timeout {
+  // The run of unreachable passes, which is the one thing that has to survive
+  // between them (`#733`). It lives here rather than in `collectInboundSms`
+  // because a single pass genuinely cannot tell an outage from a hiccup.
+  let unavailableRun = 0
+
   const pass = (): void => {
-    void collectInboundSms(deps).catch((thrown: unknown) => {
-      deps.log.error('inbound SMS pass failed', thrown, { event: 'sms.inbound.pass.failed' })
-    })
+    void collectInboundSms(deps, unavailableRun)
+      .then((result) => {
+        unavailableRun = result.unavailableRun
+      })
+      .catch((thrown: unknown) => {
+        deps.log.error('inbound SMS pass failed', thrown, { event: 'sms.inbound.pass.failed' })
+      })
   }
 
   pass()

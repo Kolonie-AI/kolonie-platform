@@ -1,6 +1,7 @@
 import { silentLog, type Log, type SupportTicket, type SupportTicketId } from '@kolonie-ai/core'
 import type { Issues, KnownIssue } from './github.js'
 import { watchLogs, type WatchDependencies } from './watch.js'
+import { watchDebt, type DebtWatchDependencies } from './debt.js'
 import {
   closingNote,
   filing,
@@ -62,6 +63,16 @@ export interface LoopDependencies {
    * this loop now does two jobs and says so.
    */
   readonly watch?: WatchDependencies | undefined
+  /**
+   * The third source: money the Colony owes and has not paid (`#720`).
+   *
+   * **Optional on the same terms as `watch`, and for a different reason.** That
+   * one is optional because a deployment may have no log store; this one is
+   * optional because a deployment may have no wallet, and a Colony that cannot
+   * pay anybody has no debt to watch. Both share the one GitHub App, which is
+   * still the argument against a fourth runner.
+   */
+  readonly debt?: DebtWatchDependencies | undefined
 }
 
 /**
@@ -383,6 +394,30 @@ export async function tick(deps: LoopDependencies, batchSize: number): Promise<T
     } catch (error) {
       log.error('the log pass failed; tickets are unaffected', error, {
         event: 'defects.pass.failed',
+      })
+    }
+  }
+
+  /**
+   * The debt pass, beside the log pass and caught the same way (`#720`).
+   *
+   * **Its own `try` rather than sharing the one above**, on that block's own
+   * argument: three jobs in one process are three jobs, and an unreachable log
+   * store must not take the money alarm down with it. It is one query and a
+   * board read, so it costs nothing to run on a tick that has no tickets.
+   */
+  if (deps.debt !== undefined) {
+    try {
+      const found = await watchDebt(deps.debt)
+      if (found.skipped === undefined && found.action !== 'quiet') {
+        log.info(`debt pass: ${found.action}, ${found.count} unpaid, ${found.lamports} lamports`, {
+          event: 'debt.pass.done',
+          ...found,
+        })
+      }
+    } catch (error) {
+      log.error('the debt pass failed; tickets and logs are unaffected', error, {
+        event: 'debt.pass.failed',
       })
     }
   }

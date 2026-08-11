@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ClosedIssue, Issues, KnownIssue, NewIssue } from './github.js'
 import type { DefectWriter } from './llm.js'
 import type { DefectEvidence, LogSignature, Logs } from './logs.js'
@@ -44,16 +44,23 @@ function fakeLogs(signatures: readonly LogSignature[], over: Partial<Logs> = {})
 
 type Filed = { issue: NewIssue }
 
-function fakeIssues(
-  over: Partial<Issues> = {},
-): Issues & { filed: () => readonly Filed[]; comments: () => readonly string[] } {
+function fakeIssues(over: Partial<Issues> = {}): Issues & {
+  filed: () => readonly Filed[]
+  comments: () => readonly string[]
+  closes: () => readonly string[]
+} {
   const filed: Filed[] = []
   const comments: string[] = []
+  const closes: string[] = []
 
   return {
     available: true,
     open: async () => [],
     closed: async () => [],
+    close: async (url) => {
+      closes.push(url)
+      return true
+    },
     create: async (issue) => {
       filed.push({ issue })
       return `https://github.com/${issue.repository}/issues/${filed.length}`
@@ -65,6 +72,7 @@ function fakeIssues(
     ...over,
     filed: () => filed,
     comments: () => comments,
+    closes: () => closes,
   }
 }
 
@@ -367,10 +375,49 @@ describe('the log defect detector', () => {
     expect(body).toContain('ZodError')
   })
 
-  it('never closes anything, because there is no way to', () => {
-    // Asserted on the seam rather than on behaviour: `Issues` has no `close`,
-    // so the runner could not close an issue if a later hand wanted it to.
-    expect(Object.keys(issues)).not.toContain('close')
+  /**
+   * **This used to be asserted on the seam** — `Issues` had no `close`, so the
+   * runner could not close an issue if a later hand wanted it to. `#720` gave the
+   * seam a `close` for the debt watcher, whose condition is a measurement with a
+   * precise end, so the structural guarantee is gone and this has to carry the
+   * rule instead.
+   *
+   * **Every branch, not one.** A test that only exercised the ordinary pass would
+   * leave the three interesting paths — a first filing, a recurrence comment, a
+   * regression against a closed issue — free to acquire a `close` unnoticed,
+   * which is exactly the shape of change this guards against.
+   */
+  it('never closes anything, in any branch it has', async () => {
+    const anOpenIssue: KnownIssue = {
+      repository: 'Kolonie-AI/kolonie-platform',
+      number: 1,
+      title: 'api/poll.failed — something',
+      body: bodyMarker('api/poll.failed'),
+      url: 'https://github.com/Kolonie-AI/kolonie-platform/issues/1',
+    }
+
+    const branches = [
+      { what: 'a signature nothing knows', logs: [aSignature()], open: [] as KnownIssue[] },
+      { what: 'a signature with an open issue', logs: [aSignature()], open: [anOpenIssue] },
+      { what: 'nothing in the window at all', logs: [], open: [] as KnownIssue[] },
+    ]
+
+    for (const branch of branches) {
+      const close = vi.fn(async () => true)
+
+      await watchLogs({
+        logs: fakeLogs(branch.logs),
+        issues: fakeIssues({ open: async () => branch.open, close }),
+        store: fakeStore(),
+        writer: {
+          available: true,
+          describe: async () => ({ summary: 'A failure', reading: 'Look here first.' }),
+        },
+        now: () => NOW,
+      })
+
+      expect(close, branch.what).not.toHaveBeenCalled()
+    }
   })
 })
 

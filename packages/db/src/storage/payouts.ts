@@ -402,6 +402,94 @@ export interface StuckPayout {
  * Most-attempted first, because the worst one is the one worth reading if only
  * one is read.
  */
+/**
+ * What the Colony owes and has not discharged, as one condition (`#720`).
+ *
+ * **The gap the float watcher was right to be silent about.** `floatShort`
+ * answers *can the Colony pay*; on 2026-08-11 it was false, the wallet held
+ * 0.095 SOL, and two obligations had been refused two hundred and ten times
+ * between them. Nothing was watching whether the Colony *had* paid. Those two
+ * questions came apart the first time real money went through a quest.
+ *
+ * **One row for the condition, never one per obligation.** The counts and the
+ * total are what say how bad it is; the distinct refusals are what say **whose
+ * it is to fix** — `float-exhausted` is the Colony's, `no-verified-address` is
+ * the citizen's, and `accruing-below-chain-minimum` is a pricing decision made
+ * before the quest was published. That is why they are carried separately rather
+ * than summed.
+ *
+ * **Older than a threshold, and the threshold is the caller's.** An obligation
+ * written a minute ago has not failed to be paid, it has not been tried. A day
+ * is the obvious figure — the reconciler runs every quarter of an hour — and it
+ * is a parameter because the right number is a judgement and not a fact.
+ *
+ * Unpaid and unforfeited: a forfeited amount went to the Treasury under
+ * `erasure.md` and is nobody's debt.
+ */
+export interface OutstandingDebt {
+  /** How many obligations are past the threshold. Zero means there is no condition. */
+  readonly count: number
+  /** What they come to, in lamports. */
+  readonly lamports: number
+  /**
+   * Each distinct `last_refusal`, with its count and total, most owed first.
+   *
+   * `null` is a real key here and is not an absence of information: an
+   * obligation past the threshold that has never been attempted is a reconciler
+   * that is not running, which is a different alarm from any of the refusals and
+   * would otherwise be invisible inside the total.
+   */
+  readonly refusals: readonly {
+    readonly refusal: PayoutRefusal | null
+    readonly count: number
+    readonly lamports: number
+  }[]
+  /** When the oldest of them was written, or `null` when there is no condition. */
+  readonly oldestSince: string | null
+}
+
+export async function outstandingDebt(
+  db: Database,
+  olderThanHours: number,
+): Promise<OutstandingDebt> {
+  const rows = await db
+    .select({
+      refusal: payoutObligations.lastRefusal,
+      count: sql<number>`count(*)::int`,
+      lamports: sql<number>`coalesce(sum(${payoutObligations.lamports}), 0)::bigint::int`,
+      oldest: sql<string>`min(${payoutObligations.createdAt})`,
+    })
+    .from(payoutObligations)
+    .where(
+      and(
+        isNull(payoutObligations.paidAt),
+        isNull(payoutObligations.forfeitedAt),
+        sql`${payoutObligations.createdAt} < now() - make_interval(hours => ${olderThanHours})`,
+      ),
+    )
+    .groupBy(payoutObligations.lastRefusal)
+
+  const refusals = rows
+    .map((row) => ({
+      refusal: PayoutRefusalSchema.nullable().parse(row.refusal),
+      count: row.count,
+      lamports: row.lamports,
+    }))
+    .sort((a, b) => b.lamports - a.lamports)
+
+  const oldest = rows
+    .map((row) => row.oldest)
+    .filter((at): at is string => at !== null)
+    .sort()[0]
+
+  return {
+    count: refusals.reduce((total, row) => total + row.count, 0),
+    lamports: refusals.reduce((total, row) => total + row.lamports, 0),
+    refusals,
+    oldestSince: oldest ?? null,
+  }
+}
+
 export async function stuckPayouts(
   db: Database,
   minAttempts: number,

@@ -59,6 +59,9 @@ function fakeIssues(overrides: Partial<Issues> = {}) {
     available: true,
     open: async () => [],
     closed: async () => [],
+    // The debt watcher's, and never the log detector's: that one closes nothing
+    // on purpose (`#720`).
+    close: async () => true,
     create: async (issue) => {
       created.push(issue)
       return `https://github.com/${issue.repository}/issues/${900 + created.length}`

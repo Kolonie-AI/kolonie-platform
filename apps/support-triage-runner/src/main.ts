@@ -19,6 +19,7 @@ import {
   recordDefectComment,
   recordDefectIssue,
   recordSeenDefects,
+  outstandingDebt,
 } from '@kolonie-ai/db'
 import { startRunner, type Log, type TriageStore } from './loop.js'
 import {
@@ -31,6 +32,7 @@ import {
 import { APP_ID_VAR, APP_KEY_PATH_VAR, githubIssues, noIssues } from './github.js'
 import { LOKI_TOKEN_VAR, LOKI_URL_VAR, LOKI_USER_VAR, lokiLogs, noLogs } from './logs.js'
 import type { DefectStore } from './watch.js'
+import { DEBT_THRESHOLD_HOURS } from './debt.js'
 import { createHealthServer, STALE_POLLS } from './health.js'
 
 /**
@@ -212,6 +214,15 @@ const runner = startRunner(
       // degradation and not a stop: an issue is complete without a reading.
       writer: apiKey === '' ? noDefectWriter : openRouterDefectWriter(apiKey, { log }),
       log,
+    },
+    /**
+     * The money alarm (`#720`). One query against the same connection the queue
+     * uses, and the same App — nothing new is configured for it, which is why it
+     * is unconditional where `watch` is not.
+     */
+    debt: {
+      issues,
+      measure: () => outstandingDebt(db, DEBT_THRESHOLD_HOURS),
     },
   },
   { pollIntervalMs: POLL_INTERVAL_MS },

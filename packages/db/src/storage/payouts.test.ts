@@ -1,9 +1,10 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { PAYOUT_STUCK_AFTER_ATTEMPTS, type AgentId, type TaskId } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
+import { sql } from 'drizzle-orm'
 import { agents, payoutObligations, submissions, tasks } from '../schema/index.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
-import { earningsFor, stuckPayouts } from './payouts.js'
+import { earningsFor, outstandingDebt, stuckPayouts } from './payouts.js'
 
 const target = databaseTestTarget()
 
@@ -195,6 +196,78 @@ describe('reading what the Colony owes', () => {
       await anObligation()
 
       expect(await stuckPayouts(db, PAYOUT_STUCK_AFTER_ATTEMPTS)).toEqual([])
+    })
+  })
+
+  /**
+   * `#720`. The float watcher answers *can the Colony pay* and was silent — and
+   * right to be — while two obligations stood unpaid for two days. This answers
+   * *has it paid*.
+   */
+  describe('what the Colony owes and has not discharged', () => {
+    /** Written before the threshold, so it counts as a condition rather than a queue. */
+    const anOldObligation = async (
+      values: Partial<typeof payoutObligations.$inferInsert> = {},
+    ): Promise<void> => {
+      await anObligation(values)
+      await db
+        .update(payoutObligations)
+        .set({ createdAt: sql`now() - interval '3 days'` })
+        .where(
+          sql`${payoutObligations.paidAt} is null and ${payoutObligations.createdAt} > now() - interval '1 day'`,
+        )
+    }
+
+    it('is silent when nothing is outstanding', async () => {
+      expect(await outstandingDebt(db, 24)).toMatchObject({ count: 0, lamports: 0, refusals: [] })
+    })
+
+    /**
+     * The whole reason for the threshold: an obligation written a minute ago has
+     * not failed to be paid, it has not been tried.
+     */
+    it('says nothing about a debt younger than the threshold', async () => {
+      await anObligation({ lastRefusal: 'no-verified-address' })
+
+      expect((await outstandingDebt(db, 24)).count).toBe(0)
+    })
+
+    it('counts and totals what has stood past it, grouped by refusal', async () => {
+      await anOldObligation({ lamports: 750_000, lastRefusal: 'no-verified-address' })
+      await anOldObligation({ lamports: 375_000, lastRefusal: 'accruing-below-chain-minimum' })
+
+      const debt = await outstandingDebt(db, 24)
+
+      expect(debt.count).toBe(2)
+      expect(debt.lamports).toBe(1_125_000)
+      // Most owed first: which refusal carries the money is what decides who
+      // reads the issue.
+      expect(debt.refusals).toEqual([
+        { refusal: 'no-verified-address', count: 1, lamports: 750_000 },
+        { refusal: 'accruing-below-chain-minimum', count: 1, lamports: 375_000 },
+      ])
+      expect(debt.oldestSince).not.toBeNull()
+    })
+
+    /** A forfeited amount went to the Treasury under `erasure.md` and is nobody's debt. */
+    it('excludes what was paid and what was forfeited', async () => {
+      await anOldObligation({ paidAt: new Date().toISOString(), signature: 'a-signature' })
+      await anOldObligation({ forfeitedAt: new Date().toISOString() })
+
+      expect((await outstandingDebt(db, 24)).count).toBe(0)
+    })
+
+    /**
+     * A null refusal is a real key rather than missing information: an old
+     * obligation nothing has ever attempted is a reconciler that is not running,
+     * which no refusal would name and which would otherwise vanish into the total.
+     */
+    it('keeps a never-attempted obligation as its own row', async () => {
+      await anOldObligation()
+
+      expect((await outstandingDebt(db, 24)).refusals).toEqual([
+        { refusal: null, count: 1, lamports: 1_500_000 },
+      ])
     })
   })
 })

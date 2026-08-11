@@ -151,6 +151,21 @@ export interface Issues {
   create(issue: NewIssue): Promise<string | null>
   /** Say on an existing issue that another citizen reported the same thing. */
   comment(url: string, body: string): Promise<boolean>
+  /**
+   * Close one, saying why (`#720`).
+   *
+   * **The log detector must never call this and does not**, and the rule it
+   * follows is unchanged: whether a defect in the logs is dealt with is a
+   * person's call, because a model's reading of an error is a finding rather
+   * than a measurement. What may close itself is an alarm whose **condition** is
+   * measured and has a precise end — the shape Health Watch already has in
+   * `kolonie-infra`, where an issue about unhealthy containers closes when the
+   * host reports every container healthy again.
+   *
+   * The comment goes first and the close second, so an issue never ends without
+   * saying what ended it.
+   */
+  close(url: string, comment: string): Promise<boolean>
 }
 
 /** An `Issues` that reads nothing and writes nothing, for a runner with no App. */
@@ -163,6 +178,7 @@ export const noIssues: Issues = {
   closed: async () => [],
   create: async () => null,
   comment: async () => false,
+  close: async () => false,
 }
 
 /**
@@ -487,16 +503,14 @@ export function githubIssues(options: GitHubOptions): Issues {
       const headers = await authed()
       if (headers === undefined) return false
 
-      // The issue's API address, derived from its web address rather than stored.
-      // The corpus carries html_url because that is what a citizen can open.
-      const match = /github\.com\/([^/]+)\/([^/]+)\/issues\/(\d+)/.exec(url)
-      if (match === null) return false
-      const [, owner, repo, number] = match
+      const at = issueApiPath(url)
+      if (at === undefined) return false
 
-      const response = await doFetch(
-        `https://api.github.com/repos/${owner}/${repo}/issues/${number}/comments`,
-        { method: 'POST', headers, body: JSON.stringify({ body }) },
-      )
+      const response = await doFetch(`${at}/comments`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ body }),
+      })
       if (!response.ok)
         log.warn(`could not comment on ${url}: ${response.status}`, {
           event: 'github.comment.failed',
@@ -505,7 +519,63 @@ export function githubIssues(options: GitHubOptions): Issues {
         })
       return response.ok
     },
+
+    close: async (url, body) => {
+      const headers = await authed()
+      if (headers === undefined) return false
+
+      const at = issueApiPath(url)
+      if (at === undefined) return false
+
+      /**
+       * **The comment first, and the close only if it landed.** An issue that
+       * closes without saying what ended it is an issue whose reader has to
+       * guess, and the guess a person makes about a machine-closed alarm is that
+       * somebody closed it by hand. Failing the other way round costs a comment
+       * on a still-open issue, which the next pass simply supersedes.
+       */
+      const said = await doFetch(`${at}/comments`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ body }),
+      })
+      if (!said.ok) {
+        log.warn(`could not say why ${url} is being closed: ${said.status}`, {
+          event: 'github.close.comment.failed',
+          url,
+          status: said.status,
+        })
+        return false
+      }
+
+      const response = await doFetch(at, {
+        method: 'PATCH',
+        headers,
+        body: JSON.stringify({ state: 'closed', state_reason: 'completed' }),
+      })
+      if (!response.ok)
+        log.warn(`could not close ${url}: ${response.status}`, {
+          event: 'github.close.failed',
+          url,
+          status: response.status,
+        })
+      return response.ok
+    },
   }
+}
+
+/**
+ * An issue's API address, derived from its web address rather than stored.
+ *
+ * The corpus carries `html_url` because that is what a citizen can open.
+ * `undefined` for anything that is not one, which is how a malformed URL becomes
+ * a refusal to act rather than a request to a guessed path.
+ */
+function issueApiPath(url: string): string | undefined {
+  const match = /github\.com\/([^/]+)\/([^/]+)\/issues\/(\d+)/.exec(url)
+  if (match === null) return undefined
+  const [, owner, repo, number] = match
+  return `https://api.github.com/repos/${owner}/${repo}/issues/${number}`
 }
 
 /**

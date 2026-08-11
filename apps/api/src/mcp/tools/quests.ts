@@ -222,9 +222,9 @@ export function registerQuestTools(
        *   submission rather than silently repriced. The sentence saying the
        *   ceiling belongs to the tier and not to you **stays**: that is what a
        *   sponsor weighs before drafting at all.
-       * - **The worked example** — *twenty slots that fill six times cost you
-       *   six*. The guarantee it illustrates, *unfilled slots are refunded*,
-       *   stays and is asserted by `choice-time-descriptions.test.ts`.
+       * - **The sizing consequence** — unfilled capacity is still a purchase.
+       *   The guarantee stays and is asserted by
+       *   `choice-time-descriptions.test.ts`.
        * - **Why a published quest cannot be edited** — two cohorts answering
        *   two questions being indistinguishable afterwards. The rule stays; the
        *   reasoning is read by somebody who disagrees with it, which is the
@@ -249,8 +249,9 @@ export function registerQuestTools(
         'verifier proves control of — a mailbox, a handle, a domain, a website, a wallet — ' +
         'marked `provenBy` and carrying the matching `format`. A quest asking about a deed the ' +
         'verifier cannot see is priced on what its questions state, not on the stage it named. ' +
-        '**Size it knowing that unfilled slots are refunded**: the whole cost is held while ' +
-        'the quest runs, and whatever the answers did not use comes back to you. ' +
+        '**Size it knowing that unfilled capacity is still a purchase**: nothing here is ' +
+        'refundable, publishing is the purchase, and capacity nobody fills is not returned at ' +
+        'expiry. ' +
         'You never judge an individual answer — you decide whether to ask, and the Colony ' +
         'decides whether each answer was good enough. **Once published a quest cannot be ' +
         'edited**, so a change is a new quest. ' +
@@ -439,8 +440,8 @@ export function registerQuestTools(
         'quest that ends tomorrow are places nobody has time to fill, and the answer says how ' +
         'many hours are left. ' +
         'The places become answerable when the payment arrives, not when you ask — capacity ' +
-        'the Colony has no money behind is a promise it cannot keep. Unused places are ' +
-        'refunded at expiry exactly as the first batch is.',
+        'the Colony has no money behind is a promise it cannot keep. Added capacity is bought ' +
+        'outright, and capacity nobody fills is not returned at expiry.',
       inputSchema: { questId, ...QuestTopUpSchema.shape },
       annotations: { readOnlyHint: false, idempotentHint: false, openWorldHint: false },
     },
@@ -511,7 +512,7 @@ export function registerQuestTools(
         '**There is no completion event to wait for**: answers appear as they are accepted, ' +
         'which is what lets you read the first few and judge whether the question was any ' +
         'good. **You never learn who wrote what.** A quest with no claims and several ' +
-        '`unclear` reports is a diagnosis worth having before the refund rather than after it.',
+        '`unclear` reports is a diagnosis worth having while there is still time to act on it.',
       inputSchema: { questId },
       annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
     },

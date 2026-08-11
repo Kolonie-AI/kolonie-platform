@@ -65,6 +65,21 @@ const structured = (result: Awaited<ReturnType<typeof call>>) =>
   result.structuredContent as Record<string, never>
 
 describe('the sponsor over MCP', () => {
+  it('does not offer a refund in any quest tool description', async () => {
+    const { client, close } = await connectedClient(colony(), `Bearer ${anAgent().key}`)
+    const { tools } = await client.listTools()
+    await close()
+
+    const descriptions = tools
+      .filter((tool) => tool.name.startsWith('kolonie.quests.'))
+      .map((tool) => tool.description ?? '')
+
+    expect(descriptions).not.toHaveLength(0)
+    for (const description of descriptions) {
+      expect(description).not.toMatch(/\b(?:is|are|be|been) refunded\b|\brefunded at\b/i)
+    }
+  })
+
   it('describes submission without the deleted funding mechanism', async () => {
     const sponsor = anAgent()
     const { client, close } = await connectedClient(colony(), `Bearer ${sponsor.key}`)

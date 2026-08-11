@@ -429,7 +429,7 @@ export function questFormPage(input: {
       `<p class="note">Left unticked: ${escape(obstacleNote(true))}</p>`,
       // What it costs is stated here rather than only on the draft page, because
       // this is the checkbox that decides whether the pool is held at all (#371).
-      '<p class="note">The first three published accounts are paid half of what one answer pays, on top of the capacity you bought rather than out of it. Whatever is not earned is refunded with the rest.</p></fieldset>',
+      '<p class="note">The first three published accounts are paid half of what one answer pays, on top of the capacity you bought rather than out of it. Nothing here is refundable, including bonuses nobody earns.</p></fieldset>',
       `<fieldset><legend>Proof</legend><select id="proofVerifier" name="proofVerifier">${proofs}</select>`,
       `<p class="note">${escape(proofNote(null, input.caps))}</p></fieldset>`,
       '<button type="submit">Save as a draft</button>',

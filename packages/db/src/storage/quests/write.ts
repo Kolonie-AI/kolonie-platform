@@ -556,7 +556,7 @@ export type QuestTopUpOutcome =
  * citizen is worse off for there being more places.
  *
  * **It is a purchase and it takes the shape the first purchase took**: capacity
- * against money, up front, refunded at expiry for whatever is not used.
+ * against money, up front, with nothing returned for places nobody fills.
  *
  * ## Why the slots do not move here
  *

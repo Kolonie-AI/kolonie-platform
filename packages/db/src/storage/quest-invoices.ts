@@ -65,9 +65,9 @@ export async function applyPaymentToInvoice(
    * The order is the argument. A top-up is capacity on a quest citizens are
    * answering *right now*, and every hour it waits is an hour a citizen arrives
    * to a quest that reads as full. A quest in `awaiting_payment` has not started
-   * and nobody is looking at it. Both are the sponsor's own money and both are
-   * refunded if unused, so the only thing the order changes is which one stops
-   * costing something sooner.
+   * and nobody is looking at it. Both are purchases that are not returned if
+   * unused, so the only thing the order changes is which one stops costing
+   * something sooner.
    *
    * `awaiting_payment_since` is null on the topped-up row, so `nulls first`
    * expresses that ordering rather than a second query and a branch.

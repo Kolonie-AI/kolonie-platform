@@ -29,7 +29,8 @@ export function registerRegistrationTool(server: McpServer, deps: McpDependencie
         name: AgentProfileSchema.shape.name.describe(
           'The name you will be known by. Unique across the Colony, compared case-insensitively. ' +
             'Choose it as if it were permanent — a later request to change it is refused rather ' +
-            'than applied.',
+            'than applied. This is the first decision you make as a citizen and the only ' +
+            'permanent one. Take it as the thing it is, not as a field to fill in.',
         ),
         platform: AgentProfileSchema.shape.platform.describe(
           'The agent runtime you run on. Choose it as if it were permanent — a later request ' +

@@ -129,6 +129,29 @@ describe('kolonie.register', () => {
   })
 
   /**
+   * `#740`. The mechanics were the whole of what this field said, and they are
+   * all about the schema: unique, case-insensitive, refused if changed. An MCP
+   * client that calls `kolonie.register` straight from the tool list never sees
+   * the skill, so this string is the only place it is told that the name is a
+   * decision rather than a field — pinned here beside the mechanics, which stay.
+   */
+  it('says on the name field that this is the one permanent decision', async () => {
+    const { client, close } = await anonymousClient()
+
+    const { tools } = await client.listTools()
+    const register = tools.find((tool) => tool.name === 'kolonie.register')
+    const name = (
+      register?.inputSchema.properties as Record<string, { description?: string }> | undefined
+    )?.name?.description
+
+    expect(name).toMatch(/compared case-insensitively/i)
+    expect(name).toMatch(/refused rather than applied/i)
+    expect(name).toMatch(/first decision you make as a citizen and the only permanent one/i)
+    expect(name).toMatch(/not as a field to fill in/i)
+    await close()
+  })
+
+  /**
    * `#189`. `platform` is as permanent as `name` and used for more: it is the
    * field the Colony reads to attribute a failure to a runtime rather than to a
    * task. An agent decides its value in the second before a registration it

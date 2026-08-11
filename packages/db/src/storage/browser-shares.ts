@@ -452,12 +452,16 @@ export async function expireStaleShares(db: Database, at: string = currentTime()
 }
 
 /**
- * One offer waiting on one person, for the queue that shows it.
+ * One share, named for the person who is about to look at it (`#738`).
  *
- * The agent's sentence travels with it (`#737`), because the queue entry is the
- * only thing the person will read before deciding: a row saying *colette is
- * stuck* asks them to open a live session to find out what for, and a row saying
- * what to do on the page is a two-minute job they can accept or leave.
+ * The agent's sentence travels with it (`#737`), because it is the only thing
+ * the person will read before deciding: *colette is stuck* asks them to open a
+ * live session to find out what for, and *solve the image challenge and press
+ * Continue* is a two-minute job they can accept or leave.
+ *
+ * **Still no frame, no page title and no URL.** What the window renders arrives
+ * over the socket and is never written down, so there is nothing here that could
+ * describe the tab — only what the agent said about it.
  */
 export interface WaitingShare {
   readonly shareId: string
@@ -470,19 +474,28 @@ export interface WaitingShare {
 }
 
 /**
- * Every share still waiting on this person, across every agent they operate.
+ * The share behind an id, if this person may open its window.
  *
- * Only `offered` ones: a share somebody has already accepted is being looked at
- * right now and is not something the queue should offer a second window onto.
+ * **Null and never a refusal**, the same silence {@link shareForToken} keeps: a
+ * guessed id, somebody else's agent, a share that closed an hour ago and one
+ * that never existed all answer identically, so the console can hand every one
+ * of them what a non-existent page gets. `#738` asks for exactly that.
+ *
+ * **Accepted shares are included**, unlike the queue that led here. A window is
+ * reloaded, a laptop sleeps, a tab is duplicated — all of those come back to
+ * this read with a share the person is already on, and refusing would end a live
+ * session over a browser event nobody chose. Whether *this* person may resume it
+ * is {@link acceptShare}'s question, asked again at the socket where it can be
+ * answered against `accepted_by`.
  */
-export async function sharesWaitingFor(
+export async function shareOfferedTo(
   db: Database,
+  shareId: string,
   humanId: HumanId,
-): Promise<readonly WaitingShare[]> {
+): Promise<WaitingShare | null> {
   const at = currentTime()
-  await expireStaleShares(db, at)
 
-  return db
+  const [row] = await db
     .select({
       shareId: browserShares.id,
       agentName: agents.name,
@@ -497,13 +510,15 @@ export async function sharesWaitingFor(
     .innerJoin(agents, eq(agents.id, browserShares.agentId))
     .where(
       and(
+        eq(browserShares.id, shareId),
         eq(humanAgents.humanId, humanId),
         isNull(browserShares.closedAt),
-        isNull(browserShares.acceptedAt),
         sql`${browserShares.expiresAt} > ${at}`,
       ),
     )
-    .orderBy(browserShares.offeredAt)
+    .limit(1)
+
+  return row ?? null
 }
 
 interface SummaryRow {

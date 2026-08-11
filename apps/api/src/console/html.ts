@@ -4,9 +4,15 @@
  * **No framework, no build step, no bundle.** The entire surface is forms and
  * tables. A bundler, a component library and a hydration story would be cost
  * with no matching benefit, and each one is a thing the next agent has to learn
- * before it can change a label. There is no JavaScript in this repository's
- * console output at all — which is also what makes the CSP below as strict as
- * it is.
+ * before it can change a label. There is no JavaScript in anything this file
+ * renders — which is also what makes the CSP below as strict as it is.
+ *
+ * **One page in the console does carry script, and it is not here** (`#738`).
+ * `./browser-share.ts` renders the operator's window onto a shared browser tab,
+ * which is a stream of pictures and a stream of clicks and cannot be a form. It
+ * lives in its own module with its own header precisely so that the claim above
+ * stays a claim about this file, and so that all of the console's script is in
+ * one place a reader can find.
  *
  * **Every value that reaches a page goes through {@link escape}.** A quest's
  * title is a stranger's text, a citizen's answer is another's, and this is the
@@ -572,8 +578,26 @@ export function sessionsPage(input: {
  */
 const WAITING_LABEL: Readonly<Record<WaitingKind, string>> = {
   code: 'a code — seconds, if you have it in front of you',
+  /**
+   * **The only one that says what it is rather than what it costs**, because it
+   * is the only one where a person could be surprised by what opening it does.
+   * A code is a field; this is somebody's live browser, and the row is the last
+   * place to say so before the window.
+   */
+  'browser-share': 'a live tab — a click or two on the agent’s own browser',
   credential: 'a credential — something to find or to create',
   question: 'a question — it needs you to read it and decide',
+}
+
+/**
+ * Whether a deadline has already passed, for the one queue item that has one.
+ *
+ * **`null` is *no deadline* and therefore never lapsed**, which is what the
+ * other three kinds are: a question and a credential wait indefinitely, and a
+ * drop that has run out is filtered out of the queue before it reaches a page.
+ */
+function lapsed(expiresAt: string | null, now: number): boolean {
+  return expiresAt !== null && Date.parse(expiresAt) <= now
 }
 
 export function dashboardPage(input: {
@@ -747,6 +771,14 @@ export function dashboardPage(input: {
    * table teaches a person that this page usually has nothing on it.
    */
   const waiting = input.waiting ?? []
+  /**
+   * One reading of the clock for the whole table (`#738`).
+   *
+   * Read once rather than per row, so a share cannot be drawn with a live link
+   * and an *expired* deadline beside it because the two cells were rendered on
+   * either side of a second boundary.
+   */
+  const now = Date.now()
   const queue =
     waiting.length === 0
       ? []
@@ -772,7 +804,25 @@ export function dashboardPage(input: {
                 `<td><a href="/agents/${escape(item.agentId)}">${escape(item.agentName)}</a></td>`,
                 `<td>${escape(item.ask)}<br><small>${escape(WAITING_LABEL[item.kind])}</small></td>`,
                 `<td>${item.about === null ? '—' : escape(item.about)}</td>`,
-                `<td>${escape(relative(item.since))}</td>`,
+                /**
+                 * **How long it has waited, and — for a share alone — how long
+                 * it has left** (`#738`).
+                 *
+                 * Two facts in one cell rather than a fifth column, because the
+                 * second is null on three of the four kinds and a column that is
+                 * empty three times out of four is a column that teaches people
+                 * to stop reading it. A share is the only item here with a
+                 * deadline: the rest are still there tomorrow.
+                 */
+                `<td>${escape(relative(item.since))}${
+                  item.expiresAt === null
+                    ? ''
+                    : `<br><small>${
+                        lapsed(item.expiresAt, now)
+                          ? 'expired'
+                          : escape(`lapses ${relative(item.expiresAt)}`)
+                      }</small>`
+                }</td>`,
                 /**
                  * **A question links to the page; a drop gets the field itself**
                  * (`#570`).
@@ -790,18 +840,33 @@ export function dashboardPage(input: {
                  * anywhere — a filled drop is sealed and single-read by the
                  * agent.
                  */
+                /**
+                 * **A share is a link and never a form** (`#738`).
+                 *
+                 * Nothing is submitted from this row: opening the window is the
+                 * whole action, and what happens inside it happens over a socket
+                 * that authorises itself against the same session. Once the
+                 * offer has lapsed the link is replaced by the word, rather than
+                 * left to fail on the click — `#738` asks for exactly that, and
+                 * a dead link an operator clicks twice is how a person concludes
+                 * the console is broken.
+                 */
                 `<td>${
-                  item.dropId === null
-                    ? item.answerAt === null
-                      ? '<small>use the link that was mailed to you</small>'
-                      : `<a href="${escape(consoleAnswerLink(item))}">Answer</a>`
-                    : [
-                        `<form method="post" action="/drops/${escape(item.dropId)}">`,
-                        '<input type="password" name="value" required maxlength="4096" ' +
-                          `autocomplete="off" aria-label="${escape(item.ask)}">`,
-                        '<button type="submit">Send</button>',
-                        '</form>',
-                      ].join('')
+                  item.shareId !== null
+                    ? lapsed(item.expiresAt, now)
+                      ? '<small>expired — the agent has to offer again</small>'
+                      : `<a href="/browser/share/${escape(item.shareId)}">Open</a>`
+                    : item.dropId === null
+                      ? item.answerAt === null
+                        ? '<small>use the link that was mailed to you</small>'
+                        : `<a href="${escape(consoleAnswerLink(item))}">Answer</a>`
+                      : [
+                          `<form method="post" action="/drops/${escape(item.dropId)}">`,
+                          '<input type="password" name="value" required maxlength="4096" ' +
+                            `autocomplete="off" aria-label="${escape(item.ask)}">`,
+                          '<button type="submit">Send</button>',
+                          '</form>',
+                        ].join('')
                 }</td>`,
                 '</tr>',
               ].join(''),

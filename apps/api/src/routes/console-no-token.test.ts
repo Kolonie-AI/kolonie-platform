@@ -134,6 +134,9 @@ describe('what the console renders about an operator page', () => {
       answerAt: `/operator/page/${token}`,
       requestId,
       dropId: null,
+      // Both null on a question: only a share carries an id and a deadline.
+      shareId: null,
+      expiresAt: null,
     })
 
     const response = await app.inject({

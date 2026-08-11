@@ -1,9 +1,11 @@
+import { eq } from 'drizzle-orm'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import type { AgentId, HumanId, TaskId, WishId } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import {
   agents,
   accountWishes,
+  browserShares,
   humanAgents,
   humans,
   operatorRequests,
@@ -97,6 +99,36 @@ describe('the operator queue', () => {
     return wish.id as WishId
   }
 
+  /**
+   * An open, unaccepted offer of a live tab (`#738`).
+   *
+   * Inserted rather than offered through `offerShare`, exactly as the exchanges
+   * above are inserted rather than opened: that function also wants the skill,
+   * the operator link and a mintable token, and none of the three is what this
+   * file is about. What the queue reads is the row.
+   */
+  const aShare = async (
+    agentId: AgentId,
+    purpose: string,
+    where: { readonly provider?: string; readonly step?: number } = {},
+    minutesLeft = 90,
+  ): Promise<string> => {
+    const [row] = await db
+      .insert(browserShares)
+      .values({
+        agentId,
+        tokenHash: 'not-a-token, and never presented to anything in this file',
+        targetId: 'page-1',
+        purpose,
+        provider: where.provider ?? null,
+        step: where.step ?? null,
+        expiresAt: new Date(Date.now() + minutesLeft * 60_000).toISOString(),
+      })
+      .returning({ id: browserShares.id })
+    if (row === undefined) throw new Error('inserting a share returned no row')
+    return row.id
+  }
+
   beforeEach(async () => {
     await truncateAll(db)
     await seedAcademyTasks(db)
@@ -139,11 +171,72 @@ describe('the operator queue', () => {
     // last, which is the ordering the issue asks for.
     await aQuestion(agentId, 'Which of these two providers should I use?')
     await openDrop(db, { agentId, kind: 'credential', prompt: 'The API key.', vaultKey: 'k' })
+    await aShare(agentId, 'The signup page wants a picture puzzle solved.')
     await openDrop(db, { agentId, kind: 'code', prompt: 'The code from your handset.', taskId })
 
     const queue = await waitingForOperator(db, humanId)
 
-    expect(queue.map((row) => row.kind)).toEqual(['code', 'credential', 'question'])
+    // A share sits second: it is a couple of clicks on a tab that is already
+    // open, which is more than reading six digits off a handset and less than
+    // going and finding an API key.
+    expect(queue.map((row) => row.kind)).toEqual([
+      'code',
+      'browser-share',
+      'credential',
+      'question',
+    ])
+  })
+
+  it('carries a waiting share’s id and deadline so the console can open it', async () => {
+    const agentId = await anAgent('one', humanId)
+    const shareId = await aShare(agentId, 'A picture puzzle I cannot read.', {
+      provider: 'mail.tm',
+      step: 3,
+    })
+
+    const [item] = await waitingForOperator(db, humanId)
+
+    expect(item?.kind).toBe('browser-share')
+    expect(item?.ask).toBe('A picture puzzle I cannot read.')
+    // Assembled rather than joined — a share belongs to no task, so there is no
+    // title to fall back to the way the other two kinds have.
+    expect(item?.about).toBe('mail.tm, step 3')
+    expect(item?.shareId).toBe(shareId)
+    expect(item?.expiresAt).not.toBeNull()
+    // Nobody is on it yet, so there is no page for it in the operator's own set.
+    expect(item?.answerAt).toBeNull()
+  })
+
+  it('leaves a lapsed offer in the list once, and not twice', async () => {
+    const agentId = await anAgent('one', humanId)
+    await aShare(agentId, 'A picture puzzle I cannot read.', {}, -1)
+
+    /**
+     * The one place the *is this still waiting* rule is knowingly relaxed
+     * (`#738`): an offer that ran out is shown once, plainly expired, because an
+     * item that vanished between two page loads leaves the operator wondering
+     * whether they imagined it. The sweep runs after the read, so the second
+     * load is empty.
+     */
+    expect(await waitingForOperator(db, humanId)).toHaveLength(1)
+    expect(await waitingForOperator(db, humanId)).toHaveLength(0)
+  })
+
+  it('stops offering a share somebody is already on', async () => {
+    const agentId = await anAgent('one', humanId)
+    const shareId = await aShare(agentId, 'A picture puzzle I cannot read.')
+
+    expect(await waitingForOperator(db, humanId)).toHaveLength(1)
+
+    await db
+      .update(browserShares)
+      .set({ acceptedAt: new Date().toISOString() })
+      .where(eq(browserShares.id, shareId))
+
+    // A second window onto a session somebody is already driving is not
+    // something to offer; the person on it opens the page again from their own
+    // history, which `shareOfferedTo` still answers.
+    expect(await waitingForOperator(db, humanId)).toHaveLength(0)
   })
 
   it('drops an exchange the operator has already replied to', async () => {

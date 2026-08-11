@@ -1,5 +1,6 @@
 import websocket from '@fastify/websocket'
-import { API_BASE_PATH, type HumanId } from '@kolonie-ai/core'
+import { API_BASE_PATH, type AgentId, type HumanId } from '@kolonie-ai/core'
+import type { ShareForRelay } from '@kolonie-ai/db'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { bearerToken } from '../authentication.js'
 import { createShareRelay, type RelaySocket, type ShareSide } from '../browser-share.js'
@@ -39,6 +40,23 @@ export function registerBrowserShareRoutes(app: FastifyInstance, deps: RouteDepe
   if (shares === undefined) return
 
   /**
+   * Who is on each live share, for the one question the relay cannot answer
+   * (`#738`).
+   *
+   * `ShareClosedHandler` is given an id and a reason, which is everything the
+   * *row* needs and one thing short of what the *wake* needs: whose agent it is,
+   * and whether a person was ever actually on it. Both are known at join time
+   * and neither is worth a second read of a row that is being closed anyway.
+   *
+   * **Process-local, and correct because a socket is too.** A share only ends
+   * through the relay in the process holding both its sockets, so the entry is
+   * always here when the handler runs. An entry the process loses to a restart
+   * loses a knock, not a close — the row is closed by `expireStaleShares` at its
+   * window either way, and the citizen reads what happened on its next waking.
+   */
+  const attending = new Map<string, { readonly agentId: AgentId; seenByOperator: boolean }>()
+
+  /**
    * One relay for the process, closing the row whenever a share ends.
    *
    * The write is deliberately not awaited into the socket's path: by the time it
@@ -48,6 +66,9 @@ export function registerBrowserShareRoutes(app: FastifyInstance, deps: RouteDepe
    * the worst case is a share that reads as `expired` rather than `completed`.
    */
   const relay = createShareRelay((shareId, reason) => {
+    const attended = attending.get(shareId)
+    attending.delete(shareId)
+
     void shares.close(shareId, reason).catch((error: unknown) => {
       deps.log.error('a browser share could not be closed', error, {
         event: 'browser.share.close-failed',
@@ -55,6 +76,35 @@ export function registerBrowserShareRoutes(app: FastifyInstance, deps: RouteDepe
         reason,
       })
     })
+
+    /**
+     * The knock, on the two endings that are worth one (`#738`, `#518`).
+     *
+     * **Only where a person actually arrived**, and only where the agent did not
+     * already know. `completed` is the operator closing the window and `expired`
+     * with somebody on it is the live minutes running out under them: in both,
+     * the agent is sitting waiting on a tab that is its own again, and hours of
+     * rhythm is the wrong amount of time to find that out.
+     *
+     * `lost` is the agent's own sharer going away, and `cancelled` is the agent
+     * withdrawing — waking a citizen to tell it what it just did is noise on a
+     * channel with a ceiling. An unattended offer that lapsed is not here at
+     * all: nothing is `attending` it, because nobody came.
+     */
+    if (attended === undefined || !attended.seenByOperator) return
+    if (reason === 'lost' || reason === 'cancelled') return
+
+    /**
+     * **The operator channel's own sender, and not a second one.** `#580` wired
+     * one per agent across every operator event together precisely so that the
+     * ceiling is one ceiling; a share that knocked through a sender of its own
+     * would be a fourth channel quietly exempt from it.
+     *
+     * Nothing readable comes back and nothing is awaited into a socket's path —
+     * `WakeSender.wake` returns nothing on purpose, and an operator is never
+     * told whether their agent was reached.
+     */
+    void deps.operatorRequests.wake?.wake(attended.agentId, 'share-ended')
   })
 
   app.register(async (scope) => {
@@ -90,7 +140,7 @@ export function registerBrowserShareRoutes(app: FastifyInstance, deps: RouteDepe
           return
         }
 
-        join(socket, share.id, 'agent', share.expiresAt)
+        join(socket, share, 'agent')
         deps.log.info('an agent joined a browser share', {
           event: 'browser.share.joined',
           shareId: share.id,
@@ -138,7 +188,7 @@ export function registerBrowserShareRoutes(app: FastifyInstance, deps: RouteDepe
           return
         }
 
-        join(socket, accepted.share.id, 'operator', accepted.share.expiresAt)
+        join(socket, accepted.share, 'operator')
         deps.log.info('an operator joined a browser share', {
           event: 'browser.share.joined',
           shareId: accepted.share.id,
@@ -157,8 +207,23 @@ export function registerBrowserShareRoutes(app: FastifyInstance, deps: RouteDepe
    * and the exposure the decision record bounded *in minutes* would last as long
    * as the tab did.
    */
-  function join(socket: WebSocketish, shareId: string, side: ShareSide, expiresAt: string): void {
+  function join(socket: WebSocketish, share: ShareForRelay, side: ShareSide): void {
+    const { id: shareId, expiresAt } = share
     const attached = relay.attach(shareId, side, asRelaySocket(socket))
+
+    /**
+     * Who this share belongs to, and whether anybody came (`#738`).
+     *
+     * Written on **both** joins rather than only on the agent's, because either
+     * end may arrive first and the wake needs the agent id in both orders. The
+     * operator's arrival is the flag: it is what turns *this offer lapsed* into
+     * *somebody was working on this and it ended under them*.
+     */
+    const attended = attending.get(shareId)
+    attending.set(shareId, {
+      agentId: share.agentId as AgentId,
+      seenByOperator: side === 'operator' || (attended?.seenByOperator ?? false),
+    })
 
     const remaining = Date.parse(expiresAt) - Date.now()
     const clock = setTimeout(() => relay.close(shareId, 'expired'), Math.max(remaining, 0))

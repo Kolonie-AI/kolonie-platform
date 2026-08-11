@@ -29,6 +29,8 @@ describe('the operator queue on the fleet page', () => {
     answerAt: null,
     requestId: null,
     dropId: null,
+    shareId: null,
+    expiresAt: null,
     ...over,
   })
 
@@ -134,6 +136,58 @@ describe('the operator queue on the fleet page', () => {
 
     expect(html).toContain(`href="/agents/${agent.id}/operator"`)
     expect(html).not.toContain('/operator/page/abc')
+  })
+
+  /**
+   * A live tab (`#738`).
+   *
+   * The row has to answer two things no other kind does: how long the offer has
+   * left, and whether it is still worth clicking. The second is the one the issue
+   * names as a failure — *"an expired item is visibly expired in the list rather
+   * than on the click"* — because a link that dies on the click is how a person
+   * concludes the console is broken.
+   */
+  describe('a share, which is the only item with a deadline', () => {
+    const shareId = '33333333-3333-4333-8333-333333333333'
+    const withShare = (expiresAt: string) =>
+      dashboardPage({
+        nav: {},
+        zone: 'UTC',
+        agents: [agent],
+        waiting: [
+          item({
+            kind: 'browser-share',
+            ask: 'The signup page wants a picture puzzle solved.',
+            about: 'mail.tm, step 3',
+            shareId,
+            expiresAt,
+          }),
+        ],
+      })
+
+    /** Far enough out that the page is the same on any day this test runs. */
+    const live = () => new Date(Date.now() + 3_600_000).toISOString()
+
+    it('opens the window, and says what the item costs to clear', () => {
+      const html = withShare(live())
+
+      expect(html).toContain(`href="/browser/share/${shareId}"`)
+      expect(html).toContain('a live tab')
+      // Not a form. Nothing is submitted from this row — the socket is the
+      // whole of the interaction, and it proves itself against the session.
+      expect(html).not.toContain(`action="/browser/share/${shareId}"`)
+    })
+
+    it('shows how long the offer has left, beside how long it has waited', () => {
+      expect(withShare(live())).toContain('lapses')
+    })
+
+    it('replaces the link with the word once the offer has lapsed', () => {
+      const html = withShare('2026-01-01T00:00:00.000Z')
+
+      expect(html).toContain('expired — the agent has to offer again')
+      expect(html).not.toContain(`href="/browser/share/${shareId}"`)
+    })
   })
 
   /**

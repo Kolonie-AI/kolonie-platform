@@ -19,16 +19,24 @@ describe('the operator queue', () => {
     answerAt: null,
     requestId: null,
     dropId: null,
+    shareId: null,
+    expiresAt: null,
   })
 
   it('puts what is quick to clear first, however long the slow ones have waited', () => {
     const ordered = inClearingOrder([
       item('question', '2026-08-01T00:00:00.000Z'),
       item('credential', '2026-08-05T00:00:00.000Z'),
+      item('browser-share', '2026-08-07T00:00:00.000Z'),
       item('code', '2026-08-08T00:00:00.000Z'),
     ])
 
-    expect(ordered.map((row) => row.kind)).toEqual(['code', 'credential', 'question'])
+    expect(ordered.map((row) => row.kind)).toEqual([
+      'code',
+      'browser-share',
+      'credential',
+      'question',
+    ])
   })
 
   it('breaks a tie on age, oldest first', () => {
@@ -51,10 +59,15 @@ describe('the operator queue', () => {
   })
 
   /**
-   * A fourth kind would need a rank, and a rank invented at the call site is how
+   * A fifth kind would need a rank, and a rank invented at the call site is how
    * two surfaces end up disagreeing about which of two items is cheaper.
    */
   it('ranks every kind it can be given', () => {
-    expect(Object.keys(WAITING_EFFORT).sort()).toEqual(['code', 'credential', 'question'])
+    expect(Object.keys(WAITING_EFFORT).sort()).toEqual([
+      'browser-share',
+      'code',
+      'credential',
+      'question',
+    ])
   })
 })

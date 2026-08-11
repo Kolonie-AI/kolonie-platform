@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { eq, sql } from 'drizzle-orm'
 import {
@@ -27,7 +28,7 @@ import {
   offerShare,
   shareForToken,
   shareForWakeup,
-  sharesWaitingFor,
+  shareOfferedTo,
 } from './browser-shares.js'
 
 const target = databaseTestTarget()
@@ -394,61 +395,80 @@ describe('the browser share', () => {
     })
   })
 
-  describe('the operator’s queue', () => {
-    it('shows what is waiting, by the citizen’s name, oldest first', async () => {
-      const person = await aPerson()
-      await operates(person, agentId)
-      await operates(person, otherAgentId)
-
-      const mine = await anOffer()
-      const theirs = await anOffer(otherAgentId)
-
-      const waiting = await sharesWaitingFor(db, person)
-      expect(waiting.map((share) => share.shareId)).toEqual([mine.id, theirs.id])
-      expect(waiting.map((share) => share.agentName)).toEqual(['colette', 'somebody-else'])
-    })
-
+  /**
+   * *What is waiting* is answered once, by `operatorQueue`, across all three
+   * channels (`#738`). What is left here is the window's own read: **one share,
+   * by id, for one person** — everything the console needs to decide whether to
+   * render a page, and nothing that could be used to enumerate.
+   */
+  describe('opening one', () => {
     /**
-     * The sentence travels with the entry (`#737`), because it is the only thing
-     * the person reads before deciding. A row saying *colette is stuck* asks them
-     * to open a live session to find out what for.
+     * The sentence travels with it (`#737`), because it is what the person reads
+     * before touching the tab. A window saying *colette is stuck* would ask them
+     * to work out what for from the page in front of them.
      */
-    it('carries what the agent asked for into the entry', async () => {
+    it('carries what the agent asked for, and by whom', async () => {
       const person = await aPerson()
       await operates(person, agentId)
-      await offerShare(db, {
+      const offered = await offerShare(db, {
         agentId,
         targetId: TAB,
         purpose: PURPOSE,
         provider: 'mail.tm',
         step: 3,
       })
+      if (offered.outcome !== 'offered') throw new Error('expected an offer')
 
-      expect(await sharesWaitingFor(db, person)).toMatchObject([
-        { agentName: 'colette', purpose: PURPOSE, provider: 'mail.tm', step: 3 },
-      ])
+      expect(await shareOfferedTo(db, offered.share.id, person)).toMatchObject({
+        shareId: offered.share.id,
+        agentName: 'colette',
+        purpose: PURPOSE,
+        provider: 'mail.tm',
+        step: 3,
+      })
     })
 
-    it('drops one somebody is already watching, and one that lapsed', async () => {
+    /**
+     * A reload, a duplicated tab, a laptop that slept: all of them come back
+     * here on a share that is already `live`. Refusing would end a session over
+     * a browser event nobody chose, so accepted shares are deliberately included
+     * — `acceptShare` re-asks *may this person resume it* at the socket.
+     */
+    it('still answers once the person is on it', async () => {
+      const person = await aPerson()
+      await operates(person, agentId)
+      const share = await anOffer()
+      await acceptShare(db, share.id, person)
+
+      expect(await shareOfferedTo(db, share.id, person)).toMatchObject({ shareId: share.id })
+    })
+
+    /**
+     * **Null and never a refusal**, the same silence `shareForToken` keeps. A
+     * page that distinguished *not yours* from *no such thing* would be a way to
+     * ask whether a guessed id ever named anything.
+     */
+    it('tells a stranger what a guessed id is told', async () => {
+      const stranger = await aPerson()
+      const share = await anOffer()
+
+      expect(await shareOfferedTo(db, share.id, stranger)).toBeNull()
+      expect(await shareOfferedTo(db, randomUUID(), stranger)).toBeNull()
+    })
+
+    it('stops answering once it has lapsed or ended', async () => {
       const person = await aPerson()
       await operates(person, agentId)
       await operates(person, otherAgentId)
 
-      const watched = await anOffer()
-      await acceptShare(db, watched.id, person)
-
-      const lapsed = await anOffer(otherAgentId)
+      const lapsed = await anOffer()
       await windUp(lapsed.id)
 
-      expect(await sharesWaitingFor(db, person)).toEqual([])
-      expect((await latestShare(db, otherAgentId))?.closedFor).toBe('expired')
-    })
+      const ended = await anOffer(otherAgentId)
+      await closeShare(db, ended.id, 'cancelled')
 
-    it('shows a person nothing about a citizen they do not operate', async () => {
-      const stranger = await aPerson()
-      await anOffer()
-
-      expect(await sharesWaitingFor(db, stranger)).toEqual([])
+      expect(await shareOfferedTo(db, lapsed.id, person)).toBeNull()
+      expect(await shareOfferedTo(db, ended.id, person)).toBeNull()
     })
   })
 

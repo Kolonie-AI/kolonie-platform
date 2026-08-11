@@ -1,0 +1,1 @@
+ALTER TYPE "public"."wake_event" ADD VALUE 'share-ended' BEFORE 'verdict';

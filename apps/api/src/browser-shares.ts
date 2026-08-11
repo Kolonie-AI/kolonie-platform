@@ -6,7 +6,7 @@ import {
   offerShare,
   shareForToken,
   shareForWakeup,
-  sharesWaitingFor,
+  shareOfferedTo,
   type AcceptShareOutcome,
   type Database,
   type OfferRefusal,
@@ -64,8 +64,13 @@ export interface ShareDesk {
   readonly accept: (shareId: string, humanId: HumanId) => Promise<AcceptShareOutcome>
   /** End it. Idempotent — the first reason wins. */
   readonly close: (shareId: string, reason: ShareCloseReason) => Promise<boolean>
-  /** Every offer waiting on this person, across every agent they operate. */
-  readonly waitingFor: (humanId: HumanId) => Promise<readonly WaitingShare[]>
+  /**
+   * The share behind an id, if this person may open its window (`#738`).
+   *
+   * **`null` rather than a refusal**, so the console can hand a guessed id, a
+   * stranger's share and a closed one the same thing a mistyped path gets.
+   */
+  readonly offeredTo: (shareId: string, humanId: HumanId) => Promise<WaitingShare | null>
 }
 
 export function databaseShares(db: Database): ShareDesk {
@@ -77,7 +82,7 @@ export function databaseShares(db: Database): ShareDesk {
     forToken: (token) => shareForToken(db, token),
     accept: (shareId, humanId) => acceptShare(db, shareId, humanId),
     close: (shareId, reason) => closeShare(db, shareId, reason),
-    waitingFor: (humanId) => sharesWaitingFor(db, humanId),
+    offeredTo: (shareId, humanId) => shareOfferedTo(db, shareId, humanId),
   }
 }
 

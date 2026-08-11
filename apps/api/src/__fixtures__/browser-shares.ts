@@ -146,18 +146,29 @@ export function fakeShares(): ShareDesk & FakeShareStore {
       }
       return true
     },
-    waitingFor: async (_humanId: HumanId) =>
-      shares
-        .filter((candidate) => candidate.summary.state === 'offered')
-        .map((candidate) => ({
-          shareId: candidate.id,
-          agentName: candidate.agentId,
-          purpose: candidate.summary.purpose,
-          provider: candidate.summary.provider,
-          step: candidate.summary.step,
-          offeredAt: candidate.summary.offeredAt,
-          expiresAt: candidate.summary.expiresAt,
-        })),
+    /**
+     * The window's own read (`#738`). **Open, and not only offered** — a share
+     * the person is already on is what a reload comes back to, and refusing
+     * there would end a live session over a browser event nobody chose.
+     *
+     * The link is not checked here, deliberately: this fake holds no
+     * `human_agents`, and a test that needs the stranger refused belongs
+     * against the real storage where the join is.
+     */
+    offeredTo: async (shareId: string, _humanId: HumanId) => {
+      const found = held(shareId)
+      if (found === undefined || found.summary.state === 'closed') return null
+
+      return {
+        shareId: found.id,
+        agentName: found.agentId,
+        purpose: found.summary.purpose,
+        provider: found.summary.provider,
+        step: found.summary.step,
+        offeredAt: found.summary.offeredAt,
+        expiresAt: found.summary.expiresAt,
+      }
+    },
     allow: (agentId, what) => {
       if (what?.operator !== false) operators.add(agentId)
       if (what?.skill !== false) rungs.add(agentId)

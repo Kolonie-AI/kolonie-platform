@@ -233,6 +233,7 @@ export function wakeSignatureMatches(
  * | `operator-answer` | Yes — `operator-requests.ts`, on an answered request |
  * | `operator-note` | Yes — `operator-notes.ts`, on a written note |
  * | `wish-wanted` | Yes — the wish mark, and **only when it changed a row** |
+ * | `share-ended` | Yes — `routes/browser-share.ts`, and only once a person was on it |
  * | `verdict` | No call site |
  * | `quest-opened` | No call site |
  *
@@ -240,8 +241,9 @@ export function wakeSignatureMatches(
  * database for the agent to find.** The knock deliberately carries nothing, so
  * the agent wakes and asks the Colony what changed; if nothing was written before
  * the knock, the answer is *nothing* and the cycle is spent. That is what makes
- * these three eligible and a bare *poke this agent* button not — `#518` refuses
- * one, and nothing here is a step towards it.
+ * the wired ones eligible and a bare *poke this agent* button not — `#518`
+ * refuses one, and nothing here is a step towards it. It is also why
+ * `share-ended` is raised on two of a share's five endings and not on all five.
  */
 export const WakeEventSchema = z.enum([
   /** An operator replied on the operator page. The one this rung exists for. */
@@ -263,6 +265,30 @@ export const WakeEventSchema = z.enum([
    * cooldown was added for this.
    */
   'wish-wanted',
+  /**
+   * A browser share the operator was on has ended (`#738`).
+   *
+   * **Raised only where a person actually arrived**, whether they closed the
+   * window deliberately or the live minutes ran out under them. The agent that
+   * offered a tab, ended its turn and slept is exactly the citizen a knock is
+   * for: what is waiting for it is a page somebody has just been clicking on,
+   * and the difference between finding that out now and finding it out at its
+   * next rhythm is hours on a form that was half filled.
+   *
+   * **The three endings that do not knock**, and each for the same reason — that
+   * a contentless wake is only worth sending when there is something new to be
+   * found:
+   *
+   * - **Nobody came.** The offer lapsed unaccepted. Waking a citizen to tell it
+   *   that its six hours passed spends a cycle on the absence of news.
+   * - **The agent withdrew it.** It was there when it did; it knows.
+   * - **The sharer went away.** A restart or a crash closed the share `lost`,
+   *   and whatever is running afterwards did not offer it.
+   *
+   * `kolonie.wakeup` names the share either way, so nothing is lost by not
+   * knocking — only the immediacy, which is what these three do not need.
+   */
+  'share-ended',
   /** A verdict was recorded on a submission. No call site yet. */
   'verdict',
   /** A quest the citizen is equipped for opened. No call site yet. */

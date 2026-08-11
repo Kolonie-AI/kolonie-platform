@@ -646,7 +646,45 @@ export function openRouterModel(apiKey: string, options: ModelOptions = {}): Mod
       )
     }
 
-    const result = (await response.json()) as unknown
+    /**
+     * **The body is read inside the same guard as the request** (`#734`).
+     *
+     * `fetch` resolves as soon as the headers arrive; everything after that is a
+     * stream that can still die. When it does, undici rejects the `.json()` with
+     * `TypeError: terminated` from `Fetch.onAborted` — a different call site
+     * from the one above, so before this the rejection escaped unclassified,
+     * reached `loop.ts` as an ordinary error and was logged as `briefing.failed`
+     * at `error`. The log detector files one GitHub issue per `error` signature,
+     * so a dropped connection arrived as a defect report: `#734`, filed
+     * 2026-08-11, a regression of `#640` on the same signature for a different
+     * cause.
+     *
+     * **A connection that dies mid-body is the same event as one that never
+     * opened**, from every angle that decides what to do about it. Nothing was
+     * learned about this task, this prompt or this ceiling; it is the network
+     * between here and there; it is the same for every task in the batch; and
+     * the correct reaction is the one `#449` already built — defer, leave the
+     * flag set, let the next poll write the briefing. Classifying it as
+     * anything else asks a maintainer to read a network hiccup.
+     *
+     * **A `SyntaxError` is the one rejection here that is not this**, and it is
+     * let through unchanged. Malformed JSON means the bytes arrived and were not
+     * what they claimed to be — the provider answering badly, which is about
+     * this call and belongs in a log line a person reads. The distinction is the
+     * same one `ProviderUnreachable`'s own comment draws between a `429` and a
+     * connection that never opened; only the boundary moved.
+     *
+     * `diagnose` above reads a body too, and deliberately stays outside this: a
+     * failure while reading a `429`'s body is already inside a path that ends in
+     * an error, and it swallows its own — the status is the fact worth keeping.
+     */
+    let result: unknown
+    try {
+      result = (await response.json()) as unknown
+    } catch (error) {
+      if (error instanceof SyntaxError) throw error
+      throw new ProviderUnreachable(path, error)
+    }
     return { body: result, accounting: account(result, response) }
   }
 

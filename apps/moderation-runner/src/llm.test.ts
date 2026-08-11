@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
   openRouterModel,
+  ProviderUnreachable,
   BRIEFING_MAX_TOKENS,
   CLASSIFY_MAX_TOKENS,
   MARK_MAX_TOKENS,
@@ -373,6 +374,65 @@ describe('classifying', () => {
         choices: ['approve', 'reject'],
       }),
     ).rejects.toThrow(/without a decision and a reason$/)
+  })
+
+  /**
+   * `#734`. **The headers arriving is not the answer arriving.**
+   *
+   * `fetch` resolves once the headers are in; the body is a stream that can
+   * still die, and when it does undici rejects the `.json()` with `TypeError:
+   * terminated` from `Fetch.onAborted`. That is a different call site from the
+   * request itself, so it used to escape unclassified, reach `loop.ts` as an
+   * ordinary error and be logged as `briefing.failed` at `error` — where the log
+   * detector files one GitHub issue per signature and a dropped connection
+   * arrives as a defect report.
+   */
+  it('treats a connection that dies while the body is read as unreachable', async () => {
+    const impl = (async () =>
+      ({
+        ok: true,
+        status: 200,
+        json: async () => {
+          throw new TypeError('terminated')
+        },
+      }) as unknown as Response) as unknown as typeof fetch
+
+    const call = openRouterModel('a-key', { fetch: impl }).classify({
+      system: 's',
+      user: 'u',
+      choices: ['approve'],
+    })
+
+    await expect(call).rejects.toBeInstanceOf(ProviderUnreachable)
+    await expect(call).rejects.toThrow(/\/chat\/completions/)
+    await expect(call).rejects.toThrow(/terminated/)
+  })
+
+  /**
+   * The other half of the same boundary, and it is the half that keeps the first
+   * one honest: bytes that arrived and were not JSON mean the provider answered
+   * badly, which is about this call and belongs in a line a person reads. If
+   * this were classified as unreachable, a provider returning HTML would be
+   * retried in silence for ever.
+   */
+  it('does not call a malformed body unreachable', async () => {
+    const impl = (async () =>
+      ({
+        ok: true,
+        status: 200,
+        json: async () => {
+          throw new SyntaxError('Unexpected token < in JSON at position 0')
+        },
+      }) as unknown as Response) as unknown as typeof fetch
+
+    const call = openRouterModel('a-key', { fetch: impl }).classify({
+      system: 's',
+      user: 'u',
+      choices: ['approve'],
+    })
+
+    await expect(call).rejects.toBeInstanceOf(SyntaxError)
+    await expect(call).rejects.not.toBeInstanceOf(ProviderUnreachable)
   })
 
   /**

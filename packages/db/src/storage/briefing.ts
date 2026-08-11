@@ -711,18 +711,32 @@ export interface ProviderChange {
   /** Distinct agents whose reports the dedup stage judged new, inside the window. */
   readonly reporters: number
   readonly windowHours: number
+  /**
+   * What a window on this task ordinarily carries, from its own history.
+   * Zero when it has none to speak of. See {@link CHANGE_CLUSTER_MULTIPLE}.
+   */
+  readonly baseline: number
+  /** The count this cluster had to beat, after the baseline was taken into account. */
+  readonly required: number
 }
 
 /**
- * How many distinct agents must independently report something new before the
- * Colony concludes the world moved.
+ * The floor: how many distinct agents must independently report something new
+ * before the Colony will look at a cluster at all.
  *
- * **Three in 48 hours on a task with at least twenty closed attempts.** A
- * reasonable starting position and not a measurement — said out loud here so the
- * first false positive is an argument against a stated number rather than a
- * mystery. Two would fire on a pair of agents hitting an ordinary intermittent
- * failure; four would wait through most of a day of agents walking into a wall
- * that is already known.
+ * **Three in 48 hours on a task with at least twenty closed attempts.** Two
+ * would fire on a pair of agents hitting an ordinary intermittent failure; four
+ * would wait through most of a day of agents walking into a wall that is already
+ * known.
+ *
+ * **It is a floor and no longer the whole test** (`#598`). Three was stated as a
+ * starting position and the first false positive argued with it exactly as
+ * intended: the `raster` rung was collecting about two reports a day from the
+ * day it went active, so three distinct citizens in 48 hours was that rung's
+ * ordinary Tuesday and the tripwire fired on its own baseline. An absolute
+ * threshold is wrong in both directions — it fires forever on a busy rung, and a
+ * quiet rung that suddenly doubles never reaches it. So the cluster is measured
+ * against the task's own rate as well; see {@link CHANGE_CLUSTER_MULTIPLE}.
  */
 export const CHANGE_DISTINCT_REPORTERS = 3
 
@@ -739,6 +753,41 @@ export const CHANGE_WINDOW_HOURS = 48
 export const CHANGE_STABILITY_ATTEMPTS = 20
 
 /**
+ * How many times its own ordinary window a cluster must be before it counts as
+ * a change (`#598`).
+ *
+ * The baseline is the average number of distinct citizens a window has carried
+ * on this task, measured over {@link CHANGE_BASELINE_DAYS} of its own history
+ * up to the window's edge. Double that, or the floor, whichever is larger.
+ *
+ * **Doubling rather than a percentage above it**, because the counts are small.
+ * A rung averaging four reporters a window trips at eight, which is a fortnight
+ * of its traffic arriving in two days; a rung averaging one still trips at the
+ * floor of three. Anything finer than a multiple would be reading noise.
+ */
+export const CHANGE_CLUSTER_MULTIPLE = 2
+
+/**
+ * How far back the task's own rate is measured, ending where the window begins.
+ *
+ * Four weeks is long enough that a fortnight of quiet does not read as the
+ * normal rate, and short enough that a rung's traffic from before its last
+ * rewrite does not defend it forever.
+ */
+export const CHANGE_BASELINE_DAYS = 28
+
+/**
+ * How much history the baseline needs before it is allowed to raise the bar.
+ *
+ * Two windows, so a rung four days into its life is judged on the floor alone.
+ * **A short history reads as a low baseline, which is the dangerous direction**:
+ * without this, a task with a single report behind it would look quieter than it
+ * is and the floor would be all that stood there anyway — but stating the
+ * minimum keeps that an intention rather than an accident of the arithmetic.
+ */
+export const CHANGE_BASELINE_MIN_WINDOWS = 2
+
+/**
  * How long after concluding a change the Colony stays quiet about that task.
  *
  * Longer than the detection window on purpose. A change that is still producing
@@ -753,6 +802,9 @@ export const CHANGE_COOLDOWN_HOURS = 24 * 14
  * Returns `null` far more often than not, which is the intended shape: this runs
  * after moderation on whichever task was just judged, so its cost is one query
  * per judged report and its answer is almost always *no*.
+ *
+ * **The baseline query only runs once the floor is cleared** (`#598`), so the
+ * ordinary path is still the two queries it always was.
  */
 export async function detectProviderChange(
   db: Database,
@@ -793,29 +845,80 @@ export async function detectProviderChange(
    * the cause. The inner join here excluded them for the same accidental reason
    * it excluded them from the corpus.
    */
+  const reporter = sql`coalesce(${taskAttempts.agentId}, ${taskReports.agentId})`
+  const approvedOnThisTask = and(
+    sql`coalesce(${taskAttempts.taskId}, ${taskReports.taskId}) = ${taskId}`,
+    eq(taskReports.status, 'approved'),
+    eq(agents.type, 'citizen'),
+  )
+  const windowStart = sql`now() - make_interval(hours => ${CHANGE_WINDOW_HOURS})`
+
   const [cluster] = await db
-    .select({
-      reporters: sql<number>`count(distinct coalesce(${taskAttempts.agentId}, ${taskReports.agentId}))::int`,
-    })
+    .select({ reporters: sql<number>`count(distinct ${reporter})::int` })
     .from(taskReports)
     .leftJoin(taskAttempts, eq(taskAttempts.id, taskReports.attemptId))
-    .innerJoin(
-      agents,
-      sql`${agents.id} = coalesce(${taskAttempts.agentId}, ${taskReports.agentId})`,
-    )
-    .where(
-      and(
-        sql`coalesce(${taskAttempts.taskId}, ${taskReports.taskId}) = ${taskId}`,
-        eq(taskReports.status, 'approved'),
-        eq(agents.type, 'citizen'),
-        sql`${taskReports.createdAt} >= now() - make_interval(hours => ${CHANGE_WINDOW_HOURS})`,
-      ),
-    )
+    .innerJoin(agents, sql`${agents.id} = ${reporter}`)
+    .where(and(approvedOnThisTask, sql`${taskReports.createdAt} >= ${windowStart}`))
 
   const reporters = Number(cluster?.reporters ?? 0)
   if (reporters < CHANGE_DISTINCT_REPORTERS) return null
 
-  return { taskId, reporters, windowHours: CHANGE_WINDOW_HOURS }
+  /**
+   * The same count, window by window, over the task's own recent history —
+   * bucket 0 being the window before this one (`#598`).
+   *
+   * **The buckets are counted separately and then averaged, rather than counting
+   * distinct agents across the whole month.** An agent that comes back every
+   * week is one agent over a month and one reporter in each of four windows, and
+   * it is the second reading the threshold is in: what the tripwire compares is
+   * *how many distinct citizens a window carries*, so the baseline has to be
+   * that same quantity or the two are not comparable.
+   */
+  const bucket = sql<number>`floor(
+    extract(epoch from ${windowStart} - ${taskReports.createdAt})
+    / ${CHANGE_WINDOW_HOURS * 3600}::double precision
+  )::int`
+
+  const history = await db
+    .select({ bucket, reporters: sql<number>`count(distinct ${reporter})::int` })
+    .from(taskReports)
+    .leftJoin(taskAttempts, eq(taskAttempts.id, taskReports.attemptId))
+    .innerJoin(agents, sql`${agents.id} = ${reporter}`)
+    .where(
+      and(
+        approvedOnThisTask,
+        sql`${taskReports.createdAt} < ${windowStart}`,
+        sql`${taskReports.createdAt} >= now() - make_interval(days => ${CHANGE_BASELINE_DAYS})`,
+      ),
+    )
+    // By ordinal, because the same expression written twice carries different
+    // placeholders and Postgres will not match one against the other.
+    .groupBy(sql`1`)
+
+  /**
+   * Windows are counted from the oldest report rather than from the start of the
+   * baseline period, so a rung that went active nine days ago is measured
+   * against nine days and not against four weeks that are mostly empty. Empty
+   * windows *inside* that span still count — a quiet stretch is part of the rate.
+   */
+  const windows = history.reduce((widest, row) => Math.max(widest, Number(row.bucket) + 1), 0)
+  const observed = history.reduce((total, row) => total + Number(row.reporters), 0)
+  const baseline = windows === 0 ? 0 : observed / windows
+
+  const required =
+    windows >= CHANGE_BASELINE_MIN_WINDOWS
+      ? Math.max(CHANGE_DISTINCT_REPORTERS, Math.ceil(baseline * CHANGE_CLUSTER_MULTIPLE))
+      : CHANGE_DISTINCT_REPORTERS
+
+  if (reporters < required) return null
+
+  return {
+    taskId,
+    reporters,
+    windowHours: CHANGE_WINDOW_HOURS,
+    baseline: Math.round(baseline * 10) / 10,
+    required,
+  }
 }
 
 /**

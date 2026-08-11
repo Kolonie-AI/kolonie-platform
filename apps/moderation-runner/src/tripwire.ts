@@ -66,12 +66,15 @@ export async function respondToChange(
   await tripwire.record(change.taskId)
   log.warn(
     `provider change concluded on task ${change.taskId}: ` +
-      `${change.reporters} distinct reporters in ${change.windowHours}h`,
+      `${change.reporters} distinct reporters in ${change.windowHours}h, ` +
+      `against a baseline of ${change.baseline} and a bar of ${change.required}`,
     {
       event: 'tripwire.change.concluded',
       taskId: change.taskId,
       reporters: change.reporters,
       windowHours: change.windowHours,
+      baseline: change.baseline,
+      required: change.required,
     },
   )
 
@@ -110,10 +113,10 @@ export function issueBody(change: ProviderChange): string {
       "instructions, its hints, or its verifier. Nobody's report is quoted here — the entries " +
       'are readable through moderation.',
     '',
-    `Opened automatically by the tripwire in \`apps/moderation-runner\`. The threshold is ` +
-      `${CHANGE_DISTINCT_REPORTERS} distinct reporters in ${change.windowHours}h and it is a ` +
-      'starting position rather than a measurement — if this is a false positive, that number ' +
-      'is the thing to argue with.',
+    `Opened automatically by the tripwire in \`apps/moderation-runner\`. A window on this task ` +
+      `ordinarily carries ${change.baseline} distinct reporters, so the cluster had to reach ` +
+      `${change.required} — never fewer than the floor of ${CHANGE_DISTINCT_REPORTERS} — before ` +
+      'this was filed. If it is a false positive, those are the numbers to argue with.',
   ].join('\n')
 }
 

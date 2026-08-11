@@ -8,8 +8,10 @@ const silent: Log = { info: () => {}, warn: () => {}, error: () => {} }
 
 const aChange = (): ProviderChange => ({
   taskId: TaskIdSchema.parse('11111111-2222-4333-8444-555555555555'),
-  reporters: 3,
+  reporters: 8,
   windowHours: 48,
+  baseline: 3.5,
+  required: 7,
 })
 
 /** A tripwire that records what it was asked to do and nothing else. */
@@ -73,7 +75,7 @@ describe('responding to a detected provider change', () => {
   it('writes an issue body with no citizen text in it', () => {
     const body = issueBody(aChange())
 
-    expect(body).toContain('3 distinct citizens')
+    expect(body).toContain('8 distinct citizens')
     expect(body).toContain('48 hours')
     expect(body).toContain(aChange().taskId)
     // The only prose is the Colony's own. There is no input to this function
@@ -81,7 +83,16 @@ describe('responding to a detected provider change', () => {
     expect(body).toContain('is quoted here')
   })
 
-  it('names the threshold it fired on, so a false positive argues with a number', () => {
-    expect(issueBody(aChange())).toMatch(/starting position rather than a measurement/)
+  /**
+   * `#598`: the first false positive was a maintainer reading *three in 48
+   * hours* and having no way to tell it from that rung's ordinary Tuesday. The
+   * body now carries what the cluster was measured against.
+   */
+  it('names the baseline it beat, so a false positive argues with a number', () => {
+    const body = issueBody(aChange())
+
+    expect(body).toContain('ordinarily carries 3.5 distinct reporters')
+    expect(body).toContain('had to reach 7')
+    expect(body).toContain('floor of 3')
   })
 })

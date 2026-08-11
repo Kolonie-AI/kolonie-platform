@@ -90,8 +90,16 @@ describe('the provider-change tripwire', () => {
     }
   }
 
-  /** One agent reporting something the moderator judged new. */
-  const reportsSomethingNew = async (taskId: TaskId, agentId: AgentId, text: string) => {
+  /**
+   * One agent reporting something the moderator judged new, optionally a while
+   * back — which is how a task is given a history to be measured against (#598).
+   */
+  const reportsSomethingNew = async (
+    taskId: TaskId,
+    agentId: AgentId,
+    text: string,
+    daysAgo = 0,
+  ) => {
     const attempt = await openAttempt(db, { agentId, taskId, opener: 'challenge' })
     const filed = await fileReport(db, {
       taskId,
@@ -104,10 +112,35 @@ describe('the provider-change tripwire', () => {
     // something it has not seen.
     await db
       .update(taskReports)
-      .set({ status: 'approved', moderatedAt: sql`now()`, confirmations: 1 })
+      .set({
+        status: 'approved',
+        moderatedAt: sql`now()`,
+        confirmations: 1,
+        ...(daysAgo === 0 ? {} : { createdAt: sql`now() - make_interval(days => ${daysAgo})` }),
+      })
       .where(eq(taskReports.attemptId, attempt.id))
 
     await closeAttempt(db, attempt.id, 'failed')
+  }
+
+  /**
+   * A rung that has been carrying four distinct citizens a window for the last
+   * three windows — the shape the `raster` rung was in when it tripped the
+   * absolute threshold (#598). Reuses the same agents in each window on purpose:
+   * what a window carries is the question, so an agent that comes back next week
+   * counts in both.
+   */
+  const busyForThreeWindows = async (taskId: TaskId, agentIds: readonly AgentId[]) => {
+    for (const daysAgo of [3, 5, 7]) {
+      for (const [i, agentId] of agentIds.entries()) {
+        await reportsSomethingNew(
+          taskId,
+          agentId,
+          `A wall, ${daysAgo} days ago, agent ${i}.`,
+          daysAgo,
+        )
+      }
+    }
   }
 
   it('fires when enough distinct citizens report something new on a stable task', async () => {
@@ -120,7 +153,78 @@ describe('the provider-change tripwire', () => {
 
     const change = await detectProviderChange(db, taskId)
 
-    expect(change).toMatchObject({ taskId, reporters: CHANGE_DISTINCT_REPORTERS })
+    expect(change).toMatchObject({
+      taskId,
+      reporters: CHANGE_DISTINCT_REPORTERS,
+      // Nothing behind it, so the floor is the whole bar.
+      baseline: 0,
+      required: CHANGE_DISTINCT_REPORTERS,
+    })
+  })
+
+  /**
+   * The false positive that #598 is (`#598`).
+   *
+   * The `raster` rung had been collecting about two reports a day since the day
+   * it went active, so three distinct citizens in 48 hours was its ordinary
+   * Tuesday — and an absolute threshold cannot tell that from a change. A busy
+   * rung would trip this forever, which is the failure mode where the tripwire
+   * stops being read at all.
+   */
+  it('does not fire on a cluster a busy rung carries every window anyway', async () => {
+    const taskId = await aTask()
+    await settle(taskId, CHANGE_STABILITY_ATTEMPTS)
+
+    const regulars = [await anAgent(), await anAgent(), await anAgent(), await anAgent()]
+    await busyForThreeWindows(taskId, regulars)
+
+    for (let i = 0; i < CHANGE_DISTINCT_REPORTERS; i++) {
+      await reportsSomethingNew(taskId, await anAgent(), `The same sort of wall again, ${i}.`)
+    }
+
+    expect(await detectProviderChange(db, taskId)).toBeNull()
+  })
+
+  /** The other half: the same rung, when the traffic really does double. */
+  it('fires on the same rung once the cluster clears its own baseline', async () => {
+    const taskId = await aTask()
+    await settle(taskId, CHANGE_STABILITY_ATTEMPTS)
+
+    const regulars = [await anAgent(), await anAgent(), await anAgent(), await anAgent()]
+    await busyForThreeWindows(taskId, regulars)
+
+    for (let i = 0; i < 8; i++) {
+      await reportsSomethingNew(taskId, await anAgent(), `Something nobody described before, ${i}.`)
+    }
+
+    expect(await detectProviderChange(db, taskId)).toMatchObject({
+      taskId,
+      reporters: 8,
+      baseline: 4,
+      required: 8,
+    })
+  })
+
+  /**
+   * A rung with barely any history is judged on the floor alone (`#598`). Too
+   * little history reads as a low baseline, and a low baseline would let the
+   * relative test wave through anything the floor already allows — so it is
+   * stated rather than left to the arithmetic.
+   */
+  it('judges a rung with less than two windows behind it on the floor alone', async () => {
+    const taskId = await aTask()
+    await settle(taskId, CHANGE_STABILITY_ATTEMPTS)
+
+    await reportsSomethingNew(taskId, await anAgent(), 'The one thing said about this so far.', 3)
+
+    for (let i = 0; i < CHANGE_DISTINCT_REPORTERS; i++) {
+      await reportsSomethingNew(taskId, await anAgent(), `A new wall, seen by agent ${i}.`)
+    }
+
+    expect(await detectProviderChange(db, taskId)).toMatchObject({
+      taskId,
+      required: CHANGE_DISTINCT_REPORTERS,
+    })
   })
 
   /**

@@ -31,11 +31,25 @@ const anAgent = (roles: readonly 'steward'[] = []) => {
   return { id: issued.agent.id as AgentId, key: String(issued.apiKey) }
 }
 
+/**
+ * A draft an ordinary citizen can publish, which since `#744` is a priced one.
+ *
+ * `criteria` on the question puts it in the colony-judged tier, so the ceiling is
+ * 10,000,000 rather than the soft 500,000 and a price can reach the floor at all;
+ * obstacles are off because publishing them is a second promise the platform fee
+ * is not taken from, and it binds at four times the floor. 1,400,000 clears both
+ * with room, so a test that is not about the price never has to think about one.
+ *
+ * **Reputation-only is now the steward's case**, not the default: `#743` made the
+ * floor a refusal and `#744` made paying nothing a role. A test about either says
+ * so by setting a price or by holding the role.
+ */
 const aDraft = (overrides: Record<string, unknown> = {}) => ({
   questions: [
     {
       key: 'what-happened',
       prompt: 'What happened when you registered?',
+      criteria: 'Name the provider and what it asked for.',
       minLength: 20,
       maxLength: 500,
     },
@@ -43,12 +57,8 @@ const aDraft = (overrides: Record<string, unknown> = {}) => ({
   title: 'A thousand registrations',
   description: 'We hand out mailbox addresses and want to know whether agents can take one.',
   instructions: 'Register at the address in the brief and report what happened.',
-  // Reputation and no lamports, since `#743`: a soft quest caps at 500,000 and
-  // so can never reach the payout floor, which makes reputation-only what a
-  // citizen writing a quest like this one can actually publish. A test about a
-  // price says so by setting one, and turns the floor off if it is not the
-  // subject.
-  reward: { reputation: 5, lamports: 0 },
+  reward: { reputation: 5, lamports: 1_400_000 },
+  publishObstacles: false,
   slots: 5,
   expiresAt: new Date(Date.now() + 7 * 24 * 3_600_000).toISOString(),
   ...overrides,
@@ -172,7 +182,7 @@ describe('the sponsor over MCP', () => {
     const written = await call(
       sponsor.key,
       'kolonie.quests.write',
-      aDraft({ reward: { reputation: 0, lamports: 15 }, slots: 20 }),
+      aDraft({ reward: { reputation: 0, lamports: 15 }, slots: 20, publishObstacles: true }),
     )
 
     // 20 × 15 for the answers, plus 3 each for the first three published
@@ -225,7 +235,7 @@ describe('the sponsor over MCP', () => {
     const written = await call(
       sponsor.key,
       'kolonie.quests.write',
-      aDraft({ reward: { reputation: 0, lamports: 10 }, slots: 10 }),
+      aDraft({ reward: { reputation: 0, lamports: 10 }, slots: 10, publishObstacles: true }),
     )
 
     // 100 for the ten answers, plus a quarter of one each for the first three
@@ -262,12 +272,23 @@ describe('the sponsor over MCP', () => {
   it('publishes by default, and warns a sponsor that chose the default about nothing', async () => {
     const sponsor = anAgent()
 
-    const written = await call(sponsor.key, 'kolonie.quests.write', aDraft())
+    // The field withheld rather than set, since the subject is the schema's own
+    // default and {@link aDraft} turns obstacles off to keep the floor out of the
+    // way of tests that are about something else. Priced at four times the floor,
+    // which is what the obstacle bonus the default turns on costs (`#743`).
+    const written = await call(
+      sponsor.key,
+      'kolonie.quests.write',
+      aDraft({ publishObstacles: undefined, reward: { reputation: 5, lamports: 4_000_000 } }),
+    )
 
     expect(
       (structured(written).quest as unknown as { publishObstacles: boolean }).publishObstacles,
     ).toBe(true)
-    expect(JSON.stringify(written.content)).not.toContain('discovery cost')
+    // The withholding warning by its own words rather than by `discovery cost`,
+    // which the obstacle pool a priced quest now holds also uses — for the
+    // opposite thing: what those three citizens spare everybody else.
+    expect(JSON.stringify(written.content)).not.toContain('pays the discovery cost again')
   })
 
   /**
@@ -513,26 +534,9 @@ describe('the sponsor over MCP', () => {
  * one that had no reward check at all, `kolonie.quests.slots`.
  */
 describe('the floor a sponsor meets', () => {
-  /**
-   * Colony-judged, so the ceiling is 10,000,000 and a price can reach the floor
-   * at all — and with the obstacles kept, because publishing them is the second
-   * promise and four times as expensive. A test about that one turns it on.
-   */
+  /** {@link aDraft} is already colony-judged with obstacles off; only the price varies. */
   const priced = (lamports: number, overrides: Record<string, unknown> = {}) =>
-    aDraft({
-      questions: [
-        {
-          key: 'what-happened',
-          prompt: 'What happened when you registered?',
-          criteria: 'Name the provider and what it asked for.',
-          minLength: 20,
-          maxLength: 500,
-        },
-      ],
-      reward: { reputation: 0, lamports },
-      publishObstacles: false,
-      ...overrides,
-    })
+    aDraft({ reward: { reputation: 0, lamports }, ...overrides })
 
   const write = async (key: string, lamports: number, overrides = {}) =>
     call(key, 'kolonie.quests.write', priced(lamports, overrides))
@@ -590,8 +594,20 @@ describe('the floor a sponsor meets', () => {
     expect((await write(sponsor.key, 4_000_000, { publishObstacles: true })).isError).toBeFalsy()
   })
 
+  /**
+   * The floor measures lamports and says nothing about reputation, so a quest
+   * paying none is past it before it is read. Written by a steward because `#744`
+   * is what decides who may pay nothing — this test is about the floor, and the
+   * role keeps the other rule out of it.
+   */
   it('lets a quest that pays reputation alone straight through', async () => {
-    expect((await call(anAgent().key, 'kolonie.quests.write', aDraft())).isError).toBeFalsy()
+    const written = await call(
+      anAgent(['steward']).key,
+      'kolonie.quests.write',
+      aDraft({ reward: { reputation: 5, lamports: 0 } }),
+    )
+
+    expect(written.isError).toBeFalsy()
   })
 
   /**
@@ -640,6 +656,65 @@ describe('the floor a sponsor meets', () => {
     quests.setPriceFloor(0)
 
     expect((await write(sponsor.key, 1)).isError).toBeFalsy()
+  })
+})
+
+/**
+ * Who may publish a quest that pays no lamports (`#744`).
+ *
+ * The floor above says what a paying quest must reach. This says that zero is not
+ * a way underneath it: a quest promising nothing is the Colony's own to ask, and a
+ * citizen is offered both ways forward rather than told it lacks a role.
+ */
+describe('the quest that pays nothing', () => {
+  const unpaid = (overrides: Record<string, unknown> = {}) =>
+    aDraft({ reward: { reputation: 5, lamports: 0 }, ...overrides })
+
+  it('refuses a citizen, naming the price that would clear and the other way round', async () => {
+    const refused = await call(anAgent().key, 'kolonie.quests.write', unpaid())
+
+    expect(refused.isError).toBe(true)
+    const said = JSON.stringify(refused.content)
+    // The figure the floor would take, so the sponsor is not left to derive it,
+    // and the route that does not need a price at all.
+    expect(said).toContain('1333333')
+    expect(said).toContain('kolonie.support.open')
+  })
+
+  it('takes the same quest from the same citizen once it is priced', async () => {
+    const sponsor = anAgent()
+
+    expect((await call(sponsor.key, 'kolonie.quests.write', unpaid())).isError).toBe(true)
+    expect((await call(sponsor.key, 'kolonie.quests.write', aDraft())).isError).toBeFalsy()
+  })
+
+  it('takes it from a steward, which is whose quest an unpaid one is', async () => {
+    expect(
+      (await call(anAgent(['steward']).key, 'kolonie.quests.write', unpaid())).isError,
+    ).toBeFalsy()
+  })
+
+  /** Priced at write and edited down to nothing is the way round a gate that only reads the write. */
+  it('refuses a citizen that edits a priced draft down to nothing', async () => {
+    const sponsor = anAgent()
+
+    const written = await call(sponsor.key, 'kolonie.quests.write', aDraft())
+    const id = (structured(written).quest as unknown as { id: TaskId }).id
+
+    const lowered = await call(sponsor.key, 'kolonie.quests.update', {
+      questId: id,
+      reward: { reputation: 5, lamports: 0 },
+    })
+
+    expect(lowered.isError).toBe(true)
+    expect(JSON.stringify(lowered.content)).toContain('kolonie.support.open')
+  })
+
+  /** Off with the floor, because gating zero while a single lamport passes is theatre. */
+  it('is off entirely at a floor of zero', async () => {
+    quests.setPriceFloor(0)
+
+    expect((await call(anAgent().key, 'kolonie.quests.write', unpaid())).isError).toBeFalsy()
   })
 })
 

@@ -269,7 +269,10 @@ export function registerQuestTools(
       if (authenticated.outcome === 'rejected') return toolError(authenticated.error)
 
       return answer(
-        await writeQuestDraft({ authorId: authenticated.agent.id, body: input }, deps.quests),
+        await writeQuestDraft(
+          { authorId: authenticated.agent.id, roles: authenticated.agent.roles, body: input },
+          deps.quests,
+        ),
         (q) =>
           // The commitment, itemised (`#628`). The bare total had an
           // unexplained part in it — the obstacle pool — and a sponsor had to
@@ -321,6 +324,7 @@ export function registerQuestTools(
         await editQuestDraft(
           {
             authorId: authenticated.agent.id,
+            roles: authenticated.agent.roles,
             questId: id,
             body: patch,
             at: new Date().toISOString(),
@@ -359,7 +363,12 @@ export function registerQuestTools(
 
       return answer(
         await submitQuest(
-          { authorId: authenticated.agent.id, questId: id, at: new Date().toISOString() },
+          {
+            authorId: authenticated.agent.id,
+            roles: authenticated.agent.roles,
+            questId: id,
+            at: new Date().toISOString(),
+          },
           deps.quests,
         ),
         () => 'Submitted, and its cost is reserved. A steward decides next; nothing waits on you.',
@@ -451,7 +460,12 @@ export function registerQuestTools(
 
       return answer(
         await topUpQuest(
-          { sponsorId: authenticated.agent.id, questId: id, body: input },
+          {
+            sponsorId: authenticated.agent.id,
+            roles: authenticated.agent.roles,
+            questId: id,
+            body: input,
+          },
           deps.quests,
         ),
         (bought) => bought.notice,

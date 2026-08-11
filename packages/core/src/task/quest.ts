@@ -491,6 +491,42 @@ function rewardReaching(want: number, feePercent: number): number | null {
 }
 
 /**
+ * The smallest reward that clears the floor for this quest (D-112, `#743`).
+ *
+ * `forAnswers` solves the platform-fee condition and `forReports` the obstacle
+ * one, which takes no fee and therefore binds higher; `smallest` is the larger of
+ * the two, and `null` throughout where no reward reaches a citizen at all — a
+ * platform fee of 100%.
+ *
+ * **Exported because two refusals name this figure and must not each derive it.**
+ * {@link questPriceFloorRejection} names it to a sponsor whose price is too low,
+ * and the zero-reward gate (`#744`) names it to one that priced nothing at all. A
+ * citizen told two different smallest prices by two refusals about one rule would
+ * be reading a bug, and the arithmetic is subtle enough — see
+ * {@link rewardReaching} — that two derivations would eventually be two answers.
+ */
+export function questFloorReach(
+  quest: { readonly publishObstacles?: boolean | undefined },
+  floor: QuestFloorTerms,
+): {
+  readonly forAnswers: number | null
+  readonly forReports: number | null
+  readonly smallest: number | null
+} {
+  const forAnswers = rewardReaching(floor.lamports, floor.feePercent)
+  const forReports =
+    quest.publishObstacles === true && floor.obstacleBonusPercent > 0
+      ? Math.ceil((floor.lamports * 100) / floor.obstacleBonusPercent)
+      : null
+
+  return {
+    forAnswers,
+    forReports,
+    smallest: forAnswers === null ? null : Math.max(forAnswers, forReports ?? 0),
+  }
+}
+
+/**
  * Why this quest promises less than it may, or `undefined` if it does not
  * (D-112, `#743`).
  *
@@ -528,9 +564,20 @@ export function questPriceFloorRejection(
 ): string | undefined {
   if (floor.lamports <= 0 || quest.reward.lamports <= 0) return undefined
 
+  /**
+   * **The smallest reward that passes, in the sponsor's own units**, because the
+   * floor is measured on a figure the sponsor never types. Both conditions are
+   * solved and the larger binds; where the obstacle share is what binds, turning
+   * obstacle reports off is a second way through and is offered.
+   *
+   * Read first so that `forReports` decides whether a report is paid at all,
+   * rather than that condition being written twice and drifting apart.
+   */
+  const { forAnswers, forReports, smallest } = questFloorReach(quest, floor)
+
   const perAnswer = questPayoutSplit(quest.reward.lamports, floor.feePercent).toCitizen
-  const obstacles = quest.publishObstacles === true && floor.obstacleBonusPercent > 0
-  const perReport = obstacles ? questObstacleBonus(quest.reward, floor.obstacleBonusPercent) : null
+  const perReport =
+    forReports === null ? null : questObstacleBonus(quest.reward, floor.obstacleBonusPercent)
 
   const shortfalls: string[] = []
   if (perAnswer < floor.lamports) {
@@ -543,18 +590,6 @@ export function questPriceFloorRejection(
     )
   }
   if (shortfalls.length === 0) return undefined
-
-  /**
-   * **The smallest reward that passes, in the sponsor's own units**, because the
-   * floor is measured on a figure the sponsor never types. Both conditions are
-   * solved and the larger binds; where the obstacle share is what binds, turning
-   * obstacle reports off is a second way through and is offered.
-   */
-  const forAnswers = rewardReaching(floor.lamports, floor.feePercent)
-  const forReports = obstacles
-    ? Math.ceil((floor.lamports * 100) / floor.obstacleBonusPercent)
-    : null
-  const smallest = forAnswers === null ? null : Math.max(forAnswers, forReports ?? 0)
 
   const passing =
     smallest === null

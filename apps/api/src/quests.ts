@@ -21,6 +21,7 @@ import {
   questCommitmentBreakdown,
   questCommitmentLines,
   platformFeePercentFromEnv,
+  questFloorReach,
   questPriceFloorRejection,
   questRewardRejection,
   questSubmissionRejection,
@@ -36,6 +37,7 @@ import {
   type QuestReportKind,
   type QuestCommitmentBreakdown,
   type QuestTier,
+  type Role,
   type SubmissionId,
   type Task,
   type TaskId,
@@ -819,9 +821,75 @@ const floorOf = async (desk: QuestDesk, feePercent?: number): Promise<QuestFloor
   obstacleBonusPercent: await obstacleShareOf(desk),
 })
 
+/**
+ * Why this caller may not publish a quest that pays no lamports, or `undefined`
+ * (D-112, `#744`).
+ *
+ * **Zero has to stay available and must not be available to everyone.** The
+ * Colony needs to ask its citizens something without invoicing itself; a citizen
+ * publishing for nothing can publish without limit, and the cost is the only
+ * thing standing between the quest list and a list of asking. So the gate is a
+ * role rather than an account type — `AccountTypeSchema` has no `colony` member
+ * and inventing one to answer this would be a much larger change than the rule
+ * warrants.
+ *
+ * **`steward`, and that was decided rather than weighed here.** It is already the
+ * quest-domain role, it is granted only by another steward — held to that in the
+ * database by `tasks_only_colony_grants_roles`, so nothing an ordinary citizen
+ * can do opens this gate — and the conflict-of-interest bans that travel with it
+ * (D-052) mean the *steward publishes its own quest* case is already answered.
+ * `governor` was the alternative and was rejected: it would hold a quest power it
+ * has no other reason to exercise, while a steward would lack one it obviously
+ * should.
+ *
+ * **Here rather than in `packages/core`.** `questRewardRejection` takes a quest
+ * and knows nothing about who is asking, and giving it a caller would put an
+ * authorisation question inside the domain model. It reads the roles beside that
+ * call instead, so a sponsor still gets one sentence about its reward.
+ *
+ * **Off when the floor is off.** `questPriceFloor` reads `0` as *this rule is not
+ * in force*, and gating zero while a one-lamport quest is waved through would be
+ * theatre — a deployment that turned the floor off has said it is not policing
+ * what a quest promises.
+ */
+const unpaidQuestRejection = (
+  quest: {
+    readonly publishObstacles?: boolean | undefined
+    readonly reward: { readonly lamports: number }
+  },
+  roles: readonly Role[],
+  floor: QuestFloorTerms,
+): string | undefined => {
+  if (quest.reward.lamports > 0 || floor.lamports <= 0) return undefined
+  if (roles.includes('steward')) return undefined
+
+  const { smallest } = questFloorReach(quest, floor)
+
+  return (
+    "a quest that pays no lamports is the Colony's own to publish, and a citizen publishing one " +
+    'pays for it: what a quest costs is what makes a sponsor weigh whether the question is worth ' +
+    'asking, and asking for nothing is the one thing a quest list cannot survive much of. ' +
+    // Both ways forward, because both are real (`#744`). A citizen with a good
+    // question and no role should not have to read *you lack a role* and guess.
+    (smallest === null
+      ? 'At a platform fee of 100% no price reaches a citizen either, so the only way this quest ' +
+        'is published is by the Colony: ask for it with kolonie.support.open, kind proposal.'
+      : `There are two ways forward and both are real: price it at ${smallest} lamports or more, ` +
+        'which is what reaches the floor a citizen is owed; or ask the Colony to publish it for ' +
+        'you — kolonie.support.open, kind proposal, is where that is asked, and a question the ' +
+        'Colony wants answered is one it will pay for itself.') +
+    ' Reputation is paid alongside either and is not what this is about.'
+  )
+}
+
 /** Write a new draft. */
 export async function writeQuestDraft(
-  input: { readonly authorId: AgentId; readonly body: unknown },
+  input: {
+    readonly authorId: AgentId
+    /** What the caller holds, for the zero-reward gate (`#744`). */
+    readonly roles: readonly Role[]
+    readonly body: unknown
+  },
   desk: QuestDesk,
 ): Promise<QuestResult<OwnQuestResponse>> {
   const parsed = QuestDraftSchema.safeParse(input.body)
@@ -851,10 +919,17 @@ export async function writeQuestDraft(
    * **Here rather than in storage**, beside the requirement check, because both
    * are the same kind of refusal — a quest that is well-formed and would be
    * wrong to accept — and this is where the sentence a sponsor reads is written.
+   *
+   * **Three rules, one sentence** (`#630`, `#743`, `#744`): the ceiling, the floor
+   * and who may pay nothing. They are asked in that order and the first to answer
+   * wins, so a sponsor reads one thing about its reward rather than three.
    */
-  const overCeiling = questRewardRejection(parsed.data, await capsOf(desk), await floorOf(desk))
-  if (overCeiling !== undefined) {
-    return { outcome: 'rejected', error: invalid(capitalised(overCeiling)) }
+  const floor = await floorOf(desk)
+  const priced =
+    questRewardRejection(parsed.data, await capsOf(desk), floor) ??
+    unpaidQuestRejection(parsed.data, input.roles, floor)
+  if (priced !== undefined) {
+    return { outcome: 'rejected', error: invalid(capitalised(priced)) }
   }
 
   const quest = await desk.create({ authorId: input.authorId, draft: parsed.data })
@@ -899,6 +974,8 @@ function skillsTheAcademyDoesNotGrant(requires: readonly string[]): ApiError | u
 export async function editQuestDraft(
   input: {
     readonly authorId: AgentId
+    /** What the caller holds, for the zero-reward gate (`#744`). */
+    readonly roles: readonly Role[]
     readonly questId: string | undefined
     readonly body: unknown
     readonly at: Timestamp
@@ -935,9 +1012,17 @@ export async function editQuestDraft(
   if (own === undefined) return notFound()
 
   const merged = { ...own.task, ...parsed.data }
-  const overCeiling = questRewardRejection(merged, await capsOf(desk), await floorOf(desk))
-  if (overCeiling !== undefined) {
-    return { outcome: 'rejected', error: invalid(capitalised(overCeiling)) }
+  const floor = await floorOf(desk)
+  /**
+   * **The zero gate on the merged quest, not on the patch** (`#744`). A draft
+   * priced above the floor and then edited down to nothing is the way past a gate
+   * that only reads the write path, and it is the fourth case the issue names.
+   */
+  const priced =
+    questRewardRejection(merged, await capsOf(desk), floor) ??
+    unpaidQuestRejection(merged, input.roles, floor)
+  if (priced !== undefined) {
+    return { outcome: 'rejected', error: invalid(capitalised(priced)) }
   }
 
   const result = await desk.update({
@@ -1023,6 +1108,8 @@ export async function discardQuestDraft(
 export async function submitQuest(
   input: {
     readonly authorId: AgentId
+    /** What the caller holds, for the zero-reward gate (`#744`). */
+    readonly roles: readonly Role[]
     readonly questId: string | undefined
     readonly at: Timestamp
     /** Injected so the expiry boundary is testable without waiting for one. */
@@ -1080,9 +1167,17 @@ export async function submitQuest(
    * acceptance criteria name and it holds by placement: a quest already
    * published is never re-checked, because nothing after this reads a cap.
    */
-  const overCeiling = questRewardRejection(own.task, await capsOf(desk), await floorOf(desk))
-  if (overCeiling !== undefined) {
-    return { outcome: 'rejected', error: invalid(capitalised(overCeiling)) }
+  const floor = await floorOf(desk)
+  /**
+   * **And the zero gate here for the same reason** (`#744`): a role held while
+   * drafting and lost before submitting should not publish an unpaid quest, and
+   * submission is the last moment anything is asked about the price.
+   */
+  const priced =
+    questRewardRejection(own.task, await capsOf(desk), floor) ??
+    unpaidQuestRejection(own.task, input.roles, floor)
+  if (priced !== undefined) {
+    return { outcome: 'rejected', error: invalid(capitalised(priced)) }
   }
 
   const result = await desk.submit({ authorId: input.authorId, taskId, at: input.at })
@@ -1755,6 +1850,8 @@ export interface QuestToppedUpResponse {
 export async function topUpQuest(
   input: {
     readonly sponsorId: AgentId
+    /** What the caller holds, for the zero-reward gate (`#744`). */
+    readonly roles: readonly Role[]
     readonly questId: string | undefined
     readonly body: unknown
     readonly now?: Date | undefined
@@ -1799,11 +1896,16 @@ export async function topUpQuest(
   const own = await desk.readOwn(input.sponsorId, taskId)
   if (own === undefined) return notFound()
 
-  const belowFloor = questPriceFloorRejection(
-    own.task,
-    await floorOf(desk, own.task.platformFeePercent ?? undefined),
-    await capsOf(desk),
-  )
+  const floor = await floorOf(desk, own.task.platformFeePercent ?? undefined)
+  /**
+   * **And an unpaid quest is topped up on the same terms** (`#744`). A quest
+   * published for nothing before the gate existed, or by a steward that no longer
+   * holds the role, is not a licence to keep buying free capacity — a top-up is a
+   * fresh ask of the citizens, and it is priced like one.
+   */
+  const belowFloor =
+    questPriceFloorRejection(own.task, floor, await capsOf(desk)) ??
+    unpaidQuestRejection(own.task, input.roles, floor)
   if (belowFloor !== undefined) {
     return {
       outcome: 'rejected',

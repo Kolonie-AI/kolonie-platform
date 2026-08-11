@@ -5,7 +5,9 @@ import {
   solFromLamports,
   platformFeePercentFromEnv,
   reportAudience,
+  type Agent,
   type AgentId,
+  type Role,
   type ApiError,
   type HumanId,
   type Log,
@@ -2419,7 +2421,12 @@ function registerSponsorPages(
   deps: RouteDependencies,
   ctx: {
     readonly guard: (request: FastifyRequest, reply: FastifyReply) => Promise<boolean>
-    readonly caller: (request: FastifyRequest) => Promise<{ readonly id: AgentId } | null>
+    /**
+     * The acting agent, whole rather than just its id, because a quest refusal
+     * reads what it holds (`#744`). The closure always had the `Agent`; only this
+     * declaration narrowed it away.
+     */
+    readonly caller: (request: FastifyRequest) => Promise<Agent | null>
     /**
      * The signed-in person, if there is one (`#455`).
      *
@@ -2519,7 +2526,7 @@ function registerSponsorPages(
        */
       readonly refuse?: boolean
     },
-  ): Promise<{ readonly id: AgentId } | null> => {
+  ): Promise<Agent | null> => {
     if (!(await ctx.guard(request, reply))) return null
 
     const agent = await ctx.caller(request)
@@ -2839,7 +2846,10 @@ function registerSponsorPages(
           })
     }
 
-    const written = await writeQuestDraft({ authorId: agent.id, body: parsed.draft }, deps.quests)
+    const written = await writeQuestDraft(
+      { authorId: agent.id, roles: agent.roles, body: parsed.draft },
+      deps.quests,
+    )
     if (written.outcome === 'rejected') {
       return wantsHtml(request)
         ? html(
@@ -2907,7 +2917,17 @@ function registerSponsorPages(
     request: FastifyRequest,
     reply: FastifyReply,
     intent: 'read' | 'write',
-  ): Promise<{ readonly id: AgentId; readonly writtenBy?: string } | null> => {
+  ): Promise<{
+    readonly id: AgentId
+    /**
+     * What the acting agent holds, for the zero-reward gate (`#744`). Empty on
+     * the operated-agent branch below, which answers `read` only — an operator
+     * looking at an agent's quest holds none of that agent's roles, and no read
+     * asks.
+     */
+    readonly roles: readonly Role[]
+    readonly writtenBy?: string
+  } | null> => {
     if (!(await ctx.guard(request, reply))) return null
 
     /**
@@ -2919,11 +2939,11 @@ function registerSponsorPages(
     const agent = await identity(request, reply, { refuse: false })
 
     const questId = (request.params as { questId?: string }).questId
-    if (agent !== null && questId === undefined) return { id: agent.id }
+    if (agent !== null && questId === undefined) return { id: agent.id, roles: agent.roles }
 
     if (agent !== null && questId !== undefined) {
       const own = await deps.quests.readOwn(agent.id, questId as TaskId)
-      if (own !== undefined) return { id: agent.id }
+      if (own !== undefined) return { id: agent.id, roles: agent.roles }
     }
 
     /**
@@ -2938,7 +2958,7 @@ function registerSponsorPages(
     for (const held of operated) {
       if ((await deps.quests.readOwn(held.id, questId as TaskId)) === undefined) continue
 
-      if (intent === 'read') return { id: held.id, writtenBy: held.name }
+      if (intent === 'read') return { id: held.id, roles: [], writtenBy: held.name }
 
       const error = {
         code: 'forbidden' as const,
@@ -2969,9 +2989,9 @@ function registerSponsorPages(
   const refuseAsMiss = (
     request: FastifyRequest,
     reply: FastifyReply,
-    agent: { readonly id: AgentId } | null,
-  ): { readonly id: AgentId } | null => {
-    if (agent !== null) return { id: agent.id }
+    agent: Agent | null,
+  ): { readonly id: AgentId; readonly roles: readonly Role[] } | null => {
+    if (agent !== null) return { id: agent.id, roles: agent.roles }
 
     if (wantsHtml(request)) reply.callNotFound()
     else reply.status(ERROR_STATUS.unauthorized).send({ signedIn: false, signIn: '/sign-in' })
@@ -3128,7 +3148,12 @@ function registerSponsorPages(
      */
 
     const submitted = await submitQuest(
-      { authorId: agent, questId, at: new Date().toISOString() as Timestamp },
+      {
+        authorId: agent,
+        roles: resolved.roles,
+        questId,
+        at: new Date().toISOString() as Timestamp,
+      },
       deps.quests,
     )
     if (submitted.outcome === 'rejected') return refuse(request, reply, submitted.error)

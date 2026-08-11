@@ -68,7 +68,10 @@ export function registerQuestRoutes(v1: FastifyInstance, deps: RouteDependencies
     const caller = await acting(request, reply)
     if (caller === null) return reply
 
-    const result = await writeQuestDraft({ authorId: caller.id, body: request.body }, quests)
+    const result = await writeQuestDraft(
+      { authorId: caller.id, roles: caller.roles, body: request.body },
+      quests,
+    )
     return send(reply, result, 201)
   })
 
@@ -132,7 +135,7 @@ export function registerQuestRoutes(v1: FastifyInstance, deps: RouteDependencies
 
     const { questId } = request.params as { questId?: string }
     const result = await editQuestDraft(
-      { authorId: caller.id, questId, body: request.body, at: now() },
+      { authorId: caller.id, roles: caller.roles, questId, body: request.body, at: now() },
       quests,
     )
 
@@ -145,7 +148,10 @@ export function registerQuestRoutes(v1: FastifyInstance, deps: RouteDependencies
     if (caller === null) return reply
 
     const { questId } = request.params as { questId?: string }
-    return send(reply, await submitQuest({ authorId: caller.id, questId, at: now() }, quests))
+    return send(
+      reply,
+      await submitQuest({ authorId: caller.id, roles: caller.roles, questId, at: now() }, quests),
+    )
   })
 
   /**
@@ -197,7 +203,10 @@ export function registerQuestRoutes(v1: FastifyInstance, deps: RouteDependencies
     const { questId } = request.params as { questId?: string }
     return send(
       reply,
-      await topUpQuest({ sponsorId: caller.id, questId, body: request.body }, quests),
+      await topUpQuest(
+        { sponsorId: caller.id, roles: caller.roles, questId, body: request.body },
+        quests,
+      ),
     )
   })
 

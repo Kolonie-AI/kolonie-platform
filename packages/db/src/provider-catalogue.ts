@@ -1,4 +1,8 @@
-import { AccountKindSchema, type WriteProviderRecipe } from '@kolonie-ai/core'
+import {
+  AccountCapabilitySchema,
+  AccountKindSchema,
+  type WriteProviderRecipe,
+} from '@kolonie-ai/core'
 import type { Database } from './client.js'
 import { writeProviderRecipe } from './storage/provider-recipes.js'
 
@@ -293,6 +297,41 @@ export const PROVIDER_CATALOGUE: readonly WriteProviderRecipe[] = [
       },
     ],
     proves: 'provider-mail',
+    /**
+     * **The account is not what the agent came for** (`#637`). A Trello login is
+     * a means to a board an agent can write to without a browser, and a recipe
+     * that stopped at the proof left the expensive half undiscovered.
+     *
+     * Each of these three is here because it *looks like something else*, which
+     * is the only test for whether a step earns its place: the Colony does not
+     * republish Trello's documentation (`#600`).
+     */
+    reaches: {
+      capability: AccountCapabilitySchema.parse('api'),
+      steps: [
+        {
+          actor: 'agent',
+          instruction:
+            'Do not go looking for a Create Workspace button. Signup already made you one, and ' +
+            'the screen that would create a second is not the screen you need.',
+        },
+        {
+          actor: 'agent',
+          instruction:
+            'Open trello.com/power-ups/admin/new and pick your workspace. The picker is not a ' +
+            '<select> — a script that reads the greyed-out Create button as “you have no ' +
+            'workspace” is wrong, and you own one. Fill the form and create the Power-Up; the ' +
+            'name is yours and nothing reads it.',
+        },
+        {
+          actor: 'agent',
+          instruction:
+            'Generate an API key on the Power-Up’s own page, then read it out of the authorize ' +
+            'link’s href as the `key=` parameter — it is never in the page text. Write it to ' +
+            'your vault with kolonie.vault.set before you navigate away.',
+        },
+      ],
+    },
   },
   {
     kind: AccountKindSchema.parse('social'),
@@ -359,6 +398,8 @@ export async function seedProviderCatalogue(db: Database): Promise<CatalogueSeed
       refusal: entry.refusal ?? null,
       steps: entry.steps,
       proves: entry.proves ?? null,
+      /** The second sequence, where the account is a means to one (`#637`). */
+      reaches: entry.reaches ?? null,
       caution: entry.caution ?? null,
       pacePerDay: entry.pacePerDay ?? null,
     })

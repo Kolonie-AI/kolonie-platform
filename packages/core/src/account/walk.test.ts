@@ -4,6 +4,7 @@ import {
   WalkNoteSchema,
   WalkOutcomeSchema,
   WalkTakenStepPositionsSchema,
+  reachedByWalk,
   walkMatchesRecipe,
   walkToSteps,
   walkVerdict,
@@ -11,6 +12,10 @@ import {
   type WalkStep,
 } from './walk.js'
 import { RecipeStepSchema, WriteProviderRecipeSchema, type RecipeStep } from './recipe.js'
+import { AccountCapabilitySchema } from './account.js'
+
+/** The capability the reach sequences in these tests arrive at. */
+const API = AccountCapabilitySchema.parse('api')
 
 /**
  * The derivation, as a pure function (`#601`).
@@ -192,6 +197,67 @@ describe('whether a walk went the way the entry says it goes', () => {
     )
 
     expect(walkMatchesRecipe(observed, { steps: [...longRecipe] })).toBe(true)
+  })
+
+  /**
+   * **A reach is optional by nature** (`#637`), so stopping at the account is
+   * not a divergence — reading it as one would file the provider as changed
+   * every time somebody stopped where they meant to.
+   */
+  it('matches a walk that stopped at the account of an entry that reaches further', () => {
+    const stopped = walk([step('agent')], { takenStepPositions: [1] })
+
+    expect(
+      walkMatchesRecipe(stopped, {
+        steps: [{ actor: 'agent', instruction: 'Sign up.' }],
+        reaches: { capability: API, steps: [{ actor: 'agent', instruction: 'Mint a key.' }] },
+      }),
+    ).toBe(true)
+  })
+})
+
+/**
+ * The third done-when of `#637`: a walk that obtained a credential can report
+ * that it did — through the tick-list it already answers, and no new question.
+ */
+describe('what a walk reached past the account', () => {
+  const entry = {
+    steps: [{ actor: 'agent' as const, instruction: 'Sign up.' }],
+    reaches: {
+      capability: API,
+      steps: [
+        { actor: 'agent' as const, instruction: 'Open the form.' },
+        { actor: 'agent' as const, instruction: 'Read the key.' },
+      ],
+    },
+  }
+
+  it('names the capability when the tick-list goes past the account', () => {
+    expect(reachedByWalk(walk([step('agent')], { takenStepPositions: [1, 2, 3] }), entry)).toBe(API)
+  })
+
+  it('says nothing when the walk stopped at the account', () => {
+    expect(reachedByWalk(walk([step('agent')], { takenStepPositions: [1] }), entry)).toBeUndefined()
+  })
+
+  it('says nothing about an entry that reaches nowhere', () => {
+    expect(
+      reachedByWalk(walk([step('agent')], { takenStepPositions: [1, 2] }), {
+        steps: entry.steps,
+        reaches: null,
+      }),
+    ).toBeUndefined()
+  })
+
+  /**
+   * A tick-list may run past both sequences — `#601` bounds the positions by
+   * the step maximum and not by this entry's length, so a position nothing
+   * published is not evidence of a capability nobody described.
+   */
+  it('says nothing for a position past the reach itself', () => {
+    expect(
+      reachedByWalk(walk([step('agent')], { takenStepPositions: [1, 9] }), entry),
+    ).toBeUndefined()
   })
 })
 

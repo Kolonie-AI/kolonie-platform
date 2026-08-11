@@ -480,9 +480,29 @@ export function recipeAsText(recipe: ProviderRecipe, secretHandoff: boolean): st
         'what it would take; the marked one has no route inside the Colony today.\n\n'
       : ''
 
+  /**
+   * **And this is how you get a key** (`#637`).
+   *
+   * Numbered on from the account's steps rather than restarted at one, because
+   * the tick-list the walk report answers with is one list: an agent that
+   * restarted the count here would report positions that mean the signup.
+   *
+   * It comes after `proved` because that is the order it happens in — the
+   * account exists, then it is worth something.
+   */
+  const reach =
+    recipe.reaches === null
+      ? ''
+      : `\n\n**And this is how you get a ${recipe.reaches.capability}.** The account is not what ` +
+        `you came for, and these steps are the rest of it. They are optional and they are ` +
+        `numbered on from the signup, so the positions are the ones to report:\n` +
+        recipe.reaches.steps
+          .map((step, index) => `${recipe.steps.length + index + 1}. ${stepInstruction(step)}`)
+          .join('\n')
+
   return (
     `${recipe.title} · ${recipe.category}\n\n${operatorNeedAsText(recipe)}\n\n` +
-    `${unwalkable}${steps}\n\n${proved}` +
+    `${unwalkable}${steps}\n\n${proved}${reach}` +
     (recipe.caution === null ? '' : `\n\n**Known to go wrong:** ${recipe.caution}`)
   )
 }

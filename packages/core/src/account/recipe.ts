@@ -4,7 +4,12 @@ import { looksLikeCredential } from '../operator/request.js'
 import { AgentPlatformSchema } from '../agent/agent.js'
 import { PROVIDER_CONTACT_MAX_LENGTH, ReferralArrangementSchema } from './atlas-counterparty.js'
 import { AgentApiSchema } from './atlas-admission.js'
-import { AccountKindSchema, AccountProofMethodSchema, AccountProviderSchema } from './account.js'
+import {
+  AccountCapabilitySchema,
+  AccountKindSchema,
+  AccountProofMethodSchema,
+  AccountProviderSchema,
+} from './account.js'
 
 /**
  * A provider is a recipe, not a rung (`#521`).
@@ -410,6 +415,63 @@ export const RecipeStepSchema = z
     path: ['ask'],
   })
 export type RecipeStep = z.infer<typeof RecipeStepSchema>
+
+/**
+ * What the account is for, once it exists (`#637`).
+ *
+ * **A recipe ends when the account exists, and for most of the catalogue the
+ * account is not what the agent came for.** `proves` says how possession is
+ * demonstrated; it does not say what possession buys. An agent that wanted to
+ * keep a board on Trello wanted the API key, and the recipe stopped three steps
+ * short of it — three steps each worth writing down because each one *looks like
+ * something else*, which is the only kind of step a catalogue is for.
+ *
+ * **A second sequence and not a second recipe.** One entry per capability —
+ * `trello.com` carrying an `account` recipe and an `api-credential` recipe — is
+ * the cleaner model and is a schema change across `#588`, `#604` and the
+ * console. It is named here so it is chosen rather than defaulted away from, and
+ * this is the smaller shape: the same steps, the same numbering, after the
+ * proof.
+ *
+ * **What it must not become is provider documentation.** A sequence that
+ * reproduces Trello's own developer docs is a copy that goes stale, and `#600`'s
+ * rule holds regardless: what the Colony says about somebody else's product
+ * passes a person. What belongs here is what the provider's own documentation
+ * does not say — where the page lies to a script, and where the value actually
+ * is.
+ */
+export const RecipeReachSchema = z
+  .object({
+    /**
+     * What holding this account then lets the agent do, as one of the same
+     * slugs an account records on `capabilities`.
+     *
+     * **The same vocabulary as the register and not a new one**, so *what does
+     * this recipe reach* and *what does this account do* are the one question
+     * asked twice. Most often `api`.
+     */
+    capability: AccountCapabilitySchema,
+    /** The steps, numbered on from the account's own. */
+    steps: z.array(RecipeStepSchema).min(1).max(RECIPE_MAX_STEPS),
+  })
+  .strict()
+export type RecipeReach = z.infer<typeof RecipeReachSchema>
+
+/**
+ * Every step an agent walks, in the order it walks them (`#637`).
+ *
+ * **One numbering, because the agent answers one tick-list.** The walk report
+ * asks which published steps were taken and the positions index into this — so
+ * a walk that also got the credential says so by ticking a position past the
+ * account's last step, rather than by being asked a second question. `#601`:
+ * *an agent that has just finished a signup should not be handed a form.*
+ */
+export function recipeWalkSteps(entry: {
+  readonly steps: readonly RecipeStep[]
+  readonly reaches?: RecipeReach | null
+}): readonly RecipeStep[] {
+  return [...entry.steps, ...(entry.reaches?.steps ?? [])]
+}
 
 /** How long a refusal reason may be. */
 export const RECIPE_REFUSAL_MAX_LENGTH = 500
@@ -935,6 +997,15 @@ export const ProviderRecipeSchema = z.object({
    */
   provesTask: z.string().nullable(),
   /**
+   * What the account is then good for, and how to reach it (`#637`).
+   *
+   * Null on most entries and on every entry nobody has taken past the proof.
+   * Where it is set, its steps are numbered on from `steps` and are walked after
+   * the account is proved — see {@link RecipeReachSchema} for why this is a
+   * second sequence rather than a second entry.
+   */
+  reaches: RecipeReachSchema.nullable(),
+  /**
    * What is known to refuse an agent partway, and what it looks like.
    *
    * Distinct from `refusal`: this is a working entry warning about a wall an agent
@@ -1017,6 +1088,8 @@ export const WriteProviderRecipeSchema = z
     proves: AccountProofMethodSchema.optional(),
     /** The rung that proves it, where `proves` is `rung` (`#622`). */
     provesTask: z.string().trim().min(1).max(64).optional(),
+    /** What the account is then good for, and how to reach it (`#637`). */
+    reaches: RecipeReachSchema.optional(),
     caution: z.string().trim().min(1).max(RECIPE_REFUSAL_MAX_LENGTH).optional(),
     /** Stricter than the default, when `provider-report` findings say so (`#532`). */
     pacePerDay: z.int().min(1).max(RECIPE_MAX_PACE_PER_DAY).optional(),
@@ -1094,6 +1167,70 @@ export const WriteProviderRecipeSchema = z
     path: ['provesTask'],
   })
   /**
+   * **What the account is for comes after the account** (`#637`).
+   *
+   * The reach sequence starts from a proved account, so an entry that has not
+   * said how the account is proved has nothing for it to start from. An entry
+   * carrying one without a proof would be a recipe whose second half is reachable
+   * and whose first half is not.
+   */
+  .refine((entry) => entry.reaches === undefined || entry.proves !== undefined, {
+    message:
+      'a reach starts from the account this recipe produces, so name how the account is proved ' +
+      'first. Steps to a credential on an entry that never got as far as a proof are a second ' +
+      'half with no first half.',
+    path: ['reaches'],
+  })
+  /**
+   * **One budget for both sequences**, because an agent walks one numbered list.
+   * The bound is what a recipe is allowed to ask of a reader in total, and
+   * splitting it in two would double it by writing the second half in a
+   * different field.
+   */
+  .refine((entry) => entry.steps.length + (entry.reaches?.steps.length ?? 0) <= RECIPE_MAX_STEPS, {
+    message:
+      `a recipe and its reach share one budget of ${String(RECIPE_MAX_STEPS)} steps, because ` +
+      'the agent walks one numbered list. Longer than that is a path nobody follows to the end.',
+    path: ['reaches'],
+  })
+  /**
+   * **The person belongs to the account and not to what follows it** (`#637`).
+   *
+   * Two surfaces make this a rule rather than a preference. `operatorNeed`, the
+   * *how much of your operator* line and the takeover rule all read `steps`, so
+   * a wall in the reach sequence would be one no page renders — a person
+   * required at a step the entry says nobody is required at. And a handoff or a
+   * handover resolves its step as `steps[position - 1]`, so an operator step
+   * numbered past the account's would be one the agent is told to open and the
+   * Colony cannot find.
+   *
+   * A reach that genuinely stops at a person is a recipe of its own.
+   */
+  .refine((entry) => (entry.reaches?.steps ?? []).every((step) => step.actor === 'agent'), {
+    message:
+      'a reach step is walked by the agent. Every surface that reads a person out of a recipe ' +
+      'reads the account steps, so an operator step here is one nothing renders and nothing can ' +
+      'open — a reach that stops at a person is its own recipe.',
+    path: ['reaches', 'steps'],
+  })
+  /**
+   * A reach step may be wordless on exactly the states its account's steps may
+   * be — the same rule as `_published_steps_are_written`, applied to the second
+   * sequence so publishing cannot smuggle a blank line past it.
+   */
+  .refine(
+    (entry) =>
+      entry.status === 'draft' ||
+      entry.status === 'retired' ||
+      (entry.reaches?.steps ?? []).every((step) => step.instruction !== undefined),
+    {
+      message:
+        'every step needs to say what is done before the entry leaves draft, and a reach step is ' +
+        'a step.',
+      path: ['reaches', 'steps'],
+    },
+  )
+  /**
    * A refusal says why, a working entry says how, and an unwritten one says
    * neither. No state may be half of another: a refusal with no reason is a dead
    * end a reader cannot act on, a joinable entry with no steps claims to be a
@@ -1119,13 +1256,13 @@ export const WriteProviderRecipeSchema = z
   .superRefine((entry, ctx) => {
     const produced = new Set<string>()
 
-    entry.steps.forEach((step, index) => {
+    const check = (step: RecipeStep, path: readonly (string | number)[]): void => {
       for (const missing of valuesReferencedBy(step.ask ?? '')) {
         if (produced.has(missing)) continue
 
         ctx.addIssue({
           code: 'custom',
-          path: ['steps', index, 'ask'],
+          path: [...path],
           message:
             `this ask refers to {${missing}} and no earlier step produces it. Add it to the ` +
             '`produces` of the agent step that decides it, or the operator reads a brace.',
@@ -1133,6 +1270,17 @@ export const WriteProviderRecipeSchema = z
       }
 
       for (const name of step.produces ?? []) produced.add(name)
+    }
+
+    entry.steps.forEach((step, index) => {
+      check(step, ['steps', index, 'ask'])
+    })
+    /**
+     * The reach sequence runs after the account's steps, so it may refer back to
+     * what they produced and nothing may refer forward into it (`#637`).
+     */
+    entry.reaches?.steps.forEach((step, index) => {
+      check(step, ['reaches', 'steps', index, 'ask'])
     })
   })
   .refine((entry) => entry.status !== 'refused' || entry.refusal !== undefined, {

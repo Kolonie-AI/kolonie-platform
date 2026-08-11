@@ -7,6 +7,7 @@ import {
   SignupCodeSchema,
   RecipeOperatorGuessSchema,
   RecipeRuntimeNoteSchema,
+  RecipeReachSchema,
   RecipeStatusSchema,
   RecipeStepSchema,
   operatorNeed,
@@ -18,6 +19,7 @@ import {
   type SignupCode,
   type ProviderRecipe,
   type RecipeOperatorGuess,
+  type RecipeReach,
   type RecipeRuntimeNote,
   type RecipeStatus,
   type RecipeStep,
@@ -90,6 +92,8 @@ function toRecipe(row: typeof providerRecipes.$inferSelect): ProviderRecipe {
     steps,
     proves: row.proves as ProviderRecipe['proves'],
     provesTask: row.provesTask,
+    /** Parsed on the way out, like `steps`: `jsonb` accepts whatever was written. */
+    reaches: row.reaches === null ? null : RecipeReachSchema.parse(row.reaches),
     caution: row.caution,
     agentApi: AgentApiSchema.parse(row.agentApi),
     signupCode: SignupCodeSchema.parse(row.signupCode),
@@ -216,6 +220,8 @@ export async function writeProviderRecipe(
     readonly proves?: ProviderRecipe['proves']
     /** The rung that proves it, where the method is `rung` (`#622`). */
     readonly provesTask?: string | null
+    /** What the account is then good for, and how to reach it (`#637`). */
+    readonly reaches?: RecipeReach | null
     readonly caution?: string | null
     /** The answer to admission question two (`#680`). Absent means nobody looked. */
     readonly agentApi?: AgentApi
@@ -263,6 +269,12 @@ export async function writeProviderRecipe(
      * same rule `retiredAt` follows four lines up.
      */
     provesTask: entry.proves === 'rung' ? (entry.provesTask ?? null) : null,
+    /**
+     * **Cleared when nothing is proved**, for the reason `provesTask` is: a reach
+     * starts from the account this recipe produces, and an entry that stopped
+     * proving one would otherwise keep a sequence that begins nowhere.
+     */
+    reaches: entry.proves === undefined || entry.proves === null ? null : (entry.reaches ?? null),
     caution: entry.caution ?? null,
     /**
      * **`unknown` and not the row's previous value**, because this is an upsert

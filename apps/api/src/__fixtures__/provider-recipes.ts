@@ -217,6 +217,7 @@ export function fakeProviderRecipes(): FakeProviderRecipes {
         steps,
         proves: entry.proves ?? (status === 'joinable' ? 'provider-post' : null),
         provesTask: entry.provesTask ?? null,
+        reaches: entry.reaches ?? null,
         caution: entry.caution ?? null,
         agentApi: entry.agentApi ?? 'unknown',
         signupCode: entry.signupCode ?? 'unknown',

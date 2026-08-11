@@ -504,12 +504,28 @@ function recipeSection(recipe: AtlasEntry['recipes'][number]): string {
     })
     .join('')
 
+  /**
+   * **The page says the account is a means** (`#637`), where it is one.
+   *
+   * `start` continues the numbering rather than restarting it, for the reason
+   * the briefing does: one sequence, and the positions are what a walk reports.
+   */
+  const reach =
+    recipe.reaches === null
+      ? ''
+      : `<h3>And this is how you get a ${escape(recipe.reaches.capability)}</h3>` +
+        `<p><small>Optional, and the account is not what you came for.</small></p>` +
+        `<ol start="${recipe.steps.length + 1}">` +
+        recipe.reaches.steps.map((step) => `<li>${escape(stepInstruction(step))}</li>`).join('') +
+        '</ol>'
+
   return [
     `<section><h2>${escape(recipe.kind)}</h2>`,
     `<p><small>${escape(operatorLine(recipe))}</small></p>`,
     staleNote(recipe),
     `<ol>${steps}</ol>`,
     `<p>${escape(provesLine(recipe.proves))}</p>`,
+    reach,
     figuresSection(recipe.figures),
     recipe.caution === null
       ? ''

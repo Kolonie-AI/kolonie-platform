@@ -52,6 +52,7 @@ const recipe = (input: {
     steps,
     proves: joinable ? 'provider-post' : null,
     provesTask: null,
+    reaches: null,
     caution: null,
     agentApi: 'unknown' as const,
     signupCode: 'unknown' as const,

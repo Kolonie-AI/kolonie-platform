@@ -16,6 +16,7 @@ import {
   RECIPE_MAX_STEPS,
   RecipeOperatorGuessSchema,
   RecipeStatusSchema,
+  type RecipeReach,
   type RecipeRuntimeNote,
   type RecipeStep,
   type ReferralArrangement,
@@ -211,6 +212,22 @@ export const providerRecipes = pgTable(
      * asserted in `atlas-rung.test.ts` rather than by the database.
      */
     provesTask: text('proves_task'),
+
+    /**
+     * What the account is then good for, and the steps that reach it (`#637`).
+     *
+     * **`jsonb` beside `steps` and not a column pair**, for the reason `steps`
+     * is one column: a recipe is read whole by one caller at a time, nothing
+     * queries across the steps, and the capability is meaningless without them.
+     * The shape is `RecipeReachSchema`, checked at both boundaries and parsed
+     * again on the way out of this table.
+     *
+     * Null on almost every entry, and null is the honest empty answer here —
+     * unlike `agent_api` beside it, there is no word for *somebody looked and
+     * this account is good for nothing further*, because that finding is the
+     * entry having no reach.
+     */
+    reaches: jsonb('reaches').$type<RecipeReach>(),
 
     /** A wall a working entry warns about, from `provider-report` findings. */
     caution: text('caution'),
@@ -505,6 +522,56 @@ export const providerRecipes = pgTable(
     check(
       'provider_recipes_proves_task_iff_rung',
       sql`${table.provesTask} is null or ${table.proves} = 'rung'`,
+    ),
+
+    /**
+     * **What the account is for comes after the account** (`#637`).
+     *
+     * A reach starts from a proved account and carries at least one step, and
+     * both halves are the same statement: an entry with a capability and nothing
+     * to walk claims the account is good for something and says nothing about
+     * how, which is the shape `unwritten` exists to avoid one level up.
+     *
+     * In SQL as well as in `WriteProviderRecipeSchema`, for this table's
+     * standing reason: the seed and a `psql` prompt write through neither.
+     */
+    check(
+      'provider_recipes_reach_follows_a_proof',
+      sql`${table.reaches} is null
+          or (${table.proves} is not null
+              and ${table.reaches} ? 'capability'
+              and jsonb_array_length(${table.reaches} -> 'steps') >= 1)`,
+    ),
+
+    /**
+     * **One budget for both sequences**, because the agent walks one numbered
+     * list and the walk report's positions index into it. Two bounds would be
+     * the one bound doubled by writing the second half in a different column.
+     */
+    check(
+      'provider_recipes_reach_shares_the_step_budget',
+      sql`jsonb_array_length(${table.steps})
+            + coalesce(jsonb_array_length(${table.reaches} -> 'steps'), 0)
+          <= ${sql.raw(String(RECIPE_MAX_STEPS))}`,
+    ),
+
+    /** A reach step is a step: wordless only while the entry is a draft (`#601`, `#637`). */
+    check(
+      'provider_recipes_published_reach_is_written',
+      sql`${table.status} in ('draft', 'retired')
+          or ${table.reaches} is null
+          or not jsonb_path_exists(${table.reaches} -> 'steps', '$[*] ? (!exists(@.instruction))')`,
+    ),
+
+    /**
+     * **The person is the account's** (`#637`). A handoff resolves its step by
+     * counting into `steps`, so an operator step numbered past the account's own
+     * is one the agent is told to open and nothing can find.
+     */
+    check(
+      'provider_recipes_reach_is_walked_by_the_agent',
+      sql`${table.reaches} is null
+          or not jsonb_path_exists(${table.reaches} -> 'steps', '$[*] ? (@.actor <> "agent")')`,
     ),
   ],
 )

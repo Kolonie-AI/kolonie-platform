@@ -1,12 +1,13 @@
 import { z } from 'zod'
 import { NOTE_MAX_LENGTH } from '../common/note.js'
 import { TimestampSchema } from '../common/time.js'
-import { AccountKindSchema, AccountProviderSchema } from './account.js'
+import { AccountKindSchema, AccountProviderSchema, type AccountCapability } from './account.js'
 import {
   RECIPE_MAX_STEPS,
   RECIPE_REFUSAL_MAX_LENGTH,
   RECIPE_STEP_MAX_LENGTH,
   RecipeActorSchema,
+  recipeWalkSteps,
   type ProviderRecipe,
   type RecipeStep,
 } from './recipe.js'
@@ -242,15 +243,32 @@ export function walkToSteps(walk: AccountWalk): readonly RecipeStep[] {
  * actually get used, and this is what feeds it: **a provider's changed signup
  * form announces itself** as a walk whose shape stopped matching.
  */
+/**
+ * **Optional here, and never null on a row** (`#637`). A caller that holds a
+ * whole entry always has the field; a caller that holds only steps — a proposal
+ * being read before it is a row, a test about the account half — reaches nothing
+ * by definition, and `Pick` would make every one of them write `reaches: null`
+ * to say a thing they never had a concept of.
+ */
+type Reaching = { readonly reaches?: ProviderRecipe['reaches'] }
+
 export function walkMatchesRecipe(
   walk: AccountWalk,
-  recipe: Pick<ProviderRecipe, 'steps'>,
+  recipe: Pick<ProviderRecipe, 'steps'> & Reaching,
 ): boolean {
   if (walk.takenStepPositions === null) return false
 
+  /**
+   * **The account's own steps are what has to match** (`#637`). A reach sequence
+   * is numbered on from these and is optional by nature — an agent that got the
+   * account and did not go on for the API key has walked the recipe exactly as
+   * published, and reading its shorter tick-list as a divergence would file the
+   * provider as changed every time somebody stopped where they meant to.
+   */
+  const account = walk.takenStepPositions.filter((position) => position <= recipe.steps.length)
+
   const reportedEveryPublishedStep =
-    walk.takenStepPositions.length === recipe.steps.length &&
-    walk.takenStepPositions.every((position, at) => position === at + 1)
+    account.length === recipe.steps.length && account.every((position, at) => position === at + 1)
   if (!reportedEveryPublishedStep) return false
 
   const observedOperatorSteps = walk.steps.filter((step) => step.actor === 'operator')
@@ -265,13 +283,43 @@ export function walkMatchesRecipe(
 
 function reportedSteps(
   walk: AccountWalk,
-  recipe: Pick<ProviderRecipe, 'steps'>,
+  recipe: Pick<ProviderRecipe, 'steps'> & Reaching,
 ): readonly RecipeStep[] {
   if (walk.takenStepPositions === null) return []
+  const published = recipeWalkSteps(recipe)
   return walk.takenStepPositions.flatMap((position) => {
-    const step = recipe.steps[position - 1]
+    const step = published[position - 1]
     return step === undefined ? [] : [step]
   })
+}
+
+/**
+ * What a walk says it got beyond the account (`#637`).
+ *
+ * **The same one question, and no second form.** The reach sequence is numbered
+ * on from the account's steps, so a walk that obtained the API key has already
+ * said so by ticking a position past the last account step — this reads that
+ * answer rather than asking for it again. `#601` is explicit that an agent which
+ * has just finished a signup should not be handed a form, and a capability field
+ * on the walk would be exactly that form with one field on it.
+ *
+ * Undefined where the entry reaches nothing, or where the walk ticked nothing in
+ * that range — which is the ordinary case and is not a failure: an agent that
+ * wanted the account and stopped there walked the recipe as published.
+ */
+export function reachedByWalk(
+  walk: AccountWalk,
+  recipe: Pick<ProviderRecipe, 'steps'> & Reaching,
+): AccountCapability | undefined {
+  const reaches = recipe.reaches ?? null
+  if (reaches === null || walk.takenStepPositions === null) return undefined
+
+  const last = recipe.steps.length + reaches.steps.length
+  const reached = walk.takenStepPositions.some(
+    (position) => position > recipe.steps.length && position <= last,
+  )
+
+  return reached ? reaches.capability : undefined
 }
 
 /**
@@ -312,7 +360,7 @@ export type WalkVerdict =
 
 export function walkVerdict(
   walk: AccountWalk,
-  entry: Pick<ProviderRecipe, 'status' | 'steps'> | undefined,
+  entry: (Pick<ProviderRecipe, 'status' | 'steps'> & Reaching) | undefined,
 ): WalkVerdict {
   if (walk.outcome === null) {
     return { kind: 'nothing', why: 'the walk has not finished' }

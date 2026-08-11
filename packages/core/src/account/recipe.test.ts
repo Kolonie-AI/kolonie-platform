@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
+import { AccountCapabilitySchema } from './account.js'
 import {
+  RECIPE_MAX_STEPS,
   RecipeStatusSchema,
   RecipeStepSchema,
   SignupCodeSchema,
@@ -9,6 +11,7 @@ import {
   recipeStatusAllowsSteps,
   recipeStatusIsOfferable,
   recipeStatusIsPublic,
+  recipeWalkSteps,
 } from './recipe.js'
 
 /**
@@ -362,5 +365,98 @@ describe('a recipe declares its wall (#597)', () => {
         signupCode: 'agent-address',
       }).success,
     ).toBe(true)
+  })
+})
+
+/**
+ * The second sequence, for the providers whose account is a means (`#637`).
+ *
+ * **What is tested is where the numbering lives**, because that is the whole of
+ * the design: one list, the account's steps then the reach's, so the tick-list a
+ * walk already answers carries the answer and no new question is asked.
+ */
+describe('a recipe that reaches something past the account (#637)', () => {
+  const entry = {
+    kind: 'trello',
+    provider: 'trello.example',
+    title: 'Trello',
+    category: 'project-tracking',
+    status: 'joinable',
+    proves: 'provider-mail',
+    steps: [{ actor: 'agent' as const, instruction: 'Sign up.' }],
+    reaches: {
+      capability: AccountCapabilitySchema.parse('api'),
+      steps: [{ actor: 'agent' as const, instruction: 'Read the key out of the authorize link.' }],
+    },
+  }
+
+  it('takes a reach on an entry that proves an account', () => {
+    expect(WriteProviderRecipeSchema.safeParse(entry).success).toBe(true)
+  })
+
+  it('numbers the reach on from the account, as one walk', () => {
+    expect(
+      recipeWalkSteps({ steps: entry.steps, reaches: entry.reaches }).map(
+        (step) => step.instruction,
+      ),
+    ).toEqual(['Sign up.', 'Read the key out of the authorize link.'])
+  })
+
+  it('reads a recipe with no reach as the one sequence it is', () => {
+    expect(recipeWalkSteps({ steps: entry.steps }).length).toBe(1)
+  })
+
+  /** A reach starts from the account this recipe produces. */
+  it('refuses a reach on an entry that proves nothing', () => {
+    const { proves: _proves, ...unproved } = entry
+    expect(WriteProviderRecipeSchema.safeParse({ ...unproved, status: 'draft' }).success).toBe(
+      false,
+    )
+  })
+
+  it('refuses an empty reach, which claims a capability and says nothing about how', () => {
+    expect(
+      WriteProviderRecipeSchema.safeParse({
+        ...entry,
+        reaches: { capability: 'api', steps: [] },
+      }).success,
+    ).toBe(false)
+  })
+
+  /**
+   * One budget, because the walk report's positions index into one list and
+   * `account_walks` bounds them by the same constant.
+   */
+  it('spends one step budget across both sequences', () => {
+    const step = { actor: 'agent', instruction: 'Do it.' }
+    expect(
+      WriteProviderRecipeSchema.safeParse({
+        ...entry,
+        steps: Array.from({ length: RECIPE_MAX_STEPS }, () => step),
+        reaches: { capability: 'api', steps: [step] },
+      }).success,
+    ).toBe(false)
+  })
+
+  /** A handoff resolves `steps[position - 1]`, so it could not open this one. */
+  it('refuses an operator step inside a reach', () => {
+    expect(
+      WriteProviderRecipeSchema.safeParse({
+        ...entry,
+        reaches: {
+          capability: 'api',
+          steps: [{ actor: 'operator', instruction: 'Mint it.', ask: 'Please mint a key.' }],
+        },
+      }).success,
+    ).toBe(false)
+  })
+
+  it('refuses a wordless reach step once the entry is published', () => {
+    expect(
+      WriteProviderRecipeSchema.safeParse({
+        ...entry,
+        reaches: { capability: 'api', steps: [{ actor: 'agent' }] },
+      }).success,
+    ).toBe(false)
   })
 })

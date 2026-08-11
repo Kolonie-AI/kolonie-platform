@@ -11,6 +11,7 @@ import {
   wakeAddressFor,
   wakeChannelOf,
   wakeDeliveriesSince,
+  wakeTargetFor,
 } from './wake.js'
 
 const target = databaseTestTarget()
@@ -110,6 +111,68 @@ describe('the wake channel’s storage', () => {
       await recordWakeAddress(db, minted.row.id)
 
       expect((await wakeAddressFor(db, agentId))?.url).toBe('https://once.example/wake')
+    })
+
+    it('knocks a replacement challenge instead of a failed registered address', async () => {
+      const registered = await mintWakeChallenge(db, {
+        agentId,
+        url: 'https://old.example/wake',
+      })
+      if (registered.outcome !== 'minted') throw new Error('not minted')
+      await recordWakeAddress(db, registered.row.id)
+
+      await recordWakeDelivery(db, { agentId, event: 'verdict', outcome: 'dns-failed' })
+      await recordWakeDelivery(db, { agentId, event: 'verdict', outcome: 'dns-failed' })
+      await recordWakeDelivery(db, { agentId, event: 'verdict', outcome: 'dns-failed' })
+
+      const replacement = await mintWakeChallenge(db, {
+        agentId,
+        url: 'https://new.example/wake',
+      })
+      if (replacement.outcome !== 'minted') throw new Error('not minted')
+
+      expect(await wakeTargetFor(db, agentId)).toEqual({
+        url: 'https://new.example/wake',
+        secret: replacement.row.secret,
+        challengeId: replacement.row.id,
+        knockNonce: replacement.row.knockNonce,
+      })
+      expect((await wakeAddressFor(db, agentId))?.url).toBe('https://old.example/wake')
+      expect((await wakeChannelOf(db, agentId))?.consecutiveFailures).toBe(3)
+    })
+
+    it('promotes a replacement proved by an ordinary wake event', async () => {
+      const registered = await mintWakeChallenge(db, {
+        agentId,
+        url: 'https://old.example/wake',
+      })
+      if (registered.outcome !== 'minted') throw new Error('not minted')
+      await recordWakeAddress(db, registered.row.id)
+      await recordWakeDelivery(db, { agentId, event: 'verdict', outcome: 'dns-failed' })
+
+      const replacement = await mintWakeChallenge(db, {
+        agentId,
+        url: 'https://new.example/wake',
+      })
+      if (replacement.outcome !== 'minted') throw new Error('not minted')
+
+      await recordWakeDelivery(db, {
+        agentId,
+        event: 'operator-answer',
+        outcome: 'answered',
+        status: 200,
+        challengeId: replacement.row.id,
+      })
+
+      expect(await wakeTargetFor(db, agentId)).toEqual({
+        url: 'https://new.example/wake',
+        secret: replacement.row.secret,
+      })
+      expect(await wakeAddressFor(db, agentId)).toEqual({
+        url: 'https://new.example/wake',
+        secret: replacement.row.secret,
+      })
+      expect((await wakeChannelOf(db, agentId))?.consecutiveFailures).toBe(0)
     })
   })
 

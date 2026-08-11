@@ -27,11 +27,17 @@ describe('the wake channel', () => {
     readonly event: WakeEvent
     readonly outcome: WakeDeliveryOutcome
     readonly status?: number | undefined
+    readonly challengeId?: string | undefined
   }
 
   const deskWith = (
     options: {
-      readonly address?: { readonly url: string; readonly secret: string }
+      readonly address?: {
+        readonly url: string
+        readonly secret: string
+        readonly challengeId?: string
+        readonly knockNonce?: string
+      }
       readonly sentThisHour?: number
       readonly ceiling?: number
       readonly throws?: boolean
@@ -109,6 +115,65 @@ describe('the wake channel', () => {
       expect(JSON.stringify(headers)).not.toContain('verdict')
 
       expect(recorded).toEqual([{ agentId, event: 'verdict', outcome: 'answered', status: 204 }])
+    })
+
+    it('proves an open replacement challenge with the wake event', async () => {
+      const challengeId = '22222222-2222-4222-8222-222222222222'
+      const knockNonce = 'b'.repeat(32)
+      const { desk, recorded } = deskWith({
+        address: {
+          url: 'https://example.org/replacement',
+          secret,
+          challengeId,
+          knockNonce,
+        },
+      })
+
+      let headers: Record<string, string> | undefined
+      const sender = wakeSender(desk, {
+        fetch: async (_url, init) => {
+          headers = init.headers as Record<string, string>
+          return new Response(`received ${knockNonce}`, { status: 200 })
+        },
+      })
+
+      await sender.wake(agentId, 'operator-answer')
+
+      expect(headers?.[WAKE_KNOCK_HEADER]).toBe(knockNonce)
+      expect(recorded).toEqual([
+        {
+          agentId,
+          event: 'operator-answer',
+          outcome: 'answered',
+          status: 200,
+          challengeId,
+        },
+      ])
+    })
+
+    it('does not prove a replacement challenge that fails to echo the nonce', async () => {
+      const { desk, recorded } = deskWith({
+        address: {
+          url: 'https://example.org/replacement',
+          secret,
+          challengeId: '22222222-2222-4222-8222-222222222222',
+          knockNonce: 'b'.repeat(32),
+        },
+      })
+      const sender = wakeSender(desk, {
+        fetch: async () => new Response('not the nonce', { status: 200 }),
+      })
+
+      await sender.wake(agentId, 'operator-answer')
+
+      expect(recorded).toEqual([
+        {
+          agentId,
+          event: 'operator-answer',
+          outcome: 'failed',
+          challengeId: '22222222-2222-4222-8222-222222222222',
+        },
+      ])
     })
 
     it('is not knocked on past the hourly ceiling, and the refusal is a row', async () => {

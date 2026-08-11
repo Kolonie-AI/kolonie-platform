@@ -180,6 +180,46 @@ export async function wakeAddressFor(
 }
 
 /**
+ * Where the next delivery should knock and what should sign it.
+ *
+ * **An open challenge wins over the registered address** (`#722`). Replacing a
+ * dead channel starts with a challenge for the new URL, while the registered row
+ * necessarily still names the dead one until the replacement is proved. Sending
+ * intervening wake events to that old row makes the failure prevent its own
+ * repair; sending them to the newest live challenge lets the citizen observe the
+ * Colony at the endpoint it is trying to establish. Once the challenge expires,
+ * ordinary delivery falls back to the last proved address.
+ */
+export async function wakeTargetFor(
+  db: Database | Transaction,
+  agentId: AgentId,
+): Promise<
+  | {
+      readonly url: string
+      readonly secret: string
+      readonly challengeId?: string
+      readonly knockNonce?: string
+    }
+  | undefined
+> {
+  const challenge = await liveWakeChallenge(db, agentId)
+  const address = await wakeAddressFor(db, agentId)
+  if (
+    challenge !== undefined &&
+    (address === undefined || challenge.url !== address.url || challenge.secret !== address.secret)
+  ) {
+    return {
+      url: challenge.url,
+      secret: challenge.secret,
+      challengeId: challenge.id,
+      knockNonce: challenge.knockNonce,
+    }
+  }
+
+  return address
+}
+
+/**
  * What a citizen can be told about its own wake channel (`#585`).
  *
  * **The secret is not in it, and that is the difference from
@@ -200,11 +240,12 @@ export interface WakeChannel {
  * proved none (`#585`).
  *
  * **A read and nothing else.** `#518` decided that a failing endpoint costs the
- * citizen nothing, and the schema enforces that by the absence of any reader
- * that decides on {@link wakeAddresses.consecutiveFailures}. This is not that
- * reader: it hands the number to the one party the whole arrangement is for, and
- * decides nothing with it. *No penalty* and *no information* were always two
- * different rules, and only the first was ever settled.
+ * citizen nothing. This hands the number to the one party the whole arrangement
+ * is for and decides nothing with it; {@link wakeTargetFor} chooses between URLs
+ * solely because an open challenge names where the citizen is trying to move,
+ * never because the registered address crossed a failure threshold. *No
+ * penalty* and *no information* were always two different rules, and only the
+ * first was ever settled.
  *
  * **Ordered by nothing, because there is one row.** The address table is keyed
  * on the agent — one channel per citizen, by design.
@@ -258,7 +299,7 @@ export async function wakeDeliveriesSince(
  * Record what became of one delivery, and keep the address's own tally.
  *
  * **The tally is a fact and never a penalty** — see `schema/wake.ts`. Nothing
- * reads `consecutiveFailures` to decide anything about the citizen, and the
+ * reads `consecutiveFailures` to decide whether to contact the citizen, and the
  * absence of such a reader is the enforcement.
  */
 export async function recordWakeDelivery(
@@ -268,6 +309,7 @@ export async function recordWakeDelivery(
     readonly event: WakeEvent
     readonly outcome: WakeDeliveryOutcome
     readonly status?: number | undefined
+    readonly challengeId?: string | undefined
   },
 ): Promise<void> {
   await db.insert(wakeDeliveries).values({
@@ -276,6 +318,11 @@ export async function recordWakeDelivery(
     outcome: input.outcome,
     status: input.status ?? null,
   })
+
+  if (input.challengeId !== undefined) {
+    if (input.outcome === 'answered') await recordWakeAddress(db, input.challengeId)
+    return
+  }
 
   // `no-address` and `capped` say nothing about the endpoint — one has none and
   // the other was never contacted — so neither touches the address's tally.
@@ -316,20 +363,27 @@ export function databaseWakeDesk(
   db: Database,
   settings: SettingsReader,
 ): {
-  addressFor(
-    agentId: AgentId,
-  ): Promise<{ readonly url: string; readonly secret: string } | undefined>
+  addressFor(agentId: AgentId): Promise<
+    | {
+        readonly url: string
+        readonly secret: string
+        readonly challengeId?: string
+        readonly knockNonce?: string
+      }
+    | undefined
+  >
   deliveriesSince(agentId: AgentId, since: Date): Promise<number>
   record(input: {
     readonly agentId: AgentId
     readonly event: WakeEvent
     readonly outcome: WakeDeliveryOutcome
     readonly status?: number | undefined
+    readonly challengeId?: string | undefined
   }): Promise<void>
   maxPerHour(): Promise<number>
 } {
   return {
-    addressFor: (agentId) => wakeAddressFor(db, agentId),
+    addressFor: (agentId) => wakeTargetFor(db, agentId),
     deliveriesSince: (agentId, since) => wakeDeliveriesSince(db, agentId, since),
     record: (input) => recordWakeDelivery(db, input),
     /**

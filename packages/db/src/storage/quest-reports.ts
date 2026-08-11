@@ -225,7 +225,7 @@ export async function sponsorQuestReports(
  *
  * **Available before expiry, which is the point.** A quest with no claims and
  * eight `unclear` reports is a diagnosis, and it is worth having while the quest
- * is still running rather than in a post-mortem after the refund.
+ * is still running rather than in a post-mortem after expiry.
  *
  * **`declined` is a number here and a text nowhere.** *Eight citizens declined on
  * conscience grounds* is unambiguous feedback to an honest sponsor; the text

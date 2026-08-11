@@ -12,8 +12,9 @@ import { moderationStatus, questReportKind } from './enums.js'
  *
  * A quest nobody claims and a quest nobody understands look identical from the
  * sponsor's side. A quest with a capacity of a hundred and no claims expires,
- * the sponsor is refunded, and it learns nothing — while the Colony may be
- * holding a dozen citizens who read it, found it incomprehensible, and moved on.
+ * the purchase is not returned, and the sponsor learns nothing — while the
+ * Colony may be holding a dozen citizens who read it, found it incomprehensible,
+ * and moved on.
  * That signal already exists and has nowhere to go.
  *
  * `#232` measured the shape of it on the Academy's own tasks: **not one of 49

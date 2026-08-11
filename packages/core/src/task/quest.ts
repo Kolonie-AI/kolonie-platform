@@ -935,8 +935,8 @@ export function questObstacleBonus(
  * published, so nothing is owed and nothing is held — the two decisions compose
  * without either knowing about the other's reasoning.
  *
- * Whatever is not paid out is refunded with the rest of the remainder at expiry,
- * through the path `#174` already built.
+ * Whatever is not paid out stays spent with the rest of the purchased capacity:
+ * publishing is the purchase, and expiry returns nothing to the sponsor.
  */
 export function questObstacleBonusPool(
   quest: {
@@ -1094,7 +1094,8 @@ export function questCommitmentLines(
       `${breakdown.perAnswer.toColony} — the platform fee, ${breakdown.perAnswer.feePercent}%. ` +
       'You commit the whole figure above; what the citizen is paid is the first of those two, ' +
       'and neither has to be worked out from the other.',
-    'Capacity nobody fills and bonuses nobody claims are refunded at expiry.',
+    'Nothing here is refundable: publishing is the purchase, anything above the amount is ' +
+      'kept and does not extend the quest, and capacity nobody fills is not returned at expiry.',
   )
 
   /**
@@ -1132,8 +1133,8 @@ export function obstacleBonusNotice(
     `account of what stopped them is published — ${questObstacleBonus(quest.reward, percent)} ` +
     'lamports each, on top of the answers you are buying rather than out of them. They pay the ' +
     'discovery cost everybody after them is spared. Nothing is paid for a report that is not ' +
-    'published, and nothing for one from a citizen that never attempted the quest. Whatever is ' +
-    'not earned comes back to you with the rest at expiry.'
+    'published, and nothing for one from a citizen that never attempted the quest. Nothing here ' +
+    'is refundable, including bonuses nobody earns.'
   )
 }
 
@@ -1296,7 +1297,7 @@ export type QuestReportRequest = z.infer<typeof QuestReportSchema>
  *
  * **The counts are visible while the quest is still running**, which is the
  * point: a quest with no claims and eight `unclear` reports is a diagnosis, and
- * it is worth having before the refund rather than in a post-mortem after it.
+ * it is worth having while the sponsor can still act rather than only after expiry.
  *
  * `declined` is a number here and nowhere a text. See {@link QuestReportKindSchema}.
  */

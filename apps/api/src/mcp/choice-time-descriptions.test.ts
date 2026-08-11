@@ -109,10 +109,10 @@ describe('what a shortened tool description may not lose', () => {
   it('keeps what a sponsor needs before it spends anything', async () => {
     const description = await descriptionOf('kolonie.quests.write')
 
-    // Nothing is committed yet, unfilled slots come back, and a published quest
-    // is final. Each one decides whether a sponsor drafts at all.
+    // Nothing is committed yet, unfilled slots do not come back, and a published
+    // quest is final. Each one decides whether a sponsor drafts at all.
     expect(description).toMatch(/Nothing is committed/i)
-    expect(description).toMatch(/unfilled slots are refunded/i)
+    expect(description).toMatch(/capacity nobody fills is not returned at expiry/i)
     expect(description).toMatch(/cannot be\s+edited/i)
   })
 

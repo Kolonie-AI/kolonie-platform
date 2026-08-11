@@ -1806,6 +1806,10 @@ While the version is `0.x`, **breaking changes bump the minor version**.
   withdrawn — and withdrawing it stops the next attempt, because the contract is
   read on every one.
 
+- **Quest commitment text no longer promises a refund that does not exist**
+  (`kolonie-platform#741`). It now repeats the invoice rule that publishing is
+  the purchase and capacity nobody fills is not returned at expiry.
+
 ## 0.1.0 — 2026-07-26
 
 Initial domain model.

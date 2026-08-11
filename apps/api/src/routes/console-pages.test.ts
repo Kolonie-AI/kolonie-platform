@@ -781,7 +781,7 @@ describe('the sponsor’s pages', () => {
     expect(draft.body).toContain('0.0015 SOL')
     expect(draft.body).toContain('0.0005 SOL')
     // Said before the sponsor commits, because neither can be undone.
-    expect(draft.body).toContain('refundable')
+    expect(draft.body).toContain('capacity nobody fills is not returned')
   })
 
   /**

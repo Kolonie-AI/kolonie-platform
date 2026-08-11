@@ -20,6 +20,7 @@ import {
   questCommitmentBreakdown,
   questCommitmentLines,
   QUEST_OBSTACLE_BONUS_WINNERS,
+  obstacleBonusNotice,
   questFeeBreakdown,
   questPayNotice,
   questPayoutSplit,
@@ -262,7 +263,16 @@ describe('what the commitment is made of (#628)', () => {
     expect(said).toContain('3 answer(s) at 10000000')
     expect(said).toContain('the citizen receives 7500000')
     expect(said).toContain('the Colony 2500000')
-    expect(said).toContain('refunded at expiry')
+    expect(said).toContain(
+      'Nothing here is refundable: publishing is the purchase, anything above the amount is ' +
+        'kept and does not extend the quest, and capacity nobody fills is not returned at expiry.',
+    )
+  })
+
+  it('does not offer unused obstacle bonuses back to the sponsor', () => {
+    expect(obstacleBonusNotice(quest)).toContain(
+      'Nothing here is refundable, including bonuses nobody earns.',
+    )
   })
 
   it('says nothing about money for a quest that pays reputation only', () => {

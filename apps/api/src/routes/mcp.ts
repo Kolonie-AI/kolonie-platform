@@ -63,6 +63,9 @@ export function registerMcpRoutes(app: FastifyInstance, deps: RouteDependencies)
     memory,
     vision,
     vault,
+    drops,
+    handovers,
+    dropBaseUrl,
     accounts,
     rhythm,
     skillReleases,
@@ -196,6 +199,22 @@ export function registerMcpRoutes(app: FastifyInstance, deps: RouteDependencies)
           // front door that silently stopped counting.
           vision,
           vault,
+          /**
+           * The sealed operator channel (`#410`, `#592`), which this literal did
+           * not forward until `#614`.
+           *
+           * **An omission here is indistinguishable from a Colony that was never
+           * given a sealing key**, and that is what made it survive: every tool
+           * reads `deps.drops === undefined` and says so politely instead of
+           * failing, so the production MCP surface answered `secretHandoff:
+           * false` and refused every `kolonie.operator.drop.open` while
+           * `OPERATOR_DROP_SEALING_KEY` was set and the HTTP door beside it was
+           * carrying secrets normally. The two doors have to be given the same
+           * things or they are not the same Colony.
+           */
+          ...(drops === undefined ? {} : { drops }),
+          ...(handovers === undefined ? {} : { handovers }),
+          dropBaseUrl,
           accounts,
           rhythm,
           skillReleases,

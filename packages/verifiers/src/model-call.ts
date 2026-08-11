@@ -1,7 +1,12 @@
-import { ModelCallSchema, routeOf, silentLog, type Log, type ModelCall } from '@kolonie-ai/core'
+import { readModelCall, silentLog, type Log, type ModelCall } from '@kolonie-ai/core'
 
 /**
  * Read and log only the accounting fields from a completed model response.
+ *
+ * A thin name over `readModelCall` in core, kept because three call sites in
+ * this package import it. **It cannot throw and it may answer nothing**: a
+ * provider that reports no `usage` — which the LLM gateway does, wrapping a CLI
+ * subscription — is an ordinary answer rather than a failed call (`#716`).
  *
  * `response` is the HTTP response the body was read out of, and it is what says
  * which provider answered (`#674`): a verifier's own `fetch` may have been
@@ -14,30 +19,6 @@ export function recordOpenRouterCall(
   body: unknown,
   log: Log = silentLog,
   response?: Response,
-): ModelCall {
-  const answered = body as {
-    model?: unknown
-    usage?: {
-      prompt_tokens?: unknown
-      completion_tokens?: unknown
-      total_tokens?: unknown
-    }
-  }
-  const call = ModelCallSchema.parse({
-    ...routeOf(response),
-    model: answered.model,
-    tokens: {
-      prompt: answered.usage?.prompt_tokens,
-      completion: answered.usage?.completion_tokens,
-      total: answered.usage?.total_tokens,
-    },
-  })
-  log.info(`${call.model} answered through ${call.route}`, {
-    event: 'model.call.completed',
-    model: call.model,
-    tokens: call.tokens,
-    route: call.route,
-    ...(call.fallback === undefined ? {} : { fallback: call.fallback }),
-  })
-  return call
+): ModelCall | undefined {
+  return readModelCall(body, log, response)
 }

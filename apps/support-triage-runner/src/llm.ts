@@ -1,4 +1,4 @@
-import { ModelCallSchema, routeOf, silentLog, type Log, type ModelCall } from '@kolonie-ai/core'
+import { readModelCall, silentLog, type Log, type ModelCall } from '@kolonie-ai/core'
 import type { TriageInput, TriageModel } from './triage.js'
 
 /**
@@ -182,26 +182,8 @@ type OpenRouterBody = {
  * the LLM gateway first, and the row must name what did the work rather than
  * what the code was written against.
  */
-function modelCall(body: OpenRouterBody, http?: Response): ModelCall {
-  return ModelCallSchema.parse({
-    ...routeOf(http),
-    model: body.model,
-    tokens: {
-      prompt: body.usage?.prompt_tokens,
-      completion: body.usage?.completion_tokens,
-      total: body.usage?.total_tokens,
-    },
-  })
-}
-
-function logCall(log: Log, call: ModelCall): void {
-  log.info(`${call.model} answered through ${call.route}`, {
-    event: 'model.call.completed',
-    model: call.model,
-    tokens: call.tokens,
-    route: call.route,
-    ...(call.fallback === undefined ? {} : { fallback: call.fallback }),
-  })
+function modelCall(body: OpenRouterBody, log: Log, http?: Response): ModelCall | undefined {
+  return readModelCall(body, log, http)
 }
 
 export function openRouterModel(apiKey: string, options: OpenRouterOptions = {}): TriageModel {
@@ -239,8 +221,7 @@ export function openRouterModel(apiKey: string, options: OpenRouterOptions = {})
       }
 
       const body = (await response.json()) as OpenRouterBody
-      const call = modelCall(body, response)
-      logCall(log, call)
+      const call = modelCall(body, log, response)
 
       const choice = body.choices?.[0]
       const text = choice?.message?.content
@@ -287,7 +268,7 @@ export interface DefectWriter {
     readonly count: number
     readonly samples: readonly string[]
     readonly lastStart: string | null
-  }): Promise<{ readonly summary: string; readonly reading: string; readonly call: ModelCall }>
+  }): Promise<{ readonly summary: string; readonly reading: string; readonly call?: ModelCall }>
 }
 
 /** A writer that writes nothing. The issue is filed without prose, and says so. */
@@ -359,8 +340,7 @@ export function openRouterDefectWriter(
       if (!response.ok) throw new Error(`the model endpoint answered ${response.status}`)
 
       const body = (await response.json()) as OpenRouterBody
-      const call = modelCall(body, response)
-      logCall(log, call)
+      const call = modelCall(body, log, response)
       const text = body.choices?.[0]?.message?.content
       if (text === undefined || text === null || text === '') {
         throw new Error(

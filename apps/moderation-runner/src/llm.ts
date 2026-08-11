@@ -13,7 +13,7 @@
  * it that can be tested without a network should be.
  */
 
-import { ModelCallSchema, routeOf, silentLog, type Log, type ModelCall } from '@kolonie-ai/core'
+import { readModelCall, silentLog, type Log, type ModelCall } from '@kolonie-ai/core'
 
 /** The environment variable the key arrives in. Never a literal, anywhere. */
 export const OPENROUTER_API_KEY_VAR = 'OPENROUTER_API_KEY'
@@ -619,38 +619,13 @@ export function openRouterModel(apiKey: string, options: ModelOptions = {}): Mod
    * try the LLM gateway first, and the row must name what did the work rather
    * than what the code was written against.
    */
-  const account = (body: unknown, http?: Response): ModelCall => {
-    const answered = body as {
-      model?: unknown
-      usage?: {
-        prompt_tokens?: unknown
-        completion_tokens?: unknown
-        total_tokens?: unknown
-      }
-    }
-    const call = ModelCallSchema.parse({
-      ...routeOf(http),
-      model: answered.model,
-      tokens: {
-        prompt: answered.usage?.prompt_tokens,
-        completion: answered.usage?.completion_tokens,
-        total: answered.usage?.total_tokens,
-      },
-    })
-    log.info(`${call.model} answered through ${call.route}`, {
-      event: 'model.call.completed',
-      model: call.model,
-      tokens: call.tokens,
-      route: call.route,
-      ...(call.fallback === undefined ? {} : { fallback: call.fallback }),
-    })
-    return call
-  }
+  const account = (body: unknown, http?: Response): ModelCall | undefined =>
+    readModelCall(body, log, http)
 
   const call = async (
     path: string,
     body: unknown,
-  ): Promise<{ readonly body: unknown; readonly accounting: ModelCall }> => {
+  ): Promise<{ readonly body: unknown; readonly accounting: ModelCall | undefined }> => {
     let response: Response
     try {
       response = await fetchImpl(`${OPENROUTER_BASE}${path}`, {
@@ -677,7 +652,7 @@ export function openRouterModel(apiKey: string, options: ModelOptions = {}): Mod
 
   const chat = async (
     body: unknown,
-  ): Promise<{ readonly body: unknown; readonly accounting: ModelCall }> => {
+  ): Promise<{ readonly body: unknown; readonly accounting: ModelCall | undefined }> => {
     const response = await call('/chat/completions', body)
     // `stop` ordinarily means a complete answer. One empty response is a
     // provider anomaly; one immediate retry avoids delaying the entry until the

@@ -48,7 +48,12 @@ export type TriageDecision =
 export interface TriageModel {
   /** The configured name, useful before a response exists. */
   readonly name: string
-  classify(input: TriageInput): Promise<{ readonly answer: unknown; readonly call: ModelCall }>
+  /**
+   * `call` is optional because accounting is optional: a provider that reports
+   * no `usage` produces no record, and that must not stop a ticket being triaged
+   * (`#716`).
+   */
+  classify(input: TriageInput): Promise<{ readonly answer: unknown; readonly call?: ModelCall }>
 }
 
 export interface TriageInput {
@@ -298,17 +303,29 @@ export function issueBody(
   ].join('\n')
 }
 
-/** The public accounting line under model-authored output. */
+/**
+ * The public accounting line under model-authored output.
+ *
+ * **The token count is named as absent rather than left out** (`#716`). A
+ * provider may report no `usage` at all — the LLM gateway wraps a CLI
+ * subscription and bills nothing per token — and a line that silently drops the
+ * figure reads as though nobody thought to record it, on an issue body a citizen
+ * can see. Which route answered is still known, and it is the half that explains
+ * the absence.
+ */
 export function modelCallLine(call: ModelCall): string {
   const fallback =
     call.fallback === undefined
       ? ''
       : ` · fell back to ${routeName(call.fallback.route)} after ${call.fallback.reason}`
 
-  return (
-    `Judged by \`${call.model}\` · ${call.tokens.prompt} prompt + ` +
-    `${call.tokens.completion} completion = ${call.tokens.total} tokens${fallback}`
-  )
+  const cost =
+    call.tokens === undefined
+      ? `${routeName(call.route)} reported no token count`
+      : `${call.tokens.prompt} prompt + ${call.tokens.completion} completion = ` +
+        `${call.tokens.total} tokens`
+
+  return `Judged by \`${call.model}\` · ${cost}${fallback}`
 }
 
 function routeName(route: ModelCall['route']): string {

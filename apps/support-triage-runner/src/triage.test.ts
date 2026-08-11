@@ -282,6 +282,23 @@ describe('what the filed issue says', () => {
   })
 
   /**
+   * A provider may answer correctly and report no `usage` — the LLM gateway
+   * wraps a CLI subscription and bills nothing per token (`#716`). The line says
+   * so rather than dropping the figure, which on a body a citizen can read would
+   * look like nobody thought to record it.
+   */
+  it('names the absent token count rather than quietly leaving it out', () => {
+    const body = issueBody(aTicket(), 'A summary.', undefined, {
+      route: 'gateway',
+      model: 'provider/subscription-model',
+    })
+
+    expect(body).toContain(
+      'Judged by `provider/subscription-model` · the gateway reported no token count',
+    )
+  })
+
+  /**
    * The two circumstances #255 added, in prose, and the citizen still unnamed.
    */
   it('names the runtime and the task behind the submission the citizen pointed at', () => {

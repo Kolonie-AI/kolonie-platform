@@ -218,7 +218,14 @@ export function openRouterBioJudge(
         outcome: 'judged',
         aboutThisAgent: judgement.aboutThisAgent,
         reason: judgement.reason,
-        model: call.model,
+        /**
+         * `call?.model` and not `call.model`: the accounting record is absent when
+         * a provider reports no usage (`#716`), and the evidence still has to name a
+         * model. `chosen` is what was asked for, which is the honest answer when
+         * nothing said what answered — a distinction the accounting row keeps and
+         * this surface does not need.
+         */
+        model: call?.model ?? chosen,
       }
     },
   }

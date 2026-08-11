@@ -105,6 +105,39 @@ describe('classifying', () => {
    * the alternative is a string that is not `approve` being treated as one of
    * the branches by whatever compares it next.
    */
+  /**
+   * The failure `#716` was: the LLM gateway wraps a CLI subscription, bills
+   * nothing per token and answers with no `usage` block at all. Accounting threw
+   * on the way out of a call the model had answered correctly, and two wall
+   * entries were retried into the ground for it. A verdict must survive its own
+   * receipt going missing.
+   */
+  it('returns a verdict when the provider reported no token usage', async () => {
+    const info = vi.fn()
+    const impl = (async () =>
+      ({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          model: 'provider/subscription-model',
+          choices: [{ message: { content: '{"decision":"approve","reason":"concrete"}' } }],
+        }),
+      }) as Response) as unknown as typeof fetch
+
+    const verdict = await openRouterModel('a-key', {
+      fetch: impl,
+      log: { info, warn: vi.fn(), error: vi.fn() },
+    }).classify({ system: 's', user: 'u', choices: ['approve', 'reject'] })
+
+    expect(verdict).toMatchObject({ decision: 'approve', reason: 'concrete' })
+    expect(verdict.call).toEqual({ route: 'openrouter', model: 'provider/subscription-model' })
+    expect(info).toHaveBeenCalledWith(expect.any(String), {
+      event: 'model.call.completed',
+      model: 'provider/subscription-model',
+      route: 'openrouter',
+    })
+  })
+
   it('refuses an answer that was not on offer', async () => {
     const { impl } = stubFetch(aVerdict('{"decision":"maybe","reason":"unsure"}'))
 

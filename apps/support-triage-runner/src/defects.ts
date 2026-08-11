@@ -242,7 +242,7 @@ export interface DefectReport {
   readonly history: DefectHistory
   /** What the model wrote, or nothing when it could not be asked. */
   readonly prose?:
-    { readonly summary: string; readonly reading: string; readonly call: ModelCall } | undefined
+    { readonly summary: string; readonly reading: string; readonly call?: ModelCall } | undefined
 }
 
 /**
@@ -307,7 +307,10 @@ export function defectBody(report: DefectReport): string {
           'above was measured rather than judged, and stands on its own._'
       : report.prose.reading,
   )
-  if (report.prose !== undefined) {
+  // The accounting line only where there is accounting: a provider may answer
+  // correctly and report no usage (`#716`), and the reading it wrote is worth
+  // printing either way.
+  if (report.prose?.call !== undefined) {
     lines.push('')
     lines.push(modelCallLine(report.prose.call))
   }

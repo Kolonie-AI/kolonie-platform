@@ -43,8 +43,8 @@ describe('support model accounting', () => {
       answered: [],
     })
 
-    expect(result.call.model).toBe('provider/model-that-answered')
-    expect(result.call.tokens).toEqual({ prompt: 308, completion: 5, total: 313 })
+    expect(result.call?.model).toBe('provider/model-that-answered')
+    expect(result.call?.tokens).toEqual({ prompt: 308, completion: 5, total: 313 })
     expect(recorded.info).toHaveBeenCalledWith(expect.any(String), {
       event: 'model.call.completed',
       model: 'provider/model-that-answered',
@@ -67,7 +67,7 @@ describe('support model accounting', () => {
       lastStart: null,
     })
 
-    expect(result.call.model).toBe('provider/model-that-answered')
-    expect(result.call.route).toBe('openrouter')
+    expect(result.call?.model).toBe('provider/model-that-answered')
+    expect(result.call?.route).toBe('openrouter')
   })
 })

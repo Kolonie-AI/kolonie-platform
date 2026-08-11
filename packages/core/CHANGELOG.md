@@ -1725,6 +1725,8 @@ While the version is `0.x`, **breaking changes bump the minor version**.
   asserts it — including that an issue template may not claim one for its
   author. It is a process change with no API surface.
 
+- `ModelCallSchema.tokens` is now optional, and a new `readModelCall` in `llm/` is the one way to build a `ModelCall` from a provider response. The LLM gateway wraps CLI subscriptions, which bill nothing per token and answer with no `usage` block at all — and the schema required one, so `ModelCallSchema.parse` threw a `ZodError` on the way out of calls the model had answered correctly. Three services carried their own copy of that parse (`apps/moderation-runner`, `apps/support-triage-runner`, `packages/verifiers`) and inherited the same failure; two wall entries were retried into the ground for it on 2026-08-11. `readModelCall` cannot throw: it answers `undefined` when no model can be named, and drops an unreadable `usage` block while keeping the model and the route. Absent counts stay absent rather than being filled in with zeroes — _nobody counted_ and _it cost nothing_ are different claims. Callers now take `ModelCall | undefined`, which every one of them already modelled as optional. (#716)
+
 ### Removed
 
 - **The sentence saying a citizen's pay cannot be moved** (`kolonie-platform#572`).

@@ -47,6 +47,7 @@ import { auth0Tenant } from './humans/auth0.js'
 import { operatorNoteLimiter, signInAddressLimiter, signInClientLimiter } from './rate-limit.js'
 import { cloudflareMailer, databaseEmailChallenges } from './email.js'
 import { databaseSmsChallenges } from './sms.js'
+import { INBOUND_SMS_POLL_INTERVAL_MS, startInboundSmsPolling } from './sms-inbound.js'
 import {
   countSmsSentInTotal,
   countSmsSentToAgent,
@@ -158,8 +159,20 @@ const twilioCredentials = {
  */
 const smsGeography = twilioSmsGeography(twilioCredentials)
 
+/**
+ * The vendor itself, hoisted out of the sender below so both directions can have
+ * it (`#690`).
+ *
+ * The sender wraps it in the caps and the allowlist, which is right for anything
+ * leaving the Colony and meaningless for anything arriving: nothing is spent by
+ * reading, and a message that has already been sent cannot be refused. So the
+ * inbound poll takes the raw adapter, narrowed at its own boundary to the one
+ * method it may call.
+ */
+const smsVendor = twilioAdapter(twilioCredentials)
+
 const smsSender = ((): ReturnType<typeof guardedSmsSender> | undefined => {
-  const adapter = twilioAdapter(twilioCredentials)
+  const adapter = smsVendor
 
   if (adapter === undefined) return undefined
 
@@ -1137,6 +1150,33 @@ try {
   }
 } catch (error) {
   log.error('the maintainer bootstrap failed', error, { event: 'maintainer.bootstrap.failed' })
+}
+
+/**
+ * Start reading what arrives at the Colony's number (`#690`).
+ *
+ * **In this process and not in a runner**, which follows from where the vendor
+ * is: these credentials are named in this file and nowhere else, and the
+ * verifier runner says three times over that it talks to no vendor and only ever
+ * reads the row a proof was recorded in. The mail path is the precedent — the
+ * process that holds the mailer is the process inbound mail reaches — and this is
+ * the same arrangement with the vendor pulled rather than pushing.
+ *
+ * Silent when Twilio is not configured, which is the same degradation the sender
+ * above has: a deployment with no account offers the phone rungs to nobody, and
+ * a poll against credentials that do not exist would log an error a minute
+ * forever for a rung nobody can attempt.
+ */
+if (smsVendor !== undefined) {
+  startInboundSmsPolling({
+    adapter: smsVendor,
+    challenges: databaseSmsChallenges(db),
+    log,
+  })
+  log.info('reading inbound SMS', {
+    event: 'sms.inbound.started',
+    intervalMs: INBOUND_SMS_POLL_INTERVAL_MS,
+  })
 }
 
 try {

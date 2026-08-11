@@ -154,6 +154,7 @@ export {
   type SmsAdapter,
   type SmsLimits,
   type SmsMessage,
+  type SmsReceiveResult,
   type SmsSendResult,
   type SmsSender,
   type SmsSendRecord,

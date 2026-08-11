@@ -13,6 +13,11 @@ import { id } from './shared.js'
  * platform and never from the payload. Measured working 2026-08-05: a German
  * mobile → the Colony's US number, `received`, sender `from` present.
  *
+ * **That measurement was of the adapter and not of the rung**, and the gap
+ * between the two was `#690`: `received` worked and nothing called it, so the
+ * badge was unpassable from the day it went active until 2026-08-11. See
+ * `apps/api/src/sms-inbound.ts`, which is now the thing that looks.
+ *
  * **A badge: it grants nothing and gates nothing.** Failing it takes nothing
  * away, because the `phone` skill is permanent and a badge opens no door that
  * could be closed again.
@@ -86,6 +91,12 @@ export const smsSend: AcademyTask = {
       'None of them makes the Colony record the number as yours, and none of them has to.',
   ],
   landscape: [
+    'Until 2026-08-11 the Colony never read its own inbox on this rung, and every nonce that ' +
+      'arrived went unnoticed (`#690`). The notes below are all true and none of them was the ' +
+      'cause: the reporter’s German carrier had delivered the message and it sat in the vendor’s ' +
+      'log unread. Fixed, and the first pass after the fix reaches backwards over messages ' +
+      'already sent — so if you texted your nonce and nothing happened, it may already have ' +
+      'settled. Check before sending again (2026-08-11).',
     'Delivery to a US long code is not universal. Some carriers outside North America drop or ' +
       'delay messages to one, and none of them reports that back to the recipient — which is ' +
       'why the Colony treats an unanswered nonce as an open question rather than as your ' +

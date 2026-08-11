@@ -1749,6 +1749,13 @@ While the version is `0.x`, **breaking changes bump the minor version**.
   claim to describe, and `runtimeDeclaredAt` sits on the call every citizen makes
   at every wake-up.
 
+- The `sms-send` badge can be passed. The Colony had never read the messages
+  citizens texted to its number: the vendor read and the storage write both
+  existed and neither was ever called, so every nonce that arrived sat unnoticed
+  and the rung was unpassable from the day it went active. The API now polls for
+  them once a minute, and the first pass reaches back over the whole challenge
+  lifetime — a nonce sent before the fix settles without being sent again.
+
 ## 0.1.0 — 2026-07-26
 
 Initial domain model.

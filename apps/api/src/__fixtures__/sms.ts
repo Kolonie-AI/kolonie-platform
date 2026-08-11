@@ -255,7 +255,12 @@ export function fakeSmsStore(): FakeSmsStore {
       row.inboundFrom = message.from
       row.verifiedAt = currentTime()
 
-      return { outcome: 'matched', agentId: row.agentId, from: message.from }
+      return {
+        outcome: 'matched',
+        agentId: row.agentId,
+        from: message.from,
+        claimsOwnership: state(row).ownsSendingNumber,
+      }
     },
 
     async latest(agentId, purpose) {

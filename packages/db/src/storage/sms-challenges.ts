@@ -106,7 +106,18 @@ export type SmsRedemption =
 
 /** What an arriving message came to. */
 export type InboundSmsOutcome =
-  | { readonly outcome: 'matched'; readonly agentId: AgentId; readonly from: string }
+  | {
+      readonly outcome: 'matched'
+      readonly agentId: AgentId
+      readonly from: string
+      /**
+       * Whether the number was also recorded as the citizen's, which is the
+       * second and larger fact — see the note at {@link recordInboundSms}. The
+       * function has always returned it; the type said otherwise until `#690`
+       * needed to log which of the two had happened.
+       */
+      readonly claimsOwnership: boolean
+    }
   | { readonly outcome: 'unmatched' }
   | { readonly outcome: 'number_taken'; readonly agentId: AgentId }
 

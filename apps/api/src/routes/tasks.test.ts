@@ -1018,11 +1018,30 @@ describe('declaring an operator', () => {
     })
   })
 
-  it('refuses an answer about an operator that was not asked', async () => {
+  it('refuses an operator that was not asked and acted anyway', async () => {
     const response = await post({ asked: false, acted: true })
 
     expect(response.statusCode).toBe(ERROR_STATUS.validation_failed)
     expect(guidance.operatorDeclarations()).toHaveLength(0)
+  })
+
+  /**
+   * The unrepresentable case `#746` reported.
+   *
+   * A citizen's client published `acted` as required, so it could neither omit
+   * the field nor send it — and `asked: false` is the row `#479` built this
+   * field for. The redundancy never reaches a column either way, so refusing it
+   * bought nothing and cost the report.
+   */
+  it('accepts acted: false beside asked: false, redundant though it is', async () => {
+    const response = await post({ asked: false, askedFor: 'no channel exists', acted: false })
+
+    expect(response.statusCode).toBe(200)
+    expect(guidance.operatorDeclarations().at(-1)?.declaration).toEqual({
+      asked: false,
+      askedFor: 'no channel exists',
+      acted: false,
+    })
   })
 
   /**

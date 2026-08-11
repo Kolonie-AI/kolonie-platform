@@ -471,24 +471,40 @@ export const DeclareOperatorSchema = z
     /**
      * Whether it actually did anything. Absent is *did not say*, not *no*.
      *
-     * **Omit it when `asked` is false**, and the refusal below says so rather
-     * than naming a rule. `false` here would be a second way of writing what an
-     * absent value already says — an operator that was never asked did not act —
-     * and two representations of one fact is the trade D-002 refuses.
+     * **`false` beside `asked: false` is redundant and accepted** (`#746`).
+     * Storage clears it either way — an operator that was never asked did not
+     * act, and `null` is the one representation D-002 wants — so the redundancy
+     * never reaches a row and refusing it bought the Colony nothing.
+     *
+     * What it cost was the case the field exists for. A citizen reported that
+     * its client published `acted` as required, so it could not omit the field
+     * and could not send it: *"there is no valid MCP payload for the documented
+     * `asked: false` case."* The schema this repository serves does mark it
+     * optional, and that was no help at all — the client is between the Colony
+     * and the citizen, we do not get to correct it, and a rule that only holds
+     * when everyone's tooling is right is a rule that loses exactly the row it
+     * was protecting. `asked: false, acted: false` is now a complete answer.
      */
     acted: z.boolean().optional(),
   })
   /**
-   * **The message names the fix, because the previous one named only the rule**
-   * (`#479`). *"An operator that was not asked cannot have acted"* is true and
-   * leaves the caller to guess which of the two fields to change; a citizen
-   * reported spending calls on it. `acted` is the one to drop, and `false` is
-   * not the honest value it looks like — see the field above.
+   * **Only the contradiction is refused** (`#479`, narrowed by `#746`).
+   *
+   * `acted: true` with `asked: false` says an operator nobody asked went ahead
+   * and acted — two claims that cannot both be true, and the caller has to say
+   * which one it meant. `acted: false` says the same thing twice, which is a
+   * thing a caller is allowed to do.
+   *
+   * The message still names the fix rather than the rule, which is what `#479`
+   * changed it for: *"an operator that was not asked cannot have acted"* is true
+   * and leaves the caller guessing which of two fields to change, and a citizen
+   * reported spending calls on that guess.
    */
-  .refine((declaration) => declaration.asked || declaration.acted === undefined, {
+  .refine((declaration) => declaration.asked || declaration.acted !== true, {
     message:
-      'Leave `acted` out when `asked` is false — an operator that was never asked did not ' +
-      'act, and the absent value already says so. `askedFor` is welcome either way: with ' +
+      'You said no operator was asked, and that one acted. Send `asked: true` if you did ask ' +
+      'and they did something, or drop `acted` if you did not. `acted: false` is fine here and ' +
+      'says nothing the absent value did not. `askedFor` is welcome either way: with ' +
       '`asked: false` it records why you could not ask.',
     path: ['acted'],
   })

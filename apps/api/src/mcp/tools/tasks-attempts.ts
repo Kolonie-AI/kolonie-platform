@@ -266,8 +266,9 @@ export function registerAttemptTools(
           .optional()
           .describe(
             'Whether they actually did something. Say false if you asked and got nothing. ' +
-              'Leave it out when `asked` is false: an operator that was never asked did not ' +
-              'act, and the absent value already says so.',
+              'With `asked: false` you may leave it out or send false — an operator that was ' +
+              'never asked did not act, and both say so. Only `acted: true` is refused there, ' +
+              'because nobody asked them.',
           ),
       },
       annotations: { readOnlyHint: false, idempotentHint: true, openWorldHint: false },

@@ -61,6 +61,7 @@ import type { WebsiteDependencies } from './website.js'
 import type { CitizenRecords } from './citizens.js'
 import type { SettingsDesk } from './settings.js'
 import type { ProviderEnquiryDesk } from './provider-enquiries.js'
+import type { ShareDesk } from './browser-shares.js'
 
 /**
  * What a deployment hands `buildApp`.
@@ -486,4 +487,14 @@ export interface AppDependencies {
    * rebased second.
    */
   readonly citizens?: CitizenRecords
+  /**
+   * The third operator channel (`#736`): a live browser tab, relayed.
+   *
+   * **Optional, and absent means the two sockets are never registered.** The
+   * same trade `drops` makes above: a deployment that has not got this is a
+   * deployment where the channel is not there, and it should still boot. A test
+   * that is not about browser sharing passes nothing and gets an app with no
+   * upgradeable path on it at all.
+   */
+  readonly shares?: ShareDesk
 }

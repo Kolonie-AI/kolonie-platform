@@ -365,7 +365,12 @@ describe('the migrations', () => {
     // `task_briefings`, because `#611` made an empty briefing no row at all and
     // a counter living there would be deleted by a synthesis that found nothing
     // to say — while the reads had still happened.
-    expect(afterFirst.tables).toBe('98')
+    // **Ninety-nine** (`#736`): `browser_shares` records that an agent handed a
+    // live browser tab to its operator, when, and how it ended. It has no column
+    // for a frame and will not gain one — the relay is a socket pump, and a
+    // column here would turn it into an archive of everything every citizen was
+    // looking at.
+    expect(afterFirst.tables).toBe('99')
     // Twenty: `task_kind` (#43) tells an Academy task from a Quest and therefore
     // what may pay credits; `support_ticket_kind` and `support_ticket_status` (#11)
     // carry what a citizen wrote about and where it stands; `erasure_reason` and

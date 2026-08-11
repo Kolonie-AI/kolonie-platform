@@ -103,6 +103,7 @@ import { databaseDomainChallenges } from './domain.js'
 import { databaseVisionChallenges } from './vision.js'
 import { databaseHandovers } from './handovers.js'
 import { databaseDrops, usableSealingKey } from './operator-drops.js'
+import { databaseShares } from './browser-shares.js'
 import { databaseVault } from './vault.js'
 import { databaseAccounts, databaseAccountResolution } from './accounts.js'
 import { databaseAccountProofs } from './account-proofs.js'
@@ -927,6 +928,15 @@ const app = buildApp({
   // Same origin the operator's other links use. AGENTS.md §3 keeps host names
   // out of this repository.
   dropBaseUrl: process.env['CONSOLE_URL'] ?? '',
+  /**
+   * The third operator channel (`#736`): a live browser tab.
+   *
+   * **No configuration and no key of the Colony's**, unlike the two channels
+   * above. Nothing is sealed here because nothing is kept — the frames go
+   * through the relay and into the other socket, and what the database holds is
+   * that a share happened and how it ended.
+   */
+  shares: databaseShares(db),
   // The account register (#150): what a citizen holds, beside what it can do.
   // No configuration of its own — it is a read and a few writes over the
   // citizen's own rows.

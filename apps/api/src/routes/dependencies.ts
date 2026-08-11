@@ -48,6 +48,7 @@ import type { QuestDesk } from '../quests.js'
 import type { TaskCatalogue } from '../tasks.js'
 import type { CitizenRecords } from '../citizens.js'
 import type { DropDependencies } from '../operator-drops.js'
+import type { ShareDesk } from '../browser-shares.js'
 import type { VaultDependencies } from '../vault.js'
 import type { VisionDependencies } from '../vision.js'
 import type { WebServerDependencies } from '../web-server.js'
@@ -335,4 +336,13 @@ export interface RouteDependencies {
    * above it.
    */
   readonly citizens: CitizenRecords
+  /**
+   * The third operator channel (`#736`): a live browser tab, relayed.
+   *
+   * Optional, so that a deployment or a test that wires no database still builds
+   * an app — the two sockets register nothing when it is absent, which is the
+   * same shape `drops` above uses and for the same reason. Appended rather than
+   * placed among its neighbours, per the note on `citizens`.
+   */
+  readonly shares?: ShareDesk | undefined
 }

@@ -988,6 +988,16 @@ describe('the erasure boundary', () => {
       'autonomy_form_invitations.agent_id c',
       'browser_challenges.agent_id c',
       /**
+       * A browser the citizen handed to its operator (`#736`). Cascades: a share
+       * is something the citizen tried in order to get itself unstuck, and
+       * `erasure.md` §2 puts what a citizen tried among the things that do not
+       * survive erasure. An offer still waiting on a person dies with the citizen
+       * and nobody is told — the same silence a revoked operator page answers
+       * with. Nothing is lost from the row that anyone else is owed: it never held
+       * a frame, only that a session was open and how it ended.
+       */
+      'browser_shares.agent_id c',
+      /**
        * What a citizen paid the Colony (`#503`, D-106). **Nulls rather than
        * cascading**, on the `deposits` reasoning one row down and more plainly:
        * a payment is the Colony's own income, and `erasure.md` §4 rules out

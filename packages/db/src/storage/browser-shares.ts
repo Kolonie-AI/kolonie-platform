@@ -1,0 +1,407 @@
+import { createHash, randomBytes } from 'node:crypto'
+import { and, eq, isNull, lte, sql, type SQL } from 'drizzle-orm'
+import {
+  BROWSER_SHARE_LIVE_MINUTES,
+  BROWSER_SHARE_OFFER_HOURS,
+  now as currentTime,
+  type AgentId,
+  type HumanId,
+  type ShareCloseReason,
+  type ShareSummary,
+} from '@kolonie-ai/core'
+import type { Database } from '../client.js'
+import { agents } from '../schema/agents.js'
+import { browserShares } from '../schema/browser-shares.js'
+import { humanAgents } from '../schema/human-links.js'
+import { toTimestamp } from './rows.js'
+
+/**
+ * The four acts of a browser share (`#736`): an agent offers one, a person
+ * accepts it, either end closes it, and the agent reads back what happened.
+ *
+ * The reasoning for the channel is in `packages/core/src/browser/share.ts` and
+ * what is and is not kept is in `packages/db/src/schema/browser-shares.ts`.
+ *
+ * **Nothing in this file touches a frame.** There is no argument, no return
+ * value and no log line here that could carry one, which is the property the
+ * relay depends on and a test asserts by reading what was persisted.
+ */
+
+/** Bytes of randomness in a share token. 32 bytes is 256 bits, as a drop's link is. */
+const SHARE_TOKEN_BYTES = 32
+
+export interface OfferShareCommand {
+  readonly agentId: AgentId
+  /** The CDP target the agent is stuck on. One tab, chosen here and never afterwards. */
+  readonly targetId: string
+}
+
+export interface OfferedShare {
+  readonly id: string
+  /**
+   * Handed back exactly once, to the agent that asked. The Colony stores only
+   * its hash, and the agent passes it to its own sharer.
+   */
+  readonly token: string
+  readonly expiresAt: string
+}
+
+/**
+ * Why an offer was refused, when it was.
+ *
+ * `already-open` is the decision's *one open share per agent*, and it is a
+ * refusal rather than a queue on purpose: a queued second offer would be an
+ * offer against a tab the agent has since moved on from, arriving at an operator
+ * who has no way to tell.
+ */
+export type OfferRefusal = 'already-open'
+
+export type OfferShareOutcome =
+  | { readonly outcome: 'offered'; readonly share: OfferedShare }
+  | { readonly outcome: 'refused'; readonly reason: OfferRefusal }
+
+/**
+ * Mint one share. Only ever called on an agent's own authenticated request —
+ * *the agent initiates, always* is the first of the decision's five limits, and
+ * there is no path in this file that creates a row for anybody else.
+ */
+export async function offerShare(
+  db: Database,
+  command: OfferShareCommand,
+): Promise<OfferShareOutcome> {
+  const at = currentTime()
+  await expireStaleShares(db, at)
+
+  const open = await liveShare(db, command.agentId)
+  if (open !== null) return { outcome: 'refused', reason: 'already-open' }
+
+  const token = randomBytes(SHARE_TOKEN_BYTES).toString('base64url')
+  const expiresAt = new Date(Date.parse(at) + BROWSER_SHARE_OFFER_HOURS * 3_600_000)
+
+  const [row] = await db
+    .insert(browserShares)
+    .values({
+      agentId: command.agentId,
+      tokenHash: hashToken(token),
+      targetId: command.targetId,
+      expiresAt: expiresAt.toISOString(),
+    })
+    .returning({ id: browserShares.id, expiresAt: browserShares.expiresAt })
+
+  if (row === undefined) throw new Error('browser_shares insert returned no row')
+
+  return { outcome: 'offered', share: { id: row.id, token, expiresAt: row.expiresAt } }
+}
+
+/**
+ * The one share this agent has going, if it has one. `offered` or `live`, never
+ * closed and never expired.
+ *
+ * This is both what `kolonie.browser.share.status` answers and what
+ * {@link offerShare} refuses a second offer against, and those being the same
+ * query is the point: an agent cannot be told *nothing is open* and then refused
+ * for having something open.
+ */
+export async function liveShare(db: Database, agentId: AgentId): Promise<ShareSummary | null> {
+  const at = currentTime()
+  const [row] = await db
+    .select({
+      id: browserShares.id,
+      targetId: browserShares.targetId,
+      offeredAt: browserShares.offeredAt,
+      expiresAt: browserShares.expiresAt,
+      acceptedAt: browserShares.acceptedAt,
+      closedAt: browserShares.closedAt,
+      closedFor: browserShares.closedFor,
+    })
+    .from(browserShares)
+    .where(
+      and(
+        eq(browserShares.agentId, agentId),
+        isNull(browserShares.closedAt),
+        sql`${browserShares.expiresAt} > ${at}`,
+      ),
+    )
+    .limit(1)
+
+  return row === undefined ? null : toSummary(row)
+}
+
+/** The last share this agent had, open or closed, for reading back after the fact. */
+export async function latestShare(db: Database, agentId: AgentId): Promise<ShareSummary | null> {
+  const [row] = await db
+    .select({
+      id: browserShares.id,
+      targetId: browserShares.targetId,
+      offeredAt: browserShares.offeredAt,
+      expiresAt: browserShares.expiresAt,
+      acceptedAt: browserShares.acceptedAt,
+      closedAt: browserShares.closedAt,
+      closedFor: browserShares.closedFor,
+    })
+    .from(browserShares)
+    .where(eq(browserShares.agentId, agentId))
+    .orderBy(sql`${browserShares.offeredAt} desc`)
+    .limit(1)
+
+  return row === undefined ? null : toSummary(row)
+}
+
+/**
+ * What the relay resolves a presented token to, and the whole of what it is
+ * allowed to know.
+ *
+ * No agent name, no operator name, no page, no target beyond the one the sharer
+ * is expected to already be attached to. The relay is a socket pump with a token
+ * check and this is the token check's entire vocabulary.
+ */
+export interface ShareForRelay {
+  readonly id: string
+  readonly agentId: string
+  readonly targetId: string
+  readonly acceptedAt: string | null
+  readonly expiresAt: string
+}
+
+/**
+ * Resolve a token to the share it opens, or null.
+ *
+ * **Null for every closed state**, and that is the contract rather than an
+ * omission: expired, completed, lost, cancelled, erased with its citizen, never
+ * existed. A socket presenting a guessed token learns nothing about whether it
+ * ever named anything, which is the property the durable operator page and the
+ * drop link already hold.
+ */
+export async function shareForToken(db: Database, token: string): Promise<ShareForRelay | null> {
+  return openShare(db, eq(browserShares.tokenHash, hashToken(token)))
+}
+
+/**
+ * The same share, named the way the operator's side knows it.
+ *
+ * **The operator is never handed the token**, and could not be: the Colony keeps
+ * only its hash. So the two ends of one share arrive by different names — the
+ * sharer presents the secret it was given, and the person presents an id it read
+ * off its own queue and a session cookie that says who it is. Which of those
+ * proves what is the whole difference between the two doors.
+ */
+async function shareById(db: Database, shareId: string): Promise<ShareForRelay | null> {
+  return openShare(db, eq(browserShares.id, shareId))
+}
+
+async function openShare(db: Database, matches: SQL): Promise<ShareForRelay | null> {
+  const at = currentTime()
+  const [row] = await db
+    .select({
+      id: browserShares.id,
+      agentId: browserShares.agentId,
+      targetId: browserShares.targetId,
+      acceptedAt: browserShares.acceptedAt,
+      expiresAt: browserShares.expiresAt,
+    })
+    .from(browserShares)
+    .where(and(matches, isNull(browserShares.closedAt), sql`${browserShares.expiresAt} > ${at}`))
+    .limit(1)
+
+  return row ?? null
+}
+
+/**
+ * Why a person was not let onto a share.
+ *
+ * Three reasons and no fourth. `unknown` covers never-existed, closed, expired
+ * and belonging-to-somebody-else's-agent — the same silence
+ * {@link shareForToken} keeps, and for the same reason: a guessed id must not
+ * answer differently from an invented one. `not-yours` is the case where the id
+ * *was* real and the person is not the agent's operator, which cannot be reached
+ * by guessing and so may be said out loud.
+ */
+export type AcceptRefusal = 'unknown' | 'not-yours' | 'taken'
+
+export type AcceptShareOutcome =
+  | { readonly outcome: 'accepted'; readonly share: ShareForRelay }
+  | { readonly outcome: 'refused'; readonly reason: AcceptRefusal }
+
+/**
+ * A person takes up an offer, naming it by the id their own queue showed them.
+ *
+ * Three things happen at once and they are one statement rather than three, so
+ * that two windows opened on the same offer cannot both believe they are the
+ * one: the row is stamped with who and when, and `expires_at` is **rewritten**
+ * from the end of the patient offer window to the end of the short live one.
+ *
+ * `not-yours` is *only the linked operator* — the third of the decision's four
+ * questions — and it is checked here, against `human_agents`, rather than
+ * anywhere a page could be reached without it.
+ *
+ * **The person who already accepted may accept again, and is not refused.** A
+ * reloaded window, a laptop that slept, a second tab: all of them arrive here
+ * with a share this person is already on, and refusing would end a live session
+ * over a browser event nobody chose. It does not extend the live window — the
+ * clock keeps running from the first acceptance, which is what stops a reload
+ * being a way to hold a tab open indefinitely. `taken` is left for the case it
+ * actually names: somebody else's window is on it.
+ */
+export async function acceptShare(
+  db: Database,
+  shareId: string,
+  humanId: HumanId,
+): Promise<AcceptShareOutcome> {
+  const at = currentTime()
+  const share = await shareById(db, shareId)
+  if (share === null) return { outcome: 'refused', reason: 'unknown' }
+
+  const [link] = await db
+    .select({ agentId: humanAgents.agentId })
+    .from(humanAgents)
+    .where(and(eq(humanAgents.humanId, humanId), eq(humanAgents.agentId, share.agentId)))
+    .limit(1)
+
+  if (link === undefined) return { outcome: 'refused', reason: 'not-yours' }
+
+  const liveUntil = new Date(Date.parse(at) + BROWSER_SHARE_LIVE_MINUTES * 60_000).toISOString()
+
+  const [row] = await db
+    .update(browserShares)
+    .set({ acceptedBy: humanId, acceptedAt: at, expiresAt: liveUntil })
+    .where(and(eq(browserShares.id, share.id), isNull(browserShares.acceptedAt)))
+    .returning({
+      id: browserShares.id,
+      agentId: browserShares.agentId,
+      targetId: browserShares.targetId,
+      acceptedAt: browserShares.acceptedAt,
+      expiresAt: browserShares.expiresAt,
+    })
+
+  if (row !== undefined) return { outcome: 'accepted', share: row }
+
+  /**
+   * The update matched nothing, which means somebody accepted between the read
+   * and the write. Whether that somebody was this person deciding to reload is
+   * read back rather than assumed.
+   */
+  const taken = await shareById(db, shareId)
+  if (taken === null) return { outcome: 'refused', reason: 'unknown' }
+
+  const [holder] = await db
+    .select({ acceptedBy: browserShares.acceptedBy })
+    .from(browserShares)
+    .where(eq(browserShares.id, shareId))
+    .limit(1)
+
+  return holder?.acceptedBy === humanId
+    ? { outcome: 'accepted', share: taken }
+    : { outcome: 'refused', reason: 'taken' }
+}
+
+/**
+ * End a share, and say why.
+ *
+ * Idempotent by the `closed_at is null` guard, because the ways a share ends
+ * race by construction: the operator closes the window at the moment the
+ * sharer's socket drops, and both paths arrive here. The first reason wins, and
+ * neither caller has to hold a lock to find out that it lost.
+ */
+export async function closeShare(
+  db: Database,
+  shareId: string,
+  reason: ShareCloseReason,
+): Promise<boolean> {
+  const rows = await db
+    .update(browserShares)
+    .set({ closedAt: currentTime(), closedFor: reason })
+    .where(and(eq(browserShares.id, shareId), isNull(browserShares.closedAt)))
+    .returning({ id: browserShares.id })
+
+  return rows.length > 0
+}
+
+/**
+ * Close everything whose window has run out, whichever of the two windows it
+ * was in.
+ *
+ * Called before an offer is minted and before the queue is read, rather than
+ * from a timer: a lapsed share has to *become* closed for the agent to read the
+ * reason back, and doing it on the paths that already ask the question means
+ * there is no sweep to forget to deploy. A share nobody ever asks about again
+ * costs one row.
+ */
+export async function expireStaleShares(db: Database, at: string = currentTime()): Promise<number> {
+  const rows = await db
+    .update(browserShares)
+    .set({ closedAt: at, closedFor: 'expired' })
+    .where(and(isNull(browserShares.closedAt), lte(browserShares.expiresAt, at)))
+    .returning({ id: browserShares.id })
+
+  return rows.length
+}
+
+/** One offer waiting on one person, for the queue that shows it. */
+export interface WaitingShare {
+  readonly shareId: string
+  readonly agentName: string
+  readonly offeredAt: string
+  readonly expiresAt: string
+}
+
+/**
+ * Every share still waiting on this person, across every agent they operate.
+ *
+ * Only `offered` ones: a share somebody has already accepted is being looked at
+ * right now and is not something the queue should offer a second window onto.
+ */
+export async function sharesWaitingFor(
+  db: Database,
+  humanId: HumanId,
+): Promise<readonly WaitingShare[]> {
+  const at = currentTime()
+  await expireStaleShares(db, at)
+
+  return db
+    .select({
+      shareId: browserShares.id,
+      agentName: agents.name,
+      offeredAt: browserShares.offeredAt,
+      expiresAt: browserShares.expiresAt,
+    })
+    .from(browserShares)
+    .innerJoin(humanAgents, eq(humanAgents.agentId, browserShares.agentId))
+    .innerJoin(agents, eq(agents.id, browserShares.agentId))
+    .where(
+      and(
+        eq(humanAgents.humanId, humanId),
+        isNull(browserShares.closedAt),
+        isNull(browserShares.acceptedAt),
+        sql`${browserShares.expiresAt} > ${at}`,
+      ),
+    )
+    .orderBy(browserShares.offeredAt)
+}
+
+interface SummaryRow {
+  readonly id: string
+  readonly targetId: string
+  readonly offeredAt: string
+  readonly expiresAt: string
+  readonly acceptedAt: string | null
+  readonly closedAt: string | null
+  readonly closedFor: string | null
+}
+
+function toSummary(row: SummaryRow): ShareSummary {
+  return {
+    id: row.id,
+    state: row.closedAt !== null ? 'closed' : row.acceptedAt !== null ? 'live' : 'offered',
+    targetId: row.targetId,
+    offeredAt: toTimestamp(row.offeredAt),
+    expiresAt: toTimestamp(row.expiresAt),
+    acceptedAt: row.acceptedAt === null ? null : toTimestamp(row.acceptedAt),
+    closedAt: row.closedAt === null ? null : toTimestamp(row.closedAt),
+    closedFor: row.closedFor === null ? null : (row.closedFor as ShareCloseReason),
+  }
+}
+
+/** SHA-256, hex. The same shape `credentials` and `operator_drops` use. */
+function hashToken(token: string): string {
+  return createHash('sha256').update(token, 'utf8').digest('hex')
+}

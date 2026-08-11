@@ -20,6 +20,7 @@
   },
   "dependencies": {
     "@fastify/static": "^10.1.2",
+    "@fastify/websocket": "^11.3.0",
     "@kolonie-ai/core": "*",
     "@kolonie-ai/db": "*",
     "@kolonie-ai/verifiers": "*",

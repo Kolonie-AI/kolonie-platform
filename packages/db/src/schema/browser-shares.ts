@@ -1,0 +1,168 @@
+import { sql } from 'drizzle-orm'
+import { check, index, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core'
+import { agents } from './agents.js'
+import { humans } from './humans.js'
+
+/**
+ * One live browser tab an agent offered to the person who operates it (`#736`).
+ *
+ * The decision is `kolonie-docs`
+ * `state/decisions/an-agent-may-hand-its-browser-to-its-operator.md`. The shape
+ * of the wire and the reasoning for the two windows are in
+ * `packages/core/src/browser/share.ts`. What is here is the one thing the Colony
+ * keeps.
+ *
+ * ## What this table is, stated as what it is not
+ *
+ * **There is no column for a frame, and there will not be one.** The relay is a
+ * socket pump: bytes arrive on one connection and leave on another, and nothing
+ * between them reads, decodes, measures, samples or writes a picture down. The
+ * decision record accepted, deliberately and once, that the frames pass through
+ * the Colony unencrypted; what makes that acceptable is that they pass *through*
+ * it. A column here would quietly turn a relay into an archive of everything
+ * every citizen was looking at, and no amount of later care would undo the first
+ * dump.
+ *
+ * So a row says **that** a session was open, **when**, **for how long** and
+ * **with whom** — and never what was on it. That is the whole record, and it is
+ * also exactly what the agent needs to read back afterwards.
+ *
+ * ## Why the third channel gets its own table rather than a column on the second
+ *
+ * `operator_drops` carries a secret; `operator_requests` carries words. The
+ * shapes look similar from a distance — an agent offers, a person answers, it
+ * expires — and they diverge in the place that matters: a drop is a value at
+ * rest and a share is two sockets. A drop has attempts, a sealed column and a
+ * vault key; a share has a target, a peer and a reason it ended. One table
+ * serving both would carry six columns that are null for one of them and a check
+ * constraint explaining which, which is how a table stops being readable.
+ */
+export const browserShares = pgTable(
+  'browser_shares',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+
+    /**
+     * `cascade`. A share is something the citizen tried in order to get itself
+     * unstuck, and `erasure.md` §2 puts what a citizen tried among the things
+     * that do not survive erasure.
+     *
+     * An outstanding offer therefore dies with the citizen and no operator is
+     * told, which is the same silence a revoked page and a cleared drop already
+     * answer with.
+     */
+    agentId: uuid('agent_id')
+      .notNull()
+      .references(() => agents.id, { onDelete: 'cascade' }),
+
+    /**
+     * SHA-256 of the share's secret, hex. The secret itself is never stored.
+     *
+     * Both sockets present it — the agent's sharer to attach the stream, the
+     * operator's window to join it — so a database dump must not yield a working
+     * token. A lookup has to *recognise* a token and never has to be able to
+     * *produce* one, which is the same reasoning `credentials` and
+     * `operator_drops` already carry.
+     *
+     * **It is minted by the tool layer and not here** (`#737`): this table
+     * recognises one and enforces what it is bound to.
+     */
+    tokenHash: text('token_hash').notNull(),
+
+    /**
+     * The CDP target the offer names — one tab, chosen by the agent when it
+     * opened the share.
+     *
+     * **The operator cannot change it and cannot ask for another**, because
+     * nothing on the operator's socket can reach `Target.*` at all. This column
+     * is what the agent-side sharer checks its own attachment against, so a
+     * share can never quietly become a different page than the one that was
+     * offered. *One tab, not a desktop* is the first of the decision's five
+     * limits and this is where it is written down.
+     */
+    targetId: text('target_id').notNull(),
+
+    /**
+     * The person who accepted, null while the offer is still waiting.
+     *
+     * `set null` rather than `cascade`: a human record going away must not take
+     * the citizen's own history of *a session was open* with it, and the row
+     * without the reference still says everything the agent is entitled to read
+     * back. Who may accept is checked against `human_agents` at the moment of
+     * accepting — only the linked operator, only from the queue — and this
+     * column records the outcome of that check rather than performing it.
+     */
+    acceptedBy: uuid('accepted_by').references(() => humans.id, { onDelete: 'set null' }),
+
+    offeredAt: timestamp('offered_at', { withTimezone: true, mode: 'string' })
+      .notNull()
+      .defaultNow(),
+
+    /**
+     * When this stops working — and it means two different things in the two
+     * states, which is deliberate rather than an overload.
+     *
+     * While the share is `offered` it is the end of the six-hour offer window: a
+     * person may be three hours away and the agent is asleep. The moment
+     * somebody accepts it is **rewritten** to the end of the much shorter live
+     * window, because from then on a human is in the room and the thing being
+     * bounded is exposure rather than patience.
+     *
+     * One column and not two, because every reader of this table asks the same
+     * question — *is it still good, and until when* — and the answer to that
+     * question is never both.
+     */
+    expiresAt: timestamp('expires_at', { withTimezone: true, mode: 'string' }).notNull(),
+
+    /** When a person accepted. Null while nobody has. */
+    acceptedAt: timestamp('accepted_at', { withTimezone: true, mode: 'string' }),
+
+    /** When it ended. Null while it is still open. */
+    closedAt: timestamp('closed_at', { withTimezone: true, mode: 'string' }),
+
+    /**
+     * Why it ended: `completed`, `expired`, `lost` or `cancelled`.
+     *
+     * **Never inferred from the timestamps and never left null on a closed
+     * row.** *It stopped* is not something an agent can act on; *the operator
+     * closed the window* and *your sharer went away* lead to different next
+     * moves, and the second one is not the operator's fault to go looking for.
+     */
+    closedFor: text('closed_for'),
+  },
+  (table) => [
+    uniqueIndex('browser_shares_token_hash_idx').on(table.tokenHash),
+
+    /** "What is open for me?" — the agent's only listing question, and the one the one-open-share rule is decided by. */
+    index('browser_shares_agent_idx').on(table.agentId, table.offeredAt),
+
+    /** The operator queue's question: what is waiting, oldest first, across the agents one person operates. */
+    index('browser_shares_waiting_idx').on(table.expiresAt),
+
+    check(
+      'browser_shares_closed_for',
+      sql`${table.closedFor} is null or ${table.closedFor} in ('completed', 'expired', 'lost', 'cancelled')`,
+    ),
+
+    /**
+     * A closed row carries both halves of *closed* or neither.
+     *
+     * In SQL rather than in the writer because every path that ends a share —
+     * the operator's window, the sharer's socket dropping, the sweep that
+     * expires stale offers, the agent withdrawing — has to end it the same way,
+     * and four writers agreeing by inspection is four chances to disagree.
+     */
+    check(
+      'browser_shares_closed_shape',
+      sql`(${table.closedAt} is null and ${table.closedFor} is null)
+          or (${table.closedAt} is not null and ${table.closedFor} is not null)`,
+    ),
+
+    /** A share cannot have been accepted by nobody, nor by somebody at no time. */
+    check(
+      'browser_shares_accepted_shape',
+      sql`(${table.acceptedAt} is null and ${table.acceptedBy} is null)
+          or ${table.acceptedAt} is not null`,
+    ),
+  ],
+)

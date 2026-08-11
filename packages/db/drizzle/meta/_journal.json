@@ -1464,6 +1464,13 @@
       "when": 1786462852333,
       "tag": "0208_vengeful_vampiro",
       "breakpoints": true
+    },
+    {
+      "idx": 209,
+      "version": "7",
+      "when": 1786478589924,
+      "tag": "0209_legal_magneto",
+      "breakpoints": true
     }
   ]
 }

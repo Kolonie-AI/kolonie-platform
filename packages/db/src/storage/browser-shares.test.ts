@@ -23,6 +23,7 @@ import {
   acceptShare,
   closeShare,
   expireStaleShares,
+  handoverAround,
   latestShare,
   liveShare,
   offerShare,
@@ -570,6 +571,145 @@ describe('the browser share', () => {
       await anOffer(otherAgentId)
 
       expect(await shareForWakeup(db, agentId, anHourAgo())).toBeNull()
+    })
+  })
+
+  /**
+   * The interval a badge rests on (`#739`).
+   *
+   * `browser-captcha` is no longer *did this agent get past a hostile page* — it
+   * is *did its operator get past one, inside the agent's own session, while the
+   * agent was there*. That question is this one function, and everything the
+   * verdict is allowed to say is what this returns.
+   *
+   * **The boundaries are the tests worth having.** A clear a second before the
+   * person joined, or a second after they left, is a clear the agent produced by
+   * itself — and the whole reason the rung was rebuilt is that an agent measured
+   * on producing one is an agent under pressure to claim to be human.
+   */
+  describe('the handover a badge rests on', () => {
+    /** Who holds this citizen, which `anAgent` linked and did not hand back. */
+    const theOperator = async (agent: AgentId = agentId): Promise<HumanId> => {
+      const [row] = await db
+        .select({ humanId: humanAgents.humanId })
+        .from(humanAgents)
+        .where(eq(humanAgents.agentId, agent))
+        .limit(1)
+      if (row === undefined) throw new Error('nobody operates this agent')
+      return row.humanId as HumanId
+    }
+
+    /**
+     * A whole handover, driven through the real calls and read back off the row.
+     *
+     * The two timestamps are the database's own rather than the test's, because
+     * the assertions below are about an interval and a clock this file invented
+     * would be an interval nothing else agrees with.
+     */
+    const aHandover = async (
+      agent: AgentId = agentId,
+      reason: 'completed' | 'lost' = 'completed',
+    ) => {
+      const share = await anOffer(agent)
+      const accepted = await acceptShare(db, share.id, await theOperator(agent))
+      if (accepted.outcome !== 'accepted') throw new Error(`accept refused: ${accepted.reason}`)
+      await closeShare(db, share.id, reason)
+
+      const [row] = await db
+        .select({ acceptedAt: browserShares.acceptedAt, closedAt: browserShares.closedAt })
+        .from(browserShares)
+        .where(eq(browserShares.id, share.id))
+      if (row?.acceptedAt == null || row.closedAt == null) throw new Error('the share is not shut')
+
+      return { shareId: share.id, acceptedAt: row.acceptedAt, closedAt: row.closedAt }
+    }
+
+    /** A moment inside the window, whatever the two ends turned out to be. */
+    const between = (from: string, to: string): string =>
+      new Date((Date.parse(from) + Date.parse(to)) / 2).toISOString()
+
+    it('answers with the session a clear fell inside, and why it ended', async () => {
+      const { shareId, acceptedAt, closedAt } = await aHandover()
+
+      expect(await handoverAround(db, agentId, between(acceptedAt, closedAt))).toMatchObject({
+        shareId,
+        closedFor: 'completed',
+      })
+    })
+
+    /**
+     * Both ends count. A challenge that went through on the operator's first
+     * click, or on the click they closed the window after, is a challenge they
+     * were on the tab for — and a millisecond of rounding is not a reason to
+     * refuse somebody a badge.
+     */
+    it('counts the instant they joined and the instant they left', async () => {
+      const { acceptedAt, closedAt } = await aHandover()
+
+      expect(await handoverAround(db, agentId, acceptedAt)).not.toBeNull()
+      expect(await handoverAround(db, agentId, closedAt)).not.toBeNull()
+    })
+
+    it('says nothing about a moment before the operator arrived', async () => {
+      const { acceptedAt } = await aHandover()
+      const before = new Date(Date.parse(acceptedAt) - 1_000).toISOString()
+
+      expect(await handoverAround(db, agentId, before)).toBeNull()
+    })
+
+    it('says nothing about a moment after the operator left', async () => {
+      const { closedAt } = await aHandover()
+      const after = new Date(Date.parse(closedAt) + 1_000).toISOString()
+
+      expect(await handoverAround(db, agentId, after)).toBeNull()
+    })
+
+    /**
+     * A share still running is not yet an answer. The rung is earned on the
+     * completion — the agent carries on in the same session and hands in
+     * afterwards — so a submission arriving mid-handover has nothing to report
+     * on yet.
+     */
+    it('says nothing about a session that has not ended', async () => {
+      const share = await anOffer()
+      const accepted = await acceptShare(db, share.id, await theOperator())
+      if (accepted.outcome !== 'accepted') throw new Error(`accept refused: ${accepted.reason}`)
+
+      expect(await handoverAround(db, agentId, new Date().toISOString())).toBeNull()
+    })
+
+    /**
+     * An offer nobody came to. This is the shape `#739` names as *not* a pass —
+     * offering a session and achieving nothing — and it is refused by the
+     * absence of an `accepted_at` rather than by a rule written twice.
+     */
+    it('says nothing about an offer that lapsed unanswered', async () => {
+      const share = await anOffer()
+      const at = new Date().toISOString()
+      await windUp(share.id)
+      await expireStaleShares(db)
+
+      expect(await handoverAround(db, agentId, at)).toBeNull()
+    })
+
+    /**
+     * A socket that dropped is still a handover. Whether the person was on the
+     * tab when the challenge went through is the question; what the network did
+     * a minute later is not, and the reason travels back so the verdict can say
+     * which it was.
+     */
+    it('counts a session that ended badly, and reports how', async () => {
+      const { acceptedAt, closedAt } = await aHandover(agentId, 'lost')
+
+      expect(await handoverAround(db, agentId, between(acceptedAt, closedAt))).toMatchObject({
+        closedFor: 'lost',
+      })
+    })
+
+    it('says nothing about another citizen’s handover', async () => {
+      const { acceptedAt, closedAt } = await aHandover(otherAgentId)
+
+      expect(await handoverAround(db, agentId, between(acceptedAt, closedAt))).toBeNull()
     })
   })
 

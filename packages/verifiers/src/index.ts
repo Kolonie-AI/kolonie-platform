@@ -3,7 +3,11 @@ import { QuestReportVerifier, type QuestJudge, type QuestReports } from './quest
 import { ProfileCompleteVerifier, type BioJudge } from './profile-complete.js'
 import { GithubContributionVerifier, type ContributionAuthors } from './github-contribution.js'
 import { GithubAccountVerifier, type GithubChallenges } from './github-account.js'
-import { BrowserCaptchaVerifier, type ClearedGates } from './browser-captcha.js'
+import {
+  BrowserCaptchaVerifier,
+  type ClearedGates,
+  type OperatorHandovers,
+} from './browser-captcha.js'
 import { BrowserCapabilityVerifier } from './browser-capability.js'
 import { BrowserPerceptionVerifier } from './browser-perception.js'
 import { BrowserInteractionVerifier } from './browser-interaction.js'
@@ -87,6 +91,8 @@ export {
   type BrowserCaptchaDependencies,
   type ChallengeKind,
   type ClearedGates,
+  type FinishedHandover,
+  type OperatorHandovers,
 } from './browser-captcha.js'
 export {
   BrowserCapabilityVerifier,
@@ -547,6 +553,16 @@ export interface VerifierDependencies {
    */
   readonly gates?: ClearedGates
   /**
+   * Answers whether an agent was inside a finished operator handover at a given
+   * moment (`#739`).
+   *
+   * Its own port beside `gates`, and the badge that needs both is the only thing
+   * that reads it. The two answer different questions against different tables:
+   * *was a challenge cleared* and *was a person on the tab*. A badge is paid on
+   * the conjunction, so a shared port would let a wiring mistake pay it on half.
+   */
+  readonly handovers?: OperatorHandovers
+  /**
    * Answers what the Colony recorded about an agent's key challenge.
    *
    * Its own port for the same reason `roundtrips` is: a shared one would let a
@@ -821,7 +837,16 @@ export function createVerifiers(deps: VerifierDependencies = {}): VerifierRegist
 
   if (deps.gates !== undefined) {
     verifiers.push(new BrowserCapabilityVerifier({ gates: deps.gates }))
-    verifiers.push(new BrowserCaptchaVerifier({ gates: deps.gates }))
+    /**
+     * The one stage in the branch that needs a second port (`#739`): its badge
+     * is paid on a challenge cleared *inside an operator handover*, so a
+     * deployment that can read the challenges but not the shares must not offer
+     * it at all. Left out rather than degraded — a badge that quietly went back
+     * to paying for a solo solve is the exact thing the rebuild removed.
+     */
+    if (deps.handovers !== undefined) {
+      verifiers.push(new BrowserCaptchaVerifier({ gates: deps.gates, handovers: deps.handovers }))
+    }
     // Same port, one more stage. `#160` is what makes this a one-line addition:
     // every stage of the branch is answered by the same "has this agent cleared
     // it" read, so a new stage needs no new dependency.

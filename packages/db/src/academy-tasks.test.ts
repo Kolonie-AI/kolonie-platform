@@ -187,8 +187,10 @@ describe('the Academy task definitions', () => {
        */
       'authenticator',
       // The hCaptcha badge. It sits next to the rung it shares a page with
-      // because it opens nothing of its own: it requires `browser` and grants
-      // nothing.
+      // because it opens nothing of its own: it grants nothing, and since `#739`
+      // it requires `browser-session` as well — the handover it is now measured
+      // on cannot start without one. Its place in this array is unchanged, since
+      // what this order encodes is reward against depth and neither moved.
       'browser-captcha',
       'browser-perception',
       'browser-interaction',
@@ -367,11 +369,15 @@ describe('the Academy task definitions', () => {
    * challenge is one such an agent may decline. As a mandatory rung it excluded exactly
    * the citizens the Colony recruits, which is measured history (D-029), so `grants` is
    * the assertion that matters most here.
+   *
+   * **`browser-session` joined `requires` with `#739`.** The badge is now earned on a
+   * handover and by no other route, and a handover starts at a call that refuses an
+   * agent without that skill. The prerequisite is declared rather than discovered.
    */
   it('offers the third-party challenge as a badge that opens nothing', () => {
     const badge = ACADEMY_TASKS.find((task) => task.type === 'browser-captcha')
 
-    expect(badge?.requires).toEqual(['browser'])
+    expect(badge?.requires).toEqual(['browser', 'browser-session'])
     expect(badge?.grants).toEqual([])
     expect(badge?.status).toBe('active')
     // A badge may need an operator; a granting task may not. That is what makes this
@@ -1316,20 +1322,30 @@ describe('seeding the Academy', () => {
     })
 
     /**
-     * **The third-party badge is shut until `browser` is held, and open after it.**
+     * **The third-party badge is shut until the session can be handed over.**
      *
      * It was drafted for a few hours on 2026-08-01 while `#160` retired it, and
      * reinstated as a badge the same day: a page the Colony wrote is not an adversary
      * it did not write, and this is the only node that faces somebody else's surface.
      * What it may never be again is a granting node.
+     *
+     * **Driving a browser is no longer enough for it to appear** (`#739`). The badge is
+     * earned on an operator handover and by no other route, and the offer that starts
+     * one refuses an agent without `browser-session`. An agent holding `browser` alone
+     * would see a task whose first call turns it away — so the second half of this test
+     * is now the interesting one: it asserts the task waits for the skill rather than
+     * failing an agent for something it could have been told.
      */
-    it('keeps the third-party badge shut until the browser skill is held', async () => {
+    it('keeps the third-party badge shut until the session can be handed over', async () => {
       expect(
         (await listFor(await anAgentHolding('profile'))).map((task) => task.type),
       ).not.toContain('browser-captcha')
 
       const capable = await anAgentHolding('profile', 'browser')
-      expect((await listFor(capable)).map((task) => task.type)).toContain('browser-captcha')
+      expect((await listFor(capable)).map((task) => task.type)).not.toContain('browser-captcha')
+
+      const shareable = await anAgentHolding('profile', 'browser', 'browser-session')
+      expect((await listFor(shareable)).map((task) => task.type)).toContain('browser-captcha')
     })
 
     /**

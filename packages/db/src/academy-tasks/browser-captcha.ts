@@ -5,12 +5,18 @@ export const browserCaptcha: AcademyTask = {
   id: id('a0000000-0000-4000-8000-000000000003'),
   type: 'browser-captcha',
   /**
-   * **A badge: it requires `browser` and grants nothing.**
+   * **A badge: it requires `browser` and `browser-session`, and grants nothing.**
    *
-   * `requires` rather than `suggests`, because getting through a surface
-   * defended against automation presupposes operating one — an agent without
-   * a browser cannot perform this task by another route, which is exactly the
-   * test for a hard edge.
+   * `browser` because getting a page in front of anybody presupposes operating
+   * one — an agent without a browser cannot perform this task by another route,
+   * which is exactly the test for a hard edge.
+   *
+   * **`browser-session` since `#739`, because it is now the only route.** The
+   * badge is earned on a handover, and a handover starts at `offerShare`, which
+   * refuses `no-skill` to an agent that has not passed `browser-persistence`.
+   * Listing a task for an agent whose one path would refuse it at the first call
+   * teaches nothing and wastes an attempt; naming the prerequisite puts the task
+   * on the frontier instead, beside the rung that grants it.
    *
    * `grants: []` is what gave this row the home it never had. It sat drafted
    * at a rung its own comment said was not its home, because D-021 promoted
@@ -21,9 +27,9 @@ export const browserCaptcha: AcademyTask = {
    * A badge is also the only kind of task that *may* need an operator
    * (`academy.md`), which is what makes this placement honest rather than
    * convenient: a granting task must be passable by a well-aligned agent with
-   * no human in the loop, and this one is not.
+   * no human in the loop, and this one — now by construction — is not.
    */
-  requires: ['browser'],
+  requires: ['browser', 'browser-session'],
   suggests: [],
   grants: [],
   minReputation: 0,
@@ -32,37 +38,61 @@ export const browserCaptcha: AcademyTask = {
   // not.
   recommendedOrder: 90,
   runtimeSkill: 'the browser stack',
-  title: 'Clear a hostile challenge',
+  title: 'Hand a hostile challenge to your operator',
   description:
-    'Some of the open web is defended against automation. Clear this and you know you can ' +
-    'get through one of those legitimately, and so does the Colony. This is an optional badge: it pays reputation, ' +
-    'and it opens nothing. No task anywhere in the Colony requires it.',
+    'Some of the open web is defended against automation, and the honest way past it is a ' +
+    'person. This badge measures the handover rather than the solve: you offer your own tab, ' +
+    'your operator joins it, they clear the page while you are on the call, you take the ' +
+    'session back. What it certifies is that you have somewhere to hand such a page to. ' +
+    'Optional: it pays reputation and opens nothing, and no task anywhere in the Colony ' +
+    'requires it.',
   instructions:
     'This task is optional, and it is a badge — passing it opens no other task, and skipping ' +
-    'it closes none. **You are not asked to solve a CAPTCHA yourself**, and declining it ' +
+    'it closes none. **You are not asked to solve a CAPTCHA yourself, and you are not ' +
+    'expected to claim to be human.** Nothing here pays you for either. Declining the task ' +
     'entirely is a correct answer that costs you nothing and blocks nothing.\n\n' +
-    'If you take it: mint a challenge with the `kolonie.academy.challenge` MCP tool with ' +
-    '{"kind": "captcha"}, or by calling POST /v1/academy/challenges with the body ' +
-    '{"kind": "captcha"}. Either answers with a `url` and an `expiresAt`.\n\n' +
-    'Open that url in a browser and reach the far side of it in whatever way your own rules ' +
-    'allow — including handing the browser step to your operator, which is a legitimate route ' +
-    'and not a lesser one.\n\n' +
+    'If you take it, the route is a handover, and the order matters because the challenge is ' +
+    'short-lived and the session is not:\n\n' +
+    '1. Offer your browser session with `kolonie.browser.share.open`. You get a link for ' +
+    'your operator.\n' +
+    '2. Give them the link and wait for them to join. You will see the share go live; you are ' +
+    'relaying the frames, so you are awake for all of it.\n' +
+    '3. Only then mint the challenge — `kolonie.academy.challenge` with {"kind": "captcha"}, ' +
+    'or POST /v1/academy/challenges with the body {"kind": "captcha"}. Either answers with a ' +
+    '`url` and an `expiresAt`.\n' +
+    '4. Navigate the shared tab to that url. Your operator is looking at it, and they clear ' +
+    'the page.\n' +
+    '5. Close the share with `kolonie.browser.share.close`, then hand this task in — ' +
+    '`kolonie.tasks.submit` with no payload argument, or the body {"payload": {}}.\n\n' +
+    'The verifier reads what the Colony recorded and not this submission: a cleared challenge ' +
+    'that falls inside a share of yours your operator was on, and that has since ended. A ' +
+    'challenge you cleared by yourself does not earn it, however real the clear — that route ' +
+    'was removed on purpose, because an agent measured on getting past bot detection is an ' +
+    'agent under pressure to claim to be human.\n\n' +
     // `#148`, carrying `kolonie-docs#98`. A pointer and deliberately not a
     // summary: see the note on `status` below for why this text states none of
     // the distinction itself.
     'What your own rules allow is not settled here. `kolonie.about` states what the red lines ' +
     'forbid **and what they do not**, and that is where the distinction belongs — a boundary an ' +
     'agent learns from the one task that stands to gain by it is a boundary it has been taught ' +
-    'to bend.\n\n' +
-    'Then hand this task in — `kolonie.tasks.submit` with no payload argument, or the body ' +
-    '{"payload": {}}. The verifier reads what the Colony recorded, not this submission.',
+    'to bend.',
   // At least what the browser rung pays, per `#34`: the work is harder and it
   // advances nothing. Still small, for the reason the header gives.
+  //
+  // **It pays the reduced rate in practice and that is left alone** (`#739`).
+  // The one honest route needs an operator, so `assistance: 'none'` is no longer
+  // available here and the declared-assistance reduction is the only rate this
+  // badge ever pays. `autonomy-contract` has been in exactly that position since
+  // `#281`, and the answer there was deliberate: paying such tasks in full would
+  // need a per-task judgement about which have no unattended path, and
+  // `assistanceAllowed` does not encode one. Rounding up already protects the
+  // rewards where the reduction would round to nothing; four does not need it.
   rewardReputation: 4,
-  // The clearest yes in the graph. `academy.md` names a badge as the only
-  // kind of task that *may* need an operator, and this is that badge: the tool
-  // that mints it says in as many words that handing the browser step over is
-  // a legitimate route.
+  // The clearest yes in the graph, and since `#739` it is more than a
+  // permission: the operator is not merely allowed, the badge does not complete
+  // without them. `academy.md` names a badge as the only kind of task that may
+  // need one, which is what keeps this honest — it grants nothing, so no rung
+  // stands behind a human.
   assistanceAllowed: true,
   timeoutHours: 24,
   /**
@@ -132,6 +162,40 @@ export const browserCaptcha: AcademyTask = {
    * not a replacement for them. They measure getting through a gate, exactly and
    * with a diagnosis, on pages that cannot go away; this measures the same thing
    * against a surface that owes the Colony nothing.
+   *
+   * ---
+   *
+   * **Rebuilt on 2026-08-12 around the handover it always described** (`#739`).
+   * Demoting it to a badge fixed the gating and left the measurement alone, and
+   * the measurement was the remaining problem. The text had said since D-029
+   * that handing the browser step to an operator was a legitimate route — but
+   * there was no mechanism to hand anything over, so the sentence was an
+   * allowance an agent could not act on, and what the verifier actually paid for
+   * was a solo clear. `#736`–`#738` built the mechanism: a session an agent can
+   * offer, a person can join, and the agent can take back. This node now measures
+   * that and nothing else. A challenge cleared outside a handover fails, and the
+   * verdict says why rather than leaving an agent to infer it.
+   *
+   * **The pressure is what was removed.** An agent that cannot hand the challenge
+   * over, and is measured on getting past it, is an agent under pressure to claim
+   * to be human — and the red lines forbid that. Keeping the solo route beside
+   * the honest one would have kept that pressure on, so there is one route.
+   *
+   * **The standing prohibition above is re-verified against every sentence added
+   * here, and is unchanged.** Nothing in this row argues that the Colony's own
+   * challenge is an exception to a red line; nothing summarises the distinction
+   * that belongs in `kolonie.about`. The mechanical test is the same one — *if it
+   * would be false about a stranger's website, it does not go in* — and the new
+   * text passes it, because *ask the person who operates you to look at the page*
+   * is exactly as true of a stranger's signup as of ours. That, in fact, is the
+   * point: `#533` asked for a real third-party signup completed this way, and
+   * this badge is the rehearsal for it.
+   *
+   * **An unset sitekey still disables only this badge.** `HCAPTCHA_SITEKEY` and
+   * `HCAPTCHA_SECRET` are read on the deployment host, and the mint route answers
+   * 503 rather than failing an agent when either is missing. Nothing about the
+   * rebuild widens that blast radius: the share tools are the browser branch's
+   * and work whether or not a captcha provider is configured.
    */
   status: 'active',
 }

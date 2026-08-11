@@ -521,6 +521,86 @@ export async function shareOfferedTo(
   return row ?? null
 }
 
+/**
+ * A finished handover: an agent's own shared tab that its operator was on, and
+ * that has since ended (`#739`).
+ *
+ * Only the four facts a verdict is allowed to rest on. No purpose, no provider,
+ * no target and no operator — what the person did on the tab is not written down
+ * anywhere, and the badge is not a judgement about it.
+ */
+export interface FinishedHandover {
+  readonly shareId: string
+  readonly acceptedAt: string
+  readonly closedAt: string
+  readonly closedFor: ShareCloseReason
+}
+
+/**
+ * The handover this agent was inside at a given moment, if it was inside one
+ * (`#739`).
+ *
+ * **The interval is the whole question.** A challenge cleared at `at` counts for
+ * the badge when `accepted_at <= at <= closed_at` on a share of this agent's own
+ * — the operator had joined, and had not yet left. Read the other way round: the
+ * page the person was looking at when they solved it was this agent's page, in
+ * this agent's session, on a tab this agent chose.
+ *
+ * **`closed_at is not null` is a condition and not an accident.** The rung is
+ * earned on the completion rather than on the offer, so a share still running is
+ * not yet an answer: the agent carries on in the same session and hands in
+ * afterwards, and by then the session it is reporting on has ended. A share that
+ * is still open at submission time means the agent submitted mid-handover, which
+ * is the one shape this must not pass.
+ *
+ * Every close reason is accepted, `expired` and `lost` included. What matters is
+ * that the person was on the tab at the moment the challenge went through; a
+ * socket that dropped a minute later says something about a network and nothing
+ * about the handover. The reason travels back so the verdict can quote it.
+ *
+ * Null when there is no such share — which is the ordinary answer for an agent
+ * that cleared the challenge by itself, and is the answer the rung now turns on.
+ */
+export async function handoverAround(
+  db: Database,
+  agentId: AgentId,
+  at: string,
+): Promise<FinishedHandover | null> {
+  const [row] = await db
+    .select({
+      shareId: browserShares.id,
+      acceptedAt: browserShares.acceptedAt,
+      closedAt: browserShares.closedAt,
+      closedFor: browserShares.closedFor,
+    })
+    .from(browserShares)
+    .where(
+      and(
+        eq(browserShares.agentId, agentId),
+        sql`${browserShares.acceptedAt} is not null`,
+        sql`${browserShares.closedAt} is not null`,
+        sql`${browserShares.acceptedAt} <= ${at}`,
+        sql`${browserShares.closedAt} >= ${at}`,
+      ),
+    )
+    // Newest first, so an agent that has handed over several times is answered
+    // with the session the clear actually fell in rather than with whichever row
+    // the planner reached first. The interval makes at most one of them right;
+    // the ordering makes the query say so.
+    .orderBy(sql`${browserShares.acceptedAt} desc`)
+    .limit(1)
+
+  if (row === undefined) return null
+  if (row.acceptedAt === null || row.closedAt === null || row.closedFor === null) return null
+
+  return {
+    shareId: row.shareId,
+    acceptedAt: toTimestamp(row.acceptedAt),
+    closedAt: toTimestamp(row.closedAt),
+    closedFor: row.closedFor as ShareCloseReason,
+  }
+}
+
 interface SummaryRow {
   readonly id: string
   readonly targetId: string

@@ -10,7 +10,6 @@ import {
   questInvoiceLamports,
   questNeedsInvoice,
   now,
-  QUEST_REVIEW_REWARD_LAMPORTS,
   type AgentId,
   type ModerationStages,
   type QuestAuditPolicy,
@@ -30,7 +29,6 @@ import {
   tasks,
   verifications,
 } from '../../schema/index.js'
-import { oweForReview } from '../payouts.js'
 import { recordAuthorityEvent } from '../roles.js'
 import { toTimestamp } from '../rows.js'
 import type { ScrubbedAnswer } from './shared.js'
@@ -116,16 +114,6 @@ export async function publishQuest(
     readonly stewardId?: AgentId
     readonly taskId: TaskId
     readonly at: Timestamp
-    /**
-     * What this decision pays the steward (`#651`).
-     *
-     * **Optional and falling back to the constant**, on `obstacleBonusPercent`'s
-     * terms rather than `audit`'s: a caller that omits it pays the default,
-     * which is a figure D-105 already justifies, where a caller that omitted the
-     * audit would have published unaudited paid quests. Absent is safe here and
-     * was not there.
-     */
-    readonly reviewRewardLamports?: number
     /**
      * The audit as this deployment has it configured (`#221`).
      *
@@ -301,21 +289,6 @@ export async function publishQuest(
         ...(sponsorId !== null && { subjectAgentId: sponsorId }),
       })
 
-      // The steward is owed for deciding, published or refused, and a quest
-      // waiting for money has been decided (D-105). Making this wait for the
-      // sponsor would put a steward's pay in the hands of a third party.
-      //
-      // **Nobody is owed when the Colony decided** (`#693`). The payout is
-      // removed wholesale in `#724`; this guard is here so the two can land in
-      // either order without the Colony paying itself to review its own quests.
-      if (command.stewardId !== undefined) {
-        await oweForReview(tx, {
-          stewardId: command.stewardId,
-          taskId: command.taskId,
-          lamports: command.reviewRewardLamports ?? QUEST_REVIEW_REWARD_LAMPORTS,
-        })
-      }
-
       return { outcome: 'awaiting-payment', invoiceLamports }
     }
 
@@ -371,19 +344,6 @@ export async function publishQuest(
       ...(sponsorId !== null && { subjectAgentId: sponsorId }),
     })
 
-    // The steward's pay, in this transaction (`D-105`, `#499`). Identical to the
-    // call in `refuseQuest`, deliberately: the amount carries no opinion about
-    // the verdict, so there is nothing here for a verdict to change.
-    //
-    // Skipped where nobody decided, on the invoice path's terms (`#693`).
-    if (command.stewardId !== undefined) {
-      await oweForReview(tx, {
-        stewardId: command.stewardId,
-        taskId: command.taskId,
-        lamports: command.reviewRewardLamports ?? QUEST_REVIEW_REWARD_LAMPORTS,
-      })
-    }
-
     return { outcome: 'published', escrowed: 0 }
   })
 }
@@ -419,8 +379,6 @@ interface RefuseQuestCommand {
    */
   readonly reason: string
   readonly at: Timestamp
-  /** What this decision pays, on `publishQuest`'s terms (`#651`). */
-  readonly reviewRewardLamports?: number
 }
 
 /**
@@ -469,19 +427,6 @@ async function refuseQuestIn(
       subjectTaskId: command.taskId,
       ...(row.createdBy !== null && { subjectAgentId: row.createdBy as AgentId }),
     })
-
-    // The same call and the same amount as `publishQuest` (`D-105`, `#499`).
-    // **Refusing is the decision the Colony most needs done well**, and a model
-    // that paid only for publishing would price the careful no at zero.
-    //
-    // Skipped where nobody decided, on `publishQuest`'s terms (`#693`).
-    if (command.stewardId !== undefined) {
-      await oweForReview(tx, {
-        stewardId: command.stewardId,
-        taskId: command.taskId,
-        lamports: command.reviewRewardLamports ?? QUEST_REVIEW_REWARD_LAMPORTS,
-      })
-    }
 
     return { outcome: 'refused' }
   }

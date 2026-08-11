@@ -9,9 +9,7 @@ import {
   QUEST_TIER_CAP_SETTINGS,
   QUEST_PROOF_VERIFIERS,
   QUEST_VERIFIER_PROVES,
-  QUEST_REVIEW_REWARD_LAMPORTS,
   QUEST_REFUSAL_LIMIT,
-  questReviewReward,
   QUEST_MAX_DURATION_DAYS,
   QUEST_MAX_SLOTS,
   QuestDraftSchema,
@@ -843,48 +841,20 @@ describe('the prices D-106 left without a unit', () => {
   })
 
   /**
-   * **Half of D-105's shape survives the tenfold cut, and half does not** — and
-   * the half that does not is asserted rather than quietly dropped (`#651`).
+   * **The three review-reward tests stood here and are gone** (`#724`).
    *
-   * The cut was the maintainer's, on a ratio: at `1_000_000` one decision paid
-   * exactly what a colony-judged quest paid its answerer, so a steward earned as
-   * much for a verdict as a citizen earned for the work it was about.
+   * They asserted that a decision paid far more than a transaction fee, less
+   * than a colony-judged report, and that the dial overrode the constant. The
+   * Colony decides its own quests now (`#693`), so the payout has nobody to pay
+   * and the constant, the setting and `questReviewReward` were removed with it.
    *
-   * What that leaves is an **inverted rung**: the soft ceiling is `500_000` and
-   * a review now pays `100_000`, so the cheapest kind of answer the Colony
-   * permits can pay five times what deciding it pays. The old test asserted the
-   * opposite and it was right to — a role paid less than the least valuable
-   * report is the shape D-105 set out to avoid.
-   *
-   * **It is left inverted on purpose, for one reason: the ceilings are the
-   * maintainer's dial and not this file's.** Lowering `soft` to restore the
-   * ladder would be re-pricing quests to make a test pass. It is written down
-   * here so that whoever next reads this file meets the question instead of
-   * inheriting the answer, and `kolonie-platform#651` carries it.
+   * **The inversion they recorded is what is worth keeping.** `#651` measured a
+   * decision paying a fifth of what answering paid, and the tests were left
+   * asserting it *on purpose*, so that whoever read this file met the question
+   * rather than inheriting the answer. The question is now settled by removal
+   * rather than by re-pricing, and D-105 is not reversed by it: its argument was
+   * about a role that decides, and no role decides.
    */
-  it('pays a steward far more than a transaction fee, and less than a colony-judged report', () => {
-    expect(QUEST_REVIEW_REWARD_LAMPORTS).toBeGreaterThan(5_000 * 10)
-    // Small enough that reviewing is not a way to earn — D-105's second
-    // condition, which both the change of unit and the cut had to keep.
-    expect(QUEST_REVIEW_REWARD_LAMPORTS).toBeLessThan(QUEST_TIER_CAPS_LAMPORTS['colony-judged'])
-  })
-
-  /**
-   * The inversion above, stated as a fact rather than as a comment, so that a
-   * later change to either number has to come past it.
-   */
-  it('currently pays less for a decision than the soft ceiling allows for a report', () => {
-    expect(QUEST_REVIEW_REWARD_LAMPORTS).toBeLessThan(QUEST_TIER_CAPS_LAMPORTS.soft)
-  })
-
-  /** The dial overrides the constant, and nonsense falls back to it (`#651`). */
-  it('takes its figure from a setting, and refuses nonsense in it', () => {
-    expect(questReviewReward(() => '250000')).toBe(250_000)
-    expect(questReviewReward(() => undefined)).toBe(QUEST_REVIEW_REWARD_LAMPORTS)
-    expect(questReviewReward(() => '0')).toBe(QUEST_REVIEW_REWARD_LAMPORTS)
-    expect(questReviewReward(() => 'a lot')).toBe(QUEST_REVIEW_REWARD_LAMPORTS)
-    expect(questReviewReward(() => '-5')).toBe(QUEST_REVIEW_REWARD_LAMPORTS)
-  })
 })
 
 describe('how far a price reaches (#718)', () => {

@@ -98,74 +98,18 @@ export async function oweForReport(
 }
 
 /**
- * Record what a decided quest owes the steward that decided it (`#553` B′).
+ * **`oweForReview` stood here and is gone** (`#724`).
  *
- * ## Why it is an obligation and no longer a booking
+ * It recorded what a decided quest owed the steward that decided it. Since
+ * `#693` the Colony decides its own quests, so no quest can create a new review
+ * debt and there is nothing left to call it.
  *
- * `payStewardReview` paid the steward in **credits**, out of the Treasury, in
- * the deciding transaction. Under D-106 there are no credits and there is no
- * balance anybody holds: a steward is paid in SOL from the payout wallet, like
- * everybody else the Colony owes. So the write that belongs in the verdict's
- * transaction is the same one an accepted report makes — *this is owed* — and
- * the runner that already knows how to pay, refuse, retry, forfeit and settle
- * an erasure does the rest.
- *
- * ## The Treasury check is gone, and that is the point rather than a side effect
- *
- * The old function read `treasuryBalance` and skipped the payment when it was
- * short, warning to the console. Under D-106 *can the Colony afford this right
- * now* is already the payout runner's `floatShort`, and a second, different
- * affordability rule on the same money is how two answers to one question start.
- * What `#499` decided — **the decision commits whatever happens to the money** —
- * is preserved and strengthened: the obligation is recorded, so a steward whose
- * payment cannot go out today is *owed* rather than quietly unpaid.
- *
- * ## Idempotency
- *
- * `payout_obligations_review_unique` on `(task_id, agent_id)` where the kind is
- * `review`. A submission carried that job for a report and a review has none, so
- * without it a retried `publishQuest` pays a steward twice.
- *
- * Returns the obligation's id, or `undefined` when there already was one.
+ * **`payout_obligations` keeps its `review` kind and every row already written
+ * under it.** A debt the Colony incurred is still owed, still paid by the payout
+ * runner, and still read back by `kolonie.me.earnings`. This removed the rule
+ * that created them, not the ledger that holds them — and no migration went with
+ * it, deliberately.
  */
-export async function oweForReview(
-  tx: Transaction,
-  command: {
-    readonly stewardId: AgentId
-    readonly taskId: TaskId
-    readonly lamports: number
-  },
-): Promise<string | undefined> {
-  if (command.lamports <= 0) return undefined
-
-  // Read here and written onto the row, for the reason `oweForReport` gives:
-  // it fixes the payout to the wallet in force when the work was done, and it
-  // is what lets the debt outlive an erasure.
-  const [verified] = await tx
-    .select({ address: solanaWalletChallenges.address })
-    .from(solanaWalletChallenges)
-    .where(
-      andSql(
-        eq(solanaWalletChallenges.agentId, command.stewardId),
-        sql`${solanaWalletChallenges.verifiedAt} is not null`,
-      ),
-    )
-    .limit(1)
-
-  const [row] = await tx
-    .insert(payoutObligations)
-    .values({
-      agentId: command.stewardId,
-      taskId: command.taskId,
-      kind: 'review',
-      lamports: command.lamports,
-      ...(verified?.address != null && { address: verified.address }),
-    })
-    .onConflictDoNothing()
-    .returning({ id: payoutObligations.id })
-
-  return row?.id
-}
 
 /**
  * Record what a published obstacle report owes its author (`#553` phase C).

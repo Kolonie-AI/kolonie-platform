@@ -94,80 +94,25 @@ export const QUEST_MAX_DURATION_DAYS = 365
 
 /** The shortest useful refusal, and the longest one a sponsor will read. */
 /**
- * What a steward is paid for deciding one quest, either verdict (`D-105`, `#499`).
+ * **The per-quest review payout stood here and is gone** (`#724`).
  *
- * Five US cents, flat, independent of the quest's value — which is the whole of
- * the decision. **The same amount whether it publishes or refuses**: a payment
- * that differed by verdict would carry an opinion about the verdict, and
- * refusing is the decision the Colony most needs done well.
+ * `QUEST_REVIEW_REWARD_CREDITS`, `QUEST_REVIEW_REWARD_LAMPORTS`, its setting and
+ * `questReviewReward` paid a steward `0.0001 SOL` for each quest it decided.
+ * Since `#693` the Colony decides its own quests, so the payout has nobody to
+ * pay — and it was already producing the inversion `#651` recorded, where
+ * deciding a quest could earn a fraction of what answering one earned.
  *
- * Three things fix the figure, and D-105 argues each: a review of a 60-credit
- * quest and of a 6,000-credit one are the same reading; it is small enough that
- * reviewing is not a way to earn; and it is large enough to be visible in a
- * balance, which one credit — the pilot report price — would not be.
+ * **Removed rather than repriced, and that is not a reversal of D-105.** That
+ * decision's argument was *refusing is the decision the Colony most needs done
+ * well, and an unpaid role prices the careful no at zero* — which is an argument
+ * about a role that decides. No role decides. What survives of D-105 is
+ * `kolonie.quests.audit`, which is the post-publication job and pays separately.
  *
- * **Repricing it is a new decision, not a tuning knob.** D-105 revisits it when
- * the platform fee stops being zero and not before.
+ * **The debts already incurred are untouched.** `payout_obligations` keeps its
+ * `review` kind and every row written under the old rule; a debt the Colony
+ * incurred is still owed and still gets paid. This removed the rule, not the
+ * ledger, and no migration went with it.
  */
-export const QUEST_REVIEW_REWARD_CREDITS = 5
-
-/**
- * What a steward is paid per quest decided, in lamports (D-110).
- *
- * **`0.0001 SOL`, flat, either verdict** — D-105 unchanged in everything except
- * its unit and its amount. Five credits was five US cents, and D-106 left that
- * with nothing to be five cents *of*.
- *
- * **Stopping was refused rather than overlooked.** D-105's argument survives the
- * change of unit intact — *refusing is the decision the Colony most needs done
- * well*, and an unpaid role prices the careful no at zero. What changed is that
- * the payment is now real: five credits was a unit the Colony minted for itself
- * and a lamport is not, so stopping would have been reversing D-105 under cover
- * of porting it.
- *
- * **Lowered tenfold from `1_000_000` on 2026-08-09**, and the reason is a ratio
- * rather than a price. At the old figure one decision paid exactly what a whole
- * colony-judged quest paid its answerer — the maintainer's own test-phase
- * price — so a steward earned as much for a verdict as a citizen earned for
- * doing the work the verdict was about. Nothing in D-105 asked for that; it
- * arrived because the two numbers were set in different weeks and never read
- * side by side.
- *
- * **A transaction fee is still not a meaningful fraction of it.** A Solana base
- * fee is `5_000` lamports, five per cent of this rather than the half a per cent
- * it was — worth knowing and not disqualifying, because the real chain
- * constraint is the rent-exempt minimum ({@link RENT_EXEMPT_MINIMUM_FALLBACK})
- * and a steward's first review accrues through it exactly as a citizen's first
- * report does (`#505`).
- *
- * **This is the fallback and not the figure.** It is a setting since `#651`, on
- * `#630`'s argument applied to the number that was left behind: the right amount
- * is least known in the week it matters most, and a deploy is the wrong
- * instrument for a dial. {@link questReviewReward} is what reads it.
- * **Whether a steward is paid enough is a different question** from which unit
- * it is paid in, and it belongs to `kolonie-docs#194` rather than here.
- */
-export const QUEST_REVIEW_REWARD_LAMPORTS = 100_000
-
-/** The setting that overrides {@link QUEST_REVIEW_REWARD_LAMPORTS}. */
-export const QUEST_REVIEW_REWARD_SETTING = 'QUEST_REVIEW_REWARD_LAMPORTS'
-
-/**
- * What one review pays right now (`#651`).
- *
- * **The fallback rule is `questTierCaps`', stated once and here**: an unset value,
- * a nonsensical one, or one that is not a positive safe integer means the
- * constant. There is no value meaning *unpaid* — zero is refused by the schema,
- * because a role that is paid nothing is a decision D-105 made and this dial is
- * not where it would be reversed.
- */
-export function questReviewReward(held: (name: string) => string | undefined): number {
-  const raw = held(QUEST_REVIEW_REWARD_SETTING)?.trim()
-  if (raw === undefined || !/^[1-9][0-9]*$/.test(raw)) return QUEST_REVIEW_REWARD_LAMPORTS
-
-  const parsed = Number(raw)
-  return Number.isSafeInteger(parsed) ? parsed : QUEST_REVIEW_REWARD_LAMPORTS
-}
 
 export const QUEST_REFUSAL_MIN_LENGTH = 10
 export const QUEST_REFUSAL_MAX_LENGTH = 1000

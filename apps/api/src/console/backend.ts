@@ -177,8 +177,14 @@ export function backendPage(input: {
        * It reads `setting.value` — the effective one — rather than what a form
        * is about to submit, so the consequence of a figure that has been live for
        * a month is stated on the page that shows it, not only to whoever next
-       * types into the box. `undefined` is the code fallback and is not exempt:
-       * `QUEST_REVIEW_REWARD_LAMPORTS` is below the chain minimum unset.
+       * types into the box. `undefined` is the code fallback and is not exempt —
+       * a fallback below a chain minimum is exactly the case this was built for.
+       *
+       * **No setting defines one right now** (`#724`): the one that did was
+       * `QUEST_REVIEW_REWARD_LAMPORTS`, and the Colony decides its own quests, so
+       * there is no per-quest review payout to state a consequence of. The hook
+       * stays because it is a property of a definition rather than of that
+       * setting, and it costs a definition that sets nothing exactly nothing.
        *
        * **Beside the value and never in place of the form.** Nothing here refuses
        * anything; `#654` is explicit that a floor on this setting would be the

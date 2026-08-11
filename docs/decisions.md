@@ -7597,6 +7597,27 @@ building when there is such a path rather than in anticipation of one.
 
 **Date:** 2026-08-07 — `kolonie-platform#493`.
 
+> **Superseded by `kolonie-platform#724`, 2026-08-11, because no role decides any
+> more.** `kolonie-platform#693` makes a moderation verdict the publication, so
+> the payout has nobody to pay: `QUEST_REVIEW_REWARD_LAMPORTS`, its setting,
+> `questReviewReward` and `oweForReview` are gone, and no code path can create a
+> new review debt.
+>
+> **This is not a reversal of the argument below.** _Refusing is the decision the
+> Colony most needs done well, and an unpaid role prices the careful no at zero_
+> is an argument about a role that decides, and the role no longer does. Removed
+> rather than repriced, which is also what `kolonie-platform#651`'s inversion
+> asked for: at the figure in force, deciding a quest could earn a fraction of
+> what answering one earned.
+>
+> **The debts already incurred stand.** `payout_obligations` keeps its `review`
+> kind and every row written under this decision; a debt the Colony incurred is
+> still owed and still paid. `#724` removed the rule, not the ledger, and no
+> migration went with it.
+>
+> **What survives of this decision is `kolonie.quests.audit`**, which re-reads
+> verdicts that are already final and pays separately.
+
 **Problem.** `governance/economy.md` §4 raised the platform fee to 25% and named
 what it is for: _"What the Colony does per quest is **steward review**,
 moderation and verification, which is marketplace work."_ The fee is charged and
@@ -8079,7 +8100,9 @@ took, in cents, and nobody had taken again**:
   ten dollars, one dollar and five cents, and which `questRewardRejection`
   compares against on the quest write path and in the console's quest form.
 - `QUEST_REVIEW_REWARD_CREDITS = 5` — five cents, flat, paid to a steward's
-  **credit balance** for each quest it decides, under D-105.
+  **credit balance** for each quest it decides, under D-105. **Gone since
+  `kolonie-platform#724`** — see the note on D-105. Decision 1, the ceilings, is
+  unaffected and is the half of this record still in force.
 
 Both sit on the quest write path, so `#553` cannot proceed past either.
 

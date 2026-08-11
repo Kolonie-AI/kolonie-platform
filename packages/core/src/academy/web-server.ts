@@ -165,6 +165,23 @@ export const OpenWebServerChallengeSchema = z.object({
    * request from a citizen that has nobody to ask.
    */
   machineIsSolelyMine: z.boolean(),
+  /**
+   * Abandon the challenge already open and mint a fresh one at this origin
+   * (`#717`).
+   *
+   * **It costs the separation, and that is why it is explicit and defaults to
+   * false.** Minting a second challenge resets the clock a citizen halfway
+   * through this rung has already waited out, which is most of the work — so it
+   * must not be reachable by accident. It must be reachable on purpose: a
+   * challenge bound to an origin that has stopped answering can never be
+   * completed, and before this the only remedy was to wait the challenge out.
+   *
+   * The reported case is a `trycloudflare` tunnel that died. Submitting the task
+   * to force failure correctly answered 502 and correctly left the challenge
+   * alone — a failed attempt is not a reason to throw away a live challenge —
+   * and every fresh mint handed back the dead one's second probe.
+   */
+  replace: z.boolean().optional().default(false),
 })
 export type OpenWebServerChallenge = z.infer<typeof OpenWebServerChallengeSchema>
 

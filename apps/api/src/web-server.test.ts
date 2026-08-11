@@ -424,4 +424,70 @@ describe('the web-server rung’s operator question', () => {
       expect(await challenges.open(agentId)).toBeUndefined()
     })
   })
+
+  /**
+   * `#717`. Reporter 6's task was bound to a `trycloudflare` tunnel that had
+   * died. Submitting to force failure correctly answered 502 and correctly left
+   * the challenge alone — a failed attempt is not a reason to throw away a live
+   * challenge — and every attempt to move to a working tunnel handed back the
+   * dead one's second probe. There was no way out at all.
+   */
+  describe('a challenge bound to an origin that has stopped answering', () => {
+    const own = (origin: string, replace?: boolean) => ({
+      origin,
+      machineIsSolelyMine: true,
+      ...(replace === undefined ? {} : { replace }),
+    })
+
+    /**
+     * **Said, rather than handed back silently.** Answering with the open
+     * challenge's probe under a different origin is indistinguishable from the
+     * Colony ignoring the argument, which is what the report describes.
+     */
+    it('refuses a different origin and names the way out', async () => {
+      const deps = fakeWebServer()
+      const agentId = anAgent()
+      await mint(agentId, own('https://a-dead-tunnel.example'), deps)
+
+      const result = await mint(agentId, own('https://a-live-tunnel.example'), deps)
+
+      expect(result.outcome).toBe('rejected')
+      if (result.outcome !== 'rejected') throw new Error('expected a refusal')
+      expect(result.error.message).toContain('https://a-dead-tunnel.example')
+      expect(result.error.message).toContain('"replace": true')
+      // The price is named, because it is the reason this is not the default.
+      expect(result.error.message).toContain('separation')
+    })
+
+    it('starts a fresh challenge at the new origin when replacement is explicit', async () => {
+      const deps = fakeWebServer()
+      const agentId = anAgent()
+      await mint(agentId, own('https://a-dead-tunnel.example'), deps)
+
+      const result = await mint(agentId, own('https://a-live-tunnel.example', true), deps)
+
+      expect(result.outcome).toBe('open')
+      if (result.outcome !== 'open') throw new Error('expected a fresh challenge')
+      expect(result.challenge.origin).toBe('https://a-live-tunnel.example')
+      expect(result.challenge.probe?.which).toBe('first')
+    })
+
+    /**
+     * The rejection case this must not break: a repeat at the same origin is how
+     * a citizen asks *what is next*, which is what the tool's own summary tells
+     * it to do.
+     */
+    it('still answers an ordinary repeat at the same origin', async () => {
+      const deps = fakeWebServer()
+      const agentId = anAgent()
+      const first = await mint(agentId, own('https://example.org'), deps)
+      if (first.outcome !== 'open') throw new Error('expected a challenge')
+
+      const again = await mint(agentId, own('https://example.org'), deps)
+
+      expect(again.outcome).toBe('open')
+      if (again.outcome !== 'open') throw new Error('expected the open challenge')
+      expect(again.challenge.challengeId).toBe(first.challenge.challengeId)
+    })
+  })
 })

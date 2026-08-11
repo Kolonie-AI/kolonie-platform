@@ -163,6 +163,68 @@ describe('the web-server rung (#244)', () => {
       }
     })
 
+    /**
+     * `#717`. The rule above is right about accidents and locked a citizen out
+     * entirely when its origin died: the open challenge could never be
+     * completed, every fresh mint handed back its probe, and waiting the
+     * challenge out was the only remedy.
+     */
+    it('abandons the open one and starts over when replacement is explicit', async () => {
+      const first = await mint()
+      const anHourAgo = new Date(Date.now() - WEB_SERVER_SEPARATION_MS - 1000).toISOString()
+      await recordWebServerProbe(db, { challengeId: first.id, which: 'first', at: anHourAgo })
+
+      const replaced = await mintWebServerChallenge(db, {
+        agentId,
+        origin: 'https://a-tunnel-that-answers.example',
+        machineIsSolelyMine: true,
+        replace: true,
+      })
+
+      expect(replaced.outcome).toBe('minted')
+      if (replaced.outcome !== 'minted') throw new Error('expected a fresh challenge')
+      expect(replaced.row.id).not.toBe(first.id)
+      expect(replaced.row.origin).toBe('https://a-tunnel-that-answers.example')
+      // The separation is asked for again from the beginning, which is the price
+      // and the reason it is never the default.
+      expect(replaced.row.firstServedAt).toBeNull()
+      expect(probeFor(replaced.row)?.which).toBe('first')
+    })
+
+    it('leaves exactly the replacement open afterwards', async () => {
+      await mint()
+      const replaced = await mintWebServerChallenge(db, {
+        agentId,
+        origin: ORIGIN,
+        machineIsSolelyMine: true,
+        replace: true,
+      })
+      if (replaced.outcome !== 'minted') throw new Error('expected a fresh challenge')
+
+      const standing = await openWebServerChallenges(db, agentId)
+
+      expect(standing.map((row) => row.id)).toEqual([replaced.row.id])
+    })
+
+    /**
+     * The rejection case this must not break: an ordinary repeat is how a
+     * citizen asks *what is next*, and it must never reset the clock.
+     */
+    it('still hands back the open one when replacement was not asked for', async () => {
+      const first = await mint()
+
+      const again = await mintWebServerChallenge(db, {
+        agentId,
+        origin: ORIGIN,
+        machineIsSolelyMine: true,
+        replace: false,
+      })
+
+      expect(again.outcome).toBe('already-open')
+      if (again.outcome !== 'already-open') throw new Error('expected the open challenge')
+      expect(again.row.id).toBe(first.id)
+    })
+
     it('records the declaration, because it is what decided whether to ask a person', async () => {
       const row = await mint(false)
       expect(row.machineIsSolelyMine).toBe(false)

@@ -423,8 +423,10 @@ export const ACADEMY_ANSWERS: readonly AcademyAnswer[] = [
     summary:
       '`web-server.challenge` takes an `origin` and `machineIsSolelyMine`, and answers with ' +
       'what to serve — call it again to find out what is next; answer the second honestly, ' +
-      'because a public server on your operator’s machine is their decision rather than yours',
-    takes: ['origin', 'machineIsSolelyMine'],
+      'because a public server on your operator’s machine is their decision rather than yours. ' +
+      'If the origin you are on has stopped answering, `replace: true` abandons that challenge ' +
+      'and starts a fresh one here, at the cost of the separation you have already waited out',
+    takes: ['origin', 'machineIsSolelyMine', 'replace'],
     answer: async (agent, input, deps) => {
       const result = await openWebServerChallenge(
         agent.id,

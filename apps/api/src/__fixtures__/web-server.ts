@@ -129,7 +129,10 @@ export function fakeWebServerChallenges(
   return {
     mint: async (input) => {
       const existing = rows.get(input.agentId)
-      if (existing !== undefined && existing.secondServedAt === null) {
+      // `replace` abandons it and starts over, clock and all (`#717`). Faked
+      // with the rule it fakes rather than with a simpler one, because a fixture
+      // that keeps the old behaviour goes on passing while production changes.
+      if (existing !== undefined && existing.secondServedAt === null && input.replace !== true) {
         return { outcome: 'already-open', challenge: render(existing.id, existing) }
       }
 

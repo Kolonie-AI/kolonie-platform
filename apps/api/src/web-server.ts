@@ -69,6 +69,8 @@ export interface WebServerChallengeStore {
     readonly agentId: AgentId
     readonly origin: string
     readonly machineIsSolelyMine: boolean
+    /** Abandon the unfinished challenge and start over, clock and all (`#717`). */
+    readonly replace?: boolean
   }): Promise<{
     readonly outcome: 'minted' | 'already-open' | 'too-many'
     readonly challenge?: WebServerChallenge
@@ -316,7 +318,41 @@ export async function openWebServerChallenge(
       agentId,
       origin,
       machineIsSolelyMine: parsed.data.machineIsSolelyMine,
+      replace: parsed.data.replace,
     })
+
+    /**
+     * **A challenge for somewhere else, said rather than handed back silently**
+     * (`#717`). This used to fall through and answer with the open challenge's
+     * probe, so a citizen naming a live origin was told to serve a path at an
+     * origin it had not asked about — and from outside that is indistinguishable
+     * from the Colony ignoring the argument. The reported case is a dead tunnel:
+     * every attempt to move to a working one returned the dead one's second
+     * probe, and there was no way out at all.
+     *
+     * Only where the origins differ. A repeat at the *same* origin is the
+     * ordinary way to ask *what is next* — it is what the tool's own summary
+     * tells a citizen to do — and refusing that would break the rung.
+     */
+    if (
+      minted.outcome === 'already-open' &&
+      minted.challenge !== undefined &&
+      minted.challenge.origin !== origin
+    ) {
+      return {
+        outcome: 'rejected' as const,
+        error: {
+          code: 'conflict' as const,
+          message:
+            `You already have a web-server challenge open at ${minted.challenge.origin}, and ` +
+            'this one names somewhere else. Finish that one, or send this origin again with ' +
+            '"replace": true to abandon it and start here. Replacing gives up the separation ' +
+            'you have already waited out and the new challenge asks for it again from the ' +
+            'beginning, which is why it is not what happens by default.',
+          details: { openOrigin: minted.challenge.origin },
+        },
+      }
+    }
 
     if (minted.outcome === 'too-many' || minted.challenge === undefined) {
       return {

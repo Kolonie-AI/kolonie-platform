@@ -100,8 +100,10 @@ const ARGUMENTS = {
       'memory.code and authenticator.secret: give up on the outstanding one and mint a fresh ' +
         'one. sms.challenge: abandon the open challenge and mint a fresh one — whether or not ' +
         'its code was texted, and whether the number you name is the same one or a different ' +
-        'one. Use it only when the outstanding challenge cannot be completed: abandoning a ' +
-        'delivered one spends a message the Colony has already paid to send.',
+        'one. web-server.challenge: abandon the open challenge and start a fresh one at the ' +
+        'origin you name, which costs the separation you have already waited out. Use it only ' +
+        'when the outstanding challenge cannot be completed: abandoning a delivered SMS spends ' +
+        'a message the Colony has already paid to send.',
     ),
   origin: z
     .string()

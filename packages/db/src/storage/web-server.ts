@@ -142,6 +142,14 @@ export type MintWebServerChallengeOutcome =
    * **Minting a second would reset the clock**, which is the one thing a citizen
    * halfway through this rung must not be able to do by accident: the separation
    * it has already waited out is most of the work.
+   *
+   * **By accident, and not on purpose** (`#717`). `replace` is how a citizen
+   * asks for the reset deliberately, and it exists because the rule above locked
+   * a citizen out of the rung entirely when its origin stopped answering: the
+   * open challenge could never be completed, every fresh mint handed back the
+   * dead one's probe, and waiting the challenge out was the only remedy. The
+   * `origin` on this outcome is what a caller needs to say *the one you have is
+   * for somewhere else*, which is the sentence that was missing.
    */
   | { readonly outcome: 'already-open'; readonly row: WebServerChallengeRow }
   /** Too many open at once. `website`'s ceiling, for its reason. */
@@ -159,13 +167,33 @@ export async function mintWebServerChallenge(
     readonly agentId: AgentId
     readonly origin: string
     readonly machineIsSolelyMine: boolean
+    /** Abandon the unfinished challenge and start over, clock and all (`#717`). */
+    readonly replace?: boolean
   },
 ): Promise<MintWebServerChallengeOutcome> {
   const open = await openWebServerChallenges(db, input.agentId)
 
   const unfinished = open.find((row) => row.secondServedAt === null)
-  if (unfinished !== undefined) return { outcome: 'already-open', row: unfinished }
-  if (open.length >= MAX_OPEN_WEB_SERVER_CHALLENGES) return { outcome: 'too-many' }
+  if (unfinished !== undefined) {
+    if (input.replace !== true) return { outcome: 'already-open', row: unfinished }
+
+    /**
+     * **Expired rather than deleted.** The row is the record of an attempt the
+     * citizen made, and `openWebServerChallenges` filters on the deadline — so
+     * setting it to now closes the challenge by the same rule everything else
+     * here reads, and leaves the attempt legible afterwards. The same shape
+     * `mintSmsReceiveChallenge` uses for its own replacement.
+     */
+    await db
+      .update(webServerChallenges)
+      .set({ expiresAt: new Date().toISOString() })
+      .where(eq(webServerChallenges.id, unfinished.id))
+  }
+
+  // Counted after the replacement, so abandoning one and minting another cannot
+  // be refused by a ceiling the abandonment has just made room under.
+  const stillOpen = open.filter((row) => row.id !== unfinished?.id || input.replace !== true)
+  if (stillOpen.length >= MAX_OPEN_WEB_SERVER_CHALLENGES) return { outcome: 'too-many' }
 
   const expiresAt = new Date(Date.now() + WEB_SERVER_CHALLENGE_LIFETIME_MS).toISOString()
 

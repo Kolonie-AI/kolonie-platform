@@ -19,7 +19,12 @@ import {
   questCommitment,
   questCommitmentBreakdown,
   questCommitmentLines,
+  QUEST_OBSTACLE_BONUS_DEFAULT_PERCENT,
   QUEST_OBSTACLE_BONUS_WINNERS,
+  QUEST_PRICE_FLOOR_LAMPORTS,
+  QUEST_PRICE_FLOOR_SETTING,
+  questPriceFloor,
+  questPriceFloorRejection,
   obstacleBonusNotice,
   questFeeBreakdown,
   questPayNotice,
@@ -407,6 +412,17 @@ describe('the tier and its ceiling', () => {
   })
   const without = QuestQuestionSchema.parse({ key: 'a', prompt: 'What happened?' })
 
+  /**
+   * The ceiling and the floor are one function, so a test about one has to
+   * silence the other or it is measuring both. Zero is the floor's own way of
+   * being off — the escape hatch `#743` gives it.
+   */
+  const noFloor = {
+    lamports: 0,
+    feePercent: DEFAULT_PLATFORM_FEE_PERCENT,
+    obstacleBonusPercent: QUEST_OBSTACLE_BONUS_DEFAULT_PERCENT,
+  }
+
   /** `#626`: proven means the question asks for what the verifier establishes. */
   const provenEmail = QuestQuestionSchema.parse({
     key: 'address',
@@ -442,7 +458,11 @@ describe('the tier and its ceiling', () => {
     const reward = { lamports: QUEST_TIER_CAPS_LAMPORTS.soft + 1 }
 
     expect(
-      questRewardRejection({ proofVerifier: null, questions: [withCriteria], reward }),
+      questRewardRejection(
+        { proofVerifier: null, questions: [withCriteria], reward },
+        QUEST_TIER_CAPS_LAMPORTS,
+        noFloor,
+      ),
     ).toBeUndefined()
   })
 
@@ -611,10 +631,10 @@ describe('the tier and its ceiling', () => {
       }
 
       // At the constant it passes; under a lowered ceiling the same quest does not.
-      expect(questRewardRejection(quest)).toBeUndefined()
-      expect(questRewardRejection(quest, { ...QUEST_TIER_CAPS_LAMPORTS, soft: 1 })).toContain(
-        'soft',
-      )
+      expect(questRewardRejection(quest, QUEST_TIER_CAPS_LAMPORTS, noFloor)).toBeUndefined()
+      expect(
+        questRewardRejection(quest, { ...QUEST_TIER_CAPS_LAMPORTS, soft: 1 }, noFloor),
+      ).toContain('soft')
     })
 
     it('names a setting for every tier, so none can be left unturnable', () => {
@@ -963,5 +983,125 @@ describe('how far a price reaches (#718)', () => {
         { feePercent: 25 },
       ).reach,
     ).toBeNull()
+  })
+})
+
+/**
+ * `#743`. The floor is the ceiling's twin: same function, same shape of
+ * sentence, opposite direction. What it measures is what *arrives* — the
+ * citizen's share after the platform fee, and the obstacle bonus, which the fee
+ * is not taken from.
+ */
+describe('the floor a promise has to clear', () => {
+  const judged = QuestQuestionSchema.parse({
+    key: 'a',
+    prompt: 'What happened?',
+    criteria: 'Say something specific.',
+  })
+  const plain = QuestQuestionSchema.parse({ key: 'a', prompt: 'What happened?' })
+
+  const terms = (over: Partial<Record<'lamports' | 'obstacleBonusPercent', number>> = {}) => ({
+    lamports: QUEST_PRICE_FLOOR_LAMPORTS,
+    feePercent: DEFAULT_PLATFORM_FEE_PERCENT,
+    obstacleBonusPercent: QUEST_OBSTACLE_BONUS_DEFAULT_PERCENT,
+    ...over,
+  })
+
+  const quest = (lamports: number, publishObstacles = false) => ({
+    proofVerifier: null,
+    questions: [judged],
+    publishObstacles,
+    reward: { lamports },
+  })
+
+  /**
+   * `#743` computed the boundary as ⌈1,000,000 / 0.75⌉ = 1,333,334. It is one
+   * lamport lower, because `questPayoutSplit` floors the *treasury* share and
+   * so rounds in the citizen's favour: at 1,333,333 the treasury takes 333,333
+   * and the citizen is paid exactly the floor. Measured against the function
+   * that pays, not against the arithmetic that describes it.
+   */
+  it('refuses one lamport below the boundary and passes at it', () => {
+    expect(questPayoutSplit(1_333_333, DEFAULT_PLATFORM_FEE_PERCENT).toCitizen).toBe(1_000_000)
+    expect(questPayoutSplit(1_333_332, DEFAULT_PLATFORM_FEE_PERCENT).toCitizen).toBe(999_999)
+
+    expect(questPriceFloorRejection(quest(1_333_332), terms())).toContain('999999')
+    expect(questPriceFloorRejection(quest(1_333_333), terms())).toBeUndefined()
+  })
+
+  it('names the smallest reward that would pass, in the sponsor’s own units', () => {
+    expect(questPriceFloorRejection(quest(1_000_000), terms())).toContain('1333333')
+  })
+
+  it('holds an obstacle quest to four times the floor, because no fee is taken there', () => {
+    expect(questPriceFloorRejection(quest(3_999_999, true), terms())).toContain('4000000')
+    expect(questPriceFloorRejection(quest(4_000_000, true), terms())).toBeUndefined()
+  })
+
+  /** A sponsor told only *too low* would raise 1,400,000 to 1,500,000 and fail again. */
+  it('says which of the two promises failed, and that obstacles are the other way through', () => {
+    const rejection = questPriceFloorRejection(quest(1_400_000, true), terms())
+
+    expect(rejection).toContain('obstacle report')
+    expect(rejection).toContain('publishObstacles')
+    expect(rejection).not.toContain('an accepted answer is paid')
+  })
+
+  /** A quest that pays reputation alone promises nothing that has to arrive. */
+  it('says nothing about a reward of zero', () => {
+    expect(questPriceFloorRejection(quest(0), terms())).toBeUndefined()
+    expect(questPriceFloorRejection(quest(0, true), terms())).toBeUndefined()
+  })
+
+  it('is off entirely at a floor of zero, which is the escape hatch the caps have', () => {
+    expect(questPriceFloorRejection(quest(1), terms({ lamports: 0 }))).toBeUndefined()
+    expect(questPriceFloorRejection(quest(1, true), terms({ lamports: 0 }))).toBeUndefined()
+  })
+
+  /**
+   * The consequence `#743` asks to be stated rather than fixed: the soft
+   * ceiling is 500,000, so no soft price reaches the floor. A citizen refused
+   * here needs the way out, not the arithmetic.
+   */
+  it('tells a soft quest that criteria raise its ceiling, not merely that it is cheap', () => {
+    const rejection = questPriceFloorRejection(
+      { proofVerifier: null, questions: [plain], reward: { lamports: 400_000 } },
+      terms(),
+    )
+
+    expect(rejection).toContain('soft')
+    expect(rejection).toContain('criteria')
+    expect(rejection).toContain(String(QUEST_TIER_CAPS_LAMPORTS['colony-judged']))
+  })
+
+  it('reaches the floor through questRewardRejection, so the rule has one home', () => {
+    expect(questRewardRejection(quest(1_333_332))).toContain('may not promise')
+    expect(questRewardRejection(quest(1_333_333))).toBeUndefined()
+  })
+
+  describe('the floor a setting may turn', () => {
+    it('is the constant when nothing is held', () => {
+      expect(questPriceFloor(undefined)).toBe(QUEST_PRICE_FLOOR_LAMPORTS)
+    })
+
+    it('takes the value a maintainer wrote', () => {
+      expect(questPriceFloor('2000000')).toBe(2_000_000)
+    })
+
+    /** Unlike a ceiling, zero is a reading and not a mistake: it means off. */
+    it('reads zero as off rather than as unset', () => {
+      expect(questPriceFloor('0')).toBe(0)
+    })
+
+    it.each([['not a number'], [''], ['-1'], ['1.5e9'], ['999999999999999999999']])(
+      'falls back to the constant rather than to no floor on %j',
+      (held) => {
+        expect(questPriceFloor(held)).toBe(QUEST_PRICE_FLOOR_LAMPORTS)
+      },
+    )
+
+    it('names a setting a maintainer can actually turn', () => {
+      expect(settingNamed(QUEST_PRICE_FLOOR_SETTING)).toBeDefined()
+    })
   })
 })

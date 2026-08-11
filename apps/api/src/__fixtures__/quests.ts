@@ -4,6 +4,7 @@ import {
   QUEST_REFUSAL_LIMIT,
   QUEST_TASK_TYPE,
   QUEST_MAX_SLOTS,
+  QUEST_PRICE_FLOOR_LAMPORTS,
   QUEST_TIER_CAPS_LAMPORTS,
   QuestDraftSchema,
   QuestPatchSchema,
@@ -79,6 +80,15 @@ export interface FakeQuestDesk extends QuestDesk {
    * setting, and the one most of these tests want.
    */
   readonly setTierCaps: (caps: Readonly<Record<QuestTier, number>>) => void
+  /**
+   * Turn the payout floor, which is a settings row in the real one (`#743`).
+   *
+   * Absent means the real floor applies, as it does in a deployment nobody has
+   * touched. Zero is how a test about something else — the obstacle pool's
+   * arithmetic, say — says it is not under this rule; that is the setting's own
+   * documented meaning rather than a convenience for tests.
+   */
+  readonly setPriceFloor: (lamports: number) => void
   /** Say that the citizen filing an obstacle report never attempted (`#632`). */
   readonly neverAttempted: () => void
   /** Put rows into the two `/backend` sections (`#487`). */
@@ -173,6 +183,8 @@ export function fakeQuests(): FakeQuestDesk {
   let fixedAudience: number | null = null
   /** Unset until a test turns one, exactly as the settings table is. */
   let caps: Readonly<Record<QuestTier, number>> | null = null
+  /** Unset until a test turns it, exactly as the settings table is (`#743`). */
+  let floor: number | null = null
   /** Whether an obstacle report filed here counts as work (`#632`). */
   let earnsObstacleBonus = true
   /** Places bought and waiting on money, per quest (`#629`). */
@@ -823,12 +835,20 @@ export function fakeQuests(): FakeQuestDesk {
       caps = turned
     },
 
+    setPriceFloor: (lamports) => {
+      floor = lamports
+    },
+
     neverAttempted: () => {
       earnsObstacleBonus = false
     },
 
     async tierCaps() {
       return caps ?? QUEST_TIER_CAPS_LAMPORTS
+    },
+
+    async priceFloor() {
+      return floor ?? QUEST_PRICE_FLOOR_LAMPORTS
     },
 
     async audience(criteria) {

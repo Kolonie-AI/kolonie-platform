@@ -409,6 +409,187 @@ export function questTierCaps(
 }
 
 /**
+ * The least a quest may promise a citizen, measured on what arrives (D-112).
+ *
+ * **A floor beside the ceilings, and it is the same kind of rule.** A cap is
+ * what the Colony will let itself advertise for the evidence it has; this is
+ * what it will let itself promise at all. `#718` put the arithmetic in front of
+ * a sponsor and left the choice open, and the Colony's first paid quest is the
+ * argument against that: one of three answers reached a wallet, two accrued, and
+ * every party involved had agreed to it in advance.
+ *
+ * **Above {@link RENT_EXEMPT_MINIMUM_FALLBACK} (`890_880`) rather than equal to
+ * it.** A floor set exactly at the chain minimum passes a price that clears by a
+ * single lamport, and the minimum is Solana's to move — a quest priced against
+ * it today is unpayable after a rent schedule change the Colony does not
+ * control. 1,000,000 is the round figure above it, and the margin is the point.
+ *
+ * **A setting for the same reason the caps are**
+ * ({@link QUEST_TIER_CAP_SETTINGS}): the number it follows belongs to somebody
+ * else, so following it must not cost a deploy.
+ */
+export const QUEST_PRICE_FLOOR_LAMPORTS = 1_000_000
+
+/** The setting that turns the floor (D-112). Its name is in `settings/settings.ts`. */
+export const QUEST_PRICE_FLOOR_SETTING = 'QUEST_PRICE_FLOOR_LAMPORTS'
+
+/**
+ * The floor in force, given whatever the settings hold (D-112).
+ *
+ * Pure and defaulted per {@link questTierCaps}'s rule, with one difference that
+ * matters: **zero is readable here and means the check is off.** A ceiling of
+ * nothing is incoherent — it would let an empty table advertise any price — but
+ * a floor of nothing is the state the Colony was in until D-112, and a rule this
+ * new needs an escape hatch that does not require a deploy to reach.
+ */
+export function questPriceFloor(held: string | undefined): number {
+  const raw = held?.trim()
+  if (raw === undefined || !/^(0|[1-9][0-9]*)$/.test(raw)) return QUEST_PRICE_FLOOR_LAMPORTS
+
+  const parsed = Number(raw)
+  return Number.isSafeInteger(parsed) ? parsed : QUEST_PRICE_FLOOR_LAMPORTS
+}
+
+/**
+ * The three figures the floor is measured with (D-112).
+ *
+ * **All three, because the rule is about what arrives** and two different
+ * deductions stand between a reward and a citizen: the platform fee on an
+ * answer, and the obstacle share on a report. A floor that knew only its own
+ * number would refuse the wrong quests in both directions.
+ */
+export interface QuestFloorTerms {
+  /** The least that may reach a citizen, or `0` to turn the rule off. */
+  readonly lamports: number
+  /** The Colony's share of an answer, which the floor is measured after. */
+  readonly feePercent: number
+  /** What share of the reward one published obstacle report is paid. */
+  readonly obstacleBonusPercent: number
+}
+
+/**
+ * The smallest reward whose citizen share reaches `want`, or `null` where no
+ * reward does.
+ *
+ * **Walked down from the closed form rather than trusted to it.**
+ * `⌈want ÷ (1 − fee)⌉` answers the continuous problem, and
+ * {@link questPayoutSplit} floors the *treasury* share — which rounds in the
+ * citizen's favour, so the true minimum is sometimes a lamport lower. Naming a
+ * minimum above the smallest reward that actually passes would have the refusal
+ * disagree with the check that produced it, which is the drift this file refuses
+ * everywhere else. The loop runs a step or two at most: `toCitizen` grows by 0
+ * or 1 per lamport of reward.
+ */
+function rewardReaching(want: number, feePercent: number): number | null {
+  if (want <= 0) return 0
+  if (feePercent >= 100) return null
+
+  let reward = Math.ceil((want * 100) / (100 - feePercent))
+  while (reward > 0 && questPayoutSplit(reward - 1, feePercent).toCitizen >= want) reward -= 1
+
+  return reward
+}
+
+/**
+ * Why this quest promises less than it may, or `undefined` if it does not
+ * (D-112, `#743`).
+ *
+ * **Split out of {@link questRewardRejection} rather than inlined into it**
+ * because `kolonie.quests.slots` needs this half alone: a published quest is
+ * frozen, so a ceiling it predates is not something its sponsor can act on,
+ * where an unpayable promise is exactly what buying more capacity would
+ * multiply. Every write path reaches this through `questRewardRejection`, so the
+ * rule still has one home.
+ *
+ * **Zero is exempt.** A quest that promises nothing promises nothing that fails
+ * to arrive, and who may publish one is `#744`'s question rather than this one's.
+ *
+ * **Both promises are measured.** An accepted answer is paid the reward less the
+ * platform fee; a published obstacle report is paid a share of the reward with
+ * no fee taken ({@link questObstacleBonus}). At the default rates the second
+ * binds — 4,000,000 against 1,333,333 — which is why the sentence names which
+ * condition failed and offers `publishObstacles: false` as the other way
+ * through. A sponsor told only *too low* at 1,400,000 raises it to 1,500,000 and
+ * is refused again.
+ */
+export function questPriceFloorRejection(
+  quest: {
+    readonly proofVerifier?: string | null | undefined
+    readonly publishObstacles?: boolean | undefined
+    readonly questions: readonly Pick<
+      QuestQuestion,
+      'criteria' | 'format' | 'provenBy' | 'required'
+    >[]
+    readonly requires?: readonly string[] | undefined
+    readonly reward: Pick<TaskReward, 'lamports'>
+  },
+  floor: QuestFloorTerms,
+  caps: Readonly<Record<QuestTier, number>> = QUEST_TIER_CAPS_LAMPORTS,
+): string | undefined {
+  if (floor.lamports <= 0 || quest.reward.lamports <= 0) return undefined
+
+  const perAnswer = questPayoutSplit(quest.reward.lamports, floor.feePercent).toCitizen
+  const obstacles = quest.publishObstacles === true && floor.obstacleBonusPercent > 0
+  const perReport = obstacles ? questObstacleBonus(quest.reward, floor.obstacleBonusPercent) : null
+
+  const shortfalls: string[] = []
+  if (perAnswer < floor.lamports) {
+    shortfalls.push(`an accepted answer is paid ${perAnswer} once the platform fee is taken`)
+  }
+  if (perReport !== null && perReport < floor.lamports) {
+    shortfalls.push(
+      `a published obstacle report is paid ${perReport} — ${floor.obstacleBonusPercent}% of the ` +
+        'reward, which the fee is not taken from',
+    )
+  }
+  if (shortfalls.length === 0) return undefined
+
+  /**
+   * **The smallest reward that passes, in the sponsor's own units**, because the
+   * floor is measured on a figure the sponsor never types. Both conditions are
+   * solved and the larger binds; where the obstacle share is what binds, turning
+   * obstacle reports off is a second way through and is offered.
+   */
+  const forAnswers = rewardReaching(floor.lamports, floor.feePercent)
+  const forReports = obstacles
+    ? Math.ceil((floor.lamports * 100) / floor.obstacleBonusPercent)
+    : null
+  const smallest = forAnswers === null ? null : Math.max(forAnswers, forReports ?? 0)
+
+  const passing =
+    smallest === null
+      ? ' At a platform fee of 100% no reward reaches a citizen at all.'
+      : ` The smallest reward that reaches it is ${smallest} lamports` +
+        (forReports !== null && forAnswers !== null && forReports > forAnswers
+          ? `, or ${forAnswers} with publishObstacles set to false.`
+          : '.')
+
+  /**
+   * **Where the tier's own ceiling puts that reward out of reach**, the price is
+   * not the sponsor's to solve and *raise it* is advice it cannot take. The soft
+   * tier caps at 500,000 and can never clear the floor, which is the substance
+   * of D-112: soft quests are reputation-only, and the way out is a stronger
+   * claim about what an answer has to do rather than a smaller number.
+   */
+  const tier = questTier(quest)
+  const unreachable =
+    smallest !== null && smallest > caps[tier]
+      ? tier === 'soft'
+        ? ` A ${tier} quest may pay at most ${caps[tier]} lamports, so no price at this tier ` +
+          'reaches the floor: state on a question what a good answer has to do — criteria — and ' +
+          `the ceiling becomes ${caps['colony-judged']}. A quest that pays reputation and no ` +
+          'lamports is unaffected by any of this.'
+        : ` A ${tier} quest may pay at most ${caps[tier]} lamports, so no price at this tier ` +
+          'reaches the floor: name a proof verifier, which is what makes a quest hard.'
+      : ''
+
+  return (
+    `a quest may not promise a citizen less than ${floor.lamports} lamports and this one does: ` +
+    `${shortfalls.join(', and ')}.${passing}${unreachable}`
+  )
+}
+
+/**
  * Why this quest may not pay what it says, or `undefined` if it may.
  *
  * A sentence rather than a boolean, and it names the tier: a sponsor told only
@@ -418,10 +599,17 @@ export function questTierCaps(
  * **The ceilings are an argument and default to the constants** (`#630`). They
  * are settings now, so the caller that has read them passes them; a caller that
  * has not gets the figures this file has always used rather than no ceiling.
+ *
+ * **The floor is the third argument and defaults the same way** (D-112, `#743`).
+ * One function so that a sponsor over the ceiling and under the floor is never
+ * told two contradictory things, and so that every write path acquires the floor
+ * by already calling this. {@link questPriceFloorRejection} is the half of it a
+ * top-up calls on its own.
  */
 export function questRewardRejection(
   quest: {
     readonly proofVerifier?: string | null | undefined
+    readonly publishObstacles?: boolean | undefined
     readonly questions: readonly Pick<
       QuestQuestion,
       'criteria' | 'format' | 'provenBy' | 'required'
@@ -430,10 +618,15 @@ export function questRewardRejection(
     readonly reward: Pick<TaskReward, 'lamports'>
   },
   caps: Readonly<Record<QuestTier, number>> = QUEST_TIER_CAPS_LAMPORTS,
+  floor: QuestFloorTerms = {
+    lamports: QUEST_PRICE_FLOOR_LAMPORTS,
+    feePercent: DEFAULT_PLATFORM_FEE_PERCENT,
+    obstacleBonusPercent: QUEST_OBSTACLE_BONUS_DEFAULT_PERCENT,
+  },
 ): string | undefined {
   const tier = questTier(quest)
   const cap = caps[tier]
-  if (quest.reward.lamports <= cap) return undefined
+  if (quest.reward.lamports <= cap) return questPriceFloorRejection(quest, floor, caps)
 
   /**
    * **Why it is not `hard`, where a verifier was named** (`#626`).

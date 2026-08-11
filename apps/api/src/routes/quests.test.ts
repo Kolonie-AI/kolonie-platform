@@ -64,6 +64,12 @@ let stewardId: string
 beforeEach(async () => {
   store = fakeStore()
   quests = fakeQuests()
+  // These routes are priced in single lamports so their arithmetic can be read
+  // in the assertion, and the payout floor (`#743`) would refuse most of it.
+  // Zero is the floor's own way of being off, and the rule itself is measured
+  // where it lives — in `packages/core`, and once over a surface in
+  // `src/mcp/tools/quests.test.ts`, which reaches the same handlers these do.
+  quests.setPriceFloor(0)
   app = buildApp({
     humans: fakeHumans(),
     vault: { vault: fakeVault() },

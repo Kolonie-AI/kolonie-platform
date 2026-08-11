@@ -1,9 +1,11 @@
 import { and, asc, desc, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm'
 import {
   QUEST_OBSTACLE_BONUS_PERCENT_SETTING,
+  QUEST_PRICE_FLOOR_SETTING,
   QUEST_TIER_CAP_SETTINGS,
   StoredQuestQuestionsSchema,
   questObstacleBonusPercent,
+  questPriceFloor,
   questTierCaps,
   type AgentId,
   type QuestQuestion,
@@ -47,6 +49,18 @@ export async function questTierCapsInDatabase(
   )
 
   return questTierCaps((name) => held.get(name))
+}
+
+/**
+ * The least a quest may promise a citizen, right now (D-112, `#743`).
+ *
+ * Read at the point of use for `questTierCapsInDatabase`'s reason, and the
+ * fallback lives in `questPriceFloor` for the same one — including the part that
+ * is particular to a floor, where an explicit zero means *off* and an unreadable
+ * value does not.
+ */
+export async function questPriceFloorInDatabase(settings: SettingsReader): Promise<number> {
+  return questPriceFloor(await settings.read(QUEST_PRICE_FLOOR_SETTING))
 }
 
 /**

@@ -78,6 +78,9 @@ let settings_: ReturnType<typeof fakeSettings>
 beforeEach(async () => {
   store = fakeStore()
   quests = fakeQuests()
+  // Priced in single lamports so the invoice split is readable; the payout
+  // floor (`#743`) is off here for that reason and is measured where it lives.
+  quests.setPriceFloor(0)
   console_ = { ...fakeConsole(), consoleUrl: CONSOLE_URL }
   humans_ = fakeHumans()
   settings_ = fakeSettings()

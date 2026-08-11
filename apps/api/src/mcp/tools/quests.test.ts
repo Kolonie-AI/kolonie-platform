@@ -43,7 +43,12 @@ const aDraft = (overrides: Record<string, unknown> = {}) => ({
   title: 'A thousand registrations',
   description: 'We hand out mailbox addresses and want to know whether agents can take one.',
   instructions: 'Register at the address in the brief and report what happened.',
-  reward: { reputation: 0, lamports: 1 },
+  // Reputation and no lamports, since `#743`: a soft quest caps at 500,000 and
+  // so can never reach the payout floor, which makes reputation-only what a
+  // citizen writing a quest like this one can actually publish. A test about a
+  // price says so by setting one, and turns the floor off if it is not the
+  // subject.
+  reward: { reputation: 5, lamports: 0 },
   slots: 5,
   expiresAt: new Date(Date.now() + 7 * 24 * 3_600_000).toISOString(),
   ...overrides,
@@ -157,6 +162,10 @@ describe('the sponsor over MCP', () => {
    * reader has to go looking for, which is close to the failure being fixed.
    */
   it('echoes the cost and the citizen view when a draft is written', async () => {
+    // Not a test about the floor: it prices an answer in single lamports so the
+    // arithmetic is readable, which `#743` would refuse. Zero is the setting's
+    // own way of being off.
+    quests.setPriceFloor(0)
     const sponsor = anAgent()
     quests.credit(sponsor.id, 500)
 
@@ -206,6 +215,10 @@ describe('the sponsor over MCP', () => {
    * for something it did not ask for is the failure `#323` exists to prevent.
    */
   it('names the obstacle pool in the commitment, before anything is irreversible', async () => {
+    // Not a test about the floor: it prices an answer in single lamports so the
+    // arithmetic is readable, which `#743` would refuse. Zero is the setting's
+    // own way of being off.
+    quests.setPriceFloor(0)
     const sponsor = anAgent()
     quests.credit(sponsor.id, 500)
 
@@ -225,6 +238,10 @@ describe('the sponsor over MCP', () => {
   })
 
   it('holds no pool, and says nothing, for a sponsor that kept its obstacles', async () => {
+    // Not a test about the floor: it prices an answer in single lamports so the
+    // arithmetic is readable, which `#743` would refuse. Zero is the setting's
+    // own way of being off.
+    quests.setPriceFloor(0)
     const sponsor = anAgent()
     quests.credit(sponsor.id, 500)
 
@@ -428,6 +445,10 @@ describe('the sponsor over MCP', () => {
    */
 
   it('withdraws a quest from review, freeing the slot', async () => {
+    // Not a test about the floor: it prices an answer in single lamports so the
+    // arithmetic is readable, which `#743` would refuse. Zero is the setting's
+    // own way of being off.
+    quests.setPriceFloor(0)
     const sponsor = anAgent()
     quests.credit(sponsor.id, 1_000)
 
@@ -481,6 +502,144 @@ describe('the sponsor over MCP', () => {
     const read = await call(stranger.key, 'kolonie.quests.read', { questId: id })
     expect(read.isError).toBe(true)
     expect(JSON.stringify(read.content)).toContain('not_found')
+  })
+})
+
+/**
+ * The payout floor over MCP (`#743`).
+ *
+ * The rule itself is `packages/core`'s and is measured there. What is worth a
+ * round trip is that it reaches a sponsor on **every** way in — including the
+ * one that had no reward check at all, `kolonie.quests.slots`.
+ */
+describe('the floor a sponsor meets', () => {
+  /**
+   * Colony-judged, so the ceiling is 10,000,000 and a price can reach the floor
+   * at all — and with the obstacles kept, because publishing them is the second
+   * promise and four times as expensive. A test about that one turns it on.
+   */
+  const priced = (lamports: number, overrides: Record<string, unknown> = {}) =>
+    aDraft({
+      questions: [
+        {
+          key: 'what-happened',
+          prompt: 'What happened when you registered?',
+          criteria: 'Name the provider and what it asked for.',
+          minLength: 20,
+          maxLength: 500,
+        },
+      ],
+      reward: { reputation: 0, lamports },
+      publishObstacles: false,
+      ...overrides,
+    })
+
+  const write = async (key: string, lamports: number, overrides = {}) =>
+    call(key, 'kolonie.quests.write', priced(lamports, overrides))
+
+  it('refuses a draft one lamport under the boundary and takes it at the boundary', async () => {
+    const sponsor = anAgent()
+
+    const under = await write(sponsor.key, 1_333_332)
+    const at = await write(sponsor.key, 1_333_333)
+
+    expect(under.isError).toBe(true)
+    expect(JSON.stringify(under.content)).toContain('1333333')
+    expect(at.isError).toBeFalsy()
+  })
+
+  /** A draft written high and edited down is the way round the check at write. */
+  it('refuses the same price arriving as an update', async () => {
+    const sponsor = anAgent()
+
+    const written = await write(sponsor.key, 1_333_333)
+    const id = (structured(written).quest as unknown as { id: TaskId }).id
+
+    const lowered = await call(sponsor.key, 'kolonie.quests.update', {
+      questId: id,
+      reward: { reputation: 0, lamports: 1_333_332 },
+    })
+
+    expect(lowered.isError).toBe(true)
+    expect(JSON.stringify(lowered.content)).toContain('may not promise')
+  })
+
+  /** And a floor raised after the draft was written applies at submission. */
+  it('refuses at submission a draft the floor overtook', async () => {
+    const sponsor = anAgent()
+
+    const written = await write(sponsor.key, 1_333_333)
+    const id = (structured(written).quest as unknown as { id: TaskId }).id
+    quests.setPriceFloor(2_000_000)
+
+    const submitted = await call(sponsor.key, 'kolonie.quests.submit', { questId: id })
+
+    expect(submitted.isError).toBe(true)
+    expect(JSON.stringify(submitted.content)).toContain('2000000')
+  })
+
+  it('names the obstacle bonus, and turning it off, when that is what failed', async () => {
+    const sponsor = anAgent()
+
+    const refused = await write(sponsor.key, 1_400_000, { publishObstacles: true })
+
+    expect(refused.isError).toBe(true)
+    const said = JSON.stringify(refused.content)
+    expect(said).toContain('obstacle report')
+    expect(said).toContain('publishObstacles')
+    expect((await write(sponsor.key, 4_000_000, { publishObstacles: true })).isError).toBeFalsy()
+  })
+
+  it('lets a quest that pays reputation alone straight through', async () => {
+    expect((await call(anAgent().key, 'kolonie.quests.write', aDraft())).isError).toBeFalsy()
+  })
+
+  /**
+   * The one case the floor is retroactive about, and deliberately: a quest
+   * published before it exists keeps every place already bought, and cannot buy
+   * another. Anything already owed stays owed (D-106).
+   */
+  it('refuses more capacity on a quest published below the floor, leaving what it has', async () => {
+    const sponsor = anAgent()
+    quests.credit(sponsor.id, 100_000_000)
+    quests.setPriceFloor(0)
+
+    const written = await write(sponsor.key, 400_000)
+    const id = (structured(written).quest as unknown as { id: TaskId }).id
+    await call(sponsor.key, 'kolonie.quests.submit', { questId: id })
+    quests.publish(id)
+
+    quests.setPriceFloor(1_000_000)
+    const bought = await call(sponsor.key, 'kolonie.quests.slots', { questId: id, slots: 3 })
+
+    expect(bought.isError).toBe(true)
+    const said = JSON.stringify(bought.content)
+    expect(said).toContain('cannot be topped up')
+    expect(said).toContain('stays answerable')
+
+    const read = await call(sponsor.key, 'kolonie.quests.read', { questId: id })
+    expect((structured(read).quest as unknown as { slots: number }).slots).toBe(5)
+  })
+
+  it('sells capacity on a quest that is above the floor', async () => {
+    const sponsor = anAgent()
+    quests.credit(sponsor.id, 100_000_000)
+
+    const written = await write(sponsor.key, 1_333_333)
+    const id = (structured(written).quest as unknown as { id: TaskId }).id
+    await call(sponsor.key, 'kolonie.quests.submit', { questId: id })
+    quests.publish(id)
+
+    expect(
+      (await call(sponsor.key, 'kolonie.quests.slots', { questId: id, slots: 3 })).isError,
+    ).toBeFalsy()
+  })
+
+  it('is off entirely at a floor of zero', async () => {
+    const sponsor = anAgent()
+    quests.setPriceFloor(0)
+
+    expect((await write(sponsor.key, 1)).isError).toBeFalsy()
   })
 })
 

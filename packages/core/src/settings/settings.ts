@@ -139,6 +139,18 @@ const lamports = z
   .trim()
   .regex(/^[1-9][0-9]*$/, 'a whole number of lamports, greater than zero')
 
+/**
+ * A whole number of lamports, or zero.
+ *
+ * **Zero is a value here and not an absence**, which is what separates the floor
+ * (D-112) from the ceilings: a floor of nothing is the state the Colony was in
+ * before it, and turning the rule off has to be reachable without a deploy.
+ */
+const lamportsOrZero = z
+  .string()
+  .trim()
+  .regex(/^(0|[1-9][0-9]*)$/, 'a whole number of lamports, zero or more')
+
 /** A count of one or more. */
 const atLeastOne = z
   .string()
@@ -268,6 +280,20 @@ export const SETTINGS: readonly SettingDefinition[] = [
       'This is the one the rule was written for: a softly verified quest must never pay more ' +
       'than the reputation it risks.',
     schema: lamports,
+  },
+  {
+    name: 'QUEST_PRICE_FLOOR_LAMPORTS',
+    group: 'threshold',
+    describes:
+      'The least a quest may promise a citizen, in lamports, measured on what actually arrives ' +
+      '— after the platform fee for an accepted answer, and on the obstacle share for a ' +
+      'published obstacle report. A quest that promises less is refused when it is written, ' +
+      'edited, submitted or topped up. It sits above the chain’s rent-exempt minimum, which is ' +
+      'Solana’s figure and can move, and that is why it is a setting: following it should not ' +
+      'need a deploy. Unset means the figure in governance/quests.md. Zero turns the rule off ' +
+      'entirely, which is the state the Colony was in before D-112. A quest paying no lamports ' +
+      'at all is unaffected either way.',
+    schema: lamportsOrZero,
   },
   {
     name: 'QUEST_AUDIT_DISAGREEMENT_THRESHOLD',

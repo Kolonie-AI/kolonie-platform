@@ -5,6 +5,7 @@ import {
   QUEST_ENDING_REASON_MAX_LENGTH,
   QUEST_REFUSAL_MIN_LENGTH,
   QUEST_OBSTACLE_BONUS_DEFAULT_PERCENT,
+  QUEST_PRICE_FLOOR_LAMPORTS,
   QUEST_TIER_CAPS_LAMPORTS,
   QuestDraftSchema,
   QuestEndingSchema,
@@ -20,10 +21,12 @@ import {
   questCommitmentBreakdown,
   questCommitmentLines,
   platformFeePercentFromEnv,
+  questPriceFloorRejection,
   questRewardRejection,
   questSubmissionRejection,
   reportAudience,
   type AgentId,
+  type QuestFloorTerms,
   type AudienceQuery,
   type AudienceReport,
   type ApiError,
@@ -65,6 +68,7 @@ import {
   briefingEffect as briefingEffectInDatabase,
   recordAuditDecision as recordAuditDecisionInDatabase,
   questObstacleBonusPercentInDatabase,
+  questPriceFloorInDatabase,
   questTierCapsInDatabase,
   readOwnQuest as readOwnQuestInDatabase,
   SKILLS_THE_ACADEMY_GRANTS,
@@ -153,6 +157,14 @@ export interface QuestDesk {
    * figure is frozen onto the row and stops being a setting at all.
    */
   obstacleBonusPercent?(): Promise<number>
+  /**
+   * The least a quest may promise a citizen, right now — D-112, `#743`.
+   *
+   * Optional and defaulted exactly as `tierCaps` above, and absent means
+   * `QUEST_PRICE_FLOOR_LAMPORTS` rather than the absence of a floor. `floorOf`
+   * is the one place that reads it.
+   */
+  priceFloor?(): Promise<number>
   create(input: { readonly authorId: AgentId; readonly draft: unknown }): Promise<OwnQuest>
   update(input: {
     readonly authorId: AgentId
@@ -372,6 +384,7 @@ export function databaseQuests(
       : {
           tierCaps: () => questTierCapsInDatabase(settings),
           obstacleBonusPercent: () => questObstacleBonusPercentInDatabase(settings),
+          priceFloor: () => questPriceFloorInDatabase(settings),
         }),
     create: (input) =>
       createQuestDraftInDatabase(db, {
@@ -788,6 +801,24 @@ const obstacleShareOf = async (desk: QuestDesk): Promise<number> =>
 const capsOf = async (desk: QuestDesk): Promise<Readonly<Record<QuestTier, number>>> =>
   desk.tierCaps === undefined ? QUEST_TIER_CAPS_LAMPORTS : await desk.tierCaps()
 
+/**
+ * The floor in force and the two rates it is measured against (D-112, `#743`).
+ *
+ * One reader for `capsOf`'s reason, and it assembles all three figures because
+ * the floor is a statement about what arrives: the fee decides what an answer is
+ * paid, and the obstacle share decides what a report is.
+ *
+ * **The fee is the rate a draft *would* be published under**, which is what
+ * `respond` above already uses for the sponsor's preview. A published quest
+ * carries its own on the row and passes it, so a rate change never re-prices a
+ * quest whose money is already committed.
+ */
+const floorOf = async (desk: QuestDesk, feePercent?: number): Promise<QuestFloorTerms> => ({
+  lamports: desk.priceFloor === undefined ? QUEST_PRICE_FLOOR_LAMPORTS : await desk.priceFloor(),
+  feePercent: feePercent ?? platformFeePercentFromEnv(),
+  obstacleBonusPercent: await obstacleShareOf(desk),
+})
+
 /** Write a new draft. */
 export async function writeQuestDraft(
   input: { readonly authorId: AgentId; readonly body: unknown },
@@ -821,7 +852,7 @@ export async function writeQuestDraft(
    * are the same kind of refusal — a quest that is well-formed and would be
    * wrong to accept — and this is where the sentence a sponsor reads is written.
    */
-  const overCeiling = questRewardRejection(parsed.data, await capsOf(desk))
+  const overCeiling = questRewardRejection(parsed.data, await capsOf(desk), await floorOf(desk))
   if (overCeiling !== undefined) {
     return { outcome: 'rejected', error: invalid(capitalised(overCeiling)) }
   }
@@ -904,7 +935,7 @@ export async function editQuestDraft(
   if (own === undefined) return notFound()
 
   const merged = { ...own.task, ...parsed.data }
-  const overCeiling = questRewardRejection(merged, await capsOf(desk))
+  const overCeiling = questRewardRejection(merged, await capsOf(desk), await floorOf(desk))
   if (overCeiling !== undefined) {
     return { outcome: 'rejected', error: invalid(capitalised(overCeiling)) }
   }
@@ -1049,7 +1080,7 @@ export async function submitQuest(
    * acceptance criteria name and it holds by placement: a quest already
    * published is never re-checked, because nothing after this reads a cap.
    */
-  const overCeiling = questRewardRejection(own.task, await capsOf(desk))
+  const overCeiling = questRewardRejection(own.task, await capsOf(desk), await floorOf(desk))
   if (overCeiling !== undefined) {
     return { outcome: 'rejected', error: invalid(capitalised(overCeiling)) }
   }
@@ -1746,6 +1777,45 @@ export async function topUpQuest(
   }
 
   if (desk.topUp === undefined) return notFound()
+
+  /**
+   * **The floor, on the one path where a frozen quest can still take on new
+   * obligations** (D-112, `#743`).
+   *
+   * The floor is not retroactive: a quest published before it keeps running, its
+   * capacity stays answerable and anything already accrued stays owed under
+   * D-106. Buying *more* capacity is the exception, because it is a fresh
+   * promise made after the rule existed — and the price cannot be edited to fix
+   * it, so the only honest answer is a new quest.
+   *
+   * **The floor alone and not `questRewardRejection`.** A published quest's
+   * price is frozen, so a ceiling it predates is not something its sponsor can
+   * act on; refusing a top-up with a sentence about tiers would name a remedy
+   * that does not exist on this path.
+   *
+   * The quest's own recorded fee rather than the current one, so a rate changed
+   * after publication does not re-price a promise already made.
+   */
+  const own = await desk.readOwn(input.sponsorId, taskId)
+  if (own === undefined) return notFound()
+
+  const belowFloor = questPriceFloorRejection(
+    own.task,
+    await floorOf(desk, own.task.platformFeePercent ?? undefined),
+    await capsOf(desk),
+  )
+  if (belowFloor !== undefined) {
+    return {
+      outcome: 'rejected',
+      error: {
+        code: 'conflict',
+        message:
+          `${capitalised(belowFloor)} A published quest's price is frozen, so this one cannot ` +
+          'be topped up: write a new quest at or above that reward. The capacity already bought ' +
+          'here stays answerable, and anything already owed stays owed.',
+      },
+    }
+  }
 
   const result = await desk.topUp({
     sponsorId: input.sponsorId,

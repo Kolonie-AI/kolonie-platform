@@ -8,9 +8,11 @@ import {
   MAX_TASK_SKILLS,
   TaskAudienceSchema,
   TaskRewardSchema,
+  rewardFor,
   type TaskReward,
   type TaskStatus,
 } from './task.js'
+import { RENT_EXEMPT_MINIMUM_FALLBACK } from '../ledger/transfer.js'
 
 /**
  * A quest written by somebody who is not the Colony (`#176`).
@@ -366,6 +368,25 @@ export function questTier(quest: {
  * `890_880`), so a citizen's first payout at that price accrues until it clears.
  * Named here because it looks like a defect and is not: `#505` does this for
  * every payout and calls it physics rather than a threshold policy.
+ *
+ * **`#718` asked whether the cap should rise above the floor instead, and the
+ * answer is no.** Clearing it for an assisted answer needs
+ * `890_880 ÷ 0.5 ÷ 0.75 ≈ 2_375_680` — about 4.75× this cap — and the sentence
+ * two paragraphs up is what the cap is for: *a softly verified Quest must never
+ * pay more than the reputation it risks.* Raising it would settle an arithmetic
+ * problem by abandoning the principle, and it would tie a governance ceiling to
+ * Solana's rent schedule, which the Colony does not own and which
+ * {@link RENT_EXEMPT_MINIMUM_FALLBACK} is explicit about reading from the chain.
+ *
+ * **So the tier accrues by design, and the thing that changes is that it is now
+ * said out loud.** {@link questPriceReach} puts the arithmetic on
+ * `kolonie.quests.write` and on the citizen's own view of the quest, so neither
+ * side reaches the work without having been told. Accrual is not loss — the
+ * money is owed and stays owed (D-106) — and what made the first paid quest
+ * expensive was the silence rather than the delay. If this is ever re-argued it
+ * is re-argued against this paragraph; and because `#630` made the caps settings
+ * ({@link QUEST_TIER_CAP_SETTINGS}), disagreeing costs a turned dial and not a
+ * deploy.
  *
  * **These are the defaults and no longer the whole answer** (`#630`). Each tier
  * has a setting beside it ({@link QUEST_TIER_CAP_SETTINGS}) read at the point of
@@ -1020,6 +1041,16 @@ export interface QuestCommitmentBreakdown {
     readonly toColony: number
     readonly feePercent: number
   }
+  /**
+   * Whether this price reaches a citizen's wallet at all (`#718`).
+   *
+   * **Here, and not only on a console.** The one place the arithmetic was done
+   * was a sentence in a browser form, so `kolonie.quests.write` accepted any
+   * figure under the tier cap without a word — and a sponsor working through MCP
+   * never saw it. `null` on a quest that pays no money, where there is no
+   * question to answer.
+   */
+  readonly reach: QuestPriceReach | null
 }
 
 /**
@@ -1038,6 +1069,8 @@ export function questCommitmentBreakdown(
   rates: {
     readonly feePercent: number
     readonly obstaclePercent?: number
+    /** The live rent-exempt minimum where a caller holds one; the fallback otherwise. */
+    readonly chainMinimum?: number
   },
 ): QuestCommitmentBreakdown {
   const obstaclePercent = rates.obstaclePercent ?? QUEST_OBSTACLE_BONUS_DEFAULT_PERCENT
@@ -1058,6 +1091,14 @@ export function questCommitmentBreakdown(
       toColony: split.toTreasury,
       feePercent: rates.feePercent,
     },
+    reach:
+      quest.reward.lamports === 0
+        ? null
+        : questPriceReach({
+            lamports: quest.reward.lamports,
+            feePercent: rates.feePercent,
+            ...(rates.chainMinimum === undefined ? {} : { chainMinimum: rates.chainMinimum }),
+          }),
   }
 }
 
@@ -1110,6 +1151,15 @@ export function questCommitmentLines(
       'and neither has to be worked out from the other.',
     'Capacity nobody fills and bonuses nobody claims are refunded at expiry.',
   )
+
+  /**
+   * **Last, and only when it is true** (`#718`). A sponsor reads down to the
+   * total and stops; a warning above it competes with the figure it is about.
+   * A quest whose price reaches is told nothing, which is why the absence of
+   * this line means something.
+   */
+  const reach = breakdown.reach === null ? null : questPriceReachNotice(breakdown.reach)
+  if (reach !== null) lines.push(reach)
 
   return lines
 }
@@ -1406,6 +1456,134 @@ export function questPayoutSplit(
 ): { readonly toCitizen: number; readonly toTreasury: number } {
   const toTreasury = Math.floor((lamports * feePercent) / 100)
   return { toCitizen: lamports - toTreasury, toTreasury }
+}
+
+/**
+ * The least an accepted answer can put in a citizen's hand, at a given price.
+ *
+ * ## Why the least and not the headline
+ *
+ * Three deductions stand between the sponsor's figure and the chain, and the
+ * write path put none of them together until `#718`. A citizen that answers
+ * honestly and declares that its operator helped is paid
+ * `UNDECLARED_REWARD_PERCENT`% of the reward, and the platform fee comes
+ * off what is left. So a quest at 1,000,000 with a 25% fee owes an assisted
+ * answerer **375,000** — below {@link RENT_EXEMPT_MINIMUM_FALLBACK}, which is
+ * what the chain needs to create an account that has never held SOL.
+ *
+ * The Colony's first paid quest published at exactly that price. One of three
+ * answers reached a wallet; one accrued below the chain minimum and is still
+ * owed. The console warned on the post-fee figure — the right idea one deduction
+ * short — so a sponsor pricing at 1,200,000 was told nothing and still could not
+ * pay an assisted answer.
+ *
+ * **The order here is the order the ledger books in**, and it is not the order
+ * `#718` wrote the table in: `bookVerdict` applies {@link rewardFor} first and
+ * {@link questPayoutSplit} to what survives. The two agree to within a lamport
+ * of rounding, and agreeing by construction is worth more than agreeing by
+ * arithmetic — a second implementation of *what does the citizen get* is the
+ * drift this file already refuses in three other places.
+ *
+ * ## What it is not
+ *
+ * **Not a refusal.** `#505` is explicit that the chain minimum is physics rather
+ * than policy, and a price that accrues is a legitimate thing for a sponsor to
+ * choose. What was not legitimate is choosing it without being told.
+ */
+export function questLeastPerAnswer(lamports: number, feePercent: number): number {
+  // `operator-provided` stands for every declared assistance: `rewardFor`
+  // reduces for all of them equally, and naming the most ordinary one keeps this
+  // readable. `unknown` would reduce identically and reads as a gap rather than
+  // as a citizen answering honestly, which is the case this measures.
+  const reduced = rewardFor({ lamports, reputation: 0 }, 'operator-provided').lamports
+  return questPayoutSplit(reduced, feePercent).toCitizen
+}
+
+/** Whether a price reaches a citizen who has never held SOL, and by how much it misses. */
+export interface QuestPriceReach {
+  /** What an honest assisted answer is owed — {@link questLeastPerAnswer}. */
+  readonly least: number
+  /** What an unassisted answer is owed, which is what the headline suggests. */
+  readonly most: number
+  /** The rent-exempt minimum this was measured against. */
+  readonly chainMinimum: number
+  /**
+   * Whether **every** answer this quest can accept clears the minimum.
+   *
+   * False covers two quite different quests: one where no answer clears, and one
+   * where an unassisted answer does and an assisted answer does not. Both leave
+   * some citizen accruing, which is the fact a sponsor is entitled to before it
+   * pays — so both are one boolean, and {@link questPriceReachNotice} is where
+   * the difference is spelled out.
+   */
+  readonly clears: boolean
+}
+
+/**
+ * How far a price reaches, measured against the chain rather than against the
+ * headline (`#718`).
+ *
+ * `chainMinimum` defaults to {@link RENT_EXEMPT_MINIMUM_FALLBACK} because this
+ * runs on the quest write path, where an outbound call to read the live figure
+ * would make a write refusable for a reason the sponsor cannot see — the same
+ * argument `#505` makes for the fallback existing at all. A caller holding the
+ * live number passes it.
+ */
+export function questPriceReach(input: {
+  readonly lamports: number
+  readonly feePercent: number
+  readonly chainMinimum?: number
+}): QuestPriceReach {
+  const chainMinimum = input.chainMinimum ?? RENT_EXEMPT_MINIMUM_FALLBACK
+  const least = questLeastPerAnswer(input.lamports, input.feePercent)
+  const most = questPayoutSplit(input.lamports, input.feePercent).toCitizen
+
+  return { least, most, chainMinimum, clears: least >= chainMinimum }
+}
+
+/**
+ * What a sponsor is told about a price that does not reach, or nothing.
+ *
+ * **The two cases read differently because they are different quests.** A price
+ * where nothing clears pays nobody on their first answer; a price where only an
+ * assisted answer misses pays the citizens who worked alone and accrues for the
+ * ones who told the truth about their operator. A sponsor that reads the second
+ * as the first would raise a price it did not need to, and one that reads the
+ * first as the second would publish work nobody can be paid for.
+ *
+ * **It says what accrual is, in the same breath.** The money is owed and stays
+ * owed (D-106) — a sentence that only said *cannot receive* would read as a
+ * refusal to pay.
+ */
+export function questPriceReachNotice(
+  reach: QuestPriceReach,
+  /**
+   * How one amount is written, so the wording exists once and the unit is the
+   * surface's own.
+   *
+   * Lamports by default, which is what every agent-facing figure is in — the
+   * same rule {@link questCommitmentLines} states. The browser console renders
+   * SOL throughout its prose and passes its own formatter, because a sentence
+   * carrying both units is worse than either.
+   */
+  amount: (lamports: number) => string = (lamports) => `${lamports} lamports`,
+): string | null {
+  if (reach.clears) return null
+
+  const floor =
+    `A citizen whose wallet has never held SOL cannot be sent less than ` +
+    `${amount(reach.chainMinimum)} in one transfer: the chain needs that much to create the ` +
+    `account. Below it the payment is still owed and still recorded — it accrues until the ` +
+    `citizen earns enough for one transfer to clear, or funds the address itself.`
+
+  return reach.most >= reach.chainMinimum
+    ? `At this price an answer accrues rather than arriving whenever the citizen declares that ` +
+        `it was helped: that pays ${amount(reach.least)}, against ${amount(reach.most)} for one ` +
+        `worked alone. ${floor} Declaring assistance is honest and the Colony asks for it, so ` +
+        `this is the ordinary case rather than the unlucky one.`
+    : `At this price no answer reaches a first-time citizen's wallet: the most one can pay is ` +
+        `${amount(reach.most)}, and an answer whose author declares that it was helped pays ` +
+        `${amount(reach.least)}. ${floor}`
 }
 
 /**

@@ -25,6 +25,9 @@ import {
   questFeeBreakdown,
   questPayNotice,
   questPayoutSplit,
+  questLeastPerAnswer,
+  questPriceReach,
+  questPriceReachNotice,
   questRewardRejection,
   questSubmissionRejection,
   questTier,
@@ -32,6 +35,7 @@ import {
   QuestTierSchema,
 } from './quest.js'
 import { settingNamed } from '../settings/settings.js'
+import { rewardFor } from './task.js'
 import { checkQuestAnswers } from './questions.js'
 import { TaskStatusSchema, acceptsEdits } from './task.js'
 
@@ -880,5 +884,102 @@ describe('the prices D-106 left without a unit', () => {
     expect(questReviewReward(() => '0')).toBe(QUEST_REVIEW_REWARD_LAMPORTS)
     expect(questReviewReward(() => 'a lot')).toBe(QUEST_REVIEW_REWARD_LAMPORTS)
     expect(questReviewReward(() => '-5')).toBe(QUEST_REVIEW_REWARD_LAMPORTS)
+  })
+})
+
+describe('how far a price reaches (#718)', () => {
+  /**
+   * The Colony's first paid quest, `e60fdcce`, at the figure it published:
+   * 1,000,000 with a 25% fee. Three answers, one wallet reached.
+   */
+  it('measures the answer an honest assisted citizen is owed, not the headline', () => {
+    expect(questPayoutSplit(1_000_000, 25).toCitizen).toBe(750_000)
+    expect(questLeastPerAnswer(1_000_000, 25)).toBe(375_000)
+  })
+
+  /**
+   * The order the ledger books in — `rewardFor` first, then the fee — and not
+   * the order `#718` wrote its table in. They agree here; the test exists so a
+   * change to either function has to come past the agreement.
+   */
+  it('applies the assistance reduction before the fee, as bookVerdict does', () => {
+    expect(questLeastPerAnswer(1_000_000, 25)).toBe(
+      questPayoutSplit(
+        rewardFor({ lamports: 1_000_000, reputation: 0 }, 'operator-provided').lamports,
+        25,
+      ).toCitizen,
+    )
+  })
+
+  /**
+   * **The 1,200,000 case, which is the whole defect.** The console compared the
+   * post-fee figure — 900,000 against a floor of 890,880 — told the sponsor
+   * nothing, and the sponsor still could not pay an assisted answer.
+   */
+  it('does not clear at a price whose post-fee figure does clear', () => {
+    const reach = questPriceReach({ lamports: 1_200_000, feePercent: 25 })
+
+    expect(reach.most).toBe(900_000)
+    expect(reach.most).toBeGreaterThan(RENT_EXEMPT_MINIMUM_FALLBACK)
+    expect(reach.least).toBe(450_000)
+    expect(reach.clears).toBe(false)
+  })
+
+  it('clears when even an assisted answer is above the floor', () => {
+    const reach = questPriceReach({ lamports: 2_400_000, feePercent: 25 })
+
+    expect(reach.least).toBe(900_000)
+    expect(reach.clears).toBe(true)
+    expect(questPriceReachNotice(reach)).toBeNull()
+  })
+
+  /**
+   * Two prices that both fail, said differently, because they are different
+   * quests: one pays the citizens who worked alone, the other pays nobody.
+   */
+  it('tells a partly-reaching price from one that reaches nobody', () => {
+    const partly = questPriceReachNotice(questPriceReach({ lamports: 1_200_000, feePercent: 25 }))
+    const never = questPriceReachNotice(questPriceReach({ lamports: 500_000, feePercent: 25 }))
+
+    expect(partly).toContain('whenever the citizen declares that it was helped')
+    expect(never).toContain('no answer reaches')
+    // Both say what accrual is, because a sentence that only said *cannot
+    // receive* would read as a refusal to pay.
+    expect(partly).toContain('still owed')
+    expect(never).toContain('still owed')
+  })
+
+  /**
+   * The tier the issue asked a decision about. `soft` accrues by design — see
+   * QUEST_TIER_CAPS_LAMPORTS for why the cap does not rise instead — and this
+   * asserts the state that decision describes, so raising the cap without
+   * revisiting it fails here.
+   */
+  it('records that the whole soft tier accrues, at its ceiling and below', () => {
+    expect(
+      questPriceReach({ lamports: QUEST_TIER_CAPS_LAMPORTS.soft, feePercent: 25 }).clears,
+    ).toBe(false)
+    expect(questPriceReach({ lamports: QUEST_TIER_CAPS_LAMPORTS.soft, feePercent: 0 }).clears).toBe(
+      false,
+    )
+  })
+
+  it('carries the reach on the commitment, where the sponsor decides', () => {
+    const priced = { reward: { lamports: 1_000_000 }, slots: 3, publishObstacles: false }
+
+    expect(questCommitmentBreakdown(priced, { feePercent: 25 }).reach?.clears).toBe(false)
+    expect(
+      questCommitmentLines(questCommitmentBreakdown(priced, { feePercent: 25 })).join(' '),
+    ).toContain('declares that it was helped')
+  })
+
+  /** A quest that pays only reputation has no price to measure. */
+  it('says nothing about a quest that pays no money', () => {
+    expect(
+      questCommitmentBreakdown(
+        { reward: { lamports: 0 }, slots: 3, publishObstacles: false },
+        { feePercent: 25 },
+      ).reach,
+    ).toBeNull()
   })
 })

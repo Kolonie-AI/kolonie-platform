@@ -29,6 +29,8 @@ import {
   questCommitmentBreakdown,
   questInvoiceLamports,
   questPayoutSplit,
+  questPriceReach,
+  questPriceReachNotice,
   solFromLamports,
   type ActivityWindow,
   type QuestProofVerifier,
@@ -523,11 +525,22 @@ export function questInvoiceLine(input: {
    * minimum — the transfer would be spent creating nothing — so such a payout
    * accrues instead. That is physics, and turning it into a refusal here would
    * make it policy, which `#505` forbids.
+   *
+   * **It compares the worst case and not the headline** (`#718`). This measured
+   * `toCitizen` — the post-fee figure — until 2026-08-11, which is the right
+   * idea one deduction short: it did not model the reduction an answer takes
+   * when its author declares that its operator helped. A sponsor pricing at
+   * 1,200,000 saw `900,000 > 890,880`, was told nothing, and still could not pay
+   * an assisted answer. `questPriceReach` does the whole arithmetic once, in the
+   * order the ledger books it in.
    */
-  const accrues =
-    toCitizen < input.chainMinimum
-      ? ` A citizen whose wallet has never held SOL cannot receive ${solFromLamports(toCitizen)} SOL in one transfer, so its payment accrues until it clears ${solFromLamports(input.chainMinimum)} SOL rather than arriving when the report is accepted.`
-      : ''
+  const reach = questPriceReach({
+    lamports: input.lamports,
+    feePercent: input.feePercent,
+    chainMinimum: input.chainMinimum,
+  })
+  const notice = questPriceReachNotice(reach, (lamports) => `${solFromLamports(lamports)} SOL`)
+  const accrues = notice === null ? '' : ` ${notice}`
 
   return (
     `This quest costs ${solFromLamports(invoice)} SOL, payable from your own verified wallet ` +

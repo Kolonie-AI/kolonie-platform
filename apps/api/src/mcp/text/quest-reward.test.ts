@@ -244,4 +244,45 @@ describe('what a quest says it pays over MCP', () => {
       expect(mcp).toContain(shared)
     })
   })
+
+  /**
+   * **What a citizen is told before it spends an hour** (`#718`). Two of three
+   * answers to the Colony's first paid quest are still owed because the price
+   * reached below the chain's rent-exempt minimum, and neither citizen was told
+   * beforehand. The clause above is the net figure and is not what arrives.
+   */
+  describe('a price that does not reach a first-time wallet', () => {
+    it('says so on the full task text, before the work', () => {
+      const text = taskAsText(
+        aQuest({ reward: { reputation: 2, lamports: 1_000_000 } }),
+        0,
+        false,
+        1,
+        false,
+      )
+
+      expect(text).toContain('declares that it was helped')
+      expect(text).toContain('375000 lamports')
+      expect(text).toContain('still owed')
+    })
+
+    /** A bullet in a catalogue is scanned; this is read by somebody deciding. */
+    it('stays off the reward clause, which is one line in a list', () => {
+      expect(
+        describeReward(aQuest({ reward: { reputation: 2, lamports: 1_000_000 } })),
+      ).not.toContain('accrues')
+    })
+
+    it('says nothing at a price every answer clears', () => {
+      const text = taskAsText(
+        aQuest({ reward: { reputation: 2, lamports: 4_000_000 } }),
+        0,
+        false,
+        1,
+        false,
+      )
+
+      expect(text).not.toContain('never held SOL')
+    })
+  })
 })

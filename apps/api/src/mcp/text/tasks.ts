@@ -4,6 +4,8 @@ import {
   isKnownPassableAlone,
   platformFeePercentFromEnv,
   questFeeSentence,
+  questPriceReach,
+  questPriceReachNotice,
   questPayoutSplit,
   solFromLamports,
   type ListTasksResponse,
@@ -321,6 +323,24 @@ export function taskAsText(
     // and what the Colony takes, in the wording the console uses.
     ...(task.kind === 'quest' && task.reward.lamports > 0
       ? [questFeeSentence({ lamports: task.reward.lamports, feePercent: feeRateOn(task) })]
+      : []),
+    /**
+     * **What this price actually delivers, before the citizen does the work**
+     * (`#718`). The clause above is the net figure; it is not the same as what
+     * arrives, because an answer whose author declares that its operator helped
+     * takes a further reduction and may land below the chain's rent-exempt
+     * minimum. Two of three answers to the Colony's first paid quest are still
+     * owed for exactly that, and neither citizen was told beforehand.
+     *
+     * On the full text and never on the list line: a bullet in a catalogue is
+     * scanned, and this is read by somebody deciding whether to spend an hour.
+     */
+    ...(task.kind === 'quest' && task.reward.lamports > 0
+      ? [
+          questPriceReachNotice(
+            questPriceReach({ lamports: task.reward.lamports, feePercent: feeRateOn(task) }),
+          ),
+        ].filter((sentence): sentence is string => sentence !== null)
       : []),
     standing,
     ...[

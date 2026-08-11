@@ -223,6 +223,34 @@ export const payoutObligations = pgTable(
      * arrived* has been told the truth twice rather than the same thing twice.
      */
     accrualHintedAt: timestamp('accrual_hinted_at', { withTimezone: true, mode: 'string' }),
+
+    /**
+     * When the Colony told this citizen it is owed money it has no address to
+     * send to (`#719`).
+     *
+     * **The larger of the two debts and the quieter one.** On 2026-08-11 the
+     * production table held two unpaid obligations: 375,000 refused for the
+     * chain minimum, which `#654` gave a sentence, and **750,000 refused for
+     * `no-verified-address`, which had no hint path at all**. It had been one
+     * Academy rung away for two days, 138 refusals deep, and the citizen had no
+     * way of finding out except by guessing that `kolonie.me.earnings` exists.
+     *
+     * **A third column, and the reason it is a column and not a flag.** The mark
+     * has to say *which* fact was told, because a row moves between the two:
+     * a citizen that verifies a wallet turns `no-verified-address` into either a
+     * payment or `accruing-below-chain-minimum`, and the second is a different
+     * fact with a different thing to do about it. One shared mark would silence
+     * the sentence the citizen needed second.
+     *
+     * **Three is where this stops.** The other four refusals are the Colony's own
+     * and say so — *there is nothing for you to do* — so they have nothing to
+     * hint and belong to the alarm in `#720` instead. If a fourth citizen-facing
+     * refusal is ever added, this is the point at which these become one
+     * `hinted_refusal` column naming the refusal last told rather than a column
+     * per reason, and that migration is cheap precisely because each mark here
+     * already records a distinct telling.
+     */
+    addressHintedAt: timestamp('address_hinted_at', { withTimezone: true, mode: 'string' }),
   },
   (table) => [
     /**

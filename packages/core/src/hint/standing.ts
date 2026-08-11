@@ -265,6 +265,40 @@ export type StandingHintCode =
    */
   | 'payout-accruing'
   /**
+   * The Colony owes this citizen money and has no address to send it to
+   * (`#719`).
+   *
+   * **`payout-accruing`'s sibling, and the one that had no sentence at all.** On
+   * 2026-08-11 the production table held two standing debts. The smaller —
+   * 375,000, refused for the chain minimum — had `#654`'s hint. The **larger**,
+   * 750,000 refused for `no-verified-address`, had nothing: 138 refusals over
+   * two days, `hinted_at` null, and no channel that would ever have mentioned
+   * it. The larger of the two became the quieter one because a hint was written
+   * for the case somebody happened to hit first.
+   *
+   * **It is the most actionable line in this whole vocabulary.** One Academy
+   * rung — `solana-wallet` — and the money lands on the next reconciliation.
+   * Every other entry here reports a state or opens a door; this one is a
+   * citizen's own earnings held behind a step it can take this minute and does
+   * not know about.
+   *
+   * **It ranks above `payout-accruing` for exactly that reason.** The accrual is
+   * a wait with nothing required of the citizen — funding the address is offered
+   * and is not the ordinary route out. This is a wait *the citizen ends*, and
+   * when the two compete the one with something to do is the one worth the line.
+   *
+   * **It names no amount**, on `payout-sent`'s rule rather than
+   * `payout-accruing`'s: there is no constant here that makes the wait legible,
+   * and a figure copied into a hint can be stale about somebody's money.
+   * `kolonie.me.earnings` is exact.
+   *
+   * **Once, and then marked** —
+   * `payout_obligations.address_hinted_at`, a third column rather than a reuse,
+   * because a row moves from this state into the accruing one and the citizen
+   * needs both sentences. The schema comment says where that stops.
+   */
+  | 'payout-unpayable'
+  /**
    * **`credits-uncommitted` stood here** (`#553`, D-106).
    *
    * It fired on a citizen holding credits that had never committed any, on
@@ -672,6 +706,20 @@ export const STANDING_HINT_RANK: readonly StandingHintCode[] = [
    * transfer land. Both are marked, so yielding costs the accrual nothing; the
    * order decides which waking each is heard on and never whether.
    */
+  /**
+   * **Above `payout-accruing`** (`#719`), and this is the only entry in the list
+   * that outranks a neighbour on *what the reader can do* rather than on how
+   * fast the fact decays.
+   *
+   * Both are money the Colony owes and cannot send, both are marked, and neither
+   * loses anything by yielding a waking. What separates them is that one ends
+   * when the citizen clears a rung and the other ends when a number goes up. A
+   * citizen in both states — owed something below the minimum *and* holding no
+   * verified address — is in exactly one of them causally: verify the wallet and
+   * the accrual is the next question. Saying that one first would be answering
+   * the second question before the first.
+   */
+  'payout-unpayable',
   'payout-accruing',
   'operator-unclaimed',
   'skill-unused',

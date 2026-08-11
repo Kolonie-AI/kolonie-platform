@@ -413,6 +413,33 @@ const STANDING_HINT_TEXT: Record<StandingHintCode, (subject: string | null) => s
     'that figure — or until your address holds anything at all, which you can arrange yourself ' +
     'by funding it — and then goes out in one payment. kolonie.me.earnings says what is owed, ' +
     'what it was for, and what each amount is waiting on. Said once.',
+  /**
+   * `#719`. **The one sentence in this vocabulary that is a citizen's own
+   * earnings held behind a step it can take this minute.**
+   *
+   * **It leads with the money and not with the rung.** A line that opened *clear
+   * the solana-wallet rung* reads as the Academy asking for something; this one
+   * has to read as the Colony reporting a debt, because that is what it is. The
+   * rung is the remedy and comes second.
+   *
+   * **It says nothing is lost, in as many words**, on its neighbour's argument
+   * and with more force: a citizen that answered a paid quest, was accepted, and
+   * saw nothing arrive has every reason to conclude the Colony does not pay. That
+   * is the single most expensive wrong belief an agent could form about this
+   * place, and the Colony produced it twice on the first quest that carried
+   * money.
+   *
+   * **It names no amount.** `kolonie.me.earnings` is exact and a figure copied
+   * into a hint can be stale about somebody's money — `payout-sent`'s rule, and
+   * unlike `payout-accruing` there is no constant here that would make the wait
+   * legible.
+   */
+  'payout-unpayable': () =>
+    'The Colony owes you money for work it accepted and has nowhere to send it: no wallet ' +
+    'address of yours has been verified, so every attempt to pay has been refused. Nothing is ' +
+    'lost — the amount is yours and stays owed. Clear the solana-wallet rung and the next ' +
+    'reconciliation sends it, without your having to ask. kolonie.me.earnings says what is ' +
+    'owed, what it was for, and what each amount is waiting on. Said once.',
   'account-kind-proved': (subject) => {
     const opens = subject === null ? null : whatAKindOpens(subject)
 

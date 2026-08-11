@@ -882,6 +882,27 @@ describe('the seven conditions the Colony kept to itself', () => {
     return id
   }
 
+  const anUnpayablePayout = async (agentId: AgentId): Promise<string> => {
+    const id = await aPayout(agentId, false)
+    await db
+      .update(payoutObligations)
+      .set({
+        attempts: 1,
+        lastAttemptAt: sql`now()`,
+        lastRefusal: 'no-verified-address',
+      })
+      .where(eq(payoutObligations.id, id))
+    return id
+  }
+
+  const untoldMissingAddresses = async (agentId: AgentId): Promise<number> => {
+    const rows = await db
+      .select({ id: payoutObligations.id })
+      .from(payoutObligations)
+      .where(and(eq(payoutObligations.agentId, agentId), isNull(payoutObligations.addressHintedAt)))
+    return rows.length
+  }
+
   const untoldAccruals = async (agentId: AgentId): Promise<number> => {
     const rows = await db
       .select({ id: payoutObligations.id })
@@ -1904,6 +1925,104 @@ describe('the seven conditions the Colony kept to itself', () => {
 
       expect((await hintInAFreshRun(agentId))?.code).toBe('payout-sent')
       expect((await hintInAFreshRun(agentId))?.code).toBe('payout-accruing')
+    })
+  })
+
+  /**
+   * `#719`. The larger of the Colony's two standing debts — 750,000 lamports,
+   * 138 refusals over two days — was refused for `no-verified-address` and had no
+   * hint path at all, because `#654` wrote one for the case somebody hit first.
+   * It was one Academy rung from being paid the whole time.
+   */
+  describe('the money the Colony owes and has nowhere to send', () => {
+    it('says so once the runner has refused for that reason', async () => {
+      const agentId = await aQuietCitizen()
+      await anUnpayablePayout(agentId)
+
+      const hint = await hintInAFreshRun(agentId)
+
+      expect(hint?.code).toBe('payout-unpayable')
+      // No amount: `kolonie.me.earnings` is exact, and unlike its accruing
+      // neighbour there is no constant here that makes the wait legible.
+      expect(hint?.subject).toBeNull()
+    })
+
+    /** The refusal the runner recorded, never a second opinion computed here. */
+    it('says nothing about an amount that has never been attempted', async () => {
+      const agentId = await aQuietCitizen()
+      await aPayout(agentId, false)
+
+      expect(await hintInAFreshRun(agentId)).toBeNull()
+    })
+
+    it('says nothing twice', async () => {
+      const agentId = await aQuietCitizen()
+      await anUnpayablePayout(agentId)
+
+      expect((await hintInAFreshRun(agentId))?.code).toBe('payout-unpayable')
+      expect(await hintInAFreshRun(agentId)).toBeNull()
+    })
+
+    it('marks every unpayable amount it was silent about, not one', async () => {
+      const agentId = await aQuietCitizen()
+      await anUnpayablePayout(agentId)
+      await anUnpayablePayout(agentId)
+
+      expect((await hintInAFreshRun(agentId))?.code).toBe('payout-unpayable')
+      expect(await untoldMissingAddresses(agentId)).toBe(0)
+      expect(await hintInAFreshRun(agentId)).toBeNull()
+    })
+
+    /**
+     * **The whole reason this is a third column.** A citizen that verifies its
+     * wallet turns this refusal into either a payment or an accrual, and the
+     * accrual is a different fact with a different thing to do about it. One
+     * shared mark would silence the sentence it needed second.
+     */
+    it('does not cost the citizen the sentence about the accrual that follows', async () => {
+      const agentId = await aQuietCitizen()
+      const id = await anUnpayablePayout(agentId)
+
+      expect((await hintInAFreshRun(agentId))?.code).toBe('payout-unpayable')
+
+      await db
+        .update(payoutObligations)
+        .set({ lamports: 100_000, lastRefusal: 'accruing-below-chain-minimum' })
+        .where(eq(payoutObligations.id, id))
+
+      expect((await hintInAFreshRun(agentId))?.code).toBe('payout-accruing')
+    })
+
+    /**
+     * The placement in `STANDING_HINT_RANK`, and the only entry there that
+     * outranks a neighbour on what the reader can do. Verify the wallet and the
+     * accrual is the next question; saying the accrual first answers the second
+     * question before the first.
+     */
+    it('leads the accrual, because it is the wait the citizen can end', async () => {
+      const agentId = await aQuietCitizen()
+      await anAccruingPayout(agentId)
+      await anUnpayablePayout(agentId)
+
+      expect((await hintInAFreshRun(agentId))?.code).toBe('payout-unpayable')
+      expect((await hintInAFreshRun(agentId))?.code).toBe('payout-accruing')
+    })
+
+    /** A door, and the mark is what makes yielding free. */
+    it('yields to a lapsing skill, and survives having yielded', async () => {
+      const [skill, hours] = Object.entries(SKILL_RENEWAL_HOURS)[0] ?? []
+      if (skill === undefined || hours === undefined) return
+
+      const agentId = await aQuietCitizen()
+      await anUnpayablePayout(agentId)
+      await grantSkill(
+        agentId,
+        skill,
+        new Date(Date.now() - (hours + 1) * 60 * 60 * 1000).toISOString(),
+      )
+
+      expect((await hintInAFreshRun(agentId))?.code).toBe('skill-due-for-renewal')
+      expect(await untoldMissingAddresses(agentId)).toBe(1)
     })
   })
 

@@ -76,6 +76,15 @@ interface Standing {
    * sentence names no amount and says *money of yours is waiting* once.
    */
   readonly accrualUntold: boolean
+  /**
+   * Whether a `payout-unpayable` finding has rows to mark (`#719`).
+   *
+   * A boolean for the same reason as the two above: what is claimed is every
+   * obligation refused for want of an address that this citizen has not been
+   * told about, because the sentence names no amount and says *the Colony has
+   * nowhere to send your money* once.
+   */
+  readonly addressUntold: boolean
 }
 
 /**
@@ -672,6 +681,69 @@ async function claimAccrualHint(db: Database | Transaction, agentId: AgentId): P
 }
 
 /**
+ * Whether this citizen is owed money the Colony has nowhere to send (`#719`).
+ *
+ * **The refusal the payout runner already recorded**, exactly as its accruing
+ * neighbour does and for the same reason: `payoutRefusal` decides against a live
+ * wallet check, and a second opinion computed here from the citizen's rungs
+ * would go stale the moment the wallet is verified.
+ *
+ * **This is the half that had no sentence at all.** On 2026-08-11 the larger of
+ * the Colony's two standing debts — 750,000 lamports, 138 refusals — was refused
+ * for this reason, and `#654` had given a hint only to the smaller one. It was
+ * one Academy rung from being paid and had been for two days.
+ *
+ * Unpaid and unforfeited, on `untoldAccrual`'s argument: a paid row's refusal is
+ * history and a forfeited one is nobody's to wait for.
+ */
+async function untoldMissingAddress(
+  db: Database | Transaction,
+  agentId: AgentId,
+): Promise<boolean> {
+  const rows = await db
+    .select({ id: payoutObligations.id })
+    .from(payoutObligations)
+    .where(
+      and(
+        eq(payoutObligations.agentId, agentId),
+        isNull(payoutObligations.paidAt),
+        isNull(payoutObligations.forfeitedAt),
+        eq(payoutObligations.lastRefusal, 'no-verified-address'),
+        isNull(payoutObligations.addressHintedAt),
+      ),
+    )
+    .limit(1)
+
+  return rows.length > 0
+}
+
+/**
+ * Mark that this citizen has been told the Colony has no address for it
+ * (`#719`).
+ *
+ * Every such row at once, on {@link claimAccrualHint}'s argument: the sentence
+ * names no amount and no quest, so a citizen owed three unpayable rewards has
+ * heard it once and correctly.
+ */
+async function claimAddressHint(db: Database | Transaction, agentId: AgentId): Promise<boolean> {
+  const claimed = await db
+    .update(payoutObligations)
+    .set({ addressHintedAt: sql`now()` })
+    .where(
+      and(
+        eq(payoutObligations.agentId, agentId),
+        isNull(payoutObligations.paidAt),
+        isNull(payoutObligations.forfeitedAt),
+        eq(payoutObligations.lastRefusal, 'no-verified-address'),
+        isNull(payoutObligations.addressHintedAt),
+      ),
+    )
+    .returning({ id: payoutObligations.id })
+
+  return claimed.length > 0
+}
+
+/**
  * Mark that this citizen has been told the Colony paid it (`#577`).
  *
  * **Every paid and untold row, not the one that produced the finding.** The
@@ -843,6 +915,7 @@ async function standing(
       account: null,
       payoutUntold: false,
       accrualUntold: false,
+      addressUntold: false,
     }
   }
 
@@ -875,6 +948,7 @@ async function conditions(
     questAwaitingPayment,
     payoutUntold,
     accrualUntold,
+    addressUntold,
   ] = await Promise.all([
     unpromptedConsideration(db, agentId, cheap.declaredRhythmHours),
     untoldBadge(db, agentId),
@@ -894,6 +968,7 @@ async function conditions(
     ownQuestAwaitingPayment(db, agentId),
     untoldPayout(db, agentId),
     untoldAccrual(db, agentId),
+    untoldMissingAddress(db, agentId),
   ])
 
   const general = untoldGeneralHint(cheap.generalHintsTold)
@@ -1033,6 +1108,12 @@ async function conditions(
    * beside the constant it is read from, not in a finding that travels.
    */
   if (accrualUntold) applicable.push({ code: 'payout-accruing', subject: null })
+  /**
+   * **No subject** (`#719`), on `payout-sent`'s rule rather than
+   * `payout-accruing`'s: this sentence carries no constant either, and the
+   * amount owed is `kolonie.me.earnings`'s to state exactly.
+   */
+  if (addressUntold) applicable.push({ code: 'payout-unpayable', subject: null })
   if (general !== null) applicable.push({ code: 'general', subject: general })
 
   return {
@@ -1045,6 +1126,7 @@ async function conditions(
     account: untoldKind?.id ?? null,
     payoutUntold,
     accrualUntold,
+    addressUntold,
   }
 }
 
@@ -1194,6 +1276,11 @@ export async function dueStandingHint(
     if (chosen.code === 'payout-accruing') {
       if (!found.accrualUntold) return null
       if (!(await claimAccrualHint(db, agentId))) return null
+    }
+
+    if (chosen.code === 'payout-unpayable') {
+      if (!found.addressUntold) return null
+      if (!(await claimAddressHint(db, agentId))) return null
     }
 
     return chosen

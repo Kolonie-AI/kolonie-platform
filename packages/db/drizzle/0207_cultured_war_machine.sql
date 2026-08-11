@@ -1,0 +1,1 @@
+ALTER TABLE "payout_obligations" ADD COLUMN "address_hinted_at" timestamp with time zone;

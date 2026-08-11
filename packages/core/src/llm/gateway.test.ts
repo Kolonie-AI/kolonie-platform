@@ -3,6 +3,7 @@ import { createLog, type LogRecord } from '../log/log.js'
 import {
   GATEWAY_BASE_URL_VAR,
   GATEWAY_MODEL_VAR,
+  GATEWAY_USER_AGENT,
   gatewayFromEnvironment,
   gatewayRoutedFetch,
   routeOf,
@@ -118,6 +119,22 @@ describe('a chat completion with a gateway configured', () => {
       model: 'openrouter-model',
       choices: [{ message: { content: '{"verdict":"pass"}' } }],
     })
+  })
+
+  /**
+   * The header exists because the edge in front of the gateway refuses some
+   * default client signatures outright (`#728`), so the assertion is that the
+   * call names itself — and that the fallback is left as the caller wrote it,
+   * since a refusal there would be ours to explain rather than the edge's.
+   */
+  it('names itself to the gateway, and leaves the fallback’s request alone', async () => {
+    const under = transport(new Error('gateway down'), ok(completion('ok')))
+    const routed = gatewayRoutedFetch(GATEWAY, { fetch: under.fetch })
+
+    await routed(...post({ model: 'anthropic/claude-3', messages: [] }))
+
+    expect(new Headers(under.calls[0]!.init!.headers).get('user-agent')).toBe(GATEWAY_USER_AGENT)
+    expect(new Headers(under.calls[1]!.init!.headers).get('user-agent')).toBeNull()
   })
 
   /**

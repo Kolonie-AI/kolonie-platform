@@ -78,6 +78,28 @@ export const GATEWAY_API_KEY_VARS = {
   reviewer: 'LLM_GATEWAY_API_KEY_REVIEWER',
 } as const
 
+/**
+ * What a gateway call says it is, and why it is not cosmetic.
+ *
+ * **A request that does not name itself can be refused for the agent it fell back
+ * on.** The gateway sits behind Cloudflare, and Cloudflare answers some default
+ * client signatures with `403` and error code 1010 — a ban on the signature,
+ * independent of address, credential and body. `Python-urllib/3.x` is one of
+ * them: it cost the Reviewer Agent a week of silent fallbacks to OpenRouter
+ * before `kolonie-platform#728` measured it, because a fallback that works hides
+ * the refusal it is covering for.
+ *
+ * `fetch` sends something the edge accepts today, so this is prevention rather
+ * than a fix — and prevention is the whole of the argument: the failure it avoids
+ * is invisible, arrives without a deploy of ours, and is indistinguishable from
+ * the gateway being down.
+ *
+ * **One agent for all four services, deliberately.** Whose traffic this is has an
+ * answer already: the four keys. A per-service agent would be a second way to ask
+ * the same question and a second thing to keep true.
+ */
+export const GATEWAY_USER_AGENT = 'Kolonie-Runner/1.0 (+https://github.com/Kolonie-AI)'
+
 /** Everything needed to try the gateway. All three, or the gateway is not configured. */
 export interface Gateway {
   readonly baseUrl: string
@@ -263,6 +285,9 @@ function gatewayRequest(
   const headers = new Headers(init.headers)
   headers.set('authorization', `Bearer ${gateway.apiKey}`)
   headers.set('content-type', 'application/json')
+  // Set on the gateway leg only. The fallback replays the caller's own request
+  // untouched, and OpenRouter is not the party that cares.
+  headers.set('user-agent', GATEWAY_USER_AGENT)
 
   return {
     url: `${gateway.baseUrl}/chat/completions`,

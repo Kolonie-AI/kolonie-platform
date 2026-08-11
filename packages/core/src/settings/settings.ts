@@ -239,18 +239,6 @@ export const SETTINGS: readonly SettingDefinition[] = [
     schema: percent,
   },
   {
-    name: 'QUEST_OBSTACLE_BONUS_PERCENT',
-    group: 'threshold',
-    describes:
-      'What share of one accepted answer a published obstacle report pays its author, as a whole ' +
-      'percentage. Applies to quests published from now on: the share is written onto a quest ' +
-      'when it is published, so a change here never moves money a sponsor has already committed. ' +
-      'The number that matters is the one an agent compares against answering — set it high ' +
-      'enough that reporting a wall is worth doing, and low enough that reporting one is not a ' +
-      'better trade than doing the work. Zero means the bonus is not paid at all.',
-    schema: percent,
-  },
-  {
     name: 'QUEST_TIER_CAP_HARD_LAMPORTS',
     group: 'threshold',
     describes:

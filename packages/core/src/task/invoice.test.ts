@@ -17,30 +17,21 @@ const aQuest = (lamports: number, slots = 10, publishObstacles = false) => ({
   publishObstacles,
 })
 
-/** D-106 (`#504`). Capacity times price, plus the pool, and never a rounding up. */
+/** D-106 (`#504`). Capacity times price, and never a rounding up. */
 describe('what a quest costs', () => {
   it('is capacity times price', () => {
     expect(questInvoiceLamports(aQuest(LAMPORTS_PER_SOL / 100, 10))).toBe(LAMPORTS_PER_SOL / 10)
   })
 
-  /** The pool is added to the commitment rather than taken out of it (`#371`). */
-  it('adds the obstacle pool rather than taking it out of the answers', () => {
-    const withoutPool = questInvoiceLamports(aQuest(1_000_000, 10, false))
-    const withPool = questInvoiceLamports(aQuest(1_000_000, 10, true))
-
-    expect(withoutPool).toBe(10_000_000)
-    // A quarter of one answer, three times over (`#632`).
-    expect(withPool).toBe(10_000_000 + 3 * 250_000)
-  })
-
   /**
-   * The share is a setting (`#632`), and the invoice has to be computed at
-   * whichever figure the quest is being published under — otherwise the sponsor
-   * is invoiced at one ratio and the citizen paid at another.
+   * **The invoice carried an obstacle pool on top until D-114 (`#752`)** — three
+   * quarters of an answer, added rather than taken out, on any quest that left
+   * `publishObstacles` at its default. A quest has one price now, and this is
+   * the assertion that fails if a second one ever returns.
    */
-  it('sizes the pool from the share it is given', () => {
-    expect(questInvoiceLamports(aQuest(1_000_000, 10, true), 50)).toBe(10_000_000 + 3 * 500_000)
-    expect(questInvoiceLamports(aQuest(1_000_000, 10, true), 0)).toBe(10_000_000)
+  it('is the same figure whether or not the sponsor publishes its obstacles', () => {
+    expect(questInvoiceLamports(aQuest(1_000_000, 10, false))).toBe(10_000_000)
+    expect(questInvoiceLamports(aQuest(1_000_000, 10, true))).toBe(10_000_000)
   })
 
   /** A quest that pays reputation needs no invoice and goes live at publication. */

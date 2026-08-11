@@ -24,7 +24,6 @@ import {
   QUEST_PROOF_VERIFIERS,
   activityWindowNotice,
   lamportsFromSol,
-  obstacleBonusNotice,
   obstaclePublicationNotice,
   questCommitmentBreakdown,
   questInvoiceLamports,
@@ -157,24 +156,6 @@ export function proofNote(
     `hard quest — up to ${caps.hard} lamports per accepted report — only when every required ` +
     `question is one this stage establishes: marked as proven by it, and asking for ${format}. ` +
     'A quest that asks about a deed the verifier cannot see pays what its questions earn.'
-  )
-}
-
-/**
- * What publishing or withholding the obstacles does, said where it is chosen.
- *
- * The withheld sentence is the Colony's one copy in core; the published one is
- * here because it describes the default rather than a cost, and a sponsor that
- * changed nothing is warned about nothing.
- */
-export function obstacleBonusLine(reward: number, publish: boolean): string {
-  return (
-    obstacleBonusNotice({
-      reward: { reputation: 0, lamports: reward },
-      publishObstacles: publish,
-    }) ??
-    'Nothing extra is held for obstacle reports on this quest: they pay a share of what an ' +
-      'answer pays, and this one pays too little to halve.'
   )
 }
 
@@ -488,7 +469,6 @@ export function questInvoiceLine(input: {
   const invoice = questInvoiceLamports({
     reward: { lamports: input.lamports },
     slots: input.slots,
-    publishObstacles: input.publishObstacles,
   })
   const { toCitizen, toTreasury } = questPayoutSplit(input.lamports, input.feePercent)
 
@@ -500,24 +480,21 @@ export function questInvoiceLine(input: {
    * lines cannot sum to something other than the invoice above them.
    */
   const breakdown = questCommitmentBreakdown(
-    {
-      reward: { lamports: input.lamports },
-      slots: input.slots,
-      publishObstacles: input.publishObstacles,
-    },
+    { reward: { lamports: input.lamports }, slots: input.slots },
     { feePercent: input.feePercent },
   )
 
+  /**
+   * **One line, because there is one price** (D-114, `#752`). It itemised an
+   * obstacle pool beside the answers until then, and explained which of the two
+   * a `publishObstacles` toggle had just removed. A quest costs capacity times
+   * price now, so the itemisation is the multiplication spelled out — worth
+   * keeping, because *40 answers at 0.001 SOL* is what a sponsor checks the
+   * total against.
+   */
   const itemised =
-    breakdown.obstacles === null
-      ? input.publishObstacles
-        ? ''
-        : ' You have turned obstacle reports off, which is what removed the pool from this figure.'
-      : ` Of that, ${solFromLamports(breakdown.answers.total)} SOL buys the answers — ` +
-        `${breakdown.answers.slots} at ${solFromLamports(breakdown.answers.each)} SOL — and ` +
-        `${solFromLamports(breakdown.obstacles.total)} SOL is the obstacle pool: up to ` +
-        `${breakdown.obstacles.winners} reports at ${solFromLamports(breakdown.obstacles.each)} ` +
-        'SOL, which nobody may be obliged to claim. Turning obstacle reports off removes it.'
+    ` Of that, ${solFromLamports(breakdown.answers.total)} SOL buys the answers — ` +
+    `${breakdown.answers.slots} at ${solFromLamports(breakdown.answers.each)} SOL.`
 
   /**
    * **The chain minimum is a warning and never a refusal** (`#540`). A citizen

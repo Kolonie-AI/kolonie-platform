@@ -110,10 +110,11 @@ export function registerQuestReportTools(
             text: [
               result.replaced ? 'Your earlier report on this quest has been replaced.' : 'Filed.',
               destination,
-              'This cost you nothing: no reward, no reputation, no standing.',
-              // Only where there is something to say (`#632`). A sentence about
-              // a bonus on a kind that never had one reads as one withheld.
-              ...(result.notice === undefined ? [] : [result.notice]),
+              // True of every kind since D-114 (`#752`). An obstacle report
+              // was paid until then, and this line had an exception appended to
+              // it for the citizen whose report would not be.
+              'This cost you nothing and earns you nothing: no reward, no reputation, no ' +
+                'standing. What it buys is that the citizens after you do not hit the same wall.',
             ].join(' '),
           },
         ],

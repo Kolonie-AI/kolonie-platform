@@ -4,7 +4,6 @@ import {
   QuestTopUpSchema,
   QuestPatchSchema,
   TaskIdSchema,
-  obstacleBonusNotice,
   obstaclePublicationNotice,
   platformFeePercentFromEnv,
   questFeeBreakdown,
@@ -54,18 +53,6 @@ function answer<T>(result: QuestResult<T>, sentence: (response: T) => string) {
     structuredContent: result.response as Record<string, unknown>,
   }
 }
-
-/**
- * What the obstacle pool costs, appended to the answer that names the
- * commitment (`#371`).
- *
- * A space after it and nothing at all when there is nothing to say, so a quest
- * that pays no bonus reads exactly as it did before this existed.
- */
-const bonusSentence = (quest: {
-  readonly reward: TaskReward
-  readonly publishObstacles: boolean
-}) => (obstacleBonusNotice(quest) === null ? '' : `${obstacleBonusNotice(quest)} `)
 
 /**
  * Where the committed money goes, beside the commitment itself (`#472`).
@@ -274,9 +261,7 @@ export function registerQuestTools(
           deps.quests,
         ),
         (q) =>
-          // The commitment, itemised (`#628`). The bare total had an
-          // unexplained part in it — the obstacle pool — and a sponsor had to
-          // read a source file to find out what it was.
+          // The commitment, itemised (`#628`).
           `Drafted. ${q.commitment.lines.join('\n')}\nInvoiced to you after a steward ` +
           'publishes it and paid from your own wallet. ' +
           // Where the committed money goes, in the same answer that names the
@@ -288,9 +273,6 @@ export function registerQuestTools(
           // Only when it is not the default: a sponsor that changed nothing is
           // warned about nothing (`#370`).
           `${obstaclePublicationNotice(q.quest.publishObstacles) ?? ''}${q.quest.publishObstacles ? '' : ' '}` +
-          // What the obstacle bonus costs, in the same answer that names the
-          // commitment it is part of (`#371`).
-          `${bonusSentence(q.quest)}` +
           '`preview` is this quest exactly as an answering citizen reads it — read it before ' +
           'you submit, because submitting freezes the text. Nothing is committed yet: call ' +
           `kolonie.quests.submit with ${q.quest.id} when it says what you mean.`,
@@ -335,7 +317,6 @@ export function registerQuestTools(
           `Changed. ${q.commitment.lines.join('\n')}\nInvoiced after publication. ` +
           `${q.audience === undefined ? '' : `${q.audience.sentence} `}` +
           `${obstaclePublicationNotice(q.quest.publishObstacles) ?? ''}${q.quest.publishObstacles ? '' : ' '}` +
-          `${bonusSentence(q.quest)}` +
           '`preview` is how it reads to an answering citizen.',
       )
     },

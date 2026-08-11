@@ -84,13 +84,11 @@ export interface FakeQuestDesk extends QuestDesk {
    * Turn the payout floor, which is a settings row in the real one (`#743`).
    *
    * Absent means the real floor applies, as it does in a deployment nobody has
-   * touched. Zero is how a test about something else — the obstacle pool's
-   * arithmetic, say — says it is not under this rule; that is the setting's own
-   * documented meaning rather than a convenience for tests.
+   * touched. Zero is how a test about something else says it is not under this
+   * rule; that is the setting's own documented meaning rather than a
+   * convenience for tests.
    */
   readonly setPriceFloor: (lamports: number) => void
-  /** Say that the citizen filing an obstacle report never attempted (`#632`). */
-  readonly neverAttempted: () => void
   /** Put rows into the two `/backend` sections (`#487`). */
   readonly showsOnBackend: (input: {
     /** Who arrived (`#607`). Shapes are the storage's; a test fills what it asserts on. */
@@ -185,8 +183,6 @@ export function fakeQuests(): FakeQuestDesk {
   let caps: Readonly<Record<QuestTier, number>> | null = null
   /** Unset until a test turns it, exactly as the settings table is (`#743`). */
   let floor: number | null = null
-  /** Whether an obstacle report filed here counts as work (`#632`). */
-  let earnsObstacleBonus = true
   /** Places bought and waiting on money, per quest (`#629`). */
   const pendingSlots = new Map<string, number>()
 
@@ -260,7 +256,6 @@ export function fakeQuests(): FakeQuestDesk {
           questCommitment({
             reward: held.own.task.reward,
             slots: held.own.task.slots ?? 0,
-            publishObstacles: held.own.task.publishObstacles,
           }),
         0,
       )
@@ -318,13 +313,7 @@ export function fakeQuests(): FakeQuestDesk {
         // which is the rule being reproduced.
         scrubbed: input.kind === 'declined' ? null : text,
       })
-      /**
-       * The fake has no attempts table, so an obstacle report is treated as
-       * earning the bonus unless a test says otherwise (`#632`). The rule itself
-       * is `packages/db`'s and is asserted there against a real Postgres; what
-       * the routes need is that the sentence reaches the citizen when it is set.
-       */
-      return { outcome: 'filed' as const, replaced, earnsBonus: earnsObstacleBonus }
+      return { outcome: 'filed' as const, replaced }
     },
 
     async reports(taskId) {
@@ -701,7 +690,6 @@ export function fakeQuests(): FakeQuestDesk {
       const wanted = questCommitment({
         reward: held.own.task.reward,
         slots: held.own.task.slots ?? 0,
-        publishObstacles: held.own.task.publishObstacles,
       })
       const free = (balances.get(authorId) ?? 0) - reserved(authorId)
       if (free < wanted) return { outcome: 'insufficient-funds', shortfall: wanted - free }
@@ -837,10 +825,6 @@ export function fakeQuests(): FakeQuestDesk {
 
     setPriceFloor: (lamports) => {
       floor = lamports
-    },
-
-    neverAttempted: () => {
-      earnsObstacleBonus = false
     },
 
     async tierCaps() {

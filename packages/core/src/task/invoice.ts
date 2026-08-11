@@ -1,4 +1,3 @@
-import { QUEST_OBSTACLE_BONUS_DEFAULT_PERCENT, questObstacleBonusPool } from './quest.js'
 import { LAMPORTS_PER_SOL, solFromLamports } from '../ledger/payments.js'
 import type { TaskReward } from './task.js'
 
@@ -27,30 +26,24 @@ export const INVOICE_EXPIRY_DAYS = 7
 /**
  * What this quest costs in total, in lamports.
  *
- * **The same shape as `questCommitment`, in the settlement asset.** Capacity
- * times price, plus the obstacle pool when the sponsor is publishing obstacles —
- * that pool is *added to* the commitment rather than taken out of it, because
- * taking it out would buy fewer answers than the sponsor asked for.
+ * **The same shape as `questCommitment`, in the settlement asset**: capacity
+ * times price, and nothing else.
  *
  * Zero is an ordinary answer: a quest that pays reputation needs no invoice and
  * goes live when a steward publishes it.
  *
- * **The pool is `questObstacleBonusPool` and no longer this function's own
- * arithmetic** (`#632`). It held `WINNERS × floor(lamports / 2)` inline — the
- * same rule written twice, in the two places that must never disagree: this is
- * what the sponsor is invoiced and `questObstacleBonus` is what the citizen is
- * paid. The share became a setting, and a second copy of it would have been a
- * commitment computed at one ratio and a payout made at another.
+ * **It carried a second term until D-114 (`#752`)** — a pool of obstacle
+ * bonuses, added on top of the answers rather than taken out of them. That was
+ * the second price a quest had, and it is the one this invoice stopped being
+ * able to explain: the D-112 floor is measured on what *arrives*, a bonus
+ * arrived whole, and a sponsor publishing obstacles was pushed from 1,333,333
+ * lamports a slot to 4,000,000 for a payment nobody had asked to buy.
  */
-export function questInvoiceLamports(
-  quest: {
-    readonly reward: Partial<TaskReward> & Pick<TaskReward, 'lamports'>
-    readonly slots: number
-    readonly publishObstacles: boolean
-  },
-  percent: number = QUEST_OBSTACLE_BONUS_DEFAULT_PERCENT,
-): number {
-  return quest.reward.lamports * quest.slots + questObstacleBonusPool(quest, percent)
+export function questInvoiceLamports(quest: {
+  readonly reward: Partial<TaskReward> & Pick<TaskReward, 'lamports'>
+  readonly slots: number
+}): number {
+  return quest.reward.lamports * quest.slots
 }
 
 /** Whether this quest has to be paid for before it goes live. */

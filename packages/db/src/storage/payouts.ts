@@ -5,7 +5,6 @@ import {
   type PayoutRefusal,
   type SubmissionId,
   type TaskId,
-  QUEST_OBSTACLE_BONUS_WINNERS,
 } from '@kolonie-ai/core'
 import type { Database, Transaction } from '../client.js'
 import { payoutObligations, solanaWalletChallenges, tasks } from '../schema/index.js'
@@ -112,85 +111,22 @@ export async function oweForReport(
  */
 
 /**
- * Record what a published obstacle report owes its author (`#553` phase C).
+ * **`oweForObstacleBonus` stood here and is gone** (D-114, `#752`).
  *
- * ## It was a defect before it was a payout
+ * It recorded what a published obstacle report owed its author, capped at the
+ * first three on a quest. A quest has one price now — the reward, paid once for
+ * an accepted answer, less the platform fee — and an obstacle report is filed,
+ * moderated and published without being paid for. Nothing creates an
+ * `obstacle-bonus` obligation, so nothing calls this.
  *
- * `questInvoiceLamports` charges the sponsor for the bonus pool in SOL —
- * `QUEST_OBSTACLE_BONUS_WINNERS × floor(price / 2)`, added to capacity × price.
- * The only thing that ever paid a bonus computed it from `reward_credits`, which
- * `#540` set to zero on every quest the console writes. So the amount was zero,
- * the payment returned early, and a sponsor publishing obstacles was paying for
- * a prize nobody could receive. Measured 2026-08-08: no live quest had reached
- * it — `publish_obstacles` was false on the one active quest — so nothing is
- * owed retrospectively.
- *
- * ## What decides whether it is paid, and what no longer does
- *
- * Three of `payQuestObstacleBonus`'s four conditions are the caller's and stay
- * there: the task is a quest, the obstacle is published, and the quest publishes
- * its obstacles. The fourth — **fewer than
- * {@link QUEST_OBSTACLE_BONUS_WINNERS} have been paid** — is counted here, from
- * the obligations rather than from the ledger's reference prefix, because the
- * obligations are now where the answer lives.
- *
- * **The escrow-held guard is gone with the escrow.** It existed so a bonus could
- * not overdraw a sponsor's credit balance; under D-106 the sponsor has already
- * paid the invoice that included this pool, and there is no balance to overdraw.
- *
- * Idempotent on `(task_id, agent_id)` where the kind is `obstacle-bonus`, which
- * mirrors `quest_reports_one_per_citizen` — a citizen files one report per
- * quest, so it can earn one bonus.
- *
- * Returns the amount owed, or `0` where nothing was. Zero is the ordinary
- * answer and not a failure.
+ * **`payout_obligations` keeps its `obstacle-bonus` kind and every row already
+ * written under it.** Those were earned under the rule in force at the time, and
+ * D-106 does not let the Colony rewrite a settled promise: they are still owed,
+ * still paid by the payout runner, and still read back by
+ * `kolonie.me.earnings`. This removed the rule that created them and not the
+ * ledger that holds them — the same shape `oweForReview` above took, and no
+ * migration goes with it for the same reason.
  */
-export async function oweForObstacleBonus(
-  tx: Transaction,
-  command: {
-    readonly agentId: AgentId
-    readonly taskId: TaskId
-    readonly lamports: number
-  },
-): Promise<number> {
-  if (command.lamports <= 0) return 0
-
-  const [counted] = await tx
-    .select({ paid: sql<string>`count(*)::text` })
-    .from(payoutObligations)
-    .where(
-      andSql(
-        eq(payoutObligations.taskId, command.taskId),
-        eq(payoutObligations.kind, 'obstacle-bonus'),
-      ),
-    )
-  if (Number(counted?.paid ?? 0) >= QUEST_OBSTACLE_BONUS_WINNERS) return 0
-
-  const [verified] = await tx
-    .select({ address: solanaWalletChallenges.address })
-    .from(solanaWalletChallenges)
-    .where(
-      andSql(
-        eq(solanaWalletChallenges.agentId, command.agentId),
-        sql`${solanaWalletChallenges.verifiedAt} is not null`,
-      ),
-    )
-    .limit(1)
-
-  const [row] = await tx
-    .insert(payoutObligations)
-    .values({
-      agentId: command.agentId,
-      taskId: command.taskId,
-      kind: 'obstacle-bonus',
-      lamports: command.lamports,
-      ...(verified?.address != null && { address: verified.address }),
-    })
-    .onConflictDoNothing()
-    .returning({ id: payoutObligations.id })
-
-  return row === undefined ? 0 : command.lamports
-}
 
 /**
  * Everything still owed, oldest first, with the address it goes to.

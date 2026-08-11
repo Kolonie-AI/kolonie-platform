@@ -185,14 +185,14 @@ describe('the sponsor over MCP', () => {
       aDraft({ reward: { reputation: 0, lamports: 15 }, slots: 20, publishObstacles: true }),
     )
 
-    // 20 × 15 for the answers, plus 3 each for the first three published
-    // obstacle reports (`#371`, `#632`) — the commitment is the whole of what
-    // the quest would hold, which is what a sponsor is deciding about.
+    // 20 × 15 for the answers, and that is the whole of it (D-114, `#752`). It
+    // was 309 while a quest carried a second price — nine of obstacle pool held
+    // on top of the capacity.
     // The commitment is the cost and nothing else since `#553`: `available` and
     // `affordable` read a balance the Colony does not hold.
-    expect(structured(written).commitment).toMatchObject({ cost: 309 })
+    expect(structured(written).commitment).toMatchObject({ cost: 300 })
     expect(String(structured(written).preview)).toContain('A thousand registrations')
-    expect(JSON.stringify(written.content)).toContain('309')
+    expect(JSON.stringify(written.content)).toContain('300')
   })
 
   /**
@@ -224,7 +224,13 @@ describe('the sponsor over MCP', () => {
    * the quest** (`#371`) — a sponsor discovering afterwards that its escrow paid
    * for something it did not ask for is the failure `#323` exists to prevent.
    */
-  it('names the obstacle pool in the commitment, before anything is irreversible', async () => {
+  /**
+   * **This asserted the opposite until D-114 (`#752`)**: that the obstacle pool
+   * was named in the commitment before anything was irreversible, which was the
+   * right rule for a price that existed. It does not exist, and a sponsor that
+   * publishes its obstacles is committing to exactly what one that does not is.
+   */
+  it('names no obstacle pool, because publishing obstacles costs nothing', async () => {
     // Not a test about the floor: it prices an answer in single lamports so the
     // arithmetic is readable, which `#743` would refuse. Zero is the setting's
     // own way of being off.
@@ -238,13 +244,10 @@ describe('the sponsor over MCP', () => {
       aDraft({ reward: { reputation: 0, lamports: 10 }, slots: 10, publishObstacles: true }),
     )
 
-    // 100 for the ten answers, plus a quarter of one each for the first three
-    // published obstacles — on top of the capacity rather than out of it.
-    expect(structured(written).commitment).toMatchObject({ cost: 106 })
+    expect(structured(written).commitment).toMatchObject({ cost: 100 })
     const said = JSON.stringify(written.content)
-    expect(said).toContain('106')
-    expect(said).toContain('6 lamports of that is for the first 3 citizens')
-    expect(said).toContain('rather than out of them')
+    expect(said).toContain('100')
+    expect(said).not.toContain('lamports of that is for the first')
   })
 
   it('holds no pool, and says nothing, for a sponsor that kept its obstacles', async () => {
@@ -582,16 +585,23 @@ describe('the floor a sponsor meets', () => {
     expect(JSON.stringify(submitted.content)).toContain('2000000')
   })
 
-  it('names the obstacle bonus, and turning it off, when that is what failed', async () => {
+  /**
+   * **The 3× jump D-114 removed** (`#752`). 1,400,000 passed the answer
+   * condition and failed the obstacle one, so the refusal had to name which of
+   * the two had failed and offer `publishObstacles: false` as a second way
+   * through — and a sponsor that left the default on paid 4,000,000 a slot
+   * against 1,333,333. `publishObstacles` changes no price now.
+   */
+  it('holds a quest publishing its obstacles to the same floor as one that is not', async () => {
     const sponsor = anAgent()
 
-    const refused = await write(sponsor.key, 1_400_000, { publishObstacles: true })
+    expect((await write(sponsor.key, 1_400_000, { publishObstacles: true })).isError).toBeFalsy()
 
+    const refused = await write(anAgent().key, 1_000_000, { publishObstacles: true })
     expect(refused.isError).toBe(true)
     const said = JSON.stringify(refused.content)
-    expect(said).toContain('obstacle report')
-    expect(said).toContain('publishObstacles')
-    expect((await write(sponsor.key, 4_000_000, { publishObstacles: true })).isError).toBeFalsy()
+    expect(said).toContain('an accepted answer is paid')
+    expect(said).not.toContain('publishObstacles')
   })
 
   /**

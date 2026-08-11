@@ -19,13 +19,10 @@ import {
   questCommitment,
   questCommitmentBreakdown,
   questCommitmentLines,
-  QUEST_OBSTACLE_BONUS_DEFAULT_PERCENT,
-  QUEST_OBSTACLE_BONUS_WINNERS,
   QUEST_PRICE_FLOOR_LAMPORTS,
   QUEST_PRICE_FLOOR_SETTING,
   questPriceFloor,
   questPriceFloorRejection,
-  obstacleBonusNotice,
   questFeeBreakdown,
   questPayNotice,
   questPayoutSplit,
@@ -151,111 +148,63 @@ describe('submitting for review', () => {
 })
 
 describe('what a quest commits', () => {
-  it('is the price of a report times the number bought, plus what the obstacles cost', () => {
-    // 10 × 10 for the answers, and a quarter of one each for the first three
-    // published obstacles — held on top of the capacity rather than out of it
-    // (`#371`), and a quarter rather than a half since `#632`.
-    expect(
-      questCommitment({
-        reward: { reputation: 1, lamports: 10 },
-        slots: 10,
-        publishObstacles: true,
-      }),
-    ).toBe(106)
-  })
-
-  /** The share it is given, so the commitment cannot disagree with the payout. */
-  it('sizes the obstacle pool from the share it is given (#632)', () => {
-    const quest = { reward: { reputation: 1, lamports: 10 }, slots: 10, publishObstacles: true }
-
-    expect(questCommitment(quest, 50)).toBe(115)
-    expect(questCommitment(quest, 0)).toBe(100)
-  })
-
-  it('holds nothing for obstacles a sponsor chose not to publish', () => {
-    expect(
-      questCommitment({
-        reward: { reputation: 1, lamports: 10 },
-        slots: 10,
-        publishObstacles: false,
-      }),
-    ).toBe(100)
-  })
-
-  it('is nothing for a quest that pays reputation only', () => {
-    expect(
-      questCommitment({
-        reward: { reputation: 5, lamports: 0 },
-        slots: 1000,
-        publishObstacles: true,
-      }),
-    ).toBe(0)
+  it('is the price of a report times the number bought, and nothing else', () => {
+    expect(questCommitment({ reward: { reputation: 1, lamports: 10 }, slots: 10 })).toBe(100)
   })
 
   /**
-   * A quest paying one credit an answer has nothing to halve, and inventing a
-   * credit for it would be the Colony paying for a stranger's product research.
+   * The obstacle pool made this 106, and a sponsor publishing obstacles paid
+   * three quarters of an answer for a payment it had not asked to buy (D-114,
+   * `#752`). `publishObstacles` is still on the quest and no longer touches any
+   * price.
    */
-  it('pays no obstacle bonus on a quest whose answers pay one credit', () => {
-    expect(
-      questCommitment({
-        reward: { reputation: 0, lamports: 1 },
-        slots: 10,
-        publishObstacles: true,
-      }),
-    ).toBe(10)
+  it('is the same figure whether or not the sponsor publishes its obstacles', () => {
+    const publishing = {
+      reward: { reputation: 1, lamports: 10 },
+      slots: 10,
+      publishObstacles: true,
+    }
+    const withholding = { ...publishing, publishObstacles: false }
+
+    expect(questCommitment(publishing)).toBe(questCommitment(withholding))
+  })
+
+  it('is nothing for a quest that pays reputation only', () => {
+    expect(questCommitment({ reward: { reputation: 5, lamports: 0 }, slots: 1000 })).toBe(0)
   })
 })
 
 describe('what the commitment is made of (#628)', () => {
-  const quest = { reward: { lamports: 10_000_000 }, slots: 3, publishObstacles: true }
+  const quest = { reward: { lamports: 10_000_000 }, slots: 3 }
 
   /** The definition of done: the itemised lines sum to the committed total. */
   it('itemises a total that its own parts add up to', () => {
     const breakdown = questCommitmentBreakdown(quest, { feePercent: 25 })
 
-    expect(breakdown.answers.total + (breakdown.obstacles?.total ?? 0)).toBe(breakdown.total)
+    expect(breakdown.answers.total).toBe(breakdown.total)
     expect(breakdown.total).toBe(questCommitment(quest))
   })
 
-  it('names the answers and the pool separately, which the total never did', () => {
+  it('names the answers, which is the whole of what is held', () => {
     const breakdown = questCommitmentBreakdown(quest, { feePercent: 25 })
 
     expect(breakdown.answers).toEqual({ slots: 3, each: 10_000_000, total: 30_000_000 })
-    expect(breakdown.obstacles).toEqual({
-      winners: QUEST_OBSTACLE_BONUS_WINNERS,
-      each: 2_500_000,
-      total: 7_500_000,
-    })
   })
 
   /**
-   * `null` and not a zero: a sponsor that turned obstacles off made a choice,
-   * and a quest priced too low to take a share of has nothing to hold. Neither
-   * should read as *0 lamports of obstacle pool*.
+   * The itemisation carried an obstacle pool beside the answers until D-114
+   * (`#752`), and `publishObstacles` decided whether it appeared. It decides
+   * nothing about money now, and this is the assertion that would fail if a
+   * second price ever came back through a side door.
    */
-  it('holds no pool where the sponsor turned obstacles off, and says so', () => {
-    const breakdown = questCommitmentBreakdown(
-      { ...quest, publishObstacles: false },
-      { feePercent: 25 },
-    )
+  it('is the same figure whether or not the sponsor publishes its obstacles', () => {
+    const rates = { feePercent: 25 }
+    const publishing = { ...quest, publishObstacles: true }
+    const withholding = { ...quest, publishObstacles: false }
 
-    expect(breakdown.obstacles).toBeNull()
-    expect(breakdown.total).toBe(30_000_000)
-    expect(questCommitmentLines(breakdown, { publishObstacles: false }).join(' ')).toContain(
-      'publishObstacles to false',
+    expect(questCommitmentBreakdown(withholding, rates).total).toBe(
+      questCommitmentBreakdown(publishing, rates).total,
     )
-  })
-
-  it('holds no pool on a quest priced too low to take a share of', () => {
-    expect(
-      questCommitmentBreakdown(
-        { reward: { lamports: 1 }, slots: 3, publishObstacles: true },
-        {
-          feePercent: 25,
-        },
-      ).obstacles,
-    ).toBeNull()
   })
 
   it('states what the sponsor commits and what the citizen receives, without arithmetic', () => {
@@ -263,7 +212,7 @@ describe('what the commitment is made of (#628)', () => {
       '\n',
     )
 
-    expect(said).toContain('37500000 lamports held')
+    expect(said).toContain('30000000 lamports held')
     expect(said).toContain('3 answer(s) at 10000000')
     expect(said).toContain('the citizen receives 7500000')
     expect(said).toContain('the Colony 2500000')
@@ -273,33 +222,24 @@ describe('what the commitment is made of (#628)', () => {
     )
   })
 
-  it('does not offer unused obstacle bonuses back to the sponsor', () => {
-    expect(obstacleBonusNotice(quest)).toContain(
-      'Nothing here is refundable, including bonuses nobody earns.',
+  /** Nothing in the lines mentions a bonus, a pool or a second payment. */
+  it('says nothing about an obstacle pool, because there is not one', () => {
+    const said = questCommitmentLines(questCommitmentBreakdown(quest, { feePercent: 25 })).join(
+      '\n',
     )
+
+    expect(said).not.toContain('obstacle')
+    expect(said).not.toContain('bonus')
   })
 
   it('says nothing about money for a quest that pays reputation only', () => {
     const said = questCommitmentLines(
-      questCommitmentBreakdown(
-        { reward: { lamports: 0 }, slots: 3, publishObstacles: true },
-        {
-          feePercent: 25,
-        },
-      ),
+      questCommitmentBreakdown({ reward: { lamports: 0 }, slots: 3 }, { feePercent: 25 }),
     )
 
     expect(said).toEqual([
       'This quest pays reputation and nothing else, so nothing is held and there is no invoice.',
     ])
-  })
-
-  /** The share is a setting (`#632`), and the itemisation has to follow it. */
-  it('itemises at the obstacle share it is given', () => {
-    const breakdown = questCommitmentBreakdown(quest, { feePercent: 25, obstaclePercent: 50 })
-
-    expect(breakdown.obstacles?.each).toBe(5_000_000)
-    expect(breakdown.answers.total + (breakdown.obstacles?.total ?? 0)).toBe(breakdown.total)
   })
 })
 
@@ -417,11 +357,7 @@ describe('the tier and its ceiling', () => {
    * silence the other or it is measuring both. Zero is the floor's own way of
    * being off — the escape hatch `#743` gives it.
    */
-  const noFloor = {
-    lamports: 0,
-    feePercent: DEFAULT_PLATFORM_FEE_PERCENT,
-    obstacleBonusPercent: QUEST_OBSTACLE_BONUS_DEFAULT_PERCENT,
-  }
+  const noFloor = { lamports: 0, feePercent: DEFAULT_PLATFORM_FEE_PERCENT }
 
   /** `#626`: proven means the question asks for what the verifier establishes. */
   const provenEmail = QuestQuestionSchema.parse({
@@ -978,10 +914,7 @@ describe('how far a price reaches (#718)', () => {
   /** A quest that pays only reputation has no price to measure. */
   it('says nothing about a quest that pays no money', () => {
     expect(
-      questCommitmentBreakdown(
-        { reward: { lamports: 0 }, slots: 3, publishObstacles: false },
-        { feePercent: 25 },
-      ).reach,
+      questCommitmentBreakdown({ reward: { lamports: 0 }, slots: 3 }, { feePercent: 25 }).reach,
     ).toBeNull()
   })
 })
@@ -1000,10 +933,9 @@ describe('the floor a promise has to clear', () => {
   })
   const plain = QuestQuestionSchema.parse({ key: 'a', prompt: 'What happened?' })
 
-  const terms = (over: Partial<Record<'lamports' | 'obstacleBonusPercent', number>> = {}) => ({
+  const terms = (over: Partial<Record<'lamports', number>> = {}) => ({
     lamports: QUEST_PRICE_FLOOR_LAMPORTS,
     feePercent: DEFAULT_PLATFORM_FEE_PERCENT,
-    obstacleBonusPercent: QUEST_OBSTACLE_BONUS_DEFAULT_PERCENT,
     ...over,
   })
 
@@ -1033,18 +965,24 @@ describe('the floor a promise has to clear', () => {
     expect(questPriceFloorRejection(quest(1_000_000), terms())).toContain('1333333')
   })
 
-  it('holds an obstacle quest to four times the floor, because no fee is taken there', () => {
-    expect(questPriceFloorRejection(quest(3_999_999, true), terms())).toContain('4000000')
-    expect(questPriceFloorRejection(quest(4_000_000, true), terms())).toBeUndefined()
+  /**
+   * **The 3× jump D-114 removed** (`#752`). An obstacle report arrived whole, so
+   * it bound the floor at 4,000,000 against an answer's 1,333,333 — a sponsor
+   * that left `publishObstacles` at its default paid three times the price for a
+   * payment nobody had asked to buy. There is one payment now and
+   * `publishObstacles` changes no price at all.
+   */
+  it('holds a quest publishing its obstacles to the same floor as one that is not', () => {
+    expect(questPriceFloorRejection(quest(1_333_333, true), terms())).toBeUndefined()
+    expect(questPriceFloorRejection(quest(1_333_332, true), terms())).toContain('999999')
   })
 
-  /** A sponsor told only *too low* would raise 1,400,000 to 1,500,000 and fail again. */
-  it('says which of the two promises failed, and that obstacles are the other way through', () => {
-    const rejection = questPriceFloorRejection(quest(1_400_000, true), terms())
+  it('offers no publishObstacles escape hatch, because there is nothing to escape', () => {
+    const rejection = questPriceFloorRejection(quest(1_000_000, true), terms())
 
-    expect(rejection).toContain('obstacle report')
-    expect(rejection).toContain('publishObstacles')
-    expect(rejection).not.toContain('an accepted answer is paid')
+    expect(rejection).toContain('an accepted answer is paid')
+    expect(rejection).not.toContain('publishObstacles')
+    expect(rejection).not.toContain('obstacle report')
   })
 
   /** A quest that pays reputation alone promises nothing that has to arrive. */

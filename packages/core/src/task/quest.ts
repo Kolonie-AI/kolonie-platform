@@ -451,20 +451,21 @@ export function questPriceFloor(held: string | undefined): number {
 }
 
 /**
- * The three figures the floor is measured with (D-112).
+ * The two figures the floor is measured with (D-112).
  *
- * **All three, because the rule is about what arrives** and two different
- * deductions stand between a reward and a citizen: the platform fee on an
- * answer, and the obstacle share on a report. A floor that knew only its own
- * number would refuse the wrong quests in both directions.
+ * **Both, because the rule is about what arrives** rather than about what is
+ * promised: the platform fee stands between a reward and the citizen it reaches,
+ * and a floor that knew only its own number would refuse the wrong quests.
+ *
+ * **It carried a third until D-114 (`#752`)** — the obstacle share, because a
+ * report arrived whole and so bound the floor higher than an answer did. There
+ * is one payment now, so there is one deduction.
  */
 export interface QuestFloorTerms {
   /** The least that may reach a citizen, or `0` to turn the rule off. */
   readonly lamports: number
   /** The Colony's share of an answer, which the floor is measured after. */
   readonly feePercent: number
-  /** What share of the reward one published obstacle report is paid. */
-  readonly obstacleBonusPercent: number
 }
 
 /**
@@ -491,12 +492,9 @@ function rewardReaching(want: number, feePercent: number): number | null {
 }
 
 /**
- * The smallest reward that clears the floor for this quest (D-112, `#743`).
+ * The smallest reward that clears the floor (D-112, `#743`).
  *
- * `forAnswers` solves the platform-fee condition and `forReports` the obstacle
- * one, which takes no fee and therefore binds higher; `smallest` is the larger of
- * the two, and `null` throughout where no reward reaches a citizen at all — a
- * platform fee of 100%.
+ * `null` where no reward reaches a citizen at all — a platform fee of 100%.
  *
  * **Exported because two refusals name this figure and must not each derive it.**
  * {@link questPriceFloorRejection} names it to a sponsor whose price is too low,
@@ -504,26 +502,15 @@ function rewardReaching(want: number, feePercent: number): number | null {
  * citizen told two different smallest prices by two refusals about one rule would
  * be reading a bug, and the arithmetic is subtle enough — see
  * {@link rewardReaching} — that two derivations would eventually be two answers.
+ *
+ * **It solved two conditions and returned three numbers until D-114 (`#752`)**,
+ * because an obstacle report arrived whole and therefore bound higher than an
+ * answer — 4,000,000 against 1,333,333 at the default rates, a 3× jump the
+ * sponsor took on for a payment nobody asked for. One payment, one condition,
+ * one number; it no longer needs the quest at all, only the terms.
  */
-export function questFloorReach(
-  quest: { readonly publishObstacles?: boolean | undefined },
-  floor: QuestFloorTerms,
-): {
-  readonly forAnswers: number | null
-  readonly forReports: number | null
-  readonly smallest: number | null
-} {
-  const forAnswers = rewardReaching(floor.lamports, floor.feePercent)
-  const forReports =
-    quest.publishObstacles === true && floor.obstacleBonusPercent > 0
-      ? Math.ceil((floor.lamports * 100) / floor.obstacleBonusPercent)
-      : null
-
-  return {
-    forAnswers,
-    forReports,
-    smallest: forAnswers === null ? null : Math.max(forAnswers, forReports ?? 0),
-  }
+export function questFloorReach(floor: QuestFloorTerms): number | null {
+  return rewardReaching(floor.lamports, floor.feePercent)
 }
 
 /**
@@ -540,13 +527,13 @@ export function questFloorReach(
  * **Zero is exempt.** A quest that promises nothing promises nothing that fails
  * to arrive, and who may publish one is `#744`'s question rather than this one's.
  *
- * **Both promises are measured.** An accepted answer is paid the reward less the
- * platform fee; a published obstacle report is paid a share of the reward with
- * no fee taken ({@link questObstacleBonus}). At the default rates the second
- * binds — 4,000,000 against 1,333,333 — which is why the sentence names which
- * condition failed and offers `publishObstacles: false` as the other way
- * through. A sponsor told only *too low* at 1,400,000 raises it to 1,500,000 and
- * is refused again.
+ * **One promise is measured** (D-114, `#752`). An accepted answer is paid the
+ * reward less the platform fee, and that is the whole of what a quest pays. It
+ * measured two until then — the second being a published obstacle report, paid a
+ * share of the reward with no fee taken — and that one bound at 4,000,000
+ * against 1,333,333, so the sentence had to name which condition failed and
+ * offer `publishObstacles: false` as a second way through. Neither is needed for
+ * one condition, and `publishObstacles` no longer changes any price.
  */
 export function questPriceFloorRejection(
   quest: {
@@ -566,38 +553,19 @@ export function questPriceFloorRejection(
 
   /**
    * **The smallest reward that passes, in the sponsor's own units**, because the
-   * floor is measured on a figure the sponsor never types. Both conditions are
-   * solved and the larger binds; where the obstacle share is what binds, turning
-   * obstacle reports off is a second way through and is offered.
-   *
-   * Read first so that `forReports` decides whether a report is paid at all,
-   * rather than that condition being written twice and drifting apart.
+   * floor is measured on a figure the sponsor never types.
    */
-  const { forAnswers, forReports, smallest } = questFloorReach(quest, floor)
+  const smallest = questFloorReach(floor)
 
   const perAnswer = questPayoutSplit(quest.reward.lamports, floor.feePercent).toCitizen
-  const perReport =
-    forReports === null ? null : questObstacleBonus(quest.reward, floor.obstacleBonusPercent)
+  if (perAnswer >= floor.lamports) return undefined
 
-  const shortfalls: string[] = []
-  if (perAnswer < floor.lamports) {
-    shortfalls.push(`an accepted answer is paid ${perAnswer} once the platform fee is taken`)
-  }
-  if (perReport !== null && perReport < floor.lamports) {
-    shortfalls.push(
-      `a published obstacle report is paid ${perReport} — ${floor.obstacleBonusPercent}% of the ` +
-        'reward, which the fee is not taken from',
-    )
-  }
-  if (shortfalls.length === 0) return undefined
+  const shortfall = `an accepted answer is paid ${perAnswer} once the platform fee is taken`
 
   const passing =
     smallest === null
       ? ' At a platform fee of 100% no reward reaches a citizen at all.'
-      : ` The smallest reward that reaches it is ${smallest} lamports` +
-        (forReports !== null && forAnswers !== null && forReports > forAnswers
-          ? `, or ${forAnswers} with publishObstacles set to false.`
-          : '.')
+      : ` The smallest reward that reaches it is ${smallest} lamports.`
 
   /**
    * **Where the tier's own ceiling puts that reward out of reach**, the price is
@@ -620,7 +588,7 @@ export function questPriceFloorRejection(
 
   return (
     `a quest may not promise a citizen less than ${floor.lamports} lamports and this one does: ` +
-    `${shortfalls.join(', and ')}.${passing}${unreachable}`
+    `${shortfall}.${passing}${unreachable}`
   )
 }
 
@@ -656,7 +624,6 @@ export function questRewardRejection(
   floor: QuestFloorTerms = {
     lamports: QUEST_PRICE_FLOOR_LAMPORTS,
     feePercent: DEFAULT_PLATFORM_FEE_PERCENT,
-    obstacleBonusPercent: QUEST_OBSTACLE_BONUS_DEFAULT_PERCENT,
   },
 ): string | undefined {
   const tier = questTier(quest)
@@ -1043,137 +1010,17 @@ export function questSubmissionRejection(
  * check at submission, the escrow booking at publication, and what a sponsor is
  * shown before it commits — and a multiplication written three times is a
  * multiplication that can be written wrong once.
+ *
+ * **One multiplication and nothing else** (D-114, `#752`). It carried a second
+ * term until then — a pool of obstacle bonuses added on top — and that pool was
+ * a second price the sponsor had not asked for. It is gone, along with the
+ * `percent` parameter every caller had to thread a setting through to reach.
  */
-export function questCommitment(
-  quest: {
-    readonly reward: Partial<TaskReward> & Pick<TaskReward, 'lamports'>
-    readonly slots: number
-    readonly publishObstacles: boolean
-  },
-  percent: number = QUEST_OBSTACLE_BONUS_DEFAULT_PERCENT,
-): number {
-  return quest.reward.lamports * quest.slots + questObstacleBonusPool(quest, percent)
-}
-
-/**
- * How many obstacle reports a quest pays for (`#371`).
- *
- * **The bound in one place**, which the issue asks for, and three rather than
- * one or ten. One is a single point of failure — that citizen may have hit
- * something idiosyncratic, and a briefing built from one wall reads as the wall.
- * Ten turns the channel into an income stream and fills it with padding. By the
- * third published obstacle a briefing exists, and the cost this compensates is
- * gone: the fourth citizen reads what the first three paid for.
- */
-export const QUEST_OBSTACLE_BONUS_WINNERS = 3
-
-/**
- * What share of one answer a published obstacle report pays (`#632`).
- *
- * **A quarter, down from a half, and the change is about what is being bought.**
- * The old figure priced discovering the wall as half the work. It is not: an
- * answer is the deliverable a sponsor bought and paid a steward to review, and
- * an obstacle report is three short questions about where somebody stopped. A
- * genuinely useful one can be written in a minute by a citizen that read the
- * quest and never tried it.
- *
- * **The number a citizen would arrive at is what fixes it.** At a half, *read
- * the quest and name any obstacle* paid 0.5 for a fraction of the effort of
- * answering, which is a better trade than answering — the maintainer's own
- * observation, 2026-08-09, and the reason this issue exists. A quarter, together
- * with the attempt requirement that is the real fix, leaves filing worth doing
- * and makes filing-instead-of-answering strictly worse than answering.
- *
- * **Not lower than a quarter**, because the report is still work the next
- * citizen does not have to repeat, and a bonus small enough to ignore is a
- * channel that goes quiet — which costs the Colony the thing it was buying.
- */
-export const QUEST_OBSTACLE_BONUS_DEFAULT_PERCENT = 25
-
-/**
- * What a quest published before `#632` pays, where the column is null.
- *
- * **A half, which is what those quests were funded at.** Their sponsors were
- * shown a commitment computed at that ratio and paid an invoice against it, so
- * reading them at today's rate would be the Colony keeping the difference on a
- * settled deal — the same argument `platform_fee_percent` makes about a
- * backfill, in the direction that costs the citizen rather than the sponsor.
- */
-export const QUEST_OBSTACLE_BONUS_LEGACY_PERCENT = 50
-
-/** The setting that turns the share, for `#630`'s reason (`#632`). */
-export const QUEST_OBSTACLE_BONUS_PERCENT_SETTING = 'QUEST_OBSTACLE_BONUS_PERCENT'
-
-/**
- * The share in force, given whatever the settings hold (`#632`).
- *
- * Pure and defaulted per {@link questTierCaps}'s rule: a value that is not a
- * whole percentage is *unreadable*, and unreadable means the default rather than
- * some other number. Zero is readable and means *pay nothing* — unlike a
- * ceiling, a bonus of nothing is a coherent thing to want, and it is the state
- * a sponsor already reaches by keeping its obstacles unpublished.
- */
-export function questObstacleBonusPercent(held: string | undefined): number {
-  const raw = held?.trim()
-  if (raw === undefined || !/^(100|[1-9]?[0-9])$/.test(raw)) {
-    return QUEST_OBSTACLE_BONUS_DEFAULT_PERCENT
-  }
-
-  return Number(raw)
-}
-
-/**
- * What one published obstacle report pays its author (`#371`, `#632`).
- *
- * **A share of the per-report reward rather than of the escrow**, because the
- * escrow scales with capacity and the discovery cost does not — the first
- * citizen through pays the same price whether the sponsor bought ten answers or
- * a thousand.
- *
- * **A quest that pays nothing pays nothing here either**, which falls out of the
- * arithmetic rather than being special-cased, and is the same boundary the
- * Academy holds. A quest paying a lamport an answer has nothing to take a
- * quarter of, and inventing one would be the Colony paying for a stranger's
- * product research.
- *
- * The share is an argument (`#632`) and defaults to
- * {@link QUEST_OBSTACLE_BONUS_DEFAULT_PERCENT}. A published quest passes the
- * share it was published at, which is on its row.
- */
-export function questObstacleBonus(
-  reward: Pick<TaskReward, 'lamports'>,
-  percent: number = QUEST_OBSTACLE_BONUS_DEFAULT_PERCENT,
-): number {
-  return Math.floor((reward.lamports * percent) / 100)
-}
-
-/**
- * The whole of what a quest sets aside for obstacle reports (`#371`).
- *
- * **It is the sponsor's money, and it is added to the commitment rather than
- * taken out of it.** Taking it out of the escrow the sponsor sized for answers
- * would buy fewer answers than the sponsor asked for — *"a sponsor discovering
- * afterwards that its escrow paid for something it did not ask for"* is the
- * failure `#323` exists to prevent, and quietly spending its capacity is that
- * failure wearing a different hat. So the commitment goes up, the sponsor is
- * shown the larger figure before it commits, and capacity is untouched.
- *
- * **Zero when the sponsor kept its obstacles unpublished** (`#370`). Nothing is
- * published, so nothing is owed and nothing is held — the two decisions compose
- * without either knowing about the other's reasoning.
- *
- * Whatever is not paid out stays spent with the rest of the purchased capacity:
- * publishing is the purchase, and expiry returns nothing to the sponsor.
- */
-export function questObstacleBonusPool(
-  quest: {
-    readonly reward: Partial<TaskReward> & Pick<TaskReward, 'lamports'>
-    readonly publishObstacles: boolean
-  },
-  percent: number = QUEST_OBSTACLE_BONUS_DEFAULT_PERCENT,
-): number {
-  if (!quest.publishObstacles) return 0
-  return questObstacleBonus(quest.reward, percent) * QUEST_OBSTACLE_BONUS_WINNERS
+export function questCommitment(quest: {
+  readonly reward: Partial<TaskReward> & Pick<TaskReward, 'lamports'>
+  readonly slots: number
+}): number {
+  return quest.reward.lamports * quest.slots
 }
 
 /**
@@ -1186,25 +1033,20 @@ export function questObstacleBonusPool(
  *
  * **One function, and both the preview and the invoice read it.** That is this
  * issue's last criterion and the reason this is here rather than in the two
- * renderers: `questInvoiceLamports` and `questCommitment` already sum to the
- * same figure through `questObstacleBonusPool`, and an itemisation computed
- * separately would be a third arithmetic that agrees until it does not.
+ * renderers: `questInvoiceLamports` and `questCommitment` are the same figure by
+ * construction, and an itemisation computed separately would be a third
+ * arithmetic that agrees until it does not.
+ *
+ * **It had a second line until D-114 (`#752`)** — the obstacle pool, which the
+ * commitment carried on top of the answers. There is one price now, so there is
+ * one line, and what this itemises is a multiplication. That reads like an
+ * argument for deleting the type; it is not. The lines the sponsor reads carry
+ * the platform fee, the reach warning and the refundability rule, and those are
+ * still four facts assembled from three functions.
  */
 export interface QuestCommitmentBreakdown {
   /** Capacity times the price of one answer. */
   readonly answers: { readonly slots: number; readonly each: number; readonly total: number }
-  /**
-   * The obstacle pool, or `null` where the sponsor is not holding one.
-   *
-   * `null` rather than a zero, because the two are different facts: a sponsor
-   * that turned obstacles off made a choice, and a quest priced too low to halve
-   * has nothing to hold. Both read as *no line*, and neither reads as *0*.
-   */
-  readonly obstacles: {
-    readonly winners: number
-    readonly each: number
-    readonly total: number
-  } | null
   /** The whole of what is held while the quest runs. */
   readonly total: number
   /** What one accepted answer pays each party, at the rate in force. */
@@ -1236,18 +1078,13 @@ export function questCommitmentBreakdown(
   quest: {
     readonly reward: Partial<TaskReward> & Pick<TaskReward, 'lamports'>
     readonly slots: number
-    readonly publishObstacles: boolean
   },
   rates: {
     readonly feePercent: number
-    readonly obstaclePercent?: number
     /** The live rent-exempt minimum where a caller holds one; the fallback otherwise. */
     readonly chainMinimum?: number
   },
 ): QuestCommitmentBreakdown {
-  const obstaclePercent = rates.obstaclePercent ?? QUEST_OBSTACLE_BONUS_DEFAULT_PERCENT
-  const each = questObstacleBonus(quest.reward, obstaclePercent)
-  const pool = questObstacleBonusPool(quest, obstaclePercent)
   const split = questPayoutSplit(quest.reward.lamports, rates.feePercent)
 
   return {
@@ -1256,8 +1093,7 @@ export function questCommitmentBreakdown(
       each: quest.reward.lamports,
       total: quest.reward.lamports * quest.slots,
     },
-    obstacles: pool === 0 ? null : { winners: QUEST_OBSTACLE_BONUS_WINNERS, each, total: pool },
-    total: questCommitment(quest, obstaclePercent),
+    total: questCommitment(quest),
     perAnswer: {
       toCitizen: split.toCitizen,
       toColony: split.toTreasury,
@@ -1287,10 +1123,7 @@ export function questCommitmentBreakdown(
  * agent-facing surfaces is in. The browser converts; a caller that wants SOL has
  * `solFromLamports`.
  */
-export function questCommitmentLines(
-  breakdown: QuestCommitmentBreakdown,
-  options: { readonly publishObstacles: boolean } = { publishObstacles: true },
-): readonly string[] {
+export function questCommitmentLines(breakdown: QuestCommitmentBreakdown): readonly string[] {
   if (breakdown.total === 0) {
     return [
       'This quest pays reputation and nothing else, so nothing is held and there is no invoice.',
@@ -1302,19 +1135,6 @@ export function questCommitmentLines(
     `  ${breakdown.answers.total} — ${breakdown.answers.slots} answer(s) at ` +
       `${breakdown.answers.each}`,
   ]
-
-  if (breakdown.obstacles !== null) {
-    lines.push(
-      `  ${breakdown.obstacles.total} — obstacle reports, up to ` +
-        `${breakdown.obstacles.winners} at ${breakdown.obstacles.each}. Nobody may claim them, ` +
-        'and setting publishObstacles to false removes this line entirely',
-    )
-  } else if (!options.publishObstacles) {
-    lines.push(
-      '  nothing for obstacle reports — you set publishObstacles to false, which is what ' +
-        'removed that line',
-    )
-  }
 
   lines.push(
     `Of each answer, the citizen receives ${breakdown.perAnswer.toCitizen} and the Colony ` +
@@ -1335,34 +1155,6 @@ export function questCommitmentLines(
   if (reach !== null) lines.push(reach)
 
   return lines
-}
-
-/**
- * What the obstacle bonus costs the sponsor, said where the money is committed
- * (`#371`).
- *
- * `null` when there is nothing to say — an unpaid quest, or one whose sponsor
- * kept its obstacles to itself. The same rule every other notice here follows: a
- * sponsor that is not spending anything is not told about a charge.
- */
-export function obstacleBonusNotice(
-  quest: {
-    readonly reward: Partial<TaskReward> & Pick<TaskReward, 'lamports'>
-    readonly publishObstacles: boolean
-  },
-  percent: number = QUEST_OBSTACLE_BONUS_DEFAULT_PERCENT,
-): string | null {
-  const pool = questObstacleBonusPool(quest, percent)
-  if (pool === 0) return null
-
-  return (
-    `${pool} lamports of that is for the first ${QUEST_OBSTACLE_BONUS_WINNERS} citizens whose ` +
-    `account of what stopped them is published — ${questObstacleBonus(quest.reward, percent)} ` +
-    'lamports each, on top of the answers you are buying rather than out of them. They pay the ' +
-    'discovery cost everybody after them is spared. Nothing is paid for a report that is not ' +
-    'published, and nothing for one from a citizen that never attempted the quest. Nothing here ' +
-    'is refundable, including bonuses nobody earns.'
-  )
 }
 
 /**

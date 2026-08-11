@@ -427,9 +427,12 @@ export function questFormPage(input: {
       '<label for="keepObstaclesUnpublished"><input id="keepObstaclesUnpublished" name="keepObstaclesUnpublished" type="checkbox" value="yes"> Keep what stopped citizens to yourself</label>',
       `<p class="note">${escape(obstacleNote(false))}</p>`,
       `<p class="note">Left unticked: ${escape(obstacleNote(true))}</p>`,
-      // What it costs is stated here rather than only on the draft page, because
-      // this is the checkbox that decides whether the pool is held at all (#371).
-      '<p class="note">The first three published accounts are paid half of what one answer pays, on top of the capacity you bought rather than out of it. Nothing here is refundable, including bonuses nobody earns.</p></fieldset>',
+      // What this checkbox costs, which since D-114 (`#752`) is nothing. It
+      // held a pool of three obstacle bonuses on top of the capacity until
+      // then, and this note said so; a sponsor deciding it now is deciding one
+      // thing only, which is whether the walls found in its own quest may be
+      // published under the Colony's write-up.
+      '<p class="note">This costs you nothing either way. Published accounts are not paid for — what you are deciding is whether the walls citizens hit in your quest may be described to the ones after them, under the Colony’s own write-up and never anybody’s words.</p></fieldset>',
       `<fieldset><legend>Proof</legend><select id="proofVerifier" name="proofVerifier">${proofs}</select>`,
       `<p class="note">${escape(proofNote(null, input.caps))}</p></fieldset>`,
       '<button type="submit">Save as a draft</button>',

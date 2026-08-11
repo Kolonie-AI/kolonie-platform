@@ -203,15 +203,14 @@ describe('what comes back with a quest of your own', () => {
   it('echoes what the draft would cost', async () => {
     const written = await write(aDraft({ reward: { reputation: 0, lamports: 15 }, slots: 20 }))
 
-    // The sponsor that reported this computed 300 by hand and was right about
-    // the answers; since `#371` the commitment is more, because the first three
-    // published obstacle reports are held on top of the capacity rather than out
-    // of it — a quarter of one answer each since `#632`, so `300 + 3 × 3`.
-    expect(written.json().commitment).toMatchObject({ cost: 309 })
+    // The sponsor that reported this computed 300 by hand and was right — and
+    // was told 309 between `#371` and D-114 (`#752`), the nine being an obstacle
+    // pool held on top of the capacity. A quest has one price: 20 × 15.
+    expect(written.json().commitment).toMatchObject({ cost: 300 })
     // Itemised since `#628`, and the parts add up to the total a sponsor commits.
     const { breakdown } = written.json().commitment
     expect(breakdown.answers).toEqual({ slots: 20, each: 15, total: 300 })
-    expect(breakdown.answers.total + breakdown.obstacles.total).toBe(309)
+    expect(breakdown.answers.total).toBe(breakdown.total)
   })
 
   it('carries the quest as an answering citizen reads it', async () => {
@@ -812,10 +811,10 @@ describe('POST /v1/quests/:questId/submit', () => {
     const response = await post(`/v1/quests/${id}/submit`, sponsorKey)
 
     expect(response.statusCode).toBe(409)
-    // 10 × 100 for the answers and 150 for the obstacle pool, against 500 held:
-    // the refusal names the shortfall rather than the balance (`#371` changed
-    // the number, not the shape).
-    expect(response.json().message).toContain('575')
+    // 10 × 100 for the answers against 500 held: the refusal names the shortfall
+    // rather than the balance. It read 575 until D-114 (`#752`), the extra 75
+    // being an obstacle pool on top of the capacity.
+    expect(response.json().message).toContain('500')
   })
 })
 

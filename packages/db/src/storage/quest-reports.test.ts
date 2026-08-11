@@ -1,16 +1,10 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { eq, sql } from 'drizzle-orm'
-import { QUEST_OBSTACLE_BONUS_DEFAULT_PERCENT, type AgentId, type TaskId } from '@kolonie-ai/core'
+import type { AgentId, TaskId } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
-import { agents, payoutObligations, questReports, taskAttempts, tasks } from '../schema/index.js'
-import {
-  connectForTests,
-  databaseTestTarget,
-  expectRejection,
-  truncateAll,
-  ledgerCreditsOf,
-} from '../testing.js'
-import { oweForObstacleBonus } from './payouts.js'
+import { agents, payoutObligations, questReports, tasks } from '../schema/index.js'
+import { connectForTests, databaseTestTarget, expectRejection, truncateAll } from '../testing.js'
+import { outstandingPayouts } from './payouts.js'
 import {
   declineReasons,
   fileQuestReport,
@@ -372,12 +366,21 @@ describe('a quest report', () => {
      * hands the benefit to everybody after it. These are the tests that the
      * compensation lands and that it lands nowhere else.
      */
-    describe('what a published obstacle pays', () => {
-      const aPaidQuest = async (
-        credits: number,
-        options: { readonly publishObstacles?: boolean } = {},
-      ): Promise<{ taskId: TaskId; sponsorId: AgentId }> => {
-        const sponsorId = await anAgent(`sponsor-${credits}-${String(options.publishObstacles)}`)
+    describe('what a published obstacle no longer pays (D-114, #752)', () => {
+      /**
+       * **This block asserted a payment until D-114.** A published obstacle owed
+       * its author a quarter of an answer, capped at the first three on a quest,
+       * and the rules around it — the winners cap, the attempt gate, the legacy
+       * share on a quest published before the column existed, the sponsor that
+       * kept its obstacles — were nine tests and the largest block in this file.
+       *
+       * A quest has one price now. The report is filed, moderated, published to
+       * later citizens and read, and nothing is booked. What is left to assert
+       * is that: the channel still works end to end, and the ledger stays out of
+       * it.
+       */
+      const aPaidQuest = async (credits: number) => {
+        const sponsorId = await anAgent(`sponsor-${credits}`)
         const [row] = await db
           .insert(tasks)
           .values({
@@ -390,52 +393,19 @@ describe('a quest report', () => {
             rewardReputation: 1,
             slots: 10,
             createdBy: sponsorId,
-            ...(options.publishObstacles === undefined
-              ? {}
-              : { publishObstacles: options.publishObstacles }),
             timeoutHours: 24,
             status: 'active' as const,
-            // The share this quest was published at (`#632`). Written, because a
-            // null on a published row means *before the column existed* and is
-            // read as the legacy half — which the last test in this block is
-            // about.
-            obstacleBonusPercent: QUEST_OBSTACLE_BONUS_DEFAULT_PERCENT,
           })
           .returning({ id: tasks.id })
-        const taskId = row!.id as TaskId
 
-        // **No escrow and no sponsor balance** (`#553` phase C). The bonus is
-        // paid out of the invoice the sponsor settled in SOL, and what this
-        // test needs is a priced quest — which the insert above already is.
-
-        return { taskId, sponsorId }
-      }
-
-      /**
-       * The attempt the bonus pays for (`#632`).
-       *
-       * Every citizen in this block tried the quest and hit a wall, which is the
-       * case the bonus exists for. The one that did not is its own test at the
-       * end, because *published and unpaid* is now a real and correct outcome.
-       */
-      const anAttempt = async (taskId: TaskId, agentId: AgentId) => {
-        await db.insert(taskAttempts).values({
-          agentId,
-          taskId,
-          attempt: 1,
-          opener: 'submission',
-          outcome: 'failed',
-          openedAt: '2026-08-09T10:00:00.000Z',
-          closedAt: '2026-08-09T10:05:00.000Z',
-        })
+        return row!.id as TaskId
       }
 
       const publishAnObstacle = async (taskId: TaskId, agentId: AgentId, broke: string) => {
-        await anAttempt(taskId, agentId)
         await anObstacle(taskId, agentId, { broke })
         const queued = await unmoderatedQuestReports(db, 10)
         const mine = queued.find((row) => row.broke === broke)
-        return await recordQuestReportModeration(db, {
+        await recordQuestReportModeration(db, {
           id: mine!.id,
           decision: 'approved',
           scrubbed: broke,
@@ -443,67 +413,31 @@ describe('a quest report', () => {
         })
       }
 
-      it('pays the first three and nobody after them', async () => {
-        const { taskId } = await aPaidQuest(10)
+      it('books nothing for a published obstacle, however many are published', async () => {
+        const taskId = await aPaidQuest(20)
 
-        const paid: number[] = []
         for (const name of ['first', 'second', 'third', 'fourth']) {
           const agentId = await anAgent(`${name}-through`)
-          paid.push(await publishAnObstacle(taskId, agentId, `The ${name} wall.`))
+          await publishAnObstacle(taskId, agentId, `The ${name} wall.`)
+
+          expect(
+            await db.select().from(payoutObligations).where(eq(payoutObligations.agentId, agentId)),
+          ).toEqual([])
         }
-
-        // A quarter of what one answer pays — `floor(10 × 25 / 100)` — to each
-        // of the first three (`#632`). The fourth citizen reads what the first
-        // three paid for, so the cost this compensates is gone.
-        expect(paid).toEqual([2, 2, 2, 0])
-      })
-
-      it('owes the author a quarter of what an answer pays', async () => {
-        const { taskId } = await aPaidQuest(20)
-        const agentId = await anAgent('first-through-alone')
-
-        await publishAnObstacle(taskId, agentId, 'The archive needs an account.')
-
-        const [owed] = await db
-          .select()
-          .from(payoutObligations)
-          .where(eq(payoutObligations.agentId, agentId))
-
-        expect(owed?.kind).toBe('obstacle-bonus')
-        expect(owed?.lamports).toBe(5)
-        expect(owed?.taskId).toBe(taskId)
-        // A bonus has no submission — the second uniqueness rule carries that job.
-        expect(owed?.submissionId).toBeNull()
       })
 
       /**
-       * **The rejection case `#632` is about.** The report is filed, moderated
-       * and published exactly as any other, and it pays nothing — the bonus is
-       * for a citizen that tried and hit a wall, and this one only read.
+       * **The half that must not be lost.** The bonus is gone; the channel is
+       * not. A report is still filed, still moderated, still published, and
+       * still reaches the citizens who come after — which is what `#367` bought
+       * and what `#752` explicitly keeps.
        */
-      it('pays nothing for a published obstacle from a citizen that never attempted', async () => {
-        const { taskId } = await aPaidQuest(20)
+      it('publishes the obstacle to later citizens all the same', async () => {
+        const taskId = await aPaidQuest(20)
         const agentId = await anAgent('read-it-and-noticed')
 
-        await anObstacle(taskId, agentId, { broke: 'Nobody whose mailbox cannot send can start.' })
-        const queued = await unmoderatedQuestReports(db, 10)
-        const mine = queued.find((row) => row.broke?.startsWith('Nobody whose'))
-        const paid = await recordQuestReportModeration(db, {
-          id: mine!.id,
-          decision: 'approved',
-          scrubbed: 'Nobody whose mailbox cannot send can start.',
-          publishedObstacle: 'Nobody whose mailbox cannot send can start.',
-        })
+        await publishAnObstacle(taskId, agentId, 'Nobody whose mailbox cannot send can start.')
 
-        expect(paid).toBe(0)
-
-        const owed = await db
-          .select()
-          .from(payoutObligations)
-          .where(eq(payoutObligations.agentId, agentId))
-        expect(owed).toEqual([])
-
-        // Published all the same: the report is welcome, it is simply not work.
         const corpus = await questObstacleCorpus(db, taskId)
         expect(corpus.map((source) => source.content)).toContain(
           'Nobody whose mailbox cannot send can start.',
@@ -511,26 +445,14 @@ describe('a quest report', () => {
       })
 
       /**
-       * A quest published before the column existed was funded at a half, and is
-       * paid at a half. Reading it at today's quarter would be the Colony
-       * keeping the difference on a deal that was already struck.
+       * **No attempt is asked for, because nothing turns on the answer.** An
+       * obstacle from a citizen that only read the quest was welcome and unpaid,
+       * and `fileQuestReport` said so at the moment of filing. There is nothing
+       * to say now, and the report is filed on exactly the same terms.
        */
-      it('pays a legacy quest at the share it was funded at', async () => {
-        const { taskId } = await aPaidQuest(20)
-        await db.update(tasks).set({ obstacleBonusPercent: null }).where(eq(tasks.id, taskId))
-
-        const agentId = await anAgent('answered-a-legacy-quest')
-        const paid = await publishAnObstacle(taskId, agentId, 'The old wall.')
-
-        expect(paid).toBe(10)
-      })
-
-      /** And the author is told, at the moment it files, rather than by silence. */
-      it('tells an author with no attempt that the report is welcome and unpaid', async () => {
-        const { taskId } = await aPaidQuest(20)
+      it('says nothing to an author about a bonus, whether or not it attempted', async () => {
+        const taskId = await aPaidQuest(20)
         const readOnly = await anAgent('filed-without-trying')
-        const tried = await anAgent('filed-after-trying')
-        await anAttempt(taskId, tried)
 
         expect(
           await fileQuestReport(db, {
@@ -539,99 +461,28 @@ describe('a quest report', () => {
             kind: 'obstacle',
             broke: 'I could not start.',
           }),
-        ).toMatchObject({ outcome: 'filed', earnsBonus: false })
-
-        expect(
-          await fileQuestReport(db, {
-            taskId,
-            agentId: tried,
-            kind: 'obstacle',
-            broke: 'I got as far as the form.',
-          }),
-        ).toMatchObject({ outcome: 'filed', earnsBonus: true })
-      })
-
-      /** The rejection case: moderation refused it, so it bought nobody anything. */
-      it('pays nothing for a report moderation rejected', async () => {
-        const { taskId } = await aPaidQuest(10)
-        const agentId = await anAgent('refused-report')
-        await anObstacle(taskId, agentId, { broke: 'I stopped because of the answer.' })
-        const [queued] = await unmoderatedQuestReports(db, 10)
-
-        const paid = await recordQuestReportModeration(db, {
-          id: queued!.id,
-          decision: 'rejected',
-        })
-
-        expect(paid).toBe(0)
-        expect(await ledgerCreditsOf(db, agentId)).toBe(0)
-      })
-
-      /** And nothing for one the stage approved but did not publish. */
-      it('pays nothing when the obstacle itself was withheld', async () => {
-        const { taskId } = await aPaidQuest(10)
-        const agentId = await anAgent('approved-but-unpublished')
-        await anObstacle(taskId, agentId, {
-          did: 'Read both and compared them.',
-          broke: 'Stopped once I had decided the answer.',
-        })
-        const [queued] = await unmoderatedQuestReports(db, 10)
-
-        const paid = await recordQuestReportModeration(db, {
-          id: queued!.id,
-          decision: 'approved',
-          scrubbed: 'Read both and compared them.',
-        })
-
-        expect(paid).toBe(0)
-      })
-
-      /** A sponsor that publishes nothing owes nothing, and held no pool (`#370`). */
-      it('pays nothing on a quest whose sponsor kept its obstacles', async () => {
-        const { taskId } = await aPaidQuest(10, { publishObstacles: false })
-        const agentId = await anAgent('stopped-privately')
-
-        const paid = await publishAnObstacle(taskId, agentId, 'The archive needs an account.')
-
-        expect(paid).toBe(0)
-      })
-
-      it('pays nothing on a quest whose answers pay too little to halve', async () => {
-        const { taskId } = await aPaidQuest(1)
-        const agentId = await anAgent('one-credit-quest')
-
-        expect(await publishAnObstacle(taskId, agentId, 'The archive needs an account.')).toBe(0)
+        ).toEqual({ outcome: 'filed', replaced: false })
       })
 
       /**
-       * **The boundary `#371` asks to be asserted rather than assumed.** On an
-       * Academy rung a report pays nothing and never will: a rung is the
-       * Colony's own work and it can afford to ask for the account of it as a
-       * gift.
+       * **What was accrued under the old rule is still owed** — the one thing
+       * `#752` says must not be swept up with the rest. Nothing writes an
+       * `obstacle-bonus` row any more, so this writes one directly and asserts
+       * that the payout path still reads it.
        */
-      it('pays nothing on an Academy rung, which is a different kind of work', async () => {
-        const taskId = await aQuest('academy')
-        const agentId = await anAgent('rung-reporter')
+      it('leaves an obligation accrued under the old rule owed and payable', async () => {
+        const taskId = await aPaidQuest(20)
+        const agentId = await anAgent('earned-it-under-the-old-rule')
 
-        // Twice over, and the first is the stronger of the two: an obstacle
-        // report cannot be filed against a rung at all — `fileQuestReport` reads
-        // `tasks` with `kind = 'quest'` and answers `unknown-quest`.
+        await db
+          .insert(payoutObligations)
+          .values({ agentId, taskId, kind: 'obstacle-bonus', lamports: 375_000 })
+
         expect(
-          (await anObstacle(taskId, agentId, { broke: 'The page would not load.' })).outcome,
-        ).toBe('unknown-quest')
-
-        // And if one ever reached the payment path anyway, it is refused there
-        // too. This is the assertion `#371` asks for by name: a report costs
-        // nothing and earns nothing on an Academy rung.
-        const owed = await db.transaction(
-          async (tx) => await oweForObstacleBonus(tx, { taskId, agentId, lamports: 5 }),
-        )
-
-        // It is refused before this, by the caller's three conditions — and if
-        // one ever reached here anyway, the amount is still what it is worth,
-        // which is why the assertion that matters is the one above about the
-        // Academy rung never getting this far.
-        expect(owed).toBe(5)
+          (await outstandingPayouts(db, 200)).some(
+            (owed) => owed.agentId === agentId && owed.lamports === 375_000,
+          ),
+        ).toBe(true)
       })
     })
 

@@ -2784,7 +2784,6 @@ function registerSponsorPages(
                       questCommitment({
                         reward: quest.task.reward,
                         slots: quest.task.slots ?? 0,
-                        publishObstacles: quest.task.publishObstacles ?? false,
                       }),
                     )} SOL`,
               yours: author.name === 'You',

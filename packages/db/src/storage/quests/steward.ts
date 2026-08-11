@@ -6,7 +6,6 @@ import {
   StoredQuestQuestionsSchema,
   paidQuestRejection,
   platformFeePercentFromEnv,
-  QUEST_OBSTACLE_BONUS_DEFAULT_PERCENT,
   questInvoiceLamports,
   questNeedsInvoice,
   now,
@@ -138,19 +137,6 @@ export async function publishQuest(
      * asks, exactly as `banSalt` does in `eraseAgent`.
      */
     readonly audit: QuestAuditPolicy
-    /**
-     * What share of an answer a published obstacle report pays, in force now
-     * (`#632`).
-     *
-     * **Passed rather than read here**, for `audit`'s reason one field up: this
-     * module holds no configuration and reaches no settings table. The caller
-     * that assembled the desk has the reader.
-     *
-     * Optional, and absent means the default — a caller from before this
-     * existed publishes at the figure `governance/quests.md` names, which is
-     * what it did anyway.
-     */
-    readonly obstacleBonusPercent?: number | undefined
   },
 ): Promise<QuestPublishOutcome> {
   return await db.transaction(async (tx) => {
@@ -259,24 +245,18 @@ export async function publishQuest(
      * computed from `reward_lamports` alone.
      */
     /**
-     * The share this quest is being published at, frozen here (`#632`).
-     *
-     * **The invoice and the column are computed from one number in one place**,
-     * which is what makes *the commitment and the payout cannot disagree* a
-     * property rather than a hope: the sponsor is invoiced for a pool at this
-     * figure and `decideQuestReport` reads it back off the row.
+     * **`obstacle_bonus_percent` is no longer frozen here** (D-114, `#752`). The
+     * column stays and every published row keeps the figure it was written with,
+     * because those sponsors were invoiced for a pool at that rate and the
+     * citizens who filed under it were promised a share of it. A quest published
+     * from now on holds no pool, so there is no rate to record and the column is
+     * left null — which is the honest answer rather than a zero that would read
+     * as a rate somebody chose.
      */
-    const obstacleBonusPercent =
-      command.obstacleBonusPercent ?? QUEST_OBSTACLE_BONUS_DEFAULT_PERCENT
-
-    const invoiceLamports = questInvoiceLamports(
-      {
-        reward: { lamports: row.rewardLamports ?? 0 },
-        slots: capacity,
-        publishObstacles: row.publishObstacles,
-      },
-      obstacleBonusPercent,
-    )
+    const invoiceLamports = questInvoiceLamports({
+      reward: { lamports: row.rewardLamports ?? 0 },
+      slots: capacity,
+    })
 
     if (questNeedsInvoice(invoiceLamports)) {
       await tx
@@ -289,7 +269,6 @@ export async function publishQuest(
           // The rate in force, written at the same moment and for the same
           // reason as on the credits path: this is when the deal is struck.
           platformFeePercent: platformFeePercentFromEnv(),
-          obstacleBonusPercent,
         })
         .where(eq(tasks.id, command.taskId))
 
@@ -338,16 +317,6 @@ export async function publishQuest(
          * different value for.
          */
         platformFeePercent: platformFeePercentFromEnv(),
-        /**
-         * And the obstacle share, on this path too (`#632`).
-         *
-         * A quest reaching here pays nothing per answer, so its pool is zero and
-         * the figure buys nothing today. It is written anyway: a null on a
-         * published row would read as *published before the column existed*,
-         * which for this quest is false, and the legacy fallback would then
-         * answer a half about a quest published under a quarter.
-         */
-        obstacleBonusPercent,
       })
       .where(eq(tasks.id, command.taskId))
 

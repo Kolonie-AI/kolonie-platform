@@ -18,14 +18,12 @@ import {
   pendingQuestModerations,
   pendingReports,
   publishQuest,
-  questObstacleBonusPercentInDatabase,
   questsBySameSponsor,
   questsClearedForPublication,
   readTaskText,
   recordModeration,
   recordProviderChange,
   recordQuestModeration,
-  settingsReader,
   writeScrubbedAnswers,
   staleBriefings,
   writeBriefing,
@@ -196,22 +194,22 @@ const store: ModerationStore = {
 }
 
 /**
- * The audit brake and the obstacle share, read here (`#693`).
+ * The audit brake, read here (`#693`).
  *
  * **This process publishes quests now, so it carries what publishing needs.**
- * Both were the API's because the API was the only caller of `publishQuest`;
- * neither is a decision this runner makes. `questAuditPolicy` reads the
- * deployment's two variables and defaults to *off*, which refuses to publish
- * paid work rather than publishing it unguarded — a runner started without
+ * It was the API's because the API was the only caller of `publishQuest`; it is
+ * not a decision this runner makes. `questAuditPolicy` reads the deployment's
+ * two variables and defaults to *off*, which refuses to publish paid work
+ * rather than publishing it unguarded — a runner started without
  * `QUEST_AUDIT_ENABLED` behaves like an API started without it, which is the
  * property that matters when the two are wired by the same compose file.
  *
- * The settings reader is this process's one reader, on the API's terms: two
- * would be two answers to *what is the obstacle share* for as long as the caches
- * disagree.
+ * **The obstacle share stood beside it until D-114 (`#752`)**, read from a
+ * settings reader this process kept for that one question and frozen onto the
+ * row at publication. A quest has one price, nothing is frozen, and the reader
+ * went with it.
  */
 const questAudit = questAuditPolicy()
-const settings = settingsReader(db)
 
 /**
  * The quest stage (`#176`, `#693`), on its own faster poll.
@@ -235,9 +233,6 @@ const questStore: QuestModerationStore = {
       taskId,
       at: now(),
       audit: questAudit,
-      // Frozen onto the row at publication and read back at every payout
-      // (`#632`), exactly as the quest desk does it.
-      obstacleBonusPercent: await questObstacleBonusPercentInDatabase(settings),
     }),
 }
 

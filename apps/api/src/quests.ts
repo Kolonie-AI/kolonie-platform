@@ -4,7 +4,6 @@ import {
   QUEST_AUDIT_OFF,
   QUEST_ENDING_REASON_MAX_LENGTH,
   QUEST_REFUSAL_MIN_LENGTH,
-  QUEST_OBSTACLE_BONUS_DEFAULT_PERCENT,
   QUEST_PRICE_FLOOR_LAMPORTS,
   QUEST_TIER_CAPS_LAMPORTS,
   QuestDraftSchema,
@@ -69,7 +68,6 @@ import {
   tasksWithoutReports as tasksWithoutReportsInDatabase,
   briefingEffect as briefingEffectInDatabase,
   recordAuditDecision as recordAuditDecisionInDatabase,
-  questObstacleBonusPercentInDatabase,
   questPriceFloorInDatabase,
   questTierCapsInDatabase,
   readOwnQuest as readOwnQuestInDatabase,
@@ -149,16 +147,6 @@ export interface QuestDesk {
    * the moment a quest is priced instead of when the process started.
    */
   tierCaps?(): Promise<Readonly<Record<QuestTier, number>>>
-  /**
-   * What share of an answer a published obstacle report pays, right now
-   * (`#632`).
-   *
-   * Optional and defaulted exactly as `tierCaps` above. It is read at two
-   * moments and they are different questions: here, so a sponsor previewing a
-   * draft is shown the pool it *would* commit; and at publication, where the
-   * figure is frozen onto the row and stops being a setting at all.
-   */
-  obstacleBonusPercent?(): Promise<number>
   /**
    * The least a quest may promise a citizen, right now — D-112, `#743`.
    *
@@ -385,7 +373,6 @@ export function databaseQuests(
       ? {}
       : {
           tierCaps: () => questTierCapsInDatabase(settings),
-          obstacleBonusPercent: () => questObstacleBonusPercentInDatabase(settings),
           priceFloor: () => questPriceFloorInDatabase(settings),
         }),
     create: (input) =>
@@ -444,10 +431,7 @@ export async function fileQuestReport(
   agentId: AgentId,
   input: unknown,
   desk: QuestDesk,
-): Promise<
-  | { readonly filed: true; readonly replaced: boolean; readonly notice?: string }
-  | { readonly error: ApiError }
-> {
+): Promise<{ readonly filed: true; readonly replaced: boolean } | { readonly error: ApiError }> {
   const parsed = QuestReportSchema.safeParse(input)
   if (!parsed.success) {
     return {
@@ -487,28 +471,13 @@ export async function fileQuestReport(
   }
 
   /**
-   * **What an unpaid obstacle report is told, at the moment it is filed**
-   * (`#632`).
-   *
-   * The bonus pays a citizen that tried and hit a wall. A citizen that read the
-   * quest and noticed something may still file — that report is often the most
-   * useful kind, because it is the one that says *nobody like me can even
-   * start* — and it is not paid. Saying so here is the difference between a
-   * rule and the Colony appearing to have lost a payment.
-   *
-   * **One sentence and no instruction to go and attempt one.** Telling a citizen
-   * how to qualify for a payment is telling it to open a quest it has already
-   * decided not to do, and an attempt opened for a bonus is worth less than the
-   * report it came with.
+   * **Nothing is said about a bonus any more** (D-114, `#752`). A report told
+   * its author whether it would earn one, because an obstacle from a citizen
+   * that had never attempted the quest was welcome and unpaid, and finding that
+   * out from a payment that never arrived was the wrong way to learn it. No
+   * report is paid now, so there is nothing to withhold and nothing to explain.
    */
-  const notice = result.earnsBonus
-    ? undefined
-    : 'Filed, and it is read on the same terms as any other. It does not earn the obstacle ' +
-      'bonus: that pays a citizen that attempted this quest and hit a wall, and the Colony ' +
-      'has no attempt of yours on it. What you have said is still moderated, still published ' +
-      'if it is good, and still reaches the sponsor.'
-
-  return { filed: true, replaced: result.replaced, ...(notice === undefined ? {} : { notice }) }
+  return { filed: true, replaced: result.replaced }
 }
 
 /**
@@ -682,7 +651,6 @@ const respond = (
   quest: OwnQuest,
   audience?: QuestAudience,
   walletAddress?: string,
-  obstacleBonusPercent: number = QUEST_OBSTACLE_BONUS_DEFAULT_PERCENT,
 ): OwnQuestResponse => {
   /**
    * **Itemised as well as totalled** (`#628`). The sponsor was shown one figure
@@ -693,13 +661,11 @@ const respond = (
   const priced = {
     reward: quest.task.reward,
     slots: quest.task.slots ?? 0,
-    publishObstacles: quest.task.publishObstacles,
   }
   const breakdown = questCommitmentBreakdown(priced, {
     // The rate a draft *would* be published under: nothing has recorded one yet,
     // and `tasks.platform_fee_percent` is written at publication.
     feePercent: quest.task.platformFeePercent ?? platformFeePercentFromEnv(),
-    obstaclePercent: obstacleBonusPercent,
   })
   const cost = breakdown.total
 
@@ -711,9 +677,7 @@ const respond = (
       cost,
       breakdown,
       /** The same thing as a person reads it, so no surface writes its own. */
-      lines: questCommitmentLines(breakdown, {
-        publishObstacles: quest.task.publishObstacles,
-      }),
+      lines: questCommitmentLines(breakdown),
     },
     /**
      * Rendered with the citizen's own renderer, called as it is called for a
@@ -785,14 +749,8 @@ const audienceOf = async (task: Task, desk: QuestDesk): Promise<QuestAudience> =
 const responding = async (quest: OwnQuest, desk: QuestDesk): Promise<OwnQuestResponse> => {
   const audience = await audienceOf(quest.task, desk)
 
-  return respond(quest, audience, desk.walletAddress, await obstacleShareOf(desk))
+  return respond(quest, audience, desk.walletAddress)
 }
-
-/** The share in force, or the constant where a desk does not carry it (`#632`). */
-const obstacleShareOf = async (desk: QuestDesk): Promise<number> =>
-  desk.obstacleBonusPercent === undefined
-    ? QUEST_OBSTACLE_BONUS_DEFAULT_PERCENT
-    : await desk.obstacleBonusPercent()
 
 /**
  * The ceilings in force, or the constants where a desk does not carry them.
@@ -806,9 +764,9 @@ const capsOf = async (desk: QuestDesk): Promise<Readonly<Record<QuestTier, numbe
 /**
  * The floor in force and the two rates it is measured against (D-112, `#743`).
  *
- * One reader for `capsOf`'s reason, and it assembles all three figures because
- * the floor is a statement about what arrives: the fee decides what an answer is
- * paid, and the obstacle share decides what a report is.
+ * One reader for `capsOf`'s reason, and it assembles both figures because the
+ * floor is a statement about what arrives: the fee decides what an accepted
+ * answer is paid, and that is the whole of what a quest pays (D-114, `#752`).
  *
  * **The fee is the rate a draft *would* be published under**, which is what
  * `respond` above already uses for the sponsor's preview. A published quest
@@ -818,7 +776,6 @@ const capsOf = async (desk: QuestDesk): Promise<Readonly<Record<QuestTier, numbe
 const floorOf = async (desk: QuestDesk, feePercent?: number): Promise<QuestFloorTerms> => ({
   lamports: desk.priceFloor === undefined ? QUEST_PRICE_FLOOR_LAMPORTS : await desk.priceFloor(),
   feePercent: feePercent ?? platformFeePercentFromEnv(),
-  obstacleBonusPercent: await obstacleShareOf(desk),
 })
 
 /**
@@ -863,7 +820,7 @@ const unpaidQuestRejection = (
   if (quest.reward.lamports > 0 || floor.lamports <= 0) return undefined
   if (roles.includes('steward')) return undefined
 
-  const { smallest } = questFloorReach(quest, floor)
+  const smallest = questFloorReach(floor)
 
   return (
     "a quest that pays no lamports is the Colony's own to publish, and a citizen publishing one " +

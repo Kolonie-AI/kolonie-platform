@@ -339,15 +339,22 @@ export const tasks = pgTable(
      * payout can simply disagree, which is what `#632` asks to be made
      * impossible.
      *
-     * **`null` means a half**, which is what every quest published before this
-     * column existed was funded at. Not today's default: those sponsors paid an
-     * invoice sized at a half, and reading them at a quarter would be the Colony
-     * keeping the difference on a settled deal. `QUEST_OBSTACLE_BONUS_LEGACY_PERCENT`
-     * is that number and says so.
+     * **Historic, and read by nothing** (D-114, `#752`). A quest has one price
+     * now: an obstacle report is filed, moderated and published without being
+     * paid for, so no row written from here on carries a share and the column is
+     * left null.
      *
-     * Not defaulted, for the same reason the fee is not: a default would apply
-     * the share to any row written without one, which is precisely the write
-     * this column exists to make deliberate.
+     * **It is kept rather than dropped, and that is the point of it.** The rows
+     * that hold a figure record what was actually promised to the citizens who
+     * filed under the old rule, and D-106 does not let the Colony rewrite that
+     * after the fact. Obligations accrued against those quests are still owed
+     * and still paid. Dropping the column would delete the only record of what
+     * each of those deals was struck at.
+     *
+     * `null` meant *a half* while anything still read this — the rate every
+     * quest published before the column existed was funded at, rather than
+     * today's default, because those sponsors paid an invoice sized at a half.
+     * Nothing reads it now, so a null is simply *no pool*.
      */
     obstacleBonusPercent: integer('obstacle_bonus_percent'),
 

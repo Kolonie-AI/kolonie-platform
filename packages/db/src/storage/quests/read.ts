@@ -1,10 +1,8 @@
 import { and, asc, desc, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm'
 import {
-  QUEST_OBSTACLE_BONUS_PERCENT_SETTING,
   QUEST_PRICE_FLOOR_SETTING,
   QUEST_TIER_CAP_SETTINGS,
   StoredQuestQuestionsSchema,
-  questObstacleBonusPercent,
   questPriceFloor,
   questTierCaps,
   type AgentId,
@@ -61,20 +59,6 @@ export async function questTierCapsInDatabase(
  */
 export async function questPriceFloorInDatabase(settings: SettingsReader): Promise<number> {
   return questPriceFloor(await settings.read(QUEST_PRICE_FLOOR_SETTING))
-}
-
-/**
- * What share of an answer a published obstacle report pays, right now (`#632`).
- *
- * **Read at the point of use, and used at exactly two of them**: the preview a
- * sponsor sees before it commits, and the moment a steward publishes — where it
- * is written onto the row and stops being a setting. Nothing downstream reads it
- * again, which is what makes a change safe to make while quests are running.
- */
-export async function questObstacleBonusPercentInDatabase(
-  settings: SettingsReader,
-): Promise<number> {
-  return questObstacleBonusPercent(await settings.read(QUEST_OBSTACLE_BONUS_PERCENT_SETTING))
 }
 
 /** The quest as the `quest-report` verifier needs it (`#177`). */

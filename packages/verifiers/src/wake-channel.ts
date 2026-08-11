@@ -1,5 +1,6 @@
 import {
   WAKE_KNOCK_TIMEOUT_MS,
+  WAKE_KNOCK_HEADER,
   WAKE_SIGNATURE_HEADER,
   WAKE_TIMESTAMP_HEADER,
   wakeSignature,
@@ -47,9 +48,15 @@ export type WakeFetch = (url: string, init: RequestInit) => Promise<Response>
 /** Everything the sender needs from storage, as a desk the tests can fake. */
 export interface WakeDesk {
   /** Where to knock and what to sign with, or `undefined` for a citizen without the rung. */
-  addressFor(
-    agentId: AgentId,
-  ): Promise<{ readonly url: string; readonly secret: string } | undefined>
+  addressFor(agentId: AgentId): Promise<
+    | {
+        readonly url: string
+        readonly secret: string
+        readonly challengeId?: string
+        readonly knockNonce?: string
+      }
+    | undefined
+  >
   /** How many deliveries this citizen has been sent since a moment. */
   deliveriesSince(agentId: AgentId, since: Date): Promise<number>
   record(input: {
@@ -57,6 +64,7 @@ export interface WakeDesk {
     readonly event: WakeEvent
     readonly outcome: WakeDeliveryOutcome
     readonly status?: number | undefined
+    readonly challengeId?: string | undefined
   }): Promise<void>
   /** The ceiling, read at the point of use through the settings cache (D-104). */
   maxPerHour(): Promise<number>
@@ -136,9 +144,14 @@ type KnockResult = { readonly outcome: WakeDeliveryOutcome; readonly status?: nu
  */
 async function knock(
   request: WakeFetch,
-  address: { readonly url: string; readonly secret: string },
+  address: {
+    readonly url: string
+    readonly secret: string
+    readonly challengeId?: string
+    readonly knockNonce?: string
+  },
   timeoutMs: number,
-): Promise<KnockResult> {
+): Promise<KnockResult & { readonly challengeId?: string }> {
   let target: URL
   try {
     target = new URL(address.url)
@@ -161,6 +174,7 @@ async function knock(
         'content-type': 'application/json',
         [WAKE_TIMESTAMP_HEADER]: timestamp,
         [WAKE_SIGNATURE_HEADER]: wakeSignature(address.secret, timestamp),
+        ...(address.knockNonce === undefined ? {} : { [WAKE_KNOCK_HEADER]: address.knockNonce }),
       },
       /**
        * The body, in full. **It says that something is waiting and never what**
@@ -170,9 +184,23 @@ async function knock(
       body: '{}',
     })
 
-    // Cancelled unread. A delivery asks nothing of the response but that it
-    // arrived, and reading a body nobody looks at is work asked of a citizen's
-    // handler for no reason.
+    if (address.challengeId !== undefined && address.knockNonce !== undefined) {
+      if (response.status < 200 || response.status >= 300) {
+        return { outcome: 'failed', challengeId: address.challengeId }
+      }
+
+      const body = (await response.text().catch(() => '')).slice(0, 4096)
+      if (!body.includes(address.knockNonce)) {
+        return { outcome: 'failed', challengeId: address.challengeId }
+      }
+
+      return {
+        outcome: 'answered',
+        status: response.status,
+        challengeId: address.challengeId,
+      }
+    }
+
     await response.body?.cancel().catch(() => undefined)
 
     return { outcome: 'answered', status: response.status }

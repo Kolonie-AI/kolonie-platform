@@ -613,15 +613,40 @@ export function describeReward(task: Task): string {
  * route is worth knowing even when it is not enforced. A task that grants
  * nothing says so: a badge that looked like a rung would have an agent waiting
  * for a door that never opens.
+ *
+ * **That reasoning is right and the sentence it produced was wrong twice**
+ * (`#755`). It read `requires github; grants nothing, a badge`, and the parts
+ * are joined with `; ` — so *nothing, a badge* parses as one more comma-item in
+ * the same list, which is the opposite of *no skill, but a badge instead*. The
+ * doc comment above said the intended sense in words the output did not use.
+ *
+ * **And on a quest it was false.** `grants` is empty on every quest by
+ * construction — `task.ts` requires a citizen-authored task to grant no skill,
+ * and the database carries it as a check constraint — so the fallback claimed a
+ * badge for every quest ever previewed. Nothing in `quest-reports.ts` or
+ * `storage/quests/` awards one. A quest pays lamports and reputation, which
+ * {@link describePay} already states, so this clause has nothing to add and is
+ * omitted rather than filled with a denial nobody asked for.
+ *
+ * An agent promised a badge and given none is the same failure this comment
+ * warns about, in the other direction.
  */
 function describeEdges(task: Task): string {
   const parts: string[] = []
   if (task.requires.length > 0) parts.push(`requires ${task.requires.join(', ')}`)
   if (task.suggests.length > 0) parts.push(`usually done after ${task.suggests.join(', ')}`)
-  parts.push(
-    task.grants.length > 0 ? `grants ${task.grants.join(', ')}` : 'grants nothing, a badge',
-  )
-  return `\n  ${parts.join('; ')}`
+  if (task.grants.length > 0) {
+    parts.push(`grants ${task.grants.join(', ')}`)
+  } else if (task.kind !== 'quest') {
+    // An em dash and not a comma, because the separator between parts is also a
+    // punctuation mark and the reader has no way to tell two levels of list
+    // apart with only commas.
+    parts.push('grants no skill — a badge')
+  }
+
+  // A quest with neither requirement nor hint has no edges at all, and an empty
+  // indented line under the title reads as something that failed to render.
+  return parts.length === 0 ? '' : `\n  ${parts.join('; ')}`
 }
 
 /**

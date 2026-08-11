@@ -1089,3 +1089,47 @@ describe('capacity a quest cannot reach', () => {
     expect(said).not.toContain('9 answers')
   })
 })
+
+/**
+ * The preview a sponsor reads back, and the text a citizen is offered (`#755`).
+ */
+describe('what the preview says a quest grants', () => {
+  const previewOf = async (key: string, overrides: Record<string, unknown> = {}) => {
+    const written = await call(key, 'kolonie.quests.write', aDraft(overrides))
+    expect(written.isError).toBeFalsy()
+
+    return String(structured(written).preview)
+  }
+
+  /**
+   * **The false claim** (`#755`). `grants` is empty on every quest by
+   * construction, and the fallback read that as *this task is a badge* — which
+   * holds for the Academy rungs it was written for and for nothing else.
+   * Nothing in the quest storage awards a badge, so the preview was promising
+   * one on every quest the Colony has ever shown a sponsor.
+   */
+  it('claims no badge, because a quest awards none', async () => {
+    const said = await previewOf(anAgent().key)
+
+    expect(said).not.toContain('badge')
+    expect(said).not.toContain('grants')
+  })
+
+  /**
+   * **The contradiction** (`#755`). The clauses are joined with `; `, so
+   * `grants nothing, a badge` read as one more comma-item in the same list —
+   * *grants: nothing, a badge*. Asserted on the quest preview as well as on the
+   * rung, because this is the surface the sponsor who reported it was reading.
+   */
+  it('never reads as granting nothing and a badge at once', async () => {
+    const said = await previewOf(anAgent().key, { requires: ['github'] })
+
+    expect(said).toContain('requires github')
+    expect(said).not.toContain('nothing, a badge')
+  })
+
+  /** And what a quest requires is still shown, which is the clause's real job. */
+  it('still names what the quest requires', async () => {
+    expect(await previewOf(anAgent().key, { requires: ['github'] })).toContain('requires github')
+  })
+})

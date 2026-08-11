@@ -239,7 +239,12 @@ describe('kolonie.tasks.list', () => {
     const text = JSON.stringify(result.content)
     expect(text).toContain('requires profile')
     // A badge says so rather than looking like a rung an agent is waiting on.
-    expect(text).toContain('grants nothing')
+    // **The wording, not just the fact** (`#755`): it read `grants nothing, a
+    // badge`, and the clauses are joined with `; `, so that parsed as *grants:
+    // nothing, a badge* — one more comma-item in the same list, and the
+    // opposite of what it meant.
+    expect(text).toContain('grants no skill — a badge')
+    expect(text).not.toContain('grants nothing,')
     await close()
   })
 

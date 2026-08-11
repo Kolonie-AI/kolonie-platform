@@ -63,10 +63,12 @@ export const UNSPECIFIED_EVENT = 'unspecified'
 /** An error as JSON, rather than as whatever Node's inspector prints. */
 export interface SerialisedError {
   readonly name: string
-  readonly message: string
-  readonly stack?: string
   readonly code?: string
+  /** Bounded — see {@link ERROR_MESSAGE_MAX_LENGTH}. The whole of it is on `stack`. */
+  readonly message: string
   readonly cause?: SerialisedError
+  /** The outermost error only. See {@link serialiseError}. */
+  readonly stack?: string
 }
 
 const REDACTED_HOST = '[configured-host]'
@@ -94,7 +96,34 @@ export function redactConfiguredHosts(
 }
 
 /**
- * An error flattened to three strings, on one line.
+ * How much of one error's message survives (`#747`).
+ *
+ * **A message is a sentence about what went wrong, and a few libraries put a
+ * document there instead.** Drizzle throws `Failed query: <the entire SQL>`, so
+ * an authentication read — six columns, two joins — arrives as a `message`
+ * several hundred characters long that says the same thing its first line says.
+ *
+ * That is not a cosmetic problem, because **a log line is read through
+ * windows**. `apps/support-triage-runner` files one issue per error signature
+ * from a 400-character sample, and on `api/mcp.tool.threw` the sample ended
+ * mid-column-list: the `cause`, which is the only part that says *why*, never
+ * appeared. The model judging it wrote *"the exact cause … is not clear from
+ * this single log line"* on `#729` and again on `#747`, 145 lines apart. Both
+ * times the detector was right and the log line was at fault.
+ *
+ * **Nothing is lost by cutting it.** `stack` begins with `Name: message` in
+ * full, and `stack` is still here — the truncation moves the long text behind
+ * the diagnosis rather than deleting it.
+ *
+ * 240 leaves room, inside that 400-character window, for the outer error's name
+ * and code and for the first cause's name, code and message — which together are
+ * what a person needs to know whether they are looking at a connection reset, a
+ * statement timeout or a constraint.
+ */
+export const ERROR_MESSAGE_MAX_LENGTH = 240
+
+/**
+ * An error flattened to a few strings, on one line.
  *
  * **Serialised, not inspected.** The stack keeps its newlines as `\n` inside a
  * JSON string, so the record stays one line no matter how deep the throw was.
@@ -103,12 +132,33 @@ export function redactConfiguredHosts(
  * discarded: it is stringified under the name `NonError`, because the thing
  * that gets thrown when something is truly wrong is exactly the thing least
  * likely to be an `Error`.
+ *
+ * ## The field order is load-bearing (`#747`)
+ *
+ * `name`, `code`, `message`, `cause`, `stack` — and `JSON.stringify` writes them
+ * in that order, so **whatever reads a prefix of this line reads the diagnosis
+ * first and loses the stack**. Everything downstream of a log line truncates it
+ * somewhere: the issue detector at 400 characters, a terminal at its width, a
+ * paste into a chat. The order decides what survives all of them.
+ *
+ * **Only the outermost error carries a stack**, for the same reason. A cause's
+ * stack is where the *inner* library threw, which is almost never the question;
+ * its name, code and message are. Three nested stacks ahead of the outer one is
+ * how a chain that has been serialised correctly still arrives unreadable.
  */
 export function serialiseError(
   error: unknown,
   configuredUrls: readonly (string | undefined)[] = [],
 ): SerialisedError {
   return serialiseErrorAtDepth(error, 0, configuredUrls)
+}
+
+/** One error's message, redacted and bounded. See {@link ERROR_MESSAGE_MAX_LENGTH}. */
+function messageOf(text: string, configuredUrls: readonly (string | undefined)[]): string {
+  const redacted = redactConfiguredHosts(text, configuredUrls)
+  return redacted.length <= ERROR_MESSAGE_MAX_LENGTH
+    ? redacted
+    : `${redacted.slice(0, ERROR_MESSAGE_MAX_LENGTH)}… (truncated)`
 }
 
 function serialiseErrorAtDepth(
@@ -121,23 +171,20 @@ function serialiseErrorAtDepth(
     const cause = (error as { cause?: unknown }).cause
     return {
       name: error.name,
-      message: redactConfiguredHosts(error.message, configuredUrls),
-      ...(error.stack === undefined
-        ? {}
-        : { stack: redactConfiguredHosts(error.stack, configuredUrls) }),
       ...(typeof code === 'string' ? { code } : {}),
+      message: messageOf(error.message, configuredUrls),
       ...(depth >= 3 || cause === undefined
         ? {}
         : { cause: serialiseErrorAtDepth(cause, depth + 1, configuredUrls) }),
+      ...(depth > 0 || error.stack === undefined
+        ? {}
+        : { stack: redactConfiguredHosts(error.stack, configuredUrls) }),
     }
   }
 
   return {
     name: 'NonError',
-    message: redactConfiguredHosts(
-      typeof error === 'string' ? error : String(error),
-      configuredUrls,
-    ),
+    message: messageOf(typeof error === 'string' ? error : String(error), configuredUrls),
   }
 }
 

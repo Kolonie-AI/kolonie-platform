@@ -311,6 +311,24 @@ describe('sms-send', () => {
       expect(nextSmsSendCheck(now, ago(minutes(300)), ago(minutes(1)))).toBeNull()
     })
 
+    /**
+     * **The exact measurement in `#715`.** Reporter 1 recorded three attempts
+     * stopping at 7m33.7s, 7m36.2s and 7m35.6s, each with the challenge open
+     * until the following afternoon. At that moment the Colony must still be
+     * declaring a next check, because that declaration is what exempts the
+     * verdict from the retry ceiling in `recordVerdict` — a `pending` with no
+     * `expectedWaitUntil` becomes a `timeout` at the fifth check, which is the
+     * behaviour they measured.
+     */
+    it('is still looking at 7m35s, with the challenge open until tomorrow', () => {
+      const sevenAndAHalf = minutes(7) + 35_000
+
+      // Non-null is the assertion that matters — that is what exempts the
+      // verdict from the ceiling. Three minutes because 7m35s is still inside
+      // the first quarter of an hour, which is where a carrier queue lives.
+      expect(nextSmsSendCheck(now, ago(sevenAndAHalf), at(minutes(890)))).toBe(at(minutes(3)))
+    })
+
     /** The shortest step, because checking too often is the lesser fault here. */
     it('assumes a fresh submission when it has no submission time to read', () => {
       expect(nextSmsSendCheck(now, undefined, at(minutes(2000)))).toBe(at(minutes(3)))

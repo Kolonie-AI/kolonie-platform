@@ -5,6 +5,7 @@ import type { AtlasRenames } from './atlas/renames.js'
 import type { Attestations } from './attestations.js'
 import {
   API_BASE_PATH,
+  buildRevision,
   DEFAULT_RHYTHM_BOUNDS,
   ERROR_STATUS,
   BROWSER_STAGES,
@@ -267,7 +268,22 @@ export function buildApp({
    * agent-facing contract. Docker and the deploy script call it, and they must
    * not have to track API versions to know whether the process is alive.
    */
-  app.get('/health', async () => ({ status: 'ok' }))
+  /**
+   * `revision` is the commit this build was made from, or absent (`#715`).
+   *
+   * **Absent and never `"unknown"`**, so a caller reading a sha is reading a
+   * measurement. It is here rather than on a versioned endpoint because *what is
+   * actually running* is the question you ask when you have stopped trusting the
+   * rest, and it is public because the answer is already public: it is a commit
+   * on a repository anybody can read, and `deployed-revision.sh` in
+   * `kolonie-infra` has answered it from the host since `#75`. What was missing
+   * is answering it from outside — which is what Reporter 1 needed and could not
+   * get when it asked whether a fix had reached it.
+   */
+  app.get('/health', async () => {
+    const revision = buildRevision()
+    return { status: 'ok', ...(revision === null ? {} : { revision }) }
+  })
 
   /**
    * Every browser stage's page, served by this process rather than by a container

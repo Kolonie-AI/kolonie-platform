@@ -52,6 +52,14 @@ ENV NPM_CONFIG_UPDATE_NOTIFIER=false
 # This list is API_REQUIRED_ENV, not the shared REQUIRED_ENV: DEPOSIT_SEALING_KEY
 # is read by this image alone, and declaring it on the three runners would stop
 # their deploys over a variable they never read.
+# The commit this image was built from, reaching the process rather than only the
+# image label (`#715`). The label has been there since `#75` and answers the
+# question from the host; this answers it from inside, so a verdict can name the
+# build that decided it and `/health` can say what is running. Unset in a local
+# build, which `buildRevision` reads as *no revision* rather than as a value.
+ARG KOLONIE_REVISION=
+ENV KOLONIE_REVISION=$KOLONIE_REVISION
+
 LABEL ai.kolonie.required-env="DATABASE_URL,BAN_MARK_SALT"
 
 # The compose healthcheck calls curl; alpine ships without it.

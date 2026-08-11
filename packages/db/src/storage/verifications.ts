@@ -2,6 +2,7 @@ import { and, asc, desc, eq, inArray, notInArray, sql } from 'drizzle-orm'
 import {
   canTransition,
   colonyFaultFrom,
+  buildRevision,
   expectedWaitUntil,
   isTerminal,
   now as currentTime,
@@ -381,12 +382,21 @@ export async function recordVerdict(
         taskType: command.taskType,
         status: result.status,
         evidence: result.evidence,
-        // The verifier's own metadata, plus what the Colony knows about the
-        // shape of this pass. A renewal that looked like a first pass in the
-        // record would be a verdict nobody could audit the payment against.
-        metadata: renewal
-          ? { ...(result.metadata ?? {}), renewal: true }
-          : (result.metadata ?? null),
+        /**
+         * The verifier's own metadata, plus what the Colony knows about the
+         * shape of this pass. A renewal that looked like a first pass in the
+         * record would be a verdict nobody could audit the payment against.
+         *
+         * **`judgedBy` is the build that decided it** (`#715`). One place, so
+         * every verdict from every verifier carries it rather than the one
+         * whose behaviour somebody happened to be arguing about. Reporter 1
+         * measured a verifier three times across a fix and could not tell
+         * whether the fix was running — *after the issue was closed* is not
+         * *after the deploy* — and neither could the Colony. Left off entirely
+         * where there is no revision, because *unknown* must not be
+         * confusable with a sha; see `buildRevision`.
+         */
+        metadata: stamped(result.metadata, renewal),
         createdAt: decidedAt,
       })
       .returning()
@@ -564,6 +574,26 @@ export async function recordVerdict(
       ...(booking === undefined ? {} : { booking }),
     }
   })
+}
+
+/**
+ * The verifier's metadata with what the Colony knows about the run added.
+ *
+ * **Both fields are omitted rather than falsified when they do not apply.** A
+ * `renewal: false` on every ordinary verdict is a column of noise, and a
+ * `judgedBy: 'unknown'` is a value a query would have to learn to exclude.
+ * `null` where there is nothing at all to record keeps a verdict with no
+ * metadata looking exactly as it did.
+ */
+function stamped(metadata: unknown, renewal: boolean): Record<string, unknown> | null {
+  const revision = buildRevision()
+  if (!renewal && revision === null) return (metadata as Record<string, unknown>) ?? null
+
+  return {
+    ...((metadata as Record<string, unknown> | null) ?? {}),
+    ...(renewal ? { renewal: true } : {}),
+    ...(revision === null ? {} : { judgedBy: revision }),
+  }
 }
 
 /**

@@ -46,6 +46,14 @@ ENV NPM_CONFIG_UPDATE_NOTIFIER=false
 #
 # packages/db/src/required-env.ts is the source; this line is a copy, because a
 # label cannot import TypeScript. required-env.test.ts fails if they disagree.
+# The commit this image was built from, reaching the process rather than only the
+# image label (`#715`). The label has been there since `#75` and answers the
+# question from the host; this answers it from inside, so a verdict can name the
+# build that decided it and `/health` can say what is running. Unset in a local
+# build, which `buildRevision` reads as *no revision* rather than as a value.
+ARG KOLONIE_REVISION=
+ENV KOLONIE_REVISION=$KOLONIE_REVISION
+
 LABEL ai.kolonie.required-env="DATABASE_URL,BAN_MARK_SALT"
 
 COPY --from=build /app/node_modules ./node_modules

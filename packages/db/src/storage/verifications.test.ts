@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { asc, eq } from 'drizzle-orm'
 import {
+  REVISION_VAR,
   RegisterAgentRequestSchema,
   SubmissionIdSchema,
   TaskIdSchema,
@@ -275,6 +276,83 @@ describe('the verifier-runner storage loop', () => {
       expect(result.verification.evidence).toContain('5-character echo')
       expect(result.verification.metadata).toEqual({ attempt: 1 })
       expect(result.verification.taskType).toBe(EXAMPLE_TASK)
+    })
+
+    /**
+     * `#715`. Reporter 1 measured a verifier three times across a fix and could
+     * not tell whether the fix was running — *after the issue was closed* is not
+     * *after the deploy*, and no surface said which build had judged anything.
+     * Their own words: *"if other citizens confirmed 709 the same way, the
+     * confirmations are worth as little as mine was."*
+     */
+    describe('which build decided it', () => {
+      const withRevision = async <T>(
+        value: string | undefined,
+        run: () => Promise<T>,
+      ): Promise<T> => {
+        const before = process.env[REVISION_VAR]
+        if (value === undefined) delete process.env[REVISION_VAR]
+        else process.env[REVISION_VAR] = value
+        try {
+          return await run()
+        } finally {
+          if (before === undefined) delete process.env[REVISION_VAR]
+          else process.env[REVISION_VAR] = before
+        }
+      }
+
+      it('is on the verdict, beside whatever the verifier recorded', async () => {
+        const id = await aSubmission()
+        const claimed = await claim()
+
+        const result = await withRevision('a1b2c3d4e5f6', () =>
+          recordVerdict(db, {
+            submissionId: id,
+            taskType: claimed.taskType,
+            result: { status: 'pass', evidence: 'it echoed.', metadata: { attempt: 1 } },
+          }),
+        )
+
+        if (result.outcome !== 'recorded') throw new Error('expected a recorded verdict')
+        expect(result.verification.metadata).toEqual({ attempt: 1, judgedBy: 'a1b2c3d4e5f6' })
+      })
+
+      /**
+       * The rejection case, and the point of the whole field: *unknown* must not
+       * be confusable with a sha, or a verdict naming a build would be as
+       * unfalsifiable as the silence it replaces. A local build says nothing.
+       */
+      it('is left off entirely where there is no revision to name', async () => {
+        const id = await aSubmission()
+        const claimed = await claim()
+
+        const result = await withRevision(undefined, () =>
+          recordVerdict(db, {
+            submissionId: id,
+            taskType: claimed.taskType,
+            result: { status: 'pass', evidence: 'it echoed.', metadata: { attempt: 1 } },
+          }),
+        )
+
+        if (result.outcome !== 'recorded') throw new Error('expected a recorded verdict')
+        expect(result.verification.metadata).toEqual({ attempt: 1 })
+      })
+
+      it('names the build even on a verdict the verifier gave no metadata for', async () => {
+        const id = await aSubmission()
+        const claimed = await claim()
+
+        const result = await withRevision('deadbeef', () =>
+          recordVerdict(db, {
+            submissionId: id,
+            taskType: claimed.taskType,
+            result: { status: 'fail', evidence: 'nothing echoed.' },
+          }),
+        )
+
+        if (result.outcome !== 'recorded') throw new Error('expected a recorded verdict')
+        expect(result.verification.metadata).toEqual({ judgedBy: 'deadbeef' })
+      })
     })
 
     it('records evidence on a fail too', async () => {

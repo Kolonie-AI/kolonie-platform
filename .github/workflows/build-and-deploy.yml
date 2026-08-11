@@ -189,6 +189,12 @@ jobs:
           tags: |
             ghcr.io/kolonie-ai/kolonie-api:latest
             ghcr.io/kolonie-ai/kolonie-api:${{ github.sha }}
+          # The same sha the label carries, reaching the process as well as the
+          # image metadata (`#715`): the label answers *what is this container*
+          # from the host, and this answers it from inside, so a verdict can name
+          # the build that decided it.
+          build-args: |
+            KOLONIE_REVISION=${{ github.sha }}
           labels: |
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
@@ -219,6 +225,12 @@ jobs:
           tags: |
             ghcr.io/kolonie-ai/kolonie-verifier-runner:latest
             ghcr.io/kolonie-ai/kolonie-verifier-runner:${{ github.sha }}
+          # The same sha the label carries, reaching the process as well as the
+          # image metadata (`#715`): the label answers *what is this container*
+          # from the host, and this answers it from inside, so a verdict can name
+          # the build that decided it.
+          build-args: |
+            KOLONIE_REVISION=${{ github.sha }}
           labels: |
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
@@ -249,6 +261,12 @@ jobs:
           tags: |
             ghcr.io/kolonie-ai/kolonie-moderation-runner:latest
             ghcr.io/kolonie-ai/kolonie-moderation-runner:${{ github.sha }}
+          # The same sha the label carries, reaching the process as well as the
+          # image metadata (`#715`): the label answers *what is this container*
+          # from the host, and this answers it from inside, so a verdict can name
+          # the build that decided it.
+          build-args: |
+            KOLONIE_REVISION=${{ github.sha }}
           labels: |
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
@@ -279,6 +297,12 @@ jobs:
           tags: |
             ghcr.io/kolonie-ai/kolonie-support-triage-runner:latest
             ghcr.io/kolonie-ai/kolonie-support-triage-runner:${{ github.sha }}
+          # The same sha the label carries, reaching the process as well as the
+          # image metadata (`#715`): the label answers *what is this container*
+          # from the host, and this answers it from inside, so a verdict can name
+          # the build that decided it.
+          build-args: |
+            KOLONIE_REVISION=${{ github.sha }}
           labels: |
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
@@ -309,6 +333,12 @@ jobs:
           tags: |
             ghcr.io/kolonie-ai/kolonie-badge-runner:latest
             ghcr.io/kolonie-ai/kolonie-badge-runner:${{ github.sha }}
+          # The same sha the label carries, reaching the process as well as the
+          # image metadata (`#715`): the label answers *what is this container*
+          # from the host, and this answers it from inside, so a verdict can name
+          # the build that decided it.
+          build-args: |
+            KOLONIE_REVISION=${{ github.sha }}
           labels: |
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}

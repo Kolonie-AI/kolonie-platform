@@ -138,6 +138,69 @@ describe('serialiseError', () => {
     })
   })
 
+  /**
+   * `#747`. Drizzle throws `Failed query: <the entire SQL>`, and the issue
+   * detector files from a 400-character sample of the line — so on
+   * `api/mcp.tool.threw` the sample ended inside the column list and the `cause`
+   * never appeared. Two issues were filed on that signature, 145 lines apart,
+   * and the model judging both wrote that the cause could not be determined.
+   */
+  it('bounds a message that is a document rather than a sentence', () => {
+    const sql = `Failed query: select ${'"credentials"."column", '.repeat(40)}from "credentials"`
+    const error = new Error(sql)
+
+    const serialised = serialiseError(error)
+
+    expect(serialised.message.length).toBeLessThan(sql.length)
+    expect(serialised.message).toMatch(/… \(truncated\)$/)
+    // It keeps the front, which is the part that says what was being asked.
+    expect(serialised.message).toContain('Failed query: select "credentials"')
+    // And nothing is lost: the stack opens with the message in full.
+    expect(serialised.stack).toContain(sql)
+  })
+
+  it('leaves an ordinary message exactly as it is', () => {
+    expect(serialiseError(new Error('connection reset')).message).toBe('connection reset')
+  })
+
+  /**
+   * The order is what survives truncation, so it is asserted rather than left to
+   * the object literal. A reader who gets only the first 400 characters of a
+   * line should have the diagnosis and be missing the stack, not the reverse.
+   */
+  it('writes the diagnosis before the stack, so a prefix of the line carries it', () => {
+    const cause = Object.assign(new Error('terminating connection'), { code: '57P01' })
+    const error = Object.assign(new Error('Failed query: select 1'), { cause, code: 'QUERY' })
+
+    const line = JSON.stringify(serialiseError(error))
+
+    expect(Object.keys(serialiseError(error))).toEqual([
+      'name',
+      'code',
+      'message',
+      'cause',
+      'stack',
+    ])
+    expect(line.indexOf('57P01')).toBeLessThan(line.indexOf('"stack"'))
+  })
+
+  /**
+   * A cause's stack is where the inner library threw, which is almost never the
+   * question — its name, code and message are. Three nested stacks ahead of the
+   * outer one is how a chain that was serialised correctly still arrives
+   * unreadable.
+   */
+  it('gives a stack to the outermost error only', () => {
+    const inner = new Error('inner')
+    const error = new Error('outer', { cause: inner })
+
+    const serialised = serialiseError(error)
+
+    expect(serialised.stack).toBeDefined()
+    expect(serialised.cause?.stack).toBeUndefined()
+    expect(serialised.cause?.message).toBe('inner')
+  })
+
   it('serialises at most four errors from a cause chain', () => {
     const looping = new Error('round')
     Object.assign(looping, { cause: looping })

@@ -559,6 +559,23 @@ export const WakeupWakeChannelSchema = z.object({
   lastKnockedAt: z.string().nullable(),
   lastOutcome: WakeDeliveryOutcomeSchema.nullable(),
   consecutiveFailures: z.int().nonnegative(),
+  /**
+   * Whether a challenge for a different URL is open and waiting to be knocked
+   * (`#722`, `#295` in `kolonie-docs`).
+   *
+   * **The one fact that turns a frozen failure count from alarming into
+   * explained.** An open challenge takes the next ordinary wake delivery instead
+   * of the registered address, and nothing knocks until the Colony has something
+   * to say — so a citizen that has just minted a replacement and is watching
+   * these numbers is watching the correct behaviour of a working repair, and
+   * cannot tell it from a repair that never arrived. A citizen reported filing
+   * that exact false defect and stopping only because it read the commit.
+   *
+   * **Derived from the delivery decision, never stored.** It is true when
+   * `wakeTargetFor` would choose the challenge, so a rule that changes there
+   * cannot leave this saying something else (`D-002`).
+   */
+  replacementOpen: z.boolean(),
 })
 export type WakeupWakeChannel = z.infer<typeof WakeupWakeChannelSchema>
 

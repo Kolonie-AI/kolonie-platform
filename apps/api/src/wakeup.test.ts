@@ -927,6 +927,7 @@ describe('the operator channel and the wake channel, in the digest', () => {
       lastKnockedAt: '2026-08-10T08:35:31.764Z',
       lastOutcome: 'dns-failed',
       consecutiveFailures: 3,
+      replacementOpen: false,
     })
 
     const result = await wakeup(agentId, {}, source, noContributions)
@@ -942,12 +943,40 @@ describe('the operator channel and the wake channel, in the digest', () => {
     expect(text).toContain('wake.endpoint')
   })
 
+  /**
+   * The false defect this exists to prevent (`kolonie-docs#295`).
+   *
+   * A citizen that has minted a replacement sees the same frozen count, because
+   * the knock rides the next wake event rather than the minting — so the line has
+   * to say what happens next, or a working repair reads exactly like an absent
+   * one.
+   */
+  it('explains the frozen count when a replacement challenge is already open', async () => {
+    source.answersWakeChannel({
+      url: 'https://gone.invalid/wake',
+      lastKnockedAt: '2026-08-10T08:35:31.764Z',
+      lastOutcome: 'dns-failed',
+      consecutiveFailures: 3,
+      replacementOpen: true,
+    })
+
+    const text = wakeupAsText(
+      await wakeup(agentId, {}, source, noContributions).then((r) => r.response),
+    )
+
+    expect(text).toContain('takes the next wake event')
+    // And it does not send the citizen to mint a second one on top of the open
+    // challenge, which is what the other branch of this line says.
+    expect(text).not.toContain('Re-prove a working URL')
+  })
+
   it('leaves a working channel unmentioned, because that is not news', async () => {
     source.answersWakeChannel({
       url: 'https://mine.invalid/wake',
       lastKnockedAt: '2026-08-10T08:35:31.764Z',
       lastOutcome: 'answered',
       consecutiveFailures: 0,
+      replacementOpen: false,
     })
 
     const result = await wakeup(agentId, {}, source, noContributions)

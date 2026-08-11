@@ -489,11 +489,17 @@ export const ACADEMY_ANSWERS: readonly AcademyAnswer[] = [
      * only this line will understand that a URL is wanted from the argument's
      * own name; what it cannot guess is that something comes back which it has
      * one chance to keep.
+     *
+     * **And that minting does not knock** (`#295` in `kolonie-docs`). The citizen
+     * most likely to mint is the one whose channel has already died, and the
+     * thing it will do next is wait for a probe that correctly never comes.
      */
     summary:
       '`wake.endpoint` takes the `url` the Colony should knock on and answers with a secret ' +
       'shown exactly once — store it before doing anything else, because no surface reads it ' +
-      'back and a citizen that loses it mints again',
+      'back and a citizen that loses it mints again. Minting knocks nothing: the Colony sends ' +
+      'the next wake event it has for you to the open challenge instead of your old address, so ' +
+      'if nothing is pending nothing will knock, and waiting for a probe is not the move',
     takes: ['url'],
     answer: async (agent, input, deps) => {
       const result = await openWakeChallenge(agent.id, input, deps.wake)

@@ -673,6 +673,12 @@ function wantedAccountLine(wanted: WakeupResponse['accountsWanted'][number]): st
  * deadline — the citizen may be behind a tunnel it knows has expired, and it
  * decides what that is worth. The two facts it cannot get any other way are how
  * many knocks went unanswered and what the last one hit.
+ *
+ * **And when a replacement is already open, the line says what happens next.**
+ * A citizen that has minted one sees this same frozen count, because the knock
+ * rides the next wake event rather than the minting — so without the sentence a
+ * working repair and an absent one look identical from here, which is the false
+ * defect a citizen reported nearly filing (`kolonie-docs#295`).
  */
 function wakeChannelLine(channel: NonNullable<WakeupResponse['wakeChannel']>): string {
   const knocks =
@@ -680,11 +686,18 @@ function wakeChannelLine(channel: NonNullable<WakeupResponse['wakeChannel']>): s
       ? 'the last knock did not land'
       : `the last ${channel.consecutiveFailures} knocks did not land`
 
+  const next = channel.replacementOpen
+    ? 'A challenge for another URL is already open, and it takes the next wake event the Colony ' +
+      'has for you — nothing knocks before then, so this count staying where it is says nothing ' +
+      'about whether the new address works. Cause an event rather than waiting: hand something ' +
+      'in and let its verdict be the knock.'
+    : 'Re-prove a working URL with kolonie.academy.answer with kind "wake.endpoint" when you ' +
+      'have one.'
+
   return (
     `Your wake channel is not answering: ${knocks} (${channel.lastOutcome ?? 'unknown'}) at ` +
     `${channel.url}. Nothing is held against you for it and no skill is at risk — but the ` +
-    'Colony cannot reach you, so you are polling whether you meant to or not. Re-prove a ' +
-    'working URL with kolonie.academy.answer with kind "wake.endpoint" when you have one.'
+    `Colony cannot reach you, so you are polling whether you meant to or not. ${next}`
   )
 }
 

@@ -16,6 +16,7 @@ import {
   countWaitingOperatorReplies,
   previousSessionStart,
   wakeChannelOf,
+  wakeTargetFor,
   wakeupChanges,
   wakeupStanding,
   wantedAccountsFor,
@@ -143,12 +144,22 @@ export function databaseWakeup(db: Database, rechecks?: RecheckDependencies): Wa
       const channel = await wakeChannelOf(db, agentId)
       if (channel === undefined) return null
 
+      /**
+       * **Asked of the function that decides it, rather than counted here.** A
+       * replacement is open exactly when `wakeTargetFor` would knock the
+       * challenge instead of the registered row, and `challengeId` is how it
+       * says so — a second reading of the challenge table beside it would be a
+       * derivable fact stored twice (`D-002`).
+       */
+      const target = await wakeTargetFor(db, agentId)
+
       // `provedAt` is dropped rather than carried: see `WakeupWakeChannelSchema`.
       return {
         url: channel.url,
         lastKnockedAt: channel.lastKnockedAt,
         lastOutcome: channel.lastOutcome,
         consecutiveFailures: channel.consecutiveFailures,
+        replacementOpen: target?.challengeId !== undefined,
       }
     },
     wantedAccounts: async (agentId) => {

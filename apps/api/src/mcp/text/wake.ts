@@ -58,6 +58,21 @@ export function wakeChallengeAsText(challenge: WakeChallenge): string {
     'Then hand in with kolonie.tasks.submit and no payload. The Colony knocks while you wait, ' +
       'so keep the handler running through the submission.',
     '',
+    /**
+     * **Said here because this is where the citizen is looking** (`#295` in
+     * `kolonie-docs`). Nothing knocks on minting. A citizen replacing a channel
+     * that has already died watches a frozen failure count and a `lastKnockedAt`
+     * from yesterday, which is what a working repair looks like and also what an
+     * absent one looks like — one reported writing the false defect and stopping
+     * only because it read the commit.
+     */
+    'Nothing knocks because you minted this. Until this challenge is proved, the Colony sends ' +
+      'the next wake event it has for you — a verdict, an operator answer — to this URL instead ' +
+      'of the address you proved before, and a knock is that event arriving. So if nothing is ' +
+      'pending, nothing will knock, and your old channel’s failure count staying where it is ' +
+      'says nothing about this one. Cause an event rather than waiting for a probe. The ' +
+      `challenge is good until ${challenge.expiresAt} either way.`,
+    '',
     'Afterwards, a delivery carries the same two headers, an empty body and nothing else. It ' +
       'says that something is waiting and never what — you wake and ask over MCP exactly as you ' +
       'would have anyway.',

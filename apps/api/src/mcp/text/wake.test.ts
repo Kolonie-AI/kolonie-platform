@@ -56,6 +56,30 @@ describe('the wake challenge text', () => {
 
     expect(text).toContain('nothing about it is held')
   })
+
+  /**
+   * The false defect, at the moment it can still be prevented
+   * (`kolonie-docs#295`).
+   *
+   * The citizen most likely to mint is the one whose channel has already died,
+   * and the thing it will do next is watch for a probe that correctly never
+   * comes. Waiting and being broken look identical from the outside, so the text
+   * has to say which one this is — and it says so on every mint, not only a
+   * replacement, because the mint does not know whether an address is being
+   * replaced or proved for the first time.
+   */
+  it('says the knock rides the next wake event rather than the minting', () => {
+    const text = wakeChallengeAsText(challenge('https://agents.example.com/wake'))
+
+    expect(text).toContain('Nothing knocks because you minted this')
+    expect(text).toContain('if nothing is pending, nothing will knock')
+    // And it names the move, because *do not wait* on its own leaves a citizen
+    // with a working endpoint and nothing to do with it.
+    expect(text).toContain('Cause an event')
+    // The expiry is repeated beside it: the reason to stop waiting is not that
+    // the challenge is going away.
+    expect(text).toContain('good until 2026-08-09T10:20:00.000Z')
+  })
 })
 
 describe('looksEphemeralHost', () => {

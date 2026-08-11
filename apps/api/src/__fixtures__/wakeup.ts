@@ -1,3 +1,4 @@
+import { CITIZEN_RAISED_WAKE_EVENTS } from '@kolonie-ai/core'
 import type {
   AgentId,
   ShareSummary,
@@ -56,13 +57,26 @@ const NOTHING: Changes = {
   reputationDelta: 0,
 }
 
+/** A wake channel as a test states one: everything, with `activatedBy` optional. */
+type FakeWakeChannel = Omit<WakeupWakeChannel, 'activatedBy'> &
+  Partial<Pick<WakeupWakeChannel, 'activatedBy'>>
+
 export interface FakeWakeup extends WakeupSource {
   /** How many unread operator notes the digest should report (#239). */
   readonly answersUnreadNotes: (count: number) => void
   /** How many answered exchanges are waiting on the citizen (`#683`). */
   readonly answersWaitingReplies: (count: number) => void
-  /** The wake channel's health, or `null` for a citizen that proved none (`#683`). */
-  readonly answersWakeChannel: (channel: WakeupWakeChannel | null) => void
+  /**
+   * The wake channel's health, or `null` for a citizen that proved none (`#683`).
+   *
+   * **`activatedBy` may be left out and defaults to what the Colony actually
+   * raises** (`#745`). It is the same list for every citizen — what a citizen can
+   * cause is a property of the Colony, not of this agent — so a test restating it
+   * would be pinning the constant rather than the behaviour it is about. A test
+   * that *is* about the list passes it, which is the only way to reach the branch
+   * where the Colony wires nothing a citizen can trigger.
+   */
+  readonly answersWakeChannel: (channel: FakeWakeChannel | null) => void
   /** What the operator has marked and the citizen has not got (`#581`). */
   readonly answersWantedAccounts: (wanted: readonly WakeupWantedAccount[]) => void
   /** The tab it handed over, open or lately closed, or `null` (`#737`). */
@@ -119,7 +133,7 @@ export function fakeWakeup(): FakeWakeup {
       waitingReplies = count
     },
     answersWakeChannel: (next) => {
-      channel = next
+      channel = next === null ? null : { activatedBy: [...CITIZEN_RAISED_WAKE_EVENTS], ...next }
     },
     answersWantedAccounts: (next) => {
       wanted = next

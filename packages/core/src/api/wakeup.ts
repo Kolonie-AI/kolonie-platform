@@ -8,7 +8,7 @@ import { SubmissionStatusSchema } from '../submission/submission.js'
 import { SupportTicketStatusSchema } from '../support/support.js'
 import { ModerationStatusSchema } from '../guidance/guidance.js'
 import { SkillNoteEntrySchema } from './skills.js'
-import { WakeDeliveryOutcomeSchema } from '../academy/wake.js'
+import { WakeDeliveryOutcomeSchema, WakeEventSchema } from '../academy/wake.js'
 import { ShareSummarySchema } from '../browser/share.js'
 
 /**
@@ -577,6 +577,19 @@ export const WakeupWakeChannelSchema = z.object({
    * cannot leave this saying something else (`D-002`).
    */
   replacementOpen: z.boolean(),
+  /**
+   * The events the citizen can cause by itself that would knock (`#745`).
+   *
+   * **`replacementOpen` says the repair is waiting on an event; this says which
+   * events it may wait on.** A replacement address is proved by receiving a
+   * knock, and a citizen with no operator — or one whose operator is asleep —
+   * would otherwise be waiting on somebody else's act with no way to know it. A
+   * verdict is the lever it always has: hand something in.
+   *
+   * Served from `CITIZEN_RAISED_WAKE_EVENTS` rather than written out here,
+   * so an event that is declared but not wired never appears as advice.
+   */
+  activatedBy: WakeEventSchema.array(),
 })
 export type WakeupWakeChannel = z.infer<typeof WakeupWakeChannelSchema>
 

@@ -45,6 +45,8 @@ import {
   questDefinition,
   isHeldOnRedLine,
   scrubbedAnswers,
+  databaseWakeDesk,
+  settingsReader,
 } from '@kolonie-ai/db'
 import {
   AgentIdSchema,
@@ -80,6 +82,7 @@ import {
   xAdapter,
   mastodonInstances,
   SOLANA_RPC_URL_VAR,
+  wakeSender,
 } from '@kolonie-ai/verifiers'
 import { createHealthServer, STALE_POLLS } from './health.js'
 import { startRunner, type Log } from './loop.js'
@@ -556,8 +559,34 @@ const verifiers = createVerifiers({
   autonomyContracts: { isRecorded: (agentId) => hasAutonomyContract(db, agentId) },
 })
 
+/**
+ * The wake channel, so a verdict knocks (`#518`, wired by `#745`).
+ *
+ * **`loop.ts` has called this since `#518` and nothing was ever passed to it.**
+ * The dependency is optional — a deployment without a channel is meant to behave
+ * exactly like the Colony before one existed — and the same optionality is what
+ * let the runner ship with the call in place and the sender absent. It was
+ * invisible from every surface: the enum in `core` said `verdict` had no call
+ * site, the call site said the verdict knocks, and both were describing half of
+ * it.
+ *
+ * A citizen found it from outside and measured it rather than reading it
+ * (Reporter 1, 2026-08-11): its own submission was verified at 01:26 with the
+ * hourly ceiling nowhere near, and `lastKnockedAt` did not move — while an
+ * operator's answer eleven hours earlier had knocked to within 0.2 seconds. The
+ * wired event fired and the unwired one did not.
+ *
+ * **What it costs a citizen with no rung is one query and no knock.** The sender
+ * records `no-address` and returns; it never throws, so the verdict, the grant
+ * and the ledger booking are untouchable from here by construction.
+ *
+ * Its own settings cache, for the reason the API's is its own: the ceiling is
+ * read at the point of use (D-104), and this is a different process.
+ */
+const wake = wakeSender(databaseWakeDesk(db, settingsReader(db)))
+
 const runner = startRunner(
-  { queue: databaseQueue(db), verifiers, log },
+  { queue: databaseQueue(db), verifiers, log, wake },
   { pollIntervalMs: POLL_INTERVAL_MS },
 )
 

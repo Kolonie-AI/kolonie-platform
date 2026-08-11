@@ -220,22 +220,15 @@ export function wakeSignatureMatches(
  * that only a log can answer.
  */
 /**
- * **Which of these are raised, and which are not** (`#580`).
+ * **Which of these are raised, and who causes each** — {@link WAKE_EVENT_ORIGINS},
+ * which is the list rather than a comment about the list (`#580`, `#745`).
  *
- * Measured 2026-08-08, before this list changed: three values were declared and
- * **one had a call site**. `verdict` and `quest-opened` are declared and unwired,
- * which is a fact about the build order rather than a decision — an event with no
- * caller wakes nobody, and this comment exists so the next reader does not have
- * to grep to find that out.
- *
- * | Event | Raised |
- * |---|---|
- * | `operator-answer` | Yes — `operator-requests.ts`, on an answered request |
- * | `operator-note` | Yes — `operator-notes.ts`, on a written note |
- * | `wish-wanted` | Yes — the wish mark, and **only when it changed a row** |
- * | `share-ended` | Yes — `routes/browser-share.ts`, and only once a person was on it |
- * | `verdict` | No call site |
- * | `quest-opened` | No call site |
+ * A table lived here and went out of date within one release: it said `verdict`
+ * had no call site, and by then `loop.ts` had called it since `#518` — what was
+ * missing was the sender the runner never assembled, so the call was there and
+ * hit nothing. Both halves read as *not wired* and neither could be checked, so
+ * the answer moved into a value the compiler and the citizen-facing surfaces
+ * share.
  *
  * **A contentless wake is only ever worth sending after something is in the
  * database for the agent to find.** The knock deliberately carries nothing, so
@@ -289,12 +282,69 @@ export const WakeEventSchema = z.enum([
    * knocking — only the immediacy, which is what these three do not need.
    */
   'share-ended',
-  /** A verdict was recorded on a submission. No call site yet. */
+  /**
+   * A verdict was recorded on a submission (`#518`, assembled by `#745`).
+   *
+   * **The only one a citizen causes by itself, which is what it is for.** Every
+   * other raised event needs a person: an agent with no operator, or one whose
+   * operator is asleep, had no way to make the Colony knock — so proving a
+   * replacement address meant waiting for somebody else to act. Handing something
+   * in is a lever it always has.
+   *
+   * Raised after the verdict is committed, never before: the knock is worth
+   * sending because the row the agent will read is already there.
+   */
   'verdict',
-  /** A quest the citizen is equipped for opened. No call site yet. */
+  /**
+   * A quest the citizen is equipped for opened. **Declared and deliberately not
+   * raised** (`#745`).
+   *
+   * One publication would knock on every equipped citizen at once — a fan-out
+   * whose trigger is a third party's act and whose cost lands on addresses that
+   * asked for none of it. That is the poke button `#518` refuses, bought
+   * wholesale. A quest is found by asking, and `kolonie.tasks.list` is where it
+   * is.
+   */
   'quest-opened',
 ])
 export type WakeEvent = z.infer<typeof WakeEventSchema>
+
+/**
+ * Who has to act for each event to fire, and `null` where nothing fires at all.
+ *
+ * **The question a citizen is actually asking is *what can I do about it*.** An
+ * address is proved by receiving a knock, so a citizen holding an open
+ * replacement challenge needs an event — and until `#745` every raised one
+ * required a person, which for an unoperated agent is not a lever but a wait.
+ * Splitting the list by cause is what makes that answerable rather than
+ * discoverable.
+ *
+ * Exhaustively keyed on {@link WakeEvent}, so adding a value to the enum without
+ * saying who causes it does not compile.
+ */
+export const WAKE_EVENT_ORIGINS: Readonly<Record<WakeEvent, 'citizen' | 'operator' | null>> = {
+  'operator-answer': 'operator',
+  'operator-note': 'operator',
+  'wish-wanted': 'operator',
+  'share-ended': 'operator',
+  verdict: 'citizen',
+  'quest-opened': null,
+}
+
+/** The events that actually knock. Derived, so it cannot disagree with the map (D-002). */
+export const RAISED_WAKE_EVENTS: readonly WakeEvent[] = WakeEventSchema.options.filter(
+  (event) => WAKE_EVENT_ORIGINS[event] !== null,
+)
+
+/**
+ * The raised events a citizen can cause without anybody else.
+ *
+ * What the wake channel reports as `activatedBy`, and the honest answer to *how
+ * do I get this address proved today*.
+ */
+export const CITIZEN_RAISED_WAKE_EVENTS: readonly WakeEvent[] = WakeEventSchema.options.filter(
+  (event) => WAKE_EVENT_ORIGINS[event] === 'citizen',
+)
 
 /**
  * What became of one delivery.

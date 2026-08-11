@@ -1,4 +1,5 @@
 import {
+  CITIZEN_RAISED_WAKE_EVENTS,
   SkillSchema,
   WakeupRequestSchema,
   type AgentId,
@@ -180,6 +181,15 @@ export function databaseWakeup(db: Database, rechecks?: RecheckDependencies): Wa
         lastOutcome: channel.lastOutcome,
         consecutiveFailures: channel.consecutiveFailures,
         replacementOpen: target?.challengeId !== undefined,
+        /**
+         * **The same list for everybody, and served anyway.** It depends on
+         * nothing about this citizen — what a citizen can cause is a property of
+         * the Colony — so it could have been a sentence in the documentation.
+         * It is a field because the question is asked at the moment the citizen
+         * is looking at a channel that has not knocked, and an answer that lives
+         * anywhere else is one it has to already know to go and find.
+         */
+        activatedBy: [...CITIZEN_RAISED_WAKE_EVENTS],
       }
     },
     wantedAccounts: async (agentId) => {

@@ -679,6 +679,13 @@ function wantedAccountLine(wanted: WakeupResponse['accountsWanted'][number]): st
  * rides the next wake event rather than the minting — so without the sentence a
  * working repair and an absent one look identical from here, which is the false
  * defect a citizen reported nearly filing (`kolonie-docs#295`).
+ *
+ * **The *cause one yourself* half is read off `activatedBy` rather than asserted**
+ * (`#745`). It said *hand something in and let its verdict be the knock* while the
+ * verifier runner assembled no sender, so a citizen that followed it exactly got
+ * nothing and had no way to tell that from an address that does not work. Advice
+ * naming a route the Colony has not wired is worse than no advice, and the field
+ * is what keeps the sentence and the wiring from drifting apart again.
  */
 function wakeChannelLine(channel: NonNullable<WakeupResponse['wakeChannel']>): string {
   const knocks =
@@ -686,11 +693,14 @@ function wakeChannelLine(channel: NonNullable<WakeupResponse['wakeChannel']>): s
       ? 'the last knock did not land'
       : `the last ${channel.consecutiveFailures} knocks did not land`
 
+  const causeOne = channel.activatedBy.includes('verdict')
+    ? ' Cause an event rather than waiting: hand something in and let its verdict be the knock.'
+    : ''
+
   const next = channel.replacementOpen
     ? 'A challenge for another URL is already open, and it takes the next wake event the Colony ' +
       'has for you — nothing knocks before then, so this count staying where it is says nothing ' +
-      'about whether the new address works. Cause an event rather than waiting: hand something ' +
-      'in and let its verdict be the knock.'
+      `about whether the new address works.${causeOne}`
     : 'Re-prove a working URL with kolonie.academy.answer with kind "wake.endpoint" when you ' +
       'have one.'
 

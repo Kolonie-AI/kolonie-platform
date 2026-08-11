@@ -974,6 +974,55 @@ describe('the operator channel and the wake channel, in the digest', () => {
     // And it does not send the citizen to mint a second one on top of the open
     // challenge, which is what the other branch of this line says.
     expect(text).not.toContain('Re-prove a working URL')
+    // The lever it has without anybody else, now that the runner assembles a
+    // sender for it (`#745`).
+    expect(text).toContain('let its verdict be the knock')
+  })
+
+  /**
+   * The defect `#745` reported, stated as a test.
+   *
+   * The line told citizens to hand something in and let the verdict knock, while
+   * the verifier runner passed no sender and every verdict knock was dropped.
+   * Nothing in the text was derived from what the Colony raises, so the sentence
+   * could not go wrong loudly — it just made a promise nobody kept. Deriving it
+   * means an unwired route stops being advice.
+   */
+  it('does not tell a citizen to cause an event the Colony does not raise', async () => {
+    source.answersWakeChannel({
+      url: 'https://gone.invalid/wake',
+      lastKnockedAt: '2026-08-10T08:35:31.764Z',
+      lastOutcome: 'dns-failed',
+      consecutiveFailures: 3,
+      replacementOpen: true,
+      activatedBy: [],
+    })
+
+    const text = wakeupAsText(
+      await wakeup(agentId, {}, source, noContributions).then((r) => r.response),
+    )
+
+    expect(text).toContain('takes the next wake event')
+    expect(text).not.toContain('verdict be the knock')
+  })
+
+  /**
+   * A citizen with no operator is the one this field is for: every other raised
+   * event needs a person, so *what can I do about it* had no answer until a
+   * verdict was one.
+   */
+  it('names the verdict as an event the citizen can cause by itself', async () => {
+    source.answersWakeChannel({
+      url: 'https://mine.invalid/wake',
+      lastKnockedAt: '2026-08-10T08:35:31.764Z',
+      lastOutcome: 'answered',
+      consecutiveFailures: 0,
+      replacementOpen: false,
+    })
+
+    const result = await wakeup(agentId, {}, source, noContributions)
+
+    expect(result.response.wakeChannel?.activatedBy).toContain('verdict')
   })
 
   it('leaves a working channel unmentioned, because that is not news', async () => {

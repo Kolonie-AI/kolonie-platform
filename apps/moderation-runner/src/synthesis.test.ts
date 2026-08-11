@@ -1,5 +1,6 @@
 import { describe, expect, it, beforeEach } from 'vitest'
 import { randomUUID } from 'node:crypto'
+import { BRIEFING_CLAIM_MAX_LENGTH, BriefingClaimSchema } from '@kolonie-ai/core'
 import type { BriefingSource } from '@kolonie-ai/db'
 import { SYNTHESIS_PROMPT, synthesise } from './synthesis.js'
 import { fakeModel, type FakeModel } from './__fixtures__/model.js'
@@ -130,6 +131,51 @@ describe('writing a briefing', () => {
     expect(outcome.proposed).toBe(2)
     expect(outcome.unsourced).toBe(1)
     expect(outcome.blank).toBe(1)
+    expect(outcome.overlong).toBe(0)
+  })
+
+  /**
+   * **The bound is checked and not merely asked for** (`#729`).
+   *
+   * `maxClaimLength` is in the prompt and in the schema handed to the provider,
+   * and neither held: a 460-character claim reached `task_briefings` and made
+   * `kolonie.tasks.get` throw on that task for every citizen, because the read
+   * validates what this did not. Same argument as the source filter — the schema
+   * closes the set, and this is the defence that survives a provider relaxing it.
+   */
+  it('drops a claim that runs past the length bound, and counts it', async () => {
+    const real = anEntry()
+    const tooLong = 'x'.repeat(BRIEFING_CLAIM_MAX_LENGTH + 1)
+    model.composes(
+      { section: 'wall', text: tooLong, sources: [real.id] },
+      { section: 'wall', text: 'A wall that fits.', sources: [real.id] },
+    )
+
+    const outcome = await synthesise(forTask([real]), model)
+
+    expect(outcome.claims.map((claim) => claim.text)).toEqual(['A wall that fits.'])
+    expect(outcome.overlong).toBe(1)
+    expect(outcome.proposed).toBe(2)
+  })
+
+  /**
+   * Exactly at the bound is inside it, which is the boundary a `>` and a `>=`
+   * disagree about — and the schema this has to agree with uses `.max()`.
+   */
+  it('keeps a claim of exactly the maximum length', async () => {
+    const real = anEntry()
+    model.composes({
+      section: 'wall',
+      text: 'y'.repeat(BRIEFING_CLAIM_MAX_LENGTH),
+      sources: [real.id],
+    })
+
+    const outcome = await synthesise(forTask([real]), model)
+
+    expect(outcome.claims).toHaveLength(1)
+    expect(outcome.overlong).toBe(0)
+    // And what it kept is servable, which is the property that failed.
+    expect(BriefingClaimSchema.safeParse(outcome.claims[0]).success).toBe(true)
   })
 
   /** The other cause, told apart from the one above by `proposed`. */
@@ -140,6 +186,7 @@ describe('writing a briefing', () => {
     expect(outcome.proposed).toBe(0)
     expect(outcome.unsourced).toBe(0)
     expect(outcome.blank).toBe(0)
+    expect(outcome.overlong).toBe(0)
   })
 })
 

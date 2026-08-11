@@ -1104,7 +1104,10 @@ export async function synthesiseNow(
     }
 
     const corpus = await store.corpus(taskId)
-    const { claims, proposed, unsourced, blank } = await synthesise({ task, corpus }, model)
+    const { claims, proposed, unsourced, blank, overlong } = await synthesise(
+      { task, corpus },
+      model,
+    )
     await store.write({ taskId, claims, model: model.name })
 
     /**
@@ -1150,7 +1153,8 @@ export async function synthesiseNow(
         proposed === 0
           ? 'the model proposed no claims at all'
           : `the model proposed ${proposed}, and every one was dropped here ` +
-            `(${unsourced} naming no source in the corpus, ${blank} with empty text)`
+            `(${unsourced} naming no source in the corpus, ${blank} with empty text, ` +
+            `${overlong} running past the length bound)`
 
       log.warn(
         `briefing for ${taskId} is empty over ${corpus.length} moderated entries — ${because}`,
@@ -1161,8 +1165,27 @@ export async function synthesiseNow(
           proposed,
           unsourced,
           blank,
+          overlong,
         },
       )
+    }
+
+    /**
+     * A claim over the bound is worth a line even when others survived (`#729`).
+     *
+     * The other two drop counts are only reported when the whole briefing came
+     * out empty, which is the case `#374` was sorting out. This one is reported
+     * whenever it happens, because it is the model ignoring an instruction it
+     * was given explicitly and a schema that was supposed to close it — and
+     * until now the way that surfaced was a task no citizen could fetch.
+     */
+    if (overlong > 0) {
+      log.warn(`${overlong} claim(s) for ${taskId} ran past the length bound and were dropped`, {
+        event: 'briefing.claim.overlong',
+        taskId,
+        overlong,
+        proposed,
+      })
     }
 
     return 'written'

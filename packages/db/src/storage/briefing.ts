@@ -3,6 +3,7 @@ import {
   CURRENT_CLAIM_ATTEMPTS,
   RECENT_REPORTS_IN_CONTEXT,
   now as currentTime,
+  ServedBriefingClaimSchema,
   TaskBriefingSchema,
   isCurrentClaim,
   reportKindFor,
@@ -453,9 +454,45 @@ export async function readBriefing(
     ),
   }
 
+  /**
+   * **A stored claim that no longer validates costs that claim, never the
+   * task** (`#729`).
+   *
+   * A 460-character claim reached this table — the synthesis asked the model for
+   * 400 and did not check the answer, which `#729` fixes on the write side — and
+   * because the whole briefing was parsed as one object, `kolonie.tasks.get`
+   * threw for every citizen asking about that task. Guidance the Colony could
+   * not read back took the task with it.
+   *
+   * **The failure direction is the one `#716` argues for one level up**: a
+   * briefing is guidance, and a reader losing one sentence of it is
+   * incomparably better than losing the task. So each claim is validated on its
+   * own and a claim that fails is dropped rather than thrown on.
+   *
+   * **The bound is not relaxed here, and that is deliberate.** Widening the
+   * schema to fit what was written would make the read stop failing by agreeing
+   * with the defect, and `BRIEFING_CLAIM_MAX_LENGTH` exists to stop a synthesis
+   * reproducing an entry verbatim under the heading of having rewritten it.
+   * What is loosened is the consequence, not the rule.
+   *
+   * **It is silent, and the loud half is on the write side.** This package logs
+   * nowhere and is not the place to start — `packages/db` knows about the
+   * domain model and about Postgres, and a logger is a third thing. What
+   * produces an unservable claim is the synthesis, which now counts and warns
+   * `briefing.claim.overlong` at the moment it happens. A drop here is the
+   * consequence of a row already written; the event worth watching for is the
+   * writing of it.
+   */
+  const claims = row.claims
+    .map((claim) =>
+      ServedBriefingClaimSchema.safeParse({ ...claim, current: isCurrentClaim(claim, window) }),
+    )
+    .filter((parsed) => parsed.success)
+    .map((parsed) => parsed.data)
+
   return TaskBriefingSchema.parse({
     taskId: row.taskId,
-    claims: row.claims.map((claim) => ({ ...claim, current: isCurrentClaim(claim, window) })),
+    claims,
     model: row.model,
     writtenAt: toTimestamp(row.writtenAt),
   })

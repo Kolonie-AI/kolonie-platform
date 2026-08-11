@@ -2,6 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { randomUUID } from 'node:crypto'
 import { desc, eq } from 'drizzle-orm'
 import {
+  BRIEFING_CLAIM_MAX_LENGTH,
   CURRENT_CLAIM_ATTEMPTS,
   RECENT_REPORTS_IN_CONTEXT,
   noStagesRun,
@@ -522,6 +523,56 @@ describe('the Colony’s write-up of a task', () => {
 
     it('answers nothing for a task with no row at all', async () => {
       expect(await readBriefing(db, await aTask('never-touched'))).toBeUndefined()
+    })
+
+    /**
+     * **A claim this cannot serve costs that claim and never the task** (`#729`).
+     *
+     * Measured in production on 2026-08-11: a 460-character claim sat in
+     * `task_briefings` on task `…048`, the whole briefing was parsed as one
+     * object, and `kolonie.tasks.get` threw a `ZodError` at `claims[3].text` for
+     * every citizen asking about that task. Guidance the Colony could not read
+     * back took the task with it, which is the wrong way round — a briefing is
+     * guidance, and losing one sentence of it beats losing the task.
+     *
+     * Written straight into the column rather than through `writeBriefing`,
+     * because the point is a row that is already there: the write side is
+     * bounded now, and this is what the read owes the rows written before it was.
+     */
+    it('serves the claims it can read and leaves out one it cannot', async () => {
+      const entry = await approvedReport('reporter', CONTENT)
+      await writeBriefing(db, {
+        taskId,
+        claims: [aClaim('A wall that fits.', [entry])],
+        model: 'vendor/some-model-v1',
+      })
+      await db
+        .update(taskBriefings)
+        .set({
+          claims: [
+            aClaim('A wall that fits.', [entry]),
+            aClaim('x'.repeat(BRIEFING_CLAIM_MAX_LENGTH + 1), [entry]),
+          ],
+        })
+        .where(eq(taskBriefings.taskId, taskId))
+
+      const briefing = await readBriefing(db, taskId)
+
+      expect(briefing?.claims.map((claim) => claim.text)).toEqual(['A wall that fits.'])
+    })
+
+    /**
+     * And the bound itself is not relaxed to make the read stop failing.
+     * `BRIEFING_CLAIM_MAX_LENGTH` exists to stop a synthesis reproducing an entry
+     * verbatim under the heading of having rewritten it; what `#729` loosened is
+     * the consequence, not the rule.
+     */
+    it('keeps a claim of exactly the maximum length', async () => {
+      const entry = await approvedReport('reporter', CONTENT)
+      const exact = 'y'.repeat(BRIEFING_CLAIM_MAX_LENGTH)
+      await writeBriefing(db, { taskId, claims: [aClaim(exact, [entry])], model: 'm' })
+
+      expect((await readBriefing(db, taskId))?.claims).toHaveLength(1)
     })
 
     /**

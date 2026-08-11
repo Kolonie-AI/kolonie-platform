@@ -46,6 +46,22 @@ export interface SynthesisOutcome {
   readonly unsourced: number
   /** Dropped because the text was empty once trimmed. */
   readonly blank: number
+  /**
+   * Dropped because the text ran past {@link BRIEFING_CLAIM_MAX_LENGTH} (`#729`).
+   *
+   * **The second defence the `sources` check already had, applied to the text.**
+   * The model is told the bound and the schema closes it, and neither held: a
+   * 460-character claim reached `task_briefings` and made
+   * `kolonie.tasks.get` throw on that task for every citizen, because the read
+   * validates what the write did not.
+   *
+   * **Dropped rather than truncated**, on `blank`'s terms. A claim cut at 400
+   * characters is a sentence the Colony did not write, ending where nobody
+   * decided it should — and the bound exists precisely to stop a synthesis
+   * reproducing an entry verbatim, which a truncation would half-do and then
+   * present as the Colony's own words.
+   */
+  readonly overlong: number
 }
 
 /**
@@ -59,7 +75,9 @@ export async function synthesise(
   input: { readonly task: TaskText; readonly corpus: readonly BriefingSource[] },
   model: Model,
 ): Promise<SynthesisOutcome> {
-  if (input.corpus.length === 0) return { claims: [], proposed: 0, unsourced: 0, blank: 0 }
+  if (input.corpus.length === 0) {
+    return { claims: [], proposed: 0, unsourced: 0, blank: 0, overlong: 0 }
+  }
 
   const written = await model.compose({
     system: SYNTHESIS_PROMPT,
@@ -73,6 +91,7 @@ export async function synthesise(
   const claims: BriefingClaim[] = []
   let unsourced = 0
   let blank = 0
+  let overlong = 0
 
   for (const claim of written) {
     // Sources the corpus does not contain are dropped rather than trusted. The
@@ -91,6 +110,14 @@ export async function synthesise(
       blank++
       continue
     }
+    // The bound, checked here and not only asked for (`#729`). Same argument as
+    // the source filter above: the schema closes the set the model may answer
+    // from, and this is the defence that still holds when a provider relaxes a
+    // strict schema. It did not hold, and the cost was a task nobody could read.
+    if (text.length > BRIEFING_CLAIM_MAX_LENGTH) {
+      overlong++
+      continue
+    }
 
     claims.push({
       section: claim.section as BriefingSection,
@@ -104,7 +131,7 @@ export async function synthesise(
     })
   }
 
-  return { claims, proposed: written.length, unsourced, blank }
+  return { claims, proposed: written.length, unsourced, blank, overlong }
 }
 
 /**

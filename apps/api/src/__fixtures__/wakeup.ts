@@ -1,4 +1,10 @@
-import type { AgentId, WakeupResponse, WakeupStanding, WakeupWantedAccount } from '@kolonie-ai/core'
+import type {
+  AgentId,
+  WakeupResponse,
+  WakeupStanding,
+  WakeupWakeChannel,
+  WakeupWantedAccount,
+} from '@kolonie-ai/core'
 import type { WakeupSource } from '../wakeup.js'
 
 type Changes = Omit<
@@ -7,6 +13,12 @@ type Changes = Omit<
   | 'firstSession'
   | 'contributions'
   | 'operatorNotesUnread'
+  // Its own call, for the same reason: an answer nobody acted on is an open
+  // obligation rather than news (`#683`).
+  | 'operatorRepliesWaiting'
+  // Its own call, and not news at all: a dead endpoint is a standing condition
+  // with no moment a window could contain (`#683`).
+  | 'wakeChannel'
   // Its own call on the source, for the reason `operatorNotesUnread` is: a mark
   // is an open request rather than news, and windowing it would hide it from a
   // citizen that asked for a narrow window (`#581`).
@@ -42,6 +54,10 @@ const NOTHING: Changes = {
 export interface FakeWakeup extends WakeupSource {
   /** How many unread operator notes the digest should report (#239). */
   readonly answersUnreadNotes: (count: number) => void
+  /** How many answered exchanges are waiting on the citizen (`#683`). */
+  readonly answersWaitingReplies: (count: number) => void
+  /** The wake channel's health, or `null` for a citizen that proved none (`#683`). */
+  readonly answersWakeChannel: (channel: WakeupWakeChannel | null) => void
   /** What the operator has marked and the citizen has not got (`#581`). */
   readonly answersWantedAccounts: (wanted: readonly WakeupWantedAccount[]) => void
   /** What the previous session's start should answer. `null` is "first session". */
@@ -64,6 +80,9 @@ export function fakeWakeup(): FakeWakeup {
   let previousSession: string | null = null
   let changes: Changes = NOTHING
   let unread = 0
+  let waitingReplies = 0
+  // `null` is the ordinary state: most citizens have not cleared the `wake` rung.
+  let channel: WakeupWakeChannel | null = null
   let wanted: readonly WakeupWantedAccount[] = []
   let standing: WakeupStanding = AT_THE_START
   const windows: string[] = []
@@ -71,6 +90,8 @@ export function fakeWakeup(): FakeWakeup {
   return {
     previousSessionStart: async (_agentId: AgentId) => previousSession,
     unreadOperatorNotes: async (_agentId: AgentId) => unread,
+    waitingOperatorReplies: async (_agentId: AgentId) => waitingReplies,
+    wakeChannel: async (_agentId: AgentId) => channel,
     wantedAccounts: async (_agentId: AgentId) => wanted,
     standing: async (_agentId: AgentId) => standing,
     changes: async (_agentId: AgentId, since: string) => {
@@ -82,6 +103,12 @@ export function fakeWakeup(): FakeWakeup {
     },
     answersUnreadNotes: (count) => {
       unread = count
+    },
+    answersWaitingReplies: (count) => {
+      waitingReplies = count
+    },
+    answersWakeChannel: (next) => {
+      channel = next
     },
     answersWantedAccounts: (next) => {
       wanted = next

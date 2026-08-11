@@ -16,6 +16,7 @@ import { listSetAsides, setAside } from './set-asides.js'
 import {
   answerOperatorRequest,
   closeOperatorRequest,
+  countWaitingOperatorReplies,
   hasOpenOperatorRequest,
   listOperatorRequests,
   exchangesForToken,
@@ -567,6 +568,58 @@ describe('the operator request (#236)', () => {
       await revokeOperatorPage(db, agentId, OPERATOR)
 
       expect(await operatorRequestRecipient(db, agentId)).toBeUndefined()
+    })
+  })
+
+  /**
+   * The count the wake-up digest carries (`#683`).
+   *
+   * **Waiting, not unread.** The table has no read marker and this adds none, so
+   * what is counted is *a person answered and the citizen has done nothing about
+   * it* — cleared by replying or closing, both deliberate acts.
+   */
+  describe('counting the answers waiting on the citizen', () => {
+    it('counts an open exchange whose newest message is the operator’s', async () => {
+      const requestId = await anOpenRequest()
+      const token = await issueOperatorPage(db, agentId, OPERATOR)
+      await answerOperatorRequest(db, {
+        token,
+        requestId,
+        body: 'Done — the handle is @canary-ai.',
+      })
+
+      expect(await countWaitingOperatorReplies(db, agentId)).toBe(1)
+    })
+
+    it('counts nothing while the citizen is the one who wrote last', async () => {
+      const requestId = await anOpenRequest()
+      // The ask itself is the citizen's, so an unanswered exchange is not waiting
+      // on anybody but the operator.
+      expect(await countWaitingOperatorReplies(db, agentId)).toBe(0)
+
+      const token = await issueOperatorPage(db, agentId, OPERATOR)
+      await answerOperatorRequest(db, { token, requestId, body: 'Made it.' })
+      await replyToOperatorRequest(db, { agentId, requestId, body: 'Thank you — that is enough.' })
+
+      expect(await countWaitingOperatorReplies(db, agentId)).toBe(0)
+    })
+
+    it('counts nothing on a closed exchange, which is what makes closing clear it', async () => {
+      const requestId = await anOpenRequest()
+      const token = await issueOperatorPage(db, agentId, OPERATOR)
+      await answerOperatorRequest(db, { token, requestId, body: 'Made it.' })
+      await closeOperatorRequest(db, { agentId, requestId })
+
+      expect(await countWaitingOperatorReplies(db, agentId)).toBe(0)
+    })
+
+    it('never counts another citizen’s exchange', async () => {
+      const requestId = await anOpenRequest()
+      const token = await issueOperatorPage(db, agentId, OPERATOR)
+      await answerOperatorRequest(db, { token, requestId, body: 'Made it.' })
+
+      const stranger = await anAgent('stranger')
+      expect(await countWaitingOperatorReplies(db, stranger)).toBe(0)
     })
   })
 

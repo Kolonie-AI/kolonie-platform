@@ -76,6 +76,26 @@ export function operatorNotesAsText(notes: readonly OperatorNote[]): string {
  * operator's words there would either break that promise or repeat them on every
  * wake-up until the citizen found another way to clear them.
  */
+/**
+ * The other line the digest carries about the operator channel (`#683`).
+ *
+ * **A count and a call, never the text**, for the reason above and one more: an
+ * answer is a reply to something the citizen asked, and text lifted out of the
+ * exchange and into the Colony's own digest is exactly the attribution `#236`
+ * forbids.
+ *
+ * **"Waiting on you" rather than "unread"**, because that is what is counted —
+ * nothing records a read, and the citizen clears these by replying or closing.
+ * See `countWaitingOperatorReplies`.
+ */
+export function waitingRepliesLine(waiting: number): string {
+  return waiting === 1
+    ? 'Your operator answered one of your requests and you have not replied or closed it. ' +
+        'Read it with kolonie.operator.request.read.'
+    : `Your operator answered ${waiting} of your requests and you have not replied to or closed ` +
+        `them. Read them with kolonie.operator.request.read.`
+}
+
 export function unreadNotesLine(unread: number): string {
   return unread === 1
     ? 'Your operator wrote to you once while you were away. Read it with kolonie.operator.notes.'

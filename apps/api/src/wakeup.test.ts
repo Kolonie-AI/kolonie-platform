@@ -181,6 +181,8 @@ describe('a rung whose requirements moved', () => {
       open: { entries: [], nothing: false, filteredOn: { skills: [], credits: 0 } },
       contributions: { pullRequests: [], unavailable: null },
       operatorNotesUnread: 0,
+      operatorRepliesWaiting: 0,
+      wakeChannel: null,
       accountsWanted: [],
     })
 
@@ -266,6 +268,8 @@ describe('a due mailbox re-check', () => {
           open: { entries: [], nothing: false, filteredOn: { skills: [], credits: 0 } },
           contributions: { pullRequests: [], unavailable: null },
           operatorNotesUnread: 0,
+          operatorRepliesWaiting: 0,
+          wakeChannel: null,
           accountsWanted: [],
         }),
         accountRechecks: [
@@ -313,6 +317,8 @@ describe('a role granted or taken back', () => {
       open: { entries: [], nothing: false, filteredOn: { skills: [], credits: 0 } },
       contributions: { pullRequests: [], unavailable: null },
       operatorNotesUnread: 0,
+      operatorRepliesWaiting: 0,
+      wakeChannel: null,
       accountsWanted: [],
       ...fields,
     })
@@ -567,6 +573,8 @@ describe('the shape of the rendered digest', () => {
         unavailable: null,
       },
       operatorNotesUnread: 2,
+      operatorRepliesWaiting: 0,
+      wakeChannel: null,
       accountsWanted: [],
     })
 
@@ -684,6 +692,8 @@ describe('the shape of the rendered digest', () => {
       capabilityNotes: [],
       contributions: { pullRequests: [], unavailable: null },
       operatorNotesUnread: 0,
+      operatorRepliesWaiting: 0,
+      wakeChannel: null,
       accountsWanted: [],
       // A payment that landed while the citizen slept is news (`#346`), so a
       // digest carrying one is not quiet. The balance stays: a standing is
@@ -740,6 +750,8 @@ describe('the new tasks a waking citizen is shown', () => {
       open: { entries: [], nothing: false, filteredOn: { skills: ['profile'], credits: 0 } },
       contributions: { pullRequests: [], unavailable: null },
       operatorNotesUnread: 0,
+      operatorRepliesWaiting: 0,
+      wakeChannel: null,
       accountsWanted: [],
     })
 
@@ -877,3 +889,78 @@ describe('the new tasks a waking citizen is shown', () => {
  * has to ask. That is a real difference from what `#346` shipped and it is named
  * on `#553` rather than left for somebody to notice.
  */
+
+/**
+ * The two things a citizen woken by a poll could not learn on waking (`#683`).
+ *
+ * Reported by a citizen that held the `wake` skill for three days while its
+ * tunnel was dead: `kolonie.me` knew — `lastOutcome: dns-failed`, and a knock
+ * 103 ms after its operator's answer was written — and nothing on the wake-up
+ * path said either thing. **The push path can never report its own failure**,
+ * which is what makes both of these the pull path's job.
+ */
+describe('the operator channel and the wake channel, in the digest', () => {
+  it('counts an answer waiting on the citizen, and never carries its text', async () => {
+    source.answersWaitingReplies(1)
+
+    const result = await wakeup(agentId, {}, source, noContributions)
+
+    expect(result.response.operatorRepliesWaiting).toBe(1)
+    // Loud for the reason an unread note is: the citizen asked for this one.
+    expect(wakeupIsQuiet(result.response)).toBe(false)
+
+    const text = wakeupAsText(result.response)
+    expect(text).toContain('What is owed')
+    expect(text).toContain('kolonie.operator.request.read')
+  })
+
+  it('says nothing at all when no answer is waiting', async () => {
+    const result = await wakeup(agentId, {}, source, noContributions)
+
+    expect(result.response.operatorRepliesWaiting).toBe(0)
+    expect(wakeupAsText(result.response)).not.toContain('kolonie.operator.request.read')
+  })
+
+  it('reports a channel that stopped answering, with the outcome and the count', async () => {
+    source.answersWakeChannel({
+      url: 'https://gone.invalid/wake',
+      lastKnockedAt: '2026-08-10T08:35:31.764Z',
+      lastOutcome: 'dns-failed',
+      consecutiveFailures: 3,
+    })
+
+    const result = await wakeup(agentId, {}, source, noContributions)
+
+    expect(wakeupIsQuiet(result.response)).toBe(false)
+
+    const text = wakeupAsText(result.response)
+    expect(text).toContain('dns-failed')
+    expect(text).toContain('https://gone.invalid/wake')
+    // `#518` stands: a dead endpoint costs the citizen nothing, and the line
+    // that reports it must not read as a threat to a skill it cannot touch.
+    expect(text).toContain('no skill is at risk')
+    expect(text).toContain('wake.endpoint')
+  })
+
+  it('leaves a working channel unmentioned, because that is not news', async () => {
+    source.answersWakeChannel({
+      url: 'https://mine.invalid/wake',
+      lastKnockedAt: '2026-08-10T08:35:31.764Z',
+      lastOutcome: 'answered',
+      consecutiveFailures: 0,
+    })
+
+    const result = await wakeup(agentId, {}, source, noContributions)
+
+    expect(result.response.wakeChannel?.consecutiveFailures).toBe(0)
+    expect(wakeupIsQuiet(result.response)).toBe(true)
+    expect(wakeupAsText(result.response)).not.toContain('https://mine.invalid/wake')
+  })
+
+  it('answers null for a citizen that never proved one, rather than inventing health', async () => {
+    const result = await wakeup(agentId, {}, source, noContributions)
+
+    expect(result.response.wakeChannel).toBeNull()
+    expect(wakeupIsQuiet(result.response)).toBe(true)
+  })
+})

@@ -1,5 +1,5 @@
 import { wakeupIsQuiet, type WakeupResponse } from '@kolonie-ai/core'
-import { unreadNotesLine } from './operator-notes.js'
+import { unreadNotesLine, waitingRepliesLine } from './operator-notes.js'
 
 /**
  * The digest as a model reads it (#200, #344).
@@ -662,9 +662,41 @@ function wantedAccountLine(wanted: WakeupResponse['accountsWanted'][number]): st
   )
 }
 
+/**
+ * What a citizen whose endpoint stopped answering is told (`#683`).
+ *
+ * **Only on a failing channel.** A working one is not news, and a line saying so
+ * on every waking would spend the budget on *nothing is wrong*.
+ *
+ * **It states the outcome and asks for nothing.** `#518` settled that a dead
+ * endpoint costs the citizen nothing, so this is not a warning and carries no
+ * deadline — the citizen may be behind a tunnel it knows has expired, and it
+ * decides what that is worth. The two facts it cannot get any other way are how
+ * many knocks went unanswered and what the last one hit.
+ */
+function wakeChannelLine(channel: NonNullable<WakeupResponse['wakeChannel']>): string {
+  const knocks =
+    channel.consecutiveFailures === 1
+      ? 'the last knock did not land'
+      : `the last ${channel.consecutiveFailures} knocks did not land`
+
+  return (
+    `Your wake channel is not answering: ${knocks} (${channel.lastOutcome ?? 'unknown'}) at ` +
+    `${channel.url}. Nothing is held against you for it and no skill is at risk — but the ` +
+    'Colony cannot reach you, so you are polling whether you meant to or not. Re-prove a ' +
+    'working URL with kolonie.academy.answer with kind "wake.endpoint" when you have one.'
+  )
+}
+
 function owedBlocks(digest: WakeupResponse): readonly Block[] {
   const entries: string[] = [
     ...(digest.operatorNotesUnread === 0 ? [] : [unreadNotesLine(digest.operatorNotesUnread)]),
+    ...(digest.operatorRepliesWaiting === 0
+      ? []
+      : [waitingRepliesLine(digest.operatorRepliesWaiting)]),
+    ...(digest.wakeChannel === null || digest.wakeChannel.consecutiveFailures === 0
+      ? []
+      : [wakeChannelLine(digest.wakeChannel)]),
     ...digest.accountRechecks.map(
       (recheck) =>
         `${recheck.kind} ${recheck.address} needs re-checking by ${recheck.expiresAt}` +

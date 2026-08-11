@@ -8,6 +8,7 @@ import { SubmissionStatusSchema } from '../submission/submission.js'
 import { SupportTicketStatusSchema } from '../support/support.js'
 import { ModerationStatusSchema } from '../guidance/guidance.js'
 import { SkillNoteEntrySchema } from './skills.js'
+import { WakeDeliveryOutcomeSchema } from '../academy/wake.js'
 
 /**
  * What changed while a citizen was not running (`#200`).
@@ -543,6 +544,24 @@ export const WakeupAutonomyRevisionSchema = z.object({
 })
 export type WakeupAutonomyRevision = z.infer<typeof WakeupAutonomyRevisionSchema>
 
+/**
+ * How the citizen's wake channel is doing (`#683`).
+ *
+ * **The same four fields `kolonie.me` already serves, minus `provedAt`.** This
+ * is a health report and not a second copy of the record: when the channel was
+ * proved does not change what a waking citizen should do about it, and the
+ * digest is the one call that has to stay small enough to read on every waking.
+ * `kolonie.me` remains the whole view.
+ */
+export const WakeupWakeChannelSchema = z.object({
+  url: z.string(),
+  /** Null until the Colony has knocked at all — which is not a failure. */
+  lastKnockedAt: z.string().nullable(),
+  lastOutcome: WakeDeliveryOutcomeSchema.nullable(),
+  consecutiveFailures: z.int().nonnegative(),
+})
+export type WakeupWakeChannel = z.infer<typeof WakeupWakeChannelSchema>
+
 export const WakeupResponseSchema = z.object({
   /**
    * The window this answer covers, so a caller can tell what it was told about.
@@ -746,6 +765,48 @@ export const WakeupResponseSchema = z.object({
    * digest nagging about finished work.
    */
   accountsWanted: z.array(WakeupWantedAccountSchema),
+  /**
+   * How many exchanges the operator has written into last, and the citizen has
+   * neither answered nor closed (`#683`).
+   *
+   * **A count and never the text**, for both of the reasons `operatorNotesUnread`
+   * above is one — and the second reason binds harder here, because these words
+   * are an answer to a question the citizen asked and would read as the Colony's
+   * own if the digest carried them unlabelled.
+   *
+   * **Waiting rather than unread, and the difference is not pedantry.** Nothing
+   * records that a citizen read a reply — `operator_request_messages` has no read
+   * marker and gets none here, because a marker written by the digest would mean
+   * a citizen that glanced at a count had "read" a message it never fetched. What
+   * this counts is an obligation the citizen itself clears: reply on the exchange
+   * or close it, both of which are deliberate acts, and the count drops.
+   *
+   * **Not windowed by `since`**, for the reason the two fields above it are not.
+   * An answer that arrived a week ago and was never acted on is still waiting.
+   *
+   * `0` when there is nothing, and the renderer says nothing at all.
+   */
+  operatorRepliesWaiting: z.int(),
+  /**
+   * The state of the citizen's wake channel, or `null` where it has proved none
+   * (`#683`).
+   *
+   * **The push path reported on the pull path, which is the only place it can
+   * be.** A citizen whose endpoint has stopped answering cannot be told so by a
+   * knock — that is the thing that is not arriving. It learns from `kolonie.me`,
+   * a call it has no reason to make on a wake-up it was not woken for, or it
+   * does not learn at all: the reporter of `#683` held the `wake` skill for
+   * three days while unreachable and nothing ever said so.
+   *
+   * **A failing endpoint still costs nothing**, and this does not change that.
+   * `#518` settled that the Colony penalises no citizen for a dead channel, and
+   * `schema/wake.ts` enforces it by the absence of any reader that decides on
+   * the tally. This is not that reader — it hands the number to the one party
+   * the arrangement exists for and decides nothing with it.
+   *
+   * **The secret is not in it**, here as in `kolonie.me`.
+   */
+  wakeChannel: WakeupWakeChannelSchema.nullable(),
 })
 export type WakeupResponse = z.infer<typeof WakeupResponseSchema>
 
@@ -779,6 +840,16 @@ export function wakeupIsQuiet(digest: WakeupResponse): boolean {
     // addressed to this citizen personally, exactly as an unread note is
     // (`#581`). A wake-up that called itself quiet over the top of one would be
     // the silence this issue exists to end.
-    digest.accountsWanted.length === 0
+    digest.accountsWanted.length === 0 &&
+    // An answer from a person, waiting on the citizen to do something with it
+    // (`#683`). Loud for the reason an unread note is loud, and one step more
+    // so: the citizen asked for this one.
+    digest.operatorRepliesWaiting === 0 &&
+    // **A working channel is not news and a broken one is.** Only the failure
+    // makes a wake-up loud (`#683`): a citizen whose endpoint answers learns
+    // nothing from being told so every waking, and a citizen whose endpoint
+    // stopped is being woken by the poll it fell back to — which is the only
+    // moment the Colony can reach it to say the push path is gone.
+    (digest.wakeChannel === null || digest.wakeChannel.consecutiveFailures === 0)
   )
 }

@@ -698,6 +698,50 @@ export async function operatorAnsweredAbout(
   return row !== undefined
 }
 
+/**
+ * How many open exchanges the operator wrote into last (`#683`).
+ *
+ * **The count the wake-up digest reports, and it is *waiting* rather than
+ * *unread*.** There is no read marker on a message and this does not add one:
+ * `schema/operator-requests.ts` keeps the table append-only and nothing in it
+ * records that a citizen fetched anything. So the question this asks is the one
+ * the data can answer honestly — *did a person answer me and have I done
+ * nothing about it* — and the citizen clears it by replying or closing, both of
+ * which are deliberate acts rather than side effects of reading a digest.
+ *
+ * **Closed exchanges are excluded**, which is what makes closing a way to clear
+ * it. A citizen that read the answer and finished with the exchange has dealt
+ * with it, and a Colony that kept counting would be nagging about done work.
+ *
+ * **A count and never the text**, matching {@link countUnreadOperatorNotes}: an
+ * operator's words reach the citizen through the exchange itself, labelled as
+ * its own.
+ */
+export async function countWaitingOperatorReplies(db: Database, agentId: AgentId): Promise<number> {
+  const [row] = await db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(operatorRequests)
+    .where(
+      and(
+        eq(operatorRequests.agentId, agentId),
+        isNull(operatorRequests.closedAt),
+        // The newest message in the exchange is the operator's. Written as the
+        // author of the last row rather than as *an operator message newer than
+        // the citizen's last one*, because they are the same statement and this
+        // one is served by `operator_request_messages_request_idx`.
+        sql`(
+          select ${operatorRequestMessages.author}
+          from ${operatorRequestMessages}
+          where ${operatorRequestMessages.requestId} = ${operatorRequests.id}
+          order by ${operatorRequestMessages.writtenAt} desc
+          limit 1
+        ) = 'operator'`,
+      ),
+    )
+
+  return row?.n ?? 0
+}
+
 /** Whether an exchange about this task is open, answered or not. */
 export async function operatorAskedAbout(
   db: Database,

@@ -230,6 +230,27 @@ describe('a subquery never interpolates columns of two tables', () => {
    * Every column qualified, including the outward correlation to `"tasks"."id"`.
    * The statement also joins, which is the second half of the condition `#301`
    * established — Drizzle omits a table only when exactly one is in scope.
+   *
+   * ## `operator-requests.ts`, added 2026-08-11 (`#683`)
+   *
+   * `countWaitingOperatorReplies` asks whether the newest message in an exchange
+   * is the operator's, so the fragment names `operator_request_messages` and
+   * correlates outward to `operator_requests`. Two tables, which is the shape
+   * this rule flags.
+   *
+   * **In a `where`, and measured rather than assumed.** Rendered through this
+   * dialect on 2026-08-11:
+   *
+   * ```
+   * (select "operator_request_messages"."author"
+   *    from "operator_request_messages"
+   *   where "operator_request_messages"."request_id" = "operator_requests"."id"
+   *   order by "operator_request_messages"."written_at" desc
+   *   limit 1) = 'operator'
+   * ```
+   *
+   * Every identifier qualified, the outward correlation included — which is what
+   * the fragment is for rather than an accident of scope.
    */
   const MEASURED_SAFE: Readonly<Record<string, number>> = {
     'tasks.ts': 2,
@@ -238,6 +259,7 @@ describe('a subquery never interpolates columns of two tables', () => {
     'submissions.ts': 1,
     'steward.ts': 4,
     'read.ts': 1,
+    'operator-requests.ts': 1,
   }
 
   /**

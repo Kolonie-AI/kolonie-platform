@@ -8,11 +8,14 @@ import {
   type SkillNoteEntry,
   type WakeupNoteInvitation,
   type WakeupStanding,
+  type WakeupWakeChannel,
   type WakeupWantedAccount,
 } from '@kolonie-ai/core'
 import {
   countUnreadOperatorNotes,
+  countWaitingOperatorReplies,
   previousSessionStart,
+  wakeChannelOf,
   wakeupChanges,
   wakeupStanding,
   wantedAccountsFor,
@@ -53,6 +56,26 @@ export interface WakeupSource {
    */
   unreadOperatorNotes(agentId: AgentId): Promise<number>
   /**
+   * How many exchanges the operator answered last and the citizen has not
+   * acted on (`#683`).
+   *
+   * **Its own call, for the reason `unreadOperatorNotes` is one.** An answer
+   * nobody replied to is an open obligation rather than news, and a citizen
+   * that asked for a narrow window must still be told a person is waiting on
+   * it.
+   */
+  waitingOperatorReplies(agentId: AgentId): Promise<number>
+  /**
+   * The state of the citizen's wake channel, or `null` where it proved none
+   * (`#683`).
+   *
+   * **Its own call and not part of `changes`, because a broken channel is not
+   * an event.** There is no moment it happened at that a window could contain:
+   * it is a standing condition, and the citizen it matters to is precisely the
+   * one that woke on a poll rather than on a knock.
+   */
+  wakeChannel(agentId: AgentId): Promise<WakeupWakeChannel | null>
+  /**
    * What the operator has marked and the citizen has not got (`#581`).
    *
    * **Its own call, for the reason `unreadOperatorNotes` is one.** A mark is an
@@ -80,6 +103,8 @@ export interface WakeupSource {
       | 'firstSession'
       | 'contributions'
       | 'operatorNotesUnread'
+      | 'operatorRepliesWaiting'
+      | 'wakeChannel'
       | 'accountsWanted'
       | 'open'
       | 'standing'
@@ -113,6 +138,19 @@ export function databaseWakeup(db: Database, rechecks?: RecheckDependencies): Wa
   return {
     previousSessionStart: (agentId) => previousSessionStart(db, agentId),
     unreadOperatorNotes: (agentId) => countUnreadOperatorNotes(db, agentId),
+    waitingOperatorReplies: (agentId) => countWaitingOperatorReplies(db, agentId),
+    wakeChannel: async (agentId) => {
+      const channel = await wakeChannelOf(db, agentId)
+      if (channel === undefined) return null
+
+      // `provedAt` is dropped rather than carried: see `WakeupWakeChannelSchema`.
+      return {
+        url: channel.url,
+        lastKnockedAt: channel.lastKnockedAt,
+        lastOutcome: channel.lastOutcome,
+        consecutiveFailures: channel.consecutiveFailures,
+      }
+    },
     wantedAccounts: async (agentId) => {
       const rows = await wantedAccountsFor(db, agentId)
 
@@ -364,18 +402,29 @@ export async function wakeup(
       ? Promise.resolve([] as readonly Task[])
       : availableNow(agentId, openings.source)
 
-  const [changes, pulls, operatorNotesUnread, accountsWanted, standing, open, startableAdded] =
-    await Promise.all([
-      source.changes(agentId, since),
-      listContributions(agentId, contributions),
-      source.unreadOperatorNotes(agentId),
-      source.wantedAccounts(agentId),
-      source.standing(agentId),
-      openings === undefined
-        ? Promise.resolve(NOTHING_OPEN)
-        : openingsFor(agentId, openings.skills, openings.source, available),
-      startableSince(agentId, since, openings?.source),
-    ])
+  const [
+    changes,
+    pulls,
+    operatorNotesUnread,
+    operatorRepliesWaiting,
+    wakeChannel,
+    accountsWanted,
+    standing,
+    open,
+    startableAdded,
+  ] = await Promise.all([
+    source.changes(agentId, since),
+    listContributions(agentId, contributions),
+    source.unreadOperatorNotes(agentId),
+    source.waitingOperatorReplies(agentId),
+    source.wakeChannel(agentId),
+    source.wantedAccounts(agentId),
+    source.standing(agentId),
+    openings === undefined
+      ? Promise.resolve(NOTHING_OPEN)
+      : openingsFor(agentId, openings.skills, openings.source, available),
+    startableSince(agentId, since, openings?.source),
+  ])
 
   return {
     response: {
@@ -401,6 +450,8 @@ export async function wakeup(
         unavailable: pulls.response.unavailable ?? null,
       },
       operatorNotesUnread,
+      operatorRepliesWaiting,
+      wakeChannel,
       accountsWanted: [...accountsWanted],
     },
   }

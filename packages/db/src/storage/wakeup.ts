@@ -10,6 +10,7 @@ import {
   type WakeupAutonomyRevision,
   type WakeupRungRevised,
   type WakeupStanding,
+  type WakeupSponsoredQuest,
   type WakeupTask,
   type WakeupRecheck,
   type WakeupTicket,
@@ -36,6 +37,8 @@ import { previousSessionStartSql } from './sessions.js'
 export interface WakeupChanges {
   /** Accounts whose re-check is open and waiting on this citizen (`#226`). */
   readonly accountRechecks: readonly WakeupRecheck[]
+  /** State changes on quests this citizen sponsored (`#756`). */
+  readonly sponsoredQuests: readonly WakeupSponsoredQuest[]
   readonly tasksAdded: readonly WakeupTask[]
   readonly tasksRetired: readonly WakeupTask[]
   readonly rungsRevised: readonly WakeupRungRevised[]
@@ -139,6 +142,7 @@ export async function wakeupChanges(
 ): Promise<WakeupChanges> {
   const [
     rechecks,
+    sponsoredQuests,
     added,
     retired,
     revised,
@@ -181,6 +185,64 @@ export async function wakeupChanges(
         ),
       )
       .orderBy(emailChallenges.expiresAt),
+
+    db.execute<{
+      task_id: string
+      title: string
+      transition: 'published' | 'refused' | 'awaiting_payment' | 'expired' | 'retired'
+      changed_at: string
+      reason: string | null
+      invoice_lamports: number | null
+    }>(sql`
+      select t.id as task_id,
+             t.title,
+             case
+               when e.action = 'quest-refused' then 'refused'
+               when t.invoice_lamports is not null then 'awaiting_payment'
+               else 'published'
+             end as transition,
+             e.at as changed_at,
+             case when e.action = 'quest-refused' then t.rejection_reason else null end as reason,
+             case when t.status = 'awaiting_payment'
+                  then greatest(coalesce(t.invoice_lamports, 0) - t.paid_lamports, 0)
+                  else null end as invoice_lamports
+        from authority_events e
+        join tasks t on t.id = e.subject_task_id
+       where e.subject_agent_id = ${agentId}
+         and e.action in ('quest-published', 'quest-refused')
+         and e.at >= ${since}
+         and (e.action = 'quest-refused'
+              or t.invoice_lamports is null
+              or t.status = 'awaiting_payment')
+      union all
+      select t.id, t.title, 'published', t.updated_at, null, null
+        from tasks t
+       where t.created_by = ${agentId}
+         and t.kind = 'quest'
+         and t.status = 'active'
+         and t.invoice_lamports is not null
+         and t.updated_at >= ${since}
+         and exists (
+           select 1 from authority_events e
+            where e.subject_task_id = t.id
+              and e.action = 'quest-published'
+              and e.at < t.updated_at)
+      union all
+      select t.id, t.title, 'retired', t.retired_at, t.ended_reason, null
+        from tasks t
+       where t.created_by = ${agentId}
+         and t.kind = 'quest'
+         and t.status = 'retired'
+         and t.retired_at >= ${since}
+      union all
+      select t.id, t.title, 'expired', t.expires_at, t.ended_reason, null
+        from tasks t
+       where t.created_by = ${agentId}
+         and t.kind = 'quest'
+         and t.status = 'active'
+         and t.expires_at >= ${since}
+         and t.expires_at <= now()
+       order by changed_at desc`),
 
     db
       .select({ taskId: tasks.id, title: tasks.title, kind: tasks.kind })
@@ -421,6 +483,14 @@ export async function wakeupChanges(
       address: row.address,
       expiresAt: toTimestamp(row.expiresAt),
       wakeupsSince: Number(row.wakeupsSince),
+    })),
+    sponsoredQuests: sponsoredQuests.map((row) => ({
+      taskId: row.task_id as WakeupSponsoredQuest['taskId'],
+      title: row.title,
+      transition: row.transition,
+      changedAt: toTimestamp(row.changed_at),
+      ...(row.reason === null ? {} : { reason: row.reason }),
+      ...(row.invoice_lamports === null ? {} : { invoiceLamports: Number(row.invoice_lamports) }),
     })),
     tasksAdded: added.map(asTask),
     tasksRetired: retired.map(asTask),

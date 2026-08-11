@@ -30,6 +30,46 @@ beforeEach(() => {
 })
 
 describe('the wake-up digest', () => {
+  it.each([
+    ['published', 'published and live'],
+    ['refused', 'A correction is a new submission'],
+    ['awaiting_payment', 'does not start until paid'],
+    ['expired', 'unfilled capacity is not returned'],
+    ['retired', 'unfilled capacity is not returned'],
+  ] as const)('reports a sponsored quest that became %s', async (transition, said) => {
+    const taskId = TaskIdSchema.parse(randomUUID())
+    source.answersChanges({
+      sponsoredQuests: [
+        {
+          taskId,
+          title: 'Measure the registration path',
+          transition,
+          changedAt: '2026-08-01T10:00:00.000Z',
+          ...(transition === 'refused' ? { reason: 'Name the page to inspect.' } : {}),
+          ...(transition === 'awaiting_payment' ? { invoiceLamports: 2_000_000 } : {}),
+        },
+      ],
+    })
+
+    const result = await wakeup(agentId, {}, source, noContributions)
+
+    expect(wakeupIsQuiet(result.response)).toBe(false)
+    expect(wakeupAsText(result.response)).toContain(said)
+    if (transition === 'refused') expect(wakeupAsText(result.response)).toContain('Name the page')
+    if (transition === 'awaiting_payment') {
+      expect(result.response.open.entries[0]?.call).toBe(
+        `kolonie.quests.read with questId: ${taskId}`,
+      )
+    }
+  })
+
+  it('stays quiet when none of the sponsor’s quests moved', async () => {
+    const result = await wakeup(agentId, {}, source, noContributions)
+
+    expect(result.response.sponsoredQuests).toEqual([])
+    expect(wakeupIsQuiet(result.response)).toBe(true)
+  })
+
   it('measures from the previous session, not the current one', async () => {
     source.answersPreviousSession('2026-08-01T09:00:00.000Z')
 

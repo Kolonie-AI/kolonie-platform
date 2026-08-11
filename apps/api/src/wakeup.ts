@@ -212,6 +212,7 @@ export function databaseWakeup(db: Database, rechecks?: RecheckDependencies): Wa
       const found = await wakeupChanges(db, agentId, since)
       return {
         accountRechecks: [...found.accountRechecks],
+        sponsoredQuests: [...found.sponsoredQuests],
         tasksAdded: [...found.tasksAdded],
         tasksRetired: [...found.tasksRetired],
         rungsRevised: [...found.rungsRevised],
@@ -470,15 +471,31 @@ export async function wakeup(
     startableSince(agentId, since, openings?.source),
   ])
 
+  const sponsorOpen: WakeupOpen['entries'] = changes.sponsoredQuests
+    .filter((quest) => quest.transition === 'awaiting_payment')
+    .map((quest) => ({
+      what: `Pay the invoice for ${quest.title}`,
+      call: `kolonie.quests.read with questId: ${quest.taskId}`,
+      why: 'the quest cleared review and stays invisible until its invoice is paid',
+      gets: 'the quest goes live when the payment arrives',
+      needs: `${quest.invoiceLamports ?? 0} lamports from your verified wallet`,
+      repeatable: false,
+      touches: [],
+    }))
+  const openWithSponsor: WakeupOpen = {
+    ...open,
+    entries: [...sponsorOpen, ...open.entries].slice(0, 5),
+  }
+
   return {
     response: {
       since,
       firstSession,
       standing,
-      open,
+      open: openWithSponsor,
       ...changes,
       noteInvitations: [...(await noteInvitationsFor(agentId, changes.skillsGranted, notes))],
-      capabilityNotes: [...(await capabilityNotesFor(agentId, open, notes))],
+      capabilityNotes: [...(await capabilityNotesFor(agentId, openWithSponsor, notes))],
       tasksAdded: changes.tasksAdded.map((task) => ({
         ...task,
         startable: startableAdded === null ? null : startableAdded.has(task.taskId),

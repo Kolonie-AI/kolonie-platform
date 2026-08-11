@@ -1445,6 +1445,8 @@ While the version is `0.x`, **breaking changes bump the minor version**.
   `questPayoutSplit()` floors the _treasury_ share, so it rounds in the citizen's
   favour, and the floor is measured against the function that pays.
 
+- `kolonie.wakeup` now carries publication, refusal, invoice, expiry and retirement changes for quests sponsored by the caller. Invoice changes also put the quest in `open`, pointing to the read that carries the amount and transfer instructions. (`kolonie-platform#756`)
+
 - **A quest that pays nothing is the Colony's own to publish**
   (`kolonie-platform#744`). The floor `#743` put in place measures a price, and
   zero was underneath it rather than caught by it. So a quest whose reward is

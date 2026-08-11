@@ -125,6 +125,11 @@ export async function applyPaymentToInvoice(
       ...(settled &&
         waiting.status === 'awaiting_payment' && {
           status: 'active' as const,
+          // This is the publication moment for an invoiced quest. Wake-up reads
+          // it as a state change, so leaving the steward's earlier timestamp in
+          // `updated_at` would either announce a live quest before payment or
+          // miss the transition that actually made it visible (`#756`).
+          updatedAt: sql`now()`,
           // The clock stops when the waiting does, and the check constraint
           // requires it: a quest that is not awaiting payment carries no
           // awaiting-payment timestamp.

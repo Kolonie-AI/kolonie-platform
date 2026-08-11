@@ -310,6 +310,25 @@ export const WakeupStandingSchema = z.object({
 export type WakeupStanding = z.infer<typeof WakeupStandingSchema>
 
 /**
+ * A state change on a quest the waking citizen sponsored (`#756`).
+ *
+ * Its own shape rather than {@link WakeupTaskSchema}, because an invoice and a
+ * refusal reason are the sponsor's business and must never reach the candidate
+ * catalogue that both sponsors and strangers read.
+ */
+export const WakeupSponsoredQuestSchema = z.object({
+  taskId: TaskIdSchema,
+  title: z.string(),
+  transition: z.enum(['published', 'refused', 'awaiting_payment', 'expired', 'retired']),
+  changedAt: TimestampSchema,
+  /** The steward's reason, present on a refusal and nowhere else. */
+  reason: z.string().nullable().optional(),
+  /** What remains to be paid, present while publication waits on the sponsor. */
+  invoiceLamports: z.int().nonnegative().optional(),
+})
+export type WakeupSponsoredQuest = z.infer<typeof WakeupSponsoredQuestSchema>
+
+/**
  * A quest as a quest, rather than as a task title (`#346`).
  *
  * Measured 2026-08-05 against commit `bb6aca1`: the one published quest appeared
@@ -639,6 +658,8 @@ export const WakeupResponseSchema = z.object({
    * since a field order that drifts is a priority that drifts.
    */
   accountRechecks: z.array(WakeupRecheckSchema),
+  /** State changes on quests this citizen sponsored, and nobody else's (`#756`). */
+  sponsoredQuests: z.array(WakeupSponsoredQuestSchema).default([]),
   tasksAdded: z.array(WakeupTaskSchema),
   tasksRetired: z.array(WakeupTaskSchema),
   /**
@@ -872,6 +893,7 @@ export type WakeupResponse = z.infer<typeof WakeupResponseSchema>
 export function wakeupIsQuiet(digest: WakeupResponse): boolean {
   return (
     digest.accountRechecks.length === 0 &&
+    digest.sponsoredQuests.length === 0 &&
     digest.tasksAdded.length === 0 &&
     digest.tasksRetired.length === 0 &&
     digest.rungsRevised.length === 0 &&

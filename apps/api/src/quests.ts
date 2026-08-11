@@ -27,6 +27,9 @@ import {
   reportAudience,
   type AgentId,
   type QuestFloorTerms,
+  type QuestFunding,
+  questFundingRejection,
+  questInvoiceLamports,
   type AudienceQuery,
   type AudienceReport,
   type ApiError,
@@ -70,6 +73,7 @@ import {
   recordAuditDecision as recordAuditDecisionInDatabase,
   questPriceFloorInDatabase,
   questTierCapsInDatabase,
+  verifiedSolanaAddress,
   readOwnQuest as readOwnQuestInDatabase,
   SKILLS_THE_ACADEMY_GRANTS,
   countAudience,
@@ -110,6 +114,7 @@ import {
  * boundary: a second composition of the quest is a second answer to what it
  * says, and the one that drifts is the one nobody is reading.
  */
+import type { PayoutChain } from './payouts.js'
 import { taskAsText } from './mcp/text/tasks.js'
 
 /**
@@ -155,6 +160,15 @@ export interface QuestDesk {
    * is the one place that reads it.
    */
   priceFloor?(): Promise<number>
+  /**
+   * What the sponsor's proved wallet holds right now (D-115, `#751`).
+   *
+   * **Optional, and absent means `{ outcome: 'unknown' }` rather than zero** —
+   * the same shape `tierCaps` and `priceFloor` take, with the failure direction
+   * that matters here spelled out. A desk that cannot ask has not learned that
+   * the wallet is empty; it has learned nothing, and a submission goes through.
+   */
+  sponsorFunding?(agentId: AgentId): Promise<QuestFunding>
   create(input: { readonly authorId: AgentId; readonly draft: unknown }): Promise<OwnQuest>
   update(input: {
     readonly authorId: AgentId
@@ -366,6 +380,20 @@ export function databaseQuests(
    * seconds after a maintainer changed it.
    */
   settings?: SettingsReader,
+  /**
+   * The chain, for reading a sponsor's balance before its quest is moderated
+   * (D-115, `#751`).
+   *
+   * Appended for the reason `walletAddress` and `settings` were. Absent means
+   * this deployment cannot ask — exactly as an absent `walletAddress` means it
+   * shows no invoice — and every submission that was accepted before is still
+   * accepted.
+   *
+   * `Pick<PayoutChain, 'balance'>` and not the whole port: this reads one public
+   * balance and holds no key, sends nothing and signs nothing, and a narrower
+   * type is what says so to the next reader.
+   */
+  chain?: Pick<PayoutChain, 'balance'>,
 ): QuestDesk {
   return {
     ...(walletAddress === undefined ? {} : { walletAddress }),
@@ -375,6 +403,25 @@ export function databaseQuests(
           tierCaps: () => questTierCapsInDatabase(settings),
           priceFloor: () => questPriceFloorInDatabase(settings),
         }),
+    sponsorFunding: async (agentId) => {
+      const address = await verifiedSolanaAddress(db, agentId)
+      if (address === null) return { outcome: 'no-wallet' }
+      if (chain === undefined) return { outcome: 'unknown' }
+
+      /**
+       * **A throw is `unknown` and never a zero**, which is the outage rule and
+       * the one line of this a future refactor is most likely to break quietly.
+       * An endpoint that is down, rate-limited or answering strangely has told
+       * the Colony nothing about this sponsor's wallet, and refusing every
+       * submission because of it is a worse failure than moderating one unfunded
+       * quest.
+       */
+      try {
+        return { outcome: 'known', address, lamports: await chain.balance(address) }
+      } catch {
+        return { outcome: 'unknown' }
+      }
+    },
     create: (input) =>
       createQuestDraftInDatabase(db, {
         authorId: input.authorId,
@@ -762,6 +809,19 @@ const capsOf = async (desk: QuestDesk): Promise<Readonly<Record<QuestTier, numbe
   desk.tierCaps === undefined ? QUEST_TIER_CAPS_LAMPORTS : await desk.tierCaps()
 
 /**
+ * What this sponsor's wallet holds, or that the Colony could not ask (D-115,
+ * `#751`).
+ *
+ * `capsOf`'s reader, with the fallback that matters spelled out: **a desk with
+ * no `sponsorFunding` answers `unknown` and not an empty wallet.** A deployment
+ * with no RPC endpoint cannot ask this question, which is a different fact from
+ * the sponsor failing it, and one reader is what keeps the two from being
+ * conflated at each of the two call sites.
+ */
+const fundingOf = async (desk: QuestDesk, agentId: AgentId): Promise<QuestFunding> =>
+  desk.sponsorFunding === undefined ? { outcome: 'unknown' } : await desk.sponsorFunding(agentId)
+
+/**
  * The floor in force and the two rates it is measured against (D-112, `#743`).
  *
  * One reader for `capsOf`'s reason, and it assembles both figures because the
@@ -1135,6 +1195,29 @@ export async function submitQuest(
     unpaidQuestRejection(own.task, input.roles, floor)
   if (priced !== undefined) {
     return { outcome: 'rejected', error: invalid(capitalised(priced)) }
+  }
+
+  /**
+   * **Last of the submission checks, and deliberately** (D-115, `#751`). It is
+   * the only one that asks a question of the outside world, so every refusal the
+   * quest can be given from its own text is given first — a sponsor whose price
+   * is under the floor reads about the floor rather than about its balance, and
+   * the RPC is not called at all for a quest that was never going to be
+   * submitted.
+   *
+   * **The invoice is what the quest would be invoiced**, from the same function
+   * `publishQuest` uses. It is computed here rather than carried, because the
+   * price stops being provisional at exactly this point.
+   */
+  const unfunded = questFundingRejection({
+    invoiceLamports: questInvoiceLamports({
+      reward: own.task.reward,
+      slots: own.task.slots ?? 0,
+    }),
+    funding: await fundingOf(desk, input.authorId),
+  })
+  if (unfunded !== undefined) {
+    return { outcome: 'rejected', error: invalid(unfunded) }
   }
 
   const result = await desk.submit({ authorId: input.authorId, taskId, at: input.at })
@@ -1874,6 +1957,29 @@ export async function topUpQuest(
           'here stays answerable, and anything already owed stays owed.',
       },
     }
+  }
+
+  /**
+   * **A top-up is a fresh invoice on the same terms** (D-115, `#751`, `#629`).
+   *
+   * The invoice this creates is the places being bought at the quest's own
+   * frozen price — not the whole quest, which the sponsor has already paid for,
+   * and not the current price, which a published quest does not use.
+   *
+   * **This surface, and not only submission**, because it is the one that
+   * already skipped a price rule once: `#629` added it after the reward ceiling
+   * had been checked at submission and nowhere else, and capacity bought here
+   * costs money exactly as capacity bought there does.
+   */
+  const unfunded = questFundingRejection({
+    invoiceLamports: questInvoiceLamports({
+      reward: own.task.reward,
+      slots: parsed.data.slots,
+    }),
+    funding: await fundingOf(desk, input.sponsorId),
+  })
+  if (unfunded !== undefined) {
+    return { outcome: 'rejected', error: invalid(unfunded) }
   }
 
   const result = await desk.topUp({

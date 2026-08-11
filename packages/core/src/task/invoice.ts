@@ -1,4 +1,5 @@
 import { LAMPORTS_PER_SOL, solFromLamports } from '../ledger/payments.js'
+import { SOL_TRANSFER_FEE_LAMPORTS } from '../ledger/transfer.js'
 import type { TaskReward } from './task.js'
 
 /**
@@ -136,6 +137,86 @@ export function unfundedWalletRefusal(walletAddress: string): string {
     `transfer from it can leave. Fund it before paying this invoice — any amount above the ` +
     `fee is enough to make the account exist. This is not a refusal by the Colony: an address ` +
     `that has never held SOL has no account on chain at all.`
+  )
+}
+
+/**
+ * What the Colony was able to learn about a sponsor's wallet (`#751`).
+ *
+ * **Three outcomes and not a nullable number**, because *we could not ask* and
+ * *the wallet is empty* lead to opposite decisions and a `null` reads as either.
+ * An outage must let the submission through; an empty wallet must not.
+ */
+export type QuestFunding =
+  /** No address proved at the `solana-wallet` rung. */
+  | { readonly outcome: 'no-wallet' }
+  /** The Colony could not ask: no endpoint configured, or the endpoint failed. */
+  | { readonly outcome: 'unknown' }
+  | { readonly outcome: 'known'; readonly address: string; readonly lamports: number }
+
+/**
+ * Why this sponsor cannot commit to this invoice, or `undefined` if it can
+ * (D-115, `#751`).
+ *
+ * ## Why the check exists at all
+ *
+ * A quest was moderated, priced and invoiced before anything asked whether its
+ * sponsor could pay for it. The Colony spent a model verdict on hypothetical
+ * funding, and the sponsor learned its wallet was short only once the quest had
+ * reached `awaiting_payment`.
+ *
+ * **The reason that gap was left open has expired.** `#553` closed the question
+ * with *the sponsor pays from its own wallet, the Colony has no key to it and
+ * does not watch it, so `can you afford this` is not a question the Colony can
+ * answer.* Payment attribution matches an arrival against exactly the address
+ * the sponsor proved, and the payout chain already reads balances. The Colony
+ * knows the address and can read the balance, so it can ask.
+ *
+ * ## What it does not do
+ *
+ * **Nothing is reserved, held, escrowed or debited.** This reads one public
+ * balance and refuses one submission. D-106's *the Colony holds no key to
+ * anybody else's money* is untouched, and there is no second read after
+ * submission: the balance can leave the wallet before publication, and
+ * `awaiting_payment` and the invoice expiry already cover that.
+ *
+ * ## The rules, in order
+ *
+ * - A quest that pays nothing has nothing to fund, whatever the wallet says.
+ * - **An outage lets the sponsor through.** `state/decisions/the-colony-judges-
+ *   its-own-quests.md`: *an outage must never publish anything, and must never
+ *   turn away a sponsor who did nothing wrong.* Refusing every sponsor because
+ *   an endpoint is down is a worse failure than moderating one unfunded quest.
+ * - No proved wallet is a refusal that names the rung, because a quest that pays
+ *   is invoiced to an address and there is no address.
+ * - The wallet must hold the invoice **and** one transaction fee. A balance
+ *   exactly equal to the invoice cannot pay the fee to send it, which is the
+ *   failure {@link unfundedWalletRefusal} was written for one step later.
+ */
+export function questFundingRejection(input: {
+  readonly invoiceLamports: number
+  readonly funding: QuestFunding
+}): string | undefined {
+  if (input.invoiceLamports <= 0) return undefined
+  if (input.funding.outcome === 'unknown') return undefined
+
+  if (input.funding.outcome === 'no-wallet') {
+    return (
+      'A quest that pays is invoiced to the wallet you proved at the solana-wallet rung, and ' +
+      'you have proved none. Clear that rung first: the Colony has nowhere to invoice this ' +
+      'quest and no way to recognise a payment for it.'
+    )
+  }
+
+  const needed = input.invoiceLamports + SOL_TRANSFER_FEE_LAMPORTS
+  if (input.funding.lamports >= needed) return undefined
+
+  return (
+    `This quest is invoiced at ${solFromLamports(input.invoiceLamports)} SOL and the wallet you ` +
+    `proved holds ${solFromLamports(input.funding.lamports)} SOL, which is ` +
+    `${solFromLamports(needed - input.funding.lamports)} SOL short of the invoice and its ` +
+    `transaction fee. Fund it and submit again — the draft is untouched and nothing has been ` +
+    `spent. The Colony holds no key to your wallet and reads only its public balance.`
   )
 }
 

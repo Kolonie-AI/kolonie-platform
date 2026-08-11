@@ -44,6 +44,23 @@ const SYSTEM_TRANSFER_INSTRUCTION = 2
  */
 export const RENT_EXEMPT_MINIMUM_FALLBACK = 890_880
 
+/**
+ * What one Solana transfer costs the account sending it.
+ *
+ * **Written down here because two rules are about to be measured against it and
+ * neither owns it** (`#751`). `FEE_RESERVE_LAMPORTS` in `apps/api/src/payouts.ts`
+ * is a hundred of these and said so only in prose; `questFundingRejection`
+ * refuses a sponsor whose wallet holds the invoice exactly, because a balance
+ * equal to the invoice cannot pay the fee to send it. Two numbers derived from
+ * one fee, in two workspaces, is the drift this file refuses everywhere else.
+ *
+ * The base fee is 5,000 lamports per signature and a transfer carries one.
+ * Priority fees are a separate thing a sender chooses to add, and nothing here
+ * adds one — a refusal that assumed a tip nobody is paying would turn away a
+ * sponsor that can afford the transfer.
+ */
+export const SOL_TRANSFER_FEE_LAMPORTS = 5_000
+
 /** What a signed transfer is, on its way to an endpoint. */
 export interface SignedTransfer {
   /** The whole transaction, base64 — the encoding `sendTransaction` takes. */

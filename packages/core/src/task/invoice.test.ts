@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { LAMPORTS_PER_SOL } from '../ledger/payments.js'
+import { SOL_TRANSFER_FEE_LAMPORTS } from '../ledger/transfer.js'
 import {
   INVOICE_EXPIRY_DAYS,
   applyToInvoice,
@@ -7,7 +8,9 @@ import {
   invoiceNotice,
   lamportsFromSol,
   questInvoiceLamports,
+  questFundingRejection,
   questNeedsInvoice,
+  type QuestFunding,
   unfundedWalletRefusal,
 } from './invoice.js'
 
@@ -175,5 +178,69 @@ describe('what the first real payment found', () => {
         audited: 0,
       }),
     ).toBeUndefined()
+  })
+})
+
+/**
+ * A quest is moderated only once somebody has asked whether its sponsor can pay
+ * for it — D-115 (`#751`).
+ */
+describe('whether a sponsor can commit to its invoice', () => {
+  const held = (lamports: number): QuestFunding => ({
+    outcome: 'known',
+    address: 'So1anaAddressOfTheSponsor11111111111111111',
+    lamports,
+  })
+
+  const rejection = (invoiceLamports: number, funding: QuestFunding) =>
+    questFundingRejection({ invoiceLamports, funding })
+
+  /**
+   * **The boundary, both sides of it.** A wallet holding exactly the invoice
+   * cannot pay the fee to send it, which is the failure `unfundedWalletRefusal`
+   * describes one step later — so *exactly the invoice* is a refusal and not a
+   * pass, and this is the assertion that says which way the comparison runs.
+   */
+  it('refuses a wallet holding exactly the invoice, and passes one holding the fee too', () => {
+    expect(rejection(1_000_000, held(1_000_000))).toBeDefined()
+    expect(rejection(1_000_000, held(1_000_000 + SOL_TRANSFER_FEE_LAMPORTS))).toBeUndefined()
+    expect(rejection(1_000_000, held(1_000_000 + SOL_TRANSFER_FEE_LAMPORTS - 1))).toBeDefined()
+  })
+
+  it('names the shortfall in SOL, against the invoice and its fee', () => {
+    const said = rejection(1_000_000, held(400_000))
+
+    // 1,000,000 + 5,000 needed against 400,000 held, so 605,000 short.
+    expect(said).toContain('0.000605 SOL short')
+    expect(said).toContain('0.001 SOL')
+    expect(said).toContain('0.0004 SOL')
+    // The one sentence a sponsor needs about what the Colony did and did not do.
+    expect(said).toContain('reads only its public balance')
+    expect(said).toContain('the draft is untouched')
+  })
+
+  it('refuses a sponsor with no proved wallet, and names the rung', () => {
+    const said = rejection(1_000_000, { outcome: 'no-wallet' })
+
+    expect(said).toContain('solana-wallet rung')
+    expect(said).toContain('nowhere to invoice this quest')
+  })
+
+  /**
+   * **The outage rule, and the one a future refactor is most likely to break
+   * silently** — `state/decisions/the-colony-judges-its-own-quests.md`: an
+   * outage must never turn away a sponsor who did nothing wrong.
+   */
+  it('lets a submission through when the Colony could not ask', () => {
+    expect(rejection(1_000_000, { outcome: 'unknown' })).toBeUndefined()
+  })
+
+  /**
+   * `questNeedsInvoice(0)` is `false` and there is nothing to pay, so an empty
+   * wallet and no wallet at all are both fine on a quest that pays reputation.
+   */
+  it('asks nothing of a quest that pays no lamports', () => {
+    expect(rejection(0, held(0))).toBeUndefined()
+    expect(rejection(0, { outcome: 'no-wallet' })).toBeUndefined()
   })
 })

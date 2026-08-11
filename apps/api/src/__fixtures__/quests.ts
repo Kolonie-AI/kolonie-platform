@@ -12,6 +12,7 @@ import {
   TaskTypeSchema,
   questCommitment,
   type AgentId,
+  type QuestFunding,
   type QuestTier,
   type SubmissionId,
   type Task,
@@ -89,6 +90,14 @@ export interface FakeQuestDesk extends QuestDesk {
    * convenience for tests.
    */
   readonly setPriceFloor: (lamports: number) => void
+  /**
+   * What the sponsor's wallet holds, as the chain would answer (D-115, `#751`).
+   *
+   * The three outcomes rather than a number, so a test can say *the endpoint
+   * failed* — which is the case that must let a submission through and the one a
+   * refactor is most likely to break silently.
+   */
+  readonly setSponsorFunding: (funding: QuestFunding) => void
   /** Put rows into the two `/backend` sections (`#487`). */
   readonly showsOnBackend: (input: {
     /** Who arrived (`#607`). Shapes are the storage's; a test fills what it asserts on. */
@@ -183,6 +192,16 @@ export function fakeQuests(): FakeQuestDesk {
   let caps: Readonly<Record<QuestTier, number>> | null = null
   /** Unset until a test turns it, exactly as the settings table is (`#743`). */
   let floor: number | null = null
+  /**
+   * What a sponsor's proved wallet holds (D-115, `#751`).
+   *
+   * **`unknown` by default, which is what a deployment with no RPC endpoint
+   * answers** — and what every test that is not about funding needs, because it
+   * is the outcome that lets a submission through. A default of `no-wallet` or
+   * of a zero balance would make every existing submission test a test about
+   * money.
+   */
+  let sponsorFunding: QuestFunding = { outcome: 'unknown' }
   /** Places bought and waiting on money, per quest (`#629`). */
   const pendingSlots = new Map<string, number>()
 
@@ -825,6 +844,14 @@ export function fakeQuests(): FakeQuestDesk {
 
     setPriceFloor: (lamports) => {
       floor = lamports
+    },
+
+    setSponsorFunding: (funding) => {
+      sponsorFunding = funding
+    },
+
+    async sponsorFunding() {
+      return sponsorFunding
     },
 
     async tierCaps() {

@@ -7,6 +7,7 @@ import {
   payoutRefusalReason,
   RENT_EXEMPT_MINIMUM_FALLBACK,
   signSolTransfer,
+  SOL_TRANSFER_FEE_LAMPORTS,
   type AgentId,
   type PayoutCeilings,
   type PayoutRefusal,
@@ -186,8 +187,14 @@ export function databasePayouts(db: Database): PayoutDesk {
  * A reserve whose size is unrelated to what it reserves for is a number that
  * will be wrong again the next time the scale changes. This one is a multiple of
  * the fee, so it is wrong only if the fee changes.
+ *
+ * **And it is now written as that multiple** (`#751`). It was `500_000` with the
+ * arithmetic in the paragraph above, which is a comment that can go stale
+ * against its own constant. `SOL_TRANSFER_FEE_LAMPORTS` is in core because the
+ * quest funding check needs the same fee, and two literals derived from one rate
+ * would eventually be two rates.
  */
-export const FEE_RESERVE_LAMPORTS = 500_000
+export const FEE_RESERVE_LAMPORTS = 100 * SOL_TRANSFER_FEE_LAMPORTS
 
 /** What one pass of the payout runner came to. */
 export interface PayoutPassOutcome {

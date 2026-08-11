@@ -592,7 +592,24 @@ const app = buildApp({
     read: (agentId, skill) => readSkillNote(db, agentId, skill),
     readMany: (agentId, skills) => readSkillNotes(db, agentId, skills),
   },
-  quests: databaseQuests(db, questAuditPolicy(), payoutWalletAddress, liveSettings),
+  quests: databaseQuests(
+    db,
+    questAuditPolicy(),
+    payoutWalletAddress,
+    liveSettings,
+    /**
+     * The chain, so a quest's funding is checked before it is moderated (D-115,
+     * `#751`). Guarded exactly as the payout runner's is below: no endpoint
+     * means the desk answers `unknown` and every submission that was accepted
+     * before is still accepted.
+     *
+     * **This reads a balance and nothing else.** No wallet secret is passed and
+     * none is needed — the sponsor's address is public and so is what it holds.
+     */
+    process.env[PAYMENT_RPC_URL_VAR]?.trim()
+      ? httpPayoutChain(process.env[PAYMENT_RPC_URL_VAR].trim())
+      : undefined,
+  ),
   // The citizen's side of the payout table, present whether or not this
   // deployment can pay (`#535`).
   earnings: databaseEarnings(db),

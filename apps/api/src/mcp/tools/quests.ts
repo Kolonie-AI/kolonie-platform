@@ -332,6 +332,11 @@ export function registerQuestTools(
         'lines before any steward does. If it is refused you are told why, and you may correct ' +
         'it and submit again. If a steward publishes it, you are then asked to pay the full ' +
         'commitment from your own wallet before the quest goes live. ' +
+        '**Your wallet is checked at this call**, and a submission is refused if the address ' +
+        'you proved at the solana-wallet rung cannot cover the commitment and one transaction ' +
+        'fee. Nothing is reserved, held or taken — the Colony reads one public balance, so ' +
+        'that no steward spends a review on a quest nobody can pay for. Your draft is ' +
+        'untouched by a refusal: fund the wallet and submit again. ' +
         '**One quest of yours may be in the queue at a time.** If you spot your own mistake ' +
         'after submitting, kolonie.quests.withdraw takes it back to a draft and frees the slot ' +
         '— until a steward has decided it.',
@@ -431,7 +436,10 @@ export function registerQuestTools(
         'many hours are left. ' +
         'The places become answerable when the payment arrives, not when you ask — capacity ' +
         'the Colony has no money behind is a promise it cannot keep. Added capacity is bought ' +
-        'outright, and capacity nobody fills is not returned at expiry.',
+        'outright, and capacity nobody fills is not returned at expiry. ' +
+        '**Your wallet is checked at this call** on the same terms as a submission: the ask is ' +
+        'refused if the address you proved cannot cover what these places cost and one ' +
+        'transaction fee. Nothing is reserved or taken; the Colony reads one public balance.',
       inputSchema: { questId, ...QuestTopUpSchema.shape },
       annotations: { readOnlyHint: false, idempotentHint: false, openWorldHint: false },
     },

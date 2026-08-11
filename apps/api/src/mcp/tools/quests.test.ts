@@ -112,8 +112,21 @@ describe('the sponsor over MCP', () => {
     for (const description of described) {
       expect(description).not.toHaveLength(0)
       expect(description.toLowerCase()).not.toContain('reservation')
-      expect(description.toLowerCase()).not.toContain('balance')
+      // The credit balance the Colony held on a sponsor's behalf, which D-106
+      // deleted. **Only this phrase, and no longer the bare word `balance`**:
+      // since D-115 (`#751`) the text says the Colony reads the sponsor's own
+      // *public* balance and reserves nothing, and a word filter cannot tell a
+      // denial from a claim — `nothing is reserved` matched a ban on
+      // `reserved`. What replaces the filter is the positive assertion below,
+      // which is the stronger test anyway: it fails if the sentence goes
+      // missing, where a blacklist only failed if the wrong one came back.
+      expect(description.toLowerCase()).not.toContain('your balance')
     }
+
+    // And what it does say about money it does not hold (D-115, `#751`).
+    expect(described[0]).toContain('Your wallet is checked at this call')
+    expect(described[0]).toContain('reads one public balance')
+    expect(described[0]).toContain('Nothing is reserved, held or taken')
   })
 
   it('writes a quest, reads it back, and sees it in its own list', async () => {
@@ -836,4 +849,158 @@ describe('the steward tier', () => {
    * judgement about a quest's answerability belongs now, and this comment is
    * here so the flag is picked up again rather than quietly forgotten.
    */
+})
+
+/**
+ * A quest's funding is checked before it is moderated, and only then — D-115
+ * (`#751`).
+ *
+ * Every test here is about the *submission*, because that is where the check
+ * sits and where a refusal costs the Colony nothing. The draft is written first
+ * with the desk answering `unknown`, which is what a deployment with no endpoint
+ * answers and what lets a test about something else stay about something else.
+ */
+describe('whether the sponsor can pay, asked before a steward reads it', () => {
+  const priced = (lamports: number, slots = 5) =>
+    aDraft({ reward: { reputation: 0, lamports }, slots })
+
+  /** A draft that costs `lamports × slots`, ready to submit. */
+  const drafted = async (key: string, lamports = 1_400_000, slots = 5) => {
+    const written = await call(key, 'kolonie.quests.write', priced(lamports, slots))
+    expect(written.isError).toBeFalsy()
+
+    return (structured(written).quest as unknown as { id: TaskId }).id
+  }
+
+  const submit = (key: string, questId: TaskId) => call(key, 'kolonie.quests.submit', { questId })
+
+  const wallet = 'So1anaAddressOfTheSponsor11111111111111111'
+
+  it('refuses a submission the proved wallet cannot cover, and names the shortfall', async () => {
+    const sponsor = anAgent()
+    const id = await drafted(sponsor.key)
+    quests.setSponsorFunding({ outcome: 'known', address: wallet, lamports: 1_000_000 })
+
+    const refused = await submit(sponsor.key, id)
+
+    expect(refused.isError).toBe(true)
+    const said = JSON.stringify(refused.content)
+    // 5 × 1,400,000 = 7,000,000 invoiced against 0.001 SOL held.
+    expect(said).toContain('0.007 SOL')
+    expect(said).toContain('SOL short')
+    expect(said).toContain('the draft is untouched')
+  })
+
+  it('refuses a sponsor that has proved no wallet, and names the rung', async () => {
+    const sponsor = anAgent()
+    const id = await drafted(sponsor.key)
+    quests.setSponsorFunding({ outcome: 'no-wallet' })
+
+    const refused = await submit(sponsor.key, id)
+
+    expect(refused.isError).toBe(true)
+    expect(JSON.stringify(refused.content)).toContain('solana-wallet rung')
+  })
+
+  it('takes a submission from a wallet that covers the invoice and its fee', async () => {
+    const sponsor = anAgent()
+    quests.credit(sponsor.id, 100_000_000)
+    const id = await drafted(sponsor.key)
+    quests.setSponsorFunding({ outcome: 'known', address: wallet, lamports: 100_000_000 })
+
+    expect((await submit(sponsor.key, id)).isError).toBeFalsy()
+  })
+
+  /**
+   * **The deployment that cannot ask.** No `RPC_URL` means the desk carries no
+   * `sponsorFunding` at all, exactly as an absent wallet address means no
+   * invoice is shown — and every submission that was accepted before is still
+   * accepted.
+   */
+  it('takes a submission when the desk cannot answer the question', async () => {
+    const sponsor = anAgent()
+    quests.credit(sponsor.id, 100_000_000)
+    const id = await drafted(sponsor.key)
+
+    expect((await submit(sponsor.key, id)).isError).toBeFalsy()
+  })
+
+  /**
+   * **The outage rule, and the one a refactor is most likely to break silently.**
+   * `state/decisions/the-colony-judges-its-own-quests.md`: an outage must never
+   * turn away a sponsor who did nothing wrong. An endpoint that throws has told
+   * the Colony nothing, and nothing is not zero.
+   */
+  it('takes a submission when the balance read failed', async () => {
+    const sponsor = anAgent()
+    quests.credit(sponsor.id, 100_000_000)
+    const id = await drafted(sponsor.key)
+    quests.setSponsorFunding({ outcome: 'unknown' })
+
+    expect((await submit(sponsor.key, id)).isError).toBeFalsy()
+  })
+
+  /** `questNeedsInvoice(0)` is false, so an empty wallet buys a free quest fine. */
+  it('asks nothing of a quest that pays reputation only', async () => {
+    const steward = anAgent(['steward'])
+    const written = await call(
+      steward.key,
+      'kolonie.quests.write',
+      aDraft({ reward: { reputation: 5, lamports: 0 } }),
+    )
+    const id = (structured(written).quest as unknown as { id: TaskId }).id
+    quests.setSponsorFunding({ outcome: 'no-wallet' })
+
+    expect((await submit(steward.key, id)).isError).toBeFalsy()
+  })
+
+  /**
+   * **The top-up, on the same terms** (`#629`). The invoice is the places being
+   * bought at the quest's own frozen price — 3 × 1,400,000 — and not the whole
+   * quest, which the sponsor has already paid for.
+   */
+  describe('and the same question when more capacity is bought', () => {
+    const published = async (key: string) => {
+      const id = await drafted(key)
+      expect((await submit(key, id)).isError).toBeFalsy()
+      quests.publish(id)
+
+      return id
+    }
+
+    it('refuses more places than the proved wallet can cover', async () => {
+      const sponsor = anAgent()
+      quests.credit(sponsor.id, 100_000_000)
+      const id = await published(sponsor.key)
+      quests.setSponsorFunding({ outcome: 'known', address: wallet, lamports: 1_000_000 })
+
+      const bought = await call(sponsor.key, 'kolonie.quests.slots', { questId: id, slots: 3 })
+
+      expect(bought.isError).toBe(true)
+      // 3 × 1,400,000, the places being bought — not the whole quest again.
+      expect(JSON.stringify(bought.content)).toContain('0.0042 SOL')
+    })
+
+    it('sells them to a wallet that covers them', async () => {
+      const sponsor = anAgent()
+      quests.credit(sponsor.id, 100_000_000)
+      const id = await published(sponsor.key)
+      quests.setSponsorFunding({ outcome: 'known', address: wallet, lamports: 100_000_000 })
+
+      expect(
+        (await call(sponsor.key, 'kolonie.quests.slots', { questId: id, slots: 3 })).isError,
+      ).toBeFalsy()
+    })
+
+    it('sells them when the Colony could not ask', async () => {
+      const sponsor = anAgent()
+      quests.credit(sponsor.id, 100_000_000)
+      const id = await published(sponsor.key)
+      quests.setSponsorFunding({ outcome: 'unknown' })
+
+      expect(
+        (await call(sponsor.key, 'kolonie.quests.slots', { questId: id, slots: 3 })).isError,
+      ).toBeFalsy()
+    })
+  })
 })

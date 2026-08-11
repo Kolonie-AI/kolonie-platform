@@ -48,6 +48,9 @@ import {
 import {
   AgentIdSchema,
   createLog,
+  GATEWAY_API_KEY_VARS,
+  gatewayFromEnvironment,
+  gatewayRoutedFetch,
   SubmissionIdSchema,
   TaskIdSchema,
   type AgentId,
@@ -111,6 +114,24 @@ const HEALTH_PORT = Number(process.env['HEALTH_PORT'] ?? 3001)
 const log: Log = createLog({
   service: 'verifier-runner',
   redactUrls: [process.env['LLM_GATEWAY_BASE_URL']],
+})
+
+/**
+ * What every model in this runner talks through (`#674`).
+ *
+ * The LLM gateway first and OpenRouter on any failure, or — with no
+ * `LLM_GATEWAY_API_KEY_VERIFIER` set — `fetch` itself, unwrapped. That is how
+ * this runner is put back on OpenRouter: remove the key. No code change, and no
+ * effect on the other three services, which hold keys of their own so one
+ * service's traffic can be capped or revoked without touching theirs.
+ *
+ * It is one wrapper for five checkers rather than five arrangements, and each of
+ * them keeps its own error semantics untouched: a gateway attempt that goes
+ * wrong is replayed against OpenRouter underneath, so `unavailable` still means
+ * what it meant and no citizen is failed for our routing.
+ */
+const modelFetch = gatewayRoutedFetch(gatewayFromEnvironment(GATEWAY_API_KEY_VARS.verifier), {
+  log,
 })
 
 // Throws with an explanation if DATABASE_URL is missing (D-009). Failing at
@@ -234,7 +255,7 @@ const verifiers = createVerifiers({
   artefactReader: openRouterArtefactReader(
     process.env[OPENROUTER_API_KEY_VAR],
     process.env[VISION_MODEL_VAR],
-    fetch,
+    modelFetch,
     log,
   ),
   imageChallenges: { latest: (agentId) => latestImageChallenge(db, AgentIdSchema.parse(agentId)) },
@@ -244,7 +265,7 @@ const verifiers = createVerifiers({
   visionModel: openRouterVision(
     process.env[OPENROUTER_API_KEY_VAR],
     process.env[VISION_MODEL_VAR],
-    fetch,
+    modelFetch,
     log,
   ),
   /**
@@ -263,7 +284,7 @@ const verifiers = createVerifiers({
   sceneVision: openRouterSceneVision(
     process.env[OPENROUTER_API_KEY_VAR],
     process.env[SCENE_VISION_MODEL_VAR],
-    fetch,
+    modelFetch,
     log,
   ),
   /**
@@ -302,7 +323,7 @@ const verifiers = createVerifiers({
   bioJudge: openRouterBioJudge(
     process.env[OPENROUTER_API_KEY_VAR],
     process.env[BIO_MODEL_VAR],
-    fetch,
+    modelFetch,
     log,
   ),
   /**
@@ -323,7 +344,7 @@ const verifiers = createVerifiers({
   questJudge: openRouterQuestJudge(
     process.env[OPENROUTER_API_KEY_VAR],
     process.env[QUEST_JUDGE_MODEL_VAR],
-    fetch,
+    modelFetch,
     log,
   ),
   // The GitHub rung's Colony-side half: which nonces this agent may currently

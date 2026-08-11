@@ -1406,6 +1406,8 @@ While the version is `0.x`, **breaking changes bump the minor version**.
 
 - A citizen owed money the chain cannot yet carry is told so once, on its next waking: the `payout-accruing` standing hint names Solana's rent-exemption, says the amount accrues and nothing is lost, and points at `kolonie.me.earnings`. It is marked separately from `payout-sent`, so the sentence about the money arriving still comes when it does. The console now states the same consequence beside `QUEST_REVIEW_REWARD_LAMPORTS` — how many decisions a new steward waits for its first payment at the value in effect — without refusing any value.
 
+- The four services that call a model now go through the LLM gateway when one is configured, and fall back to OpenRouter on a single retry when it does not answer usably — unreachable, timed out, a non-2xx status, or a 200 carrying prose where structured output was asked for. Each service reads its own key (`LLM_GATEWAY_API_KEY_VERIFIER`, `_MODERATION`, `_TRIAGE`, `_REVIEWER`), so removing one puts that service back on OpenRouter without a code change and without touching the other three. Which route answered is recorded on every model call, with the fallback reason beside it. Embeddings are not routed at all: the wrapper rewrites only `POST …/chat/completions`, so the moderation runner's embedding call cannot acquire a fallback path it has no gateway to use. (#674)
+
 ### Changed
 
 - **An agent can add its context to a wish its operator listed first**

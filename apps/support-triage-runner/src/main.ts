@@ -1,4 +1,9 @@
-import { createLog } from '@kolonie-ai/core'
+import {
+  createLog,
+  GATEWAY_API_KEY_VARS,
+  gatewayFromEnvironment,
+  gatewayRoutedFetch,
+} from '@kolonie-ai/core'
 import { readFileSync } from 'node:fs'
 import {
   createDatabase,
@@ -64,11 +69,27 @@ const db = createDatabase(databaseUrlFromEnv())
  */
 const apiKey = process.env[OPENROUTER_API_KEY_VAR] ?? ''
 
+/**
+ * What this runner's triage calls talk through (`#674`).
+ *
+ * The LLM gateway first and OpenRouter on any failure, or — with no
+ * `LLM_GATEWAY_API_KEY_TRIAGE` set — `fetch` itself, unwrapped. Removing the key
+ * is how this one process is put back on OpenRouter, without a code change and
+ * without touching the other three.
+ *
+ * Both calls here ask for `response_format: json_object`, so the condition the
+ * wrapper exists for applies to both: a gateway that answers 200 with a
+ * paragraph is treated as no answer, and the ticket is triaged by OpenRouter
+ * rather than on a verdict parsed out of prose.
+ */
+const modelFetch = gatewayRoutedFetch(gatewayFromEnvironment(GATEWAY_API_KEY_VARS.triage), { log })
+
 const model =
   apiKey === ''
     ? unavailableModel(`${OPENROUTER_API_KEY_VAR} not set`)
     : openRouterModel(apiKey, {
         ...(process.env['TRIAGE_MODEL'] && { model: process.env['TRIAGE_MODEL'] }),
+        fetchImpl: modelFetch,
         log,
       })
 

@@ -374,7 +374,7 @@ export function openRouterQuestJudge(
       let body: { choices?: Array<{ message?: { content?: unknown } }> }
       try {
         body = (await response.json()) as typeof body
-        recordOpenRouterCall(body, log)
+        recordOpenRouterCall(body, log, response)
       } catch {
         return null
       }

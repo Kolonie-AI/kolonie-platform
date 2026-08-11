@@ -13,7 +13,7 @@
  * it that can be tested without a network should be.
  */
 
-import { ModelCallSchema, silentLog, type Log, type ModelCall } from '@kolonie-ai/core'
+import { ModelCallSchema, routeOf, silentLog, type Log, type ModelCall } from '@kolonie-ai/core'
 
 /** The environment variable the key arrives in. Never a literal, anywhere. */
 export const OPENROUTER_API_KEY_VAR = 'OPENROUTER_API_KEY'
@@ -613,8 +613,14 @@ export function openRouterModel(apiKey: string, options: ModelOptions = {}): Mod
   const embeddingModel = options.embeddingModel ?? EMBEDDING_MODEL
   const fetchImpl = options.fetch ?? fetch
   const log = options.log ?? silentLog
-  const account = (body: unknown): ModelCall => {
-    const response = body as {
+  /**
+   * `http` is the response the body came out of, and it is what says which
+   * provider answered (`#674`) — this runner's `fetch` may have been wrapped to
+   * try the LLM gateway first, and the row must name what did the work rather
+   * than what the code was written against.
+   */
+  const account = (body: unknown, http?: Response): ModelCall => {
+    const answered = body as {
       model?: unknown
       usage?: {
         prompt_tokens?: unknown
@@ -623,12 +629,12 @@ export function openRouterModel(apiKey: string, options: ModelOptions = {}): Mod
       }
     }
     const call = ModelCallSchema.parse({
-      route: 'openrouter',
-      model: response.model,
+      ...routeOf(http),
+      model: answered.model,
       tokens: {
-        prompt: response.usage?.prompt_tokens,
-        completion: response.usage?.completion_tokens,
-        total: response.usage?.total_tokens,
+        prompt: answered.usage?.prompt_tokens,
+        completion: answered.usage?.completion_tokens,
+        total: answered.usage?.total_tokens,
       },
     })
     log.info(`${call.model} answered through ${call.route}`, {
@@ -636,6 +642,7 @@ export function openRouterModel(apiKey: string, options: ModelOptions = {}): Mod
       model: call.model,
       tokens: call.tokens,
       route: call.route,
+      ...(call.fallback === undefined ? {} : { fallback: call.fallback }),
     })
     return call
   }
@@ -665,7 +672,7 @@ export function openRouterModel(apiKey: string, options: ModelOptions = {}): Mod
     }
 
     const result = (await response.json()) as unknown
-    return { body: result, accounting: account(result) }
+    return { body: result, accounting: account(result, response) }
   }
 
   const chat = async (

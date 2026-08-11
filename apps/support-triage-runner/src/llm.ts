@@ -1,4 +1,4 @@
-import { ModelCallSchema, silentLog, type Log, type ModelCall } from '@kolonie-ai/core'
+import { ModelCallSchema, routeOf, silentLog, type Log, type ModelCall } from '@kolonie-ai/core'
 import type { TriageInput, TriageModel } from './triage.js'
 
 /**
@@ -176,9 +176,15 @@ type OpenRouterBody = {
   }>
 }
 
-function modelCall(body: OpenRouterBody): ModelCall {
+/**
+ * `http` is the response the body came out of, and it is what says which
+ * provider answered (`#674`) — this runner's `fetch` may have been wrapped to try
+ * the LLM gateway first, and the row must name what did the work rather than
+ * what the code was written against.
+ */
+function modelCall(body: OpenRouterBody, http?: Response): ModelCall {
   return ModelCallSchema.parse({
-    route: 'openrouter',
+    ...routeOf(http),
     model: body.model,
     tokens: {
       prompt: body.usage?.prompt_tokens,
@@ -233,7 +239,7 @@ export function openRouterModel(apiKey: string, options: OpenRouterOptions = {})
       }
 
       const body = (await response.json()) as OpenRouterBody
-      const call = modelCall(body)
+      const call = modelCall(body, response)
       logCall(log, call)
 
       const choice = body.choices?.[0]
@@ -353,7 +359,7 @@ export function openRouterDefectWriter(
       if (!response.ok) throw new Error(`the model endpoint answered ${response.status}`)
 
       const body = (await response.json()) as OpenRouterBody
-      const call = modelCall(body)
+      const call = modelCall(body, response)
       logCall(log, call)
       const text = body.choices?.[0]?.message?.content
       if (text === undefined || text === null || text === '') {

@@ -199,7 +199,7 @@ export function openRouterSceneVision(
       let call
       try {
         body = (await response.json()) as typeof body
-        call = recordOpenRouterCall(body, log)
+        call = recordOpenRouterCall(body, log, response)
       } catch {
         return {
           outcome: 'unavailable',

@@ -38,7 +38,13 @@ import type { QuestModerationStore } from './quests.js'
 import type { AnswerModerationStore } from './answers.js'
 import type { ProviderReasonModerationStore } from './provider-reasons.js'
 import type { QuestReportModerationStore } from './quest-reports.js'
-import { createLog, type TaskId } from '@kolonie-ai/core'
+import {
+  createLog,
+  GATEWAY_API_KEY_VARS,
+  gatewayFromEnvironment,
+  gatewayRoutedFetch,
+  type TaskId,
+} from '@kolonie-ai/core'
 import { githubIssues, TRIPWIRE_TOKEN_VAR } from './tripwire.js'
 import { openRouterModel, unavailableModel, OPENROUTER_API_KEY_VAR } from './llm.js'
 import { openRouterDirectionClassifier, DIRECTION_MODEL_VAR } from '@kolonie-ai/verifiers'
@@ -86,6 +92,24 @@ const db = createDatabase(databaseUrlFromEnv())
  */
 const apiKey = process.env[OPENROUTER_API_KEY_VAR] ?? ''
 
+/**
+ * What this runner's chat completions talk through (`#674`).
+ *
+ * The LLM gateway first and OpenRouter on any failure, or — with no
+ * `LLM_GATEWAY_API_KEY_MODERATION` set — `fetch` itself, unwrapped. Removing the
+ * key is how this one process is put back on OpenRouter, without a code change
+ * and without touching the other three services.
+ *
+ * **The briefing's embeddings are not affected and cannot be.** The gateway has
+ * no `/embeddings` endpoint at all — it answers 404 — so the wrapper routes only
+ * `POST …/chat/completions` and every other request passes through untouched.
+ * That is a property of the wrapper rather than a setting here, which is the
+ * only version of it that cannot be switched on by mistake.
+ */
+const modelFetch = gatewayRoutedFetch(gatewayFromEnvironment(GATEWAY_API_KEY_VARS.moderation), {
+  log,
+})
+
 const model =
   apiKey === ''
     ? unavailableModel(`${OPENROUTER_API_KEY_VAR} not set`)
@@ -100,6 +124,7 @@ const model =
         // So a reply this cannot read is counted rather than dropped in silence
         // (`#230`).
         log,
+        fetch: modelFetch,
       })
 
 if (apiKey === '') {
@@ -295,7 +320,7 @@ const runner = startRunner(
       classifier: openRouterDirectionClassifier(
         process.env[OPENROUTER_API_KEY_VAR],
         process.env[DIRECTION_MODEL_VAR],
-        fetch,
+        modelFetch,
         log,
       ),
       log,

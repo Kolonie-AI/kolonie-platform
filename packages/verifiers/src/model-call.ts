@@ -1,8 +1,21 @@
-import { ModelCallSchema, silentLog, type Log, type ModelCall } from '@kolonie-ai/core'
+import { ModelCallSchema, routeOf, silentLog, type Log, type ModelCall } from '@kolonie-ai/core'
 
-/** Read and log only the accounting fields from a completed model response. */
-export function recordOpenRouterCall(body: unknown, log: Log = silentLog): ModelCall {
-  const response = body as {
+/**
+ * Read and log only the accounting fields from a completed model response.
+ *
+ * `response` is the HTTP response the body was read out of, and it is what says
+ * which provider answered (`#674`): a verifier's own `fetch` may have been
+ * wrapped to try the LLM gateway first, and the row must name what actually did
+ * the work rather than what the code was written against. Omitting it — or
+ * passing a response no routing produced — records OpenRouter, which is what an
+ * unrouted service is doing.
+ */
+export function recordOpenRouterCall(
+  body: unknown,
+  log: Log = silentLog,
+  response?: Response,
+): ModelCall {
+  const answered = body as {
     model?: unknown
     usage?: {
       prompt_tokens?: unknown
@@ -11,12 +24,12 @@ export function recordOpenRouterCall(body: unknown, log: Log = silentLog): Model
     }
   }
   const call = ModelCallSchema.parse({
-    route: 'openrouter',
-    model: response.model,
+    ...routeOf(response),
+    model: answered.model,
     tokens: {
-      prompt: response.usage?.prompt_tokens,
-      completion: response.usage?.completion_tokens,
-      total: response.usage?.total_tokens,
+      prompt: answered.usage?.prompt_tokens,
+      completion: answered.usage?.completion_tokens,
+      total: answered.usage?.total_tokens,
     },
   })
   log.info(`${call.model} answered through ${call.route}`, {
@@ -24,6 +37,7 @@ export function recordOpenRouterCall(body: unknown, log: Log = silentLog): Model
     model: call.model,
     tokens: call.tokens,
     route: call.route,
+    ...(call.fallback === undefined ? {} : { fallback: call.fallback }),
   })
   return call
 }

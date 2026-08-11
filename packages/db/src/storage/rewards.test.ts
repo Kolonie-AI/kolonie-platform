@@ -825,7 +825,7 @@ describe('booking a passed submission', () => {
     })
 
     it.each(['operator-provided', 'operator-performed', 'unknown'] as const)(
-      'pays the reduced rate for %s, and says so in the memo',
+      'reduces the reputation for %s and still pays the quest what it advertised',
       async (assistance) => {
         const agentId = await anAgent()
         const taskId = await aTask({ reputation: 5, lamports: 10 })
@@ -833,16 +833,23 @@ describe('booking a passed submission', () => {
 
         await pass(submissionId)
 
-        // Half of each, rounded up — the constant is core's, not restated here.
+        // Half, rounded up — the constant is core's, not restated here.
         expect(await balanceOfAgent(db, agentId)).toMatchObject({
           reputation: Math.ceil((5 * UNDECLARED_REWARD_PERCENT) / 100),
         })
-        // The money follows the same reduction, one table over (`#553` phase C).
-        // The memo assertions went with the ledger entries: an obligation
-        // carries an amount and a submission, and *why it is that amount* is the
-        // rate on the task, which the verdict already records.
+        /**
+         * **The money does not follow it — D-113.** A paying fixture is a quest
+         * (the constraint above refuses an Academy row that pays), and a quest's
+         * sponsor priced the work rather than the hands on it: the declaration
+         * is still required, still recorded and still costs reputation, and the
+         * obligation is for the whole advertised amount.
+         *
+         * The memo assertions went with the ledger entries: an obligation
+         * carries an amount and a submission, and *why it is that amount* is the
+         * rate on the task, which the verdict already records.
+         */
         const [owed] = await owedTo(agentId)
-        expect(owed?.lamports).toBe(Math.ceil((10 * UNDECLARED_REWARD_PERCENT) / 100))
+        expect(owed?.lamports).toBe(10)
       },
     )
 
@@ -903,11 +910,13 @@ describe('booking a passed submission', () => {
 
       expect(await ledgerTotal()).toBe(0)
 
-      // 11 at the full rate, then 6 twice — half of an odd reward rounds up.
-      // The sum lives in the obligations now rather than in the mint's column
-      // (`#553` phase C); the arithmetic it is checking is the same.
+      // 11 three times: this fixture is a quest, and since D-113 the
+      // declaration moves the reputation and leaves the lamports alone. What
+      // the assertion is still for is the mixing — three verdicts at two rates
+      // book through one path and the pair sums to zero. The sum lives in the
+      // obligations rather than in the mint's column (`#553` phase C).
       const owed = await db.select().from(payoutObligations)
-      expect(owed.reduce((total, row) => total + row.lamports, 0)).toBe(11 + 6 + 6)
+      expect(owed.reduce((total, row) => total + row.lamports, 0)).toBe(11 * 3)
     })
   })
 })

@@ -24,7 +24,6 @@ import {
   questFeeBreakdown,
   questPayNotice,
   questPayoutSplit,
-  questLeastPerAnswer,
   questPriceReach,
   questPriceReachNotice,
   questRewardRejection,
@@ -872,61 +871,64 @@ describe('how far a price reaches (#718)', () => {
    * The Colony's first paid quest, `e60fdcce`, at the figure it published:
    * 1,000,000 with a 25% fee. Three answers, one wallet reached.
    */
-  it('measures the answer an honest assisted citizen is owed, not the headline', () => {
+  it('measures what an accepted answer is owed, not the headline', () => {
     expect(questPayoutSplit(1_000_000, 25).toCitizen).toBe(750_000)
-    expect(questLeastPerAnswer(1_000_000, 25)).toBe(375_000)
+    expect(questPriceReach({ lamports: 1_000_000, feePercent: 25 }).perAnswer).toBe(750_000)
+    expect(questPriceReach({ lamports: 1_000_000, feePercent: 25 }).clears).toBe(false)
   })
 
   /**
-   * The order the ledger books in — `rewardFor` first, then the fee — and not
-   * the order `#718` wrote its table in. They agree here; the test exists so a
-   * change to either function has to come past the agreement.
+   * The order the ledger books in — `rewardFor` first, then the fee. On a quest
+   * `rewardFor` now changes nothing (D-113), so the two agree exactly rather
+   * than to within a lamport of rounding. The test exists so a change to either
+   * function has to come past the agreement.
    */
-  it('applies the assistance reduction before the fee, as bookVerdict does', () => {
-    expect(questLeastPerAnswer(1_000_000, 25)).toBe(
-      questPayoutSplit(
-        rewardFor({ lamports: 1_000_000, reputation: 0 }, 'operator-provided').lamports,
-        25,
-      ).toCitizen,
-    )
+  it('agrees with what bookVerdict pays, whatever was declared', () => {
+    for (const assistance of [
+      'none',
+      'unknown',
+      'operator-provided',
+      'operator-performed',
+    ] as const)
+      expect(questPriceReach({ lamports: 1_000_000, feePercent: 25 }).perAnswer).toBe(
+        questPayoutSplit(
+          rewardFor({ lamports: 1_000_000, reputation: 0 }, assistance, 'quest').lamports,
+          25,
+        ).toCitizen,
+      )
   })
 
   /**
-   * **The 1,200,000 case, which is the whole defect.** The console compared the
-   * post-fee figure — 900,000 against a floor of 890,880 — told the sponsor
-   * nothing, and the sponsor still could not pay an assisted answer.
+   * **The 1,200,000 case, which is what `#718` was filed about.** The console
+   * compared the post-fee figure — 900,000 against a floor of 890,880 — and told
+   * the sponsor nothing, while an assisted answer was paid 450,000.
+   *
+   * D-113 removed the second deduction, so this price now reaches: the figure
+   * that used to be the optimistic half is the only figure there is. Kept as the
+   * case it is, because a reader arriving from `#718` needs to see what happened
+   * to it rather than find it deleted.
    */
-  it('does not clear at a price whose post-fee figure does clear', () => {
+  it('clears at the price that used to reach only unassisted answers', () => {
     const reach = questPriceReach({ lamports: 1_200_000, feePercent: 25 })
 
-    expect(reach.most).toBe(900_000)
-    expect(reach.most).toBeGreaterThan(RENT_EXEMPT_MINIMUM_FALLBACK)
-    expect(reach.least).toBe(450_000)
-    expect(reach.clears).toBe(false)
-  })
-
-  it('clears when even an assisted answer is above the floor', () => {
-    const reach = questPriceReach({ lamports: 2_400_000, feePercent: 25 })
-
-    expect(reach.least).toBe(900_000)
+    expect(reach.perAnswer).toBe(900_000)
+    expect(reach.perAnswer).toBeGreaterThan(RENT_EXEMPT_MINIMUM_FALLBACK)
     expect(reach.clears).toBe(true)
     expect(questPriceReachNotice(reach)).toBeNull()
   })
 
-  /**
-   * Two prices that both fail, said differently, because they are different
-   * quests: one pays the citizens who worked alone, the other pays nobody.
-   */
-  it('tells a partly-reaching price from one that reaches nobody', () => {
-    const partly = questPriceReachNotice(questPriceReach({ lamports: 1_200_000, feePercent: 25 }))
-    const never = questPriceReachNotice(questPriceReach({ lamports: 500_000, feePercent: 25 }))
+  it('does not clear when the post-fee figure is below the chain minimum', () => {
+    const reach = questPriceReach({ lamports: 1_000_000, feePercent: 25 })
 
-    expect(partly).toContain('whenever the citizen declares that it was helped')
-    expect(never).toContain('no answer reaches')
-    // Both say what accrual is, because a sentence that only said *cannot
+    expect(reach.perAnswer).toBe(750_000)
+    expect(reach.chainMinimum).toBe(RENT_EXEMPT_MINIMUM_FALLBACK)
+    expect(reach.clears).toBe(false)
+
+    const notice = questPriceReachNotice(reach)
+    expect(notice).toContain('no answer reaches')
+    // It says what accrual is, because a sentence that only said *cannot
     // receive* would read as a refusal to pay.
-    expect(partly).toContain('still owed')
-    expect(never).toContain('still owed')
+    expect(notice).toContain('still owed')
   })
 
   /**
@@ -950,7 +952,7 @@ describe('how far a price reaches (#718)', () => {
     expect(questCommitmentBreakdown(priced, { feePercent: 25 }).reach?.clears).toBe(false)
     expect(
       questCommitmentLines(questCommitmentBreakdown(priced, { feePercent: 25 })).join(' '),
-    ).toContain('declares that it was helped')
+    ).toContain('no answer reaches a first-time')
   })
 
   /** A quest that pays only reputation has no price to measure. */

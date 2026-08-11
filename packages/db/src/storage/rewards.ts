@@ -179,6 +179,7 @@ export async function bookTaskReward(
       : rewardFor(
           { reputation: row.rewardReputation, lamports: row.rewardLamports ?? 0 },
           row.assistance,
+          row.taskKind,
         )
 
   /**

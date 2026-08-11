@@ -261,8 +261,10 @@ describe('what a quest says it pays over MCP', () => {
         false,
       )
 
-      expect(text).toContain('declares that it was helped')
-      expect(text).toContain('375000 lamports')
+      expect(text).toContain('no answer reaches a first-time')
+      // One figure since D-113, and it is the whole of what an accepted answer
+      // is owed: the declaration no longer moves quest lamports.
+      expect(text).toContain('750000 lamports')
       expect(text).toContain('still owed')
     })
 

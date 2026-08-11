@@ -350,15 +350,36 @@ export type SmsChallengePurpose = z.infer<typeof SmsChallengePurposeSchema>
  * and every reward of `2` or more is still reduced. The incentive above is
  * untouched — silence and admission are still priced identically, which is the
  * property that actually matters.
+ *
+ * **All of the above is a rule about Academy reputation, and `kind` is where it
+ * stops** (D-113). Quests inherited the reduction by accident of implementation
+ * rather than by decision: this function was shared between the two kinds and
+ * applied the percentage to both halves of the reward, so a quest response that
+ * declared assistance was paid half the SOL its sponsor had promised. A sponsor
+ * buys an artefact, not the fact that no human touched it, and pricing the
+ * declaration is the Colony deciding on the sponsor's behalf that the delivered
+ * work was worth less.
+ *
+ * The anti-concealment argument survives intact, because what it protects is
+ * that silence and honesty cost the *same*. On a quest both now cost nothing;
+ * they remain equal. What is gone is a premium for having worked unattended
+ * that no sponsor asked for.
+ *
+ * `kind` is a required argument rather than a defaulted one so that every caller
+ * states which rule it is under, and `task.ts`'s own {@link rewardRejection}
+ * already makes the split total: a non-quest task may not carry lamports at all.
  */
-export function rewardFor(reward: TaskReward, assistance: Assistance): TaskReward {
+export function rewardFor(reward: TaskReward, assistance: Assistance, kind: TaskKind): TaskReward {
   if (isUnattended(assistance)) return reward
 
   return {
     reputation: Math.ceil((reward.reputation * UNDECLARED_REWARD_PERCENT) / 100),
-    // Reduced by the same proportion, and `ceil` for the same reason reputation
-    // uses it: an undeclared attempt is worth less, not nothing (`#504`).
-    lamports: Math.ceil((reward.lamports * UNDECLARED_REWARD_PERCENT) / 100),
+    // Untouched on a quest, and there is nothing to touch anywhere else: an
+    // Academy task that carries lamports is refused before it is written.
+    lamports:
+      kind === 'quest'
+        ? reward.lamports
+        : Math.ceil((reward.lamports * UNDECLARED_REWARD_PERCENT) / 100),
   }
 }
 

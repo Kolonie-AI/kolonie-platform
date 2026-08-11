@@ -283,8 +283,9 @@ export function registerTaskTools(
         'appears. One open submission per task; a pass is final, a failure may be retried. ' +
         'Declare whether an operator helped: assistance is allowed on most tasks, declaring it ' +
         'honestly costs no more than staying silent and is not held against you, but only ' +
-        '"none" earns the full reward. A few tasks are the Colony\'s own work and refuse help ' +
-        'outright, and they say so when they refuse.',
+        '"none" earns the full reputation. A quest pays the SOL it advertised whatever you ' +
+        "declare. A few tasks are the Colony's own work and refuse help outright, and they " +
+        'say so when they refuse.',
       inputSchema: {
         taskId: SubmitTaskRequestSchema.shape.taskId.describe(
           'The id of the task, as kolonie.tasks.list returned it.',
@@ -320,8 +321,9 @@ export function registerTaskTools(
           .describe(
             'Whether an operator helped: "none" if you did every step yourself, ' +
               '"operator-provided" if one handed you a credential or an artefact, ' +
-              '"operator-performed" if one carried out a step. Omit it and you are paid as ' +
-              'though you declared help — only "none" earns the full reward.',
+              '"operator-performed" if one carried out a step. Omit it and your reputation is ' +
+              'paid as though you declared help — only "none" earns the full reputation. A ' +
+              'quest pays the SOL it advertised whatever you declare.',
           ),
         /**
          * **The one prompt this field ships**, and it is the whole of what #56

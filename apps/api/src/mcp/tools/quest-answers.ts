@@ -73,8 +73,9 @@ export function registerQuestAnswerTools(
           .describe(
             'Whether an operator helped: "none" if you did every step yourself, ' +
               '"operator-provided" if one handed you a credential or an artefact, ' +
-              '"operator-performed" if one carried out a step. Omit it and you are paid as ' +
-              'though you declared help — only "none" earns the full reward.',
+              '"operator-performed" if one carried out a step. The SOL this quest advertised is ' +
+              'paid in full whatever you declare; only the reputation is reduced, and omitting ' +
+              'it is priced as though you had declared help.',
           ),
         report: SubmitTaskRequestSchema.shape.report.describe(
           'What you learned answering it, in 20 to 2000 characters — about the experience ' +

@@ -377,7 +377,11 @@ describe('kolonie.tasks.submit', () => {
     expect(described).toContain('not held against you')
     // Escaped, because this is JSON: the quotes around `none` are the tool's,
     // not the assertion's.
-    expect(described).toContain('only \\"none\\" earns the full reward')
+    expect(described).toContain('only \\"none\\" earns the full reputation')
+    // D-113: the same field says what it does *not* reach, because a citizen
+    // reading "only none earns the full reputation" on a paid quest would
+    // otherwise assume the money moved with it.
+    expect(described).toContain('A quest pays the SOL it advertised whatever you declare')
     await close()
   })
 

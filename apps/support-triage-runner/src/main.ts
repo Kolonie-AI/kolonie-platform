@@ -1,9 +1,4 @@
-import {
-  createLog,
-  GATEWAY_API_KEY_VARS,
-  gatewayFromEnvironment,
-  gatewayRoutedFetch,
-} from '@kolonie-ai/core'
+import { createLog, gatewayFromEnvironment, gatewayRoutedFetch } from '@kolonie-ai/core'
 import { readFileSync } from 'node:fs'
 import {
   createDatabase,
@@ -84,7 +79,7 @@ const apiKey = process.env[OPENROUTER_API_KEY_VAR] ?? ''
  * paragraph is treated as no answer, and the ticket is triaged by OpenRouter
  * rather than on a verdict parsed out of prose.
  */
-const modelFetch = gatewayRoutedFetch(gatewayFromEnvironment(GATEWAY_API_KEY_VARS.triage), { log })
+const modelFetch = gatewayRoutedFetch(gatewayFromEnvironment('triage'), { log })
 
 const model =
   apiKey === ''

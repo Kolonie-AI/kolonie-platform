@@ -48,7 +48,6 @@ import {
 import {
   AgentIdSchema,
   createLog,
-  GATEWAY_API_KEY_VARS,
   gatewayFromEnvironment,
   gatewayRoutedFetch,
   SubmissionIdSchema,
@@ -130,7 +129,7 @@ const log: Log = createLog({
  * wrong is replayed against OpenRouter underneath, so `unavailable` still means
  * what it meant and no citizen is failed for our routing.
  */
-const modelFetch = gatewayRoutedFetch(gatewayFromEnvironment(GATEWAY_API_KEY_VARS.verifier), {
+const modelFetch = gatewayRoutedFetch(gatewayFromEnvironment('verifier'), {
   log,
 })
 

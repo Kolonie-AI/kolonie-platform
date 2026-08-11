@@ -45,8 +45,8 @@ import type { ProviderReasonModerationStore } from './provider-reasons.js'
 import type { QuestReportModerationStore } from './quest-reports.js'
 import {
   createLog,
-  GATEWAY_API_KEY_VARS,
   gatewayFromEnvironment,
+  gatewayOnlyFetch,
   gatewayRoutedFetch,
   now,
   questAuditPolicy,
@@ -117,7 +117,7 @@ const apiKey = process.env[OPENROUTER_API_KEY_VAR] ?? ''
  * That is a property of the wrapper rather than a setting here, which is the
  * only version of it that cannot be switched on by mistake.
  */
-const modelFetch = gatewayRoutedFetch(gatewayFromEnvironment(GATEWAY_API_KEY_VARS.moderation), {
+const modelFetch = gatewayRoutedFetch(gatewayFromEnvironment('moderation'), {
   log,
 })
 
@@ -138,6 +138,35 @@ const model =
         fetch: modelFetch,
       })
 
+/**
+ * The quest judge, and it has **no fallback to OpenRouter** (`#726`).
+ *
+ * Composed with `#693`, the fallback read as: *when the good model is down,
+ * publish quests judged by the flash model instead.* Nobody decided that; it is
+ * what the two behaviours did together. `gatewayRoutedFetch` wraps the fetch for
+ * a whole client, so this is a second client rather than a flag on a call.
+ *
+ * A gateway failure now surfaces as a provider error, `judgeQuest` records
+ * nothing, and the quest stays `pending_review` for the next tick — which is
+ * what `#693` already requires of every other way that call can fail.
+ *
+ * **The other stages keep the fallback, deliberately.** Answer moderation, the
+ * red-line hold on a report and the briefing synthesis are not publication
+ * decisions, and they are better served late by a weaker model than not at all.
+ *
+ * With no gateway configured this is the ordinary client's transport and the two
+ * are the same thing, which is correct: there is nothing to fall back *from*, and
+ * a deployment on OpenRouter alone judges quests on the model it has.
+ */
+const questModel =
+  apiKey === ''
+    ? unavailableModel(`${OPENROUTER_API_KEY_VAR} not set`)
+    : openRouterModel(apiKey, {
+        ...(process.env['OPENROUTER_MODEL'] && { model: process.env['OPENROUTER_MODEL'] }),
+        log,
+        fetch: gatewayOnlyFetch(gatewayFromEnvironment('moderation'), { log }),
+      })
+
 if (apiKey === '') {
   // Loud on purpose. An unconfigured moderator that said nothing would look
   // exactly like a Colony where nobody has written anything yet.
@@ -154,15 +183,6 @@ const store: ModerationStore = {
   record: (input) => recordModeration(db, input),
 }
 
-/**
- * The quest text stage (`#176`), on its own faster poll.
- *
- * **One process rather than a fifth container**, the same trade the synthesis
- * loop was given: a second deployable would buy isolation this workload does not
- * need, at the cost of a compose service, a health check and a deploy step. A
- * quest queue is a handful of rows a day and one model call each. Its separate
- * timer keeps a sponsor's wait independent of any report already being judged.
- */
 /**
  * The audit brake and the obstacle share, read here (`#693`).
  *
@@ -181,6 +201,15 @@ const store: ModerationStore = {
 const questAudit = questAuditPolicy()
 const settings = settingsReader(db)
 
+/**
+ * The quest stage (`#176`, `#693`), on its own faster poll.
+ *
+ * **One process rather than a fifth container**, the same trade the synthesis
+ * loop was given: a second deployable would buy isolation this workload does not
+ * need, at the cost of a compose service, a health check and a deploy step. A
+ * quest queue is a handful of rows a day and one model call each. Its separate
+ * timer keeps a sponsor's wait independent of any report already being judged.
+ */
 const questStore: QuestModerationStore = {
   pending: (limit) => pendingQuestModerations(db, limit),
   record: (input) => recordQuestModeration(db, input),
@@ -369,7 +398,8 @@ const runner = startRunner(
   { pollIntervalMs: POLL_INTERVAL_MS },
 )
 const questRunner = startQuestRunner(
-  { store, model, log, quests: { store: questStore, model, log } },
+  // The quest stage gets the client that may not fall back (`#726`).
+  { store, model, log, quests: { store: questStore, model: questModel, log } },
   { pollIntervalMs: QUEST_POLL_INTERVAL_MS },
 )
 const briefingRunner = startBriefingRunner(

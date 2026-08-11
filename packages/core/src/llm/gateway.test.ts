@@ -3,8 +3,12 @@ import { createLog, type LogRecord } from '../log/log.js'
 import {
   GATEWAY_BASE_URL_VAR,
   GATEWAY_MODEL_VAR,
+  GATEWAY_API_KEY_VARS,
+  GATEWAY_MODEL_VARS,
   GATEWAY_USER_AGENT,
+  GatewayUnavailable,
   gatewayFromEnvironment,
+  gatewayOnlyFetch,
   gatewayRoutedFetch,
   routeOf,
 } from './gateway.js'
@@ -64,16 +68,14 @@ describe('reading the gateway out of the environment', () => {
       [GATEWAY_MODEL_VAR]: 'm',
     }
 
-    expect(gatewayFromEnvironment('LLM_GATEWAY_API_KEY_MODERATION', complete)).toEqual({
+    expect(gatewayFromEnvironment('moderation', complete)).toEqual({
       baseUrl: 'https://gateway.invalid/v1',
       apiKey: 'k',
       model: 'm',
     })
 
     for (const missing of Object.keys(complete)) {
-      expect(
-        gatewayFromEnvironment('LLM_GATEWAY_API_KEY_MODERATION', { ...complete, [missing]: '' }),
-      ).toBeUndefined()
+      expect(gatewayFromEnvironment('moderation', { ...complete, [missing]: '' })).toBeUndefined()
     }
   })
 
@@ -88,16 +90,16 @@ describe('reading the gateway out of the environment', () => {
       LLM_GATEWAY_API_KEY_MODERATION: 'k',
     }
 
-    expect(gatewayFromEnvironment('LLM_GATEWAY_API_KEY_MODERATION', env)).toBeDefined()
-    expect(gatewayFromEnvironment('LLM_GATEWAY_API_KEY_VERIFIER', env)).toBeUndefined()
+    expect(gatewayFromEnvironment('moderation', env)).toBeDefined()
+    expect(gatewayFromEnvironment('verifier', env)).toBeUndefined()
   })
 
   it('forgives a trailing slash on the address', () => {
     expect(
-      gatewayFromEnvironment('K', {
+      gatewayFromEnvironment('moderation', {
         [GATEWAY_BASE_URL_VAR]: 'https://gateway.invalid/v1/',
         [GATEWAY_MODEL_VAR]: 'm',
-        K: 'k',
+        LLM_GATEWAY_API_KEY_MODERATION: 'k',
       })?.baseUrl,
     ).toBe('https://gateway.invalid/v1')
   })
@@ -335,5 +337,123 @@ describe('what a response says about the route that produced it', () => {
   it('reads a response from anywhere else as OpenRouter', () => {
     expect(routeOf(new Response('{}'))).toEqual({ route: 'openrouter' })
     expect(routeOf(undefined)).toEqual({ route: 'openrouter' })
+  })
+})
+
+/**
+ * One model per service (`#726`).
+ *
+ * The defect being closed is that one variable steered four services: the
+ * moderation runner wants the strongest model the Colony has because its verdict
+ * publishes a quest, and the verifier reads images and would have been sent to a
+ * text model by the same variable.
+ */
+describe('a model chosen per service', () => {
+  const base = {
+    [GATEWAY_BASE_URL_VAR]: 'https://gateway.invalid/v1',
+    LLM_GATEWAY_API_KEY_MODERATION: 'k',
+    LLM_GATEWAY_API_KEY_VERIFIER: 'k',
+  }
+
+  it('sends one service to its own model and everything else to the shared one', () => {
+    const env = {
+      ...base,
+      [GATEWAY_MODEL_VAR]: 'gpt-5.6-terra',
+      [GATEWAY_MODEL_VARS.moderation]: 'gpt-5.6-sol',
+    }
+
+    expect(gatewayFromEnvironment('moderation', env)?.model).toBe('gpt-5.6-sol')
+    expect(gatewayFromEnvironment('verifier', env)?.model).toBe('gpt-5.6-terra')
+  })
+
+  it('behaves exactly as before when no per-service variable is set', () => {
+    const env = { ...base, [GATEWAY_MODEL_VAR]: 'gpt-5.6-terra' }
+
+    expect(gatewayFromEnvironment('moderation', env)?.model).toBe('gpt-5.6-terra')
+    expect(gatewayFromEnvironment('verifier', env)?.model).toBe('gpt-5.6-terra')
+  })
+
+  /**
+   * The order the deploy can land in. `kolonie-infra#131` may set the
+   * per-service variable before or after this ships; a variable nothing reads is
+   * inert, and a variable read with no shared fallback still configures a
+   * gateway rather than switching it off.
+   */
+  it('configures a gateway from the per-service model alone', () => {
+    const env = { ...base, [GATEWAY_MODEL_VARS.moderation]: 'gpt-5.6-sol' }
+
+    expect(gatewayFromEnvironment('moderation', env)?.model).toBe('gpt-5.6-sol')
+    // Nothing names a model for the verifier, so it is not configured at all —
+    // which is OpenRouter on the caller's own model, exactly as before.
+    expect(gatewayFromEnvironment('verifier', env)).toBeUndefined()
+  })
+
+  it('names a model variable for every service that has a key variable', () => {
+    // One list of services, not two. A service in one and not the other is a
+    // variable nothing reads or a key nothing can use.
+    expect(Object.keys(GATEWAY_MODEL_VARS).sort()).toEqual(Object.keys(GATEWAY_API_KEY_VARS).sort())
+  })
+})
+
+/**
+ * The call that may not fall back (`#726`).
+ *
+ * Composed with `#693` the ordinary fallback read as *when the good model is
+ * down, publish quests judged by the flash model instead*. Nobody decided that.
+ */
+describe('a call that may not fall back', () => {
+  it('answers from the gateway exactly as the routed fetch does', async () => {
+    const under = transport(ok(completion('{"verdict":"clear"}')))
+    const only = gatewayOnlyFetch(GATEWAY, { fetch: under.fetch })
+
+    const response = await only(...post({ model: 'openrouter-model', messages: [] }))
+
+    expect(routeOf(response).route).toBe('gateway')
+    expect(under.calls).toHaveLength(1)
+    expect(under.calls[0]?.url).toBe('https://gateway.invalid/v1/chat/completions')
+  })
+
+  it('throws rather than replaying against OpenRouter', async () => {
+    const under = transport(new Error('connection refused'))
+    const { log, records } = collecting()
+    const only = gatewayOnlyFetch(GATEWAY, { fetch: under.fetch, log })
+
+    await expect(only(...post({ model: 'openrouter-model', messages: [] }))).rejects.toBeInstanceOf(
+      GatewayUnavailable,
+    )
+
+    // One call and not two. The second would have been the weaker model
+    // deciding what the Colony publishes.
+    expect(under.calls).toHaveLength(1)
+    expect(records.some((record) => record.event === 'model.route.refused')).toBe(true)
+  })
+
+  it('throws on a 200 that is not an answer, as the routed fetch falls back on one', async () => {
+    const under = transport(ok('this is prose, not a completion'))
+    const only = gatewayOnlyFetch(GATEWAY, { fetch: under.fetch })
+
+    await expect(only(...post({ model: 'openrouter-model', messages: [] }))).rejects.toBeInstanceOf(
+      GatewayUnavailable,
+    )
+    expect(under.calls).toHaveLength(1)
+  })
+
+  it('passes an embedding request through untouched', async () => {
+    const under = transport(ok(JSON.stringify({ data: [] })))
+    const only = gatewayOnlyFetch(GATEWAY, { fetch: under.fetch })
+
+    // The gateway answers 404 on `/embeddings`. Routing one would be the failure
+    // rather than the protection.
+    await only(...post({ model: 'm', input: 'x' }, 'https://openrouter.ai/api/v1/embeddings'))
+
+    expect(under.calls[0]?.url).toBe('https://openrouter.ai/api/v1/embeddings')
+  })
+
+  it('is the transport it was given when no gateway is configured', () => {
+    const under = transport(ok(completion('{}')))
+
+    // Nothing to fall back *from*. A deployment on OpenRouter alone judges
+    // quests on the model it has, rather than refusing to judge them.
+    expect(gatewayOnlyFetch(undefined, { fetch: under.fetch })).toBe(under.fetch)
   })
 })

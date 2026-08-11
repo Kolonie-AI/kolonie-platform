@@ -49,12 +49,35 @@ import { silentLog, type Log } from '../log/log.js'
  *
  * Every one is logged at `warn` with its reason class, so *the gateway was down
  * for two hours* is answerable afterwards rather than invisible.
+ *
+ * ## The two rules `#726` added, stated where the gateway is documented
+ *
+ * **1. The model is per service, not global.** `LLM_GATEWAY_MODEL` steers every
+ * service that names no model of its own; `LLM_GATEWAY_MODEL_<SERVICE>` steers
+ * one. The service token that resolves it is the same one that picks the API key,
+ * so there is one list of services rather than two. A deployment setting none of
+ * the per-service variables behaves exactly as it did before they existed.
+ *
+ * **2. A decision the Colony cannot take back does not fall back.** Since `#693`
+ * a quest that clears moderation is published by that verdict, and the moderation
+ * runner's OpenRouter model is a flash model — so the ordinary fallback composed
+ * into *when the good model is down, publish quests judged by the weaker one
+ * instead*. {@link gatewayOnlyFetch} is the client for that one call: it throws
+ * where {@link gatewayRoutedFetch} replays, and the quest stays `pending_review`
+ * for the next tick. Every other stage keeps the fallback, because being served
+ * late by a weaker model beats not being served at all — which is true of
+ * moderating an answer and false of publishing paid work.
  */
 
 /** Where the gateway is. Never a literal: `AGENTS.md` §9, and it is a host of ours. */
 export const GATEWAY_BASE_URL_VAR = 'LLM_GATEWAY_BASE_URL'
 
-/** Which model the gateway is asked for, overriding whatever the caller configured. */
+/**
+ * Which model the gateway is asked for, overriding whatever the caller
+ * configured — for **every** service that has no override of its own.
+ *
+ * See {@link GATEWAY_MODEL_VARS} for why one variable was not enough.
+ */
 export const GATEWAY_MODEL_VAR = 'LLM_GATEWAY_MODEL'
 
 /**
@@ -76,6 +99,35 @@ export const GATEWAY_API_KEY_VARS = {
   moderation: 'LLM_GATEWAY_API_KEY_MODERATION',
   triage: 'LLM_GATEWAY_API_KEY_TRIAGE',
   reviewer: 'LLM_GATEWAY_API_KEY_REVIEWER',
+} as const
+
+/** One of the four services the gateway knows by name. */
+export type GatewayService = keyof typeof GATEWAY_API_KEY_VARS
+
+/**
+ * One model per service, overriding {@link GATEWAY_MODEL_VAR} for that one
+ * (`#726`).
+ *
+ * **A single model variable across four services is wrong the moment two of them
+ * want different models, and that moment has arrived.** The moderation runner
+ * judges quests on the strongest model the Colony has, because since `#693` that
+ * verdict *is* the publication. The verifier reads images and would be sent to a
+ * text model by the same variable — silently, and on the day the gateway is
+ * actually wired to it rather than on the day somebody changed a model.
+ *
+ * Resolved by the **same service token that picks the API key**, so there is one
+ * list of services rather than two. A service named here and not there, or the
+ * reverse, is a compile error rather than a variable nothing reads.
+ *
+ * Falls back to `LLM_GATEWAY_MODEL`, which falls back to no gateway at all —
+ * which is the caller's own model on OpenRouter, exactly as before either
+ * variable existed. **Nothing changes for a deployment that sets none of these.**
+ */
+export const GATEWAY_MODEL_VARS: Record<GatewayService, string> = {
+  verifier: 'LLM_GATEWAY_MODEL_VERIFIER',
+  moderation: 'LLM_GATEWAY_MODEL_MODERATION',
+  triage: 'LLM_GATEWAY_MODEL_TRIAGE',
+  reviewer: 'LLM_GATEWAY_MODEL_REVIEWER',
 } as const
 
 /**
@@ -132,21 +184,29 @@ export const GATEWAY_TIMEOUT_MS = 180_000
  *
  * **All three or none**, and no partial configuration is honoured: a base URL
  * with no key is a service that would fall back on every call, which is the
- * expensive way to be switched off. `keyVar` differs per service — four keys
- * exist so one service's traffic can be read, capped or revoked without touching
- * the other three.
+ * expensive way to be switched off.
  *
  * A missing key is how a service is put back on OpenRouter **with no code
  * change**, which is the point of reading it here rather than deciding it in a
  * build.
+ *
+ * **The argument is the service and not the key variable** (`#726`). It was the
+ * key variable, and then a second per-service variable appeared for the model —
+ * at which point a caller passing a bare string would have had to pass two, and
+ * nothing would have checked that the two named the same service. One token
+ * picks both, and the compiler is what keeps them in step.
  */
 export function gatewayFromEnvironment(
-  keyVar: string,
+  service: GatewayService,
   env: Record<string, string | undefined> = process.env,
 ): Gateway | undefined {
   const baseUrl = (env[GATEWAY_BASE_URL_VAR] ?? '').trim()
-  const apiKey = (env[keyVar] ?? '').trim()
-  const model = (env[GATEWAY_MODEL_VAR] ?? '').trim()
+  const apiKey = (env[GATEWAY_API_KEY_VARS[service]] ?? '').trim()
+  // This service's model, then the one every service shares. An unset
+  // per-service variable is inert rather than a model called the empty string,
+  // which is what lets `#726` and the deploy that reads it land in either order.
+  const model =
+    (env[GATEWAY_MODEL_VARS[service]] ?? '').trim() || (env[GATEWAY_MODEL_VAR] ?? '').trim()
 
   if (baseUrl === '' || apiKey === '' || model === '') return undefined
 
@@ -205,6 +265,88 @@ export function gatewayRoutedFetch(
 
     const response = await underlying(input, init)
     return stamp(response, 'openrouter', attempt.reason)
+  }
+}
+
+/**
+ * A `fetch` that tries the gateway for chat completions and **fails rather than
+ * falling back** (`#726`).
+ *
+ * For the one call whose answer is a decision the Colony cannot take back. Since
+ * `#693` a quest that clears moderation is published by that verdict, and the
+ * moderation runner's OpenRouter model is a flash model — so composed with
+ * {@link gatewayRoutedFetch} the arrangement read as *when the good model is
+ * down, publish quests judged by the weaker one instead.* Nobody decided that;
+ * it is what the two behaviours did together.
+ *
+ * **Not a flag on a call**, because the fallback is a property of the `fetch` and
+ * a `fetch` belongs to a whole client. A caller wanting both gets two clients,
+ * which is also the honest shape: *these calls may be replayed and that one may
+ * not* is a fact about the calls.
+ *
+ * The failure is a throw and not an unusable response, because every caller here
+ * already distinguishes a provider that did not answer from one that answered
+ * badly, and the first is what this is.
+ *
+ * **With no gateway it is the transport it was given**, exactly as
+ * {@link gatewayRoutedFetch} is. There is nothing to fall back *from* on a
+ * deployment that has no gateway, and refusing to run at all would take the stage
+ * down rather than protect it.
+ *
+ * Requests it does not route — embeddings, anything that is not a chat
+ * completion — pass through untouched, on {@link gatewayRequest}'s terms. The
+ * gateway has no `/embeddings` endpoint, so routing them would be the failure
+ * rather than the protection.
+ */
+export function gatewayOnlyFetch(
+  gateway: Gateway | undefined,
+  options: RoutedFetchOptions = {},
+): typeof fetch {
+  const underlying = options.fetch ?? fetch
+  if (gateway === undefined) return underlying
+
+  const log = options.log ?? silentLog
+  const timeoutMs = options.timeoutMs ?? GATEWAY_TIMEOUT_MS
+
+  return async (input, init) => {
+    const routed = gatewayRequest(gateway, input, init)
+    if (routed === undefined) return underlying(input, init)
+
+    const attempt = await tryGateway(underlying, routed, timeoutMs)
+    if (attempt.response !== undefined) return attempt.response
+
+    /**
+     * An `error` where {@link gatewayRoutedFetch} logs a `warn`, and the
+     * difference is what happened next: there it is a call that cost more than
+     * it should have, and here it is a call that did not happen.
+     */
+    log.error(`the gateway did not answer and this call may not fall back`, undefined, {
+      event: 'model.route.refused',
+      route: 'none',
+      from: 'gateway',
+      reason: attempt.reason,
+      model: gateway.model,
+      ...(attempt.detail === undefined ? {} : { detail: attempt.detail }),
+    })
+
+    throw new GatewayUnavailable(attempt.reason, attempt.detail)
+  }
+}
+
+/**
+ * The gateway did not answer a call that is not allowed to be replayed.
+ *
+ * A named class rather than a bare `Error` so a caller can tell it from a vendor
+ * rejection: this one means *ask again later*, and a quest whose judgement hit it
+ * is untouched and still `pending_review`.
+ */
+export class GatewayUnavailable extends Error {
+  constructor(
+    readonly reason: FallbackReason,
+    detail?: string,
+  ) {
+    super(`the gateway did not answer (${reason}${detail === undefined ? '' : `: ${detail}`})`)
+    this.name = 'GatewayUnavailable'
   }
 }
 
@@ -274,13 +416,12 @@ function gatewayRequest(
   if (typeof body['model'] !== 'string') return undefined
 
   /**
-   * The gateway's model replaces the caller's.
+   * The gateway's model replaces the caller's — this service's model, resolved
+   * by {@link gatewayFromEnvironment} before it got here (`#726`).
    *
-   * One variable for all four services, deliberately: the point of the switch is
-   * that a subscription answers, and a per-service model would mean four things
-   * to change to find that out. The *reply* still names what answered, and that
-   * is what gets recorded — configuration says what was asked for and the
-   * `model_calls` row says what did it.
+   * The *reply* still names what answered, and that is what gets recorded:
+   * configuration says what was asked for and the `model_calls` row says what
+   * did it.
    */
   const headers = new Headers(init.headers)
   headers.set('authorization', `Bearer ${gateway.apiKey}`)

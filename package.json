@@ -31,10 +31,11 @@
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
     "format:check": "node scripts/cached-lint.mjs prettier",
-    "check": "npm run format:check && npm run lint && npm run build && npm run check:migrations && npm run check:changelog && npm run typecheck && npm run test",
-    "check:fast": "npm run format:check && npm run lint && npm run build && npm run check:migrations && npm run check:changelog && npm run typecheck && echo \"\" && echo \"check:fast finished. NO TESTS WERE RUN \u2014 this checked formatting, lint, build, migrations and types only. Run npm run check before you push.\"",
+    "check": "npm run format:check && npm run lint && npm run build && npm run check:migrations && npm run check:fixtures && npm run check:changelog && npm run typecheck && npm run test",
+    "check:fast": "npm run format:check && npm run lint && npm run build && npm run check:migrations && npm run check:fixtures && npm run check:changelog && npm run typecheck && echo \"\" && echo \"check:fast finished. NO TESTS WERE RUN \u2014 this checked formatting, lint, build, migrations and types only. Run npm run check before you push.\"",
     "check:migrations": "bash packages/db/scripts/check-migrations.sh",
     "check:counts": "node scripts/check-counts.mjs",
+    "check:fixtures": "node scripts/check-fixture-mirrors.mjs",
     "changelog": "node scripts/build-changelog.mjs",
     "check:changelog": "node scripts/build-changelog.mjs --check"
   },

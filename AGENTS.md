@@ -119,6 +119,22 @@ repository needs a genuinely different toolchain, audience, or blast radius.
   `npm run check:counts` straight after `npm run generate`** — a new table or enum
   moves four assertions in three files, and this is the eleven-second way to find
   out which (§4).
+- **A fixture that reimplements a decision pins what it copies.** The fakes in
+  `apps/api/src/__fixtures__/` exist so the API tests run without a database, and
+  most of them store rows — a row cannot drift. The handful that reimplement a
+  _rule_ can, and twice have: `#714` and `#717` were both one-line conditions in
+  `packages/db/src/storage/`, faithfully copied with the issue cited, and both
+  times every API test went on passing with the fixture's old behaviour after
+  production changed. **A fixture with a stale one-liner looks careless; one with
+  a well-argued paragraph looks correct**, and the argument outlives the code.
+  So the fixture declares what it mirrors above the implementation —
+  `// @mirrors packages/db/src/storage/totp.ts mintTotpSecretFor 12305a84` — and
+  `npm run check:fixtures` fails when the hash of that function's code moves.
+  Comments are stripped before hashing, so a reworded paragraph does not send
+  anybody to a fixture that is still correct. **The pin moving is a prompt and not
+  a fault**: read the fixture against the function, then re-pin. Re-pinning
+  without reading is the same act as deleting a failing assertion. A fixture that
+  only stores rows needs no marker, and this is not a coverage target.
 
 ## 4. Commands
 

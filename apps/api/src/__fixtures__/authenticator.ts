@@ -32,6 +32,7 @@ export function fakeTotpChallenges(): TotpChallenges & {
       offsetMs += hours * 3_600_000
     },
 
+    // @mirrors packages/db/src/storage/totp.ts mintTotpSecretFor 12305a84
     mint: async (agentId: AgentId, replace: boolean) => {
       const live = held.get(agentId)
       if (live !== undefined && !replace) {

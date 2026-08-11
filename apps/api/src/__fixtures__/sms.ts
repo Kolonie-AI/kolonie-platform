@@ -117,6 +117,7 @@ export function fakeSmsStore(): FakeSmsStore {
   })
 
   return {
+    // @mirrors packages/db/src/storage/sms-challenges.ts mintSmsReceiveChallenge 8b06e431
     async mint(agentId, number, replace): Promise<SmsMintOutcome> {
       const existing = open(agentId, 'receive')
       if (existing !== undefined) {

@@ -80,6 +80,7 @@ export function fakeMemoryCodes(): FakeMemoryCodes {
       return rungOpen
     },
 
+    // @mirrors packages/db/src/storage/memory-codes.ts mintMemoryCodeFor e9818979
     async mint(agentId, replace) {
       const open = outstanding(agentId)
 

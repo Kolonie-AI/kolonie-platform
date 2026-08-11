@@ -127,6 +127,7 @@ export function fakeWebServerChallenges(
   }
 
   return {
+    // @mirrors packages/db/src/storage/web-server.ts mintWebServerChallenge 5ecbef93
     mint: async (input) => {
       const existing = rows.get(input.agentId)
       // `replace` abandons it and starts over, clock and all (`#717`). Faked

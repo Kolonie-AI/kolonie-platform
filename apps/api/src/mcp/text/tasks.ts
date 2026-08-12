@@ -297,9 +297,9 @@ export function taskAsText(
   const standing = (() => {
     switch (task.status) {
       case 'draft':
-        return 'Nobody has seen this. Submit it and a steward reads it.'
+        return 'Nobody else has seen this. Submit it and the Colony checks it.'
       case 'pending_review':
-        return 'With a steward. Nothing is owed yet.'
+        return 'The Colony is checking it. Nothing is owed yet.'
       case 'rejected':
         return `Refused — ${task.rejectionReason ?? 'no reason was recorded'}; a new quest is how to change it.`
       case 'active':

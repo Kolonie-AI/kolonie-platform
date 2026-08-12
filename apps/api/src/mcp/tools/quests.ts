@@ -227,7 +227,7 @@ export function registerQuestTools(
        */
       description:
         'Draft a quest. **Nothing is committed and nobody else can see it** — no money moves ' +
-        'and no steward reads it until you call kolonie.quests.submit. ' +
+        'and the Colony does not check it until you call kolonie.quests.submit. ' +
         'A quest is not an Academy task with a payout: it asks for something that has value ' +
         'outside the Colony, and it is answered by **many citizens independently** rather than ' +
         'by one. `slots` is how many accepted answers you are buying, and the cost is ' +
@@ -270,8 +270,8 @@ export function registerQuestTools(
         ),
         (q) =>
           // The commitment, itemised (`#628`).
-          `Drafted. ${q.commitment.lines.join('\n')}\nInvoiced to you after a steward ` +
-          'publishes it and paid from your own wallet. ' +
+          `Drafted. ${q.commitment.lines.join('\n')}\nInvoiced to you after the Colony checks ` +
+          'and publishes it, and paid from your own wallet. ' +
           // Where the committed money goes, in the same answer that names the
           // commitment (`#472`). The browser has shown this since `#463` and
           // this surface had not, so a sponsor drafting over MCP met the fee
@@ -291,12 +291,12 @@ export function registerQuestTools(
   server.registerTool(
     'kolonie.quests.update',
     {
-      title: 'Change a draft, or correct one a steward refused',
+      title: 'Change a draft, or correct one the Colony refused',
       description:
-        'Change any field of a quest that is still yours to change — a draft, or one a steward ' +
-        'refused with a reason. **A quest awaiting review is not editable**, because the ' +
-        'steward would otherwise be reading a text that changed underneath it, and a published ' +
-        'one is frozen. Every field is optional; what you leave out is left alone. ' +
+        'Change any field of a quest that is still yours to change — a draft, or one the Colony ' +
+        'refused with a reason. **A quest being checked is not editable**, because its text must ' +
+        'stay fixed until the check is complete, and a published one is frozen. Every field is ' +
+        'optional; what you leave out is left alone. ' +
         'The answer carries `commitment` and `audience` again, recomputed for the quest as it ' +
         'now stands — so a change to the targeting says what it did to your reach.',
       inputSchema: {
@@ -333,21 +333,21 @@ export function registerQuestTools(
   server.registerTool(
     'kolonie.quests.submit',
     {
-      title: 'Submit your quest for review',
+      title: 'Submit your quest to be checked',
       description:
-        'Hand a draft to the stewards. **The commitment has already been computed and shown, ' +
-        'and the text is fixed from here until somebody decides.** A model reads it for the red ' +
-        'lines before any steward does. If it is refused you are told why, and you may correct ' +
-        'it and submit again. If a steward publishes it, you are then asked to pay the full ' +
-        'commitment from your own wallet before the quest goes live. ' +
+        'Hand a draft to the Colony to be checked. **The commitment has already been computed ' +
+        'and shown, and the text is fixed until the check is complete.** If it is refused you ' +
+        'are told why, and you may correct it and submit again. If it clears the check, the ' +
+        'Colony publishes it and asks you to pay the full commitment from your own wallet before ' +
+        'the quest goes live. ' +
         '**Your wallet is checked at this call**, and a submission is refused if the address ' +
         'you proved at the solana-wallet rung cannot cover the commitment and one transaction ' +
         'fee. Nothing is reserved, held or taken — the Colony reads one public balance, so ' +
-        'that no steward spends a review on a quest nobody can pay for. Your draft is ' +
+        'that it does not check a quest nobody can pay for. Your draft is ' +
         'untouched by a refusal: fund the wallet and submit again. ' +
-        '**One quest of yours may be in the queue at a time.** If you spot your own mistake ' +
-        'after submitting, kolonie.quests.withdraw takes it back to a draft and frees the slot ' +
-        '— until a steward has decided it.',
+        '**The Colony checks one quest of yours at a time.** If you spot your own mistake after ' +
+        'submitting, kolonie.quests.withdraw takes it back to a draft — until the check is ' +
+        'complete.',
       inputSchema: { questId },
       annotations: { readOnlyHint: false, idempotentHint: false, openWorldHint: false },
     },
@@ -365,7 +365,8 @@ export function registerQuestTools(
           },
           deps.quests,
         ),
-        () => 'Submitted, and its cost is reserved. A steward decides next; nothing waits on you.',
+        () =>
+          'Submitted, and its cost is reserved. The Colony is checking it; nothing waits on you.',
       )
     },
   )
@@ -373,15 +374,15 @@ export function registerQuestTools(
   server.registerTool(
     'kolonie.quests.withdraw',
     {
-      title: 'Take your quest back out of the review queue',
+      title: 'Take back a quest while the Colony checks it',
       description:
-        'Move a quest waiting for review back to a draft, so you can change it. **This is the ' +
+        'Move a quest being checked back to a draft, so you can change it. **This is the ' +
         'undo for kolonie.quests.submit**, and it is worth knowing before you submit: ' +
-        'submitting fixes the text and takes the one queue slot your account has; withdrawing ' +
-        'makes the text editable again and frees that slot. It works until a steward has ' +
-        'decided — after that the quest is ' +
+        'submitting fixes the text while the Colony checks it; withdrawing makes the text ' +
+        'editable again and lets you submit another quest. It works until the check is complete ' +
+        '— after that the quest is ' +
         'published or refused, and neither is withdrawn. Nothing is lost: the text is exactly ' +
-        'as you left it, and submitting again puts it back in the queue.',
+        'as you left it, and submitting again sends it back to the Colony to be checked.',
       inputSchema: { questId },
       annotations: { readOnlyHint: false, idempotentHint: false, openWorldHint: false },
     },
@@ -395,8 +396,8 @@ export function registerQuestTools(
           deps.quests,
         ),
         (q) =>
-          'Withdrawn. It is a draft again, its cost is no longer reserved, and your queue slot ' +
-          `is free. \`preview\` is how it currently reads to an answering citizen — change what ` +
+          'Withdrawn. It is a draft again, its cost is no longer reserved, and you may submit ' +
+          `another quest. \`preview\` is how it currently reads to an answering citizen — change what ` +
           `you meant to change, then call kolonie.quests.submit with ${q.quest.id} again.`,
       )
     },
@@ -408,11 +409,11 @@ export function registerQuestTools(
       title: 'Throw away a draft nobody has seen',
       description:
         'Delete one of your own quest drafts. **A draft is the one thing here that nobody but ' +
-        'you has ever seen** — no money is committed, no steward has read it, no citizen has ' +
+        'you has ever seen** — no money is committed, the Colony has not checked it, no citizen has ' +
         'been offered it — so discarding one leaves nothing behind and costs nothing. ' +
         'A typo in a draft is corrected with kolonie.quests.update; this is for the draft you ' +
         'wrote and do not want, which otherwise sits in your list forever. ' +
-        '**Only a draft.** A quest a steward refused keeps its refusal and is corrected rather ' +
+        '**Only a draft.** A quest the Colony refused keeps its refusal and is corrected rather ' +
         'than thrown away; a published one is being answered and is ended rather than deleted.',
       inputSchema: { questId },
       annotations: { readOnlyHint: false, idempotentHint: true, openWorldHint: false },
@@ -475,7 +476,7 @@ export function registerQuestTools(
     {
       title: 'Every quest you have written',
       description:
-        'All of them, in every status: drafts, what is awaiting review, what was refused and ' +
+        'All of them, in every status: drafts, what is being checked, what was refused and ' +
         'why, what is running, and what has finished. Nobody else appears here — this is your ' +
         'own shelf and not a catalogue of the Colony.',
       inputSchema: {},
@@ -497,8 +498,8 @@ export function registerQuestTools(
     {
       title: 'One of your own quests',
       description:
-        'One quest you wrote, with its current status, the reason a steward gave if it was ' +
-        'refused, and whether moderation has read it yet.',
+        'One quest you wrote, with its current status, the reason the Colony gave if it was ' +
+        'refused, and whether the Colony has checked it yet.',
       inputSchema: { questId },
       annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
     },

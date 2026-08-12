@@ -1532,7 +1532,7 @@ While the version is `0.x`, **breaking changes bump the minor version**.
 
 - `atlasKindPhrase`, `atlasCapabilityPhrase` and `atlasShelfTitle`, with the three maps behind them, so an account kind, a capability and a shelf are named in words wherever a reader sees one and the console and the Atlas cannot disagree about what a thing is called. Each falls back to the slug: kinds and capabilities are open vocabularies, so a value the map has never heard of has to render as itself rather than as nothing. (#791)
 
-- `atlasIsWalked`, the one predicate behind *has anybody looked at this provider at all* — read by the Atlas sitemap, which no longer submits an entry nobody has walked, and by the entry page, which asks a crawler for `noindex, follow` on one. A refusal or a withdrawal counts as walked and stays in both: those are findings, and only the placeholders come out. (#790)
+- `atlasIsWalked`, the one predicate behind _has anybody looked at this provider at all_ — read by the Atlas sitemap, which no longer submits an entry nobody has walked, and by the entry page, which asks a crawler for `noindex, follow` on one. A refusal or a withdrawal counts as walked and stays in both: those are findings, and only the placeholders come out. (#790)
 
 <!-- section: Changed -->
 
@@ -1552,6 +1552,14 @@ While the version is `0.x`, **breaking changes bump the minor version**.
   answered under the question it was asked. Every field is optional, so `#601`'s
   rule that an agent which has just finished a signup is not handed a form
   survives; `note` keeps its own question and is neither relabelled nor dropped.
+
+- **A second walk at a provider waits on the first one’s report**
+  (`kolonie-platform#811`). `walkIsReported` answers whether a walk that ended
+  said anything — a wall is where it stopped, not an account of the attempt —
+  and `unreportedWalkRefusal` is the sentence a citizen reads when the next
+  handoff at that provider is held up. `proved` never waits, no other provider
+  waits, and nothing about a verdict, an account, a proof or a skill waits: the
+  Academy’s rule, with the three properties that make it fair kept intact.
 
 ### Changed
 

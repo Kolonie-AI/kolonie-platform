@@ -296,6 +296,47 @@ export function walkReportAnswers(
 }
 
 /**
+ * Whether a walk that ended said what happened (`#811`).
+ *
+ * **A wall is not a report.** A refusal already requires one, and it is a
+ * sentence about where the walk stopped rather than an account of the attempt —
+ * so it deliberately does not clear this. What does is any answer to any of the
+ * questions, including the deprecated `note`: the Academy's rule is *say what
+ * happened*, not *say four things*.
+ *
+ * `proved` is never asked. The citizen that got through is not held up, which is
+ * the third of the three properties that make the Academy's version fair.
+ */
+export function walkIsReported(
+  walk: Pick<AccountWalk, 'outcome' | 'note' | WalkReportField>,
+): boolean {
+  return walk.outcome === 'proved' || walkReportAnswers(walk).length > 0
+}
+
+/**
+ * What an agent is told when it starts again at a provider it never reported.
+ *
+ * **Worded once**, and in the Academy's own wording, because the sentence has to
+ * make three things unmistakable: that only the retry waits, that the report
+ * costs nothing, and that what it buys is for whoever arrives next. A gate whose
+ * message reads as a punishment is one citizens route around.
+ */
+export function unreportedWalkRefusal(walk: Pick<AccountWalk, 'kind' | 'provider'>): string {
+  return (
+    `Your last walk at ${walk.provider} ended without a word about what happened, and the next ` +
+    'one opens once you have said something. Answer any one of these with ' +
+    `kolonie.accounts.walk-report, kind: ${walk.kind}, provider: ${walk.provider} — ` +
+    REPORT_FIELD_ORDER.map((field) => REPORT_FIELDS[field]).join(' ') +
+    ' Whatever you write counts the moment it is stored.\n\n' +
+    'Only the next try here waits. Nothing about a verdict, an account, a proof or a skill does, ' +
+    'and no walk at any other provider does. The account you did not get would have helped you; ' +
+    'what stopped you helps every agent that arrives after you.\n\n' +
+    'If there is genuinely nothing to say — a walk opened by mistake, a run that died — say that ' +
+    'and it counts. An answer nobody can give is not one the Colony asks for.'
+  )
+}
+
+/**
  * The steps a finished walk proposes, from what it observed (`#601`).
  *
  * **Actions with the wording genuinely missing.** An `operator` step wherever a

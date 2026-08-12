@@ -4,6 +4,7 @@ import {
   WalkOutcomeSchema,
   WalkTakenStepPositionsSchema,
   RECIPE_REFUSAL_MAX_LENGTH,
+  unreportedWalkRefusal,
   type Account,
   type AccountKind,
   type AccountProofMethod,
@@ -24,6 +25,8 @@ import {
   openWalkId,
   ownAccountWalk,
   recordWalkStep,
+  reportFinishedWalk,
+  unreportedWalk,
   walkInProgress,
   type Database,
 } from '@kolonie-ai/db'
@@ -75,6 +78,31 @@ export interface WalkStore {
       readonly takenStepPositions?: readonly number[] | null
     },
   ): Promise<{ readonly walk: AccountWalk; readonly verdict: WalkVerdict } | undefined>
+  /**
+   * The last walk here that did not get through and never said why (`#811`), or
+   * nothing — which is the ordinary answer.
+   */
+  unreported(
+    agentId: AgentId,
+    input: { readonly kind: AccountKind; readonly provider: string },
+  ): Promise<AccountWalk | undefined>
+  /**
+   * Write the report onto a walk that was already closed (`#811`).
+   *
+   * Answers only: no outcome, no verdict, nothing to the catalogue. Nothing
+   * where the walk already answered something.
+   */
+  report(
+    agentId: AgentId,
+    walkId: string,
+    answers: {
+      readonly note?: string | null
+      readonly did?: string | null
+      readonly broke?: string | null
+      readonly changed?: string | null
+      readonly discarded?: string | null
+    },
+  ): Promise<AccountWalk | undefined>
   /** The walk this agent is on, if it is on one. */
   inProgress(
     agentId: AgentId,
@@ -621,6 +649,34 @@ export function walkVerdictAsText(verdict: WalkVerdict): string {
 }
 
 /** The error an agent gets when it reports a walk that is not running. */
+/**
+ * The Academy's retry rule, applied to walks (`#811`).
+ *
+ * **It gates the sibling and never itself.** What refuses is the call that would
+ * start the next attempt at this provider — a handoff, sealed or ordinary — and
+ * never `kolonie.accounts.walk-report`, which is the way out of it. A gate on
+ * the report itself would be a gate on the only door.
+ *
+ * **`report_first`, the code the Academy already uses**, rather than a second
+ * one meaning the same thing. It is a 409 because the previous attempt is
+ * unfinished business, not because anything is forbidden to this agent.
+ *
+ * Undefined is the answer in every ordinary case, including a deployment with no
+ * walk recording at all: a store that is not there cannot hold anybody up.
+ */
+export async function unreportedWalkRefusalError(
+  walks: WalkStore | undefined,
+  agentId: AgentId,
+  where: { readonly kind: AccountKind; readonly provider: string },
+): Promise<ApiError | undefined> {
+  if (walks === undefined) return undefined
+
+  const owed = await walks.unreported(agentId, where)
+  if (owed === undefined) return undefined
+
+  return { code: 'report_first', message: unreportedWalkRefusal(owed) }
+}
+
 export const NO_WALK_IN_PROGRESS: ApiError = {
   code: 'not_found',
   message:
@@ -643,6 +699,8 @@ export function databaseWalks(db: Database): WalkStore {
     open: (agentId, input) => walkInProgress(db, agentId, input),
     record: (walkId, step) => recordWalkStep(db, walkId, step),
     finish: (walkId, input) => finishWalk(db, walkId, input),
+    unreported: (agentId, input) => unreportedWalk(db, agentId, input),
+    report: (agentId, walkId, answers) => reportFinishedWalk(db, agentId, walkId, answers),
     async inProgress(agentId, input) {
       const id = await openWalkId(db, agentId, input)
 

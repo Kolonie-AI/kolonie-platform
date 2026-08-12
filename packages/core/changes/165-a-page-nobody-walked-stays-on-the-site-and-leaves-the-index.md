@@ -1,6 +1,6 @@
 <!-- section: Added -->
 
-- `atlasIsWalked`, the one predicate behind *has anybody looked at this provider at all* — read by the Atlas sitemap, which no longer submits an entry nobody has walked, and by the entry page, which asks a crawler for `noindex, follow` on one. A refusal or a withdrawal counts as walked and stays in both: those are findings, and only the placeholders come out. (#790)
+- `atlasIsWalked`, the one predicate behind _has anybody looked at this provider at all_ — read by the Atlas sitemap, which no longer submits an entry nobody has walked, and by the entry page, which asks a crawler for `noindex, follow` on one. A refusal or a withdrawal counts as walked and stays in both: those are findings, and only the placeholders come out. (#790)
 
 <!-- section: Changed -->
 

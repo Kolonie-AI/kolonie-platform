@@ -2,6 +2,8 @@ import {
   AccountKindSchema,
   AccountProviderSchema,
   now as currentTime,
+  walkIsReported,
+  walkReportAnswers,
   type AccountWalk,
   type AgentId,
   type WalkVerdict,
@@ -88,6 +90,41 @@ export function fakeWalks(): FakeWalkStore {
             : { kind: 'nothing', why: 'the walk was abandoned' }
 
       return { walk, verdict }
+    },
+    /**
+     * The last walk here that ended without a word (`#811`). Newest first is
+     * how `rows` is kept, so the first match is the one the gate names.
+     */
+    async unreported(agentId, input) {
+      const owed = rows.find(
+        (walk) =>
+          walk.agentId === agentId &&
+          walk.kind === input.kind &&
+          walk.provider === input.provider &&
+          walk.finishedAt !== null &&
+          walk.outcome !== 'proved',
+      )
+
+      return owed === undefined || walkIsReported(owed) ? undefined : owed
+    },
+    async report(agentId, walkId, answers) {
+      const at = rows.findIndex((walk) => walk.id === walkId && walk.agentId === agentId)
+      const previous = rows[at]
+      if (previous === undefined || previous.finishedAt === null) return undefined
+      /** Answers only where there are none, exactly as the storage does. */
+      if (walkReportAnswers(previous).length > 0) return undefined
+
+      const walk: AccountWalk = {
+        ...previous,
+        note: answers.note ?? null,
+        did: answers.did ?? null,
+        broke: answers.broke ?? null,
+        changed: answers.changed ?? null,
+        discarded: answers.discarded ?? null,
+      }
+      rows[at] = walk
+
+      return walk
     },
     async inProgress(agentId, input) {
       return rows.find(

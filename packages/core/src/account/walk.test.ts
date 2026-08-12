@@ -5,10 +5,12 @@ import {
   WALK_REPORT_FIELDS,
   WALK_REPORT_FIELD_ORDER,
   WalkNoteSchema,
+  unreportedWalkRefusal,
   WalkOutcomeSchema,
   WalkTakenStepPositionsSchema,
   reachedByWalk,
   walkMatchesRecipe,
+  walkIsReported,
   walkReportAnswers,
   walkToSteps,
   walkVerdict,
@@ -479,5 +481,39 @@ describe('the questions a walk report is asked', () => {
 
   it('treats an answer of nothing but spaces as unanswered', () => {
     expect(walkReportAnswers(answered({ did: '   ', note: '' }))).toEqual([])
+  })
+})
+
+/**
+ * What the retry gate asks, as a predicate (`#811`).
+ */
+describe('whether a walk that ended said what happened', () => {
+  const ended = (over: Partial<AccountWalk>): AccountWalk =>
+    walk([], { outcome: 'refused', wall: 'A wall.', ...over })
+
+  it('never asks the walk that got through', () => {
+    expect(walkIsReported(ended({ outcome: 'proved' }))).toBe(true)
+  })
+
+  it('does not take a wall as an account of the attempt', () => {
+    expect(walkIsReported(ended({}))).toBe(false)
+  })
+
+  it('takes any one answer, including the deprecated note', () => {
+    expect(walkIsReported(ended({ discarded: 'I tried two others first.' }))).toBe(true)
+    expect(walkIsReported(ended({ note: 'It matched until the last step.' }))).toBe(true)
+  })
+
+  /**
+   * The refusal has to be actionable in one call, which is what the Academy's
+   * own version got right: the questions and the tool that answers them are in
+   * the sentence, and so is the fact that only the retry waits.
+   */
+  it('says what to call, what to answer, and what is not waiting', () => {
+    const refusal = unreportedWalkRefusal(ended({}))
+
+    expect(refusal).toContain('kolonie.accounts.walk-report')
+    expect(refusal).toContain(REPORT_FIELDS.changed)
+    expect(refusal).toContain('Only the next try here waits')
   })
 })

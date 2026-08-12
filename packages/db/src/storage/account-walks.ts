@@ -1,10 +1,11 @@
-import { and, asc, desc, eq, isNotNull, isNull, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, isNotNull, isNull, ne, sql } from 'drizzle-orm'
 import {
   AccountKindSchema,
   AccountProviderSchema,
   RecipeActorSchema,
   WalkOutcomeSchema,
   WalkedRecipeSchema,
+  walkIsReported,
   walkVerdict,
   type AccountKind,
   type AccountWalk,
@@ -237,6 +238,106 @@ export async function accountWalkList(
       return toWalk(row, steps)
     }),
   )
+}
+
+/**
+ * The last walk here that did not get through and never said why (`#811`).
+ *
+ * **The newest one only, and never a queue of them.** What the Academy gates is
+ * *the next attempt after the one you did not report* — a citizen that owes
+ * three reports at a provider owes the sentence about the last of them, and a
+ * gate that demanded all three would be a debt collector rather than a prompt.
+ *
+ * `proved` is excluded in SQL rather than filtered afterwards: the walk that got
+ * through is never asked, and that has to be true of the query so that a citizen
+ * holding an account cannot be held up by a row nobody reads.
+ */
+export async function unreportedWalk(
+  db: Database,
+  agentId: AgentId,
+  where: { readonly kind: AccountKind; readonly provider: string },
+): Promise<AccountWalk | undefined> {
+  const provider = await canonicalProvider(db, where.provider)
+
+  const [row] = await db
+    .select()
+    .from(accountWalks)
+    .where(
+      and(
+        eq(accountWalks.agentId, agentId),
+        eq(accountWalks.kind, where.kind),
+        eq(accountWalks.provider, provider),
+        isNotNull(accountWalks.finishedAt),
+        ne(accountWalks.outcome, 'proved'),
+      ),
+    )
+    .orderBy(desc(accountWalks.finishedAt))
+    .limit(1)
+
+  if (row === undefined) return undefined
+
+  const walk = toWalk(row, [])
+
+  return walkIsReported(walk) ? undefined : walk
+}
+
+/**
+ * Write the report onto a walk that was already closed (`#811`).
+ *
+ * **The gate would be a trap without this.** A walk is closed by the report, so
+ * a walk closed *without* one can no longer be reported through the ordinary
+ * path — `finishWalk` refuses a second close, correctly, because a second close
+ * would propose a second draft. This writes the answers and nothing else: no
+ * outcome, no verdict, no catalogue write.
+ *
+ * **It cannot overwrite an answer**, which is what keeps it from being an edit
+ * surface for testimony: it applies only where the walk holds none, and a walk
+ * that already said something is left exactly as it is.
+ */
+export async function reportFinishedWalk(
+  db: Database,
+  agentId: AgentId,
+  walkId: string,
+  answers: {
+    readonly note?: string | null
+    readonly did?: string | null
+    readonly broke?: string | null
+    readonly changed?: string | null
+    readonly discarded?: string | null
+  },
+): Promise<AccountWalk | undefined> {
+  const [updated] = await db
+    .update(accountWalks)
+    .set({
+      note: answers.note ?? null,
+      did: answers.did ?? null,
+      broke: answers.broke ?? null,
+      changed: answers.changed ?? null,
+      discarded: answers.discarded ?? null,
+    })
+    .where(
+      and(
+        eq(accountWalks.id, walkId),
+        eq(accountWalks.agentId, agentId),
+        isNotNull(accountWalks.finishedAt),
+        isNull(accountWalks.note),
+        isNull(accountWalks.did),
+        isNull(accountWalks.broke),
+        isNull(accountWalks.changed),
+        isNull(accountWalks.discarded),
+      ),
+    )
+    .returning()
+
+  if (updated === undefined) return undefined
+
+  const steps = await db
+    .select()
+    .from(accountWalkSteps)
+    .where(eq(accountWalkSteps.walkId, walkId))
+    .orderBy(asc(accountWalkSteps.position))
+
+  return toWalk(updated, steps)
 }
 
 /**

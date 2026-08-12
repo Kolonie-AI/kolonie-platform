@@ -7,6 +7,7 @@ import {
   noteWalkStep,
   openDraftHint,
   readWalkStatus,
+  unreportedWalkRefusalError,
   walkProofState,
   walkProofStateAsText,
   walkVerdictAsText,
@@ -30,6 +31,7 @@ import {
   bootstrapTemplateAsText,
   bootstrapTemplatesAsHint,
   recipeStatusIsOfferable,
+  walkIsReported,
   type ApiError,
   type ProviderRecipe,
   type RecipeStep,
@@ -1213,6 +1215,17 @@ export function registerAccountTools(
       const authenticatedAgent = await authenticate(credential, deps.store)
       if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
 
+      /**
+       * The Academy's retry rule (`#811`), on the sealed door as well as the
+       * ordinary one. A gate on one of two ways to start the same attempt is
+       * not a gate.
+       */
+      const owed = await unreportedWalkRefusalError(deps.walks, authenticatedAgent.agent.id, {
+        kind: AccountKindSchema.parse('github'),
+        provider: input.provider,
+      })
+      if (owed !== undefined) return toolError(owed)
+
       const recipe = await readRecipe('github', input.provider, deps.recipes)
 
       const opened = await openHandover(
@@ -1429,6 +1442,25 @@ export function registerAccountTools(
             'kolonie.accounts.wishes and have your operator mark it wanted before opening a handoff.',
         })
       }
+
+      /**
+       * The Academy's retry rule, applied to walks (`#811`).
+       *
+       * **After the wish gate**, because the two refuse different things and one
+       * is more fundamental: that one says *this attempt was never agreed to*,
+       * this one says *the last attempt here was never accounted for*. An agent
+       * that is not meant to be here at all should be told that first.
+       *
+       * **Scoped to this provider, always.** A citizen that owes a report at one
+       * provider may walk any other one today. A global block would turn one bad
+       * afternoon into a stopped agent, and the Academy's version — which gates
+       * the retry of *that task* — is deliberately no wider than this.
+       */
+      const owed = await unreportedWalkRefusalError(deps.walks, authenticatedAgent.agent.id, {
+        kind: AccountKindSchema.parse(input.kind),
+        provider: input.provider,
+      })
+      if (owed !== undefined) return toolError(owed)
 
       /**
        * **A secret goes through the drop, and the drop needs a vault key.** The
@@ -1699,7 +1731,58 @@ export function registerAccountTools(
         kind: AccountKindSchema.parse(input.kind),
         provider: canonical,
       })
-      if (open === undefined) return toolError(NO_WALK_IN_PROGRESS)
+
+      /**
+       * **Reporting a walk that already closed** (`#811`).
+       *
+       * A walk is closed *by* its report, so a walk that closed without one can
+       * never be reported through the ordinary path — and `#811` gates the next
+       * attempt at that provider on exactly that report. Without this the gate
+       * would be a trap: told to say what happened, and refused by the only call
+       * that says it.
+       *
+       * It writes the answers and nothing else. No outcome — the walk already
+       * recorded how it ended and a second one would be testimony overwriting
+       * itself — no verdict, and nothing to the catalogue, because what a
+       * finished walk earns was decided when it finished.
+       */
+      if (open === undefined) {
+        const owed = await deps.walks.unreported(authenticatedAgent.agent.id, {
+          kind: AccountKindSchema.parse(input.kind),
+          provider: canonical,
+        })
+        if (owed === undefined) return toolError(NO_WALK_IN_PROGRESS)
+
+        const late = await deps.walks.report(authenticatedAgent.agent.id, owed.id, {
+          ...(report.data.note === undefined ? {} : { note: report.data.note }),
+          ...(report.data.did === undefined ? {} : { did: report.data.did }),
+          ...(report.data.broke === undefined ? {} : { broke: report.data.broke }),
+          ...(report.data.changed === undefined ? {} : { changed: report.data.changed }),
+          ...(report.data.discarded === undefined ? {} : { discarded: report.data.discarded }),
+        })
+        if (late === undefined) return toolError(NO_WALK_IN_PROGRESS)
+
+        return {
+          content: [
+            {
+              type: 'text',
+              text: walkIsReported(late)
+                ? `Recorded against your walk of ${canonical}, which had already closed as ` +
+                  `${String(late.outcome)}. Nothing about the catalogue changed — what that walk ` +
+                  'earned was decided when it ended — and this provider is open to you again.'
+                : `That walk of ${canonical} closed as ${String(late.outcome)} and is still ` +
+                  'unreported: nothing you sent held an answer. Answer any one of the four ' +
+                  'questions and it counts.',
+            },
+          ],
+          structuredContent: {
+            walkId: late.id,
+            outcome: late.outcome,
+            reported: walkIsReported(late),
+            providerCanonical: canonical,
+          },
+        }
+      }
 
       const finished = await deps.walks.finish(open.id, report.data)
       if (finished === undefined) return toolError(NO_WALK_IN_PROGRESS)

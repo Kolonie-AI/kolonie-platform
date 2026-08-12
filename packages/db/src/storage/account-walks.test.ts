@@ -4,6 +4,8 @@ import type { Database } from '../client.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
 import {
   accountWalk,
+  reportFinishedWalk,
+  unreportedWalk,
   accountWalkList,
   divergentWalks,
   finishWalk,
@@ -226,6 +228,55 @@ describe('the record of one agent obtaining one account', () => {
       expect(finished?.walk.broke).toBeNull()
       expect(finished?.walk.changed).toBeNull()
       expect(finished?.walk.discarded).toBeNull()
+    })
+
+    /**
+     * The Academy's retry rule needs one question answered — *did the last walk
+     * here say anything* — and `#811` gates on the answer.
+     */
+    it('names the last walk that ended without a word, and forgets it once it speaks', async () => {
+      const walkId = await walkInProgress(db, agentId, where)
+      await finishWalk(db, walkId, { outcome: 'refused', wall: 'It wanted a number.' })
+
+      const owed = await unreportedWalk(db, agentId, where)
+      expect(owed?.id).toBe(walkId)
+
+      await reportFinishedWalk(db, agentId, walkId, { broke: 'It would not submit without one.' })
+
+      expect(await unreportedWalk(db, agentId, where)).toBeUndefined()
+    })
+
+    /** A wall is where it stopped, not an account of the attempt. */
+    it('does not take a wall as the report', async () => {
+      const walkId = await walkInProgress(db, agentId, where)
+      await finishWalk(db, walkId, { outcome: 'refused', wall: 'A phone check.' })
+
+      expect((await unreportedWalk(db, agentId, where))?.id).toBe(walkId)
+    })
+
+    it('never asks the walk that got through', async () => {
+      const walkId = await walkInProgress(db, agentId, where)
+      await finishWalk(db, walkId, { outcome: 'proved' })
+
+      expect(await unreportedWalk(db, agentId, where)).toBeUndefined()
+    })
+
+    /** Testimony is written once. This is a way to say something, not to edit it. */
+    it('refuses to write over an answer a walk already carries', async () => {
+      const walkId = await walkInProgress(db, agentId, where)
+      await finishWalk(db, walkId, { outcome: 'abandoned', did: 'I stopped at the mailbox step.' })
+
+      expect(
+        await reportFinishedWalk(db, agentId, walkId, { did: 'Something else.' }),
+      ).toBeUndefined()
+      expect((await accountWalk(db, walkId))?.did).toContain('mailbox step')
+    })
+
+    /** A walk still running is closed by its report, never annotated by this. */
+    it('refuses a walk that has not finished', async () => {
+      const walkId = await walkInProgress(db, agentId, where)
+
+      expect(await reportFinishedWalk(db, agentId, walkId, { did: 'Anything.' })).toBeUndefined()
     })
 
     it('proposes a refusal with the wall, and no steps', async () => {

@@ -702,3 +702,129 @@ describe('kolonie.accounts.walk-report, four questions', () => {
     await close()
   })
 })
+
+/**
+ * The Academy's retry rule, on the account side (`#811`).
+ *
+ * Three properties make the Academy's version fair and all three are asserted
+ * here: it gates the retry and never a verdict, it is scoped to the one place
+ * the citizen did not report, and the citizen that got through is not held up.
+ */
+describe('a second walk waits on the first one’s report', () => {
+  /**
+   * A citizen that walked a provider, did not get through, and said nothing —
+   * with everything else in place, so what refuses is this gate and not the
+   * wish list or a missing recipe.
+   */
+  const owing = async (over: { readonly outcome?: 'refused' | 'abandoned' | 'proved' } = {}) => {
+    const { colony, apiKey, agent } = await registeredCitizen()
+    const walks = fakeWalks()
+    const closed = walks.add({
+      agentId: agent.id,
+      kind: 'github',
+      provider: 'clawhub.ai',
+      outcome: over.outcome ?? 'refused',
+    })
+
+    for (const provider of ['clawhub.ai', 'elsewhere.example']) {
+      colony.recipes.write({
+        kind: 'github',
+        provider,
+        status: 'joinable',
+        steps: [
+          { actor: 'operator', instruction: 'Create the account.', ask: 'Please create it.' },
+        ],
+      })
+      const added = await colony.wishes.store.add({
+        agentId: agent.id,
+        provider,
+        author: 'citizen',
+      })
+      await colony.wishes.store.want(agent.id, provider)
+      colony.operatorRequestStore.giveWish(agent.id, provider, added.wish.id)
+    }
+    colony.operatorRequestStore.givePage(agent.id)
+
+    const { client, close } = await connectedClient({ ...colony, walks }, `Bearer ${apiKey}`)
+
+    const handoff = (provider: string) =>
+      client.callTool({
+        name: 'kolonie.accounts.handoff',
+        arguments: { kind: 'github', provider, step: 1 },
+      })
+
+    return { client, close, walks, agent, closed, handoff }
+  }
+
+  it('refuses the next handoff at that provider, and names the call that clears it', async () => {
+    const { close, handoff } = await owing()
+
+    const result = await handoff('clawhub.ai')
+
+    expect(result.isError).toBe(true)
+    expect(JSON.stringify(result.content)).toContain('kolonie.accounts.walk-report')
+    expect(JSON.stringify(result.content)).toContain('report_first')
+    await close()
+  })
+
+  /** Only the next try here waits. A gate any wider is a stopped agent. */
+  it('holds up nothing at any other provider', async () => {
+    const { close, handoff } = await owing()
+
+    const elsewhere = await handoff('elsewhere.example')
+
+    expect(elsewhere.isError).not.toBe(true)
+    await close()
+  })
+
+  /** The citizen that got through is never asked. */
+  it('never holds up a walk that reached proved', async () => {
+    const { close, handoff } = await owing({ outcome: 'proved' })
+
+    const result = await handoff('clawhub.ai')
+
+    expect(result.isError).not.toBe(true)
+    await close()
+  })
+
+  /**
+   * The way out, and the reason it has to exist: a walk is closed by its
+   * report, so the walk this gate is about can no longer be closed. Without a
+   * late report the refusal would be a trap.
+   */
+  it('takes the report after the walk closed, and then opens the provider again', async () => {
+    const session = await owing()
+    const reported = await session.client.callTool({
+      name: 'kolonie.accounts.walk-report',
+      arguments: {
+        kind: 'github',
+        provider: 'clawhub.ai',
+        outcome: 'refused',
+        wall: 'It wanted a number it could text.',
+        broke: 'The last page would not submit without one.',
+      },
+    })
+
+    expect(reported.isError).not.toBe(true)
+    expect(reported.structuredContent).toMatchObject({
+      walkId: session.closed.id,
+      reported: true,
+    })
+
+    const again = await session.handoff('clawhub.ai')
+    expect(again.isError).not.toBe(true)
+
+    /**
+     * The closed walk's own outcome was not rewritten by the late report, and
+     * the handoff that now goes through opened a walk of its own beside it —
+     * which is the whole point: the next attempt is its own attempt record.
+     */
+    const stored = await session.walks.list(session.agent.id)
+    const reportedWalk = stored.find((walk) => walk.id === session.closed.id)
+    expect(reportedWalk?.outcome).toBe('refused')
+    expect(reportedWalk?.broke).toContain('submit')
+    expect(stored.filter((walk) => walk.finishedAt === null)).toHaveLength(1)
+
+    await session.close()
+  })
+})

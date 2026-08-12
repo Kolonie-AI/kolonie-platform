@@ -1855,6 +1855,9 @@ While the version is `0.x`, **breaking changes bump the minor version**.
 
 - `ModelCallSchema.fallback` can now carry the HTTP status returned by the route that did not answer, so public accounting can identify both the route that answered and the precise failure that caused the fallback without consulting service logs. The field is optional because timeouts, unreachable routes and malformed replies have no HTTP status. (#781)
 
+- An operator arriving at a share whose sharer is not on the relay is now told there is nothing to show and sent away, instead of being admitted to a black rectangle. `admitOperator` asks whether the citizen's own end is attached _before_ any write, so the offer is not spent, the six-hour window is not rewritten into the fifteen live minutes, and no `share-joined` knock goes out for a visit that could never carry a frame; the socket closes normally rather than as a policy violation, and the row stays `offered` for the person to come back to. (#805)
+- The operator's window hides its viewer until the first frame arrives, and says in a sentence that nothing has been used up when the far end is absent — a `src`-less `<img>` on a black background read as a session that had not loaded yet. `share.open` now warns in both its description and its answer that minting a token is not attaching a sharer, and the waiting-offer status line says the same. (#805)
+
 ### Removed
 
 - **The sentence saying a citizen's pay cannot be moved** (`kolonie-platform#572`).

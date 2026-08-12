@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import type { AgentId, Log, LogFields } from '@kolonie-ai/core'
+import type { AgentId, HumanId, Log, LogFields } from '@kolonie-ai/core'
 import type { OfferShareOutcome } from '@kolonie-ai/db'
+import { fakeShares } from './__fixtures__/browser-shares.js'
+import { createShareRelay } from './browser-share.js'
 import type { OperatorMailer } from './email.js'
 import type { OutboundAllowance } from './support.js'
 import {
+  admitOperator,
   mailingShareNotifier,
   openShare,
   shareOfferNotificationText,
@@ -260,5 +263,73 @@ describe('opening a share', () => {
 
     expect(result.outcome).toBe('rejected')
     expect(told).toBe(false)
+  })
+})
+
+/**
+ * Letting an operator in, and the one case that used to cost them the visit
+ * (`#805`).
+ *
+ * Accepting is not a read: it stamps the row, rewrites the six-hour offer into
+ * the fifteen live minutes and knocks on the agent. Doing that before asking
+ * whether anything of the citizen's is on the relay spent all three on a window
+ * that could never show a frame — so the property here is **the presence
+ * question comes first, and a share nobody can stream is left exactly as it
+ * was**.
+ */
+describe('admitting an operator to a share', () => {
+  const HUMAN = '00000000-0000-4000-8000-0000000000bb' as HumanId
+
+  /** A socket the relay can hold. Nothing is asserted about what reaches it. */
+  const socket = () => ({ send: () => undefined, close: () => undefined })
+
+  async function anOffer(shares: ReturnType<typeof fakeShares>): Promise<string> {
+    shares.allow(AGENT)
+    const offered = await shares.offer({
+      agentId: AGENT,
+      targetId: 'target-1',
+      purpose: 'a sentence of mine',
+    })
+    if (offered.outcome !== 'offered') throw new Error('the fixture refused an offer')
+    return offered.share.id
+  }
+
+  it('refuses an id that names nothing', async () => {
+    const shares = fakeShares()
+
+    expect(await admitOperator(undefined, HUMAN, shares, () => true)).toEqual({
+      outcome: 'refused',
+    })
+    expect(await admitOperator('not-a-share', HUMAN, shares, () => true)).toEqual({
+      outcome: 'refused',
+    })
+  })
+
+  it('spends nothing when the citizen’s own sharer is not attached', async () => {
+    const shares = fakeShares()
+    const shareId = await anOffer(shares)
+    const relay = createShareRelay()
+
+    expect(await admitOperator(shareId, HUMAN, shares, (id) => relay.present(id, 'agent'))).toEqual(
+      { outcome: 'nothing-to-show' },
+    )
+
+    const share = shares.all().find((candidate) => candidate.id === shareId)
+    expect(share?.state).toBe('offered')
+    expect(share?.acceptedAt).toBeNull()
+  })
+
+  it('admits them once there is something on the other end', async () => {
+    const shares = fakeShares()
+    const shareId = await anOffer(shares)
+    const relay = createShareRelay()
+    relay.attach(shareId, 'agent', socket())
+
+    const admission = await admitOperator(shareId, HUMAN, shares, (id) =>
+      relay.present(id, 'agent'),
+    )
+
+    expect(admission.outcome).toBe('admitted')
+    expect(shares.all().find((candidate) => candidate.id === shareId)?.state).toBe('live')
   })
 })

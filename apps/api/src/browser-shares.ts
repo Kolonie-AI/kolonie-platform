@@ -91,6 +91,69 @@ export function databaseShares(db: Database): ShareDesk {
 }
 
 /**
+ * What the operator's socket is allowed to do with the share it named (`#805`).
+ *
+ * Three answers rather than two, and the third is the whole of this file's part
+ * in the defect: a person arriving at a share whose citizen has no sharer on the
+ * relay is neither an intruder nor a session.
+ */
+export type ShareAdmission =
+  /** Attach it. The far end is there and the offer has just become a session. */
+  | { readonly outcome: 'admitted'; readonly share: ShareForRelay }
+  /** Say nothing and close: a guessed id, somebody else's share, a closed one. */
+  | { readonly outcome: 'refused' }
+  /** Real, theirs, and empty. Told plainly, and nothing is spent. */
+  | { readonly outcome: 'nothing-to-show' }
+
+/**
+ * Let a person onto a share only if there is something on the other end
+ * (`#805`).
+ *
+ * **The order is the fix.** Accepting used to be the first thing the operator's
+ * socket did, which meant a window opened against a citizen whose sharer had
+ * never dialled in stamped `accepted_at`, rewrote `expires_at` from the patient
+ * six-hour offer to the short live window, knocked the agent with `share-joined`
+ * and then showed a black rectangle for fifteen minutes. Closing it recorded
+ * `completed`. Every one of those is a lie about a session that never existed,
+ * and the offer — the thing the citizen actually still had — was gone.
+ *
+ * So presence is asked **before** the write and never after it. When the sharer
+ * is absent the row is left `offered`: the six hours keep running, the mail the
+ * person already has still points at a page that will work, and the citizen may
+ * attach and be found. Nothing about this is a refusal of the person, which is
+ * why it is not one of the silences below it.
+ *
+ * **Presence arrives as a predicate rather than as the relay**, so that the one
+ * rule this function holds can be exercised without a socket, and so that this
+ * module keeps knowing nothing about how a frame travels.
+ */
+export async function admitOperator(
+  shareId: string | undefined,
+  humanId: HumanId,
+  shares: ShareDesk,
+  sharerAttached: (shareId: string) => boolean,
+): Promise<ShareAdmission> {
+  if (shareId === undefined) return { outcome: 'refused' }
+
+  /**
+   * Read first, and through the door that says *may this person open this
+   * window* — the same read the page itself made. It answers null for a guessed
+   * id, a stranger's share and a closed one alike, so asking it before anything
+   * else means the presence answer below is only ever given to the one person
+   * entitled to it.
+   */
+  const waiting = await shares.offeredTo(shareId, humanId)
+  if (waiting === null) return { outcome: 'refused' }
+
+  if (!sharerAttached(waiting.shareId)) return { outcome: 'nothing-to-show' }
+
+  const accepted = await shares.accept(waiting.shareId, humanId)
+  if (accepted.outcome === 'refused') return { outcome: 'refused' }
+
+  return { outcome: 'admitted', share: accepted.share }
+}
+
+/**
  * What a refused offer says to the citizen that asked (`#737`).
  *
  * **Storage decides *whether*, this decides *what it sounds like*.** The reason
@@ -374,6 +437,9 @@ export function describeShare(share: ShareSummary): string {
     return (
       `Your offer is waiting — nobody has arrived yet, and it lapses ${share.expiresAt} ` +
       `(${BROWSER_SHARE_OFFER_HOURS} hours from when you made it). ${asked}\n\n` +
+      'Check that your own sharer is attached with the token this offer gave you. Somebody ' +
+      'who opens the window while it is not is told there is nothing to show and goes away ' +
+      'again; the offer survives that, and their willingness to look may not.\n\n' +
       'Do not wait on this. End your turn and read it again when you next wake.'
     )
   }

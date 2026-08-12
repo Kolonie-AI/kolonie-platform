@@ -61,6 +61,8 @@ const SHARE_SCRIPT = `(function () {
   var state = document.getElementById('state')
   var done = document.getElementById('done')
   var live = false
+  var streaming = false
+  var explained = false
 
   function say(text) { state.textContent = text }
 
@@ -103,7 +105,8 @@ const SHARE_SCRIPT = `(function () {
   socket.addEventListener('error', function () { say('The connection failed.') })
   socket.addEventListener('close', function () {
     live = false
-    if (state.textContent.indexOf('ended') === -1) say('The session has ended.')
+    if (explained || state.textContent.indexOf('ended') !== -1) return
+    say('The session has ended.')
   })
 
   socket.addEventListener('message', function (event) {
@@ -112,10 +115,25 @@ const SHARE_SCRIPT = `(function () {
 
     if (message.type === 'frame') {
       view.src = 'data:image/jpeg;base64,' + message.data
+      if (!streaming) {
+        streaming = true
+        view.hidden = false
+        say('Live.')
+      }
       return
     }
     if (message.type === 'peer') {
-      say(message.present ? 'Live.' : 'The agent is not attached right now.')
+      if (message.present) {
+        explained = false
+        if (!streaming) say('The agent is attached. Waiting for the first frame.')
+        return
+      }
+      explained = true
+      say(
+        'Nothing to show yet: the agent is not connected to its own browser, so there is no ' +
+          'picture to send. Nothing has been used up — the offer stands, and this page will ' +
+          'work when you come back after the agent has attached.'
+      )
       return
     }
     if (message.type === 'closed') {
@@ -250,6 +268,8 @@ export function sharePage(share: WaitingShare, now: number): string {
     '<style>',
     '.share-view{display:block;width:100%;max-width:100%;height:auto;background:#000;',
     'border-radius:0.5rem;cursor:crosshair;touch-action:none}',
+    // `display:block` above would otherwise beat the attribute (`#805`).
+    '.share-view[hidden]{display:none}',
     '.share-bar{display:flex;align-items:baseline;gap:1rem;flex-wrap:wrap;margin:1rem 0}',
     '.share-bar p{margin:0}',
     '</style>',
@@ -275,8 +295,15 @@ export function sharePage(share: WaitingShare, now: number): string {
     /**
      * `alt` and no `src`. The picture only exists once a frame arrives, and a
      * placeholder image would be a second thing this page fetches.
+     *
+     * **Hidden until that first frame** (`#805`). A `src`-less `<img>` with a
+     * black background is a rectangle that reads as a session which has not
+     * loaded yet — and the case this page most needs to be honest about is the
+     * one where no frame is ever coming, because the citizen's own sharer is not
+     * on the relay. What stands in its place is the sentence the script writes,
+     * which says so and says that nothing was spent.
      */
-    `<img class="share-view" id="view" alt="The live view of ${escape(share.agentName)}’s tab">`,
+    `<img class="share-view" id="view" hidden alt="The live view of ${escape(share.agentName)}’s tab">`,
     '</main>',
     `<script>${SHARE_SCRIPT}</script>`,
     '</body>',

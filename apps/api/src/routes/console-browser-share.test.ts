@@ -140,6 +140,19 @@ describe('the operator’s window onto a shared tab', () => {
   })
 
   /**
+   * A black rectangle is a claim about a session (`#805`). The picture arrives
+   * with the first frame or the page says why there is none — what it must not
+   * do is render an empty viewer that reads as one still loading.
+   */
+  it('shows no viewer until a frame has arrived', async () => {
+    const cookie = await signedInCookie()
+    const page = await open(await anOffer(), cookie)
+
+    expect(page.body).toContain('id="view" hidden')
+    expect(page.body).toContain('.share-view[hidden]{display:none}')
+  })
+
+  /**
    * The one documented exception to a scriptless console, and it is pinned
    * rather than opened: a hash and not `'unsafe-inline'`, so the page permits
    * the viewer and nothing an injection managed to place beside it.

@@ -49,6 +49,19 @@ export interface RelaySocket {
 export type ShareSide = 'agent' | 'operator'
 
 /**
+ * *The other end is there* / *the other end is not*, as the one line both senders
+ * of it use.
+ *
+ * {@link createShareRelay} sends it on every attachment, and the operator's door
+ * sends it **without** attaching anything when the citizen's own sharer is not on
+ * the relay (`#805`) — a window that is told nothing at all is a window that
+ * renders an empty rectangle and reads as live.
+ */
+export function peerMessage(present: boolean): string {
+  return JSON.stringify({ type: 'peer', present })
+}
+
+/**
  * Told when a share ends, so the row can be closed once — whichever end caused
  * it and whether it was a message or a dropped connection.
  */
@@ -128,9 +141,8 @@ export function createShareRelay(onClosed: ShareClosedHandler = () => {}): Share
       pairs.set(shareId, pair)
 
       const peer = pair[other(side)]
-      const presence = (present: boolean): string => JSON.stringify({ type: 'peer', present })
-      socket.send(presence(peer !== undefined))
-      if (peer !== undefined) peer.send(presence(true))
+      socket.send(peerMessage(peer !== undefined))
+      if (peer !== undefined) peer.send(peerMessage(true))
 
       return {
         receive(raw) {

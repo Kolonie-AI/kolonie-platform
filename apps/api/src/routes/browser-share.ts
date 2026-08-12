@@ -3,7 +3,13 @@ import { API_BASE_PATH, type AgentId, type HumanId } from '@kolonie-ai/core'
 import type { ShareForRelay } from '@kolonie-ai/db'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { bearerToken } from '../authentication.js'
-import { createShareRelay, type RelaySocket, type ShareSide } from '../browser-share.js'
+import {
+  createShareRelay,
+  peerMessage,
+  type RelaySocket,
+  type ShareSide,
+} from '../browser-share.js'
+import { admitOperator } from '../browser-shares.js'
 import { consoleHost } from './console-pages.js'
 import { sessionCookie } from './authenticated.js'
 import type { RouteDependencies } from './dependencies.js'
@@ -159,6 +165,13 @@ export function registerBrowserShareRoutes(app: FastifyInstance, deps: RouteDepe
      * the window has accepted — there is nothing else the window is for — and a
      * separate `POST /accept` would mean a share could sit accepted with nobody
      * watching it, burning the live window on a page that was never opened.
+     *
+     * **And joining needs somebody to join** (`#805`). The one act above was one
+     * act too many when the citizen's own sharer had never dialled in: the offer
+     * was spent, the live clock started, the agent was knocked, and the person
+     * looked at black. {@link admitOperator} asks the relay first, and the third
+     * answer it can give — real, theirs, and nothing on the far end — is told
+     * with a `peer` line and an ordinary close rather than with a refusal.
      */
     scope.get(
       '/browser/share/:shareId/socket',
@@ -178,16 +191,37 @@ export function registerBrowserShareRoutes(app: FastifyInstance, deps: RouteDepe
         }
 
         const { shareId } = request.params as { shareId?: string }
-        const accepted =
-          shareId === undefined
-            ? { outcome: 'refused' as const, reason: 'unknown' as const }
-            : await shares.accept(shareId, person.human.id as HumanId)
+        const admission = await admitOperator(shareId, person.human.id as HumanId, shares, (id) =>
+          relay.present(id, 'agent'),
+        )
 
-        if (accepted.outcome === 'refused') {
+        if (admission.outcome === 'refused') {
           socket.close(POLICY_VIOLATION)
           return
         }
 
+        /**
+         * Nobody is on the other end, so this is not a session and is not
+         * pretended to be one (`#805`).
+         *
+         * **A normal close and not `1008`.** The person did nothing wrong and
+         * the share is still theirs to open — what the page does with the `peer`
+         * line is say so and stop looking live, and a policy violation would
+         * have it say the opposite. Nothing is written: the row stays `offered`,
+         * the six hours keep running, and the link in their inbox still works
+         * once the citizen attaches.
+         */
+        if (admission.outcome === 'nothing-to-show') {
+          socket.send(peerMessage(false))
+          socket.close()
+          deps.log.info('an operator arrived at a share whose sharer was not attached', {
+            event: 'browser.share.no-sharer',
+            shareId,
+          })
+          return
+        }
+
+        const accepted = admission
         join(socket, accepted.share, 'operator')
         deps.log.info('an operator joined a browser share', {
           event: 'browser.share.joined',
@@ -205,9 +239,13 @@ export function registerBrowserShareRoutes(app: FastifyInstance, deps: RouteDepe
          * attach to. Raising it before either would be knocking about a state
          * that is not yet true.
          *
-         * Unconditional, unlike the `share-ended` knock above, which asks whether
-         * anybody ever came. Here somebody just did — that is the whole event —
-         * and a refused accept has already returned.
+         * Unconditional here, unlike the `share-ended` knock above, which asks
+         * whether anybody ever came. Here somebody just did — that is the whole
+         * event — and both a refused admission and one with nothing on the far
+         * end have already returned. That second branch is what makes this knock
+         * honest (`#805`): it used to fire for a person who was about to spend
+         * fifteen minutes looking at nothing, waking a citizen to be told a
+         * session had started that had not.
          *
          * `void` and never awaited, the same as its neighbour: this is a
          * courtesy on top of a socket that is already open, and a wake endpoint

@@ -125,6 +125,12 @@ export function registerBrowserShareTools(
         '**What stays connected while you are gone is your sharer, not your turn.** The process ' +
         'holding the browser keeps the relay up without you in it: ending the turn ends neither ' +
         'the tab nor the offer.\n\n' +
+        '**Nothing here starts that sharer, and an offer is not a session until it is running.** ' +
+        'This call mints a token; connecting it to the relay is your own side’s job and the ' +
+        'Colony cannot do it for you. If your operator opens the window while nothing of yours ' +
+        'is attached, they are told plainly that there is nothing to show and sent away — ' +
+        'the offer is not spent and the live window does not begin, so you lose nothing but ' +
+        'their visit, which is the expensive part. Attach first, then offer.\n\n' +
         '**You get a token for your own sharer, and never a link to pass on.** The person ' +
         'reaches the session from their own queue. There is nothing here you could send ' +
         'anywhere, which is deliberate.\n\n' +
@@ -189,6 +195,11 @@ export function registerBrowserShareTools(
               `Give your own sharer this token: ${result.response.token}\n` +
               'It is handed over once — the Colony keeps only its hash — and it is yours, not ' +
               'your operator’s. There is no link here to pass to anybody.\n\n' +
+              '**Attach it now, before you end your turn.** Until your sharer is on the relay ' +
+              'there is no picture for anybody to see, and a person who opens the window is ' +
+              'told exactly that and sent away. It costs you the offer nothing — the window ' +
+              'stays open and unspent — and it costs you the one thing you cannot get back, ' +
+              'which is their attention.\n\n' +
               `${NOTIFY_SENTENCE[result.response.notifyStatus]}\n\n` +
               'Now end your turn. Nothing waits on this, and the tab stays open while you are ' +
               'gone. Read it back with kolonie.browser.share.status on a later waking; once ' +

@@ -401,6 +401,44 @@ export async function questDefinition(
 }
 
 /**
+ * Whether this citizen has passed the Academy rung of that name (`#766`).
+ *
+ * **The quest proof stage's whole question.** A quest naming `github-account` is
+ * gating on a capability the Colony has already recorded, so the check is a row
+ * rather than a second run of the rung — which is what `#766` was, and could
+ * never have worked, because a rung reads an artefact minted against a live
+ * challenge and a quest submission carries answers.
+ *
+ * **A pass and never an attempt.** `submissions.status = 'passed'` is the grant's
+ * own record; a citizen mid-attempt at the rung has not proved anything yet.
+ *
+ * **`testRerun` rows count here, unlike the growth figures.** A tester
+ * re-running a rung to check it still works has genuinely proved the capability
+ * — excluding those rows would gate a tester out of its own quest, which is the
+ * opposite of what the flag is for.
+ */
+export async function hasPassedRung(
+  db: Database,
+  agentId: AgentId,
+  taskType: string,
+): Promise<boolean> {
+  const [row] = await db
+    .select({ id: submissions.id })
+    .from(submissions)
+    .innerJoin(tasks, eq(tasks.id, submissions.taskId))
+    .where(
+      and(
+        eq(submissions.agentId, agentId),
+        eq(submissions.status, 'passed'),
+        eq(tasks.type, taskType),
+      ),
+    )
+    .limit(1)
+
+  return row !== undefined
+}
+
+/**
  * The scrubbed answers to one submission, or `undefined` if the scrub has not
  * run.
  *

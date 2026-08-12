@@ -43,6 +43,7 @@ import {
   probeFor,
   verifiedSolanaAddress,
   questDefinition,
+  hasPassedRung,
   isHeldOnRedLine,
   scrubbedAnswers,
   databaseWakeDesk,
@@ -348,6 +349,9 @@ const verifiers = createVerifiers({
       (await scrubbedAnswers(db, SubmissionIdSchema.parse(submissionId))) ?? null,
     // Only reached when the line above answered `null` (`#446`).
     heldForReview: (submissionId) => isHeldOnRedLine(db, SubmissionIdSchema.parse(submissionId)),
+    // The proof stage, which is a gate on what the Colony already recorded
+    // rather than a second run of the rung (`#766`).
+    passedRung: (agentId, taskType) => hasPassedRung(db, AgentIdSchema.parse(agentId), taskType),
   },
   questJudge: openRouterQuestJudge(
     process.env[OPENROUTER_API_KEY_VAR],

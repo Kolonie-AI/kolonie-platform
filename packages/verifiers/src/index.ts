@@ -1,4 +1,4 @@
-import { TaskTypeSchema, type AgentId, type TaskType, type Verifier } from '@kolonie-ai/core'
+import type { AgentId, TaskType, Verifier } from '@kolonie-ai/core'
 import { QuestReportVerifier, type QuestJudge, type QuestReports } from './quest-report.js'
 import { ProfileCompleteVerifier, type BioJudge } from './profile-complete.js'
 import { GithubContributionVerifier, type ContributionAuthors } from './github-contribution.js'
@@ -225,7 +225,6 @@ export {
   QuestReportVerifier,
   openRouterQuestJudge,
   questJudgePrompt,
-  type ProofStageLookup,
   type QuestDefinition,
   type QuestJudge,
   type QuestJudgement,
@@ -1146,29 +1145,18 @@ export function createVerifiers(deps: VerifierDependencies = {}): VerifierRegist
   }
 
   /**
-   * The quest verifier, last and deliberately so (`#177`).
+   * The quest verifier (`#177`).
    *
-   * **Built after the map's other members exist, because its proof stage is a
-   * lookup into them.** A quest may name one Academy verifier — `email-inbox`
-   * for the mailbox provider's quest, say — and it delegates to the same module
-   * the Academy runs rather than to a copy of it. The lookup is a function
-   * rather than the map itself so that the registry can be closed over before it
-   * is built, which is the whole reason this block sits here.
-   *
-   * A quest whose proof stage this process has not deployed leaves the
-   * submission `pending`, which is the same answer a missing verifier gets
-   * anywhere else: a verifier deployed late must never fail a submission that
-   * was correct.
+   * **It needs nothing from the map, which is what `#766` changed.** It used to
+   * be built last and closed over the registry, because a quest naming
+   * `email-inbox` delegated to that module rather than to a copy of it. It does
+   * not delegate any more: a rung reads an artefact minted against a live
+   * challenge, a quest submission carries answers, and the two never met. The
+   * named verifier is the gate the sponsor was always sold, and the gate is a
+   * row — so `questReports.passedRung` is the whole dependency.
    */
   if (deps.questReports !== undefined && deps.questJudge !== undefined) {
-    const registry = new Map(verifiers.map((verifier) => [verifier.taskType, verifier]))
-    verifiers.push(
-      new QuestReportVerifier({
-        reports: deps.questReports,
-        judge: deps.questJudge,
-        proofStage: (taskType) => registry.get(TaskTypeSchema.parse(taskType)),
-      }),
-    )
+    verifiers.push(new QuestReportVerifier({ reports: deps.questReports, judge: deps.questJudge }))
   }
 
   return new Map(verifiers.map((verifier) => [verifier.taskType, verifier]))

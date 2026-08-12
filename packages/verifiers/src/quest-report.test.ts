@@ -1,12 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import {
+  QUEST_VERIFIER_PROVES,
   RED_LINE_REVIEW_NOTICE,
-  TaskTypeSchema,
   type QuestQuestion,
   type Submission,
   type VerificationContext,
-  type VerifyResult,
-  type Verifier,
 } from '@kolonie-ai/core'
 import {
   QuestReportVerifier,
@@ -70,10 +68,13 @@ const reports = (options: {
   readonly quest?: QuestDefinition | null
   readonly scrubbed?: readonly ScrubbedAnswer[] | null
   readonly held?: boolean
+  /** The rungs the Colony has recorded this citizen passing (`#766`). */
+  readonly passed?: readonly string[]
 }): QuestReports => ({
   definition: async () => (options.quest === undefined ? aQuest() : options.quest),
   scrubbed: async () => (options.scrubbed === undefined ? ANSWERS : options.scrubbed),
   heldForReview: async () => options.held === true,
+  passedRung: async (_agentId, taskType) => (options.passed ?? []).includes(taskType),
 })
 
 const judging = (judgement: { pass: boolean; reason: string } | null) => {
@@ -85,21 +86,6 @@ const judging = (judgement: { pass: boolean; reason: string } | null) => {
     },
   }
   return { judge, asked }
-}
-
-const proofStage = (result: VerifyResult | 'missing') => {
-  let calls = 0
-  const lookup = (slug: string): Verifier | undefined => {
-    if (result === 'missing') return undefined
-    return {
-      taskType: TaskTypeSchema.parse(slug),
-      verify: async () => {
-        calls++
-        return result
-      },
-    }
-  }
-  return { lookup, calls: () => calls }
 }
 
 /**
@@ -116,7 +102,6 @@ describe('the quest-report verifier', () => {
     const verifier = new QuestReportVerifier({
       reports: reports({}),
       judge,
-      proofStage: () => undefined,
     })
 
     const result = await verifier.verify(aSubmission(), aContext())
@@ -131,7 +116,6 @@ describe('the quest-report verifier', () => {
     const verifier = new QuestReportVerifier({
       reports: reports({}),
       judge,
-      proofStage: () => undefined,
     })
 
     const result = await verifier.verify(aSubmission(), aContext())
@@ -140,46 +124,57 @@ describe('the quest-report verifier', () => {
     expect(result.evidence).toContain('another service')
   })
 
-  describe('the proof stage', () => {
-    it('runs before the judge, and the judge never runs when it fails', async () => {
+  /**
+   * The proof stage is a **gate on who may answer**, decided from the rung the
+   * Colony recorded (`#766`).
+   *
+   * It used to run the named Academy module against the quest's own submission,
+   * and four of the seven catalogue verifiers could never pass that way: a rung
+   * reads an artefact minted against a live challenge — a gist, a TXT record, a
+   * token in a page — and a quest submission carries answers to the sponsor's
+   * questions. The tests that let it ship all injected a fake lookup, so no real
+   * rung was ever pointed at a quest payload. There is no lookup to fake now.
+   */
+  describe('the proof gate', () => {
+    it('runs before the judge, and the judge never runs when it refuses', async () => {
       const { judge, asked } = judging({ pass: true, reason: 'fine' })
-      const proof = proofStage({ status: 'fail', evidence: 'No mail ever arrived.' })
       const verifier = new QuestReportVerifier({
-        reports: reports({ quest: aQuest({ proofVerifier: 'email-inbox' }) }),
+        reports: reports({ quest: aQuest({ proofVerifier: 'email-inbox' }), passed: [] }),
         judge,
-        proofStage: proof.lookup,
       })
 
       const result = await verifier.verify(aSubmission(), aContext())
 
       expect(result.status).toBe('fail')
-      expect(proof.calls()).toBe(1)
       // The whole point: the judge's cost is only spent on a submission that is
       // already real.
       expect(asked).toEqual([])
     })
 
-    it('keeps the proof stage’s own words, so the citizen knows what to fix', async () => {
+    it('names the rung to go and pass, and what it proves', async () => {
       const { judge } = judging({ pass: true, reason: 'fine' })
-      const proof = proofStage({ status: 'fail', evidence: 'No mail ever arrived.' })
       const verifier = new QuestReportVerifier({
-        reports: reports({ quest: aQuest({ proofVerifier: 'email-inbox' }) }),
+        reports: reports({ quest: aQuest({ proofVerifier: 'email-inbox' }), passed: [] }),
         judge,
-        proofStage: proof.lookup,
       })
 
       const result = await verifier.verify(aSubmission(), aContext())
 
-      expect(result.evidence).toBe("Proof stage 'email-inbox': No mail ever arrived.")
+      expect(result.evidence).toContain('email-inbox')
+      // From `QUEST_VERIFIER_PROVES`, so the sentence a citizen reads and the
+      // sentence a sponsor was shown at write time describe one capability.
+      expect(result.evidence).toContain('a mailbox it can read')
+      expect(result.metadata).toEqual({ stage: 'proof', proofVerifier: 'email-inbox' })
     })
 
-    it('judges the report once the proof passes', async () => {
+    it('judges the report once the gate is cleared', async () => {
       const { judge, asked } = judging({ pass: true, reason: 'Answered.' })
-      const proof = proofStage({ status: 'pass', evidence: 'A mail arrived.' })
       const verifier = new QuestReportVerifier({
-        reports: reports({ quest: aQuest({ proofVerifier: 'email-inbox' }) }),
+        reports: reports({
+          quest: aQuest({ proofVerifier: 'email-inbox' }),
+          passed: ['email-inbox'],
+        }),
         judge,
-        proofStage: proof.lookup,
       })
 
       const result = await verifier.verify(aSubmission(), aContext())
@@ -189,18 +184,64 @@ describe('the quest-report verifier', () => {
       expect(asked).toHaveLength(1)
     })
 
-    it('holds the report when the runner has not deployed the proof stage', async () => {
+    /**
+     * **`#766` itself.** The citizen answered a quest whose questions asked for a
+     * profile README commit, and was failed by a demand for a public gist — the
+     * `github-account` rung's artefact, which the quest never asked for and a
+     * quest payload cannot carry. Holding the rung is now the whole check, and
+     * the payload is not read at all.
+     */
+    it('passes a github-account quest on the rung alone, with no artefact in the payload', async () => {
+      const { judge, asked } = judging({ pass: true, reason: 'The commit is described.' })
+      const verifier = new QuestReportVerifier({
+        reports: reports({
+          quest: aQuest({ proofVerifier: 'github-account' }),
+          passed: ['github-account'],
+        }),
+        judge,
+      })
+
+      // `aSubmission()` carries `payload: {}` — no `url`, no gist, nothing a rung
+      // would recognise. That is what every quest submission looks like.
+      const result = await verifier.verify(aSubmission(), aContext())
+
+      expect(result.status).toBe('pass')
+      expect(result.evidence).not.toContain('gist')
+      expect(asked).toHaveLength(1)
+    })
+
+    /**
+     * Every verifier in the catalogue is gated the same way, and this is the
+     * assertion that keeps it so: the four that used to reach for an artefact
+     * are indistinguishable here from the three that never did.
+     */
+    it.each(Object.keys(QUEST_VERIFIER_PROVES))('gates %s on the rung', async (slug) => {
+      const { judge } = judging({ pass: true, reason: 'Answered.' })
+      const gated = new QuestReportVerifier({
+        reports: reports({ quest: aQuest({ proofVerifier: slug }), passed: [] }),
+        judge,
+      })
+      const cleared = new QuestReportVerifier({
+        reports: reports({ quest: aQuest({ proofVerifier: slug }), passed: [slug] }),
+        judge,
+      })
+
+      expect((await gated.verify(aSubmission(), aContext())).status).toBe('fail')
+      expect((await cleared.verify(aSubmission(), aContext())).status).toBe('pass')
+    })
+
+    it('holds the report when the quest names a verifier the Colony does not run', async () => {
       const { judge, asked } = judging({ pass: true, reason: 'fine' })
       const verifier = new QuestReportVerifier({
-        reports: reports({ quest: aQuest({ proofVerifier: 'email-inbox' }) }),
+        reports: reports({ quest: aQuest({ proofVerifier: 'email-carrier-pigeon' }) }),
         judge,
-        proofStage: proofStage('missing').lookup,
       })
 
       const result = await verifier.verify(aSubmission(), aContext())
 
+      // `pending`, not `fail`: nothing the citizen did produces this, and a
+      // catalogue this runner is behind on must not fail a correct submission.
       expect(result.status).toBe('pending')
-      // #253: a verifier this runner has not deployed is our deployment.
       expect(result.evidence).toContain('kolonie.support.open')
       expect(asked).toEqual([])
     })
@@ -217,7 +258,6 @@ describe('the quest-report verifier', () => {
       const verifier = new QuestReportVerifier({
         reports: reports({ scrubbed: null }),
         judge,
-        proofStage: () => undefined,
       })
 
       const result = await verifier.verify(aSubmission(), aContext())
@@ -259,7 +299,6 @@ describe('the quest-report verifier', () => {
       const verifier = new QuestReportVerifier({
         reports: reports({ scrubbed: null, held: true }),
         judge,
-        proofStage: () => undefined,
       })
 
       const result = await verifier.verify(aSubmission(), aContext())
@@ -285,7 +324,6 @@ describe('the quest-report verifier', () => {
       const unreachableJudge = await new QuestReportVerifier({
         reports: reports({}),
         judge,
-        proofStage: () => undefined,
       }).verify(aSubmission(), aContext())
 
       expect(unreachableJudge.status).toBe('pending')
@@ -297,7 +335,6 @@ describe('the quest-report verifier', () => {
       const verifier = new QuestReportVerifier({
         reports: reports({}),
         judge,
-        proofStage: () => undefined,
       })
 
       const result = await verifier.verify(aSubmission(), aContext())
@@ -313,7 +350,6 @@ describe('the quest-report verifier', () => {
       const verifier = new QuestReportVerifier({
         reports: reports({ quest: null }),
         judge,
-        proofStage: () => undefined,
       })
 
       const unreadable = await verifier.verify(aSubmission(), aContext())
@@ -328,7 +364,6 @@ describe('the quest-report verifier', () => {
       const verifier = new QuestReportVerifier({
         reports: reports({}),
         judge,
-        proofStage: () => undefined,
       })
 
       await verifier.verify(aSubmission(), aContext())

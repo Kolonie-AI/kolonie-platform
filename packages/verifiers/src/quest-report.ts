@@ -1,7 +1,9 @@
 import {
   QUEST_TASK_TYPE,
+  QUEST_VERIFIER_PROVES,
   RED_LINE_REVIEW_NOTICE,
   TaskTypeSchema,
+  type QuestProofVerifier,
   type QuestQuestion,
   type Log,
   type Submission,
@@ -90,6 +92,15 @@ export interface QuestReports {
    * second one used to be a refusal.
    */
   heldForReview(submissionId: string): Promise<boolean>
+  /**
+   * Whether this citizen has passed the Academy rung of that name (`#766`).
+   *
+   * **The proof stage's whole question.** A rung is passed once and recorded
+   * once, so what a quest needs to know about a named verifier is a row the
+   * Colony already holds — not a second run of the rung, which is what `#766`
+   * was. `taskType` is the rung's own slug, exactly as the sponsor named it.
+   */
+  passedRung(agentId: string, taskType: string): Promise<boolean>
 }
 
 /** What the judge answers. Pass or fail, and a sentence the citizen reads. */
@@ -112,13 +123,9 @@ export interface QuestJudge {
   }): Promise<QuestJudgement | null>
 }
 
-/** How the proof stage is found. The registry's own lookup, passed in. */
-export type ProofStageLookup = (taskType: string) => Verifier | undefined
-
 export interface QuestReportDependencies {
   readonly reports: QuestReports
   readonly judge: QuestJudge
-  readonly proofStage: ProofStageLookup
 }
 
 export class QuestReportVerifier implements Verifier {
@@ -126,12 +133,10 @@ export class QuestReportVerifier implements Verifier {
 
   readonly #reports: QuestReports
   readonly #judge: QuestJudge
-  readonly #proofStage: ProofStageLookup
 
-  constructor({ reports, judge, proofStage }: QuestReportDependencies) {
+  constructor({ reports, judge }: QuestReportDependencies) {
     this.#reports = reports
     this.#judge = judge
-    this.#proofStage = proofStage
   }
 
   async verify(submission: Submission, context: VerificationContext): Promise<VerifyResult> {
@@ -148,7 +153,7 @@ export class QuestReportVerifier implements Verifier {
     }
 
     if (quest.proofVerifier !== null) {
-      const proof = await this.#runProofStage(quest.proofVerifier, submission, context)
+      const proof = await this.#checkProofGate(quest.proofVerifier, context)
       if (proof.status !== 'pass') return proof
     }
 
@@ -209,41 +214,77 @@ export class QuestReportVerifier implements Verifier {
   }
 
   /**
-   * Run the verifier the sponsor chose from the catalogue.
+   * Check the verifier the sponsor chose from the catalogue — as a gate on who
+   * may answer, which is the only thing it has ever been (`#766`).
    *
-   * **The same module the Academy runs, with the same submission and the same
-   * context.** A second implementation for the quest path would be a second
-   * answer to *does this citizen hold a mailbox*, and the one that disagreed
-   * would be the one nobody was looking at.
+   * ## What this used to do, and why it could not work
    *
-   * A missing module is `pending` rather than `fail`, for the reason AGENTS.md
-   * §6 gives about a missing verifier generally: a verifier deployed late must
-   * never fail submissions that were correct.
+   * It ran the named Academy module against the quest's own submission. That
+   * reads plausibly — *the same module the Academy runs, so there is only one
+   * answer to does this citizen hold a mailbox* — and it is wrong about what a
+   * rung reads. **A rung verifies an artefact minted against a live challenge**:
+   * `github-account` reads `payload.url` and expects a public gist carrying an
+   * unexpired nonce, `website-verify` expects a token in a page, `domain-verify`
+   * a TXT record. A quest submission's payload carries *answers to the
+   * sponsor's questions* and can never carry any of those, so four of the seven
+   * catalogue verifiers failed every quest they were named on, at the first
+   * check, with a message about a gist the quest never asked for.
+   *
+   * The three that appeared to work — `email-inbox`, `email-send`,
+   * `solana-wallet` — read nothing from the payload at all. They read the
+   * Colony's record of a challenge already cleared, and pass for any citizen
+   * that cleared one. That is a gate, and it is what this now does uniformly.
+   *
+   * ## Why a gate is the right answer rather than a shortfall
+   *
+   * It is what the contract already says in both places a sponsor reads:
+   * `kolonie.quests.write` says outright that *naming `proofVerifier` is a gate
+   * on who may answer and does not by itself raise that ceiling*, and
+   * `questProofRejection` in core says it *does not stop a sponsor naming a
+   * verifier as a gate*. The tier — and so the price — is decided by that
+   * function from the questions at write time, and this stage cannot raise it.
+   * So the stage owes the sponsor exactly what it was sold: citizens that have
+   * proved the capability, kept out those that have not.
+   *
+   * **The record rather than the rung, so there is still one answer.** The
+   * original instinct was sound and this keeps it: the Colony grants a rung
+   * once, and reading that grant cannot disagree with the module that wrote it.
+   *
+   * An unknown slug is `pending` rather than `fail`, for the reason AGENTS.md §6
+   * gives about a missing verifier: nothing the citizen did produces it, and a
+   * catalogue this runner is behind on must never fail a correct submission.
    */
-  async #runProofStage(
-    slug: string,
-    submission: Submission,
-    context: VerificationContext,
-  ): Promise<VerifyResult> {
-    const verifier = this.#proofStage(slug)
-    if (verifier === undefined) {
+  async #checkProofGate(slug: string, context: VerificationContext): Promise<VerifyResult> {
+    const proves = QUEST_VERIFIER_PROVES[slug as QuestProofVerifier]
+    if (proves === undefined) {
       return {
         status: 'pending',
         evidence: withSupportPointer(
-          `This quest is proved by '${slug}', which this runner has not deployed. Your report is held.`,
+          `This quest is proved by '${slug}', which is not a verifier the Colony runs. Your ` +
+            'report is held and nothing about it was judged.',
         ),
       }
     }
 
-    const result = await verifier.verify(submission, context)
+    const metadata = { stage: 'proof', proofVerifier: slug }
+
+    if (!(await this.#reports.passedRung(context.agent.id, slug))) {
+      return {
+        status: 'fail',
+        evidence:
+          `This quest may only be answered by a citizen that has proved ${proves.subject}, and ` +
+          `the Colony has no record of you passing the '${slug}' rung. Pass it in the Academy — ` +
+          'kolonie.tasks.list carries it once you hold what it requires — and answer this quest ' +
+          'afterwards. Nothing about your answers was judged, and this costs you no attempt at ' +
+          'the rung itself.',
+        metadata,
+      }
+    }
 
     return {
-      ...result,
-      // Prefixed rather than replaced: the proof stage's own words are what
-      // tell the citizen what to fix, and a quest that swallowed them would
-      // report "the proof failed" about a mailbox round trip that named the
-      // reason.
-      evidence: `Proof stage '${slug}': ${result.evidence}`,
+      status: 'pass',
+      evidence: `Gate '${slug}' cleared: the Colony recorded this citizen proving ${proves.subject}.`,
+      metadata,
     }
   }
 }

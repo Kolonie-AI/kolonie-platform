@@ -1105,6 +1105,20 @@ describe('the erasure boundary', () => {
        */
       'operator_requests.agent_id c',
       /**
+       * The Telegram binding and its unredeemed deep link (`#793`). Both cascade,
+       * on the rule `operator_addresses` states one table along: a `chat_id`
+       * identifies a person who never joined anything, and `erasure.md` §4 rules
+       * out precisely that leftover.
+       *
+       * **This one is worth naming rather than counting**, because it is the only
+       * row here that names an account on a *third party's* service. Nothing is
+       * sent to it when the citizen goes — announcing an erasure to somebody who
+       * is not a citizen would be the Colony volunteering it — and the next time
+       * the bot hears from that chat it does not know it.
+       */
+      'operator_telegram_chats.agent_id c',
+      'operator_telegram_starts.agent_id c',
+      /**
        * What a citizen said about being blocked by permission (#147). Cascades:
        * it is the citizen's own writing about its own contract, and `erasure.md`
        * §2 lists what a citizen wrote among what leaves with it. There is also

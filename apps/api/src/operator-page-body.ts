@@ -59,10 +59,20 @@ export async function operatorPageBody(
     readonly as?: 'page' | 'section' | undefined
   } = {},
 ): Promise<string> {
-  const [exchanges, drops, room] = await Promise.all([
+  const [exchanges, drops, room, telegram] = await Promise.all([
     deps.operatorRequests.store.exchangesForToken(token),
     deps.drops?.forPageToken(token) ?? Promise.resolve([]),
     deps.operatorNotes.store.roomForToken(token),
+    /**
+     * How the Colony reaches this operator (`#793`).
+     *
+     * Resolved by the page's own token like everything else here, and skipped
+     * entirely when no bot is configured — a page that offered a channel this
+     * deployment does not have would be worse than one that never mentions it.
+     */
+    deps.telegram === undefined
+      ? Promise.resolve(undefined)
+      : deps.telegram.store.bindingForPageToken(token),
   ])
 
   return operatorDurablePage({
@@ -104,6 +114,14 @@ export async function operatorPageBody(
       closed: exchange.closed,
     })),
     drops,
+    ...(deps.telegram === undefined
+      ? {}
+      : {
+          telegram: {
+            boundAt: telegram?.boundAt ?? null,
+            unreachable: telegram?.unreachableAt != null,
+          },
+        }),
     secretHandoff: deps.drops !== undefined,
     fillDrops: errors.fillDrops === true,
   })

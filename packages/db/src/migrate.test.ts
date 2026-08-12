@@ -370,7 +370,15 @@ describe('the migrations', () => {
     // for a frame and will not gain one — the relay is a socket pump, and a
     // column here would turn it into an archive of everything every citizen was
     // looking at.
-    expect(afterFirst.tables).toBe('99')
+    // **A hundred and one** (`#793`): `operator_telegram_chats` holds the chat an
+    // operator answers for one citizen in, and `operator_telegram_starts` the
+    // one-time deep link that bound it. Two tables rather than one because they
+    // have opposite lifetimes — the binding is standing, the payload is spent on
+    // first use — and a `redeemed_at` column on a standing row is a row that
+    // means two things. The chat is a number the person proved control of and
+    // never a handle they typed: no Bot API resolves a username to a messageable
+    // user, so a handle column would look like it worked until the first message.
+    expect(afterFirst.tables).toBe('101')
     // Twenty: `task_kind` (#43) tells an Academy task from a Quest and therefore
     // what may pay credits; `support_ticket_kind` and `support_ticket_status` (#11)
     // carry what a citizen wrote about and where it stands; `erasure_reason` and

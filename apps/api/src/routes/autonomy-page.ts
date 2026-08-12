@@ -12,6 +12,7 @@ import {
 import { writeOperatorNote } from '../operator-notes.js'
 import { operatorPageBody } from '../operator-page-body.js'
 import { answerOperatorRequest, isWaitingOnTheOperator } from '../operator-requests.js'
+import { deepLinkFor } from '../operator-telegram.js'
 import { CONSOLE_HEADERS } from '../console/html.js'
 import type { RouteDependencies } from './dependencies.js'
 
@@ -32,6 +33,25 @@ import type { RouteDependencies } from './dependencies.js'
  * standing. A leaked link lets a stranger answer one form once, which the
  * operator would then see was wrong and could replace.
  */
+/**
+ * A deep link for this citizen, or `undefined` (`#793`).
+ *
+ * **`undefined` for every reason there is**, and the caller treats them the same:
+ * no bot configured, or a mint that failed. The offer is a convenience beside
+ * something that has already succeeded, so a missing one is silence rather than
+ * an error — and the durable page will offer it again.
+ */
+async function telegramOfferFor(
+  deps: RouteDependencies,
+  agentId: AgentId,
+): Promise<string | undefined> {
+  const desk = deps.telegram
+  if (desk === undefined) return undefined
+
+  const issued = await desk.store.issueStart(agentId)
+  return deepLinkFor(desk.bot, issued.token)
+}
+
 export function registerAutonomyPageRoutes(app: FastifyInstance, deps: RouteDependencies): void {
   const { autonomy } = deps
 
@@ -156,7 +176,22 @@ export function registerAutonomyPageRoutes(app: FastifyInstance, deps: RouteDepe
       return reply.status(status).headers(CONSOLE_HEADERS).type('text/html').send(body)
     }
 
-    return reply.headers(CONSOLE_HEADERS).type('text/html').send(autonomyDonePage(form.agentName))
+    /**
+     * The Telegram offer, made once, at the moment the form is safely recorded
+     * (`#793`).
+     *
+     * **Minted here rather than rendered on the form**, because pressing it
+     * navigates away and the form's own link is single-use — an offer beside a
+     * half-filled form is a way to lose the answer entirely. A failure to mint is
+     * not a failure of the answer, which is already recorded, so the offer is
+     * simply absent and the durable page will make it again.
+     */
+    const telegramLink = await telegramOfferFor(deps, form.agentId)
+
+    return reply
+      .headers(CONSOLE_HEADERS)
+      .type('text/html')
+      .send(autonomyDonePage(form.agentName, telegramLink))
   })
 
   /**
@@ -239,6 +274,53 @@ export function registerAutonomyPageRoutes(app: FastifyInstance, deps: RouteDepe
     }
 
     const submitted = (request.body ?? {}) as Record<string, unknown>
+
+    /**
+     * The operator asks for a Telegram link (`#793`).
+     *
+     * **A third `intent` and not a third route**, for the reason the second one
+     * exists: what this page reaches is precisely known, and guessing the
+     * caller's meaning from the shape of a body it controls is how one action
+     * ends up performed as another. What this one reaches is a *new row in
+     * `operator_telegram_starts`* and nothing else — no permission, no contract,
+     * no message to the citizen. D-081 is unamended.
+     *
+     * **A redirect rather than a rendered link**, so the whole gesture is one
+     * press. The payload is minted for this request and exists in no page that
+     * was merely open.
+     */
+    if (submitted['intent'] === 'telegram') {
+      const desk = deps.telegram
+
+      if (desk === undefined) {
+        // The button is not rendered without a desk, so this is a stale page or
+        // a hand-made post. The page itself is the honest answer.
+        return reply
+          .status(409)
+          .headers(CONSOLE_HEADERS)
+          .type('text/html')
+          .send(await pageFor(token as string, view))
+      }
+
+      const issued = await desk.store.issueStartForPage(token as string)
+
+      // The page was revoked between the `GET` and this `POST`. Same answer as
+      // every other write here gives for that: this is no longer open.
+      if (issued === undefined) {
+        return reply
+          .status(404)
+          .headers(CONSOLE_HEADERS)
+          .type('text/html')
+          .send(autonomyClosedPage())
+      }
+
+      /**
+       * `303` and not `302`, because this is a `POST`: it is what turns the
+       * operator's next step into a `GET` of the deep link rather than a
+       * re-post of this form when they press back.
+       */
+      return reply.status(303).redirect(deepLinkFor(desk.bot, issued.token))
+    }
 
     if (submitted['intent'] === 'note') {
       /**

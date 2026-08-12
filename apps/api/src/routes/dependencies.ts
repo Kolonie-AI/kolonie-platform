@@ -49,6 +49,7 @@ import type { QuestDesk } from '../quests.js'
 import type { TaskCatalogue } from '../tasks.js'
 import type { CitizenRecords } from '../citizens.js'
 import type { DropDependencies } from '../operator-drops.js'
+import type { TelegramDesk } from '../operator-telegram.js'
 import type { ShareDesk, ShareNotifier } from '../browser-shares.js'
 import type { VaultDependencies } from '../vault.js'
 import type { VisionDependencies } from '../vision.js'
@@ -242,6 +243,12 @@ export interface RouteDependencies {
   readonly drops: DropDependencies['drops']
   /** The agent → operator secret channel (`#592`). Absent with no sealing key. */
   readonly handovers?: HandoverStore | undefined
+  /**
+   * The operator's desk on Telegram (`#793`). Absent when the bot is not
+   * configured, and then the webhook route is not mounted and no surface offers
+   * a deep link — the operator is reached by mail, as they were before.
+   */
+  readonly telegram?: TelegramDesk | undefined
   readonly dropBaseUrl: string
   readonly accounts: AccountDependencies
   /** The provider catalogue (`#521`), read-only — curation is `#549`'s. */

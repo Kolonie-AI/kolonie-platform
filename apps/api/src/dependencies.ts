@@ -52,6 +52,7 @@ import type { QuestDesk } from './quests.js'
 import type { TaskCatalogue } from './tasks.js'
 import type { HandoverStore } from './handovers.js'
 import type { DropStore } from './operator-drops.js'
+import type { TelegramDependencies } from './operator-telegram.js'
 import type { VaultDependencies } from './vault.js'
 import type { VisionDependencies } from './vision.js'
 import type { WebServerDependencies } from './web-server.js'
@@ -355,6 +356,15 @@ export interface AppDependencies {
    * cannot carry a secret, rather than failing at the moment one is handed over.
    */
   readonly handovers?: HandoverStore | undefined
+  /**
+   * The operator's desk on Telegram (`#793`).
+   *
+   * Absent when the three `TELEGRAM_*` variables are unset, on the same trade
+   * `drops` above makes — and here the fallback is not a refusal but the channel
+   * that already worked: no bot means no deep link on any surface, no webhook
+   * route, and an operator reached by mail exactly as before.
+   */
+  readonly telegram?: TelegramDependencies['telegram'] | undefined
   /** Where an operator's drop link points. Defaults to empty, as the other links do. */
   readonly dropBaseUrl?: string | undefined
   /** The account register (#150). */

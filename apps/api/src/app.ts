@@ -66,6 +66,7 @@ import { registerAttributionRoutes } from './routes/attribution.js'
 import { registerBrowserShareRoutes } from './routes/browser-share.js'
 import { registerBadgeRoutes } from './routes/badges.js'
 import { registerAutonomyPageRoutes } from './routes/autonomy-page.js'
+import { registerTelegramRoutes } from './routes/telegram.js'
 import { registerOperatorClaimRoutes } from './routes/operator-claim.js'
 import { registerSocialRoute } from './routes/social.js'
 import { registerDomainRoute } from './routes/domain.js'
@@ -166,6 +167,7 @@ export function buildApp({
   shares,
   shareNotifier,
   handovers,
+  telegram,
   dropBaseUrl = '',
   accounts,
   recipes,
@@ -480,6 +482,7 @@ export function buildApp({
     ...(shares === undefined ? {} : { shares }),
     ...(shareNotifier === undefined ? {} : { shareNotifier }),
     handovers,
+    ...(telegram === undefined ? {} : { telegram }),
     dropBaseUrl,
     accounts,
     recipes: providerCatalogue,
@@ -577,6 +580,9 @@ export function buildApp({
       registerEmailRoutes(v1, routes)
       registerSmsRoutes(v1, routes)
       registerInboundMailRoute(v1, routes)
+      // The other door a machine delivers through (`#793`). Mounted on the same
+      // condition as the one above and for the same reason: no secret, no route.
+      registerTelegramRoutes(v1, routes)
       registerAccountRoutes(v1, routes)
       registerConsoleRoutes(v1, routes)
       registerMailboxRoutes(v1, routes)

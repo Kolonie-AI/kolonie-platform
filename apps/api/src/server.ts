@@ -104,6 +104,12 @@ import { databaseDomainChallenges } from './domain.js'
 import { databaseVisionChallenges } from './vision.js'
 import { databaseHandovers } from './handovers.js'
 import { databaseDrops, usableSealingKey } from './operator-drops.js'
+import {
+  databaseTelegram,
+  httpTelegramBot,
+  telegramFromEnv,
+  type TelegramDesk,
+} from './operator-telegram.js'
 import { databaseShares, mailingShareNotifier } from './browser-shares.js'
 import { databaseVault } from './vault.js'
 import { databaseAccounts, databaseAccountResolution } from './accounts.js'
@@ -540,6 +546,43 @@ const payoutCeilings = (():
   return { perTransaction: perTransaction as number, perDay: perDay as number }
 })()
 
+/**
+ * The operator's desk on Telegram, or nothing (`#793`).
+ *
+ * Built once, on the shape `mailerFromEnv` and `twilioAdapter` above use: absent
+ * configuration is a working deployment rather than a failure, and everything
+ * downstream is written to cope with `undefined`. What differs from those two is
+ * the fallback — no Telegram means mail, which is what every operator already
+ * had, rather than a rung nobody can attempt.
+ *
+ * **Said once at startup rather than left to be discovered.** A maintainer who
+ * set the three variables and mistyped one gets a line here; the alternative is
+ * an operator page that quietly never shows the link.
+ */
+const operatorTelegram = ((): TelegramDesk | undefined => {
+  const configured = telegramFromEnv()
+
+  if (configured === undefined) {
+    log.info('no Telegram operator desk is configured — operators are reached by email', {
+      event: 'telegram.desk.absent',
+    })
+    return undefined
+  }
+
+  log.info('the Telegram operator desk is configured', {
+    event: 'telegram.desk.ready',
+    // The username and never the token. It is public — it is in every deep link
+    // a person is handed — and it is the one value worth confirming from a log.
+    username: configured.username,
+  })
+
+  return {
+    store: databaseTelegram(db),
+    bot: httpTelegramBot({ token: configured.token, username: configured.username, log }),
+    webhookSecret: configured.webhookSecret,
+  }
+})()
+
 /** A whole number from the environment, or nothing. Never a silent zero. */
 function numericEnv(name: string): number | undefined {
   const raw = process.env[name]?.trim()
@@ -969,6 +1012,21 @@ const app = buildApp({
    * rule is therefore not a ceiling on how much mail an agent can cause. The
    * shared window is, and `support.ts` says why there must not be a second one.
    */
+  /**
+   * The operator's desk on Telegram (`#793`).
+   *
+   * **All three or none, and none is what runs today.** A token with no webhook
+   * secret would mount a public route with nothing guarding it; a secret with no
+   * token would offer a person a link into a bot that cannot answer. Neither is a
+   * state worth having a code path for, so the desk is constructed only when the
+   * three agree and is otherwise absent — no deep link on any surface, no route,
+   * and the operator is reached by mail exactly as before.
+   *
+   * The username is configuration rather than a constant because every deep link
+   * ever issued is built from it, and a rename that reached only the bot would
+   * break the ones already sitting in people's chat histories.
+   */
+  telegram: operatorTelegram,
   shareNotifier: mailingShareNotifier({
     recipient: (agentId) => linkedOperator(db, agentId),
     mailer: mail.operatorMailer,

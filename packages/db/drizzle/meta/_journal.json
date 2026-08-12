@@ -1513,6 +1513,13 @@
       "when": 1786535783360,
       "tag": "0215_an_operator_arriving_is_worth_a_knock",
       "breakpoints": true
+    },
+    {
+      "idx": 216,
+      "version": "7",
+      "when": 1786551410152,
+      "tag": "0216_an_operator_binds_a_chat_by_pressing_start",
+      "breakpoints": true
     }
   ]
 }

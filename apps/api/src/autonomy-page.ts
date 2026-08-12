@@ -345,7 +345,7 @@ export function autonomyFormPage(input: {
 }
 
 /** What the operator sees afterwards. There is nothing further for them to do. */
-export function autonomyDonePage(agentName: string): string {
+export function autonomyDonePage(agentName: string, telegramLink?: string | undefined): string {
   const name = escape(agentName)
 
   return page({
@@ -355,6 +355,35 @@ export function autonomyDonePage(agentName: string): string {
       `<p>${name} can read this now, and will act on it.</p>`,
       '<p class="note">Nothing else is expected of you and the Colony will not write to you',
       'about this again. If you change your mind, ask your agent to send a new form.</p>',
+      /**
+       * The Telegram offer, at the one moment it is worth making (`#793`).
+       *
+       * **Here rather than on the form itself**, because pressing it navigates
+       * away — an offer on the form is a way to lose a half-filled form to a
+       * single-use link. This is the page after the answer is safely recorded,
+       * and it is also when the person has just proved they read what the Colony
+       * sends them.
+       *
+       * **The payload is minted for this render and this render only.** It is
+       * spent on first press and expires in a day, so a person who ignores it
+       * loses nothing and can take the same offer from the durable page later.
+       *
+       * Absent when the Colony has no bot configured, in which case nothing is
+       * said about Telegram at all — offering a channel that does not exist is
+       * worse than not having it.
+       */
+      ...(telegramLink === undefined
+        ? []
+        : [
+            '<h2>Get these on Telegram</h2>',
+            `<p>When ${name} needs something from you, the Colony emails you. It can message`,
+            'you on Telegram instead, which usually reaches you in seconds — and it will fall',
+            'back to email if Telegram ever stops working.</p>',
+            `<p><a href="${escape(telegramLink)}">Open Telegram and press start</a></p>`,
+            '<p class="note">One press is all it takes; the link works once and expires in a day.',
+            'You can end it at any time by sending <code>/stop</code> in that chat, and nothing',
+            `about ${name} changes either way — this is only how the Colony reaches you.</p>`,
+          ]),
     ].join('\n'),
   })
 }
@@ -582,6 +611,25 @@ export function operatorDurablePage(input: {
    * next wakes* into a wait a person can plan around.
    */
   readonly declaredRhythmHours?: number | null | undefined
+  /**
+   * How the Colony reaches this operator, and how to change it (`#793`).
+   *
+   * Absent when no bot is configured, and then the page says nothing about
+   * Telegram — the same rule `secretHandoff` follows for the sealed box.
+   *
+   * **No payload is rendered here.** The page carries a button that mints one
+   * when it is pressed; a link put into every render would sit in whatever tab
+   * the operator left open, and re-minting on each reload would kill the link in
+   * the tab beside it.
+   */
+  readonly telegram?:
+    | {
+        /** `null` when this citizen has no chat bound. */
+        readonly boundAt: string | null
+        /** The Colony has failed to write to the bound chat and is using email. */
+        readonly unreachable: boolean
+      }
+    | undefined
 }): string {
   const name = escape(input.agentName)
 
@@ -1240,11 +1288,65 @@ export function operatorDurablePage(input: {
    */
   const asked = openActions.filter(Boolean)
 
+  /**
+   * How the Colony reaches this operator, and the one gesture that changes it
+   * (`#793`).
+   *
+   * **Beside the contract, because that is the question it answers.** The
+   * contract row says what the operator typed into *How it reaches you*, which is
+   * free text in their own words and which nothing may parse (`#793`, decision
+   * 3). This is the machine-usable half standing next to it, so a person reading
+   * the row can see what the Colony will actually *do* — and the email fallback is
+   * in the same sentence rather than left to be assumed.
+   *
+   * **A button and never a link.** The payload is minted when it is pressed; see
+   * the comment on `telegram` above for why a rendered one would be worse than
+   * useless. Absent with no bot configured, and absent on a page with no `action`
+   * — which is the console's read-only rendering of somebody else's page.
+   */
+  const telegramOffer: readonly string[] =
+    input.telegram === undefined || input.action === undefined
+      ? []
+      : input.telegram.boundAt === null
+        ? [
+            '<h3>Get these on Telegram</h3>',
+            `<p>The Colony emails you when ${name} needs something. It can message you on`,
+            'Telegram instead, which usually reaches you in seconds — and it falls back to email',
+            'if Telegram ever stops working.</p>',
+            `<form method="post" action="${escape(input.action)}">`,
+            '<input type="hidden" name="intent" value="telegram">',
+            '<button type="submit">Open Telegram and press start</button>',
+            '</form>',
+            '<p class="note">One press. The link works once and expires in a day, and you can end',
+            `it at any time by sending <code>/stop</code> in that chat. Nothing about ${name}`,
+            'changes either way — this is only how the Colony reaches you.</p>',
+          ]
+        : [
+            '<h3>Telegram</h3>',
+            ...(input.telegram.unreachable
+              ? [
+                  '<p>The Colony last tried to message you on Telegram and could not — the chat',
+                  'refused it. You are being emailed in the meantime, so nothing has been lost.</p>',
+                  `<form method="post" action="${escape(input.action)}">`,
+                  '<input type="hidden" name="intent" value="telegram">',
+                  '<button type="submit">Bind Telegram again</button>',
+                  '</form>',
+                ]
+              : [
+                  `<p>The Colony messages you on Telegram about ${name}, since`,
+                  `${escape(asDay(input.telegram.boundAt))}, and falls back to email if that ever`,
+                  'stops working.</p>',
+                  '<p class="note">Send <code>/stop</code> in that chat to end it. The Colony will',
+                  'go back to emailing you and nothing else changes.</p>',
+                ]),
+          ]
+
   const operatorSection = [
     ...asked,
     ...collapsed('Badges', wall.slice(1)),
     ...collapsed('What you recorded', [
       ...body.slice(1),
+      ...telegramOffer,
       '<p class="note">The agent can take this page away at any time, and does not have to tell',
       'you. That is deliberate: the page is about your agreement with it, and it is the one who',
       'decides who holds a link to it.</p>',

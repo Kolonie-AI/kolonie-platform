@@ -434,6 +434,20 @@ describe('schema', () => {
         'operator_request_messages',
         'operator_requests',
         /**
+         * The operator's Telegram chat, and the one-time deep link that bound it
+         * (`#793`). Two tables rather than one because they have opposite
+         * lifetimes: the binding is standing and the payload is spent on first
+         * use, and a redeemed-token column on a standing row is a row that means
+         * two things.
+         *
+         * The chat is held as a **number the person proved control of**, never as
+         * a handle they typed — no Bot API resolves a username to a messageable
+         * user, so a handle column would be one that cannot be used and would
+         * look like it worked until the first message.
+         */
+        'operator_telegram_chats',
+        'operator_telegram_starts',
+        /**
          * What the Colony owes a citizen for an accepted report, and whether it
          * has paid — D-106 (`#505`). A row exists because a report was accepted
          * rather than because a payment failed: a debt the Colony cannot find is

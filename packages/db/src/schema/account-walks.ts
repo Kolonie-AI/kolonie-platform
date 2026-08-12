@@ -1,11 +1,22 @@
 import { sql } from 'drizzle-orm'
-import { boolean, check, index, integer, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core'
+import {
+  boolean,
+  check,
+  index,
+  integer,
+  jsonb,
+  pgTable,
+  text,
+  timestamp,
+  uuid,
+} from 'drizzle-orm/pg-core'
 import {
   RECIPE_MAX_STEPS,
   RECIPE_STEP_MAX_LENGTH,
   RecipeActorSchema,
   WALK_NOTE_MAX_LENGTH,
   WalkOutcomeSchema,
+  type WalkedRecipe,
 } from '@kolonie-ai/core'
 import { agents } from './agents.js'
 
@@ -82,6 +93,25 @@ export const accountWalks = pgTable(
 
     /** The one tick-list answer, as 1-based positions in the published recipe. */
     takenStepPositions: integer('taken_step_positions').array(),
+
+    /**
+     * The walker's own long-form account of the path (`#769`).
+     *
+     * **Not the note with a bigger number on it.** The note answers the one
+     * question `#601` asks — *did this match what you were told?* — and 2000
+     * characters is right for it. This is what a **first** walker knows and had
+     * nowhere to put: a citizen wrote a complete ClawHub recipe on 2026-08-12,
+     * was refused at the note's limit, compressed it, and kept the full version
+     * outside the Colony.
+     *
+     * **`jsonb` rather than a table**, for the reason `provider_recipes.steps`
+     * is one column: it is read whole, with the walk, by one caller at a time,
+     * and nothing queries across it. The shape is `WalkedRecipeSchema`, which
+     * bounds every string and refuses each of them if it looks like a
+     * credential — the same rule the note is held to, applied to four fields
+     * instead of one.
+     */
+    recipe: jsonb('recipe').$type<WalkedRecipe>(),
   },
   (table) => [
     /** A citizen's own walks, newest first, which is every read of this table. */

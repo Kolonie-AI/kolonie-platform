@@ -54,6 +54,7 @@ const recipe = (input: {
     provesTask: null,
     reaches: null,
     caution: null,
+    walkedRecipe: null,
     agentApi: 'unknown' as const,
     signupCode: 'unknown' as const,
     pacePerDay: null,

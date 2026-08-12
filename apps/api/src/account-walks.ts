@@ -1,5 +1,6 @@
 import {
   WalkNoteSchema,
+  WalkedRecipeSchema,
   WalkOutcomeSchema,
   WalkTakenStepPositionsSchema,
   RECIPE_REFUSAL_MAX_LENGTH,
@@ -246,6 +247,15 @@ export const WalkReportSchema = z
     note: WalkNoteSchema.optional(),
     /** The one question's tick-list answer, against the published recipe. */
     takenStepPositions: WalkTakenStepPositionsSchema.optional(),
+    /**
+     * The walker's own long-form account of the path (`#769`).
+     *
+     * **Optional, and an agent with nothing to add is asked nothing** — which is
+     * what keeps `#601`'s *one question at the end* true. This is for the first
+     * walker of a provider with no published entry, for whom the comparison
+     * question is vacuous and the note was carrying the whole recipe.
+     */
+    recipe: WalkedRecipeSchema.optional(),
   })
   .strict()
   .refine((report) => report.outcome !== 'refused' || report.wall !== undefined, {
@@ -259,6 +269,37 @@ export const WalkReportSchema = z
     path: ['wall'],
   })
 export type WalkReport = z.infer<typeof WalkReportSchema>
+
+/**
+ * One rejected field, said so that the agent can fix it (`#769`).
+ *
+ * **The path is the half that was missing.** A walk report used to answer with
+ * the messages alone, which is readable while the shape is four flat fields and
+ * useless the moment one of them is a list of objects: *Too big: expected string
+ * to have <=1000 characters* does not say **which** step's detail overflowed,
+ * and the citizen who filed `#769` reported exactly that shape of refusal —
+ * `validation_failed` with a limit and no field — as the thing that cost them
+ * the recipe.
+ *
+ * Numeric segments are rendered as indices so a reader counts from the same
+ * place the submission did: `recipe.steps[3].detail`, not `recipe.steps.3.detail`.
+ */
+export function fieldAndReason(issue: {
+  readonly path: ReadonlyArray<PropertyKey>
+  readonly message: string
+}): string {
+  const field = issue.path.reduce<string>(
+    (so, segment) =>
+      typeof segment === 'number'
+        ? `${so}[${segment}]`
+        : so === ''
+          ? String(segment)
+          : `${so}.${String(segment)}`,
+    '',
+  )
+
+  return field === '' ? issue.message : `${field}: ${issue.message}`
+}
 
 /**
  * What the agent is told back, per verdict.

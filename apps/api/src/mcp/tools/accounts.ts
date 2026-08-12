@@ -3,6 +3,7 @@ import { z } from 'zod'
 import {
   NO_WALK_IN_PROGRESS,
   WalkReportSchema,
+  fieldAndReason,
   noteWalkStep,
   openDraftHint,
   readWalkStatus,
@@ -19,6 +20,7 @@ import {
   SubmitAccountProofRequestSchema,
   WISH_NOTE_MAX_LENGTH,
   WISH_ALSO_PROPOSED,
+  WalkedRecipeSchema,
 } from '@kolonie-ai/core'
 import {
   AccountKindArgumentSchema,
@@ -1469,6 +1471,25 @@ export function registerAccountTools(
               'took, in order. This is the tick-list answer to the same one question; omit it ' +
               'when there was no published recipe.',
           ),
+        /**
+         * The first walker's long form (`#769`).
+         *
+         * **A field, not a form, and the difference is who it is for.** `#601`
+         * asks one question at the end because an agent that has just finished a
+         * signup should not be filling in boxes — and that is still true for a
+         * walk against a published recipe, where the tick-list answers most of
+         * it. The citizen who filed `#769` was the first walker of a provider
+         * with no entry at all: for them the comparison question is vacuous, and
+         * the note was carrying the entire recipe until it hit 2000 characters.
+         */
+        recipe: WalkedRecipeSchema.optional().describe(
+          'Only if you walked a provider the Atlas had nothing on, and only if you have more ' +
+            'than the note holds: what had to be true before you started, the ordered steps in ' +
+            'your own words, the walls and what got past them, and how to tell the account ' +
+            'really exists. Carried to the steward with your draft and attributed to you — it ' +
+            'is not published as the Colony\u2019s wording. Never a password, a code or a token, ' +
+            'in any field.',
+        ),
       },
       annotations: { readOnlyHint: false, idempotentHint: true, openWorldHint: false },
     },
@@ -1483,12 +1504,13 @@ export function registerAccountTools(
         ...(input.takenStepPositions === undefined
           ? {}
           : { takenStepPositions: input.takenStepPositions }),
+        ...(input.recipe === undefined ? {} : { recipe: input.recipe }),
       })
 
       if (!report.success) {
         return toolError({
           code: 'validation_failed',
-          message: report.error.issues.map((issue) => issue.message).join(' '),
+          message: report.error.issues.map(fieldAndReason).join(' '),
         })
       }
 

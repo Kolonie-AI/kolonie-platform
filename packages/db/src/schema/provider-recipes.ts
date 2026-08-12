@@ -22,6 +22,7 @@ import {
   type ReferralArrangement,
   AgentApiSchema,
   SignupCodeSchema,
+  type WalkedRecipe,
 } from '@kolonie-ai/core'
 
 /**
@@ -231,6 +232,22 @@ export const providerRecipes = pgTable(
 
     /** A wall a working entry warns about, from `provider-report` findings. */
     caution: text('caution'),
+
+    /**
+     * The walker's own long-form account of the path (`#769`).
+     *
+     * **Beside the steps and never as them.** `#517` keeps the sentence a recipe
+     * publishes the Colony's, written by a steward; this is what the agent that
+     * walked it said, unedited and attributed. Written by `finishWalk` from the
+     * walk that proposed or corrected this entry and replaced by the next walk
+     * that carries one, so it is *the current walker's account* rather than a
+     * pile of them — the pile is on `account_walks`, one row per walk, which is
+     * where a reader goes for the history.
+     *
+     * `jsonb` for the reason `steps` beside it is: read whole, by one caller at
+     * a time, and nothing queries across it.
+     */
+    walkedRecipe: jsonb('walked_recipe').$type<WalkedRecipe>(),
 
     /**
      * Whether an agent can work with this account once it holds it (`#680`).

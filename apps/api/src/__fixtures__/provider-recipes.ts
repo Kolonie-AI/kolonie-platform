@@ -238,6 +238,7 @@ export function fakeProviderRecipes(): FakeProviderRecipes {
         provesTask: entry.provesTask ?? null,
         reaches: entry.reaches ?? null,
         caution: entry.caution ?? null,
+        walkedRecipe: entry.walkedRecipe ?? null,
         agentApi: entry.agentApi ?? 'unknown',
         signupCode: entry.signupCode ?? 'unknown',
         pacePerDay: entry.pacePerDay ?? null,

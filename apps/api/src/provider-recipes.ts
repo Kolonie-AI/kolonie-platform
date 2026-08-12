@@ -23,6 +23,7 @@ import {
   type ProposalWithDemand,
   type ProviderRecipe,
   type RecipeStep,
+  walkedRecipeAsText,
 } from '@kolonie-ai/core'
 import type { Database } from '@kolonie-ai/db'
 import type { WalkStore } from './account-walks.js'
@@ -500,10 +501,25 @@ export function recipeAsText(recipe: ProviderRecipe, secretHandoff: boolean): st
           .map((step, index) => `${recipe.steps.length + index + 1}. ${stepInstruction(step)}`)
           .join('\n')
 
+  /**
+   * **The walker's own account, under a published entry and nowhere else**
+   * (`#769`).
+   *
+   * A first walker's long form is unchecked citizen text. It reaches an agent
+   * here — where the reader is one that asked, and where the entry has already
+   * passed a steward on its way out of `draft` — and it reaches no public page,
+   * which is the surface `#600`'s rule is about. The `draft` and `unwritten`
+   * branches above return before this line, so that is structural rather than a
+   * condition somebody has to remember.
+   */
+  const walked =
+    recipe.walkedRecipe === null ? '' : `\n\n${walkedRecipeAsText(recipe.walkedRecipe)}`
+
   return (
     `${recipe.title} · ${recipe.category}\n\n${operatorNeedAsText(recipe)}\n\n` +
     `${unwalkable}${steps}\n\n${proved}${reach}` +
-    (recipe.caution === null ? '' : `\n\n**Known to go wrong:** ${recipe.caution}`)
+    (recipe.caution === null ? '' : `\n\n**Known to go wrong:** ${recipe.caution}`) +
+    walked
   )
 }
 

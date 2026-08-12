@@ -4,6 +4,7 @@ import {
   AccountProviderSchema,
   RecipeActorSchema,
   WalkOutcomeSchema,
+  WalkedRecipeSchema,
   walkVerdict,
   type AccountKind,
   type AccountWalk,
@@ -11,6 +12,7 @@ import {
   type ProviderRecipe,
   type WalkOutcome,
   type WalkVerdict,
+  type WalkedRecipe,
 } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import { accountWalks, accountWalkSteps } from '../schema/account-walks.js'
@@ -44,6 +46,8 @@ function toWalk(walk: WalkRow, steps: readonly StepRow[]): AccountWalk {
     wall: walk.wall,
     note: walk.note,
     takenStepPositions: walk.takenStepPositions,
+    /** Parsed on the way out, like every other `jsonb` here: the column is not a shape. */
+    recipe: walk.recipe === null ? null : WalkedRecipeSchema.parse(walk.recipe),
     steps: steps
       .map((step) => ({
         position: step.position,
@@ -260,6 +264,8 @@ export async function finishWalk(
     readonly note?: string | null
     /** Published recipe positions checked by the agent, in order. */
     readonly takenStepPositions?: readonly number[] | null
+    /** The walker's own long-form account of the path (`#769`), where it gave one. */
+    readonly recipe?: WalkedRecipe | null
   },
 ): Promise<{ readonly walk: AccountWalk; readonly verdict: WalkVerdict } | undefined> {
   return db.transaction(async (tx) => {
@@ -271,6 +277,7 @@ export async function finishWalk(
         wall: input.outcome === 'refused' ? (input.wall ?? null) : null,
         note: input.note ?? null,
         takenStepPositions: input.takenStepPositions == null ? null : [...input.takenStepPositions],
+        recipe: input.recipe ?? null,
       })
       .where(and(eq(accountWalks.id, walkId), isNull(accountWalks.finishedAt)))
       .returning()
@@ -307,6 +314,16 @@ export async function finishWalk(
         category: entry?.category ?? 'data-apis',
         status: 'draft',
         steps: verdict.steps,
+        /**
+         * **The walker's account travels with the entry it proposed** (`#769`).
+         *
+         * Without this the long form would sit on the walk row and a steward
+         * reviewing the draft would be reading a shape with no words beside it —
+         * which is the state the citizen who filed `#769` was already in, one
+         * table along. `undefined` leaves whatever the entry had: a walk that
+         * added nothing must not delete the last walker's account.
+         */
+        ...(walk.recipe === null ? {} : { walkedRecipe: walk.recipe }),
       })
     }
 
@@ -319,6 +336,8 @@ export async function finishWalk(
         status: 'refused',
         refusal: verdict.wall,
         steps: [],
+        /** A refusal's walls are the most useful account there is — see the draft above. */
+        ...(walk.recipe === null ? {} : { walkedRecipe: walk.recipe }),
       })
     }
 

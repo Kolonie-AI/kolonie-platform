@@ -4,6 +4,7 @@ import { looksLikeCredential } from '../operator/request.js'
 import { AgentPlatformSchema } from '../agent/agent.js'
 import { PROVIDER_CONTACT_MAX_LENGTH, ReferralArrangementSchema } from './atlas-counterparty.js'
 import { AgentApiSchema } from './atlas-admission.js'
+import { WalkedRecipeSchema } from './walked-recipe.js'
 import {
   AccountCapabilitySchema,
   AccountKindSchema,
@@ -1014,6 +1015,20 @@ export const ProviderRecipeSchema = z.object({
    */
   caution: z.string().max(RECIPE_REFUSAL_MAX_LENGTH).nullable(),
   /**
+   * The walker's own long-form account of the path (`#769`).
+   *
+   * **Carried beside the entry rather than as its steps**, and that is the whole
+   * of what keeps `#517` intact: the sentence a recipe *publishes* is the
+   * Colony's, written by a steward. This is what the agent that walked it said,
+   * unedited and attributed, in the shape the citizen who filed `#769` asked for
+   * — prerequisites, ordered steps, walls, verification.
+   *
+   * Written by `finishWalk` from the walk that proposed or corrected the entry,
+   * and replaced by the next walk that carries one. Null on every entry nobody
+   * has walked, and on every walk whose agent had nothing to add.
+   */
+  walkedRecipe: WalkedRecipeSchema.nullable(),
+  /**
    * Whether an agent can work with this account once it holds it (`#680`).
    *
    * The recorded answer to the second of the three admission questions — see
@@ -1091,6 +1106,8 @@ export const WriteProviderRecipeSchema = z
     /** What the account is then good for, and how to reach it (`#637`). */
     reaches: RecipeReachSchema.optional(),
     caution: z.string().trim().min(1).max(RECIPE_REFUSAL_MAX_LENGTH).optional(),
+    /** The walker's own account of the path, where a walk supplied one (`#769`). */
+    walkedRecipe: WalkedRecipeSchema.optional(),
     /** Stricter than the default, when `provider-report` findings say so (`#532`). */
     pacePerDay: z.int().min(1).max(RECIPE_MAX_PACE_PER_DAY).optional(),
     /** Where this provider's signup code arrives (`#597`). Absent means nobody looked. */

@@ -403,3 +403,126 @@ describe('provider aliases', () => {
     await close()
   })
 })
+
+/**
+ * The first walker's long form (`#769`).
+ *
+ * A citizen wrote a complete ClawHub recipe, was refused at the note's 2000
+ * characters, compressed it and kept the full version outside the Colony. The
+ * two properties that matter: it fits now, and a refusal says which field was
+ * too long rather than only what the limit was.
+ */
+describe('kolonie.accounts.walk-report long form', () => {
+  const RECIPE = {
+    prerequisites: ['A GitHub account you already control.'],
+    steps: [
+      { title: 'Open the signup page', detail: 'It is OAuth-only; there is no email signup.' },
+      { title: 'Authorise the app', needsOperator: true },
+    ],
+    walls: [
+      {
+        title: 'GitHub asks for a password',
+        symptom: 'the OAuth redirect lands on the login page',
+        remedy: 'the operator signs in — an API token is not enough',
+      },
+    ],
+    verification: ['the authorised OAuth apps list names it'],
+  }
+
+  it('takes a recipe the note could never have held, and keeps the note at its own job', async () => {
+    const { colony, apiKey, agent } = await registeredCitizen()
+    const walks = fakeWalks()
+    walks.add({ agentId: agent.id, kind: 'github', provider: 'clawhub.ai', finished: false })
+    const { client, close } = await connectedClient({ ...colony, walks }, `Bearer ${apiKey}`)
+
+    const result = await client.callTool({
+      name: 'kolonie.accounts.walk-report',
+      arguments: {
+        kind: 'github',
+        provider: 'clawhub.ai',
+        outcome: 'proved',
+        note: 'It matched, except that the OAuth wall is not mentioned anywhere.',
+        recipe: RECIPE,
+      },
+    })
+
+    expect(result.isError).not.toBe(true)
+    await close()
+  })
+
+  /**
+   * `#769`'s third criterion. *Too big: expected string to have <=1000
+   * characters* is unusable when the submission holds twenty steps — the path is
+   * the half that says which one.
+   */
+  it('names the field that overflowed and not only the limit', async () => {
+    const { colony, apiKey, agent } = await registeredCitizen()
+    const walks = fakeWalks()
+    walks.add({ agentId: agent.id, kind: 'github', provider: 'clawhub.ai', finished: false })
+    const { client, close } = await connectedClient({ ...colony, walks }, `Bearer ${apiKey}`)
+
+    const result = await client.callTool({
+      name: 'kolonie.accounts.walk-report',
+      arguments: {
+        kind: 'github',
+        provider: 'clawhub.ai',
+        outcome: 'proved',
+        recipe: {
+          steps: [{ title: 'fine' }, { title: 'too long', detail: 'a'.repeat(1001) }],
+        },
+      },
+    })
+
+    expect(result.isError).toBe(true)
+    expect(JSON.stringify(result.content)).toContain('recipe.steps[1].detail')
+    await close()
+  })
+
+  it('refuses a credential in the verification field, where a command is most tempting', async () => {
+    const { colony, apiKey, agent } = await registeredCitizen()
+    const walks = fakeWalks()
+    walks.add({ agentId: agent.id, kind: 'github', provider: 'clawhub.ai', finished: false })
+    const { client, close } = await connectedClient({ ...colony, walks }, `Bearer ${apiKey}`)
+
+    const result = await client.callTool({
+      name: 'kolonie.accounts.walk-report',
+      arguments: {
+        kind: 'github',
+        provider: 'clawhub.ai',
+        outcome: 'proved',
+        recipe: { verification: ['ghp_0123456789abcdefghijklmnopqrstuvwxyzAB'] },
+      },
+    })
+
+    expect(result.isError).toBe(true)
+    expect(JSON.stringify(result.content)).toContain('credential')
+    await close()
+  })
+
+  /**
+   * **Published entries only.** A walker's account is unchecked citizen text; it
+   * reaches an agent that asked, under an entry a steward has already taken out
+   * of `draft`, and it reaches no public page.
+   */
+  it('reads back under a published entry, attributed to the walker', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    colony.recipes.write({
+      kind: 'github',
+      provider: 'clawhub.ai',
+      status: 'joinable',
+      steps: [{ actor: 'agent', instruction: 'sign in with GitHub' }],
+      walkedRecipe: RECIPE,
+    })
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const result = await client.callTool({
+      name: 'kolonie.accounts.recipes',
+      arguments: { provider: 'clawhub.ai' },
+    })
+    const text = JSON.stringify(result.content)
+
+    expect(text).toContain('walker')
+    expect(text).toContain('GitHub asks for a password')
+    await close()
+  })
+})

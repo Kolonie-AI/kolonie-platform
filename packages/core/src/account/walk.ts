@@ -12,6 +12,7 @@ import {
   type RecipeStep,
 } from './recipe.js'
 import { looksLikeCredential } from '../operator/request.js'
+import { WalkedRecipeSchema } from './walked-recipe.js'
 
 /**
  * One agent obtaining one account, as a record (`#601`).
@@ -173,6 +174,14 @@ export const AccountWalkSchema = z.object({
   note: z.string().max(WALK_NOTE_MAX_LENGTH).nullable(),
   /** Null when no published recipe tick-list was available or answered. */
   takenStepPositions: WalkTakenStepPositionsSchema.nullable(),
+  /**
+   * The walker's own long-form account of the path (`#769`).
+   *
+   * Null on every walk whose agent had nothing to add, which is most of them —
+   * see {@link WalkedRecipeSchema} for why this is a field of its own rather
+   * than a bigger number on `note`.
+   */
+  recipe: WalkedRecipeSchema.nullable(),
   steps: z.array(WalkStepSchema).max(RECIPE_MAX_STEPS),
 })
 export type AccountWalk = z.infer<typeof AccountWalkSchema>

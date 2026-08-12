@@ -49,6 +49,7 @@ const walk = (steps: readonly WalkStep[], over: Partial<AccountWalk> = {}): Acco
   wall: null,
   note: null,
   takenStepPositions: null,
+  recipe: null,
   steps: [...steps],
   ...over,
 })

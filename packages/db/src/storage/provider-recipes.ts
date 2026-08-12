@@ -24,6 +24,8 @@ import {
   type RecipeStatus,
   type RecipeStep,
   type ReferralArrangement,
+  WalkedRecipeSchema,
+  type WalkedRecipe,
 } from '@kolonie-ai/core'
 import type { Database, Transaction } from '../client.js'
 
@@ -95,6 +97,8 @@ function toRecipe(row: typeof providerRecipes.$inferSelect): ProviderRecipe {
     /** Parsed on the way out, like `steps`: `jsonb` accepts whatever was written. */
     reaches: row.reaches === null ? null : RecipeReachSchema.parse(row.reaches),
     caution: row.caution,
+    /** Parsed on the way out, like `steps` and `reaches`: `jsonb` is not a shape. */
+    walkedRecipe: row.walkedRecipe === null ? null : WalkedRecipeSchema.parse(row.walkedRecipe),
     agentApi: AgentApiSchema.parse(row.agentApi),
     signupCode: SignupCodeSchema.parse(row.signupCode),
     pacePerDay: row.pacePerDay,
@@ -223,6 +227,15 @@ export async function writeProviderRecipe(
     /** What the account is then good for, and how to reach it (`#637`). */
     readonly reaches?: RecipeReach | null
     readonly caution?: string | null
+    /**
+     * The walker's own account of the path (`#769`).
+     *
+     * **Omitted means *say nothing about it*, and `null` means *clear it*.** A
+     * curation edit that does not mention the walker's account must not delete
+     * it — the same distinction `agentApi` makes one field down, reached the
+     * other way because there is no honest word here for *nobody looked*.
+     */
+    readonly walkedRecipe?: WalkedRecipe | null
     /** The answer to admission question two (`#680`). Absent means nobody looked. */
     readonly agentApi?: AgentApi
     /** Where the signup code arrives (`#597`). Absent means nobody looked. */
@@ -276,6 +289,8 @@ export async function writeProviderRecipe(
      */
     reaches: entry.proves === undefined || entry.proves === null ? null : (entry.reaches ?? null),
     caution: entry.caution ?? null,
+    /** Left alone unless the caller said something — see the field's own note. */
+    ...(entry.walkedRecipe === undefined ? {} : { walkedRecipe: entry.walkedRecipe }),
     /**
      * **`unknown` and not the row's previous value**, because this is an upsert
      * and a curation edit that omits the field is saying nothing about it rather

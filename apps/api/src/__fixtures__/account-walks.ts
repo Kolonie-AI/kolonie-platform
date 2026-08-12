@@ -36,6 +36,7 @@ export function fakeWalks(): FakeWalkStore {
       wall: null,
       note: null,
       takenStepPositions: null,
+      recipe: null,
       steps: [],
     }
     rows.unshift(walk)

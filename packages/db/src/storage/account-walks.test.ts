@@ -127,6 +127,51 @@ describe('the record of one agent obtaining one account', () => {
     })
 
     /**
+     * The walker's own account travels with the draft it proposed (`#769`).
+     *
+     * Without this the long form sits on the walk row and the steward reviewing
+     * the draft reads a shape with no words beside it — which is the state the
+     * citizen who filed `#769` was already in, one table along.
+     */
+    it('carries the walker’s own account onto the entry it proposed', async () => {
+      const walkId = await walkInProgress(db, agentId, where)
+      await recordWalkStep(db, walkId, { actor: 'agent' })
+
+      await finishWalk(db, walkId, {
+        outcome: 'proved',
+        recipe: {
+          prerequisites: ['a GitHub account you already control'],
+          walls: [{ title: 'the OAuth redirect asks for a password' }],
+        },
+      })
+
+      const entry = await providerRecipe(db, where.kind, where.provider)
+      expect(entry?.walkedRecipe?.prerequisites).toEqual(['a GitHub account you already control'])
+      expect(entry?.walkedRecipe?.walls?.[0]?.title).toBe('the OAuth redirect asks for a password')
+    })
+
+    /**
+     * **A later walk with nothing to add must not delete the last one's
+     * account** (`#769`). `undefined` means *say nothing about it*; only a
+     * curation edit passing `null` clears it.
+     */
+    it('leaves an earlier walker’s account alone when a later walk adds none', async () => {
+      const first = await walkInProgress(db, agentId, where)
+      await recordWalkStep(db, first, { actor: 'agent' })
+      await finishWalk(db, first, {
+        outcome: 'proved',
+        recipe: { verification: ['the authorised apps list names it'] },
+      })
+
+      const second = await walkInProgress(db, agentId, where)
+      await recordWalkStep(db, second, { actor: 'agent' })
+      await finishWalk(db, second, { outcome: 'proved' })
+
+      const entry = await providerRecipe(db, where.kind, where.provider)
+      expect(entry?.walkedRecipe?.verification).toEqual(['the authorised apps list names it'])
+    })
+
+    /**
      * **The rejection case `#601` asks for by name**: *a walk that ended
      * halfway proposing nothing*. Half a path published as a recipe is one that
      * fails at step three.

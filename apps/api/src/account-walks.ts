@@ -14,13 +14,16 @@ import {
 import { z } from 'zod'
 import {
   accountWalk as accountWalkById,
+  accountWalkList,
   divergentWalks,
   finishWalk,
   openWalkId,
+  ownAccountWalk,
   recordWalkStep,
   walkInProgress,
   type Database,
 } from '@kolonie-ai/db'
+import type { ProviderRecipes } from './provider-recipes.js'
 
 /**
  * A walk, from the API's side (`#601`).
@@ -68,6 +71,10 @@ export interface WalkStore {
     agentId: AgentId,
     input: { readonly kind: AccountKind; readonly provider: string },
   ): Promise<AccountWalk | undefined>
+  /** One walk belonging to this citizen; another citizen's id reads as absent. */
+  one(agentId: AgentId, walkId: string): Promise<AccountWalk | undefined>
+  /** This citizen's walks, newest first. */
+  list(agentId: AgentId, kind?: AccountKind): Promise<readonly AccountWalk[]>
   /** What a steward's queue reads (`#549`). */
   divergences(): Promise<
     readonly {
@@ -76,6 +83,121 @@ export interface WalkStore {
       readonly verdict: Extract<WalkVerdict, { kind: 'diverges' }>
     }[]
   >
+}
+
+/** The states a citizen can act on without inventing a review queue the Colony does not store. */
+export type WalkPublicationStatus =
+  'walking' | 'draft' | 'published' | 'refused' | 'withdrawn' | 'not-proposed'
+
+/**
+ * The current publication state of what a walk found.
+ *
+ * The Atlas row is keyed by kind and provider rather than walk id, so this is
+ * deliberately current state rather than an immutable moderation history. A
+ * later curation edit must not be presented as a decision stored on this walk.
+ */
+export interface WalkStatus {
+  readonly walkId: string
+  readonly kind: AccountKind
+  readonly provider: string
+  readonly status: WalkPublicationStatus
+  readonly startedAt: AccountWalk['startedAt']
+  readonly finishedAt: AccountWalk['finishedAt']
+  readonly statusChangedAt: ProviderRecipe['updatedAt'] | AccountWalk['finishedAt']
+  readonly appearsInRecipes: boolean
+  readonly refusalReason: string | null
+  readonly requiredChanges: readonly string[] | null
+}
+
+/** A private walk read either returns current state or an ownership-safe not-found. */
+export type WalkStatusOutcome =
+  | { readonly outcome: 'read'; readonly response: WalkStatus }
+  | { readonly outcome: 'rejected'; readonly error: ApiError }
+
+const WALK_NOT_FOUND: ApiError = {
+  code: 'not_found',
+  message:
+    'No walk with that id belongs to you. Use the walkId returned by ' +
+    "kolonie.accounts.walk-report; another citizen's walk is never readable here.",
+}
+
+async function statusOf(walk: AccountWalk, recipes: ProviderRecipes): Promise<WalkStatus> {
+  const entry = await recipes.one(walk.kind, walk.provider)
+  const status: WalkPublicationStatus =
+    walk.finishedAt === null
+      ? 'walking'
+      : entry?.status === 'draft'
+        ? 'draft'
+        : entry?.status === 'joinable'
+          ? 'published'
+          : entry?.status === 'refused'
+            ? 'refused'
+            : entry?.status === 'retired'
+              ? 'withdrawn'
+              : 'not-proposed'
+
+  return {
+    walkId: walk.id,
+    kind: walk.kind,
+    provider: walk.provider,
+    status,
+    startedAt: walk.startedAt,
+    finishedAt: walk.finishedAt,
+    statusChangedAt: entry?.updatedAt ?? walk.finishedAt,
+    appearsInRecipes: entry !== undefined && !['proposed', 'draft'].includes(entry.status),
+    refusalReason: status === 'refused' ? (entry?.refusal ?? walk.wall) : null,
+    requiredChanges: null,
+  }
+}
+
+/** Read one owned walk and the current Atlas state for its provider. */
+export async function readWalkStatus(
+  agentId: AgentId,
+  walkId: string,
+  walks: WalkStore | undefined,
+  recipes: ProviderRecipes,
+): Promise<WalkStatusOutcome> {
+  const walk = await walks?.one(agentId, walkId)
+  if (walk === undefined) return { outcome: 'rejected', error: WALK_NOT_FOUND }
+
+  return { outcome: 'read', response: await statusOf(walk, recipes) }
+}
+
+/** The latest walk for each kind/provider pair this citizen has touched. */
+export async function latestWalkStatuses(
+  agentId: AgentId,
+  kind: AccountKind | undefined,
+  walks: WalkStore | undefined,
+  recipes: ProviderRecipes,
+): Promise<readonly WalkStatus[]> {
+  if (walks === undefined) return []
+
+  const latest = new Map<string, AccountWalk>()
+  for (const walk of await walks.list(agentId, kind)) {
+    const key = `${walk.kind}\u0000${walk.provider}`
+    if (!latest.has(key)) latest.set(key, walk)
+  }
+
+  return Promise.all([...latest.values()].map((walk) => statusOf(walk, recipes)))
+}
+
+/** A private draft hint for a public catalogue miss, without exposing its steps. */
+export async function openDraftHint(
+  agentId: AgentId,
+  input: { readonly kind?: AccountKind; readonly provider: string },
+  walks: WalkStore | undefined,
+  recipes: ProviderRecipes,
+): Promise<string | undefined> {
+  const statuses = await latestWalkStatuses(agentId, input.kind, walks, recipes)
+  const draft = statuses.find(
+    (status) => status.provider === input.provider.toLowerCase() && status.status === 'draft',
+  )
+  if (draft === undefined) return undefined
+
+  return (
+    ` Your walk ${draft.walkId} produced a private draft for this provider. It is waiting for ` +
+    `a steward, not lost; poll kolonie.accounts.walk-status with that walkId instead of resubmitting.`
+  )
 }
 
 /**
@@ -212,6 +334,8 @@ export function databaseWalks(db: Database): WalkStore {
 
       return id === undefined ? undefined : accountWalkById(db, id)
     },
+    one: (agentId, walkId) => ownAccountWalk(db, agentId, walkId),
+    list: (agentId, kind) => accountWalkList(db, agentId, kind),
     divergences: () => divergentWalks(db),
   }
 }

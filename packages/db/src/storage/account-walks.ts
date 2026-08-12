@@ -170,6 +170,57 @@ export async function accountWalk(db: Database, walkId: string): Promise<Account
   return toWalk(walk, steps)
 }
 
+/** One citizen's walk, without revealing whether the id belongs to somebody else. */
+export async function ownAccountWalk(
+  db: Database,
+  agentId: AgentId,
+  walkId: string,
+): Promise<AccountWalk | undefined> {
+  const [walk] = await db
+    .select()
+    .from(accountWalks)
+    .where(and(eq(accountWalks.id, walkId), eq(accountWalks.agentId, agentId)))
+    .limit(1)
+  if (walk === undefined) return undefined
+
+  const steps = await db
+    .select()
+    .from(accountWalkSteps)
+    .where(eq(accountWalkSteps.walkId, walkId))
+    .orderBy(asc(accountWalkSteps.position))
+
+  return toWalk(walk, steps)
+}
+
+/** A citizen's walks, newest first, for private status reads. */
+export async function accountWalkList(
+  db: Database,
+  agentId: AgentId,
+  kind?: AccountKind,
+): Promise<readonly AccountWalk[]> {
+  const rows = await db
+    .select()
+    .from(accountWalks)
+    .where(
+      kind === undefined
+        ? eq(accountWalks.agentId, agentId)
+        : and(eq(accountWalks.agentId, agentId), eq(accountWalks.kind, kind)),
+    )
+    .orderBy(desc(accountWalks.startedAt))
+
+  return Promise.all(
+    rows.map(async (row) => {
+      const steps = await db
+        .select()
+        .from(accountWalkSteps)
+        .where(eq(accountWalkSteps.walkId, row.id))
+        .orderBy(asc(accountWalkSteps.position))
+
+      return toWalk(row, steps)
+    }),
+  )
+}
+
 /**
  * Close a walk and do to the catalogue whatever the walk earns.
  *

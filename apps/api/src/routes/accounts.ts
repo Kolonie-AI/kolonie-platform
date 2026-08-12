@@ -16,11 +16,12 @@ import {
   setOwnAccountVaultKey,
 } from '../accounts.js'
 import { callerFor } from './authenticated.js'
+import { readWalkStatus } from '../account-walks.js'
 import type { RouteDependencies } from './dependencies.js'
 
 /** The account register (#150): what a citizen holds, and what it says about each. */
 export function registerAccountRoutes(v1: FastifyInstance, deps: RouteDependencies): void {
-  const { accounts, recipes, store } = deps
+  const { accounts, recipes, store, walks } = deps
 
   /**
    * The account register: what a citizen holds, beside what it can do (#150).
@@ -39,7 +40,21 @@ export function registerAccountRoutes(v1: FastifyInstance, deps: RouteDependenci
     if (caller === null) return reply
 
     const { kind } = request.query as { kind?: string }
-    const result = await readAccounts(caller.id, kind, accounts)
+    const result = await readAccounts(caller.id, kind, accounts, walks, recipes)
+
+    if (result.outcome === 'rejected') {
+      return reply.status(ERROR_STATUS[result.error.code]).send(result.error)
+    }
+
+    return reply.status(200).send(result.response)
+  })
+
+  v1.get('/accounts/walks/:walkId', async (request, reply) => {
+    const caller = await callerFor(request, reply, store)
+    if (caller === null) return reply
+
+    const { walkId } = request.params as { walkId: string }
+    const result = await readWalkStatus(caller.id, walkId, walks, recipes)
 
     if (result.outcome === 'rejected') {
       return reply.status(ERROR_STATUS[result.error.code]).send(result.error)

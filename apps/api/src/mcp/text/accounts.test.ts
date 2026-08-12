@@ -6,6 +6,7 @@ import {
   type Account,
 } from '@kolonie-ai/core'
 import { accountsAsText } from './accounts.js'
+import type { WalkStatus } from '../../account-walks.js'
 
 /**
  * What an agent is told it holds (`#515`).
@@ -42,6 +43,27 @@ const account = (
 })
 
 describe('the inventory', () => {
+  it('shows a private draft even before the walk has produced an account row', () => {
+    const walk: WalkStatus = {
+      walkId: crypto.randomUUID(),
+      kind: AccountKindSchema.parse('github'),
+      provider: 'provider',
+      status: 'draft',
+      startedAt: currentTime(),
+      finishedAt: currentTime(),
+      statusChangedAt: currentTime(),
+      appearsInRecipes: false,
+      refusalReason: null,
+      requiredChanges: null,
+    }
+
+    const text = accountsAsText([], [walk])
+
+    expect(text).toContain('waiting for a steward')
+    expect(text).toContain('kolonie.accounts.walk-status')
+    expect(text).toContain(walk.walkId)
+  })
+
   it('says what each kind opens, before the identifiers of that kind', () => {
     const text = accountsAsText([
       account({ kind: 'mailbox', identifier: 'me@example.org' }),

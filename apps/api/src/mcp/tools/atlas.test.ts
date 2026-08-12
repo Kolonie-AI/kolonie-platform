@@ -50,8 +50,11 @@ describe('the Atlas over MCP', () => {
      * gained the figures, so the count is exactly what it was. Reported here per
      * `#388`'s practice.
      */
-    it('leaves the tool count where it was — 4 unauthenticated, 89 authenticated, 6 steward', () => {
+    it('leaves the tool count explicit — 4 unauthenticated, 90 authenticated, 6 steward', () => {
       expect(UNAUTHENTICATED_TOOLS.length).toBe(4)
+      // 90 since `#770` added `kolonie.accounts.walk-status`, the repeatable read
+      // after the write that closes a walk. It cannot be an argument on the
+      // report because polling must not close or rewrite anything.
       // 89 since `#737` added the three `kolonie.browser.share.*` tools — the
       // third operator channel. Three rather than one with a verb argument,
       // because they differ in what they hand back and in whether they are safe
@@ -79,7 +82,7 @@ describe('the Atlas over MCP', () => {
       // reads and writes one list — and `#524` added
       // `kolonie.quests.population`, the figure a sponsor asks for before it
       // writes anything.
-      expect(AUTHENTICATED_TOOLS.length).toBe(89)
+      expect(AUTHENTICATED_TOOLS.length).toBe(90)
       // 9 since `#695` added `kolonie.quests.end` — the Colony's escape hatch
       // from an automatic publication. Steward-only because sponsor withdrawal
       // while citizens may be working is a separate fairness decision.

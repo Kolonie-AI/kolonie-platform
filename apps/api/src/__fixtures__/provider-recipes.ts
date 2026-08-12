@@ -57,6 +57,8 @@ export interface FakeProviderRecipes extends ProviderRecipes {
       operatorGuess?: RecipeOperatorGuess
     },
   ) => void
+  /** Move an existing row through curation without adding a second provider entry. */
+  readonly setStatus: (kind: string, provider: string, status: ProviderRecipe['status']) => void
   /**
    * What a test says was measured about an entry (`#545`).
    *
@@ -173,6 +175,23 @@ export function fakeProviderRecipes(): FakeProviderRecipes {
       return rows.find(
         (row) => row.kind === kind && row.provider.toLowerCase() === provider.toLowerCase(),
       )
+    },
+
+    setStatus(kind, provider, status) {
+      const at = rows.findIndex(
+        (row) => row.kind === kind && row.provider.toLowerCase() === provider.toLowerCase(),
+      )
+      const existing = rows[at]
+      if (existing === undefined) throw new Error('cannot change a recipe that does not exist')
+
+      rows[at] = {
+        ...existing,
+        status,
+        refusal: status === 'refused' ? (existing.refusal ?? 'no honest route in') : null,
+        retiredAt: status === 'retired' ? currentTime() : null,
+        retiredReason: status === 'retired' ? 'the entry was withdrawn' : null,
+        updatedAt: currentTime(),
+      }
     },
 
     write(entry) {

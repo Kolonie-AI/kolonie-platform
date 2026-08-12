@@ -298,6 +298,8 @@ export const AUTHENTICATED_TOOLS = [
    * the public Atlas.
    */
   'kolonie.accounts.walk-report',
+  /** Poll the private draft that walk-report returns, without resubmitting it (`#770`). */
+  'kolonie.accounts.walk-status',
   /**
    * Keeping one account out of matching (`#523`).
    *

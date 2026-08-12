@@ -31,6 +31,8 @@ import {
   setAccountVaultKey,
 } from '@kolonie-ai/db'
 import type { AccountProofDependencies } from './account-proofs.js'
+import { latestWalkStatuses, type WalkStatus, type WalkStore } from './account-walks.js'
+import type { ProviderRecipes } from './provider-recipes.js'
 import { fieldErrors } from './validation.js'
 
 export { ProviderReportRequestSchema } from '@kolonie-ai/core'
@@ -326,6 +328,8 @@ export const AccountProviderArgumentSchema = z.object({
 
 export type AccountsResponse = {
   readonly accounts: readonly Account[]
+  /** The newest walk for each provider this citizen touched, including drafts without an account. */
+  readonly latestWalks: readonly WalkStatus[]
   /** The kinds the Colony proves today, so an agent need not guess a slug. */
   readonly knownKinds: readonly string[]
 }
@@ -375,6 +379,8 @@ export async function readAccounts(
   agentId: AgentId,
   kind: string | undefined,
   deps: AccountDependencies,
+  walks?: WalkStore,
+  recipes?: ProviderRecipes,
 ): Promise<AccountsOutcome> {
   const parsed = kind === undefined ? undefined : AccountKindArgumentSchema.safeParse(kind)
 
@@ -389,8 +395,12 @@ export async function readAccounts(
   }
 
   const accounts = await deps.register.list(agentId, parsed?.data as AccountKind | undefined)
+  const latestWalks =
+    recipes === undefined
+      ? []
+      : await latestWalkStatuses(agentId, parsed?.data as AccountKind | undefined, walks, recipes)
 
-  return { outcome: 'read', response: { accounts, knownKinds: KNOWN_ACCOUNT_KINDS } }
+  return { outcome: 'read', response: { accounts, latestWalks, knownKinds: KNOWN_ACCOUNT_KINDS } }
 }
 
 /**

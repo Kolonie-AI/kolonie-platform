@@ -4,9 +4,11 @@ import type { Database } from '../client.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
 import {
   accountWalk,
+  accountWalkList,
   divergentWalks,
   finishWalk,
   openWalkId,
+  ownAccountWalk,
   recordWalkStep,
   walkInProgress,
 } from './account-walks.js'
@@ -86,6 +88,23 @@ describe('the record of one agent obtaining one account', () => {
     await recordWalkStep(db, walkId, { actor: 'agent', ask: 'this should not be stored' })
 
     expect((await accountWalk(db, walkId))?.steps[0]?.ask).toBeUndefined()
+  })
+
+  it("reads only the owner's walk and lists that citizen's walks newest first", async () => {
+    const older = await walkInProgress(db, agentId, where)
+    await finishWalk(db, older, { outcome: 'abandoned' })
+    const newer = await walkInProgress(db, agentId, where)
+
+    const other = await registerAgent(db, {
+      name: 'other-walker',
+      platform: 'openclaw',
+      operator: null,
+    })
+    if (other.outcome !== 'registered') throw new Error('could not register the other agent')
+
+    expect(await ownAccountWalk(db, other.agent.id, older)).toBeUndefined()
+    expect((await ownAccountWalk(db, agentId, older))?.id).toBe(older)
+    expect((await accountWalkList(db, agentId)).map((walk) => walk.id)).toEqual([newer, older])
   })
 
   describe('what a finished walk does to the catalogue', () => {

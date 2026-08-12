@@ -56,6 +56,8 @@ import {
   fakeAccounts,
   type FakeAccountRegister,
 } from '../__fixtures__/accounts.js'
+import { fakeWalks, type FakeWalkStore } from '../__fixtures__/account-walks.js'
+import { fakeProviderRecipes, type FakeProviderRecipes } from '../__fixtures__/provider-recipes.js'
 
 let app: FastifyInstance
 let store: FakeStore
@@ -63,15 +65,21 @@ let register: FakeAccountRegister
 let catalogue: FakeCatalogue
 let apiKey: string
 let agentId: AgentId
+let walks: FakeWalkStore
+let recipes: FakeProviderRecipes
 
 beforeEach(async () => {
   store = fakeStore()
   register = fakeAccountRegister()
   catalogue = fakeCatalogue()
+  walks = fakeWalks()
+  recipes = fakeProviderRecipes()
   app = buildApp({
     humans: fakeHumans(),
     vault: { vault: fakeVault() },
     accounts: fakeAccounts(register),
+    walks,
+    recipes,
     console: fakeConsole(),
     email: fakeEmail(),
     sms: fakeSms(),
@@ -173,6 +181,44 @@ describe('GET /v1/accounts', () => {
 
   it('refuses an anonymous caller', async () => {
     expect((await app.inject({ method: 'GET', url: '/v1/accounts' })).statusCode).toBe(401)
+  })
+
+  it('includes the latest walk status even before an account row exists', async () => {
+    const walk = walks.add({ agentId, kind: 'github', provider: 'provider' })
+    recipes.write({ kind: 'github', provider: 'provider', status: 'draft' })
+
+    const response = await list()
+
+    expect(response.json().latestWalks).toEqual([
+      expect.objectContaining({ walkId: walk.id, status: 'draft', appearsInRecipes: false }),
+    ])
+  })
+})
+
+describe('GET /v1/accounts/walks/:walkId', () => {
+  it('reads an owned walk and its current publication state', async () => {
+    const walk = walks.add({ agentId, kind: 'github', provider: 'provider' })
+    recipes.write({ kind: 'github', provider: 'provider', status: 'joinable' })
+
+    const response = await authed({ method: 'GET', url: `/v1/accounts/walks/${walk.id}` })
+
+    expect(response.statusCode).toBe(200)
+    expect(response.json()).toMatchObject({
+      walkId: walk.id,
+      status: 'published',
+      appearsInRecipes: true,
+      requiredChanges: null,
+    })
+  })
+
+  it('returns the same not-found response for an unknown walk', async () => {
+    const response = await authed({
+      method: 'GET',
+      url: `/v1/accounts/walks/${crypto.randomUUID()}`,
+    })
+
+    expect(response.statusCode).toBe(404)
+    expect(response.json().code).toBe('not_found')
   })
 })
 

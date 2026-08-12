@@ -1,5 +1,6 @@
 import { whatAKindOpens } from '@kolonie-ai/core'
 import type { Account, ProviderReportTally, ProviderTally } from '@kolonie-ai/core'
+import type { WalkStatus } from '../../account-walks.js'
 
 /**
  * The register as a model reads it.
@@ -10,8 +11,11 @@ import type { Account, ProviderReportTally, ProviderTally } from '@kolonie-ai/co
  * citizen may declare one is that it wants the reminder, and a reminder it
  * cannot tell from a proof would be worse than none.
  */
-export function accountsAsText(accounts: readonly Account[]): string {
-  if (accounts.length === 0) {
+export function accountsAsText(
+  accounts: readonly Account[],
+  latestWalks: readonly WalkStatus[] = [],
+): string {
+  if (accounts.length === 0 && latestWalks.length === 0) {
     return (
       'You have no accounts on record. The Colony records one for you whenever you pass a rung ' +
       'that proves one — a mailbox, a GitHub account, a handle, a name — and you can write down ' +
@@ -53,24 +57,40 @@ export function accountsAsText(accounts: readonly Account[]): string {
       : [`  ${'→'} ${opens}`]
   }
 
-  const lines = [...byKind.entries()].flatMap(([kind, held]) => [
-    `${kind}:`,
-    ...opensFor(kind, held),
-    ...held.map((account) => {
-      const marks = [
-        account.proved ? account.capabilities.join(', ') || 'proved' : 'not proved',
-        account.status === 'in-use' ? undefined : account.status,
-        account.preferred ? 'preferred' : undefined,
-        account.vaultKey === null ? undefined : `opens with vault entry "${account.vaultKey}"`,
-        account.provider === null ? undefined : `at ${account.provider}`,
-      ].filter((mark) => mark !== undefined)
-
-      return (
-        `  • ${account.identifier} — ${marks.join('; ')}` +
-        (account.note === null ? '' : `\n    note: ${account.note}`)
+  const walkLines = (kind: string): readonly string[] =>
+    latestWalks
+      .filter((walk) => walk.kind === kind)
+      .map(
+        (walk) =>
+          `  latest walk at ${walk.provider}: ${walk.status}` +
+          (walk.status === 'draft'
+            ? ` — waiting for a steward; poll kolonie.accounts.walk-status with ${walk.walkId}`
+            : ''),
       )
-    }),
-  ])
+
+  const kinds = new Set([...byKind.keys(), ...latestWalks.map((walk) => walk.kind)])
+  const lines = [...kinds].flatMap((kind) => {
+    const held = byKind.get(kind) ?? []
+    return [
+      `${kind}:`,
+      ...opensFor(kind, held),
+      ...held.map((account) => {
+        const marks = [
+          account.proved ? account.capabilities.join(', ') || 'proved' : 'not proved',
+          account.status === 'in-use' ? undefined : account.status,
+          account.preferred ? 'preferred' : undefined,
+          account.vaultKey === null ? undefined : `opens with vault entry "${account.vaultKey}"`,
+          account.provider === null ? undefined : `at ${account.provider}`,
+        ].filter((mark) => mark !== undefined)
+
+        return (
+          `  • ${account.identifier} — ${marks.join('; ')}` +
+          (account.note === null ? '' : `\n    note: ${account.note}`)
+        )
+      }),
+      ...walkLines(kind),
+    ]
+  })
 
   return [
     'What you hold, and what each of them lets you do:',

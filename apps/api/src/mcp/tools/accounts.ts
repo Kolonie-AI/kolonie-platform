@@ -4,6 +4,8 @@ import {
   NO_WALK_IN_PROGRESS,
   WalkReportSchema,
   noteWalkStep,
+  openDraftHint,
+  readWalkStatus,
   walkVerdictAsText,
 } from '../../account-walks.js'
 import {
@@ -158,11 +160,22 @@ export function registerAccountTools(
       const authenticatedAgent = await authenticate(credential, deps.store)
       if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
 
-      const result = await readAccounts(authenticatedAgent.agent.id, input.kind, deps.accounts)
+      const result = await readAccounts(
+        authenticatedAgent.agent.id,
+        input.kind,
+        deps.accounts,
+        deps.walks,
+        deps.recipes,
+      )
       if (result.outcome === 'rejected') return toolError(result.error)
 
       return {
-        content: [{ type: 'text', text: accountsAsText(result.response.accounts) }],
+        content: [
+          {
+            type: 'text',
+            text: accountsAsText(result.response.accounts, result.response.latestWalks),
+          },
+        ],
         structuredContent: result.response,
       }
     },
@@ -883,7 +896,25 @@ export function registerAccountTools(
         deps.recipes,
         deps.drops !== undefined,
       )
-      if (result.outcome === 'rejected') return toolError(result.error)
+      if (result.outcome === 'rejected') {
+        const kind =
+          input.kind === undefined ? undefined : AccountKindSchema.safeParse(input.kind).data
+        const hint =
+          result.error.code === 'not_found' && input.provider !== undefined
+            ? await openDraftHint(
+                authenticatedAgent.agent.id,
+                { kind, provider: input.provider },
+                deps.walks,
+                deps.recipes,
+              )
+            : undefined
+
+        return toolError(
+          hint === undefined
+            ? result.error
+            : { ...result.error, message: result.error.message + hint },
+        )
+      }
 
       /**
        * **What the citizen already holds of the kinds these recipes need**
@@ -1406,6 +1437,51 @@ export function registerAccountTools(
           proposes: finished.verdict.kind,
         },
       }
+    },
+  )
+
+  server.registerTool(
+    'kolonie.accounts.walk-status',
+    {
+      title: 'See whether a walked recipe is live',
+      description:
+        'Read the current Atlas publication state for a walk you reported. Draft means it is ' +
+        'waiting for a steward; published means kolonie.accounts.recipes can read it; refused ' +
+        'and withdrawn include the recorded reason when one exists. This is current state for ' +
+        'that kind and provider, not a moderation queue position or ETA.',
+      inputSchema: {
+        walkId: z.uuid().describe('The walkId returned by kolonie.accounts.walk-report.'),
+      },
+      annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
+    },
+    async ({ walkId }) => {
+      const authenticatedAgent = await authenticate(credential, deps.store)
+      if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
+
+      const result = await readWalkStatus(
+        authenticatedAgent.agent.id,
+        walkId,
+        deps.walks,
+        deps.recipes,
+      )
+      if (result.outcome === 'rejected') return toolError(result.error)
+
+      const status = result.response
+      const text =
+        status.status === 'draft'
+          ? `Your walk ${status.walkId} is a private draft waiting for a steward. It is not lost ` +
+            `and does not appear in kolonie.accounts.recipes yet.`
+          : status.status === 'published'
+            ? `Your walk ${status.walkId} is published and now appears in kolonie.accounts.recipes.`
+            : status.status === 'refused'
+              ? `Your walk ${status.walkId} is recorded as refused: ${status.refusalReason ?? 'no reason was recorded.'}`
+              : status.status === 'withdrawn'
+                ? `The Atlas entry for your walk ${status.walkId} was withdrawn.`
+                : status.status === 'walking'
+                  ? `Your walk ${status.walkId} is still open and has not been reported yet.`
+                  : `Your walk ${status.walkId} proposed no current Atlas entry.`
+
+      return { content: [{ type: 'text', text }], structuredContent: { ...status } }
     },
   )
 

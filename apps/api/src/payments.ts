@@ -1,5 +1,12 @@
-import type { AgentId, ObservedPayment, PaymentObserver, TransferClaim } from '@kolonie-ai/core'
+import type {
+  AgentId,
+  ObservedPayment,
+  PaymentObserver,
+  PaymentQuarantine,
+  TransferClaim,
+} from '@kolonie-ai/core'
 import {
+  colonyPaymentBySignature as paymentBySignatureInDatabase,
   colonyPaymentRecorded as paymentRecordedInDatabase,
   colonyPaymentsFrom as paymentsFromInDatabase,
   expireUnpaidQuests as expireUnpaidInDatabase,
@@ -37,6 +44,16 @@ export interface PaymentDesk {
    */
   record(payment: ObservedPayment, observedBy?: PaymentObserver): Promise<ColonyPaymentOutcome>
   recorded(signature: string): Promise<boolean>
+  /**
+   * One arrival in full, by the signature that produced it (`#760`).
+   *
+   * **Not `recorded` with more fields.** That one answers a question the
+   * reconciliation asks about its own work — *had the webhook already seen
+   * this* — and a boolean is the whole of it. This one is read on behalf of a
+   * sponsor asking what became of money it sent, which needs the amount, the
+   * date, and whether the row is being held.
+   */
+  bySignature(signature: string): Promise<ColonyPaymentRecord | undefined>
   quarantined(): Promise<readonly ColonyPaymentRecord[]>
   from(agentId: AgentId): Promise<readonly ColonyPaymentRecord[]>
   /**
@@ -92,9 +109,96 @@ export function databasePayments(db: Database, wallet: string): PaymentDesk {
     wallet,
     record: (payment, observedBy) => recordPaymentInDatabase(db, payment, wallet, observedBy),
     recorded: (signature) => paymentRecordedInDatabase(db, signature),
+    bySignature: (signature) => paymentBySignatureInDatabase(db, signature),
     quarantined: () => quarantinedInDatabase(db),
     from: (agentId) => paymentsFromInDatabase(db, agentId),
     expireUnpaid: (now) => expireUnpaidInDatabase(db, now),
+  }
+}
+
+/**
+ * What the Colony saw of one transfer, as the sponsor that sent it may read
+ * it (`#760`).
+ *
+ * Three states and no fourth: it has not been seen, it was credited, or it is
+ * being held. *Seen and credited to somebody else* is deliberately not one of
+ * them — see {@link readSponsorPayment}.
+ */
+export type SponsorPaymentView =
+  | {
+      readonly outcome: 'unseen'
+      readonly signature: string
+    }
+  | {
+      readonly outcome: 'credited'
+      readonly signature: string
+      readonly lamports: number
+      readonly observedAt: string
+      readonly attributedAt: string
+    }
+  | {
+      readonly outcome: 'held'
+      readonly signature: string
+      readonly lamports: number
+      readonly sender: string
+      readonly observedAt: string
+      readonly quarantine: PaymentQuarantine
+      /** Whether a maintainer has settled it. What was decided is not published. */
+      readonly settled: boolean
+    }
+
+/**
+ * *Did you see this transfer, and what became of it?* — the question a sponsor
+ * had no way to ask (`#760`).
+ *
+ * D-106 warns a sponsor before it pays that money from an unverified address
+ * *"will be held rather than credited"*, and then gives it nothing to check
+ * against: from the sponsor's side a quarantined payment is indistinguishable
+ * from one that never arrived — the same silence, the same invoice, the same
+ * seven-day clock running down.
+ *
+ * **A row attributed to another citizen answers exactly as one that was never
+ * seen.** The signature of a transfer is public and belongs to whoever cares to
+ * copy it off the chain, so answering *this one is somebody else's* would turn
+ * this into a way of asking whether a given citizen has paid the Colony. It is
+ * the `NO_SUCH_QUEST` idiom, for the same reason.
+ *
+ * **A held row answers fully to anybody who knows its signature**, which is not
+ * an inconsistency: it is attributed to nobody, so there is no citizen for the
+ * answer to be about. The address it came from is on the chain already, and it
+ * is the one fact that tells the sender what to do next.
+ */
+export async function readSponsorPayment(
+  agentId: AgentId,
+  signature: string,
+  desk: PaymentDesk,
+): Promise<SponsorPaymentView> {
+  const record = await desk.bySignature(signature)
+
+  if (record === undefined || (record.quarantine === null && record.agentId !== agentId)) {
+    return { outcome: 'unseen', signature }
+  }
+
+  if (record.quarantine !== null) {
+    return {
+      outcome: 'held',
+      signature,
+      lamports: record.lamports,
+      sender: record.sender,
+      observedAt: record.observedAt,
+      quarantine: record.quarantine,
+      settled: record.resolvedAt !== null,
+    }
+  }
+
+  return {
+    outcome: 'credited',
+    signature,
+    lamports: record.lamports,
+    observedAt: record.observedAt,
+    // Attributed is what `agentId` being set means — the check constraint holds
+    // the two together, so this is a narrowing rather than a fallback.
+    attributedAt: record.attributedAt ?? record.observedAt,
   }
 }
 

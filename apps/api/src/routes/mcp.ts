@@ -25,6 +25,7 @@ export function registerMcpRoutes(app: FastifyInstance, deps: RouteDependencies)
     guidance,
     quests,
     earnings,
+    paymentDesk,
     support,
     operatorRequests,
     operatorNotes,
@@ -164,6 +165,9 @@ export function registerMcpRoutes(app: FastifyInstance, deps: RouteDependencies)
           guidance,
           quests,
           earnings,
+          // Absent in a deployment with no wallet, and then the one sponsor tool
+          // about arrivals is simply not registered (`#760`).
+          ...(paymentDesk === undefined ? {} : { paymentDesk }),
           support,
           operatorRequests,
           operatorNotes,

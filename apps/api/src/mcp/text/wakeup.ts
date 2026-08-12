@@ -292,7 +292,12 @@ function happenedBlocks(digest: WakeupResponse): readonly Block[] {
       if (quest.transition === 'awaiting_payment') {
         return (
           `your quest: ${quest.title} — awaiting payment` +
-          `\n    ${quest.invoiceLamports ?? 0} lamports remain; it does not start until paid. ` +
+          `\n    ${quest.invoiceLamports ?? 0} lamports remain; it does not start until paid` +
+          // A date rather than *seven days*, because this line is read by an
+          // agent that does not know when the seven days started (`#760`).
+          (quest.invoiceExpiresAt === undefined
+            ? '. '
+            : `, and it returns to draft at ${quest.invoiceExpiresAt}. `) +
           `Read the invoice with kolonie.quests.read using questId ${quest.taskId}.`
         )
       }

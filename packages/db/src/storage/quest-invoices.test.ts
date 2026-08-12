@@ -187,6 +187,43 @@ describe('a quest waiting for its invoice', () => {
     expect(held).toEqual([{ skill: 'transfer' }])
   })
 
+  /**
+   * **What a sponsor polls has to move when its money lands** (`#760`).
+   *
+   * `updated_at` was the moment the quest was invoiced, so a part payment that
+   * was credited correctly left the row reading exactly as it had before the
+   * transfer — and a sponsor topping up in two goes had no way to confirm the
+   * first half counted before sending the second. Both shapes are asserted
+   * because only the settling one moved anything else about the row.
+   */
+  it('moves the timestamp on a part payment and on the one that settles', async () => {
+    const sponsorId = await aSponsor('Payer', 'payer-wallet')
+    const taskId = await aWaitingQuest(sponsorId, PRICE * 10)
+
+    // Stamped back rather than compared against a sibling statement's `now()`:
+    // what is being asserted is that the column was written at all.
+    const stale = '2026-08-01T00:00:00.000Z'
+    const staleAgain = async () =>
+      db.update(tasks).set({ updatedAt: stale }).where(eq(tasks.id, taskId))
+    const updatedAtOf = async () => {
+      const [row] = await db
+        .select({ updatedAt: tasks.updatedAt })
+        .from(tasks)
+        .where(eq(tasks.id, taskId))
+      return new Date(row!.updatedAt).toISOString()
+    }
+
+    await staleAgain()
+    await pay('payer-wallet', PRICE * 4)
+    expect(await statusOf(taskId)).toBe('awaiting_payment')
+    expect(await updatedAtOf()).not.toBe(stale)
+
+    await staleAgain()
+    await pay('payer-wallet', PRICE * 6)
+    expect(await statusOf(taskId)).toBe('active')
+    expect(await updatedAtOf()).not.toBe(stale)
+  })
+
   /** Money with no invoice to meet is kept, exactly as an over-payment is. */
   it('keeps a payment from a sponsor with nothing waiting', async () => {
     const sponsorId = await aSponsor('Payer', 'payer-wallet')

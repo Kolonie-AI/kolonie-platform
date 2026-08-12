@@ -1,6 +1,7 @@
 import { and, desc, eq, gte, sql } from 'drizzle-orm'
 import {
   AccountKindSchema,
+  INVOICE_EXPIRY_DAYS,
   compareAutonomyContracts,
   ModerationStatusSchema,
   SubmissionStatusSchema,
@@ -193,6 +194,7 @@ export async function wakeupChanges(
       changed_at: string
       reason: string | null
       invoice_lamports: number | null
+      invoice_expires_at: string | null
     }>(sql`
       select t.id as task_id,
              t.title,
@@ -205,7 +207,16 @@ export async function wakeupChanges(
              case when e.action = 'quest-refused' then t.rejection_reason else null end as reason,
              case when t.status = 'awaiting_payment'
                   then greatest(coalesce(t.invoice_lamports, 0) - t.paid_lamports, 0)
-                  else null end as invoice_lamports
+                  else null end as invoice_lamports,
+             -- The deadline, computed in the same arithmetic the expiry sweep
+             -- uses (#760). The wake-up is where a stateless sponsor reads that
+             -- its quest is waiting, and it said only how much was outstanding:
+             -- an agent that wakes weekly could not tell a quest it still had
+             -- time to pay for from one that would be a draft again before its
+             -- next waking.
+             case when t.status = 'awaiting_payment'
+                  then t.awaiting_payment_since + interval '${sql.raw(String(INVOICE_EXPIRY_DAYS))} days'
+                  else null end as invoice_expires_at
         from authority_events e
         join tasks t on t.id = e.subject_task_id
        where e.subject_agent_id = ${agentId}
@@ -215,7 +226,7 @@ export async function wakeupChanges(
               or t.invoice_lamports is null
               or t.status = 'awaiting_payment')
       union all
-      select t.id, t.title, 'published', t.updated_at, null, null
+      select t.id, t.title, 'published', t.updated_at, null, null, null
         from tasks t
        where t.created_by = ${agentId}
          and t.kind = 'quest'
@@ -228,14 +239,14 @@ export async function wakeupChanges(
               and e.action = 'quest-published'
               and e.at < t.updated_at)
       union all
-      select t.id, t.title, 'retired', t.retired_at, t.ended_reason, null
+      select t.id, t.title, 'retired', t.retired_at, t.ended_reason, null, null
         from tasks t
        where t.created_by = ${agentId}
          and t.kind = 'quest'
          and t.status = 'retired'
          and t.retired_at >= ${since}
       union all
-      select t.id, t.title, 'expired', t.expires_at, t.ended_reason, null
+      select t.id, t.title, 'expired', t.expires_at, t.ended_reason, null, null
         from tasks t
        where t.created_by = ${agentId}
          and t.kind = 'quest'
@@ -248,7 +259,7 @@ export async function wakeupChanges(
       -- is written once and never bumped by a retry, so a sponsor is told about
       -- it in the one wake-up after it started rather than in every wake-up
       -- until it lifts.
-      select t.id, t.title, 'held', t.publication_held_at, null, null
+      select t.id, t.title, 'held', t.publication_held_at, null, null, null
         from tasks t
        where t.created_by = ${agentId}
          and t.kind = 'quest'
@@ -503,6 +514,9 @@ export async function wakeupChanges(
       changedAt: toTimestamp(row.changed_at),
       ...(row.reason === null ? {} : { reason: row.reason }),
       ...(row.invoice_lamports === null ? {} : { invoiceLamports: Number(row.invoice_lamports) }),
+      ...(row.invoice_expires_at === null
+        ? {}
+        : { invoiceExpiresAt: toTimestamp(row.invoice_expires_at) }),
     })),
     tasksAdded: added.map(asTask),
     tasksRetired: retired.map(asTask),

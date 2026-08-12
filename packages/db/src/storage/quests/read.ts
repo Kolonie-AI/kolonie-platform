@@ -3,6 +3,7 @@ import {
   QUEST_PRICE_FLOOR_SETTING,
   QUEST_TIER_CAP_SETTINGS,
   StoredQuestQuestionsSchema,
+  invoiceExpiryFrom,
   questPriceFloor,
   questTierCaps,
   type AgentId,
@@ -16,7 +17,13 @@ import type { Database } from '../../client.js'
 import { agents, questAnswers, questModerations, submissions, tasks } from '../../schema/index.js'
 import { toTask, toTimestamp } from '../rows.js'
 import type { SettingsReader } from '../settings.js'
-import { heldSinceOf, ownQuestRow, type OwnQuest, type ScrubbedAnswer } from './shared.js'
+import {
+  heldSinceOf,
+  ownQuestRow,
+  type OwnQuest,
+  type OwnQuestInvoice,
+  type ScrubbedAnswer,
+} from './shared.js'
 
 /**
  * What a quest of each tier may pay right now (`#630`).
@@ -121,12 +128,28 @@ export async function readOwnQuest(
  * live — a sponsor reading *0.5 SOL outstanding* on a running quest would go
  * looking for a payment nobody is waiting for.
  */
-function invoiceOf(
-  row: typeof tasks.$inferSelect,
-): { readonly invoice: { readonly lamports: number; readonly paidLamports: number } } | object {
+function invoiceOf(row: typeof tasks.$inferSelect): { readonly invoice: OwnQuestInvoice } | object {
   if (row.status !== 'awaiting_payment') return {}
 
-  return { invoice: { lamports: row.invoiceLamports ?? 0, paidLamports: row.paidLamports } }
+  return {
+    invoice: {
+      lamports: row.invoiceLamports ?? 0,
+      paidLamports: row.paidLamports,
+      expiresAt: invoiceExpiryOf(row.awaitingPaymentSince),
+    },
+  }
+}
+
+/**
+ * The deadline off the row, or `null` while there is no clock to read (`#760`).
+ *
+ * `awaiting_payment_since` is nullable and a waiting quest always has it, so the
+ * null branch is unreachable in practice — it is here because the column admits
+ * it, and a date computed from `null` would be seven days after the epoch rather
+ * than an absence.
+ */
+function invoiceExpiryOf(awaitingSince: Date | string | null): Timestamp | null {
+  return awaitingSince === null ? null : invoiceExpiryFrom(new Date(awaitingSince)).toISOString()
 }
 
 /**

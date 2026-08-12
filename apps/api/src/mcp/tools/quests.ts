@@ -1,4 +1,4 @@
-import type { z } from 'zod'
+import { z } from 'zod'
 import {
   QuestDraftSchema,
   QuestTopUpSchema,
@@ -24,8 +24,10 @@ import {
   writeQuestDraft,
   type QuestResult,
 } from '../../quests.js'
+import { readSponsorPayment } from '../../payments.js'
 import type { McpDependencies } from '../dependencies.js'
 import { toolError } from '../guard.js'
+import { paymentAsText } from '../text/payment.js'
 import { toolDocsMeta } from '../tool-docs.js'
 
 /**
@@ -87,6 +89,21 @@ const splitSentence = (quest: { readonly reward: TaskReward; readonly slots: num
 }
 
 const questId = TaskIdSchema.describe('The id of the quest.')
+
+/**
+ * The transaction signature of a payment, as the sponsor copies it (`#760`).
+ *
+ * The same bound `ObservedPaymentSchema` puts on the field it reads off the
+ * chain, so a signature this tool accepts is one that could have been recorded.
+ */
+const paymentSignature = z
+  .string()
+  .min(1)
+  .max(120)
+  .describe(
+    'The transaction signature, base58, exactly as your wallet or an explorer shows it — not ' +
+      'the address you sent to and not the quest id.',
+  )
 
 const COMMITMENT_FIELDS = new Set(['reward', 'slots'])
 const TARGETING_FIELDS = new Set([
@@ -570,6 +587,62 @@ export function registerQuestTools(
       )
     },
   )
+
+  /**
+   * *Did you see this transfer?* — the sponsor's half of D-106 (`#760`).
+   *
+   * **A new entry on a surface `#382`–`#388` are shrinking, so the argument is
+   * made rather than assumed**: there is no existing question this is an
+   * argument to. `kolonie.quests.read` answers about a quest and needs a
+   * `questId`, and the case this exists for is the one where the sponsor cannot
+   * tell which quest the money went to — or whether it went anywhere. A payment
+   * held in quarantine is attributed to no quest and to no citizen by
+   * construction, so no quest-keyed tool can ever carry it.
+   *
+   * **Absent when this deployment cannot take money at all**, D-013's way of
+   * switching a surface off: a Colony with no payment desk has no arrivals to be
+   * asked about, and a tool answering *never seen* to every signature would be
+   * worse than no tool.
+   */
+  if (deps.paymentDesk !== undefined) {
+    const desk = deps.paymentDesk
+
+    server.registerTool(
+      'kolonie.quests.payment',
+      {
+        title: 'What became of one transfer you sent the Colony',
+        description:
+          'Ask what the Colony saw of one payment, by the transaction signature you sent it. ' +
+          'It answers one of three things: not seen, credited to you, or **held** — money that ' +
+          'arrived from an address no citizen has proved it controls, which the Colony can see ' +
+          'and cannot attribute.\n\n' +
+          '**Held is the case this exists for.** You are warned before you pay that a transfer ' +
+          'from an unverified address will be held rather than credited, and until this there ' +
+          'was nothing to check it against: from your side a held payment looked exactly like ' +
+          'one that never arrived — the same silence, the same invoice, the same seven days ' +
+          'running down. The answer names the address it came from and the two ways on.\n\n' +
+          '**Not seen is the ordinary answer for a transfer that is minutes old**, because only ' +
+          'a finalized transaction is recognised and the pass that re-reads the wallet runs ' +
+          'hourly. Ask again before you conclude it is lost, and do not pay twice on the ' +
+          'strength of one look.\n\n' +
+          'A signature is public and asking about one proves nothing, so a payment that belongs ' +
+          'to another citizen answers exactly as a signature the Colony has never seen.',
+        inputSchema: { signature: paymentSignature },
+        annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
+      },
+      async ({ signature }) => {
+        const authenticated = await authenticate(credential, deps.store)
+        if (authenticated.outcome === 'rejected') return toolError(authenticated.error)
+
+        const view = await readSponsorPayment(authenticated.agent.id, signature, desk)
+
+        return {
+          content: [{ type: 'text' as const, text: paymentAsText(view) }],
+          structuredContent: view as unknown as Record<string, unknown>,
+        }
+      },
+    )
+  }
 
   server.registerTool(
     'kolonie.quests.results',

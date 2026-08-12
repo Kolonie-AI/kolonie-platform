@@ -2,6 +2,7 @@ import { and, eq, inArray, isNotNull, or, sql } from 'drizzle-orm'
 import {
   INVOICE_EXPIRY_DAYS,
   applyToInvoice,
+  invoiceExpiryFrom,
   invoiceIsSettled,
   type AgentId,
   type TaskId,
@@ -118,6 +119,21 @@ export async function applyPaymentToInvoice(
     .update(tasks)
     .set({
       paidLamports: paid,
+      /**
+       * **Every arrival moves it, not only the one that settles** (`#760`).
+       *
+       * `updated_at` is the obvious thing for a sponsor to poll, and until this
+       * it was the moment the quest was *invoiced*: a part payment credited
+       * correctly left the row reading exactly as it had before the money left
+       * the sponsor's wallet. A sponsor topping up in two transfers had no way
+       * to confirm the first half counted before sending the second, and the
+       * only tell that anything had happened at all was `paid_lamports` inside
+       * the invoice block.
+       *
+       * Set here rather than only in the settling branch below, which keeps its
+       * own note about why the publication moment is this one.
+       */
+      updatedAt: sql`now()`,
       ...(completingTopUp && {
         slots: (waiting.slots ?? 0) + (waiting.pendingSlots ?? 0),
         pendingSlots: null,
@@ -231,17 +247,15 @@ export async function expireUnpaidQuests(
 }
 
 /**
- * The moment a quest published now would expire unpaid.
+ * The moment a waiting quest expires unpaid.
  *
- * Here rather than at each caller so that the API, the console and the
- * expiry pass all read the same seven days from {@link INVOICE_EXPIRY_DAYS}.
+ * **It lives in `@kolonie-ai/core` since `#760`** and is re-exported here for
+ * the callers that had it from this package. It had none at all, which is how
+ * the invoice notice came to state seven days without saying seven days from
+ * what; the sentence that names the date is in core beside the constant, where
+ * a package with no database can read it.
  */
-export function invoiceExpiryFrom(publishedAt: Date): Date {
-  const expiry = new Date(publishedAt)
-  expiry.setUTCDate(expiry.getUTCDate() + INVOICE_EXPIRY_DAYS)
-
-  return expiry
-}
+export { invoiceExpiryFrom }
 
 /** What a sponsor still owes on a quest, or nothing if it is not waiting. */
 export async function outstandingInvoice(

@@ -5,6 +5,7 @@ import {
   INVOICE_EXPIRY_DAYS,
   applyToInvoice,
   invoiceIsSettled,
+  invoiceExpiryFrom,
   invoiceNotice,
   lamportsFromSol,
   questInvoiceLamports,
@@ -104,6 +105,33 @@ describe('what the invoice says before anybody pays', () => {
   it('says how long it waits and what is forfeited', () => {
     expect(notice).toContain(String(INVOICE_EXPIRY_DAYS))
     expect(notice).toContain('forfeited')
+  })
+
+  /**
+   * **A duration is not a deadline** (`#760`). *Seven days* was true and
+   * unusable to the reader it was written for: a stateless agent waking inside
+   * the window has nothing to count them from, so the notice states the moment
+   * and keeps the interval beside it as the thing that says whether the moment
+   * is the ordinary one.
+   */
+  it('states the deadline as a moment when the quest has one', () => {
+    const dated = invoiceNotice({
+      lamports: LAMPORTS_PER_SOL / 2,
+      paidLamports: 0,
+      walletAddress: 'CoLoNyWaLLeT',
+      expiresAt: '2026-08-08T00:00:00.000Z',
+    })
+
+    expect(dated).toContain('returns to draft at 2026-08-08T00:00:00.000Z')
+    expect(dated).toContain(String(INVOICE_EXPIRY_DAYS))
+    expect(dated).toContain('forfeited')
+  })
+
+  /** Seven days from when it began waiting, which is the arithmetic the expiry pass does. */
+  it('puts the deadline seven days after the quest began waiting', () => {
+    expect(invoiceExpiryFrom(new Date('2026-08-01T00:00:00.000Z')).toISOString()).toBe(
+      '2026-08-08T00:00:00.000Z',
+    )
   })
 
   it('shows what is outstanding once part of it is paid', () => {

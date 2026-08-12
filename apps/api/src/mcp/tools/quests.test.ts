@@ -3,6 +3,7 @@ import { SKILLS_THE_ACADEMY_GRANTS } from '@kolonie-ai/db'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { fakeColony } from '../../__fixtures__/colony/index.js'
 import { connectedClient } from '../../__fixtures__/mcp.js'
+import { fakePaymentDesk, type FakePaymentDesk } from '../../__fixtures__/payments.js'
 import { FAKE_AUDIENCE, fakeQuests, type FakeQuestDesk } from '../../__fixtures__/quests.js'
 import { fakeStore, type FakeStore } from '../../__fixtures__/store.js'
 import { AUTHENTICATED_TOOLS, STEWARD_TOOLS, UNAUTHENTICATED_TOOLS } from '../../mcp.js'
@@ -17,12 +18,15 @@ import { AUTHENTICATED_TOOLS, STEWARD_TOOLS, UNAUTHENTICATED_TOOLS } from '../..
 
 let store: FakeStore
 let quests: FakeQuestDesk
+/** Held across the per-call colonies below, so a test can seed an arrival (`#760`). */
+let paymentDesk: FakePaymentDesk
 
-const colony = () => ({ ...fakeColony(), store, quests })
+const colony = () => ({ ...fakeColony(), store, quests, paymentDesk })
 
 beforeEach(() => {
   store = fakeStore()
   quests = fakeQuests()
+  paymentDesk = fakePaymentDesk()
 })
 
 const anAgent = (roles: readonly 'steward'[] = []) => {
@@ -799,6 +803,151 @@ describe('the quest that pays nothing', () => {
     quests.setPriceFloor(0)
 
     expect((await call(anAgent().key, 'kolonie.quests.write', unpaid())).isError).toBeFalsy()
+  })
+})
+
+/**
+ * What became of one transfer a sponsor sent (`#760`).
+ *
+ * **The case it exists for is the payment that reached no quest.** A quarantined
+ * row carries no `agent_id` — the check constraint forbids one, and quarantine
+ * happens precisely because the sending address is not one any citizen proved —
+ * so it is attributed to no quest and no citizen, and no quest-keyed answer can
+ * ever carry it. Before this, finding out took a steward.
+ */
+describe('asking what became of a transfer', () => {
+  const textOf = (result: Awaited<ReturnType<typeof call>>) =>
+    (result.content as Array<{ text: string }>)[0]?.text ?? ''
+
+  it('says a signature it has not recorded is not recorded, without implying the money is gone', async () => {
+    const result = await call(anAgent().key, 'kolonie.quests.payment', {
+      signature: 'a-signature-nobody-sent',
+    })
+
+    expect(structured(result)).toMatchObject({ outcome: 'unseen' })
+    // The two ordinary reasons, because a sponsor reading *not seen* one minute
+    // after sending will otherwise send the money a second time.
+    expect(textOf(result)).toContain('finalized')
+    expect(textOf(result)).toContain('hour')
+  })
+
+  it('names the amount and both dates once the payment became the sponsor’s money', async () => {
+    const sponsor = anAgent()
+    paymentDesk.hold({
+      signature: 'a-credited-signature',
+      agentId: sponsor.id,
+      lamports: 2_500_000,
+      attributedAt: '2026-08-07T15:52:04.000Z',
+    })
+
+    const result = await call(sponsor.key, 'kolonie.quests.payment', {
+      signature: 'a-credited-signature',
+    })
+
+    expect(structured(result)).toMatchObject({
+      outcome: 'credited',
+      lamports: 2_500_000,
+      attributedAt: '2026-08-07T15:52:04.000Z',
+    })
+  })
+
+  /**
+   * The whole point: the sending address, the cause, and the two ways out —
+   * none of which a sponsor could reach without asking a maintainer.
+   */
+  it('tells a sponsor its payment is held, from where, and what to do about it', async () => {
+    paymentDesk.hold({
+      signature: 'a-held-signature',
+      sender: 'an-exchange-hot-wallet',
+      quarantine: 'unverified-sender',
+    })
+
+    const result = await call(anAgent().key, 'kolonie.quests.payment', {
+      signature: 'a-held-signature',
+    })
+
+    expect(structured(result)).toMatchObject({
+      outcome: 'held',
+      sender: 'an-exchange-hot-wallet',
+      quarantine: 'unverified-sender',
+      settled: false,
+    })
+    expect(textOf(result)).toContain('an-exchange-hot-wallet')
+    expect(textOf(result)).toContain('solana-wallet')
+  })
+
+  /**
+   * **A signature is public**, copyable off any explorer by anybody. Answering
+   * *that one is somebody else's* would make this a way to ask whether a named
+   * citizen has paid the Colony, so attributed-to-another and never-seen are one
+   * answer — the `NO_SUCH_QUEST` idiom, for the same reason.
+   */
+  it('answers about another citizen’s payment exactly as about one it never saw', async () => {
+    const sponsor = anAgent()
+    const stranger = anAgent()
+    paymentDesk.hold({
+      signature: 'somebody-elses-signature',
+      agentId: sponsor.id,
+      attributedAt: '2026-08-07T15:52:04.000Z',
+    })
+
+    const mine = await call(stranger.key, 'kolonie.quests.payment', {
+      signature: 'somebody-elses-signature',
+    })
+    const neither = await call(stranger.key, 'kolonie.quests.payment', {
+      signature: 'a-signature-nobody-sent',
+    })
+
+    expect(structured(mine)).toMatchObject({ outcome: 'unseen' })
+    // Byte equality but for the signature echoed back: two different answers
+    // would be the disclosure, however politely each was worded.
+    expect(textOf(mine).replace('somebody-elses-signature', 'a-signature-nobody-sent')).toBe(
+      textOf(neither),
+    )
+  })
+
+  /** A held row is attributed to nobody, so there is no citizen for it to be about. */
+  it('answers a held payment to whoever knows its signature', async () => {
+    paymentDesk.hold({ signature: 'a-held-signature', quarantine: 'colony-sender' })
+
+    const result = await call(anAgent().key, 'kolonie.quests.payment', {
+      signature: 'a-held-signature',
+    })
+
+    expect(structured(result)).toMatchObject({ outcome: 'held', quarantine: 'colony-sender' })
+  })
+
+  it('points a sponsor at support once a maintainer has settled the hold', async () => {
+    paymentDesk.hold({
+      signature: 'a-settled-signature',
+      quarantine: 'unverified-sender',
+      resolvedAt: '2026-08-09T09:00:00.000Z',
+      resolution: 'refunded',
+    })
+
+    const result = await call(anAgent().key, 'kolonie.quests.payment', {
+      signature: 'a-settled-signature',
+    })
+
+    expect(structured(result)).toMatchObject({ outcome: 'held', settled: true })
+    expect(textOf(result)).toContain('kolonie.support.open')
+    // What was decided is not published here: the row carries a maintainer's
+    // note, and a sponsor reading it would be reading an internal one.
+    expect(textOf(result)).not.toContain('refunded')
+  })
+
+  /**
+   * Registered only where a payment desk is wired, which is D-013's way of
+   * switching a surface off. A deployment with no wallet has no arrivals.
+   */
+  it('does not exist in a Colony with no wallet', async () => {
+    const { paymentDesk: _absent, ...withoutWallet } = colony()
+    const { client, close } = await connectedClient(withoutWallet, `Bearer ${anAgent().key}`)
+
+    const { tools } = await client.listTools()
+
+    expect(tools.map((tool) => tool.name)).not.toContain('kolonie.quests.payment')
+    await close()
   })
 })
 

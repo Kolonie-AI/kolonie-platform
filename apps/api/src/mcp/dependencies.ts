@@ -17,6 +17,7 @@ import type { Erasure } from '../erasure.js'
 import type { GithubDependencies } from '../github.js'
 import type { StandingHintSource } from '../hints.js'
 import type { TaskGuidance } from '../guidance.js'
+import type { PaymentDesk } from '../payments.js'
 import type { EarningsDesk } from '../payouts.js'
 import type { QuestDesk } from '../quests.js'
 import type { ImageDependencies } from '../image.js'
@@ -101,6 +102,19 @@ export interface McpDependencies {
    * so the one party that could not see its own payment was the party being paid.
    */
   readonly earnings: EarningsDesk
+  /**
+   * What the Colony's own wallet has received, for the one sponsor tool about
+   * it (`#760`).
+   *
+   * **The desk rather than `PaymentDependencies`**, which also carries the
+   * webhook secret and the chain watcher: this surface reads what was already
+   * recorded and must not be able to record anything, so the half that decides
+   * money arrived is not handed to it.
+   *
+   * Optional, and absent means `kolonie.quests.payment` is not registered at
+   * all — a deployment with no wallet has no arrivals to be asked about.
+   */
+  readonly paymentDesk?: PaymentDesk | undefined
   readonly academy: AcademyDependencies
   readonly email: EmailDependencies
   /** The two phone rungs (`#411`). Its own block for the reason `email` is: a different channel. */

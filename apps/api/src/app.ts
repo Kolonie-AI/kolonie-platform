@@ -489,6 +489,10 @@ export function buildApp({
     attestations: publicAttestations,
     console: consoleDeps,
     earnings,
+    // The read half of the payment desk, for `kolonie.quests.payment` (`#760`).
+    // The webhook secret and the chain watcher stay behind: a surface a sponsor
+    // reads must not be able to decide that money arrived.
+    ...(payments === undefined ? {} : { paymentDesk: payments.desk }),
     rhythm,
     skillReleases,
     unavailable,

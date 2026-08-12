@@ -82,7 +82,12 @@ describe('the Atlas over MCP', () => {
       // reads and writes one list — and `#524` added
       // `kolonie.quests.population`, the figure a sponsor asks for before it
       // writes anything.
-      expect(AUTHENTICATED_TOOLS.length).toBe(90)
+      // 91 since `#760` added `kolonie.quests.payment` — what became of one
+      // transfer a sponsor sent. A tool rather than a field on
+      // `kolonie.quests.read`, because the case it exists for is a payment that
+      // reached no quest: a quarantined row is attributed to no citizen and no
+      // quest by construction, so no quest-keyed answer can ever carry it.
+      expect(AUTHENTICATED_TOOLS.length).toBe(91)
       // 9 since `#695` added `kolonie.quests.end` — the Colony's escape hatch
       // from an automatic publication. Steward-only because sponsor withdrawal
       // while citizens may be working is a separate fairness decision.

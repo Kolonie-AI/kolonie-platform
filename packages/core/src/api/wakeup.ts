@@ -331,6 +331,15 @@ export const WakeupSponsoredQuestSchema = z.object({
   reason: z.string().nullable().optional(),
   /** What remains to be paid, present while publication waits on the sponsor. */
   invoiceLamports: z.int().nonnegative().optional(),
+  /**
+   * When the quest stops waiting and returns to draft (`#760`).
+   *
+   * **Beside the amount, because the amount alone does not say whether to act.**
+   * A citizen that wakes weekly read *2,000,000 lamports remain* and had no way
+   * to tell a quest it could still pay for from one that would be a draft again
+   * before its next waking. Present exactly where `invoiceLamports` is.
+   */
+  invoiceExpiresAt: TimestampSchema.optional(),
 })
 export type WakeupSponsoredQuest = z.infer<typeof WakeupSponsoredQuestSchema>
 

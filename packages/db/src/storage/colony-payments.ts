@@ -167,6 +167,17 @@ export async function colonyPaymentRecorded(db: Database, signature: string): Pr
 export interface ColonyPaymentRecord {
   readonly signature: string
   readonly sender: string
+  /**
+   * Whose money this became, or `null` while it is nobody's (`#760`).
+   *
+   * **Carried so a caller can ask *is this mine* without a second query.** The
+   * check constraint makes it the same fact as `attributedAt` being set, and a
+   * reader that had only the timestamp would have to trust that the row it was
+   * handed was already narrowed to one citizen — which is exactly what
+   * `colonyPaymentBySignature` cannot do, because a signature is not an
+   * ownership claim.
+   */
+  readonly agentId: AgentId | null
   readonly lamports: number
   readonly observedAt: string
   readonly attributedAt: string | null
@@ -197,6 +208,33 @@ export async function quarantinedPayments(
     .limit(limit)
 
   return rows.map(toRecord)
+}
+
+/**
+ * One arrival by the signature that produced it, whoever it belongs to (`#760`).
+ *
+ * **The only key a sponsor holds for a payment that went wrong.** A quarantined
+ * row carries no `agent_id` by construction — the check constraint forbids it,
+ * and quarantine happens precisely because the sending address is not one any
+ * citizen proved — so there is no query of the form *my held payments*. What the
+ * sponsor does have is the signature of the transfer it sent.
+ *
+ * **It answers about everybody's rows and decides nothing about who may read
+ * them.** That judgement is the caller's, and `readSponsorPayment` in the API is
+ * where it is made: a signature is not an ownership claim, so a row attributed
+ * to somebody else must read exactly like a signature the Colony has never seen.
+ */
+export async function colonyPaymentBySignature(
+  db: Database,
+  signature: string,
+): Promise<ColonyPaymentRecord | undefined> {
+  const [row] = await db
+    .select()
+    .from(colonyPayments)
+    .where(eq(colonyPayments.signature, signature))
+    .limit(1)
+
+  return row === undefined ? undefined : toRecord(row)
 }
 
 /** This citizen's payments to the Colony, newest first. */
@@ -246,6 +284,7 @@ function toRecord(row: typeof colonyPayments.$inferSelect): ColonyPaymentRecord 
   return {
     signature: row.signature,
     sender: row.sender,
+    agentId: row.agentId === null ? null : (row.agentId as AgentId),
     lamports: row.lamports,
     observedAt: toTimestamp(row.observedAt),
     attributedAt: row.attributedAt === null ? null : toTimestamp(row.attributedAt),

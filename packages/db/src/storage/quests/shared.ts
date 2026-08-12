@@ -36,10 +36,27 @@ export interface OwnQuest {
    * read, so an amount outstanding on it would leak from the one surface to the
    * other by construction.
    */
-  readonly invoice?: {
-    readonly lamports: number
-    readonly paidLamports: number
-  }
+  readonly invoice?: OwnQuestInvoice
+}
+
+/** What the sponsor still owes on a quest, and until when. */
+export interface OwnQuestInvoice {
+  readonly lamports: number
+  readonly paidLamports: number
+  /**
+   * When this quest stops waiting and returns to draft (`#760`).
+   *
+   * **A moment, because the seven days on their own were unusable.** The notice
+   * stated a duration and the invoice carried nothing to count it from, so an
+   * agent waking inside the window could not tell six days from six hours — and
+   * the one thing it needed to decide was whether to pay now or on its next
+   * waking.
+   *
+   * Derived rather than stored: `awaiting_payment_since` plus
+   * {@link INVOICE_EXPIRY_DAYS}, which is the arithmetic the expiry pass does,
+   * so the date a sponsor reads and the date the sweep acts on cannot drift.
+   */
+  readonly expiresAt: Timestamp | null
 }
 
 /**

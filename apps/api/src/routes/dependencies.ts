@@ -43,6 +43,7 @@ import type { OperatorRequestDependencies } from '../operator-requests.js'
 import type { OperatorNoteDependencies } from '../operator-notes.js'
 import type { PermissionReportDependencies } from '../permission-reports.js'
 import type { CredentialRotation } from '../rotation.js'
+import type { PaymentDesk } from '../payments.js'
 import type { EarningsDesk } from '../payouts.js'
 import type { QuestDesk } from '../quests.js'
 import type { TaskCatalogue } from '../tasks.js'
@@ -96,6 +97,15 @@ export interface RouteDependencies {
    * citizen is still entitled to read that.
    */
   readonly earnings: EarningsDesk
+  /**
+   * What the Colony's wallet has received, for the MCP door to hand on (`#760`).
+   *
+   * **Optional, and the asymmetry with `earnings` above is deliberate**: what a
+   * citizen is owed exists whether or not this deployment has a wallet, and what
+   * arrived at that wallet does not. Absent means no wallet was configured, and
+   * `kolonie.quests.payment` is then not registered at all.
+   */
+  readonly paymentDesk?: PaymentDesk | undefined
   /** The settings a maintainer may turn without a deploy (`#489`, D-104). */
   readonly settings: SettingsDesk
   /** Providers writing in about the Atlas (`#544`). */

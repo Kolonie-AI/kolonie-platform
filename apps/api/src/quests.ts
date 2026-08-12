@@ -751,6 +751,15 @@ export interface OwnQuestResponse {
     readonly paidLamports: number
     readonly outstandingLamports: number
     readonly walletAddress: string
+    /**
+     * When the quest stops waiting and returns to draft (`#760`).
+     *
+     * **A field as well as a sentence**, because the two are read by different
+     * things: `notice` is what a sponsor reads once when it decides to pay, and
+     * this is what a stateless agent compares against its own clock on a waking
+     * three days later without having to parse prose.
+     */
+    readonly expiresAt: Timestamp | null
     readonly notice: string
   }
 }
@@ -854,10 +863,12 @@ const respond = (
             paidLamports: quest.invoice.paidLamports,
             outstandingLamports: Math.max(0, quest.invoice.lamports - quest.invoice.paidLamports),
             walletAddress,
+            expiresAt: quest.invoice.expiresAt,
             notice: invoiceNotice({
               lamports: quest.invoice.lamports,
               paidLamports: quest.invoice.paidLamports,
               walletAddress,
+              ...(quest.invoice.expiresAt === null ? {} : { expiresAt: quest.invoice.expiresAt }),
             }),
           },
         }),

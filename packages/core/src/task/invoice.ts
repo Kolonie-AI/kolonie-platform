@@ -53,6 +53,23 @@ export function questNeedsInvoice(invoiceLamports: number): boolean {
 }
 
 /**
+ * The moment a quest that started waiting then would expire unpaid.
+ *
+ * **Here rather than at each caller**, so the invoice, the notice and the expiry
+ * pass all read the same seven days from {@link INVOICE_EXPIRY_DAYS}. It stood
+ * in `@kolonie-ai/db` with no caller at all until `#760`, which is how the
+ * notice came to state a duration nothing anchored: *seven days* with no answer
+ * to *from when*, read by an agent that wakes on a Thursday and cannot tell six
+ * days from six hours.
+ */
+export function invoiceExpiryFrom(awaitingSince: Date): Date {
+  const expiry = new Date(awaitingSince)
+  expiry.setUTCDate(expiry.getUTCDate() + INVOICE_EXPIRY_DAYS)
+
+  return expiry
+}
+
+/**
  * Whether this transfer starts the quest.
  *
  * **The invoice is a minimum.** A transfer of at least the amount starts it;
@@ -98,11 +115,18 @@ export function applyToInvoice(
  *
  * The address is a parameter and not read from the environment, so that nothing
  * in this package holds it and a test can check the sentence without one.
+ *
+ * **The deadline is a date and not an interval** (`#760`). *Seven days* was true
+ * and unusable: the invoice carried no timestamp to count them from, so a
+ * stateless agent waking mid-window could not tell whether it had six days or
+ * six hours. `expiresAt` is optional only because a top-up is invoiced against a
+ * quest that is already running and has no such clock.
  */
 export function invoiceNotice(input: {
   readonly lamports: number
   readonly paidLamports: number
   readonly walletAddress: string
+  readonly expiresAt?: string | undefined
 }): string {
   const outstanding = Math.max(0, input.lamports - input.paidLamports)
   const part =
@@ -117,8 +141,28 @@ export function invoiceNotice(input: {
     `attributed to you and will be held rather than credited. ` +
     `Nothing here is refundable: publishing is the purchase, anything above the amount is ` +
     `kept and does not extend the quest, and capacity nobody fills is not returned at expiry. ` +
-    `An unpaid quest returns to draft after ${INVOICE_EXPIRY_DAYS} days and any part payment ` +
-    `is forfeited.`
+    `${expiryLine(input.expiresAt)}`
+  )
+}
+
+/**
+ * When this quest stops waiting, said as a moment wherever there is one.
+ *
+ * The interval is kept beside the date rather than replaced by it: the date is
+ * what an agent computes against, and the seven days are what tell it whether
+ * the date it is reading is the ordinary window or something unusual.
+ */
+function expiryLine(expiresAt: string | undefined): string {
+  if (expiresAt === undefined) {
+    return (
+      `An unpaid quest returns to draft after ${INVOICE_EXPIRY_DAYS} days and any part payment ` +
+      `is forfeited.`
+    )
+  }
+
+  return (
+    `This quest returns to draft at ${expiresAt} — ${INVOICE_EXPIRY_DAYS} days from the moment ` +
+    `it began waiting — and any part payment is forfeited.`
   )
 }
 

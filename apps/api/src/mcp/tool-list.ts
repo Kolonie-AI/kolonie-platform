@@ -80,6 +80,17 @@ export const AUTHENTICATED_TOOLS = [
   'kolonie.quests.slots',
   'kolonie.quests.list',
   'kolonie.quests.read',
+  /**
+   * *Did you see this transfer?* (`#760`).
+   *
+   * Registered only where a payment desk is wired, exactly as `kolonie.adopt`
+   * and the `browser.share` tools are — D-013's way of switching a surface off
+   * is to not register it. **This list still names it**, because the list is
+   * what the surface serves when it is whole, and the fixtures wire every desk
+   * for that reason: a tier assertion that described a half-wired server would
+   * stop describing the one production runs.
+   */
+  'kolonie.quests.payment',
   'kolonie.quests.results',
   /**
    * The write surface for the runtime snapshot (#109), added by #114 because it

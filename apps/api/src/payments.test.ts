@@ -40,6 +40,10 @@ function fakeDesk(
       return outcomes[Math.min(index++, outcomes.length - 1)] as ColonyPaymentOutcome
     },
     recorded: async (signature) => seen.has(signature),
+    // The read half (`#760`), unexercised here: what a sponsor asks about is
+    // tested against the desk that stores rows, not against this one, which
+    // exists to count what a delivery asked it to record.
+    bySignature: async (): Promise<ColonyPaymentRecord | undefined> => undefined,
     quarantined: async (): Promise<readonly ColonyPaymentRecord[]> => [],
     from: async (): Promise<readonly ColonyPaymentRecord[]> => [],
     expireUnpaid: async () => [],

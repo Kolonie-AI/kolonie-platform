@@ -476,7 +476,13 @@ export async function wakeup(
     .map((quest) => ({
       what: `Pay the invoice for ${quest.title}`,
       call: `kolonie.quests.read with questId: ${quest.taskId}`,
-      why: 'the quest cleared review and stays invisible until its invoice is paid',
+      why:
+        'the quest cleared review and stays invisible until its invoice is paid' +
+        // The deadline belongs in *why now* rather than in *what you get*: it is
+        // the fact that decides whether this waits for the next waking (`#760`).
+        (quest.invoiceExpiresAt === undefined
+          ? ''
+          : `, and it returns to draft at ${quest.invoiceExpiresAt}`),
       gets: 'the quest goes live when the payment arrives',
       needs: `${quest.invoiceLamports ?? 0} lamports from your verified wallet`,
       repeatable: false,

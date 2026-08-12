@@ -4,6 +4,7 @@ import type { TaskSubmissions } from '../../submissions.js'
 import type { Retesting } from '../../retest.js'
 import { fakeCatalogue } from '../catalogue.js'
 import { fakeEarnings, type FakeEarnings } from '../earnings.js'
+import { fakePaymentDesk, type FakePaymentDesk } from '../payments.js'
 import { fakeQuests, type FakeQuestDesk } from '../quests.js'
 import { fakeSubmissions } from '../submissions.js'
 import { fakeGuidance, type FakeGuidance } from '../guidance.js'
@@ -26,6 +27,13 @@ export interface FakeWork {
   readonly quests: FakeQuestDesk
   /** What a citizen has been paid and is owed (`#535`), in memory. */
   readonly earnings: FakeEarnings
+  /**
+   * And the other direction (`#760`): what a sponsor paid the Colony.
+   *
+   * Wired by default, so `kolonie.quests.payment` is registered and the tier
+   * assertions describe the server production runs rather than a half-wired one.
+   */
+  readonly paymentDesk: FakePaymentDesk
   /** The way in (`#219`), in memory. */
   /** Where submissions go, behind both surfaces. Overridable the same way. */
   readonly submissions: TaskSubmissions
@@ -49,6 +57,7 @@ export function fakeWork(): FakeWork {
     catalogue: fakeCatalogue(),
     quests: fakeQuests(),
     earnings: fakeEarnings(),
+    paymentDesk: fakePaymentDesk(),
 
     submissions: fakeSubmissions(),
     guidance: fakeGuidance(),

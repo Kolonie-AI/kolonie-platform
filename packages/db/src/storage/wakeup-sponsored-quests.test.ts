@@ -85,6 +85,10 @@ describe('sponsored quest changes in the wake-up digest', () => {
         transition: 'awaiting_payment',
         changedAt: '2026-08-01T10:00:00.000Z',
         invoiceLamports: 2_000_000,
+        // Seven days from `awaitingPaymentSince` (`#760`). The digest is read by
+        // a sponsor that has been away, which is exactly the reader for whom a
+        // duration counted from a moment it cannot recall is not a deadline.
+        invoiceExpiresAt: '2026-08-08T10:00:00.000Z',
       },
     ])
   })

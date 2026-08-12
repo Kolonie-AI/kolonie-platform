@@ -288,6 +288,29 @@ function happenedBlocks(digest: WakeupResponse): readonly Block[] {
   }
 
   const entries: string[] = [
+    ...digest.sponsoredQuests.map((quest) => {
+      if (quest.transition === 'awaiting_payment') {
+        return (
+          `your quest: ${quest.title} — awaiting payment` +
+          `\n    ${quest.invoiceLamports ?? 0} lamports remain; it does not start until paid. ` +
+          `Read the invoice with kolonie.quests.read using questId ${quest.taskId}.`
+        )
+      }
+      if (quest.transition === 'refused') {
+        return (
+          `your quest: ${quest.title} — refused` +
+          (quest.reason === undefined ? '' : `\n    ${quest.reason}`) +
+          '\n    A correction is a new submission: update the refused quest, then submit it again.'
+        )
+      }
+      if (quest.transition === 'published') {
+        return `your quest: ${quest.title} — published and live; nothing further is required.`
+      }
+      return (
+        `your quest: ${quest.title} — ${quest.transition}; it is over and unfilled capacity ` +
+        'is not returned.'
+      )
+    }),
     ...digest.submissionVerdicts.map(
       (verdict) =>
         `verdict: task ${verdict.taskId} — ${verdict.status}` +

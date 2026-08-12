@@ -12,6 +12,7 @@ import {
   type AtlasFigures,
 } from '@kolonie-ai/core'
 import { escape } from '../console/html.js'
+import { breadcrumbFor, howToFor, itemListFor } from './structured-data.js'
 import { CONSOLE_MAST } from '../console/mark.js'
 import { CONSOLE_STYLE } from '../console/theme.js'
 import { ATLAS_STYLE } from './style.js'
@@ -90,6 +91,15 @@ export function atlasPage(input: {
   readonly canonical: string
   readonly body: string
   readonly chrome?: SiteChrome | undefined
+  /**
+   * Machine-readable copies of what the page says (`#789`).
+   *
+   * **Blocks rather than objects**, so that the escaping lives in one function
+   * next to the argument for it — `asJsonLdBlock` — instead of being something
+   * every caller has to remember. Absent is the ordinary state for any page that
+   * has nothing structured to say.
+   */
+  readonly jsonLd?: readonly string[] | undefined
 }): string {
   const { chrome } = input
 
@@ -110,6 +120,12 @@ export function atlasPage(input: {
      * the point of it being shared.
      */
     `<style>${CONSOLE_STYLE}${ATLAS_STYLE}</style>`,
+    /**
+     * **After the style block and inside the head that was already `<style>`-only**
+     * (`#789`). It is data, not script: see `structured-data.ts` for the CSP
+     * argument and the headers it was checked against.
+     */
+    ...(input.jsonLd ?? []),
     chrome?.head ?? '',
     '</head>',
     '<body>',
@@ -150,6 +166,18 @@ const ATLAS_STANDFIRST =
  * browser uses (`#591`, `atlasPickerPath`) rather than a second spelling of the
  * same idea on a second surface.
  */
+/**
+ * The origin the page is served on, taken from its own canonical (`#789`).
+ *
+ * **Derived rather than passed in.** The canonical is already required to be
+ * absolute — *a public page with no canonical is a duplicate* — so the site is a
+ * fact the page holds, and a second parameter carrying it would be a second
+ * record of one thing, free to disagree with the link in the head.
+ */
+function siteOf(canonical: string): string {
+  return new URL(canonical).origin
+}
+
 export function atlasIndexPath(category?: AtlasCategory): string {
   return category === undefined ? ATLAS_PATH : `${ATLAS_PATH}?category=${category}`
 }
@@ -187,6 +215,13 @@ export function atlasIndexPage(input: {
     description: ATLAS_STANDFIRST,
     canonical: input.canonical,
     chrome: input.chrome,
+    /**
+     * **The list it rendered, in the order it rendered it** (`#789`). `shown`
+     * and not `entries`: a filtered index is a different list, and an `ItemList`
+     * naming entries the page does not show would be the markup contradicting
+     * the page it is attached to.
+     */
+    jsonLd: [itemListFor(shown, siteOf(input.canonical), category)],
     body: [
       '<main>',
       '<h1>The Atlas</h1>',
@@ -328,11 +363,20 @@ export function atlasEntryPage(input: {
 }): string {
   const { entry } = input
 
+  const site = siteOf(input.canonical)
+
   return atlasPage({
     title: entry.title,
     description: entryDescription(entry),
     canonical: input.canonical,
     chrome: input.chrome,
+    /**
+     * **The breadcrumb on every state and the `HowTo` only where there are
+     * steps** (`#789`). A refused or unwritten entry is still a place in the map
+     * and still worth a trail; it is not a set of instructions, and an empty
+     * `HowTo` would be the catalogue pretending.
+     */
+    jsonLd: [breadcrumbFor(entry, site), ...howToFor(entry)],
     /**
      * **The order is `kolonie-website#97`'s list of what a reader must be able
      * to answer without scrolling**, in that order, and it is the order rather

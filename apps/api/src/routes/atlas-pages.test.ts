@@ -323,7 +323,14 @@ describe('the Atlas on the website host', () => {
       expect(response.statusCode).toBe(200)
       expect(response.body).toContain('Bluesky')
       expect(response.body).not.toContain('>GitHub<')
-      expect(response.body).not.toContain('<script')
+      /**
+       * **No executable script, which is the promise** (`#97`, D-062): filtering
+       * is a link and the page works with JavaScript off. The `ld+json` block
+       * `#789` added is data — the browser never executes it — so the assertion
+       * is about a script that *runs* rather than about the string.
+       */
+      expect(response.body).not.toContain('<script>')
+      expect(response.body).not.toContain('text/javascript')
       /** And a way back out of the filter. */
       expect(response.body).toContain('Every category')
     })
@@ -415,6 +422,8 @@ describe('the Atlas on the website host', () => {
     it('reads as clean text with every style and tag stripped', async () => {
       const text = (await get('/atlas/bluesky')).body
         .replace(/<style\b[\s\S]*?<\/style>/g, ' ')
+        /** `ld+json` is data and not prose, stripped for the reason `<style>` is (`#789`). */
+        .replace(/<script\b[\s\S]*?<\/script>/g, ' ')
         .replace(/<[^>]+>/g, ' ')
         .replace(/\s+/g, ' ')
 
@@ -423,6 +432,24 @@ describe('the Atlas on the website host', () => {
       /** The refusal reads as a finding rather than as an error page. */
       expect(text).not.toMatch(/\berror\b/i)
       expect(text).not.toContain('{')
+    })
+
+    /**
+     * `application/ld+json` appeared 0 times anywhere on kolonie.ai until `#789`.
+     * The page was already a numbered list of steps with an actor on each; this
+     * is that shape written down for a reader that is not a person.
+     */
+    it('carries the machine-readable copy of what it says', async () => {
+      const entryPage = (await get('/atlas/github')).body
+      const index = (await get('/atlas')).body
+
+      expect(entryPage).toContain('<script type="application/ld+json">')
+      expect(entryPage).toContain('"@type":"BreadcrumbList"')
+      expect(entryPage).toContain('"@type":"HowTo"')
+      expect(index).toContain('"@type":"ItemList"')
+      /** A refusal is still a place in the map, and still not a set of steps. */
+      expect((await get('/atlas/bluesky')).body).toContain('"@type":"BreadcrumbList"')
+      expect((await get('/atlas/bluesky')).body).not.toContain('"@type":"HowTo"')
     })
 
     it('carries a title, a description and a canonical on every page', async () => {

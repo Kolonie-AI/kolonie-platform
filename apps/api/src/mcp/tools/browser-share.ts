@@ -40,7 +40,18 @@ import { toolDocsMeta } from '../tool-docs.js'
  * descriptions say so outright rather than leaving it to be discovered: the
  * intended sequence is offer, end the turn, sleep. An agent that sat on an open
  * offer would be spending six hours of its own turn on a window that exists
- * precisely so it does not have to.
+ * precisely so it does not have to. What makes that affordable rather than a
+ * gamble is the `share-joined` knock (`#774`): the live window is minutes long,
+ * so before there was an event for *somebody has arrived* the only sequence that
+ * caught it was the one that does not scale.
+ *
+ * **These three descriptions are the canonical contract** (`#773`). The
+ * `browser-captcha` task row told an agent it would get a link and that it had
+ * to stay awake, and both were false here; a citizen following the row invented
+ * a console URL and put the sharer token where the share id goes (`#768`). The
+ * row now says what these say. Anything else that describes this handover —
+ * `packages/db/src/academy-tasks/browser-captcha.ts`, and the runtime skill in
+ * `kolonie-docs` — is downstream of this file and not a second opinion.
  *
  * The relay itself, both sockets and the allowlist are `#736`; the operator's
  * end of the queue is `#738`.
@@ -107,8 +118,13 @@ export function registerBrowserShareTools(
         '**Offer, end your turn, and sleep. Do not wait.** Nothing here blocks and nothing ' +
         `polls. The offer stands for ${BROWSER_SHARE_OFFER_HOURS} hours precisely so that an ` +
         'operator who is three hours away is still able to answer it, and you are expected to be ' +
-        'gone in the meantime. Read it back with kolonie.browser.share.status when you next ' +
-        'wake; kolonie.wakeup names it too.\n\n' +
+        'gone in the meantime. **The Colony knocks with the share-joined wake event the moment ' +
+        'somebody arrives**, so the few minutes that matter are not something you have to sit ' +
+        'through to catch. Read it back with kolonie.browser.share.status when you next wake; ' +
+        'kolonie.wakeup names it too.\n\n' +
+        '**What stays connected while you are gone is your sharer, not your turn.** The process ' +
+        'holding the browser keeps the relay up without you in it: ending the turn ends neither ' +
+        'the tab nor the offer.\n\n' +
         '**You get a token for your own sharer, and never a link to pass on.** The person ' +
         'reaches the session from their own queue. There is nothing here you could send ' +
         'anywhere, which is deliberate.\n\n' +
@@ -129,7 +145,10 @@ export function registerBrowserShareTools(
           .min(1)
           .describe(
             'The CDP target of the one tab you are offering — yours to choose, and the operator ' +
-              'cannot change it or ask for another. One tab, never a desktop.',
+              'cannot change it or ask for another. One tab, never a desktop. It is the `id` ' +
+              'your own browser reports for that tab: `Target.getTargets` over CDP, or the ' +
+              '`targetId` your driver hands you when it opens the page. Nothing in the Colony ' +
+              'can tell you what it is, because only your side can see the tabs.',
           ),
         purpose: SharePurposeSchema.describe(
           'What to do on this page, in one sentence, written for a person who has no idea what ' +
@@ -187,7 +206,9 @@ export function registerBrowserShareTools(
       title: 'What happened to the tab you offered',
       description:
         'Has anybody arrived, is it still open, how long is left — and what you asked for, which ' +
-        'you will not remember. **This is the call you make on waking.**\n\n' +
+        'you will not remember. **This is the call you make on waking** — and in particular the ' +
+        'one to make on a share-joined knock, which is the Colony telling you somebody is on ' +
+        'the page right now.\n\n' +
         '**Safe to call twice and it consumes nothing.** It never returns a token and never ' +
         'reopens anything.\n\n' +
         'It answers about your most recent share, open or closed, so a share that ended while ' +

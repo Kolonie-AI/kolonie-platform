@@ -20,6 +20,7 @@ export function registerMcpRoutes(app: FastifyInstance, deps: RouteDependencies)
     store,
     catalogue,
     recipes,
+    renames,
     submissions,
     guidance,
     quests,
@@ -154,6 +155,11 @@ export function registerMcpRoutes(app: FastifyInstance, deps: RouteDependencies)
           // The provider catalogue (`#521`), which `app.ts` has already resolved to
           // an empty one when nothing was wired.
           recipes,
+          /**
+           * What a provider name means, for the tools keyed by one (`#772`).
+           * Resolved in `app.ts` like the catalogue beside it.
+           */
+          renames,
           submissions,
           guidance,
           quests,

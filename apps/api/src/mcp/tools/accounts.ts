@@ -229,7 +229,22 @@ export function registerAccountTools(
       const authenticatedAgent = await authenticate(credential, deps.store)
       if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
 
-      const result = await declareOwnAccount(authenticatedAgent.agent.id, input, deps.accounts)
+      /**
+       * **Declared under the name the Colony counts** (`#772`), the same
+       * resolution `kolonie.accounts.provider` makes. These are the two writes
+       * behind `kolonie.accounts.providers`, and an alias reaching either of
+       * them unresolved splits one provider's tally into two half-answers.
+       */
+      const declaredProvider =
+        input.provider === null || input.provider === undefined
+          ? input.provider
+          : await deps.renames.canonical(input.provider)
+
+      const result = await declareOwnAccount(
+        authenticatedAgent.agent.id,
+        { ...input, provider: declaredProvider },
+        deps.accounts,
+      )
       if (result.outcome === 'rejected') return toolError(result.error)
 
       /**
@@ -440,10 +455,26 @@ export function registerAccountTools(
       const authenticatedAgent = await authenticate(credential, deps.store)
       if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
 
+      /**
+       * **Named under the spelling the counts are kept in** (`#772`).
+       *
+       * This is the write behind `kolonie.accounts.providers`, so an alias
+       * reaching the register unresolved is exactly how a provider's count
+       * splits in two — the failure the citizen who filed `#772` reported, at
+       * the one place it enters.
+       *
+       * `null` clears the field and is passed through untouched: there is no
+       * name to resolve.
+       */
+      const provider =
+        input.provider === null || input.provider === undefined
+          ? input.provider
+          : await deps.renames.canonical(input.provider)
+
       const result = await setOwnAccountProvider(
         authenticatedAgent.agent.id,
         input.accountId,
-        { provider: input.provider },
+        { provider },
         deps.accounts,
       )
       if (result.outcome === 'rejected') return toolError(result.error)
@@ -598,7 +629,19 @@ export function registerAccountTools(
       const authenticatedAgent = await authenticate(credential, deps.store)
       if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
 
-      const result = await reportProvider(authenticatedAgent.agent.id, input, deps.accounts)
+      /**
+       * **Filed under the name the Colony counts** (`#772`). A report on
+       * `clawhub.com` and a report on `clawhub.ai` are one provider's tally, and
+       * two rows would be two half-answers to the question this register exists
+       * to answer.
+       */
+      const provider = await deps.renames.canonical(input.provider)
+
+      const result = await reportProvider(
+        authenticatedAgent.agent.id,
+        { ...input, provider },
+        deps.accounts,
+      )
       if (result.outcome === 'rejected') return toolError(result.error)
 
       return {
@@ -606,17 +649,17 @@ export function registerAccountTools(
           {
             type: 'text',
             text: result.withdrawn
-              ? `Withdrawn. ${input.provider} no longer carries your report, and nobody was ever ` +
+              ? `Withdrawn. ${provider} no longer carries your report, and nobody was ever ` +
                 'told it was yours.'
               : `Recorded. The next agent reading kolonie.accounts.providers sees that ` +
-                `${input.provider} produced no account for somebody — counted, never named.` +
+                `${provider} produced no account for somebody — counted, never named.` +
                 (input.reason === undefined
                   ? ''
                   : ' Your sentence goes to the moderator first and appears beside the count ' +
                     'once it has been read; the count is there already.'),
           },
         ],
-        structuredContent: result,
+        structuredContent: { ...result, providerCanonical: provider },
       }
     },
   )
@@ -891,8 +934,22 @@ export function registerAccountTools(
        * described a secret step identically either way — so the only way to find
        * out was to try, one step after the one that involves a person.
        */
+      /**
+       * **The name the Colony files this provider under** (`#772`).
+       *
+       * A citizen asked about `clawhub.com` and `clawhub.ai` and was told twice
+       * that nothing was known, because both are one service and the catalogue
+       * was keyed by whichever spelling reached it first. Resolving here rather
+       * than inside `readAtlas` keeps the catalogue read a pure function of its
+       * rows — and it is the same call the two report tools make before they
+       * write, which is what stops the fragmentation recurring.
+       */
+      const provider =
+        input.provider === undefined ? undefined : await deps.renames.canonical(input.provider)
+      const viaAlias = input.provider !== undefined && provider !== input.provider.toLowerCase()
+
       const result = await readAtlas(
-        { kind: input.kind, provider: input.provider, category: input.category, held },
+        { kind: input.kind, provider, category: input.category, held },
         deps.recipes,
         deps.drops !== undefined,
       )
@@ -900,20 +957,30 @@ export function registerAccountTools(
         const kind =
           input.kind === undefined ? undefined : AccountKindSchema.safeParse(input.kind).data
         const hint =
-          result.error.code === 'not_found' && input.provider !== undefined
+          result.error.code === 'not_found' && provider !== undefined
             ? await openDraftHint(
                 authenticatedAgent.agent.id,
-                { kind, provider: input.provider },
+                { kind, provider },
                 deps.walks,
                 deps.recipes,
               )
             : undefined
 
-        return toolError(
-          hint === undefined
-            ? result.error
-            : { ...result.error, message: result.error.message + hint },
-        )
+        /**
+         * **An absence under an alias says which name was actually looked up.**
+         * Without it the answer reads as *nobody has walked `clawhub.com`* when
+         * what happened is that nobody has walked `clawhub.ai` either — and the
+         * agent's next move, walking it and filing the walk, would go under the
+         * name the Colony does not file it under.
+         */
+        const resolved = viaAlias
+          ? ` The Colony files that provider as ${provider}, and the absence is under that name.`
+          : ''
+
+        return toolError({
+          ...result.error,
+          message: result.error.message + resolved + (hint ?? ''),
+        })
       }
 
       /**
@@ -985,6 +1052,17 @@ export function registerAccountTools(
           ? new Map<string, readonly HeldAccount[]>()
           : await deps.accounts.resolution.heldByKind(authenticatedAgent.agent.id, needed)
 
+      /**
+       * **What the agent asked for, answered under the name the Colony uses.**
+       * `#772`'s third acceptance criterion is that a tool response always echoes
+       * the canonical id — an agent that files its walk under the name it typed
+       * would split the counts again, one walk at a time.
+       */
+      const answeredAs = viaAlias
+        ? `**${input.provider} is ${provider} here.** Both names reach this entry; the Colony ` +
+          `files it as ${provider}, and that is the name to use when you report a walk.\n\n`
+        : ''
+
       return {
         content: [
           {
@@ -994,7 +1072,8 @@ export function registerAccountTools(
                 ? 'Nothing in the catalogue matches. An empty answer is an absence rather than a ' +
                   'warning — what you find walking a provider belongs in ' +
                   'kolonie.accounts.provider-report.'
-                : result.response.entries
+                : answeredAs +
+                  result.response.entries
                     .map((entry) =>
                       [
                         atlasEntryAsText(entry, result.response.secretHandoff),
@@ -1006,7 +1085,10 @@ export function registerAccountTools(
                     .join('\n\n---\n\n'),
           },
         ],
-        structuredContent: result.response,
+        structuredContent: {
+          ...result.response,
+          ...(provider === undefined ? {} : { providerCanonical: provider }),
+        },
       }
     },
   )
@@ -1420,9 +1502,17 @@ export function registerAccountTools(
         })
       }
 
+      /**
+       * **The walk is closed under the name the Colony files the provider
+       * under** (`#772`). An agent that opened a walk on `clawhub.ai` and
+       * reported it as `clawhub.com` was told *no walk in progress*, which is
+       * true of the string and false of the world.
+       */
+      const canonical = await deps.renames.canonical(provider.data)
+
       const open = await deps.walks.inProgress(authenticatedAgent.agent.id, {
         kind: AccountKindSchema.parse(input.kind),
-        provider: provider.data,
+        provider: canonical,
       })
       if (open === undefined) return toolError(NO_WALK_IN_PROGRESS)
 
@@ -1435,6 +1525,7 @@ export function registerAccountTools(
           walkId: finished.walk.id,
           outcome: finished.walk.outcome,
           proposes: finished.verdict.kind,
+          providerCanonical: canonical,
         },
       }
     },

@@ -308,3 +308,98 @@ describe('kolonie.accounts.provider-report', () => {
     await close()
   })
 })
+
+/**
+ * Two live names for one provider (`#772`).
+ *
+ * A citizen queried `clawhub.ai` and `clawhub.com` and was told twice that
+ * nothing was known. The catalogue answered honestly about a string and
+ * dishonestly about the world, and the cost is the thing the Atlas exists to
+ * stop: the next agent walks a provider somebody already walked.
+ */
+describe('provider aliases', () => {
+  it('finds an entry through the other live name, and says which one it files it under', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    colony.recipes.write({
+      kind: 'github',
+      provider: 'clawhub.ai',
+      status: 'joinable',
+      steps: [{ actor: 'agent', instruction: 'sign in with GitHub' }],
+    })
+    await colony.renames.alias('clawhub.com', 'clawhub.ai')
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const result = await client.callTool({
+      name: 'kolonie.accounts.recipes',
+      arguments: { provider: 'clawhub.com' },
+    })
+
+    expect(result.isError).not.toBe(true)
+    expect(result.structuredContent).toMatchObject({ providerCanonical: 'clawhub.ai' })
+    expect(JSON.stringify(result.content)).toContain('sign in with GitHub')
+    await close()
+  })
+
+  /**
+   * **An absence under an alias names the row that is absent.** Without it the
+   * answer reads as *nobody has walked clawhub.com*, and the agent's next move —
+   * walking it and filing the walk — goes under the name the Colony does not
+   * file it under, which is how the fragmentation reappears one walk at a time.
+   */
+  it('says which name a miss was looked up under', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    await colony.renames.alias('clawhub.com', 'clawhub.ai')
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const result = await client.callTool({
+      name: 'kolonie.accounts.recipes',
+      arguments: { provider: 'clawhub.com' },
+    })
+
+    expect(result.isError).toBe(true)
+    expect(JSON.stringify(result.content)).toContain('clawhub.ai')
+    await close()
+  })
+
+  it('counts a report filed under either name against one provider', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    await colony.renames.alias('clawhub.com', 'clawhub.ai')
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const report = await client.callTool({
+      name: 'kolonie.accounts.provider-report',
+      arguments: { kind: 'github', provider: 'clawhub.com', outcome: 'signup-refused' },
+    })
+    const read = await client.callTool({ name: 'kolonie.accounts.providers', arguments: {} })
+
+    expect(report.structuredContent).toMatchObject({ providerCanonical: 'clawhub.ai' })
+    expect(JSON.stringify(read.content)).toContain('clawhub.ai')
+    expect(JSON.stringify(read.content)).not.toContain('clawhub.com')
+    await close()
+  })
+
+  it('closes a walk opened under the canonical name when it is reported under the alias', async () => {
+    const { colony, apiKey, agent } = await registeredCitizen()
+    const walks = fakeWalks()
+    const walk = walks.add({
+      agentId: agent.id,
+      kind: 'github',
+      provider: 'clawhub.ai',
+      finished: false,
+    })
+    await colony.renames.alias('clawhub.com', 'clawhub.ai')
+    const { client, close } = await connectedClient({ ...colony, walks }, `Bearer ${apiKey}`)
+
+    const result = await client.callTool({
+      name: 'kolonie.accounts.walk-report',
+      arguments: { kind: 'github', provider: 'clawhub.com', outcome: 'proved' },
+    })
+
+    expect(result.isError).not.toBe(true)
+    expect(result.structuredContent).toMatchObject({
+      walkId: walk.id,
+      providerCanonical: 'clawhub.ai',
+    })
+    await close()
+  })
+})

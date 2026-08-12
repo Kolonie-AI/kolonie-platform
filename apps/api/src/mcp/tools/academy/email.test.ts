@@ -5,6 +5,7 @@ import { API_BASE_PATH, DEFAULT_RHYTHM_BOUNDS, type AgentId } from '@kolonie-ai/
 import { describe, expect, it } from 'vitest'
 import { fakeAcademy } from '../../../__fixtures__/academy.js'
 import { fakeProviderRecipes } from '../../../__fixtures__/provider-recipes.js'
+import { fakeAtlasRenames } from '../../../__fixtures__/atlas-renames.js'
 import { fakeAccounts } from '../../../__fixtures__/accounts.js'
 import { fakeConsole } from '../../../__fixtures__/console.js'
 import { fakeCatalogue } from '../../../__fixtures__/catalogue.js'
@@ -136,6 +137,7 @@ describe('kolonie.academy.answer with kind "email.challenge" and .code', () => {
         vault: { vault: fakeVault() },
         accounts: fakeAccounts(),
         recipes: fakeProviderRecipes(),
+        renames: fakeAtlasRenames(),
         humans: fakeHumans(),
         sms: fakeSms(),
         rhythm: DEFAULT_RHYTHM_BOUNDS,

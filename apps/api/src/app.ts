@@ -408,7 +408,10 @@ export function buildApp({
    */
   const atlasRenames: AtlasRenames = renames ?? {
     renamedTo: async () => undefined,
+    /** Nothing recorded means every name means itself, which is the true answer here. */
+    canonical: async (provider) => provider.toLowerCase(),
     rename: async () => ({ moved: 0 }),
+    alias: async () => ({ outcome: 'points-at-itself' }),
   }
 
   /** A colony that confirms nothing is the true answer in one with no citizens (`#519`). */

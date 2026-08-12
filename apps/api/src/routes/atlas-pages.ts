@@ -182,6 +182,11 @@ export function registerAtlasPages(app: FastifyInstance, deps: RouteDependencies
        * rename is rare and the query for one should not be on the path every
        * hit takes. 301 rather than 302 — the move is permanent, and a
        * temporary redirect leaves the old URL in an index forever.
+       *
+       * **An alias lands here too, and 301 is still right** (`#772`).
+       * `clawhub.com` is a live name at the provider, but its *Atlas page* is
+       * permanently the canonical entry's — two URLs for one entry is the
+       * duplicate a crawler splits its judgement across.
        */
       const renamedTo = await renames.renamedTo(asked.data)
       if (renamedTo !== undefined) return reply.redirect(atlasPath(renamedTo), 301)

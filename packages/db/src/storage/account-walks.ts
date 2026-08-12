@@ -15,6 +15,7 @@ import {
 import type { Database } from '../client.js'
 import { accountWalks, accountWalkSteps } from '../schema/account-walks.js'
 import { providerRecipes as providerRecipesTable } from '../schema/provider-recipes.js'
+import { canonicalProvider } from './atlas-renames.js'
 import { providerRecipe, writeProviderRecipe } from './provider-recipes.js'
 import { toTimestamp } from './rows.js'
 
@@ -82,7 +83,7 @@ export async function openWalkId(
       and(
         eq(accountWalks.agentId, agentId),
         eq(accountWalks.kind, input.kind),
-        eq(accountWalks.provider, AccountProviderSchema.parse(input.provider)),
+        eq(accountWalks.provider, await canonicalProvider(db, input.provider)),
         isNull(accountWalks.finishedAt),
       ),
     )
@@ -97,7 +98,16 @@ export async function walkInProgress(
   agentId: AgentId,
   input: { readonly kind: AccountKind; readonly provider: string },
 ): Promise<string> {
-  const provider = AccountProviderSchema.parse(input.provider)
+  /**
+   * **One walk per provider, whichever of its names the agent typed** (`#772`).
+   *
+   * Resolved here rather than at each call site because there are three of them
+   * — a declaration, a sealed handoff and an ordinary one — and the fourth one
+   * somebody adds would be the one that opened a second walk on the same
+   * afternoon's work. The storage layer owns the key; this is where the key is
+   * decided.
+   */
+  const provider = await canonicalProvider(db, AccountProviderSchema.parse(input.provider))
 
   /**
    * **Read before write, and the read is its own function** (`#601`). Reporting

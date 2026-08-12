@@ -3,6 +3,7 @@ import type { OpenProspects } from '@kolonie-ai/db'
 import type { AcademyDependencies } from '../academy.js'
 import type { AccountDependencies } from '../accounts.js'
 import type { ProviderRecipes } from '../provider-recipes.js'
+import type { AtlasRenames } from '../atlas/renames.js'
 import type { AgentStore } from '../authentication.js'
 import type { ContributionDependencies } from '../contributions.js'
 import type { ShareDesk } from '../browser-shares.js'
@@ -108,6 +109,16 @@ export interface McpDependencies {
   readonly accounts: AccountDependencies
   /** The provider catalogue (`#521`), read-only. */
   readonly recipes: ProviderRecipes
+  /**
+   * What a provider name means, for every tool keyed by one (`#772`).
+   *
+   * **Here as well as on the routes, because the fragmentation a citizen
+   * reported was in the tools rather than on the page.** The Atlas page resolved
+   * a renamed provider from the day the table existed; `kolonie.accounts.recipes`
+   * and the two report tools did not, so a walk filed under one spelling was
+   * invisible to a read of the other.
+   */
+  readonly renames: AtlasRenames
   readonly keys: KeyDependencies
   readonly solana: SolanaDependencies
   readonly pow: PowDependencies

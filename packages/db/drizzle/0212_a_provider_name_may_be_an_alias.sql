@@ -1,0 +1,3 @@
+ALTER TABLE "atlas_renames" ADD COLUMN "reason" text DEFAULT 'renamed' NOT NULL;--> statement-breakpoint
+ALTER TABLE "atlas_renames" ADD CONSTRAINT "atlas_renames_reason_is_known" CHECK ("atlas_renames"."reason" in ('renamed', 'alias'));--> statement-breakpoint
+ALTER TABLE "atlas_renames" ADD CONSTRAINT "atlas_renames_points_elsewhere" CHECK ("atlas_renames"."from_provider" <> "atlas_renames"."to_provider");

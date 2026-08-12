@@ -16,6 +16,34 @@ export function fakeAtlasRenames(): AtlasRenames {
       return rows.get(from.toLowerCase())
     },
 
+    async canonical(provider) {
+      const asked = provider.toLowerCase()
+      return rows.get(asked) ?? asked
+    },
+
+    /**
+     * The flattening, and nothing about shadowing.
+     *
+     * **This fake holds no catalogue**, so *would this alias hide an entry* is a
+     * question it cannot answer — and a fake that answered *no* to it would be
+     * asserting the safe case rather than modelling the rule. That refusal is
+     * checked against real rows in `packages/db`'s own test, which is the only
+     * place it can be checked truthfully.
+     */
+    async alias(from, to) {
+      const fromProvider = from.toLowerCase()
+      const toProvider = rows.get(to.toLowerCase()) ?? to.toLowerCase()
+
+      if (fromProvider === toProvider) return { outcome: 'points-at-itself' }
+
+      for (const [old, target] of rows) {
+        if (target === fromProvider) rows.set(old, toProvider)
+      }
+      rows.set(fromProvider, toProvider)
+
+      return { outcome: 'recorded', alias: fromProvider, provider: toProvider }
+    },
+
     async rename(from, to) {
       const fromProvider = from.toLowerCase()
       const toProvider = to.toLowerCase()

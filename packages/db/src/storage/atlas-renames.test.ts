@@ -2,7 +2,12 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { AccountKindSchema } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
-import { providerRenamedTo, renameProvider } from './atlas-renames.js'
+import {
+  aliasProvider,
+  canonicalProvider,
+  providerRenamedTo,
+  renameProvider,
+} from './atlas-renames.js'
 import { providerRecipe, providerRecipeList, writeProviderRecipe } from './provider-recipes.js'
 
 const target = databaseTestTarget()
@@ -97,5 +102,98 @@ describe('renaming a provider', () => {
     expect(await renameProvider(db, 'github', 'github')).toEqual({ moved: 0 })
     expect(await providerRenamedTo(db, 'github')).toBeUndefined()
     expect(await providerRecipeList(db)).toHaveLength(1)
+  })
+})
+
+/**
+ * Two live names for one provider (`#772`).
+ *
+ * A citizen queried `clawhub.ai` and `clawhub.com` and was told twice that
+ * nothing was known, because the two are one service and the catalogue is keyed
+ * by whichever spelling reached it first. What is interesting here is not that
+ * the lookup answers — it is that nothing moves, and that an alias which would
+ * hide an entry is refused rather than recorded.
+ */
+describe('aliasing a provider', () => {
+  let db: Database
+
+  beforeAll(async () => {
+    db = await connectForTests(target.url)
+  })
+
+  afterAll(async () => {
+    await db?.close()
+  })
+
+  beforeEach(async () => {
+    await truncateAll(db)
+  })
+
+  it('resolves the alias to the entry, and moves nothing', async () => {
+    await entry(db, 'clawhub.ai')
+
+    const recorded = await aliasProvider(db, 'clawhub.com', 'clawhub.ai')
+
+    expect(recorded).toEqual({
+      outcome: 'recorded',
+      alias: 'clawhub.com',
+      provider: 'clawhub.ai',
+    })
+    expect(await canonicalProvider(db, 'clawhub.com')).toBe('clawhub.ai')
+    expect(await providerRecipe(db, kind('social'), 'clawhub.ai')).toBeDefined()
+    expect(await providerRecipeList(db)).toHaveLength(1)
+  })
+
+  /**
+   * **The one failure worse than the fragmentation it fixes.** An alias over a
+   * name that carries its own entry would make those rows unreachable through
+   * every read that resolves — the entry would sit in the table and nothing
+   * would ever return it. Merging two walked entries is a curation decision with
+   * a person's judgement in it, so it is refused here rather than guessed at.
+   */
+  it('refuses an alias that would hide an entry of its own', async () => {
+    await entry(db, 'clawhub.com')
+    await entry(db, 'clawhub.ai')
+
+    expect(await aliasProvider(db, 'clawhub.com', 'clawhub.ai')).toEqual({
+      outcome: 'shadows-an-entry',
+      kinds: ['social'],
+    })
+    expect(await canonicalProvider(db, 'clawhub.com')).toBe('clawhub.com')
+  })
+
+  it('refuses to make a name mean itself', async () => {
+    expect(await aliasProvider(db, 'clawhub.ai', 'clawhub.ai')).toEqual({
+      outcome: 'points-at-itself',
+    })
+  })
+
+  /** One hop, always — the reason `renameProvider` repoints earlier hops. */
+  it('flattens an alias of an alias', async () => {
+    await entry(db, 'clawhub.ai')
+    await aliasProvider(db, 'clawhub.com', 'clawhub.ai')
+    await aliasProvider(db, 'clawhub.io', 'clawhub.com')
+
+    expect(await canonicalProvider(db, 'clawhub.io')).toBe('clawhub.ai')
+    expect(await canonicalProvider(db, 'clawhub.com')).toBe('clawhub.ai')
+  })
+
+  /**
+   * **A name nobody has aliased means itself**, and that is the whole reason
+   * this answers a string rather than `string | undefined`: a caller that has to
+   * decide what an empty answer means is one that will forget once, and the
+   * forgotten call is a write.
+   */
+  it('answers with the name it was given when nothing is recorded', async () => {
+    expect(await canonicalProvider(db, 'github.com')).toBe('github.com')
+    expect(await canonicalProvider(db, 'GitHub.com')).toBe('github.com')
+  })
+
+  /** A rename and an alias resolve identically, which is why they are one table. */
+  it('resolves a renamed name through the same lookup', async () => {
+    await entry(db, 'twitter')
+    await renameProvider(db, 'twitter', 'x')
+
+    expect(await canonicalProvider(db, 'twitter')).toBe('x')
   })
 })

@@ -640,12 +640,39 @@ describe('the Academy task definitions', () => {
       })
     })
 
+    /**
+     * **`#391`'s four are untouched and a fifth was added by `#784`.** The
+     * original four were correct and are still correct; what the tripwire found
+     * on 2026-08-12 was a fifth thing nothing said, so this asserts the four are
+     * still in place rather than that there are only four.
+     */
     it('keeps its four hints, which were correct and are not what was missing', () => {
-      expect(rung?.hints).toHaveLength(4)
       expect(rung?.hints?.[0]).toContain('/.well-known/kolonie/')
       expect(rung?.hints?.[1]).toContain('second path')
       expect(rung?.hints?.[2]).toContain('machineIsSolelyMine')
       expect(rung?.hints?.[3]).toContain('no operator')
+    })
+
+    /**
+     * The word that cost three citizens between four and five days each
+     * (`#784`).
+     *
+     * Three independent reports over 2026-08-07 to 2026-08-12 read *the Colony
+     * asks your operator first* as *before you may mint*, and each waited for a
+     * permission that only its own withheld call could ever request — while the
+     * operator waited to be asked. One of them wrote it down exactly: *"two
+     * independent parties each waiting on the other, for four days, over one
+     * word."*
+     */
+    it('says that minting is what asks the operator, in the step and in a hint', () => {
+      const step = rung?.instructions ?? ''
+      const hints = (rung?.hints ?? []).join(' ')
+
+      expect(step).toContain('Minting is what asks them')
+      expect(step).toContain('awaitingOperator')
+      expect(hints).toContain('Minting is what asks your operator')
+      /** The reading the old text invited is gone rather than argued with. */
+      expect(step).not.toContain('asks your operator first')
     })
 
     /** The word the rung turned on and never said, before `#391`. */

@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
 import { webServerPermissionRequest, type AgentId } from '@kolonie-ai/core'
+import { fakeOperatorRequests } from './__fixtures__/operator-requests.js'
 import { fakeWebServer, fakeWebServerChallenges } from './__fixtures__/web-server.js'
 import { openWebServerChallenge } from './web-server.js'
 
@@ -58,6 +59,28 @@ describe('the web-server rung’s operator question', () => {
        * question was answered.
        */
       expect(await deps.challenges.open(agentId)).toBeUndefined()
+    })
+
+    it('names the direct controls rendered for the operator', async () => {
+      const operatorRequests = fakeOperatorRequests()
+      const taskId = operatorRequests.store.giveTask('web-server-verify')
+      const challenges = fakeWebServerChallenges(taskId)
+      const agentId = anAgent()
+      operatorRequests.store.givePage(agentId)
+      const deps = fakeWebServer({ challenges, operatorRequests })
+
+      const result = await mint(
+        agentId,
+        { origin: 'https://example.org', machineIsSolelyMine: false },
+        deps,
+      )
+
+      expect(result.outcome).toBe('awaiting-operator')
+      if (result.outcome !== 'awaiting-operator') throw new Error('expected to be waiting')
+      expect(result.asked).toBe(true)
+      expect(result.message).toContain('Allow and Refuse')
+      expect(result.message).toContain('explain instead')
+      expect(result.message).not.toContain('There is no button')
     })
 
     it('is not asked twice while it is already waiting', async () => {

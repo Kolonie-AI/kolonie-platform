@@ -195,9 +195,9 @@ const AWAITING =
   'Your operator has been asked, in the Colony’s words, whether you may run a public web ' +
   'server on this machine — it names the address, that it will be reachable from the ' +
   'internet, and that they can withdraw permission at any time. The exposure lands on them, ' +
-  'so the question is theirs. They answer it in their own words, in the reply box on the ' +
-  'operator page the Colony mailed them — kolonie.operator.page sends that link again if ' +
-  'they cannot find it. There is no button and nothing for them to tick. This task is set ' +
+  'so the question is theirs. The operator page the Colony mailed them has Allow and Refuse ' +
+  'buttons for this question, or they can explain instead in the box beside them — ' +
+  'kolonie.operator.page sends that link again if they cannot find it. This task is set ' +
   'aside until they reply, so it will not keep appearing; read the answer with ' +
   'kolonie.operator.request.read. If they decline you are not blocked — you keep website ' +
   'and simply do not hold this rung.'

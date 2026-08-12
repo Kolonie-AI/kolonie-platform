@@ -1,9 +1,12 @@
 import {
+  AUTONOMY_CAPABILITIES,
+  AUTONOMY_CAPABILITY_WORDING,
   AUTONOMY_DIRECTION_NOTE,
   AUTONOMY_LEVELS,
   AUTONOMY_LEVEL_DESCRIPTIONS,
   OPERATOR_MESSAGE_MAX_LENGTH,
   OPERATOR_ROUTE_MAX_LENGTH,
+  type AutonomyCapability,
   type HeldBadge,
 } from '@kolonie-ai/core'
 import { asciiName } from './console/ascii-name.js'
@@ -220,7 +223,8 @@ export function autonomyFormPage(input: {
     | {
         readonly level?: string | undefined
         readonly challengesAllowed?: string | undefined
-        readonly webServer?: string | undefined
+        /** The boxes that were ticked, already read out of the post (`#779`). */
+        readonly capabilities?: readonly AutonomyCapability[] | undefined
         readonly defaultRule?: string | undefined
         readonly operatorRoute?: string | undefined
       }
@@ -246,8 +250,11 @@ export function autonomyFormPage(input: {
   const held = input.values ?? {}
 
   /** `checked` where the operator already chose this one. */
-  const chosen = (field: keyof typeof held, value: string): string =>
+  const chosen = (field: 'level' | 'challengesAllowed' | 'defaultRule', value: string): string =>
     held[field] === value ? ' checked' : ''
+
+  /** The capability boxes a rejected submission had ticked. */
+  const grantedAlready = new Set(held.capabilities ?? [])
 
   /**
    * The other agents this answer may cover (`#514`).
@@ -309,8 +316,12 @@ export function autonomyFormPage(input: {
 
     '<h2>Specific capabilities</h2>',
     '<p class="note">These are separate from how far the agent may generally go. Unticked means',
-    'not granted.</p>',
-    `<p><label><input type="checkbox" name="webServer" value="granted"${chosen('webServer', 'granted')}> <strong>Web server</strong> — it may run a server on your machine, publicly reachable, on a port it names.</label></p>`,
+    'not granted — and what your agent does about that is the answer you give below, so an',
+    'unticked box with “it should ask you” means it puts the question rather than stopping.</p>',
+    ...AUTONOMY_CAPABILITIES.map((capability) => {
+      const wording = AUTONOMY_CAPABILITY_WORDING[capability]
+      return `<p><label><input type="checkbox" name="${escape(wording.field)}" value="granted"${grantedAlready.has(capability) ? ' checked' : ''}> <strong>${escape(wording.label)}</strong> — ${escape(wording.grant)}</label></p>`
+    }),
 
     '<h2>And when something comes up that you have not covered?</h2>',
     '<p class="note">One answer, given once. Without it every case you did not think of is a',
@@ -889,7 +900,10 @@ export function operatorDurablePage(input: {
           '<table>',
           `<tr><th>How far it may go</th><td>${escape(input.contract.level)}</td></tr>`,
           `<tr><th>May clear “prove you are human” checks</th><td>${input.contract.challengesAllowed ? 'yes' : 'no'}</td></tr>`,
-          `<tr><th>May run a publicly reachable web server</th><td>${input.contract.capabilities?.includes('web-server') === true ? 'yes' : 'no'}</td></tr>`,
+          ...AUTONOMY_CAPABILITIES.map((capability) => {
+            const granted = input.contract?.capabilities?.includes(capability) === true
+            return `<tr><th>${escape(AUTONOMY_CAPABILITY_WORDING[capability].row)}</th><td>${granted ? 'yes' : 'no'}</td></tr>`
+          }),
           `<tr><th>When something is not covered</th><td>${escape(
             input.contract.defaultRule === 'ask' ? 'it should ask you' : 'it should leave it alone',
           )}</td></tr>`,

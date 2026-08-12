@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
+  AUTONOMY_CAPABILITIES,
+  AUTONOMY_CAPABILITY_WORDING,
   AUTONOMY_LEVELS,
   AUTONOMY_LEVEL_DESCRIPTIONS,
   AUTONOMY_SKILL,
@@ -8,8 +10,10 @@ import {
   AutonomyContractVersionSchema,
   AutonomyLevelSchema,
   OPERATOR_ROUTE_MAX_LENGTH,
+  capabilitiesFromForm,
   capabilityDecision,
   capabilityRefusal,
+  capabilityStandingNote,
   compareAutonomyContracts,
   contractIsComplete,
   type AutonomyCapability,
@@ -256,6 +260,31 @@ describe('deciding on a capability', () => {
     expect(capabilityDecision(null, 'web-server')).toBe('ask')
   })
 
+  /**
+   * What `Capabilities: none granted` could not say (`#779`). The citizen reading
+   * its own contract has to be able to tell *my operator said no* from *nobody
+   * has been asked*, because the next step differs — and the answer is the
+   * decision rather than the list.
+   */
+  it('tells a citizen which of the three answers it is holding', () => {
+    expect(capabilityStandingNote('web-server', 'granted')).toContain('granted')
+    expect(capabilityStandingNote('web-server', 'ask')).toContain('to ask')
+    expect(capabilityStandingNote('web-server', 'refrain')).toContain('to refrain')
+  })
+
+  it('sends a citizen to the question rather than to a stop when the rule is to ask', () => {
+    // The distinction the flat line lost: silence is not a refusal, and it is
+    // also not a yes.
+    const asked = capabilityStandingNote('web-server', 'ask')
+
+    expect(asked).toContain('does not read a silence as a yes')
+    expect(asked).not.toContain('kolonie.autonomy.blocked')
+  })
+
+  it('names the channel when the rule is to refrain, because the citizen cannot grant it', () => {
+    expect(capabilityStandingNote('web-server', 'refrain')).toContain('kolonie.autonomy.blocked')
+  })
+
   it('says what a citizen stopped by refrain would have to get changed', () => {
     const refusal = capabilityRefusal('web-server')
 
@@ -264,5 +293,39 @@ describe('deciding on a capability', () => {
     // `#518`'s rule, held to here too: being limited by an operator is not a
     // failure of the citizen's and costs it nothing elsewhere.
     expect(refusal).toContain('costs you nothing')
+  })
+})
+
+/**
+ * One wording per capability, and one reader of the form (`#779`).
+ *
+ * The capability had drifted into three phrasings across two files, which is
+ * what `AUTONOMY_LEVEL_DESCRIPTIONS` exists upstream to prevent; and the two
+ * doors serving the same form each read the checkbox with their own copy of the
+ * same literal, so a second capability would have been granted on one and
+ * dropped on the other.
+ */
+describe('how a capability is worded and read back', () => {
+  it('gives every capability a wording, so no surface has to invent one', () => {
+    for (const capability of AUTONOMY_CAPABILITIES) {
+      const wording = AUTONOMY_CAPABILITY_WORDING[capability]
+
+      expect(wording.field.length).toBeGreaterThan(0)
+      expect(wording.label.length).toBeGreaterThan(0)
+      expect(wording.grant.length).toBeGreaterThan(0)
+      expect(wording.row.length).toBeGreaterThan(0)
+    }
+  })
+
+  it('reads a ticked box, and reads an unticked one as not granted', () => {
+    expect(capabilitiesFromForm({ webServer: 'granted' })).toEqual(['web-server'])
+    expect(capabilitiesFromForm({})).toEqual([])
+    // A checkbox that arrived with anything but the value the form posts is not
+    // a grant: an operator's tick is the only thing that grants one.
+    expect(capabilitiesFromForm({ webServer: 'on' })).toEqual([])
+  })
+
+  it('ignores everything else the form posted', () => {
+    expect(capabilitiesFromForm({ level: 'free', challengesAllowed: 'yes' })).toEqual([])
   })
 })

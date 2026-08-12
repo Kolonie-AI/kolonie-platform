@@ -1,0 +1,1 @@
+ALTER TYPE "public"."permission_block" ADD VALUE 'run-a-web-server' BEFORE 'other';

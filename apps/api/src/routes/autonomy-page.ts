@@ -1,4 +1,4 @@
-import type { AgentId } from '@kolonie-ai/core'
+import { capabilitiesFromForm, type AgentId } from '@kolonie-ai/core'
 import type { OperatorPageView } from '@kolonie-ai/db'
 import type { FastifyInstance } from 'fastify'
 import { answerAutonomyForm } from '../autonomy.js'
@@ -123,7 +123,7 @@ export function registerAutonomyPageRoutes(app: FastifyInstance, deps: RouteDepe
         // rather than in the schema, so the schema stays the shape the MCP and
         // JSON callers use and only the HTML surface knows about radio values.
         challengesAllowed: submitted['challengesAllowed'] === 'yes',
-        capabilities: submitted['webServer'] === 'granted' ? ['web-server'] : [],
+        capabilities: capabilitiesFromForm(submitted),
         defaultRule: submitted['defaultRule'],
         operatorRoute: submitted['operatorRoute'],
       },
@@ -167,7 +167,7 @@ export function registerAutonomyPageRoutes(app: FastifyInstance, deps: RouteDepe
               values: {
                 level: asText(submitted['level']),
                 challengesAllowed: asText(submitted['challengesAllowed']),
-                webServer: asText(submitted['webServer']),
+                capabilities: capabilitiesFromForm(submitted),
                 defaultRule: asText(submitted['defaultRule']),
                 operatorRoute: asText(submitted['operatorRoute']),
               },

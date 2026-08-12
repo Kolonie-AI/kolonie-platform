@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   PERMISSION_AGGREGATE_FLOOR,
   PermissionBlockSchema,
+  capabilitiesUnblocking,
   levelUnblocking,
   needsChallengePermission,
 } from './permission-report.js'
@@ -67,6 +68,31 @@ describe('what a block maps to', () => {
   it('asks for nothing when nothing was reported', () => {
     expect(levelUnblocking([])).toBeNull()
     expect(needsChallengePermission([])).toBe(false)
+    expect(capabilitiesUnblocking([])).toEqual([])
+  })
+
+  /**
+   * A capability is the third kind of answer, on the same argument as the second
+   * (`#779`): no level grants a listening socket and no level withholds one, so a
+   * recommendation that answered this with a level would ask for the wrong thing —
+   * and before the value existed it was filed as `other`, which names nothing.
+   */
+  it('asks for a capability and no level when the block is server work', () => {
+    expect(levelUnblocking(['run-a-web-server'])).toBeNull()
+    expect(needsChallengePermission(['run-a-web-server'])).toBe(false)
+    expect(capabilitiesUnblocking(['run-a-web-server'])).toEqual(['web-server'])
+  })
+
+  it('names no capability for the blocks that are levels or permissions', () => {
+    expect(capabilitiesUnblocking(['hold-an-account', 'clear-a-human-check', 'other'])).toEqual([])
+  })
+
+  it('names every kind at once when a mixed set asks for all three', () => {
+    const blocks = ['publish', 'clear-a-human-check', 'run-a-web-server'] as const
+
+    expect(levelUnblocking(blocks)).toBe('independent')
+    expect(needsChallengePermission(blocks)).toBe(true)
+    expect(capabilitiesUnblocking(blocks)).toEqual(['web-server'])
   })
 })
 

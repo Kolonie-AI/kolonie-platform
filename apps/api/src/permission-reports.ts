@@ -1,11 +1,13 @@
 import {
   FilePermissionReportSchema,
   PermissionReportIdSchema,
+  capabilitiesUnblocking,
   levelUnblocking,
   needsChallengePermission,
   type Agent,
   type AgentId,
   type ApiError,
+  type AutonomyCapability,
   type AutonomyLevel,
   type AutonomyRecommendation,
   type AutonomyRecommendationResponse,
@@ -220,13 +222,25 @@ export async function autonomyRecommendation(
   const blocks = blocked.map((report) => report.block)
   const recommendedLevel = levelUnblocking(blocks)
   const recommendsChallengePermission = needsChallengePermission(blocks)
+  // Only what the contract does not already grant: a recommendation that asked for a
+  // capability the operator ticked long ago is one they learn to stop reading.
+  const recommendsCapabilities = capabilitiesUnblocking(blocks).filter(
+    (capability) => !(contract?.capabilities ?? []).includes(capability),
+  )
 
   const recommendation: AutonomyRecommendation = {
     currentLevel: contract?.level ?? null,
     currentlyMayClearChallenges: contract?.challengesAllowed ?? null,
+    currentCapabilities: contract === null ? null : [...(contract.capabilities ?? [])],
     recommendedLevel,
     recommendsChallengePermission,
-    changesAnything: changesAnything(contract, recommendedLevel, recommendsChallengePermission),
+    recommendsCapabilities: [...recommendsCapabilities],
+    changesAnything: changesAnything(
+      contract,
+      recommendedLevel,
+      recommendsChallengePermission,
+      recommendsCapabilities,
+    ),
     blocked: [...blocked],
     delivered: {
       rungs: agent.skills.map((skill) => String(skill)),
@@ -254,13 +268,22 @@ function changesAnything(
   contract: StoredAutonomyContract | null,
   recommendedLevel: AutonomyLevel | null,
   recommendsChallengePermission: boolean,
+  recommendsCapabilities: readonly AutonomyCapability[],
 ): boolean {
   // No contract at all: anything the reports ask for is a change, and if they ask
   // for nothing then the citizen's problem is that it has no contract — which the
   // autonomy module's own tool is for, not this one.
-  if (contract === null) return recommendedLevel !== null || recommendsChallengePermission
+  if (contract === null) {
+    return (
+      recommendedLevel !== null ||
+      recommendsChallengePermission ||
+      recommendsCapabilities.length > 0
+    )
+  }
 
   if (recommendsChallengePermission && !contract.challengesAllowed) return true
+  // Already filtered against what the contract grants, so anything left is a change.
+  if (recommendsCapabilities.length > 0) return true
 
   if (recommendedLevel === null) return false
   // `independent` is satisfied by holding `independent` or `free`. Named rather than

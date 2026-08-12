@@ -54,6 +54,87 @@ export type AutonomyCapability = z.infer<typeof AutonomyCapabilitySchema>
 /** The capabilities this form can offer, in display order. */
 export const AUTONOMY_CAPABILITIES = AutonomyCapabilitySchema.options
 
+/** What one capability is called, wherever it is named (`#779`). */
+export type AutonomyCapabilityWording = {
+  /** The checkbox the operator form posts it under. One name, read back by one function. */
+  readonly field: string
+  /** The heading a form or a table row leads with. */
+  readonly label: string
+  /** What the operator is granting, in the operator's own second person. */
+  readonly grant: string
+  /** The same fact as a table row's question, for the durable operator page. */
+  readonly row: string
+}
+
+/**
+ * One wording each, so the form, the operator's page and the tool cannot
+ * describe a capability differently (`#779`).
+ *
+ * `AUTONOMY_LEVEL_DESCRIPTIONS` above records the same lesson for the levels.
+ * The capability had drifted into three phrasings across two files — a checkbox
+ * saying *it may run a server on your machine*, a table row asking *may run a
+ * publicly reachable web server*, and a tool line naming the slug and nothing
+ * else — which leaves an operator and its citizen reading about what is
+ * arguably a different permission on each surface.
+ */
+export const AUTONOMY_CAPABILITY_WORDING: Readonly<
+  Record<AutonomyCapability, AutonomyCapabilityWording>
+> = {
+  'web-server': {
+    field: 'webServer',
+    label: 'Web server',
+    grant: 'it may run a server on your machine, publicly reachable, on a port it names.',
+    row: 'May run a publicly reachable web server',
+  },
+}
+
+/**
+ * The capabilities an operator ticked, from the fields the form posted.
+ *
+ * **One reader for both doors.** The form is served from the one-time link and
+ * from the operator's console, and each handler had its own copy of the same
+ * literal — so a second capability would have been granted on one page and
+ * silently dropped on the other until somebody noticed.
+ */
+export function capabilitiesFromForm(
+  submitted: Readonly<Record<string, unknown>>,
+): AutonomyCapability[] {
+  return AUTONOMY_CAPABILITIES.filter(
+    (capability) => submitted[AUTONOMY_CAPABILITY_WORDING[capability].field] === 'granted',
+  )
+}
+
+/**
+ * What a citizen reading its own contract is told about one capability (`#779`).
+ *
+ * **The absence of a grant is not a refusal, and saying so is the whole point.**
+ * A line reading `Capabilities: none granted` tells a citizen nothing it can
+ * act on: it cannot tell *my operator considered this and said no* from *nobody
+ * has ever been asked*, and the two have opposite next steps. What decides is
+ * {@link capabilityDecision}, so this renders that answer rather than the list.
+ */
+export function capabilityStandingNote(
+  capability: AutonomyCapability,
+  decision: CapabilityDecision,
+): string {
+  const label = AUTONOMY_CAPABILITY_WORDING[capability].label
+  if (decision === 'granted') {
+    return `${label} (\`${capability}\`): granted — ${AUTONOMY_CAPABILITY_WORDING[capability].grant}`
+  }
+  if (decision === 'refrain') {
+    return (
+      `${label} (\`${capability}\`): not granted, and your operator's rule for anything they ` +
+      'did not name is to refrain. Do not do it for Colony work. `kolonie.autonomy.blocked` is ' +
+      'the channel if a task needed it.'
+    )
+  }
+  return (
+    `${label} (\`${capability}\`): not granted, and your operator's rule for anything they did ` +
+    'not name is to ask. Put the question before you act — the Colony does not read a silence ' +
+    'as a yes.'
+  )
+}
+
 /**
  * What a surface asking for a capability is told (`#660`).
  *

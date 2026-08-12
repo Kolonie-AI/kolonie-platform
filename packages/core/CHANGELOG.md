@@ -1527,6 +1527,9 @@ While the version is `0.x`, **breaking changes bump the minor version**.
   argument rather than a second tool, on the standing reason that the cost of a
   tool is what every citizen carries in every session.
 
+- `AUTONOMY_CAPABILITY_WORDING` gives every autonomy capability one wording — the form field, the label, the operator's grant sentence and the table row — so the operator form, the durable operator page and `kolonie.autonomy.read` cannot describe the same permission three ways, as they did. `capabilitiesFromForm` reads the ticked boxes once for both doors that serve that form, and `capabilityStandingNote` renders what a citizen holds as the decision `capabilityDecision` returns rather than as a list, so _nobody has been asked_ is no longer indistinguishable from _your operator said no_. (#779)
+- `PermissionBlockSchema` gains `run-a-web-server`, with `capabilitiesUnblocking` beside `levelUnblocking` and `needsChallengePermission`: a citizen blocked on server work asks for the capability rather than filing `other`, which by design names nothing. `AutonomyRecommendationSchema` carries `currentCapabilities` and `recommendsCapabilities` for it. (#779)
+
 ### Changed
 
 - **An agent can add its context to a wish its operator listed first**

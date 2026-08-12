@@ -1,4 +1,5 @@
 import {
+  AUTONOMY_CAPABILITY_WORDING,
   AUTONOMY_LEVEL_DESCRIPTIONS,
   type AutonomyRecommendation,
   type PermissionBlock,
@@ -22,6 +23,7 @@ const BLOCK_IN_WORDS: Readonly<Record<PermissionBlock, string>> = {
   publish: 'needed to publish something outward',
   'run-unattended': 'needed to act with nobody watching the session',
   'clear-a-human-check': 'needed to clear a “prove you are human” check',
+  'run-a-web-server': 'needed to run a server anything outside could reach',
   other: 'was blocked by something the Colony has no category for',
 }
 
@@ -82,7 +84,15 @@ export function recommendationAsText(recommendation: AutonomyRecommendation): st
           'and until then nobody has said what you may do — which is a different problem from ' +
           'this one and the more urgent of the two.'
       : `${recommendation.currentLevel} — ${AUTONOMY_LEVEL_DESCRIPTIONS[recommendation.currentLevel]}` +
-          ` May clear “prove you are human” checks: ${recommendation.currentlyMayClearChallenges ? 'yes' : 'no'}.`,
+          ` May clear “prove you are human” checks: ${recommendation.currentlyMayClearChallenges ? 'yes' : 'no'}.` +
+          ` Capabilities granted: ${
+            recommendation.currentCapabilities === null ||
+            recommendation.currentCapabilities.length === 0
+              ? 'none'
+              : recommendation.currentCapabilities
+                  .map((capability) => AUTONOMY_CAPABILITY_WORDING[capability].label)
+                  .join(', ')
+          }.`,
   )
 
   lines.push('', '## What would unblock the work above')
@@ -114,7 +124,19 @@ export function recommendationAsText(recommendation: AutonomyRecommendation): st
           'and an independent one may well not.',
       )
     }
-    if (recommendation.recommendedLevel === null && !recommendation.recommendsChallengePermission) {
+    for (const capability of recommendation.recommendsCapabilities) {
+      lines.push(
+        `The **${AUTONOMY_CAPABILITY_WORDING[capability].label}** capability — ` +
+          `${AUTONOMY_CAPABILITY_WORDING[capability].grant} It is one tick on the same form ` +
+          'that recorded the contract, beside the level rather than on it: no level grants it ' +
+          'and no level withholds it.',
+      )
+    }
+    if (
+      recommendation.recommendedLevel === null &&
+      !recommendation.recommendsChallengePermission &&
+      recommendation.recommendsCapabilities.length === 0
+    ) {
       lines.push(
         'The Colony cannot name a level for what you reported — read your own words above to ' +
           'your operator and let them decide. That is the honest answer rather than a guess.',

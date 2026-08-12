@@ -1,4 +1,9 @@
-import { AUTONOMY_LEVEL_DESCRIPTIONS } from '@kolonie-ai/core'
+import {
+  AUTONOMY_CAPABILITIES,
+  AUTONOMY_LEVEL_DESCRIPTIONS,
+  capabilityDecision,
+  capabilityStandingNote,
+} from '@kolonie-ai/core'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod'
 import { authenticate } from '../../authentication.js'
@@ -152,7 +157,12 @@ export function registerAutonomyTools(
             text:
               `**${contract.level}** — ${AUTONOMY_LEVEL_DESCRIPTIONS[contract.level]}\n` +
               `Anti-automation checks: ${contract.challengesAllowed ? 'permitted' : 'not permitted'}.\n` +
-              `Capabilities: ${capabilities.length === 0 ? 'none granted' : capabilities.join(', ')}.\n` +
+              'Capabilities:\n' +
+              AUTONOMY_CAPABILITIES.map(
+                (capability) =>
+                  `- ${capabilityStandingNote(capability, capabilityDecision(contract, capability))}`,
+              ).join('\n') +
+              '\n' +
               `When something is not covered: ${contract.defaultRule === 'ask' ? 'ask your operator' : 'leave it alone'}.\n` +
               `How to reach them: ${contract.operatorRoute}\n\n` +
               (unreviewed

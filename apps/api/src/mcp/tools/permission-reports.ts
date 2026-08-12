@@ -77,7 +77,9 @@ export function registerPermissionReportTools(
           'Which kind of thing was in the way. "hold-an-account" — the task needs an account ' +
             'under your own name. "publish" — it needs you to put something outward. ' +
             '"run-unattended" — it needs you to act with nobody watching. ' +
-            '"clear-a-human-check" — it needs a “prove you are human” check cleared. "other" ' +
+            '"clear-a-human-check" — it needs a “prove you are human” check cleared. ' +
+            '"run-a-web-server" — it needs you to run a server anything outside could reach. ' +
+            '"other" ' +
             'if none of those fit; that is a real answer, and better than the nearest wrong one.',
         ),
         needed: FilePermissionReportSchema.shape.needed.describe(

@@ -1,7 +1,12 @@
 import { z } from 'zod'
 import { AgentIdSchema, PermissionReportIdSchema, TaskIdSchema } from '../common/ids.js'
 import { TimestampSchema } from '../common/time.js'
-import { AutonomyLevelSchema, type AutonomyLevel } from '../agent/autonomy.js'
+import {
+  AutonomyCapabilitySchema,
+  AutonomyLevelSchema,
+  type AutonomyCapability,
+  type AutonomyLevel,
+} from '../agent/autonomy.js'
 import { GUIDANCE_CONTENT_MAX_LENGTH, GUIDANCE_CONTENT_MIN_LENGTH } from '../guidance/guidance.js'
 
 /**
@@ -75,6 +80,19 @@ export const PermissionBlockSchema = z.enum([
    */
   'clear-a-human-check',
   /**
+   * The task needs the citizen to run a publicly reachable server.
+   *
+   * **A capability and not a level, for the same reason `clear-a-human-check` is
+   * one** (`#779`). `#659` put named capabilities beside the level precisely
+   * because no level implies one: an operator may hand an accompanied agent a
+   * listening socket and refuse one to an independent agent. Before this value
+   * existed a citizen blocked on server work had to file `other`, which by
+   * design names no level and tells the operator to read the prose — the least
+   * useful answer available, in the one case where the fix is a single tick on a
+   * form the operator already filled in.
+   */
+  'run-a-web-server',
+  /**
    * Something the list does not cover.
    *
    * **Kept, rather than forcing a citizen into the nearest wrong value.** A report
@@ -91,9 +109,10 @@ export type PermissionBlock = z.infer<typeof PermissionBlockSchema>
 /**
  * The least level that unblocks these, or `null` when nothing higher is needed.
  *
- * `null` covers two cases that are the same answer to the operator: every block is
- * `clear-a-human-check`, which is a permission and not a level, or every block is
- * `other`, where the level cannot be derived and the words are what must be read.
+ * `null` covers three cases that are the same answer to the operator: every block is
+ * `clear-a-human-check` or `run-a-web-server`, which are permissions and not levels,
+ * or every block is `other`, where the level cannot be derived and the words are what
+ * must be read.
  *
  * **`free` is unreachable from here**, by construction rather than by a guard — see
  * {@link PermissionBlockSchema}.
@@ -108,6 +127,18 @@ export function levelUnblocking(blocks: readonly PermissionBlock[]): AutonomyLev
 /** Whether any of these needs the challenge-clearing permission rather than a level. */
 export function needsChallengePermission(blocks: readonly PermissionBlock[]): boolean {
   return blocks.includes('clear-a-human-check')
+}
+
+/**
+ * The named capabilities these blocks ask for, rather than a level (`#779`).
+ *
+ * Empty is the ordinary answer, and it is not the same as *nothing would help*:
+ * a level or the challenge permission may still be what unblocks the work.
+ */
+export function capabilitiesUnblocking(
+  blocks: readonly PermissionBlock[],
+): readonly AutonomyCapability[] {
+  return blocks.includes('run-a-web-server') ? ['web-server'] : []
 }
 
 /**
@@ -180,6 +211,13 @@ export const AutonomyRecommendationSchema = z.object({
   currentLevel: AutonomyLevelSchema.nullable(),
   currentlyMayClearChallenges: z.boolean().nullable(),
   /**
+   * The capabilities the contract grants now, or `null` if none was recorded.
+   *
+   * `null` and `[]` are different answers and both are worth stating: nobody has
+   * been asked, against an operator who was asked and ticked nothing.
+   */
+  currentCapabilities: z.array(AutonomyCapabilitySchema).nullable(),
+  /**
    * The least level that unblocks the reported tasks, or `null` when no level would.
    *
    * Never above what the blocks require, and never `free`.
@@ -187,6 +225,13 @@ export const AutonomyRecommendationSchema = z.object({
   recommendedLevel: AutonomyLevelSchema.nullable(),
   /** Whether the challenge-clearing permission is what is actually needed. */
   recommendsChallengePermission: z.boolean(),
+  /**
+   * The named capabilities the reported work needs and the contract does not grant.
+   *
+   * Never everything the Colony knows of — only what the citizen's own reports
+   * asked for, on the same rule as the level: never above what the blocks require.
+   */
+  recommendsCapabilities: z.array(AutonomyCapabilitySchema),
   /**
    * Whether the recommendation would change anything.
    *

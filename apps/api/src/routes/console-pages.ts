@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { handoverNotice } from '@kolonie-ai/core'
+import { capabilitiesFromForm, handoverNotice } from '@kolonie-ai/core'
 import {
   ERROR_STATUS,
   solFromLamports,
@@ -2159,8 +2159,7 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
               values: {
                 level: current.level,
                 challengesAllowed: current.challengesAllowed ? 'yes' : 'no',
-                webServer:
-                  current.capabilities?.includes('web-server') === true ? 'granted' : undefined,
+                capabilities: current.capabilities ?? [],
                 defaultRule: current.defaultRule,
                 operatorRoute: current.operatorRoute,
               },
@@ -2181,7 +2180,7 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
       {
         level: submitted['level'],
         challengesAllowed: submitted['challengesAllowed'] === 'yes',
-        capabilities: submitted['webServer'] === 'granted' ? ['web-server'] : [],
+        capabilities: capabilitiesFromForm(submitted),
         defaultRule: submitted['defaultRule'],
         operatorRoute: submitted['operatorRoute'],
       },
@@ -2203,7 +2202,7 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
         values: {
           level: text(submitted['level']),
           challengesAllowed: text(submitted['challengesAllowed']),
-          webServer: text(submitted['webServer']),
+          capabilities: capabilitiesFromForm(submitted),
           defaultRule: text(submitted['defaultRule']),
           operatorRoute: text(submitted['operatorRoute']),
         },

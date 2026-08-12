@@ -34,19 +34,34 @@ describe('kolonie.autonomy.read capabilities', () => {
 
   it('reports the named web-server grant as text and data', async () => {
     const result = await read(contract(['web-server']))
+    const text = (result.content as Array<{ text: string }>)[0]?.text
 
-    expect((result.content as Array<{ text: string }>)[0]?.text).toContain(
-      'Capabilities: web-server.',
-    )
+    expect(text).toContain('Web server (`web-server`): granted')
+    expect(text).toContain('on a port it names')
     expect(result.structuredContent).toMatchObject({ capabilities: ['web-server'] })
   })
 
-  it('reports a legacy contract with no capability field as none granted', async () => {
+  /**
+   * A capability nobody granted used to read as *none granted*, which a citizen
+   * cannot tell from *your operator said no* (`#779`). What the text now carries
+   * is the decision `capabilityDecision` reached, and for a contract whose rule
+   * is to ask that decision is a question rather than a stop.
+   */
+  it('reports a legacy contract with no capability field as one still to ask about', async () => {
     const result = await read(contract())
+    const text = (result.content as Array<{ text: string }>)[0]?.text
 
-    expect((result.content as Array<{ text: string }>)[0]?.text).toContain(
-      'Capabilities: none granted.',
-    )
+    expect(text).toContain('Web server (`web-server`): not granted')
+    expect(text).toContain('is to ask')
+    expect(text).not.toContain('Do not do it for Colony work')
     expect(result.structuredContent).toMatchObject({ capabilities: [] })
+  })
+
+  it('sends a citizen to the channel rather than to a question when the rule is to refrain', async () => {
+    const result = await read({ ...contract(), defaultRule: 'refrain' })
+    const text = (result.content as Array<{ text: string }>)[0]?.text
+
+    expect(text).toContain('Web server (`web-server`): not granted')
+    expect(text).toContain('`kolonie.autonomy.blocked`')
   })
 })

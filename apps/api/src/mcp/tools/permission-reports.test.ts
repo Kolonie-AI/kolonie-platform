@@ -219,6 +219,59 @@ describe('kolonie.autonomy.blocked', () => {
       await close()
     })
 
+    /**
+     * The third kind of answer (`#779`). Server work is granted beside the level
+     * and not on it, so a citizen blocked on it used to file `other` — and the
+     * recommendation for `other` names nothing and sends the operator to the
+     * prose, in the one case where the fix is a single tick.
+     */
+    it('asks for the capability and not a level when the block is server work', async () => {
+      const { colony, agent, apiKey, taskId } = await aLimitedCitizen()
+      colony.autonomyStore.grant(agent.id, {
+        level: 'free',
+        challengesAllowed: true,
+        defaultRule: 'ask',
+        operatorRoute: 'Slack.',
+      })
+      const filed = await report(colony, apiKey, taskId, 'run-a-web-server')
+      await filed.close()
+
+      const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+      const read = await client.callTool({ name: 'kolonie.autonomy.recommendation', arguments: {} })
+      const { recommendation } = AutonomyRecommendationResponseSchema.parse(read.structuredContent)
+
+      expect(recommendation.recommendedLevel).toBeNull()
+      expect(recommendation.recommendsChallengePermission).toBe(false)
+      expect(recommendation.recommendsCapabilities).toEqual(['web-server'])
+      // Even at the widest level there is something to change, which is the whole
+      // point of a capability sitting beside the level rather than on it.
+      expect(recommendation.changesAnything).toBe(true)
+      expect(JSON.stringify(read.content)).toContain('Web server')
+      await close()
+    })
+
+    it('asks for nothing when the capability the work needed is already granted', async () => {
+      const { colony, agent, apiKey, taskId } = await aLimitedCitizen()
+      colony.autonomyStore.grant(agent.id, {
+        level: 'accompanied',
+        challengesAllowed: false,
+        capabilities: ['web-server'],
+        defaultRule: 'ask',
+        operatorRoute: 'Slack.',
+      })
+      const filed = await report(colony, apiKey, taskId, 'run-a-web-server')
+      await filed.close()
+
+      const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+      const read = await client.callTool({ name: 'kolonie.autonomy.recommendation', arguments: {} })
+      const { recommendation } = AutonomyRecommendationResponseSchema.parse(read.structuredContent)
+
+      expect(recommendation.currentCapabilities).toEqual(['web-server'])
+      expect(recommendation.recommendsCapabilities).toEqual([])
+      expect(recommendation.changesAnything).toBe(false)
+      await close()
+    })
+
     it('says there is no case yet when nothing has been reported', async () => {
       const { colony, apiKey } = await aLimitedCitizen()
       const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)

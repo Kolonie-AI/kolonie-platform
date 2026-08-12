@@ -118,6 +118,30 @@ export function questAsCitizenReads(quest: {
   ].join('\n')
 }
 
+/**
+ * What a withheld report is, said wherever the number is (`#446`, `#778`).
+ *
+ * **The number never travels without this sentence**, which is why it is a
+ * function and not a string repeated on two pages: a bare figure next to a
+ * capacity reads as *you paid for something you did not get*, and the last line
+ * is the correction — the slot goes back in the pool. The results page said this
+ * and the quests list, which now shows the same number, would have had to say it
+ * again in its own words.
+ *
+ * Counted rather than named, as everywhere: the number and never the text.
+ */
+function withheldNote(count?: number): string {
+  const subject =
+    count === undefined ? 'The reports marked withheld above' : `${String(count)} report(s)`
+
+  return (
+    `<p class="note">${subject} crossed one of the Colony’s red lines, or are being read ` +
+    'by a steward because a check said they might. You are told the number and never the text: ' +
+    'what crossed the line is exactly what you would have read. Capacity is not consumed by ' +
+    'one — the slot returns to the pool.</p>'
+  )
+}
+
 /** The list of the sponsor's own quests, with what each one is waiting on. */
 /**
  * Every quest the identities a person operates have written (`#456`).
@@ -160,6 +184,18 @@ export function operatedQuestsPage(input: {
      * link rather than a link that leads to an empty page.
      */
     readonly answers: boolean
+    /**
+     * How many citizens took this quest on (`#778`).
+     *
+     * **Beside `filled` because `filled` alone was being misread**, and the
+     * misreading was reasonable: a sponsor seeing `0 of 3` cannot tell three
+     * citizens still writing from three that failed from a quest nobody has
+     * looked at. `filled` counts what passed verification and this counts what
+     * started, and the gap between them is the whole answer.
+     */
+    readonly claims: number
+    /** How many reports the Colony is holding back (`#446`) — a number, never the text. */
+    readonly withheld: number
   }[]
   /** Whether this person operates anything at all — the two empty states differ. */
   readonly operatesAnything: boolean
@@ -172,6 +208,20 @@ export function operatedQuestsPage(input: {
         `<td>${escape(quest.author)}</td>`,
         `<td>${escape(quest.status)}</td>`,
         `<td>${escape(quest.filled)}</td>`,
+        /**
+         * **What arrived, in the cell beside what was accepted** (`#778`).
+         *
+         * The withheld number is here rather than in a column of its own: it is
+         * zero on nearly every quest, and a column that is empty everywhere is a
+         * column a reader stops seeing. Where it is not zero it is the most
+         * important number on the row, and the sentence under the table says
+         * what it means — the number never travels without it.
+         */
+        `<td>${String(quest.claims)}${
+          quest.withheld > 0
+            ? ` <span class="note">(${String(quest.withheld)} withheld)</span>`
+            : ''
+        }</td>`,
         `<td>${escape(quest.cost)}</td>`,
         /**
          * **The way to the answers, from the page an operator is on** (`#777`).
@@ -220,9 +270,26 @@ export function operatedQuestsPage(input: {
           '<p><a href="/quests/new">Write a quest</a></p>',
           '<table>',
           '<thead><tr><th>Quest</th><th>Written by</th><th>Status</th><th>Filled</th>' +
-            '<th>Cost</th><th>Answers</th></tr></thead>',
+            '<th>Claimed</th><th>Cost</th><th>Answers</th></tr></thead>',
           `<tbody>${rows}</tbody>`,
           '</table>',
+          /**
+           * **What the two columns mean, said once under the table** (`#778`).
+           *
+           * Only where they can differ — a list of quests nobody has claimed
+           * yet does not need the distinction explained, and a note on every
+           * page is a note nobody reads by the third one.
+           */
+          ...(input.quests.some((quest) => quest.claims > 0 || quest.withheld > 0)
+            ? [
+                '<p class="note">*Filled* counts reports that passed verification. ' +
+                  '*Claimed* counts citizens that took the quest on. A claim that has not ' +
+                  'become a filled slot is a report still being written, one waiting on a ' +
+                  'verifier, or one that did not pass — the quest is being worked on either ' +
+                  'way. Open a quest to see which.</p>',
+              ]
+            : []),
+          ...(input.quests.some((quest) => quest.withheld > 0) ? [withheldNote()] : []),
           /**
            * The rule `#457` enforces, said where somebody would otherwise look
            * for a button. A permission boundary nobody understands reads as a
@@ -506,6 +573,28 @@ export function questDraftPage(input: {
    * is actually about to strike rather than a blank.
    */
   readonly feePercent: number
+  /**
+   * What has happened to this quest, where a sponsor arrives asking (`#778`).
+   *
+   * **The page the list sends somebody to when the list surprises them.** The
+   * list can show four numbers on a row; this is where the rest of them are, and
+   * a sponsor that read `0 of 3` and clicked through has to find the answer here
+   * rather than one more click away on the results page.
+   *
+   * Optional so a renderer test with no store behind it can leave it out, and
+   * absent means the block is not shown rather than shown as zeroes — the same
+   * rule `audience` states, and for the same reason: *nothing yet* and *not
+   * counted* must not render the same.
+   */
+  readonly activity?:
+    | {
+        readonly claims: number
+        readonly acceptedReports: number
+        readonly unclear: number
+        readonly declined: number
+        readonly withheld: number
+      }
+    | undefined
 }): string {
   const { quest } = input
   /** Somebody else's agent's quest is read-only, and the page shows no control at all. */
@@ -620,6 +709,48 @@ export function questDraftPage(input: {
       ? ''
       : `<ul>${input.problems.map((p) => `<li>${escape(p)}</li>`).join('')}</ul>`
 
+  /**
+   * The five figures, on the page somebody opens when the list surprises them
+   * (`#778`).
+   *
+   * **The same numbers the results page shows, from the same readers** — this
+   * is not a summary written for this page, it is `questReportCounts` and
+   * `withheldReportCount` rendered a second time where the question is asked.
+   * The results page keeps them too: a sponsor that got here from the list and a
+   * sponsor that got here from a bookmark are the same reader.
+   *
+   * Not shown for a quest that has been open to nobody. Five zeroes under a
+   * draft say *nothing has happened* in a way that reads like a fault; the
+   * sentence the answers link already carries says it truthfully.
+   */
+  const madeOfIt =
+    input.activity === undefined || !questCanHaveAnswers(quest.status)
+      ? ''
+      : [
+          '<h2>What has happened to it</h2>',
+          '<table><tbody>',
+          `<tr><td>Claims</td><td>${String(input.activity.claims)}</td></tr>`,
+          `<tr><td>Accepted reports</td><td>${String(input.activity.acceptedReports)}</td></tr>`,
+          `<tr><td>Said it was unclear</td><td>${String(input.activity.unclear)}</td></tr>`,
+          `<tr><td>Declined it</td><td>${String(input.activity.declined)}</td></tr>`,
+          `<tr><td>Withheld by the Colony</td><td>${String(input.activity.withheld)}</td></tr>`,
+          '</tbody></table>',
+          /**
+           * **Why the first two differ**, said only where they do. A sponsor
+           * whose claims and accepted reports agree has nothing to explain, and
+           * a note on every quest is a note nobody reads by the third one.
+           */
+          input.activity.claims > input.activity.acceptedReports
+            ? '<p class="note">More citizens claimed this than have had a report accepted. ' +
+              'A claim that has not become an accepted report is one still being written, ' +
+              'one waiting on a verifier, or one that did not pass. None of the three is ' +
+              'a capacity you have spent.</p>'
+            : '',
+          input.activity.withheld > 0 ? withheldNote(input.activity.withheld) : '',
+        ]
+          .filter((part) => part !== '')
+          .join('\n')
+
   return page({
     title: quest.title,
     signedIn: true,
@@ -660,6 +791,10 @@ export function questDraftPage(input: {
         feePercent: quest.platformFeePercent ?? input.feePercent,
       }),
       '</div>',
+      // Beside the answers link and not above the quest, for the reason that
+      // link gives: somebody reading this page reads the quest first and asks
+      // how it is going second (`#778`).
+      madeOfIt,
       /**
        * **The answers, from the page the quest is on** (`#777`).
        *
@@ -795,9 +930,7 @@ export function questResultsPage(input: {
        */
       `<tr><td>Withheld by the Colony</td><td>${input.withheld}</td></tr>`,
       '</tbody></table>',
-      input.withheld > 0
-        ? `<p class="note">${input.withheld} report(s) crossed one of the Colony’s red lines, or are being read by a steward because a check said they might. You are told the number and never the text: what crossed the line is exactly what you would have read. Capacity is not consumed by one — the slot returns to the pool.</p>`
-        : '',
+      input.withheld > 0 ? withheldNote(input.withheld) : '',
       input.reportCounts.declined > 0
         ? '<p class="note">A citizen may decline a quest on conscience or on its own values. You are told how many did and not what they wrote — that text goes to the Colony, because a sponsor able to read it could write quests to find out which citizens refuse what.</p>'
         : '',

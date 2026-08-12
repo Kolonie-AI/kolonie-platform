@@ -3000,63 +3000,82 @@ function registerSponsorPages(
     roles: readonly string[] = [],
   ) => {
     const perAuthor = await Promise.all(
-      authors.map(async (author) => {
-        const written = await deps.quests.listOwn(author.id)
+      authors.map(async (author) => ({
+        author,
+        written: await deps.quests.listOwn(author.id),
+      })),
+    )
 
-        return Promise.all(
-          written.map(async (quest) => {
-            /**
-             * **Accepted reports, counted from the same rows the quest's own
-             * results page reads.** One read per quest is more than a `count(*)`
-             * would cost, and it is the read this project already has — a
-             * counting query written here would be the second answer to *how
-             * full is this quest*, on a page a sponsor compares against the
-             * other one.
-             */
-            const accepted = (await deps.quests.results(quest.task.id)).length
+    /**
+     * **Two reads for the whole list, whatever its length** (`#778`).
+     *
+     * This used to be one full results read per quest, on the argument that a
+     * counting query written here would be a second answer to *how full is this
+     * quest*. The argument held and the shape did not: the fix is one reader
+     * with two entry points — `activity` and the singular `reportCounts` /
+     * `withheld` the results page uses are the same SQL — so the list and
+     * `/quests/:questId/results` still cannot disagree, and the query count no
+     * longer grows with how many quests somebody has written.
+     */
+    const activity = await deps.quests.activity(
+      perAuthor.flatMap(({ written }) => written.map((quest) => quest.task.id)),
+    )
 
-            return {
-              id: String(quest.task.id),
-              title: quest.task.title,
-              author: author.name,
-              status: quest.awaitingModeration ? 'awaiting moderation' : quest.task.status,
-              filled:
-                quest.task.slots === null
-                  ? `${String(accepted)} (no limit)`
-                  : `${String(accepted)} of ${String(quest.task.slots)}`,
-              /**
-               * **What the quest was invoiced and what has arrived** (`#553`
-               * phase C). This read *reserved or escrowed, never summed* — the
-               * four steps `governance/quests.md` describes for a credit
-               * balance. There is no balance and no escrow now: a sponsor is
-               * invoiced in SOL when a steward publishes, and the two numbers
-               * worth showing are what was asked for and what has been paid.
-               */
-              cost:
-                quest.task.reward.lamports === 0
-                  ? '—'
-                  : `${solFromLamports(
-                      questCommitment({
-                        reward: quest.task.reward,
-                        slots: quest.task.slots ?? 0,
-                      }),
-                    )} SOL`,
-              yours: author.name === 'You',
-              /**
-               * Whether the answers page can hold anything (`#777`). The status
-               * is the whole of it: a quest nobody has been shown has been
-               * answered by nobody, whatever its slots say.
-               */
-              answers: questCanHaveAnswers(quest.task.status),
-              writtenAt: quest.task.createdAt,
-            }
-          }),
-        )
+    const rows = perAuthor.map(({ author, written }) =>
+      written.map((quest) => {
+        const made = activity.get(quest.task.id)
+        const accepted = made?.acceptedReports ?? 0
+        const claims = made?.claims ?? 0
+        const withheld = made?.withheld ?? 0
+
+        return {
+          id: String(quest.task.id),
+          title: quest.task.title,
+          author: author.name,
+          status: quest.awaitingModeration ? 'awaiting moderation' : quest.task.status,
+          filled:
+            quest.task.slots === null
+              ? `${String(accepted)} (no limit)`
+              : `${String(accepted)} of ${String(quest.task.slots)}`,
+          /**
+           * **What arrived, beside what was accepted** (`#778`). `filled` alone
+           * reads as *nobody has answered* in three situations that are not
+           * that, and a sponsor comparing this against the results page was the
+           * only way to tell them apart.
+           */
+          claims,
+          withheld,
+          /**
+           * **What the quest was invoiced and what has arrived** (`#553`
+           * phase C). This read *reserved or escrowed, never summed* — the
+           * four steps `governance/quests.md` describes for a credit
+           * balance. There is no balance and no escrow now: a sponsor is
+           * invoiced in SOL when a steward publishes, and the two numbers
+           * worth showing are what was asked for and what has been paid.
+           */
+          cost:
+            quest.task.reward.lamports === 0
+              ? '—'
+              : `${solFromLamports(
+                  questCommitment({
+                    reward: quest.task.reward,
+                    slots: quest.task.slots ?? 0,
+                  }),
+                )} SOL`,
+          yours: author.name === 'You',
+          /**
+           * Whether the answers page can hold anything (`#777`). The status
+           * is the whole of it: a quest nobody has been shown has been
+           * answered by nobody, whatever its slots say.
+           */
+          answers: questCanHaveAnswers(quest.task.status),
+          writtenAt: quest.task.createdAt,
+        }
       }),
     )
 
     /** Newest first, across authors — the order somebody scans in. */
-    const quests = perAuthor
+    const quests = rows
       .flat()
       .sort((one, two) => (one.writtenAt < two.writtenAt ? 1 : -1))
       .map(({ writtenAt: _writtenAt, ...row }) => row)
@@ -3328,6 +3347,19 @@ function registerSponsorPages(
      */
     const audience = await deps.quests.audience(audienceOf(own.response.quest))
 
+    /**
+     * What has happened to it, for the sponsor the list sent here (`#778`).
+     *
+     * Read only for a quest that has been open to citizens: the same test the
+     * answers link uses, because a quest nobody could have answered has nothing
+     * to count and a round trip to prove it is a round trip spent on zero.
+     */
+    const activity = questCanHaveAnswers(own.response.quest.status)
+      ? (await deps.quests.activity([own.response.quest.id as TaskId])).get(
+          own.response.quest.id as TaskId,
+        )
+      : undefined
+
     return wantsHtml(request)
       ? html(
           reply,
@@ -3345,6 +3377,7 @@ function registerSponsorPages(
              * than a second permission check.
              */
             ...(writtenBy === undefined ? {} : { writtenBy }),
+            ...(activity === undefined ? {} : { activity }),
           }),
         )
       : /**

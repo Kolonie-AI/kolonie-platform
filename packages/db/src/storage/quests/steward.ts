@@ -1055,14 +1055,39 @@ export async function resolveHeldRedLine(
  * which is what the number says.
  */
 export async function withheldReportCount(db: Database, taskId: TaskId): Promise<number> {
-  const [row] = await db.execute<{ withheld: string }>(sql`
-    select count(*)::text as withheld
+  return (await withheldReportCounts(db, [taskId])).get(taskId) ?? 0
+}
+
+/**
+ * The same number over a set of quests, in one round trip (`#778`).
+ *
+ * **The primitive, and {@link withheldReportCount} is this with one id**, for
+ * the reason {@link questReportCountsFor} states: the console's `/quests` shows
+ * this figure on every row, and the per-quest reader called in a loop is a query
+ * count that grows with how many quests somebody has written.
+ *
+ * A quest with nothing held has no row and the caller's default is zero — the
+ * `group by` returns nothing rather than a zero for the ids that matched no
+ * submission.
+ */
+export async function withheldReportCounts(
+  db: Database,
+  taskIds: readonly TaskId[],
+): Promise<ReadonlyMap<TaskId, number>> {
+  if (taskIds.length === 0) return new Map()
+
+  const rows = await db.execute<{ task_id: string; withheld: string }>(sql`
+    select ${submissions.taskId} as task_id, count(*)::text as withheld
       from ${submissions}
-     where ${submissions.taskId} = ${taskId}
+     where ${submissions.taskId} in (${sql.join(
+       taskIds.map((id) => sql`${id}::uuid`),
+       sql`, `,
+     )})
        and ${latestRedLineReview} in ('held', 'upheld')
+     group by ${submissions.taskId}
   `)
 
-  return Number(row?.withheld ?? 0)
+  return new Map(rows.map((row) => [row.task_id as TaskId, Number(row.withheld)]))
 }
 
 /**

@@ -83,6 +83,14 @@ export interface FakeQuestDesk extends QuestDesk {
   /** Credit a sponsor's balance, which is `packages/db`'s job in the real one. */
   readonly credit: (agentId: AgentId, amount: number) => void
   /**
+   * Say how many citizens have claimed a quest (`#778`).
+   *
+   * The figure a sponsor reads beside its capacity, and the one that separates
+   * *nobody came* from *three came and none has been accepted yet*. Set rather
+   * than derived, for the reason the claims map itself gives.
+   */
+  readonly claimedBy: (taskId: TaskId, citizens: number) => void
+  /**
    * Name an author, for the unscoped reads `/backend/quests` uses (`#776`).
    *
    * A quest whose author was never named here reads as *erased*, which is the
@@ -325,6 +333,17 @@ export function fakeQuests(): FakeQuestDesk {
   const heldRedLine = new Map<string, HeldReport & { readonly authorId?: AgentId }>()
 
   /**
+   * How many citizens have claimed each quest (`#778`).
+   *
+   * A number a test sets rather than rows it builds: a live claim is a
+   * `task_attempts` row with a liveness clause `packages/db` owns, and a second
+   * definition of it here would agree with that one until one of them grew a
+   * condition — which is the reason {@link FakeQuestDesk.end} gives for
+   * reporting zero surviving claims rather than modelling them.
+   */
+  const claims = new Map<TaskId, number>()
+
+  /**
    * What citizens said about the quests themselves (`#240`), keyed the way the
    * unique index keys it: one per citizen per quest.
    *
@@ -338,7 +357,12 @@ export function fakeQuests(): FakeQuestDesk {
     { taskId: string; kind: string; text: string | null; scrubbed: string | null }
   >()
 
-  return {
+  /**
+   * Named rather than returned straight, so one method can be written in terms
+   * of another — `activity` is `reportCounts` and `withheld` over a set, and
+   * saying so is cheaper than keeping a third copy of both in step (`#778`).
+   */
+  const desk: FakeQuestDesk = {
     /**
      * The audit surface, in memory (`#221`).
      *
@@ -384,7 +408,7 @@ export function fakeQuests(): FakeQuestDesk {
     async reportCounts(taskId) {
       const own = [...reports.values()].filter((row) => row.taskId === taskId)
       return {
-        claims: 0,
+        claims: claims.get(taskId) ?? 0,
         acceptedReports: accepted.get(taskId)?.length ?? 0,
         unclear: own.filter((row) => row.kind === 'unclear').length,
         declined: own.filter((row) => row.kind === 'declined').length,
@@ -523,6 +547,33 @@ export function fakeQuests(): FakeQuestDesk {
       return [...heldRedLine.values()].filter((report) => report.taskId === taskId).length
     },
 
+    /**
+     * The set-shaped reader (`#778`), answering from the same two maps the
+     * singular ones do.
+     *
+     * **Composed out of them and not written again**, which is the property the
+     * routes rely on: the figures a list shows and the figures its detail page
+     * shows come from one definition, so a test that made them disagree here
+     * would be testing a fixture the Colony does not have.
+     *
+     * An id with nothing against it gets a row of zeroes rather than no row.
+     * The database reader omits it — a quest nobody has touched has no row to
+     * find — and the callers read both through the same `?? 0`, so either is
+     * faithful and the generous one is the one a test can assert against.
+     */
+    async activity(taskIds) {
+      const rows = await Promise.all(
+        taskIds.map(async (taskId) => {
+          const [counts, withheld] = await Promise.all([
+            desk.reportCounts(taskId),
+            desk.withheld(taskId),
+          ])
+          return [taskId, { ...counts, withheld }] as const
+        }),
+      )
+      return new Map(rows)
+    },
+
     async audit({ submissionId, agrees, reason }) {
       if (reason.trim().length < 10) return { outcome: 'unknown-submission' }
       if (audits.has(submissionId)) return { outcome: 'already-audited' }
@@ -653,6 +704,10 @@ export function fakeQuests(): FakeQuestDesk {
 
     countAudienceAs(citizens) {
       fixedAudience = citizens
+    },
+
+    claimedBy(taskId, citizens) {
+      claims.set(taskId, citizens)
     },
 
     holdOnRedLine({ submissionId, taskId, authorId, flaggedFor }) {
@@ -938,4 +993,6 @@ export function fakeQuests(): FakeQuestDesk {
       return held === undefined ? undefined : colonyQuest(held.own)
     },
   }
+
+  return desk
 }

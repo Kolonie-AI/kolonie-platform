@@ -197,29 +197,84 @@ export async function sponsorQuestReports(
  * depend on how far behind the runner is.
  */
 export async function questReportCounts(db: Database, taskId: TaskId): Promise<QuestReportCounts> {
-  const [row] = await db.execute<{
+  return (await questReportCountsFor(db, [taskId])).get(taskId) ?? NOTHING_YET
+}
+
+/** What a quest nobody has touched reads as — the shape a missing row stands in for. */
+const NOTHING_YET: QuestReportCounts = {
+  claims: 0,
+  acceptedReports: 0,
+  unclear: 0,
+  declined: 0,
+}
+
+/**
+ * The same four figures over a set of quests, in one round trip (`#778`).
+ *
+ * **The primitive, and {@link questReportCounts} is this with one id.** The
+ * console's `/quests` shows these numbers on every row, and a per-quest reader
+ * called in a loop is a query count that grows with how many quests somebody has
+ * written. Two entry points onto one `where` rather than two `where`s: a sponsor
+ * comparing its list against `/quests/:questId/results` is comparing two
+ * renderings of one fact, and the day they disagree is the day nobody can say
+ * which is right.
+ *
+ * **A quest with nothing on it has no row here.** Aggregates over an empty set
+ * return nothing rather than zero, so the absent id is the caller's zero — which
+ * is why {@link NOTHING_YET} is stated once and not spelled at each caller.
+ *
+ * **Accepted reports are counted by `report_id` and not by `submission_id`**
+ * (`#778`). Erasure sets the submission null and keeps the report, so counting
+ * submissions dropped an erased citizen's accepted report from this number
+ * while {@link questResults} — which groups by `report_id` for exactly that
+ * reason — still returned it. Two answers to *how many were accepted*, and the
+ * console showed one of them on the list and the other on the results page.
+ */
+export async function questReportCountsFor(
+  db: Database,
+  taskIds: readonly TaskId[],
+): Promise<ReadonlyMap<TaskId, QuestReportCounts>> {
+  if (taskIds.length === 0) return new Map()
+
+  const rows = await db.execute<{
+    task_id: string
     claims: string
     accepted: string
     unclear: string
     declined: string
   }>(sql`
+    with wanted(task_id) as (values ${sql.join(
+      taskIds.map((id) => sql`(${id}::uuid)`),
+      sql`, `,
+    )})
     select
-      (select count(*)::text from ${taskAttempts} where task_id = ${taskId}) as claims,
-      (select count(distinct r.submission_id)::text
+      w.task_id as task_id,
+      -- Every inner table is aliased and both sides of every comparison carry
+      -- their table name, which is the rule bare-identifiers.ts enforces (#311).
+      (select count(*)::text from ${taskAttempts} c
+        where c.task_id = w.task_id) as claims,
+      -- Counted by report and not by submission: see the note on this function.
+      (select count(distinct r.report_id)::text
          from ${questAnswers} r
-        where r.task_id = ${taskId} and r.accepted_at is not null) as accepted,
-      (select count(*)::text from ${questReports}
-        where task_id = ${taskId} and kind = 'unclear') as unclear,
-      (select count(*)::text from ${questReports}
-        where task_id = ${taskId} and kind = 'declined') as declined
+        where r.task_id = w.task_id and r.accepted_at is not null) as accepted,
+      (select count(*)::text from ${questReports} u
+        where u.task_id = w.task_id and u.kind = 'unclear') as unclear,
+      (select count(*)::text from ${questReports} d
+        where d.task_id = w.task_id and d.kind = 'declined') as declined
+      from wanted w
   `)
 
-  return {
-    claims: Number(row?.claims ?? 0),
-    acceptedReports: Number(row?.accepted ?? 0),
-    unclear: Number(row?.unclear ?? 0),
-    declined: Number(row?.declined ?? 0),
-  }
+  return new Map(
+    rows.map((row) => [
+      row.task_id as TaskId,
+      {
+        claims: Number(row.claims),
+        acceptedReports: Number(row.accepted),
+        unclear: Number(row.unclear),
+        declined: Number(row.declined),
+      },
+    ]),
+  )
 }
 
 /**

@@ -59,6 +59,7 @@ import {
   questDisagreementRate as questDisagreementRateInDatabase,
   questResults as questResultsInDatabase,
   withheldReportCount as withheldReportCountInDatabase,
+  withheldReportCounts as withheldReportCountsInDatabase,
   heldRedLineReports as heldRedLineReportsInDatabase,
   resolveHeldRedLine as resolveHeldRedLineInDatabase,
   type HeldReport,
@@ -67,6 +68,7 @@ import {
   type QuestTakenPartIn,
   fileQuestReport as fileQuestReportInDatabase,
   questReportCounts as questReportCountsInDatabase,
+  questReportCountsFor as questReportCountsForInDatabase,
   endQuest as endQuestInDatabase,
   sponsorQuestReports as sponsorQuestReportsInDatabase,
   colonyNumbers as colonyNumbersInDatabase,
@@ -131,6 +133,24 @@ import { taskAsText } from './mcp/text/tasks.js'
  * browser would be the place where that stopped being true. Nothing in this file
  * reads the credential kind, and `callerFor` is what makes that hold.
  */
+
+/**
+ * What has happened to one quest, in the five numbers a sponsor can act on
+ * (`#778`).
+ *
+ * **Why it is five and not one.** The quests list showed `accepted of slots`
+ * and nothing else, and `0 of 3` is what a sponsor sees whether three citizens
+ * claimed it and are still writing, a report is waiting on a verifier, or one
+ * crossed a red line and is being held. The three are the same number and
+ * different situations, and the sponsor was left to conclude the worst.
+ *
+ * `withheld` is a number and never the text, which is `withheldReportCount`'s
+ * own rule and the reason this type carries no report of any kind.
+ */
+export interface QuestActivity extends QuestReportCounts {
+  /** How many reports the Colony is holding back from this sponsor (`#446`). */
+  readonly withheld: number
+}
 
 /** Everything the quest surface needs from the outside world. */
 export interface QuestDesk {
@@ -265,6 +285,19 @@ export interface QuestDesk {
    * that forgot to ask would show a sponsor a complete-looking set.
    */
   withheld(taskId: TaskId): Promise<number>
+  /**
+   * {@link reportCounts} and {@link withheld} over a set of quests (`#778`).
+   *
+   * **Two round trips for a whole list, whatever its length.** The quests list
+   * puts these figures on every row, and the singular readers called in a loop
+   * are a query count that grows with how many quests somebody has written.
+   * Both are the *same* readers underneath — the singular ones are these with
+   * one id — so a sponsor's list and its `/quests/:questId/results` cannot
+   * disagree about a number they both show.
+   *
+   * An id with nothing on it is absent from the map rather than zero in it.
+   */
+  activity(taskIds: readonly TaskId[]): Promise<ReadonlyMap<TaskId, QuestActivity>>
   /**
    * The quests this agent took part in, newest first (`#454`).
    *
@@ -461,6 +494,19 @@ export function databaseQuests(
     readAny: (taskId) => readAnyQuestInDatabase(db, taskId),
     results: (taskId) => questResultsInDatabase(db, taskId),
     withheld: (taskId) => withheldReportCountInDatabase(db, taskId),
+    activity: async (taskIds) => {
+      const [counts, withheld] = await Promise.all([
+        questReportCountsForInDatabase(db, taskIds),
+        withheldReportCountsInDatabase(db, taskIds),
+      ])
+
+      return new Map(
+        [...counts].map(([taskId, row]) => [
+          taskId,
+          { ...row, withheld: withheld.get(taskId) ?? 0 },
+        ]),
+      )
+    },
     takenPartIn: (agentId) => questsTakenPartInInDatabase(db, agentId),
     counts: (taskId) => questAnswerCountsInDatabase(db, taskId),
     ownAnswer: (input) => ownQuestAnswerInDatabase(db, input),

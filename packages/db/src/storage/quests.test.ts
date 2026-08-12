@@ -24,6 +24,7 @@ import {
 } from '../schema/index.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
 import { createSubmission } from './submissions.js'
+import { questReportCounts, questReportCountsFor } from './quest-reports.js'
 import { expireOverdueSubmissions } from './verifications.js'
 import { eraseAgent } from './erasure.js'
 import { listTasks } from './tasks.js'
@@ -34,6 +35,7 @@ import {
   isHeldOnRedLine,
   resolveHeldRedLine,
   withheldReportCount,
+  withheldReportCounts,
   listAllQuests,
   listOwnQuests,
   ownQuestAnswer,
@@ -2100,6 +2102,131 @@ describe('the quest write path', () => {
 
       expect(await questResults(db, taskId)).toHaveLength(2)
       expect(await questAnswerCounts(db, taskId)).toEqual({ worked: { yes: 1, no: 1 } })
+    })
+
+    /**
+     * **What the sponsor's `0 of 3` was hiding** (`#778`).
+     *
+     * The rejection case the issue names: citizens claimed it, one report is
+     * being held on a red line, and nothing has been accepted. Every one of the
+     * three numbers has to be its own — a reader that folded them would show
+     * this quest as untouched, and a reader that counted the held report as
+     * filled would show capacity the sponsor has not bought.
+     */
+    it('tells claims, accepted reports and a withheld one apart', async () => {
+      const { taskId } = await aQuestWithReports()
+      const held = await aReport({
+        taskId,
+        name: 'held-on-a-red-line',
+        answers: { 'what-happened': 'Something a steward has to read.', worked: 'no' },
+        accept: false,
+      })
+      await aReport({
+        taskId,
+        name: 'still-being-judged',
+        answers: { 'what-happened': 'Nobody has judged this one yet.', worked: 'yes' },
+        accept: false,
+      })
+      await aReport({
+        taskId,
+        name: 'also-being-judged',
+        answers: { 'what-happened': 'Nor has anybody judged this one.', worked: 'no' },
+        accept: false,
+      })
+      await holdReportOnRedLine(db, {
+        submissionId: held.submissionId,
+        reason: 'crossed',
+        model: 'test-model',
+      })
+
+      const counts = await questReportCounts(db, taskId)
+
+      expect(counts.claims).toBe(3)
+      expect(counts.acceptedReports).toBe(0)
+      expect(await withheldReportCount(db, taskId)).toBe(1)
+      // The capacity figure is unmoved by the held report, which is the whole of
+      // the sponsor-facing promise: a slot a red line consumed is a slot back in
+      // the pool.
+      expect((await readAnyQuest(db, taskId))?.acceptedReports).toBe(0)
+    })
+
+    /**
+     * **One query, two entry points** (`#778`).
+     *
+     * The list reads a set and the results page reads one id, and the reason
+     * they cannot disagree is that the singular reader *is* the set reader with
+     * one id in it. Asserted across two quests with different arrangements,
+     * because a batch reader that dropped its grouping would agree with the
+     * singular one on any single quest.
+     */
+    it('answers the same for a set of quests as for each of them alone', async () => {
+      const busy = await aQuestWithReports()
+      const quiet = await aQuestWithReports()
+      await aReport({
+        taskId: busy.taskId,
+        name: 'busy-accepted',
+        answers: { 'what-happened': 'An accepted report on the busy one.', worked: 'yes' },
+      })
+      const withheldOne = await aReport({
+        taskId: busy.taskId,
+        name: 'busy-withheld',
+        answers: { 'what-happened': 'A report a steward has to read.', worked: 'no' },
+        accept: false,
+      })
+      await aReport({
+        taskId: quiet.taskId,
+        name: 'quiet-unjudged',
+        answers: { 'what-happened': 'One report, and nobody has judged it.', worked: 'yes' },
+        accept: false,
+      })
+      await holdReportOnRedLine(db, {
+        submissionId: withheldOne.submissionId,
+        reason: 'crossed',
+        model: 'test-model',
+      })
+
+      const ids = [busy.taskId, quiet.taskId]
+      const together = await questReportCountsFor(db, ids)
+      const withheldTogether = await withheldReportCounts(db, ids)
+
+      for (const taskId of ids) {
+        expect(together.get(taskId)).toEqual(await questReportCounts(db, taskId))
+        expect(withheldTogether.get(taskId) ?? 0).toBe(await withheldReportCount(db, taskId))
+      }
+      // And the arrangements really do differ, so the agreement above is not two
+      // readers agreeing on one number twice.
+      expect(together.get(busy.taskId)).not.toEqual(together.get(quiet.taskId))
+      expect(together.get(busy.taskId)?.acceptedReports).toBe(
+        (await questResults(db, busy.taskId)).length,
+      )
+      expect(together.get(quiet.taskId)?.acceptedReports).toBe(0)
+    })
+
+    /**
+     * **An erased citizen's accepted report is still an accepted report.**
+     *
+     * This is the defect `#778` turned up rather than one it set out to fix: the
+     * count read `submission_id` while {@link questResults} groups by
+     * `report_id`, and erasure nulls the submission and keeps the report. So the
+     * list said one number and the results page listed a different number of
+     * rows, for the citizens the Colony has the strongest reason to keep
+     * countable.
+     */
+    it('keeps counting an accepted report whose author has been erased', async () => {
+      const { taskId } = await aQuestWithReports()
+      const { citizen } = await aReport({
+        taskId,
+        name: 'counted-then-departing',
+        answers: { 'what-happened': 'I registered and then left the Colony.', worked: 'yes' },
+      })
+
+      expect((await questReportCounts(db, taskId)).acceptedReports).toBe(1)
+      await eraseAgent(db, { agentId: citizen, banSalt: 'a'.repeat(32) })
+
+      expect((await questReportCounts(db, taskId)).acceptedReports).toBe(
+        (await questResults(db, taskId)).length,
+      )
+      expect((await questReportCounts(db, taskId)).acceptedReports).toBe(1)
     })
 
     it('shows a citizen its own answer, exactly as the sponsor sees it', async () => {

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { FastifyInstance } from 'fastify'
-import { QuestDraftSchema, type AgentId } from '@kolonie-ai/core'
+import { QuestDraftSchema, SubmissionIdSchema, type AgentId } from '@kolonie-ai/core'
 import { buildApp } from '../app.js'
 import { fakeColony } from '../__fixtures__/colony/index.js'
 import { fakeConsole } from '../__fixtures__/console.js'
@@ -346,6 +346,138 @@ describe('the quests a person’s identities have written', () => {
         expect(body).toContain('<a href="/quests">Back to your quests</a>')
         expect(body).not.toContain('<a href="/">Back to your quests</a>')
       }
+    })
+  })
+
+  /**
+   * **What `0 of 3` was not saying** (`#778`).
+   *
+   * The figure beside a capacity counted accepted reports and nothing else, so a
+   * quest three citizens had claimed, one of whose reports the Colony was
+   * holding, read exactly as a quest nobody had opened. The list carries claims
+   * and the withheld count now, the quest page carries all five, and both come
+   * from one reader so they cannot disagree.
+   */
+  describe('what has happened to a quest', () => {
+    const aLiveQuest = async (title: string) => {
+      const own = anAgent({ name: 'a-named-agent' })
+      humans.operatesAgent(theHuman().id, own)
+      const written = await wroteQuest(own.id, title)
+      quests.publish(written.task.id)
+      return written.task.id
+    }
+
+    const questPage = (questId: string, cookie: string) =>
+      app.inject({
+        method: 'GET',
+        url: `/quests/${questId}`,
+        headers: { host: CONSOLE_HOST, accept: 'text/html', cookie },
+      })
+
+    /**
+     * **The rejection case, stated as the issue states it**: claims, one
+     * withheld report, nothing accepted. The number that must not appear is a
+     * bare *nothing happened*, and the number that must not appear either is one
+     * counting the withheld report as capacity somebody paid for.
+     */
+    it('separates “nobody came” from “three came and one is being read”', async () => {
+      const cookie = await signedInCookie()
+      const questId = await aLiveQuest('A quest three citizens claimed')
+      quests.claimedBy(questId, 3)
+      quests.holdOnRedLine({
+        submissionId: SubmissionIdSchema.parse('11111111-1111-4111-8111-111111111111'),
+        taskId: questId,
+      })
+
+      const listed = (await section(cookie)).body
+      const page = (await questPage(String(questId), cookie)).body
+
+      // Filled still counts accepted reports, and correctly: no report has been
+      // accepted. What changed is that it is no longer the only figure shown.
+      expect(listed).toContain('0 of 10')
+      expect(listed).toContain('<th>Claimed</th>')
+      expect(listed).toContain('1 withheld')
+      expect(listed).toContain('crossed one of the Colony’s red lines')
+
+      expect(page).toContain('What has happened to it')
+      expect(page).toContain('<tr><td>Claims</td><td>3</td></tr>')
+      expect(page).toContain('<tr><td>Accepted reports</td><td>0</td></tr>')
+      expect(page).toContain('<tr><td>Withheld by the Colony</td><td>1</td></tr>')
+      expect(page).toContain('None of the three is a capacity you have spent')
+    })
+
+    /**
+     * **The list and the detail page agree**, because they read the same thing.
+     * Asserted here on the fake and again against a real Postgres in
+     * `packages/db`, where the two entry points onto the one query live.
+     */
+    it('shows the same claim count on the list and on the quest', async () => {
+      const cookie = await signedInCookie()
+      const questId = await aLiveQuest('A quest with a count to compare')
+      quests.claimedBy(questId, 2)
+
+      const listed = (await section(cookie)).body
+      const page = (await questPage(String(questId), cookie)).body
+
+      expect(listed).toContain('<td>2</td>')
+      expect(page).toContain('<tr><td>Claims</td><td>2</td></tr>')
+    })
+
+    /**
+     * **The reason this is a batch reader at all.** The list used to make one
+     * read per quest, so a sponsor with forty quests paid forty round trips for
+     * one page. What is asserted is the shape rather than a timing: the number
+     * of reads the list makes does not move when the number of quests does.
+     */
+    it('does not read once per quest', async () => {
+      const cookie = await signedInCookie()
+      const own = anAgent({ name: 'a-named-agent' })
+      humans.operatesAgent(theHuman().id, own)
+
+      /** Every read of the counts, by whichever entry point (`#778`). */
+      let reads = 0
+      const counted = <Args extends unknown[], Answer>(
+        method: (...args: Args) => Promise<Answer>,
+      ): ((...args: Args) => Promise<Answer>) => {
+        const bound = method.bind(quests)
+        return async (...args: Args) => {
+          reads += 1
+          return bound(...args)
+        }
+      }
+      const watched = {
+        ...quests,
+        activity: counted(quests.activity),
+        reportCounts: counted(quests.reportCounts),
+        withheld: counted(quests.withheld),
+      } as FakeQuestDesk
+
+      app = buildApp({
+        ...fakeColony(),
+        store: agents,
+        quests: watched,
+        console: { ...fakeConsole(), consoleUrl: CONSOLE_URL },
+        humans: { store: humans, tenant: fakeTenant() },
+      })
+      await app.ready()
+
+      for (const title of ['One', 'Two', 'Three', 'Four', 'Five']) {
+        const written = await wroteQuest(own.id, `A quest called ${title}`)
+        quests.publish(written.task.id)
+      }
+      reads = 0
+      await section(cookie)
+      const forFive = reads
+
+      for (const title of ['Six', 'Seven', 'Eight', 'Nine', 'Ten']) {
+        const written = await wroteQuest(own.id, `A quest called ${title}`)
+        quests.publish(written.task.id)
+      }
+      reads = 0
+      await section(cookie)
+
+      expect(forFive).toBe(reads)
+      expect(forFive).toBeLessThan(5)
     })
   })
 

@@ -826,6 +826,20 @@ const QUEST_FIELDS = {
   walksAsked: z.int().min(1).max(MAX_WALKS_ASKED).nullable(),
 } as const
 
+/** A strict quest write names every promise it refused to record. */
+const questFieldError = (issue: z.core.$ZodRawIssue): string | undefined => {
+  if (issue.code !== 'unrecognized_keys') return undefined
+
+  return issue.keys
+    .map((field) =>
+      field === 'mustNotHold'
+        ? '`mustNotHold` is not a field of a quest. Targeting is positive-only: `requires` ' +
+          'names skills a citizen must hold, and there is no field for skills they must not.'
+        : `\`${field}\` is not a field of a quest.`,
+    )
+    .join(' ')
+}
+
 /**
  * What a sponsor writes.
  *
@@ -843,28 +857,32 @@ const QUEST_FIELDS = {
  *   write path believes. A field here would be a promise the database breaks.
  */
 export const QuestDraftSchema = z
-  .object({
-    ...QUEST_FIELDS,
-    audience: QUEST_FIELDS.audience.default('citizens'),
-    requires: QUEST_FIELDS.requires.default([]),
-    minReputation: QUEST_FIELDS.minReputation.default(0),
-    /** No requirement, so a sponsor that says nothing about activity narrows nothing. */
-    minActivityDays: QUEST_FIELDS.minActivityDays.default(null),
-    /** Off, so a sponsor that says nothing about operators narrows nothing. */
-    distinctOperators: QUEST_FIELDS.distinctOperators.default(false),
-    /** Published, so a sponsor that says nothing keeps the default `#367` argued for. */
-    publishObstacles: QUEST_FIELDS.publishObstacles.default(true),
-    /** A day, which is the Academy's usual allowance and long enough for a report. */
-    timeoutHours: QUEST_FIELDS.timeoutHours.default(24),
-    assistanceAllowed: QUEST_FIELDS.assistanceAllowed.default(true),
-    proofVerifier: QUEST_FIELDS.proofVerifier.default(null),
-    /** Prose, so a sponsor that says nothing gets the quest that existed before `#525`. */
-    deliverable: QUEST_FIELDS.deliverable.default('report'),
-    /** Absent on the two deliverables that are not about a named entry. */
-    catalogueProvider: QUEST_FIELDS.catalogueProvider.default(null),
-    /** Absent on every deliverable that is not measured in walks. */
-    walksAsked: QUEST_FIELDS.walksAsked.default(null),
-  })
+  .object(
+    {
+      ...QUEST_FIELDS,
+      audience: QUEST_FIELDS.audience.default('citizens'),
+      requires: QUEST_FIELDS.requires.default([]),
+      minReputation: QUEST_FIELDS.minReputation.default(0),
+      /** No requirement, so a sponsor that says nothing about activity narrows nothing. */
+      minActivityDays: QUEST_FIELDS.minActivityDays.default(null),
+      /** Off, so a sponsor that says nothing about operators narrows nothing. */
+      distinctOperators: QUEST_FIELDS.distinctOperators.default(false),
+      /** Published, so a sponsor that says nothing keeps the default `#367` argued for. */
+      publishObstacles: QUEST_FIELDS.publishObstacles.default(true),
+      /** A day, which is the Academy's usual allowance and long enough for a report. */
+      timeoutHours: QUEST_FIELDS.timeoutHours.default(24),
+      assistanceAllowed: QUEST_FIELDS.assistanceAllowed.default(true),
+      proofVerifier: QUEST_FIELDS.proofVerifier.default(null),
+      /** Prose, so a sponsor that says nothing gets the quest that existed before `#525`. */
+      deliverable: QUEST_FIELDS.deliverable.default('report'),
+      /** Absent on the two deliverables that are not about a named entry. */
+      catalogueProvider: QUEST_FIELDS.catalogueProvider.default(null),
+      /** Absent on every deliverable that is not measured in walks. */
+      walksAsked: QUEST_FIELDS.walksAsked.default(null),
+    },
+    { error: questFieldError },
+  )
+  .strict()
   /**
    * **A quest measured in walks names the entry and the number** (`#602`).
    *
@@ -910,7 +928,10 @@ export type QuestDraft = z.infer<typeof QuestDraftSchema>
  * Built from the same field list rather than hand-written, so a field added to a
  * quest is editable by construction and nobody has to remember two places.
  */
-export const QuestPatchSchema = z.object(QUEST_FIELDS).partial()
+export const QuestPatchSchema = z
+  .object(QUEST_FIELDS, { error: questFieldError })
+  .partial()
+  .strict()
 export type QuestPatch = z.infer<typeof QuestPatchSchema>
 
 /** A steward's refusal, which is always a sentence and never a silence. */

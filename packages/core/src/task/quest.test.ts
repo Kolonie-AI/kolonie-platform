@@ -72,14 +72,26 @@ describe('what a sponsor may write', () => {
     expect(draft.questions[0]?.required).toBe(true)
   })
 
-  /**
-   * The strongest form of *a sponsor cannot decide this*: there is no field to
-   * decide it with, so an attempt is not refused — it is not expressible.
-   */
-  it.each(['createdBy', 'grants', 'status', 'kind', 'type'])('drops %s', (field) => {
-    const draft = QuestDraftSchema.parse(aDraft({ [field]: 'anything' }))
+  it.each(['createdBy', 'grants', 'status', 'kind', 'type'])(
+    'refuses %s rather than accepting a field the sponsor cannot set',
+    (field) => {
+      expect(QuestDraftSchema.safeParse(aDraft({ [field]: 'anything' })).success).toBe(false)
+    },
+  )
 
-    expect(draft).not.toHaveProperty(field)
+  it('names an invented negative targeting field and the positive field that exists', () => {
+    for (const parsed of [
+      QuestDraftSchema.safeParse(aDraft({ mustNotHold: ['email-send'] })),
+      QuestPatchSchema.safeParse({ mustNotHold: ['email-send'] }),
+    ]) {
+      expect(parsed.success).toBe(false)
+      if (!parsed.success) {
+        expect(parsed.error.issues[0]?.message).toBe(
+          '`mustNotHold` is not a field of a quest. Targeting is positive-only: `requires` ' +
+            'names skills a citizen must hold, and there is no field for skills they must not.',
+        )
+      }
+    }
   })
 
   it('requires the capacity and the expiry a quest cannot run without', () => {
@@ -101,7 +113,7 @@ describe('what a sponsor may write', () => {
       title: 'Another question',
     })
     expect(QuestPatchSchema.parse({})).toEqual({})
-    expect(QuestPatchSchema.parse({ status: 'active' })).not.toHaveProperty('status')
+    expect(QuestPatchSchema.safeParse({ status: 'active' }).success).toBe(false)
   })
 })
 

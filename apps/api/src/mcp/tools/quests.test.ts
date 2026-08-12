@@ -198,6 +198,37 @@ describe('the sponsor over MCP', () => {
     )
   })
 
+  it.each([
+    ['write', () => aDraft({ mustNotHold: ['email-send'] })],
+    ['update', (questId: TaskId) => ({ questId, timeoutHours: 96, mustNotHold: ['email-send'] })],
+  ] as const)('refuses an unknown field on %s by name', async (tool, argumentsFor) => {
+    const sponsor = anAgent()
+    const written = await call(sponsor.key, 'kolonie.quests.write', aDraft())
+    const id = (structured(written).quest as unknown as { id: TaskId }).id
+
+    const refused = await call(sponsor.key, `kolonie.quests.${tool}`, argumentsFor(id))
+
+    expect(refused.isError).toBe(true)
+    expect(JSON.stringify(refused.content)).toContain('`mustNotHold` is not a field of a quest')
+    expect(JSON.stringify(refused.content)).toContain('Targeting is positive-only')
+  })
+
+  it('refuses a full read round-tripped as an update, naming the read-only fields', async () => {
+    const sponsor = anAgent()
+    const written = await call(sponsor.key, 'kolonie.quests.write', aDraft())
+    const id = (structured(written).quest as unknown as { id: TaskId }).id
+    const read = await call(sponsor.key, 'kolonie.quests.read', { questId: id })
+
+    const refused = await call(sponsor.key, 'kolonie.quests.update', {
+      ...(structured(read).quest as unknown as Record<string, unknown>),
+      questId: id,
+      title: 'A hundred registrations',
+    })
+
+    expect(refused.isError).toBe(true)
+    expect(JSON.stringify(refused.content)).toContain('`status` is not a field of a quest')
+  })
+
   it('reports a no-op update without repeating the quest', async () => {
     const sponsor = anAgent()
     const written = await call(sponsor.key, 'kolonie.quests.write', aDraft())

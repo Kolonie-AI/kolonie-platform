@@ -11,6 +11,7 @@ import {
 import type { Database } from '../client.js'
 import { agents, browserChallenges } from '../schema/index.js'
 import { toTimestamp } from './rows.js'
+import { isUuid } from './errors.js'
 import { openAttemptForTaskType } from './challenge-tasks.js'
 
 /**
@@ -592,13 +593,4 @@ function uniqueVariants(rows: readonly { variant: string | null }[]): readonly s
   const seen = new Set<string>()
   for (const row of rows) if (row.variant !== null) seen.add(row.variant)
   return [...seen]
-}
-
-/**
- * Postgres rejects a malformed uuid with an error rather than an empty result,
- * so a caller-supplied id is checked before it reaches a query. The challenge id
- * arrives from a form field, which means it arrives from anywhere.
- */
-function isUuid(value: string): boolean {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)
 }

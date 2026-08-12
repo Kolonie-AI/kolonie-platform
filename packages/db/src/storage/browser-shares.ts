@@ -15,6 +15,7 @@ import { agentSkills } from '../schema/agent-skills.js'
 import { agents } from '../schema/agents.js'
 import { browserShares } from '../schema/browser-shares.js'
 import { humanAgents } from '../schema/human-links.js'
+import { isUuid } from './errors.js'
 import { toTimestamp } from './rows.js'
 
 /**
@@ -299,8 +300,16 @@ export async function shareForToken(db: Database, token: string): Promise<ShareF
  * sharer presents the secret it was given, and the person presents an id it read
  * off its own queue and a session cookie that says who it is. Which of those
  * proves what is the whole difference between the two doors.
+ *
+ * **A malformed id is null, not a raised error** — the same guard and the same
+ * reason as {@link shareOfferedTo} (`#768`). It matters twice over here, because
+ * the caller is {@link acceptShare} at the operator's socket: an id Postgres
+ * refuses to parse would come back as a closed connection rather than as the
+ * `unknown` refusal that case is supposed to get.
  */
 async function shareById(db: Database, shareId: string): Promise<ShareForRelay | null> {
+  if (!isUuid(shareId)) return null
+
   return openShare(db, eq(browserShares.id, shareId))
 }
 
@@ -487,12 +496,23 @@ export interface WaitingShare {
  * session over a browser event nobody chose. Whether *this* person may resume it
  * is {@link acceptShare}'s question, asked again at the socket where it can be
  * answered against `accepted_by`.
+ *
+ * **A malformed id is one of the silences** (`#768`). It was not: the id went
+ * into `where id = $1` against a `uuid` column, Postgres raised rather than
+ * matching nothing, and the console showed its "something went wrong" page with
+ * an error id on it. The citizen who reported it had done nothing strange — the
+ * operator pasted the share **token** where the share **id** goes, which are
+ * both opaque strings an agent has just been handed, and one of them is a uuid.
+ * The guard belongs here rather than only in the route so that the promise three
+ * paragraphs up is true for every caller that ever arrives.
  */
 export async function shareOfferedTo(
   db: Database,
   shareId: string,
   humanId: HumanId,
 ): Promise<WaitingShare | null> {
+  if (!isUuid(shareId)) return null
+
   const at = currentTime()
 
   const [row] = await db

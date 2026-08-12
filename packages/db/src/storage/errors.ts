@@ -28,6 +28,27 @@ export function isUniqueViolation(error: unknown): boolean {
   return false
 }
 
+/**
+ * Whether a string is shaped like a uuid, asked **before** it reaches a query.
+ *
+ * Postgres rejects a malformed uuid with an error rather than an empty result,
+ * so a `where id = $1` against a `uuid` column turns a wrong id into a 500
+ * instead of a not-found. Every id this repository compares that way arrives
+ * from outside — a form field, a path segment, a tool argument — which means it
+ * arrives from anywhere.
+ *
+ * Shared rather than duplicated, for the reason {@link isUniqueViolation} is:
+ * the challenge lookups and the browser-share console page both promise a
+ * caller that a bad id is indistinguishable from an id that does not exist, and
+ * a second copy of the shape is a second place for that promise to come apart.
+ * `#768` is what it looks like when one of them has no copy at all — a citizen's
+ * operator pasted the share **token** where the share **id** goes and the
+ * console answered with its "something went wrong" page.
+ */
+export function isUuid(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)
+}
+
 function causeOf(error: unknown): unknown {
   return typeof error === 'object' && error !== null && 'cause' in error
     ? (error as { cause?: unknown }).cause

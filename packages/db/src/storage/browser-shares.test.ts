@@ -351,6 +351,21 @@ describe('the browser share', () => {
     })
 
     /**
+     * The other half of `#768`. A malformed id reaching the query would raise
+     * out of the operator's socket rather than refusing it, so the person whose
+     * window sent it would see the connection drop with nothing said.
+     */
+    it('refuses a malformed id as unknown rather than raising', async () => {
+      const person = await aPerson()
+      await operates(person, agentId)
+
+      expect(await acceptShare(db, 'not-a-uuid', person)).toEqual({
+        outcome: 'refused',
+        reason: 'unknown',
+      })
+    })
+
+    /**
      * A reloaded window, a slept laptop, a second tab. Refusing would end a live
      * session over a browser event nobody chose — and re-accepting must not extend
      * the clock, or a reload would be a way to hold a tab open indefinitely.
@@ -455,6 +470,28 @@ describe('the browser share', () => {
 
       expect(await shareOfferedTo(db, share.id, stranger)).toBeNull()
       expect(await shareOfferedTo(db, randomUUID(), stranger)).toBeNull()
+    })
+
+    /**
+     * `#768`, and the reason it was reported as a defect rather than as a typo:
+     * the id goes into `where id = $1` against a `uuid` column, so a string that
+     * is not one made Postgres raise instead of matching nothing, and the
+     * console answered with "something went wrong" and an error id.
+     *
+     * The share **token** is the case that actually happened. Both are opaque
+     * strings the agent has just been handed, one of them is a uuid, and only
+     * the operator can tell which door they are at. It has to be the same
+     * silence as a guess.
+     */
+    it('is silent about a malformed id, including the share token', async () => {
+      const person = await aPerson()
+      await operates(person, agentId)
+      const offered = await offerShare(db, { agentId, targetId: TAB, purpose: PURPOSE })
+      if (offered.outcome !== 'offered') throw new Error('expected an offer')
+
+      expect(await shareOfferedTo(db, offered.share.token, person)).toBeNull()
+      expect(await shareOfferedTo(db, 'not-a-uuid', person)).toBeNull()
+      expect(await shareOfferedTo(db, '', person)).toBeNull()
     })
 
     it('stops answering once it has lapsed or ended', async () => {

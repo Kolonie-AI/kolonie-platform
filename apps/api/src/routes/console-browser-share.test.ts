@@ -200,6 +200,27 @@ describe('the operator’s window onto a shared tab', () => {
   })
 
   /**
+   * The fifth wrong id, and the one that was reported (`#768`): the share
+   * **token**, pasted here by an operator who had been handed two opaque
+   * strings and no way to tell which door each opens. Against a `uuid` column
+   * that is not a not-found but a raised error, so the console answered with
+   * "something went wrong". The guard is in `shareOfferedTo` — where a real
+   * database is what proves it, and where every caller inherits it — and this
+   * asserts the door's half: nothing about it is a case of its own.
+   */
+  it('tells a share token what a guessed id is told', async () => {
+    const cookie = await signedInCookie()
+    const shareId = await anOffer()
+
+    const guessed = await open(randomUUID(), cookie)
+    const token = await open('QUJDRA-not-a-uuid_this-is-a-token', cookie)
+
+    expect(token.statusCode).toBe(404)
+    expect(token.body).toBe(guessed.body)
+    expect((await open(shareId, cookie)).statusCode).toBe(200)
+  })
+
+  /**
    * **Rendering is not accepting** — the socket is. A person who opens the
    * window and wanders off has spent none of the live minutes, and the offer is
    * still there for them or for the next load.

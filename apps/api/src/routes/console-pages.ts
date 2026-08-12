@@ -1036,10 +1036,16 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
    *
    * **The id is checked against the person in the same statement that reads the
    * row**, exactly as `/sessions/:id/end` is, and `offeredTo` answers `null` for
-   * all four ways this can be wrong — a guessed id, a stranger's share, one that
-   * has closed, one that has lapsed. All four get {@link consoleNotFound}, which
-   * is what a mistyped path gets, so the page is not a way to ask whether a
-   * guessed id ever named anything.
+   * all five ways this can be wrong — a guessed id, a stranger's share, one that
+   * has closed, one that has lapsed, and one that is not a uuid at all. All five
+   * get {@link consoleNotFound}, which is what a mistyped path gets, so the page
+   * is not a way to ask whether a guessed id ever named anything.
+   *
+   * The fifth was four until `#768`: an operator pasted the share **token** here
+   * — the string their agent had just been handed — and a `uuid` column raises
+   * on that rather than matching nothing, so the console showed the page it
+   * shows when the Colony has broken. The guard sits in `offeredTo` rather than
+   * in this handler, so that every caller of it inherits the same silence.
    *
    * **Rendering it does not accept it.** Accepting is what starts the live
    * minutes, and it happens on the socket the page opens — so a person who

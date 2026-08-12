@@ -10,6 +10,7 @@ import type {
 import { DEFAULT_OPERATOR_REQUEST_OPEN_MAX } from '@kolonie-ai/db'
 import type { OperatorRequestDependencies, OperatorRequestStore } from '../operator-requests.js'
 import { fakeAutonomyMailer, fakeOperatorPages, type FakeOperatorPages } from './autonomy.js'
+import { mailingOperatorNotifier } from '../operator-notifier.js'
 import { support } from '../support.js'
 import { fakeSupportDesk } from './support.js'
 
@@ -262,25 +263,45 @@ export function fakeOperatorRequestStore(
 /**
  * The operator channel wired for a test that does not care about it.
  *
- * **Mailer and base url present by default**, for the reason `fakeAutonomy` gives:
- * absent means *the Colony cannot send*, which is a 503, and a test that had not
- * thought about it would read that as a refusal.
+ * **Notifier and base url present by default**, for the reason `fakeAutonomy`
+ * gives: absent means *the Colony cannot send*, which is a 503, and a test that
+ * had not thought about it would read that as a refusal.
+ *
+ * **The default notifier is the mail one** (`#794`), which is what every
+ * deployment without a Telegram bot gets — so a test that says nothing about
+ * transport is testing the transport that runs in production. The recording
+ * mailer behind it is returned as `mailer`, so the many tests that assert on what
+ * was sent read the same object they always did.
  *
  * The allowance is a real `support()` surface rather than an always-allow stub, so
  * the sharing that `#236` requires is exercised by every test that opens a request
  * rather than only by the one that asserts it.
  */
+export type FakeOperatorMailer = ReturnType<typeof fakeAutonomyMailer>
+
 export function fakeOperatorRequests(
-  overrides: Partial<OperatorRequestDependencies> & { readonly pages?: FakeOperatorPages } = {},
-): OperatorRequestDependencies & { readonly store: FakeOperatorRequestStore } {
-  const { pages, ...rest } = overrides
+  overrides: Partial<OperatorRequestDependencies> & {
+    readonly pages?: FakeOperatorPages
+    /** The recording mailer to put behind the default notifier. */
+    readonly mailer?: FakeOperatorMailer
+  } = {},
+): OperatorRequestDependencies & {
+  readonly store: FakeOperatorRequestStore
+  readonly mailer: FakeOperatorMailer
+} {
+  const { pages, mailer: given, ...rest } = overrides
   const store = fakeOperatorRequestStore(pages)
+  const mailer = given ?? fakeAutonomyMailer()
 
   return {
     store,
     allowance: support({ desk: fakeSupportDesk() }),
-    mailer: fakeAutonomyMailer(),
+    notifier: mailingOperatorNotifier(mailer),
+    mailer,
     pageBaseUrl: 'https://console.example.org',
     ...rest,
-  } as OperatorRequestDependencies & { readonly store: FakeOperatorRequestStore }
+  } as OperatorRequestDependencies & {
+    readonly store: FakeOperatorRequestStore
+    readonly mailer: FakeOperatorMailer
+  }
 }

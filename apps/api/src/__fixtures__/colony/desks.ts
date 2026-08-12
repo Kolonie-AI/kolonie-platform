@@ -20,7 +20,11 @@ import { fakeAccounts } from '../accounts.js'
 import { fakeSupportDesk, type FakeSupportDesk } from '../support.js'
 import type { OperatorNoteDependencies } from '../../operator-notes.js'
 import { fakeOperatorNotes, type FakeOperatorNoteStore } from '../operator-notes.js'
-import { fakeOperatorRequests, type FakeOperatorRequestStore } from '../operator-requests.js'
+import {
+  fakeOperatorRequests,
+  type FakeOperatorMailer,
+  type FakeOperatorRequestStore,
+} from '../operator-requests.js'
 import type { OperatorRequestDependencies } from '../../operator-requests.js'
 import type { PermissionReportDependencies } from '../../permission-reports.js'
 import { fakeErasureDesk, type FakeErasureDesk } from '../erasure.js'
@@ -75,7 +79,17 @@ export interface FakeDesks {
    * the ticket allowance therefore sees a request refused, and that is a property
    * of the fixture rather than a thing each test has to arrange.
    */
-  readonly operatorRequests: OperatorRequestDependencies
+  readonly operatorRequests: OperatorRequestDependencies & {
+    /**
+     * The recording mailer behind the default notifier (`#794`).
+     *
+     * Exposed because the transport moved behind a port and the assertions did
+     * not: what a test checks is still *what the operator was sent*, and the
+     * default notifier is the mail one — which is what every deployment without a
+     * Telegram bot runs.
+     */
+    readonly mailer: FakeOperatorMailer
+  }
   readonly operatorRequestStore: FakeOperatorRequestStore
   /**
    * The third operator channel (`#737`): a live tab rather than words or a

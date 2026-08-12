@@ -7,6 +7,12 @@ import { aTicketRequest } from '../../__fixtures__/support.js'
 import { TICKET_LIMIT } from '../../support.js'
 import { exchangeAnchor } from '../../autonomy-page.js'
 import { OPERATOR_LABEL } from '../text/operator-requests.js'
+import { createLog } from '@kolonie-ai/core'
+import {
+  telegramOrMailingOperatorNotifier,
+  type OperatorNotifier,
+} from '../../operator-notifier.js'
+import { fakeTelegramDesk } from '../../__fixtures__/operator-telegram.js'
 
 /**
  * The operator channel (#236), from the citizen's side.
@@ -108,6 +114,68 @@ describe('kolonie.operator.request', () => {
     expect(JSON.stringify(second.result.content)).toContain(firstId)
     expect(JSON.stringify(second.result.content)).toContain('github-account')
     await second.close()
+  })
+
+  /**
+   * The transport swap (`#794`), from the citizen's side — where the only thing
+   * that must change is nothing.
+   */
+  describe('when the operator is on Telegram', () => {
+    const overTelegram = async () => {
+      const arranged = await aBlockedCitizen()
+      const desk = fakeTelegramDesk()
+      desk.store.bind(arranged.agent.id, 4242)
+
+      // The notifier the wiring would have built, swapped in whole rather than
+      // branched on: the point of the port is that this path does not know which
+      // transport it got.
+      ;(arranged.colony.operatorRequests as { notifier: OperatorNotifier }).notifier =
+        telegramOrMailingOperatorNotifier({
+          telegram: desk,
+          mailer: arranged.colony.operatorRequests.mailer,
+          log: { ...createLog({ service: 'test' }), warn: () => {}, info: () => {} },
+        })
+
+      return { ...arranged, desk }
+    }
+
+    it('reaches the operator there instead of by mail', async () => {
+      const { colony, apiKey, taskId, desk } = await overTelegram()
+
+      const { close, result } = await openA(colony, apiKey, taskId)
+      await close()
+
+      expect(result.isError).toBeFalsy()
+      expect(desk.bot.sent).toHaveLength(1)
+      expect(colony.operatorRequests.mailer.sent()).toHaveLength(0)
+    })
+
+    /**
+     * **`#794`: the charge is taken once per ask regardless of transport.** A
+     * channel that skipped the limiter would be the hole in it — and the citizen
+     * would have found it, because a cheaper way to reach a person is a thing
+     * agents notice.
+     */
+    it('spends the same allowance a mailed ask does', async () => {
+      const { colony, apiKey, taskId } = await overTelegram()
+      const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+      for (let n = 0; n < TICKET_LIMIT; n += 1) {
+        const opened = await client.callTool({
+          name: 'kolonie.support.open',
+          arguments: aTicketRequest({ subject: `something is wrong, number ${n}` }),
+        })
+        expect(opened.isError).toBeFalsy()
+      }
+
+      const request = await client.callTool({
+        name: 'kolonie.operator.request.open',
+        arguments: { taskId, body: 'Could you make me a GitHub account, please?' },
+      })
+      await close()
+
+      expect(request.isError).toBe(true)
+    })
   })
 
   /**

@@ -31,7 +31,7 @@ import {
   type OperatorRequestRecipient,
   type SettingsReader,
 } from '@kolonie-ai/db'
-import type { OperatorMailer } from './email.js'
+import type { OperatorNotifier } from './operator-notifier.js'
 import type { OutboundAllowance } from './support.js'
 import type { WakeSender } from '@kolonie-ai/verifiers'
 import { exchangeAnchor } from './autonomy-page.js'
@@ -130,17 +130,21 @@ export interface OperatorRequestDependencies {
    */
   readonly allowance: OutboundAllowance
   /**
-   * Sends the one notification.
+   * Sends the one notification, by whichever channel this operator has (`#794`).
    *
    * Optional like the autonomy module's, and absent means the request is not
    * opened: an exchange nobody was told about would leave the citizen waiting on
    * an answer that could never come, and a configuration gap must never look like
    * an operator who did not reply.
    *
-   * **An {@link OperatorMailer} (`#474`).** It writes to an operator about their
-   * agent, which is account mail rather than Academy mail.
+   * **A port and not a mailer since `#794`.** It was an {@link OperatorMailer}
+   * (`#474`) — operator-facing mail, with the console's sender bound rather than
+   * the Academy's — and that implementation is still the one every deployment
+   * without a Telegram bot gets. What changed is that the choice of transport is
+   * made once at wiring time rather than by an `if` on this path, which is how
+   * one of two branches quietly stops being tested.
    */
-  readonly mailer?: OperatorMailer | undefined
+  readonly notifier?: OperatorNotifier | undefined
   /** Where the operator's page lives, from configuration — never a host in code. */
   readonly pageBaseUrl?: string | undefined
   /**
@@ -227,7 +231,7 @@ export async function openOperatorRequest(
     return { outcome: 'rejected', error: credentialRefusal(finding) }
   }
 
-  if (deps.mailer === undefined || deps.pageBaseUrl === undefined) {
+  if (deps.notifier === undefined || deps.pageBaseUrl === undefined) {
     /**
      * `internal` at 503 rather than a refusal, the mapping `askOperator` makes: a
      * missing mailer is the Colony's own gap, and reporting it as the citizen's
@@ -340,14 +344,19 @@ export async function openOperatorRequest(
   const link =
     `${deps.pageBaseUrl.replace(/\/+$/, '')}/operator/page/${recipient.pageToken}` +
     `#${exchangeAnchor(opened.request.id)}`
-  const delivery = await deps.mailer.send({
-    to: recipient.operatorAddress,
-    subject: `${input.agentName} is stuck and has asked you something`,
-    text: operatorRequestNotificationText({
-      agentName: input.agentName,
-      context: opened.request.context,
-      link,
-    }),
+  /**
+   * One channel, chosen by the notifier, charged once (`#794`).
+   *
+   * The allowance was spent above and before the transport was known, which is
+   * the property that makes it impossible for a Telegram ask to be cheaper than a
+   * mailed one — there is no path from here that could skip it.
+   */
+  const delivery = await deps.notifier.notify({
+    agentId: input.agentId,
+    agentName: input.agentName,
+    context: opened.request.context,
+    link,
+    address: recipient.operatorAddress,
   })
 
   if (!delivery.delivered) {
@@ -356,7 +365,7 @@ export async function openOperatorRequest(
       error: {
         code: 'internal',
         message:
-          'The request is open, but the Colony could not deliver the mail telling your ' +
+          'The request is open, but the Colony could not deliver the message telling your ' +
           'operator about it. This is not your problem. They can still answer through the page ' +
           'they already have; if you would rather ask a different way, close this one with ' +
           'kolonie.operator.request.close.',
@@ -366,49 +375,6 @@ export async function openOperatorRequest(
   }
 
   return { outcome: 'opened', response: { request: opened.request } }
-}
-
-/**
- * The mail.
- *
- * **No new link, and this is the requirement rather than an economy.** The
- * operator already holds a durable page; minting a fresh single-use link per
- * request would put a new credential in an inbox every time an agent needed
- * something, for no gain over the one they have and one more thing that can leak.
- *
- * **Nothing of the citizen's own addresses appears in it**, and the task is named
- * by title rather than by id: what a person needs to answer is *which thing* and
- * *what is wanted*, and the ask itself is on the page rather than in the mail —
- * so a mail sitting in an inbox forever carries as little as possible.
- */
-export function operatorRequestNotificationText(input: {
-  readonly agentName: string
-  readonly context: string
-  readonly link: string
-}): string {
-  return [
-    `Your agent ${input.agentName} has run into something it cannot do without you, while`,
-    `working on "${input.context}". It has written you a short note explaining what it needs.`,
-    '',
-    'It is on the page you already have for it — the same page as before, no new account and',
-    'nothing to sign up for:',
-    '',
-    `    ${input.link}`,
-    '',
-    'You can answer there in your own words, and add to your answer later if you got something',
-    'wrong. This is the only mail the Colony will send about it: there is no reminder and no',
-    'follow-up, whatever you decide.',
-    '',
-    'What you write reaches your agent as *your* words, and it is advisory — your agent weighs',
-    'it against what you already told the Colony it may do. Answering cannot give it new',
-    'permissions, and neither can anybody else who somehow got hold of this link.',
-    '',
-    'Ignoring this is a real answer. Your agent carries on and can withdraw the question; the',
-    'Colony does not score any of this, and no other citizen sees it.',
-    '',
-    'One thing to know: never put a password, key or code in your answer. The Colony refuses',
-    'those on purpose. If your agent needs a credential, it will tell you where to put it.',
-  ].join('\n')
 }
 
 /** The citizen adds to its own open exchange. */

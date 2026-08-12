@@ -104,6 +104,7 @@ import { databaseDomainChallenges } from './domain.js'
 import { databaseVisionChallenges } from './vision.js'
 import { databaseHandovers } from './handovers.js'
 import { databaseDrops, usableSealingKey } from './operator-drops.js'
+import { operatorNotifierFor } from './operator-notifier.js'
 import {
   databaseTelegram,
   httpTelegramBot,
@@ -809,9 +810,24 @@ const app = buildApp({
   operatorRequests: {
     store: databaseOperatorRequestStore(db, liveSettings),
     allowance: supportSurface,
-    // Operator-facing: it writes to a person about their agent, so it takes the
-    // mailer with the console's sender bound rather than the Academy's (`#474`).
-    ...(mail.operatorMailer === undefined ? {} : { mailer: mail.operatorMailer }),
+    /**
+     * How the operator is reached (`#794`), chosen once here.
+     *
+     * Telegram where the operator bound it and mail everywhere else — and mail is
+     * still what the Colony sends today, because a deployment with no bot gets
+     * the mail implementation and nothing else is constructed. Operator-facing
+     * either way: the mailer carries the console's sender rather than the
+     * Academy's (`#474`).
+     */
+    ...(mail.operatorMailer === undefined
+      ? {}
+      : {
+          notifier: operatorNotifierFor({
+            mailer: mail.operatorMailer,
+            telegram: operatorTelegram,
+            log,
+          }),
+        }),
     ...(process.env['CONSOLE_URL'] ? { pageBaseUrl: process.env['CONSOLE_URL'] } : {}),
     /**
      * The wake channel, on the one path it was built for (`#518`).

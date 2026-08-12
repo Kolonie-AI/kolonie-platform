@@ -1,8 +1,10 @@
 import {
   AccountKindSchema,
   AtlasCategorySchema,
+  BOOTSTRAP_TEMPLATES,
   atlasByOutcome,
   atlasEntries,
+  bootstrapTemplate,
   credentialFinding,
   fillAsk,
   valuesReferencedBy,
@@ -16,6 +18,7 @@ import {
   type AccountKind,
   type ApiError,
   type AtlasAudience,
+  type BootstrapTemplate,
   type AtlasEntry,
   type AtlasFigures,
   type EntryProposal,
@@ -904,6 +907,87 @@ export function handoffStep(
   }
 
   return { step: found }
+}
+
+/**
+ * The step a handoff is about when the Atlas has no entry to take one from
+ * (`#800`).
+ *
+ * ## What it is for
+ *
+ * `handoffStep` counts into a published recipe, so at a provider nobody has
+ * walked there is no step, no `ask`, and therefore no sealed drop — the exact
+ * gap `#771` left when it shipped the patterns and gave their operator steps no
+ * channel. The route out is the one the issue proposes: name a pattern and a
+ * position, which is the shape the recipe handoff already has.
+ *
+ * ## Why this is not a hole in `#517`
+ *
+ * **The agent names a step; it does not write one.** The wording comes from
+ * `BOOTSTRAP_TEMPLATES`, which is a literal in this repository reviewed in
+ * `#771` and parsed through `RecipeStepSchema` where it is written. An agent
+ * choosing between two ids and seven positions has exactly as much authorship
+ * over the operator's sentence as one choosing between two published recipes,
+ * which is none.
+ *
+ * **A pattern is still not an entry.** Nothing here makes one: no catalogue read
+ * changes, the provider stays unwalked, and what turns this walk into an entry
+ * is the same `kolonie.accounts.walk-report` it always was.
+ */
+export function templateHandoffStep(
+  templateId: string,
+  step: number,
+):
+  | { readonly template: BootstrapTemplate; readonly step: RecipeStep }
+  | { readonly error: ApiError } {
+  const template = bootstrapTemplate(templateId)
+
+  if (template === undefined) {
+    return {
+      error: {
+        code: 'validation_failed',
+        message:
+          `There is no pattern called ${templateId}. The Colony carries ` +
+          `${BOOTSTRAP_TEMPLATES.map((one) => one.id).join(' and ')}, and ` +
+          'kolonie.accounts.recipes with the `template` argument prints one in full.',
+      },
+    }
+  }
+
+  const found = template.steps[step - 1]
+
+  if (found === undefined) {
+    return {
+      error: {
+        code: 'validation_failed',
+        message:
+          `The ${template.id} pattern has ${template.steps.length} steps, so there is no step ` +
+          `${step}. Read it with kolonie.accounts.recipes and the \`template\` argument — the ` +
+          'steps are numbered there as they are here, from 1.',
+      },
+    }
+  }
+
+  /**
+   * **The same refusal a recipe gives, and for the same reason.** A pattern is
+   * mostly the agent's own work, so the likely mistake is handing over a step
+   * that was never a person's — and answering that with an opened request would
+   * spend an operator's attention on something nobody needed them for.
+   */
+  if (found.actor !== 'operator') {
+    return {
+      error: {
+        code: 'validation_failed',
+        message:
+          `Step ${step} of the ${template.id} pattern is yours, not your operator’s. The steps ` +
+          `that are theirs are ${template.steps
+            .flatMap((one, index) => (one.actor === 'operator' ? [index + 1] : []))
+            .join(' and ')}. A pattern is a map and most of the walking on it is yours.`,
+      },
+    }
+  }
+
+  return { template, step: found }
 }
 
 /**

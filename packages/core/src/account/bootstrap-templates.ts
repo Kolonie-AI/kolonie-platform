@@ -90,6 +90,41 @@ export const API_TOKEN_IS_NOT_A_SESSION =
   'web session already exists. If the wall is a password field, the answer is your operator ' +
   'and a sealed drop — not another credential you already hold.'
 
+/**
+ * **The one step that carries a secret**, written once and shared by both
+ * templates (`#800`).
+ *
+ * `#771` shipped the patterns and left this half: they told an agent *your
+ * operator signs in here* and gave that step no channel, so the walk it was
+ * written from ended the way it began — an operator pasting a value into the
+ * conversation ad hoc.
+ *
+ * **The wording is here rather than composed at the handoff, and that is the
+ * whole of `#517` holding.** An agent at a provider nobody has walked has no
+ * entry to take a sentence from; if it were allowed to write one, the rule that
+ * the Colony writes the operator's sentence would hold everywhere except the
+ * case it was written for.
+ *
+ * **It ends on the way out.** A delegated signup frequently issues no credential
+ * at all, and an ask that only has a *here it is* answer produces an operator
+ * inventing one.
+ */
+export const SEALED_ACCOUNT_CREDENTIAL_ASK =
+  'If the new account issued a credential of its own — an API token from its settings page, or ' +
+  'a password it made you set — please put it in the sealed box rather than in a message to ' +
+  'me. It lands in my vault and nobody reads it back out of there, including you. If it issued ' +
+  'nothing, say so and we are done: a delegated signup often leaves no credential behind at all.'
+
+/**
+ * What the agent is told the sealed step is for. Shared for the reason the ask
+ * is: the two templates differ in whose door it is, not in what a secret is.
+ */
+const SEALED_STEP_INSTRUCTION =
+  'Your operator seals whatever credential the new account issued. This is the step that ' +
+  'replaces the ad hoc paste `#771` reported: a secret typed into a conversation is a secret in ' +
+  'a transcript, and it does not have to be. Often there is nothing to seal, and that is an ' +
+  'answer.'
+
 const TEMPLATES: readonly BootstrapTemplate[] = [
   {
     id: 'oauth-via-github',
@@ -141,6 +176,12 @@ const TEMPLATES: readonly BootstrapTemplate[] = [
         instruction:
           'Confirm the account exists on the provider’s own side — its account or settings page ' +
           'should now name your GitHub handle.',
+      },
+      {
+        actor: 'operator',
+        secret: true,
+        instruction: SEALED_STEP_INSTRUCTION,
+        ask: SEALED_ACCOUNT_CREDENTIAL_ASK,
       },
       {
         actor: 'agent',
@@ -200,6 +241,12 @@ const TEMPLATES: readonly BootstrapTemplate[] = [
         instruction:
           'Confirm the account exists on the provider’s side and note which Google identity it ' +
           'is tied to — a shared operator account is a fact the next agent needs.',
+      },
+      {
+        actor: 'operator',
+        secret: true,
+        instruction: SEALED_STEP_INSTRUCTION,
+        ask: SEALED_ACCOUNT_CREDENTIAL_ASK,
       },
       {
         actor: 'agent',
@@ -265,12 +312,27 @@ export function bootstrapTemplateAsText(template: BootstrapTemplate): string {
       `checked against the one in front of you.`,
     `**When it applies.** ${template.applies}`,
     template.steps
-      .map((step, index) =>
-        step.actor === 'operator'
-          ? `${index + 1}. **Your operator, not you.** ${step.instruction ?? ''}\n` +
-            `   Open an operator request and ask exactly this: "${step.ask ?? ''}"`
-          : `${index + 1}. ${step.instruction ?? ''}`,
-      )
+      .map((step, index) => {
+        if (step.actor !== 'operator') return `${index + 1}. ${step.instruction ?? ''}`
+
+        /**
+         * **The call, named on the step it opens** (`#800`). A pattern that says
+         * *your operator signs in here* and leaves the agent to work out how to
+         * ask is the shape `#771` shipped, and what it costs is the operator
+         * being asked in the agent's own words instead of the Colony's.
+         */
+        const channel =
+          step.secret === true
+            ? 'A secret comes back, so this opens a sealed drop'
+            : 'Words come back, so this opens an operator request'
+
+        return (
+          `${index + 1}. **Your operator, not you.** ${step.instruction ?? ''}\n` +
+          `   ${channel}: kolonie.accounts.handoff with \`template: "${template.id}"\` and ` +
+          `\`step: ${index + 1}\`. It sends this wording and you do not write it — ` +
+          `"${step.ask ?? ''}"`
+        )
+      })
       .join('\n'),
     `**The calls, in order.** ${template.toolSequence.join(' → ')}`,
     `**Report what happened either way.** A pattern that did not fit is worth as much as one ` +

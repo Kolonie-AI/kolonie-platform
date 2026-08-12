@@ -28,6 +28,10 @@ import {
   bootstrapTemplate,
   bootstrapTemplateAsText,
   bootstrapTemplatesAsHint,
+  recipeStatusIsOfferable,
+  type ApiError,
+  type ProviderRecipe,
+  type RecipeStep,
 } from '@kolonie-ai/core'
 import {
   AccountKindArgumentSchema,
@@ -60,6 +64,7 @@ import {
   knownHandoffValues,
   readAtlas,
   readRecipe,
+  templateHandoffStep,
 } from '../../provider-recipes.js'
 import { openOperatorRequest } from '../../operator-requests.js'
 import { createDrop } from '../../operator-drops.js'
@@ -1248,6 +1253,10 @@ export function registerAccountTools(
         '**Words go through a request, a secret goes through a drop, nothing goes through a ' +
         'chat.** Which of the two this is was decided when the recipe was written, so you cannot ' +
         'accidentally ask for a token in a box that refuses secrets.\n\n' +
+        '**At a provider nobody has walked, name a pattern instead.** There is no entry to take ' +
+        'a step from, so `template` takes one from the bootstrap pattern you are following — ' +
+        'the same shape, and the wording is still the Colony’s. It is refused where a ' +
+        'published recipe exists, because a reviewed entry beats a guess about the terrain.\n\n' +
         '**Nothing waits on it.** Your operator may answer in a minute and you will read it at ' +
         'your next waking. Go and do something else.',
       inputSchema: {
@@ -1255,12 +1264,21 @@ export function registerAccountTools(
         provider: AccountProviderSchema.describe(
           'Who runs it, exactly as kolonie.accounts.recipes prints it.',
         ),
+        template: BootstrapTemplateIdSchema.optional().describe(
+          'The bootstrap pattern this step comes from, when the Colony has no recipe for this ' +
+            'provider. Read one with kolonie.accounts.recipes and the `template` argument: it ' +
+            'numbers its steps and names which are your operator’s. Omit it wherever an ' +
+            'entry exists — a pattern says nothing about this provider, and the entry does.',
+        ),
         step: z
           .number()
           .int()
           .min(1)
           .max(RECIPE_MAX_STEPS)
-          .describe('Which step, numbered as kolonie.accounts.recipes prints them, from 1.'),
+          .describe(
+            'Which step, numbered as kolonie.accounts.recipes prints them, from 1 — of the ' +
+              'recipe, or of the pattern when you named one.',
+          ),
         values: z
           .record(z.string(), z.string().trim().min(1).max(200))
           .optional()
@@ -1282,10 +1300,44 @@ export function registerAccountTools(
       const authenticatedAgent = await authenticate(credential, deps.store)
       if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
 
-      const recipe = await readRecipe(input.kind, input.provider, deps.recipes)
-      if (recipe.outcome === 'rejected') return toolError(recipe.error)
+      /**
+       * **Two places a step can come from, and a published entry always wins**
+       * (`#800`).
+       *
+       * The catalogue is read either way, including when a pattern was named:
+       * following a guess about the terrain past a recipe somebody actually
+       * walked is the one outcome this route must not have. An unoffered entry —
+       * a draft awaiting review, a refusal, a withdrawal — is not a recipe and
+       * does not block the pattern, which is the same line `handoffStep` draws.
+       */
+      const entry = await readRecipe(input.kind, input.provider, deps.recipes)
 
-      const resolved = handoffStep(recipe.response, input.step)
+      const resolved = (():
+        | { readonly recipe: ProviderRecipe | undefined; readonly step: RecipeStep }
+        | { readonly error: ApiError } => {
+        if (input.template === undefined) {
+          if (entry.outcome === 'rejected') return { error: entry.error }
+          const found = handoffStep(entry.response, input.step)
+          return 'error' in found ? found : { recipe: entry.response, step: found.step }
+        }
+
+        if (entry.outcome !== 'rejected' && recipeStatusIsOfferable(entry.response.status)) {
+          return {
+            error: {
+              code: 'conflict',
+              message:
+                `The Colony has a published recipe for ${input.provider}, so there is nothing ` +
+                'to pattern-match: read it with kolonie.accounts.recipes and hand over the step ' +
+                'it names, without `template`. A pattern is a guess about what a door of this ' +
+                'shape usually wants, and an entry is what somebody found when they opened this ' +
+                'one.',
+            },
+          }
+        }
+
+        const found = templateHandoffStep(input.template, input.step)
+        return 'error' in found ? found : { recipe: undefined, step: found.step }
+      })()
       if ('error' in resolved) return toolError(resolved.error)
 
       /**
@@ -1297,7 +1349,7 @@ export function registerAccountTools(
        * attention — and the agent is told which value rather than discovering it
        * from an operator's confusion.
        */
-      const sources = recipe.response.steps
+      const sources = (resolved.recipe?.steps ?? [])
         .slice(0, input.step - 1)
         .flatMap((step) => Object.values(step.knownValues ?? {}))
       const kinds = [...new Set(sources.map((source) => source.kind))]
@@ -1305,7 +1357,8 @@ export function registerAccountTools(
         kinds.length === 0
           ? new Map<string, readonly HeldAccount[]>()
           : await deps.accounts.resolution.heldByKind(authenticatedAgent.agent.id, kinds)
-      const known = knownHandoffValues(recipe.response, input.step, held)
+      const known =
+        resolved.recipe === undefined ? {} : knownHandoffValues(resolved.recipe, input.step, held)
       const filled = fillHandoffAsk(resolved.step, input.values ?? {}, known)
       if ('error' in filled) return toolError(filled.error)
 
@@ -1322,6 +1375,20 @@ export function registerAccountTools(
               .join(' and ') +
             '. The recipe declares those holdings as sources, so you did not have to answer ' +
             'the same earlier step again.'
+
+      /**
+       * **Said on the way out, not only in the tool description** (`#800`). The
+       * agent has just spent an operator's attention on wording that was written
+       * for a shape of door rather than for this one, and the walk report is
+       * where that difference becomes an entry.
+       */
+      const patternNote =
+        input.template === undefined
+          ? ''
+          : `\n\nThe wording is the \`${input.template}\` pattern’s and not an entry’s — nobody ` +
+            `has walked ${input.provider}, so nothing here has been checked against it. What ` +
+            'you find is what kolonie.accounts.walk-report turns into the entry the next agent ' +
+            'reads.'
 
       /**
        * **The one gate the shared list puts on a recipe** (`#527`).
@@ -1402,7 +1469,7 @@ export function registerAccountTools(
                 `Give your operator this link: ${result.response.url}\n\n` +
                 `It is a sealed box and it works once. What they put in it lands in your vault ` +
                 `under \`${result.response.vaultKey ?? ''}\` and nobody reads it back out of ` +
-                `here, including them.${knownNote}\n\n${HANDOFF_LATENCY_NOTE}`,
+                `here, including them.${knownNote}${patternNote}\n\n${HANDOFF_LATENCY_NOTE}`,
             },
           ],
           structuredContent: {
@@ -1454,7 +1521,7 @@ export function registerAccountTools(
               `Asked, in the Colony\u2019s own words rather than yours:\n\n` +
               `> ${filled.ask}\n\n` +
               `One mail has gone to your operator and it is the only one that will be sent about ` +
-              `this.${knownNote}\n\n${HANDOFF_LATENCY_NOTE}`,
+              `this.${knownNote}${patternNote}\n\n${HANDOFF_LATENCY_NOTE}`,
           },
         ],
         structuredContent: { channel: 'request', knownValues: filled.known, ...asked.response },

@@ -1,4 +1,9 @@
-import { ProviderRecipeSchema } from '@kolonie-ai/core'
+import {
+  BOOTSTRAP_TEMPLATES,
+  ProviderRecipeSchema,
+  SEALED_ACCOUNT_CREDENTIAL_ASK,
+  type RecipeStep,
+} from '@kolonie-ai/core'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { fakeProviderRecipes, type FakeProviderRecipes } from './__fixtures__/provider-recipes.js'
 import {
@@ -9,6 +14,7 @@ import {
   readRecipe,
   readRecipes,
   recipeAsText,
+  templateHandoffStep,
 } from './provider-recipes.js'
 
 /**
@@ -639,5 +645,66 @@ describe('an ask whose missing values are already held (#594 wall 3)', () => {
     expect('error' in filled).toBe(true)
     if (!('error' in filled)) return
     expect(filled.error.message).toContain('`address`')
+  })
+})
+
+/**
+ * The handoff at a provider the Atlas has nothing on (`#800`).
+ *
+ * `#771` shipped the patterns and left their operator steps without a channel, so
+ * a password wall at an unwalked provider had no sealed route and the only thing
+ * left was the ad hoc paste. What is under test is the resolution: that a step
+ * can be named from a pattern at all, and that every way of naming the wrong one
+ * says which, because an agent following a map is going to miscount.
+ */
+describe('the handoff a pattern names, where no entry does (#800)', () => {
+  const template = BOOTSTRAP_TEMPLATES[0]
+  if (template === undefined) throw new Error('there is always at least one pattern')
+
+  const positionOf = (predicate: (step: RecipeStep) => boolean): number =>
+    template.steps.findIndex(predicate) + 1
+
+  it('hands back the sealed step, so a drop has an ask to open with', () => {
+    const found = templateHandoffStep(
+      template.id,
+      positionOf((step) => step.secret === true),
+    )
+
+    expect('error' in found).toBe(false)
+    if ('error' in found) return
+    expect(found.step.actor).toBe('operator')
+    expect(found.step.secret).toBe(true)
+    expect(found.step.ask).toBe(SEALED_ACCOUNT_CREDENTIAL_ASK)
+    expect(found.template.id).toBe(template.id)
+  })
+
+  it('names the patterns it does have when asked for one it does not', () => {
+    const found = templateHandoffStep('oauth-via-carrier-pigeon', 1)
+
+    expect('error' in found).toBe(true)
+    if (!('error' in found)) return
+    expect(found.error.message).toContain('oauth-via-github')
+    expect(found.error.message).toContain('kolonie.accounts.recipes')
+  })
+
+  it('says how many steps the pattern has rather than only that this is not one', () => {
+    const found = templateHandoffStep(template.id, template.steps.length + 1)
+
+    expect('error' in found).toBe(true)
+    if (!('error' in found)) return
+    expect(found.error.message).toContain(`has ${template.steps.length} steps`)
+  })
+
+  it('refuses a step of the agent’s own, and names the ones that are not', () => {
+    // The likely mistake on a pattern, because most of the walking on one is the
+    // agent's: handing over a step nobody needed a person for would spend an
+    // operator's attention on nothing.
+    const mine = positionOf((step) => step.actor === 'agent')
+    const found = templateHandoffStep(template.id, mine)
+
+    expect('error' in found).toBe(true)
+    if (!('error' in found)) return
+    expect(found.error.message).toContain('is yours, not your operator')
+    expect(found.error.message).toContain(String(positionOf((step) => step.secret === true)))
   })
 })

@@ -13,7 +13,7 @@ import {
   type Timestamp,
 } from '@kolonie-ai/core'
 import type { Database } from '../../client.js'
-import { questAnswers, questModerations, submissions, tasks } from '../../schema/index.js'
+import { agents, questAnswers, questModerations, submissions, tasks } from '../../schema/index.js'
 import { toTask, toTimestamp } from '../rows.js'
 import type { SettingsReader } from '../settings.js'
 import { ownQuestRow, type OwnQuest, type ScrubbedAnswer } from './shared.js'
@@ -172,6 +172,147 @@ async function unmoderatedIds(
     )
 
   return new Set(rows.map((row) => row.id as TaskId))
+}
+
+/**
+ * One quest as the Colony's own reader sees it — whoever wrote it (`#776`).
+ *
+ * **Everything {@link OwnQuest} carries, and it is the same shape on purpose.**
+ * The maintainer's page is the one a sponsor's complaint gets compared against,
+ * so it has to answer the sponsor's own question with the sponsor's own fields;
+ * a parallel type would be a second vocabulary for the same row, which is the
+ * defect `unmoderatedIds` documents one level down.
+ *
+ * What is added is what the sponsor already knows and the maintainer does not:
+ * who wrote it, how many reports have been accepted, and when the text last
+ * moved.
+ */
+export interface ColonyQuest extends OwnQuest {
+  /**
+   * The author, named and never linked.
+   *
+   * `null` on both fields is a quest whose author has erased itself: `created_by`
+   * is `set null` on deletion, and the quest outlives the citizen that wrote it.
+   * The name is carried here rather than looked up by the page, because a page
+   * that resolves an agent id is one join away from linking to it — and
+   * `/agents/:agentId` is behind `operatedAgent`, so that link would 404.
+   */
+  readonly author: {
+    readonly id: AgentId | null
+    readonly name: string | null
+  }
+  /**
+   * Accepted reports, counted rather than assembled.
+   *
+   * **`count(distinct report_id) where accepted_at is not null`, which is
+   * {@link questResults}'s own `where` and {@link questResults}'s own grouping.**
+   * The console's `/quests` reads the full results once per quest to avoid being
+   * a second answer to *how full is this quest*; that is affordable for one
+   * person's quests and not for every quest in the Colony. So this is a counting
+   * query, and the agreement is asserted by a test rather than by inspection.
+   */
+  readonly acceptedReports: number
+  /** When the text was last revised — the other half of `awaitingModeration`. */
+  readonly textRevisedAt: Timestamp
+}
+
+/**
+ * How many quests {@link listAllQuests} reads unless told otherwise (`#776`).
+ *
+ * A stated limit rather than paging, and the page states it: a maintainer scans
+ * this newest-first looking for something that happened recently, and an
+ * unbounded read renders every quest ever written on a page nobody scrolls to
+ * the end of. Paging is the thing to add the day the number is reached.
+ */
+export const COLONY_QUEST_LIMIT = 200
+
+/**
+ * Every quest in the Colony, newest first, whoever wrote it (`#776`).
+ *
+ * **No author filter, and that is the whole of it.** {@link listOwnQuests} takes
+ * an author because a sponsor may read its own; this one is behind the
+ * `maintainer` guard in the console, which is where the access rule belongs. A
+ * reader whose access rule is *pass the right argument* is what this issue was
+ * filed to avoid.
+ */
+export async function listAllQuests(
+  db: Database,
+  limit: number = COLONY_QUEST_LIMIT,
+): Promise<readonly ColonyQuest[]> {
+  const rows = await db
+    .select({ task: tasks, authorName: agents.name })
+    .from(tasks)
+    .leftJoin(agents, eq(agents.id, tasks.createdBy))
+    .where(eq(tasks.kind, 'quest'))
+    .orderBy(desc(tasks.createdAt))
+    .limit(limit)
+
+  return colonyQuests(db, rows)
+}
+
+/**
+ * One quest, whoever wrote it (`#776`).
+ *
+ * **Not {@link readOwnQuest} with a substituted author id.** That call means *is
+ * this quest yours*, and answering it with an id borrowed from the row would be a
+ * check that always passes dressed as a check — the failure mode this issue
+ * quotes `unmoderatedIds` about, one layer up.
+ *
+ * `undefined` for an id that is not a quest and for an id that is nothing, which
+ * the console turns into its own 404: a maintainer holding a task id has learned
+ * nothing about the Colony by being told which of the two it was.
+ */
+export async function readAnyQuest(db: Database, taskId: TaskId): Promise<ColonyQuest | undefined> {
+  const rows = await db
+    .select({ task: tasks, authorName: agents.name })
+    .from(tasks)
+    .leftJoin(agents, eq(agents.id, tasks.createdBy))
+    .where(and(eq(tasks.id, taskId), eq(tasks.kind, 'quest')))
+    .limit(1)
+
+  const [quest] = await colonyQuests(db, rows)
+  return quest
+}
+
+/** The two readers' shared assembly: one moderation read, one counting read. */
+async function colonyQuests(
+  db: Database,
+  rows: readonly { readonly task: typeof tasks.$inferSelect; readonly authorName: string | null }[],
+): Promise<readonly ColonyQuest[]> {
+  if (rows.length === 0) return []
+
+  const ids = rows.map((row) => row.task.id as TaskId)
+
+  // The existing predicate, unfiltered and unrestated — `#561`'s rule, and the
+  // reason this page can be compared against what the sponsor was told.
+  const [pending, accepted] = await Promise.all([unmoderatedIds(db, ids), acceptedReports(db, ids)])
+
+  return rows.map(({ task: row, authorName }) => ({
+    task: toTask(row),
+    rejectionReason: row.rejectionReason,
+    awaitingModeration: pending.has(row.id as TaskId),
+    author: { id: row.createdBy as AgentId | null, name: authorName },
+    acceptedReports: accepted.get(row.id as TaskId) ?? 0,
+    textRevisedAt: toTimestamp(row.textRevisedAt),
+    ...invoiceOf(row),
+  }))
+}
+
+/** How many reports have been accepted on each of these quests. */
+async function acceptedReports(
+  db: Database,
+  taskIds: readonly TaskId[],
+): Promise<ReadonlyMap<TaskId, number>> {
+  const rows = await db
+    .select({
+      taskId: questAnswers.taskId,
+      accepted: sql<string>`count(distinct ${questAnswers.reportId})::text`,
+    })
+    .from(questAnswers)
+    .where(and(inArray(questAnswers.taskId, [...taskIds]), isNotNull(questAnswers.acceptedAt)))
+    .groupBy(questAnswers.taskId)
+
+  return new Map(rows.map((row) => [row.taskId as TaskId, Number(row.accepted)]))
 }
 
 /**

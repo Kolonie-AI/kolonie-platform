@@ -51,6 +51,7 @@ describe('the console navigation', () => {
     for (const path of [
       '/backend',
       '/backend/arrivals',
+      '/backend/quests',
       '/backend/briefings',
       '/backend/unreported',
       '/backend/tickets',

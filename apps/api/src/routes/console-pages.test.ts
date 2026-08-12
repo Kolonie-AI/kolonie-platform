@@ -1627,6 +1627,7 @@ describe('who arrived and what is waiting', () => {
     for (const path of [
       '/backend',
       '/backend/arrivals',
+      '/backend/quests',
       '/backend/briefings',
       '/backend/unreported',
       '/backend/tickets',
@@ -1641,6 +1642,160 @@ describe('who arrived and what is waiting', () => {
       expect(response.body).not.toContain('newest-arrival')
       expect(response.body).not.toContain('waiting the longest')
     }
+  })
+})
+
+/**
+ * `#776`. Every quest in the Colony, for the person running it.
+ *
+ * The unscoped reads themselves are SQL and are asserted against a real Postgres
+ * in `packages/db` — including that the accepted count and the sponsor's own
+ * results page cannot disagree. What is asserted here is what the two routes owe:
+ * that a quest nobody signed in wrote is on the list, that the author is named
+ * and not linked, that the detail page can change nothing, and that both are
+ * behind the same gate as the rest of `/backend`.
+ */
+describe('every quest in the Colony', () => {
+  const aMaintainer = async () => {
+    const human = humans_.store.holdsIdentity({
+      provider: 'github',
+      subject: `subject-${randomUUID()}`,
+      email: 'someone@example.test',
+    })
+    humans_.store.maintains(human.id)
+    const { session: cookie } = await humans_.store.openSession(human.id, {})
+    return cookie
+  }
+
+  const backend = (cookie: string, path: string, accept = 'text/html') =>
+    app.inject({
+      method: 'GET',
+      url: path,
+      headers: { host: CONSOLE_HOST, accept, cookie: `__Host-kolonie_session=${cookie}` },
+    })
+
+  /** A quest written by the agent, which is nobody the maintainer operates. */
+  const aQuest = async () => {
+    const created = await app.inject({
+      method: 'POST',
+      url: '/quests',
+      headers: {
+        host: CONSOLE_HOST,
+        accept: 'text/html',
+        cookie: `__Host-kolonie_session=${session}`,
+        'content-type': 'application/x-www-form-urlencoded',
+      },
+      payload: new URLSearchParams({
+        title: 'A thousand registrations',
+        description: 'What this quest is, for a human reading the catalogue.',
+        instructions: 'Register at the address in the brief and report what happened.',
+        questions: JSON.stringify([
+          { key: 'went-well', prompt: 'How did it go?', required: true },
+          { key: 'blocked', prompt: 'Were you blocked?', required: false, options: ['yes', 'no'] },
+        ]),
+        slots: '10',
+        rewardSol: '0',
+        expiresAt: new Date(Date.now() + 7 * 86_400_000).toISOString().slice(0, 10),
+        minReputation: '0',
+        audience: 'citizens',
+        proofVerifier: 'email-inbox',
+      }).toString(),
+    })
+
+    const location = created.headers['location'] as string
+    return location.split('/').pop() as string
+  }
+
+  it('lists a quest the maintainer did not write, and names its author', async () => {
+    quests.setAuthorName(agentId as never, 'first-citizen')
+    const questId = await aQuest()
+
+    const body = (await backend(await aMaintainer(), '/backend/quests')).body
+
+    expect(body).toContain('Every quest')
+    expect(body).toContain('A thousand registrations')
+    expect(body).toContain('first-citizen')
+    expect(body).toContain(`href="/backend/quests/${questId}"`)
+    /**
+     * **Named, never linked** — `/agents/:agentId` is behind `operatedAgent`, so
+     * a link from here would be a 404 for every agent this person does not
+     * operate, which is what `console-links.test.ts` crawls for.
+     */
+    expect(body).not.toContain(`href="/agents/${agentId}"`)
+  })
+
+  /** Erasure takes the agent row and leaves the quest, so the page says which. */
+  it('says so where the author has erased itself', async () => {
+    await aQuest()
+
+    const body = (await backend(await aMaintainer(), '/backend/quests')).body
+
+    expect(body).toContain('an erased citizen')
+  })
+
+  it('reads one quest to the end, and can change nothing about it', async () => {
+    quests.setAuthorName(agentId as never, 'first-citizen')
+    const questId = await aQuest()
+
+    const page = await backend(await aMaintainer(), `/backend/quests/${questId}`)
+
+    expect(page.statusCode).toBe(200)
+    expect(page.body).toContain('A thousand registrations')
+    expect(page.body).toContain('Register at the address in the brief')
+    expect(page.body).toContain('went-well')
+    /**
+     * **The read-only property, asserted rather than intended.** `#776` asks for
+     * a page that ends, publishes and refuses nothing — and the only way to keep
+     * that true through a later edit is to fail on the first `<form` anybody adds.
+     *
+     * Scoped to the page's own content: the shell's masthead carries the
+     * sign-out, which is a form on every signed-in page and is not this page's.
+     */
+    const content = page.body.slice(
+      page.body.indexOf('<main class="console-main">'),
+      page.body.indexOf('</main>'),
+    )
+    expect(content).toContain('A thousand registrations')
+    expect(content).not.toContain('<form')
+    // And the one criterion left out, said on the page rather than only in the issue.
+    expect(page.body).toContain('answers themselves are not on this page')
+  })
+
+  it('answers 404 for a quest that does not exist, and never 403', async () => {
+    const page = await backend(await aMaintainer(), `/backend/quests/${randomUUID()}`)
+
+    expect(page.statusCode).toBe(404)
+  })
+
+  it('shows neither page to somebody without the role', async () => {
+    const questId = await aQuest()
+    const human = humans_.store.holdsIdentity({
+      provider: 'github',
+      subject: `subject-${randomUUID()}`,
+      email: 'someone@example.test',
+    })
+    const { session: cookie } = await humans_.store.openSession(human.id, {})
+
+    for (const path of ['/backend/quests', `/backend/quests/${questId}`]) {
+      const response = await backend(cookie, path)
+
+      expect(response.statusCode).toBe(404)
+      expect(response.body).not.toContain('A thousand registrations')
+    }
+  })
+
+  it('carries the list and the quest in their own JSON representations', async () => {
+    const questId = await aQuest()
+    const cookie = await aMaintainer()
+
+    const list = (await backend(cookie, '/backend/quests', 'application/json')).json()
+    expect(list.quests).toHaveLength(1)
+    expect(list.limit).toEqual(expect.any(Number))
+
+    const one = (await backend(cookie, `/backend/quests/${questId}`, 'application/json')).json()
+    expect(one.quest.title).toBe('A thousand registrations')
+    // The reports' text is not in the JSON either, which is where a leak would be.
+    expect(JSON.stringify(one)).not.toContain('acceptedAt')
   })
 })
 

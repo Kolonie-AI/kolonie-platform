@@ -34,8 +34,10 @@ import {
   isHeldOnRedLine,
   resolveHeldRedLine,
   withheldReportCount,
+  listAllQuests,
   listOwnQuests,
   ownQuestAnswer,
+  readAnyQuest,
   pendingAnswerModerations,
   questAuditQueue,
   questDisagreementRate,
@@ -1362,6 +1364,91 @@ describe('the quest write path', () => {
   })
 
   /**
+   * The two reads that are scoped by nothing (`#776`).
+   *
+   * Every other quest read asks *whose*, and that is why the maintainer's answer
+   * to *what quests exist* was a database session. These two are the exception,
+   * so what they owe is asserted here: that authorship does not narrow them, that
+   * the author travels with the row, and that they say the same thing about
+   * moderation as the sponsor's own reader does.
+   */
+  describe('reading every quest in the Colony', () => {
+    it('lists what two accounts wrote, newest first, and names each author', async () => {
+      const one = await anAgent('one-sponsor')
+      const two = await anAgent('two-sponsor')
+      const earlier = await createQuestDraft(db, { authorId: one, draft: aDraft() })
+      const later = await createQuestDraft(db, { authorId: two, draft: aDraft() })
+
+      const listed = await listAllQuests(db)
+
+      expect(listed.map((quest) => quest.task.id)).toEqual([later.task.id, earlier.task.id])
+      expect(listed.map((quest) => quest.author.name)).toEqual(['two-sponsor', 'one-sponsor'])
+      // And the id travels too, for a surface that may one day link it.
+      expect(listed.map((quest) => quest.author.id)).toEqual([two, one])
+    })
+
+    it('reads a quest the caller did not write, and nothing that is not a quest', async () => {
+      const sponsor = await anAgent('sponsor')
+      const { task } = await createQuestDraft(db, { authorId: sponsor, draft: aDraft() })
+
+      expect((await readAnyQuest(db, task.id))?.task.title).toBe(task.title)
+      expect(await readAnyQuest(db, crypto.randomUUID() as TaskId)).toBeUndefined()
+    })
+
+    /**
+     * Erasure takes the agent row and leaves the quest, which is `erasure.md`'s
+     * own rule: what a citizen wrote for the Colony outlives the citizen. So the
+     * author is two nulls rather than a missing key, and the page that reads this
+     * has words for it.
+     */
+    it('carries a null author where the citizen has erased itself', async () => {
+      const sponsor = await anAgent('departing-sponsor')
+      const { task } = await createQuestDraft(db, { authorId: sponsor, draft: aDraft() })
+
+      const erased = await eraseAgent(db, { agentId: sponsor, banSalt: 'a'.repeat(32) })
+      expect(erased.outcome).toBe('erased')
+
+      const quest = await readAnyQuest(db, task.id)
+      expect(quest?.author).toEqual({ id: null, name: null })
+      expect(quest?.task.title).toBe(task.title)
+    })
+
+    /**
+     * `#561`'s rule, asked of a third reader.
+     *
+     * The defect was two readers disagreeing because one pre-filtered by status
+     * before applying the predicate. These reads call `unmoderatedIds` with every
+     * id and filter nothing, and the only way that stays true is to compare them
+     * against the sponsor's reader on every status a quest can be in.
+     */
+    it('says what the sponsor’s own reader says about moderation, on every status', async () => {
+      const sponsor = await anAgent('sponsor')
+
+      for (const status of ['draft', 'pending_review', 'active', 'rejected', 'retired'] as const) {
+        const { task } = await createQuestDraft(db, { authorId: sponsor, draft: aDraft() })
+        await db
+          .update(tasks)
+          .set({
+            status,
+            ...(status === 'rejected' && { rejectionReason: 'It asks for a captcha.' }),
+          })
+          .where(eq(tasks.id, task.id))
+
+        const own = await readOwnQuest(db, sponsor, task.id)
+        const any = await readAnyQuest(db, task.id)
+        const listed = (await listAllQuests(db)).find((quest) => quest.task.id === task.id)
+
+        expect(any?.awaitingModeration, `readAny disagreed on ${status}`).toBe(
+          own?.awaitingModeration,
+        )
+        expect(listed?.awaitingModeration, `listAll disagreed on ${status}`).toBe(
+          own?.awaitingModeration,
+        )
+      }
+    })
+  })
+
+  /**
    * The report a quest asks for, and the three stages that judge it (`#177`).
    *
    * What is asserted here is what the storage layer alone can be wrong about: a
@@ -1892,6 +1979,58 @@ describe('the quest write path', () => {
         'what-happened': 'The signup took two tries in total.',
         worked: 'yes',
       })
+    })
+
+    /**
+     * The count on `/backend/quests` and the sponsor's own *N accepted report(s)*
+     * are one fact read twice (`#776`), and `#778` is the issue that exists
+     * because two readers of one fact drifted.
+     *
+     * **Asserted against `questResults(...).length` rather than against a
+     * literal**, because the number is not the property: the property is that the
+     * two agree. One unaccepted report is in the arrangement on purpose — it is
+     * the row that would make a `count(*)` disagree.
+     */
+    it('counts exactly the accepted reports the sponsor’s results page shows', async () => {
+      const { taskId } = await aQuestWithReports()
+      await aReport({
+        taskId,
+        name: 'accepted-one',
+        answers: { 'what-happened': 'The first accepted report here.', worked: 'yes' },
+      })
+      await aReport({
+        taskId,
+        name: 'accepted-two',
+        answers: { 'what-happened': 'The second accepted report here.', worked: 'no' },
+      })
+      await aReport({
+        taskId,
+        name: 'not-yet-judged',
+        answers: { 'what-happened': 'Nobody has judged this one yet.', worked: 'yes' },
+        accept: false,
+      })
+
+      const accepted = (await questResults(db, taskId)).length
+      const quest = await readAnyQuest(db, taskId)
+      const listed = (await listAllQuests(db)).find((row) => row.task.id === taskId)
+
+      expect(accepted).toBe(2)
+      expect(quest?.acceptedReports).toBe(accepted)
+      expect(listed?.acceptedReports).toBe(accepted)
+    })
+
+    /**
+     * The same agreement where there is nothing to count.
+     *
+     * Zero is the answer a maintainer misreads most easily, and a count assembled
+     * from a grouped query returns no row at all for it — so the reader has to
+     * turn *no row* into `0` rather than into `undefined`.
+     */
+    it('agrees on zero, for a quest nobody has answered', async () => {
+      const { taskId } = await aQuestWithReports()
+
+      expect((await questResults(db, taskId)).length).toBe(0)
+      expect((await readAnyQuest(db, taskId))?.acceptedReports).toBe(0)
     })
 
     it('shows nothing that has not been accepted', async () => {

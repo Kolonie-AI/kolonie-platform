@@ -50,6 +50,9 @@ import {
 import {
   createQuestDraft as createQuestDraftInDatabase,
   listOwnQuests as listOwnQuestsInDatabase,
+  listAllQuests as listAllQuestsInDatabase,
+  readAnyQuest as readAnyQuestInDatabase,
+  type ColonyQuest,
   ownQuestAnswer as ownQuestAnswerInDatabase,
   questAnswerCounts as questAnswerCountsInDatabase,
   questAuditQueue as questAuditQueueInDatabase,
@@ -241,6 +244,17 @@ export interface QuestDesk {
   audience(criteria: AudienceCriteria): Promise<number>
   listOwn(authorId: AgentId): Promise<readonly OwnQuest[]>
   readOwn(authorId: AgentId, taskId: TaskId): Promise<OwnQuest | undefined>
+  /**
+   * Every quest in the Colony, whoever wrote it (`#776`).
+   *
+   * **Beside {@link listOwn} rather than a flag on it.** The two answer to
+   * different guards — one to *is this yours*, one to `maintainer` — and a
+   * reader whose access rule is *pass the right argument* is what the issue
+   * behind these was filed about.
+   */
+  listAll(limit?: number): Promise<readonly ColonyQuest[]>
+  /** One quest, whoever wrote it. Behind the same guard as {@link listAll}. */
+  readAny(taskId: TaskId): Promise<ColonyQuest | undefined>
   /** The accepted reports on one quest (`#178`). */
   results(taskId: TaskId): Promise<readonly AcceptedReport[]>
   /**
@@ -443,6 +457,8 @@ export function databaseQuests(
     audience: (criteria) => countAudience(db, criteria),
     listOwn: (authorId) => listOwnQuestsInDatabase(db, authorId),
     readOwn: (authorId, taskId) => readOwnQuestInDatabase(db, authorId, taskId),
+    listAll: (limit) => listAllQuestsInDatabase(db, limit),
+    readAny: (taskId) => readAnyQuestInDatabase(db, taskId),
     results: (taskId) => questResultsInDatabase(db, taskId),
     withheld: (taskId) => withheldReportCountInDatabase(db, taskId),
     takenPartIn: (agentId) => questsTakenPartInInDatabase(db, agentId),

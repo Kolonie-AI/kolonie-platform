@@ -18,8 +18,10 @@ import {
   type Task,
   type TaskId,
 } from '@kolonie-ai/core'
+import { COLONY_QUEST_LIMIT } from '@kolonie-ai/db'
 import type {
   AudienceCriteria,
+  ColonyQuest,
   HeldReport,
   OwnQuest,
   QuestResult as AcceptedReport,
@@ -80,6 +82,13 @@ export interface FakeQuestDesk extends QuestDesk {
   ) => void
   /** Credit a sponsor's balance, which is `packages/db`'s job in the real one. */
   readonly credit: (agentId: AgentId, amount: number) => void
+  /**
+   * Name an author, for the unscoped reads `/backend/quests` uses (`#776`).
+   *
+   * A quest whose author was never named here reads as *erased*, which is the
+   * left join's own null and the case the page has words for.
+   */
+  readonly setAuthorName: (agentId: AgentId, name: string) => void
   /**
    * Turn a tier's ceiling, which is a settings row in the real one (`#630`).
    *
@@ -182,6 +191,8 @@ export function fakeQuests(): FakeQuestDesk {
     }
   >()
   const balances = new Map<string, number>()
+  /** Author names for the unscoped reads (`#776`); absent means erased. */
+  const authorNames = new Map<string, string>()
   const audienceAsked: AudienceCriteria[] = []
   /** `#524`'s figure. Empty until a test says otherwise. */
   let holdings: readonly HoldingCount[] = []
@@ -264,6 +275,24 @@ export function fakeQuests(): FakeQuestDesk {
     quests.set(own.task.id, { own, moderated, refusalCount })
     return own
   }
+
+  /**
+   * An `OwnQuest` as the unscoped reads return it (`#776`).
+   *
+   * The accepted count comes from the same `accepted` map `results()` reads, so
+   * the fake cannot disagree with itself the way `#778` found the real reads
+   * could — and `textRevisedAt` is `updatedAt` here because the fake carries no
+   * separate revision moment.
+   */
+  const colonyQuest = (own: OwnQuest): ColonyQuest => ({
+    ...own,
+    author: {
+      id: own.task.createdBy,
+      name: authorNames.get(own.task.createdBy ?? '') ?? null,
+    },
+    acceptedReports: (accepted.get(own.task.id) ?? []).length,
+    textRevisedAt: own.task.updatedAt,
+  })
 
   const mine = (authorId: AgentId, taskId: TaskId) => {
     const held = quests.get(taskId)
@@ -884,6 +913,29 @@ export function fakeQuests(): FakeQuestDesk {
 
     async readOwn(authorId, taskId) {
       return mine(authorId, taskId)?.own
+    },
+
+    /**
+     * Who wrote what, for the two unscoped reads below (`#776`).
+     *
+     * Absent means *the citizen has erased itself*, which is the real null the
+     * left join produces and the case the page has its own words for — so the
+     * fake defaults to it rather than inventing a name.
+     */
+    setAuthorName(agentId: AgentId, name: string) {
+      authorNames.set(agentId, name)
+    },
+
+    async listAll(limit = COLONY_QUEST_LIMIT) {
+      return [...quests.values()]
+        .map((held) => colonyQuest(held.own))
+        .sort((one, two) => (one.task.createdAt < two.task.createdAt ? 1 : -1))
+        .slice(0, limit)
+    },
+
+    async readAny(taskId) {
+      const held = quests.get(taskId)
+      return held === undefined ? undefined : colonyQuest(held.own)
     },
   }
 }

@@ -46,7 +46,7 @@ import {
 } from '../console/html.js'
 import { sharePage, SHARE_PAGE_HEADERS } from '../console/browser-share.js'
 import type { ConsoleNav } from '../console/navigation.js'
-import { zoneFrom } from '../console/time.js'
+import { relative, zoneFrom } from '../console/time.js'
 import { agentPage } from '../console/agent-page.js'
 import { answerAutonomyFormForAgent } from '../autonomy.js'
 import { agentAccountsPage } from '../console/agent-accounts.js'
@@ -57,6 +57,8 @@ import {
   backendBriefingsPage,
   backendEnquiriesPage,
   backendPage,
+  backendQuestPage,
+  backendQuestsPage,
   backendSettingsPage,
   backendTicketsPage,
   backendUnreportedPage,
@@ -93,7 +95,7 @@ import { stewardFor } from './privileged.js'
 import { clientIp } from '../client-ip.js'
 import { cookieValue, sessionCookie } from './authenticated.js'
 import { consoleOperatorPath, operatorPageBody } from '../operator-page-body.js'
-import type { OperatorPageView } from '@kolonie-ai/db'
+import { COLONY_QUEST_LIMIT, type OperatorPageView } from '@kolonie-ai/db'
 import {
   autonomyFormPage,
   autonomyRevisedPage,
@@ -1162,6 +1164,154 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
     return wantsHtml(request)
       ? html(reply, backendArrivalsPage({ nav: navFor(request, ['maintainer']), arrivals }))
       : reply.send({ arrivals })
+  })
+
+  /**
+   * Every quest in the Colony, whoever wrote it (`#776`).
+   *
+   * **The one read that is deliberately unscoped by authorship.** Every other
+   * quest surface asks *whose*: `/quests` lists what the signed-in person's
+   * identities wrote, and the steward's pages are queues. So a quest that is
+   * running, ended, refused or withdrawn was on no page at all, and the answer
+   * to *what quests exist* was a database session.
+   *
+   * The row expressions are `questsFor`'s, word for word, because a maintainer
+   * comparing this page against `/quests` is comparing two renderings of one
+   * fact and they have to agree.
+   */
+  app.get('/backend/quests', async (request, reply) => {
+    if ((await backendGuard(request, reply)) === null) return reply
+
+    const written = await deps.quests.listAll()
+
+    const quests = written.map((quest) => ({
+      id: String(quest.task.id),
+      title: quest.task.title,
+      /**
+       * **Named, never linked, and null-named where the citizen erased itself.**
+       * `/agents/:agentId` is behind `operatedAgent`, so a link from here to an
+       * agent this maintainer does not operate answers 404 — which is what
+       * `console-links.test.ts` crawls for. Erasure leaves the quest and takes
+       * the agent row, and the page says so rather than showing an empty cell.
+       */
+      author: quest.author.name ?? 'an erased citizen',
+      status: quest.awaitingModeration ? 'awaiting moderation' : quest.task.status,
+      filled:
+        quest.task.slots === null
+          ? `${String(quest.acceptedReports)} (no limit)`
+          : `${String(quest.acceptedReports)} of ${String(quest.task.slots)}`,
+      cost:
+        quest.task.reward.lamports === 0
+          ? '—'
+          : `${solFromLamports(
+              questCommitment({ reward: quest.task.reward, slots: quest.task.slots ?? 0 }),
+            )} SOL`,
+      written: relative(quest.task.createdAt),
+    }))
+
+    return wantsHtml(request)
+      ? html(
+          reply,
+          backendQuestsPage({
+            nav: navFor(request, ['maintainer']),
+            quests,
+            limit: COLONY_QUEST_LIMIT,
+          }),
+        )
+      : reply.send({ quests, limit: COLONY_QUEST_LIMIT })
+  })
+
+  /**
+   * One quest, read to the end (`#776`).
+   *
+   * **404 and never 403 for a quest that does not exist**, which is the same
+   * refusal the guard above makes for a reader who is not a maintainer: this
+   * surface tells a stranger nothing about which ids are real.
+   *
+   * The counts come from the reads the sponsor's own results page uses, so the
+   * two cannot drift. What is missing is the reports' text — see
+   * `backendQuestPage`, which says so on the page.
+   */
+  app.get<{ Params: { questId: string } }>('/backend/quests/:questId', async (request, reply) => {
+    if ((await backendGuard(request, reply)) === null) return reply
+
+    const taskId = request.params.questId as TaskId
+    const quest = await deps.quests.readAny(taskId)
+    if (quest === undefined) return reply.callNotFound()
+
+    const [counts, answerCounts, withheld] = await Promise.all([
+      deps.quests.reportCounts(taskId),
+      deps.quests.counts(taskId),
+      deps.quests.withheld(taskId),
+    ])
+
+    const facts = [
+      {
+        label: 'Status',
+        value: quest.awaitingModeration ? 'awaiting moderation' : quest.task.status,
+      },
+      { label: 'Author', value: quest.author.name ?? 'an erased citizen' },
+      {
+        label: 'Filled',
+        value:
+          quest.task.slots === null
+            ? `${String(quest.acceptedReports)} (no limit)`
+            : `${String(quest.acceptedReports)} of ${String(quest.task.slots)}`,
+      },
+      {
+        label: 'Committed',
+        value:
+          quest.task.reward.lamports === 0
+            ? '—'
+            : `${solFromLamports(
+                questCommitment({ reward: quest.task.reward, slots: quest.task.slots ?? 0 }),
+              )} SOL`,
+      },
+      { label: 'Reputation per answer', value: String(quest.task.reward.reputation) },
+      { label: 'Written', value: relative(quest.task.createdAt) },
+      { label: 'Text last revised', value: relative(quest.textRevisedAt) },
+      { label: 'Last changed', value: relative(quest.task.updatedAt) },
+      {
+        label: 'Expires',
+        value: quest.task.expiresAt === null ? 'no expiry' : relative(quest.task.expiresAt),
+      },
+      { label: 'Proof required', value: quest.task.proofVerifier ?? 'none' },
+      { label: 'Deliverable', value: quest.task.deliverable },
+      /**
+       * **Why it ended, where it has ended.** There is no `ended_at`: the row
+       * carries `endedBy`, `endedReason` and `updatedAt`, so the reason is the
+       * fact and *Last changed* above is the nearest honest moment.
+       */
+      { label: 'Ended because', value: quest.task.endedReason ?? '—' },
+    ]
+
+    const made = [
+      { label: 'Claims', value: String(counts.claims) },
+      { label: 'Accepted reports', value: String(counts.acceptedReports) },
+      { label: 'Said it was unclear', value: String(counts.unclear) },
+      { label: 'Declined it', value: String(counts.declined) },
+      { label: 'Withheld by the Colony', value: String(withheld) },
+    ]
+
+    const body = {
+      title: quest.task.title,
+      description: quest.task.description,
+      instructions: quest.task.instructions,
+      questions: quest.task.questions.map((question) => ({
+        key: question.key,
+        prompt: question.prompt,
+      })),
+      facts,
+      counts: made,
+      answerCounts,
+      rejectionReason: quest.rejectionReason,
+      withheld,
+      declined: counts.declined,
+    }
+
+    return wantsHtml(request)
+      ? html(reply, backendQuestPage({ nav: navFor(request, ['maintainer']), quest: body }))
+      : reply.send({ quest: body })
   })
 
   /** Whether a briefing changes an outcome (`#609`). */

@@ -336,6 +336,217 @@ export function backendWantedPage(
   })
 }
 
+/** One quest on the maintainer's list, already turned into what it reads as. */
+export interface BackendQuestRow {
+  readonly id: string
+  readonly title: string
+  /** The author's name, or what the page says where the citizen has erased itself. */
+  readonly author: string
+  readonly status: string
+  readonly filled: string
+  readonly cost: string
+  readonly written: string
+}
+
+/**
+ * `/backend/quests` — every quest in the Colony, whoever wrote it (`#776`).
+ *
+ * **The maintainer's answer to *what quests exist* used to be: read the
+ * database.** `/quests` is *written by your identities*, and the steward's
+ * surfaces are queue-shaped — waiting to be moderated, waiting to go live — so a
+ * quest that is running, ended, refused or withdrawn appeared on no page at all.
+ *
+ * **Read-only, and there is no form on it in either direction.** Nothing here
+ * ends, publishes, refuses, tops up or copies a quest; a maintainer that needs to
+ * act on one acts through the surface that owns the action.
+ *
+ * **The author is named and never linked.** `/agents/:agentId` is behind
+ * `operatedAgent`, so a link to an agent the maintainer does not operate answers
+ * 404 — which is exactly what `console-links.test.ts` fails on. A
+ * maintainer-readable agent page is its own issue.
+ */
+export function backendQuestsPage(
+  input: BackendPageInput & {
+    readonly quests: readonly BackendQuestRow[]
+    /** How many the reader is being shown at most, said on the page. */
+    readonly limit: number
+  },
+): string {
+  const table =
+    input.quests.length === 0
+      ? '<p class="note">No quests have been written in the Colony yet. This is every quest there is, in every status — so an empty page here means none exists, rather than none matching a filter.</p>'
+      : [
+          '<table>',
+          '<thead><tr><th>Quest</th><th>Author</th><th>Status</th><th>Filled</th><th>Cost</th><th>Written</th></tr></thead>',
+          `<tbody>${input.quests
+            .map((quest) =>
+              [
+                `<tr><td><a href="/backend/quests/${escape(quest.id)}">${escape(quest.title)}</a></td>`,
+                `<td>${escape(quest.author)}</td>`,
+                `<td>${escape(quest.status)}</td>`,
+                `<td>${escape(quest.filled)}</td>`,
+                `<td>${escape(quest.cost)}</td>`,
+                `<td>${escape(quest.written)}</td></tr>`,
+              ].join(''),
+            )
+            .join('')}</tbody>`,
+          '</table>',
+        ].join('')
+
+  return backendSection({
+    ...input,
+    body: [
+      '<p class="note">Every quest in the Colony, whoever wrote it, newest first. ' +
+        'Reading only — nothing on this page or the one behind it changes a quest.</p>',
+      /**
+       * The limit, stated rather than left to be inferred (`#776`).
+       *
+       * A stated limit was allowed instead of paging, on the condition that the
+       * page says which — a truncated list that does not admit it is a list a
+       * maintainer draws the wrong conclusion from.
+       */
+      `<p class="note">The most recent ${String(input.limit)} quests. Paging is what this grows ` +
+        'into the day the Colony has written more than that; until then the number above is the ' +
+        'whole of the limit and there is nothing hidden behind it.</p>',
+      table,
+    ],
+  })
+}
+
+/** One row of the detail page's fact table: a label and what it says. */
+export interface BackendQuestFact {
+  readonly label: string
+  readonly value: string
+}
+
+/**
+ * `/backend/quests/:questId` — one quest, read to the end (`#776`).
+ *
+ * **What the citizens actually wrote is deliberately not here.** The maintainer
+ * decided on 2026-08-12 that the answers should be shown, and
+ * `Kolonie-AI/kolonie-docs#311` is open for the governance line that would permit
+ * it: *the rule that says a reader who is not the sponsor may read a report's
+ * text has to exist before the surface that does it*. It does not exist yet, so
+ * this page carries the counts — which are aggregates about the quest and not one
+ * citizen's words — and says outright that the texts are missing and why. The
+ * day that issue closes, the answers table is the one thing to add.
+ */
+export function backendQuestPage(
+  input: BackendPageInput & {
+    readonly quest: {
+      readonly title: string
+      readonly description: string
+      readonly instructions: string
+      /** Rendered by the caller: the questions as the quest asks them. */
+      readonly questions: readonly { readonly key: string; readonly prompt: string }[]
+      readonly facts: readonly BackendQuestFact[]
+      /** What citizens made of it, in the sponsor's own vocabulary. */
+      readonly counts: readonly BackendQuestFact[]
+      /** Counts per option, for the closed questions only. */
+      readonly answerCounts: Readonly<Record<string, Readonly<Record<string, number>>>>
+      readonly rejectionReason: string | null
+      readonly withheld: number
+      readonly declined: number
+    }
+  },
+): string {
+  const { quest } = input
+
+  const factTable = (rows: readonly BackendQuestFact[]): string =>
+    [
+      '<table><tbody>',
+      rows
+        .map((row) => `<tr><td>${escape(row.label)}</td><td>${escape(row.value)}</td></tr>`)
+        .join(''),
+      '</tbody></table>',
+    ].join('')
+
+  const questions =
+    quest.questions.length === 0
+      ? '<p class="note">This quest asks nothing, which is a quest that cannot be answered.</p>'
+      : [
+          '<table>',
+          '<thead><tr><th>Key</th><th>What it asks</th></tr></thead>',
+          `<tbody>${quest.questions
+            .map(
+              (question) =>
+                `<tr><td>${escape(question.key)}</td><td>${escape(question.prompt)}</td></tr>`,
+            )
+            .join('')}</tbody>`,
+          '</table>',
+        ].join('')
+
+  const counted = Object.entries(quest.answerCounts)
+  const aggregates =
+    counted.length === 0
+      ? '<p class="note">No closed-form questions, so there is nothing the Colony can count. A count is a fact; a summary of free text would be an opinion.</p>'
+      : counted
+          .map(([key, options]) =>
+            [
+              `<h3>${escape(key)}</h3>`,
+              '<table><tbody>',
+              Object.entries(options)
+                .map(
+                  ([option, n]) =>
+                    `<tr><td>${escape(option)}</td><td>${escape(String(n))}</td></tr>`,
+                )
+                .join(''),
+              '</tbody></table>',
+            ].join(''),
+          )
+          .join('\n')
+
+  return backendSection({
+    ...input,
+    title: quest.title,
+    body: [
+      '<p class="note">Reading only. There is no action on this page — a quest is ended, ' +
+        'published or refused where that action belongs, and a page that could do it from here ' +
+        'would be a second route to the same decision.</p>',
+      '<h2>What it is</h2>',
+      `<p>${escape(quest.description)}</p>`,
+      '<h2>What it asks the citizen to do</h2>',
+      `<p>${escape(quest.instructions)}</p>`,
+      '<h2>Its questions</h2>',
+      questions,
+      '<h2>Where it stands</h2>',
+      factTable(quest.facts),
+      ...(quest.rejectionReason === null
+        ? []
+        : [`<p class="note">Refused: ${escape(quest.rejectionReason)}</p>`]),
+      '<h2>What citizens made of it</h2>',
+      factTable(quest.counts),
+      ...(quest.withheld > 0
+        ? [
+            `<p class="note">${String(quest.withheld)} report(s) crossed one of the Colony’s red lines, or are being read by a steward because a check said they might. The sponsor is told the number and never the text, and so is this page. Capacity is not consumed by one — the slot returns to the pool.</p>`,
+          ]
+        : []),
+      ...(quest.declined > 0
+        ? [
+            '<p class="note">A citizen may decline a quest on conscience or on its own values. The number is here and the text is not — that text goes to the Colony, because a reader able to see it could work out which citizens refuse what.</p>',
+          ]
+        : []),
+      '<h2>Counts per option</h2>',
+      aggregates,
+      /**
+       * The one criterion of `#776` this page does not meet, said on the page
+       * rather than only in the issue.
+       *
+       * A maintainer who cannot find the answers should be told they were left
+       * out on purpose and what would put them here — otherwise the missing table
+       * reads as a quest nobody answered, which is the exact confusion the
+       * withheld count exists to prevent one row up.
+       */
+      '<p class="note">The citizens’ answers themselves are not on this page. Reading a report’s ' +
+        'text is something the sponsor bought and a steward is given; whether the person running ' +
+        'the Colony may do it is a rule that has to be written before a surface does it, and it ' +
+        'has not been written yet. The counts above are aggregates about the quest rather than ' +
+        'anybody’s words.</p>',
+      '<p><a href="/backend/quests">Back to every quest</a></p>',
+    ],
+  })
+}
+
 /**
  * `/backend/atlas` — curating the Atlas (`#549`).
  *

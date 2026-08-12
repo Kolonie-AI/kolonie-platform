@@ -45,4 +45,28 @@ describe('model call accounting', () => {
       }).success,
     ).toBe(false)
   })
+
+  it('accepts the status returned by a route that did not answer', () => {
+    expect(
+      ModelCallSchema.parse({
+        route: 'openrouter',
+        model: 'vendor/model-that-answered',
+        fallback: { route: 'gateway', reason: 'status', status: 502 },
+      }),
+    ).toEqual({
+      route: 'openrouter',
+      model: 'vendor/model-that-answered',
+      fallback: { route: 'gateway', reason: 'status', status: 502 },
+    })
+  })
+
+  it('refuses a fallback status that is not an HTTP status code', () => {
+    expect(
+      ModelCallSchema.safeParse({
+        route: 'openrouter',
+        model: 'vendor/model-that-answered',
+        fallback: { route: 'gateway', reason: 'status', status: 'bad gateway' },
+      }).success,
+    ).toBe(false)
+  })
 })

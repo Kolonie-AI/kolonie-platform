@@ -218,9 +218,13 @@ describe('when the gateway does not answer', () => {
     const under = gatewayThen(new Response('busy', { status: 503 }))
     const routed = gatewayRoutedFetch(GATEWAY, { fetch: under.fetch })
 
-    await routed(...post({ model: 'm', messages: [] }))
+    const response = await routed(...post({ model: 'm', messages: [] }))
 
     expect(under.calls).toHaveLength(2)
+    expect(routeOf(response)).toEqual({
+      route: 'openrouter',
+      fallback: { route: 'gateway', reason: 'status', status: 503 },
+    })
   })
 
   /**

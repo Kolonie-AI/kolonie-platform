@@ -30,6 +30,7 @@ export const ModelCallSchema = z.object({
     .object({
       route: z.enum(['gateway', 'openrouter']),
       reason: z.string().min(1),
+      status: z.int().min(100).max(599).optional(),
     })
     .optional(),
 })

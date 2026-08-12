@@ -317,7 +317,10 @@ export function modelCallLine(call: ModelCall): string {
   const fallback =
     call.fallback === undefined
       ? ''
-      : ` · fell back to ${routeName(call.fallback.route)} after ${call.fallback.reason}`
+      : ` · answered by ${routeName(call.route)} after ${routeName(call.fallback.route)} ` +
+        (call.fallback.status === undefined
+          ? `failed (${call.fallback.reason})`
+          : `returned status ${call.fallback.status}`)
 
   const cost =
     call.tokens === undefined

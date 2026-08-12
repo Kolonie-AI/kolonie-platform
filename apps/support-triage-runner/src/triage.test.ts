@@ -279,6 +279,19 @@ describe('what the filed issue says', () => {
     expect(body).toContain(
       'Judged by `provider/model-that-answered` · 308 prompt + 5 completion = 313 tokens',
     )
+    expect(body).not.toContain('answered by')
+  })
+
+  it('names the answering route before the route whose status caused the fallback', () => {
+    const body = issueBody(aTicket(), 'A summary.', undefined, {
+      route: 'openrouter',
+      model: 'provider/model-that-answered',
+      tokens: { prompt: 308, completion: 5, total: 313 },
+      fallback: { route: 'gateway', reason: 'status', status: 502 },
+    })
+
+    expect(body).toContain('answered by OpenRouter after the gateway returned status 502')
+    expect(body).not.toContain('fell back to the gateway')
   })
 
   /**

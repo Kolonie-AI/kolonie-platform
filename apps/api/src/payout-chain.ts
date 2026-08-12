@@ -8,10 +8,48 @@
  */
 
 import { RENT_EXEMPT_MINIMUM_FALLBACK } from '@kolonie-ai/core'
-import type { PayoutChain } from './payouts.js'
+import { ChainUnreachableError, type PayoutChain } from './payouts.js'
 
 /** The environment variable the Solana endpoint arrives in — shared with the readers. */
 export const PAYOUT_RPC_URL_VAR = 'RPC_URL'
+
+/**
+ * The answers that mean *ask again*, rather than *this is what is true* — `#764`.
+ *
+ * A payout run 500'd on 2026-08-12 because `getBalance` answered 522: a
+ * Cloudflare connection timeout in front of the RPC provider, which is the
+ * network between here and the endpoint failing rather than the endpoint saying
+ * anything about the wallet. One line in Loki, one failed pass, and nothing was
+ * paid that quarter of an hour.
+ *
+ * **520–529 is Cloudflare's own range** and is the one that actually fired.
+ * `408`, `429`, `502`, `503` and `504` are here beside it because they are the
+ * same statement made by a different hop, and a Solana provider rate-limiting a
+ * read is the most ordinary of them.
+ *
+ * **Nothing in the 400s except 408 and 429.** A malformed request answered 400
+ * is answered 400 again on every retry, and retrying it would turn a bug into a
+ * slow bug.
+ */
+const RETRYABLE_STATUSES: ReadonlySet<number> = new Set([408, 429, 502, 503, 504])
+const CLOUDFLARE_RANGE = { first: 520, last: 529 } as const
+
+const retryable = (status: number): boolean =>
+  RETRYABLE_STATUSES.has(status) ||
+  (status >= CLOUDFLARE_RANGE.first && status <= CLOUDFLARE_RANGE.last)
+
+/**
+ * Three tries, then give up and let the pass say it could not ask.
+ *
+ * **Short on purpose.** The caller is a systemd timer firing every quarter of an
+ * hour, so the real retry is the next pass and this one only has to cover the
+ * blip that would otherwise waste it. Waiting minutes here would hold a request
+ * open across the timer's own next firing.
+ */
+const READ_ATTEMPTS = 3
+const BACKOFF_MS = [250, 1_000] as const
+
+const pause = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
 
 /**
  * The commitment a payout is submitted at.
@@ -34,7 +72,14 @@ export function httpPayoutChain(url: string, fetchImpl: typeof fetch = fetch): P
       body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
     })
 
-    if (!response.ok) throw new Error(`${method} answered ${response.status}.`)
+    if (!response.ok) {
+      // Thrown as unreachable only where it *is* unreachable: a 400 from the
+      // endpoint is this repository's own bug and keeps the plain error, so it
+      // still reaches somebody as a failure rather than as a quiet pass.
+      if (retryable(response.status))
+        throw new ChainUnreachableError(method, `answered ${response.status}`)
+      throw new Error(`${method} answered ${response.status}.`)
+    }
 
     const body = (await response.json()) as {
       readonly result?: unknown
@@ -49,8 +94,45 @@ export function httpPayoutChain(url: string, fetchImpl: typeof fetch = fetch): P
     return body.result
   }
 
+  /**
+   * A read, retried — and **only** a read.
+   *
+   * `sendTransaction` deliberately does not go through this. A write whose
+   * response was lost may well have been accepted by the cluster, and *ask
+   * again* is the wrong instinct about money leaving: the retry that is safe is
+   * the one the payout runner already does, against an obligation it can see and
+   * a row that says whether it was settled. Retrying here would be a second
+   * submission decided by a layer that cannot see either.
+   */
+  const read = async (method: string, params: readonly unknown[]): Promise<unknown> => {
+    let last: ChainUnreachableError | undefined
+
+    for (let attempt = 0; attempt < READ_ATTEMPTS; attempt += 1) {
+      try {
+        return await call(method, params)
+      } catch (error) {
+        // A `fetch` that throws never reached anybody — DNS, a refused
+        // connection, a socket closed mid-body. Same statement as a 522, made
+        // one layer down.
+        last =
+          error instanceof ChainUnreachableError
+            ? error
+            : error instanceof TypeError
+              ? new ChainUnreachableError(method, error.message)
+              : undefined
+
+        if (last === undefined) throw error
+
+        const backoff = BACKOFF_MS[attempt]
+        if (backoff !== undefined) await pause(backoff)
+      }
+    }
+
+    throw last ?? new ChainUnreachableError(method, `failed ${String(READ_ATTEMPTS)} times`)
+  }
+
   const lamportsAt = async (address: string): Promise<number> => {
-    const result = await call('getBalance', [address, { commitment: SEND_COMMITMENT }])
+    const result = await read('getBalance', [address, { commitment: SEND_COMMITMENT }])
     const value = (result as { value?: unknown })?.value
 
     // A balance that is not a number is not a zero: reading it as one would make
@@ -73,7 +155,7 @@ export function httpPayoutChain(url: string, fetchImpl: typeof fetch = fetch): P
      * zero balance — the two are the same number and different states.
      */
     funded: async (address) => {
-      const result = await call('getAccountInfo', [address, { commitment: SEND_COMMITMENT }])
+      const result = await read('getAccountInfo', [address, { commitment: SEND_COMMITMENT }])
       return (result as { value?: unknown })?.value !== null
     },
 
@@ -88,7 +170,7 @@ export function httpPayoutChain(url: string, fetchImpl: typeof fetch = fetch): P
      */
     rentExemptMinimum: async () => {
       try {
-        const result = await call('getMinimumBalanceForRentExemption', [0])
+        const result = await read('getMinimumBalanceForRentExemption', [0])
         return typeof result === 'number' ? result : RENT_EXEMPT_MINIMUM_FALLBACK
       } catch {
         return RENT_EXEMPT_MINIMUM_FALLBACK
@@ -96,7 +178,7 @@ export function httpPayoutChain(url: string, fetchImpl: typeof fetch = fetch): P
     },
 
     latestBlockhash: async () => {
-      const result = await call('getLatestBlockhash', [{ commitment: SEND_COMMITMENT }])
+      const result = await read('getLatestBlockhash', [{ commitment: SEND_COMMITMENT }])
       const blockhash = (result as { value?: { blockhash?: unknown } })?.value?.blockhash
 
       if (typeof blockhash !== 'string')

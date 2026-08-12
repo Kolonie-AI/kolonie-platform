@@ -163,6 +163,7 @@ export function registerPaymentRoutes(
         // which is not the same fact as a wallet holding nothing (`#536`).
         heldLamports: null,
         floatEmpty: false,
+        chainUnreachable: false,
       })
     }
 
@@ -173,7 +174,25 @@ export function registerPaymentRoutes(
      * `log.error` and not `info`: a citizen discovering it before the Colony
      * does is the failure this line exists to prevent.
      */
-    if (outcome.floatShort) {
+    if (outcome.chainUnreachable) {
+      /**
+       * **First, because with it true the other two are not known.** `floatShort`
+       * and `floatEmpty` are both `false` on a pass that could not read the
+       * wallet, and raising either of them here would be reporting a healthy
+       * float nobody looked at.
+       *
+       * `warn` and not `error` — `#764`. This is the endpoint between the Colony
+       * and Solana being briefly unavailable, which happens and is nobody's
+       * defect. It was an `error` with a stack until now only because the pass
+       * threw, and the log detector duly filed it as one. The condition that
+       * *does* deserve an alarm is a citizen still unpaid tomorrow, and the debt
+       * watcher (`#720`) is what raises that.
+       */
+      log.warn('a payout pass could not reach the chain', {
+        event: 'payout.chain.unreachable',
+        ...outcome,
+      })
+    } else if (outcome.floatShort) {
       log.error('the payout wallet holds less than the Colony owes', new Error('float short'), {
         event: 'payout.float.short',
         ...outcome,

@@ -133,6 +133,31 @@ export async function readEarnings(
   }
 }
 
+/**
+ * The endpoint could not be asked — `#764`.
+ *
+ * **The distinction this carries is *we did not learn* against *we learned
+ * something bad*.** A wallet holding nothing is an answer; a Cloudflare 522 in
+ * front of the RPC provider is the absence of one, and a pass that treats the
+ * second as the first would report a float it never read.
+ *
+ * It is a class rather than a message string because {@link runPayouts} branches
+ * on it, and matching on prose is how *the endpoint was unreachable* eventually
+ * becomes *any error mentioning a number*.
+ */
+export class ChainUnreachableError extends Error {
+  override readonly name = 'ChainUnreachableError'
+
+  constructor(
+    /** The call that could not be completed — `getBalance`, `getAccountInfo`. */
+    readonly method: string,
+    /** What the last attempt saw, for the journal line. Not shown to a citizen. */
+    readonly detail: string,
+  ) {
+    super(`${method} could not be reached (${detail}).`)
+  }
+}
+
 /** The chain, as this path needs it. A port, so a test needs no key and no network. */
 export interface PayoutChain {
   /** What the Colony's wallet holds, in lamports. */
@@ -248,6 +273,30 @@ export interface PayoutPassOutcome {
    * answer that is not a preference: can it pay at all.
    */
   readonly floatEmpty: boolean
+  /**
+   * The pass stopped because the chain could not be asked — `#764`.
+   *
+   * **It is not a refusal and it is not a failure of the Colony's money.**
+   * Nothing about what is owed changed, nothing was recorded against any
+   * citizen, and the next pass a quarter of an hour later asks again. What it
+   * says is that the figures beside it are as far as this pass got: with it
+   * true, `heldLamports` may be `null` and `floatShort` is `false` because
+   * nobody read the wallet, not because the wallet is healthy.
+   *
+   * **Why the pass reports this instead of throwing.** It threw until now, which
+   * turned a Cloudflare 522 into `POST /v1/payouts/run` answering 500 with a
+   * stack trace, one `api/request.failed` line, and no `payout.pass` line at all
+   * — so the journal lost the pass entirely and the log detector filed the
+   * outage as a defect in this repository. A pass that could not ask is an
+   * ordinary state of the world, and it is now written down as one.
+   *
+   * **Nothing is hidden by this.** An endpoint that stays unreachable stops
+   * payouts, and that condition is already watched from the other side: the debt
+   * watcher (`#720`) files when an obligation has stood unpaid past its
+   * threshold, which is the durable fact worth alarming on. This flag is the
+   * per-pass detail underneath it.
+   */
+  readonly chainUnreachable: boolean
 }
 
 /**
@@ -275,6 +324,7 @@ export async function runPayouts(deps: PayoutDependencies): Promise<PayoutPassOu
     stuck: 0,
     heldLamports: null,
     floatEmpty: false,
+    chainUnreachable: false,
   }
 
   // A deployment with no wallet, no endpoint or no ceilings cannot pay. It has
@@ -300,7 +350,14 @@ export async function runPayouts(deps: PayoutDependencies): Promise<PayoutPassOu
      * the wallet is not short of it. What the pass now carries is the balance
      * itself and whether it can pay anything at all.
      */
-    const balance = await chain.balance(wallet.address)
+    let balance: number
+    try {
+      balance = await chain.balance(wallet.address)
+    } catch (error) {
+      if (!(error instanceof ChainUnreachableError)) throw error
+      return { ...nothing, chainUnreachable: true }
+    }
+
     return {
       ...nothing,
       floatShort: false,
@@ -309,11 +366,22 @@ export async function runPayouts(deps: PayoutDependencies): Promise<PayoutPassOu
     }
   }
 
-  const [balance, owed, rentMinimum] = await Promise.all([
-    chain.balance(wallet.address),
-    desk.owed(),
-    chain.rentExemptMinimum(),
-  ])
+  let balance: number
+  let owed: number
+  let rentMinimum: number
+  try {
+    ;[balance, owed, rentMinimum] = await Promise.all([
+      chain.balance(wallet.address),
+      desk.owed(),
+      chain.rentExemptMinimum(),
+    ])
+  } catch (error) {
+    if (!(error instanceof ChainUnreachableError)) throw error
+    // Nothing has been attempted yet, so `considered` stays zero: this pass did
+    // not look at these obligations, and saying it considered them would put a
+    // number in the journal that no decision was made against.
+    return { ...nothing, chainUnreachable: true }
+  }
 
   /**
    * **The float running dry is the Colony's failure and must be loud.** The
@@ -331,11 +399,31 @@ export async function runPayouts(deps: PayoutDependencies): Promise<PayoutPassOu
   let paid = 0
   let lamportsPaid = 0
   let available = Math.max(0, balance - FEE_RESERVE_LAMPORTS)
+  let chainUnreachable = false
 
   for (const obligation of outstanding) {
     if (obligation.address === null) {
       await defer(desk, obligation, 'no-verified-address', refused)
       continue
+    }
+
+    /**
+     * **An unreachable endpoint ends the pass; it does not defer the citizen.**
+     *
+     * Every remaining obligation would ask the same endpoint and get the same
+     * nothing, so continuing would record one failed attempt against each of
+     * them — and attempts are counted: `PAYOUT_STUCK_AFTER_ATTEMPTS` would
+     * eventually report citizens as stuck on the strength of the Colony's own
+     * network having blinked. Whatever was paid before this line stands, and is
+     * reported.
+     */
+    let recipientFunded: boolean
+    try {
+      recipientFunded = await chain.funded(obligation.address)
+    } catch (error) {
+      if (!(error instanceof ChainUnreachableError)) throw error
+      chainUnreachable = true
+      break
     }
 
     const refusal = payoutRefusal({
@@ -344,7 +432,7 @@ export async function runPayouts(deps: PayoutDependencies): Promise<PayoutPassOu
       paidToday,
       availableFloat: available,
       chainMinimum: rentMinimum,
-      recipientFunded: await chain.funded(obligation.address),
+      recipientFunded,
     })
 
     if (refusal !== undefined) {
@@ -431,6 +519,7 @@ export async function runPayouts(deps: PayoutDependencies): Promise<PayoutPassOu
     stuck,
     heldLamports: balance,
     floatEmpty,
+    chainUnreachable,
   }
 }
 

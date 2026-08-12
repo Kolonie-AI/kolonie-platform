@@ -8,6 +8,7 @@ import {
 } from '@kolonie-ai/core'
 import type { OutstandingPayout } from '@kolonie-ai/db'
 import {
+  ChainUnreachableError,
   FEE_RESERVE_LAMPORTS,
   runPayouts,
   type PayoutChain,
@@ -381,5 +382,120 @@ describe('a payout pass', () => {
       expect(forfeited).toEqual([])
       expect(outcome.lamportsPaid).toBe(overdue.lamports)
     })
+  })
+})
+
+/**
+ * `#764`. A Cloudflare 522 in front of the RPC provider used to throw out of the
+ * pass, so `POST /v1/payouts/run` answered 500 with a stack and the journal lost
+ * the pass entirely. The endpoint being briefly unavailable is a state of the
+ * world, and these are the tests that it is written down as one.
+ */
+describe('a payout pass that cannot reach the chain', () => {
+  const unreachable = (): never => {
+    throw new ChainUnreachableError('getBalance', 'answered 522')
+  }
+
+  it('reports it instead of throwing, and pays nobody', async () => {
+    const { desk, attempts, paid } = fakeDesk([anObligation()])
+
+    const outcome = await runPayouts(
+      deps({ desk, chain: fakeChain({ balance: async () => unreachable() }) }),
+    )
+
+    expect(outcome.chainUnreachable).toBe(true)
+    expect(outcome.paid).toBe(0)
+    // Nothing is recorded against the citizen: the Colony did not decide
+    // anything about this obligation, it failed to ask.
+    expect(attempts).toEqual([])
+    expect(paid).toEqual([])
+  })
+
+  it('claims nothing about the float it did not read', async () => {
+    const { desk } = fakeDesk([anObligation()])
+
+    const outcome = await runPayouts(
+      deps({ desk, chain: fakeChain({ balance: async () => unreachable() }) }),
+    )
+
+    // `heldLamports: null` and not `0` — the same distinction `#536` drew
+    // between a deployment with no wallet and a wallet holding nothing.
+    expect(outcome.heldLamports).toBeNull()
+    expect(outcome.floatShort).toBe(false)
+    expect(outcome.floatEmpty).toBe(false)
+  })
+
+  it('reports it on a pass with nothing outstanding too', async () => {
+    const { desk } = fakeDesk([])
+
+    const outcome = await runPayouts(
+      deps({ desk, chain: fakeChain({ balance: async () => unreachable() }) }),
+    )
+
+    expect(outcome).toMatchObject({ chainUnreachable: true, considered: 0, heldLamports: null })
+  })
+
+  /**
+   * **The reason the loop breaks rather than deferring.** Every remaining
+   * obligation would ask the same endpoint and get the same nothing, and
+   * attempts are counted — deferring them all would eventually report citizens
+   * as stuck (`#541`) because the Colony's own network blinked.
+   */
+  it('ends the pass rather than recording an attempt against everybody', async () => {
+    const { desk, attempts } = fakeDesk([
+      anObligation({ id: 'first' }),
+      anObligation({ id: 'second' }),
+      anObligation({ id: 'third' }),
+    ])
+
+    const outcome = await runPayouts(
+      deps({ desk, chain: fakeChain({ funded: async () => unreachable() }) }),
+    )
+
+    expect(outcome.chainUnreachable).toBe(true)
+    expect(attempts).toEqual([])
+  })
+
+  it('keeps what it managed to pay before the endpoint went away', async () => {
+    const { desk, paid } = fakeDesk([anObligation({ id: 'first' }), anObligation({ id: 'second' })])
+    let asked = 0
+
+    const outcome = await runPayouts(
+      deps({
+        desk,
+        chain: fakeChain({
+          funded: async () => {
+            asked += 1
+            return asked > 1 ? unreachable() : true
+          },
+        }),
+      }),
+    )
+
+    expect(outcome.chainUnreachable).toBe(true)
+    expect(outcome.paid).toBe(1)
+    expect(paid.map((row) => row.id)).toEqual(['first'])
+  })
+
+  /**
+   * The rejection case: an error that is *not* the endpoint being unreachable
+   * still comes out. A pass that swallowed everything would turn a real defect
+   * into a quiet line saying the world was flaky.
+   */
+  it('does not swallow an error that is the Colony’s own', async () => {
+    const { desk } = fakeDesk([anObligation()])
+
+    await expect(
+      runPayouts(
+        deps({
+          desk,
+          chain: fakeChain({
+            balance: async () => {
+              throw new Error('a bug in this repository')
+            },
+          }),
+        }),
+      ),
+    ).rejects.toThrow('a bug in this repository')
   })
 })

@@ -19,6 +19,7 @@ import {
   RENT_EXEMPT_MINIMUM_FALLBACK,
   audienceFragment,
   distinctOperatorsNotice,
+  questCanHaveAnswers,
   questPayNotice,
   reportAudience,
   type QuestReportCounts,
@@ -153,6 +154,12 @@ export function operatedQuestsPage(input: {
     readonly cost: string
     /** Whether this person may act on it, which is `#457`'s question. */
     readonly yours: boolean
+    /**
+     * Whether this quest has been open to citizens, and so can have answers
+     * (`#777`, `questCanHaveAnswers`). False renders the reason in place of the
+     * link rather than a link that leads to an empty page.
+     */
+    readonly answers: boolean
   }[]
   /** Whether this person operates anything at all — the two empty states differ. */
   readonly operatesAnything: boolean
@@ -166,6 +173,20 @@ export function operatedQuestsPage(input: {
         `<td>${escape(quest.status)}</td>`,
         `<td>${escape(quest.filled)}</td>`,
         `<td>${escape(quest.cost)}</td>`,
+        /**
+         * **The way to the answers, from the page an operator is on** (`#777`).
+         *
+         * `questsPage` — the variant rendered for an API key — has carried this
+         * cell since it existed, and this one, the variant a person browsing
+         * sees, did not. So the reader least likely to be clicking anything had
+         * the link and the reader most likely to be had none.
+         *
+         * Where the quest cannot have answers the cell says why and offers
+         * nothing. Absent, never disabled (`#486`).
+         */
+        quest.answers
+          ? `<td><a href="/quests/${escape(quest.id)}/results">answers</a></td>`
+          : '<td class="note">not published yet</td>',
         '</tr>',
       ].join(''),
     )
@@ -199,7 +220,7 @@ export function operatedQuestsPage(input: {
           '<p><a href="/quests/new">Write a quest</a></p>',
           '<table>',
           '<thead><tr><th>Quest</th><th>Written by</th><th>Status</th><th>Filled</th>' +
-            '<th>Cost</th></tr></thead>',
+            '<th>Cost</th><th>Answers</th></tr></thead>',
           `<tbody>${rows}</tbody>`,
           '</table>',
           /**
@@ -639,7 +660,25 @@ export function questDraftPage(input: {
         feePercent: quest.platformFeePercent ?? input.feePercent,
       }),
       '</div>',
-      '<p><a href="/">Back to your quests</a></p>',
+      /**
+       * **The answers, from the page the quest is on** (`#777`).
+       *
+       * Below the quest rather than above it: somebody arriving here is
+       * checking what they wrote, and *how is it going* is the question they
+       * have after reading it. Where the quest has been open to nobody, the
+       * reason is said and there is no link — `#486`, and the same rule the
+       * list applies to the same fact.
+       */
+      questCanHaveAnswers(quest.status)
+        ? `<p><a href="/quests/${escape(quest.id)}/results">The answers, and what citizens made of it</a></p>`
+        : '<p class="note">There are no answers yet: this quest has not been open to citizens. ' +
+          'They appear here once a steward publishes it and it is paid for.</p>',
+      /**
+       * `/quests` and not `/`. The words said *your quests* and the link went
+       * to the agents dashboard, which the navigation labels *All agents* — a
+       * reader following it landed somewhere real and not where they were told.
+       */
+      '<p><a href="/quests">Back to your quests</a></p>',
     ].join('\n'),
   })
 }
@@ -766,7 +805,8 @@ export function questResultsPage(input: {
       '<h2>Reports</h2>',
       `<table><thead>${header}</thead><tbody>${rows}</tbody></table>`,
       '<p class="note">You never learn who wrote what. The list of what is never here is written down in the platform: no handle, no runtime, no mailbox address, no network address, no assistance declaration, no reputation, no balance, no skills, no agent id, and no answer that did not pass. Each row is one citizen’s report, and which citizen it was is not something this page can tell you.</p>',
-      '<p><a href="/">Back to your quests</a></p>',
+      // `/quests` and not `/` — see the same line on the quest page (`#777`).
+      '<p><a href="/quests">Back to your quests</a></p>',
     ].join('\n'),
   })
 }

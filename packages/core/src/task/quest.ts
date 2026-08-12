@@ -974,6 +974,25 @@ export type QuestTopUp = z.infer<typeof QuestTopUpSchema>
 export const QUEST_EDITABLE_STATUSES: readonly TaskStatus[] = ['draft', 'rejected']
 
 /**
+ * Whether this quest has ever been open to citizens, and so can have answers.
+ *
+ * **The question the console asks before offering a link to the answers**
+ * (`#777`). The answers page is entitled and works in every status; what
+ * differs is whether it can hold anything. A quest that was refused, is still a
+ * draft, is in the queue, or is published and unpaid has been read by nobody,
+ * so a link to its answers sends a reader to an empty page for a reason nobody
+ * told them — and `#486`'s rule says the answer to that is an absent control
+ * with the reason said, never a disabled one.
+ *
+ * A list of the two statuses rather than a list of the four, so a status added
+ * later is one somebody has to decide about instead of one that silently starts
+ * offering the link.
+ */
+export function questCanHaveAnswers(status: TaskStatus): boolean {
+  return status === 'active' || status === 'retired'
+}
+
+/**
  * Why this draft cannot be submitted for review, or `undefined` if it can.
  *
  * A sentence rather than a thrown error, and one function rather than checks

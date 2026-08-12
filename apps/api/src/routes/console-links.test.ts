@@ -5,6 +5,8 @@ import { fakeColony } from '../__fixtures__/colony/index.js'
 import { fakeConsole } from '../__fixtures__/console.js'
 import { fakeStore } from '../__fixtures__/store.js'
 import { fakeHumanStore, fakeTenant, type FakeHumanStore } from '../__fixtures__/humans.js'
+import type { FakeQuestDesk } from '../__fixtures__/quests.js'
+import { QuestDraftSchema } from '@kolonie-ai/core'
 import {
   fakeAutonomyMailer,
   fakeAutonomyStore,
@@ -53,14 +55,27 @@ const CONSOLE_HOST = 'console.example'
 
 let app: FastifyInstance
 let humans: FakeHumanStore
+let quests: FakeQuestDesk
+let agents: ReturnType<typeof fakeStore>
+/**
+ * Held here and not only inside `beforeEach` because an agent has to be put on
+ * record with `exists` before the console will render its page: `factsOf`
+ * answers `null` for an id it has never heard of, and the agent page turns that
+ * into a 404 (`#452`). A test that pairs an agent and does not do this puts a
+ * dead link on the dashboard and fails for its own fixture.
+ */
+let pages: ReturnType<typeof fakeOperatorPages>
 
 beforeEach(async () => {
   humans = fakeHumanStore()
-  const pages = fakeOperatorPages()
+  agents = fakeStore()
+  pages = fakeOperatorPages()
+  const colony = fakeColony()
+  quests = colony.quests
 
   app = buildApp({
-    ...fakeColony(),
-    store: fakeStore(),
+    ...colony,
+    store: agents,
     console: { ...fakeConsole(), consoleUrl: CONSOLE_URL },
     humans: { store: humans, tenant: fakeTenant() },
     autonomy: {
@@ -297,6 +312,55 @@ describe('the console emits no link that answers 404', () => {
     const missing = [...visited].filter(([, status]) => status === 404).map(([url]) => url)
     expect(missing).toEqual([])
     expect(visited.has('/backend')).toBe(true)
+  })
+
+  /**
+   * **The answers page, reached by walking rather than by being named**
+   * (`#777`).
+   *
+   * The crawl starts at `/quests`, and until this test the person it signs in
+   * as operated nothing and had written nothing — so `/quests` was an empty
+   * state and the whole quest half of the console went unwalked. A quest an
+   * operated agent wrote and a steward published puts a row on that page, and
+   * the assertion is that the crawl *arrived* at its answers: a hard-coded URL
+   * would prove the route exists and prove nothing about the link.
+   */
+  it('reaches a quest’s answers from the quests page, by following the link', async () => {
+    const cookie = await signedInCookie()
+    const person = humans.people()[humans.people().length - 1]
+    /**
+     * A real row in the agent store, paired the way a person pairs one — not a
+     * bare `anAgent()`. The dashboard links every agent it lists, so an author
+     * the store has never heard of would put a 404 on `/` and this test would
+     * fail for its fixture rather than for the thing it is about.
+     */
+    const author = agents.issue().agent.id
+    pages.exists(author)
+    const code = await humans.issueCodeForAgent(author)
+    await humans.redeemAsHuman(code.code, person?.id as never)
+    const written = await quests.create({
+      authorId: author,
+      draft: QuestDraftSchema.parse({
+        title: 'A quest with answers to reach',
+        description: 'What this quest is, for a human reading the catalogue.',
+        instructions: 'Do the thing described and report what happened.',
+        questions: [{ key: 'went-well', prompt: 'How did it go?', required: true }],
+        slots: 10,
+        reward: { reputation: 0, lamports: 0 },
+        expiresAt: new Date(Date.now() + 7 * 86_400_000).toISOString(),
+        minReputation: 0,
+        audience: 'citizens',
+        proofVerifier: 'email-inbox',
+      }),
+    })
+    quests.publish(written.task.id)
+
+    const { visited } = await crawl(cookie)
+
+    const missing = [...visited].filter(([, status]) => status === 404).map(([url]) => url)
+    expect(missing).toEqual([])
+    expect(visited.has(`/quests/${String(written.task.id)}`)).toBe(true)
+    expect(visited.has(`/quests/${String(written.task.id)}/results`)).toBe(true)
   })
 
   it('says on the quests page how a quest is paid for', async () => {

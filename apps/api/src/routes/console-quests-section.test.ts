@@ -224,6 +224,131 @@ describe('the quests a person’s identities have written', () => {
     expect(direct.body).toBe(invented.body)
   })
 
+  /**
+   * **The way to the answers, for the reader who had none** (`#777`).
+   *
+   * `questsPage` — the variant an API key gets — has carried an `answers` cell
+   * since it existed. This one, the variant a person browsing sees, did not:
+   * so an operator could watch a quest fill and had no way to read what filled
+   * it. The link is asserted for a quest an *operated agent* wrote, because
+   * that is the case in the issue and the one `questAuthor`'s `read` branch
+   * exists for.
+   */
+  describe('the way from a quest to its answers', () => {
+    const aPublishedQuest = async (title: string) => {
+      const own = anAgent({ name: 'a-named-agent' })
+      humans.operatesAgent(theHuman().id, own)
+      const written = await wroteQuest(own.id, title)
+      quests.publish(written.task.id)
+      return written.task.id
+    }
+
+    it('links the answers from the list, for a quest an operated agent wrote', async () => {
+      const cookie = await signedInCookie()
+      const questId = await aPublishedQuest('A quest that is running')
+
+      const body = (await section(cookie)).body
+
+      expect(body).toContain(`href="/quests/${String(questId)}/results"`)
+      expect(body).toContain('<th>Answers</th>')
+    })
+
+    it('links the answers from the quest itself', async () => {
+      const cookie = await signedInCookie()
+      const questId = await aPublishedQuest('A quest to read to the end')
+
+      const page = await app.inject({
+        method: 'GET',
+        url: `/quests/${String(questId)}`,
+        headers: { host: CONSOLE_HOST, accept: 'text/html', cookie },
+      })
+
+      expect(page.statusCode).toBe(200)
+      expect(page.body).toContain(`href="/quests/${String(questId)}/results"`)
+    })
+
+    /**
+     * **Absent, and the reason said** — `#486`. A draft has been open to
+     * nobody, so a link to its answers is a link to an empty page, and a
+     * disabled one would tell the reader there is a door without telling them
+     * why it is shut.
+     */
+    it('offers no link where the quest has been open to nobody, and says why', async () => {
+      const cookie = await signedInCookie()
+      const own = anAgent({ name: 'a-named-agent' })
+      humans.operatesAgent(theHuman().id, own)
+      const draft = await wroteQuest(own.id, 'A quest still being written')
+
+      const listed = await section(cookie)
+      const page = await app.inject({
+        method: 'GET',
+        url: `/quests/${String(draft.task.id)}`,
+        headers: { host: CONSOLE_HOST, accept: 'text/html', cookie },
+      })
+
+      expect(listed.body).not.toContain(`/quests/${String(draft.task.id)}/results`)
+      expect(listed.body).toContain('not published yet')
+      expect(page.body).not.toContain(`/quests/${String(draft.task.id)}/results`)
+      expect(page.body).toContain('this quest has not been open to citizens')
+      expect(page.body).not.toContain('disabled')
+    })
+
+    /**
+     * **The rejection case.** Somebody who operates neither the author nor
+     * anything else sees no link and gets the console's own 404 — the same
+     * answer a quest that does not exist gets, so the two stay
+     * indistinguishable.
+     */
+    it('shows a stranger no link, and answers their request as a miss', async () => {
+      const cookie = await signedInCookie()
+      const strangers = agents.issue().agent.id
+      const theirs = await wroteQuest(strangers, 'Not mine to read')
+      quests.publish(theirs.task.id)
+
+      const listed = await section(cookie)
+      const direct = await app.inject({
+        method: 'GET',
+        url: `/quests/${String(theirs.task.id)}/results`,
+        headers: { host: CONSOLE_HOST, accept: 'text/html', cookie },
+      })
+      const invented = await app.inject({
+        method: 'GET',
+        url: '/quests/99999999-9999-4999-8999-999999999999/results',
+        headers: { host: CONSOLE_HOST, accept: 'text/html', cookie },
+      })
+
+      expect(listed.body).not.toContain(`/quests/${String(theirs.task.id)}/results`)
+      expect(direct.statusCode).toBe(404)
+      expect(direct.statusCode).toBe(invented.statusCode)
+      expect(direct.body).toBe(invented.body)
+    })
+
+    /**
+     * The two links that said *your quests* and went to the agents dashboard,
+     * which the navigation labels *All agents*.
+     */
+    it('sends “Back to your quests” to the quests list, from both pages', async () => {
+      const cookie = await signedInCookie()
+      const questId = await aPublishedQuest('A quest with a way back')
+
+      const quest = await app.inject({
+        method: 'GET',
+        url: `/quests/${String(questId)}`,
+        headers: { host: CONSOLE_HOST, accept: 'text/html', cookie },
+      })
+      const answers = await app.inject({
+        method: 'GET',
+        url: `/quests/${String(questId)}/results`,
+        headers: { host: CONSOLE_HOST, accept: 'text/html', cookie },
+      })
+
+      for (const body of [quest.body, answers.body]) {
+        expect(body).toContain('<a href="/quests">Back to your quests</a>')
+        expect(body).not.toContain('<a href="/">Back to your quests</a>')
+      }
+    })
+  })
+
   /** Two empty states, because the next step differs. */
   it('tells somebody with no agents how to get one', async () => {
     const cookie = await signedInCookie()

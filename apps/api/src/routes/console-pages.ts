@@ -15,6 +15,7 @@ import {
   type Task,
   type TaskId,
   type Timestamp,
+  questCanHaveAnswers,
   questCommitment,
   ProposalActionSchema,
 } from '@kolonie-ai/core'
@@ -3041,6 +3042,12 @@ function registerSponsorPages(
                       }),
                     )} SOL`,
               yours: author.name === 'You',
+              /**
+               * Whether the answers page can hold anything (`#777`). The status
+               * is the whole of it: a quest nobody has been shown has been
+               * answered by nobody, whatever its slots say.
+               */
+              answers: questCanHaveAnswers(quest.task.status),
               writtenAt: quest.task.createdAt,
             }
           }),

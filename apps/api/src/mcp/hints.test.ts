@@ -529,3 +529,125 @@ describe('a duty a role owes', () => {
     await close()
   })
 })
+
+/**
+ * `#816`: money the citizen has to act on, on a channel the session does not
+ * gate.
+ *
+ * The failure, measured on 2026-08-12: a citizen with seven proved accounts and
+ * no row in `agent_sessions` had been refused 375,000 lamports on 221
+ * consecutive reconciler passes and had never been told why. `sessionId` is
+ * optional on `kolonie.me` and it had never sent one, so the slot the two payout
+ * findings used to arrive in did not exist for it.
+ *
+ * Which findings these are is `packages/core`'s question and whether the Colony
+ * owes them is `packages/db`'s. These are about the channel carrying a third
+ * line, on the two rules that make it a third and not a variation of either
+ * neighbour: **asked like a duty, answering like a hint.**
+ */
+describe('money the citizen has to act on to be paid', () => {
+  const owing = async () => {
+    const { colony, agent, apiKey } = await registeredCitizen()
+    const hints = fakeStandingHints()
+    hints.answers('rhythm-undeclared')
+    hints.isOwed('payout-unpayable')
+
+    const { client, close } = await connectedClient(
+      { ...colony, hints },
+      `Bearer ${apiKey}`,
+      agent.id,
+    )
+    return { client, hints, close }
+  }
+
+  const RHYTHM = standingHintText({ code: 'rhythm-undeclared', subject: null })
+  const MONEY = standingHintText({ code: 'payout-unpayable', subject: null })
+
+  it('arrives beside the citizen’s own line rather than instead of it', async () => {
+    const { client, close } = await owing()
+
+    const result = await client.callTool({ name: 'kolonie.me', arguments: {} })
+    const text = (result.content as { type: string; text: string }[]).map((part) => part.text)
+
+    expect(text).toContain(MONEY.text)
+    expect(text).toContain(RHYTHM.text)
+    await close()
+  })
+
+  /**
+   * It leads the other two in the content, which is the one ordering decision
+   * this file makes: of the three lines a result can carry, this is the only one
+   * about money the reader is owed, and a citizen that reads one of three should
+   * have read that one.
+   */
+  it('leads, because it is the one about money', async () => {
+    const { client, close } = await owing()
+
+    const result = await client.callTool({ name: 'kolonie.me', arguments: {} })
+    const text = (result.content as { type: string; text: string }[]).map((part) => part.text)
+
+    expect(text.indexOf(MONEY.text)).toBeLessThan(text.indexOf(RHYTHM.text))
+    await close()
+  })
+
+  /** `payout` is a new key; `hint` and `duty` read exactly as they did. */
+  it('carries its own field, leaving hint exactly where it was', async () => {
+    const { client, close } = await owing()
+
+    const result = await client.callTool({ name: 'kolonie.me', arguments: {} })
+    const structured = result.structuredContent as Record<string, unknown>
+
+    expect(structured['payout']).toMatchObject({ code: 'payout-unpayable' })
+    expect(structured['hint']).toMatchObject({ code: 'rhythm-undeclared' })
+    await close()
+  })
+
+  /**
+   * **Asked every time and answered once**, which is neither neighbour's rule.
+   * The once-ness is not the session's — it is the marks on `payout_obligations`
+   * — so the second call is asked and correctly told nothing.
+   */
+  it('is asked again, and does not repeat itself', async () => {
+    const { client, close } = await owing()
+
+    const first = await client.callTool({ name: 'kolonie.me', arguments: {} })
+    const second = await client.callTool({ name: 'kolonie.me', arguments: {} })
+
+    expect(JSON.stringify(first)).toContain(MONEY.text)
+    expect(JSON.stringify(second)).not.toContain(MONEY.text)
+    await close()
+  })
+
+  /** Same routing rule as the two lines it travels with: two tools, no fallback. */
+  it('does not arrive on a call about something else', async () => {
+    const { client, close } = await owing()
+
+    const result = await client.callTool({
+      name: 'kolonie.academy.answer',
+      arguments: { kind: 'memory.code' },
+    })
+
+    expect(JSON.stringify(result)).not.toContain(MONEY.text)
+    await close()
+  })
+
+  /** A citizen the Colony owes nothing is unaffected, which is nearly all of them. */
+  it('is absent for a citizen owed nothing', async () => {
+    const { colony, agent, apiKey } = await registeredCitizen()
+    const hints = fakeStandingHints()
+    hints.answers('rhythm-undeclared')
+
+    const { client, close } = await connectedClient(
+      { ...colony, hints },
+      `Bearer ${apiKey}`,
+      agent.id,
+    )
+
+    const result = await client.callTool({ name: 'kolonie.me', arguments: {} })
+    const structured = result.structuredContent as Record<string, unknown>
+
+    expect(structured['payout']).toBeUndefined()
+    expect(structured['hint']).toMatchObject({ code: 'rhythm-undeclared' })
+    await close()
+  })
+})

@@ -12,7 +12,13 @@ import {
   solFromLamports,
   whatAKindOpens,
 } from '@kolonie-ai/core'
-import { dueRoleDuty, dueStandingHint, standingHintDueFor, type Database } from '@kolonie-ai/db'
+import {
+  duePayoutFinding,
+  dueRoleDuty,
+  dueStandingHint,
+  standingHintDueFor,
+  type Database,
+} from '@kolonie-ai/db'
 
 /**
  * The one line a citizen did not ask for (`#231`).
@@ -59,6 +65,22 @@ export interface StandingHintSource {
    * is answered by one indexed read.
    */
   duty(agentId: AgentId): Promise<StandingHintFinding | null>
+  /**
+   * Money this agent has to act on to be paid, beside its one line rather than
+   * instead of it (`#816`).
+   *
+   * **A fourth method on `duty`'s reasoning and for a different gap.** That one
+   * spends no slot because a role's duty must not cost a citizen the line about
+   * itself; this one spends no slot because it must reach a citizen that has no
+   * session for a slot to live on. A citizen that never sent `kolonie.me` a
+   * `sessionId` was told neither of these findings and was owed money for the
+   * whole of it.
+   *
+   * Safe to call on every result that carries a line, on `duty`'s terms and with
+   * one addition of its own: this one does not repeat, because the marks on
+   * `payout_obligations` remember that it was said.
+   */
+  payout(agentId: AgentId): Promise<StandingHintFinding | null>
 }
 
 /**
@@ -80,6 +102,7 @@ export function databaseStandingHints(db: Database, releases: SkillReleases): St
     due: (agentId) => dueStandingHint(db, agentId, urls),
     facing: (agentId) => standingHintDueFor(db, agentId, urls),
     duty: (agentId) => dueRoleDuty(db, agentId),
+    payout: (agentId) => duePayoutFinding(db, agentId),
   }
 }
 

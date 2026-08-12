@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import {
+  choosePayoutFinding,
   chooseStandingHint,
   considerationGapHours,
   GENERAL_HINTS,
   generalHintText,
+  PAYOUT_FINDINGS,
   STANDING_HINT_RANK,
   type StandingHintCode,
   type StandingHintFinding,
@@ -73,6 +75,52 @@ describe('choosing between conditions that all apply', () => {
     const chosen = chooseStandingHint([{ code: 'task-considered', subject: 'raster-image' }])
 
     expect(chosen?.subject).toBe('raster-image')
+  })
+})
+
+/**
+ * `#816`: the two findings about money, chosen on their own channel.
+ *
+ * They left the citizen's one line per waking because that line is scoped to a
+ * session row, and the citizen this cost money had none: `sessionId` is optional
+ * on `kolonie.me` and it had never sent one. *Quiet rather than nagged* is still
+ * right for a hint and wrong for money somebody has to act on to receive.
+ */
+describe('choosing between the two findings about money', () => {
+  it('answers nothing when neither applies', () => {
+    expect(choosePayoutFinding([])).toBeUndefined()
+  })
+
+  it('answers the only applicable one', () => {
+    expect(choosePayoutFinding([finding('payout-accruing')])).toEqual(finding('payout-accruing'))
+  })
+
+  /**
+   * The one precedence this function has, and it turns on what the reader can
+   * do: verifying a wallet is a thing the citizen can finish today, and the
+   * accrual it turns into is the next question rather than this one.
+   */
+  it('leads with the wait the citizen can end', () => {
+    const both = [finding('payout-accruing'), finding('payout-unpayable')]
+
+    expect(choosePayoutFinding(both)).toEqual(finding('payout-unpayable'))
+    expect(choosePayoutFinding([...both].reverse())).toEqual(finding('payout-unpayable'))
+  })
+
+  /** Anything that is not one of the two is not this channel's to serve. */
+  it('ignores a finding that is not about money', () => {
+    expect(choosePayoutFinding([finding('rhythm-undeclared')])).toBeUndefined()
+  })
+
+  /**
+   * **They stay in `STANDING_HINT_RANK`, and that is deliberate.** The rank
+   * answers *what is true of this citizen*, which is what the operator's fleet
+   * page reads through `standingHintDueFor` (`#512`); this function answers
+   * *what gets said, and by which channel*. Dropping them from the rank would
+   * have silently emptied that page of both.
+   */
+  it('leaves the rank alone, because the rank answers a different question', () => {
+    for (const code of PAYOUT_FINDINGS) expect(STANDING_HINT_RANK).toContain(code)
   })
 })
 

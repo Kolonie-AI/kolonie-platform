@@ -760,6 +760,65 @@ export function chooseRoleDuty(
 }
 
 /**
+ * The two findings served beside {@link STANDING_HINT_RANK} **and still inside
+ * it** (`#816`).
+ *
+ * **Money the citizen has to act on, not advice it can be spared.** Both name an
+ * obligation the Colony owes and cannot send, and both end when the citizen does
+ * something: clear the wallet rung, or earn enough that the total passes the
+ * chain floor. Everything else in the ranked list is a fact about the reader
+ * that costs it nothing to hear a waking later.
+ *
+ * **They were scoped to the session row and a citizen with no session row heard
+ * neither** — measured on 2026-08-12, a citizen with seven proved accounts, zero
+ * rows in `agent_sessions` and 221 consecutive refusals of money it was owed.
+ * `kolonie.me`'s `sessionId` is optional and one citizen took the Colony at its
+ * word. Scoping these two to the agent instead is what that costs: the session
+ * is the boundary for *one line per waking*, and money owed is not a line per
+ * waking.
+ *
+ * **The once-ness survives the move, because it never lived in the session.**
+ * `payout_obligations.accrual_hinted_at` and `address_hinted_at` already mark
+ * every told row per citizen, so a citizen hears each sentence once per set of
+ * obligations exactly as before. What the session gated here was the *rate*, and
+ * the rate was the thing keeping the sentence from arriving at all.
+ *
+ * **Unlike {@link ROLE_DUTY_HINTS}, these codes stay in the ranked list**, and
+ * that difference is deliberate. A duty is owed by a role a citizen may not
+ * hold; these are conditions of the citizen itself, and `standingHintDueFor` —
+ * the operator's *what is my agent stuck on* — must still be able to name them.
+ * So the rank keeps them for the question **what is true**, and
+ * {@link choosePayoutFinding} serves them for the question **what is said**.
+ * `dueStandingHint` is what leaves them out of its own choice, so that no call
+ * can serve one twice.
+ */
+export const PAYOUT_FINDINGS: readonly StandingHintCode[] = ['payout-unpayable', 'payout-accruing']
+
+/**
+ * The payout finding this citizen is due, or nothing.
+ *
+ * Same shape and same reason as {@link chooseRoleDuty}, and the order is
+ * `STANDING_HINT_RANK`'s own: `payout-unpayable` leads `payout-accruing` because
+ * a citizen in both states is causally in the first — verify the wallet and the
+ * accrual is the next question, and saying it the other way round answers the
+ * second question before the first.
+ *
+ * **One of the two, never both.** They are one sentence about one obligation set
+ * seen from two sides, and a citizen told *the Colony has nowhere to send your
+ * money* and *your money is waiting on the chain minimum* in the same breath has
+ * been given two calls to make and no way to order them.
+ */
+export function choosePayoutFinding(
+  applicable: readonly StandingHintFinding[],
+): StandingHintFinding | undefined {
+  for (const code of PAYOUT_FINDINGS) {
+    const found = applicable.find((finding) => finding.code === code)
+    if (found !== undefined) return found
+  }
+  return undefined
+}
+
+/**
  * What a citizen is handed: a code a client can branch on, and a sentence.
  *
  * Both halves travel, per the precedent `guard.ts` sets for errors — a model

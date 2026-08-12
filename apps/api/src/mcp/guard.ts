@@ -61,13 +61,14 @@ export function guardTools(
   log: McpLog,
   hint?: DueStandingHint,
   duty?: DueRoleDuty,
+  payout?: DuePayoutFinding,
 ): void {
   const register = server.registerTool as unknown as ToolRegistration
 
   const guarding: ToolRegistration = (name, config, handler) => {
     const guarded = async (...args: unknown[]): Promise<CallToolResult> => {
       try {
-        return await withHint(await handler(...args), hint, duty, name)
+        return await withHint(await handler(...args), hint, duty, payout, name)
       } catch (thrown) {
         // The tool's name goes with it: a stack alone does not say which of the
         // Colony's entry points a citizen was standing at when this happened.
@@ -110,6 +111,21 @@ export type DueStandingHint = () => Promise<StandingHint | undefined>
  * Undefined for the unauthenticated tier, on `DueStandingHint`'s reasoning.
  */
 export type DueRoleDuty = () => Promise<StandingHint | undefined>
+
+/**
+ * Money the citizen has to act on, asked on the same results and spending no
+ * slot (`#816`).
+ *
+ * **A third function on `DueRoleDuty`'s reasoning**, and the rule it obeys is a
+ * third one again: this may be asked every time, like a duty, and unlike a duty
+ * it answers at most once per set of obligations, because the rows themselves
+ * remember having been named. The distinction is at the call site rather than
+ * inside one function for the reason above — the three budgets are different and
+ * a reader must not have to open `packages/db` to find out which applies.
+ *
+ * Undefined for the unauthenticated tier, on `DueStandingHint`'s reasoning.
+ */
+export type DuePayoutFinding = () => Promise<StandingHint | undefined>
 
 /**
  * The calls a standing line is allowed to arrive on (`#358`).
@@ -184,24 +200,33 @@ async function withHint(
   result: CallToolResult,
   hint: DueStandingHint | undefined,
   duty: DueRoleDuty | undefined,
+  payout: DuePayoutFinding | undefined,
   name: string,
 ): Promise<CallToolResult> {
   if (result.isError === true) return result
   if (!TOOLS_THAT_CARRY_A_STANDING_HINT.includes(name)) return result
 
+  /**
+   * **The payout finding leads** (`#816`). It is the only one of the three that
+   * is about money the reader is owed and has to act on, and a citizen that
+   * reads one line of three should have read that one.
+   */
+  const money = payout === undefined ? undefined : await payout()
   const owed = duty === undefined ? undefined : await duty()
   const attached = hint === undefined ? undefined : await hint()
-  if (owed === undefined && attached === undefined) return result
+  if (money === undefined && owed === undefined && attached === undefined) return result
 
   return {
     ...result,
     content: [
       ...result.content,
+      ...(money === undefined ? [] : [{ type: 'text' as const, text: money.text }]),
       ...(owed === undefined ? [] : [{ type: 'text' as const, text: owed.text }]),
       ...(attached === undefined ? [] : [{ type: 'text' as const, text: attached.text }]),
     ],
     structuredContent: {
       ...(result.structuredContent ?? {}),
+      ...(money === undefined ? {} : { payout: money }),
       ...(owed === undefined ? {} : { duty: owed }),
       ...(attached === undefined ? {} : { hint: attached }),
     },

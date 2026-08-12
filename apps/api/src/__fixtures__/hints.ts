@@ -33,6 +33,18 @@ export interface FakeStandingHints extends StandingHintSource {
    * one of the two lines pass the test written to catch exactly that.
    */
   readonly owes: (code: StandingHintCode, subject?: string) => void
+  /**
+   * What the payout ask answers, once (`#816`).
+   *
+   * **It spends like {@link FakeStandingHints.answers} and is asked like
+   * {@link FakeStandingHints.owes}**, which is exactly the real one's shape and
+   * the reason it is a fourth setter rather than either of those two. The real
+   * channel is asked on every result — it claims no session slot, because the
+   * citizen it exists for has no session — and answers at most once, because the
+   * marks on `payout_obligations` remember that the sentence was said. A fake
+   * that repeated would hide a guard attaching the same line to every call.
+   */
+  readonly isOwed: (code: StandingHintCode, subject?: string) => void
 }
 
 /** A hint source that answers once with whatever a test put in it. */
@@ -40,6 +52,7 @@ export function fakeStandingHints(): FakeStandingHints {
   let pending: StandingHintFinding | null = null
   let standing: StandingHintFinding | null = null
   let owed: StandingHintFinding | null = null
+  let money: StandingHintFinding | null = null
   const asked: AgentId[] = []
 
   return {
@@ -54,6 +67,13 @@ export function fakeStandingHints(): FakeStandingHints {
     facing: async () => standing,
     // Spends nothing and repeats, exactly as the real one does.
     duty: async () => owed,
+    // Asked every time and answers once, exactly as the real one does: no slot
+    // is claimed, and the obligation rows remember having been named.
+    payout: async () => {
+      const answer = money
+      money = null
+      return answer
+    },
     answers: (code, subject) => {
       pending = { code, subject: subject ?? null }
     },
@@ -62,6 +82,9 @@ export function fakeStandingHints(): FakeStandingHints {
     },
     owes: (code, subject) => {
       owed = { code, subject: subject ?? null }
+    },
+    isOwed: (code, subject) => {
+      money = { code, subject: subject ?? null }
     },
     asked: () => [...asked],
   }

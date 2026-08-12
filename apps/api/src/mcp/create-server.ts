@@ -174,6 +174,21 @@ export function createMcpServer(
           const owed = await deps.hints.duty(agentId)
           return owed === null ? undefined : standingHintText(owed)
         },
+    /**
+     * Money the citizen has to act on to be paid (`#816`), beside the line and
+     * on the same tier rule as the two above.
+     *
+     * **Its budget is the session's, and it does not have one** — that is why it
+     * is a third channel rather than a condition inside the first. A citizen
+     * that never named a session had no slot for these two findings to arrive
+     * in, and was owed money for as long as that lasted.
+     */
+    agentId === undefined
+      ? undefined
+      : async () => {
+          const money = await deps.hints.payout(agentId)
+          return money === null ? undefined : standingHintText(money)
+        },
   )
 
   /**

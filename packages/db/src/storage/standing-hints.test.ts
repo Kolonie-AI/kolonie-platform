@@ -21,7 +21,12 @@ import {
   tasks,
 } from '../schema/index.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
-import { dueStandingHint, recordConsideration, standingHintDueFor } from './standing-hints.js'
+import {
+  duePayoutFinding,
+  dueStandingHint,
+  recordConsideration,
+  standingHintDueFor,
+} from './standing-hints.js'
 
 const target = databaseTestTarget()
 
@@ -816,6 +821,17 @@ describe('the seven conditions the Colony kept to itself', () => {
     await aSession(agentId)
     return dueStandingHint(db, agentId)
   }
+
+  /**
+   * The money channel, which has no waking in it at all (`#816`).
+   *
+   * **No `aSession` call, and that is the assertion rather than an omission.**
+   * Every test below that reaches for this instead of {@link hintInAFreshRun} is
+   * exercising the citizen the old arrangement could not reach: `sessionId` is
+   * optional on `kolonie.me`, so a citizen that never sent one has no row for a
+   * slot to be claimed in, and was owed money for as long as that lasted.
+   */
+  const payoutFindingNow = async (agentId: AgentId) => duePayoutFinding(db, agentId)
 
   /**
    * An accepted report the Colony owes for, paid or still owed (`#577`).
@@ -1676,12 +1692,12 @@ describe('the seven conditions the Colony kept to itself', () => {
       const agentId = await aQuietCitizen()
       await anAccruingPayout(agentId)
 
-      const hint = await hintInAFreshRun(agentId)
+      const finding = await payoutFindingNow(agentId)
 
-      expect(hint?.code).toBe('payout-accruing')
+      expect(finding?.code).toBe('payout-accruing')
       // The one figure it carries is the chain's, which is a constant rather
       // than a fact about this citizen, so it lives in the text.
-      expect(hint?.subject).toBeNull()
+      expect(finding?.subject).toBeNull()
     })
 
     /**
@@ -1693,7 +1709,7 @@ describe('the seven conditions the Colony kept to itself', () => {
       const agentId = await aQuietCitizen()
       await aPayout(agentId, false)
 
-      expect(await hintInAFreshRun(agentId)).toBeNull()
+      expect(await payoutFindingNow(agentId)).toBeNull()
     })
 
     it('says nothing about an amount held by a limit of the Colony’s own', async () => {
@@ -1706,15 +1722,15 @@ describe('the seven conditions the Colony kept to itself', () => {
 
       // A different refusal with a different sentence, and one a maintainer is
       // told about rather than the citizen.
-      expect(await hintInAFreshRun(agentId)).toBeNull()
+      expect(await payoutFindingNow(agentId)).toBeNull()
     })
 
     it('says nothing twice', async () => {
       const agentId = await aQuietCitizen()
       await anAccruingPayout(agentId)
 
-      expect((await hintInAFreshRun(agentId))?.code).toBe('payout-accruing')
-      expect(await hintInAFreshRun(agentId)).toBeNull()
+      expect((await payoutFindingNow(agentId))?.code).toBe('payout-accruing')
+      expect(await payoutFindingNow(agentId)).toBeNull()
     })
 
     /**
@@ -1728,20 +1744,25 @@ describe('the seven conditions the Colony kept to itself', () => {
       await anAccruingPayout(agentId)
       await anAccruingPayout(agentId)
 
-      expect((await hintInAFreshRun(agentId))?.code).toBe('payout-accruing')
+      expect((await payoutFindingNow(agentId))?.code).toBe('payout-accruing')
       expect(await untoldAccruals(agentId)).toBe(0)
-      expect(await hintInAFreshRun(agentId)).toBeNull()
+      expect(await payoutFindingNow(agentId)).toBeNull()
     })
 
     /**
      * The reason this is a second column rather than a reuse of `hinted_at`: a
      * citizen told its money is waiting must still be told when it arrives.
+     *
+     * The two halves are read from different channels since `#816`, which is the
+     * point rather than an inconvenience: what the citizen has to act on comes
+     * off the agent, and *your money arrived* is news about the run and stays
+     * where the rest of the standing hints are.
      */
     it('does not cost the citizen the sentence about the payment arriving', async () => {
       const agentId = await aQuietCitizen()
       const id = await anAccruingPayout(agentId)
 
-      expect((await hintInAFreshRun(agentId))?.code).toBe('payout-accruing')
+      expect((await payoutFindingNow(agentId))?.code).toBe('payout-accruing')
 
       await db
         .update(payoutObligations)
@@ -1751,8 +1772,12 @@ describe('the seven conditions the Colony kept to itself', () => {
       expect((await hintInAFreshRun(agentId))?.code).toBe('payout-sent')
     })
 
-    /** A door, on `payout-sent`'s argument, and the mark makes yielding free. */
-    it('yields to a lapsing skill, and survives having yielded', async () => {
+    /**
+     * It used to yield to a lapsing skill and survive on its mark. Since `#816`
+     * there is nothing to yield to: the two lines arrive on separate channels in
+     * the same result, so the citizen gets both.
+     */
+    it('arrives beside a lapsing skill rather than behind it', async () => {
       const [skill, hours] = Object.entries(SKILL_RENEWAL_HOURS)[0] ?? []
       if (skill === undefined || hours === undefined) return
 
@@ -1764,22 +1789,22 @@ describe('the seven conditions the Colony kept to itself', () => {
         new Date(Date.now() - (hours + 1) * 60 * 60 * 1000).toISOString(),
       )
 
+      expect((await payoutFindingNow(agentId))?.code).toBe('payout-accruing')
       expect((await hintInAFreshRun(agentId))?.code).toBe('skill-due-for-renewal')
-      expect(await untoldAccruals(agentId)).toBe(1)
     })
 
     /**
-     * The placement in `STANDING_HINT_RANK`: money that arrived leads money that
-     * has not, and the accrual keeps because it is marked rather than because it
-     * won.
+     * `payout-sent` keeps its place in `STANDING_HINT_RANK` and the accrual is no
+     * longer ranked against it, so *your money arrived* and *more of it is
+     * waiting* are one result rather than two wakings.
      */
-    it('yields to the payment that did arrive, and keeps', async () => {
+    it('arrives in the same result as the payment that did', async () => {
       const agentId = await aQuietCitizen()
       await aPayout(agentId, true)
       await anAccruingPayout(agentId)
 
+      expect((await payoutFindingNow(agentId))?.code).toBe('payout-accruing')
       expect((await hintInAFreshRun(agentId))?.code).toBe('payout-sent')
-      expect((await hintInAFreshRun(agentId))?.code).toBe('payout-accruing')
     })
   })
 
@@ -1794,12 +1819,12 @@ describe('the seven conditions the Colony kept to itself', () => {
       const agentId = await aQuietCitizen()
       await anUnpayablePayout(agentId)
 
-      const hint = await hintInAFreshRun(agentId)
+      const finding = await payoutFindingNow(agentId)
 
-      expect(hint?.code).toBe('payout-unpayable')
+      expect(finding?.code).toBe('payout-unpayable')
       // No amount: `kolonie.me.earnings` is exact, and unlike its accruing
       // neighbour there is no constant here that makes the wait legible.
-      expect(hint?.subject).toBeNull()
+      expect(finding?.subject).toBeNull()
     })
 
     /** The refusal the runner recorded, never a second opinion computed here. */
@@ -1807,15 +1832,15 @@ describe('the seven conditions the Colony kept to itself', () => {
       const agentId = await aQuietCitizen()
       await aPayout(agentId, false)
 
-      expect(await hintInAFreshRun(agentId)).toBeNull()
+      expect(await payoutFindingNow(agentId)).toBeNull()
     })
 
     it('says nothing twice', async () => {
       const agentId = await aQuietCitizen()
       await anUnpayablePayout(agentId)
 
-      expect((await hintInAFreshRun(agentId))?.code).toBe('payout-unpayable')
-      expect(await hintInAFreshRun(agentId)).toBeNull()
+      expect((await payoutFindingNow(agentId))?.code).toBe('payout-unpayable')
+      expect(await payoutFindingNow(agentId)).toBeNull()
     })
 
     it('marks every unpayable amount it was silent about, not one', async () => {
@@ -1823,9 +1848,9 @@ describe('the seven conditions the Colony kept to itself', () => {
       await anUnpayablePayout(agentId)
       await anUnpayablePayout(agentId)
 
-      expect((await hintInAFreshRun(agentId))?.code).toBe('payout-unpayable')
+      expect((await payoutFindingNow(agentId))?.code).toBe('payout-unpayable')
       expect(await untoldMissingAddresses(agentId)).toBe(0)
-      expect(await hintInAFreshRun(agentId)).toBeNull()
+      expect(await payoutFindingNow(agentId)).toBeNull()
     })
 
     /**
@@ -1838,19 +1863,19 @@ describe('the seven conditions the Colony kept to itself', () => {
       const agentId = await aQuietCitizen()
       const id = await anUnpayablePayout(agentId)
 
-      expect((await hintInAFreshRun(agentId))?.code).toBe('payout-unpayable')
+      expect((await payoutFindingNow(agentId))?.code).toBe('payout-unpayable')
 
       await db
         .update(payoutObligations)
         .set({ lamports: 100_000, lastRefusal: 'accruing-below-chain-minimum' })
         .where(eq(payoutObligations.id, id))
 
-      expect((await hintInAFreshRun(agentId))?.code).toBe('payout-accruing')
+      expect((await payoutFindingNow(agentId))?.code).toBe('payout-accruing')
     })
 
     /**
-     * The placement in `STANDING_HINT_RANK`, and the only entry there that
-     * outranks a neighbour on what the reader can do. Verify the wallet and the
+     * The ordering `choosePayoutFinding` holds, and the only precedence in the
+     * feature that turns on what the reader can do. Verify the wallet and the
      * accrual is the next question; saying the accrual first answers the second
      * question before the first.
      */
@@ -1859,12 +1884,12 @@ describe('the seven conditions the Colony kept to itself', () => {
       await anAccruingPayout(agentId)
       await anUnpayablePayout(agentId)
 
-      expect((await hintInAFreshRun(agentId))?.code).toBe('payout-unpayable')
-      expect((await hintInAFreshRun(agentId))?.code).toBe('payout-accruing')
+      expect((await payoutFindingNow(agentId))?.code).toBe('payout-unpayable')
+      expect((await payoutFindingNow(agentId))?.code).toBe('payout-accruing')
     })
 
-    /** A door, and the mark is what makes yielding free. */
-    it('yields to a lapsing skill, and survives having yielded', async () => {
+    /** Beside a lapsing skill since `#816`, on its accruing neighbour's terms. */
+    it('arrives beside a lapsing skill rather than behind it', async () => {
       const [skill, hours] = Object.entries(SKILL_RENEWAL_HOURS)[0] ?? []
       if (skill === undefined || hours === undefined) return
 
@@ -1876,8 +1901,80 @@ describe('the seven conditions the Colony kept to itself', () => {
         new Date(Date.now() - (hours + 1) * 60 * 60 * 1000).toISOString(),
       )
 
+      expect((await payoutFindingNow(agentId))?.code).toBe('payout-unpayable')
       expect((await hintInAFreshRun(agentId))?.code).toBe('skill-due-for-renewal')
-      expect(await untoldMissingAddresses(agentId)).toBe(1)
+    })
+  })
+
+  /**
+   * `#816`. Measured on 2026-08-12: a citizen with seven proved accounts, zero
+   * rows in `agent_sessions` and 375,000 lamports refused on 221 consecutive
+   * passes, which had never been told why. `sessionId` is optional on
+   * `kolonie.me` and it had simply not sent one, so there was no row for the
+   * one line per waking to be claimed in and no line was ever said.
+   */
+  describe('money owed to a citizen that never named a session', () => {
+    /** The state the arrangement before this had no case for at all. */
+    const withoutEverWaking = async (agentId: AgentId): Promise<number> => {
+      const rows = await db
+        .select({ id: agentSessions.id })
+        .from(agentSessions)
+        .where(eq(agentSessions.agentId, agentId))
+      return rows.length
+    }
+
+    it('tells it about the address it has not verified', async () => {
+      const agentId = await aQuietCitizen()
+      await anUnpayablePayout(agentId)
+
+      expect(await withoutEverWaking(agentId)).toBe(0)
+      expect((await payoutFindingNow(agentId))?.code).toBe('payout-unpayable')
+      // Still no session: the channel asks for none and creates none.
+      expect(await withoutEverWaking(agentId)).toBe(0)
+    })
+
+    it('tells it about the amount that has not reached the chain minimum', async () => {
+      const agentId = await aQuietCitizen()
+      await anAccruingPayout(agentId)
+
+      expect((await payoutFindingNow(agentId))?.code).toBe('payout-accruing')
+      expect(await withoutEverWaking(agentId)).toBe(0)
+    })
+
+    /**
+     * Once-ness never lived in the session. `accrual_hinted_at` and
+     * `address_hinted_at` are per-obligation marks and they are what stops the
+     * repeat — which is why moving these two off the session costs nothing.
+     */
+    it('says it once, with no session to remember it', async () => {
+      const agentId = await aQuietCitizen()
+      await anUnpayablePayout(agentId)
+
+      expect((await payoutFindingNow(agentId))?.code).toBe('payout-unpayable')
+      expect(await payoutFindingNow(agentId)).toBeNull()
+    })
+
+    /**
+     * The other half of the split, and the one a reviewer should check: the two
+     * codes are gone from the session channel entirely, so a citizen that does
+     * name a session is told once rather than twice.
+     */
+    it('is not also served on the session’s one line', async () => {
+      const agentId = await aQuietCitizen()
+      await anUnpayablePayout(agentId)
+      await anAccruingPayout(agentId)
+
+      expect(await hintInAFreshRun(agentId)).toBeNull()
+      // And the findings are still there, unspent, for the channel that owns
+      // them.
+      expect((await payoutFindingNow(agentId))?.code).toBe('payout-unpayable')
+    })
+
+    /** Nothing owed, nothing said — and still no row written anywhere. */
+    it('says nothing to a citizen the Colony owes nothing', async () => {
+      const agentId = await aQuietCitizen()
+
+      expect(await payoutFindingNow(agentId)).toBeNull()
     })
   })
 

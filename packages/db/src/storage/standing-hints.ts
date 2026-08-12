@@ -2,7 +2,9 @@ import { and, asc, eq, isNotNull, isNull, sql } from 'drizzle-orm'
 import {
   BADGE_CATALOGUE,
   GENERAL_HINTS,
+  PAYOUT_FINDINGS,
   SKILL_RENEWAL_HOURS,
+  choosePayoutFinding,
   chooseRoleDuty,
   chooseStandingHint,
   considerationGapHours,
@@ -41,6 +43,16 @@ import { markBadgeTold, untoldBadge } from './badges.js'
  * prevent. So a citizen that never names a run is quiet rather than nagged. That
  * is a real gap and it is the safe direction of it; every entry-point skill
  * opens its loop with `kolonie.me`, which is where a session is named.
+ *
+ * **That last sentence was measurably false and it cost a citizen money**
+ * (`#816`). On 2026-08-12 a citizen with seven proved accounts and zero rows in
+ * `agent_sessions` had been refused 375,000 lamports on 221 consecutive passes
+ * without ever being told why: `sessionId` is optional and it had simply not
+ * sent one. *Quiet rather than nagged* is still the right call for a hint, and
+ * it is the wrong call for money the citizen has to act on to receive — so the
+ * two payout findings moved off the session and onto the agent. See
+ * {@link duePayoutFinding}. Everything else on this page is unchanged and still
+ * scoped to the run.
  */
 
 /** What the Colony could say, and the rows it will mark for having said it. */
@@ -1181,6 +1193,15 @@ async function claimConsideration(db: Database | Transaction, id: string): Promi
  * this one has less claim to break a call than either: a citizen whose hint could
  * not be computed is a citizen that was not told something, never one whose work
  * failed.
+ *
+ * **The two payout findings are left out of the choice** (`#816`), because
+ * {@link duePayoutFinding} serves them beside this line and on every call rather
+ * than out of this run's one slot. They stay in `STANDING_HINT_RANK` for
+ * `standingHintDueFor`'s question — see `PAYOUT_FINDINGS` — so the exclusion has
+ * to happen here, at the one place that both chooses *and* spends. Serving them
+ * from both channels would let one call attach the same sentence twice, and in
+ * the race where the beside-channel claims the marks first, this one would spend
+ * the slot and then go quiet.
  */
 export async function dueStandingHint(
   db: Database | Transaction,
@@ -1191,7 +1212,9 @@ export async function dueStandingHint(
     const found = await standing(db, agentId, skillReleaseUrls)
     if (found === null || found.slot === null) return null
 
-    const chosen = chooseStandingHint(found.applicable)
+    const chosen = chooseStandingHint(
+      found.applicable.filter((finding) => !PAYOUT_FINDINGS.includes(finding.code)),
+    )
     if (chosen === undefined) return null
 
     if (!(await claimSlot(db, found.slot))) return null
@@ -1226,15 +1249,83 @@ export async function dueStandingHint(
       if (!(await claimPayoutHint(db, agentId))) return null
     }
 
-    if (chosen.code === 'payout-accruing') {
-      if (!found.accrualUntold) return null
-      if (!(await claimAccrualHint(db, agentId))) return null
-    }
+    /**
+     * `payout-accruing` and `payout-unpayable` had their claims here until
+     * `#816`. They are unreachable from this function now — the filter above
+     * removes them before the choice — and their claims live in
+     * {@link duePayoutFinding}, which is the only thing that can now choose
+     * them.
+     */
 
-    if (chosen.code === 'payout-unpayable') {
-      if (!found.addressUntold) return null
-      if (!(await claimAddressHint(db, agentId))) return null
-    }
+    return chosen
+  } catch {
+    // Deliberately silent, on the terms above.
+    return null
+  }
+}
+
+/**
+ * Money this citizen has to act on to be paid, beside its one line rather than
+ * instead of it (`#816`).
+ *
+ * **It asks the `agents` row nothing and the `agent_sessions` row nothing.** That
+ * is the whole change. `dueStandingHint` starts by looking for this run's slot
+ * and returns early when there is none, and *none* covers the citizen that never
+ * named a session at all — so a citizen taking `kolonie.me`'s optional
+ * `sessionId` at its word was silently opted out of both these findings. One
+ * such citizen was refused 375,000 lamports on 221 consecutive passes and was
+ * never told why. See `PAYOUT_FINDINGS` for why these two and nothing else moved.
+ *
+ * **It spends no slot and therefore needs no session**, which is `dueRoleDuty`'s
+ * arrangement and its reasoning: a fact the citizen must act on does not compete
+ * for the budget of a fact it merely benefits from hearing.
+ *
+ * **It does not repeat, and the marks are why** — unlike `dueRoleDuty`, which
+ * repeats for as long as the duty stands. `accrual_hinted_at` and
+ * `address_hinted_at` are per-obligation and per-citizen, so the first call that
+ * says the sentence claims every untold row behind it and the second finds
+ * nothing. That is what makes serving this on every call safe: the once-ness was
+ * never the session's to give.
+ *
+ * **Two reads and no write in the common case.** Both conditions are indexed
+ * lookups with `limit 1` against rows this citizen owns, and a citizen owed
+ * nothing — nearly every citizen, nearly every call — is answered by them and
+ * stops.
+ *
+ * **It never throws**, on `dueStandingHint`'s terms.
+ */
+export async function duePayoutFinding(
+  db: Database | Transaction,
+  agentId: AgentId,
+): Promise<StandingHintFinding | null> {
+  try {
+    const applicable: StandingHintFinding[] = []
+
+    /**
+     * Both conditions are asked before either is chosen, on `dueStandingHint`'s
+     * *conditions first, claim second* rule: the choice between them is
+     * `PAYOUT_FINDINGS`' to make, and asking in rank order and stopping early
+     * would put that rule in two places.
+     */
+    if (await untoldMissingAddress(db, agentId))
+      applicable.push({ code: 'payout-unpayable', subject: null })
+    if (await untoldAccrual(db, agentId))
+      applicable.push({ code: 'payout-accruing', subject: null })
+
+    const chosen = choosePayoutFinding(applicable)
+    if (chosen === undefined) return null
+
+    /**
+     * The claim is the guard, exactly as `claimSlot` is one level up: two calls
+     * racing here both see the untold row and only one `update ... where
+     * hinted_at is null` returns anything. The loser attaches nothing, which is
+     * *at most once* holding rather than an error to report.
+     */
+    const claimed =
+      chosen.code === 'payout-unpayable'
+        ? await claimAddressHint(db, agentId)
+        : await claimAccrualHint(db, agentId)
+    if (!claimed) return null
 
     return chosen
   } catch {

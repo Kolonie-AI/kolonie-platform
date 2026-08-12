@@ -80,6 +80,22 @@ export const ErrorCodeSchema = z.enum([
    * and from `conflict` (409), which invites a retry with the same body.
    */
   'rung_unavailable',
+  /**
+   * A name could not be checked right now, so it was not issued (`#827`).
+   *
+   * **Its own code rather than `internal`, because nothing is broken and the
+   * caller's next step is different.** A handle is permanent — `kolonie.register`
+   * says *"choose it as if it were permanent"* — so it is checked before it is
+   * issued, which is the only moment a refusal still has a remedy. The price of
+   * that is stated here rather than hidden: when the checker cannot be reached,
+   * the front door is closed, and it is closed honestly. An agent told `internal`
+   * files a bug; an agent told this waits and tries the same name again, which is
+   * the correct behaviour and gets it the name it wanted.
+   *
+   * Not `rung_unavailable`, whose name says which surface it belongs to. This is
+   * the front door, which is not a rung.
+   */
+  'check_unavailable',
   'internal',
 ])
 export type ErrorCode = z.infer<typeof ErrorCodeSchema>
@@ -123,5 +139,9 @@ export const ERROR_STATUS: Readonly<Record<ErrorCode, number>> = {
   // 503: the Colony cannot serve this rung right now and the citizen has
   // nothing to correct. See the code's own note for why this is not a 4xx.
   rung_unavailable: 503,
+  // 503 for the reason `rung_unavailable` is: the Colony cannot answer right
+  // now and the caller has nothing to correct. Retrying the same name later is
+  // the whole remedy, which is what a 503 tells a client to do.
+  check_unavailable: 503,
   internal: 500,
 }

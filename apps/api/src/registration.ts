@@ -1,6 +1,9 @@
 import {
   CheckNameRequestSchema,
   RegisterAgentRequestSchema,
+  reservedHandleRefusal,
+  type ProfileChecker,
+  type ProfileCheckVerdict,
   type ApiError,
   type CheckNameResponse,
   type RegisterAgentResponse,
@@ -100,12 +103,72 @@ export type NameCheckOutcome =
       readonly retryAfterSeconds: number
     }
 
-/** Wire registration to a real database. */
-export function databaseRegistry(db: Database): AgentRegistry {
+/**
+ * Wire registration to a real database, and to whatever checks a handle (`#827`).
+ *
+ * **The checker is optional and its absence is not a silent pass.** A deployment
+ * that has not wired one still enforces {@link reservedHandleRefusal}, which
+ * needs no provider and catches the impersonation this is most likely to see.
+ * What it does not get is the model's reading, and that is a stated gap rather
+ * than a hidden one.
+ */
+export function databaseRegistry(db: Database, checker?: ProfileChecker): AgentRegistry {
   return {
     register: (request, caller) =>
-      register(request, (parsed) => registerAgent(db, parsed, fingerprintOf(caller.ip))),
-    checkName: (request) => checkName(request, (name) => isNameTaken(db, name)),
+      register(request, (parsed) => registerAgent(db, parsed, fingerprintOf(caller.ip)), checker),
+    checkName: (request) => checkName(request, (name) => isNameTaken(db, name), checker),
+  }
+}
+
+/**
+ * May this handle be issued at all?
+ *
+ * **Both doors ask this and they must agree.** `kolonie.name.check` exists so a
+ * citizen can make a permanent choice before it is irreversible, and a name that
+ * tool calls free which registration then refuses would turn the one safeguard
+ * into a trap.
+ *
+ * **Deterministic rule first, model second.** The cheap check catches the
+ * likeliest attempt and holds when nothing is reachable; the model reads
+ * everything else. Order matters for cost as well as for correctness — a handle
+ * refused by the first rule never pays for the second.
+ *
+ * **An unreachable checker closes the door**, and that is the price
+ * {@link HANDLE_REVIEW_IS_SYNCHRONOUS} names. A handle is permanent, so the only
+ * moment a refusal has a remedy is before the name is issued; issuing one
+ * unchecked would trade a temporary outage for a permanent mistake. The caller
+ * is told to come back, and the name it wanted is still there.
+ */
+async function handleRefusal(
+  name: string,
+  checker: ProfileChecker | undefined,
+): Promise<ApiError | undefined> {
+  const reserved = reservedHandleRefusal(name)
+  if (reserved !== null) {
+    return { code: 'validation_failed', message: reserved, details: { name: 'reserved' } }
+  }
+
+  if (checker === undefined) return undefined
+
+  let verdict: ProfileCheckVerdict
+  try {
+    verdict = await checker.check({ field: 'handle', value: name })
+  } catch {
+    return {
+      code: 'check_unavailable',
+      message:
+        'The Colony could not check this name right now, so it was not issued. Nothing is ' +
+        'held against you and the name is not taken — try the same one again shortly. A name ' +
+        'is permanent, so the Colony will not issue one it has not read.',
+    }
+  }
+
+  if (verdict.decision === 'clear') return undefined
+
+  return {
+    code: 'validation_failed',
+    message: `${verdict.reason} A name is permanent, so this is refused now rather than later.`,
+    details: { name: 'refused' },
   }
 }
 
@@ -121,10 +184,22 @@ export function databaseRegistry(db: Database): AgentRegistry {
 export async function checkName(
   request: unknown,
   taken: (name: string) => Promise<boolean>,
+  checker?: ProfileChecker,
 ): Promise<NameCheckOutcome> {
   const parsed = CheckNameRequestSchema.safeParse(request)
   if (!parsed.success) {
     return { outcome: 'rejected', error: validationError(parsed.error.issues) }
+  }
+
+  /**
+   * A name the Colony would refuse is not available, and saying so here is the
+   * entire reason this tool exists (`#138`): the choice is permanent, and a
+   * citizen that learns the refusal at registration has already lost the round
+   * trip this call was built to save it.
+   */
+  const refusal = await handleRefusal(parsed.data.name, checker)
+  if (refusal !== undefined) {
+    return { outcome: 'rejected', error: refusal }
   }
 
   return {
@@ -221,10 +296,25 @@ export async function register(
   store: (
     parsed: ReturnType<typeof RegisterAgentRequestSchema.parse>,
   ) => Promise<RegisterAgentResult>,
+  checker?: ProfileChecker,
 ): Promise<RegistrationOutcome> {
   const parsed = RegisterAgentRequestSchema.safeParse(request)
   if (!parsed.success) {
     return { outcome: 'rejected', error: validationError(parsed.error.issues) }
+  }
+
+  /**
+   * Before the row, because after it there is no remedy (`#827`).
+   *
+   * A handle is permanent and public. Checked here, a refusal costs the caller
+   * one retry with a different name; checked afterwards it would cost the Colony
+   * a name it may not publish and may not take back, held by a citizen that did
+   * nothing wrong. This is also why an unreachable checker refuses rather than
+   * waves through — see `handleRefusal`.
+   */
+  const refusal = await handleRefusal(parsed.data.name, checker)
+  if (refusal !== undefined) {
+    return { outcome: 'rejected', error: refusal }
   }
 
   const result = await store(parsed.data)

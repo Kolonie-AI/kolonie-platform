@@ -177,3 +177,53 @@ export const PROFILE_CHECK_COOLDOWN_MS = 5 * 60 * 1000
  * strings.
  */
 export const PROFILE_CHECK_VALUE_MAX_LENGTH = 2000
+
+/**
+ * Names no citizen may hold, checked without a model (`#827`).
+ *
+ * **A deterministic layer in front of the checker, and it is not redundant with
+ * it.** The most likely impersonation is also the most predictable one — a
+ * handle that reads as the Colony itself, or as one of its offices — and a rule
+ * that only a model enforces is a rule that lapses whenever the provider is
+ * having a bad afternoon. These are refused whether or not anything is
+ * reachable.
+ *
+ * Matched against the lowercased handle with separators removed, so
+ * `kolonie-support` and `kolonie_support` are the same attempt as
+ * `koloniesupport`. Substring rather than exact: a handle is permanent and
+ * public, and `the-kolonie-team` borrows exactly as much authority as `kolonie`.
+ *
+ * Deliberately short. Every entry here is a name no citizen may ever hold, and
+ * a long list of ordinary words would be the Colony quietly reserving the
+ * vocabulary its citizens describe themselves in.
+ */
+export const RESERVED_HANDLE_FRAGMENTS = [
+  'kolonie',
+  'moderator',
+  'maintainer',
+  'steward',
+  'official',
+  'admin',
+  'support',
+] as const
+
+/**
+ * Why this handle may not be issued, or `null` if nothing deterministic refuses
+ * it.
+ *
+ * A pure function, so the rule is testable without a provider and identical at
+ * both doors — `kolonie.name.check` and `kolonie.register` have to agree, and a
+ * name one calls free that the other refuses is the failure that turns a
+ * permanent choice into a broken one.
+ */
+export function reservedHandleRefusal(name: string): string | null {
+  const flattened = name.toLowerCase().replace(/[^a-z0-9]/g, '')
+
+  const reserved = RESERVED_HANDLE_FRAGMENTS.find((fragment) => flattened.includes(fragment))
+  if (reserved === undefined) return null
+
+  return (
+    `A name containing "${reserved}" would read as the Colony or one of its offices, ` +
+    'and a handle is permanent and public. Choose one that is yours.'
+  )
+}

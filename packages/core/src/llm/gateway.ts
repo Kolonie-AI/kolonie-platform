@@ -264,7 +264,7 @@ export function gatewayRoutedFetch(
     })
 
     const response = await underlying(input, init)
-    return stamp(response, 'openrouter', attempt.reason)
+    return stamp(response, 'openrouter', attempt.reason, attempt.detail)
   }
 }
 
@@ -364,7 +364,11 @@ export class GatewayUnavailable extends Error {
  */
 export function routeOf(response: Response | undefined): {
   readonly route: 'gateway' | 'openrouter'
-  readonly fallback?: { readonly route: 'gateway' | 'openrouter'; readonly reason: string }
+  readonly fallback?: {
+    readonly route: 'gateway' | 'openrouter'
+    readonly reason: string
+    readonly status?: number
+  }
 } {
   // `headers` is read defensively rather than assumed. A `Response` always has
   // one; a test double standing in for a `Response` frequently does not, and a
@@ -373,16 +377,25 @@ export function routeOf(response: Response | undefined): {
   const headers: Headers | undefined = response?.headers
   const route = headers?.get(ROUTE_HEADER) === 'gateway' ? 'gateway' : 'openrouter'
   const reason = headers?.get(FALLBACK_HEADER) ?? ''
+  const status = Number(headers?.get(FALLBACK_STATUS_HEADER))
 
   if (reason === '') return { route }
   // The route that was *tried* and did not answer, which is the half a reader
   // needs: `route: openrouter, fallback: { route: gateway, reason: status }`
   // reads as one sentence.
-  return { route, fallback: { route: 'gateway', reason } }
+  return {
+    route,
+    fallback: {
+      route: 'gateway',
+      reason,
+      ...(Number.isInteger(status) && status >= 100 && status <= 599 ? { status } : {}),
+    },
+  }
 }
 
 const ROUTE_HEADER = 'x-kolonie-route'
 const FALLBACK_HEADER = 'x-kolonie-fallback-reason'
+const FALLBACK_STATUS_HEADER = 'x-kolonie-fallback-status'
 
 /**
  * The same request aimed at the gateway, or nothing if it is not ours to route.
@@ -582,10 +595,18 @@ function describe(error: unknown): string {
 }
 
 /** A response OpenRouter produced, marked with the gateway attempt that preceded it. */
-function stamp(response: Response, route: 'openrouter', reason: FallbackReason): Response {
+function stamp(
+  response: Response,
+  route: 'openrouter',
+  reason: FallbackReason,
+  detail?: string,
+): Response {
   const headers = new Headers(response.headers)
   headers.set(ROUTE_HEADER, route)
   headers.set(FALLBACK_HEADER, reason)
+  // Only an HTTP status is public accounting. Other details can contain
+  // transport prose and remain in the structured service log instead.
+  if (reason === 'status' && detail !== undefined) headers.set(FALLBACK_STATUS_HEADER, detail)
   // The body is untouched and unread — a stream that is still a stream, so a
   // caller that streams still can.
   return new Response(response.body, {

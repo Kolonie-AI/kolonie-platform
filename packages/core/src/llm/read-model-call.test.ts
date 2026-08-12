@@ -103,11 +103,15 @@ describe('reading a model call', () => {
       { model: 'vendor/model', usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } },
       log,
       new Response('', {
-        headers: { 'x-kolonie-route': 'openrouter', 'x-kolonie-fallback-reason': 'timeout' },
+        headers: {
+          'x-kolonie-route': 'openrouter',
+          'x-kolonie-fallback-reason': 'status',
+          'x-kolonie-fallback-status': '502',
+        },
       }),
     )
 
     expect(call?.route).toBe('openrouter')
-    expect(call?.fallback).toEqual({ route: 'gateway', reason: 'timeout' })
+    expect(call?.fallback).toEqual({ route: 'gateway', reason: 'status', status: 502 })
   })
 })

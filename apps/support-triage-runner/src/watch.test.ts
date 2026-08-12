@@ -375,6 +375,32 @@ describe('the log defect detector', () => {
     expect(body).toContain('ZodError')
   })
 
+  it('puts the answering route before the failed route in a defect accounting line', async () => {
+    await watchLogs({
+      logs: fakeLogs([aSignature()]),
+      issues,
+      store: fakeStore(),
+      writer: {
+        available: true,
+        describe: async () => ({
+          summary: 'A failure',
+          reading: 'Look here first.',
+          call: {
+            route: 'openrouter',
+            model: 'provider/model-that-answered',
+            tokens: { prompt: 308, completion: 5, total: 313 },
+            fallback: { route: 'gateway', reason: 'status', status: 503 },
+          },
+        }),
+      },
+      now: () => NOW,
+    })
+
+    const body = issues.filed()[0]?.issue.body ?? ''
+    expect(body).toContain('answered by OpenRouter after the gateway returned status 503')
+    expect(body).not.toContain('fell back to the gateway')
+  })
+
   /**
    * **This used to be asserted on the seam** — `Issues` had no `close`, so the
    * runner could not close an issue if a later hand wanted it to. `#720` gave the

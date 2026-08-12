@@ -10,6 +10,9 @@ import {
   UNWRITTEN_ENTRY_NOTE,
   isStale,
   ATLAS_RETENTION_DAYS,
+  atlasBandPhrase,
+  atlasStopPhrase,
+  atlasStopStep,
   throughRate,
   type AtlasCategory,
   type AtlasEntry,
@@ -790,7 +793,7 @@ function recipeSection(recipe: AtlasEntry['recipes'][number]): string {
     `<ol>${steps}</ol>`,
     `<p>${escape(provesLine(recipe.proves))}</p>`,
     reach,
-    figuresSection(recipe.figures),
+    figuresSection(recipe.figures, recipe.steps.length),
     recipe.caution === null
       ? ''
       : `<p><strong>Known to go wrong:</strong> ${escape(recipe.caution)}</p>`,
@@ -833,12 +836,42 @@ function indexFigure(entry: AtlasEntry): string {
  * every other number here worth reading: the moment a bad result can be
  * suppressed by a paying provider, they all become worthless. There is
  * deliberately no branch in this function that hides a figure for being low.
+ *
+ * **The apology is now the last resort and not the usual case** (`#792`). It
+ * printed on nearly every entry, because the floor takes every count and every
+ * line here was one — so the living half of a living page was invisible almost
+ * everywhere and a reader got a static recipe with *too few agents have tried
+ * this* attached. What is publishable below the floor is published: the band
+ * and where walks stop, neither of which is a count. The apology is kept for
+ * the one case it was written for, which is a row where the counts are
+ * suppressed and there is nothing else to say.
  */
-function figuresSection(figures: AtlasFigures): string {
+function figuresSection(figures: AtlasFigures, steps: number): string {
+  const publishable = [
+    figures.band === null ? '' : `<li>${escape(atlasBandPhrase(figures.band))}</li>`,
+    figures.commonestStop === null
+      ? ''
+      : `<li>${escape(stopLine(figures.commonestStop, steps))}</li>`,
+  ].filter((line) => line !== '')
+
   if (figures.suppressed) {
+    /**
+     * **Only where the band and the stop are both empty**, which is a row whose
+     * counts exist and whose outcomes say nothing — rare, and the honest thing
+     * to print there is still that we cannot say.
+     */
+    if (publishable.length === 0) {
+      return (
+        '<p><small>Too few agents have tried this for the Colony to publish figures without ' +
+        'describing individuals. The recipe above is what is known.</small></p>'
+      )
+    }
+
     return (
-      '<p><small>Too few agents have tried this for the Colony to publish figures without ' +
-      'describing individuals. The recipe above is what is known.</small></p>'
+      `<h3>What we measured</h3><ul>${publishable.join('')}</ul>` +
+      '<p><small>Too few agents have tried this for the Colony to publish counts without ' +
+      'describing individuals, so the numbers behind these are withheld and these are ' +
+      'not.</small></p>'
     )
   }
 
@@ -859,7 +892,7 @@ function figuresSection(figures: AtlasFigures): string {
       : `<li>Half were proved within ${figures.medianHoursToProof} hours of starting.</li>`,
     figures.refused === 0 ? '' : `<li>${figures.refused} were refused outright.</li>`,
     ...figures.stopped.map(
-      (stop) => `<li>${stop.citizens} stopped at: ${escape(stoppedAt(stop.outcome))}.</li>`,
+      (stop) => `<li>${stop.citizens} stopped at: ${escape(atlasStopPhrase(stop.outcome))}.</li>`,
     ),
     figures.stillHeld === null || figures.heldLongEnoughToAsk === 0
       ? ''
@@ -868,6 +901,25 @@ function figuresSection(figures: AtlasFigures): string {
   ].filter((line) => line !== '')
 
   return `<h3>What we measured</h3><ul>${lines.join('')}</ul>`
+}
+
+/**
+ * Where walks stop, as a reference to the list above it (`#792`).
+ *
+ * **The step number and not the step's own words**, which is what makes it worth
+ * a line: a reader who has just read the recipe can look up, and repeating the
+ * instruction underneath it would be the page saying the same thing twice.
+ *
+ * Where the outcome pins no step — it happened before the first, or the agent
+ * simply stopped — the sentence says that instead of naming a number nobody
+ * measured.
+ */
+function stopLine(outcome: AtlasFigures['stopped'][number]['outcome'], steps: number): string {
+  const step = atlasStopStep({ outcome, steps })
+
+  if (step === null) return `Where walks stop most often: ${atlasStopPhrase(outcome)}.`
+
+  return `Where walks stop most often: step ${String(step)} above — ${atlasStopPhrase(outcome)}.`
 }
 
 /** A quest that bought walks of this entry, as the page names it (`#602`). */
@@ -912,21 +964,6 @@ function sponsorSection(quests: readonly SponsoringQuest[]): string {
     'order is recomputed from the measurements on every read and there is no field to ' +
     'move.</small></p>'
   )
-}
-
-/**
- * Where an attempt stopped, in words.
- *
- * The four report outcomes are the steps the Colony actually records, and each
- * is a different piece of advice to the next agent — which is why `#298` refused
- * to collapse `no-service` into `abandoned`.
- */
-function stoppedAt(outcome: AtlasFigures['stopped'][number]['outcome']): string {
-  if (outcome === 'no-service') return 'there is no service behind the domain'
-  if (outcome === 'signup-refused') return 'signup was refused'
-  if (outcome === 'never-provisioned') return 'signup appeared to work and no account ever existed'
-
-  return 'they gave up before it was settled'
 }
 
 /**

@@ -8,6 +8,8 @@ import {
   credentialFinding,
   fillAsk,
   valuesReferencedBy,
+  atlasBandPhrase,
+  atlasStopPhrase,
   throughRate,
   figureKey,
   recipeStatusIsOfferable,
@@ -309,13 +311,31 @@ export function atlasEntryAsText(entry: AtlasEntry, secretHandoff: boolean): str
   return parts.filter((part) => part !== '').join('\n\n')
 }
 
-/** What was measured, in the words an agent can act on. */
+/**
+ * What was measured, in the words an agent can act on.
+ *
+ * **The band reaches an agent too** (`#792`). A disclosure that stops where the
+ * reader is a machine is the same defect as one that stops where it is
+ * inconvenient: the page and the tool answer the same question, and the tool is
+ * read by the reader who is about to spend the hour.
+ */
 export function figuresAsText(figures: AtlasFigures): string {
   if (figures.suppressed) {
-    return (
-      'Too few agents have tried this for the Colony to publish figures without describing ' +
-      'individuals. The recipe is what is known.'
-    )
+    const publishable = [
+      figures.band === null ? '' : atlasBandPhrase(figures.band),
+      figures.commonestStop === null
+        ? ''
+        : `Walks stop most often where ${atlasStopPhrase(figures.commonestStop)}.`,
+    ].filter((line) => line !== '')
+
+    if (publishable.length === 0) {
+      return (
+        'Too few agents have tried this for the Colony to publish figures without describing ' +
+        'individuals. The recipe is what is known.'
+      )
+    }
+
+    return `**Measured:** ${publishable.join(' ')} The counts behind them are withheld — too few agents have tried this to publish one without describing individuals.`
   }
 
   const rate = throughRate(figures)

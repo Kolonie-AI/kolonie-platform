@@ -8,6 +8,8 @@ import {
   type AtlasFigures,
   type AtlasStop,
   type ProviderReportOutcome,
+  atlasBand,
+  atlasCommonestStop,
 } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 
@@ -155,6 +157,7 @@ export async function atlasFigures(
     const suppressed = entitled === undefined && attempted > 0 && attempted < ATLAS_FIGURE_FLOOR
 
     const heldLongEnough = Number(row.held_long_enough)
+    const stopped = stopsOf(row.stops)
 
     return {
       kind: AccountKindSchema.parse(row.kind),
@@ -162,7 +165,7 @@ export async function atlasFigures(
       attempted: suppressed ? 0 : attempted,
       proved: suppressed ? 0 : Number(row.proved),
       medianHoursToProof: suppressed || row.median_hours === null ? null : Number(row.median_hours),
-      stopped: suppressed ? [] : stopsOf(row.stops),
+      stopped: suppressed ? [] : stopped,
       refused: suppressed ? 0 : Number(row.refused),
       /**
        * **The sentences go with the counts.** A scrubbed reason on a row of two
@@ -172,6 +175,15 @@ export async function atlasFigures(
       reasons: suppressed ? [] : (row.reasons ?? []),
       stillHeld: suppressed || heldLongEnough === 0 ? null : Number(row.still_held),
       heldLongEnoughToAsk: suppressed ? 0 : heldLongEnough,
+      /**
+       * **Computed from the unfloored counts and not from the zeroed ones**
+       * (`#792`). Suppression governs the counts and everything derived from
+       * them; a band and a stop position are neither, and reading them off the
+       * suppressed row would publish *few got through* for every small entry —
+       * a claim about the provider the Colony has not measured.
+       */
+      band: atlasBand({ attempted, proved: Number(row.proved) }),
+      commonestStop: atlasCommonestStop(stopped),
       suppressed,
     }
   })

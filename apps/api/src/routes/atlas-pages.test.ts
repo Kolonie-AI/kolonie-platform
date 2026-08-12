@@ -623,6 +623,67 @@ describe('the Atlas on the website host', () => {
       expect((await get('/atlas/github')).body).toContain('without describing individuals')
     })
 
+    /**
+     * What a walk or two buys a reader (`#792`).
+     *
+     * **The apology was nearly the whole catalogue.** The floor takes every
+     * count, every line in this section was a count, so almost every entry
+     * printed *too few agents have tried this* and nothing else. A band and a
+     * stop are neither a count nor reducible to one, so they are published.
+     */
+    it('tells a small sample what it can, instead of only apologising', async () => {
+      await withFigures({
+        ...noFigures('github', 'github'),
+        suppressed: true,
+        band: 'few-got-through',
+        commonestStop: 'signup-refused',
+      })
+
+      const body = (await get('/atlas/github')).body
+
+      expect(body).toContain('Few of the agents who tried this got through')
+      expect(body).toContain('signup was refused')
+      expect(body).not.toContain('The recipe above is what is known')
+    })
+
+    /** And the counts behind them stay behind the floor, which is the whole bargain. */
+    it('publishes no count or percentage below the floor', async () => {
+      await withFigures({
+        ...noFigures('github', 'github'),
+        suppressed: true,
+        band: 'about-half',
+        commonestStop: 'abandoned',
+      })
+
+      const body = (await get('/atlas/github')).body
+
+      expect(body).toContain('the numbers behind these are withheld')
+      expect(body).not.toMatch(/\d+% of \d+ agents got through/)
+      expect(body).not.toContain('agents got through')
+    })
+
+    /**
+     * The step number and not the step's words: a reader who has just read the
+     * recipe can look up, and printing the instruction again would be the page
+     * saying the same thing twice.
+     */
+    it('points a stop at the step of the recipe above it', async () => {
+      await withFigures({
+        ...noFigures('github', 'github'),
+        suppressed: true,
+        commonestStop: 'never-provisioned',
+      })
+
+      expect((await get('/atlas/github')).body).toContain('step 2 above')
+    })
+
+    /** A row whose counts are suppressed and which has nothing else to say still says so. */
+    it('keeps the apology for the row with nothing publishable on it', async () => {
+      await withFigures({ ...noFigures('github', 'github'), suppressed: true })
+
+      expect((await get('/atlas/github')).body).toContain('The recipe above is what is known')
+    })
+
     it('says on the index that the order is not for sale', async () => {
       expect((await get('/atlas')).body).toContain('never by payment')
     })

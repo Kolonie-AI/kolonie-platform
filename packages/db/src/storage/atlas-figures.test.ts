@@ -254,6 +254,35 @@ describe('the measured figures behind an Atlas entry', () => {
       expect((await atlasFigures(db, { audience: 'provider' }))[0]?.suppressed).toBe(true)
     })
 
+    /**
+     * **The band survives the floor because it is read before the floor runs**
+     * (`#792`). Off the zeroed row a lone walk that succeeded would band as *few
+     * got through* — a claim about the provider the Colony has not measured —
+     * and the entry page would print the opposite of what happened.
+     */
+    it('bands a suppressed row from the counts it is not publishing', async () => {
+      await holds({ name: 'lonely', provider: 'rare.test' })
+
+      const figures = await only('rare.test')
+
+      expect(figures?.suppressed).toBe(true)
+      expect(figures?.attempted).toBe(0)
+      expect(figures?.band).toBe('most-got-through')
+    })
+
+    /** And where the walk stopped, for the same reason and out of the same counts. */
+    it('names a suppressed row’s commonest stop', async () => {
+      await reported({ name: 'walled', provider: 'rare.test', outcome: 'signup-refused' })
+      await reported({ name: 'gave-up', provider: 'rare.test', outcome: 'abandoned' })
+      await reported({ name: 'walled-too', provider: 'rare.test', outcome: 'signup-refused' })
+
+      const figures = await only('rare.test')
+
+      expect(figures?.suppressed).toBe(true)
+      expect(figures?.stopped).toEqual([])
+      expect(figures?.commonestStop).toBe('signup-refused')
+    })
+
     it('gives a provider audience only the provider it named', async () => {
       await holds({ name: 'one', provider: 'rare.test' })
       await holds({ name: 'two', provider: 'other.test' })

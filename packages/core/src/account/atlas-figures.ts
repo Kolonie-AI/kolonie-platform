@@ -60,6 +60,28 @@ export const ATLAS_FIGURE_FLOOR = PERMISSION_AGGREGATE_FLOOR
 export const AtlasAudienceSchema = z.enum(['public', 'provider'])
 export type AtlasAudience = z.infer<typeof AtlasAudienceSchema>
 
+/**
+ * Which way a provider's outcomes lean, without saying how many (`#792`).
+ *
+ * **The measurement the floor was eating.** `ATLAS_FIGURE_FLOOR` exists so that
+ * a figure of three cannot describe three agents, and it is right; but it takes
+ * every count with it, and on nearly every entry that left the living half of a
+ * living page reading *too few agents have tried this*. A reader got a static
+ * recipe with an apology attached, on the one surface whose whole claim is that
+ * somebody measured.
+ *
+ * **Three words and no arithmetic.** A band is not reducible to a citizen at any
+ * sample size: it carries strictly less than the sentence *nobody has walked
+ * this yet*, which the Atlas already prints. `kolonie-docs#216` is not weakened
+ * by this and is not meant to be — the counts stay behind the floor exactly as
+ * they were.
+ *
+ * **Three and not two**, because *about half* is a real answer and folding it
+ * either way would be the Colony rounding a result it measured.
+ */
+export const AtlasBandSchema = z.enum(['most-got-through', 'about-half', 'few-got-through'])
+export type AtlasBand = z.infer<typeof AtlasBandSchema>
+
 /** Where an attempt stopped, and how many citizens stopped there. */
 export const AtlasStopSchema = z.object({
   outcome: ProviderReportOutcomeSchema,
@@ -138,6 +160,35 @@ export const AtlasFiguresSchema = z.object({
   heldLongEnoughToAsk: z.int().min(0),
 
   /**
+   * Which way the outcomes lean, or null where nothing has been walked.
+   *
+   * **Published at any sample size, and that is the point of it** (`#792`).
+   * Everything above this line is a count, so the floor takes all of it and a
+   * reader of an ordinary entry got an apology where the measurement should be.
+   * A band is not a count: *most got through* over four walks and over four
+   * hundred are the same three words, and no arithmetic recovers a citizen from
+   * them.
+   *
+   * **It survives {@link AtlasFigures.suppressed} deliberately.** The flag keeps
+   * its exact meaning — it governs the raw counts and everything derived from
+   * them — and stops governing the facts that were never counts.
+   */
+  band: AtlasBandSchema.nullable(),
+
+  /**
+   * Where stopped walks most often stopped, or null where none did.
+   *
+   * **A property of the recipe rather than of the agent that stopped there**
+   * (`#792`), which is why it clears the floor with the band: *this is where
+   * this signup breaks* is the single most useful sentence the Atlas can carry,
+   * and it says nothing about who found out.
+   *
+   * The outcome and not a count of it — {@link atlasCommonestStop} picks it and
+   * drops the number on the way.
+   */
+  commonestStop: ProviderReportOutcomeSchema.nullable(),
+
+  /**
    * Whether the floor suppressed the counts in this row.
    *
    * **Said out loud rather than served as zeroes.** A suppressed row and a row
@@ -161,8 +212,120 @@ export function noFigures(kind: string, provider: string): AtlasFigures {
     reasons: [],
     stillHeld: null,
     heldLongEnoughToAsk: 0,
+    band: null,
+    commonestStop: null,
     suppressed: false,
   }
+}
+
+/**
+ * Which band a provider's outcomes fall in, or null with nothing walked (`#792`).
+ *
+ * **Called on the unfloored counts, before suppression zeroes them.** That is
+ * the whole arrangement: the band is computed where the numbers are still there
+ * and stored as three words, so the floor has nothing left to take.
+ *
+ * A single walk produces a band, which is intended. One agent got through is a
+ * fact about one agent; *most got through* is a fact about the road, and a
+ * reader deciding whether to spend an hour here needs the second one.
+ */
+export function atlasBand(input: {
+  readonly attempted: number
+  readonly proved: number
+}): AtlasBand | null {
+  if (input.attempted === 0) return null
+
+  const rate = input.proved / input.attempted
+
+  if (rate > 0.6) return 'most-got-through'
+  if (rate >= 0.4) return 'about-half'
+
+  return 'few-got-through'
+}
+
+/**
+ * Where stopped walks most often stopped, or null where none did (`#792`).
+ *
+ * **The count is dropped here rather than at the surface.** A caller that never
+ * receives the number cannot publish it by accident, which is the difference
+ * between a rule and a shape that enforces it.
+ *
+ * Ties go to the earliest outcome, in the order an attempt goes through: two
+ * outcomes level means the attempt broke twice, and the first break is the one
+ * the next agent meets.
+ */
+export function atlasCommonestStop(stops: readonly AtlasStop[]): AtlasStop['outcome'] | null {
+  const order = ProviderReportOutcomeSchema.options
+
+  return (
+    [...stops]
+      .filter((stop) => stop.citizens > 0)
+      .sort(
+        (a, b) => b.citizens - a.citizens || order.indexOf(a.outcome) - order.indexOf(b.outcome),
+      )[0]?.outcome ?? null
+  )
+}
+
+/**
+ * The band, in the words a reader deciding whether to spend an hour needs.
+ *
+ * One spelling for both surfaces, for {@link atlasStopPhrase}'s reason (`#792`).
+ */
+export function atlasBandPhrase(band: AtlasBand): string {
+  if (band === 'most-got-through') return 'Most agents who tried this got through.'
+  if (band === 'about-half') return 'About half of the agents who tried this got through.'
+
+  return 'Few of the agents who tried this got through.'
+}
+
+/**
+ * Where an attempt stopped, in words.
+ *
+ * The four report outcomes are the steps the Colony actually records, and each
+ * is a different piece of advice to the next agent — which is why `#298` refused
+ * to collapse `no-service` into `abandoned`.
+ *
+ * **Here rather than on a surface** (`#792`), because there are two surfaces
+ * now: the page prints it and the tool result prints it, and two spellings of
+ * *signup was refused* is how a reader ends up told two different things about
+ * one measurement.
+ */
+export function atlasStopPhrase(outcome: AtlasStop['outcome']): string {
+  if (outcome === 'no-service') return 'there is no service behind the domain'
+  if (outcome === 'signup-refused') return 'signup was refused'
+  if (outcome === 'never-provisioned') return 'signup appeared to work and no account ever existed'
+
+  return 'they gave up before it was settled'
+}
+
+/**
+ * Which numbered step a stop lands on, or null where it lands off the list.
+ *
+ * **A position in a list somebody else wrote** (`#792`), which is what makes it
+ * publishable at any sample size — nothing here is a property of the agent that
+ * stopped.
+ *
+ * **Two of the four outcomes pin a step and two do not, and the two that do not
+ * must not be guessed.** `no-service` happened before the first step was
+ * reachable, and `abandoned` means an agent stopped and nothing more (`#298`
+ * refused to let it mean anything else). Returning a plausible number for
+ * either would be the Colony inventing a measurement, so they return null and
+ * the surface says what it knows in words instead.
+ *
+ * `signup-refused` is the first step by construction: a recipe's first step is
+ * the one that reaches the signup, and a refusal is that step answering. It is
+ * an assumption about the shape of a recipe rather than a recorded index — no
+ * report carries a step number, and `#545` declined to ask for one.
+ */
+export function atlasStopStep(input: {
+  readonly outcome: AtlasStop['outcome']
+  readonly steps: number
+}): number | null {
+  if (input.steps === 0) return null
+  if (input.outcome === 'signup-refused') return 1
+  if (input.outcome === 'never-provisioned') return input.steps
+
+  return null
 }
 
 /**

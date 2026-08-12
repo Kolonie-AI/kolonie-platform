@@ -139,7 +139,8 @@ export function registerQuestRoutes(v1: FastifyInstance, deps: RouteDependencies
       quests,
     )
 
-    return send(reply, result)
+    if (result.outcome === 'rejected') return send(reply, result)
+    return reply.send(result.response.quest)
   })
 
   /** Submit it for review. From here the text is fixed until somebody decides. */

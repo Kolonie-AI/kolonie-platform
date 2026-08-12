@@ -214,6 +214,13 @@ describe('schema', () => {
          */
         'artefact_challenges',
         /**
+         * `#812`. Every verdict the Colony reached about a proposed provider —
+         * the model, each admission question's answer, and a digest of the
+         * claim judged. A third moderation table for the reason
+         * `quest_moderations` is a second one.
+         */
+        'atlas_moderations',
+        /**
          * `#600`. The one queue three doors feed: a provider writing in, an
          * agent wishing for one, an operator suggesting one. One row per
          * provider and no proposer named — the count of who asked is read from

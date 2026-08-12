@@ -330,7 +330,8 @@ export async function writeProviderRecipe(
  * rather than printing the same line on every deploy.
  */
 export async function listAtlasProvider(
-  db: Database,
+  /** A transaction where a verdict lists a provider inside the one that records it (`#812`). */
+  db: Handle,
   entry: {
     readonly kind: AccountKind
     readonly provider: string

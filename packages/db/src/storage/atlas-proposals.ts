@@ -28,7 +28,8 @@ type Handle = Database | Transaction
  * point would be the second queue this replaces.
  */
 
-function toProposal(row: typeof atlasProposals.$inferSelect): AtlasProposal {
+/** Shared with `atlas-moderations.ts`, which writes the verdicts this queue waits for (`#812`). */
+export function toProposal(row: typeof atlasProposals.$inferSelect): AtlasProposal {
   return {
     id: row.id,
     provider: AccountProviderSchema.parse(row.provider),

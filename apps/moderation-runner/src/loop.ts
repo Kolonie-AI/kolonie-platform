@@ -23,6 +23,7 @@ import { synthesise } from './synthesis.js'
 import { respondToChange, type Tripwire } from './tripwire.js'
 import { findDuplicate } from './dedup.js'
 import { heldQuestTick, questTick, type QuestLoopDependencies } from './quests.js'
+import { atlasTick, type AtlasLoopDependencies } from './atlas.js'
 import { answerTick, type AnswerLoopDependencies } from './answers.js'
 import { providerReasonTick, type ProviderReasonLoopDependencies } from './provider-reasons.js'
 import { questReportTick, type QuestReportLoopDependencies } from './quest-reports.js'
@@ -114,6 +115,15 @@ export interface LoopDependencies {
    * existed.
    */
   readonly directions?: DirectionLoopDependencies
+  /**
+   * Whether a proposed provider belongs on the map (`#812`).
+   *
+   * A sixth pass on the same poll, and the one whose absence was hardest to see:
+   * the Atlas queue was never backed up, it was unattended, which looks
+   * identical from outside. Absent leaves every proposal `pending` for a
+   * steward, which is exactly where they were before this existed.
+   */
+  readonly atlas?: AtlasLoopDependencies
 }
 
 /** The tripwire as this loop needs it: detect, then respond. */
@@ -417,8 +427,46 @@ export async function tick(deps: LoopDependencies, batchSize: number): Promise<T
   await scrubQuestReports(deps, batchSize, log)
   await scrubProviderReasons(deps, batchSize, log)
   await readDirections(deps, batchSize, log)
+  await judgeAtlasProposals(deps, batchSize, log)
 
   return outcome
+}
+
+/**
+ * Judge the proposed providers, on the same poll (`#812`).
+ *
+ * Its failure is swallowed like every other pass's, and what a failed poll costs
+ * here is that a queue nobody was working stays where it was for fifteen more
+ * seconds. The pass itself already leaves an unjudged proposal `pending` rather
+ * than deciding it badly, so there is no half state for this to clean up.
+ */
+async function judgeAtlasProposals(
+  deps: LoopDependencies,
+  batchSize: number,
+  log: Log,
+): Promise<void> {
+  const { atlas } = deps
+  if (atlas === undefined) return
+
+  try {
+    const outcome = await atlasTick({ log, ...atlas }, batchSize)
+    if (outcome.judged > 0) {
+      log.info(
+        `atlas proposals: ${outcome.judged} judged, ${outcome.accepted} listed, ` +
+          `${outcome.refused} refused, ${outcome.merged} merged, ${outcome.failed} deferred`,
+        {
+          event: 'atlas.pass.done',
+          judged: outcome.judged,
+          accepted: outcome.accepted,
+          refused: outcome.refused,
+          merged: outcome.merged,
+          failed: outcome.failed,
+        },
+      )
+    }
+  } catch (error) {
+    log.error('the atlas proposal pass failed', error, { event: 'atlas.pass.failed' })
+  }
 }
 
 /**

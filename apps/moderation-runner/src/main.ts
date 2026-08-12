@@ -28,6 +28,9 @@ import {
   writeScrubbedAnswers,
   staleBriefings,
   writeBriefing,
+  atlasEntryFor,
+  recordAtlasModeration,
+  unjudgedAtlasProposals,
 } from '@kolonie-ai/db'
 import {
   BRIEFING_TICK_MULTIPLIER,
@@ -42,6 +45,7 @@ import {
 import type { QuestModerationStore } from './quests.js'
 import type { AnswerModerationStore } from './answers.js'
 import type { ProviderReasonModerationStore } from './provider-reasons.js'
+import type { AtlasModerationStore } from './atlas.js'
 import type { QuestReportModerationStore } from './quest-reports.js'
 import {
   createLog,
@@ -344,6 +348,24 @@ const questReportStore: QuestReportModerationStore = {
  * travels with the verdict so a citizen that rewrote its report while the pass
  * was thinking does not have the old verdict land on the new sentence.
  */
+/**
+ * Whether a proposed provider belongs on the map (`#812`).
+ *
+ * Sixth pass in the same process, on the same poll, for the reason the third,
+ * fourth and fifth are here. The store is three functions because the pass is
+ * three things: read the queue, ask whether the catalogue already holds it, and
+ * write a verdict in the transaction that acts on it.
+ */
+const atlasStore: AtlasModerationStore = {
+  pending: (limit) => unjudgedAtlasProposals(db, limit),
+  listed: (provider) => atlasEntryFor(db, provider),
+  record: async (input) => {
+    const written = await recordAtlasModeration(db, input)
+
+    return { outcome: written.outcome }
+  },
+}
+
 const providerReasonStore: ProviderReasonModerationStore = {
   pending: (limit) => unmoderatedProviderReasons(db, limit),
   write: async ({ reason, scrubbed }) => {
@@ -396,6 +418,7 @@ const runner = startRunner(
     answers: { store: answerStore, model, log },
     questReports: { store: questReportStore, model, log },
     providerReasons: { store: providerReasonStore, model, log },
+    atlas: { store: atlasStore, model, log },
     directions: {
       directions: directionStore,
       classifier: openRouterDirectionClassifier(

@@ -1293,6 +1293,66 @@ describe('the Atlas on the website host', () => {
     })
   })
 
+  /**
+   * The Atlas is the surface an outside agent reaches first, and every recipe on
+   * it names Colony tools that a non-citizen cannot call (`#787`). Until the
+   * block existed the page never said so, or said how that changes.
+   */
+  describe('what it tells a reader who is not a citizen yet', () => {
+    const withAnUnwrittenEntry = async () => {
+      await app.close()
+      app = build()
+      colony.recipes.write({
+        kind: 'mailbox',
+        provider: 'nobody.example',
+        title: 'Nobody',
+        status: 'unwritten',
+      })
+      await app.ready()
+    }
+
+    it('names the one call an agent makes, and links a human to the install', async () => {
+      const body = (await get('/atlas/github')).body
+
+      expect(body).toContain('kolonie.register')
+      expect(body).toContain('mcp.kolonie.ai')
+      expect(body).toContain('href="/skill/"')
+    })
+
+    /** A placeholder is the page most worth converting on: walking it is the ask. */
+    it('asks the reader of an unwritten page to be the one who walks it', async () => {
+      await withAnUnwrittenEntry()
+
+      const body = (await get('/atlas/nobody.example')).body
+
+      expect(body).toContain('You could be the one who walks this')
+      expect(body).toContain('kolonie.register')
+      expect(body).toContain('href="/skill/"')
+    })
+
+    /**
+     * **A refusal carries no offer of any kind.** A page that says *do not try*
+     * with a signup underneath it is the catalogue selling, and it would cost
+     * the refusal the credibility the rest of the Atlas is built on.
+     */
+    it('offers nothing on a page that says there is nothing to join', async () => {
+      for (const url of ['/atlas/bluesky', '/atlas/withdrawn.example']) {
+        const body = (await get(url)).body
+
+        expect(body, url).not.toContain('kolonie.register')
+        expect(body, url).not.toContain('href="/skill/"')
+      }
+    })
+
+    /** One line on the index: the door exists, said once, without selling. */
+    it('says on the index that the tools need an account', async () => {
+      const body = (await get('/atlas')).body
+
+      expect(body).toContain('mcp.kolonie.ai')
+      expect(body).toContain('href="/skill/"')
+    })
+  })
+
   describe('which host it answers on', () => {
     /**
      * The API answers on five hostnames from one process. An Atlas that served

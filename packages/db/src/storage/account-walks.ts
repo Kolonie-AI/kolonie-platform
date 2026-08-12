@@ -4,14 +4,18 @@ import {
   AccountProviderSchema,
   RecipeActorSchema,
   WalkOutcomeSchema,
+  WALK_PROSE_FIELDS,
   WalkedRecipeSchema,
+  walkHasProse,
   walkIsReported,
+  walkProse,
   walkVerdict,
   type AccountKind,
   type AccountWalk,
   type AgentId,
   type ProviderRecipe,
   type WalkOutcome,
+  type WalkProse,
   type WalkVerdict,
   type WalkedRecipe,
 } from '@kolonie-ai/core'
@@ -314,6 +318,17 @@ export async function reportFinishedWalk(
       broke: answers.broke ?? null,
       changed: answers.changed ?? null,
       discarded: answers.discarded ?? null,
+      /**
+       * **Re-queued, including a wall something already read** (`#810`). This
+       * writes four answers onto a walk that may have been closed with a wall and
+       * approved on the strength of it; approving the page again from the verdict
+       * that covered one sixth of it would serve four sentences nothing looked
+       * at. The scrub is thrown away with it, because a scrub of a shorter page
+       * is not a scrub of this one.
+       */
+      ...(walkHasProse(walkProse(answers))
+        ? { proseStatus: 'pending' as const, scrubbedProse: null }
+        : {}),
     })
     .where(
       and(
@@ -396,6 +411,20 @@ export async function finishWalk(
         discarded: input.discarded ?? null,
         takenStepPositions: input.takenStepPositions == null ? null : [...input.takenStepPositions],
         recipe: input.recipe ?? null,
+        /**
+         * **A walk that wrote something enters the queue as it closes** (`#810`).
+         *
+         * Here rather than in a sweep that looks for unqueued rows, for
+         * `divergentWalks`' converse reason: a flag set at the moment the words
+         * are written cannot miss one, where a sweep silently empties the day it
+         * stops running. A walk that wrote nothing keeps the column's `approved`
+         * default and is never in a queue — there is nothing to read.
+         */
+        proseStatus: walkHasProse(
+          walkProse({ ...input, wall: input.outcome === 'refused' ? (input.wall ?? null) : null }),
+        )
+          ? 'pending'
+          : 'approved',
       })
       .where(and(eq(accountWalks.id, walkId), isNull(accountWalks.finishedAt)))
       .returning()
@@ -480,6 +509,157 @@ export async function finishWalk(
 
     return { walk, verdict }
   })
+}
+
+/** One walk's words, waiting on the stage between them and any other reader (`#810`). */
+export interface UnmoderatedWalkProse {
+  readonly walkId: string
+  readonly kind: string
+  readonly provider: string
+  /** The fields that were answered, in `WALK_PROSE_FIELDS` order. Never empty. */
+  readonly prose: WalkProse
+}
+
+/**
+ * The walks whose words nobody has read, oldest first.
+ *
+ * Ordered by when the walk finished rather than when it started: what is queued
+ * is the writing, and the writing happens at the end. A walk opened on Monday
+ * and closed on Friday is Friday's row.
+ */
+export async function unmoderatedWalkProse(
+  db: Database,
+  limit: number,
+): Promise<readonly UnmoderatedWalkProse[]> {
+  const rows = await db
+    .select()
+    .from(accountWalks)
+    .where(eq(accountWalks.proseStatus, 'pending'))
+    .orderBy(asc(accountWalks.finishedAt))
+    .limit(limit)
+
+  return rows.flatMap((row) => {
+    const prose = walkProse(row)
+
+    /**
+     * **A pending row with nothing on it is skipped rather than queued.** It
+     * should not exist — both write paths set `pending` only where there is
+     * something to read — but a queue that handed the model an empty page would
+     * spend a call to be told nothing, every poll, forever.
+     */
+    return walkHasProse(prose)
+      ? [{ walkId: row.id, kind: row.kind, provider: row.provider, prose }]
+      : []
+  })
+}
+
+/**
+ * Write what the scrub produced, or refuse the words.
+ *
+ * **What the moderator read is part of the key**, the guard
+ * `recordProviderReasonModeration` uses, and it is needed here for a narrower
+ * race than there. A walk's answers are written once and cannot be edited —
+ * `reportFinishedWalk` applies only where the walk holds none — but that same
+ * function can add the four questions to a walk already closed with a `wall`,
+ * and it re-queues the row when it does. A verdict reached against the wall
+ * alone must not then approve four answers nothing looked at.
+ *
+ * Compared field by field rather than over a digest, so that a mismatch is a
+ * mismatch on the column that actually changed and no second definition of *what
+ * was judged* exists to drift from the first.
+ */
+export async function recordWalkProseModeration(
+  db: Database,
+  command: {
+    readonly walkId: string
+    /** What the moderator was shown. The verdict is refused if it has changed. */
+    readonly judged: WalkProse
+    readonly decision: 'approved' | 'rejected'
+    readonly scrubbed?: WalkProse
+  },
+): Promise<{ readonly outcome: 'written' | 'stale' }> {
+  const unchanged = WALK_PROSE_FIELDS.map((field) => {
+    const judged = command.judged[field]
+    return judged === undefined ? isNull(accountWalks[field]) : eq(accountWalks[field], judged)
+  })
+
+  const written = await db
+    .update(accountWalks)
+    .set({
+      proseStatus: command.decision,
+      /**
+       * **A refusal keeps its row and gains no scrub.** The citizen wrote it, the
+       * Colony declined to pass it on, and everything the walk *is* — the
+       * outcome, the steps, the draft it proposed — stands untouched. There is no
+       * attempt to fail here and no standing to move.
+       */
+      scrubbedProse: command.decision === 'approved' ? (command.scrubbed ?? null) : null,
+    })
+    .where(
+      and(
+        eq(accountWalks.id, command.walkId),
+        eq(accountWalks.proseStatus, 'pending'),
+        ...unchanged,
+      ),
+    )
+    .returning({ id: accountWalks.id })
+
+  return { outcome: written[0] === undefined ? 'stale' : 'written' }
+}
+
+/** One walk's words as anybody but their author may read them. */
+export interface ModeratedWalkProse {
+  readonly walkId: string
+  readonly finishedAt: string
+  readonly outcome: WalkOutcome
+  readonly prose: WalkProse
+}
+
+/**
+ * What has been said about one provider and cleared for a reader (`#810`).
+ *
+ * **The scrubbed column and never the six raw ones.** This is the whole reading
+ * side of the stage above, and it is a function rather than a `where` clause on
+ * each surface for the reason the column comment gives: *no citizen's
+ * unmoderated words reach a reader* should hold by there being nothing to
+ * select.
+ *
+ * Newest first, because a corpus about a provider decays — a wall from March is
+ * evidence about March, and a reader taking a bounded window should be taking
+ * the recent end of it.
+ */
+export async function moderatedWalkProse(
+  db: Database,
+  where: { readonly kind: AccountKind; readonly provider: string },
+  limit = 100,
+): Promise<readonly ModeratedWalkProse[]> {
+  const provider = await canonicalProvider(db, where.provider)
+
+  const rows = await db
+    .select({
+      id: accountWalks.id,
+      finishedAt: accountWalks.finishedAt,
+      outcome: accountWalks.outcome,
+      scrubbedProse: accountWalks.scrubbedProse,
+    })
+    .from(accountWalks)
+    .where(
+      and(
+        eq(accountWalks.kind, where.kind),
+        eq(accountWalks.provider, provider),
+        isNotNull(accountWalks.finishedAt),
+        isNotNull(accountWalks.scrubbedProse),
+      ),
+    )
+    .orderBy(desc(accountWalks.finishedAt))
+    .limit(limit)
+
+  return rows.map((row) => ({
+    walkId: row.id,
+    finishedAt: toTimestamp(row.finishedAt as string),
+    outcome: WalkOutcomeSchema.parse(row.outcome),
+    prose: row.scrubbedProse as WalkProse,
+  }))
 }
 
 /**

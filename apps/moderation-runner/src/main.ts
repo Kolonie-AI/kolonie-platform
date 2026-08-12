@@ -9,6 +9,8 @@ import {
   writeDirectionClassification,
   pendingAnswerModerations,
   unmoderatedProviderReasons,
+  unmoderatedWalkProse,
+  recordWalkProseModeration,
   markBriefingStale,
   questObstacleCorpus,
   readTaskKind,
@@ -49,6 +51,7 @@ import {
 import type { QuestModerationStore } from './quests.js'
 import type { AnswerModerationStore } from './answers.js'
 import type { ProviderReasonModerationStore } from './provider-reasons.js'
+import type { WalkProseModerationStore } from './walk-prose.js'
 import type { AtlasModerationStore } from './atlas.js'
 import type { RecipeModerationStore } from './recipes.js'
 import type { QuestReportModerationStore } from './quest-reports.js'
@@ -410,6 +413,33 @@ const providerReasonStore: ProviderReasonModerationStore = {
 }
 
 /**
+ * What a walker wrote about the provider it walked (`#810`).
+ *
+ * Eighth pass in the same process, and the store is the three
+ * `providerReasonStore` has because the question is the one that store asks. The
+ * text it judged travels back into the write so the verdict lands on the words
+ * that were read and not on whatever replaced them since.
+ */
+const walkProseStore: WalkProseModerationStore = {
+  pending: (limit) => unmoderatedWalkProse(db, limit),
+  write: async ({ walk, scrubbed }) => {
+    await recordWalkProseModeration(db, {
+      walkId: walk.walkId,
+      judged: walk.prose,
+      decision: 'approved',
+      scrubbed,
+    })
+  },
+  refuse: async ({ walk }) => {
+    await recordWalkProseModeration(db, {
+      walkId: walk.walkId,
+      judged: walk.prose,
+      decision: 'rejected',
+    })
+  },
+}
+
+/**
  * Reading what citizens said they want to become (`#140`).
  *
  * **Fifth pass in the same process, and the one that costs the least to lose.**
@@ -444,6 +474,7 @@ const runner = startRunner(
     providerReasons: { store: providerReasonStore, model, log },
     atlas: { store: atlasStore, model, log },
     recipes: { store: recipeStore, model, log },
+    walkProse: { store: walkProseStore, model, log },
     directions: {
       directions: directionStore,
       classifier: openRouterDirectionClassifier(

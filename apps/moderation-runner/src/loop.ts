@@ -25,6 +25,7 @@ import { findDuplicate } from './dedup.js'
 import { heldQuestTick, questTick, type QuestLoopDependencies } from './quests.js'
 import { atlasTick, type AtlasLoopDependencies } from './atlas.js'
 import { recipeTick, type RecipeLoopDependencies } from './recipes.js'
+import { walkProseTick, type WalkProseLoopDependencies } from './walk-prose.js'
 import { answerTick, type AnswerLoopDependencies } from './answers.js'
 import { providerReasonTick, type ProviderReasonLoopDependencies } from './provider-reasons.js'
 import { questReportTick, type QuestReportLoopDependencies } from './quest-reports.js'
@@ -134,6 +135,16 @@ export interface LoopDependencies {
    * exactly where they sat before this existed.
    */
   readonly recipes?: RecipeLoopDependencies
+  /**
+   * What a walker wrote about the provider it walked (`#810`).
+   *
+   * An eighth pass on the same poll, and the one with the largest backlog behind
+   * it: every walk ever finished collected up to six free-text answers and not
+   * one of them had a reader, because the stage that would have given them one
+   * was never built. Absent leaves each walk `pending`, which serves nothing —
+   * the same place those words sat before this existed, and no worse.
+   */
+  readonly walkProse?: WalkProseLoopDependencies
 }
 
 /** The tripwire as this loop needs it: detect, then respond. */
@@ -439,8 +450,41 @@ export async function tick(deps: LoopDependencies, batchSize: number): Promise<T
   await readDirections(deps, batchSize, log)
   await judgeAtlasProposals(deps, batchSize, log)
   await judgeRecipeDrafts(deps, batchSize, log)
+  await scrubWalkProse(deps, batchSize, log)
 
   return outcome
+}
+
+/**
+ * Scrub what walkers wrote, on the same poll (`#810`).
+ *
+ * Its failure is swallowed like every other pass's. What a failed poll costs
+ * here is a page staying unread for one more tick: the row is left `pending`,
+ * nothing partial is served, and the next poll picks it up — the shape
+ * `scrubProviderReasons` settled on, for the same reason it settled on it.
+ */
+async function scrubWalkProse(deps: LoopDependencies, batchSize: number, log: Log): Promise<void> {
+  const { walkProse } = deps
+  if (walkProse === undefined) return
+
+  try {
+    const outcome = await walkProseTick({ log, ...walkProse }, batchSize)
+    if (outcome.judged > 0) {
+      log.info(
+        `walk prose: ${outcome.judged} judged, ${outcome.scrubbed} scrubbed, ` +
+          `${outcome.refused} refused, ${outcome.failed} deferred`,
+        {
+          event: 'walk-prose.pass.done',
+          judged: outcome.judged,
+          scrubbed: outcome.scrubbed,
+          refused: outcome.refused,
+          failed: outcome.failed,
+        },
+      )
+    }
+  } catch (error) {
+    log.error('the walk prose pass failed', error, { event: 'walk-prose.pass.failed' })
+  }
 }
 
 /**

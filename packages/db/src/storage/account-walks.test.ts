@@ -9,9 +9,12 @@ import {
   accountWalkList,
   divergentWalks,
   finishWalk,
+  moderatedWalkProse,
   openWalkId,
   ownAccountWalk,
+  recordWalkProseModeration,
   recordWalkStep,
+  unmoderatedWalkProse,
   walkInProgress,
 } from './account-walks.js'
 import { providerRecipe, writeProviderRecipe } from './provider-recipes.js'
@@ -404,6 +407,115 @@ describe('the record of one agent obtaining one account', () => {
       await finishWalk(db, walkId, { outcome: 'proved' })
 
       expect(await openWalkId(db, agentId, where)).toBeUndefined()
+    })
+  })
+
+  /**
+   * **What a walker wrote reaches a reader only through the moderator** (`#810`).
+   *
+   * The same triple `provider_reports` carries, and asserted the same way: the
+   * queue holds what was written, the reading side holds nothing until a verdict
+   * lands, and a refusal costs the walk nothing but its words.
+   */
+  describe('the words a walk leaves behind', () => {
+    const PROSE = 'I filled the form in and it asked for a card at the end.'
+
+    it('queues a walk that wrote something and never one that did not', async () => {
+      const spoken = await walkInProgress(db, agentId, where)
+      await finishWalk(db, spoken, { outcome: 'abandoned', did: PROSE })
+
+      const [pending] = await unmoderatedWalkProse(db, 10)
+      expect(pending?.walkId).toBe(spoken)
+      expect(pending?.prose).toEqual({ did: PROSE })
+
+      await truncateAll(db)
+      const agent = await registerAgent(db, { name: 'quiet', platform: 'openclaw', operator: null })
+      if (agent.outcome !== 'registered') throw new Error('could not register the quiet walker')
+      const silent = await walkInProgress(db, agent.agent.id, where)
+      await finishWalk(db, silent, { outcome: 'proved' })
+
+      expect(await unmoderatedWalkProse(db, 10)).toHaveLength(0)
+    })
+
+    it('serves nothing until the scrub has written it, and the scrub after', async () => {
+      const walkId = await walkInProgress(db, agentId, where)
+      await finishWalk(db, walkId, { outcome: 'abandoned', did: PROSE })
+
+      expect(await moderatedWalkProse(db, where)).toHaveLength(0)
+
+      const written = await recordWalkProseModeration(db, {
+        walkId,
+        judged: { did: PROSE },
+        decision: 'approved',
+        scrubbed: { did: PROSE },
+      })
+
+      expect(written.outcome).toBe('written')
+      expect((await moderatedWalkProse(db, where))[0]?.prose).toEqual({ did: PROSE })
+      expect(await unmoderatedWalkProse(db, 10)).toHaveLength(0)
+    })
+
+    /**
+     * The half worth asserting on its own: a refusal takes the words and leaves
+     * everything else — the outcome still counts and the walk still stands.
+     */
+    it('never serves a page the moderator refused, and keeps the walk', async () => {
+      const walkId = await walkInProgress(db, agentId, where)
+      await finishWalk(db, walkId, { outcome: 'refused', wall: 'It wanted my operator by name.' })
+
+      await recordWalkProseModeration(db, {
+        walkId,
+        judged: { wall: 'It wanted my operator by name.' },
+        decision: 'rejected',
+      })
+
+      expect(await moderatedWalkProse(db, where)).toHaveLength(0)
+      expect(await unmoderatedWalkProse(db, 10)).toHaveLength(0)
+      expect((await accountWalk(db, walkId))?.outcome).toBe('refused')
+    })
+
+    /**
+     * A verdict must not land on words the moderator never read — the guard
+     * `recordProviderReasonModeration` puts on a sentence, here over the page.
+     */
+    it('refuses a verdict about a page that has changed underneath it', async () => {
+      const walkId = await walkInProgress(db, agentId, where)
+      await finishWalk(db, walkId, { outcome: 'refused', wall: 'A phone check.' })
+      await reportFinishedWalk(db, agentId, walkId, { did: PROSE })
+
+      const stale = await recordWalkProseModeration(db, {
+        walkId,
+        judged: { wall: 'A phone check.' },
+        decision: 'approved',
+        scrubbed: { wall: 'A phone check.' },
+      })
+
+      expect(stale.outcome).toBe('stale')
+      expect(await moderatedWalkProse(db, where)).toHaveLength(0)
+    })
+
+    /**
+     * The case the re-queue in `reportFinishedWalk` exists for: a walk can be
+     * closed on a wall alone, approved on it, and then have four answers added.
+     * Without the re-queue those four would be served under the old verdict.
+     */
+    it('puts an approved walk back in the queue when it says something more', async () => {
+      const walkId = await walkInProgress(db, agentId, where)
+      await finishWalk(db, walkId, { outcome: 'refused', wall: 'A phone check.' })
+      await recordWalkProseModeration(db, {
+        walkId,
+        judged: { wall: 'A phone check.' },
+        decision: 'approved',
+        scrubbed: { wall: 'A phone check.' },
+      })
+
+      await reportFinishedWalk(db, agentId, walkId, { did: PROSE })
+
+      expect(await moderatedWalkProse(db, where)).toHaveLength(0)
+      expect((await unmoderatedWalkProse(db, 10))[0]?.prose).toEqual({
+        did: PROSE,
+        wall: 'A phone check.',
+      })
     })
   })
 

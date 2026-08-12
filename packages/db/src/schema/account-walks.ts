@@ -16,9 +16,11 @@ import {
   RecipeActorSchema,
   WALK_NOTE_MAX_LENGTH,
   WalkOutcomeSchema,
+  type WalkProse,
   type WalkedRecipe,
 } from '@kolonie-ai/core'
 import { agents } from './agents.js'
+import { moderationStatus } from './enums.js'
 
 /**
  * The vocabularies, taken from `core` so the tables cannot disagree with it —
@@ -136,6 +138,36 @@ export const accountWalks = pgTable(
      * instead of one.
      */
     recipe: jsonb('recipe').$type<WalkedRecipe>(),
+
+    /**
+     * The same words after the scrub, field by field, or `null` (`#810`).
+     *
+     * **The structural half of *a walk's prose reaches a reader only once
+     * something read it*.** Every surface that shows somebody else's walk selects
+     * this and never the six columns above, so *no citizen's unmoderated words
+     * reach a reader* holds by there being nothing to read rather than by a
+     * `where` clause each of them has to remember — exactly the arrangement
+     * `provider_reports.scrubbed_reason` is in, and for the same reason.
+     *
+     * `null` covers three states a reader treats identically: the walk wrote
+     * nothing, nothing has read it yet, or the stage refused it.
+     *
+     * **`jsonb` rather than six more columns**, on `recipe`'s argument one field
+     * up: it is read whole, by one caller at a time, and nothing queries across
+     * it. Six scrubbed columns beside six raw ones would also make the next
+     * question — *which of these is served* — answerable only by counting.
+     */
+    scrubbedProse: jsonb('scrubbed_prose').$type<WalkProse>(),
+
+    /**
+     * Where the walk's words stand with the moderator.
+     *
+     * `pending` from the moment a walk is closed with anything written on it, and
+     * — the case worth stating — `approved` on a walk that wrote nothing, because
+     * a row with nothing to moderate is not waiting for anything. That is what
+     * keeps the pass's queue equal to *walks nobody has read*.
+     */
+    proseStatus: moderationStatus('prose_status').notNull().default('approved'),
   },
   (table) => [
     /** A citizen's own walks, newest first, which is every read of this table. */
@@ -208,6 +240,26 @@ export const accountWalks = pgTable(
       sql`${table.discarded} is null
           or length(${table.discarded}) <= ${sql.raw(String(WALK_NOTE_MAX_LENGTH))}`,
     ),
+
+    /**
+     * Words nothing approved may never be served, in the database (`#810`).
+     *
+     * The read path already selects only the scrubbed column and the pass writes
+     * it on nothing else. This is the third defence and the only one that holds
+     * against a write path nobody has built yet — the same argument
+     * `provider_reports_scrubbed_iff_approved` makes: an endpoint that wanted to
+     * break the rule would have to change a constraint out loud, in a diff
+     * somebody reviews.
+     */
+    check(
+      'account_walks_scrubbed_prose_iff_approved',
+      sql`${table.scrubbedProse} is null or ${table.proseStatus} = 'approved'`,
+    ),
+
+    /** The pass's queue: walks whose words nobody has read, oldest first. */
+    index('account_walks_pending_prose_idx')
+      .on(table.finishedAt)
+      .where(sql`${table.proseStatus} = 'pending'`),
 
     check(
       'account_walks_taken_steps_are_in_range',

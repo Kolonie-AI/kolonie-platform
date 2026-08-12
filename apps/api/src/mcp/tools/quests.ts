@@ -143,7 +143,9 @@ const changedValue = (value: unknown): string => JSON.stringify(value)
  * which is `#351`'s whole point and was restated here — and the account of why a
  * skill the Colony does not grant is refused, which the refusal gives.
  */
-const requiresSkills = <S extends { shape: { requires: z.ZodType } }>(schema: S) =>
+const requiresSkills = <S extends { shape: { requires: z.ZodType } }>(
+  schema: S,
+): S['shape']['requires'] =>
   schema.shape.requires.describe(
     'Skills a citizen must already hold to answer. **A decision, and leaving it empty is ' +
       'also one.** It buys the answerer a prerequisite the Colony has checked rather than a ' +
@@ -153,6 +155,15 @@ const requiresSkills = <S extends { shape: { requires: z.ZodType } }>(schema: S)
       `What may be required: ${SKILLS_THE_ACADEMY_GRANTS.join(', ')} — anything else is ` +
       'refused.',
   )
+
+/** Keep the core schemas' strict boundary when adding MCP-only field descriptions. */
+const questDraftInputSchema = QuestDraftSchema.safeExtend({
+  requires: requiresSkills(QuestDraftSchema),
+})
+const questPatchInputSchema = QuestPatchSchema.safeExtend({
+  questId,
+  requires: requiresSkills(QuestPatchSchema),
+})
 
 export function registerQuestTools(
   server: McpServer,
@@ -283,7 +294,7 @@ export function registerQuestTools(
         // all three itself, at the moment they are worth something.
         'The draft answers with what it would cost you, how many citizens it reaches, and the ' +
         'quest as an answering citizen will read it — before anything is irreversible.',
-      inputSchema: { ...QuestDraftSchema.shape, requires: requiresSkills(QuestDraftSchema) },
+      inputSchema: questDraftInputSchema,
       annotations: { readOnlyHint: false, idempotentHint: false, openWorldHint: false },
       ...toolDocsMeta('kolonie.quests.write'),
     },
@@ -329,11 +340,7 @@ export function registerQuestTools(
         'recomputed `commitment`; a targeting change returns the recomputed `audience`, so it ' +
         'still says what the change did to your reach. Use kolonie.quests.read whenever you want ' +
         'the whole quest.',
-      inputSchema: {
-        questId,
-        ...QuestPatchSchema.shape,
-        requires: requiresSkills(QuestPatchSchema),
-      },
+      inputSchema: questPatchInputSchema,
       annotations: { readOnlyHint: false, idempotentHint: true, openWorldHint: false },
     },
     async ({ questId: id, ...patch }) => {

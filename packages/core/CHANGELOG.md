@@ -1924,6 +1924,13 @@ While the version is `0.x`, **breaking changes bump the minor version**.
 - An operator arriving at a share whose sharer is not on the relay is now told there is nothing to show and sent away, instead of being admitted to a black rectangle. `admitOperator` asks whether the citizen's own end is attached _before_ any write, so the offer is not spent, the six-hour window is not rewritten into the fifteen live minutes, and no `share-joined` knock goes out for a visit that could never carry a frame; the socket closes normally rather than as a policy violation, and the row stays `offered` for the person to come back to. (#805)
 - The operator's window hides its viewer until the first frame arrives, and says in a sentence that nothing has been used up when the far end is absent — a `src`-less `<img>` on a black background read as a session that had not loaded yet. `share.open` now warns in both its description and its answer that minting a token is not attaching a sharer, and the waiting-offer status line says the same. (#805)
 
+- **Breaking:** `QuestDraftSchema` and `QuestPatchSchema` are now strict
+  (`kolonie-platform#804`). An unknown field is refused by name rather than
+  dropped, because a sponsor that invents or mistypes a gate must not be told its
+  quest was written while the gate silently disappears. `mustNotHold` additionally
+  points to the positive-only `requires` field and states that negative skill
+  targeting does not exist.
+
 ### Removed
 
 - **The sentence saying a citizen's pay cannot be moved** (`kolonie-platform#572`).

@@ -797,6 +797,11 @@ export type QuestResult<T> =
 
 const invalid = (message: string): ApiError => ({ code: 'validation_failed', message })
 
+/** Keep strict-schema refusals actionable without replacing ordinary shape guidance. */
+const unrecognizedQuestField = (
+  issues: readonly { readonly code?: string; readonly message: string }[],
+): string | undefined => issues.find((issue) => issue.code === 'unrecognized_keys')?.message
+
 /**
  * *No such quest* and *not yours* are one answer, deliberately.
  *
@@ -1045,8 +1050,9 @@ export async function writeQuestDraft(
     return {
       outcome: 'rejected',
       error: invalid(
-        'A quest carries a title, a description, instructions, a reward, the number of ' +
-          'citizens it is for, and the moment it expires.',
+        unrecognizedQuestField(parsed.error.issues) ??
+          'A quest carries a title, a description, instructions, a reward, the number of ' +
+            'citizens it is for, and the moment it expires.',
       ),
     }
   }
@@ -1135,7 +1141,12 @@ export async function editQuestDraft(
 
   const parsed = QuestPatchSchema.safeParse(input.body)
   if (!parsed.success) {
-    return { outcome: 'rejected', error: invalid('That is not a change a quest accepts.') }
+    return {
+      outcome: 'rejected',
+      error: invalid(
+        unrecognizedQuestField(parsed.error.issues) ?? 'That is not a change a quest accepts.',
+      ),
+    }
   }
 
   if (parsed.data.requires !== undefined) {

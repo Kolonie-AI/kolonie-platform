@@ -408,23 +408,13 @@ describe('POST /v1/quests', () => {
     expect(body.rejectionReason).toBeNull()
   })
 
-  /**
-   * The fields a sponsor may not set are absent from the schema, so sending them
-   * changes nothing — which is a stronger property than refusing them, and the
-   * one worth asserting: a caller cannot author a quest in somebody else's name
-   * even by trying.
-   */
-  it('ignores an attempt to name another author, mint a skill or publish itself', async () => {
+  it('refuses an attempt to name another author, mint a skill or publish itself', async () => {
     const response = await write(
       aDraft({ createdBy: stewardId, grants: ['mailbox'], status: 'active', kind: 'academy' }),
     )
 
-    expect(response.statusCode).toBe(201)
-    const { quest } = response.json()
-    expect(quest.createdBy).toBe(sponsorId)
-    expect(quest.grants).toEqual([])
-    expect(quest.status).toBe('draft')
-    expect(quest.kind).toBe('quest')
+    expect(response.statusCode).toBe(ERROR_STATUS.validation_failed)
+    expect(response.json().message).toContain('`createdBy` is not a field of a quest')
   })
 
   it('refuses a draft with no capacity or no expiry', async () => {

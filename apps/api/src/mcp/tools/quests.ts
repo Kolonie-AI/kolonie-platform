@@ -544,7 +544,10 @@ export function registerQuestTools(
       title: 'One of your own quests',
       description:
         'One quest you wrote, with its current status, the reason the Colony gave if it was ' +
-        'refused, and whether the Colony has checked it yet.',
+        'refused, and whether the Colony has checked it yet. **A quest under review is in one ' +
+        'of two states and they are not the same wait**: still being read, or read and cleared ' +
+        'and not published by us — `held` says which, and since when. A hold is ours and not ' +
+        'yours: there is nothing for you to do about one.',
       inputSchema: { questId },
       annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
     },
@@ -554,7 +557,16 @@ export function registerQuestTools(
 
       return answer(
         await readQuest({ authorId: authenticated.agent.id, questId: id }, deps.quests),
-        (q) => `${q.quest.title} — ${q.quest.status}.`,
+        /**
+         * The hold is in the one line rather than only in the JSON (`#759`). A
+         * sponsor reading `pending_review` here concluded it was being read; the
+         * whole defect is that the two waits were indistinguishable, and a
+         * distinction only a field-by-field reader finds would leave it so.
+         */
+        (q) =>
+          q.held === undefined
+            ? `${q.quest.title} — ${q.quest.status}.`
+            : `${q.quest.title} — reviewed, and the Colony is holding it. ${q.held.notice}`,
       )
     },
   )

@@ -22,7 +22,7 @@ import { markConfidential } from './confidentiality.js'
 import { synthesise } from './synthesis.js'
 import { respondToChange, type Tripwire } from './tripwire.js'
 import { findDuplicate } from './dedup.js'
-import { questTick, type QuestLoopDependencies } from './quests.js'
+import { heldQuestTick, questTick, type QuestLoopDependencies } from './quests.js'
 import { answerTick, type AnswerLoopDependencies } from './answers.js'
 import { providerReasonTick, type ProviderReasonLoopDependencies } from './provider-reasons.js'
 import { questReportTick, type QuestReportLoopDependencies } from './quest-reports.js'
@@ -566,11 +566,12 @@ async function moderateQuests(deps: LoopDependencies, batchSize: number, log: Lo
 
   try {
     const outcome = await questTick({ log, ...quests }, batchSize)
-    if (outcome.judged > 0 || outcome.released > 0) {
+    if (outcome.judged > 0 || outcome.released > 0 || outcome.held > 0) {
       log.info(
         `quests: ${outcome.judged} judged, ${outcome.approved} cleared, ` +
           `${outcome.published} published, ${outcome.rejected} refused, ` +
-          `${outcome.failed} deferred, ${outcome.released} released late`,
+          `${outcome.failed} deferred, ${outcome.released} released late, ` +
+          `${outcome.held} held`,
         {
           event: 'quests.pass.done',
           judged: outcome.judged,
@@ -579,11 +580,58 @@ async function moderateQuests(deps: LoopDependencies, batchSize: number, log: Lo
           rejected: outcome.rejected,
           failed: outcome.failed,
           released: outcome.released,
+          held: outcome.held,
         },
       )
     }
   } catch (error) {
     log.error('the quest moderation pass failed', error, { event: 'quests.pass.failed' })
+  }
+}
+
+/**
+ * How many quest polls pass between sweeps of the held quests (`#759`).
+ *
+ * **A multiplier rather than a second interval**, following
+ * {@link BRIEFING_TICK_MULTIPLIER}: one timer stays one timer, and the sweep
+ * keeps its ratio to the poll if the poll is retuned. 240 of the default
+ * fifteen-second polls is an hour, which is the resolution a hold deserves —
+ * nothing about it is urgent to retry, and the sponsor is already told.
+ *
+ * Counted from zero, so the first pass after a start sweeps: a runner restarted
+ * because someone fixed the audit configuration heals its backlog immediately
+ * rather than an hour later.
+ */
+export const HELD_QUEST_TICK_MULTIPLIER = 240
+
+/**
+ * Sweep the held quests, on the slow tick (`#759`).
+ *
+ * Swallows its failure for {@link moderateQuests}' reason, and one step further:
+ * this pass is the *recovery* path, so a throw here must not take the pass that
+ * publishes ordinary quests with it.
+ */
+async function sweepHeldQuests(deps: LoopDependencies, batchSize: number, log: Log): Promise<void> {
+  const { quests } = deps
+  if (quests === undefined) return
+
+  try {
+    const outcome = await heldQuestTick({ log, ...quests }, batchSize)
+    if (outcome.held > 0 || outcome.released > 0 || outcome.failed > 0) {
+      log.info(
+        `held quests: ${outcome.held} still held, ${outcome.released} released, ` +
+          `${outcome.alerted} filed, ${outcome.failed} deferred`,
+        {
+          event: 'quests.hold.sweep.done',
+          held: outcome.held,
+          released: outcome.released,
+          alerted: outcome.alerted,
+          failed: outcome.failed,
+        },
+      )
+    }
+  } catch (error) {
+    log.error('the held quest sweep failed', error, { event: 'quests.hold.sweep.failed' })
   }
 }
 
@@ -799,6 +847,7 @@ export function startQuestRunner(deps: LoopDependencies, options: RunnerOptions 
   let running = true
   let lastPollAt: string | null = null
   let consecutiveFailures = 0
+  let ticks = 0
   let wake: (() => void) | undefined
 
   const pause = async (ms: number): Promise<void> => {
@@ -814,6 +863,8 @@ export function startQuestRunner(deps: LoopDependencies, options: RunnerOptions 
   const finished = (async () => {
     while (running) {
       try {
+        if (ticks % HELD_QUEST_TICK_MULTIPLIER === 0) await sweepHeldQuests(deps, batchSize, log)
+        ticks++
         await moderateQuests(deps, batchSize, log)
         lastPollAt = new Date().toISOString()
         consecutiveFailures = 0

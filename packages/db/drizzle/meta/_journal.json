@@ -1499,6 +1499,13 @@
       "when": 1786528357677,
       "tag": "0213_a_walker_writes_more_than_a_note",
       "breakpoints": true
+    },
+    {
+      "idx": 214,
+      "version": "7",
+      "when": 1786529474496,
+      "tag": "0214_a_held_quest_says_when_it_was_held",
+      "breakpoints": true
     }
   ]
 }

@@ -1,0 +1,1 @@
+ALTER TABLE "tasks" ADD COLUMN "publication_held_at" timestamp with time zone;

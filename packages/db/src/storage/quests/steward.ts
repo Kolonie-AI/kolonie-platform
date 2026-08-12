@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { and, asc, eq, inArray, isNull, sql } from 'drizzle-orm'
+import { and, asc, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm'
 import {
   QuestAnswersSchema,
   RED_LINE_REVIEW_NOTICE,
@@ -78,7 +78,22 @@ export type QuestPublishOutcome =
    * overruled too often (`#221`). Carries the sentence rather than a code,
    * because both refusals name what would change them.
    */
-  | { readonly outcome: 'audit-missing'; readonly reason: string }
+  | {
+      readonly outcome: 'audit-missing'
+      readonly reason: string
+      /**
+       * Whether this attempt is what started the hold (`#759`).
+       *
+       * **So the runner can log a hold once rather than once per tick.** The
+       * brake refused the same quest every fifteen seconds for fourteen hours
+       * and wrote a line each time; the fact worth a line is *this quest is now
+       * held*, which happens once, and the retry that changes nothing is not
+       * news. `heldSince` is what a caller reporting the hold reads instead of
+       * its own clock.
+       */
+      readonly firstHold: boolean
+      readonly heldSince: Timestamp
+    }
   /**
    * A quest measured in walks naming an entry with no published recipe (`#602`).
    *
@@ -227,7 +242,32 @@ export async function publishQuest(
       // (`#317`). Without it the brake fires on a sample of one.
       audited: disagreement.audited,
     })
-    if (refusal !== undefined) return { outcome: 'audit-missing', reason: refusal }
+    if (refusal !== undefined) {
+      /**
+       * **The hold is recorded, and that is `#759`.** Refusing without writing
+       * anything down is what made this invisible to the sponsor and endless in
+       * the log: `questsClearedForPublication` had no way to tell a quest it had
+       * already handed back from one it had never seen.
+       *
+       * Written once. A second attempt that is refused again keeps the first
+       * timestamp, because *held since* is what a sponsor and an alert both
+       * want; `firstHold` is how the caller knows which of the two happened.
+       */
+      const firstHold = row.publicationHeldAt === null
+      if (firstHold) {
+        await tx
+          .update(tasks)
+          .set({ publicationHeldAt: command.at })
+          .where(eq(tasks.id, command.taskId))
+      }
+
+      return {
+        outcome: 'audit-missing',
+        reason: refusal,
+        firstHold,
+        heldSince: toTimestamp(row.publicationHeldAt ?? command.at),
+      }
+    }
 
     const sponsorId = row.createdBy as AgentId | null
     const capacity = row.slots ?? 0
@@ -266,6 +306,10 @@ export async function publishQuest(
           updatedAt: command.at,
           invoiceLamports,
           awaitingPaymentSince: command.at,
+          // Whatever was holding it has stopped holding it (`#759`). Cleared on
+          // both publication paths rather than left to age out, because the
+          // alert and the sponsor's own page both read *is it held now*.
+          publicationHeldAt: null,
           // The rate in force, written at the same moment and for the same
           // reason as on the credits path: this is when the deal is struck.
           platformFeePercent: platformFeePercentFromEnv(),
@@ -302,6 +346,8 @@ export async function publishQuest(
       .set({
         status: 'active',
         updatedAt: command.at,
+        /** Cleared here for the invoice path's reason (`#759`). */
+        publicationHeldAt: null,
         /**
          * The rate in force, written onto the quest as it is published (`#462`).
          *
@@ -401,6 +447,11 @@ async function refuseQuestIn(
         rejectionReason: command.reason,
         refusalCount: sql`${tasks.refusalCount} + 1`,
         updatedAt: command.at,
+        // A refused quest is not waiting to be published, so nothing is holding
+        // it (`#759`). The case is narrow — a hold and a refusal need the text
+        // to have been re-judged in between — and leaving a stale timestamp
+        // behind would show the sponsor a refusal and a hold at once.
+        publicationHeldAt: null,
       })
       .where(eq(tasks.id, command.taskId))
 
@@ -433,6 +484,14 @@ async function refuseQuestIn(
  * survivable rather than merely rare.
  *
  * Oldest first, for {@link pendingQuestModerations}' reason.
+ *
+ * **A quest the Colony is already holding is not returned** (`#759`). Before
+ * that exclusion this read handed back a quest that could not be published,
+ * every tick, forever — measured at 20 lines in 5 minutes, fourteen hours after
+ * the hold started. A retry is for a publication that did not happen; a
+ * publication that was *refused* has happened, and repeating it at the poll
+ * interval is a loop rather than a retry. {@link questsHeldForPublication} is
+ * where those go, on a schedule that suits a configuration change.
  */
 export async function questsClearedForPublication(
   db: Database,
@@ -441,11 +500,69 @@ export async function questsClearedForPublication(
   const rows = await db
     .select({ id: tasks.id })
     .from(tasks)
-    .where(and(eq(tasks.kind, 'quest'), eq(tasks.status, 'pending_review'), moderationCleared()))
+    .where(
+      and(
+        eq(tasks.kind, 'quest'),
+        eq(tasks.status, 'pending_review'),
+        isNull(tasks.publicationHeldAt),
+        moderationCleared(),
+      ),
+    )
     .orderBy(asc(tasks.updatedAt))
     .limit(limit)
 
   return rows.map((row) => row.id as TaskId)
+}
+
+/** A quest that cleared moderation and that the Colony is not publishing (`#759`). */
+export interface HeldQuest {
+  readonly id: TaskId
+  readonly title: string
+  /** When the hold started, not when it was last retried. */
+  readonly heldSince: Timestamp
+}
+
+/**
+ * Quests the Colony has cleared and is holding back (`#759`).
+ *
+ * **The counterpart to {@link questsClearedForPublication}, and the reason
+ * holding a quest is not the same as dropping it.** What holds a quest is a
+ * deployment fact — an audit that is off, a judge being overruled too often —
+ * and every one of those is fixed by changing something and not by waiting. So
+ * the hold has to be retryable, or a corrected configuration would leave the
+ * backlog held until each sponsor noticed and asked.
+ *
+ * Retried on a slow tick rather than on the quest poll, which is the whole
+ * distinction: nothing about the answer changes between two consecutive
+ * fifteen-second polls, and something might change between two hours.
+ *
+ * Oldest hold first, so the quest that has waited longest is the one a bounded
+ * batch takes.
+ */
+export async function questsHeldForPublication(
+  db: Database,
+  limit: number,
+): Promise<readonly HeldQuest[]> {
+  const rows = await db
+    .select({ id: tasks.id, title: tasks.title, heldAt: tasks.publicationHeldAt })
+    .from(tasks)
+    .where(
+      and(
+        eq(tasks.kind, 'quest'),
+        eq(tasks.status, 'pending_review'),
+        isNotNull(tasks.publicationHeldAt),
+      ),
+    )
+    .orderBy(asc(tasks.publicationHeldAt))
+    .limit(limit)
+
+  return rows.map((row) => ({
+    id: row.id as TaskId,
+    title: row.title,
+    // Non-null by the predicate above; the coalesce is what the compiler asks
+    // for and it can only be reached by a change to that predicate.
+    heldSince: toTimestamp(row.heldAt ?? new Date(0).toISOString()),
+  }))
 }
 
 /**

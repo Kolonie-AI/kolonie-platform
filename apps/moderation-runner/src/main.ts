@@ -20,6 +20,7 @@ import {
   publishQuest,
   questsBySameSponsor,
   questsClearedForPublication,
+  questsHeldForPublication,
   readTaskText,
   recordModeration,
   recordProviderChange,
@@ -224,6 +225,7 @@ const questStore: QuestModerationStore = {
   pending: (limit) => pendingQuestModerations(db, limit),
   record: (input) => recordQuestModeration(db, input),
   cleared: (limit) => questsClearedForPublication(db, limit),
+  held: (limit) => questsHeldForPublication(db, limit),
   // Bounded, for `pendingQuestModerations`' reason: the comparison set is read
   // into a prompt, so its size is what one dedup call costs (`#694`).
   siblings: (taskId) => questsBySameSponsor(db, taskId, QUEST_SIBLINGS_IN_CONTEXT),
@@ -409,7 +411,15 @@ const runner = startRunner(
 )
 const questRunner = startQuestRunner(
   // The quest stage gets the client that may not fall back (`#726`).
-  { store, model, log, quests: { store: questStore, model: questModel, log } },
+  {
+    store,
+    model,
+    log,
+    // The same opener the tripwire files through: a hold nobody lifts is a
+    // maintainer's finding, and it goes where the other automated ones go
+    // (`#759`).
+    quests: { store: questStore, model: questModel, log, issues: tripwire.issues },
+  },
   { pollIntervalMs: QUEST_POLL_INTERVAL_MS },
 )
 const briefingRunner = startBriefingRunner(

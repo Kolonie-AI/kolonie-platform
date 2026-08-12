@@ -1644,3 +1644,44 @@ export function questFeeSentence(input: {
     `fee, ${input.feePercent}% — is ${toTreasury}.`
   )
 }
+
+/**
+ * What a sponsor is told while the Colony is holding its quest back (`#759`).
+ *
+ * **It names no mechanism, and that is the whole design of it.** Why the Colony
+ * has stopped short is a fact about the Colony's own configuration — the audit
+ * switch, a threshold, a deployment that has not been thought about — and none
+ * of it is something the sponsor can act on. Printing it would invite a sponsor
+ * to go and fix a thing that is not theirs, or to conclude its quest was
+ * refused. What is theirs is the two facts here: the wait is ours, and there is
+ * nothing for them to do.
+ *
+ * **How long, because it is the question asked second and the Colony can answer
+ * it unasked.** A hold of ten minutes and a hold of fourteen hours read
+ * identically without it, and the second is the one worth writing to us about.
+ *
+ * Whole days once there are any, hours below that, and *just now* under an hour
+ * — a hold measured to the minute would imply a precision about a wait whose
+ * end nobody has promised.
+ */
+export function questHeldNotice(since: string, at: string): string {
+  return (
+    `The Colony has finished reviewing this quest and is not publishing it yet. ${heldFor(since, at)} ` +
+    `This is a hold on our side, not a refusal and not something waiting on you: there is ` +
+    `nothing for you to do, the quest is unchanged, and nothing you committed has been spent. ` +
+    `It goes live when the hold lifts. If it has been long enough to worry you, say so with ` +
+    `kolonie.support.open — a quest held longer than it should be is our defect to fix.`
+  )
+}
+
+/** How long the hold has run, in the coarsest unit that is not a lie. */
+function heldFor(since: string, at: string): string {
+  const hours = Math.floor((Date.parse(at) - Date.parse(since)) / 3_600_000)
+
+  if (!Number.isFinite(hours) || hours < 1) return 'It has been held since just now.'
+  if (hours < 24) return `It has been held for ${plural(hours, 'hour')}.`
+
+  return `It has been held for ${plural(Math.floor(hours / 24), 'day')}.`
+}
+
+const plural = (count: number, unit: string): string => `${count} ${unit}${count === 1 ? '' : 's'}`

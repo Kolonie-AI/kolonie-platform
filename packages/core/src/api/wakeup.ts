@@ -319,7 +319,13 @@ export type WakeupStanding = z.infer<typeof WakeupStandingSchema>
 export const WakeupSponsoredQuestSchema = z.object({
   taskId: TaskIdSchema,
   title: z.string(),
-  transition: z.enum(['published', 'refused', 'awaiting_payment', 'expired', 'retired']),
+  /**
+   * `held` is the Colony's own stop, not the sponsor's (`#759`) — the quest
+   * cleared review and we have not published it. It carries no `reason`, and
+   * that is deliberate: what is holding it is a fact about our configuration
+   * rather than about the quest, and a sponsor cannot act on it.
+   */
+  transition: z.enum(['published', 'refused', 'awaiting_payment', 'expired', 'retired', 'held']),
   changedAt: TimestampSchema,
   /** The steward's reason, present on a refusal and nowhere else. */
   reason: z.string().nullable().optional(),

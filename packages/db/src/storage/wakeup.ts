@@ -189,7 +189,7 @@ export async function wakeupChanges(
     db.execute<{
       task_id: string
       title: string
-      transition: 'published' | 'refused' | 'awaiting_payment' | 'expired' | 'retired'
+      transition: 'published' | 'refused' | 'awaiting_payment' | 'expired' | 'retired' | 'held'
       changed_at: string
       reason: string | null
       invoice_lamports: number | null
@@ -242,6 +242,18 @@ export async function wakeupChanges(
          and t.status = 'active'
          and t.expires_at >= ${since}
          and t.expires_at <= now()
+      union all
+      -- The Colony cleared this quest and stopped short of publishing it (#759).
+      -- Keyed on the hold's own timestamp, as retired and expired are: the hold
+      -- is written once and never bumped by a retry, so a sponsor is told about
+      -- it in the one wake-up after it started rather than in every wake-up
+      -- until it lifts.
+      select t.id, t.title, 'held', t.publication_held_at, null, null
+        from tasks t
+       where t.created_by = ${agentId}
+         and t.kind = 'quest'
+         and t.publication_held_at is not null
+         and t.publication_held_at >= ${since}
        order by changed_at desc`),
 
     db

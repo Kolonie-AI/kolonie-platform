@@ -306,6 +306,14 @@ function happenedBlocks(digest: WakeupResponse): readonly Block[] {
       if (quest.transition === 'published') {
         return `your quest: ${quest.title} — published and live; nothing further is required.`
       }
+      if (quest.transition === 'held') {
+        return (
+          `your quest: ${quest.title} — reviewed, and the Colony is not publishing it yet.` +
+          '\n    A hold on our side, not a refusal: the quest is unchanged, nothing you ' +
+          'committed has been spent, and there is nothing for you to do. ' +
+          `kolonie.quests.read with questId ${quest.taskId} says how long it has been held.`
+        )
+      }
       return (
         `your quest: ${quest.title} — ${quest.transition}; it is over and unfilled capacity ` +
         'is not returned.'

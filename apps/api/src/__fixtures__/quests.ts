@@ -676,6 +676,7 @@ export function fakeQuests(): FakeQuestDesk {
           task: { ...held.own.task, status: 'active' },
           rejectionReason: null,
           awaitingModeration: false,
+          heldSince: null,
         },
         'approved',
       )
@@ -691,6 +692,7 @@ export function fakeQuests(): FakeQuestDesk {
             task: { ...held.own.task, status: 'rejected' },
             rejectionReason: reason,
             awaitingModeration: false,
+            heldSince: null,
           },
           moderated: decision,
           refusalCount: held.refusalCount + 1,
@@ -731,6 +733,7 @@ export function fakeQuests(): FakeQuestDesk {
         task: task({ id, authorId, draft: parsed, status: 'draft' }),
         rejectionReason: null,
         awaitingModeration: false,
+        heldSince: null,
       })
     },
 
@@ -773,6 +776,7 @@ export function fakeQuests(): FakeQuestDesk {
         },
         rejectionReason: held.own.rejectionReason,
         awaitingModeration: false,
+        heldSince: null,
       }
 
       return { outcome: 'written', quest: put(updated) }
@@ -811,6 +815,7 @@ export function fakeQuests(): FakeQuestDesk {
             task: { ...held.own.task, status: 'pending_review' },
             rejectionReason: null,
             awaitingModeration: true,
+            heldSince: null,
           },
           null,
         ),
@@ -908,6 +913,7 @@ export function fakeQuests(): FakeQuestDesk {
             task: { ...held.own.task, status: 'draft' },
             rejectionReason: held.own.rejectionReason,
             awaitingModeration: false,
+            heldSince: null,
           },
           null,
         ),

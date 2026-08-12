@@ -1,8 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import { MODERATION_STAGE_NOT_RUN, type TaskId } from '@kolonie-ai/core'
-import type { PendingQuest } from '@kolonie-ai/db'
+import type { HeldQuest, PendingQuest } from '@kolonie-ai/db'
 import type { Model } from './llm.js'
-import { judgeQuest, questTick, type QuestModerationStore } from './quests.js'
+import type { IssueOpener } from './tripwire.js'
+import {
+  HELD_QUEST_ALERT_HOURS,
+  heldQuestTick,
+  judgeQuest,
+  questTick,
+  type QuestModerationStore,
+} from './quests.js'
 import {
   QUEST_CONFIDENTIALITY_PROMPT,
   QUEST_DEDUP_PROMPT,
@@ -17,6 +24,33 @@ const aQuest = (overrides: Partial<PendingQuest> = {}): PendingQuest => ({
   instructions: 'Register at the address in the brief and report what happened.',
   ...overrides,
 })
+
+/** When a held quest's hold started, for the sweep's arithmetic (`#759`). */
+const HELD_SINCE = '2026-08-12T00:00:00.000Z'
+
+const aHeldQuest = (overrides: Partial<HeldQuest> = {}): HeldQuest => ({
+  id: '11111111-1111-4111-8111-111111111111' as TaskId,
+  title: 'A thousand registrations',
+  heldSince: HELD_SINCE,
+  ...overrides,
+})
+
+/** How long after {@link HELD_SINCE} a sweep runs, in hours. */
+const sweptAfter = (hours: number): string =>
+  new Date(Date.parse(HELD_SINCE) + hours * 3_600_000).toISOString()
+
+/** An opener that records rather than posts. */
+const filing = (alreadyOpen = false) => {
+  const opened: { title: string; body: string }[] = []
+  const issues: IssueOpener = {
+    isOpen: async () => alreadyOpen,
+    open: async (input) => {
+      opened.push(input)
+      return 'https://github.com/Kolonie-AI/kolonie-platform/issues/1'
+    },
+  }
+  return { issues, opened }
+}
 
 /**
  * A model that answers each stage in that stage's own vocabulary (`#694`).
@@ -91,6 +125,8 @@ const recording = (
     readonly publish?: QuestModerationStore['publish']
     /** Verdicts an earlier pass recorded and did not act on. */
     readonly cleared?: readonly TaskId[]
+    /** Quests the Colony cleared and stopped short of publishing (`#759`). */
+    readonly held?: readonly HeldQuest[]
     /** The same sponsor's other quests. Empty is the ordinary first-quest case. */
     readonly siblings?: readonly { id: TaskId; title: string; description: string }[]
   } = {},
@@ -104,6 +140,7 @@ const recording = (
       return { outcome: 'written' }
     },
     cleared: async () => options.cleared ?? [],
+    held: async () => options.held ?? [],
     siblings: async () => options.siblings ?? [],
     publish: async (taskId) => {
       publishedIds.push(taskId)
@@ -253,6 +290,7 @@ describe('moderating a quest', () => {
       failed: 0,
       published: 0,
       released: 0,
+      held: 0,
     })
   })
 })
@@ -307,7 +345,12 @@ describe('publishing what moderation approved', () => {
 
   it('separates a quest the model cleared from one the audit brake stopped', async () => {
     const { store } = recording([aQuest()], {
-      publish: async () => ({ outcome: 'audit-missing', reason: 'sampling is not enabled' }),
+      publish: async () => ({
+        outcome: 'audit-missing',
+        reason: 'sampling is not enabled',
+        firstHold: true,
+        heldSince: HELD_SINCE,
+      }),
     })
     const { model } = answering()
 
@@ -390,6 +433,176 @@ describe('publishing what moderation approved', () => {
     // A throw here must not take the pass down: the quest keeps its verdict and
     // the next tick tries again.
     const outcome = await questTick({ store, model }, 10)
+
+    expect(outcome.failed).toBe(1)
+    expect(outcome.released).toBe(0)
+  })
+})
+
+/**
+ * What the audit brake does between a clearance and a publication (`#759`).
+ *
+ * The brake refuses cheaply and deterministically, which is the property the
+ * first implementation got wrong in both directions: the quest stayed in
+ * `cleared` and was re-picked every fifteen seconds, and each re-pick logged
+ * that it had been *released* — so the one event worth seeing was written four
+ * times an hour in the words of the thing that had not happened.
+ */
+describe('a held quest', () => {
+  const held = aHeldQuest()
+
+  it('says so once, on the pass that put it there', async () => {
+    const { store } = recording([aQuest()], {
+      publish: async () => ({
+        outcome: 'audit-missing',
+        reason: 'sampling is not enabled',
+        firstHold: true,
+        heldSince: HELD_SINCE,
+      }),
+    })
+    const { model } = answering()
+    const lines: string[] = []
+
+    const outcome = await questTick(
+      { store, model, log: { info: () => {}, warn: (m) => lines.push(m), error: () => {} } },
+      10,
+    )
+
+    expect(outcome.held).toBe(1)
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toContain('held short of publication')
+  })
+
+  it('says nothing on a later pass over the same hold', async () => {
+    const { store } = recording([aQuest()], {
+      publish: async () => ({
+        outcome: 'audit-missing',
+        reason: 'sampling is not enabled',
+        // The hold is already on the row: this attempt found it rather than
+        // wrote it, and the sponsor was told about it the first time.
+        firstHold: false,
+        heldSince: HELD_SINCE,
+      }),
+    })
+    const { model } = answering()
+    const lines: string[] = []
+
+    const outcome = await questTick(
+      { store, model, log: { info: () => {}, warn: (m) => lines.push(m), error: () => {} } },
+      10,
+    )
+
+    expect(outcome.held).toBe(1)
+    expect(lines).toEqual([])
+  })
+
+  it('is retried by the sweep, and publishes when the hold lifts', async () => {
+    const { store, publishedIds } = recording([], { held: [held] })
+    const { model } = answering()
+
+    const outcome = await heldQuestTick({ store, model }, 10, sweptAfter(1))
+
+    expect(publishedIds).toEqual([held.id])
+    expect(outcome.released).toBe(1)
+    expect(outcome.held).toBe(0)
+  })
+
+  it('costs no model call to retry', async () => {
+    const { store } = recording([], { held: [held] })
+    const { model, asked } = answering()
+
+    await heldQuestTick({ store, model }, 10, sweptAfter(1))
+
+    expect(asked).toEqual([])
+  })
+
+  it('is not filed while it is younger than the bar', async () => {
+    const { store } = recording([], {
+      held: [held],
+      publish: async () => ({
+        outcome: 'audit-missing',
+        reason: 'sampling is not enabled',
+        firstHold: false,
+        heldSince: HELD_SINCE,
+      }),
+    })
+    const { model } = answering()
+    const { issues, opened } = filing()
+
+    const outcome = await heldQuestTick(
+      { store, model, issues },
+      10,
+      sweptAfter(HELD_QUEST_ALERT_HOURS - 1),
+    )
+
+    // A runner started before its audit configuration lands holds everything it
+    // clears until the configuration does, and an issue per quest in that window
+    // is noise about a state that fixes itself.
+    expect(opened).toEqual([])
+    expect(outcome.held).toBe(1)
+    expect(outcome.alerted).toBe(0)
+  })
+
+  it('is filed once it is older, with the quest id in the title', async () => {
+    const { store } = recording([], {
+      held: [held],
+      publish: async () => ({
+        outcome: 'audit-missing',
+        reason: 'sampling is not enabled',
+        firstHold: false,
+        heldSince: HELD_SINCE,
+      }),
+    })
+    const { model } = answering()
+    const { issues, opened } = filing()
+
+    const outcome = await heldQuestTick(
+      { store, model, issues },
+      10,
+      sweptAfter(HELD_QUEST_ALERT_HOURS),
+    )
+
+    expect(outcome.alerted).toBe(1)
+    // The id in the title is what dedups the next sweep, exactly as the
+    // tripwire's task id does.
+    expect(opened[0]?.title).toContain(held.id)
+    // And no sponsor text: every value in the body is an id, a count or a time.
+    expect(opened[0]?.body).not.toContain(held.title)
+  })
+
+  it('is not filed twice while an issue about it is open', async () => {
+    const { store } = recording([], {
+      held: [held],
+      publish: async () => ({
+        outcome: 'audit-missing',
+        reason: 'sampling is not enabled',
+        firstHold: false,
+        heldSince: HELD_SINCE,
+      }),
+    })
+    const { model } = answering()
+    const { issues, opened } = filing(true)
+
+    const outcome = await heldQuestTick(
+      { store, model, issues },
+      10,
+      sweptAfter(HELD_QUEST_ALERT_HOURS * 4),
+    )
+
+    expect(opened).toEqual([])
+    expect(outcome.alerted).toBe(0)
+  })
+
+  it('survives a retry that throws, and counts it as deferred', async () => {
+    const { store } = recording([], {
+      held: [held],
+      publish: async () => {
+        throw new Error('the database blinked')
+      },
+    })
+    const { model } = answering()
+
+    const outcome = await heldQuestTick({ store, model }, 10, sweptAfter(1))
 
     expect(outcome.failed).toBe(1)
     expect(outcome.released).toBe(0)

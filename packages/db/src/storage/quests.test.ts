@@ -54,6 +54,7 @@ import {
   publishQuest,
   questsBySameSponsor,
   questsClearedForPublication,
+  questsHeldForPublication,
   questTextDigest,
   readOwnQuest,
   recordQuestModeration,
@@ -2415,6 +2416,73 @@ describe('the quest write path', () => {
       expect(result.outcome).toBe('audit-missing')
       if (result.outcome !== 'audit-missing') return
       expect(result.reason).toContain('sampling audit')
+    })
+
+    /**
+     * What the refusal leaves behind, and the whole of `#759`.
+     *
+     * The brake refused and wrote nothing, so a quest it stopped was
+     * indistinguishable from a quest nobody had read yet — to the retry, which
+     * re-picked it every fifteen seconds, and to the sponsor, which was shown
+     * `pending_review` for as long as it ran.
+     */
+    it('records when the hold started, once, and not again on a retry', async () => {
+      const { sponsor, steward, taskId } = await aPaidQuest()
+
+      const first = await publishQuest(db, {
+        stewardId: steward,
+        taskId,
+        at: now(),
+        audit: QUEST_AUDIT_OFF,
+      })
+      expect(first.outcome).toBe('audit-missing')
+      if (first.outcome !== 'audit-missing') return
+      expect(first.firstHold).toBe(true)
+
+      const second = await publishQuest(db, {
+        stewardId: steward,
+        taskId,
+        at: now(),
+        audit: QUEST_AUDIT_OFF,
+      })
+      expect(second.outcome).toBe('audit-missing')
+      if (second.outcome !== 'audit-missing') return
+
+      // The hold is when it started, not when it was last retried: a timestamp
+      // bumped by every attempt is a timestamp that can never reach a threshold.
+      expect(second.firstHold).toBe(false)
+      expect(second.heldSince).toBe(first.heldSince)
+
+      // And the sponsor can see it, which is the third answer `pending_review`
+      // never gave.
+      expect((await readOwnQuest(db, sponsor, taskId))?.heldSince).toBe(first.heldSince)
+    })
+
+    it('takes a held quest out of the retry and into the sweep', async () => {
+      const { steward, taskId } = await aPaidQuest()
+
+      await publishQuest(db, { stewardId: steward, taskId, at: now(), audit: QUEST_AUDIT_OFF })
+
+      // Disjoint by construction: `cleared` is the window between a verdict and
+      // a publication, and a hold is not that window.
+      expect(await questsClearedForPublication(db, 10)).not.toContain(taskId)
+      expect((await questsHeldForPublication(db, 10)).map((quest) => quest.id)).toContain(taskId)
+    })
+
+    it('clears the hold when the quest finally publishes', async () => {
+      const { sponsor, steward, taskId } = await aPaidQuest()
+
+      await publishQuest(db, { stewardId: steward, taskId, at: now(), audit: QUEST_AUDIT_OFF })
+      const lifted = await publishQuest(db, {
+        stewardId: steward,
+        taskId,
+        at: now(),
+        audit: AUDIT_ON,
+      })
+
+      expect(lifted.outcome).toBe('awaiting-payment')
+      expect(await questsHeldForPublication(db, 10)).toEqual([])
+      expect((await readOwnQuest(db, sponsor, taskId))?.heldSince).toBeNull()
     })
 
     it('draws the same submissions in SQL as core draws in TypeScript', async () => {

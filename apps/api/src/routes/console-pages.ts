@@ -384,6 +384,7 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
       title: quest.task.title,
       status: quest.task.status,
       awaitingModeration: quest.awaitingModeration,
+      heldSince: quest.heldSince,
       rejectionReason: quest.rejectionReason,
     }))
 
@@ -3371,6 +3372,9 @@ function registerSponsorPages(
             audience,
             rejectionReason: own.response.rejectionReason,
             awaitingModeration: own.response.awaitingModeration,
+            // The page composes its own sentence from the timestamp rather than
+            // rendering the API's, so the two cannot drift (`#759`).
+            heldSince: own.response.held?.since ?? null,
             /**
              * Present only when the reader is not the author (`#457`) — which
              * `questAuthor` has already established, so this is a label rather

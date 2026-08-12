@@ -462,6 +462,34 @@ export const tasks = pgTable(
     }),
 
     /**
+     * When the Colony last refused to publish a quest that had cleared
+     * moderation, or `null` while nothing is holding it (`#759`).
+     *
+     * **A quest can clear the model and still not go live.** The audit brake is
+     * the case that happened: `publishQuest` answered `audit-missing` and
+     * nothing recorded that it had, so the runner re-read the same quest every
+     * fifteen seconds for fourteen hours and the sponsor was shown
+     * `pending_review` throughout — indistinguishable from a quest still being
+     * read.
+     *
+     * Its own column rather than a status, and rather than `updated_at`, for
+     * `awaiting_payment_since`'s reasons twice over. A status would be a fifth
+     * value every reader of `tasks.status` would have to learn for a state that
+     * is ordinarily empty, and a quest on the brake genuinely is in review — it
+     * is the Colony that is not finished, not the sponsor. `updated_at` moves
+     * for reasons that are not holds, and this column is the clock the alert
+     * runs on.
+     *
+     * **Set once and cleared on publication.** It is *when this hold started*,
+     * not *when it was last retried*: a sponsor reading `held since` wants the
+     * first moment, and the wake-up digest keys on it so a hold is news once.
+     */
+    publicationHeldAt: timestamp('publication_held_at', {
+      withTimezone: true,
+      mode: 'string',
+    }),
+
+    /**
      * The report a quest asks for: an ordered list of questions (`#177`).
      *
      * `jsonb` and not a table, which is the one place this schema prefers a

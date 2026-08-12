@@ -10,6 +10,7 @@ import {
   QUEST_PROOF_VERIFIERS,
   QUEST_VERIFIER_PROVES,
   QUEST_REFUSAL_LIMIT,
+  questHeldNotice,
   QUEST_MAX_DURATION_DAYS,
   QUEST_MAX_SLOTS,
   QuestDraftSchema,
@@ -1041,5 +1042,53 @@ describe('the floor a promise has to clear', () => {
     it('names a setting a maintainer can actually turn', () => {
       expect(settingNamed(QUEST_PRICE_FLOOR_SETTING)).toBeDefined()
     })
+  })
+})
+
+/**
+ * What a sponsor is told about a hold (`#759`).
+ *
+ * **It names no mechanism, and that is the requirement rather than an
+ * omission.** The audit brake is the Colony's own configuration: a sponsor
+ * cannot act on the word *audit*, and a sentence that says it invites a support
+ * ticket asking to be exempted from something that is not about them.
+ */
+describe('the sentence a held quest carries', () => {
+  const since = '2026-08-12T00:00:00.000Z'
+  const after = (hours: number): string =>
+    new Date(Date.parse(since) + hours * 3_600_000).toISOString()
+
+  it('says it is not a refusal and not something waiting on the sponsor', () => {
+    const notice = questHeldNotice(since, after(2))
+
+    expect(notice).toContain('not a refusal')
+    expect(notice).toContain('nothing for you to do')
+    expect(notice).toContain('nothing you committed has been spent')
+  })
+
+  it('names no internal cause', () => {
+    const notice = questHeldNotice(since, after(2)).toLowerCase()
+
+    for (const word of ['audit', 'sampling', 'disagreement', 'steward', 'runner', 'config']) {
+      expect(notice).not.toContain(word)
+    }
+  })
+
+  it('points at the one thing a sponsor can actually do', () => {
+    expect(questHeldNotice(since, after(48))).toContain('kolonie.support.open')
+  })
+
+  /**
+   * Coarse on purpose: a hold measured to the minute implies a precision about
+   * a wait whose end nobody has promised.
+   */
+  it.each([
+    [0, 'held since just now'],
+    [1, 'held for 1 hour'],
+    [5, 'held for 5 hours'],
+    [24, 'held for 1 day'],
+    [50, 'held for 2 days'],
+  ])('reports %i hours as %j', (hours, expected) => {
+    expect(questHeldNotice(since, after(hours))).toContain(expected)
   })
 })

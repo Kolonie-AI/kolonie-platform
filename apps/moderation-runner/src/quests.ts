@@ -1,7 +1,8 @@
 import { noStagesRun, type ModerationStages } from '@kolonie-ai/core'
-import type { PendingQuest, QuestPublishOutcome, SponsorQuest } from '@kolonie-ai/db'
+import type { HeldQuest, PendingQuest, QuestPublishOutcome, SponsorQuest } from '@kolonie-ai/db'
 import type { Log } from './loop.js'
 import type { Model } from './llm.js'
+import { noIssues, type IssueOpener } from './tripwire.js'
 import {
   QUEST_CONFIDENTIALITY_PROMPT,
   QUEST_DEDUP_PROMPT,
@@ -69,6 +70,16 @@ export interface QuestModerationStore {
    */
   cleared(limit: number): Promise<readonly PendingQuest['id'][]>
   /**
+   * Quests the Colony cleared and then stopped short of publishing (`#759`).
+   *
+   * **Disjoint from {@link QuestModerationStore.cleared} by construction**, and
+   * that disjointness is the fix: a held quest left in `cleared` was re-picked
+   * every fifteen seconds, publishing nothing and writing a log line each time,
+   * so the one event worth seeing was buried under four an hour times however
+   * long the hold ran. It moves here, where it is retried on a slow tick.
+   */
+  held(limit: number): Promise<readonly HeldQuest[]>
+  /**
    * The same sponsor's other quests, for the dedup stage (`#694`).
    *
    * **Only that sponsor's.** Two sponsors asking similar things is a market
@@ -84,6 +95,15 @@ export interface QuestLoopDependencies {
   readonly store: QuestModerationStore
   readonly model: Model
   readonly log?: Log
+  /**
+   * Where a hold that has run too long is filed (`#759`).
+   *
+   * The tripwire's opener, and for its reason: a hold is a defect in the
+   * Colony's own configuration, so the maintainer who can lift it is not
+   * reading the runner's logs. Absent degrades to {@link noIssues}, which is
+   * what a runner with no token gets.
+   */
+  readonly issues?: IssueOpener
 }
 
 const silentLog: Log = { info: () => {}, warn: () => {}, error: () => {} }
@@ -331,6 +351,14 @@ export interface QuestTickOutcome {
   readonly published: number
   /** Quests released from a verdict an earlier pass recorded and did not act on. */
   readonly released: number
+  /**
+   * Quests this pass put on the hold rather than in front of citizens (`#759`).
+   *
+   * Counts the transition and not the state: a quest already held is not in
+   * this pass's batch at all, so a hold that runs for a week contributes one.
+   * The standing count is what {@link heldQuestTick} reports.
+   */
+  readonly held: number
 }
 
 /**
@@ -346,7 +374,15 @@ export async function questTick(
   batchSize: number,
 ): Promise<QuestTickOutcome> {
   const { store, log = silentLog } = deps
-  const outcome = { judged: 0, approved: 0, rejected: 0, failed: 0, published: 0, released: 0 }
+  const outcome = {
+    judged: 0,
+    approved: 0,
+    rejected: 0,
+    failed: 0,
+    published: 0,
+    released: 0,
+    held: 0,
+  }
 
   /**
    * The retry first, and deliberately (`#693`).
@@ -360,6 +396,11 @@ export async function questTick(
     try {
       const published = await store.publish(taskId)
       if (reachedCitizens(published)) outcome.released++
+      if (published.outcome === 'audit-missing') {
+        outcome.held++
+        reportHold(log, taskId, published)
+        continue
+      }
       log.info(`quest ${taskId} released from a verdict an earlier pass recorded`, {
         event: 'quest.released',
         questId: taskId,
@@ -392,6 +433,10 @@ export async function questTick(
           // judge, and it is the field to group by when asking why.
           published: judgement.published.outcome,
         })
+        if (judgement.published.outcome === 'audit-missing') {
+          outcome.held++
+          reportHold(log, quest.id, judgement.published)
+        }
         break
       case 'rejected':
         outcome.rejected++
@@ -427,4 +472,150 @@ export async function questTick(
  */
 function reachedCitizens(outcome: QuestPublishOutcome): boolean {
   return outcome.outcome === 'published' || outcome.outcome === 'awaiting-payment'
+}
+
+/**
+ * The one log line a hold is worth (`#759`).
+ *
+ * **Gated on the hold being new, which is the whole defect.** The audit brake
+ * refuses cheaply and deterministically: a quest it stopped will be stopped
+ * again on the next attempt and on every attempt until a maintainer changes
+ * something, so a line per attempt is a line per fifteen seconds saying what the
+ * first one said. A hold that is already recorded says nothing here — the
+ * standing count belongs to {@link heldQuestTick}.
+ */
+function reportHold(
+  log: Log,
+  taskId: PendingQuest['id'],
+  published: Extract<QuestPublishOutcome, { outcome: 'audit-missing' }>,
+): void {
+  if (!published.firstHold) return
+
+  log.warn(`quest ${taskId} cleared moderation and is held short of publication`, {
+    event: 'quest.held',
+    questId: taskId,
+    reason: published.reason,
+    heldSince: published.heldSince,
+  })
+}
+
+/**
+ * How long a hold may run before a maintainer is told in a channel they read.
+ *
+ * **Hours rather than minutes**, because the brake is also the ordinary shape of
+ * a deploy that has not finished: a runner started before its audit
+ * configuration lands holds every quest it clears until the configuration does,
+ * and an issue per quest in that window is noise about a state that fixes
+ * itself. Long enough that a hold reaching it is a hold nobody is fixing.
+ */
+export const HELD_QUEST_ALERT_HOURS = 6
+
+/** What one sweep over the held quests came to. */
+export interface HeldQuestTickOutcome {
+  /** Quests still held after the sweep — the standing count, not a transition. */
+  readonly held: number
+  /** Quests the retry got published. */
+  readonly released: number
+  /** Held quests that reached {@link HELD_QUEST_ALERT_HOURS} and had an issue filed. */
+  readonly alerted: number
+  readonly failed: number
+}
+
+/**
+ * Retry the held quests, and file the ones nobody is lifting (`#759`).
+ *
+ * **On its own slow tick, and that is the point.** The audit brake is not a
+ * transient failure — nothing about waiting makes an unconfigured audit
+ * configured — so retrying it at the queue's own fifteen seconds spends a
+ * database round trip per quest per tick to learn what the previous tick learnt.
+ * What a retry is for is the case where a maintainer *has* fixed it: the hold
+ * lifts on its own within the hour rather than waiting for the sponsor to notice
+ * and ask.
+ *
+ * **The issue is the escalation, because a log line is not one.** A hold is
+ * invisible to the sponsor by design and invisible to the maintainer in
+ * practice; `AGENTS.md` §6 step 7 says a finding that would otherwise be
+ * rediscovered belongs in an issue now, and a quest paid for and not published is
+ * that finding.
+ */
+export async function heldQuestTick(
+  deps: QuestLoopDependencies,
+  batchSize: number,
+  at: string = new Date().toISOString(),
+): Promise<HeldQuestTickOutcome> {
+  const { store, log = silentLog, issues = noIssues } = deps
+  const outcome = { held: 0, released: 0, alerted: 0, failed: 0 }
+
+  for (const quest of await store.held(batchSize)) {
+    try {
+      const published = await store.publish(quest.id)
+
+      if (published.outcome !== 'audit-missing') {
+        outcome.released++
+        log.info(`quest ${quest.id} published after a hold that has now lifted`, {
+          event: 'quest.hold.lifted',
+          questId: quest.id,
+          outcome: published.outcome,
+          heldSince: quest.heldSince,
+        })
+        continue
+      }
+
+      outcome.held++
+      if (await fileHeldQuest(quest, at, issues, log)) outcome.alerted++
+    } catch (error) {
+      outcome.failed++
+      log.error(`could not retry held quest ${quest.id}`, error, {
+        event: 'quest.hold.retry.failed',
+        questId: quest.id,
+      })
+    }
+  }
+
+  return outcome
+}
+
+/** Whether this sweep filed an issue about the hold. */
+async function fileHeldQuest(
+  quest: HeldQuest,
+  at: string,
+  issues: IssueOpener,
+  log: Log,
+): Promise<boolean> {
+  const hours = (Date.parse(at) - Date.parse(quest.heldSince)) / 3_600_000
+  if (!Number.isFinite(hours) || hours < HELD_QUEST_ALERT_HOURS) return false
+  if (await issues.isOpen(quest.id)) return false
+
+  const url = await issues.open({
+    title: `Quest ${quest.id} has been held short of publication for ${Math.floor(hours)}h`,
+    body: heldQuestIssueBody(quest, Math.floor(hours)),
+  })
+
+  if (url !== null) log.info(`opened ${url}`, { event: 'quest.hold.issue.opened', url })
+  return url !== null
+}
+
+/**
+ * What the automated issue says.
+ *
+ * **No sponsor text and no quest text**, on the tripwire's rule: every value here
+ * is an id, a count or a timestamp this function was handed. The title is what
+ * a maintainer scans and the id in it is what dedups the next sweep.
+ */
+export function heldQuestIssueBody(quest: HeldQuest, hours: number): string {
+  return [
+    `Quest \`${quest.id}\` cleared moderation and has not been published since ` +
+      `${quest.heldSince} — ${hours} hours, against a bar of ${HELD_QUEST_ALERT_HOURS}. ` +
+      'The sponsor committed its money at submission and is told the quest is held, not why.',
+    '',
+    'The brake is the audit policy: publication is refused when the deployment has not ' +
+      'configured what a paid quest is audited against. Nothing about waiting fixes that, so ' +
+      'this will not lift on its own. Check the audit variables on the runner and on the API — ' +
+      'they are read by both and default to *off*, which refuses rather than publishes ' +
+      'unguarded.',
+    '',
+    'Opened automatically by the quest stage in `apps/moderation-runner`. The hold lifts by ' +
+      'itself once the configuration is right: the sweep retries every held quest on its slow ' +
+      'tick and publishes the ones that now clear.',
+  ].join('\n')
 }

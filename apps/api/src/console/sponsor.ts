@@ -19,7 +19,9 @@ import {
   RENT_EXEMPT_MINIMUM_FALLBACK,
   audienceFragment,
   distinctOperatorsNotice,
+  now,
   questCanHaveAnswers,
+  questHeldNotice,
   questPayNotice,
   reportAudience,
   type QuestReportCounts,
@@ -333,6 +335,31 @@ export function operatedQuestsPage(input: {
   })
 }
 
+/**
+ * What a sponsor is told this quest's state is, in the state cell (`#759`).
+ *
+ * **Three states behind one status, and they were two.** `pending_review` meant
+ * *being read* and *read and not published by us*, and only the first had a word
+ * for it — so the list showed a quest held for fourteen hours exactly as it
+ * showed one submitted a minute ago.
+ *
+ * The hold is checked first because it is the later of the two: a quest cannot
+ * be held before it has been read, and a row that is both is one the Colony has
+ * finished with and stopped short on.
+ *
+ * *Held by the Colony* and not *held*: the cell has to say whose wait it is, or
+ * a sponsor reads it as something waiting on them.
+ */
+function questState(quest: {
+  readonly status: string
+  readonly awaitingModeration: boolean
+  readonly heldSince?: string | null | undefined
+}): string {
+  if (quest.heldSince !== undefined && quest.heldSince !== null) return 'held by the Colony'
+
+  return quest.awaitingModeration ? 'awaiting moderation' : quest.status
+}
+
 export function questsPage(input: {
   /** Who is reading and where they are, for the navigation (`#608`). */
   readonly nav: ConsoleNav
@@ -342,6 +369,8 @@ export function questsPage(input: {
     readonly title: string
     readonly status: string
     readonly awaitingModeration: boolean
+    /** When the Colony stopped short of publishing it, if it has (`#759`). */
+    readonly heldSince?: string | null | undefined
     readonly rejectionReason: string | null
   }[]
 }): string {
@@ -350,7 +379,7 @@ export function questsPage(input: {
       ? '<tr><td colspan="3">No quests yet.</td></tr>'
       : input.quests
           .map((quest) => {
-            const state = quest.awaitingModeration ? 'awaiting moderation' : quest.status
+            const state = questState(quest)
             return [
               '<tr>',
               `<td><a href="/quests/${escape(quest.id)}">${escape(quest.title)}</a></td>`,
@@ -546,6 +575,8 @@ export function questDraftPage(input: {
   readonly quest: Task
   readonly rejectionReason: string | null
   readonly awaitingModeration: boolean
+  /** When the Colony stopped short of publishing it, if it has (`#759`). */
+  readonly heldSince?: string | null | undefined
   readonly problems?: readonly string[] | undefined
   /**
    * How many citizens this quest's targeting reaches today (`#227`).
@@ -757,7 +788,16 @@ export function questDraftPage(input: {
     nav: input.nav,
     body: [
       `<h1>${escape(quest.title)}</h1>`,
-      `<p class="note">Status: ${escape(input.awaitingModeration ? 'awaiting moderation' : quest.status)}</p>`,
+      `<p class="note">Status: ${escape(questState({ ...input, status: quest.status }))}</p>`,
+      /**
+       * **The hold, in words, on the page a sponsor opens to ask why nothing is
+       * happening** (`#759`). The status cell above says *held by the Colony*
+       * in three words; this says the two things the three words leave out —
+       * that it is not a refusal, and that there is nothing to do.
+       */
+      input.heldSince === undefined || input.heldSince === null
+        ? ''
+        : `<p class="note">${escape(questHeldNotice(input.heldSince, now()))}</p>`,
       /**
        * **The rule, where a human meets it** (`#457`), above the page rather
        * than in place of a button they cannot find. A permission boundary

@@ -16,7 +16,7 @@ import type { Database } from '../../client.js'
 import { agents, questAnswers, questModerations, submissions, tasks } from '../../schema/index.js'
 import { toTask, toTimestamp } from '../rows.js'
 import type { SettingsReader } from '../settings.js'
-import { ownQuestRow, type OwnQuest, type ScrubbedAnswer } from './shared.js'
+import { heldSinceOf, ownQuestRow, type OwnQuest, type ScrubbedAnswer } from './shared.js'
 
 /**
  * What a quest of each tier may pay right now (`#630`).
@@ -88,6 +88,7 @@ export async function listOwnQuests(db: Database, authorId: AgentId): Promise<re
     task: toTask(row),
     rejectionReason: row.rejectionReason,
     awaitingModeration: pending.has(row.id as TaskId),
+    heldSince: heldSinceOf(row),
     ...invoiceOf(row),
   }))
 }
@@ -107,6 +108,7 @@ export async function readOwnQuest(
     task: toTask(found.row),
     rejectionReason: found.row.rejectionReason,
     awaitingModeration: pending.has(taskId),
+    heldSince: heldSinceOf(found.row),
     ...invoiceOf(found.row),
   }
 }
@@ -291,6 +293,7 @@ async function colonyQuests(
     task: toTask(row),
     rejectionReason: row.rejectionReason,
     awaitingModeration: pending.has(row.id as TaskId),
+    heldSince: heldSinceOf(row),
     author: { id: row.createdBy as AgentId | null, name: authorName },
     acceptedReports: accepted.get(row.id as TaskId) ?? 0,
     textRevisedAt: toTimestamp(row.textRevisedAt),

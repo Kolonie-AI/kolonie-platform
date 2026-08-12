@@ -15,7 +15,7 @@ import {
 import type { Database } from '../../client.js'
 import { tasks } from '../../schema/index.js'
 import { toTask } from '../rows.js'
-import { ownQuestRow, type OwnQuest } from './shared.js'
+import { heldSinceOf, ownQuestRow, type OwnQuest } from './shared.js'
 
 /**
  * The write path for a quest: drafted by an account, moderated, reviewed by a
@@ -111,7 +111,12 @@ export async function createQuestDraft(
 
   if (row === undefined) throw new Error('inserting a quest draft returned no row')
 
-  return { task: toTask(row), rejectionReason: row.rejectionReason, awaitingModeration: false }
+  return {
+    task: toTask(row),
+    rejectionReason: row.rejectionReason,
+    awaitingModeration: false,
+    heldSince: heldSinceOf(row),
+  }
 }
 
 /**
@@ -197,6 +202,7 @@ export async function updateQuestDraft(
         task: toTask(updated),
         rejectionReason: updated.rejectionReason,
         awaitingModeration: false,
+        heldSince: heldSinceOf(updated),
       },
     }
   })
@@ -285,6 +291,7 @@ export async function submitQuestForReview(
         task: toTask(submitted),
         rejectionReason: null,
         awaitingModeration: true,
+        heldSince: heldSinceOf(submitted),
       },
     }
   })
@@ -359,6 +366,7 @@ export async function withdrawQuestFromReview(
          * `text_revised_at` rule says about the text at that point.
          */
         awaitingModeration: false,
+        heldSince: heldSinceOf(withdrawn),
       },
     }
   })
@@ -516,6 +524,7 @@ export async function endQuest(
         task: toTask(ended),
         rejectionReason: ended.rejectionReason,
         awaitingModeration: false,
+        heldSince: heldSinceOf(ended),
       },
       attemptsStillOpen: Number(live?.open ?? 0),
     }
@@ -655,7 +664,12 @@ export async function topUpQuest(
 
     return {
       outcome: 'bought' as const,
-      quest: { task, rejectionReason: updated.rejectionReason, awaitingModeration: false },
+      quest: {
+        task,
+        rejectionReason: updated.rejectionReason,
+        awaitingModeration: false,
+        heldSince: heldSinceOf(updated),
+      },
       invoice: {
         lamports: updated.invoiceLamports ?? 0,
         paidLamports: updated.paidLamports,

@@ -17,6 +17,8 @@ import {
   TaskIdSchema,
   audienceSentence,
   invoiceNotice,
+  now,
+  questHeldNotice,
   questCommitmentBreakdown,
   questCommitmentLines,
   platformFeePercentFromEnv,
@@ -678,6 +680,30 @@ export interface OwnQuestResponse {
   readonly quest: Task
   readonly rejectionReason: string | null
   readonly awaitingModeration: boolean
+  /**
+   * That the Colony is holding this quest back, and since when (`#759`).
+   *
+   * **The third thing `pending_review` meant, and the only one a sponsor had no
+   * word for.** *Being read* and *read and refused* were already answerable;
+   * *read, cleared, and not published by us* looked exactly like the first, so a
+   * sponsor whose quest sat still for fourteen hours was shown what a sponsor
+   * whose quest arrived a minute ago was shown, and had no question it could ask
+   * that would separate them.
+   *
+   * **The sentence names no mechanism, and that is the point.** Why the Colony
+   * is holding it is the Colony's business — a configuration of ours is not a
+   * fact about the sponsor's quest, and printing it would invite a sponsor to
+   * act on something it cannot change. What is the sponsor's business is that
+   * the wait is ours and that there is nothing for it to do, and `notice` says
+   * both.
+   *
+   * Absent while nothing is holding the quest, so the ordinary case carries no
+   * field a reader has to interpret as *not held*.
+   */
+  readonly held?: {
+    readonly since: Timestamp
+    readonly notice: string
+  }
   readonly commitment: QuestCommitment
   /**
    * The quest as an answering citizen reads it (`#323`).
@@ -797,6 +823,9 @@ const respond = (
     quest: quest.task,
     rejectionReason: quest.rejectionReason,
     awaitingModeration: quest.awaitingModeration,
+    ...(quest.heldSince === null
+      ? {}
+      : { held: { since: quest.heldSince, notice: questHeldNotice(quest.heldSince, now()) } }),
     commitment: {
       cost,
       breakdown,

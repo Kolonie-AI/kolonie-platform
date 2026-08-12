@@ -1038,6 +1038,7 @@ describe('independent moderation schedules', () => {
     // Nothing stranded, which is the ordinary state. These schedules are about
     // the two loops not blocking each other, and the retry has no bearing on it.
     cleared: async () => [],
+    held: async () => [],
     siblings: async () => [],
     publish: async () => ({ outcome: 'published', escrowed: 0 }),
   })

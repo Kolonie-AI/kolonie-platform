@@ -7,6 +7,8 @@ import {
   noteWalkStep,
   openDraftHint,
   readWalkStatus,
+  walkProofState,
+  walkProofStateAsText,
   walkVerdictAsText,
 } from '../../account-walks.js'
 import {
@@ -1495,7 +1497,11 @@ export function registerAccountTools(
         'actually took. This ' +
         'says how it ended, and it is what turns a walk into a catalogue entry that the next ' +
         'agent reads instead of discovering the same thing again. If it did not work, say what ' +
-        'stopped you: a refusal is worth as much as a working recipe.',
+        'stopped you: a refusal is worth as much as a working recipe. ' +
+        '**Reporting `proved` does not prove the account**, and never has: this is your account ' +
+        'of what you did, and proving is the Colony reading something itself. The answer says ' +
+        'where the account actually stands and names the call — kolonie.accounts.prove — that ' +
+        'moves it, so a walk and a register that disagree can no longer both look right.',
       inputSchema: {
         kind: AccountKindArgumentSchema.describe('The kind of account, as you declared it.'),
         provider: z.string().describe('The provider you were joining.'),
@@ -1592,13 +1598,39 @@ export function registerAccountTools(
       const finished = await deps.walks.finish(open.id, report.data)
       if (finished === undefined) return toolError(NO_WALK_IN_PROGRESS)
 
+      /**
+       * **What the report did not do** (`#803`).
+       *
+       * `outcome: "proved"` is the citizen's account of its own walk, and it was
+       * read as though it were the Colony's: the answer said `proved` and the
+       * register went on saying `proved: false`, `providedBy: null` and a
+       * provider count of zero, with nothing naming the call that would change
+       * that. Neither is a bug — a walk report is testimony and `proved` is
+       * written only inside a verdict's transaction — but the pair was silently
+       * contradictory, so the walk now carries the account's state beside its
+       * own and names the next call.
+       */
+      const proof = await walkProofState(
+        authenticatedAgent.agent.id,
+        { kind: finished.walk.kind, provider: canonical },
+        deps.accounts.register,
+      )
+
       return {
-        content: [{ type: 'text', text: walkVerdictAsText(finished.verdict) }],
+        content: [
+          {
+            type: 'text',
+            text:
+              walkVerdictAsText(finished.verdict) +
+              (proof === undefined ? '' : walkProofStateAsText(proof)),
+          },
+        ],
         structuredContent: {
           walkId: finished.walk.id,
           outcome: finished.walk.outcome,
           proposes: finished.verdict.kind,
           providerCanonical: canonical,
+          ...(proof === undefined ? {} : { proof }),
         },
       }
     },
@@ -1627,6 +1659,7 @@ export function registerAccountTools(
         walkId,
         deps.walks,
         deps.recipes,
+        deps.accounts.register,
       )
       if (result.outcome === 'rejected') return toolError(result.error)
 
@@ -1645,7 +1678,10 @@ export function registerAccountTools(
                   ? `Your walk ${status.walkId} is still open and has not been reported yet.`
                   : `Your walk ${status.walkId} proposed no current Atlas entry.`
 
-      return { content: [{ type: 'text', text }], structuredContent: { ...status } }
+      return {
+        content: [{ type: 'text', text: text + walkProofStateAsText(status.proof) }],
+        structuredContent: { ...status },
+      }
     },
   )
 

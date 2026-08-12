@@ -54,7 +54,7 @@ export function registerAccountRoutes(v1: FastifyInstance, deps: RouteDependenci
     if (caller === null) return reply
 
     const { walkId } = request.params as { walkId: string }
-    const result = await readWalkStatus(caller.id, walkId, walks, recipes)
+    const result = await readWalkStatus(caller.id, walkId, walks, recipes, accounts.register)
 
     if (result.outcome === 'rejected') {
       return reply.status(ERROR_STATUS[result.error.code]).send(result.error)

@@ -398,7 +398,13 @@ export async function readAccounts(
   const latestWalks =
     recipes === undefined
       ? []
-      : await latestWalkStatuses(agentId, parsed?.data as AccountKind | undefined, walks, recipes)
+      : await latestWalkStatuses(
+          agentId,
+          parsed?.data as AccountKind | undefined,
+          walks,
+          recipes,
+          deps.register,
+        )
 
   return { outcome: 'read', response: { accounts, latestWalks, knownKinds: KNOWN_ACCOUNT_KINDS } }
 }

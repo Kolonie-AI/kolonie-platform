@@ -4,11 +4,14 @@ import {
   WalkOutcomeSchema,
   WalkTakenStepPositionsSchema,
   RECIPE_REFUSAL_MAX_LENGTH,
+  type Account,
   type AccountKind,
+  type AccountProofMethod,
   type AccountWalk,
   type AgentId,
   type ApiError,
   type ProviderRecipe,
+  type ProviderTally,
   type WalkOutcome,
   type WalkVerdict,
 } from '@kolonie-ai/core'
@@ -108,6 +111,178 @@ export interface WalkStatus {
   readonly appearsInRecipes: boolean
   readonly refusalReason: string | null
   readonly requiredChanges: readonly string[] | null
+  /**
+   * What the walk did not do to the account (`#803`).
+   *
+   * **Never omitted and never null.** The whole complaint was a citizen reading
+   * `proved` on a walk and having to infer what that meant for the account; a
+   * field that is sometimes absent would reproduce it one level down.
+   */
+  readonly proof: WalkProofState
+}
+
+/**
+ * What a walk did **not** do to the account, said out loud (`#803`).
+ *
+ * ## The confusion this exists to end
+ *
+ * A citizen closed a walk with `outcome: "proved"`, read `proposes: "draft"`
+ * back, and then found the account still `proved: false`, `provedBy: null`, and
+ * the provider tally still `proved: 0`. Nothing was broken. The word `proved` on
+ * a walk report answers *did you end up holding the account*, and `proved` on an
+ * account answers *did the Colony read something that says so* — two different
+ * questions that happen to share a word, with no surface saying so.
+ *
+ * **Auto-proving was the other option and it is the wrong one.** `proved` and
+ * `provedBy` are written only inside a verdict's transaction, and there is a test
+ * asserting no route reaches that function. A walk report is a citizen's own
+ * account of what it did; letting it set proof would make the register's
+ * strongest field settable by the party it is about. `AccountProofMethodSchema`
+ * exists precisely so a reader can tell what the Colony read, and a fourth value
+ * meaning *the holder said so* would empty the other three of meaning.
+ *
+ * So the fix is the other half of what the citizen asked for: the walk report and
+ * the walk read both carry the account's actual proof state, the provider's
+ * actual counters, and the **one call** that would change them.
+ */
+export interface WalkProofState {
+  /** The declared account for this kind and provider, or null if there is none yet. */
+  readonly accountId: string | null
+  /** What the register says, and never what the walk said. */
+  readonly accountProved: boolean
+  /**
+   * What the Colony read, travelling with `accountProved` as it does everywhere
+   * else. Null exactly when `accountProved` is false.
+   */
+  readonly accountProvedBy: AccountProofMethod | null
+  /** Citizens that have named this provider for this kind, proved or not. */
+  readonly providerCitizens: number
+  /**
+   * Of those, the ones holding an account the Colony verified.
+   *
+   * **This is why the number a citizen expected to move did not move.** It counts
+   * proved accounts and a walk proves nothing, so it changes when
+   * `kolonie.accounts.prove` closes — not when a walk is reported.
+   */
+  readonly providerProved: number
+  /** The one call that would change the two above, or null when there is nothing to do. */
+  readonly nextAction: WalkNextAction
+}
+
+/**
+ * The next call, named rather than described.
+ *
+ * A `call` an agent can dispatch on and a `why` a reader can act on. Null `call`
+ * is the finished state and still carries its sentence, because *nothing to do*
+ * is the answer most easily mistaken for a missing field.
+ */
+export interface WalkNextAction {
+  readonly call: 'kolonie.accounts.declare' | 'kolonie.accounts.prove' | null
+  readonly why: string
+}
+
+/**
+ * The two reads this needs, structurally rather than by importing the register.
+ *
+ * `accounts.ts` imports this module, so this module cannot import it back. The
+ * shape is a subset of `AccountRegister` and is satisfied by it.
+ */
+export interface WalkAccountsRead {
+  list(agentId: AgentId, kind?: AccountKind): Promise<readonly Account[]>
+  providers(kind?: AccountKind): Promise<readonly ProviderTally[]>
+}
+
+/**
+ * Prefer a proved account over an unproved one for the same provider.
+ *
+ * A citizen may hold several accounts at one provider — several mailboxes is the
+ * ordinary case — and the question this answers is *is this walk's provider
+ * proved for you*, which one proved account settles.
+ */
+function accountAtProvider(accounts: readonly Account[], provider: string): Account | undefined {
+  const here = accounts.filter(
+    (account) => account.provider === provider && account.status !== 'retired',
+  )
+
+  return here.find((account) => account.proved) ?? here[0]
+}
+
+/**
+ * The account and provider state behind one walk, and what would move it.
+ *
+ * Pure, and separate from the two reads that feed it, because
+ * {@link latestWalkStatuses} answers for many walks at once and would otherwise
+ * ask the register the same two questions per walk.
+ */
+export function deriveWalkProofState(
+  held: readonly Account[],
+  tallies: readonly ProviderTally[],
+  where: { readonly kind: AccountKind; readonly provider: string },
+): WalkProofState {
+  const account = accountAtProvider(held, where.provider)
+  const tally = tallies.find((one) => one.provider === where.provider)
+
+  return {
+    accountId: account?.id ?? null,
+    accountProved: account?.proved ?? false,
+    accountProvedBy: account?.provedBy ?? null,
+    providerCitizens: tally?.citizens ?? 0,
+    providerProved: tally?.proved ?? 0,
+    nextAction:
+      account === undefined
+        ? {
+            call: 'kolonie.accounts.declare',
+            why:
+              `The walk is recorded, and nothing in the register holds a ${where.kind} account ` +
+              `at ${where.provider} for you yet. Declaring it is what puts the row there; it ` +
+              `proves nothing by itself, and proving is the call after it.`,
+          }
+        : account.proved
+          ? {
+              call: null,
+              why:
+                `Nothing to do: that account is proved, by ${account.provedBy ?? 'a verdict'}, ` +
+                `and it is counted in this provider's proved figure.`,
+            }
+          : {
+              call: 'kolonie.accounts.prove',
+              why:
+                `The account is declared and unproved, which is what a walk leaves it as — a ` +
+                `walk report is your account of what you did, and proving is the Colony reading ` +
+                `something itself. kolonie.accounts.prove with method "provider-mail" or ` +
+                `"provider-post" is what sets proved, provedBy and this provider's proved count. ` +
+                `Neither one asks for a password.`,
+            },
+  }
+}
+
+/** The two reads, for a caller that wants the state of exactly one walk. */
+export async function walkProofState(
+  agentId: AgentId,
+  where: { readonly kind: AccountKind; readonly provider: string },
+  accounts: WalkAccountsRead | undefined,
+): Promise<WalkProofState | undefined> {
+  if (accounts === undefined) return undefined
+
+  const [held, tallies] = await Promise.all([
+    accounts.list(agentId, where.kind),
+    accounts.providers(where.kind),
+  ])
+
+  return deriveWalkProofState(held, tallies, where)
+}
+
+/** The same three facts as a sentence, for the text half of a tool answer. */
+export function walkProofStateAsText(state: WalkProofState): string {
+  return (
+    `\n\n**The account is a separate question and this walk did not answer it.** ` +
+    `Account: ${state.accountProved ? `proved (${state.accountProvedBy ?? 'unknown'})` : 'not proved'}. ` +
+    `This provider: ${String(state.providerProved)} of ${String(state.providerCitizens)} ` +
+    `citizen${state.providerCitizens === 1 ? '' : 's'} proved.` +
+    (state.nextAction.call === null
+      ? ` ${state.nextAction.why}`
+      : ` Next: \`${state.nextAction.call}\` — ${state.nextAction.why}`)
+  )
 }
 
 /** A private walk read either returns current state or an ownership-safe not-found. */
@@ -122,7 +297,11 @@ const WALK_NOT_FOUND: ApiError = {
     "kolonie.accounts.walk-report; another citizen's walk is never readable here.",
 }
 
-async function statusOf(walk: AccountWalk, recipes: ProviderRecipes): Promise<WalkStatus> {
+async function statusOf(
+  walk: AccountWalk,
+  recipes: ProviderRecipes,
+  proof: WalkProofState,
+): Promise<WalkStatus> {
   const entry = await recipes.one(walk.kind, walk.provider)
   const status: WalkPublicationStatus =
     walk.finishedAt === null
@@ -148,7 +327,27 @@ async function statusOf(walk: AccountWalk, recipes: ProviderRecipes): Promise<Wa
     appearsInRecipes: entry !== undefined && !['proposed', 'draft'].includes(entry.status),
     refusalReason: status === 'refused' ? (entry?.refusal ?? walk.wall) : null,
     requiredChanges: null,
+    proof,
   }
+}
+
+/**
+ * The proof state a walk read carries when the register is not wired.
+ *
+ * A deployment without it is the same deployment that has no walks to read, so
+ * this is a shape rather than a state anybody reaches — and it still names a call
+ * rather than answering `null`.
+ */
+const PROOF_UNREAD: WalkProofState = {
+  accountId: null,
+  accountProved: false,
+  accountProvedBy: null,
+  providerCitizens: 0,
+  providerProved: 0,
+  nextAction: {
+    call: 'kolonie.accounts.declare',
+    why: 'The register could not be read here, so nothing is known about the account yet.',
+  },
 }
 
 /** Read one owned walk and the current Atlas state for its provider. */
@@ -157,11 +356,14 @@ export async function readWalkStatus(
   walkId: string,
   walks: WalkStore | undefined,
   recipes: ProviderRecipes,
+  accounts?: WalkAccountsRead,
 ): Promise<WalkStatusOutcome> {
   const walk = await walks?.one(agentId, walkId)
   if (walk === undefined) return { outcome: 'rejected', error: WALK_NOT_FOUND }
 
-  return { outcome: 'read', response: await statusOf(walk, recipes) }
+  const proof = await walkProofState(agentId, walk, accounts)
+
+  return { outcome: 'read', response: await statusOf(walk, recipes, proof ?? PROOF_UNREAD) }
 }
 
 /** The latest walk for each kind/provider pair this citizen has touched. */
@@ -170,6 +372,7 @@ export async function latestWalkStatuses(
   kind: AccountKind | undefined,
   walks: WalkStore | undefined,
   recipes: ProviderRecipes,
+  accounts?: WalkAccountsRead,
 ): Promise<readonly WalkStatus[]> {
   if (walks === undefined) return []
 
@@ -179,7 +382,47 @@ export async function latestWalkStatuses(
     if (!latest.has(key)) latest.set(key, walk)
   }
 
-  return Promise.all([...latest.values()].map((walk) => statusOf(walk, recipes)))
+  /**
+   * The register is read once per kind, not once per walk (`#803`).
+   *
+   * A citizen with a dozen walks at one kind is the ordinary case, and asking the
+   * register a dozen times for the same two lists would make a field that answers
+   * *what did this not do* cost more than the walks it hangs off.
+   */
+  const kinds = new Set([...latest.values()].map((walk) => walk.kind))
+  const registers = new Map<AccountKind, WalkRegisterRead>()
+
+  if (accounts !== undefined) {
+    await Promise.all(
+      [...kinds].map(async (one) => {
+        const [held, tallies] = await Promise.all([
+          accounts.list(agentId, one),
+          accounts.providers(one),
+        ])
+        registers.set(one, { held, tallies })
+      }),
+    )
+  }
+
+  return Promise.all(
+    [...latest.values()].map((walk) => {
+      const register = registers.get(walk.kind)
+
+      return statusOf(
+        walk,
+        recipes,
+        register === undefined
+          ? PROOF_UNREAD
+          : deriveWalkProofState(register.held, register.tallies, walk),
+      )
+    }),
+  )
+}
+
+/** One kind's half of the register, held while that kind's walks are shaped. */
+interface WalkRegisterRead {
+  readonly held: readonly Account[]
+  readonly tallies: readonly ProviderTally[]
 }
 
 /** A private draft hint for a public catalogue miss, without exposing its steps. */

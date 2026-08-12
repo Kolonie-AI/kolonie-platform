@@ -55,6 +55,14 @@ describe('the inventory', () => {
       appearsInRecipes: false,
       refusalReason: null,
       requiredChanges: null,
+      proof: {
+        accountId: null,
+        accountProved: false,
+        accountProvedBy: null,
+        providerCitizens: 0,
+        providerProved: 0,
+        nextAction: { call: 'kolonie.accounts.declare', why: 'Nothing is in the register yet.' },
+      },
     }
 
     const text = accountsAsText([], [walk])

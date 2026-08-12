@@ -17,13 +17,8 @@ import {
   outstandingDebt,
 } from '@kolonie-ai/db'
 import { startRunner, type Log, type TriageStore } from './loop.js'
-import {
-  noDefectWriter,
-  openRouterDefectWriter,
-  openRouterModel,
-  unavailableModel,
-  OPENROUTER_API_KEY_VAR,
-} from './llm.js'
+import { OPENROUTER_API_KEY_VAR } from './llm.js'
+import { modelClients } from './clients.js'
 import { APP_ID_VAR, APP_KEY_PATH_VAR, githubIssues, noIssues } from './github.js'
 import { LOKI_TOKEN_VAR, LOKI_URL_VAR, LOKI_USER_VAR, lokiLogs, noLogs } from './logs.js'
 import type { DefectStore } from './watch.js'
@@ -81,14 +76,15 @@ const apiKey = process.env[OPENROUTER_API_KEY_VAR] ?? ''
  */
 const modelFetch = gatewayRoutedFetch(gatewayFromEnvironment('triage'), { log })
 
-const model =
-  apiKey === ''
-    ? unavailableModel(`${OPENROUTER_API_KEY_VAR} not set`)
-    : openRouterModel(apiKey, {
-        ...(process.env['TRIAGE_MODEL'] && { model: process.env['TRIAGE_MODEL'] }),
-        fetchImpl: modelFetch,
-        log,
-      })
+/**
+ * Both of them, built together, so neither can be built without the transport
+ * above (`#780`). `clients.ts` says why that is a module and not two lines here.
+ */
+const { model, writer } = modelClients(apiKey, {
+  ...(process.env['TRIAGE_MODEL'] && { model: process.env['TRIAGE_MODEL'] }),
+  fetchImpl: modelFetch,
+  log,
+})
 
 if (apiKey === '') {
   log.warn(
@@ -205,9 +201,10 @@ const runner = startRunner(
       logs,
       issues,
       store: defects,
-      // The prose half, on the key triage already uses. Unavailable is a
-      // degradation and not a stop: an issue is complete without a reading.
-      writer: apiKey === '' ? noDefectWriter : openRouterDefectWriter(apiKey, { log }),
+      // The prose half, on the key *and the transport* triage already uses.
+      // Unavailable is a degradation and not a stop: an issue is complete
+      // without a reading.
+      writer,
       log,
     },
     /**

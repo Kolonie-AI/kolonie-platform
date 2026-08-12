@@ -52,6 +52,14 @@ describe('where a relocated paragraph goes', () => {
     })
   })
 
+  it('describes a quest proof verifier as a check made when an answer is handed in', () => {
+    const docs = TOOL_DOCS['kolonie.quests.write']
+
+    expect(docs).toContain('checked when an answer is handed in')
+    expect(docs).toMatch(/does not narrow who may\s+attempt/)
+    expect(docs).not.toContain('gate on who may answer')
+  })
+
   /** Absolute: a client holds a tool list in a prompt and has no base to resolve against. */
   it('publishes an absolute URL', () => {
     for (const name of Object.keys(TOOL_DOCS)) {

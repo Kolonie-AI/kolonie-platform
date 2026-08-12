@@ -87,7 +87,7 @@ describe('what a requirement cost', () => {
         requires: ['browser', 'mailbox'],
       }),
     ).toContain(
-      'With browser, mailbox required, 6 citizens can answer this quest, against 40 citizens with no requirement.',
+      'With browser, mailbox required, 6 citizens may attempt this quest, against 40 citizens with no requirement.',
     )
   })
 
@@ -99,8 +99,20 @@ describe('what a requirement cost', () => {
         requires: [],
       }),
     ).toContain(
-      'You have required no skills, so anyone this quest is offered to may answer — 40 citizens today.',
+      'You have required no skills, so anyone this quest is offered to may attempt — 40 citizens today.',
     )
+  })
+
+  it('states that a proof verifier is checked after the reach is counted', () => {
+    const said = audienceSentence({
+      reach: reportAudience(6),
+      unrestricted: reportAudience(40),
+      requires: ['browser'],
+      proofVerifier: 'email-inbox',
+    })
+
+    expect(said).toContain('The `proofVerifier` is not included in this reach')
+    expect(said).toContain('`email-inbox` is checked when an answer is handed in')
   })
 
   /**
@@ -115,7 +127,7 @@ describe('what a requirement cost', () => {
         requires: ['solana-wallet'],
       }),
     ).toContain(
-      'With solana-wallet required, no citizen can answer this quest, against 40 citizens with no requirement.',
+      'With solana-wallet required, no citizen may attempt this quest, against 40 citizens with no requirement.',
     )
   })
 

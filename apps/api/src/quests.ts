@@ -925,7 +925,10 @@ const audienceOf = async (task: Task, desk: QuestDesk): Promise<QuestAudience> =
     requires: task.requires,
   }
 
-  return { ...reports, sentence: audienceSentence(reports) }
+  return {
+    ...reports,
+    sentence: audienceSentence({ ...reports, proofVerifier: task.proofVerifier }),
+  }
 }
 
 /** The same, for the calls that have the quest and need its audience. */

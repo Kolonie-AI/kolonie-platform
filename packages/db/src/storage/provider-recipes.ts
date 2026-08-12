@@ -48,7 +48,7 @@ import { toTimestamp } from './rows.js'
  * there is no join here.
  */
 
-function toRecipe(row: typeof providerRecipes.$inferSelect): ProviderRecipe {
+export function toRecipe(row: typeof providerRecipes.$inferSelect): ProviderRecipe {
   const steps = (row.steps ?? []).map((step: RecipeStep) => RecipeStepSchema.parse(step))
 
   /**
@@ -437,6 +437,79 @@ export async function curateListedProvider(
     .returning({ id: providerRecipes.id })
 
   return changed.length > 0
+}
+
+/**
+ * Move a draft the Colony has judged, and nothing else (`#808`).
+ *
+ * **The one path from `draft` to a published state.** `writeProviderRecipe`
+ * replaces a row from the top, which is right for *this provider changed its
+ * form* and wrong for *this walk was judged*: a publish that went through it
+ * would have to restate every field it did not mean to change, and restating a
+ * field is how a verdict quietly reverts an edit somebody made in between.
+ *
+ * **Guarded on `draft` in the `where`, not by the caller.** The verdict was
+ * reached about a draft; if a steward published or refused it in the meantime,
+ * the entry is not that draft any more and this must do nothing. That makes the
+ * ordinary race — a steward and the runner reaching the same row — resolve to
+ * whoever got there first, exactly as `recordAtlasModeration` resolves it.
+ *
+ * **Refusing empties the entry, because the table requires it.**
+ * `provider_recipes_unjoinable_is_empty` will not hold a refused row with steps
+ * or a proof, so refusing is not a label over a walk — it discards it, and
+ * `reaches` and `provesTask` go with it since neither survives a null `proves`.
+ * That is why `#813` refuses only for a red line: everything fixable is held as a
+ * draft instead. What is kept is `walked_recipe`, which is a separate column and
+ * unaffected — so the walk that produced a refused entry is still readable.
+ *
+ * Returns whether a row moved, so a caller can tell a verdict that landed from
+ * one that arrived late.
+ */
+export async function publishProviderRecipe(
+  db: Handle,
+  entry: {
+    readonly kind: AccountKind
+    readonly provider: string
+  } & (
+    | {
+        readonly verdict: 'published'
+        /** Where the shelf was confirmed or corrected; left alone when absent. */
+        readonly category?: AtlasCategory | undefined
+      }
+    | { readonly verdict: 'refused'; readonly refusal: string }
+  ),
+): Promise<boolean> {
+  const moved = await db
+    .update(providerRecipes)
+    .set(
+      entry.verdict === 'published'
+        ? {
+            status: 'joinable',
+            ...(entry.category === undefined ? {} : { category: entry.category }),
+            refusal: null,
+            updatedAt: sql`now()`,
+          }
+        : {
+            status: 'refused',
+            refusal: entry.refusal,
+            /** The four the constraints require of an entry that is not joinable. */
+            steps: [],
+            proves: null,
+            provesTask: null,
+            reaches: null,
+            updatedAt: sql`now()`,
+          },
+    )
+    .where(
+      and(
+        eq(providerRecipes.kind, entry.kind),
+        eq(providerRecipes.provider, AccountProviderSchema.parse(entry.provider)),
+        eq(providerRecipes.status, 'draft'),
+      ),
+    )
+    .returning({ id: providerRecipes.id })
+
+  return moved.length > 0
 }
 
 /**

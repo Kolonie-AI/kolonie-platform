@@ -517,6 +517,14 @@ describe('schema', () => {
         'quest_report_reads',
         'quest_reports',
         /**
+         * `#813`. Every verdict the Colony reached about a walked recipe — the
+         * model, each stage's answer, and a digest of the steps judged. Its own
+         * table beside `atlas_moderations` because they decide different
+         * questions about different objects: whether a provider belongs on the
+         * map, and whether the path somebody walked is fit to follow.
+         */
+        'recipe_moderations',
+        /**
          * `report_feedback` joined with #110, carrying the votes that used to
          * live in `tip_feedback`. What widened is what may be voted on: with one
          * table a wall can be voted on too, which costs nothing and closes an

@@ -31,6 +31,10 @@ import {
   atlasEntryFor,
   recordAtlasModeration,
   unjudgedAtlasProposals,
+  lastRecipeModeration,
+  recipeDraftDigest,
+  recordRecipeModeration,
+  unjudgedRecipeDrafts,
 } from '@kolonie-ai/db'
 import {
   BRIEFING_TICK_MULTIPLIER,
@@ -46,6 +50,7 @@ import type { QuestModerationStore } from './quests.js'
 import type { AnswerModerationStore } from './answers.js'
 import type { ProviderReasonModerationStore } from './provider-reasons.js'
 import type { AtlasModerationStore } from './atlas.js'
+import type { RecipeModerationStore } from './recipes.js'
 import type { QuestReportModerationStore } from './quest-reports.js'
 import {
   createLog,
@@ -366,6 +371,25 @@ const atlasStore: AtlasModerationStore = {
   },
 }
 
+/**
+ * Whether a walked recipe is fit to publish (`#813`).
+ *
+ * Seventh pass in the same process, and the store is four functions rather than
+ * three because one of them is arithmetic: the digest is computed where the
+ * steps are stored, so the pass can ask *have I judged this text before* without
+ * knowing what goes into the answer.
+ */
+const recipeStore: RecipeModerationStore = {
+  pending: (limit) => unjudgedRecipeDrafts(db, limit),
+  lastVerdict: (recipeId) => lastRecipeModeration(db, recipeId),
+  digest: (recipe) => recipeDraftDigest(recipe),
+  record: async (input) => {
+    const written = await recordRecipeModeration(db, input)
+
+    return { outcome: written.outcome }
+  },
+}
+
 const providerReasonStore: ProviderReasonModerationStore = {
   pending: (limit) => unmoderatedProviderReasons(db, limit),
   write: async ({ reason, scrubbed }) => {
@@ -419,6 +443,7 @@ const runner = startRunner(
     questReports: { store: questReportStore, model, log },
     providerReasons: { store: providerReasonStore, model, log },
     atlas: { store: atlasStore, model, log },
+    recipes: { store: recipeStore, model, log },
     directions: {
       directions: directionStore,
       classifier: openRouterDirectionClassifier(

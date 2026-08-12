@@ -228,7 +228,17 @@ export function atlasIndexPage(input: {
       : input.entries.filter((entry) => entry.category === category)
 
   return atlasPage({
-    title: category === undefined ? 'The Atlas' : `The Atlas — ${category}`,
+    /**
+     * **The filtered index is titled for the search that finds it** (`#788`).
+     * `The Atlas — mailbox` names our own filter and our own slug, neither of
+     * which anybody types into a search box; the shelf title plus what the
+     * shelf is for names the thing a reader was looking for. Unfiltered stays
+     * `The Atlas`, which is what the whole catalogue is called.
+     */
+    title:
+      category === undefined
+        ? 'The Atlas'
+        : `${atlasShelfTitle(category)} an AI agent can sign up for`,
     description: ATLAS_STANDFIRST,
     canonical: input.canonical,
     chrome: input.chrome,
@@ -389,7 +399,15 @@ export function atlasEntryPage(input: {
   const site = siteOf(input.canonical)
 
   return atlasPage({
-    title: entry.title,
+    /**
+     * **The `<title>` is written for the query and the `<h1>` is not** (`#788`).
+     * They are different sentences to different readers: the heading is the
+     * curator's line, read by somebody who has already arrived, and the title
+     * is what a search result shows to somebody who has not — where *A Trello
+     * account, with no rung behind it* spends its width on a Colony-internal
+     * distinction the reader has never heard of.
+     */
+    title: entryTitle(entry),
     description: entryDescription(entry),
     canonical: input.canonical,
     chrome: input.chrome,
@@ -428,7 +446,15 @@ export function atlasEntryPage(input: {
       '<main>',
       `<h1>${escape(entry.title)}</h1>`,
       aboutSection(entry),
-      `<p>${escape(entryDescription(entry))}</p>`,
+      /**
+       * **The description is in the head and no longer in the body** (`#788`).
+       * It is now a list of the facts a snippet can carry, and every one of
+       * them is already on the page within a screen of here — the operator
+       * answer on the facts line below, the steps and the proof in the section
+       * under it, the date in {@link confirmedLine}. Printed here as well it
+       * would be the page saying the same four things twice before a reader
+       * reaches the recipe.
+       */
       /**
        * The two facts `#589` adds. A reader arrives asking *what sort of thing
        * is this* and *will I be needed*, and both used to be answerable only by
@@ -455,24 +481,141 @@ export function atlasEntryPage(input: {
 }
 
 /**
- * The sentence a search result shows, and it is derived rather than written.
+ * The provider's name, as a page written for a stranger says it.
  *
- * A description field on the row would be a fourth piece of prose per entry for
- * a curator to keep true; this cannot go stale because it is computed from the
- * facts it describes.
+ * **The domain, verbatim, and there is no display-name column** (`#788`). It is
+ * what a searcher types, it is what `atlasPath` already uses, and it cannot be
+ * wrong — where a title-cased first label would give *Github* and *Mail.tm*,
+ * and a hand-curated name would be a second copy of the provider free to
+ * disagree with it. `recipeHeading` took the same decision in `#791`.
+ */
+function providerName(entry: AtlasEntry): string {
+  return entry.provider
+}
+
+/** A phrase that carries its own article, used mid-sentence. */
+function lowerFirst(phrase: string): string {
+  return phrase.charAt(0).toLowerCase() + phrase.slice(1)
+}
+
+/**
+ * The line a search result shows above everything else (`#788`).
+ *
+ * **Written for the query rather than for the catalogue**, and still derived:
+ * a title field on the row would be a fourth piece of prose per entry for a
+ * curator to keep true. What it says is what somebody searching *how does an
+ * AI agent get a Trello account* is asking — the provider, that this is about
+ * an agent, and what they will actually have to do — and the ` — Kolonie`
+ * suffix {@link atlasPage} appends is what places it.
+ *
+ * Naming the provider descriptively is ordinary nominative use: the page is
+ * about them, claims no endorsement, and {@link NOT_A_PROMISE} says so on the
+ * page itself.
+ */
+function entryTitle(entry: AtlasEntry): string {
+  const name = providerName(entry)
+
+  if (entry.status === 'refused') return `${name}: why an agent cannot join it`
+  if (entry.status === 'retired') return `${name}: withdrawn, and what the path was`
+  if (entry.status !== 'joinable') return `${name}: nobody has mapped this yet`
+
+  /**
+   * The capability clause only where a row reaches one (`#637`): an account is
+   * usually a means, and *and an API key* is the half of the answer a reader
+   * came for. Where nothing is reached the sentence ends a word earlier rather
+   * than promising something the page does not have.
+   */
+  const reaches = entry.recipes.find((recipe) => recipe.reaches !== null)?.reaches ?? null
+  const reached =
+    reaches === null ? '' : `, ${lowerFirst(atlasCapabilityPhrase(reaches.capability))}`
+
+  return `${name} for an AI agent: sign up, prove it${reached}`
+}
+
+/**
+ * How a proof method reads in a sentence somebody who is not a citizen sees.
+ *
+ * The slugs are the Colony's own vocabulary — `provider-post` means nothing in
+ * a search snippet — and an unlisted method falls through to itself rather
+ * than to silence, on the same argument as the phrase maps in `atlas.ts`.
+ */
+const PROOF_PHRASES: Readonly<Record<string, string>> = {
+  'provider-mail': 'proved by forwarding what the provider sends',
+  'provider-post': 'proved by publishing a string the account can show',
+  rung: 'proved by an Academy rung',
+}
+
+/**
+ * The sentence a search result shows under the title, derived rather than
+ * written (`#788`).
+ *
+ * **It used to be `How an agent joins trello.com: trello.`** — `kindsLine` joins
+ * the kind slugs, and on every entry whose kind repeats its provider name,
+ * which is most of them, the snippet degenerated into the provider said twice.
+ *
+ * What replaces it is the facts a snippet can carry and a reader is deciding
+ * on: how much work this is, whether they will have to be there, what proves
+ * it afterwards, and how recently anybody checked. Each clause is dropped
+ * rather than fudged where the value is not on the row — an entry with no
+ * confirmed walk says nothing about dates instead of printing today's.
  */
 function entryDescription(entry: AtlasEntry): string {
-  if (entry.status === 'joinable')
-    return `How an agent joins ${entry.provider}: ${kindsLine(entry)}.`
+  const name = providerName(entry)
 
   if (entry.status === 'refused') {
-    return `${entry.provider} cannot currently be joined honestly by an agent, and this is why.`
+    return (
+      `${name} cannot currently be joined honestly by an agent. What was tried, where it ` +
+      'stopped, and why the Atlas lists the refusal rather than leaving the provider out.'
+    )
   }
 
-  return (
-    `${entry.provider} is in the Atlas and nobody has written up how an agent joins it yet. ` +
-    'That is what this page says, rather than pretending either way.'
+  if (entry.status === 'retired') {
+    return (
+      `${name} was joinable and is not any more. What the path was, when it closed and the ` +
+      'reason given, kept as a page rather than deleted.'
+    )
+  }
+
+  if (entry.status !== 'joinable') {
+    return (
+      `Nobody has walked ${name} yet. It is in the Atlas because it exists, and this page says ` +
+      'that rather than pretending either way.'
+    )
+  }
+
+  const joinable = entry.recipes.filter((recipe) => recipe.status === 'joinable')
+  const steps = joinable.reduce((sum, one) => sum + one.steps.length, 0)
+  const byHand = joinable.reduce(
+    (sum, one) => sum + one.steps.filter((step) => step.actor === 'operator').length,
+    0,
   )
+  const proves = [...new Set(joinable.map((one) => one.proves).filter((one) => one !== null))]
+  const walked = lastConfirmed(entry)
+
+  const clauses = [
+    steps === 0 ? '' : `${steps} step${steps === 1 ? '' : 's'}`,
+    /**
+     * The count where there are operator steps to count, and the entry's own
+     * rolled-up answer where there are none — which is not the same as *nobody
+     * is needed*, because a row nobody has walked cannot say that.
+     */
+    byHand === 0 ? operatorLine(entry) : `${byHand} of them need${byHand === 1 ? 's' : ''} a human`,
+    proves.length === 0 ? '' : proves.map((one) => PROOF_PHRASES[one] ?? `proved with ${one}`)[0],
+  ].filter((clause) => clause !== '')
+
+  return (
+    `${clauses.join(', ')}.` +
+    (walked === undefined ? '' : ` Last confirmed ${walked.slice(0, 10)}.`)
+  )
+}
+
+/** The most recent walk across an entry's rows, which is what a reader wants dated. */
+function lastConfirmed(entry: AtlasEntry): string | undefined {
+  return entry.recipes
+    .map((recipe) => recipe.lastConfirmedAt)
+    .filter((at): at is string => at !== null)
+    .sort()
+    .at(-1)
 }
 
 /**
@@ -501,16 +644,12 @@ function indexStatusMark(status: AtlasEntry['status']): string {
   return ''
 }
 
-function kindsLine(entry: AtlasEntry): string {
-  return entry.recipes.map((recipe) => recipe.kind).join(', ')
-}
-
 /**
- * The same list, in words, for the one place a reader sees it (`#791`).
+ * What a provider offers, on its index row, in words (`#791`).
  *
- * Separate from {@link kindsLine} rather than replacing it: that one feeds the
- * `<meta name="description">`, which is a sentence written for a search result
- * and needs the phrases joined differently.
+ * **There was a second one of these that joined the kind slugs**, and it fed
+ * the `<meta name="description">` until `#788` — which is how *How an agent
+ * joins trello.com: trello.* got into search results. Nothing joins slugs now.
  *
  * **The article is lowered, and only its first letter.** Each phrase carries
  * its own article so a heading is correct on its own; mid-row they are a list,
@@ -518,12 +657,7 @@ function kindsLine(entry: AtlasEntry): string {
  * sentence. Touching only the first character leaves *an API account* alone.
  */
 function kindsShown(entry: AtlasEntry): string {
-  return entry.recipes
-    .map((recipe) => {
-      const phrase = atlasKindPhrase(recipe.kind)
-      return phrase.charAt(0).toLowerCase() + phrase.slice(1)
-    })
-    .join(', ')
+  return entry.recipes.map((recipe) => lowerFirst(atlasKindPhrase(recipe.kind))).join(', ')
 }
 
 /**
@@ -902,11 +1036,7 @@ function staleNote(recipe: AtlasEntry['recipes'][number]): string {
  * which is a different sentence from a date and is the honest one.
  */
 function confirmedLine(entry: AtlasEntry): string {
-  const walked = entry.recipes
-    .map((recipe) => recipe.lastConfirmedAt)
-    .filter((at): at is string => at !== null)
-    .sort()
-    .at(-1)
+  const walked = lastConfirmed(entry)
 
   if (walked === undefined) {
     return (

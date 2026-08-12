@@ -545,7 +545,8 @@ describe('the Atlas on the website host', () => {
     it('carries a title, a description and a canonical on every page', async () => {
       const response = await get('/atlas/github')
 
-      expect(response.body).toContain('<title>GitHub — Kolonie</title>')
+      /** The title is the searcher's sentence since `#788`, not the curator's. */
+      expect(response.body).toContain('<title>github for an AI agent: sign up, prove it — Kolonie')
       expect(response.body).toContain('<meta name="description"')
       expect(response.body).toContain(`<link rel="canonical" href="${SITE}/atlas/github">`)
     })
@@ -994,6 +995,169 @@ describe('the Atlas on the website host', () => {
           ).toBe(false)
         }
       }
+    })
+  })
+
+  /**
+   * What a search result shows (`#788`).
+   *
+   * These two lines are the whole of the page for everybody who has not
+   * arrived yet, and they were written for the catalogue: the title carried
+   * *with no rung behind it*, a distinction that means something inside the
+   * Colony and nothing to a searcher, and the description was
+   * `How an agent joins ${provider}: ${kind slugs}` — which on every entry
+   * whose kind repeats its provider name, most of them, printed the provider
+   * twice and stopped.
+   */
+  describe('the title and the description a search result shows', () => {
+    const rebuild = (write: (colony: FakeColony) => void) => async () => {
+      await app.close()
+      app = build()
+      write(colony)
+      await app.ready()
+    }
+
+    const headOf = (body: string) => body.slice(0, body.indexOf('</head>'))
+
+    const descriptionOf = (body: string) =>
+      /<meta name="description" content="([^"]*)"/.exec(headOf(body))?.[1] ?? ''
+
+    /**
+     * The degenerate case the issue is named for: one row, whose kind slug is
+     * the provider's own name.
+     */
+    it('describes an entry by what joining it takes, not by its kind slug', async () => {
+      await rebuild((one) =>
+        one.recipes.write({
+          kind: 'trello',
+          provider: 'trello.com',
+          title: 'Trello',
+          steps: [
+            { actor: 'agent', instruction: 'Open the signup form.' },
+            { actor: 'agent', instruction: 'Confirm the address.' },
+          ],
+          proves: 'provider-post',
+        }),
+      )()
+
+      const description = descriptionOf((await get('/atlas/trello.com')).body)
+
+      expect(description).toContain('2 steps')
+      expect(description).toContain('an agent can do this alone')
+      expect(description).toContain('proved by publishing')
+      expect(description).not.toContain('joins trello.com: trello')
+    })
+
+    /** The count where a human is genuinely needed, from the steps themselves. */
+    it('says how many steps need a person when any of them do', async () => {
+      expect(descriptionOf((await get('/atlas/github')).body)).toContain('1 of them needs a human')
+    })
+
+    it('dates the description where anybody has walked it, and not otherwise', async () => {
+      expect(descriptionOf((await get('/atlas/github')).body)).toMatch(
+        /Last confirmed \d{4}-\d{2}-\d{2}\.$/,
+      )
+
+      await rebuild((one) =>
+        one.recipes.write({
+          kind: 'mailbox',
+          provider: 'unwalked.example',
+          title: 'Unwalked',
+          lastConfirmedAt: null,
+          steps: [{ actor: 'agent', instruction: 'Open the signup form.' }],
+        }),
+      )()
+
+      expect(descriptionOf((await get('/atlas/unwalked.example')).body)).not.toContain(
+        'Last confirmed',
+      )
+    })
+
+    /** A refusal and an unwalked entry are different sentences, and neither is the joinable one. */
+    it('describes a refusal and an unwritten entry as what they each are', async () => {
+      expect(descriptionOf((await get('/atlas/bluesky')).body)).toContain(
+        'cannot currently be joined honestly',
+      )
+      expect(descriptionOf((await get('/atlas/withdrawn.example')).body)).toContain(
+        'was joinable and is not any more',
+      )
+
+      await rebuild((one) =>
+        one.recipes.write({
+          kind: 'mailbox',
+          provider: 'nobody.example',
+          title: 'Nobody',
+          status: 'unwritten',
+        }),
+      )()
+
+      expect(descriptionOf((await get('/atlas/nobody.example')).body)).toContain(
+        'Nobody has walked nobody.example yet',
+      )
+    })
+
+    /**
+     * The property behind the above, on the shape rather than on a string: **no
+     * description is a kind slug, or a list of them.** That is what the old one
+     * ended in, and a kind added to the vocabulary cannot bring it back.
+     */
+    it('leaves no description that is a slug or a list of slugs', async () => {
+      for (const url of ['/atlas', '/atlas/github', '/atlas/bluesky', '/atlas/withdrawn.example']) {
+        const description = descriptionOf((await get(url)).body)
+
+        expect(description.length, `${url} has no description`).toBeGreaterThan(0)
+        expect(
+          /^[a-z0-9-]+(?:,\s*[a-z0-9-]+)*\.?$/.test(description),
+          `${url} is described as the identifiers ${description}`,
+        ).toBe(false)
+      }
+    })
+
+    it('names the provider and what the reader gets, in the title', async () => {
+      await rebuild((one) =>
+        one.recipes.write({
+          kind: 'mailbox',
+          provider: 'post.example',
+          title: 'Post',
+          steps: [{ actor: 'agent', instruction: 'Open the signup form.' }],
+          reaches: {
+            capability: AccountCapabilitySchema.parse('api'),
+            steps: [{ actor: 'agent', instruction: 'Open the API settings.' }],
+          },
+        }),
+      )()
+
+      expect(headOf((await get('/atlas/post.example')).body)).toContain(
+        '<title>post.example for an AI agent: sign up, prove it, an API key — Kolonie</title>',
+      )
+    })
+
+    it('titles a refusal and a withdrawal as what they are', async () => {
+      expect(headOf((await get('/atlas/bluesky')).body)).toContain(
+        '<title>bluesky: why an agent cannot join it — Kolonie</title>',
+      )
+      expect(headOf((await get('/atlas/withdrawn.example')).body)).toContain(
+        '<title>withdrawn.example: withdrawn, and what the path was — Kolonie</title>',
+      )
+    })
+
+    /**
+     * **The heading is the curator's line and stays it.** A reader who has
+     * arrived is looking at the page, not at a search result, and the two
+     * sentences are written for different people.
+     */
+    it('leaves the h1 alone', async () => {
+      const body = (await get('/atlas/github')).body
+
+      expect(body).toContain('<h1>GitHub</h1>')
+      expect(body).not.toContain('<h1>github for an AI agent')
+    })
+
+    it('titles a shelf for the search that finds it rather than for the filter', async () => {
+      expect(headOf((await get(`${ATLAS_PATH}?category=mailbox`)).body)).toContain(
+        '<title>Mailboxes an AI agent can sign up for — Kolonie</title>',
+      )
+      expect(headOf((await get(ATLAS_PATH)).body)).toContain('<title>The Atlas — Kolonie</title>')
     })
   })
 

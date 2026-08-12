@@ -61,7 +61,7 @@ import type { WebsiteDependencies } from './website.js'
 import type { CitizenRecords } from './citizens.js'
 import type { SettingsDesk } from './settings.js'
 import type { ProviderEnquiryDesk } from './provider-enquiries.js'
-import type { ShareDesk } from './browser-shares.js'
+import type { ShareDesk, ShareNotifier } from './browser-shares.js'
 
 /**
  * What a deployment hands `buildApp`.
@@ -497,4 +497,13 @@ export interface AppDependencies {
    * upgradeable path on it at all.
    */
   readonly shares?: ShareDesk
+  /**
+   * And how the person is told their agent is waiting (`#774`).
+   *
+   * Optional beside the desk, and the two absences mean different things —
+   * `McpDependencies.shareNotifier` states both. Here, absent is the ordinary
+   * shape of a test: nothing about browser sharing is broken by there being no
+   * mail, and an offer made without one comes back saying `undeliverable`.
+   */
+  readonly shareNotifier?: ShareNotifier
 }

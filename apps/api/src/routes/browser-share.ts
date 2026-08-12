@@ -194,6 +194,27 @@ export function registerBrowserShareRoutes(app: FastifyInstance, deps: RouteDepe
           shareId: accepted.share.id,
           side: 'operator',
         })
+
+        /**
+         * And knock, because the citizen asked for this and then went to sleep
+         * (`#774`).
+         *
+         * **After `accept` has committed and after the socket is on the relay**,
+         * in that order: an agent woken by this and calling straight back gets a
+         * share that says `live`, and a sharer reconnecting has something to
+         * attach to. Raising it before either would be knocking about a state
+         * that is not yet true.
+         *
+         * Unconditional, unlike the `share-ended` knock above, which asks whether
+         * anybody ever came. Here somebody just did — that is the whole event —
+         * and a refused accept has already returned.
+         *
+         * `void` and never awaited, the same as its neighbour: this is a
+         * courtesy on top of a socket that is already open, and a wake endpoint
+         * that is slow or down must not hold up a person who is waiting to see
+         * the page.
+         */
+        void deps.operatorRequests.wake?.wake(accepted.share.agentId as AgentId, 'share-joined')
       },
     )
   })

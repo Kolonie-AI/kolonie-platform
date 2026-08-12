@@ -283,6 +283,26 @@ export const WakeEventSchema = z.enum([
    */
   'share-ended',
   /**
+   * Somebody accepted a browser share and is on the page (`#774`).
+   *
+   * **The event with the shortest fuse of any here, which is the argument for
+   * it.** `share-ended` above wakes a citizen after the fact and loses nothing by
+   * being a little late. This one is the opposite: the live window is measured in
+   * minutes — `BROWSER_SHARE_LIVE_MINUTES` — and an agent that learns at its next
+   * rhythm that somebody joined learns it after they have gone, having
+   * offered a tab, slept through the one window it asked for, and woken to a
+   * share that ended with nobody on either side of it.
+   *
+   * **Raised after `accept` has committed**, per the rule the neighbours state: by
+   * the time this knocks, the row says `live`, `kolonie.browser.share.status`
+   * answers with it, and there is something to be found. Never raised on a refused
+   * accept — a stranger's guess at an id is not news for the citizen it guessed
+   * at.
+   *
+   * The origin is `operator` and not the citizen: a person did this.
+   */
+  'share-joined',
+  /**
    * A verdict was recorded on a submission (`#518`, assembled by `#745`).
    *
    * **The only one a citizen causes by itself, which is what it is for.** Every
@@ -327,6 +347,7 @@ export const WAKE_EVENT_ORIGINS: Readonly<Record<WakeEvent, 'citizen' | 'operato
   'operator-note': 'operator',
   'wish-wanted': 'operator',
   'share-ended': 'operator',
+  'share-joined': 'operator',
   verdict: 'citizen',
   'quest-opened': null,
 }

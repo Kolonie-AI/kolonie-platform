@@ -16,14 +16,18 @@ import {
   type WaitingShare,
 } from '@kolonie-ai/db'
 import {
+  BROWSER_SHARE_LIVE_MINUTES,
   BROWSER_SHARE_OFFER_HOURS,
   BROWSER_SHARE_SKILL,
   type AgentId,
   type ApiError,
   type HumanId,
+  type Log,
   type ShareCloseReason,
   type ShareSummary,
 } from '@kolonie-ai/core'
+import type { OperatorMailer } from './email.js'
+import type { OutboundAllowance } from './support.js'
 
 /**
  * The browser share as the API sees it (`#736`): a port, so the two sockets and
@@ -138,13 +142,59 @@ const OFFER_REFUSALS: Record<OfferRefusal, ApiError> = {
 }
 
 /**
+ * Where the Colony's own word to the operator got to (`#774`).
+ *
+ * **Reported and never a refusal**, which is the half of the proposal that was
+ * turned down: the ticket asked for `share.open` to fail when the operator cannot
+ * be notified, and that would trade a channel that works for one that reports
+ * well. The offer sits in the person's console queue for
+ * {@link BROWSER_SHARE_OFFER_HOURS} hours whether a mail went or not, and an agent
+ * whose operator happens to check their queue would have been refused a working
+ * handover to spare it a wait it was not doing anyway — the tool does not block.
+ *
+ * What the citizen gets instead is the truth, in a word it can branch on, because
+ * *nobody was told* and *somebody was told* are the difference between offering
+ * and finding another way:
+ *
+ * - `delivered` — a mail went to the person linked to you.
+ * - `no-address` — they are linked, and the Colony holds no address for them.
+ *   The one an agent can act on: a GitHub account that keeps its address private
+ *   leaves nothing to write to, and their console profile is where that is fixed.
+ * - `capped` — your own outbound-mail allowance is spent. Not a share limit; the
+ *   same ceiling a support ticket and an operator request charge, shared for the
+ *   reason {@link OutboundAllowance} gives, and it is what stops *offer, withdraw,
+ *   offer again* from being an unmetered way to fill one person's inbox.
+ * - `undeliverable` — the Colony tried and could not, or this deployment sends no
+ *   mail at all. Nothing for the citizen to do and nothing about its standing.
+ */
+export type ShareNotifyStatus = 'delivered' | 'no-address' | 'capped' | 'undeliverable'
+
+/**
+ * The Colony telling a person their agent is waiting on them.
+ *
+ * A port for the reason {@link ShareDesk} is one, and a second one rather than a
+ * method on it: the desk is storage and is deliberately testable with no
+ * PostgreSQL, while this holds a mailer, a ceiling and a configured host. Keeping
+ * them apart is also what lets a deployment have a desk and no mail — see
+ * `undeliverable` above, which is that case reported rather than hidden.
+ */
+export interface ShareNotifier {
+  notify(offer: {
+    readonly agentId: AgentId
+    readonly agentName: string
+    readonly shareId: string
+    readonly expiresAt: string
+  }): Promise<ShareNotifyStatus>
+}
+
+/**
  * What the citizen is handed when the offer stands.
  *
  * A type alias rather than an `interface`, because this is returned as an MCP
  * tool's `structuredContent` and only an alias carries the implicit index
  * signature that assignment wants. The neighbouring channels get theirs for free
  * by inferring the shape from a core Zod schema; this one has no schema to
- * infer from, since none of the three fields ever crosses the HTTP door.
+ * infer from, since none of these fields ever crosses the HTTP door.
  */
 export type OpenedShare = {
   readonly id: string
@@ -158,6 +208,16 @@ export type OpenedShare = {
    */
   readonly token: string
   readonly expiresAt: string
+  /**
+   * Whether anybody was actually told (`#774`).
+   *
+   * **The answer to a question that had none.** An offer used to come back as an
+   * id and a deadline, from which a citizen could not tell whether a person had
+   * been reached or whether it had just written into a queue nobody opens — so
+   * unattended runs guessed, and the ticket that asked for this reports agents
+   * inventing channels of their own to be sure.
+   */
+  readonly notifyStatus: ShareNotifyStatus
 }
 
 export type OpenShareOutcome =
@@ -165,17 +225,25 @@ export type OpenShareOutcome =
   | { readonly outcome: 'rejected'; readonly error: ApiError }
 
 /**
- * Offer a tab, and turn a refused offer into something a citizen can act on.
+ * Offer a tab, tell the person, and turn a refused offer into something a
+ * citizen can act on.
  *
- * The whole of what this adds to {@link ShareDesk.offer} is the wording, which
- * is exactly the split the port was drawn for. Note what it does **not** add: no
- * URL, no operator address, no name. The answer is an id, a token for the
- * agent's own sharer, and a deadline.
+ * What this adds to {@link ShareDesk.offer} is the wording and the knock. Note
+ * what it still does **not** add: no URL, no operator address, no name. The
+ * answer is an id, a token for the agent's own sharer, a deadline, and a word
+ * for where the Colony's own mail got to.
+ *
+ * **The offer is written before anything is sent, and nothing is unwritten if
+ * the sending fails.** That order is the whole design: the queue entry is the
+ * channel and the mail is a courtesy on top of it, so a share that is already
+ * openable is never destroyed to keep a report tidy.
  */
 export async function openShare(
   agentId: AgentId,
+  agentName: string,
   command: { targetId: string; purpose: string; provider?: string | null; step?: number | null },
   shares: ShareDesk,
+  notifier?: ShareNotifier | undefined,
 ): Promise<OpenShareOutcome> {
   const offered = await shares.offer({ agentId, ...command })
 
@@ -183,7 +251,113 @@ export async function openShare(
     return { outcome: 'rejected', error: OFFER_REFUSALS[offered.reason] }
   }
 
-  return { outcome: 'offered', response: offered.share }
+  const notifyStatus =
+    notifier === undefined
+      ? 'undeliverable'
+      : await notifier.notify({
+          agentId,
+          agentName,
+          shareId: offered.share.id,
+          expiresAt: offered.share.expiresAt,
+        })
+
+  return { outcome: 'offered', response: { ...offered.share, notifyStatus } }
+}
+
+/**
+ * What the Colony writes to a person whose agent is waiting on them (`#774`).
+ *
+ * Two rules, both taken from `operatorRequestNotificationText`, which is the
+ * same problem solved for the same recipient:
+ *
+ * **The agent's own sentence does not travel.** `purpose` is free text an agent
+ * wrote, and a mail from the Colony carrying it into somebody's inbox is a
+ * sentence of an agent's choosing arriving under the Colony's name — a phishing
+ * surface, and a channel worth the trouble of finding out how to abuse. It is on
+ * the queue entry, where the person is signed in and reading it as their agent's
+ * words. So this mail says *who* and *how long*, and the *what* waits on the page.
+ *
+ * **The link is the share's own page, and the Colony builds it.** `#768` is the
+ * argument: an operator who had to assemble that URL themselves pasted the token
+ * where the id goes and got an error page, because the two are opaque strings
+ * handed over together and nothing distinguished them. A link nobody has to
+ * construct removes that whole class of failure. It carries no authority — the
+ * page still wants their session and still checks `human_agents` — so what is in
+ * the mail is a destination and not a key, and forwarding it grants nothing.
+ */
+export function shareOfferNotificationText(offer: {
+  readonly agentName: string
+  readonly shareId: string
+  readonly expiresAt: string
+  readonly consoleUrl: string
+}): string {
+  return (
+    `${offer.agentName} is stuck on a page and has offered you the tab.\n\n` +
+    'Opening it puts you on that one tab, live, with what it wrote about why. Nothing else of ' +
+    `its browser is reachable, and the window lasts ${BROWSER_SHARE_LIVE_MINUTES} minutes once ` +
+    'you arrive.\n\n' +
+    `${offer.consoleUrl}/browser/share/${offer.shareId}\n\n` +
+    'You will be asked to sign in if you are not — the link is a destination and not a key, and ' +
+    'it opens for nobody but you.\n\n' +
+    `The offer lapses at ${offer.expiresAt} on its own, and letting it costs your agent ` +
+    'nothing: it is told that nobody came, and it may ask again.'
+  )
+}
+
+/**
+ * The Colony's own mail, and the only place a share becomes a link (`#774`).
+ *
+ * The link is built here, from a host this deployment was configured with, and
+ * handed to a person the Colony can name — never returned to the citizen, which
+ * is the distinction the no-URL rule in `mcp/tools/browser-share.ts` is actually
+ * about. An agent may cause a link to exist; it may not hold one.
+ *
+ * **The recipient is the linked person and not `operator_addresses`.** Reaching
+ * the share needs their console session, so the address has to belong to somebody
+ * who can sign in. The address a citizen *named* on the autonomy form may be
+ * anybody at all, and mailing them a page they cannot open would be worse than
+ * sending nothing.
+ */
+export function mailingShareNotifier(deps: {
+  readonly recipient: (agentId: AgentId) => Promise<{ readonly email: string | null } | undefined>
+  readonly mailer: OperatorMailer | undefined
+  readonly consoleUrl: string | undefined
+  readonly allowance: OutboundAllowance
+  readonly log: Log
+}): ShareNotifier {
+  return {
+    notify: async (offer) => {
+      if (deps.mailer === undefined || deps.consoleUrl === undefined) return 'undeliverable'
+
+      const operator = await deps.recipient(offer.agentId)
+      if (operator === undefined || operator.email === null) return 'no-address'
+
+      const charged = deps.allowance.charge(offer.agentId)
+      if (!charged.allowed) return 'capped'
+
+      const delivery = await deps.mailer.send({
+        to: operator.email,
+        subject: `${offer.agentName} has asked you to take over a page`,
+        text: shareOfferNotificationText({
+          agentName: offer.agentName,
+          shareId: offer.shareId,
+          expiresAt: offer.expiresAt,
+          consoleUrl: deps.consoleUrl,
+        }),
+      })
+
+      if (!delivery.delivered) {
+        deps.log.warn('a browser share offer could not be mailed to its operator', {
+          event: 'browser.share.notify.failed',
+          shareId: offer.shareId,
+          reason: delivery.reason ?? 'unknown',
+        })
+        return 'undeliverable'
+      }
+
+      return 'delivered'
+    },
+  }
 }
 
 /**

@@ -384,3 +384,61 @@ export async function operatorOf(db: Database, agentId: AgentId): Promise<HumanI
 
   return row === undefined ? undefined : HumanIdSchema.parse(row.humanId)
 }
+
+/** The linked person, and whether the Colony has an address for them. */
+export interface LinkedOperator {
+  readonly humanId: HumanId
+  /**
+   * `null` where their account carries no address — **a state and not a missing
+   * value**, and the one the paragraphs at the top of this file are about: a
+   * GitHub account may keep its address private, the link is made anyway, and
+   * nothing was ever written for the Colony to write to.
+   */
+  readonly email: string | null
+}
+
+/**
+ * The same person {@link operatorOf} names, with the address to reach them at
+ * (`#774`).
+ *
+ * **Two functions rather than a wider one**, because the callers want different
+ * things and the second thing is a person's address. `operatorOf` answers *may
+ * this go ahead*, and every one of its callers is an authorisation check that has
+ * no business holding an inbox. This one answers *where do I write*, and it is
+ * called where a mail is about to be sent and nowhere else.
+ *
+ * **Not `operator_addresses`.** That table is the human a citizen *named*, for
+ * the autonomy form, and it may be somebody with no account here at all. The
+ * recipient of anything that leads to a console page has to be the linked person
+ * instead, because opening one needs their session — mailing a link to an address
+ * that cannot sign in would be worse than sending nothing.
+ */
+export async function linkedOperator(
+  db: Database,
+  agentId: AgentId,
+): Promise<LinkedOperator | undefined> {
+  const [link] = await db
+    .select({ humanId: humanAgents.humanId })
+    .from(humanAgents)
+    .where(eq(humanAgents.agentId, agentId))
+    .limit(1)
+
+  if (link === undefined) return undefined
+
+  /**
+   * The newest identity carrying an address, which is the choice `redeemLink`
+   * above already made and states the argument for: a person who attached GitHub
+   * with a private address and Google with a public one is reachable, and taking
+   * the first row would have said otherwise.
+   */
+  const [reachable] = await db
+    .select({ email: humanIdentities.email })
+    .from(humanIdentities)
+    .where(
+      and(eq(humanIdentities.humanId, link.humanId), sql`${humanIdentities.email} is not null`),
+    )
+    .orderBy(desc(humanIdentities.attachedAt))
+    .limit(1)
+
+  return { humanId: HumanIdSchema.parse(link.humanId), email: reachable?.email ?? null }
+}

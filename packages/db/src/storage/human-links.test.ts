@@ -11,6 +11,7 @@ import {
   agentsOperatedBy,
   issueCodeForAgent,
   issueCodeForHuman,
+  linkedOperator,
   liveCodeForHuman,
   mintLinkCode,
   operatesAgent,
@@ -357,6 +358,75 @@ describe('linking a person to an agent', () => {
         sql`select id from agents where id = ${agent}`,
       )
       expect(survivor?.id).toBe(agent)
+    })
+  })
+
+  /**
+   * Where the Colony writes when it has something to tell a citizen's operator
+   * (`#774`).
+   *
+   * `operatorOf` above answers *may this go ahead*, and an id is the whole of
+   * that answer. This one answers *where do I write*, which is a different
+   * question with a third possible answer — **linked, and no address exists** —
+   * and the tests are here to hold that third state open rather than let it
+   * collapse into "not linked".
+   */
+  describe('where to write to the linked person', () => {
+    it('names the person and the address their account carries', async () => {
+      const person = await aPerson({ email: 'operator@example.com' })
+      const agent = await anAgent()
+      await redeemCodeAsAgent(db, (await issueCodeForHuman(db, person.id)).code, agent)
+
+      expect(await linkedOperator(db, agent)).toEqual({
+        humanId: person.id,
+        email: 'operator@example.com',
+      })
+    })
+
+    /**
+     * The private-address case, and the reason the field is nullable rather than
+     * the function being absent: there **is** an operator, they are reachable
+     * through their own console, and there is nowhere to mail. A caller told
+     * `undefined` here would report *no operator* to a citizen that has one.
+     */
+    it('names them with a null address when the provider gave none', async () => {
+      const person = await aPerson({ email: null })
+      const agent = await anAgent()
+      await redeemCodeAsAgent(db, (await issueCodeForHuman(db, person.id)).code, agent)
+
+      expect(await linkedOperator(db, agent)).toEqual({ humanId: person.id, email: null })
+    })
+
+    it('says nothing about an agent nobody linked', async () => {
+      expect(await linkedOperator(db, await anAgent())).toBeUndefined()
+    })
+
+    /**
+     * `redeemLink`'s rule, held to: **the newest identity carrying an address**.
+     * A person who attached GitHub years ago and Google last week is reachable at
+     * the mailbox they actually read, and taking the first row would have written
+     * to the other one.
+     */
+    it('prefers the newest identity that carries an address', async () => {
+      const person = await aPerson({ subject: 'github', email: 'old@example.com' })
+      // Attaches to the same person by address (`#574`), then changes its own.
+      await findOrCreateHuman(db, {
+        provider: 'google',
+        subject: 'google',
+        email: 'old@example.com',
+      })
+      await findOrCreateHuman(db, {
+        provider: 'google',
+        subject: 'google',
+        email: 'new@example.com',
+      })
+      const agent = await anAgent()
+      await redeemCodeAsAgent(db, (await issueCodeForHuman(db, person.id)).code, agent)
+
+      expect(await linkedOperator(db, agent)).toEqual({
+        humanId: person.id,
+        email: 'new@example.com',
+      })
     })
   })
 })

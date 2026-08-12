@@ -6,7 +6,7 @@ import type { ProviderRecipes } from '../provider-recipes.js'
 import type { AtlasRenames } from '../atlas/renames.js'
 import type { AgentStore } from '../authentication.js'
 import type { ContributionDependencies } from '../contributions.js'
-import type { ShareDesk } from '../browser-shares.js'
+import type { ShareDesk, ShareNotifier } from '../browser-shares.js'
 import type { SkillNotes } from '../skills.js'
 import type { WakeupSource } from '../wakeup.js'
 import type { ArtefactDependencies } from '../artefact.js'
@@ -251,6 +251,22 @@ export interface McpDependencies {
    * tier: by registering fewer tools, not by refusing more.
    */
   readonly shares?: ShareDesk | undefined
+  /**
+   * The Colony telling the person that their agent is waiting (`#774`).
+   *
+   * **Optional like the desk above it, and absent for the opposite consequence.**
+   * A missing desk unregisters the tools, because a share with no storage cannot
+   * happen at all. A missing notifier unregisters nothing: the offer is written,
+   * it stands in the operator's console queue for the full window, and the person
+   * can answer it — all this changes is that nobody was *told*, which is a state
+   * the citizen is handed in `notifyStatus` as `undeliverable` rather than left to
+   * infer. Hiding it would be the failure; the tools going away over it would be a
+   * larger one.
+   *
+   * Separate from `shares` because it holds what a desk must not: a mailer, an
+   * outbound ceiling and a configured console host.
+   */
+  readonly shareNotifier?: ShareNotifier | undefined
   /** The autonomy module (#146). */
   readonly autonomy: AutonomyDependencies
   readonly domain: DomainDependencies

@@ -49,7 +49,7 @@ import type { QuestDesk } from '../quests.js'
 import type { TaskCatalogue } from '../tasks.js'
 import type { CitizenRecords } from '../citizens.js'
 import type { DropDependencies } from '../operator-drops.js'
-import type { ShareDesk } from '../browser-shares.js'
+import type { ShareDesk, ShareNotifier } from '../browser-shares.js'
 import type { VaultDependencies } from '../vault.js'
 import type { VisionDependencies } from '../vision.js'
 import type { WebServerDependencies } from '../web-server.js'
@@ -355,4 +355,13 @@ export interface RouteDependencies {
    * placed among its neighbours, per the note on `citizens`.
    */
   readonly shares?: ShareDesk | undefined
+  /**
+   * The Colony's own word to the person a share was offered to (`#774`).
+   *
+   * Beside the desk and not on it, and optional for a different consequence than
+   * the desk's — `McpDependencies.shareNotifier` states both. Here for one
+   * reason: this interface is what `app.ts` destructures, and the tool tier is
+   * built out of it. Appended, per the note on `citizens`.
+   */
+  readonly shareNotifier?: ShareNotifier | undefined
 }

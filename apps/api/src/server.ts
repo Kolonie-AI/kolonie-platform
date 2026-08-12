@@ -76,6 +76,7 @@ import {
 import {
   githubAccountOf,
   holdsSkillNow,
+  linkedOperator,
   openProspects,
   readSkillNote,
   readSkillNotes,
@@ -103,7 +104,7 @@ import { databaseDomainChallenges } from './domain.js'
 import { databaseVisionChallenges } from './vision.js'
 import { databaseHandovers } from './handovers.js'
 import { databaseDrops, usableSealingKey } from './operator-drops.js'
-import { databaseShares } from './browser-shares.js'
+import { databaseShares, mailingShareNotifier } from './browser-shares.js'
 import { databaseVault } from './vault.js'
 import { databaseAccounts, databaseAccountResolution } from './accounts.js'
 import { databaseAccountProofs } from './account-proofs.js'
@@ -954,6 +955,27 @@ const app = buildApp({
    * that a share happened and how it ended.
    */
   shares: databaseShares(db),
+  /**
+   * And the Colony's own word to the person on the other end (`#774`).
+   *
+   * The one piece of configuration this channel does have, and it is the same
+   * pair the operator request above it uses: a sender, and the console origin an
+   * operator's links are already built from. Either missing is not an error —
+   * `mailingShareNotifier` answers `undeliverable`, the offer stands in the
+   * queue, and the citizen is told which of the two it got.
+   *
+   * `supportSurface` for the allowance, deliberately: `close` is free and
+   * idempotent, so *offer, withdraw, offer again* is a loop, and the one-share
+   * rule is therefore not a ceiling on how much mail an agent can cause. The
+   * shared window is, and `support.ts` says why there must not be a second one.
+   */
+  shareNotifier: mailingShareNotifier({
+    recipient: (agentId) => linkedOperator(db, agentId),
+    mailer: mail.operatorMailer,
+    consoleUrl: process.env['CONSOLE_URL'] || undefined,
+    allowance: supportSurface,
+    log,
+  }),
   // The account register (#150): what a citizen holds, beside what it can do.
   // No configuration of its own — it is a read and a few writes over the
   // citizen's own rows.

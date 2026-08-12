@@ -1506,6 +1506,13 @@
       "when": 1786529474496,
       "tag": "0214_a_held_quest_says_when_it_was_held",
       "breakpoints": true
+    },
+    {
+      "idx": 215,
+      "version": "7",
+      "when": 1786535783360,
+      "tag": "0215_an_operator_arriving_is_worth_a_knock",
+      "breakpoints": true
     }
   ]
 }

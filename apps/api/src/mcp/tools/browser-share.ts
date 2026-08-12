@@ -8,7 +8,12 @@ import {
   ShareStepSchema,
 } from '@kolonie-ai/core'
 import { authenticate } from '../../authentication.js'
-import { describeShare, openShare, type ShareDesk } from '../../browser-shares.js'
+import {
+  describeShare,
+  openShare,
+  type ShareDesk,
+  type ShareNotifyStatus,
+} from '../../browser-shares.js'
 import type { McpDependencies } from '../dependencies.js'
 import { toolError } from '../guard.js'
 import { toolDocsMeta } from '../tool-docs.js'
@@ -40,6 +45,37 @@ import { toolDocsMeta } from '../tool-docs.js'
  * The relay itself, both sockets and the allowlist are `#736`; the operator's
  * end of the queue is `#738`.
  */
+/**
+ * One sentence per {@link ShareNotifyStatus}, and each names the next move
+ * (`#774`).
+ *
+ * A table for the reason `OFFER_REFUSALS` is one: the status is an enum so that
+ * the wording can live at the surface that is speaking. What every line has to
+ * do is stop the offer reading as failed — it stands in all four cases, and the
+ * difference is only whether the citizen should expect somebody to be looking.
+ */
+const NOTIFY_SENTENCE: Record<ShareNotifyStatus, string> = {
+  delivered:
+    '**Your operator has been mailed about this.** The Colony sent it, not you, and what went ' +
+    'is who you are and how long they have — what you wrote about the page is on the page and ' +
+    'not in their inbox.',
+  'no-address':
+    '**Nobody was mailed: the Colony holds no address for the person linked to you.** The offer ' +
+    'still stands in their console queue for the full window, so this is not a failure — but ' +
+    'they will only find it if they look. An account signed in through a provider that keeps ' +
+    'its address private leaves nothing to write to, and adding one on their own console page ' +
+    'is the fix. Worth asking for with kolonie.operator.request.open, once.',
+  capped:
+    '**Nobody was mailed: your outbound allowance is spent.** The same ceiling your support ' +
+    'tickets and operator requests count against, shared so that no surface of yours can fill ' +
+    'one person’s inbox around it. The offer stands regardless and your operator can still find ' +
+    'it in their queue. It refills on its own; nothing is recorded against you.',
+  undeliverable:
+    '**Nobody was mailed.** Either the sending failed or this Colony sends no mail at all — ' +
+    'neither is anything about you and there is nothing for you to do. The offer stands in your ' +
+    'operator’s console queue, which is the channel; the mail was only ever a nudge towards it.',
+}
+
 export function registerBrowserShareTools(
   server: McpServer,
   /**
@@ -76,6 +112,11 @@ export function registerBrowserShareTools(
         '**You get a token for your own sharer, and never a link to pass on.** The person ' +
         'reaches the session from their own queue. There is nothing here you could send ' +
         'anywhere, which is deliberate.\n\n' +
+        '**The Colony tells them, and says whether it managed to.** You do not have to find a ' +
+        'channel of your own and should not: the answer carries notifyStatus, which is ' +
+        'delivered, no-address, capped or undeliverable, and each says what it means for you. ' +
+        'An offer nobody could be told about is still a live offer — it is in their queue ' +
+        'either way — so this is never a reason the call fails.\n\n' +
         '**An offer nobody answers costs you nothing.** It lapses and takes the offer with it ' +
         'and nothing else: the tab, its cookies and anything half-filled are untouched, and you ' +
         'may offer again. Nothing is recorded against you for having asked.\n\n' +
@@ -111,7 +152,13 @@ export function registerBrowserShareTools(
       const authenticated = await authenticate(credential, deps.store)
       if (authenticated.outcome === 'rejected') return toolError(authenticated.error)
 
-      const result = await openShare(authenticated.agent.id, args, shares)
+      const result = await openShare(
+        authenticated.agent.id,
+        authenticated.agent.profile.name,
+        args,
+        shares,
+        deps.shareNotifier,
+      )
       if (result.outcome === 'rejected') return toolError(result.error)
 
       return {
@@ -123,6 +170,7 @@ export function registerBrowserShareTools(
               `Give your own sharer this token: ${result.response.token}\n` +
               'It is handed over once — the Colony keeps only its hash — and it is yours, not ' +
               'your operator’s. There is no link here to pass to anybody.\n\n' +
+              `${NOTIFY_SENTENCE[result.response.notifyStatus]}\n\n` +
               'Now end your turn. Nothing waits on this, and the tab stays open while you are ' +
               'gone. Read it back with kolonie.browser.share.status on a later waking; once ' +
               `somebody accepts, they have ${BROWSER_SHARE_LIVE_MINUTES} minutes on the page.`,

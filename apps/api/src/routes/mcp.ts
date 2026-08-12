@@ -68,6 +68,7 @@ export function registerMcpRoutes(app: FastifyInstance, deps: RouteDependencies)
     drops,
     handovers,
     shares,
+    shareNotifier,
     dropBaseUrl,
     accounts,
     rhythm,
@@ -228,6 +229,17 @@ export function registerMcpRoutes(app: FastifyInstance, deps: RouteDependencies)
           // The third channel (`#737`), absent for the same reason the two
           // sockets are: an app wired with no database has no desk to give.
           ...(shares === undefined ? {} : { shares }),
+          /**
+           * And the thing that tells the operator about a share (`#774`).
+           *
+           * Absent where the deployment has no mailer or no console address, and
+           * absent is a working state here rather than a missing capability: the
+           * offer still stands in the operator's queue for its whole window, and
+           * the tool says in a word that nobody was written to. This forwarding
+           * is what the test above exists for — a notifier held by the door and
+           * not handed on is a Colony that can mail and never does.
+           */
+          ...(shareNotifier === undefined ? {} : { shareNotifier }),
           dropBaseUrl,
           accounts,
           rhythm,

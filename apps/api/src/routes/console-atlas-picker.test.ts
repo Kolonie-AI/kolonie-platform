@@ -156,7 +156,9 @@ describe('browsing the catalogue from the console', () => {
     expect(response.body).toContain('Fastmail')
     // The shelf is the heading, so the category is on the page rather than
     // repeated on every row.
-    expect(response.body).toContain('<h1>mailbox</h1>')
+    // The shelf title, not the slug it is addressed by (`#791`): the console
+    // and the Atlas read the same map, so neither can rename a shelf alone.
+    expect(response.body).toContain('<h1>Mailboxes</h1>')
     expect(response.body).toContain('listed, and nobody has walked it yet')
     expect(response.body).toContain('who is needed is not known')
     // Another shelf's entries are not on this one.

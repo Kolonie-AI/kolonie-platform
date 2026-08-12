@@ -1,4 +1,9 @@
-import { AtlasCategorySchema, type AtlasCategory, type AtlasEntry } from '@kolonie-ai/core'
+import {
+  AtlasCategorySchema,
+  atlasShelfTitle,
+  type AtlasCategory,
+  type AtlasEntry,
+} from '@kolonie-ai/core'
 import { escape, page } from './html.js'
 import type { ConsoleNav } from './navigation.js'
 
@@ -83,7 +88,8 @@ export function atlasPickerIndex(input: AtlasPickerInput): string {
 
   const shelves = [...counts.entries()].map(
     ([category, count]) =>
-      `<li><a href="${escape(atlasPickerPath(input.agentId, category))}">${escape(category)}</a> ` +
+      `<li><a href="${escape(atlasPickerPath(input.agentId, category))}">` +
+      `${escape(atlasShelfTitle(category))}</a> ` +
       `<small>${count} provider${count === 1 ? '' : 's'}</small></li>`,
   )
 
@@ -125,12 +131,12 @@ export function atlasPickerShelf(
     .map((entry) => pickerRow(entry, input))
 
   return page({
-    title: `Browse the Atlas — ${input.category}`,
+    title: `Browse the Atlas — ${atlasShelfTitle(input.category)}`,
     signedIn: true,
     nav: input.nav,
     body: [
       '<main>',
-      `<h1>${escape(input.category)}</h1>`,
+      `<h1>${escape(atlasShelfTitle(input.category))}</h1>`,
       `<p>${escape(PICKER_STANDFIRST)}</p>`,
       input.alreadyListed === undefined
         ? ''

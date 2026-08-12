@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import { AccountKindSchema, AccountProviderSchema } from './account.js'
-import { atlasEntries, atlasPath } from './atlas.js'
-import { operatorNeed } from './recipe.js'
+import {
+  atlasCapabilityPhrase,
+  atlasEntries,
+  atlasKindPhrase,
+  atlasPath,
+  atlasShelfTitle,
+} from './atlas.js'
+import { AtlasCategorySchema, operatorNeed } from './recipe.js'
 import type {
   AtlasCategory,
   ProviderRecipe,
@@ -265,5 +271,46 @@ describe('the path an entry is served at', () => {
   /** A provider is one token. Anything else would put a stranger's text in a URL. */
   it('refuses something that is not a provider', () => {
     expect(() => atlasPath('../../etc/passwd')).toThrow()
+  })
+})
+
+/**
+ * What a thing is called where a reader sees it (`#791`).
+ *
+ * **The fallback is the point of the tests below.** Kinds and capabilities are
+ * open vocabularies, so a value neither map has heard of is an ordinary event
+ * and has to render as itself rather than as nothing.
+ */
+describe('the words a heading is written in', () => {
+  it('gives a kind in the map its noun phrase, article and all', () => {
+    expect(atlasKindPhrase('mailbox')).toBe('A mailbox')
+    expect(atlasKindPhrase('api')).toBe('An API account')
+  })
+
+  it('gives a kind in neither map its own slug back', () => {
+    expect(atlasKindPhrase('weather-feed')).toBe('weather-feed')
+  })
+
+  /** The same slug is a different thing here: `api` the account, `api` the key. */
+  it('reads a capability as what it is rather than as the account behind it', () => {
+    expect(atlasCapabilityPhrase('api')).toBe('An API key')
+  })
+
+  it('falls a capability through the kind map and then to the slug', () => {
+    expect(atlasCapabilityPhrase('mailbox')).toBe('A mailbox')
+    expect(atlasCapabilityPhrase('weather-feed')).toBe('weather-feed')
+  })
+
+  it('titles a shelf and leaves an unknown category as its slug', () => {
+    expect(atlasShelfTitle('identity-security')).toBe('Identity and security')
+    expect(atlasShelfTitle('code-hosting')).toBe('Code hosting')
+    expect(atlasShelfTitle('nothing-is-filed-here')).toBe('nothing-is-filed-here')
+  })
+
+  /** Every category in the vocabulary has a title, so no shelf renders as an enum value. */
+  it('has a title for every category the vocabulary allows', () => {
+    for (const category of AtlasCategorySchema.options) {
+      expect(atlasShelfTitle(category), `${category} has no shelf title`).not.toBe(category)
+    }
   })
 })

@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { FastifyInstance } from 'fastify'
 import { buildApp } from '../app.js'
 import { fakeColony, type FakeColony } from '../__fixtures__/colony/index.js'
-import { noFigures } from '@kolonie-ai/core'
+import { AccountCapabilitySchema, ATLAS_PATH, noFigures } from '@kolonie-ai/core'
 import type { SiteChrome } from '../atlas/site-chrome.js'
 
 const SITE = 'https://site.test'
@@ -399,7 +399,7 @@ describe('the Atlas on the website host', () => {
        * is the assertion, and a count that another test can move is one that
        * fails for a reason nobody reads.
        */
-      expect(body).toMatch(/social-publishing<\/a> <span class="k-atlas-count">1<\/span>/)
+      expect(body).toMatch(/Social and publishing<\/a> <span class="k-atlas-count">1<\/span>/)
     })
 
     /**
@@ -896,6 +896,104 @@ describe('the Atlas on the website host', () => {
       await colony.renames.rename('x', 'xcom')
 
       expect((await get('/atlas/twitter')).headers['location']).toBe('/atlas/xcom')
+    })
+  })
+
+  /**
+   * **The document outline is prose, not the identifiers it was keyed on**
+   * (`#791`). Measured before the fix, `/atlas/trello.com` read `h2 trello`,
+   * `h3 And this is how you get a api`, and the index was headed with fifteen
+   * enum values — which is what a crawler reads as the structure of the
+   * directory.
+   */
+  describe('the headings a reader and a crawler see', () => {
+    const rebuild = (write: (colony: FakeColony) => void) => async () => {
+      await app.close()
+      app = build()
+      write(colony)
+      await app.ready()
+    }
+
+    /** A kind in the map, and the capability beside it. */
+    it('heads a row with a noun phrase and gives the capability its article', async () => {
+      await rebuild((one) =>
+        one.recipes.write({
+          kind: 'mailbox',
+          provider: 'post.example',
+          title: 'Post',
+          steps: [{ actor: 'agent', instruction: 'Open the signup form.' }],
+          reaches: {
+            capability: AccountCapabilitySchema.parse('api'),
+            steps: [{ actor: 'agent', instruction: 'Open the API settings.' }],
+          },
+        }),
+      )()
+
+      const body = (await get('/atlas/post.example')).body
+
+      expect(body).toContain('<h2>A mailbox</h2>')
+      expect(body).toContain('<h3>An API key, and how to get it</h3>')
+      expect(body).not.toContain('you get a api')
+    })
+
+    /** The kind is the provider, so the row says where rather than what twice. */
+    it('heads a provider-named row with the provider', async () => {
+      await rebuild((one) =>
+        one.recipes.write({ kind: 'trello', provider: 'trello.com', title: 'Trello' }),
+      )()
+
+      expect((await get('/atlas/trello.com')).body).toContain('<h2>An account at trello.com</h2>')
+    })
+
+    /**
+     * **A kind in neither map renders as itself.** `AccountKindSchema` is an
+     * open vocabulary, so a curator can file a kind this map has never heard
+     * of; the page that results has to be plain rather than absent.
+     */
+    it('renders an unmapped kind as its own slug and throws nothing', async () => {
+      await rebuild((one) =>
+        one.recipes.write({ kind: 'weather-feed', provider: 'weather.example', title: 'Weather' }),
+      )()
+
+      const response = await get('/atlas/weather.example')
+
+      expect(response.statusCode).toBe(200)
+      expect(response.body).toContain('<h2>weather-feed</h2>')
+    })
+
+    it('heads a shelf with its title and keeps the slug where it is an address', async () => {
+      const body = (await get('/atlas')).body
+
+      expect(body).toContain('Social and publishing')
+      expect(body).toContain('id="social-publishing"')
+      expect(body).toContain(`${ATLAS_PATH}?category=social-publishing`)
+    })
+
+    it('says the kinds on a row in words', async () => {
+      expect((await get('/atlas')).body).toContain('a social account')
+    })
+
+    /**
+     * The property behind all of the above, asserted on the shape rather than
+     * on any one string: **no heading on either page is exactly an
+     * identifier.** A slug added to the vocabulary and not to a map fails this
+     * on the page it reaches, rather than four days later in a search result.
+     */
+    it('leaves no heading on either page that is exactly a slug', async () => {
+      for (const url of ['/atlas', '/atlas/github', '/atlas/bluesky']) {
+        const body = (await get(url)).body
+        const headings = [...body.matchAll(/<h[123][^>]*>(.*?)<\/h[123]>/g)].map((one) =>
+          (one[1] ?? '').replace(/<[^>]*>/g, '').trim(),
+        )
+
+        expect(headings.length, `${url} has no headings to check`).toBeGreaterThan(0)
+        for (const heading of headings) {
+          expect(
+            /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(heading),
+            `${url} heads a section with the identifier ${heading}`,
+          ).toBe(false)
+        }
+      }
     })
   })
 

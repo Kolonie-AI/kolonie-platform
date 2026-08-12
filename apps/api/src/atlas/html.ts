@@ -1,5 +1,8 @@
 import {
   ATLAS_PATH,
+  atlasCapabilityPhrase,
+  atlasKindPhrase,
+  atlasShelfTitle,
   RETIRED_ENTRY_NOTE,
   stepInstruction,
   STALE_ENTRY_NOTE,
@@ -279,7 +282,8 @@ function shelfNav(entries: readonly AtlasEntry[], current: AtlasCategory | undef
   const links = [...counts.entries()].map(
     ([category, count]) =>
       `<li><a href="${escape(atlasIndexPath(category as AtlasCategory))}"` +
-      `${category === current ? ' aria-current="page"' : ''}>${escape(category)}</a> ` +
+      `${category === current ? ' aria-current="page"' : ''}>` +
+      `${escape(atlasShelfTitle(category))}</a> ` +
       `<span class="k-atlas-count">${count}</span></li>`,
   )
 
@@ -317,9 +321,14 @@ function shelves(entries: readonly AtlasEntry[]): readonly string[] {
 
   return [...byCategory.entries()].map(
     ([category, shelf]) =>
+      /**
+       * **The slug stays where it is an address** (`#791`): the fragment `id`
+       * a link elsewhere targets, and the `?category=` the link itself
+       * carries. Only what a reader sees is the shelf title.
+       */
       `<h2 id="${escape(category)}"><a href="${escape(
         atlasIndexPath(category as AtlasCategory),
-      )}">${escape(category)}</a> ` +
+      )}">${escape(atlasShelfTitle(category))}</a> ` +
       /**
        * The count, derived from the shelf it is standing on
        * (`kolonie-website#97`). A number typed into prose ages on the next
@@ -335,7 +344,7 @@ function indexRow(entry: AtlasEntry): string {
     `<li><a href="${escape(entry.path)}">${escape(entry.title)}</a>` +
     indexStatusMark(entry.status) +
     (entry.recipes.some((recipe) => recipe.paid) ? ' <span class="k-paid">paid</span>' : '') +
-    `<br><small>${escape(kindsLine(entry))}${escape(indexFigure(entry))} — ` +
+    `<br><small>${escape(kindsShown(entry))}${escape(indexFigure(entry))} — ` +
     `${escape(operatorLine(entry))}</small></li>`
   )
 }
@@ -496,11 +505,47 @@ function kindsLine(entry: AtlasEntry): string {
   return entry.recipes.map((recipe) => recipe.kind).join(', ')
 }
 
+/**
+ * The same list, in words, for the one place a reader sees it (`#791`).
+ *
+ * Separate from {@link kindsLine} rather than replacing it: that one feeds the
+ * `<meta name="description">`, which is a sentence written for a search result
+ * and needs the phrases joined differently.
+ *
+ * **The article is lowered, and only its first letter.** Each phrase carries
+ * its own article so a heading is correct on its own; mid-row they are a list,
+ * and *A mailbox, A domain* is the capitalisation of a title rather than of a
+ * sentence. Touching only the first character leaves *an API account* alone.
+ */
+function kindsShown(entry: AtlasEntry): string {
+  return entry.recipes
+    .map((recipe) => {
+      const phrase = atlasKindPhrase(recipe.kind)
+      return phrase.charAt(0).toLowerCase() + phrase.slice(1)
+    })
+    .join(', ')
+}
+
+/**
+ * What a row is called where a reader sees it (`#791`).
+ *
+ * **Where the kind is the provider, the heading says so.** A row keyed
+ * `trello` at `trello.com` headed *A Trello account* repeats the title above
+ * it; *An account at trello.com* is the sentence a reader arriving mid-page
+ * needs. Everywhere else the kind's own phrase is the answer, and an unknown
+ * kind falls through to its slug rather than to nothing.
+ */
+function recipeHeading(recipe: AtlasEntry['recipes'][number]): string {
+  const label = recipe.provider.split('.')[0]
+
+  return recipe.kind === label ? `An account at ${recipe.provider}` : atlasKindPhrase(recipe.kind)
+}
+
 /** One row of the catalogue, as a section of its provider's page. */
 function recipeSection(recipe: AtlasEntry['recipes'][number]): string {
   if (recipe.status === 'refused') {
     return [
-      `<section><h2>${escape(recipe.kind)}</h2>`,
+      `<section><h2>${escape(recipeHeading(recipe))}</h2>`,
       '<p class="k-refused">This cannot be joined honestly, so do not try.</p>',
       `<p>${escape(recipe.refusal ?? '')}</p>`,
       '</section>',
@@ -515,7 +560,7 @@ function recipeSection(recipe: AtlasEntry['recipes'][number]): string {
    */
   if (recipe.status === 'unwritten') {
     return [
-      `<section><h2>${escape(recipe.kind)}</h2>`,
+      `<section><h2>${escape(recipeHeading(recipe))}</h2>`,
       `<p><small>${escape(operatorLine(recipe))}</small></p>`,
       `<p class="k-unwritten">${escape(UNWRITTEN_ENTRY_NOTE)}</p>`,
       '</section>',
@@ -534,7 +579,7 @@ function recipeSection(recipe: AtlasEntry['recipes'][number]): string {
    */
   if (recipe.status === 'retired') {
     return [
-      `<section><h2>${escape(recipe.kind)}</h2>`,
+      `<section><h2>${escape(recipeHeading(recipe))}</h2>`,
       '<p class="k-refused"><strong>Withdrawn' +
         (recipe.retiredAt === null ? '' : ` on ${escape(recipe.retiredAt.slice(0, 10))}`) +
         `.</strong> ${escape(recipe.retiredReason ?? '')}</p>`,
@@ -571,14 +616,14 @@ function recipeSection(recipe: AtlasEntry['recipes'][number]): string {
   const reach =
     recipe.reaches === null
       ? ''
-      : `<h3>And this is how you get a ${escape(recipe.reaches.capability)}</h3>` +
+      : `<h3>${escape(atlasCapabilityPhrase(recipe.reaches.capability))}, and how to get it</h3>` +
         `<p><small>Optional, and the account is not what you came for.</small></p>` +
         `<ol start="${recipe.steps.length + 1}">` +
         recipe.reaches.steps.map((step) => `<li>${escape(stepInstruction(step))}</li>`).join('') +
         '</ol>'
 
   return [
-    `<section><h2>${escape(recipe.kind)}</h2>`,
+    `<section><h2>${escape(recipeHeading(recipe))}</h2>`,
     `<p><small>${escape(operatorLine(recipe))}</small></p>`,
     staleNote(recipe),
     `<ol>${steps}</ol>`,

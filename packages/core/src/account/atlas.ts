@@ -126,6 +126,102 @@ export const AtlasEntrySchema = z.object({
 export type AtlasEntry = z.infer<typeof AtlasEntrySchema>
 
 /**
+ * What an account kind is called where a reader sees it (`#791`).
+ *
+ * **A heading is prose, and it is derived from the identifier rather than being
+ * the identifier.** `trello`, `code-host` and `api` are what the rows are keyed
+ * on; rendered as an `<h2>` they are a stray word under the title, and on an
+ * entry with several rows they are the only thing telling the sections apart —
+ * which is exactly when they need to be a sentence.
+ *
+ * **The article is baked into each value**, because it is the half that cannot
+ * be computed: *a mailbox*, *an API account*, *a phone number*. A caller
+ * prefixing its own article gets `a api` back, which is the fault this map was
+ * written for.
+ *
+ * **A kind that is not here renders as its own slug** — ugly, and readable,
+ * and nothing throws. {@link AccountKindSchema} is an open vocabulary rather
+ * than an enum, so a curator can file a kind this map has never heard of; the
+ * page that results must be plain rather than absent.
+ */
+export const ATLAS_KIND_PHRASES: Readonly<Record<string, string>> = {
+  api: 'An API account',
+  chat: 'A chat account',
+  'code-host': 'A code-hosting account',
+  design: 'A design account',
+  domain: 'A domain',
+  github: 'A GitHub account',
+  hosting: 'A hosting account',
+  identity: 'An identity account',
+  mailbox: 'A mailbox',
+  notes: 'A notes account',
+  payments: 'A payments account',
+  phone: 'A phone number',
+  'project-tracker': 'A project tracker',
+  social: 'A social account',
+  storage: 'A storage account',
+  storefront: 'A storefront',
+  trello: 'A Trello account',
+}
+
+/**
+ * What a capability is called where a reader sees it (`#791`).
+ *
+ * Separate from {@link ATLAS_KIND_PHRASES} because the same slug is a different
+ * thing in the two places: `api` as a kind is an account you hold, `api` as a
+ * capability is the key that account reaches. Falls back to the kind map — a
+ * capability the Colony reaches by holding the thing itself reads correctly
+ * there — and then to the slug.
+ */
+export const ATLAS_CAPABILITY_PHRASES: Readonly<Record<string, string>> = {
+  api: 'An API key',
+}
+
+/**
+ * What a shelf is called at the top of the index (`#791`).
+ *
+ * The `<h2>` and the nav link are the document outline a crawler reads, and
+ * `identity-security` is not a title. **The slug is kept everywhere it is an
+ * address**: the fragment `id` on the heading, and every `?category=` link,
+ * which {@link atlasPath}'s neighbour builds from the same value.
+ *
+ * A category that is not here renders as its own slug, on the same argument as
+ * the map above.
+ */
+export const ATLAS_SHELF_TITLES: Readonly<Record<string, string>> = {
+  'code-hosting': 'Code hosting',
+  'commerce-marketplace': 'Commerce and marketplaces',
+  communication: 'Communication',
+  'compute-hosting': 'Compute and hosting',
+  'data-apis': 'Data and APIs',
+  'design-media': 'Design and media',
+  'domain-dns': 'Domains and DNS',
+  'identity-security': 'Identity and security',
+  'knowledge-docs': 'Knowledge and documents',
+  mailbox: 'Mailboxes',
+  'payments-finance': 'Payments and finance',
+  'project-tracking': 'Project tracking',
+  'social-publishing': 'Social and publishing',
+  storage: 'Storage',
+  telephony: 'Telephony',
+}
+
+/** The noun phrase for an account kind, or the slug if this one is new. */
+export function atlasKindPhrase(kind: string): string {
+  return ATLAS_KIND_PHRASES[kind] ?? kind
+}
+
+/** The noun phrase for a capability, or the kind's, or the slug. */
+export function atlasCapabilityPhrase(capability: string): string {
+  return ATLAS_CAPABILITY_PHRASES[capability] ?? atlasKindPhrase(capability)
+}
+
+/** The shelf title for a category, or the slug if this one is new. */
+export function atlasShelfTitle(category: string): string {
+  return ATLAS_SHELF_TITLES[category] ?? category
+}
+
+/**
  * Group catalogue rows into entries, one per provider.
  *
  * **Here rather than in a query**, because every surface needs the same grouping

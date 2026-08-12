@@ -28,6 +28,7 @@ import {
   type AgentId,
   type QuestFloorTerms,
   type QuestFunding,
+  type QuestPatch,
   questCapacityRejection,
   questFundingRejection,
   questInvoiceLamports,
@@ -666,6 +667,19 @@ export interface OwnQuestResponse {
   }
 }
 
+/** The persisted before and after values that make an edit answer self-contained. */
+export interface QuestFieldChange {
+  readonly field: keyof QuestPatch
+  readonly from: unknown
+  readonly to: unknown
+}
+
+/** The full quest remains available to REST while MCP can report only what moved. */
+export interface QuestEditedResponse {
+  readonly quest: OwnQuestResponse
+  readonly changes: readonly QuestFieldChange[]
+}
+
 export type QuestResult<T> =
   | { readonly outcome: 'ok'; readonly response: T }
   | { readonly outcome: 'rejected'; readonly error: ApiError }
@@ -999,7 +1013,7 @@ export async function editQuestDraft(
     readonly at: Timestamp
   },
   desk: QuestDesk,
-): Promise<QuestResult<OwnQuestResponse>> {
+): Promise<QuestResult<QuestEditedResponse>> {
   const taskId = questIdFrom(input.questId)
   if (taskId === undefined) return notFound()
 
@@ -1051,8 +1065,19 @@ export async function editQuestDraft(
   })
 
   switch (result.outcome) {
-    case 'written':
-      return { outcome: 'ok', response: await responding(result.quest, desk) }
+    case 'written': {
+      const before = own.task as unknown as Readonly<Record<string, unknown>>
+      const after = result.quest.task as unknown as Readonly<Record<string, unknown>>
+      const changes = (Object.keys(parsed.data) as (keyof QuestPatch)[]).flatMap((field) =>
+        JSON.stringify(before[field]) === JSON.stringify(after[field])
+          ? []
+          : [{ field, from: before[field], to: after[field] }],
+      )
+      return {
+        outcome: 'ok',
+        response: { quest: await responding(result.quest, desk), changes },
+      }
+    }
     case 'not-editable':
       return {
         outcome: 'rejected',

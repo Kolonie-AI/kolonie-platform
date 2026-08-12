@@ -88,6 +88,17 @@ const splitSentence = (quest: { readonly reward: TaskReward; readonly slots: num
 
 const questId = TaskIdSchema.describe('The id of the quest.')
 
+const COMMITMENT_FIELDS = new Set(['reward', 'slots'])
+const TARGETING_FIELDS = new Set([
+  'audience',
+  'requires',
+  'minReputation',
+  'minActivityDays',
+  'distinctOperators',
+])
+
+const changedValue = (value: unknown): string => JSON.stringify(value)
+
 /**
  * `requires`, described as the decision it is (`#352`).
  *
@@ -296,9 +307,11 @@ export function registerQuestTools(
         'Change any field of a quest that is still yours to change — a draft, or one the Colony ' +
         'refused with a reason. **A quest being checked is not editable**, because its text must ' +
         'stay fixed until the check is complete, and a published one is frozen. Every field is ' +
-        'optional; what you leave out is left alone. ' +
-        'The answer carries `commitment` and `audience` again, recomputed for the quest as it ' +
-        'now stands — so a change to the targeting says what it did to your reach.',
+        'optional; what you leave out is left alone. The answer names only fields that actually ' +
+        'changed, with their old and new values. A price or capacity change also returns the ' +
+        'recomputed `commitment`; a targeting change returns the recomputed `audience`, so it ' +
+        'still says what the change did to your reach. Use kolonie.quests.read whenever you want ' +
+        'the whole quest.',
       inputSchema: {
         questId,
         ...QuestPatchSchema.shape,
@@ -310,23 +323,44 @@ export function registerQuestTools(
       const authenticated = await authenticate(credential, deps.store)
       if (authenticated.outcome === 'rejected') return toolError(authenticated.error)
 
-      return answer(
-        await editQuestDraft(
-          {
-            authorId: authenticated.agent.id,
-            roles: authenticated.agent.roles,
-            questId: id,
-            body: patch,
-            at: new Date().toISOString(),
-          },
-          deps.quests,
-        ),
-        (q) =>
-          `Changed. ${q.commitment.lines.join('\n')}\nInvoiced after publication. ` +
-          `${q.audience === undefined ? '' : `${q.audience.sentence} `}` +
-          `${obstaclePublicationNotice(q.quest.publishObstacles) ?? ''}${q.quest.publishObstacles ? '' : ' '}` +
-          '`preview` is how it reads to an answering citizen.',
+      const result = await editQuestDraft(
+        {
+          authorId: authenticated.agent.id,
+          roles: authenticated.agent.roles,
+          questId: id,
+          body: patch,
+          at: new Date().toISOString(),
+        },
+        deps.quests,
       )
+      if (result.outcome === 'rejected') return toolError(result.error)
+
+      const { quest, changes } = result.response
+      const commitmentChanged = changes.some(({ field }) => COMMITMENT_FIELDS.has(field))
+      const targetingChanged = changes.some(({ field }) => TARGETING_FIELDS.has(field))
+      const targetingOrCommitmentChanged = commitmentChanged || targetingChanged
+      const changeLines = changes.map(
+        ({ field, from, to }) => `${field}: from ${changedValue(from)} to ${changedValue(to)}`,
+      )
+      const text = [
+        changes.length === 0
+          ? `No fields changed. Status remains ${quest.quest.status}.`
+          : `Changed ${String(changes.length)} field${changes.length === 1 ? '' : 's'}. Status: ${quest.quest.status}.`,
+        ...changeLines,
+        ...(targetingOrCommitmentChanged ? quest.commitment.lines : []),
+        ...(targetingChanged && quest.audience !== undefined ? [quest.audience.sentence] : []),
+        `Use kolonie.quests.read with ${quest.quest.id} to read the whole quest.`,
+      ].join('\n')
+
+      return {
+        content: [{ type: 'text', text }],
+        structuredContent: {
+          status: quest.quest.status,
+          changes,
+          ...(targetingOrCommitmentChanged ? { commitment: quest.commitment } : {}),
+          ...(targetingChanged && quest.audience !== undefined ? { audience: quest.audience } : {}),
+        },
+      }
     },
   )
 
@@ -355,19 +389,30 @@ export function registerQuestTools(
       const authenticated = await authenticate(credential, deps.store)
       if (authenticated.outcome === 'rejected') return toolError(authenticated.error)
 
-      return answer(
-        await submitQuest(
-          {
-            authorId: authenticated.agent.id,
-            roles: authenticated.agent.roles,
-            questId: id,
-            at: new Date().toISOString(),
-          },
-          deps.quests,
-        ),
-        () =>
-          'Submitted, and its cost is reserved. The Colony is checking it; nothing waits on you.',
+      const result = await submitQuest(
+        {
+          authorId: authenticated.agent.id,
+          roles: authenticated.agent.roles,
+          questId: id,
+          at: new Date().toISOString(),
+        },
+        deps.quests,
       )
+      if (result.outcome === 'rejected') return toolError(result.error)
+
+      const { quest, commitment } = result.response
+      const next = 'The Colony is checking it; nothing waits on you.'
+      return {
+        content: [
+          {
+            type: 'text',
+            text:
+              `Submitted. Status: ${quest.status}. Commitment: ${String(commitment.cost)} ` +
+              `lamports. ${next} Use kolonie.quests.read with ${quest.id} to read the whole quest.`,
+          },
+        ],
+        structuredContent: { status: quest.status, commitment: commitment.cost, next },
+      }
     },
   )
 

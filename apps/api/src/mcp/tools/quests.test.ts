@@ -174,9 +174,63 @@ describe('the sponsor over MCP', () => {
     })
 
     expect(changed.isError).toBeFalsy()
+    expect(structured(changed)).toEqual({
+      status: 'draft',
+      changes: [
+        {
+          field: 'title',
+          from: 'A thousand registrations',
+          to: 'A hundred registrations',
+        },
+      ],
+    })
+    expect(JSON.stringify(changed.content)).toContain('title: from')
+    expect(JSON.stringify(changed.content)).toContain('kolonie.quests.read')
+    expect(structured(changed)).not.toHaveProperty('quest')
+    expect(structured(changed)).not.toHaveProperty('preview')
     const read = await call(sponsor.key, 'kolonie.quests.read', { questId: id })
     expect((structured(read).quest as unknown as { title: string }).title).toBe(
       'A hundred registrations',
+    )
+  })
+
+  it('reports a no-op update without repeating the quest', async () => {
+    const sponsor = anAgent()
+    const written = await call(sponsor.key, 'kolonie.quests.write', aDraft())
+    const id = (structured(written).quest as unknown as { id: TaskId }).id
+
+    const changed = await call(sponsor.key, 'kolonie.quests.update', {
+      questId: id,
+      title: 'A thousand registrations',
+    })
+
+    expect(structured(changed)).toEqual({ status: 'draft', changes: [] })
+    expect(JSON.stringify(changed.content)).toContain('No fields changed')
+    expect(JSON.stringify(changed)).not.toContain('What happened when you registered?')
+    expect(JSON.stringify(changed)).not.toContain(
+      'Register at the address in the brief and report what happened.',
+    )
+  })
+
+  it('submits with only the status, commitment total, and next step', async () => {
+    const sponsor = anAgent()
+    quests.credit(sponsor.id, 7_000_000)
+    const written = await call(sponsor.key, 'kolonie.quests.write', aDraft())
+    const id = (structured(written).quest as unknown as { id: TaskId }).id
+
+    const submitted = await call(sponsor.key, 'kolonie.quests.submit', { questId: id })
+
+    expect(structured(submitted)).toEqual({
+      status: 'pending_review',
+      commitment: 7_000_000,
+      next: 'The Colony is checking it; nothing waits on you.',
+    })
+    expect(JSON.stringify(submitted.content)).toContain('kolonie.quests.read')
+    expect(structured(submitted)).not.toHaveProperty('quest')
+    expect(structured(submitted)).not.toHaveProperty('preview')
+    expect(JSON.stringify(submitted)).not.toContain('What happened when you registered?')
+    expect(JSON.stringify(submitted)).not.toContain(
+      'Register at the address in the brief and report what happened.',
     )
   })
 
@@ -392,9 +446,13 @@ describe('the sponsor over MCP', () => {
       requires: ['browser'],
     })
 
+    expect(structured(changed).changes).toEqual([{ field: 'requires', from: [], to: ['browser'] }])
     expect(
       (structured(changed).audience as unknown as { requires: readonly string[] }).requires,
     ).toEqual(['browser'])
+    expect(structured(changed).commitment).toMatchObject({ cost: 7_000_000 })
+    expect(structured(changed)).not.toHaveProperty('quest')
+    expect(structured(changed)).not.toHaveProperty('preview')
     expect(JSON.stringify(changed.content)).toContain('With browser required')
   })
 

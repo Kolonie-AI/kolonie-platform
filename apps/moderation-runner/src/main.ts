@@ -7,6 +7,9 @@ import {
   holdReportOnRedLine,
   unclassifiedDirections,
   writeDirectionClassification,
+  waitingProfileReviews,
+  recordProfileReview,
+  deferProfileReview,
   pendingAnswerModerations,
   unmoderatedProviderReasons,
   unmoderatedWalkProse,
@@ -72,6 +75,7 @@ import { githubIssues, TRIPWIRE_TOKEN_VAR } from './tripwire.js'
 import { openRouterModel, unavailableModel, OPENROUTER_API_KEY_VAR } from './llm.js'
 import { openRouterDirectionClassifier, DIRECTION_MODEL_VAR } from '@kolonie-ai/verifiers'
 import type { DirectionStore } from './directions.js'
+import type { ProfileReviewStore } from './profiles.js'
 import { createHealthServer, STALE_POLLS } from './health.js'
 
 /**
@@ -486,6 +490,20 @@ const directionStore: DirectionStore = {
     }),
 }
 
+/**
+ * The profile fields waiting to be read before publication (`#827`).
+ *
+ * Three storage calls and no decision of its own: the pass decides, this hands
+ * it rows. `defer` is the one worth noticing — a read that reached no verdict
+ * still stamps the attempt, so an unreachable provider is not re-asked by the
+ * next poll fifteen seconds later.
+ */
+const profileReviewStore: ProfileReviewStore = {
+  waiting: (limit) => waitingProfileReviews(db, limit),
+  record: (input) => recordProfileReview(db, input),
+  defer: (id) => deferProfileReview(db, id),
+}
+
 const runner = startRunner(
   {
     store,
@@ -508,6 +526,14 @@ const runner = startRunner(
       ),
       log,
     },
+    /**
+     * The same model that judges reports reads profile fields (`#827`).
+     *
+     * One key, one provider, one place a model name is configured. A second
+     * model here would be a second thing to keep reachable for a pass that
+     * handles a handful of rows a day.
+     */
+    profiles: { profiles: profileReviewStore, model, log },
   },
   { pollIntervalMs: POLL_INTERVAL_MS },
 )

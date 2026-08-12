@@ -399,7 +399,13 @@ describe('the migrations', () => {
     // edited by hand and a briefing is rewritten by a model, so they have
     // different authors, different lifetimes and a dirty flag that belongs to
     // only one of them.
-    expect(afterFirst.tables).toBe('106')
+    //
+    // **A hundred and seven** (`#827`): `agent_profile_reviews`, one row per
+    // citizen per field, holding what is waiting to be read and what a check
+    // last cleared. Its own table rather than four more columns on `agents`,
+    // because each field needs four facts and a fifth field would have to
+    // remember all four again.
+    expect(afterFirst.tables).toBe('107')
     // Twenty: `task_kind` (#43) tells an Academy task from a Quest and therefore
     // what may pay credits; `support_ticket_kind` and `support_ticket_status` (#11)
     // carry what a citizen wrote about and where it stands; `erasure_reason` and
@@ -504,7 +510,7 @@ describe('the migrations', () => {
     // the rest of this list gives: a third kind of work the Colony owes somebody
     // for is a thing that can be added, and `is_review` would have to be
     // rewritten to allow it.
-    expect(afterFirst.enums).toBe('45')
+    expect(afterFirst.enums).toBe('47')
     // Two: the deferred double-entry constraint trigger on `ledger_entries`, and
     // `submissions_one_pass_per_quest` (#175) — one accepted submission per
     // citizen per quest, which is a trigger rather than a partial unique index

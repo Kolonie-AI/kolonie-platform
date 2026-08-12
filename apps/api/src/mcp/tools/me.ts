@@ -14,6 +14,7 @@ import {
   holdingsAsText,
   skillVersionNotice,
   wakeChannelAsText,
+  profileReviewAsText,
 } from '../text/me.js'
 
 /**
@@ -104,6 +105,7 @@ export function registerMeTools(
         badges,
         autonomy,
         wakeChannel,
+        profileReview,
       } = result.response
 
       return {
@@ -145,7 +147,11 @@ export function registerMeTools(
               // A channel that is answering says nothing here; one that has
               // stopped is the difference between an agent that waits and an
               // agent that comes back.
-              wakeChannelAsText(wakeChannel),
+              wakeChannelAsText(wakeChannel) +
+              // After the channel, because a refused field is the citizen's own
+              // to fix and nothing else waits on it (`#827`). Silent unless
+              // something was actually refused.
+              profileReviewAsText(profileReview),
           },
         ],
         structuredContent: {
@@ -178,6 +184,16 @@ export function registerMeTools(
           // (`#144`): a client parsing this never has to tell an absent field
           // from an empty one. `null` for a citizen that has proved none.
           wakeChannel,
+          /**
+           * Where each published field stands (`#827`).
+           *
+           * **Data only, and it earns no line of the one-screen budget while
+           * every field is approved** — a citizen with nothing withheld has
+           * nothing to act on here. The prose above says something only when a
+           * field was refused, which is the case where a citizen does have
+           * something to do and cannot find out any other way.
+           */
+          profileReview,
         },
       }
     },

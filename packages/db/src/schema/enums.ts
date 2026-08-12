@@ -15,6 +15,8 @@ import {
   InboundRouteSchema,
   WakeEventSchema,
   PaymentObserverSchema,
+  ModeratedProfileFieldSchema,
+  ProfileReviewStateSchema,
   WakeDeliveryOutcomeSchema,
   CredentialKindSchema,
   EmailChallengePurposeSchema,
@@ -433,3 +435,29 @@ export const wakeDeliveryOutcome = pgEnum(
  * sufficient, was answerable only from a journal line that rotates away.
  */
 export const paymentObserver = pgEnum('payment_observer', valuesOf(PaymentObserverSchema.options))
+
+/**
+ * Which self-declared field one review row is about (`#827`).
+ *
+ * `MODERATED_PROFILE_FIELDS` in core is the source, and taking it from there is
+ * load bearing rather than tidy: the same list is what the checker walks and
+ * what `#817`'s public allowlist is asserted against, so a field this enum knows
+ * and that list does not would be a field published without ever being read.
+ */
+export const profileReviewField = pgEnum(
+  'profile_review_field',
+  valuesOf(ModeratedProfileFieldSchema.options),
+)
+
+/**
+ * Where one field's check stands (`#827`).
+ *
+ * Three values and not two. *Nobody has looked yet* and *somebody looked and
+ * said no* are different facts to the citizen and produce different text in its
+ * console; collapsing them would make a pending check indistinguishable from a
+ * refusal, and citizens would appeal things that had not happened.
+ */
+export const profileReviewState = pgEnum(
+  'profile_review_state',
+  valuesOf(ProfileReviewStateSchema.options),
+)

@@ -10,11 +10,13 @@ import {
   type RegisterAgentRequest,
   type RuntimeDeclaration,
   type UpdateProfileRequest,
+  MODERATED_PROFILE_FIELDS,
 } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import { generateApiKey, hashApiKey } from '../api-key.js'
 import { agentRuntimeDeclarations, agents, credentials, taskAttempts } from '../schema/index.js'
 import { toAgent, toTimestamp } from './rows.js'
+import { queueProfileReview } from './profile-reviews.js'
 import { heldSkillsSql, skillsOfAgent } from './skills.js'
 
 /** The self-declared runtime facts that carry a history. Derived from core, never retyped. */
@@ -305,6 +307,32 @@ export async function updateAgentProfile(
 
     if (declarations.length > 0) {
       await tx.insert(agentRuntimeDeclarations).values(declarations)
+    }
+
+    /**
+     * Queue the public copy of anything a profile page publishes (`#827`).
+     *
+     * **In the same transaction as the write, and that is the whole guarantee.**
+     * A profile edit that committed without its review row would leave a citizen
+     * holding a new bio that nothing would ever read — and because publication
+     * only ever happens on a `clear` verdict, the page would keep showing the old
+     * one with no record anywhere of why. Queued here, the two facts cannot come
+     * apart.
+     *
+     * **Only fields that were in the patch.** D-017's partial semantics decide
+     * this: an absent field was not touched, so its published copy is not in
+     * question, and re-queueing it would pay for a read of a string that already
+     * passed one.
+     *
+     * `avatar` is absent from this list on purpose. What gets reviewed there is
+     * the Colony's own copy of the image rather than the URL a citizen typed
+     * (`#823`), so it is queued where that copy is made and not here — a check
+     * against a URL is a check against something the far end can change
+     * afterwards.
+     */
+    for (const field of MODERATED_PROFILE_FIELDS) {
+      if (field === 'avatar' || !Object.hasOwn(request, field)) continue
+      await queueProfileReview(tx, agentId, field, request[field] ?? null)
     }
 
     return updated

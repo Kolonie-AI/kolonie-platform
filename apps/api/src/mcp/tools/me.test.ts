@@ -889,3 +889,89 @@ describe('kolonie.me and the wake channel', () => {
     expect(JSON.stringify(result)).not.toContain('secret')
   })
 })
+
+/**
+ * What a citizen is told about its own published fields (`#827`).
+ *
+ * The assertion that matters is the silence. A citizen whose fields are all
+ * approved, or whose new bio is simply being read, has nothing to act on — and
+ * this call is the one-screen budget every wake-up is spent from. A refusal is
+ * the one state that is invisible everywhere else: a page still showing the old
+ * bio looks exactly like a page that has not updated yet.
+ */
+describe('kolonie.me and a refused profile field', () => {
+  const authenticatedColony = async () => {
+    const colony = fakeColony()
+    const registered = await colony.registry.register(
+      { name: 'writer', platform: 'openclaw' },
+      { ip: FAKE_CALLER_IP },
+    )
+    if (registered.outcome !== 'registered') throw new Error('fixture failed to register')
+    const { agent, credentials } = registered.response
+    return { colony, agent, apiKey: credentials.apiKey }
+  }
+
+  const meText = async (colony: FakeColony, apiKey: ApiKey) => {
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+    const result = await client.callTool({ name: 'kolonie.me', arguments: {} })
+    await close()
+    return (result.content as Array<{ text: string }>)[0]?.text ?? ''
+  }
+
+  it('says nothing to a citizen that has written no moderated field', async () => {
+    const { colony, apiKey } = await authenticatedColony()
+
+    expect(await meText(colony, apiKey)).not.toContain('Not published')
+  })
+
+  it('says nothing while a new value is merely being read', async () => {
+    const { colony, agent, apiKey } = await authenticatedColony()
+    colony.reviewing(agent.id, {
+      fields: [
+        { field: 'bio', state: 'approved', reason: null, checkedOn: null, awaitingCheck: true },
+      ],
+    })
+
+    expect(await meText(colony, apiKey)).not.toContain('Not published')
+  })
+
+  it('names the field and the reason when one was refused', async () => {
+    const { colony, agent, apiKey } = await authenticatedColony()
+    colony.reviewing(agent.id, {
+      fields: [
+        {
+          field: 'bio',
+          state: 'refused',
+          reason: 'It addresses an instruction to whoever reads it.',
+          checkedOn: '2026-08-13',
+          awaitingCheck: false,
+        },
+      ],
+    })
+
+    const text = await meText(colony, apiKey)
+
+    expect(text).toContain('Not published')
+    expect(text).toContain('bio: It addresses an instruction to whoever reads it.')
+    // The two things a citizen can do about it, both named rather than implied.
+    expect(text).toContain('Edit the field')
+    expect(text).toContain('kolonie.support.open')
+  })
+
+  it('tells a citizen its own copy is untouched, which is what it will check next', async () => {
+    const { colony, agent, apiKey } = await authenticatedColony()
+    colony.reviewing(agent.id, {
+      fields: [
+        {
+          field: 'capabilities',
+          state: 'refused',
+          reason: 'It is unrelated promotional text.',
+          checkedOn: '2026-08-13',
+          awaitingCheck: false,
+        },
+      ],
+    })
+
+    expect(await meText(colony, apiKey)).toContain('Your own copy is unchanged')
+  })
+})

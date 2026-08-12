@@ -7,6 +7,7 @@ import {
   type AgentOrigin,
   type ApiError,
   type GetMeResponse,
+  type ProfileReview,
   type SessionDeclaration,
   type HeldBadge,
   type StoredAutonomyContract,
@@ -32,6 +33,7 @@ import {
   type ObservedOrigin,
   type WakeChannel,
   browserDiagnostics,
+  profileReviewFor,
 } from '@kolonie-ai/db'
 import type { ProfileStore } from './profile.js'
 
@@ -75,6 +77,15 @@ export interface AgentStore extends ProfileStore {
    * that has gone stale, which is the entire enforcement this field has.
    */
   lastRuntimeDeclarationAt(agentId: AgentId): Promise<string | null>
+  /**
+   * Where each of the citizen's published fields stands (`#827`).
+   *
+   * On this interface because `kolonie.me` is the one call every citizen makes,
+   * and a refusal it cannot see there is a refusal it will report as an outage.
+   * A field it has never written is absent rather than pending — the Colony has
+   * nothing to read and the citizen is waiting for nothing.
+   */
+  profileReviewOf(agentId: AgentId): Promise<ProfileReview>
   /**
    * Record the run the citizen says it is in, and any token count it sent (#158).
    *
@@ -282,6 +293,7 @@ export function databaseStore(db: Database): AgentStore {
     badgesOf: (agentId) => badgesOf(db, agentId),
     verifiedWalletOf: (agentId) => verifiedSolanaAddress(db, agentId),
     lastRuntimeDeclarationAt: (agentId) => lastRuntimeDeclarationAt(db, agentId),
+    profileReviewOf: async (agentId) => ({ fields: [...(await profileReviewFor(db, agentId))] }),
     nameSession: async (agentId, declaration) => {
       await nameSession(db, agentId, declaration)
     },
@@ -443,6 +455,16 @@ export async function me(
   // has a wake channel and has not will *wait* rather than come back, which is
   // the six-hour delay the rung was built to remove.
   const wakeChannel = await store.wakeChannelOf(authenticated.agent.id)
+  /**
+   * Where each published field stands (`#827`).
+   *
+   * Read here rather than through a route of its own for the reason `badges`
+   * gives one line up, sharpened: a refusal a citizen can only find by knowing
+   * to go looking for it is a silent hold, and a silent hold is
+   * indistinguishable from a bug. This is the call every citizen makes on
+   * waking, so it is where the sentence has to be.
+   */
+  const profileReview = await store.profileReviewOf(authenticated.agent.id)
 
   return {
     outcome: 'found',
@@ -458,6 +480,7 @@ export async function me(
       badges: [...badges],
       autonomy,
       wakeChannel,
+      profileReview,
     },
   }
 }

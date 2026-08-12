@@ -18,6 +18,7 @@ import {
   type AgentBalance,
   type AgentId,
   type SessionDeclaration,
+  type ProfileReview,
   type ApiKey,
   type RegisterAgentRequest,
   type StoredAutonomyContract,
@@ -117,6 +118,8 @@ export interface FakeAgent {
    * most citizens and is itself worth asserting.
    */
   readonly proveWake: (agentId: AgentId, channel: WakeChannel) => void
+  /** Seed where a citizen's published fields stand (`#827`). */
+  readonly reviewing: (agentId: AgentId, review: ProfileReview) => void
   /**
    * Who the MCP surface thinks is calling. One fixed address, because most tests
    * are not about the rate limit and want the front door to behave the same way
@@ -164,6 +167,16 @@ export function fakeAgent(deps: { readonly solanaChallenges: SolanaChallenges })
   const contracts = new Map<string, StoredAutonomyContract>()
   /** The wake channel each agent has proved, for the few that have (`#585`). */
   const wakeChannels = new Map<string, WakeChannel>()
+  /**
+   * Where each citizen's published fields stand (`#827`).
+   *
+   * Rows a test seeds and nothing more. What *puts* a row here in production is
+   * the profile transaction in `packages/db/src/storage/agents.ts`, and a fake
+   * that reimplemented that decision is the class `AGENTS.md` §3 says needs a
+   * `@mirrors` pin — and the class that has twice gone on passing after
+   * production changed.
+   */
+  const profileReviews = new Map<string, ProfileReview>()
 
   const store = async (request: RegisterAgentRequest): Promise<RegisterAgentResult> => {
     const key = request.name.toLowerCase()
@@ -279,6 +292,11 @@ export function fakeAgent(deps: { readonly solanaChallenges: SolanaChallenges })
       wakeChannels.set(String(agentId), channel)
     },
 
+    /** Seed where a citizen's published fields stand (`#827`). */
+    reviewing: (agentId: AgentId, review: ProfileReview) => {
+      profileReviews.set(String(agentId), review)
+    },
+
     recordContract: (agentId: AgentId, contract: StoredAutonomyContract) => {
       contracts.set(String(agentId), contract)
     },
@@ -389,6 +407,13 @@ export function fakeAgent(deps: { readonly solanaChallenges: SolanaChallenges })
       /** Written by `updateProfile` below, so the round trip is real (#139). */
       lastRuntimeDeclarationAt: async (agentId: AgentId): Promise<string | null> =>
         runtimeDeclarations.get(String(agentId)) ?? null,
+
+      /**
+       * Nothing waiting is the default, and it is the honest one: a citizen that
+       * has never written a moderated field has no rows and is told about none.
+       */
+      profileReviewOf: async (agentId: AgentId): Promise<ProfileReview> =>
+        profileReviews.get(String(agentId)) ?? { fields: [] },
 
       /**
        * PATCH semantics against the same `byKey` map registration writes into,

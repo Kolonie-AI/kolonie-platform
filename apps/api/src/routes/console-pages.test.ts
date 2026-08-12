@@ -1757,8 +1757,55 @@ describe('every quest in the Colony', () => {
     )
     expect(content).toContain('A thousand registrations')
     expect(content).not.toContain('<form')
-    // And the one criterion left out, said on the page rather than only in the issue.
-    expect(page.body).toContain('answers themselves are not on this page')
+  })
+
+  /**
+   * The criterion `#776` left open until `kolonie-docs#311` was written, and the
+   * condition that issue attached to it.
+   */
+  it('shows the citizens’ answers, and records that they were read', async () => {
+    const questId = await aQuest()
+    // Accepted through the fixture, because only a verdict accepts a report in
+    // the real one and the verifier runner is another workspace (`#178`).
+    quests.accept({
+      taskId: questId as never,
+      answers: { 'went-well': 'The address resolved on the second try.' },
+    })
+    const maintainer = await aMaintainer()
+
+    const page = await backend(maintainer, `/backend/quests/${questId}`)
+
+    expect(page.body).toContain('The address resolved on the second try.')
+    // A rule whose enforcement is invisible to the person it constrains is one
+    // they cannot reason about — and this reader is who an auditor will ask.
+    expect(page.body).toContain('recorded that you read them')
+    expect(quests.reportReads).toHaveLength(1)
+    expect(quests.reportReads[0]?.taskId).toBe(questId)
+  })
+
+  it('records the read for a JSON caller too, who reads the same text', async () => {
+    const questId = await aQuest()
+    quests.accept({ taskId: questId as never, answers: { 'went-well': 'It worked.' } })
+
+    const response = await backend(
+      await aMaintainer(),
+      `/backend/quests/${questId}`,
+      'application/json',
+    )
+
+    // A record on the HTML branch alone would be a rule that stops applying to
+    // whoever asks with an `Accept` header.
+    expect(JSON.stringify(response.json())).toContain('It worked.')
+    expect(quests.reportReads).toHaveLength(1)
+  })
+
+  it('says nothing was written yet rather than showing an empty table', async () => {
+    const questId = await aQuest()
+
+    const page = await backend(await aMaintainer(), `/backend/quests/${questId}`)
+
+    // Different from a report the Colony is holding back, which is counted.
+    expect(page.body).toContain('No accepted report has been written yet')
   })
 
   it('answers 404 for a quest that does not exist, and never 403', async () => {

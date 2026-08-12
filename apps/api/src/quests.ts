@@ -46,6 +46,7 @@ import {
   type Role,
   type SubmissionId,
   type Task,
+  type HumanId,
   type TaskId,
   type Timestamp,
 } from '@kolonie-ai/core'
@@ -54,6 +55,7 @@ import {
   listOwnQuests as listOwnQuestsInDatabase,
   listAllQuests as listAllQuestsInDatabase,
   readAnyQuest as readAnyQuestInDatabase,
+  recordQuestReportRead as recordQuestReportReadInDatabase,
   type ColonyQuest,
   ownQuestAnswer as ownQuestAnswerInDatabase,
   questAnswerCounts as questAnswerCountsInDatabase,
@@ -277,6 +279,17 @@ export interface QuestDesk {
   listAll(limit?: number): Promise<readonly ColonyQuest[]>
   /** One quest, whoever wrote it. Behind the same guard as {@link listAll}. */
   readAny(taskId: TaskId): Promise<ColonyQuest | undefined>
+  /**
+   * Record that the maintainer read this quest's report texts (`#776`).
+   *
+   * **The condition `kolonie-docs#311` attached to the permission.** The
+   * maintainer may read any quest report in the moderated form the sponsor sees;
+   * what makes that a rule rather than a promise is that every read is written
+   * down — *may read* and *has read* are different claims, and only one is a
+   * fact. On the port rather than inside the reader so that it cannot be
+   * skipped by a caller that only wanted the text.
+   */
+  recordReportRead(input: { readonly taskId: TaskId; readonly humanId: HumanId }): Promise<void>
   /** The accepted reports on one quest (`#178`). */
   results(taskId: TaskId): Promise<readonly AcceptedReport[]>
   /**
@@ -494,6 +507,7 @@ export function databaseQuests(
     readOwn: (authorId, taskId) => readOwnQuestInDatabase(db, authorId, taskId),
     listAll: (limit) => listAllQuestsInDatabase(db, limit),
     readAny: (taskId) => readAnyQuestInDatabase(db, taskId),
+    recordReportRead: (input) => recordQuestReportReadInDatabase(db, input),
     results: (taskId) => questResultsInDatabase(db, taskId),
     withheld: (taskId) => withheldReportCountInDatabase(db, taskId),
     activity: async (taskIds) => {

@@ -48,6 +48,15 @@ export const FAKE_AUDIENCE = 40
 export interface FakeQuestDesk extends QuestDesk {
   /** Every criterion set the audience count was asked about (`#227`). */
   readonly audienceAsked: readonly AudienceCriteria[]
+  /**
+   * Every read of a quest's report texts, in order (`#776`).
+   *
+   * Exposed because the record is the *condition* on the permission
+   * (`kolonie-docs#311`) rather than a detail of it: a test that asserted the
+   * answers were shown and not that the read was written down would be asserting
+   * half a rule.
+   */
+  readonly reportReads: readonly { readonly taskId: string; readonly humanId: string }[]
   /** Say what the population holds, for a test about `#524`'s figure. */
   readonly populationHolds: (counts: readonly HoldingCount[]) => void
   /**
@@ -356,6 +365,7 @@ export function fakeQuests(): FakeQuestDesk {
     string,
     { taskId: string; kind: string; text: string | null; scrubbed: string | null }
   >()
+  const reportReads: { taskId: string; humanId: string }[] = []
 
   /**
    * Named rather than returned straight, so one method can be written in terms
@@ -931,6 +941,7 @@ export function fakeQuests(): FakeQuestDesk {
      * that the criteria it is asked about are the quest's own.
      */
     audienceAsked,
+    reportReads,
     populationHolds: (counts) => {
       holdings = counts
     },
@@ -997,6 +1008,10 @@ export function fakeQuests(): FakeQuestDesk {
     async readAny(taskId) {
       const held = quests.get(taskId)
       return held === undefined ? undefined : colonyQuest(held.own)
+    },
+
+    async recordReportRead(input) {
+      reportReads.push({ taskId: String(input.taskId), humanId: String(input.humanId) })
     },
   }
 

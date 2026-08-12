@@ -501,6 +501,13 @@ describe('schema', () => {
         // verdict on a sponsor's brief, which a steward must not have to read
         // unjudged.
         'quest_moderations',
+        /**
+         * That the maintainer read a quest's reports (`#776`). Append-only, one
+         * row per opening: *how often* is the question this answers, and a
+         * `last_read_at` overwritten in place would say the rule is being
+         * followed while hiding whether it is used daily or never.
+         */
+        'quest_report_reads',
         'quest_reports',
         /**
          * `report_feedback` joined with #110, carrying the votes that used to

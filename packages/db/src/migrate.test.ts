@@ -386,7 +386,14 @@ describe('the migrations', () => {
     // recent open request* would be a guess, and it breaks on somebody answering
     // four citizens in one evening, which is not a rare case for the people this
     // is for.
-    expect(afterFirst.tables).toBe('102')
+    // **A hundred and three** (`#776`): `quest_report_reads` records that the
+    // maintainer read a quest's report texts. It is the condition
+    // `kolonie-docs#311` attached to that permission, and the whole of what makes
+    // the rule checkable rather than a promise — *may read* and *has read* are
+    // different claims, and only one of them is a fact. It names the reader, the
+    // quest and the moment; no author appears and no text is copied, so an
+    // erasure has nothing to remove from it.
+    expect(afterFirst.tables).toBe('103')
     // Twenty: `task_kind` (#43) tells an Academy task from a Quest and therefore
     // what may pay credits; `support_ticket_kind` and `support_ticket_status` (#11)
     // carry what a citizen wrote about and where it stands; `erasure_reason` and

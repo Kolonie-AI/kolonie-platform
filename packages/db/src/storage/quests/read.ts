@@ -7,6 +7,7 @@ import {
   questPriceFloor,
   questTierCaps,
   type AgentId,
+  type HumanId,
   type QuestQuestion,
   type QuestTier,
   type SubmissionId,
@@ -14,7 +15,14 @@ import {
   type Timestamp,
 } from '@kolonie-ai/core'
 import type { Database } from '../../client.js'
-import { agents, questAnswers, questModerations, submissions, tasks } from '../../schema/index.js'
+import {
+  agents,
+  questAnswers,
+  questModerations,
+  questReportReads,
+  submissions,
+  tasks,
+} from '../../schema/index.js'
 import { toTask, toTimestamp } from '../rows.js'
 import type { SettingsReader } from '../settings.js'
 import {
@@ -737,4 +745,45 @@ export async function questsTakenPartIn(
         ? ('refused' as const)
         : ('waiting' as const),
   }))
+}
+
+/**
+ * Record that the maintainer read this quest's report texts (`#776`).
+ *
+ * **The condition `kolonie-docs#311` attached to the permission**, and the whole
+ * of what makes it checkable: *may read* and *has read* are different claims,
+ * and only one of them is a fact. One row per opening — how often is the
+ * question this answers, and a `last_read_at` that was overwritten would say the
+ * rule is being followed while hiding whether it is used daily or never.
+ *
+ * **Written where the text is served and nowhere else.** A record written when
+ * the page is requested rather than when the answers are handed over would be a
+ * record of intentions; this is called from the branch that actually returns
+ * them.
+ */
+export async function recordQuestReportRead(
+  db: Database,
+  input: { readonly taskId: TaskId; readonly humanId: HumanId },
+): Promise<void> {
+  await db.insert(questReportReads).values({ taskId: input.taskId, humanId: input.humanId })
+}
+
+/**
+ * Who has read this quest's reports, newest first — what an audit asks.
+ *
+ * Names the reader and the moment; there is no author here and no text, so this
+ * answers *has the Colony been reading its citizens' work* without being a
+ * second place any of it is kept.
+ */
+export async function questReportReadsFor(
+  db: Database,
+  taskId: TaskId,
+): Promise<readonly { readonly humanId: HumanId; readonly readAt: Timestamp }[]> {
+  const rows = await db
+    .select({ humanId: questReportReads.humanId, readAt: questReportReads.readAt })
+    .from(questReportReads)
+    .where(eq(questReportReads.taskId, taskId))
+    .orderBy(desc(questReportReads.readAt))
+
+  return rows.map((row) => ({ humanId: row.humanId as HumanId, readAt: toTimestamp(row.readAt) }))
 }

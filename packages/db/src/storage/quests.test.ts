@@ -5,6 +5,7 @@ import {
   isAudited,
   noStagesRun,
   type AgentId,
+  type HumanId,
   type QuestDraft,
   type SubmissionId,
   type TaskId,
@@ -16,7 +17,9 @@ import {
   ledgerEntries,
   payoutObligations,
   questAnswers,
+  humans,
   questModerations,
+  questReportReads,
   submissions,
   taskAttempts,
   tasks,
@@ -58,6 +61,8 @@ import {
   questTextDigest,
   readOwnQuest,
   recordQuestModeration,
+  recordQuestReportRead,
+  questReportReadsFor,
   discardQuestDraft,
   refuseQuest,
   submitQuestForReview,
@@ -1396,6 +1401,73 @@ describe('the quest write path', () => {
 
       expect((await readAnyQuest(db, task.id))?.task.title).toBe(task.title)
       expect(await readAnyQuest(db, crypto.randomUUID() as TaskId)).toBeUndefined()
+    })
+
+    /**
+     * The condition `kolonie-docs#311` attached to the maintainer's permission
+     * (`#776`), against a real database.
+     *
+     * What is asserted here rather than in `apps/api` is what the *table* is:
+     * append-only, naming the reader and the quest and nothing else, and holding
+     * nothing an erasure would need to take away.
+     */
+    describe('recording that the reports were read', () => {
+      const aPerson = async (): Promise<HumanId> => {
+        const [row] = await db.insert(humans).values({}).returning({ id: humans.id })
+        if (row === undefined) throw new Error('inserting a human returned no row')
+        return row.id as HumanId
+      }
+
+      it('records every opening rather than the most recent one', async () => {
+        const sponsor = await anAgent('sponsor')
+        const { task } = await createQuestDraft(db, { authorId: sponsor, draft: aDraft() })
+        const reader = await aPerson()
+
+        await recordQuestReportRead(db, { taskId: task.id, humanId: reader })
+        await recordQuestReportRead(db, { taskId: task.id, humanId: reader })
+
+        // *How often* is the question this answers. A `last_read_at` overwritten
+        // in place would say the rule is being followed while hiding whether it
+        // is used daily or never, and those are the two answers anybody wants.
+        const reads = await questReportReadsFor(db, task.id)
+        expect(reads).toHaveLength(2)
+        expect(reads.every((read) => read.humanId === reader)).toBe(true)
+      })
+
+      it('names the reader and the quest, and no author', async () => {
+        const sponsor = await anAgent('sponsor')
+        const { task } = await createQuestDraft(db, { authorId: sponsor, draft: aDraft() })
+        await recordQuestReportRead(db, { taskId: task.id, humanId: await aPerson() })
+
+        const rows = await db.select().from(questReportReads)
+
+        // The guarantee is stronger than deleting rows on erasure would be:
+        // there is nothing here about any report's author to delete.
+        expect(Object.keys(rows[0] ?? {}).sort()).toEqual(['humanId', 'id', 'readAt', 'taskId'])
+      })
+
+      it('leaves nothing behind when the citizen that wrote the quest erases itself', async () => {
+        const sponsor = await anAgent('departing-sponsor')
+        const { task } = await createQuestDraft(db, { authorId: sponsor, draft: aDraft() })
+        await recordQuestReportRead(db, { taskId: task.id, humanId: await aPerson() })
+
+        // The quest outlives the citizen (`erasure.md`), so the record of it
+        // being read does too — it is about the quest, and the quest is still
+        // there. What leaves with the citizen is everything that names it.
+        const erased = await eraseAgent(db, { agentId: sponsor, banSalt: 'a'.repeat(32) })
+        expect(erased.outcome).toBe('erased')
+        expect(await questReportReadsFor(db, task.id)).toHaveLength(1)
+      })
+
+      it('goes with the quest', async () => {
+        const sponsor = await anAgent('sponsor')
+        const { task } = await createQuestDraft(db, { authorId: sponsor, draft: aDraft() })
+        await recordQuestReportRead(db, { taskId: task.id, humanId: await aPerson() })
+
+        await db.delete(tasks).where(eq(tasks.id, task.id))
+
+        expect(await db.select().from(questReportReads)).toEqual([])
+      })
     })
 
     /**

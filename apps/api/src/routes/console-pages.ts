@@ -1236,21 +1236,30 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
    * refusal the guard above makes for a reader who is not a maintainer: this
    * surface tells a stranger nothing about which ids are real.
    *
-   * The counts come from the reads the sponsor's own results page uses, so the
-   * two cannot drift. What is missing is the reports' text — see
-   * `backendQuestPage`, which says so on the page.
+   * The counts and the answers both come from the reads the sponsor's own
+   * results page uses, so no figure and no line of text on this page can drift
+   * from the one the sponsor is looking at.
+   *
+   * **Reading the answers is recorded before they are served** — the condition
+   * `kolonie-docs#311` attached to the permission, and the whole of what makes
+   * that rule checkable. Written here rather than inside the renderer because
+   * the JSON caller reads the same text and owes the same record; a record on
+   * the HTML branch alone would be a rule that stops applying to whoever asks
+   * with an `Accept` header.
    */
   app.get<{ Params: { questId: string } }>('/backend/quests/:questId', async (request, reply) => {
-    if ((await backendGuard(request, reply)) === null) return reply
+    const signedIn = await backendGuard(request, reply)
+    if (signedIn === null) return reply
 
     const taskId = request.params.questId as TaskId
     const quest = await deps.quests.readAny(taskId)
     if (quest === undefined) return reply.callNotFound()
 
-    const [counts, answerCounts, withheld] = await Promise.all([
+    const [counts, answerCounts, withheld, answers] = await Promise.all([
       deps.quests.reportCounts(taskId),
       deps.quests.counts(taskId),
       deps.quests.withheld(taskId),
+      deps.quests.results(taskId),
     ])
 
     const facts = [
@@ -1315,7 +1324,17 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
       rejectionReason: quest.rejectionReason,
       withheld,
       declined: counts.declined,
+      answers,
     }
+
+    /**
+     * **Recorded because the text is about to be served, and awaited.**
+     *
+     * A read that was fired and forgotten would make the record a thing that
+     * usually happens, and a rule enforced by *usually* is not one an auditor
+     * can rely on. It is one insert on a page a maintainer opens by hand.
+     */
+    await deps.quests.recordReportRead({ taskId, humanId: signedIn.id })
 
     return wantsHtml(request)
       ? html(reply, backendQuestPage({ nav: navFor(request, ['maintainer']), quest: body }))

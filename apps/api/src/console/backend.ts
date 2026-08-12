@@ -422,14 +422,23 @@ export interface BackendQuestFact {
 /**
  * `/backend/quests/:questId` — one quest, read to the end (`#776`).
  *
- * **What the citizens actually wrote is deliberately not here.** The maintainer
- * decided on 2026-08-12 that the answers should be shown, and
- * `Kolonie-AI/kolonie-docs#311` is open for the governance line that would permit
- * it: *the rule that says a reader who is not the sponsor may read a report's
- * text has to exist before the surface that does it*. It does not exist yet, so
- * this page carries the counts — which are aggregates about the quest and not one
- * citizen's words — and says outright that the texts are missing and why. The
- * day that issue closes, the answers table is the one thing to add.
+ * **The citizens' answers are here, and the rule that permits it exists**
+ * (`kolonie-docs#311`, decided 2026-08-12): the maintainer may read any quest
+ * report in the moderated form the sponsor sees, and **every such read is
+ * recorded**. This page carried the counts and a paragraph saying the texts were
+ * missing until that line was written, which was the right order — the rule that
+ * says a reader who is not the sponsor may read a report's text had to exist
+ * before the surface that does it.
+ *
+ * **Exactly what the sponsor sees, and by the same reader.** Scrubbed and
+ * moderated, no handle, no runtime, no agent id, and no answer that did not
+ * pass. `#328`'s promise is one promise: what the MCP surface does not disclose,
+ * no console page discloses either — and this page adds a reader rather than
+ * widening what any reader sees of the author.
+ *
+ * **The page says the read was recorded.** Not as a courtesy: a rule whose
+ * enforcement is invisible to the person it constrains is one they cannot reason
+ * about, and the maintainer is also the person an auditor will ask.
  */
 export function backendQuestPage(
   input: BackendPageInput & {
@@ -447,6 +456,17 @@ export function backendQuestPage(
       readonly rejectionReason: string | null
       readonly withheld: number
       readonly declined: number
+      /**
+       * The accepted reports, exactly as the sponsor's own results page shows
+       * them (`kolonie-docs#311`).
+       *
+       * Empty for a quest with none, which is a different thing from a quest
+       * whose answers are being withheld — the note above the table says which.
+       */
+      readonly answers: readonly {
+        readonly acceptedAt: string
+        readonly answers: Readonly<Record<string, string>>
+      }[]
     }
   },
 ): string {
@@ -473,6 +493,39 @@ export function backendQuestPage(
                 `<tr><td>${escape(question.key)}</td><td>${escape(question.prompt)}</td></tr>`,
             )
             .join('')}</tbody>`,
+          '</table>',
+        ].join('')
+
+  /**
+   * The answers, in the shape the sponsor's results page uses.
+   *
+   * **One column per question key across every report**, so a report that
+   * answered three of four questions leaves a blank rather than shifting the
+   * row — and **no `Accepted` column beyond the date**: no handle, no runtime,
+   * no agent id, which is `#328`'s promise and is one promise rather than one
+   * per surface.
+   */
+  const answerKeys = [...new Set(quest.answers.flatMap((report) => Object.keys(report.answers)))]
+
+  const answerTable =
+    quest.answers.length === 0
+      ? '<p class="note">No accepted report has been written yet, so there is nothing to read. ' +
+        'That is different from a report the Colony is holding back, which is counted above.</p>'
+      : [
+          '<table>',
+          `<thead><tr><th>Accepted</th>${answerKeys
+            .map((key) => `<th>${escape(key)}</th>`)
+            .join('')}</tr></thead>`,
+          '<tbody>',
+          quest.answers
+            .map(
+              (report) =>
+                `<tr><td>${escape(report.acceptedAt)}</td>${answerKeys
+                  .map((key) => `<td>${escape(report.answers[key] ?? '')}</td>`)
+                  .join('')}</tr>`,
+            )
+            .join(''),
+          '</tbody>',
           '</table>',
         ].join('')
 
@@ -528,20 +581,19 @@ export function backendQuestPage(
         : []),
       '<h2>Counts per option</h2>',
       aggregates,
+      '<h2>What the citizens answered</h2>',
+      answerTable,
       /**
-       * The one criterion of `#776` this page does not meet, said on the page
-       * rather than only in the issue.
-       *
-       * A maintainer who cannot find the answers should be told they were left
-       * out on purpose and what would put them here — otherwise the missing table
-       * reads as a quest nobody answered, which is the exact confusion the
-       * withheld count exists to prevent one row up.
+       * **Said on the page and not only in the governance file.** The rule that
+       * lets this page exist is that the read is recorded; a reader who is not
+       * told that is a reader who does not know what they are agreeing to, and
+       * this reader is also the person an auditor will ask.
        */
-      '<p class="note">The citizens’ answers themselves are not on this page. Reading a report’s ' +
-        'text is something the sponsor bought and a steward is given; whether the person running ' +
-        'the Colony may do it is a rule that has to be written before a surface does it, and it ' +
-        'has not been written yet. The counts above are aggregates about the quest rather than ' +
-        'anybody’s words.</p>',
+      '<p class="note">These are the citizens’ own words, moderated and with anything ' +
+        'identifying the author removed — the same text the sponsor bought, and nothing more. ' +
+        '<strong>Opening this page recorded that you read them:</strong> who, which quest, and ' +
+        'when. Nothing about any author is recorded and no copy of the text is kept. ' +
+        '<code>governance/quests.md</code> in <code>kolonie-docs</code> is the rule.</p>',
       '<p><a href="/backend/quests">Back to every quest</a></p>',
     ],
   })

@@ -81,7 +81,7 @@ export function audienceFragment(report: AudienceReport): string {
  * What a requirement set reaches, and what it cost to require it (`#351`).
  *
  * **Two counts and not one**, because a reach on its own is not a cost. *Four
- * citizens can answer* is a fact a sponsor can do nothing with; *four, against
+ * citizens may attempt* is a fact a sponsor can do nothing with; *four, against
  * forty with no requirement* is the decision it is actually taking. The second
  * number is the same targeting with `requires` emptied — the other axes stay,
  * since the question is what the **requirement** cost and not what every
@@ -118,6 +118,11 @@ export interface QuestAudience {
  * way — twelve citizens and forty slots is the same mistake with no `requires`
  * at all.
  *
+ * **A named verifier is stated but not counted** (`#806`). Reach is eligibility
+ * before an answer exists; a proof verifier is checked only when one is handed
+ * in. Without that timing, *may attempt* reads as *will be accepted* and invites
+ * a sponsor to buy capacity against a forecast the Colony did not make.
+ *
  * **It says the rule and never the comparison.** Naming here whether *this*
  * capacity exceeds *this* reach would be exactly the bisection
  * {@link questCapacityRejection} puts behind the queue slot to prevent.
@@ -126,22 +131,29 @@ export function audienceSentence(input: {
   readonly reach: AudienceReport
   readonly unrestricted: AudienceReport
   readonly requires: readonly string[]
+  readonly proofVerifier?: string | null
 }): string {
   const capacityRule =
     ' Capacity above what the quest reaches cannot be filled, and what nobody fills is not ' +
     'returned at expiry — a submission asking for more answers than there are citizens to ' +
     'give them is refused.'
+  const verifierRule =
+    input.proofVerifier === null || input.proofVerifier === undefined
+      ? ''
+      : ` The \`proofVerifier\` is not included in this reach; \`${input.proofVerifier}\` is ` +
+        'checked when an answer is handed in.'
 
   if (input.requires.length === 0) {
     return (
-      'You have required no skills, so anyone this quest is offered to may answer — ' +
-      `${audienceFragment(input.reach)} today.${capacityRule}`
+      'You have required no skills, so anyone this quest is offered to may attempt — ' +
+      `${audienceFragment(input.reach)} today.${verifierRule}${capacityRule}`
     )
   }
 
   return (
-    `With ${input.requires.join(', ')} required, ${audienceFragment(input.reach)} can answer ` +
+    `With ${input.requires.join(', ')} required, ${audienceFragment(input.reach)} may attempt ` +
     `this quest, against ${audienceFragment(input.unrestricted)} with no requirement.` +
+    verifierRule +
     capacityRule
   )
 }
@@ -155,7 +167,7 @@ export function audienceSentence(input: {
  * A sponsor commits real money for a fixed number of slots, that purchase is
  * final under D-106, and until this existed the Colony would not tell it how
  * many citizens could actually answer. A quest requiring `github` with 3 slots
- * read *fewer than 5 citizens can answer this quest* — true, and consistent with
+ * read *fewer than 5 citizens may attempt this quest* — true, and consistent with
  * {@link AUDIENCE_FLOOR} — so the sponsor was asked to buy three answers against
  * a number that might be one.
  *
@@ -194,7 +206,7 @@ export function questCapacityRejection(input: {
   if (input.slots <= input.reach) return undefined
 
   return (
-    `You are buying ${input.slots} answers and fewer citizens than that can answer this quest. ` +
+    `You are buying ${input.slots} answers and fewer citizens than that may attempt this quest. ` +
     'Reduce the capacity, or relax the requirements — capacity above the reach cannot be ' +
     'filled, and what nobody fills is not returned at expiry. The Colony will not say how many ' +
     'citizens there are: a count small enough to be useful here is a count small enough to name ' +

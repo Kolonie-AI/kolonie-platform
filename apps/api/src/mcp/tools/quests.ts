@@ -275,11 +275,14 @@ export function registerQuestTools(
         'the tier rather than to you.** ' +
         // `#626`: the old sentence stopped here, and a sponsor read *naming a
         // verifier is how it is proven*. It is not — a verifier answers whether
-        // the citizen holds something at a third party, which is a gate on who
-        // may answer. This is the one thing about pricing that cannot be moved
-        // to the docs URL, because acting on the wrong belief costs a redraft.
-        '**Naming `proofVerifier` is a gate on who may answer and does not by itself raise that ' +
-        'ceiling.** It raises it only where every required question asks for the very thing the ' +
+        // the citizen holds something at a third party when the answer is handed
+        // in. Calling that a gate on who may answer made the requires-only reach
+        // read as an acceptance forecast (`#806`). This is the one thing about
+        // pricing that cannot be moved to the docs URL, because acting on the
+        // wrong belief costs a redraft.
+        '**Naming `proofVerifier` does not narrow who may attempt; it is checked when an answer ' +
+        'is handed in and does not by itself raise that ceiling.** It raises it only where every ' +
+        'required question asks for the very thing the ' +
         'verifier proves control of — a mailbox, a handle, a domain, a website, a wallet — ' +
         'marked `provenBy` and carrying the matching `format`. A quest asking about a deed the ' +
         'verifier cannot see is priced on what its questions state, not on the stage it named. ' +

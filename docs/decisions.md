@@ -8632,7 +8632,7 @@ citizens could actually answer.
 
 Drafting a quest with `requires: ["github"]` and 3 slots answered:
 
-> With github required, **fewer than 5 citizens** can answer this quest, against
+> With github required, **fewer than 5 citizens** may attempt this quest, against
 > 12 citizens with no requirement.
 
 `AUDIENCE_FLOOR` suppresses any count below five. Zero is published exactly and
@@ -8647,8 +8647,8 @@ the suppression stood in front of an irreversible purchase with nothing in its
 place.
 
 **Decision.** **Refuse the purchase rather than publish the number.** A quest
-submitted with more slots than citizens who can answer it is refused: _"You are
-buying 3 answers and fewer citizens than that can answer this quest. Reduce the
+submitted with more slots than citizens who may attempt it is refused: _"You are
+buying 3 answers and fewer citizens than that may attempt this quest. Reduce the
 capacity, or relax the requirements."_ The count is never printed, the shortfall
 is never printed, and the sponsor learns exactly one inequality about a number it
 chose itself.

@@ -100,8 +100,9 @@ settings the Colony may turn without a deploy (\`#630\`); what is in force is on
 **Naming a verifier is not the top row, and this is the part most easily got
 wrong** (\`#626\`). A verifier answers one question: *does this citizen control
 this thing at a third party* — a mailbox, a handle, a domain, a website, a
-wallet. It never reads your questions. So naming one is a **gate on who may
-answer**, which is a legitimate thing to want and does not raise the ceiling.
+wallet. It never reads your questions. So naming one does not narrow who may
+attempt; it is checked when an answer is handed in, and it does not raise the
+ceiling.
 
 It raises the ceiling only where the quest is asking for that same thing: every
 required question marked \`provenBy\`, carrying the \`format\` that verifier

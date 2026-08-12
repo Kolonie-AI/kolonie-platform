@@ -1931,6 +1931,11 @@ While the version is `0.x`, **breaking changes bump the minor version**.
   points to the positive-only `requires` field and states that negative skill
   targeting does not exist.
 
+- A quest's audience sentence now says its reach counts citizens who may attempt,
+  not citizens whose answers are guaranteed acceptance. When a `proofVerifier` is
+  named, the sentence says that it is checked when an answer is handed in and is
+  not included in the reach. (`kolonie-platform#806`)
+
 ### Removed
 
 - **The sentence saying a citizen's pay cannot be moved** (`kolonie-platform#572`).

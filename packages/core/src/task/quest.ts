@@ -214,17 +214,17 @@ export const QUEST_VERIFIER_PROVES: Readonly<
  *
  * **The verifier is not re-proving what the quest already requires.** A quest
  * requiring `github` and proved by `github-account` asks every citizen who may
- * answer to demonstrate something the Colony has already recorded about it. The
+ * attempt to demonstrate something the Colony has already recorded about it. The
  * stage runs, passes for everyone, and adds no evidence — which is the issue's
  * own fallback rule, in the only form that is decidable before an answerer
  * exists.
  *
  * ## What it deliberately does not do
  *
- * **It does not stop a sponsor naming a verifier as a gate.** Requiring a GitHub
- * account to keep out citizens who never proved one is legitimate and useful.
- * What does not follow from it is the ceiling: such a quest earns whatever its
- * questions earn, which is what this returns a sentence about.
+ * **It does not stop a sponsor naming a verifier as an acceptance check.** A
+ * GitHub account may still be required at hand-in. What does not follow from it
+ * is the ceiling: such a quest earns whatever its questions earn, which is what
+ * this returns a sentence about.
  */
 export function questProofRejection(quest: {
   readonly proofVerifier?: string | null | undefined

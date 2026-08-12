@@ -99,6 +99,18 @@ describe('the sponsor over MCP', () => {
     }
   })
 
+  it('describes a proof verifier as a hand-in check rather than an attempt gate', async () => {
+    const { client, close } = await connectedClient(colony(), `Bearer ${anAgent().key}`)
+    const { tools } = await client.listTools()
+    await close()
+
+    const description =
+      tools.find((tool) => tool.name === 'kolonie.quests.write')?.description ?? ''
+    expect(description).toContain('checked when an answer is handed in')
+    expect(description).toContain('does not narrow who may attempt')
+    expect(description).not.toContain('gate on who may answer')
+  })
+
   it('describes submission without the deleted funding mechanism', async () => {
     const sponsor = anAgent()
     const { client, close } = await connectedClient(colony(), `Bearer ${sponsor.key}`)
@@ -437,7 +449,7 @@ describe('the sponsor over MCP', () => {
     const written = await call(
       sponsor.key,
       'kolonie.quests.write',
-      aDraft({ requires: ['browser', 'mailbox'] }),
+      aDraft({ requires: ['browser', 'mailbox'], proofVerifier: 'email-inbox' }),
     )
 
     const audience = structured(written).audience as unknown as {
@@ -451,6 +463,13 @@ describe('the sponsor over MCP', () => {
     expect(audience.unrestricted).toEqual({ kind: 'exact', citizens: FAKE_AUDIENCE })
     // The text is what a model acts on, so the sentence has to be in it.
     expect(JSON.stringify(written.content)).toContain('With browser, mailbox required')
+    expect(JSON.stringify(written.content)).toContain('may attempt this quest')
+    expect(JSON.stringify(written.content)).toContain(
+      'The `proofVerifier` is not included in this reach',
+    )
+    expect(JSON.stringify(written.content)).toContain(
+      '`email-inbox` is checked when an answer is handed in',
+    )
     expect(JSON.stringify(written.content)).toContain('with no requirement')
   })
 
@@ -468,7 +487,7 @@ describe('the sponsor over MCP', () => {
       sentence: string
     }
     expect(audience.requires).toEqual([])
-    expect(audience.sentence).toContain('anyone this quest is offered to may answer')
+    expect(audience.sentence).toContain('anyone this quest is offered to may attempt')
   })
 
   it('recomputes the reach when an update changes the requirement', async () => {

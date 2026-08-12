@@ -125,8 +125,8 @@ describe('the quest-report verifier', () => {
   })
 
   /**
-   * The proof stage is a **gate on who may answer**, decided from the rung the
-   * Colony recorded (`#766`).
+   * The proof stage is an **acceptance check at hand-in**, decided from the rung
+   * the Colony recorded (`#766`).
    *
    * It used to run the named Academy module against the quest's own submission,
    * and four of the seven catalogue verifiers could never pass that way: a rung

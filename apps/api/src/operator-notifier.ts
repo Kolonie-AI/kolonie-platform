@@ -1,4 +1,4 @@
-import type { AgentId, Log } from '@kolonie-ai/core'
+import type { AgentId, Log, OperatorRequestId } from '@kolonie-ai/core'
 import type { OperatorMailer } from './email.js'
 import type { TelegramDesk } from './operator-telegram.js'
 
@@ -33,6 +33,14 @@ export type NotifiedTransport = 'telegram' | 'email'
 
 export interface OperatorNotification {
   readonly agentId: AgentId
+  /**
+   * Which exchange this is about (`#795`).
+   *
+   * Carried so a Telegram send can be recorded against it — the message the
+   * Colony sends is what a reply will name, and without the pair there is nothing
+   * for `reply_to_message` to resolve to.
+   */
+  readonly requestId: OperatorRequestId
   readonly agentName: string
   /** What the ask is about — the same context line the page shows. */
   readonly context: string
@@ -143,7 +151,27 @@ export function telegramOrMailingOperatorNotifier(deps: {
         text: telegramNotificationText(notification),
       })
 
-      if (sent.delivered) return { delivered: true, transport: 'telegram' }
+      if (sent.delivered) {
+        /**
+         * Remember which message this ask went out as, so a reply to it can be
+         * resolved (`#795`).
+         *
+         * **Only on a delivered send, and only when Telegram named the message.**
+         * A row written for a send that failed would make a reply resolvable to
+         * an exchange nobody was told about; a send with no id back is delivered
+         * all the same, and the operator answers on the page — which the message
+         * always carries.
+         */
+        if (sent.messageId !== undefined) {
+          await deps.telegram.store.recordAsk({
+            requestId: notification.requestId,
+            chatId: binding.chatId,
+            messageId: sent.messageId,
+          })
+        }
+
+        return { delivered: true, transport: 'telegram' }
+      }
 
       if (sent.blocked) await deps.telegram.store.markUnreachable(binding.chatId)
 

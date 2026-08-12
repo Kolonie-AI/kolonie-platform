@@ -378,7 +378,15 @@ describe('the migrations', () => {
     // means two things. The chat is a number the person proved control of and
     // never a handle they typed: no Bot API resolves a username to a messageable
     // user, so a handle column would look like it worked until the first message.
-    expect(afterFirst.tables).toBe('101')
+    // **A hundred and two** (`#795`): `operator_telegram_asks` maps the message
+    // the Colony sent to the exchange it was about. Its own table and not a
+    // column on the exchange, because a mailed ask has no message and a row here
+    // is the claim *this message exists in that chat* — the thing a reply's
+    // `reply_to_message` resolves against. Resolving it from *the operator's most
+    // recent open request* would be a guess, and it breaks on somebody answering
+    // four citizens in one evening, which is not a rare case for the people this
+    // is for.
+    expect(afterFirst.tables).toBe('102')
     // Twenty: `task_kind` (#43) tells an Academy task from a Quest and therefore
     // what may pay credits; `support_ticket_kind` and `support_ticket_status` (#11)
     // carry what a citizen wrote about and where it stands; `erasure_reason` and

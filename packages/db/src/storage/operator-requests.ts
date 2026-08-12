@@ -15,6 +15,8 @@ import {
   operatorPages,
   operatorRequestMessages,
   operatorRequests,
+  operatorTelegramAsks,
+  operatorTelegramChats,
   tasks,
 } from '../schema/index.js'
 import { clearSetAside } from './set-asides.js'
@@ -626,18 +628,137 @@ export async function answerOperatorRequest(
 
   if (target === undefined) return { outcome: 'unreachable' }
 
+  return recordOperatorAnswer(db, {
+    requestId: input.requestId,
+    agentId: target.agentId as AgentId,
+    taskId: target.taskId as TaskId | null,
+    body: input.body,
+  })
+}
+
+/**
+ * The write itself, once, for every door that reaches this exchange.
+ *
+ * **Factored out by `#795` rather than copied into it.** A Telegram reply and a
+ * reply typed into the durable page have to land in exactly the same place —
+ * *"two write paths into one exchange is where the two would come apart"* — and
+ * the part that must not come apart is not the insert but what goes with it: the
+ * message is attributed to `operator`, and the `needs-operator` set-aside for that
+ * task clears **inside the same transaction**. Two writes with a gap would leave
+ * an exchange the citizen can read and a task still hidden from its listing.
+ *
+ * It takes an agent and a task rather than a credential, and that is why it is not
+ * exported: **every caller must have resolved the citizen from something the
+ * writer proved.** The page resolves it from a live page token; the chat from a
+ * `chat_id` the Colony bound itself. A function that took an id from outside would
+ * be a function any later caller could aim.
+ */
+async function recordOperatorAnswer(
+  db: Database,
+  input: {
+    readonly requestId: OperatorRequestId
+    readonly agentId: AgentId
+    readonly taskId: TaskId | null
+    readonly body: string
+  },
+): Promise<AnswerOperatorRequestOutcome> {
   return db.transaction(async (tx) => {
     await tx
       .insert(operatorRequestMessages)
       .values({ requestId: input.requestId, author: 'operator', body: input.body })
 
     const clearedSetAside =
-      target.taskId === null
-        ? false
-        : await clearSetAside(tx, target.agentId as AgentId, target.taskId as TaskId)
+      input.taskId === null ? false : await clearSetAside(tx, input.agentId, input.taskId)
 
-    return { outcome: 'answered' as const, clearedSetAside, agentId: target.agentId as AgentId }
+    return { outcome: 'answered' as const, clearedSetAside, agentId: input.agentId }
   })
+}
+
+/**
+ * The operator answers from the Telegram chat the Colony bound (`#795`).
+ *
+ * **Resolved by the message that was replied to, and by nothing else.** The pair
+ * `(chat_id, message_id)` names one exchange exactly; *the operator's most recent
+ * open request* is a guess that breaks on somebody answering four citizens in one
+ * evening, which is not a rare case for the people this feature is for.
+ *
+ * **Three conditions, all checked here in one query.** The message must be one the
+ * Colony sent; the chat must **still** be bound to that citizen; and the exchange
+ * must still be open. The middle one is the load-bearing check — a binding ended
+ * with `/stop`, or a chat that was rebound to somebody else, must not be able to
+ * write into an exchange it once received a message about.
+ *
+ * **One answer for every failure**, on the rule the page's own path follows: a
+ * chat id is a credential of the same class as a page token, and telling the cases
+ * apart would confirm to whoever was in that chat that a guess was otherwise
+ * right. What the bot says in the chat is written where the bot is.
+ */
+export async function answerOperatorRequestFromChat(
+  db: Database,
+  input: {
+    readonly chatId: number
+    readonly replyToMessageId: number
+    readonly body: string
+  },
+): Promise<AnswerOperatorRequestOutcome> {
+  const [target] = await db
+    .select({
+      requestId: operatorRequests.id,
+      agentId: operatorRequests.agentId,
+      taskId: operatorRequests.taskId,
+    })
+    .from(operatorTelegramAsks)
+    .innerJoin(operatorRequests, eq(operatorRequests.id, operatorTelegramAsks.requestId))
+    .innerJoin(operatorTelegramChats, eq(operatorTelegramChats.agentId, operatorRequests.agentId))
+    .where(
+      and(
+        eq(operatorTelegramAsks.chatId, input.chatId),
+        eq(operatorTelegramAsks.messageId, input.replyToMessageId),
+        eq(operatorTelegramChats.chatId, input.chatId),
+        isNull(operatorRequests.closedAt),
+      ),
+    )
+    .limit(1)
+
+  if (target === undefined) return { outcome: 'unreachable' }
+
+  return recordOperatorAnswer(db, {
+    requestId: target.requestId as OperatorRequestId,
+    agentId: target.agentId as AgentId,
+    taskId: target.taskId as TaskId | null,
+    body: input.body,
+  })
+}
+
+/**
+ * Remember which message the Colony sent about which ask (`#795`).
+ *
+ * Written by the notifier the moment a Telegram send succeeds, and only then: a
+ * row here is the claim *this message exists in that chat*, and one written for a
+ * send that failed would make a reply resolvable to an exchange nobody was told
+ * about.
+ */
+export async function recordTelegramAsk(
+  db: Database,
+  input: {
+    readonly requestId: OperatorRequestId
+    readonly chatId: number
+    readonly messageId: number
+  },
+): Promise<void> {
+  await db
+    .insert(operatorTelegramAsks)
+    .values({ requestId: input.requestId, chatId: input.chatId, messageId: input.messageId })
+    /**
+     * The rule one layer up is exactly one message per ask, so a second row is a
+     * state that should not exist. If it ever does — a retry the caller thought
+     * had failed — the *latest* message is the one an operator is looking at and
+     * would reply to.
+     */
+    .onConflictDoUpdate({
+      target: operatorTelegramAsks.requestId,
+      set: { chatId: input.chatId, messageId: input.messageId },
+    })
 }
 
 /**

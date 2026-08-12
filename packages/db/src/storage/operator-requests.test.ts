@@ -13,9 +13,12 @@ import {
 import { connectForTests, databaseTestTarget, expectRejection, truncateAll } from '../testing.js'
 import { issueOperatorPage, revokeOperatorPage } from './operator-pages.js'
 import { listSetAsides, setAside } from './set-asides.js'
+import { issueStartToken, redeemStartToken, unbindChat } from './operator-telegram.js'
 import {
   answerOperatorRequest,
+  answerOperatorRequestFromChat,
   closeOperatorRequest,
+  recordTelegramAsk,
   countWaitingOperatorReplies,
   hasOpenOperatorRequest,
   listOperatorRequests,
@@ -29,6 +32,7 @@ import {
 const target = databaseTestTarget()
 const OPERATOR = 'operator@example.org'
 const ASK = 'I cannot create a GitHub account on my own. Could you make one for me?'
+const CHAT = 7788
 
 describe('the operator request (#236)', () => {
   let db: Database
@@ -620,6 +624,149 @@ describe('the operator request (#236)', () => {
 
       const stranger = await anAgent('stranger')
       expect(await countWaitingOperatorReplies(db, stranger)).toBe(0)
+    })
+  })
+
+  /**
+   * The other door onto one exchange (`#795`).
+   *
+   * What is asserted here rather than in `apps/api` is the half a fake cannot
+   * prove: that a reply from a chat lands through the *same* write the page uses,
+   * and that the three conditions guarding it are one query rather than three
+   * things a caller has to remember.
+   */
+  describe('answering it from Telegram', () => {
+    const bound = async (chatId: number, who: AgentId = agentId) => {
+      const { token } = await issueStartToken(db, who)
+      await redeemStartToken(db, { token, chatId })
+    }
+
+    it('writes the answer where a page answer is written, attributed the same way', async () => {
+      const requestId = await anOpenRequest()
+      await bound(CHAT)
+      await recordTelegramAsk(db, { requestId, chatId: CHAT, messageId: 11 })
+
+      const answered = await answerOperatorRequestFromChat(db, {
+        chatId: CHAT,
+        replyToMessageId: 11,
+        body: 'Done — the handle is @canary-ai.',
+      })
+
+      expect(answered).toMatchObject({ outcome: 'answered', agentId })
+      const request = await readOperatorRequest(db, { requestId, agentId })
+      expect(request?.answered).toBe(true)
+      expect(request?.messages.map((message) => message.author)).toEqual(['citizen', 'operator'])
+      expect(request?.messages[1]?.body).toBe('Done — the handle is @canary-ai.')
+    })
+
+    it('resolves the exchange from the message replied to, and not from recency', async () => {
+      const first = await anOpenRequest()
+      const second = await anOpenRequest()
+      await bound(CHAT)
+      await recordTelegramAsk(db, { requestId: first, chatId: CHAT, messageId: 11 })
+      await recordTelegramAsk(db, { requestId: second, chatId: CHAT, messageId: 12 })
+
+      // An operator answering four citizens in one evening is the case a *most
+      // recent open request* rule breaks on, and it is not rare for the people
+      // this is for. Two of one citizen's exchanges is the same shape.
+      await answerOperatorRequestFromChat(db, {
+        chatId: CHAT,
+        replyToMessageId: 11,
+        body: 'This one is about the first question.',
+      })
+
+      expect((await readOperatorRequest(db, { requestId: first, agentId }))?.answered).toBe(true)
+      expect((await readOperatorRequest(db, { requestId: second, agentId }))?.answered).toBe(false)
+    })
+
+    it('writes nothing for a message the Colony never sent', async () => {
+      const requestId = await anOpenRequest()
+      await bound(CHAT)
+
+      expect(
+        await answerOperatorRequestFromChat(db, {
+          chatId: CHAT,
+          replyToMessageId: 999,
+          body: 'Answering something nobody asked here.',
+        }),
+      ).toEqual({ outcome: 'unreachable' })
+      expect((await readOperatorRequest(db, { requestId, agentId }))?.answered).toBe(false)
+    })
+
+    /**
+     * **The load-bearing condition.** A chat that was unbound with `/stop`, or
+     * rebound to somebody else, must not be able to write into an exchange it
+     * once received a message about — the mapping row outlives the binding, and
+     * the binding is what says this chat still speaks for this citizen.
+     */
+    it('writes nothing once the chat has been unbound', async () => {
+      const requestId = await anOpenRequest()
+      await bound(CHAT)
+      await recordTelegramAsk(db, { requestId, chatId: CHAT, messageId: 11 })
+      await unbindChat(db, CHAT)
+
+      expect(
+        await answerOperatorRequestFromChat(db, {
+          chatId: CHAT,
+          replyToMessageId: 11,
+          body: 'I have stopped receiving these but here is an answer.',
+        }),
+      ).toEqual({ outcome: 'unreachable' })
+      expect((await readOperatorRequest(db, { requestId, agentId }))?.answered).toBe(false)
+    })
+
+    it('writes nothing into an exchange the citizen has closed', async () => {
+      const requestId = await anOpenRequest()
+      await bound(CHAT)
+      await recordTelegramAsk(db, { requestId, chatId: CHAT, messageId: 11 })
+      await closeOperatorRequest(db, { agentId, requestId })
+
+      expect(
+        await answerOperatorRequestFromChat(db, {
+          chatId: CHAT,
+          replyToMessageId: 11,
+          body: 'Sorry I am late.',
+        }),
+      ).toEqual({ outcome: 'unreachable' })
+    })
+
+    it('clears the needs-operator set-aside, in the same transaction the page does', async () => {
+      const requestId = await anOpenRequest()
+      await setAside(db, agentId, taskId, 'needs-operator')
+      await bound(CHAT)
+      await recordTelegramAsk(db, { requestId, chatId: CHAT, messageId: 11 })
+
+      const answered = await answerOperatorRequestFromChat(db, {
+        chatId: CHAT,
+        replyToMessageId: 11,
+        body: 'Go ahead, it is made.',
+      })
+
+      // Two writes with a gap would leave an exchange the citizen can read and a
+      // task still hidden from its listing.
+      expect(answered).toMatchObject({ outcome: 'answered', clearedSetAside: true })
+    })
+
+    it('keeps one mapping per ask, and the latest message is the one that answers', async () => {
+      const requestId = await anOpenRequest()
+      await bound(CHAT)
+      await recordTelegramAsk(db, { requestId, chatId: CHAT, messageId: 11 })
+      await recordTelegramAsk(db, { requestId, chatId: CHAT, messageId: 12 })
+
+      expect(
+        await answerOperatorRequestFromChat(db, {
+          chatId: CHAT,
+          replyToMessageId: 11,
+          body: 'Against the message that was replaced.',
+        }),
+      ).toEqual({ outcome: 'unreachable' })
+      expect(
+        await answerOperatorRequestFromChat(db, {
+          chatId: CHAT,
+          replyToMessageId: 12,
+          body: 'Against the one the operator is looking at.',
+        }),
+      ).toMatchObject({ outcome: 'answered' })
     })
   })
 

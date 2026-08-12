@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto'
-import type { AgentId } from '@kolonie-ai/core'
+import type { AgentId, OperatorRequestId } from '@kolonie-ai/core'
 import type { TelegramBinding } from '@kolonie-ai/db'
 import type { TelegramBot, TelegramDesk, TelegramStore } from '../operator-telegram.js'
 import { fakeOperatorPages, type FakeOperatorPages } from './autonomy.js'
@@ -14,6 +14,13 @@ export interface FakeTelegramBot extends TelegramBot {
 export interface FakeTelegramStore extends TelegramStore {
   /** Bind without pressing anything, for a test that starts from bound. */
   readonly bind: (agentId: AgentId, chatId: number) => void
+  /** Put an exchange on record as this citizen's, as opening one would. */
+  readonly owns: (requestId: OperatorRequestId, agentId: AgentId) => void
+  /** Everything an operator has answered through the chat, in order. */
+  readonly answered: () => readonly {
+    readonly requestId: OperatorRequestId
+    readonly body: string
+  }[]
   readonly boundChatFor: (agentId: AgentId) => number | undefined
   /**
    * What the chat is told a citizen is called.
@@ -49,6 +56,10 @@ export function fakeTelegramStore(
   >()
   const starts = new Map<string, { agentId: AgentId; spent: boolean; expired: boolean }>()
   const names = new Map<AgentId, string>()
+  /** `chatId:messageId` -> the exchange the Colony sent that message about. */
+  const asks = new Map<string, OperatorRequestId>()
+  const owners = new Map<OperatorRequestId, AgentId>()
+  const answers: { requestId: OperatorRequestId; body: string }[] = []
   const nameOf = (agentId: AgentId): string => names.get(agentId) ?? 'the agent'
 
   const at = (): string => new Date().toISOString()
@@ -107,6 +118,23 @@ export function fakeTelegramStore(
       for (const [agentId] of going) chats.delete(agentId)
       return going.map(([agentId]) => nameOf(agentId))
     },
+    recordAsk: async ({ requestId, chatId, messageId }) => {
+      asks.set(`${chatId}:${messageId}`, requestId)
+    },
+    answerFromChat: async ({ chatId, replyToMessageId, body }) => {
+      const requestId = asks.get(`${chatId}:${replyToMessageId}`)
+      const agentId = requestId === undefined ? undefined : owners.get(requestId)
+
+      // The three conditions the real query checks in one go: the message is one
+      // the Colony sent, the chat is *still* bound to that citizen, and the
+      // exchange is open. A fake that skipped the middle one would let a test
+      // pass against a `/stop` that had not actually ended anything.
+      if (requestId === undefined || agentId === undefined) return { outcome: 'unreachable' }
+      if (chats.get(agentId)?.chatId !== chatId) return { outcome: 'unreachable' }
+
+      answers.push({ requestId, body })
+      return { outcome: 'answered', clearedSetAside: false, agentId }
+    },
     markUnreachable: async (chatId) => {
       for (const row of chats.values()) {
         if (row.chatId === chatId && row.unreachableAt === null) row.unreachableAt = at()
@@ -116,6 +144,10 @@ export function fakeTelegramStore(
       chats.set(agentId, { chatId, boundAt: at(), unreachableAt: null })
     },
     boundChatFor: (agentId) => chats.get(agentId)?.chatId,
+    owns: (requestId, agentId) => {
+      owners.set(requestId, agentId)
+    },
+    answered: () => answers,
     named: (agentId, name) => {
       names.set(agentId, name)
     },

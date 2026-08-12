@@ -141,7 +141,7 @@ describe('the Telegram operator desk (#793)', () => {
   })
 
   describe('anything else', () => {
-    it('tells a bound operator where their answer has to go, rather than saying nothing', async () => {
+    it('tells a bound operator how to aim an answer, rather than saying nothing', async () => {
       const desk = fakeTelegramDesk()
       const agentId = randomUUID() as AgentId
       desk.store.bind(agentId, CHAT)
@@ -149,9 +149,11 @@ describe('the Telegram operator desk (#793)', () => {
       const outcome = await handleTelegramUpdate(aPrivateMessage('yes, go ahead'), desk)
 
       // Silence reads as *sent* to somebody who has just typed an answer, and
-      // that is the failure they would not notice. `#795` makes the reply mean
-      // something; until then this sentence is the honest answer.
-      expect(outcome).toHaveProperty('text', expect.stringContaining('operator page'))
+      // that is the failure they would not notice. Since `#795` a reply means
+      // something, so the sentence says what is missing — the message it answers
+      // — rather than sending them to the page. Resolving *which* exchange from
+      // recency is the rule that breaks on four citizens in one evening.
+      expect(outcome).toHaveProperty('text', expect.stringContaining('reply to the message'))
     })
 
     it('tells an unbound chat that it is not bound', async () => {
@@ -170,7 +172,7 @@ describe('the Telegram operator desk (#793)', () => {
       // a bot's behaviour ends up decided by whoever sends it one.
       expect(await handleTelegramUpdate({}, desk)).toEqual({
         action: 'ignored',
-        why: 'not a text message',
+        why: 'not a message this bot reads',
       })
     })
   })

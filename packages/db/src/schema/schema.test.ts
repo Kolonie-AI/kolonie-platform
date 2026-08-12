@@ -445,6 +445,14 @@ describe('schema', () => {
          * user, so a handle column would be one that cannot be used and would
          * look like it worked until the first message.
          */
+        /**
+         * Which message the Colony sent about which exchange (`#795`) — what a
+         * reply's `reply_to_message` is resolved against. Its own table because a
+         * mailed ask has no message, and unique on `(chat_id, message_id)`
+         * because two rows answering *which exchange is this* would put the
+         * choice back where the reply was supposed to take it from.
+         */
+        'operator_telegram_asks',
         'operator_telegram_chats',
         'operator_telegram_starts',
         /**

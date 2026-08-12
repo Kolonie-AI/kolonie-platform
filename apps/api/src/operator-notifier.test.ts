@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { randomUUID } from 'node:crypto'
-import type { AgentId } from '@kolonie-ai/core'
+import type { AgentId, OperatorRequestId } from '@kolonie-ai/core'
 import { createLog } from '@kolonie-ai/core'
 import {
   mailingOperatorNotifier,
@@ -16,6 +16,7 @@ const CHAT = 3141
 
 const anAsk = (agentId: AgentId) => ({
   agentId,
+  requestId: randomUUID() as OperatorRequestId,
   agentName: 'canary',
   context: 'browser-capability',
   link: 'https://console.example.org/operator/page/a-token#exchange-1',

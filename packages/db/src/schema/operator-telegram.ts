@@ -10,6 +10,7 @@ import {
   uuid,
 } from 'drizzle-orm/pg-core'
 import { agents } from './agents.js'
+import { operatorRequests } from './operator-requests.js'
 
 /**
  * The Telegram chat an operator answers for one citizen in (`#793`).
@@ -163,5 +164,56 @@ export const operatorTelegramStarts = pgTable(
     uniqueIndex('operator_telegram_starts_live_idx')
       .on(table.agentId)
       .where(sql`${table.redeemedAt} is null`),
+  ],
+)
+
+/**
+ * Which Telegram message the Colony sent about which exchange (`#795`).
+ *
+ * ## Why this exists at all, and why recency is not an answer
+ *
+ * A reply arrives as a message with a `reply_to_message`. Resolving *which
+ * exchange it answers* from that is exact; resolving it from *the operator's most
+ * recent open request* is a guess, and it is wrong in the case this feature is
+ * for — **an operator answering four citizens in one evening**. That is not a
+ * rare case for the people who operate several, and a rule that breaks on them
+ * breaks on the users it was built for.
+ *
+ * So the Colony records the message it sent and looks the reply up by it.
+ *
+ * ## One row per ask
+ *
+ * `request_id` is the key, because the rule one layer up is *exactly one message
+ * per ask and never a reminder*. A second row would mean the Colony had sent
+ * twice, which is the thing that rule forbids — so the schema cannot hold that
+ * state rather than the code remembering not to create it.
+ *
+ * Rows exist only for asks that went out over Telegram. A mailed ask has none,
+ * and that is what it means for a reply to resolve to nothing.
+ */
+export const operatorTelegramAsks = pgTable(
+  'operator_telegram_asks',
+  {
+    /** `cascade`. The mapping describes an exchange and means nothing without one. */
+    requestId: uuid('request_id')
+      .primaryKey()
+      .references(() => operatorRequests.id, { onDelete: 'cascade' }),
+
+    /** The chat it was sent to, which is not necessarily still bound when a reply arrives. */
+    chatId: bigint('chat_id', { mode: 'number' }).notNull(),
+
+    /** Telegram's own id for the message the bot sent. */
+    messageId: bigint('message_id', { mode: 'number' }).notNull(),
+
+    sentAt: timestamp('sent_at', { withTimezone: true, mode: 'string' }).notNull().defaultNow(),
+  },
+  (table) => [
+    /**
+     * How a reply is resolved, and unique because Telegram's message ids are per
+     * chat. Unique rather than a plain index deliberately: two rows answering
+     * *which exchange is this* would put the choice back where `reply_to_message`
+     * was supposed to take it from.
+     */
+    uniqueIndex('operator_telegram_asks_message_idx').on(table.chatId, table.messageId),
   ],
 )

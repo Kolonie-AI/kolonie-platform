@@ -353,6 +353,7 @@ export async function openOperatorRequest(
    */
   const delivery = await deps.notifier.notify({
     agentId: input.agentId,
+    requestId: opened.request.id,
     agentName: input.agentName,
     context: opened.request.context,
     link,

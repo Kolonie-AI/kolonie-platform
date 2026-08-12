@@ -38,6 +38,20 @@ export function registerTelegramRoutes(v1: FastifyInstance, deps: RouteDependenc
     const outcome = await handleTelegramUpdate((request.body ?? {}) as TelegramUpdate, desk)
 
     if (outcome.action === 'reply') {
+      /**
+       * **The operator's answer is the event** (`#518`, `#795`).
+       *
+       * The same call the durable page makes, on the same reasoning: a person
+       * replies in one minute and, without this, the agent reads the reply at its
+       * next rhythm — four to six hours later. Awaited and ignored: the answer is
+       * already written, the operator is owed a confirmation either way, and a
+       * citizen whose endpoint has stopped answering falls back to polling.
+       * Nothing about this line may reach the operator's screen.
+       */
+      if (outcome.answered !== undefined) {
+        await deps.operatorRequests.wake?.wake(outcome.answered.agentId, 'operator-answer')
+      }
+
       const sent = await desk.bot.send({ chatId: outcome.chatId, text: outcome.text })
 
       /**

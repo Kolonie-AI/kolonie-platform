@@ -1,13 +1,22 @@
-import type { AgentId, Log } from '@kolonie-ai/core'
+import type { AgentId, Log, OperatorRequestId } from '@kolonie-ai/core'
 import {
+  credentialFinding,
+  credentialRefusalMessage,
+  OPERATOR_MESSAGE_MAX_LENGTH,
+  OPERATOR_MESSAGE_MIN_LENGTH,
+} from '@kolonie-ai/core'
+import {
+  answerOperatorRequestFromChat,
   citizensBoundToChat,
   issueStartForPageToken,
   issueStartToken,
   markChatUnreachable,
+  recordTelegramAsk,
   redeemStartToken,
   telegramBindingFor,
   telegramBindingForPageToken,
   unbindChat,
+  type AnswerOperatorRequestOutcome,
   type Database,
   type IssuedStartToken,
   type RedeemStartOutcome,
@@ -65,6 +74,23 @@ export interface TelegramStore {
   unbind(chatId: number): Promise<readonly string[]>
   /** Written when a send is refused (`#794`); the column is created here. */
   markUnreachable(chatId: number): Promise<void>
+  /** Which message the Colony sent about which ask (`#795`). */
+  recordAsk(input: {
+    readonly requestId: OperatorRequestId
+    readonly chatId: number
+    readonly messageId: number
+  }): Promise<void>
+  /**
+   * An operator's reply, written where a page reply is written (`#795`).
+   *
+   * Resolved from the message that was replied to and from the chat it came in,
+   * both of which the Colony wrote itself. No agent id crosses this boundary.
+   */
+  answerFromChat(input: {
+    readonly chatId: number
+    readonly replyToMessageId: number
+    readonly body: string
+  }): Promise<AnswerOperatorRequestOutcome>
 }
 
 export function databaseTelegram(db: Database): TelegramStore {
@@ -77,12 +103,23 @@ export function databaseTelegram(db: Database): TelegramStore {
     citizensFor: (chatId) => citizensBoundToChat(db, chatId),
     unbind: (chatId) => unbindChat(db, chatId),
     markUnreachable: (chatId) => markChatUnreachable(db, chatId),
+    recordAsk: (input) => recordTelegramAsk(db, input),
+    answerFromChat: (input) => answerOperatorRequestFromChat(db, input),
   }
 }
 
 /** What a send did. `blocked` is the answer that means *stop using this chat*. */
 export interface TelegramSendResult {
   readonly delivered: boolean
+  /**
+   * Telegram's own id for the message that went out, when one did (`#795`).
+   *
+   * **What makes a reply resolvable.** The Colony records it against the exchange
+   * it was about, and a reply carrying `reply_to_message` names one exactly —
+   * where *the operator's most recent open request* would be a guess that breaks
+   * on somebody answering four citizens in one evening.
+   */
+  readonly messageId?: number | undefined
   /**
    * The person blocked the bot, deleted the account, or the chat is gone.
    *
@@ -201,7 +238,24 @@ export function httpTelegramBot(config: {
           }),
         })
 
-        if (response.ok) return { delivered: true, blocked: false }
+        if (response.ok) {
+          /**
+           * The id, if the answer carried one. **Read defensively and never
+           * required**: a send that succeeded is a send that succeeded, and a
+           * message the Colony cannot map is one an operator answers on the page
+           * instead — which is worse than the alternative and much better than
+           * treating a delivered message as undelivered.
+           */
+          const body = (await response.json().catch(() => undefined)) as
+            { readonly result?: { readonly message_id?: unknown } } | undefined
+          const messageId = body?.result?.message_id
+
+          return {
+            delivered: true,
+            blocked: false,
+            ...(typeof messageId === 'number' ? { messageId } : {}),
+          }
+        }
 
         /**
          * `403` is *the person does not want this*, and `400` with a
@@ -242,16 +296,46 @@ export interface TelegramUpdate {
     | {
         readonly chat?: { readonly id?: unknown; readonly type?: unknown } | undefined
         readonly text?: unknown
+        /**
+         * Which of the Colony's messages this answers (`#795`).
+         *
+         * **The only thing that says which exchange a reply belongs to.** Read
+         * rather than guessed from recency: an operator answering four citizens
+         * in one evening is the case a *most recent open request* rule breaks on,
+         * and it is not a rare case for the people this is for.
+         */
+        readonly reply_to_message?: { readonly message_id?: unknown } | undefined
       }
     | undefined
+  /**
+   * An edit, which is not a reply and is answered rather than acted on (`#795`).
+   *
+   * **A record the operator can silently rewrite after the citizen has acted on
+   * it is worse than no edit at all.** So the Colony keeps what it was told and
+   * says so, and the operator sends a new reply if they meant something else.
+   */
+  readonly edited_message?:
+    { readonly chat?: { readonly id?: unknown; readonly type?: unknown } | undefined } | undefined
 }
 
 /** What the route should do with an update, once this has read it. */
 export type TelegramUpdateOutcome =
   /** Nothing was said and nothing is sent. A group message, or an update we do not read. */
   | { readonly action: 'ignored'; readonly why: string }
-  /** Say this in the chat, and nothing else happened. */
-  | { readonly action: 'reply'; readonly chatId: number; readonly text: string }
+  /**
+   * Say this in the chat.
+   *
+   * `answered` is present when the update wrote an operator's answer into an
+   * exchange (`#795`) — the caller wakes that citizen, on the same path a reply
+   * typed into the durable page takes. Absent means nothing was written, which is
+   * every other outcome including every refusal.
+   */
+  | {
+      readonly action: 'reply'
+      readonly chatId: number
+      readonly text: string
+      readonly answered?: Extract<AnswerOperatorRequestOutcome, { outcome: 'answered' }> | undefined
+    }
 
 const BINDING_ENDED = (names: readonly string[]): string =>
   names.length === 0
@@ -272,23 +356,62 @@ export async function handleTelegramUpdate(
   desk: TelegramDesk,
 ): Promise<TelegramUpdateOutcome> {
   const message = update.message
+
+  /**
+   * An edit is answered and never acted on (`#795`).
+   *
+   * Handled before anything else, because what makes it a defect is precisely
+   * that it looks like a message: a record the operator can silently rewrite
+   * after the citizen has acted on it is worse than no edit at all. So the
+   * Colony keeps what it was told and says so.
+   */
+  if (update.edited_message !== undefined) {
+    const editedIn = update.edited_message.chat
+    if (typeof editedIn?.id !== 'number' || editedIn.type !== 'private') {
+      return { action: 'ignored', why: 'an edit outside a private chat' }
+    }
+    return {
+      action: 'reply',
+      chatId: editedIn.id,
+      text:
+        'Editing a message here does not change what the Colony recorded — your agent may ' +
+        'already have read it. Send a new reply to the same message if you want to add ' +
+        'something.',
+    }
+  }
+
   const chatId = typeof message?.chat?.id === 'number' ? message.chat.id : undefined
   const text = typeof message?.text === 'string' ? message.text.trim() : undefined
 
-  if (chatId === undefined || text === undefined) {
-    return { action: 'ignored', why: 'not a text message' }
+  if (chatId === undefined) {
+    return { action: 'ignored', why: 'not a message this bot reads' }
   }
 
   /**
-   * **A group is ignored entirely, rather than answered.**
-   *
-   * `can_join_groups` is off at BotFather and this does not rely on that having
-   * happened. Answering would be worse than silence: a bot that replies in a
-   * group has told everybody in it that this chat is talking to the Colony, and
-   * whoever added it learns which citizens a stranger in the room operates.
+   * **A group is ignored entirely, rather than answered**, and this is asked
+   * before anything about the content — a bot that answers a group has told
+   * everybody in it that this chat talks to the Colony, whatever the answer was.
    */
   if (message?.chat?.type !== 'private') {
     return { action: 'ignored', why: 'not a private chat' }
+  }
+
+  /**
+   * This surface takes text (`#795`).
+   *
+   * A sticker, a photo, a voice note or a forwarded document is refused with a
+   * sentence rather than dropped: an operator who sends a screenshot of the thing
+   * their agent asked about has done something reasonable, and silence would read
+   * as *received*.
+   */
+  if (text === undefined) {
+    return {
+      action: 'reply',
+      chatId,
+      text:
+        'The Colony can only read text here. If you meant to answer your agent, reply to its ' +
+        'message in words — anything else, including a photo or a file, is not recorded.',
+    }
   }
 
   if (text === '/stop' || text.startsWith('/stop ')) {
@@ -348,12 +471,99 @@ export async function handleTelegramUpdate(
   }
 
   /**
-   * Anything else, from a chat that may or may not be bound.
+   * An answer to one of the Colony's messages (`#795`).
    *
-   * **`#795` is what makes a reply here mean something**; until it lands, saying
-   * so is the honest answer. Silence would read as *sent* to somebody who has
-   * just typed an answer to their citizen, and that is the failure they would
-   * not notice.
+   * **Only from a bound chat, and only to a message the Colony sent.** Both are
+   * decided by `answerFromChat` in one query — the row that maps the message to
+   * an exchange, *and* the binding still standing — because a chat that was
+   * unbound with `/stop`, or rebound to somebody else, must not be able to write
+   * into an exchange it once received a message about.
+   *
+   * That is what keeps the property this whole surface rests on: text is accepted
+   * from a chat the Colony bound itself, attributed to the operator, advisory.
+   * Nothing on this path can change an autonomy level, grant a permission or
+   * widen what the citizen may do (D-081) — it appends one message to one
+   * exchange the citizen itself opened.
+   */
+  const replyTo =
+    typeof message?.reply_to_message?.message_id === 'number'
+      ? message.reply_to_message.message_id
+      : undefined
+
+  if (replyTo !== undefined) {
+    /**
+     * **The same refusal the boxes on the durable page make**, and it belongs
+     * here for a sharper reason than symmetry: a chat is exactly where somebody
+     * pastes a password, because it feels like a private conversation with a
+     * person. The Colony refuses those on purpose and says where a secret does
+     * go, which is the sealed drop (`#410`).
+     */
+    const finding = credentialFinding(text)
+    if (finding !== null) {
+      return { action: 'reply', chatId, text: credentialRefusalMessage(finding) }
+    }
+
+    if (text.length < OPERATOR_MESSAGE_MIN_LENGTH) {
+      return {
+        action: 'reply',
+        chatId,
+        text:
+          'That was too short for the Colony to record as an answer. A sentence is enough — ' +
+          'nothing you write here is judged.',
+      }
+    }
+
+    if (text.length > OPERATOR_MESSAGE_MAX_LENGTH) {
+      return {
+        action: 'reply',
+        chatId,
+        text:
+          'That is longer than the Colony records for one answer. Send the short version here, ' +
+          'or answer on the operator page the message links to.',
+      }
+    }
+
+    const answered = await desk.store.answerFromChat({
+      chatId,
+      replyToMessageId: replyTo,
+      body: text,
+    })
+
+    if (answered.outcome === 'answered') {
+      return {
+        action: 'reply',
+        chatId,
+        answered,
+        /**
+         * One line, and not an echo of what they wrote. The operator can see
+         * what they sent directly above it; repeating it back costs a screen and
+         * says nothing.
+         */
+        text: 'Sent. Your agent will read this at its next waking.',
+      }
+    }
+
+    /**
+     * **Answered, not dropped**, and this is the failure the operator would
+     * otherwise not notice: silence after typing an answer reads as *sent*.
+     */
+    return {
+      action: 'reply',
+      chatId,
+      text:
+        'The Colony could not match that to an open question. Reply to the message it sent ' +
+        'you about the question you mean — or answer on the operator page, which the message ' +
+        'links to.',
+    }
+  }
+
+  /**
+   * Text in the chat that answers nothing in particular.
+   *
+   * **The bot says what is missing rather than guessing.** Resolving *which*
+   * exchange from recency is exactly the rule that breaks on an operator
+   * answering four citizens in one evening, so a message with nothing to attach
+   * it to is not attached to anything.
    */
   const bound = await desk.store.citizensFor(chatId)
 
@@ -364,7 +574,7 @@ export async function handleTelegramUpdate(
       bound.length === 0
         ? 'This chat is not bound to a citizen, so the Colony has nothing to say here. Press ' +
           'the Telegram link on an operator page to bind it.'
-        : 'The Colony writes to you here; it cannot read a reply yet. Answer on the operator ' +
-          'page the message links to. Send /stop to stop receiving messages here.',
+        : 'To answer your agent, reply to the message the Colony sent you about it — that is ' +
+          'how it knows which question you mean. Send /stop to stop receiving messages here.',
   }
 }

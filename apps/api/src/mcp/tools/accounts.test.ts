@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
+import { AgentIdSchema } from '@kolonie-ai/core'
 import { WalkReportSchema } from '../../account-walks.js'
 import { connectedClient, registeredCitizen } from '../../__fixtures__/mcp.js'
 import { fakeAccountRegister, fakeAccounts } from '../../__fixtures__/accounts.js'
+import { fakeWalks } from '../../__fixtures__/account-walks.js'
 
 describe('kolonie.accounts.walk-report', () => {
   it('takes the published steps as one ordered tick-list', () => {
@@ -17,6 +19,100 @@ describe('kolonie.accounts.walk-report', () => {
     expect(
       WalkReportSchema.safeParse({ outcome: 'proved', takenStepPositions: [2, 1] }).success,
     ).toBe(false)
+  })
+})
+
+describe('kolonie.accounts.walk-status', () => {
+  it('polls a private draft and then sees it published', async () => {
+    const { colony, apiKey, agent } = await registeredCitizen()
+    const walks = fakeWalks()
+    const walk = walks.add({ agentId: agent.id, kind: 'github', provider: 'provider' })
+    colony.recipes.write({ kind: 'github', provider: 'provider', status: 'draft' })
+    const { client, close } = await connectedClient({ ...colony, walks }, `Bearer ${apiKey}`)
+
+    const draft = await client.callTool({
+      name: 'kolonie.accounts.walk-status',
+      arguments: { walkId: walk.id },
+    })
+    colony.recipes.setStatus('github', 'provider', 'joinable')
+    const published = await client.callTool({
+      name: 'kolonie.accounts.walk-status',
+      arguments: { walkId: walk.id },
+    })
+
+    expect(draft.structuredContent).toMatchObject({ status: 'draft', appearsInRecipes: false })
+    expect(JSON.stringify(draft.content)).toContain('not lost')
+    expect(published.structuredContent).toMatchObject({
+      status: 'published',
+      appearsInRecipes: true,
+    })
+    await close()
+  })
+
+  it("does not reveal an unknown or another citizen's walk", async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const walks = fakeWalks()
+    const otherWalk = walks.add({
+      agentId: AgentIdSchema.parse(crypto.randomUUID()),
+      kind: 'github',
+      provider: 'provider',
+    })
+    const { client, close } = await connectedClient({ ...colony, walks }, `Bearer ${apiKey}`)
+
+    const unknown = await client.callTool({
+      name: 'kolonie.accounts.walk-status',
+      arguments: { walkId: crypto.randomUUID() },
+    })
+    const anotherCitizen = await client.callTool({
+      name: 'kolonie.accounts.walk-status',
+      arguments: { walkId: otherWalk.id },
+    })
+
+    expect(unknown.isError).toBe(true)
+    expect(anotherCitizen.isError).toBe(true)
+    expect(anotherCitizen.content).toEqual(unknown.content)
+    await close()
+  })
+
+  it('surfaces the latest walk on the account list', async () => {
+    const { colony, apiKey, agent } = await registeredCitizen()
+    const walks = fakeWalks()
+    const walk = walks.add({ agentId: agent.id, kind: 'github', provider: 'provider' })
+    colony.recipes.write({ kind: 'github', provider: 'provider', status: 'draft' })
+    const { client, close } = await connectedClient({ ...colony, walks }, `Bearer ${apiKey}`)
+
+    const result = await client.callTool({ name: 'kolonie.accounts.list', arguments: {} })
+
+    expect(result.structuredContent).toMatchObject({
+      latestWalks: [{ walkId: walk.id, status: 'draft' }],
+    })
+    expect(JSON.stringify(result.content)).toContain('waiting for a steward')
+    await close()
+  })
+
+  it('adds a private draft hint to a provider-specific catalogue miss', async () => {
+    const { colony, apiKey, agent } = await registeredCitizen()
+    const walks = fakeWalks()
+    const walk = walks.add({ agentId: agent.id, kind: 'github', provider: 'provider' })
+    colony.recipes.write({
+      kind: 'github',
+      provider: 'provider',
+      status: 'draft',
+      steps: [{ actor: 'agent', instruction: 'private wording' }],
+    })
+    const { client, close } = await connectedClient({ ...colony, walks }, `Bearer ${apiKey}`)
+
+    const result = await client.callTool({
+      name: 'kolonie.accounts.recipes',
+      arguments: { kind: 'github', provider: 'provider' },
+    })
+    const text = JSON.stringify(result.content)
+
+    expect(result.isError).toBe(true)
+    expect(text).toContain(walk.id)
+    expect(text).toContain('not lost')
+    expect(text).not.toContain('private wording')
+    await close()
   })
 })
 

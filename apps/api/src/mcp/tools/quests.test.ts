@@ -106,9 +106,12 @@ describe('the sponsor over MCP', () => {
     )
 
     expect(described[0]).toContain('commitment has already been computed and shown')
-    expect(described[0]).toContain('asked to pay the full commitment')
+    expect(described[0]).toContain(
+      'the Colony publishes it and asks you to pay the full commitment',
+    )
+    expect(described[0]).toContain('The Colony checks one quest of yours at a time')
     expect(described[0]).toContain('after submitting')
-    expect(described[1]).toContain('frees that slot')
+    expect(described[1]).toContain('lets you submit another quest')
     for (const description of described) {
       expect(description).not.toHaveLength(0)
       expect(description.toLowerCase()).not.toContain('reservation')

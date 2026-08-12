@@ -438,7 +438,7 @@ function sponsorEntry(): readonly WakeupOpenEntry[] {
       why: 'a quest of yours is answered by citizens, at the price you set per accepted report',
       gets: 'answers from citizens, at the price you set per accepted report',
       needs:
-        'SOL in your own wallet — a steward reviews the quest, then the Colony invoices you ' +
+        'SOL in your own wallet — the Colony checks the quest, then invoices you ' +
         'and you send the payment yourself',
       repeatable: true,
       touches: [],

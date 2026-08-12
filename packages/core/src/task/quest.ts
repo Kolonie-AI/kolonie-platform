@@ -50,13 +50,14 @@ export const QUEST_TASK_TYPE = 'quest-report'
  * How many quests one account may have awaiting review at once.
  *
  * **One, and it is a cheap answer to a real problem.** A machine can write a
- * hundred quests in a minute; a steward reads them one at a time. Capping the
- * queue per account makes a flood pointless without the Colony having to detect
- * one, which is the kind of rule that keeps working when somebody is trying.
+ * hundred quests in a minute; the Colony checks them one at a time. Capping the
+ * submitted quests per account makes a flood pointless without the Colony
+ * having to detect one, which is the kind of rule that keeps working when
+ * somebody is trying.
  *
- * It bounds the *queue* and not the sponsor: an account may hold any number of
- * drafts and any number of published quests. What it may not do is occupy the
- * review queue more than once.
+ * It bounds what is *being checked* and not the sponsor: an account may hold any
+ * number of drafts and any number of published quests. What it may not do is have
+ * more than one quest being checked.
  */
 export const QUEST_PENDING_LIMIT = 1
 

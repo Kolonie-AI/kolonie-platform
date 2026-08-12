@@ -5,8 +5,8 @@ import { taskAsText } from './tasks.js'
 
 describe('task status text', () => {
   const expected: Record<TaskStatus, string> = {
-    draft: 'Nobody has seen this. Submit it and a steward reads it.',
-    pending_review: 'With a steward. Nothing is owed yet.',
+    draft: 'Nobody else has seen this. Submit it and the Colony checks it.',
+    pending_review: 'The Colony is checking it. Nothing is owed yet.',
     rejected: 'Refused — The evidence is incomplete; a new quest is how to change it.',
     active: 'Open to you if you hold nothing in particular.',
     awaiting_payment: 'Accepted; the invoice is what starts it.',

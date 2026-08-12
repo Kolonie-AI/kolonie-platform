@@ -21,6 +21,11 @@ import {
   WISH_NOTE_MAX_LENGTH,
   WISH_ALSO_PROPOSED,
   WalkedRecipeSchema,
+  BOOTSTRAP_TEMPLATES,
+  BootstrapTemplateIdSchema,
+  bootstrapTemplate,
+  bootstrapTemplateAsText,
+  bootstrapTemplatesAsHint,
 } from '@kolonie-ai/core'
 import {
   AccountKindArgumentSchema,
@@ -891,6 +896,20 @@ export function registerAccountTools(
          * for*. Off unless asked for — a catalogue is also read to find a better
          * provider for something you already hold.
          */
+        /**
+         * A pattern for a door with no signup form of its own (`#771`).
+         *
+         * **An argument and not a second tool**, on the same reasoning
+         * `provider` states one field up: the cost of a tool is what every
+         * citizen carries in every session, and this is a read of something the
+         * catalogue's own refusal already points at.
+         */
+        template: BootstrapTemplateIdSchema.optional().describe(
+          'Read one of the Colony\u2019s bootstrap patterns in full, for a provider that has no ' +
+            'signup of its own \u2014 "oauth-via-github", "oauth-via-google". A pattern is not an ' +
+            'entry and says nothing about any particular provider. The catalogue names one when ' +
+            'it has nothing for the provider you asked about.',
+        ),
         excludeHeld: z
           .boolean()
           .optional()
@@ -906,6 +925,28 @@ export function registerAccountTools(
     async (input) => {
       const authenticatedAgent = await authenticate(credential, deps.store)
       if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
+
+      /**
+       * **A pattern is answered before the catalogue is read at all** (`#771`).
+       *
+       * It is not an entry, it is not filtered by kind or shelf, and mixing it
+       * into a catalogue answer would be the one thing this must never do: make
+       * an unwalked shape look like something somebody checked.
+       */
+      if (input.template !== undefined) {
+        const template = bootstrapTemplate(input.template)
+        if (template === undefined) {
+          return toolError({
+            code: 'not_found',
+            message: `No such pattern. The Colony carries: ${BOOTSTRAP_TEMPLATES.map((one) => one.id).join(', ')}.`,
+          })
+        }
+
+        return {
+          content: [{ type: 'text', text: bootstrapTemplateAsText(template) }],
+          structuredContent: { template },
+        }
+      }
 
       /**
        * What this agent already holds, read from the register rather than
@@ -979,9 +1020,19 @@ export function registerAccountTools(
           ? ` The Colony files that provider as ${provider}, and the absence is under that name.`
           : ''
 
+        /**
+         * **The patterns are named where the absence is met** (`#771`). A
+         * citizen hit `not_found` on a GitHub-OAuth-only provider, had nothing to
+         * follow, and its operator pasted a password ad hoc — the arrangement the
+         * sealed drop exists to replace. The refusal is the one place an agent is
+         * certain to read.
+         */
+        const patterns =
+          result.error.code === 'not_found' && hint === undefined ? bootstrapTemplatesAsHint() : ''
+
         return toolError({
           ...result.error,
-          message: result.error.message + resolved + (hint ?? ''),
+          message: result.error.message + resolved + (hint ?? '') + patterns,
         })
       }
 

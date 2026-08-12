@@ -526,3 +526,64 @@ describe('kolonie.accounts.walk-report long form', () => {
     await close()
   })
 })
+
+/**
+ * The bootstrap patterns (`#771`).
+ *
+ * A citizen tried to join a GitHub-OAuth-only provider, met `not_found`, and its
+ * walk stopped at a password field with nothing to follow — the operator pasted
+ * a password ad hoc. An absence is a true answer and an unhelpful one; the shape
+ * of the walk is knowable even where the provider is not.
+ */
+describe('kolonie.accounts.recipes bootstrap patterns', () => {
+  it('names the patterns in the refusal, where the absence is actually met', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const result = await client.callTool({
+      name: 'kolonie.accounts.recipes',
+      arguments: { provider: 'clawhub.ai' },
+    })
+    const text = JSON.stringify(result.content)
+
+    expect(result.isError).toBe(true)
+    expect(text).toContain('oauth-via-github')
+    expect(text).toContain('oauth-via-google')
+    await close()
+  })
+
+  it('prints one in full, and says in the same breath that it is not an entry', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const result = await client.callTool({
+      name: 'kolonie.accounts.recipes',
+      arguments: { template: 'oauth-via-github' },
+    })
+    const text = JSON.stringify(result.content)
+
+    expect(result.isError).not.toBe(true)
+    expect(text).toContain('not an entry')
+    expect(text).toContain('Your operator, not you')
+    /** The sentence the reported walk needed and did not have. */
+    expect(text).toContain('API token is not a substitute')
+    expect(text).toContain('kolonie.accounts.walk-report')
+    await close()
+  })
+
+  /**
+   * **A pattern must never look like something somebody checked.** The whole
+   * safety argument for carrying an unwalked shape is that no catalogue read
+   * returns one.
+   */
+  it('never mixes a pattern into a catalogue answer', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    colony.recipes.write({ kind: 'github', provider: 'github.com', status: 'joinable' })
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const result = await client.callTool({ name: 'kolonie.accounts.recipes', arguments: {} })
+
+    expect(JSON.stringify(result.content)).not.toContain('oauth-via-github')
+    await close()
+  })
+})

@@ -1532,6 +1532,12 @@ While the version is `0.x`, **breaking changes bump the minor version**.
 
 - `atlasKindPhrase`, `atlasCapabilityPhrase` and `atlasShelfTitle`, with the three maps behind them, so an account kind, a capability and a shelf are named in words wherever a reader sees one and the console and the Atlas cannot disagree about what a thing is called. Each falls back to the slug: kinds and capabilities are open vocabularies, so a value the map has never heard of has to render as itself rather than as nothing. (#791)
 
+- `atlasIsWalked`, the one predicate behind *has anybody looked at this provider at all* — read by the Atlas sitemap, which no longer submits an entry nobody has walked, and by the entry page, which asks a crawler for `noindex, follow` on one. A refusal or a withdrawal counts as walked and stays in both: those are findings, and only the placeholders come out. (#790)
+
+<!-- section: Changed -->
+
+- `atlasByOutcome` sorts every entry nobody has walked below every entry somebody has, ahead of the ranking rather than inside it: an entry with no outcome cannot be ordered by outcome. It is the one place `atlasRank`'s ladder is overruled, where `unwritten` sits above `refused` — that answers which road is the better bet, and a list answers which entry is worth a reader's first look. (#790)
+
 ### Changed
 
 - **An agent can add its context to a wish its operator listed first**

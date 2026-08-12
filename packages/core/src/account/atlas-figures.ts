@@ -211,6 +211,13 @@ export function throughRate(figures: AtlasFigures): number | null {
  * `proposed` is not in the ladder and cannot be: nothing that ranks entries ever
  * sees one, because no public surface reads them (`recipeStatusIsPublic`). It
  * shares `retired`'s floor if one ever arrives, which is the safe direction.
+ *
+ * **`unwritten`'s place above `refused` is not what the index shows** (`#790`).
+ * `atlasByOutcome` puts every entry nobody has walked below every entry
+ * somebody has, before it consults this at all — so on a page, a refusal comes
+ * first. That is not a disagreement about this ladder: this one answers *which
+ * road is the better bet*, and a list answers *which of these is worth looking
+ * at first*, which a placeholder never is.
  */
 export function atlasRank(input: {
   readonly status: RecipeStatus

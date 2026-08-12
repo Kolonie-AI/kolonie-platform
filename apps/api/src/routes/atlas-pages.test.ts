@@ -1161,6 +1161,77 @@ describe('the Atlas on the website host', () => {
     })
   })
 
+  /**
+   * What a crawler is handed, and what it is asked to leave alone (`#790`).
+   *
+   * Measured on the live site on 2026-08-12: 93 of the 113 URLs in the sitemap
+   * were entries saying nobody had looked yet — near-identical placeholders,
+   * submitted by name, which is the doorway pattern `growth/README.md` forbids.
+   * A refusal is a finding and stays in both.
+   */
+  describe('what the placeholders tell a crawler', () => {
+    const rebuild = (write: (colony: FakeColony) => void) => async () => {
+      await app.close()
+      app = build()
+      write(colony)
+      await app.ready()
+    }
+
+    const withAnUnwrittenEntry = rebuild((one) =>
+      one.recipes.write({
+        kind: 'mailbox',
+        provider: 'nobody.example',
+        title: 'Nobody',
+        status: 'unwritten',
+      }),
+    )
+
+    it('submits what somebody walked, and no entry nobody has', async () => {
+      await withAnUnwrittenEntry()
+
+      const body = (await get('/atlas/sitemap.xml')).body
+
+      expect(body).toContain(`<loc>${SITE}/atlas</loc>`)
+      expect(body).toContain(`<loc>${SITE}/atlas/github</loc>`)
+      expect(body).toContain(`<loc>${SITE}/atlas/bluesky</loc>`)
+      expect(body).toContain(`<loc>${SITE}/atlas/withdrawn.example</loc>`)
+      expect(body).not.toContain('nobody.example')
+    })
+
+    /**
+     * **The page stays and the shelf still links it.** A gap is a page and not
+     * an omission: leaving the index is not leaving the site.
+     */
+    it('asks a crawler to leave an unwritten page out and follow it anyway', async () => {
+      await withAnUnwrittenEntry()
+
+      const response = await get('/atlas/nobody.example')
+
+      expect(response.statusCode).toBe(200)
+      expect(response.body).toContain('<meta name="robots" content="noindex, follow">')
+      expect((await get('/atlas')).body).toContain('/atlas/nobody.example')
+    })
+
+    /** One walked row is enough, which is why the meta is absent nearly everywhere. */
+    it('says nothing to a crawler about a page that has something to say', async () => {
+      for (const url of ['/atlas', '/atlas/github', '/atlas/bluesky', '/atlas/withdrawn.example']) {
+        expect((await get(url)).body, url).not.toContain('name="robots"')
+      }
+    })
+
+    /** `atlasRank` puts `unwritten` above `refused`; a list of entries does not. */
+    it('lists what somebody walked before what nobody has', async () => {
+      await withAnUnwrittenEntry()
+
+      const body = (await get('/atlas')).body
+
+      // The same shelf, so this is the ordering and not which shelf came first.
+      expect(body.indexOf('/atlas/withdrawn.example')).toBeLessThan(
+        body.indexOf('/atlas/nobody.example'),
+      )
+    })
+  })
+
   describe('which host it answers on', () => {
     /**
      * The API answers on five hostnames from one process. An Atlas that served

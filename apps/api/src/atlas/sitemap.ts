@@ -1,4 +1,4 @@
-import { ATLAS_PATH, type AtlasEntry } from '@kolonie-ai/core'
+import { ATLAS_PATH, atlasIsWalked, type AtlasEntry } from '@kolonie-ai/core'
 
 /**
  * The Atlas's sitemap (`#546`).
@@ -13,6 +13,21 @@ import { ATLAS_PATH, type AtlasEntry } from '@kolonie-ai/core'
  * Served under `/atlas/` rather than at the site root, because the root belongs
  * to the static site: one `PathPrefix` rule routes this surface and nothing
  * else, and `kolonie-website#75` is what points the site's own sitemap here.
+ *
+ * **What it submits is what somebody walked** (`#790`). Measured on the live
+ * site on 2026-08-12, 93 of the 113 URLs here were entries saying nobody had
+ * looked yet — near-identical placeholders, handed to a crawler by name, which
+ * is the doorway pattern `growth/README.md` forbids and which set what the
+ * crawler thought the catalogue was. A refusal or a withdrawal stays in: both
+ * are findings, and *why an agent cannot join this* is a real answer to a real
+ * search. What comes out is only the entries nobody has opened yet, and an
+ * entry returns the moment one row of it stops being unwritten — see
+ * {@link atlasIsWalked}, which the entry page's `robots` meta reads too so the
+ * two cannot disagree.
+ *
+ * The pages themselves are untouched: an unwritten entry is still served, still
+ * linked from its shelf and still readable, because a gap is a page and not an
+ * omission.
  */
 export function atlasSitemap(input: {
   readonly entries: readonly AtlasEntry[]
@@ -31,7 +46,7 @@ export function atlasSitemap(input: {
     '<?xml version="1.0" encoding="UTF-8"?>',
     '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
     url(ATLAS_PATH),
-    ...input.entries.map((entry) => url(entry.path, entry.updatedAt)),
+    ...input.entries.filter(atlasIsWalked).map((entry) => url(entry.path, entry.updatedAt)),
     '</urlset>',
   ].join('\n')
 }

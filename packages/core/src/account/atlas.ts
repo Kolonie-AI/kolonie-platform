@@ -409,12 +409,50 @@ export function figureKey(kind: string, provider: string): string {
 }
 
 /**
+ * Whether anybody has walked this provider at all (`#790`).
+ *
+ * **One predicate, because two surfaces are answering one question.** The
+ * sitemap decides whether to submit a page to a crawler and the page decides
+ * whether to ask not to be indexed; two spellings of *nobody has looked* is how
+ * a page ends up submitted by name and asking to be left out.
+ *
+ * **A refusal counts as walked, and the whole rule rests on that.** *Why an
+ * agent cannot join this* is a finding the Colony made and an answer somebody
+ * searched for. *Nobody has looked at this yet* is a placeholder — one heading,
+ * one status line and a sentence asking somebody to walk it — and ninety-three
+ * near-identical placeholders are what set a crawler's opinion of the whole
+ * directory.
+ *
+ * **It reverses itself.** The moment a walk lands the row stops being
+ * unwritten, and the sitemap and the meta follow on the next render with
+ * nothing to remember or re-trigger.
+ */
+export function atlasIsWalked(entry: {
+  readonly recipes: readonly { readonly status: RecipeStatus }[]
+}): boolean {
+  return entry.recipes.some((recipe) => recipe.status !== 'unwritten')
+}
+
+/**
  * The catalogue in the order a visitor should meet it (`#545`).
  *
  * **Ordered by measured outcome, never by payment**, and derived on every read
  * rather than stored — which is what makes it something nobody can buy. A
  * visitor should be able to see at a glance which providers are actually
  * passable by an agent; `#547` calls that ordering the product.
+ *
+ * **A provider nobody has walked sorts below every provider somebody has**
+ * (`#790`), ahead of the ranking rather than inside it. An entry with no
+ * outcome cannot be ordered by outcome, and *no outcome sorts last* is the rule
+ * this function was missing — which is why it is here and not in the template:
+ * the ordering is the product, and a second sort at the rendering layer would
+ * be a second answer to the same question.
+ *
+ * It is the one place `atlasRank`'s ladder is overruled, and only for that one
+ * pair: there `unwritten` sits above `refused`, because a road that may work
+ * beats one known to be closed. That is the right answer to *which of these is
+ * the better bet* and the wrong one to *which of these is worth a reader's
+ * first look*, and this list answers the second.
  *
  * Ties fall back to the catalogue's own order, so two unmeasured entries stay
  * where `providerRecipeList` put them rather than swapping between reads.
@@ -424,11 +462,12 @@ export function atlasByOutcome(entries: readonly AtlasEntry[]): readonly AtlasEn
     .map((entry, index) => ({
       entry,
       index,
+      walked: atlasIsWalked(entry) ? 1 : 0,
       rank: atlasRank({
         status: entry.status,
         figures: entry.recipes.map((recipe) => recipe.figures),
       }),
     }))
-    .sort((a, b) => b.rank - a.rank || a.index - b.index)
+    .sort((a, b) => b.walked - a.walked || b.rank - a.rank || a.index - b.index)
     .map((one) => one.entry)
 }

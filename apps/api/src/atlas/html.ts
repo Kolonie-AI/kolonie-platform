@@ -1,6 +1,7 @@
 import {
   ATLAS_PATH,
   atlasCapabilityPhrase,
+  atlasIsWalked,
   atlasKindPhrase,
   atlasShelfTitle,
   RETIRED_ENTRY_NOTE,
@@ -29,7 +30,7 @@ import type { SiteChrome } from './site-chrome.js'
  *
  * | | Console | Atlas |
  * |---|---|---|
- * | `robots` | `noindex, nofollow` | indexed — being found is the point |
+ * | `robots` | `noindex, nofollow` | indexed — being found is the point, bar the placeholders (`#790`) |
  * | `cache-control` | `no-store` | public and cached, per {@link ATLAS_CACHE_SECONDS} |
  * | `canonical` | none | every page, absolute, from the site's own base |
  *
@@ -117,6 +118,15 @@ export function atlasPage(input: {
    * has nothing structured to say.
    */
   readonly jsonLd?: readonly string[] | undefined
+  /**
+   * What a crawler is asked to do with this page (`#790`).
+   *
+   * **Absent on every page that has something to say**, which is nearly all of
+   * them: being found is the point of the surface, and a default here would be
+   * a public catalogue one wrong flag away from invisible. The one caller that
+   * passes it is an entry nobody has walked — see {@link atlasEntryPage}.
+   */
+  readonly robots?: string | undefined
 }): string {
   const { chrome } = input
 
@@ -128,6 +138,7 @@ export function atlasPage(input: {
     '<meta name="viewport" content="width=device-width, initial-scale=1">',
     `<title>${escape(input.title)} — Kolonie</title>`,
     `<meta name="description" content="${escape(input.description)}">`,
+    input.robots === undefined ? '' : `<meta name="robots" content="${escape(input.robots)}">`,
     `<link rel="canonical" href="${escape(input.canonical)}">`,
     /**
      * The console's tokens and element rules, then the Atlas's own
@@ -411,6 +422,22 @@ export function atlasEntryPage(input: {
     description: entryDescription(entry),
     canonical: input.canonical,
     chrome: input.chrome,
+    /**
+     * **A page nobody has walked stays on the site and leaves the index**
+     * (`#790`). It is one heading, one status line and a sentence asking
+     * somebody to walk it; submitted by name alongside ninety-two others, it is
+     * what a crawler decides the directory is, and it drags the walked pages
+     * with it.
+     *
+     * **`follow` and not `nofollow`.** The links out of it — to its shelf, to
+     * the index — are worth crawling; the page itself is not worth indexing
+     * until somebody has something to put on it.
+     *
+     * **Every row, and not one of several.** A provider that is joinable for a
+     * mailbox and unmapped for a domain has something to say, and asking for it
+     * to be dropped would drop the half that was walked.
+     */
+    robots: atlasIsWalked(entry) ? undefined : 'noindex, follow',
     /**
      * **The breadcrumb on every state and the `HowTo` only where there are
      * steps** (`#789`). A refused or unwritten entry is still a place in the map

@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { AccountKindSchema, AccountProviderSchema } from './account.js'
 import {
+  atlasByOutcome,
   atlasCapabilityPhrase,
   atlasEntries,
+  atlasIsWalked,
   atlasKindPhrase,
   atlasPath,
   atlasShelfTitle,
@@ -271,6 +273,85 @@ describe('the path an entry is served at', () => {
   /** A provider is one token. Anything else would put a stranger's text in a URL. */
   it('refuses something that is not a provider', () => {
     expect(() => atlasPath('../../etc/passwd')).toThrow()
+  })
+})
+
+/**
+ * Whether anybody has looked at a provider, and where that puts it (`#790`).
+ *
+ * **The predicate is asserted here rather than through a page**, because two
+ * surfaces read it — the sitemap and the entry page's `robots` meta — and a
+ * disagreement between them is a page submitted to a crawler by name that asks
+ * to be left out of the index.
+ */
+describe('an entry nobody has walked', () => {
+  const providers = (entries: readonly { readonly provider: string }[]) =>
+    entries.map((one) => one.provider)
+
+  const oneEntry = (...rows: readonly ProviderRecipe[]) => {
+    const [entry] = atlasEntries(rows)
+    if (entry === undefined) throw new Error('no entry')
+
+    return entry
+  }
+
+  it('is walked as soon as one of its rows is, however many are not', () => {
+    const entry = oneEntry(
+      recipe({ kind: 'mailbox', provider: 'half.example', status: 'unwritten' }),
+      recipe({ kind: 'domain', provider: 'half.example' }),
+    )
+
+    expect(atlasIsWalked(entry)).toBe(true)
+  })
+
+  /** The distinction the whole rule rests on: a refusal is a finding, not a gap. */
+  it('counts a refusal and a withdrawal as walked', () => {
+    const refused = oneEntry(
+      recipe({ kind: 'social', provider: 'closed.example', status: 'refused' }),
+    )
+    const retired = oneEntry(
+      recipe({ kind: 'mailbox', provider: 'gone.example', status: 'retired' }),
+    )
+
+    expect(atlasIsWalked(refused)).toBe(true)
+    expect(atlasIsWalked(retired)).toBe(true)
+  })
+
+  it('is unwalked only when every row on it is', () => {
+    const entry = oneEntry(
+      recipe({ kind: 'mailbox', provider: 'nobody.example', status: 'unwritten' }),
+      recipe({ kind: 'domain', provider: 'nobody.example', status: 'unwritten' }),
+    )
+
+    expect(atlasIsWalked(entry)).toBe(false)
+  })
+
+  /**
+   * **Below the refusal, which is the opposite of `atlasRank`'s own ladder.**
+   * There a road that may work beats one known to be closed; here the question
+   * is what a reader should look at first, and a placeholder never is.
+   */
+  it('sorts below every entry somebody has walked', () => {
+    const entries = atlasEntries([
+      recipe({ kind: 'mailbox', provider: 'nobody.example', status: 'unwritten' }),
+      recipe({ kind: 'social', provider: 'closed.example', status: 'refused' }),
+      recipe({ kind: 'github', provider: 'open.example' }),
+    ])
+
+    expect(providers(atlasByOutcome(entries))).toEqual([
+      'open.example',
+      'closed.example',
+      'nobody.example',
+    ])
+  })
+
+  it('keeps the catalogue’s own order among the entries beside it', () => {
+    const entries = atlasEntries([
+      recipe({ kind: 'mailbox', provider: 'second.example', status: 'unwritten' }),
+      recipe({ kind: 'mailbox', provider: 'first.example', status: 'unwritten' }),
+    ])
+
+    expect(providers(atlasByOutcome(entries))).toEqual(['second.example', 'first.example'])
   })
 })
 

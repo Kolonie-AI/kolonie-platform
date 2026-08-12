@@ -1,49 +1,19 @@
 import { describe, expect, it } from 'vitest'
 import { PERMISSION_AGGREGATE_FLOOR } from '@kolonie-ai/core'
-import { backendPage } from './backend.js'
+import { backendWantedPage } from './backend.js'
 
 /**
- * What agents are asking for, on `/backend` (#534).
+ * What agents are asking for, on `/backend/wanted` (#534, its own page since
+ * #775).
  *
  * **The two sentences are the test.** The counts are asserted against a real
  * database in `packages/db`; what only this page can get wrong is presenting
  * interest as availability, or drawing an empty table that reads as *nobody
  * asked* when it means *nobody reached the floor*.
  */
-describe('the catalogue’s work queue on /backend', () => {
-  const numbers = {
-    accountsByPath: {},
-    agentsByRuntime: {},
-    modelFamilies: {},
-    modelsUndeclared: 0,
-    citizens: 0,
-    skillsGranted: {},
-    questsByStatus: {},
-    smsYesterdayByCountry: {},
-    acceptedQuestReports: { market: 0, intraSwarm: 0 },
-    permissionBlocks: [],
-    escrowHeld: 0,
-    ledgerSum: 0,
-    mintBalance: 0,
-    computedAt: '2026-08-08T00:00:00.000Z',
-  } as never
-
-  const sections = {
-    registrations: { rows: [], computedAt: '2026-08-08T00:00:00.000Z' },
-    tickets: { rows: [], computedAt: '2026-08-08T00:00:00.000Z' },
-  } as never
-
-  const render = (wanted?: readonly { provider: string; citizens: number }[]) =>
-    backendPage({
-      nav: {},
-      numbers,
-      sections,
-      arrivals: { agents: [], people: [], computedAt: '2026-08-08T00:00:00.000Z' } as never,
-      unreported: [],
-      briefings: [],
-      settings: [],
-      ...(wanted === undefined ? {} : { wanted }),
-    })
+describe('the catalogue’s work queue on /backend/wanted', () => {
+  const render = (wanted: readonly { provider: string; citizens: number }[]) =>
+    backendWantedPage({ nav: { current: '/backend/wanted', maintains: true }, wanted })
 
   it('says outright that it is interest and not availability', () => {
     const html = render([{ provider: 'figma.com', citizens: 9 }])

@@ -1181,10 +1181,11 @@ describe('the maintainer’s page', () => {
     return { human, cookie }
   }
 
-  const backendAs = (cookie: string | undefined, accept = 'text/html') =>
+  /** `/backend` is the landing page since `#775`; each section takes a path. */
+  const backendAs = (cookie: string | undefined, accept = 'text/html', path = '/backend') =>
     app.inject({
       method: 'GET',
-      url: '/backend',
+      url: path,
       headers: {
         host: CONSOLE_HOST,
         accept,
@@ -1269,6 +1270,9 @@ describe('the maintainer’s page', () => {
    * nobody answers is worse than no form.
    */
   describe('providers writing in', () => {
+    /** Its own page since `#775`, and where the POST comes back to. */
+    const enquiriesAs = (cookie: string) => backendAs(cookie, 'text/html', '/backend/enquiries')
+
     const ENQUIRY = {
       product: 'A mailbox service agents can sign up for.',
       url: 'openmail.example',
@@ -1291,7 +1295,7 @@ describe('the maintainer’s page', () => {
       await enquiries_.record(ENQUIRY)
       const { cookie } = await aPerson({ maintains: true })
 
-      const response = await backendAs(cookie)
+      const response = await enquiriesAs(cookie)
 
       expect(response.body).toContain('Providers writing in')
       expect(response.body).toContain('A mailbox service agents can sign up for.')
@@ -1306,7 +1310,7 @@ describe('the maintainer’s page', () => {
     it('says what an empty section means', async () => {
       const { cookie } = await aPerson({ maintains: true })
 
-      expect((await backendAs(cookie)).body).toContain('Nobody has written in')
+      expect((await enquiriesAs(cookie)).body).toContain('Nobody has written in')
     })
 
     it('marks one as handled, and stops offering the button for it', async () => {
@@ -1412,10 +1416,16 @@ describe('who arrived and what is waiting', () => {
     return cookie
   }
 
-  const backend = (cookie: string, accept = 'text/html') =>
+  /**
+   * Each section is its own page since `#775`, so the path is an argument. The
+   * point of the split is that a request pays for the section it asked for, and
+   * a test that still fetched one page for all of them would be asserting the
+   * shape this replaced.
+   */
+  const backend = (cookie: string, path: string, accept = 'text/html') =>
     app.inject({
       method: 'GET',
-      url: '/backend',
+      url: path,
       headers: { host: CONSOLE_HOST, accept, cookie: `__Host-kolonie_session=${cookie}` },
     })
 
@@ -1472,19 +1482,39 @@ describe('who arrived and what is waiting', () => {
     })
   })
 
-  it('renders both sections for the maintainer', async () => {
-    const body = (await backend(await aMaintainer())).body
+  it('renders both sections for the maintainer, each on its own page', async () => {
+    const cookie = await aMaintainer()
 
-    expect(body).toContain('Who arrived')
-    expect(body).toContain('newest-arrival')
-    expect(body).toContain('earlier-arrival')
-    expect(body).toContain('Waiting to be read')
-    expect(body).toContain('waiting the longest')
+    const arrivals = (await backend(cookie, '/backend/arrivals')).body
+    expect(arrivals).toContain('Who arrived')
+    expect(arrivals).toContain('newest-arrival')
+    expect(arrivals).toContain('earlier-arrival')
+
+    const tickets = (await backend(cookie, '/backend/tickets')).body
+    expect(tickets).toContain('Waiting to be read')
+    expect(tickets).toContain('waiting the longest')
+  })
+
+  /**
+   * **And neither page carries the other's read** (`#775`). This is the property
+   * the split exists for: the section a maintainer opens is the only one the
+   * request pays for, so the arrivals page must not contain a ticket.
+   */
+  it('pays for the section it was asked for and no other', async () => {
+    const cookie = await aMaintainer()
+
+    expect((await backend(cookie, '/backend/arrivals')).body).not.toContain('waiting the longest')
+    expect((await backend(cookie, '/backend/tickets')).body).not.toContain('newest-arrival')
+    // And the landing page is the numbers, not the nine sections it used to be.
+    const landing = (await backend(cookie, '/backend')).body
+    expect(landing).toContain('Computed at')
+    expect(landing).not.toContain('newest-arrival')
+    expect(landing).not.toContain('waiting the longest')
   })
 
   /** The order the sections arrive in is the order they are shown in. */
   it('shows the longest-waiting ticket above the others', async () => {
-    const body = (await backend(await aMaintainer())).body
+    const body = (await backend(await aMaintainer(), '/backend/tickets')).body
 
     expect(body.indexOf('waiting the longest')).toBeLessThan(body.indexOf('waiting less long'))
   })
@@ -1497,7 +1527,7 @@ describe('who arrived and what is waiting', () => {
    * line rather than the old one.
    */
   it('shows what the richer row is for, and no balance', async () => {
-    const body = (await backend(await aMaintainer())).body
+    const body = (await backend(await aMaintainer(), '/backend/arrivals')).body
 
     expect(body).toContain('<th>How</th>')
     expect(body).toContain('<th>Runtime</th>')
@@ -1528,15 +1558,27 @@ describe('who arrived and what is waiting', () => {
     }
   })
 
-  it('carries both sections in the JSON representation, each with its moment', async () => {
-    const body = (await backend(await aMaintainer(), 'application/json')).json()
+  /**
+   * **One JSON body per question** (`#775`). Asking for arrivals returns
+   * arrivals: before the split a caller wanting one section was handed all nine
+   * and paid nine queries for it.
+   */
+  it('carries each section in its own JSON representation, with its own moment', async () => {
+    const cookie = await aMaintainer()
 
-    expect(body.arrivals.agents).toHaveLength(2)
-    expect(body.arrivals.computedAt).toEqual(expect.any(String))
-    expect(body.tickets.rows).toHaveLength(2)
-    expect(body.tickets.computedAt).toEqual(expect.any(String))
+    const arrivals = (await backend(cookie, '/backend/arrivals', 'application/json')).json()
+    expect(arrivals.arrivals.agents).toHaveLength(2)
+    expect(arrivals.arrivals.computedAt).toEqual(expect.any(String))
+    expect(arrivals.tickets).toBeUndefined()
+
+    const tickets = (await backend(cookie, '/backend/tickets', 'application/json')).json()
+    expect(tickets.tickets.rows).toHaveLength(2)
+    expect(tickets.tickets.computedAt).toEqual(expect.any(String))
+
     // And the numbers keep their own, which is a third and is not shared.
-    expect(body.numbers.computedAt).toEqual(expect.any(String))
+    const numbers = (await backend(cookie, '/backend', 'application/json')).json()
+    expect(numbers.numbers.computedAt).toEqual(expect.any(String))
+    expect(numbers.arrivals).toBeUndefined()
   })
 
   /**
@@ -1553,7 +1595,7 @@ describe('who arrived and what is waiting', () => {
       ],
     })
 
-    const body = (await backend(await aMaintainer())).body
+    const body = (await backend(await aMaintainer(), '/backend/unreported')).body
 
     expect(body).toContain('What nobody has reported on')
     expect(body).toContain('Come back the way you said you would')
@@ -1562,15 +1604,19 @@ describe('who arrived and what is waiting', () => {
 
   it('says so plainly when there is nothing in either', async () => {
     quests.showsOnBackend({ arrivals: { agents: [], people: [] }, tickets: [] })
+    const cookie = await aMaintainer()
 
-    const body = (await backend(await aMaintainer())).body
-
-    expect(body).toContain('Nothing is waiting')
-    expect(body).toContain('something is wrong rather than quiet')
+    expect((await backend(cookie, '/backend/tickets')).body).toContain('Nothing is waiting')
+    expect((await backend(cookie, '/backend/arrivals')).body).toContain(
+      'something is wrong rather than quiet',
+    )
   })
 
-  /** The sections are behind the same gate as the page, not beside it. */
-  it('shows neither section to somebody without the role', async () => {
+  /**
+   * The sections are behind the same gate as the landing page, not beside it —
+   * and `#775` made that nine gates rather than one, so every one is asked.
+   */
+  it('shows no section to somebody without the role', async () => {
     const human = humans_.store.holdsIdentity({
       provider: 'github',
       subject: `subject-${randomUUID()}`,
@@ -1578,11 +1624,23 @@ describe('who arrived and what is waiting', () => {
     })
     const { session: cookie } = await humans_.store.openSession(human.id, {})
 
-    const response = await backend(cookie)
+    for (const path of [
+      '/backend',
+      '/backend/arrivals',
+      '/backend/briefings',
+      '/backend/unreported',
+      '/backend/tickets',
+      '/backend/enquiries',
+      '/backend/wanted',
+      '/backend/atlas',
+      '/backend/settings',
+    ]) {
+      const response = await backend(cookie, path)
 
-    expect(response.statusCode).toBe(404)
-    expect(response.body).not.toContain('newest-arrival')
-    expect(response.body).not.toContain('waiting the longest')
+      expect(response.statusCode).toBe(404)
+      expect(response.body).not.toContain('newest-arrival')
+      expect(response.body).not.toContain('waiting the longest')
+    }
   })
 })
 
@@ -1607,10 +1665,11 @@ describe('the settings a maintainer turns', () => {
     return cookie
   }
 
+  /** Its own page since `#775`, and the one the two POSTs come back to. */
   const backend = (cookie: string) =>
     app.inject({
       method: 'GET',
-      url: '/backend',
+      url: '/backend/settings',
       headers: {
         host: CONSOLE_HOST,
         accept: 'text/html',
@@ -1676,7 +1735,7 @@ describe('the settings a maintainer turns', () => {
     const response = await set(cookie, 'POLL_INTERVAL_MS', '45000')
 
     expect(response.statusCode).toBe(303)
-    expect(response.headers['location']).toBe('/backend')
+    expect(response.headers['location']).toBe('/backend/settings')
     expect(settings_.written()).toEqual([
       expect.objectContaining({ name: 'POLL_INTERVAL_MS', value: '45000' }),
     ])

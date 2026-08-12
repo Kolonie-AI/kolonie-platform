@@ -39,19 +39,43 @@ describe('the console navigation', () => {
     expect(rendered).not.toContain('aria-disabled')
   })
 
-  it('reaches each of /backend’s sections individually', () => {
+  /**
+   * Each section is a page, and `#775` is the issue that made them so. The
+   * assertion is on paths rather than anchors precisely because an anchor is
+   * what the previous version had: nine links into one path, of which
+   * `aria-current` could mark one.
+   */
+  it('reaches each of /backend’s sections at its own path, with no fragment', () => {
     const rendered = consoleNavigation({ maintains: true })
 
-    for (const anchor of [
-      '/backend#who-arrived',
-      '/backend#waiting-to-be-read',
-      '/backend#providers-writing-in',
-      '/backend#what-agents-are-asking-for',
-      '/backend#the-atlas',
-      '/backend#settings',
+    for (const path of [
+      '/backend',
+      '/backend/arrivals',
+      '/backend/briefings',
+      '/backend/unreported',
+      '/backend/tickets',
+      '/backend/enquiries',
+      '/backend/wanted',
+      '/backend/atlas',
+      '/backend/settings',
     ]) {
-      expect(rendered).toContain(`href="${anchor}"`)
+      expect(rendered).toContain(`href="${path}"`)
     }
+
+    expect(rendered).not.toContain('href="/backend#')
+  })
+
+  /**
+   * The defect `#775` names, asserted from the reader's side: on a section that
+   * is not the first, the navigation says where they are. Before the split this
+   * was reachable for `/backend` alone.
+   */
+  it('marks whichever backend section is being read', () => {
+    const rendered = consoleNavigation({ current: '/backend/settings', maintains: true })
+
+    expect(rendered).toContain('<a href="/backend/settings" aria-current="page">')
+    expect([...rendered.matchAll(/aria-current="page"/g)]).toHaveLength(1)
+    expect(rendered).toContain('<details open><summary>Running the Colony</summary>')
   })
 
   it('marks the current page with aria-current, and marks only it', () => {
@@ -70,11 +94,7 @@ describe('the console navigation', () => {
     expect([...rendered.matchAll(/<details open>/g)]).toHaveLength(1)
   })
 
-  /**
-   * A `/backend` anchor opens the section without claiming to *be* a page — the
-   * page is `/backend` itself, which is the first item.
-   */
-  it('opens Running the Colony from any of its anchors', () => {
+  it('opens Running the Colony on its landing page', () => {
     const rendered = consoleNavigation({ current: '/backend', maintains: true })
 
     expect(rendered).toContain('<details open><summary>Running the Colony</summary>')

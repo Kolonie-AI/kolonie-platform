@@ -89,26 +89,59 @@ interface NavSection {
 }
 
 /**
- * `/backend` is one long page with seven `<h2>`s on it, which is the same defect
- * as the agent page (`#583`) and has the same fix: the sections exist, they just
- * have no way in.
+ * Every page under *Running the Colony*, in the order a maintainer meets them
+ * (`#775`).
  *
- * The ids are set in `backend.ts` beside the headings they belong to, so the two
- * cannot drift apart silently — a heading renamed without its id is a link that
- * lands at the top of the page, which reads as a slow browser rather than as a
- * broken link.
+ * ## Why these are paths and not fragments
+ *
+ * They were fragments into one long `/backend`, and `#608` said so in as many
+ * words: *"the sections exist, they just have no way in."* Anchors gave them a
+ * way in and nothing else. Three things stayed broken.
+ *
+ * **`aria-current` could only ever mark one of nine.** The attribute is set on
+ * an exact `href` match, and eight of the nine hrefs carried a fragment no
+ * request ever contains — so a reader with no CSS, on eight of the nine
+ * sections, was told they were nowhere. `#583` is the identical defect on the
+ * agent page and this is the identical fix.
+ *
+ * **Every view paid for every section.** Nine sequential reads ran before a byte
+ * was written, whatever the maintainer had come for. A fragment is resolved by
+ * the browser after the server has already done all of the work.
+ *
+ * **And there was one JSON representation for nine questions.** Asking
+ * `/backend` for JSON returned every section's answer at once, which is not a
+ * thing any caller wants and is nine queries a caller pays for to read one.
+ *
+ * ## One table, read twice
+ *
+ * The routes in `console-pages.ts` register these paths and `backend.ts` titles
+ * its pages from them, so a path exists in one place. A link here with no route
+ * behind it is caught by the crawl in `console-links.test.ts`.
  */
-const BACKEND_ITEMS: readonly NavItem[] = [
+export const BACKEND_PAGES = [
   { href: '/backend', label: 'Numbers' },
-  { href: '/backend#who-arrived', label: 'Who arrived' },
-  { href: '/backend#whether-briefings-help', label: 'Whether briefings help' },
-  { href: '/backend#what-nobody-has-reported-on', label: 'What nobody has reported on' },
-  { href: '/backend#waiting-to-be-read', label: 'Waiting to be read' },
-  { href: '/backend#providers-writing-in', label: 'Providers writing in' },
-  { href: '/backend#what-agents-are-asking-for', label: 'What agents are asking for' },
-  { href: '/backend#the-atlas', label: 'The Atlas' },
-  { href: '/backend#settings', label: 'Settings' },
-]
+  { href: '/backend/arrivals', label: 'Who arrived' },
+  { href: '/backend/briefings', label: 'Whether briefings help' },
+  { href: '/backend/unreported', label: 'What nobody has reported on' },
+  { href: '/backend/tickets', label: 'Waiting to be read' },
+  { href: '/backend/enquiries', label: 'Providers writing in' },
+  { href: '/backend/wanted', label: 'What agents are asking for' },
+  { href: '/backend/atlas', label: 'The Atlas' },
+  { href: '/backend/settings', label: 'Settings' },
+] as const satisfies readonly NavItem[]
+
+/**
+ * What the navigation calls one of those paths, for the page's own `<h1>`.
+ *
+ * **Not `backendLabel`**, however much the entries are called labels:
+ * `scripts/github-issue-labels.test.ts` reads every string literal out of a
+ * function whose name contains *label*, in any file mentioning GitHub, and asks
+ * whether it is an issue label the repositories carry. `Running the Colony` is
+ * not, and the suite failed on it.
+ */
+export function backendTitle(path: string): string {
+  return BACKEND_PAGES.find((entry) => entry.href === path)?.label ?? 'Running the Colony'
+}
 
 /**
  * The sections, in the order a signed-in person meets them.
@@ -145,7 +178,7 @@ function sections(nav: ConsoleNav): readonly NavSection[] {
       ],
     },
     // Absent for everybody else, and that is the rule rather than an oversight.
-    ...(nav.maintains === true ? [{ title: 'Running the Colony', items: BACKEND_ITEMS }] : []),
+    ...(nav.maintains === true ? [{ title: 'Running the Colony', items: BACKEND_PAGES }] : []),
   ]
 }
 
@@ -170,8 +203,13 @@ export function consoleNavigation(nav: ConsoleNav): string {
       .map((item) => {
         /**
          * `aria-current="page"` is on the item whose path is this page — and on
-         * at most one, so a section of anchors into `/backend` marks the page
-         * and not all seven of them.
+         * at most one.
+         *
+         * **Every entry can now carry it, which is what `#775` was for.** While
+         * *Running the Colony* was nine fragments into one path, an exact match
+         * was reachable by exactly one of them and the other eight marked
+         * nothing however the reader arrived. They are paths now, so the section
+         * being read is the section marked.
          *
          * It is also how a reader with no CSS knows where they are, which is why
          * the styling hangs off the attribute rather than off a class.

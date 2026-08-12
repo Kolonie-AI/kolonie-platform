@@ -51,7 +51,17 @@ import { agentPage } from '../console/agent-page.js'
 import { answerAutonomyFormForAgent } from '../autonomy.js'
 import { agentAccountsPage } from '../console/agent-accounts.js'
 import { curationPage, numbersPage } from '../console/steward.js'
-import { backendPage } from '../console/backend.js'
+import {
+  backendArrivalsPage,
+  backendAtlasPage,
+  backendBriefingsPage,
+  backendEnquiriesPage,
+  backendPage,
+  backendSettingsPage,
+  backendTicketsPage,
+  backendUnreportedPage,
+  backendWantedPage,
+} from '../console/backend.js'
 import { curationSections } from '../console/curation.js'
 import { atlasCatalogue, atlasCuration } from '../provider-recipes.js'
 import {
@@ -1102,68 +1112,147 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
   }
 
   /**
-   * *How is the Colony doing*, answered to the person running it (`#486`).
+   * *How is the Colony doing*, answered to the person running it (`#486`), one
+   * page per question (`#775`).
    *
-   * Reads the same `colonyNumbers()` the steward's page reads — one function,
-   * two pages, so the two cannot disagree about the same figure.
+   * ## What changed, and why it is nine routes rather than one
+   *
+   * `/backend` was one handler that ran nine sequential reads before it wrote a
+   * byte, whatever the maintainer had come to look at, and answered every JSON
+   * request with all nine at once. `#775`: *"the section a maintainer opens is
+   * the only one the request pays for."* So each entry under *Running the
+   * Colony* is a route with its own read and its own JSON body, and the reads
+   * that were sequential are simply not made.
+   *
+   * The landing page reads the same `colonyNumbers()` the steward's page reads —
+   * one function, two pages, so the two cannot disagree about the same figure.
+   *
+   * ## One guard, applied nine times
+   *
+   * `maintainer()` and nothing else. It is called at the top of each handler
+   * rather than in a hook so that the refusal is visible where the page is:
+   * `#485`'s property is that this surface resolves a **person** and never an
+   * agent, and a hook registered against a path prefix is one rename away from
+   * covering nothing.
    */
-  /** The page, assembled — used by the route and by every redirect back to it. */
-  const renderBackend = async (request: FastifyRequest, reply: FastifyReply, notice?: string) => {
+  const backendGuard = async (request: FastifyRequest, reply: FastifyReply) =>
+    await maintainer(request, reply)
+
+  app.get('/backend', async (request, reply) => {
+    if ((await backendGuard(request, reply)) === null) return reply
+
     const numbers = await deps.quests.numbers()
-    // Two live queries beside the aggregates, each carrying its own moment
-    // (`#487`). Not folded into `ColonyNumbers`: that object is aggregates
-    // entirely, and showing individuals is a change of kind rather than one
-    // more figure.
-    const sections = await deps.quests.backendSections()
-    // Who arrived (`#607`). Its own read, and it reaches no published figure.
+
+    return wantsHtml(request)
+      ? html(reply, backendPage({ nav: navFor(request, ['maintainer']), numbers }))
+      : reply.send({ numbers })
+  })
+
+  /**
+   * Who arrived (`#607`). Its own read, and it reaches no published figure.
+   *
+   * Not folded into `ColonyNumbers`: that object is aggregates entirely, and
+   * showing individuals is a change of kind rather than one more figure.
+   */
+  app.get('/backend/arrivals', async (request, reply) => {
+    if ((await backendGuard(request, reply)) === null) return reply
+
     const arrivals = await deps.quests.arrivals()
-    // Where the Colony knows nothing (`#611`).
-    const unreported = await deps.quests.unreported()
-    // Whether a briefing changes an outcome (`#609`).
+
+    return wantsHtml(request)
+      ? html(reply, backendArrivalsPage({ nav: navFor(request, ['maintainer']), arrivals }))
+      : reply.send({ arrivals })
+  })
+
+  /** Whether a briefing changes an outcome (`#609`). */
+  app.get('/backend/briefings', async (request, reply) => {
+    if ((await backendGuard(request, reply)) === null) return reply
+
     const briefings = await deps.quests.briefingEffect()
-    const settings = await deps.settings.effective()
-    // Providers writing in about the Atlas (`#544`). On the page before the form
-    // is announced anywhere, because an enquiry nobody answers is worse than no
-    // form.
+
+    return wantsHtml(request)
+      ? html(reply, backendBriefingsPage({ nav: navFor(request, ['maintainer']), briefings }))
+      : reply.send({ briefings })
+  })
+
+  /** Where the Colony knows nothing (`#611`). */
+  app.get('/backend/unreported', async (request, reply) => {
+    if ((await backendGuard(request, reply)) === null) return reply
+
+    const unreported = await deps.quests.unreported()
+
+    return wantsHtml(request)
+      ? html(reply, backendUnreportedPage({ nav: navFor(request, ['maintainer']), unreported }))
+      : reply.send({ unreported })
+  })
+
+  /** What is waiting to be read — a live query carrying its own moment (`#487`). */
+  app.get('/backend/tickets', async (request, reply) => {
+    if ((await backendGuard(request, reply)) === null) return reply
+
+    const sections = await deps.quests.backendSections()
+
+    return wantsHtml(request)
+      ? html(reply, backendTicketsPage({ nav: navFor(request, ['maintainer']), sections }))
+      : reply.send({ ...sections })
+  })
+
+  /**
+   * Providers writing in about the Atlas (`#544`). Reachable before the form is
+   * announced anywhere, because an enquiry nobody answers is worse than no form.
+   */
+  app.get('/backend/enquiries', async (request, reply) => {
+    if ((await backendGuard(request, reply)) === null) return reply
+
     const enquiries = await deps.providerEnquiries.list()
-    const curation = curationSections(await atlasCuration(deps.recipes))
-    /**
-     * What agents are asking for (`#534`).
-     *
-     * **Here and on no public route.** `kolonie-docs#216` gates the Colony's
-     * stock figures until the majority of agents are not ours, and `/backend` is
-     * behind the maintainer role — which is the only reason this may be drawn at
-     * all. The floor is already applied in SQL, so nothing this route does can
-     * widen it.
-     */
+
+    return wantsHtml(request)
+      ? html(reply, backendEnquiriesPage({ nav: navFor(request, ['maintainer']), enquiries }))
+      : reply.send({ enquiries })
+  })
+
+  /**
+   * What agents are asking for (`#534`).
+   *
+   * **Here and on no public route.** `kolonie-docs#216` gates the Colony's stock
+   * figures until the majority of agents are not ours, and this is behind the
+   * maintainer role — which is the only reason it may be drawn at all. The floor
+   * is already applied in SQL, so nothing this route does can widen it.
+   */
+  app.get('/backend/wanted', async (request, reply) => {
+    if ((await backendGuard(request, reply)) === null) return reply
+
     const wanted = await deps.wishes.store.wanted()
+
+    return wantsHtml(request)
+      ? html(reply, backendWantedPage({ nav: navFor(request, ['maintainer']), wanted }))
+      : reply.send({ wanted })
+  })
+
+  /** Curating the Atlas (`#549`) — the same queue a steward reads on `/review`. */
+  app.get('/backend/atlas', async (request, reply) => {
+    if ((await backendGuard(request, reply)) === null) return reply
+
+    const read = await atlasCuration(deps.recipes)
 
     return wantsHtml(request)
       ? html(
           reply,
-          backendPage({
+          backendAtlasPage({
             nav: navFor(request, ['maintainer']),
-            numbers,
-            sections,
-            arrivals,
-            unreported,
-            briefings,
-            settings,
-            enquiries,
-            notice,
-            curation,
-            wanted,
+            curation: curationSections(read),
           }),
         )
+      : reply.send({ curation: read })
+  })
+
+  /** Everything a maintainer may turn without a deploy (`#489`, D-104). */
+  const renderSettings = async (request: FastifyRequest, reply: FastifyReply, notice?: string) => {
+    const settings = await deps.settings.effective()
+
+    return wantsHtml(request)
+      ? html(reply, backendSettingsPage({ nav: navFor(request, ['maintainer']), settings, notice }))
       : reply.send({
-          numbers,
-          ...sections,
-          // The same answer the page renders (`#607`), not a thinner one.
-          arrivals,
-          unreported,
-          briefings,
-          enquiries,
-          wanted,
           settings: settings.map((setting) => ({
             name: setting.definition.name,
             group: setting.definition.group,
@@ -1175,6 +1264,12 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
         })
   }
 
+  app.get('/backend/settings', async (request, reply) => {
+    if ((await backendGuard(request, reply)) === null) return reply
+
+    return await renderSettings(request, reply)
+  })
+
   /**
    * Mark one provider enquiry as dealt with (`#544`).
    *
@@ -1183,9 +1278,13 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
    * here would be a mail queue built on the strength of a form nobody has filled
    * in yet.
    *
-   * Behind the maintainer gate like everything else on this page, and a second
-   * press is not an error — it is how somebody uses a button they are unsure
-   * about, and the store leaves the first date alone.
+   * Behind the maintainer gate like everything else here, and a second press is
+   * not an error — it is how somebody uses a button they are unsure about, and
+   * the store leaves the first date alone.
+   *
+   * **It answers with the enquiries page and not the landing page** (`#775`).
+   * Marking one handled and being returned to the Colony's numbers would hide
+   * the very row that just changed.
    */
   app.post('/backend/enquiries/:id/handled', async (request, reply) => {
     const held = await maintainer(request, reply)
@@ -1193,19 +1292,24 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
 
     const { id } = request.params as { id?: string }
     const marked = id === undefined ? false : await deps.providerEnquiries.markHandled(id)
+    const notice = marked
+      ? 'Marked as handled.'
+      : 'That enquiry was already handled, or is not there.'
 
-    return await renderBackend(
-      request,
-      reply,
-      marked ? 'Marked as handled.' : 'That enquiry was already handled, or is not there.',
-    )
-  })
+    const enquiries = await deps.providerEnquiries.list()
 
-  app.get('/backend', async (request, reply) => {
-    const held = await maintainer(request, reply)
-    if (held === null) return reply
-
-    return await renderBackend(request, reply)
+    return wantsHtml(request)
+      ? html(
+          reply,
+          backendEnquiriesPage({
+            // The path the navigation carries, not the POST's own: this renders
+            // the enquiries page, so that is the entry `aria-current` marks.
+            nav: { current: '/backend/enquiries', maintains: true },
+            enquiries,
+            notice,
+          }),
+        )
+      : reply.send({ enquiries, handled: marked })
   })
 
   /**
@@ -1241,14 +1345,14 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
 
     if (outcome.outcome === 'invalid') {
       return wantsHtml(request)
-        ? await renderBackend(request, reply.status(400), `${name ?? ''}: ${outcome.reason}`)
+        ? await renderSettings(request, reply.status(400), `${name ?? ''}: ${outcome.reason}`)
         : reply
             .status(ERROR_STATUS['validation_failed'])
             .send({ code: 'validation_failed', message: outcome.reason })
     }
 
     return wantsHtml(request)
-      ? reply.status(303).header('location', '/backend').send()
+      ? reply.status(303).header('location', '/backend/settings').send()
       : reply.status(200).send({ name, written: true })
   })
 
@@ -1272,7 +1376,7 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
     }
 
     return wantsHtml(request)
-      ? reply.status(303).header('location', '/backend').send()
+      ? reply.status(303).header('location', '/backend/settings').send()
       : reply.status(200).send({ name, cleared: outcome.outcome === 'cleared' })
   })
 

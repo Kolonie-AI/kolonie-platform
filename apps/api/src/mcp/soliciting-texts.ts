@@ -75,6 +75,17 @@ export const SOLICITING_TOOLS: readonly string[] = [
    * shipped rather than after somebody noticed.
    */
   'kolonie.quests.report',
+  /**
+   * Added by `#809`, and it arrived the same way `kolonie.quests.report` did:
+   * the walk report took the four questions, the last assertion in the test
+   * beside this file failed, and the tool was in this list before it shipped.
+   *
+   * **The rule bites hardest here.** A walk-report question that named a
+   * candidate wall would plant that wall in the very distribution the Atlas
+   * publishes as evidence about a provider — the echo would not just be in a
+   * report a moderator reads, it would be in the figures a stranger reads.
+   */
+  'kolonie.accounts.walk-report',
 ]
 
 /**

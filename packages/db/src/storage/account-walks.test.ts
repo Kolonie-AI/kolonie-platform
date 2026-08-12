@@ -186,6 +186,48 @@ describe('the record of one agent obtaining one account', () => {
       expect(await providerRecipe(db, where.kind, where.provider)).toBeUndefined()
     })
 
+    /**
+     * The four answers survive the round trip and are read back under the
+     * question each was asked (`#809`). A walk is the attempt record on this
+     * side, so they are columns on it rather than rows of their own.
+     */
+    it('keeps all four answers on the walk, and the note beside them', async () => {
+      const walkId = await walkInProgress(db, agentId, where)
+      await recordWalkStep(db, walkId, { actor: 'agent' })
+
+      const finished = await finishWalk(db, walkId, {
+        outcome: 'refused',
+        wall: 'It asks for a phone number.',
+        did: 'I opened the signup form and filled in everything it asked for.',
+        broke: 'The last page would not submit without a number it could text.',
+        changed: 'I used the operator handoff this time instead of stopping.',
+        discarded: 'I looked at two other providers first and neither took an agent at all.',
+        note: 'The published steps were in the order I found them.',
+      })
+
+      expect(finished?.walk.did).toContain('signup form')
+      expect(finished?.walk.broke).toContain('text')
+      expect(finished?.walk.changed).toContain('operator handoff')
+      expect(finished?.walk.discarded).toContain('two other providers')
+      expect(finished?.walk.note).toContain('published steps')
+
+      const reread = await accountWalk(db, walkId)
+      expect(reread?.changed).toBe(finished?.walk.changed)
+    })
+
+    /** Nothing answered is the ordinary case and stays four nulls, not four empty strings. */
+    it('leaves every question null when none was answered', async () => {
+      const walkId = await walkInProgress(db, agentId, where)
+      await recordWalkStep(db, walkId, { actor: 'agent' })
+
+      const finished = await finishWalk(db, walkId, { outcome: 'proved' })
+
+      expect(finished?.walk.did).toBeNull()
+      expect(finished?.walk.broke).toBeNull()
+      expect(finished?.walk.changed).toBeNull()
+      expect(finished?.walk.discarded).toBeNull()
+    })
+
     it('proposes a refusal with the wall, and no steps', async () => {
       const walkId = await walkInProgress(db, agentId, where)
       await recordWalkStep(db, walkId, { actor: 'agent' })
@@ -485,6 +527,23 @@ describe('the record of one agent obtaining one account', () => {
         ),
       ).toBe('account_walks_note_is_short')
     })
+
+    /**
+     * One per question rather than one over all four (`#809`): a refusal that
+     * names `did` tells the citizen which answer to shorten, and a refusal
+     * naming a concatenation tells it to shorten something it never wrote.
+     */
+    it.each(['did', 'broke', 'changed', 'discarded'])(
+      'refuses %s longer than 2000 characters, by its own name',
+      async (field) => {
+        expect(
+          await refusedBy(
+            `insert into account_walks (agent_id, kind, provider, ${field})
+             values ('${agentId}', 'mailbox', 'long-${field}.example', repeat('a', 2001))`,
+          ),
+        ).toBe(`account_walks_${field}_is_short`)
+      },
+    )
 
     it('refuses an outcome nobody defined', async () => {
       expect(

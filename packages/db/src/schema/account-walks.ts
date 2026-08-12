@@ -91,6 +91,30 @@ export const accountWalks = pgTable(
      */
     note: text('note'),
 
+    /**
+     * The four questions the Academy asks about an attempt, asked of a walk
+     * (`#809`).
+     *
+     * **Columns here rather than a table of their own.** A walk *is* the attempt
+     * record — `atlas-figures.ts` explains why there is no separate attempts
+     * table on this side — so the report belongs on the row that already says
+     * who walked where and how it ended.
+     *
+     * All four are nullable and all four are optional at the boundary, which is
+     * how `task_reports` has them and is what keeps `#601` true: an agent that
+     * has just finished a signup is asked four questions, not handed a form. The
+     * wording is `REPORT_FIELDS` in core, once, for both halves of the Colony.
+     *
+     * **`note` is not one of them and is not migrated into one.** It answered
+     * *did this match what you were told?*, and moving those sentences under a
+     * question they were not asked would make the Colony's own record of what a
+     * citizen said untrue.
+     */
+    did: text('did'),
+    broke: text('broke'),
+    changed: text('changed'),
+    discarded: text('discarded'),
+
     /** The one tick-list answer, as 1-based positions in the published recipe. */
     takenStepPositions: integer('taken_step_positions').array(),
 
@@ -154,6 +178,35 @@ export const accountWalks = pgTable(
       'account_walks_note_is_short',
       sql`${table.note} is null
           or length(${table.note}) <= ${sql.raw(String(WALK_NOTE_MAX_LENGTH))}`,
+    ),
+
+    /**
+     * The same bound as the note, on each of the four (`#809`). Four checks and
+     * not one over a concatenation, so a refusal names the field that overflowed
+     * — which is what `fieldAndReason` exists for one layer up.
+     */
+    check(
+      'account_walks_did_is_short',
+      sql`${table.did} is null
+          or length(${table.did}) <= ${sql.raw(String(WALK_NOTE_MAX_LENGTH))}`,
+    ),
+
+    check(
+      'account_walks_broke_is_short',
+      sql`${table.broke} is null
+          or length(${table.broke}) <= ${sql.raw(String(WALK_NOTE_MAX_LENGTH))}`,
+    ),
+
+    check(
+      'account_walks_changed_is_short',
+      sql`${table.changed} is null
+          or length(${table.changed}) <= ${sql.raw(String(WALK_NOTE_MAX_LENGTH))}`,
+    ),
+
+    check(
+      'account_walks_discarded_is_short',
+      sql`${table.discarded} is null
+          or length(${table.discarded}) <= ${sql.raw(String(WALK_NOTE_MAX_LENGTH))}`,
     ),
 
     check(

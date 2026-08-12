@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { AgentIdSchema } from '@kolonie-ai/core'
+import { AgentIdSchema, WALK_REPORT_FIELDS, WALK_REPORT_FIELD_ORDER } from '@kolonie-ai/core'
 import { WalkReportSchema } from '../../account-walks.js'
 import { connectedClient, registeredCitizen } from '../../__fixtures__/mcp.js'
 import { fakeAccountRegister, fakeAccounts } from '../../__fixtures__/accounts.js'
@@ -584,6 +584,121 @@ describe('kolonie.accounts.recipes bootstrap patterns', () => {
     const result = await client.callTool({ name: 'kolonie.accounts.recipes', arguments: {} })
 
     expect(JSON.stringify(result.content)).not.toContain('oauth-via-github')
+    await close()
+  })
+})
+
+/**
+ * The four questions, at the tool (`#809`).
+ *
+ * What is asserted here is the boundary: that the questions arrive, that none of
+ * them is required, and that each is held to the rule the note was held to. What
+ * a walk *is* once it holds them is `packages/db`'s test, and what a reader gets
+ * back out of one is `packages/core`'s.
+ */
+describe('kolonie.accounts.walk-report, four questions', () => {
+  const walking = async () => {
+    const { colony, apiKey, agent } = await registeredCitizen()
+    const walks = fakeWalks()
+    walks.add({ agentId: agent.id, kind: 'github', provider: 'clawhub.ai', finished: false })
+    const { client, close } = await connectedClient({ ...colony, walks }, `Bearer ${apiKey}`)
+    return { client, close, walks, agent }
+  }
+
+  it('takes all four, and stores each under its own question', async () => {
+    const { client, close, walks, agent } = await walking()
+
+    const result = await client.callTool({
+      name: 'kolonie.accounts.walk-report',
+      arguments: {
+        kind: 'github',
+        provider: 'clawhub.ai',
+        outcome: 'proved',
+        did: 'I opened the signup page and worked down it.',
+        broke: 'Nothing did in the end, but the mailbox step took two tries.',
+        changed: 'I asked the operator for the code instead of waiting for the mail to arrive.',
+        discarded: 'I tried two other providers first and neither would take an agent.',
+      },
+    })
+
+    expect(result.isError).not.toBe(true)
+
+    const [walk] = await walks.list(agent.id)
+    expect(walk?.did).toContain('signup page')
+    expect(walk?.broke).toContain('two tries')
+    expect(walk?.changed).toContain('operator')
+    expect(walk?.discarded).toContain('two other providers')
+    await close()
+  })
+
+  /**
+   * `#601`'s constraint, as a test rather than as a sentence: *an agent that has
+   * just finished a signup should not be handed a form.* Four questions asked
+   * and none required is what keeps that true, and a walk that answers nothing
+   * is still a complete report.
+   */
+  it('requires none of them', async () => {
+    const { client, close } = await walking()
+
+    const result = await client.callTool({
+      name: 'kolonie.accounts.walk-report',
+      arguments: { kind: 'github', provider: 'clawhub.ai', outcome: 'proved' },
+    })
+
+    expect(result.isError).not.toBe(true)
+    await close()
+  })
+
+  it('still takes the note it asked for before, so an older skill reports', async () => {
+    const { client, close } = await walking()
+
+    const result = await client.callTool({
+      name: 'kolonie.accounts.walk-report',
+      arguments: {
+        kind: 'github',
+        provider: 'clawhub.ai',
+        outcome: 'proved',
+        note: 'It matched what the entry said.',
+      },
+    })
+
+    expect(result.isError).not.toBe(true)
+    await close()
+  })
+
+  it.each(['did', 'broke', 'changed', 'discarded'])(
+    'refuses a credential in %s, and names the field',
+    async (field) => {
+      const { client, close } = await walking()
+
+      const result = await client.callTool({
+        name: 'kolonie.accounts.walk-report',
+        arguments: {
+          kind: 'github',
+          provider: 'clawhub.ai',
+          outcome: 'proved',
+          [field]: 'ghp_0123456789abcdefghijklmnopqrstuvwxyzAB',
+        },
+      })
+
+      expect(result.isError).toBe(true)
+      expect(JSON.stringify(result.content)).toContain(field)
+      expect(JSON.stringify(result.content)).toContain('credential')
+      await close()
+    },
+  )
+
+  it('asks the same four questions the Academy asks, in the tool it publishes', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const { tools } = await client.listTools()
+    const report = tools.find((tool) => tool.name === 'kolonie.accounts.walk-report')
+    const asked = report?.inputSchema.properties as Record<string, { description?: string }>
+
+    for (const field of WALK_REPORT_FIELD_ORDER) {
+      expect(asked[field]?.description).toBe(WALK_REPORT_FIELDS[field])
+    }
     await close()
   })
 })

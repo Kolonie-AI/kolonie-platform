@@ -35,6 +35,10 @@ export function fakeWalks(): FakeWalkStore {
       outcome: finishedAt === null ? null : (input.outcome ?? 'proved'),
       wall: null,
       note: null,
+      did: null,
+      broke: null,
+      changed: null,
+      discarded: null,
       takenStepPositions: null,
       recipe: null,
       steps: [],
@@ -69,6 +73,10 @@ export function fakeWalks(): FakeWalkStore {
         outcome: input.outcome,
         wall: input.wall ?? null,
         note: input.note ?? null,
+        did: input.did ?? null,
+        broke: input.broke ?? null,
+        changed: input.changed ?? null,
+        discarded: input.discarded ?? null,
         takenStepPositions: input.takenStepPositions == null ? null : [...input.takenStepPositions],
       }
       rows[at] = walk

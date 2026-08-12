@@ -1541,6 +1541,13 @@
       "when": 1786557325723,
       "tag": "0219_a_read_of_a_quest_report_is_recorded",
       "breakpoints": true
+    },
+    {
+      "idx": 220,
+      "version": "7",
+      "when": 1786560463908,
+      "tag": "0220_complete_living_tribunal",
+      "breakpoints": true
     }
   ]
 }

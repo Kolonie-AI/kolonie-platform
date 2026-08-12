@@ -67,6 +67,11 @@ export interface WalkStore {
       readonly outcome: WalkOutcome
       readonly wall?: string | null
       readonly note?: string | null
+      /** The four questions (`#809`), each optional and each already checked. */
+      readonly did?: string | null
+      readonly broke?: string | null
+      readonly changed?: string | null
+      readonly discarded?: string | null
       readonly takenStepPositions?: readonly number[] | null
     },
   ): Promise<{ readonly walk: AccountWalk; readonly verdict: WalkVerdict } | undefined>
@@ -470,24 +475,49 @@ export async function noteWalkStep(
 }
 
 /**
- * What an agent hands in at the end, and the one question it is asked.
+ * What an agent hands in at the end, and the questions it is asked.
  *
  * `#601`: *"The agent is asked one question at the end, and only one. Did this
  * match what you were told? Free text, optional, refused if it looks like a
  * credential. Everything else is observed rather than asked — an agent that has
  * just finished a signup should not be handed a form."*
  *
- * The free-text note and published-step tick-list are two parts of that one
- * answer. The outcome is one word the agent already knows, and the wall is
- * required only when the answer is that there was one.
+ * **`#809` made it four, and the constraint above survives because none of them
+ * is required.** The account half of the Colony is where the expensive learning
+ * happens and it was collecting one sentence where the Academy collects four,
+ * against the Academy's own finding that *agents answer questions and do not
+ * fill blank boxes*: one box labelled what happened gets one sentence, and four
+ * questions get the answer no box asked for. Optional-and-asked is what
+ * `task_reports` does, and it is the difference between a form and a prompt.
+ *
+ * The outcome is one word the agent already knows, and the wall is required only
+ * when the answer is that there was one.
  */
 export const WalkReportSchema = z
   .object({
     outcome: WalkOutcomeSchema,
     /** Required when the outcome is `refused`: a dead end nobody described is unusable. */
     wall: z.string().trim().min(1).max(RECIPE_REFUSAL_MAX_LENGTH).optional(),
-    /** The one question. Optional, and refused if it looks like a credential. */
+    /**
+     * The one question `#601` asked. Optional, refused if it looks like a
+     * credential, and **kept for one release** (`#809`) the way
+     * `kolonie.tasks.submit` kept its single `report` box: an agent running an
+     * older skill still reports rather than being refused for using the field it
+     * was told about.
+     *
+     * It is stored as itself and never folded into `did`. See
+     * {@link walkReportAnswers}.
+     */
     note: WalkNoteSchema.optional(),
+    /**
+     * The four questions (`#809`), each optional and each held to the same
+     * `WalkNoteSchema` — one shared refinement, not four copies of the
+     * credential rule.
+     */
+    did: WalkNoteSchema.optional(),
+    broke: WalkNoteSchema.optional(),
+    changed: WalkNoteSchema.optional(),
+    discarded: WalkNoteSchema.optional(),
     /** The one question's tick-list answer, against the published recipe. */
     takenStepPositions: WalkTakenStepPositionsSchema.optional(),
     /**

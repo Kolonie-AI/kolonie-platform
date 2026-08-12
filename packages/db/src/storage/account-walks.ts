@@ -45,6 +45,10 @@ function toWalk(walk: WalkRow, steps: readonly StepRow[]): AccountWalk {
     outcome: walk.outcome === null ? null : WalkOutcomeSchema.parse(walk.outcome),
     wall: walk.wall,
     note: walk.note,
+    did: walk.did,
+    broke: walk.broke,
+    changed: walk.changed,
+    discarded: walk.discarded,
     takenStepPositions: walk.takenStepPositions,
     /** Parsed on the way out, like every other `jsonb` here: the column is not a shape. */
     recipe: walk.recipe === null ? null : WalkedRecipeSchema.parse(walk.recipe),
@@ -262,6 +266,15 @@ export async function finishWalk(
     readonly wall?: string | null
     /** The answer to the one question, already checked against `WalkNoteSchema`. */
     readonly note?: string | null
+    /**
+     * The four questions (`#809`), each already checked against
+     * `WalkNoteSchema` — the same bound and the same credential refusal the note
+     * is held to, applied per field rather than copied.
+     */
+    readonly did?: string | null
+    readonly broke?: string | null
+    readonly changed?: string | null
+    readonly discarded?: string | null
     /** Published recipe positions checked by the agent, in order. */
     readonly takenStepPositions?: readonly number[] | null
     /** The walker's own long-form account of the path (`#769`), where it gave one. */
@@ -276,6 +289,10 @@ export async function finishWalk(
         outcome: input.outcome,
         wall: input.outcome === 'refused' ? (input.wall ?? null) : null,
         note: input.note ?? null,
+        did: input.did ?? null,
+        broke: input.broke ?? null,
+        changed: input.changed ?? null,
+        discarded: input.discarded ?? null,
         takenStepPositions: input.takenStepPositions == null ? null : [...input.takenStepPositions],
         recipe: input.recipe ?? null,
       })

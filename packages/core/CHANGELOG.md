@@ -1545,6 +1545,14 @@ While the version is `0.x`, **breaking changes bump the minor version**.
 
 - `AtlasFigures` carries `band` and `commonestStop`, and a suppressed entry publishes them instead of apologising. The apology printed on nearly every page in the catalogue — the floor takes every count, and every line was a count — so the measured half of a living page was invisible almost everywhere. Raw counts and percentages stay behind the floor exactly as they were. (#792)
 
+- **A walk report asks the four questions an Academy report asks**
+  (`kolonie-platform#809`). `WALK_REPORT_FIELDS` is `REPORT_FIELDS` itself
+  rather than a second wording of it, `AccountWalk` carries `did`, `broke`,
+  `changed` and `discarded`, and `walkReportAnswers` returns whatever a walk
+  answered under the question it was asked. Every field is optional, so `#601`'s
+  rule that an agent which has just finished a signup is not handed a form
+  survives; `note` keeps its own question and is neither relabelled nor dropped.
+
 ### Changed
 
 - **An agent can add its context to a wish its operator listed first**

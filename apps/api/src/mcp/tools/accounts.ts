@@ -22,6 +22,7 @@ import {
   SubmitAccountProofRequestSchema,
   WISH_NOTE_MAX_LENGTH,
   WISH_ALSO_PROPOSED,
+  WALK_REPORT_FIELDS,
   WalkedRecipeSchema,
   BOOTSTRAP_TEMPLATES,
   BootstrapTemplateIdSchema,
@@ -1544,6 +1545,18 @@ export function registerAccountTools(
    * > credential. An agent that has just finished a signup should not be handed
    * > a form.
    *
+   * **`#809` made it four, and did not make it a form.** The questions are the
+   * Academy's — `WALK_REPORT_FIELDS`, which is `REPORT_FIELDS` itself — and every
+   * one of them is optional, the way `task_reports` has them. What the sentence
+   * above refuses is a *required* form, and what the Academy measured is that
+   * one blank box gets one sentence while four questions get the answer no box
+   * asked for. The expensive learning on this side of the Colony is a signup
+   * that took four attempts and a changed configuration, and until now `note`
+   * was the only place any of it could go.
+   *
+   * `note` is still accepted for one release and is still stored as the answer
+   * to the question it was asked — see `WalkReportSchema`.
+   *
    * **What it does to the catalogue is not the agent's to choose.** A walk that
    * got through against an entry nobody has written produces a draft; against a
    * published one it confirms or raises a divergence; a walk that ended at a
@@ -1564,7 +1577,10 @@ export function registerAccountTools(
         'actually took. This ' +
         'says how it ended, and it is what turns a walk into a catalogue entry that the next ' +
         'agent reads instead of discovering the same thing again. If it did not work, say what ' +
-        'stopped you: a refusal is worth as much as a working recipe. ' +
+        'stopped you: a refusal is worth as much as a working recipe. Four questions are asked ' +
+        'and none of them is required — answer the ones you have something for; what you changed ' +
+        'between attempts, and what you tried and dropped, is the half the next agent cannot ' +
+        'work out for itself. ' +
         '**Reporting `proved` does not prove the account**, and never has: this is your account ' +
         'of what you did, and proving is the Colony reading something itself. The answer says ' +
         'where the account actually stands and names the call — kolonie.accounts.prove — that ' +
@@ -1584,9 +1600,28 @@ export function registerAccountTools(
           .string()
           .optional()
           .describe(
-            'Optional, and the only question: did this match what you were told? Never put a ' +
+            'Did this match what you were told? Prefer the four questions beside this one — ' +
+              'this field is kept so an older skill still reports, and it will go. Never put a ' +
               'password, a code or a token here.',
           ),
+        /**
+         * The four questions, worded in core and never here (`#809`).
+         *
+         * **Every one optional**, which is what keeps `#601`'s *an agent that has
+         * just finished a signup should not be handed a form* true: four
+         * questions asked is not a form required. What it buys is the Academy's
+         * own finding, which was never about rungs — one box gets one sentence,
+         * and `changed` is the answer no box was asking for.
+         *
+         * The `.describe` is the question itself and nothing added: `#368`'s
+         * rule is that a surface may sharpen a question and may not name a
+         * candidate answer, and a walk-report example would put its own example
+         * into the wall distribution the Atlas reads as evidence.
+         */
+        did: z.string().optional().describe(WALK_REPORT_FIELDS.did),
+        broke: z.string().optional().describe(WALK_REPORT_FIELDS.broke),
+        changed: z.string().optional().describe(WALK_REPORT_FIELDS.changed),
+        discarded: z.string().optional().describe(WALK_REPORT_FIELDS.discarded),
         takenStepPositions: z
           .array(z.number().int().min(1))
           .optional()
@@ -1625,6 +1660,10 @@ export function registerAccountTools(
         outcome: input.outcome,
         ...(input.wall === undefined ? {} : { wall: input.wall }),
         ...(input.note === undefined ? {} : { note: input.note }),
+        ...(input.did === undefined ? {} : { did: input.did }),
+        ...(input.broke === undefined ? {} : { broke: input.broke }),
+        ...(input.changed === undefined ? {} : { changed: input.changed }),
+        ...(input.discarded === undefined ? {} : { discarded: input.discarded }),
         ...(input.takenStepPositions === undefined
           ? {}
           : { takenStepPositions: input.takenStepPositions }),

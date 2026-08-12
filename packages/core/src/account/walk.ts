@@ -12,6 +12,7 @@ import {
   type RecipeStep,
 } from './recipe.js'
 import { looksLikeCredential } from '../operator/request.js'
+import { REPORT_FIELDS, REPORT_FIELD_ORDER, type ReportField } from '../guidance/guidance.js'
 import { WalkedRecipeSchema } from './walked-recipe.js'
 
 /**
@@ -172,6 +173,18 @@ export const AccountWalkSchema = z.object({
    * has just finished a signup should not be handed a form."*
    */
   note: z.string().max(WALK_NOTE_MAX_LENGTH).nullable(),
+  /**
+   * The four questions, each null where it was not answered (`#809`).
+   *
+   * They are `REPORT_FIELDS` and not a second wording of it — see
+   * {@link WALK_REPORT_FIELDS}. Every one is optional, so an agent with one
+   * sentence writes one sentence into the field it belongs in and `#601`'s
+   * *not handed a form* survives.
+   */
+  did: z.string().max(WALK_NOTE_MAX_LENGTH).nullable(),
+  broke: z.string().max(WALK_NOTE_MAX_LENGTH).nullable(),
+  changed: z.string().max(WALK_NOTE_MAX_LENGTH).nullable(),
+  discarded: z.string().max(WALK_NOTE_MAX_LENGTH).nullable(),
   /** Null when no published recipe tick-list was available or answered. */
   takenStepPositions: WalkTakenStepPositionsSchema.nullable(),
   /**
@@ -213,6 +226,74 @@ export const WalkNoteSchema = z
  * wordings is two questions, and the answers stop being comparable.
  */
 export const WALK_QUESTION = 'Did this match what you were told?'
+
+/**
+ * The four questions a walk report is asked (`#809`).
+ *
+ * **`REPORT_FIELDS` itself, and not a copy of it.** The Academy asks four
+ * questions about an attempt at a task; a walk is an attempt at a signup, and
+ * the questions are the same questions — *a question asked in two wordings is
+ * two questions, and the answers stop being comparable* is already the rule
+ * {@link WALK_QUESTION} was written under. Re-exporting is what makes it true
+ * across the two halves of the Colony rather than within each one.
+ *
+ * Everything `guidance.ts` says about them holds here and is not restated:
+ * several fields rather than one bigger one, `changed` is the prize, and **a
+ * question, never an example** — a walk-report question that named a candidate
+ * wall would put that wall into the distribution the Atlas then reads as
+ * evidence about the world.
+ *
+ * **What this does not change is `#601`.** The questions are *optional and
+ * asked*, never *required and blank*, exactly as `task_reports` has them: an
+ * agent that has just finished a signup is still not handed a form, it is asked
+ * four questions it may answer none of. {@link WALK_QUESTION} stays what the
+ * `note` field was asked and is not one of these — the answers under it were
+ * given to a different question, and folding them in would be a reinterpretation
+ * of what a citizen said.
+ */
+export const WALK_REPORT_FIELDS = REPORT_FIELDS
+export const WALK_REPORT_FIELD_ORDER = REPORT_FIELD_ORDER
+export type WalkReportField = ReportField
+
+/**
+ * What a walk answered, in the order it was asked, with nothing empty in it.
+ *
+ * One reader for every surface that shows a report — the moderator (`#810`), a
+ * steward's queue, the console — so that *which questions exist* is answered in
+ * one place and a fifth question reaches all of them.
+ *
+ * **A `note` is not silently relabelled and is not silently dropped.** It
+ * answered {@link WALK_QUESTION} and is returned under it, last, because that is
+ * the question it was asked — including on a walk that also answered the four,
+ * which is what an agent mid-way through the deprecation window sends. Nothing
+ * here carries a question it was not asked, and nothing a citizen wrote goes
+ * unread because the field it used is on its way out.
+ */
+export function walkReportAnswers(
+  walk: Partial<Pick<AccountWalk, 'note' | WalkReportField>>,
+): ReadonlyArray<{
+  readonly field: WalkReportField | 'note'
+  readonly question: string
+  readonly answer: string
+}> {
+  /**
+   * **Absent and null are both *not answered*.** A column that did not exist
+   * when a row was written reads as `undefined` through anything that shaped the
+   * walk before `#809`, and a reader that threw on one would take a steward's
+   * queue down over a walk from last week.
+   */
+  const said = (answer: string | null | undefined): answer is string =>
+    answer !== null && answer !== undefined && answer.trim() !== ''
+
+  return [
+    ...REPORT_FIELD_ORDER.flatMap((field) =>
+      said(walk[field]) ? [{ field, question: REPORT_FIELDS[field], answer: walk[field] }] : [],
+    ),
+    ...(said(walk.note)
+      ? [{ field: 'note' as const, question: WALK_QUESTION, answer: walk.note }]
+      : []),
+  ]
+}
 
 /**
  * The steps a finished walk proposes, from what it observed (`#601`).

@@ -2,6 +2,7 @@ import {
   ATLAS_ADMISSION_QUESTIONS,
   AtlasCategorySchema,
   isStale,
+  walkReportAnswers,
   type AccountWalk,
   type AtlasEntry,
   type EntryProposal,
@@ -335,13 +336,30 @@ function divergencesSection(
           .map((step, at) => `${at + 1}. ${step.actor}${step.secret === true ? ' (sealed)' : ''}`)
           .join(' · ')
 
+  /**
+   * Every question the walk answered, under the question it was asked (`#809`).
+   *
+   * A steward reading *what the citizen said* now has up to four sentences where
+   * it had one, and the question is printed beside each: an answer without its
+   * question is the shape this column had when there was only ever one, and it
+   * stops being readable the moment there are four.
+   */
+  const said = (walk: AccountWalk): string => {
+    const answers = walkReportAnswers(walk)
+    return answers.length === 0
+      ? '—'
+      : answers
+          .map(({ question, answer }) => `<small>${escape(question)}</small><br>${escape(answer)}`)
+          .join('<br><br>')
+  }
+
   const rows = divergences
     .map(
       ({ walk, entry, verdict }) =>
         `<tr><td>${escape(walk.provider)}</td><td>${escape(walk.kind)}</td>` +
         `<td><small>published: ${escape(shape(verdict.published))}<br>` +
         `walked: ${escape(shape(verdict.walked))}</small></td>` +
-        `<td>${escape(walk.note ?? '—')}</td>` +
+        `<td>${said(walk)}</td>` +
         `<td>${escape(relative(walk.finishedAt ?? entry.updatedAt))}</td></tr>`,
     )
     .join('')

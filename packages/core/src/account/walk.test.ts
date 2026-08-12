@@ -1,11 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import {
   WALK_NOTE_MAX_LENGTH,
+  WALK_QUESTION,
+  WALK_REPORT_FIELDS,
+  WALK_REPORT_FIELD_ORDER,
   WalkNoteSchema,
   WalkOutcomeSchema,
   WalkTakenStepPositionsSchema,
   reachedByWalk,
   walkMatchesRecipe,
+  walkReportAnswers,
   walkToSteps,
   walkVerdict,
   type AccountWalk,
@@ -13,6 +17,7 @@ import {
 } from './walk.js'
 import { RecipeStepSchema, WriteProviderRecipeSchema, type RecipeStep } from './recipe.js'
 import { AccountCapabilitySchema } from './account.js'
+import { REPORT_FIELDS } from '../guidance/guidance.js'
 
 /** The capability the reach sequences in these tests arrive at. */
 const API = AccountCapabilitySchema.parse('api')
@@ -48,6 +53,10 @@ const walk = (steps: readonly WalkStep[], over: Partial<AccountWalk> = {}): Acco
   outcome: 'proved',
   wall: null,
   note: null,
+  did: null,
+  broke: null,
+  changed: null,
+  discarded: null,
   takenStepPositions: null,
   recipe: null,
   steps: [...steps],
@@ -410,5 +419,65 @@ describe('the one question an agent is asked', () => {
     expect(WalkTakenStepPositionsSchema.safeParse([1, 2, 4]).success).toBe(true)
     expect(WalkTakenStepPositionsSchema.safeParse([1, 1]).success).toBe(false)
     expect(WalkTakenStepPositionsSchema.safeParse([2, 1]).success).toBe(false)
+  })
+})
+
+/**
+ * The four questions, and what a reader gets from a walk that answered some of
+ * them (`#809`).
+ */
+describe('the questions a walk report is asked', () => {
+  it('asks the Academy’s four questions, and the same wording', () => {
+    expect(WALK_REPORT_FIELDS).toBe(REPORT_FIELDS)
+    expect(WALK_REPORT_FIELD_ORDER).toEqual(['did', 'broke', 'changed', 'discarded'])
+  })
+
+  /**
+   * **The check that keeps them one question each.** A copy of the wording here
+   * would drift from `guidance.ts` within a release, and the two halves of the
+   * Colony would then be collecting answers to questions that only look alike.
+   */
+  it('is the guidance module’s own object and not a copy of its contents', () => {
+    expect(Object.values(WALK_REPORT_FIELDS).every((question) => question.endsWith('?'))).toBe(true)
+    expect(WALK_REPORT_FIELDS.changed).toBe(REPORT_FIELDS.changed)
+  })
+
+  const answered = (over: Partial<AccountWalk>): AccountWalk => walk([], over)
+
+  it('returns each answer under the question it was asked, in order', () => {
+    expect(
+      walkReportAnswers(
+        answered({ did: 'I filled in the form.', changed: 'I used a different mailbox.' }),
+      ),
+    ).toEqual([
+      { field: 'did', question: REPORT_FIELDS.did, answer: 'I filled in the form.' },
+      { field: 'changed', question: REPORT_FIELDS.changed, answer: 'I used a different mailbox.' },
+    ])
+  })
+
+  it('says nothing for a walk that answered nothing', () => {
+    expect(walkReportAnswers(answered({}))).toEqual([])
+  })
+
+  /**
+   * A `note` is what the field before these was asked, so it keeps its own
+   * question. Relabelling it `did` would make the Colony's record of what a
+   * citizen said untrue, and dropping it would lose the answer of every agent
+   * still on the older skill.
+   */
+  it('keeps a note under the question the note was asked', () => {
+    expect(walkReportAnswers(answered({ note: 'It matched.' }))).toEqual([
+      { field: 'note', question: WALK_QUESTION, answer: 'It matched.' },
+    ])
+  })
+
+  it('carries a note last when the four were answered as well', () => {
+    const answers = walkReportAnswers(answered({ did: 'I filled it in.', note: 'It matched.' }))
+
+    expect(answers.map((one) => one.field)).toEqual(['did', 'note'])
+  })
+
+  it('treats an answer of nothing but spaces as unanswered', () => {
+    expect(walkReportAnswers(answered({ did: '   ', note: '' }))).toEqual([])
   })
 })

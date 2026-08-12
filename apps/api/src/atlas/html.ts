@@ -56,10 +56,24 @@ import type { SiteChrome } from './site-chrome.js'
  * `referrer-policy` stays `no-referrer` — a public page has nothing to leak, and
  * neither does it need to leak — and `frame-ancestors 'none'` stays, because a
  * catalogue framed inside somebody else's page is a catalogue being passed off.
+ *
+ * **`style-src` has to permit two different things, and it did only one of them**
+ * (`#786`). `'unsafe-inline'` is for the `<style>` block `atlasPage()` writes.
+ * `'self'` is for the site chrome: `parseSiteChrome` lifts the website's
+ * `<link rel="stylesheet">` elements into the head, and until 2026-08-12 the
+ * policy refused every one of them — so the markup arrived and the rules never
+ * did, and the header's inline mark rendered at 1248px because the rule
+ * constraining it was in a blocked file. Same origin, same build, same deploy:
+ * these pages are host routes on the website's own domain, so the fragment's
+ * stylesheets are `'self'` by construction.
+ *
+ * **No `script-src`, and that is not an oversight.** D-062 stands: an Atlas page
+ * runs nothing. A script the fragment contributes is dropped by the browser, and
+ * that is the intended outcome — `kolonie-website#107` is the footer's.
  */
 export const ATLAS_HEADERS: Readonly<Record<string, string>> = {
   'content-security-policy':
-    "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; form-action 'none'; base-uri 'none'; frame-ancestors 'none'",
+    "default-src 'none'; img-src 'self'; style-src 'self' 'unsafe-inline'; form-action 'none'; base-uri 'none'; frame-ancestors 'none'",
   'x-content-type-options': 'nosniff',
   'x-frame-options': 'DENY',
   'referrer-policy': 'no-referrer',

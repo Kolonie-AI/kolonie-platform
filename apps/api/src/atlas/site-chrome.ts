@@ -128,6 +128,14 @@ export function parseSiteChrome(document: string): SiteChrome | undefined {
    * knows nothing about — and the Content-Security-Policy on these responses
    * allows no script anyway, so one arriving would be silently dropped by the
    * browser rather than by us.
+   *
+   * **What it takes has to be permitted, and for four days it was not** (`#786`).
+   * The same policy that drops a script was also dropping every stylesheet this
+   * function deliberately lifts, because `style-src` carried `'unsafe-inline'`
+   * and no `'self'`. Both halves of the contract in this file were green
+   * throughout: one asserts the `<link>` string is in the body, the other that
+   * the fragment's classes have rules — and neither asks whether the browser is
+   * allowed to fetch the file. `atlas-pages.test.ts` now asks.
    */
   const head = [
     ...document.matchAll(/<link\b[^>]*rel="stylesheet"[^>]*>/g),

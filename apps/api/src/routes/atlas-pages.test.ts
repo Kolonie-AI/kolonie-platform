@@ -9,6 +9,40 @@ const SITE = 'https://site.test'
 const SITE_HOST = 'site.test'
 
 /**
+ * The `style-src` sources of a policy, or `default-src`'s where it has none
+ * (`#786`).
+ *
+ * The fallback is the part worth having: a policy that dropped `style-src`
+ * entirely would inherit `default-src 'none'` and refuse every stylesheet, and a
+ * check that only looked for a `style-src` directive would find nothing to
+ * object to.
+ */
+function styleSrcOf(csp: string): readonly string[] {
+  const directives = csp.split(';').map((directive) => directive.trim().split(/\s+/))
+  const named = (name: string) => directives.find((parts) => parts[0] === name)?.slice(1)
+
+  return named('style-src') ?? named('default-src') ?? []
+}
+
+/**
+ * Whether a policy's source list permits fetching one URL from one page.
+ *
+ * **Only the forms these responses actually emit** — the keywords and a bare
+ * origin. This is not a CSP implementation and must not grow into one: its job
+ * is to answer the single question the browser answered differently from us,
+ * which is whether `'self'` is in the list when the file is same-origin.
+ */
+function permits(sources: readonly string[], url: URL, pageOrigin: string): boolean {
+  return sources.some((source) => {
+    if (source === '*') return true
+    if (source === "'self'") return url.origin === new URL(pageOrigin).origin
+    if (source.startsWith("'")) return false
+
+    return url.origin === source || url.href.startsWith(source)
+  })
+}
+
+/**
  * The Atlas, served by the API on the website's host (`#546`).
  *
  * **The tests are grouped by the four things the issue is actually about**: that
@@ -230,6 +264,62 @@ describe('the Atlas on the website host', () => {
 
     it('loads the site’s stylesheet so the chrome is not unstyled links', async () => {
       expect((await get('/atlas')).body).toContain('rel="stylesheet" href="/_astro/theme.css"')
+    })
+
+    /**
+     * **The assertion that was missing, and its absence is the whole of `#786`.**
+     *
+     * Two tests already guard this fragment and both were green while every one
+     * of its stylesheets was being refused by the browser: one asserts the
+     * `<link>` string reaches the body, the other — in `kolonie-website` — that
+     * the classes it uses have rules. Neither asks the third question, which is
+     * whether the response *permits* the file it is asking for. `style-src`
+     * carried `'unsafe-inline'` and no `'self'`, so the markup arrived, the
+     * rules never did, and the header's mark rendered at 1248 px.
+     *
+     * So this reads the policy off the same response as the markup, and asks it
+     * about every href that response actually contains. A one-word regression in
+     * `ATLAS_HEADERS` fails it.
+     */
+    it('permits every stylesheet the chrome contributes, on the same response', async () => {
+      for (const url of ['/atlas', '/atlas/github']) {
+        const response = await get(url)
+        const csp = response.headers['content-security-policy']
+        expect(typeof csp, `${url} sends no content-security-policy`).toBe('string')
+
+        const hrefs = [...response.body.matchAll(/<link\b[^>]*rel="stylesheet"[^>]*>/g)]
+          .map((link) => /href="([^"]*)"/.exec(link[0])?.[1])
+          .filter((href): href is string => href !== undefined)
+
+        expect(hrefs.length, `${url} contributes no stylesheet to check`).toBeGreaterThan(0)
+
+        for (const href of hrefs) {
+          expect(
+            permits(styleSrcOf(String(csp)), new URL(href, SITE), SITE),
+            `${url} asks for ${href} and its own policy refuses it`,
+          ).toBe(true)
+        }
+      }
+    })
+
+    /**
+     * The other half of the same directive, kept as its own assertion because it
+     * is granted for a different reason: `atlasPage()` writes a `<style>` block.
+     * Widening `style-src` for the fragment must not narrow it for that.
+     */
+    it('permits the style block it writes itself', async () => {
+      const csp = String((await get('/atlas')).headers['content-security-policy'])
+
+      expect((await get('/atlas')).body).toContain('<style>')
+      expect(styleSrcOf(csp)).toContain("'unsafe-inline'")
+    })
+
+    /** D-062: no script runs on an Atlas page, and nothing here relaxes that. */
+    it('grants no script source at all', async () => {
+      const csp = String((await get('/atlas')).headers['content-security-policy'])
+
+      expect(csp).not.toContain('script-src')
+      expect(csp).toContain("default-src 'none'")
     })
 
     /**

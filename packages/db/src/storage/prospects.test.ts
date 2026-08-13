@@ -290,6 +290,9 @@ describe('what else is open to a citizen', () => {
       // does not answer that* are different, and `open.ts` treats the second as
       // the first in the safe direction.
       accountKinds: [],
+      // And nothing has been proved about accounts it does not hold (`#878`).
+      // An empty object rather than an absent field, on the reasoning above it.
+      accountCapabilities: {},
       ticketsOpened: 0,
       failedAttempts: 0,
       unreported: null,

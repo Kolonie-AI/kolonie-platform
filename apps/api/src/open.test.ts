@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import {
   AccountKindSchema,
+  KNOWN_ACCOUNT_CAPABILITIES,
   KNOWN_ACCOUNT_KINDS,
   SkillSchema,
+  TaskTypeSchema,
   WAKEUP_OPEN_ORDER,
   type AgentId,
   type Task,
@@ -43,6 +45,14 @@ const sourceWith = (options: {
    * says would read as though it were changing something else.
    */
   readonly accountKinds?: readonly string[]
+  /**
+   * What the register says those accounts have been proved able to do (`#878`).
+   *
+   * Its own option for the reason `accountKinds` above it is one, and defaulted
+   * to *everything proved* for the same reason: a default of *nothing checked*
+   * would make every rung test assert the new capability sentence.
+   */
+  readonly accountCapabilities?: Readonly<Record<string, readonly string[]>>
   /** Recording that the Doctor's entry was shown (`#842`). */
   readonly tell?: OpenSource['tell']
 }): OpenSource => {
@@ -72,6 +82,17 @@ const sourceWith = (options: {
      * about the rung path. The tests that are about the register override it.
      */
     accountKinds: options.accountKinds ?? [...KNOWN_ACCOUNT_KINDS],
+    /**
+     * **Every capability on every kind, by default** (`#878`), on exactly the
+     * argument `accountKinds` above makes: the state in which `needsOfRung` says
+     * what it said before this existed. The tests that are about the register
+     * override it.
+     */
+    accountCapabilities:
+      options.accountCapabilities ??
+      Object.fromEntries(
+        KNOWN_ACCOUNT_KINDS.map((kind) => [kind, [...KNOWN_ACCOUNT_CAPABILITIES]]),
+      ),
     ticketsOpened: 0,
     failedAttempts: 0,
     unreported: null,
@@ -1029,5 +1050,148 @@ describe('what the Colony saw in a citizen’s own traffic', () => {
 
       expect(open.entries[0]?.feasibility).toBe('missing-account')
     })
+  })
+})
+
+/**
+ * *A rung that proves a capability could not say which capability it needs*
+ * (`#878`).
+ *
+ * Reporter 3, 2026-08-13, in the ticket behind `#850`: *"Auch 'Send mail from the
+ * address you proved' wird empfohlen, obwohl meine Reach-Mailbox nur empfangen
+ * kann und dieses Hindernis bereits gemeldet wurde."*
+ *
+ * The citizen is exactly right and the Colony had every fact it needed to agree
+ * with it: `email-inbox` proves `receive` and `email-send` proves `send`, both
+ * written by a passing verdict and never by a caller — so a receive-only mailbox
+ * is a **recorded fact** rather than a guess. `equippedBy` matched on kind and
+ * nothing else, so the rung was offered every waking.
+ */
+describe('a rung about a capability the register has never seen', () => {
+  const sendRung = () =>
+    aTask({
+      title: 'Send mail from the address you proved',
+      type: TaskTypeSchema.parse('email-send'),
+    })
+
+  it('says the mailbox has never been proved able to send', async () => {
+    const open = await openingsFor(
+      agentId,
+      [],
+      sourceWith({
+        listed: [sendRung()],
+        accountKinds: ['mailbox'],
+        accountCapabilities: { mailbox: ['receive'] },
+      }),
+    )
+
+    expect(open.entries[0]?.needs).toContain('has never been proved able to send')
+    expect(open.entries[0]?.needs).toContain('only receive')
+    expect(open.entries[0]?.feasibility).toBe('capability-unproved')
+  })
+
+  /**
+   * **The rejection case `#878` names, and the one that decides whether this is
+   * safe to ship.** An account with no recorded capabilities is one nobody has
+   * checked — every account proved before those verdicts wrote the column, and
+   * every account proved generically, carries an empty list. Reporting that as
+   * *lacking* would be `#175`'s refusal, which loses a citizen permanently.
+   */
+  it('does not read an unchecked register as a limitation', async () => {
+    const open = await openingsFor(
+      agentId,
+      [],
+      sourceWith({
+        listed: [sendRung()],
+        accountKinds: ['mailbox'],
+        accountCapabilities: { mailbox: [] },
+      }),
+    )
+
+    expect(open.entries[0]?.needs).toContain('nobody has checked rather than that it cannot')
+    expect(open.entries[0]?.needs).not.toContain('cannot send')
+  })
+
+  /** It explains and does not filter: the rung is still there, and still first. */
+  it('leaves the rung offered', async () => {
+    const open = await openingsFor(
+      agentId,
+      [],
+      sourceWith({
+        listed: [sendRung()],
+        accountKinds: ['mailbox'],
+        accountCapabilities: { mailbox: ['receive'] },
+      }),
+    )
+
+    expect(open.entries[0]?.what).toBe('Send mail from the address you proved')
+    expect(open.entries[0]?.call).toContain('kolonie.tasks.submit')
+  })
+
+  it('says nothing once the capability has been proved', async () => {
+    const open = await openingsFor(
+      agentId,
+      [],
+      sourceWith({
+        listed: [sendRung()],
+        accountKinds: ['mailbox'],
+        accountCapabilities: { mailbox: ['receive', 'send'] },
+      }),
+    )
+
+    expect(open.entries[0]?.needs).toBe('nothing new')
+    expect(open.entries[0]?.feasibility).toBe('ready')
+  })
+
+  /**
+   * A citizen holding no mailbox at all has a bigger problem, and it is already
+   * said. Two sentences about the same gap is one more than a citizen can act on.
+   */
+  it('says the account is missing rather than the capability, when both are', async () => {
+    const open = await openingsFor(
+      agentId,
+      [],
+      sourceWith({ listed: [sendRung()], accountKinds: [], accountCapabilities: {} }),
+    )
+
+    expect(open.entries[0]?.feasibility).toBe('missing-account')
+    expect(open.entries[0]?.needs).not.toContain('has never been proved able to')
+  })
+
+  /**
+   * **Two mailboxes, one of which can send, is a yes.** The question is about the
+   * citizen and not about one account — telling it its mailbox cannot send while
+   * another it holds demonstrably can would be `#850`'s failure one column along.
+   */
+  it('reads the capabilities across everything the citizen holds of that kind', async () => {
+    const open = await openingsFor(
+      agentId,
+      [],
+      sourceWith({
+        listed: [sendRung()],
+        accountKinds: ['mailbox'],
+        accountCapabilities: { mailbox: ['receive', 'send'] },
+      }),
+    )
+
+    expect(open.entries[0]?.feasibility).toBe('ready')
+  })
+
+  /** A rung that is about no account at all is untouched by any of this. */
+  it('leaves an ordinary rung alone', async () => {
+    const open = await openingsFor(
+      agentId,
+      [],
+      sourceWith({
+        listed: [
+          aTask({ title: 'Complete your profile', type: TaskTypeSchema.parse('profile-complete') }),
+        ],
+        accountKinds: ['mailbox'],
+        accountCapabilities: { mailbox: [] },
+      }),
+    )
+
+    expect(open.entries[0]?.needs).toBe('nothing new')
+    expect(open.entries[0]?.feasibility).toBe('ready')
   })
 })

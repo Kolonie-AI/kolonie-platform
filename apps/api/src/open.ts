@@ -7,7 +7,12 @@ import {
   type WakeupOpen,
   type WakeupOpenEntry,
 } from '@kolonie-ai/core'
-import type { DoctorTelling, Frontier, OpenProspects } from '@kolonie-ai/db'
+import {
+  CAPABILITY_FROM_BADGE,
+  type DoctorTelling,
+  type Frontier,
+  type OpenProspects,
+} from '@kolonie-ai/db'
 import type { QuestDesk } from './quests.js'
 import { SKILL_FOR_ACCOUNT_KIND, type TaskCatalogue } from './tasks.js'
 
@@ -102,8 +107,12 @@ export interface OpenSource {
  * **Stable**, so two equally feasible rungs keep the catalogue's order and the
  * digest does not shuffle between wakings for no reason a reader could name.
  */
-function startableFirst(rungs: readonly Task[], held: ReadonlySet<string>): readonly Task[] {
-  const ready = (task: Task) => feasibilityOf(needsOfRung(task, held)) === 'ready'
+function startableFirst(
+  rungs: readonly Task[],
+  held: ReadonlySet<string>,
+  capabilities: Readonly<Record<string, readonly string[]>>,
+): readonly Task[] {
+  const ready = (task: Task) => feasibilityOf(needsOfRung(task, held, capabilities)) === 'ready'
 
   return [...rungs.filter(ready), ...rungs.filter((task) => !ready(task))]
 }
@@ -181,6 +190,14 @@ export async function openingsFor(
    * over the exact gap this issue is about.
    */
   const held = new Set(prospects?.accountKinds ?? [])
+  /**
+   * What the register says those accounts have been proved able to do (`#878`).
+   *
+   * Empty when `prospects` is absent or failed, and that degrades the same safe
+   * way `held` does: an unknown register says nothing rather than accusing an
+   * account of being unable to do something.
+   */
+  const capabilities = prospects?.accountCapabilities ?? {}
 
   const rungs = listed.filter((task) => task.kind !== 'quest')
   const quests = listed.filter((task) => task.kind === 'quest')
@@ -190,9 +207,9 @@ export async function openingsFor(
    * is what `nothing` below depends on.
    */
   const fromTheBoard: OpenEntryDraft[] = [
-    ...startableFirst(rungs, held)
+    ...startableFirst(rungs, held, capabilities)
       .slice(0, PER_KIND)
-      .map((task) => rungEntry(task, held)),
+      .map((task) => rungEntry(task, held, capabilities)),
     ...quests.slice(0, PER_KIND).map((quest) => questEntry(quest, quests.length)),
     ...reportEntry(prospects),
     ...operatorEntry(prospects),
@@ -331,19 +348,38 @@ export async function openingsFor(
  * perfectly well"* is the refusal that loses citizens permanently, and this
  * surface must not learn it.
  */
-function needsOfRung(task: Task, held: ReadonlySet<string>): string {
+function needsOfRung(
+  task: Task,
+  held: ReadonlySet<string>,
+  capabilities: Readonly<Record<string, readonly string[]>> = {},
+): string {
   const missing = accountKindEarnedBy(task).filter((kind) => !held.has(kind))
   const declared = task.requiresAccounts.map(String).filter((kind) => !held.has(kind))
+  /**
+   * The kind a badge operates on, when the citizen holds none of it (`#878`).
+   *
+   * **`#850` covered the rungs that *grant* an account skill and could not cover
+   * this one.** A badge declares no required kind and grants no skill — it proves
+   * a further capability on an account the citizen is assumed to have — so a
+   * citizen holding no mailbox at all was told `nothing new` about
+   * `email-send`, which is the same silence this issue is about with the gap one
+   * step larger. Read off the map that decides what the badge proves, so it
+   * cannot name a kind the rung is not about.
+   */
+  const badgeKind = CAPABILITY_FROM_BADGE[String(task.type)]?.kind
+  const badgeMissing = badgeKind !== undefined && !held.has(badgeKind) ? [badgeKind] : []
 
+  const wanted = [...new Set([...declared, ...missing, ...badgeMissing])]
   const accounts =
-    [...new Set([...declared, ...missing])].length > 0
-      ? `an account of kind ${[...new Set([...declared, ...missing])].join(', ')} — ` +
+    wanted.length > 0
+      ? `an account of kind ${wanted.join(', ')} — ` +
         'the Colony has none of yours on record. Declare one with kolonie.accounts.declare ' +
         'if you hold it already'
       : null
+  const capability = unprovedCapabilityOf(task, capabilities)
   const later = task.spansSessions ? 'a later session — it cannot be finished in this one' : null
 
-  return [accounts, later].filter((part) => part !== null).join('; ') || 'nothing new'
+  return [accounts, capability, later].filter((part) => part !== null).join('; ') || 'nothing new'
 }
 
 /**
@@ -375,14 +411,84 @@ function accountKindEarnedBy(task: Task): readonly string[] {
  */
 export function feasibilityOf(needs: string): WakeupOpenEntry['feasibility'] {
   if (needs.includes('an account of kind')) return 'missing-account'
+  // `#878`. After the account and before the operator: a citizen that holds
+  // nothing of the kind has a bigger problem than an unproved capability, and a
+  // capability nobody has checked is the citizen's own to settle.
+  if (needs.includes(UNPROVED_CAPABILITY)) return 'capability-unproved'
   if (needs.includes('operator')) return 'needs-operator'
   if (needs.includes('a later session')) return 'later-session'
 
   return 'ready'
 }
 
+/**
+ * The phrase `feasibilityOf` reads `capability-unproved` off (`#878`).
+ *
+ * A named constant because it is written in one place and matched in another,
+ * and a marker phrase that drifts by one word turns a derived enum into `ready`
+ * without failing anything.
+ */
+const UNPROVED_CAPABILITY = 'has never been proved able to'
+
+/**
+ * What the register knows about whether this citizen's account can do the thing
+ * a rung is about (`#878`).
+ *
+ * ## Derived, and from the map that already decides it
+ *
+ * `CAPABILITY_FROM_BADGE` is what the *verdict path* reads to record a
+ * capability: clearing `email-send` writes `send` on the mailbox. So the
+ * capability a rung needs is the capability it proves, and asking the same map
+ * from the other side cannot drift from it. `#878` offered a column instead —
+ * honest, and a migration — and the reason to prefer this is not the migration:
+ * a second declaration would be a second answer to *what does this rung prove*,
+ * and the two would disagree the first time a rung's capability moved.
+ *
+ * **It answers only for the rungs that prove a further capability on an account
+ * the citizen already holds**, which is precisely what that map holds. A rung
+ * that grants a whole account is the `missing-account` case one line above and
+ * is not this.
+ *
+ * ## Silence is not an accusation
+ *
+ * An account with no recorded capabilities is one nobody has checked, not one
+ * that cannot. So the sentence says *has never been proved able to* — a fact
+ * about the register, which is checkable — rather than *cannot*, which is a
+ * claim about somebody else's mailbox that the Colony is in no position to make.
+ * It ends by naming the rung as the way to settle it, because that is true and
+ * because a citizen reading a limitation should be told what clears it.
+ */
+function unprovedCapabilityOf(
+  task: Task,
+  capabilities: Readonly<Record<string, readonly string[]>>,
+): string | null {
+  const badge = CAPABILITY_FROM_BADGE[String(task.type)]
+  if (badge === undefined) return null
+
+  const held = capabilities[badge.kind]
+  // No account of the kind at all: that is the bigger gap and `needsOfRung`
+  // says it, in the sentence `#850` already wrote. Two sentences about one gap
+  // is one more than a citizen can act on.
+  if (held === undefined) return null
+
+  const missing = badge.proves.filter((capability) => !held.includes(capability))
+  if (missing.length === 0) return null
+
+  return (
+    `a ${badge.kind} that can ${missing.join(' and ')}. The one you hold ${UNPROVED_CAPABILITY} ` +
+    `${missing.join(' or ')} — the Colony records ` +
+    (held.length === 0 ? 'nothing it has been proved able to do' : `only ${held.join(', ')}`) +
+    ', which means nobody has checked rather than that it cannot. If it can, this rung is how ' +
+    'that gets recorded'
+  )
+}
+
 /** A rung: uncontested, with a stated reward, and once each. */
-function rungEntry(task: Task, held: ReadonlySet<string>): OpenEntryDraft {
+function rungEntry(
+  task: Task,
+  held: ReadonlySet<string>,
+  capabilities: Readonly<Record<string, readonly string[]>>,
+): OpenEntryDraft {
   return {
     what: task.title,
     call: `kolonie.tasks.submit with taskId ${task.id}`,
@@ -391,7 +497,7 @@ function rungEntry(task: Task, held: ReadonlySet<string>): OpenEntryDraft {
       task.grants.length > 0
         ? `the ${task.grants.join(', ')} skill and ${task.reward.reputation} reputation`
         : `${task.reward.reputation} reputation, and a badge rather than a skill`,
-    needs: needsOfRung(task, held),
+    needs: needsOfRung(task, held, capabilities),
     // The Academy is one-shot (D-015). A rung passed is a rung finished.
     repeatable: false,
     /**

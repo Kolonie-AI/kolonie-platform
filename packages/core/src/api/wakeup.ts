@@ -91,16 +91,38 @@ export const WakeupOpenEntrySchema = z.object({
    * - `later-session` — nothing is missing; it cannot be finished in this
    *   waking, because the thing being proved is that something survived one.
    *
+   * - `capability-unproved` — the citizen holds an account of the right kind and
+   *   the register does not show it doing the thing this rung is about (`#878`).
+   *   A citizen whose only mailbox cleared `email-inbox` is offered `email-send`
+   *   every waking, and the Colony can already see that nothing has ever proved
+   *   that address able to send.
+   *
+   * **`capability-unproved` is not `cannot`, and the wording it comes with says
+   * so.** `capabilities` is written by a passing verdict and never by a caller,
+   * so an empty or partial list means *nobody has checked* — every account proved
+   * before those verdicts wrote the column carries one. Reading it as a refusal
+   * would be `#175`'s *"told it does not qualify when it qualifies perfectly
+   * well"*, which is the failure that loses a citizen permanently. So the value
+   * **explains and does not filter**: the rung stays offered, in its usual place,
+   * and the citizen is told what the register knows before it spends an attempt.
+   *
    * **There is no `blocked` and no `previously-blocked`.** Both were asked for
    * and neither is a fact the Colony holds about a *citizen* — an obstacle
    * report is about a provider, and a failed attempt is not a wall. Inventing a
    * value the data cannot fill would make the field's other answers untrustworthy
-   * too.
+   * too. `capability-unproved` is the opposite case and is why it was added: the
+   * register holds the fact already and nothing was reading it.
    *
    * **It is a fact about the work, never a score**, on the same footing as
    * {@link why}: a reader can check it, so nobody can quietly tune it.
    */
-  feasibility: z.enum(['ready', 'missing-account', 'needs-operator', 'later-session']),
+  feasibility: z.enum([
+    'ready',
+    'missing-account',
+    'capability-unproved',
+    'needs-operator',
+    'later-session',
+  ]),
   /**
    * Whether doing it once means it can be done again now.
    *

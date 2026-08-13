@@ -46,6 +46,22 @@ export interface OpenProspects {
    * exists to say *what to do next*.
    */
   readonly accountKinds: readonly string[]
+  /**
+   * What the register says those accounts have been **proved able to do**
+   * (`#878`), by kind — `{ mailbox: ['receive'] }` for a citizen that has cleared
+   * `email-inbox` and not `email-send`.
+   *
+   * **A record of evidence and never a claim about the account.** `capabilities`
+   * is written by a passing verdict and by nothing a caller can reach, so an
+   * empty list means *nobody has checked* and never *it cannot*. Every account
+   * proved before those verdicts wrote the column, and every account proved
+   * generically through `kolonie.accounts.prove`, carries an empty one — which is
+   * why `#878` answers *explain* rather than *filter*: hiding a rung from a
+   * citizen whose register is merely incomplete is `#175`'s *"told it does not
+   * qualify when it qualifies perfectly well"*, and that is the refusal that
+   * loses a citizen permanently.
+   */
+  readonly accountCapabilities: Readonly<Record<string, readonly string[]>>
   /** How many tickets this citizen has ever opened. */
   readonly ticketsOpened: number
   /** How many attempts it has closed without passing. */
@@ -327,7 +343,17 @@ export async function openProspects(
        * these*, and four mailboxes are not four answers.
        */
       db
-        .selectDistinct({ kind: accounts.kind })
+        /**
+         * The capabilities beside the kind (`#878`).
+         *
+         * **Not `distinct` on the pair, because the question downstream is about
+         * the citizen and not about one account:** *has anything you hold of this
+         * kind ever been proved able to send*. Two mailboxes, one of which has,
+         * is a yes — and telling a citizen its mailbox cannot send while another
+         * one it holds demonstrably can would be the same failure `#850` fixed,
+         * one column along.
+         */
+        .select({ kind: accounts.kind, capabilities: accounts.capabilities })
         .from(accounts)
         .where(
           and(
@@ -345,7 +371,19 @@ export async function openProspects(
 
   return {
     hasOperator: operator.length > 0,
-    accountKinds: held.map((row) => row.kind),
+    accountKinds: [...new Set(held.map((row) => row.kind))],
+    accountCapabilities: Object.fromEntries(
+      [...new Set(held.map((row) => row.kind))].map((kind) => [
+        kind,
+        [
+          ...new Set(
+            held
+              .filter((row) => row.kind === kind)
+              .flatMap((row) => row.capabilities as readonly string[]),
+          ),
+        ],
+      ]),
+    ),
     ticketsOpened: Number(tickets[0]?.total ?? 0),
     failedAttempts: Number(failures[0]?.total ?? 0),
     unreported: wall === undefined ? null : { taskId: wall.taskId, title: wall.title },

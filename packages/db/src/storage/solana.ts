@@ -7,6 +7,7 @@ import {
   type Timestamp,
 } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
+import { payoutObligations } from '../schema/payouts.js'
 import { solanaWalletChallenges, SOLANA_NONCE_BYTES } from '../schema/solana.js'
 import { isUniqueViolation, violatesConstraint } from './errors.js'
 import { toTimestamp } from './rows.js'
@@ -141,24 +142,67 @@ export async function answerSolanaChallenge(
   }
 
   try {
-    const [updated] = await db
-      .update(solanaWalletChallenges)
-      .set({ ...answer, verifiedAt: currentTime() })
-      .where(
-        and(
-          eq(solanaWalletChallenges.agentId, agentId),
-          eq(solanaWalletChallenges.nonce, current.nonce),
-          isNull(solanaWalletChallenges.signature),
-          gt(solanaWalletChallenges.expiresAt, sql`now()`),
-        ),
-      )
-      .returning({ address: solanaWalletChallenges.address })
+    const outcome = await db.transaction(async (tx) => {
+      const [updated] = await tx
+        .update(solanaWalletChallenges)
+        .set({ ...answer, verifiedAt: currentTime() })
+        .where(
+          and(
+            eq(solanaWalletChallenges.agentId, agentId),
+            eq(solanaWalletChallenges.nonce, current.nonce),
+            isNull(solanaWalletChallenges.signature),
+            gt(solanaWalletChallenges.expiresAt, sql`now()`),
+          ),
+        )
+        .returning({ address: solanaWalletChallenges.address })
 
-    // The guard is in the `WHERE`, so a second concurrent answer matches no row
-    // rather than overwriting the first.
-    if (updated?.address == null) return { outcome: 'already_answered' }
+      // The guard is in the `WHERE`, so a second concurrent answer matches no row
+      // rather than overwriting the first.
+      if (updated?.address == null) return { outcome: 'already_answered' } as const
 
-    return { outcome: 'verified', address: updated.address }
+      /**
+       * **What the Colony has already promised this citizen, made true** (`#834`).
+       *
+       * `payoutRefusalForCitizen('no-verified-address')` says *"It is still
+       * yours and it is still owed; clear the solana-wallet rung and the next
+       * pass sends it."* The schema comment on `accrual_hinted_at` states the
+       * same as fact. Neither was true: `oweForReport` snapshots the address at
+       * acceptance and **nothing ever wrote that column again**, so an
+       * obligation written while the citizen had no wallet carried `address =
+       * null` for ever and was refused on every pass for a reason the citizen
+       * had already fixed. Two obligations and 287 refusals is what that cost
+       * before it was found.
+       *
+       * **Only rows that have no address.** The snapshot is right and is not
+       * being argued with: a row with an address keeps it, so *paid to the
+       * wallet in force at acceptance* stands, and so does the debt outliving an
+       * erasure. A row with `null` has no address to be faithful to, so reading
+       * the wallet the citizen has just proved takes nothing away.
+       *
+       * **In the same transaction as the verification**, because a citizen told
+       * *the next pass sends it* by a write that committed while this one did
+       * not is the same defect one layer down.
+       *
+       * Unpaid and unforfeited only. A forfeited obligation has been settled by
+       * a decision somebody made, and filling an address on it would offer to
+       * pay something the Colony has already written off.
+       */
+      await tx
+        .update(payoutObligations)
+        .set({ address: updated.address })
+        .where(
+          and(
+            eq(payoutObligations.agentId, agentId),
+            isNull(payoutObligations.address),
+            isNull(payoutObligations.paidAt),
+            isNull(payoutObligations.forfeitedAt),
+          ),
+        )
+
+      return { outcome: 'verified', address: updated.address } as const
+    })
+
+    return outcome
   } catch (error) {
     /**
      * **Two indexes, two meanings** (`#571`), so the name decides which.

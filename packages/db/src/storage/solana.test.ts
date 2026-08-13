@@ -3,7 +3,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { and, eq, sql } from 'drizzle-orm'
 import { encodeBase58, RegisterAgentRequestSchema, type AgentId } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
-import { solanaWalletChallenges } from '../schema/index.js'
+import { payoutObligations, solanaWalletChallenges, submissions, tasks } from '../schema/index.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
 import { registerAgent } from './agents.js'
 import {
@@ -400,6 +400,144 @@ describe('the solana wallet rung', () => {
 
     it('is null for an agent that never attempted the rung', async () => {
       expect(await verifiedSolanaAddress(db, agentId)).toBeNull()
+    })
+  })
+
+  /**
+   * **What the Colony promised, kept** (`#834`).
+   *
+   * `payoutRefusalForCitizen('no-verified-address')` tells a citizen *"It is
+   * still yours and it is still owed; clear the solana-wallet rung and the next
+   * pass sends it."* It was not true. `oweForReport` snapshots the destination
+   * at acceptance and no code path ever wrote that column again, so an
+   * obligation written while the citizen had no wallet carried `address = null`
+   * for ever and was refused on every pass for the reason the citizen had just
+   * fixed. One citizen cleared the rung and stayed unpayable through 287
+   * refusals on the older of its two obligations.
+   *
+   * The order of events is the whole test: **debt first, wallet second.**
+   */
+  describe('an obligation written before the wallet was verified', () => {
+    const anObligation = async (
+      agent: AgentId,
+      values: Partial<typeof payoutObligations.$inferInsert> = {},
+    ) => {
+      const [task] = await db
+        .insert(tasks)
+        .values({
+          type: 'a-quest',
+          title: 'Work accepted before the citizen had anywhere to be paid',
+          description: 'What this quest is, for somebody deciding whether to answer it.',
+          instructions: 'What the citizen is actually asked to do.',
+          rewardReputation: 1,
+          timeoutHours: 24,
+          status: 'active',
+          kind: 'quest',
+          audience: 'citizens',
+        })
+        .returning({ id: tasks.id })
+      const [submission] = await db
+        .insert(submissions)
+        .values({ taskId: task!.id, agentId: agent, payload: {}, attempt: 1 })
+        .returning({ id: submissions.id })
+
+      const [row] = await db
+        .insert(payoutObligations)
+        .values({
+          agentId: agent,
+          taskId: task!.id,
+          submissionId: submission!.id,
+          lamports: 750_000,
+          ...values,
+        })
+        .returning({ id: payoutObligations.id })
+      return row!.id
+    }
+
+    const addressOn = async (id: string) => {
+      const [row] = await db
+        .select({ address: payoutObligations.address })
+        .from(payoutObligations)
+        .where(eq(payoutObligations.id, id))
+      return row?.address ?? null
+    }
+
+    it('is given the address the moment the citizen clears the rung', async () => {
+      const owed = await anObligation(agentId)
+      expect(await addressOn(owed)).toBeNull()
+
+      const signer = wallet()
+      await clear(agentId, signer)
+
+      expect(await addressOn(owed)).toBe(signer.address)
+    })
+
+    /**
+     * **The snapshot is not being argued with.** A row that already has an
+     * address keeps it, so *paid to the wallet in force at acceptance* stands,
+     * and so does the debt outliving an erasure. Only a row with nothing to be
+     * faithful to is filled in.
+     */
+    it('leaves an address that was already snapshotted alone', async () => {
+      const earlier = wallet()
+      const owed = await anObligation(agentId, { address: earlier.address })
+
+      await clear(agentId, wallet())
+
+      expect(await addressOn(owed)).toBe(earlier.address)
+    })
+
+    /**
+     * A forfeited obligation has been settled by a decision somebody made.
+     * Filling an address on it would offer to pay something already written off.
+     */
+    it('leaves a settled obligation alone, paid or forfeited', async () => {
+      // A paid row carries both an address and a signature —
+      // `payout_obligations_signature_iff_paid` refuses any other shape — so
+      // what it proves is that the backfill does not repoint a settled payment.
+      const settled = wallet()
+      const paid = await anObligation(agentId, {
+        paidAt: '2026-08-07T19:12:00.000Z',
+        signature: 'a-transaction-signature',
+        address: settled.address,
+      })
+      const forfeited = await anObligation(agentId, { forfeitedAt: '2026-08-07T19:12:00.000Z' })
+
+      await clear(agentId, wallet())
+
+      expect(await addressOn(paid)).toBe(settled.address)
+      // Written off by a decision somebody made. Filling this in would offer to
+      // pay something the Colony has already settled.
+      expect(await addressOn(forfeited)).toBeNull()
+    })
+
+    /** One citizen's wallet reaches one citizen's debt and no other. */
+    it('fills in nobody else’s obligations', async () => {
+      const theirs = await anObligation(otherId)
+
+      await clear(agentId, wallet())
+
+      expect(await addressOn(theirs)).toBeNull()
+    })
+
+    /**
+     * **A verification that did not happen writes nothing.** The backfill sits
+     * inside the same transaction as the update, so a bad signature must leave
+     * the debt exactly as it was — the alternative is a citizen being told the
+     * next pass sends it by a write that committed while the proof did not.
+     */
+    it('writes nothing when the signature is refused', async () => {
+      const owed = await anObligation(agentId)
+      const signer = wallet()
+      await mintSolanaChallenge(db, agentId)
+
+      const result = await answerSolanaChallenge(db, agentId, {
+        address: signer.address,
+        signature: signer.sign('not the issued nonce'),
+      })
+
+      expect(result.outcome).toBe('bad_signature')
+      expect(await addressOn(owed)).toBeNull()
     })
   })
 })

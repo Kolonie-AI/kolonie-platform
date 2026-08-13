@@ -284,4 +284,197 @@ describe('the Atlas over MCP', () => {
       expect(text).not.toMatch(/\d+ citizens in total/i)
     })
   })
+
+  /**
+   * Browsing the shelf without reading all of it (`#855`).
+   *
+   * **Both filters narrow and neither hides by default.** An agent that can ask
+   * *only the ones that demonstrably work* stops re-deciding what the ordering
+   * already decided; an Atlas that answered that way unasked would be the link
+   * collection it exists not to be.
+   */
+  describe('narrowing the shelf', () => {
+    it('narrows to one state, refusals included', async () => {
+      const result = await readAtlas({ status: 'refused' }, colony.recipes, true)
+      if (result.outcome !== 'ok') throw new Error('expected the read to succeed')
+
+      expect(result.response.entries.map((one) => one.provider)).toEqual(['bsky.app'])
+    })
+
+    it('narrows to the providers enough citizens got through', async () => {
+      colony.recipes.measure({ ...noFigures('github', 'github.com'), attempted: 50, proved: 40 })
+      colony.recipes.measure({ ...noFigures('mailbox', 'mail.tm'), attempted: 9, proved: 4 })
+
+      const result = await readAtlas({ minProved: 10 }, colony.recipes, true)
+      if (result.outcome !== 'ok') throw new Error('expected the read to succeed')
+
+      expect(result.response.entries.map((one) => one.provider)).toEqual(['github.com'])
+    })
+
+    /**
+     * Below the floor the Colony does not publish the count, and a filter that
+     * let a caller probe for one would publish it a question at a time.
+     */
+    it('counts a suppressed figure as zero rather than letting it be probed for', async () => {
+      colony.recipes.measure({
+        ...noFigures('github', 'github.com'),
+        attempted: 3,
+        proved: 3,
+        suppressed: true,
+      })
+
+      const result = await readAtlas({ minProved: 1 }, colony.recipes, true)
+      if (result.outcome !== 'ok') throw new Error('expected the read to succeed')
+
+      expect(result.response.entries.map((one) => one.provider)).not.toContain('github.com')
+    })
+
+    it('refuses a state no catalogue entry is in, and names the ones that exist', async () => {
+      const result = await readAtlas({ status: 'nonsense' }, colony.recipes, true)
+
+      expect(result.outcome).toBe('rejected')
+      if (result.outcome !== 'rejected') return
+      expect(result.error.message).toContain('joinable')
+    })
+
+    it('refuses a floor that is not a count', async () => {
+      for (const minProved of [-1, 1.5]) {
+        const result = await readAtlas({ minProved }, colony.recipes, true)
+
+        expect(result.outcome).toBe('rejected')
+      }
+    })
+
+    /**
+     * **A provider the filters hid is not a provider the Atlas has never heard
+     * of.** Answering the second question with the first would be a claim about
+     * the Colony's knowledge that the filter, not the catalogue, made true.
+     */
+    it('does not call a filtered-out provider an absence', async () => {
+      const result = await readAtlas(
+        { provider: 'github.com', status: 'refused' },
+        colony.recipes,
+        true,
+      )
+      if (result.outcome !== 'ok') throw new Error('expected the read to succeed')
+
+      expect(result.response.entries).toEqual([])
+    })
+  })
+
+  /**
+   * The providers only the measurements knew about (`#856`).
+   *
+   * A citizen proves an account somewhere nobody has written up, and until now
+   * the shelf stayed silent about a provider several citizens had got through.
+   */
+  describe('providers the figures put on the shelf', () => {
+    it('lists a measured provider the catalogue has no row for', async () => {
+      colony.recipes.measure({
+        ...noFigures('mailbox', 'somewhere.test'),
+        attempted: 8,
+        proved: 5,
+      })
+
+      const result = await readAtlas({ provider: 'somewhere.test' }, colony.recipes, true)
+      if (result.outcome !== 'ok') throw new Error('expected the read to succeed')
+
+      const entry = result.response.entries[0]
+      expect(entry?.source).toBe('measured')
+      expect(entry?.status).toBe('unwritten')
+    })
+
+    it('says out loud that nobody wrote it, and what would put steps there', async () => {
+      colony.recipes.measure({
+        ...noFigures('mailbox', 'somewhere.test'),
+        attempted: 8,
+        proved: 5,
+      })
+
+      const result = await readAtlas({ provider: 'somewhere.test' }, colony.recipes, true)
+      if (result.outcome !== 'ok') throw new Error('expected the read to succeed')
+      const entry = result.response.entries[0]
+      if (entry === undefined) throw new Error('expected an entry')
+
+      const text = atlasEntryAsText(entry, true)
+      expect(text).toContain('Nobody has written this entry')
+      expect(text).toContain('provider-report')
+    })
+
+    /** The aggregate floor forbids the count, and *somebody tried it* is the count. */
+    it('leaves a provider below the floor off the shelf entirely', async () => {
+      colony.recipes.measure({
+        ...noFigures('mailbox', 'quiet.test'),
+        attempted: 2,
+        proved: 1,
+        suppressed: true,
+      })
+
+      const result = await readAtlas({}, colony.recipes, true)
+      if (result.outcome !== 'ok') throw new Error('expected the read to succeed')
+
+      expect(result.response.entries.map((one) => one.provider)).not.toContain('quiet.test')
+    })
+
+    it('says nothing about provenance on an entry a maintainer wrote', async () => {
+      const result = await readAtlas({ provider: 'mail.tm' }, colony.recipes, true)
+      if (result.outcome !== 'ok') throw new Error('expected the read to succeed')
+      const entry = result.response.entries[0]
+      if (entry === undefined) throw new Error('expected an entry')
+
+      expect(entry.source).toBe('curated')
+      expect(atlasEntryAsText(entry, true)).not.toContain('Nobody has written this entry')
+    })
+  })
+
+  /**
+   * How well an entry has aged, said before its steps (`#860`).
+   *
+   * An agent that reads three steps before being told nobody has confirmed them
+   * since March has already spent the attention the line exists to save.
+   */
+  describe('what an entry says about its own age', () => {
+    it('warns above the steps when nobody has confirmed them', async () => {
+      colony.recipes.write({
+        kind: 'mailbox',
+        provider: 'unconfirmed.test',
+        title: 'Unconfirmed',
+        lastConfirmedAt: null,
+      })
+
+      const result = await readAtlas({ provider: 'unconfirmed.test' }, colony.recipes, true)
+      if (result.outcome !== 'ok') throw new Error('expected the read to succeed')
+      const entry = result.response.entries[0]
+      if (entry === undefined) throw new Error('expected an entry')
+
+      expect(entry.health).toBe('stale')
+      expect(atlasEntryAsText(entry, true)).toContain('Nobody has confirmed this recently')
+    })
+
+    it('keeps a withdrawn entry findable, as a warning rather than a route', async () => {
+      colony.recipes.write({ kind: 'mailbox', provider: 'gone.test', title: 'Gone' })
+      colony.recipes.setStatus('mailbox', 'gone.test', 'retired')
+
+      const result = await readAtlas({ provider: 'gone.test' }, colony.recipes, true)
+      if (result.outcome !== 'ok') throw new Error('expected the read to succeed')
+      const entry = result.response.entries[0]
+      if (entry === undefined) throw new Error('expected an entry')
+
+      expect(entry.health).toBe('retired')
+      expect(atlasEntryAsText(entry, true)).toContain('Do not walk it')
+    })
+
+    /** The great majority of entries have to read exactly as they did before. */
+    it('says nothing at all about an entry that was confirmed recently', async () => {
+      const result = await readAtlas({ provider: 'mail.tm' }, colony.recipes, true)
+      if (result.outcome !== 'ok') throw new Error('expected the read to succeed')
+      const entry = result.response.entries[0]
+      if (entry === undefined) throw new Error('expected an entry')
+
+      expect(entry.health).toBe('ok')
+      const text = atlasEntryAsText(entry, true)
+      expect(text).not.toContain('Nobody has confirmed this recently')
+      expect(text).not.toContain('Take care here')
+    })
+  })
 })

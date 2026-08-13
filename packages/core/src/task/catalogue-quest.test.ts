@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { ENTRY_WALKS_TERMS, entryWalksProgress } from './catalogue-quest.js'
 import { QuestDraftSchema } from './quest.js'
-import { CatalogueDeliverableSchema, RECIPE_STALE_AFTER_DAYS, isStale } from './catalogue-quest.js'
+import { CatalogueDeliverableSchema } from './catalogue-quest.js'
+import { RECIPE_STALE_AFTER_DAYS, isStale } from '../account/recipe.js'
 
 const walked = {
   kind: 'notion',

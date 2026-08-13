@@ -4,11 +4,15 @@ import {
   BOOTSTRAP_TEMPLATES,
   atlasByOutcome,
   atlasEntries,
+  measuredOnlyRecipes,
+  RecipeStatusSchema,
   bootstrapTemplate,
   credentialFinding,
   fillAsk,
   valuesReferencedBy,
   atlasBandPhrase,
+  atlasHealthPhrase,
+  atlasSourcePhrase,
   atlasStopPhrase,
   throughRate,
   figureKey,
@@ -139,6 +143,12 @@ export function databaseProviderRecipes(db: Database): ProviderRecipes {
  * that they always happen together, which is the property `#545` needs — a page
  * showing a recipe and omitting how many got through is the catalogue pretending
  * to be a curated list.
+ *
+ * **It is also the one place a measured-only provider joins the shelf** (`#856`).
+ * The synthesis happens here rather than in each caller because the page, the
+ * tool and the data route are three renderings of one catalogue, and a provider
+ * that appeared on one of them and not the others would be exactly the
+ * disagreement `atlasEntries` was moved out of SQL to prevent.
  */
 export async function atlasCatalogue(
   recipes: ProviderRecipes,
@@ -149,9 +159,12 @@ export async function atlasCatalogue(
     recipes.figures(options.audience === undefined ? {} : { audience: options.audience }),
   ])
 
+  const synthesized = measuredOnlyRecipes(rows, measured)
+
   const entries = atlasEntries(
-    rows,
+    [...rows, ...synthesized],
     new Map(measured.map((one) => [figureKey(one.kind, one.provider), one])),
+    new Set(synthesized.map((one) => figureKey(one.kind, one.provider))),
   )
 
   return options.ordered === false ? entries : atlasByOutcome(entries)
@@ -224,6 +237,30 @@ export async function readAtlas(
      * reason the index groups by one shelf per provider.
      */
     readonly category?: string | undefined
+    /**
+     * Only providers at least this many citizens got an account at (`#855`).
+     *
+     * **The one filter that reads the measurement rather than the catalogue.**
+     * An agent that has already lost an afternoon to a provider nobody has
+     * finished is asking *show me only the ones that demonstrably work*, and
+     * before this it could only ask that by reading every entry's figures itself
+     * and re-deciding what the ordering had already decided.
+     *
+     * A suppressed figure never satisfies it: below the aggregate floor the
+     * Colony does not publish the count, and a filter that let a caller probe
+     * for it would publish it one question at a time.
+     */
+    readonly minProved?: number | undefined
+    /**
+     * Only entries in this state (`#855`).
+     *
+     * **`joinable` is what most callers mean and it is not the default**, on the
+     * same argument the whole catalogue rests on: an agent that can hide the
+     * refusals and the dead ends has turned the Atlas back into the link
+     * collection it exists not to be. Asking for them is a choice a caller makes
+     * knowing what it is hiding.
+     */
+    readonly status?: string | undefined
   },
   recipes: ProviderRecipes,
   /**
@@ -265,6 +302,32 @@ export async function readAtlas(
     }
   }
 
+  if (input.status !== undefined && !RecipeStatusSchema.safeParse(input.status).success) {
+    return {
+      outcome: 'rejected',
+      error: {
+        code: 'validation_failed',
+        message:
+          'That is not a state a catalogue entry is in. They are: ' +
+          `${RecipeStatusSchema.options.join(', ')}. Leave it out to see the shelf as it is — ` +
+          'the refusals and the unwalked entries are findings too.',
+      },
+    }
+  }
+
+  if (
+    input.minProved !== undefined &&
+    (!Number.isInteger(input.minProved) || input.minProved < 0)
+  ) {
+    return {
+      outcome: 'rejected',
+      error: {
+        code: 'validation_failed',
+        message: 'minProved counts citizens, so it is a whole number and not a negative one.',
+      },
+    }
+  }
+
   const all = await atlasCatalogue(recipes)
 
   const entries = all
@@ -295,8 +358,28 @@ export async function readAtlas(
       (entry) => input.provider === undefined || entry.provider === input.provider.toLowerCase(),
     )
     .filter((entry) => input.category === undefined || entry.category === input.category)
+    .filter((entry) => input.status === undefined || entry.status === input.status)
+    .filter(
+      (entry) =>
+        input.minProved === undefined ||
+        entry.recipes.reduce(
+          (sum, recipe) => sum + (recipe.figures.suppressed ? 0 : recipe.figures.proved),
+          0,
+        ) >= input.minProved,
+    )
 
-  if (input.provider !== undefined && entries.length === 0) {
+  /**
+   * **Asked of the whole catalogue rather than of what survived the filters**
+   * (`#855`). A caller naming a provider beside `minProved` or `status` is
+   * asking two questions at once, and answering the second with *the Atlas has
+   * never heard of it* would be a claim about the Colony's knowledge that the
+   * filter, not the catalogue, made true.
+   */
+  const providerIsKnown =
+    input.provider !== undefined &&
+    all.some((entry) => entry.provider === input.provider?.toLowerCase())
+
+  if (input.provider !== undefined && !providerIsKnown) {
     return {
       outcome: 'rejected',
       error: {
@@ -352,7 +435,21 @@ export function atlasEntryAsText(
    */
   briefings: ReadonlyMap<string, ProviderBriefing> = new Map(),
 ): string {
-  const parts = [`## ${entry.title} (${entry.provider})`]
+  /**
+   * **Provenance and health above the rows, because both are about the whole
+   * entry** (`#856`, `#860`). An agent that reads three steps before being told
+   * nobody has confirmed them since March has already spent the attention this
+   * line exists to save; and one that reads a measured-only entry without being
+   * told nobody wrote it would take an absence of steps for a short recipe.
+   *
+   * Both print nothing in their ordinary state, so an entry a maintainer wrote
+   * and somebody confirmed last week reads exactly as it did before.
+   */
+  const parts = [
+    `## ${entry.title} (${entry.provider})`,
+    atlasHealthPhrase(entry.health),
+    atlasSourcePhrase(entry.source),
+  ]
 
   if (entry.recipes.some((recipe) => recipe.paid)) {
     parts.push(

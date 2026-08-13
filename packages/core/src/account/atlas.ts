@@ -1,12 +1,20 @@
 import { z } from 'zod'
 import { TimestampSchema } from '../common/time.js'
 import { AccountProviderSchema } from './account.js'
-import { AtlasFiguresSchema, atlasRank, noFigures, type AtlasFigures } from './atlas-figures.js'
+import {
+  AtlasFiguresSchema,
+  atlasBand,
+  atlasRank,
+  noFigures,
+  type AtlasFigures,
+} from './atlas-figures.js'
+import { atlasCategoryForKind } from './atlas-proposal.js'
 import {
   AtlasCategorySchema,
   ProviderRecipeSchema,
   RecipeOperatorNeedSchema,
   RecipeStatusSchema,
+  isStale,
   type ProviderRecipe,
 } from './recipe.js'
 import type { RecipeOperatorNeed, RecipeStatus } from './recipe.js'
@@ -58,6 +66,128 @@ export const ATLAS_CACHE_SECONDS = 300
  */
 export function atlasPath(provider: string): string {
   return `${ATLAS_PATH}/${AccountProviderSchema.parse(provider)}`
+}
+
+/**
+ * Why this provider is on the shelf at all (`#856`).
+ *
+ * **A reader deciding what to trust is asking who put this here**, and until
+ * `#856` the catalogue answered it only by implication — an entry with steps was
+ * written by somebody, an entry without was not, and neither said whether the
+ * somebody was a maintainer or a citizen who walked it.
+ *
+ * `measured` is the state that did not exist before: a provider the Colony knows
+ * about **only** because citizens attempted it. Nobody wrote it down, nobody
+ * curated it, and it is on the map because the figures say the map was missing
+ * it. That is the weakest provenance the Atlas carries and it is still worth
+ * more than an absence — an agent looking for a mailbox host should be able to
+ * find the one four citizens got through, whether or not anybody wrote the steps.
+ */
+export const AtlasSourceSchema = z.enum([
+  /** A maintainer or a catalogue quest wrote this entry. */
+  'curated',
+  /** A citizen walked it and the walk was published as the entry. */
+  'walk-published',
+  /** Nobody wrote it. It is here because it was attempted and measured. */
+  'measured',
+])
+export type AtlasSource = z.infer<typeof AtlasSourceSchema>
+
+/**
+ * How far an entry's own claims can be trusted today (`#860`).
+ *
+ * **Not a second status and not a second ranking.** `status` says what the
+ * Colony found — joinable, refused, retired, nobody looked. This says how well
+ * that finding has aged, which is the question a reader actually has in front of
+ * a two-year-old recipe that still says `joinable`. The ordering stays
+ * `atlasByOutcome`'s, unchanged: a health that re-sorted the shelf would be the
+ * second answer to the same question that `atlasByOutcome` exists to prevent.
+ *
+ * **It speaks only about rows that claim a route.** An `unwritten` entry is
+ * `ok` — it claims nothing, so there is nothing to have gone stale, and `status`
+ * carries the whole message. A `refused` entry is `ok` for the same reason: the
+ * wall it names is a finding, not an offer.
+ */
+export const AtlasHealthSchema = z.enum([
+  /** Confirmed recently enough, and nothing measured says be careful. */
+  'ok',
+  /**
+   * Joinable, and something says take care: a caution on the row, or a band
+   * where most citizens who tried did not get through.
+   */
+  'caution',
+  /** Joinable on paper, and nobody has confirmed it inside the window. */
+  'stale',
+  /** Withdrawn by the Colony. Searchable as a warning, never as a route. */
+  'retired',
+])
+export type AtlasHealth = z.infer<typeof AtlasHealthSchema>
+
+/**
+ * What {@link AtlasSourceSchema} says to a reader, in a sentence (`#856`).
+ *
+ * **`curated` prints nothing**, because it is what every entry was until this
+ * existed and a line announcing the ordinary case is noise on every entry in the
+ * catalogue. The other two are the ones a reader could not otherwise tell apart
+ * from it, and both are said plainly rather than softened: an entry that exists
+ * only because four citizens tried it is weaker evidence than a written recipe,
+ * and hiding that would be the catalogue overclaiming what it knows.
+ */
+export function atlasSourcePhrase(source: AtlasSource): string {
+  if (source === 'walk-published') {
+    return (
+      '**Written by a citizen who walked it**, not by a maintainer. It is one agent’s route ' +
+      'through, published as the entry.'
+    )
+  }
+
+  if (source === 'measured') {
+    return (
+      '**Nobody has written this entry.** It is on the shelf because citizens attempted the ' +
+      'provider and the figures below are what they produced — there are no steps to follow, ' +
+      'and walking it and filing kolonie.accounts.provider-report is what puts some here.'
+    )
+  }
+
+  return ''
+}
+
+/**
+ * What {@link AtlasHealthSchema} says to a reader, in a sentence (`#860`).
+ *
+ * **`ok` prints nothing.** The entry's own rows already say what is known; a
+ * line confirming that nothing is wrong is the same absence stated twice, and it
+ * would appear on almost every entry in the catalogue.
+ *
+ * **It never contradicts `status`, only dates it.** A stale entry is not
+ * asserted to be broken — nobody has confirmed it, which is a fact about the
+ * Colony's attention rather than about the provider, and saying more than that
+ * would be a guess dressed as a finding.
+ */
+export function atlasHealthPhrase(health: AtlasHealth): string {
+  if (health === 'retired') {
+    return (
+      '**Withdrawn.** This entry is kept so the road stays findable as a warning rather than ' +
+      'as a route. Do not walk it expecting it to work.'
+    )
+  }
+
+  if (health === 'stale') {
+    return (
+      '**Nobody has confirmed this recently.** Treat the steps as a guess with a date on them. ' +
+      'Walking it and filing kolonie.accounts.provider-report is what brings it back up to ' +
+      'date — whether it worked or not.'
+    )
+  }
+
+  if (health === 'caution') {
+    return (
+      '**Take care here.** Either a row carries a caution or the measured figures say most ' +
+      'agents that tried did not get through. The rows below say which.'
+    )
+  }
+
+  return ''
 }
 
 /**
@@ -120,6 +250,10 @@ export const AtlasEntrySchema = z.object({
    * about it (`#545`). Never empty.
    */
   recipes: z.array(ProviderRecipeSchema.extend({ figures: AtlasFiguresSchema })).min(1),
+  /** Who put this provider on the shelf (`#856`). */
+  source: AtlasSourceSchema,
+  /** How well the entry's own claims have aged (`#860`). */
+  health: AtlasHealthSchema,
   /** The most recent edit across the rows, which is what a reader wants dated. */
   updatedAt: TimestampSchema,
 })
@@ -241,6 +375,17 @@ export function atlasEntries(
    * cannot show a newly written recipe.
    */
   figures: ReadonlyMap<string, AtlasFigures> = new Map(),
+  /**
+   * Which rows, by {@link figureKey}, were synthesized from figures rather than
+   * read from the catalogue (`#856`).
+   *
+   * **Passed in rather than sniffed off the row**, because a synthesized row and
+   * a curated `unwritten` row are the same shape by design — the Colony listing
+   * a provider it has not investigated says exactly what a measured-only row
+   * says. Only the caller that built one knows which is which, and a heuristic
+   * here would eventually call a curator's entry nobody's work.
+   */
+  measuredOnly: ReadonlySet<string> = new Set(),
 ): readonly AtlasEntry[] {
   const byProvider = new Map<string, ProviderRecipe[]>()
 
@@ -271,6 +416,11 @@ export function atlasEntries(
 
     const need = atlasEntryOperatorNeed(rows)
 
+    const measured = rows.map((row) => ({
+      ...row,
+      figures: figures.get(figureKey(row.kind, row.provider)) ?? noFigures(row.kind, row.provider),
+    }))
+
     return {
       provider: AccountProviderSchema.parse(provider),
       path: atlasPath(provider),
@@ -279,11 +429,9 @@ export function atlasEntries(
       category: lead.category,
       operatorNeed: need.need,
       operatorNeedIsGuess: need.isGuess,
-      recipes: rows.map((row) => ({
-        ...row,
-        figures:
-          figures.get(figureKey(row.kind, row.provider)) ?? noFigures(row.kind, row.provider),
-      })),
+      recipes: measured,
+      source: atlasEntrySource(rows, measuredOnly),
+      health: atlasEntryHealth(measured, status),
       updatedAt: rows
         .map((row) => row.updatedAt)
         .reduce((latest, at) => (at > latest ? at : latest)),
@@ -332,6 +480,156 @@ export function atlasEntryStatus(rows: readonly { readonly status: RecipeStatus 
   const order: readonly RecipeStatus[] = ['joinable', 'draft', 'refused', 'retired', 'unwritten']
 
   return order.find((status) => rows.some((row) => row.status === status)) ?? 'unwritten'
+}
+
+/**
+ * Who put this provider on the shelf, from what its rows are (`#856`).
+ *
+ * **The strongest provenance any row has wins**, which is the same rule the
+ * status rollup follows and for the same reason: an entry with one walked
+ * recipe and one measured-only row was put there by the citizen who walked it,
+ * and calling the whole provider `measured` would understate what the Colony
+ * knows about it.
+ *
+ * A row is `walk-published` when it carries the walk it was written from —
+ * `walkedRecipe` is the record of a citizen's steps becoming the entry, so it is
+ * the answer rather than a proxy for it.
+ */
+export function atlasEntrySource(
+  rows: readonly {
+    readonly kind: string
+    readonly provider: string
+    readonly walkedRecipe: unknown
+  }[],
+  measuredOnly: ReadonlySet<string>,
+): AtlasSource {
+  if (rows.some((row) => row.walkedRecipe !== null)) return 'walk-published'
+  if (rows.every((row) => measuredOnly.has(figureKey(row.kind, row.provider)))) return 'measured'
+  return 'curated'
+}
+
+/**
+ * How well an entry's claims have aged, from its rows (`#860`).
+ *
+ * **Only the joinable rows are asked**, because they are the only ones offering
+ * a reader something to do. An entry with nothing joinable is `ok`: `unwritten`
+ * claims nothing and `refused` states a wall, and marking either *stale* would
+ * teach readers that the word means *old* rather than *unchecked*.
+ *
+ * **Stale outranks caution.** A low band is something the Colony measured; an
+ * unconfirmed recipe is something it stopped measuring, and *we no longer know*
+ * is the more serious of the two to put in front of somebody about to spend an
+ * afternoon.
+ */
+export function atlasEntryHealth(
+  rows: readonly {
+    readonly status: RecipeStatus
+    readonly lastConfirmedAt: string | null
+    readonly caution: string | null
+    readonly figures: AtlasFigures
+  }[],
+  status: RecipeStatus,
+  at: Date = new Date(),
+): AtlasHealth {
+  if (status === 'retired') return 'retired'
+
+  const joinable = rows.filter((row) => row.status === 'joinable')
+  if (joinable.length === 0) return 'ok'
+
+  if (joinable.every((row) => isStale(row.lastConfirmedAt, at))) return 'stale'
+
+  if (joinable.some((row) => row.caution !== null)) return 'caution'
+
+  const attempted = joinable.reduce((sum, row) => sum + row.figures.attempted, 0)
+  const proved = joinable.reduce((sum, row) => sum + row.figures.proved, 0)
+  const suppressed = joinable.every((row) => row.figures.suppressed)
+  if (attempted > 0 && !suppressed && atlasBand({ attempted, proved }) === 'few-got-through') {
+    return 'caution'
+  }
+
+  return 'ok'
+}
+
+/**
+ * The rows the figures imply and the catalogue does not have (`#856`).
+ *
+ * **The Colony already knew about these providers and could not show them.**
+ * A citizen files a provider report or proves an account at somewhere nobody has
+ * written an entry for, and the figures carry the pair from that moment — but
+ * `atlasEntries` builds from catalogue rows, so the shelf stayed silent about a
+ * provider four citizens had got through. This closes that gap without asking
+ * anybody to curate: a measured pair with no row gets an `unwritten` row
+ * standing in for the entry nobody has written yet.
+ *
+ * **Suppressed figures are skipped, and that is the aggregate floor doing its
+ * job.** Where too few citizens have attempted a pair to publish the numbers,
+ * publishing *this provider exists because somebody tried it* is the same
+ * disclosure wearing a different shape. The provider appears once enough
+ * citizens have been through it that the figures themselves may be shown.
+ *
+ * **A kind with no shelf is skipped too.** `atlasCategoryForKind` throws rather
+ * than guessing, and a provider filed on a wrong shelf is worse than one that is
+ * only reachable by its kind — the shelf is a claim the Colony would be making
+ * on nobody's behalf.
+ */
+export function measuredOnlyRecipes(
+  recipes: readonly ProviderRecipe[],
+  figures: readonly AtlasFigures[],
+  at: Date = new Date(),
+): readonly ProviderRecipe[] {
+  const known = new Set(recipes.map((recipe) => figureKey(recipe.kind, recipe.provider)))
+  const synthesized: ProviderRecipe[] = []
+
+  for (const figure of figures) {
+    if (figure.suppressed) continue
+    if (figure.attempted === 0 && figure.proved === 0) continue
+    if (known.has(figureKey(figure.kind, figure.provider))) continue
+
+    let category
+    try {
+      category = atlasCategoryForKind(figure.kind)
+    } catch {
+      continue
+    }
+
+    synthesized.push(
+      ProviderRecipeSchema.parse({
+        kind: figure.kind,
+        provider: figure.provider,
+        /**
+         * The provider's own name, because it is the only thing anybody has
+         * said about it. A title invented here would read as a curator's
+         * sentence on an entry no curator has seen.
+         */
+        title: figure.provider,
+        category,
+        operatorNeed: 'unknown',
+        operatorNeedIsGuess: false,
+        about: null,
+        runtimes: [],
+        paid: false,
+        referral: null,
+        contact: null,
+        lastConfirmedAt: null,
+        status: 'unwritten',
+        refusal: null,
+        retiredAt: null,
+        retiredReason: null,
+        steps: [],
+        proves: null,
+        provesTask: null,
+        reaches: null,
+        caution: null,
+        walkedRecipe: null,
+        agentApi: 'unknown',
+        signupCode: 'unknown',
+        pacePerDay: null,
+        updatedAt: at.toISOString(),
+      }),
+    )
+  }
+
+  return synthesized
 }
 
 /**

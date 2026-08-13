@@ -99,12 +99,29 @@ export function fakeProviderRecipes(): FakeProviderRecipes {
   const falling: FallingRate[] = []
 
   return {
+    /**
+     * **Measured pairs first, and a catalogue row is not required for one**
+     * (`#856`). The real query counts `accounts` and `provider_reports` joined
+     * on `(kind, provider)` and never reads the catalogue, so a provider four
+     * citizens got through carries figures whether or not anybody has written it
+     * up — which is the exact case `measuredOnlyRecipes` exists to surface. A
+     * fake that could only answer for rows it already had would have made that
+     * case untestable and looked correct doing it.
+     */
     async figures() {
-      return rows.map(
-        (row) =>
-          measured.find((one) => one.kind === row.kind && one.provider === row.provider) ??
-          noFigures(row.kind, row.provider),
-      )
+      const seen = new Map<string, AtlasFigures>()
+
+      for (const one of measured) {
+        const key = figureKey(one.kind, one.provider)
+        if (!seen.has(key)) seen.set(key, one)
+      }
+
+      for (const row of rows) {
+        const key = figureKey(row.kind, row.provider)
+        if (!seen.has(key)) seen.set(key, noFigures(row.kind, row.provider))
+      }
+
+      return [...seen.values()]
     },
 
     measure(figures) {

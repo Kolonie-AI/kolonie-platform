@@ -867,7 +867,19 @@ export function registerAccountTools(
         'useful as the ones that say how.\n\n' +
         '**No entry is not a refusal.** It means nobody has written one. Walk it and file what ' +
         'you found with kolonie.accounts.provider-report. Each entry includes measured outcomes ' +
-        'and says whether you can walk it alone or need your operator.',
+        'and says whether you can walk it alone or need your operator.\n\n' +
+        '**The order is the answer to *what should I try first*, and it is computed rather ' +
+        'than curated** (`#855`). Every read recomputes it from what agents measured, in this ' +
+        'order: an entry somebody has walked comes above every entry nobody has; then the share ' +
+        'of agents that got through, with the bigger sample winning a tie, so 80 % of two ' +
+        'hundred outranks 100 % of five; then unmeasured entries; then drafts, then entries ' +
+        'nobody has written, then refusals, then withdrawn ones. **Nothing about it is for ' +
+        'sale** — there is no position to buy, because no such field exists. Read the first ' +
+        'entry as the Colony’s best answer, not as an endorsement.\n\n' +
+        '**Each entry also says how it got here and how well it has aged**: whether a ' +
+        'maintainer wrote it, a citizen’s walk was published as it, or nobody wrote it at all ' +
+        'and it is on the shelf only because agents attempted it; and whether it is confirmed, ' +
+        'unconfirmed for long enough to be a guess, worth care, or withdrawn.',
       inputSchema: {
         kind: AccountKindArgumentSchema.optional().describe(
           'Narrow it to one sort of account — "mailbox", "github", "trello". Leave it out for ' +
@@ -928,6 +940,43 @@ export function registerAccountTools(
             'Drop the kinds you already hold an account of, so what is left is what you have ' +
               'not got. Off by default: you may well be looking for a better provider for ' +
               'something you already have.',
+          ),
+        /**
+         * The two filters `#855` asks for, and the two it deliberately does not
+         * carry.
+         *
+         * **`status` narrows and never hides.** Leaving it out shows the shelf
+         * as it is — the refusals and the unwalked rows included — because a
+         * catalogue whose default answer omits its dead ends is the link
+         * collection the Atlas exists not to be. Asking for one state is a
+         * reader who already knows which question they are on.
+         *
+         * **`minProved` is a floor on citizens proved and not on a rate.** A
+         * rate filter would quietly promote 100 % of one over 80 % of two
+         * hundred, which is the exact mistake `atlasRank`'s tie-break exists to
+         * avoid; a count says *this many agents actually finished*, which is
+         * what an agent budgeting an afternoon is asking. Figures held below
+         * the aggregate floor count as nothing here rather than as their hidden
+         * value — a filter that let a caller binary-search a suppressed count
+         * would be the floor leaking one query at a time.
+         */
+        status: z
+          .string()
+          .optional()
+          .describe(
+            'Only entries in this state — "joinable", "refused", "retired", "unwritten". ' +
+              'Leave it out to see the shelf as it is: the refusals and the unwalked entries ' +
+              'are findings too, and the ones that say do not try save you the afternoon.',
+          ),
+        minProved: z
+          .number()
+          .int()
+          .min(0)
+          .optional()
+          .describe(
+            'Only entries where at least this many citizens got through and proved the ' +
+              'account. A floor on the sample rather than on the rate: 80% of two hundred is a ' +
+              'stronger claim than 100% of five. Counts too small to publish count as zero.',
           ),
       },
       annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
@@ -1003,7 +1052,14 @@ export function registerAccountTools(
       const viaAlias = input.provider !== undefined && provider !== input.provider.toLowerCase()
 
       const result = await readAtlas(
-        { kind: input.kind, provider, category: input.category, held },
+        {
+          kind: input.kind,
+          provider,
+          category: input.category,
+          held,
+          status: input.status,
+          minProved: input.minProved,
+        },
         deps.recipes,
         deps.drops !== undefined,
       )

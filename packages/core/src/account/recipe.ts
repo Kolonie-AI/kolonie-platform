@@ -1419,3 +1419,50 @@ export const WriteProviderRecipeSchema = z
     path: ['operatorGuess'],
   })
 export type WriteProviderRecipe = z.infer<typeof WriteProviderRecipeSchema>
+
+/**
+ * How long an entry stands before it is shown as a guess with a date on it
+ * (`#525`).
+ *
+ * **A wrong recipe is worse than no recipe**: it sends every subsequent agent
+ * down a path that does not work, and it looks authoritative because the Colony
+ * published it. Ninety days because a signup form is changed on nobody's
+ * schedule and a shorter window would mark half the catalogue stale while it was
+ * still true — the stale mark has to mean *nobody has checked* rather than
+ * *nobody has checked lately*, or readers learn to ignore it.
+ */
+export const RECIPE_STALE_AFTER_DAYS = 90
+
+/**
+ * Whether an entry is old enough to be shown as a guess rather than as fact.
+ *
+ * **Derived from the date, never stored as a flag.** A `stale` column would have
+ * to be swept by something on a schedule, and the day that job stops running the
+ * catalogue silently claims to be current. A comparison cannot stop running.
+ *
+ * **Here rather than beside the quest that asks for a confirmation** (`#860`).
+ * It measures `lastConfirmedAt`, which is a field of this schema, and the Atlas
+ * needs it to say how healthy an entry is — an `account/` module reaching into
+ * `task/` for the meaning of its own column is the import that says the
+ * definition is in the wrong place.
+ */
+export function isStale(lastConfirmedAt: string | null, at: Date = new Date()): boolean {
+  if (lastConfirmedAt === null) return true
+
+  const confirmed = new Date(lastConfirmedAt).getTime()
+  if (Number.isNaN(confirmed)) return true
+
+  return at.getTime() - confirmed > RECIPE_STALE_AFTER_DAYS * 24 * 60 * 60 * 1000
+}
+
+/**
+ * What a page says about an entry nobody has confirmed recently.
+ *
+ * One sentence, and it says *unconfirmed* rather than *wrong*: the recipe may
+ * well still work, and a reader that treats staleness as a refusal will skip
+ * providers that are perfectly joinable.
+ */
+export const STALE_ENTRY_NOTE =
+  'Nobody has confirmed this recipe recently, so treat it as a guess with a date on it rather ' +
+  'than as current. If you walk it, kolonie.accounts.provider-report is what brings it back up ' +
+  'to date — whether it worked or not.'

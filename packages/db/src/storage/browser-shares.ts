@@ -35,7 +35,7 @@ const SHARE_TOKEN_BYTES = 32
 
 export interface OfferShareCommand {
   readonly agentId: AgentId
-  /** The CDP target the agent is stuck on. One tab, chosen here and never afterwards. */
+  /** The one tab the agent is stuck on, as its own browser names it — chosen here and never afterwards. Opaque (`#866`). */
   readonly targetId: string
   /** The agent's own sentence about what the operator should do on the page (`#737`). */
   readonly purpose: string

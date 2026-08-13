@@ -199,7 +199,12 @@ export type ShareState = z.infer<typeof ShareStateSchema>
 export const ShareSummarySchema = z.object({
   id: z.uuid(),
   state: ShareStateSchema,
-  /** The CDP target the offer names. Chosen by the agent, never by the operator. */
+  /**
+   * The one tab the offer names, as the agent's own browser names it. Chosen by
+   * the agent, never by the operator, and **opaque here** (`#866`): a CDP target
+   * id and a WebDriver BiDi browsing context id are both just a string to
+   * everything in the Colony, which stores it and hands it back.
+   */
   targetId: z.string(),
   /**
    * What the agent asked its operator to do, and where.
@@ -225,14 +230,20 @@ export type ShareSummary = z.infer<typeof ShareSummarySchema>
 /**
  * A screencast frame on its way from the agent to the person watching.
  *
- * `data` is the base64 JPEG exactly as `Page.screencastFrame` produced it. It is
- * copied from one socket to the other and **is not read, decoded, measured,
- * logged or written down** by anything in between.
+ * `data` is a base64 JPEG — under CDP, exactly as `Page.screencastFrame`
+ * produced it. It is copied from one socket to the other and **is not read,
+ * decoded, measured, logged or written down** by anything in between. Its own
+ * pixel dimensions are the coordinate space the input below comes back in,
+ * because the operator's window scales clicks by the rendered image's natural
+ * size; that is a fact a sharer has to know and is written down for it in
+ * `TOOL_DOCS['kolonie.browser.share.open']` (`#866`).
  *
- * `ack` is the frame's `sessionId` from CDP, carried back so the sharer can call
+ * `ack` is an integer handed straight back to the sharer and read by nothing in
+ * between — under CDP, the frame's `sessionId`, so the sharer can call
  * `Page.screencastFrameAck` once the operator's socket has actually taken the
  * bytes. That is what makes a slow link apply backpressure instead of building a
- * queue of stale pictures nobody will look at.
+ * queue of stale pictures nobody will look at. A sharer whose protocol has no
+ * such acknowledgement sends `0` and ignores it.
  */
 export const ShareFrameSchema = z.object({
   type: z.literal('frame'),
@@ -250,6 +261,14 @@ export type ShareFrame = z.infer<typeof ShareFrameSchema>
  * everybody in order to enforce something the browser enforces anyway. **What is
  * validated is the method**, which is the boundary, and it is validated
  * agent-side.
+ *
+ * **This is the one direction of the relay that is not protocol-neutral**
+ * (`#866`). {@link ShareSummarySchema.shape.targetId} is opaque and a frame is
+ * just a JPEG, so a sharer may drive whatever it likes; what arrives here is
+ * named in CDP's vocabulary because the operator's console was written against a
+ * CDP sharer. A sharer driving something else translates the three methods in
+ * {@link CDP_RELAY_METHODS} into its own protocol — `input.performActions` under
+ * WebDriver BiDi — and three is the whole of the translation.
  */
 export const ShareInputSchema = z.object({
   type: z.literal('input'),

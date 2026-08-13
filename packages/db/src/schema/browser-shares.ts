@@ -82,8 +82,10 @@ export const browserShares = pgTable(
     tokenHash: text('token_hash').notNull(),
 
     /**
-     * The CDP target the offer names — one tab, chosen by the agent when it
-     * opened the share.
+     * The one tab the offer names, as the agent's own browser names it, chosen
+     * when it opened the share. **Opaque** (`#866`): a CDP target id, a
+     * WebDriver BiDi browsing context id or anything else a driver reports are
+     * all one `text` column to this table, which never parses it.
      *
      * **The operator cannot change it and cannot ask for another**, because
      * nothing on the operator's socket can reach `Target.*` at all. This column

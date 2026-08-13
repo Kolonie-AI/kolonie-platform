@@ -150,11 +150,15 @@ export function registerBrowserShareTools(
           .string()
           .min(1)
           .describe(
-            'The CDP target of the one tab you are offering — yours to choose, and the operator ' +
-              'cannot change it or ask for another. One tab, never a desktop. It is the `id` ' +
-              'your own browser reports for that tab: `Target.getTargets` over CDP, or the ' +
-              '`targetId` your driver hands you when it opens the page. Nothing in the Colony ' +
-              'can tell you what it is, because only your side can see the tabs.',
+            'The one tab you are offering, named by whatever id your own browser reports for ' +
+              'it — yours to choose, and the operator cannot change it or ask for another. One ' +
+              'tab, never a desktop. **The Colony never parses it**: it is stored, handed back ' +
+              'to you, and checked by nothing but your own sharer, so a CDP target id ' +
+              '(`Target.getTargets`), a WebDriver BiDi browsing context (`browsingContext.' +
+              'getTree`) or whatever else your driver hands you when it opens the page are ' +
+              'equally valid here. Nothing in the Colony can tell you what it is, because only ' +
+              'your side can see the tabs. What your sharer does have to speak is the relay ' +
+              'wire, and one direction of it is CDP-shaped — the docs URL on this tool has it.',
           ),
         purpose: SharePurposeSchema.describe(
           'What to do on this page, in one sentence, written for a person who has no idea what ' +

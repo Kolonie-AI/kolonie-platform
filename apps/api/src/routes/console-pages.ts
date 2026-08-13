@@ -2,9 +2,13 @@ import { randomUUID } from 'node:crypto'
 import { capabilitiesFromForm, handoverNotice } from '@kolonie-ai/core'
 import {
   ERROR_STATUS,
+  AccountKindSchema,
+  AccountProviderSchema,
+  RECIPE_REFUSAL_MAX_LENGTH,
   solFromLamports,
   platformFeePercentFromEnv,
   reportAudience,
+  whyNotPublishable,
   type Agent,
   type AgentId,
   type Role,
@@ -20,6 +24,7 @@ import {
   ProposalActionSchema,
 } from '@kolonie-ai/core'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
+import { z } from 'zod'
 import { authenticate } from '../authentication.js'
 import {
   CHECK_YOUR_MAIL,
@@ -3708,6 +3713,63 @@ export function registerStewardPages(app: FastifyInstance, deps: RouteDependenci
         )
       : reply.send(curation)
   })
+
+  /** Publish or refuse the walked steps already in a draft (`#808`). */
+  for (const verdict of ['publish', 'refuse'] as const) {
+    app.post(`/recipe-drafts/:kind/:provider/${verdict}`, async (request, reply) => {
+      const caller = await steward(request, reply)
+      if (caller === null) return reply
+
+      const params = z
+        .object({ kind: AccountKindSchema, provider: AccountProviderSchema })
+        .safeParse(request.params)
+      const body =
+        verdict === 'refuse'
+          ? z
+              .object({ reason: z.string().trim().min(1).max(RECIPE_REFUSAL_MAX_LENGTH) })
+              .safeParse(request.body ?? {})
+          : undefined
+
+      if (!params.success || (body !== undefined && !body.success)) {
+        return reply.status(ERROR_STATUS['validation_failed']).send({
+          code: 'validation_failed',
+          message:
+            verdict === 'refuse'
+              ? 'Refusing a walked recipe needs a sentence the walker can read.'
+              : 'That draft does not name a valid account kind and provider.',
+        })
+      }
+
+      const draft = await deps.recipes.one(params.data.kind, params.data.provider)
+      if (draft === undefined || draft.status !== 'draft') return consoleNotFound(reply, request)
+
+      const missing = verdict === 'publish' ? whyNotPublishable(draft) : undefined
+      if (missing !== undefined) {
+        return reply.status(ERROR_STATUS['validation_failed']).send({
+          code: 'validation_failed',
+          message: missing,
+        })
+      }
+
+      const moved = await deps.recipes.decideDraft(
+        params.data.kind,
+        params.data.provider,
+        verdict === 'publish'
+          ? { verdict: 'published' }
+          : { verdict: 'refused', refusal: body?.success === true ? body.data.reason : '' },
+      )
+
+      if (!moved) return consoleNotFound(reply, request)
+
+      return wantsHtml(request)
+        ? reply.redirect('/review', 303)
+        : reply.send({
+            kind: params.data.kind,
+            provider: params.data.provider,
+            status: verdict === 'publish' ? 'joinable' : 'refused',
+          })
+    })
+  }
 
   /**
    * Accepting or refusing a proposed entry (`#549`).

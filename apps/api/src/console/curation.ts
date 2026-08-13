@@ -1,8 +1,11 @@
 import {
   ATLAS_ADMISSION_QUESTIONS,
   AtlasCategorySchema,
+  RECIPE_REFUSAL_MAX_LENGTH,
   isStale,
+  stepInstruction,
   walkReportAnswers,
+  whyNotPublishable,
   type AccountWalk,
   type AtlasEntry,
   type EntryProposal,
@@ -273,23 +276,60 @@ function unpublishedSection(entries: readonly ProviderRecipe[]): string {
   }
 
   const rows = entries
-    .map(
-      (entry) =>
+    .map((entry) => {
+      if (entry.status !== 'draft') {
+        return (
+          `<tr><td>${escape(entry.provider)}</td><td>${escape(entry.kind)}</td>` +
+          '<td>proposed — waiting on whether it belongs on the map</td>' +
+          `<td>${escape(relative(entry.updatedAt))}</td><td></td></tr>`
+        )
+      }
+
+      const route = `${escape(encodeURIComponent(entry.kind))}/${escape(
+        encodeURIComponent(entry.provider),
+      )}`
+      const steps = entry.steps
+        .map(
+          (step, at) =>
+            `<li><strong>${String(at + 1)}. ${escape(step.actor)}</strong> — ` +
+            `${escape(step.instruction === undefined ? 'no instruction written' : stepInstruction(step))}` +
+            (step.ask === undefined ? '' : `<br><small>Ask: ${escape(step.ask)}</small>`) +
+            '</li>',
+        )
+        .join('')
+      const proof =
+        entry.proves === null
+          ? 'no proof method named'
+          : entry.proves === 'rung'
+            ? `${escape(entry.proves)}${
+                entry.provesTask === null ? ', no rung named' : ` — ${escape(entry.provesTask)}`
+              }`
+            : escape(entry.proves)
+      const missing = whyNotPublishable(entry)
+
+      return (
         `<tr><td>${escape(entry.provider)}</td><td>${escape(entry.kind)}</td>` +
-        `<td>${
-          entry.status === 'draft'
-            ? `walked — <strong>${entry.steps.length} step${
-                entry.steps.length === 1 ? '' : 's'
-              }</strong>, waiting for a steward`
-            : 'proposed — waiting on whether it belongs on the map'
-        }</td>` +
-        `<td>${escape(relative(entry.updatedAt))}</td></tr>`,
-    )
+        '<td>' +
+        `<ol>${steps}</ol><small>Proof: ${proof}. Shelf: ${escape(entry.category)}.</small>` +
+        '</td>' +
+        `<td>${escape(relative(entry.updatedAt))}</td>` +
+        '<td>' +
+        (missing === undefined
+          ? `<form method="post" action="/recipe-drafts/${route}/publish">` +
+            '<button type="submit">Publish</button></form>'
+          : `<small>Cannot publish yet: ${escape(missing)}</small>`) +
+        `<form method="post" action="/recipe-drafts/${route}/refuse">` +
+        `<input type="text" name="reason" maxlength="${String(RECIPE_REFUSAL_MAX_LENGTH)}" ` +
+        'placeholder="why this route cannot be published" required />' +
+        '<button type="submit">Refuse</button></form>' +
+        '</td></tr>'
+      )
+    })
     .join('')
 
   return [
     '<table>',
-    '<thead><tr><th>Provider</th><th>Kind</th><th>Waiting on</th><th>Last touched</th></tr></thead>',
+    '<thead><tr><th>Provider</th><th>Kind</th><th>Walked recipe</th><th>Last touched</th><th></th></tr></thead>',
     `<tbody>${rows}</tbody>`,
     '</table>',
   ].join('\n')

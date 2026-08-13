@@ -44,6 +44,7 @@ import {
   fallingSuccessRates,
   pendingProposals,
   providerBriefingsAt,
+  publishProviderRecipe,
   providerRecipe,
   providerRecipeList,
   type FallingRate,
@@ -104,6 +105,13 @@ export interface ProviderRecipes {
   providerProposals(): Promise<readonly ProposalWithDemand[]>
   /** Accept, refuse with a reason, or merge into an entry that exists (`#600`). */
   decideProvider(id: string, action: ProposalAction): Promise<DecideProposalOutcome>
+  /** Move a walked draft, and only a draft, after a steward has read it (`#808`). */
+  decideDraft(
+    kind: AccountKind,
+    provider: string,
+    decision:
+      { readonly verdict: 'published' } | { readonly verdict: 'refused'; readonly refusal: string },
+  ): Promise<boolean>
 }
 
 export function databaseProviderRecipes(db: Database): ProviderRecipes {
@@ -118,6 +126,8 @@ export function databaseProviderRecipes(db: Database): ProviderRecipes {
     decide: (id, status) => decideProposal(db, id, status),
     providerProposals: () => pendingProviderProposals(db),
     decideProvider: (id, action) => decideProviderProposal(db, id, action),
+    decideDraft: (kind, provider, decision) =>
+      publishProviderRecipe(db, { kind, provider, ...decision }),
   }
 }
 

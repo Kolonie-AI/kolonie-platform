@@ -233,10 +233,12 @@ describe('what the console can write', () => {
 
     const paths = written.join('\n')
 
-    // **Nothing publishes or refuses a quest any more** (`#723`). Those two
-    // were `#181`'s own and they were the reason this test named an allowance
-    // at all; a quest that clears moderation is published by that verdict.
+    // **Nothing publishes or refuses a quest any more** (`#723`). The recipe
+    // draft route is deliberately different: it moves walked steps a steward
+    // has read, and cannot invent a recipe from an unwritten entry (`#808`).
     expect(paths).not.toContain('/review/')
+    expect(paths).toContain('recipe-drafts/:kind/:provider/publish')
+    expect(paths).toContain('recipe-drafts/:kind/:provider/refuse')
     // And nothing that edits an identity, a skill, a ledger row or a task.
     expect(paths).not.toContain('/agents')
     expect(paths).not.toContain('/skills')

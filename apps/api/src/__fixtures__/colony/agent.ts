@@ -35,6 +35,8 @@ import type { AgentStore } from '../../authentication.js'
 import type { SolanaChallenges } from '../../solana.js'
 import type { StandingHintSource } from '../../hints.js'
 import type { WakeupSource } from '../../wakeup.js'
+import type { DoctorSource } from '../../doctor.js'
+import { fakeDoctorSource } from '../doctor.js'
 import { checkName, register, type AgentRegistry, type Caller } from '../../registration.js'
 import { fakeSkillNotes, type FakeSkillNotes } from '../skill-notes.js'
 import { fakeStandingHints } from '../hints.js'
@@ -87,6 +89,16 @@ export interface FakeAgent {
    */
   readonly rotation: CredentialRotation
   readonly wakeup: WakeupSource
+  /**
+   * What `kolonie.doctor` reads (`#837`).
+   *
+   * Wired by default and answering with nothing, for the reason every other desk
+   * here is: the tier assertion in `me.test.ts` compares the served tool list to
+   * `AUTHENTICATED_TOOLS`, and a fixture that left this out would describe a
+   * half-wired server rather than the one production runs. A test that is *about*
+   * the doctor hands over its own rows.
+   */
+  readonly doctor: DoctorSource
   /**
    * The state facts behind the wake-up's non-rung suggestions (`#347`).
    *
@@ -256,6 +268,9 @@ export function fakeAgent(deps: { readonly solanaChallenges: SolanaChallenges })
     adoption: fakeAdoption(),
 
     wakeup: fakeWakeup(),
+    // A citizen the Colony has recorded nothing about, which is the state most
+    // tests are not about (`#837`).
+    doctor: fakeDoctorSource(),
     prospects: async () => ({
       hasOperator: true,
       ticketsOpened: 0,

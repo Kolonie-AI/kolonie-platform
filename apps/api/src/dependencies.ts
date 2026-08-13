@@ -1,4 +1,5 @@
 import type { CallRollup } from './call-rollup.js'
+import type { DoctorSource } from './doctor.js'
 import type { AgentId, Log, RhythmBounds, SkillReleases } from '@kolonie-ai/core'
 import type { OpenProspects } from '@kolonie-ai/db'
 import type { AcademyDependencies } from './academy.js'
@@ -445,6 +446,15 @@ export interface AppDependencies {
    * hijacks its socket and has to count its own calls — see `mcp/guard.ts`.
    */
   readonly rollup?: CallRollup
+  /**
+   * What `kolonie.doctor` and `GET /v1/doctor` read (`#837`).
+   *
+   * Optional, and absent switches both doors off rather than serving an answer
+   * that says nothing — D-013's way of switching a surface off. A deployment
+   * with no rollup has nothing to answer from, and a tool whose only possible
+   * answer is *I do not know* costs every citizen context for nothing.
+   */
+  readonly doctor?: DoctorSource
   /** Browser sign-in: the mailer, the console's base URL and both limiters (`#172`). */
   readonly console: ConsoleDependencies
   /**

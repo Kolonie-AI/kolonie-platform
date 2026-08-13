@@ -1,4 +1,5 @@
 import type { CallRollup } from '../call-rollup.js'
+import type { DoctorSource } from '../doctor.js'
 import type { AgentId, RhythmBounds, SkillReleases } from '@kolonie-ai/core'
 import type { OpenProspects } from '@kolonie-ai/db'
 import type { AcademyDependencies } from '../academy.js'
@@ -190,6 +191,13 @@ export interface McpDependencies {
    * identically otherwise.
    */
   readonly rollup?: CallRollup
+  /**
+   * What `kolonie.doctor` reads (`#837`).
+   *
+   * Optional, and absent means the tool is not registered at all — the same
+   * switch `AppDependencies` describes, seen from the surface it removes.
+   */
+  readonly doctor?: DoctorSource
   readonly website: WebsiteDependencies
   /**
    * The rung above the hosting account (`#244`): controlling a web server rather

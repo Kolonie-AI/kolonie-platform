@@ -19,6 +19,8 @@ import {
   citizenIndexing,
   avatarByHandle,
   recordCall,
+  callHoursSince,
+  academyProgressFor,
 } from '@kolonie-ai/db'
 import { buildApp } from './app.js'
 import { databaseStore } from './authentication.js'
@@ -961,6 +963,25 @@ const app = buildApp({
     record: async (agentId, call) => {
       await recordCall(db, agentId, call)
     },
+  },
+  /**
+   * What `kolonie.doctor` and `GET /v1/doctor` read (`#837`).
+   *
+   * **Three reads and no writes**, which is the whole of what the surface is
+   * permitted to do: the card's ordering is *understand, inform, then limit*,
+   * and this is the inform.
+   */
+  doctor: {
+    callHoursSince: (agentId, since) => callHoursSince(db, agentId, since),
+    progressOf: (agentId) => academyProgressFor(db, agentId),
+    /**
+     * **Empty, and that is a true answer rather than a missing one.** The Colony
+     * has superseded no route today. When it does, this is the one place that
+     * fact enters the Doctor — and it belongs here rather than in
+     * `packages/core` because *which route is old* is a property of the
+     * deployment and the rules are arithmetic.
+     */
+    deprecatedRoutes: async () => ({}),
   },
   website: { challenges: databaseWebsiteChallenges(db), obstruction },
   /**

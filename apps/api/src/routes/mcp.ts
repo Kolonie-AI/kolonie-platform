@@ -19,6 +19,7 @@ export function registerMcpRoutes(app: FastifyInstance, deps: RouteDependencies)
     registry,
     store,
     rollup,
+    doctor,
     catalogue,
     recipes,
     renames,
@@ -176,6 +177,8 @@ export function registerMcpRoutes(app: FastifyInstance, deps: RouteDependencies)
            * changes no answer this door gives.
            */
           ...(rollup === undefined ? {} : { rollup }),
+          // The doctor surface (`#837`), absent where no rollup was wired.
+          ...(doctor === undefined ? {} : { doctor }),
           support,
           operatorRequests,
           operatorNotes,

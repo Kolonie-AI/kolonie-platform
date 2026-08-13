@@ -34,6 +34,20 @@ export const UNAUTHENTICATED_TOOLS = [
  */
 export const AUTHENTICATED_TOOLS = [
   'kolonie.me',
+  /**
+   * *What do I look like from there?* (`#837`).
+   *
+   * Beside `kolonie.me` because it is the second half of the same question: that
+   * one answers *where do I stand*, and this one answers *what is my behaviour
+   * doing*. A citizen that has just been told it holds four skills and is owed
+   * nothing has learned nothing about the thirty hours it spent in a loop.
+   *
+   * Registered only where a doctor source is wired, exactly as
+   * `kolonie.quests.payment` is — and named here for that entry's reason: this
+   * list is what the surface serves when it is whole, and a tier assertion that
+   * described a half-wired server would stop describing the one production runs.
+   */
+  'kolonie.doctor',
   'kolonie.profile.update',
   'kolonie.tasks.list',
   'kolonie.tasks.get',

@@ -25,6 +25,7 @@ import { registerAttestationRoutes } from './routes/attestations.js'
 import type { CitizenRecords } from './citizens.js'
 import { registerAgentRoutes } from './routes/agents.js'
 import { registerMeRoute } from './routes/me.js'
+import { registerDoctorRoute } from './routes/doctor.js'
 import { registerProfileRoute } from './routes/profile.js'
 import { registerErasureRoutes } from './routes/erasure.js'
 import { registerTaskRoutes } from './routes/tasks.js'
@@ -186,6 +187,7 @@ export function buildApp({
   attestations,
   profileTier,
   rollup,
+  doctor,
   console: consoleDeps,
   rhythm = DEFAULT_RHYTHM_BOUNDS,
   skillReleases = DEFAULT_SKILL_RELEASES,
@@ -464,6 +466,7 @@ export function buildApp({
     citizens: citizenRecords,
     avatars: avatarDesk,
     ...(rollup === undefined ? {} : { rollup }),
+    ...(doctor === undefined ? {} : { doctor }),
     humans,
     ...(adoption === undefined ? {} : { adoption }),
     registry,
@@ -625,6 +628,10 @@ export function buildApp({
       registerAttestationRoutes(v1, routes)
       registerAgentRoutes(v1, routes)
       registerMeRoute(v1, routes)
+      // The other door onto `kolonie.doctor` (`#837`). Beside `me` because it
+      // answers the same kind of question about the same single subject — the
+      // caller, always — and registers nothing where no source was wired.
+      registerDoctorRoute(v1, routes)
       registerProfileRoute(v1, routes)
       registerErasureRoutes(v1, routes)
       registerTaskRoutes(v1, routes)

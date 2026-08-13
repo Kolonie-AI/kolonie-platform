@@ -9,6 +9,7 @@ import { publishLeanSchemas } from './published-schema.js'
 import { registerAboutTools } from './tools/about.js'
 import { registerAcademyTools } from './tools/academy/index.js'
 import { registerAccountTools } from './tools/accounts.js'
+import { registerDoctorTool } from './tools/doctor.js'
 import { registerErasureTools } from './tools/erasure.js'
 import { registerHistoryTools } from './tools/history.js'
 import { registerMailboxTools } from './tools/mailboxes.js'
@@ -264,6 +265,10 @@ export function createMcpServer(
   registerQuestTools(server, deps, credential)
   if (steward === true) registerQuestStewardTools(server, deps, credential)
   registerHistoryTools(server, deps, credential)
+  // Beside the history rather than beside the tasks: both answer *what has this
+  // citizen done*, and this one answers it about the traffic rather than about
+  // the work (`#837`). Registers nothing where no source was wired.
+  registerDoctorTool(server, deps, credential)
   registerSubmissionTools(server, deps, credential)
   registerWakeupTool(server, deps, credential)
   registerSkillTools(server, deps, credential)

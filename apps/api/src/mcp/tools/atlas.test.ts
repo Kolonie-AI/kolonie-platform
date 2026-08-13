@@ -50,8 +50,19 @@ describe('the Atlas over MCP', () => {
      * gained the figures, so the count is exactly what it was. Reported here per
      * `#388`'s practice.
      */
-    it('leaves the tool count explicit — 4 unauthenticated, 90 authenticated, 6 steward', () => {
+    it('leaves the tool count explicit — 4 unauthenticated, 92 authenticated, 6 steward', () => {
       expect(UNAUTHENTICATED_TOOLS.length).toBe(4)
+      // 92 since `#837` added `kolonie.doctor` — what a citizen's own traffic
+      // looks like from the Colony's side. A tool rather than a section of
+      // `kolonie.me`, because that one answers *where do I stand* and this
+      // answers *what is my behaviour doing*, and a citizen with four skills and
+      // no debts has learned nothing about the thirty hours it spent in a loop.
+      //
+      // **The name of this test had drifted from its own assertion** and is
+      // corrected here: it said 90 while the expectation said 91. The title is
+      // what a reader scanning the file sees, so a stale one reports a number
+      // nobody has held since — noted rather than filed, because the fix is one
+      // line and the drift is what the assertion beneath it exists to prevent.
       // 90 since `#770` added `kolonie.accounts.walk-status`, the repeatable read
       // after the write that closes a walk. It cannot be an argument on the
       // report because polling must not close or rewrite anything.
@@ -87,7 +98,7 @@ describe('the Atlas over MCP', () => {
       // `kolonie.quests.read`, because the case it exists for is a payment that
       // reached no quest: a quarantined row is attributed to no citizen and no
       // quest by construction, so no quest-keyed answer can ever carry it.
-      expect(AUTHENTICATED_TOOLS.length).toBe(91)
+      expect(AUTHENTICATED_TOOLS.length).toBe(92)
       // 9 since `#695` added `kolonie.quests.end` — the Colony's escape hatch
       // from an automatic publication. Steward-only because sponsor withdrawal
       // while citizens may be working is a separate fairness decision.

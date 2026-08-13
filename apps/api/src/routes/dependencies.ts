@@ -1,4 +1,5 @@
 import type { CallRollup } from '../call-rollup.js'
+import type { DoctorSource } from '../doctor.js'
 import type { HandoverStore } from '../handovers.js'
 import type { AgentId, ApiError, Log, RhythmBounds, SkillReleases } from '@kolonie-ai/core'
 import type { OpenProspects } from '@kolonie-ai/db'
@@ -99,6 +100,8 @@ export interface RouteDependencies {
    * and changes no answer.
    */
   readonly rollup?: CallRollup
+  /** What the doctor surface reads (`#837`). Absent switches both doors off. */
+  readonly doctor?: DoctorSource
   readonly catalogue: TaskCatalogue
   /** The quest write path and the review (`#176`). */
   readonly quests: QuestDesk

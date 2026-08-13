@@ -569,6 +569,11 @@ export async function runtimeDeclarationsOf(
  * holding a taken name is available to the caller, and that is structural rather
  * than a rule the API layer has to keep — there is no id, platform or date in
  * this result to leak.
+ *
+ * **It answers *held now*, which is not what a door should ask (`#824`).** A
+ * handle that has been used is never issued again, so a name freed by an erasure
+ * is still refused and this function says nothing about that. `wasHandleEverHeld`
+ * in `./handle-marks.js` is the one both doors call; this is its live half.
  */
 export async function isNameTaken(db: Database, name: string): Promise<boolean> {
   const [row] = await db

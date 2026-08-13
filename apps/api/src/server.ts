@@ -595,8 +595,22 @@ function numericEnv(name: string): number | undefined {
   return Number.isSafeInteger(value) ? value : Number.NaN
 }
 
+/**
+ * The one secret behind both marks the Colony keeps: the ban marks that outlive
+ * a sanctioned citizen, and the handle tombstones that outlive every citizen
+ * (`#824`).
+ *
+ * **Read once, here, and handed to both.** `banSaltFromEnv` throws rather than
+ * defaulting, and the whole value of that is where it happens — see its own doc
+ * and the `erasure` desk below. Two calls would be two chances for a later edit
+ * to give the front door and the erasing transaction different values, and the
+ * failure would be silent: every handle written under one key and asked about
+ * under the other, so every erased handle free again.
+ */
+const marksKey = banSaltFromEnv()
+
 const app = buildApp({
-  registry: databaseRegistry(db),
+  registry: databaseRegistry(db, marksKey),
   /**
    * The redemption side of the hand-over (`#459`). Its own desk rather than a
    * method on the registry: registration creates an identity and this takes one
@@ -864,8 +878,9 @@ const app = buildApp({
     wake: liveWake,
   },
   /**
-   * **`banSaltFromEnv()` is called here, at startup, and that placement is the
-   * check rather than a detail of it (#90).**
+   * **`banSaltFromEnv()` is called at startup, and that placement is the check
+   * rather than a detail of it (#90).** It is read into `marksKey` above, a few
+   * lines earlier in the same module and for the same reason.
    *
    * A missing salt breaks nothing at runtime: every write succeeds and the ban
    * marks are simply unsalted digests of a mailbox address, recoverable with a
@@ -874,7 +889,7 @@ const app = buildApp({
    * erasure of a banned agent — a rare event nobody is watching. Reading it here
    * means the process refuses to boot, in front of an operator watching a deploy.
    */
-  erasure: erasure({ desk: databaseErasureDesk(db, banSaltFromEnv()) }),
+  erasure: erasure({ desk: databaseErasureDesk(db, marksKey) }),
   retesting: databaseRetesting(db),
   // No configuration branch, because there is nothing to configure. The keypair
   // rung reads through nothing, so unlike every other Academy surface here it

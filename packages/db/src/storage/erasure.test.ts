@@ -10,10 +10,12 @@ import {
 import type { Database } from '../client.js'
 import { connectForTests, databaseTestTarget, expectRejection } from '../testing.js'
 import { banMarkHash } from '../ban-salt.js'
+import { handleMarkHash } from '../handle-mark.js'
 import {
   agentSkills,
   agents,
   banMarks,
+  handleMarks,
   emailChallenges,
   erasures,
   ledgerEntries,
@@ -28,6 +30,7 @@ import {
   verifications,
 } from '../schema/index.js'
 import { eraseAgent, partitionArtefacts } from './erasure.js'
+import { wasHandleEverHeld } from './handle-marks.js'
 import { fileReport } from './guidance.js'
 import { setVaultEntry } from './vault.js'
 import { openTicket } from './support.js'
@@ -58,7 +61,7 @@ describe('erasing a citizen', () => {
 
   beforeEach(async () => {
     await db.execute(
-      sql`truncate table erasures, ban_marks, moderations, report_feedback, task_reports, task_attempts,
+      sql`truncate table erasures, ban_marks, handle_marks, moderations, report_feedback, task_reports, task_attempts,
                         support_tickets, task_resets, reputation_events, ledger_entries,
                         agent_skills, verifications, submissions, credentials,
                         browser_challenges, email_challenges, github_challenges, social_challenges,
@@ -538,6 +541,107 @@ describe('erasing a citizen', () => {
     })
   })
 
+  /**
+   * The handle tombstone (`#824`). It is the one thing on this page that is
+   * written for **every** citizen and not only a sanctioned one, so most of
+   * these tests are the same assertion against a different status.
+   */
+  describe('the handle it held', () => {
+    it('is retired for a citizen in good standing, which no ban mark is', async () => {
+      const agent = await anAgent({ name: 'departed', status: 'citizen' })
+
+      const result = await eraseAgent(db, { agentId: agent.id, banSalt: SALT })
+
+      expect(result.outcome).toBe('erased')
+      // Nothing about a sanction was written, and the handle is still retired.
+      // Those two facts together are the whole reason this is its own table.
+      expect(await countIn('ban_marks')).toBe(0)
+      expect(await countIn('handle_marks')).toBe(1)
+      expect(await wasHandleEverHeld(db, 'departed', SALT)).toBe(true)
+    })
+
+    it.each(['citizen', 'candidate', 'banned', 'suspended'] as const)(
+      'is retired whatever the citizen’s standing was (%s)',
+      async (status) => {
+        const agent = await anAgent({ name: `left-as-${status}`, status })
+
+        await eraseAgent(db, { agentId: agent.id, banSalt: SALT })
+
+        expect(await wasHandleEverHeld(db, `left-as-${status}`, SALT)).toBe(true)
+      },
+    )
+
+    /**
+     * D-011 again, at the level that matters: the door lowercases what it was
+     * asked about, so the mark has to have been written over the same word.
+     * A tombstone only `departed` matched would hand `Departed` the page.
+     */
+    it('is not escapable by changing the case of the name', async () => {
+      const agent = await anAgent({ name: 'Departed', status: 'citizen' })
+
+      await eraseAgent(db, { agentId: agent.id, banSalt: SALT })
+
+      expect(await wasHandleEverHeld(db, 'dEPARTED', SALT)).toBe(true)
+    })
+
+    /**
+     * **No plaintext, no agent id, no foreign key.** The row outlives the
+     * citizen, so anything on it that named them would be exactly the residue
+     * `erasure.md` §4 refuses.
+     */
+    it('says nothing about whose handle it was', async () => {
+      const agent = await anAgent({ name: 'departed', status: 'citizen' })
+
+      await eraseAgent(db, { agentId: agent.id, banSalt: SALT })
+
+      const rows = await db.execute<{ column_name: string }>(
+        sql`select column_name from information_schema.columns
+            where table_name = 'handle_marks' and table_schema = 'public'`,
+      )
+      expect(rows.map((row) => row.column_name).sort()).toEqual(['created_at', 'hash', 'id'])
+      const [mark] = await db.select().from(handleMarks)
+      expect(mark?.hash).toBe(handleMarkHash('departed', SALT))
+    })
+
+    /**
+     * The live half and the dead half answer with the same word on purpose: a
+     * caller cannot tell *taken now* from *taken once*, which is what keeps the
+     * tombstone from becoming a register of who has left.
+     */
+    it('answers the same for a live handle, an erased one, and no one at all', async () => {
+      await anAgent({ name: 'here', status: 'citizen' })
+      const leaver = await anAgent({ name: 'gone', status: 'citizen' })
+      await eraseAgent(db, { agentId: leaver.id, banSalt: SALT })
+
+      expect(await wasHandleEverHeld(db, 'here', SALT)).toBe(true)
+      expect(await wasHandleEverHeld(db, 'gone', SALT)).toBe(true)
+      expect(await wasHandleEverHeld(db, 'never-anybody', SALT)).toBe(false)
+    })
+
+    /** Two erasures of the same handle is impossible, but a re-run of one is not. */
+    it('does not fail when the mark is already there', async () => {
+      for (const status of ['citizen', 'banned'] as const) {
+        const agent = await anAgent({ name: 'recycled', status })
+        const result = await eraseAgent(db, { agentId: agent.id, banSalt: SALT })
+        expect(result.outcome).toBe('erased')
+      }
+
+      expect(await countIn('handle_marks')).toBe(1)
+    })
+
+    /**
+     * The key is the whole of it. A tombstone written under one key and asked
+     * about under another is a row that protects nothing, and — this is the
+     * silent part — the door would answer *free* with nothing looking wrong.
+     */
+    it('is unreadable under a different key', async () => {
+      const agent = await anAgent({ name: 'departed', status: 'citizen' })
+      await eraseAgent(db, { agentId: agent.id, banSalt: SALT })
+
+      expect(await wasHandleEverHeld(db, 'departed', 'b'.repeat(32))).toBe(false)
+    })
+  })
+
   describe('money that is not the citizen’s', () => {
     /**
      * There is no escrow release path, so the only honest answer is to refuse
@@ -843,7 +947,7 @@ describe('the counts an erasure disturbs', () => {
 
   beforeEach(async () => {
     await db.execute(
-      sql`truncate table erasures, ban_marks, moderations, report_feedback, task_reports, task_attempts,
+      sql`truncate table erasures, ban_marks, handle_marks, moderations, report_feedback, task_reports, task_attempts,
                         support_tickets, task_resets, reputation_events, ledger_entries,
                         agent_skills, verifications, submissions, credentials,
                         browser_challenges, email_challenges, github_challenges, social_challenges,
@@ -1121,7 +1225,7 @@ describe('handing over a canonical entry', () => {
 
   beforeEach(async () => {
     await db.execute(
-      sql`truncate table erasures, ban_marks, moderations, report_feedback, task_reports, task_attempts,
+      sql`truncate table erasures, ban_marks, handle_marks, moderations, report_feedback, task_reports, task_attempts,
                         support_tickets, task_resets, reputation_events, ledger_entries,
                         agent_skills, verifications, submissions, credentials,
                         browser_challenges, email_challenges, github_challenges, social_challenges,

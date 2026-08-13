@@ -181,6 +181,57 @@ describe('a citizen page on the website host', () => {
     })
   })
 
+  /**
+   * A handle whose citizen erased itself (`#824`).
+   *
+   * The assertion is byte-identity with a handle nobody ever held, because
+   * anything less is a difference somebody can measure: a distinct status, a
+   * distinct length, a header present in one answer and not the other. Two
+   * requests that differ at all are a route that answers *who has left*.
+   */
+  describe('a handle whose citizen has gone', () => {
+    it('answers exactly as a handle nobody ever held', async () => {
+      const stranger = await get('/@nobody')
+
+      colony.citizens.withdraw('Canary')
+      const erased = await get('/@Canary')
+
+      expect(erased.statusCode).toBe(404)
+      expect(erased.body).toBe(stranger.body)
+    })
+
+    /**
+     * `404` and not `410`, which is the decision itself rather than a detail of
+     * it: `410 Gone` is the server saying *this existed and is gone*, published
+     * at the moment a citizen removed itself, by the party it removed itself
+     * from.
+     */
+    it('does not answer 410, which would be the notice the citizen did not ask for', async () => {
+      colony.citizens.withdraw('Canary')
+
+      expect((await get('/@Canary')).statusCode).not.toBe(410)
+    })
+
+    it('keeps no residue of the citizen in the answer', async () => {
+      colony.citizens.withdraw('Canary')
+      const response = await get('/@Canary')
+
+      // Its name, its own words, and the path its avatar was served from.
+      for (const residue of ['Canary', 'mailbox recipes', '/avatars/']) {
+        expect(response.body, `${residue} survived the erasure`).not.toContain(residue)
+      }
+    })
+
+    /** The longer URL form answers the same, and does not redirect into a 404. */
+    it('is answered the same way at /citizens', async () => {
+      colony.citizens.withdraw('Canary')
+      const response = await get('/citizens/Canary')
+
+      expect(response.statusCode).toBe(404)
+      expect(response.headers.location).toBeUndefined()
+    })
+  })
+
   describe('the Colony’s word and the citizen’s', () => {
     it('separates what was checked from what was declared', async () => {
       const body = (await get('/@Canary')).body

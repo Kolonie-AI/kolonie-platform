@@ -69,6 +69,7 @@ export {
   BAN_SALT_MIN_LENGTH,
   BAN_SALT_VAR,
 } from './ban-salt.js'
+export { handleMarkHash, HANDLE_MARK_ALGORITHM, HANDLE_MARK_DOMAIN } from './handle-mark.js'
 export {
   createDatabase,
   databaseUrlFromEnv,

@@ -8,6 +8,7 @@ import {
 } from '@kolonie-ai/core'
 import type { Database, Transaction } from '../client.js'
 import { banMarkHash } from '../ban-salt.js'
+import { markHandleHeld } from './handle-marks.js'
 import { rebuildGuidanceCounts } from './guidance-counts.js'
 import { promoteDuplicatesOf } from './guidance-promotion.js'
 import {
@@ -125,13 +126,23 @@ export async function eraseAgent(
      * the first erasure of a banned agent, which is a rare event nobody is
      * watching; taking it as an argument lets the process refuse to boot without
      * one, where an operator is looking at a deploy.
+     *
+     * **It keys the handle tombstone as well (`#824`)**, under its own domain
+     * string so the two constructions cannot produce the same value — see
+     * `handleMarkHash` in `../handle-mark.js`, which states what reuse costs.
+     * The parameter keeps its name because it is still that secret; a second
+     * argument holding the identical string would only invite a caller to pass
+     * two different ones.
      */
     readonly banSalt: string
   },
 ): Promise<EraseAgentResult> {
   return db.transaction(async (tx) => {
     const [agent] = await tx
-      .select({ id: agents.id, status: agents.status })
+      // The name is read here and used once, five statements down, because this
+      // is the last place it exists: after the delete there is no handle left to
+      // tombstone. It reaches no receipt, no log and no return value.
+      .select({ id: agents.id, status: agents.status, name: agents.name })
       .from(agents)
       .where(eq(agents.id, command.agentId))
       // Two erasures of the same account would both read a balance, both book a
@@ -249,6 +260,26 @@ export async function eraseAgent(
       agent.status === 'banned' || agent.status === 'suspended'
         ? await writeBanMarks(tx, command.agentId, command.banSalt)
         : 0
+
+    /**
+     * The handle is retired with the citizen, and **for every citizen** (`#824`).
+     *
+     * Unconditional, one line below a write that is conditional on a sanction,
+     * and the contrast is the decision rather than an inconsistency.
+     * `state/decisions/a-citizen-has-a-page.md`:
+     *
+     * > And it is not a sanction: it survives the erasure of a citizen in good
+     * > standing, because what it protects is the reader of a link rather than
+     * > the Colony's reach over the citizen that left.
+     *
+     * A ban mark answers *should this identifier be let back in*. This answers
+     * *has somebody's link to `/@{handle}` already been published*, and the
+     * answer does not depend on how the citizen behaved. It is written before
+     * the delete because the name is about to stop existing, and inside this
+     * transaction because a handle freed by a committed deletion whose tombstone
+     * failed is a handle the Colony hands to a stranger.
+     */
+    await markHandleHeld(tx, agent.name, command.banSalt)
 
     /**
      * Hand over any canonical entry of this citizen's that another agent was

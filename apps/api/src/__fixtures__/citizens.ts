@@ -18,6 +18,15 @@ import type { CitizenRecords } from '../citizens.js'
 export interface FakeCitizenRecords extends CitizenRecords {
   /** Put one citizen's public record on the record. */
   readonly publish: (record: PublicCitizenRecord) => void
+  /**
+   * Take one citizen's record off it again — erasure, as this port sees it
+   * (`#824`).
+   *
+   * **The indexing switch goes with it**, because in production there is no
+   * row left to carry one. A fake that kept the switch would let a test pass
+   * against a state the database cannot be in.
+   */
+  readonly withdraw: (handle: string) => void
   /** Publish one swarm, which no colony does until a maintainer names one. */
   readonly publishSwarm: (drawn: SwarmPortrait) => void
   /**
@@ -43,6 +52,10 @@ export function fakeCitizenRecords(): FakeCitizenRecords {
 
     publish: (record) => {
       published.set(record.handle.toLowerCase(), record)
+    },
+    withdraw: (handle) => {
+      published.delete(handle.toLowerCase())
+      indexable.delete(handle.toLowerCase())
     },
     publicRecord: async (name) => published.get(name.toLowerCase()),
     allowIndexing: (handle) => {

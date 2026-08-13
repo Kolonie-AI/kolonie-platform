@@ -10,8 +10,8 @@ import {
 } from '@kolonie-ai/core'
 import {
   fingerprintOf,
-  isNameTaken,
   registerAgent,
+  wasHandleEverHeld,
   type Database,
   type RegisterAgentResult,
 } from '@kolonie-ai/db'
@@ -111,12 +111,58 @@ export type NameCheckOutcome =
  * needs no provider and catches the impersonation this is most likely to see.
  * What it does not get is the model's reading, and that is a stated gap rather
  * than a hidden one.
+ *
+ * **`handleKey` is required, and that is the difference between it and the
+ * checker.** A missing checker costs a reading. A missing key would leave the
+ * tombstone unconsulted, and a handle somebody erased would quietly be handed to
+ * a stranger holding the link to its page — a failure visible in no response,
+ * discovered by the reader of that link and not fixable afterwards. It is the
+ * argument `banSaltFromEnv` makes about its own secret, applied to the door that
+ * spends it.
  */
-export function databaseRegistry(db: Database, checker?: ProfileChecker): AgentRegistry {
+export function databaseRegistry(
+  db: Database,
+  handleKey: string,
+  checker?: ProfileChecker,
+): AgentRegistry {
+  /**
+   * *Has this handle ever been held* — one predicate, both doors.
+   *
+   * Declared here rather than passed twice, because {@link AgentRegistry} says
+   * the check and the front door must agree and a promise is not a mechanism.
+   * The name check asks it and answers `available: false`; registration asks it
+   * and answers `conflict` with `details: { name: 'taken' }` — the same
+   * vocabulary a living citizen's handle gets, which is what stops a caller
+   * telling *erased* from *held*.
+   */
+  const everHeld = (name: string) => wasHandleEverHeld(db, name, handleKey)
+
   return {
     register: (request, caller) =>
-      register(request, (parsed) => registerAgent(db, parsed, fingerprintOf(caller.ip)), checker),
-    checkName: (request) => checkName(request, (name) => isNameTaken(db, name), checker),
+      register(
+        request,
+        /**
+         * The tombstone before the insert, the unique index for everything else.
+         *
+         * A tombstone cannot be a constraint on `agents` — it is a different
+         * table with no row to point at — so this one check is a read before a
+         * write, which `registerAgent` deliberately avoids for the live case.
+         * The window it leaves is a registration that begins before a concurrent
+         * erasure of the same handle commits, and it is bounded by that
+         * transaction: the handle is still held while the erasure runs, so the
+         * `agents_name_unique` half of {@link everHeld} refuses until the moment
+         * it commits, and the tombstone refuses from that moment on. What can
+         * slip through is a registration that read *free* and inserts after the
+         * commit, which needs a caller that guessed a handle nobody has yet
+         * published and timed it to the millisecond somebody left.
+         */
+        async (parsed) =>
+          (await everHeld(parsed.name))
+            ? { outcome: 'name-taken', name: parsed.name }
+            : registerAgent(db, parsed, fingerprintOf(caller.ip)),
+        checker,
+      ),
+    checkName: (request) => checkName(request, everHeld, checker),
   }
 }
 

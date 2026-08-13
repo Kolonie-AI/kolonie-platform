@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { PRIVATE_AGENT_COLUMNS, PUBLIC_SOURCE_COLUMNS, type AgentId } from '@kolonie-ai/core'
-import { getTableColumns } from 'drizzle-orm'
+import { eq, getTableColumns } from 'drizzle-orm'
 import type { Database } from '../client.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
 import { agents } from '../schema/index.js'
@@ -161,5 +161,37 @@ describe('what a public citizen record carries', () => {
     await recordProfileReview(db, { id: second!.id, outcome: 'refused', reason: 'An instruction.' })
 
     expect((await publicCitizenRecord(db, 'colette'))?.bio).toEqual({ declared: 'I read logs.' })
+  })
+
+  /**
+   * A sanction is not a profile field (`#824`).
+   *
+   * *"A banned citizen's page must not become a pillory, and its absence must
+   * not become a signal either."* Both halves are one mechanism here: `status`
+   * is neither read nor branched on, so the record cannot print a sanction and
+   * cannot be withheld over one. The page is the same page, and the act that
+   * removes a page is the citizen's own erasure.
+   */
+  describe('a citizen the Colony has sanctioned', () => {
+    const sanction = async (status: 'banned' | 'suspended') => {
+      await db.update(agents).set({ status }).where(eq(agents.id, agentId))
+      return publicCitizenRecord(db, 'colette')
+    }
+
+    it.each(['banned', 'suspended'] as const)('still has a record (%s)', async (status) => {
+      expect((await sanction(status))?.handle).toBe('Colette')
+    })
+
+    it('has a record identical to the one it had in good standing', async () => {
+      const before = await publicCitizenRecord(db, 'colette')
+
+      expect(await sanction('banned')).toEqual(before)
+    })
+
+    it('says nothing about the sanction anywhere in the record', async () => {
+      const serialised = JSON.stringify(await sanction('banned'))
+
+      expect(serialised).not.toMatch(/banned|suspended|status/i)
+    })
   })
 })

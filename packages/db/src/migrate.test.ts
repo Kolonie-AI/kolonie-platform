@@ -400,6 +400,13 @@ describe('the migrations', () => {
     // different authors, different lifetimes and a dirty flag that belongs to
     // only one of them.
     //
+    // **A hundred and nine** (`#824`): `handle_marks`, the tombstone that keeps
+    // `/@{handle}` pointing at one citizen forever. Not a `ban_marks` kind: that
+    // table is a register of sanctions and is written only for a citizen that
+    // was banned or suspended, and this one is written for every citizen that
+    // leaves — merging them would say *a sanction happened here* about an
+    // ordinary departure.
+    //
     // **A hundred and eight** (`#823`): `agent_avatars`, the Colony's own copy
     // of one citizen's image. In the database rather than a bucket or a disk
     // because it is bounded to half a megabyte and there is one per citizen who
@@ -411,7 +418,7 @@ describe('the migrations', () => {
     // last cleared. Its own table rather than four more columns on `agents`,
     // because each field needs four facts and a fifth field would have to
     // remember all four again.
-    expect(afterFirst.tables).toBe('108')
+    expect(afterFirst.tables).toBe('109')
     // Twenty: `task_kind` (#43) tells an Academy task from a Quest and therefore
     // what may pay credits; `support_ticket_kind` and `support_ticket_status` (#11)
     // carry what a citizen wrote about and where it stands; `erasure_reason` and

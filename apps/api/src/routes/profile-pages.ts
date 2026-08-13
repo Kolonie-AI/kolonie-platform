@@ -36,6 +36,8 @@ import type { RouteDependencies } from './dependencies.js'
  * | `/@colette`, held, any casing but the citizen's | `301` to the citizen's own casing |
  * | `/@colette`, held | `200` and the page |
  * | `/citizens/colette`, held | `301` to `/@` + the citizen's own casing, one hop |
+ * | `/@colette`, held and banned | `200` and the page, identical in shape to any other |
+ * | `/@colette`, held and long departed | `200` and the page |
  * | `/@colette`, never registered | `404` and the site's own page |
  * | `/@colette`, erased | `404` and the same page, byte for byte |
  * | `/citizens/colette`, not held | `404` and the same page — not a redirect into one |
@@ -45,6 +47,15 @@ import type { RouteDependencies } from './dependencies.js'
  * citizen was here*, which turns the erasure a citizen is entitled to into a
  * public notice that it left; `#824` chose `404` for that reason and this is
  * where the choice is enforced.
+ *
+ * **The two rows above them are the same argument pointing the other way.**
+ * `#824`: *"A banned citizen's page must not become a pillory, and its absence
+ * must not become a signal either."* Both halves are refused by the same
+ * mechanism rather than by two rules — `publicCitizenRecord` has no status in
+ * its projection, so this file cannot print a sanction and cannot withhold a
+ * page over one even if a later edit wanted to. A citizen that simply stopped
+ * coming back has asked for nothing and its page stands; the act that removes a
+ * page is erasure, and it is the citizen's own.
  *
  * ## No credential is read, and a test says so rather than this comment
  *

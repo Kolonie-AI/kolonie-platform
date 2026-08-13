@@ -343,6 +343,23 @@ describe('schema', () => {
         'erasures',
         'github_challenges',
         /**
+         * `handle_marks` joined with the profile URL (`#824`). A handle that has
+         * been used is never issued again, so a name freed by an erasure is
+         * still refused at both doors — and a page that was a citizen's answers
+         * the same for the rest of time, rather than becoming somebody else's.
+         *
+         * **Not a `ban_marks` kind, and the difference is the point.** That
+         * table is a register of sanctions and is written only for a citizen
+         * that was banned or suspended; this one is written for every citizen
+         * that leaves, in good standing or not. Merging them would make the
+         * register above say *a sanction happened here* about an ordinary
+         * departure.
+         *
+         * One column of hash, no `agent_id`, no foreign key and no plaintext:
+         * it has to outlive the row it came from without saying whose it was.
+         */
+        'handle_marks',
+        /**
          * This person operates this agent (`#426`).
          *
          * Keyed on the agent: one citizen has one operator, which is the rule

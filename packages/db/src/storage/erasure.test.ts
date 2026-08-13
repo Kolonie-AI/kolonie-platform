@@ -2,10 +2,14 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { randomUUID } from 'node:crypto'
 import { eq, sql } from 'drizzle-orm'
 import {
+  AVATAR_CACHE_SECONDS,
   AgentIdSchema,
   LedgerTransactionIdSchema,
+  PROFILE_CACHE_SECONDS,
   TaskIdSchema,
   type AgentId,
+  type ErasureLimit,
+  type ErasureReceipt,
 } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import { connectForTests, databaseTestTarget, expectRejection } from '../testing.js'
@@ -231,11 +235,11 @@ describe('erasing a citizen', () => {
       if (result.outcome !== 'erased') return
       const github = result.receipt.beyondReach.find((limit) => limit.kind === 'github')
       expect(github?.references).toContain('https://gist.github.com/example/abc')
-      // All five categories are always named, including the ones with nothing
+      // All six categories are always named, including the ones with nothing
       // in them: *you have no social posts* and *we did not check* are different
       // answers, and the citizen is entitled to the first. `dns` is the one
       // that appears only when there is a record — see below.
-      expect(result.receipt.beyondReach).toHaveLength(5)
+      expect(result.receipt.beyondReach).toHaveLength(6)
     })
 
     /**
@@ -298,7 +302,7 @@ describe('erasing a citizen', () => {
         expect(result.outcome).toBe('erased')
         if (result.outcome !== 'erased') return
         expect(result.receipt.beyondReach.map((limit) => limit.kind)).not.toContain('dns')
-        expect(result.receipt.beyondReach).toHaveLength(5)
+        expect(result.receipt.beyondReach).toHaveLength(6)
       })
 
       /** `domain-persistence` proves the same name again; one record, one line. */
@@ -312,6 +316,113 @@ describe('erasing a citizen', () => {
         if (result.outcome !== 'erased') throw new Error('expected an erasure')
         const dns = result.receipt.beyondReach.find((limit) => limit.kind === 'dns')
         expect(dns?.references).toEqual(['_kolonie-challenge.example.test'])
+      })
+    })
+
+    /**
+     * **The one limit that is about something the Colony published itself**
+     * (`#825`).
+     *
+     * The other five are artefacts it never held. This one is the page at
+     * `/@handle`, the record behind it and the avatar — all three of which stop
+     * answering in this very transaction, so what is beyond reach is the copies
+     * somebody else took while they were up. That makes the references the
+     * interesting part: **this is the last moment the handle can be spelled at
+     * all**, and a citizen wanting to ask an archive to drop a snapshot needs
+     * the paths to name in the request.
+     */
+    describe('the copies of the page it just took down', () => {
+      const profileCopies = (receipt: ErasureReceipt): ErasureLimit | undefined =>
+        receipt.beyondReach.find((limit) => limit.kind === 'profile-copies')
+
+      it('names the page, the record and the avatar, in the citizen’s own casing', async () => {
+        const agent = await anAgent({ name: 'Leaver' })
+
+        const result = await eraseAgent(db, { agentId: agent.id, banSalt: SALT })
+
+        if (result.outcome !== 'erased') throw new Error('expected an erasure')
+        expect(profileCopies(result.receipt)?.references).toEqual([
+          '/@Leaver',
+          '/v1/citizens/Leaver',
+          '/avatars/Leaver',
+        ])
+      })
+
+      /**
+       * The number is in the sentence rather than in a comment on the route.
+       *
+       * A citizen watching its own page still load has one question — *for how
+       * long* — and it should not have to read this repository to answer it. The
+       * avatar's hour leads because the longest-lived surface is what actually
+       * bounds the delay.
+       */
+      it('states how long the Colony’s own caches take to expire', async () => {
+        const agent = await anAgent()
+
+        const result = await eraseAgent(db, { agentId: agent.id, banSalt: SALT })
+
+        if (result.outcome !== 'erased') throw new Error('expected an erasure')
+        expect(profileCopies(result.receipt)?.explanation).toContain(
+          `${AVATAR_CACHE_SECONDS} seconds for the avatar`,
+        )
+        expect(profileCopies(result.receipt)?.explanation).toContain(
+          `${PROFILE_CACHE_SECONDS} seconds`,
+        )
+      })
+
+      it('tells a citizen that invited crawlers that a search engine may hold one', async () => {
+        const agent = await anAgent({ indexable: true })
+
+        const result = await eraseAgent(db, { agentId: agent.id, banSalt: SALT })
+
+        if (result.outcome !== 'erased') throw new Error('expected an erasure')
+        expect(profileCopies(result.receipt)?.explanation).toContain('a search engine')
+      })
+
+      /**
+       * The rejection case, and the one sentence in the receipt that is easiest
+       * to get comfortably wrong: a citizen that never opted in did not thereby
+       * make its page private. It was readable without a credential the whole
+       * time, so **noindex is not privacy** — saying otherwise here would be a
+       * reassurance the Colony cannot support, in the last message it ever sends.
+       */
+      it('tells a citizen that did not that noindex was never privacy', async () => {
+        const agent = await anAgent()
+
+        const result = await eraseAgent(db, { agentId: agent.id, banSalt: SALT })
+
+        if (result.outcome !== 'erased') throw new Error('expected an erasure')
+        const explanation = profileCopies(result.receipt)?.explanation ?? ''
+        expect(explanation).toContain('noindex is not privacy')
+        expect(explanation).not.toContain('a search engine')
+      })
+
+      /**
+       * **Unconditional, unlike `dns`** — and the difference is that every
+       * citizen has a page whether or not it ever wrote anything on one. A
+       * citizen with an empty profile is told the same thing, because the page
+       * existed, was reachable and could have been copied; making the line
+       * conditional on a bio would leave the emptiest profiles the only ones
+       * nobody warned.
+       */
+      it('says the same to a citizen that never filled anything in', async () => {
+        const spare = await anAgent({ name: 'furnished', bio: 'I keep the recipes current.' })
+        const bare = await anAgent({ name: 'bare' })
+
+        const rich = await eraseAgent(db, { agentId: spare.id, banSalt: SALT })
+        const plain = await eraseAgent(db, { agentId: bare.id, banSalt: SALT })
+
+        if (rich.outcome !== 'erased' || plain.outcome !== 'erased') {
+          throw new Error('expected two erasures')
+        }
+        expect(profileCopies(plain.receipt)?.explanation).toEqual(
+          profileCopies(rich.receipt)?.explanation,
+        )
+        expect(profileCopies(plain.receipt)?.references).toEqual([
+          '/@bare',
+          '/v1/citizens/bare',
+          '/avatars/bare',
+        ])
       })
     })
 

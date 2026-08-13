@@ -24,6 +24,8 @@
  * prints.
  */
 
+import { API_BASE_PATH } from '../api/version.js'
+
 /**
  * The prefix a profile page answers under.
  *
@@ -61,6 +63,36 @@ export function profilePath(handle: string): string {
 }
 
 /**
+ * The path one citizen's public record is at.
+ *
+ * The machine-readable half of the same page, and versioned because it is an API
+ * surface — `AGENTS.md` §2 — where the page and the avatar are not. Here beside
+ * the other two so that the three surfaces a citizen is told about at erasure
+ * (`#825`) are built by three functions in one file rather than by three string
+ * literals in three packages.
+ */
+export function citizenRecordPath(handle: string): string {
+  return `${API_BASE_PATH}/citizens/${encodeURIComponent(handle)}`
+}
+
+/** Where the Colony-hosted copy of a citizen's avatar answers (`#823`). */
+export const AVATAR_PATH_PREFIX = '/avatars/'
+
+/**
+ * The path one citizen's avatar is at.
+ *
+ * **A function rather than a literal, because three readers now need it**: the
+ * public record puts it in `avatar`, the route answers on it, and `#825` names
+ * it in the erasure receipt as one of the URLs a departing citizen may want to
+ * hand to an archive. Encoded and cased exactly as {@link profilePath}, for the
+ * same reasons — a handle with a space in it would otherwise produce something
+ * that is not a URL, in a receipt nobody can ask a follow-up question about.
+ */
+export function avatarPath(handle: string): string {
+  return `${AVATAR_PATH_PREFIX}${encodeURIComponent(handle)}`
+}
+
+/**
  * How long a public profile response may be served from a cache.
  *
  * **A minute, and the number is chosen against erasure rather than against the
@@ -74,3 +106,22 @@ export function profilePath(handle: string): string {
  * avatar's hour.
  */
 export const PROFILE_CACHE_SECONDS = 60
+
+/**
+ * How long the avatar may be served from a cache.
+ *
+ * **Here rather than beside the media types, because the receipt reads it**
+ * (`#825`). An erasure removes every surface in one transaction, and what a
+ * departing citizen is owed afterwards is one honest sentence about how long the
+ * copies the Colony *does* control can outlive it. That sentence has two numbers
+ * in it, and two numbers written in two files are two numbers that drift — the
+ * route would keep serving an hour while the receipt kept promising a minute,
+ * and nothing would fail.
+ *
+ * An hour rather than the page's minute, for the reason `routes/avatars.ts`
+ * gives: an image is the expensive thing on the page and the cheapest to be
+ * slightly stale about. **It is therefore the number the receipt has to lead
+ * with**, since the longest-lived surface is what actually bounds the delay.
+ * `#828` revisits both against a real crawler.
+ */
+export const AVATAR_CACHE_SECONDS = 3600

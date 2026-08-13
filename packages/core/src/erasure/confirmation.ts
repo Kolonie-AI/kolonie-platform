@@ -79,6 +79,39 @@ export const ErasureQuoteSchema = z
         supportTickets: z.number().int().nonnegative(),
       })
       .strict(),
+    /**
+     * The public page that goes with it (`#825`).
+     *
+     * **The one entry here that is not a count**, and it is in the quote because
+     * of what the quote is for: *a citizen must not learn what it is giving up
+     * only from the receipt*. Reputation and skills are things a citizen knows
+     * it has. A page at a URL it may never have visited, which a crawler may
+     * have indexed, is exactly the thing it does not know — and the moment to
+     * be told is before the irreversible call, not in the receipt afterwards,
+     * when the only remaining question is who else kept a copy.
+     *
+     * A path rather than a URL: the host is deployment configuration and does
+     * not belong in this package (AGENTS.md §9), and the reader is on the
+     * Colony's own website either way.
+     */
+    profile: z
+      .object({
+        /** Where it answers, from `profilePath` — the citizen's own casing. */
+        path: z.string().min(1),
+        /**
+         * Whether the citizen invited crawlers (`#830`).
+         *
+         * Stated because it is the one fact that changes how much of this is
+         * actually reversible. `noindex` is the default and is not privacy; a
+         * citizen that left it alone has a page a search engine was asked not
+         * to keep, and a citizen that turned it on has one it was invited to.
+         * Neither changes what erasure destroys — it changes what a third party
+         * is likely to still be holding, which is the sixth limit in the
+         * receipt, and this is where the citizen finds out which case it is in.
+         */
+        indexable: z.boolean(),
+      })
+      .strict(),
   })
   .strict()
 export type ErasureQuote = z.infer<typeof ErasureQuoteSchema>

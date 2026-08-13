@@ -86,7 +86,8 @@ describe('leaving the Colony over HTTP', () => {
       // throw away the receipt, which is the honest half of the operation.
       // Nothing is burned any more (`#553` phase C) — the field stays for old receipts.
       expect(response.json().creditsBurned).toBe(0)
-      expect(response.json().beyondReach).toHaveLength(5)
+      // Six since `#825`, the sixth being the copies of the public page.
+      expect(response.json().beyondReach).toHaveLength(6)
       expect(colony.erasureDesk.erased()).toEqual([agent.id])
     })
 

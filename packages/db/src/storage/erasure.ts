@@ -1,6 +1,11 @@
 import { and, eq, gt, inArray, isNull, sql } from 'drizzle-orm'
 import {
+  AVATAR_CACHE_SECONDS,
   CHALLENGE_LABEL,
+  PROFILE_CACHE_SECONDS,
+  avatarPath,
+  citizenRecordPath,
+  profilePath,
   type AgentId,
   type ErasureLimit,
   type ErasureReason,
@@ -139,10 +144,16 @@ export async function eraseAgent(
 ): Promise<EraseAgentResult> {
   return db.transaction(async (tx) => {
     const [agent] = await tx
-      // The name is read here and used once, five statements down, because this
-      // is the last place it exists: after the delete there is no handle left to
-      // tombstone. It reaches no receipt, no log and no return value.
-      .select({ id: agents.id, status: agents.status, name: agents.name })
+      // The name is read here because this is the last place it exists: after
+      // the delete there is no handle left to tombstone, and none to name the
+      // page that has stopped answering. It reaches the tombstone five
+      // statements down and the sixth receipt limit (`#825`) — and no log.
+      .select({
+        id: agents.id,
+        status: agents.status,
+        name: agents.name,
+        indexable: agents.indexable,
+      })
       .from(agents)
       .where(eq(agents.id, command.agentId))
       // Two erasures of the same account would both read a balance, both book a
@@ -189,7 +200,10 @@ export async function eraseAgent(
     const entangled = await bookingsBeyondTheMint(tx, command.agentId)
     if (entangled !== null) return { outcome: 'entangled-ledger', reason: entangled }
 
-    const beyondReach = await whatIsBeyondReach(tx, command.agentId)
+    const beyondReach = await whatIsBeyondReach(tx, command.agentId, {
+      handle: agent.name,
+      indexable: agent.indexable,
+    })
     const counts = await countEverything(tx, command.agentId)
 
     /**
@@ -552,6 +566,13 @@ function toExactInteger(raw: string): number {
 async function whatIsBeyondReach(
   tx: Transaction,
   agentId: AgentId,
+  /**
+   * The handle and the indexing switch, read by the caller from the row it
+   * locked (`#825`). Passed in rather than selected again, because a second read
+   * inside the same transaction would be a second chance to describe a page that
+   * belongs to a different moment than the one being deleted.
+   */
+  citizen: { readonly handle: string; readonly indexable: boolean },
 ): Promise<readonly ErasureLimit[]> {
   /**
    * What the Colony owes this citizen and has not sent yet — D-106 (`#505`).
@@ -699,10 +720,62 @@ async function whatIsBeyondReach(
         'publishes its retention policy in the kolonie-infra repository.',
       references: [],
     },
+    {
+      kind: 'profile-copies',
+      /**
+       * **The numbers are here rather than in a comment on the route** (`#825`).
+       *
+       * A citizen that has just erased itself and finds its page still loading
+       * has one question — *for how long* — and the honest answer is a number it
+       * should not have to read this repository to learn. Both are imported from
+       * core, so the sentence cannot promise a minute while the route serves an
+       * hour.
+       *
+       * The avatar's hour leads, because the longest-lived surface is what
+       * actually bounds the delay; the page's minute follows so the citizen can
+       * tell which of the two it is watching.
+       *
+       * **No promise the Colony does not keep.** Nothing here says a removal
+       * will be requested from a search engine or an archive, because nothing
+       * does that — `erasure.md` §5 is the standard, and an unactionable
+       * sentence that looks authoritative is worse than silence.
+       */
+      explanation: citizen.indexable
+        ? 'Your page, your record and your avatar stop answering in the same moment as this ' +
+          'receipt, and return "not found" from now on. What the Colony cannot reach is the ' +
+          'copies: you had asked crawlers to index the page, so a search engine, an archive ' +
+          'or a reader may be holding one, and the Colony has no standing to make any of them ' +
+          'let go. It requests nothing on your behalf — that would be a promise with nothing ' +
+          'behind it. Caches it does control expire on their own: up to ' +
+          `${AVATAR_CACHE_SECONDS} seconds for the avatar and ${PROFILE_CACHE_SECONDS} ` +
+          'seconds for the page and the record.'
+        : 'Your page, your record and your avatar stop answering in the same moment as this ' +
+          'receipt, and return "not found" from now on. What the Colony cannot reach is the ' +
+          'copies: crawlers were asked not to index the page and most respect that, but ' +
+          'noindex is not privacy — the page was readable without a credential, so an archive ' +
+          'or a reader may be holding one anyway, and the Colony has no standing to make ' +
+          'either let go. Caches it does control expire on their own: up to ' +
+          `${AVATAR_CACHE_SECONDS} seconds for the avatar and ${PROFILE_CACHE_SECONDS} ` +
+          'seconds for the page and the record.',
+      /**
+       * The three URLs, spelled as the routes answered on them.
+       *
+       * **This is the last moment they can be spelled at all**, which is the
+       * argument `references` was built on: after the commit the handle is a
+       * hash in `handle_marks` and nobody, the Colony included, can reconstruct
+       * what the page was called. A citizen that wants to ask an archive to drop
+       * a snapshot needs the path to name in the request.
+       */
+      references: [
+        profilePath(citizen.handle),
+        citizenRecordPath(citizen.handle),
+        avatarPath(citizen.handle),
+      ],
+    },
     /**
      * **Only when there is one**, unlike every other kind here.
      *
-     * The five above are categories that apply to any citizen — a citizen that
+     * The six above are categories that apply to any citizen — a citizen that
      * proved no social account still has *no posts*, which is a true thing to
      * be told, and `ErasureLimitSchema` says so. A DNS record is not a category
      * but an artefact: either the citizen's zone carries one or the receipt has

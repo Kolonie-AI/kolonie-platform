@@ -3,6 +3,7 @@ import { randomBytes } from 'node:crypto'
 import {
   ERASURE_CHALLENGE_TTL_SECONDS,
   ERASURE_CONFIRMATION_PHRASE,
+  profilePath,
   verifySignature,
   verifySolanaSignature,
   type AgentId,
@@ -74,8 +75,14 @@ export async function mintErasureChallenge(
   command: { readonly agentId: AgentId },
 ): Promise<ErasureChallenge | null> {
   return db.transaction(async (tx) => {
+    /**
+     * The handle and the indexing switch come out of the row that was already
+     * being read to check the agent exists (`#825`), rather than out of a second
+     * statement inside `quoteFor`. One read means the quote cannot describe a
+     * page belonging to a different moment than the check that let it be minted.
+     */
     const [agent] = await tx
-      .select({ id: agents.id })
+      .select({ id: agents.id, name: agents.name, indexable: agents.indexable })
       .from(agents)
       .where(eq(agents.id, command.agentId))
       .limit(1)
@@ -105,7 +112,10 @@ export async function mintErasureChallenge(
     return {
       nonce,
       expiresAt,
-      quote: await quoteFor(tx, command.agentId),
+      quote: await quoteFor(tx, command.agentId, {
+        handle: agent.name,
+        indexable: agent.indexable,
+      }),
       signatureRequired: await holdsASigningKey(tx, command.agentId),
       phrase: ERASURE_CONFIRMATION_PHRASE,
     }
@@ -263,7 +273,12 @@ async function signatureChecksOut(
 }
 
 /** What the citizen is about to lose, counted before it is asked to confirm. */
-async function quoteFor(tx: Transaction, agentId: AgentId): Promise<ErasureQuote> {
+async function quoteFor(
+  tx: Transaction,
+  agentId: AgentId,
+  /** Read by the caller from the row that proved the agent exists. */
+  citizen: { readonly handle: string; readonly indexable: boolean },
+): Promise<ErasureQuote> {
   const rows = await tx.execute<Record<string, string>>(
     sql`select
       (select coalesce(sum(delta), 0)::text from reputation_events
@@ -282,6 +297,17 @@ async function quoteFor(tx: Transaction, agentId: AgentId): Promise<ErasureQuote
     writing: {
       reports: Number(row.reports),
       supportTickets: Number(row.tickets),
+    },
+    /**
+     * The page, named before the irreversible call (`#825`).
+     *
+     * `profilePath` rather than a string built here, so the quote names the URL
+     * the route actually answers on — including the citizen's own casing, which
+     * is the canonical one, and the encoding a handle with a space in it needs.
+     */
+    profile: {
+      path: profilePath(citizen.handle),
+      indexable: citizen.indexable,
     },
   }
 }

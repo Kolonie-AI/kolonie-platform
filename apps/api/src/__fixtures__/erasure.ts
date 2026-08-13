@@ -58,6 +58,11 @@ const RECEIPT: ErasureReceipt = {
       references: [],
     },
     { kind: 'backups', explanation: 'Backups hold a copy until they roll.', references: [] },
+    {
+      kind: 'profile-copies',
+      explanation: 'Copies of your page that somebody else already took.',
+      references: ['/@a-citizen', '/v1/citizens/a-citizen', '/avatars/a-citizen'],
+    },
   ],
 }
 
@@ -93,6 +98,15 @@ export function fakeErasureDesk(): FakeErasureDesk {
           reputation: 15,
           skills: 3,
           writing: { reports: 2, supportTickets: 1 },
+          /**
+           * A path rather than a handle, because that is what the quote carries
+           * — and a fixed one, because this desk is handed an id and never a
+           * name. The real one reads the handle off the row it locked (`#825`);
+           * a fake that invented a plausible handle here would be a second
+           * implementation of the lookup, which is what the comment above says
+           * this fixture refuses to be.
+           */
+          profile: { path: '/@a-citizen', indexable: false },
         },
         signatureRequired: signatureRequired.has(String(agentId)),
         phrase: ERASURE_CONFIRMATION_PHRASE,

@@ -1,4 +1,9 @@
-import { AVATAR_MEDIA_TYPE, robotsDirective, ROBOTS_HEADER } from '@kolonie-ai/core'
+import {
+  AVATAR_CACHE_SECONDS,
+  AVATAR_MEDIA_TYPE,
+  robotsDirective,
+  ROBOTS_HEADER,
+} from '@kolonie-ai/core'
 import type { FastifyInstance } from 'fastify'
 import { PLACEHOLDER_MEDIA_TYPE, placeholderAvatar } from '../avatar-placeholder.js'
 import type { RouteDependencies } from './dependencies.js'
@@ -71,12 +76,15 @@ export function registerAvatarRoutes(app: FastifyInstance, deps: RouteDependenci
 
     if (served.outcome === 'placeholder') {
       /**
-       * Cached longer than a real avatar, because it changes only when the
-       * citizen sets one — and when that happens the page linking here is being
-       * rewritten anyway.
+       * The same hour a real avatar gets, and deliberately the same constant.
+       *
+       * A placeholder cached for a different span than an image would make *has
+       * this citizen set an avatar* readable from `cache-control` — and it is
+       * the erasure delay either way (`#825`), which cannot be two numbers
+       * depending on which branch a departing citizen happened to be on.
        */
       return reply
-        .header('cache-control', 'public, max-age=3600')
+        .header('cache-control', `public, max-age=${AVATAR_CACHE_SECONDS}`)
         .type(PLACEHOLDER_MEDIA_TYPE)
         .send(placeholderAvatar(served.handle))
     }
@@ -94,7 +102,7 @@ export function registerAvatarRoutes(app: FastifyInstance, deps: RouteDependenci
      * has to read source code to learn is not a promise anybody made it.
      */
     return reply
-      .header('cache-control', 'public, max-age=3600')
+      .header('cache-control', `public, max-age=${AVATAR_CACHE_SECONDS}`)
       .type(AVATAR_MEDIA_TYPE[served.avatar.format])
       .send(Buffer.from(served.avatar.bytes))
   })

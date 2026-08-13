@@ -31,7 +31,7 @@ export const CHALLENGE_LABEL = '_kolonie-challenge'
  * nobody.
  */
 
-/** The five things an erasure cannot reach. */
+/** The things an erasure cannot reach. */
 export const ErasureLimitKindSchema = z.enum([
   /** Commits, pull requests and gists, authored by the citizen's own account (D-019). */
   'github',
@@ -61,6 +61,27 @@ export const ErasureLimitKindSchema = z.enum([
    * account it would otherwise have asked through.
    */
   'owed-payout',
+  /**
+   * Copies of the citizen's public page that somebody else made — `#825`.
+   *
+   * **The sixth item, and the only one that exists because the Colony published
+   * something rather than because it never held it.** Until `#819` the list of
+   * five was complete and correct; a page at `/@{handle}` that a crawler may
+   * index, an archive may snapshot and a reader may screenshot made it neither,
+   * and this entry is what keeps the sentence true.
+   *
+   * The half inside reach is not stated here as a limit, because it is not one:
+   * the page, the record and the avatar stop answering in the same transaction
+   * as the row. What is beyond reach is every copy made before that moment, and
+   * the receipt says so **without promising a removal request nobody sends** —
+   * `erasure.md` §5 is the standard, and *we will ask search engines to
+   * de-index you* would be a promise with no code behind it.
+   *
+   * Unconditional, like the five: every citizen has a page, so every citizen is
+   * owed the sentence. A citizen that never turned indexing on is told the same
+   * thing with a different first clause — see `whatIsBeyondReach`.
+   */
+  'profile-copies',
 ])
 export type ErasureLimitKind = z.infer<typeof ErasureLimitKindSchema>
 

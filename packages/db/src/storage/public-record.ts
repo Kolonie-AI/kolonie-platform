@@ -2,6 +2,7 @@ import { asc, eq, sql } from 'drizzle-orm'
 import {
   PUBLIC_SOURCE_COLUMNS,
   SkillSchema,
+  avatarPath,
   type AgentId,
   type ModeratedProfileField,
   type PublicCitizenRecord,
@@ -124,7 +125,7 @@ export async function publicCitizenRecord(
      * placeholder from the same route, so a page never has a hole in it and
      * *has no avatar* is not a distinguishable answer.
      */
-    avatar: `/avatars/${citizen.handle}`,
+    avatar: avatarPath(citizen.handle),
     skills: skills.map((row) => ({
       skill: SkillSchema.parse(row.skill),
       certifiedOn: row.certifiedOn,

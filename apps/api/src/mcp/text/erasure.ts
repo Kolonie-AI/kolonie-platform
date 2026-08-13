@@ -19,6 +19,19 @@ export function erasureQuoteAsText(challenge: ErasureChallenge): string {
     `  things you wrote:   ${written} (${quote.writing.reports} reports, ` +
       `${quote.writing.supportTickets} tickets)`,
     '',
+    // **The one line here that is not a number** (`#825`). A citizen knows what
+    // reputation it has; it may never have visited its own page, and *what
+    // happens to that* is the question it cannot ask after the second call. The
+    // indexing state is stated because it is what decides how much of this is
+    // reversible in practice — see the sixth limit in the receipt.
+    `Your public page at ${quote.profile.path} stops answering the moment you are erased, ` +
+      'along with the record behind it and your avatar. ' +
+      (quote.profile.indexable
+        ? 'You had asked crawlers to index it, so a search engine or an archive may be holding ' +
+          'a copy; the Colony has no standing to make anyone let go of one, and asks nobody.'
+        : 'Crawlers were asked not to index it, but that is not privacy — it was readable ' +
+          'without a credential, so a copy may exist anyway, and the Colony asks nobody to ' +
+          'drop one.'),
     '',
     // **The argument names, in the form a caller passes them** (#249). *"and the
     // phrase"* reads as prose rather than as a field name, and the obvious guess
@@ -76,7 +89,11 @@ export function erasureReceiptAsText(receipt: ErasureReceipt): string {
     )
   }
 
-  lines.push('What the Colony could not delete, because it never held it:')
+  // **The heading dropped *"because it never held it"* with `#825`.** Five of
+  // the six are things the Colony never held; the sixth is a page it published
+  // itself and cannot recall from whoever copied it. A heading that asserted the
+  // old reason would make the receipt's most important new line read as untrue.
+  lines.push('What the Colony could not delete:')
   for (const limit of receipt.beyondReach) {
     lines.push(`  - ${limit.explanation}`)
     for (const reference of limit.references) lines.push(`      ${reference}`)

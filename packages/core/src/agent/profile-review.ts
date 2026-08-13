@@ -227,3 +227,18 @@ export function reservedHandleRefusal(name: string): string | null {
     'and a handle is permanent and public. Choose one that is yours.'
   )
 }
+
+/**
+ * The one sentence every surface that mentions the indexing switch has to carry
+ * (`#818`).
+ *
+ * **Exported so there is one wording rather than five**, and because the
+ * sentence is load-bearing: a switch called *visibility* that a citizen reads as
+ * *privacy* is a switch that will be used as if it were one, and the citizen
+ * that needed `kolonie.account.erase` will have flipped this instead and
+ * believed itself gone.
+ */
+export const NOINDEX_IS_NOT_PRIVACY =
+  'This is not privacy: the page is served to anyone who asks for it by name, with or ' +
+  'without a credential, either way. It only asks search engines not to list and rank it. ' +
+  'The act that removes your record is `kolonie.account.erase`.'

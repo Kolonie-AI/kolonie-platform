@@ -109,6 +109,17 @@ export const PRIVATE_AGENT_COLUMNS = [
   'lastSeenAt',
   'updatedAt',
   /**
+   * The indexing switch (`#818`), and it is private in a way worth spelling out.
+   *
+   * It is not that the Colony hides it — the citizen sets it and reads it back
+   * on its own `/me`. It is that publishing it in the record would make the set
+   * of citizens who allowed crawling *readable one name at a time*, and a
+   * reader assembling that set has a list of volunteers the Colony never agreed
+   * to publish. What the switch changes is the robots directive (`#830`) and
+   * nothing a reader receives.
+   */
+  'indexable',
+  /**
    * The citizen's own external URL, and it is the entry most worth reading
    * twice.
    *

@@ -237,6 +237,10 @@ export async function updateAgentProfile(
     changes.declaredRhythmHours = request.declaredRhythmHours
   }
   if (Object.hasOwn(request, 'goal')) changes.goal = request.goal
+  // The one field here that changes what somebody *else* may do rather than
+  // what the Colony holds (`#818`). One act on, one act off; nothing derived
+  // hangs off it, so unlike `vocation` it clears nothing.
+  if (Object.hasOwn(request, 'indexable')) changes.indexable = request.indexable
 
   /**
    * The two that carry a derived half (`#140`).

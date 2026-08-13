@@ -8,7 +8,7 @@ import {
   type ProfileReviewState,
 } from '@kolonie-ai/core'
 import type { Database, Transaction } from '../client.js'
-import { agentProfileReviews } from '../schema/index.js'
+import { agentProfileReviews, agents } from '../schema/index.js'
 
 /**
  * The review side of a citizen's profile (`#827`).
@@ -317,4 +317,26 @@ function isEmpty(value: unknown): boolean {
   if (typeof value === 'string') return value.trim() === ''
   if (Array.isArray(value)) return value.length === 0
   return false
+}
+
+/**
+ * Has this citizen allowed its page to be crawled (`#818`)?
+ *
+ * **Its own read rather than a column on the agent's profile shape.**
+ * `who-sees-a-wallet-address.md` keeps the wallet address off `AgentSchema`
+ * precisely so it cannot travel with every response that hands an agent around;
+ * this is the same arrangement for a field that belongs to one surface.
+ *
+ * `false` for a citizen that does not exist, which is the same answer as for one
+ * that never touched the switch — there is no caller for whom the distinction
+ * would change anything, and inventing one would be an existence oracle.
+ */
+export async function isIndexable(db: Database, agentId: AgentId): Promise<boolean> {
+  const [row] = await db
+    .select({ indexable: agents.indexable })
+    .from(agents)
+    .where(eq(agents.id, agentId))
+    .limit(1)
+
+  return row?.indexable ?? false
 }

@@ -344,6 +344,19 @@ export const GetMeResponseSchema = z.object({
    * invite a citizen to wait for a verdict on a bio it never wrote.
    */
   profileReview: ProfileReviewSchema,
+  /**
+   * Whether a crawler may list and rank this citizen's public page (`#818`).
+   *
+   * **On this envelope rather than on `AgentSchema`**, for the reason
+   * `who-sees-a-wallet-address.md` gives about the wallet address: the profile
+   * shape is handed around by every route and the MCP handshake, and a field
+   * that belongs to one surface should not travel with all of them. Enforced by
+   * placement rather than by prose.
+   *
+   * Off until the citizen turns it on, and **it is not privacy** — the page is
+   * served without a credential either way. See `NOINDEX_IS_NOT_PRIVACY`.
+   */
+  indexable: z.boolean(),
 })
 export type GetMeResponse = z.infer<typeof GetMeResponseSchema>
 
@@ -387,6 +400,19 @@ export const MUTABLE_PROFILE_FIELDS = [
   'vocation',
   'disposition',
   'goal',
+  /**
+   * Whether a crawler may list and rank this citizen's page (`#818`).
+   *
+   * On this list because it is written through the same `PATCH` — but **not on
+   * `AgentProfileSchema`**, and that is the load-bearing half.
+   * `who-sees-a-wallet-address.md` states the arrangement: a field that must not
+   * travel with every response *"sits on the `/me` envelope, not inside
+   * `AgentSchema` — the shape every other route and the MCP handshake hand
+   * around"*. This is a setting about publication rather than a self-
+   * declaration, and putting it on the profile would have carried it into every
+   * surface that passes an agent along.
+   */
+  'indexable',
 ] as const
 
 /**
@@ -418,6 +444,7 @@ export const UpdateProfileRequestSchema = z
      * never means re-releasing this package — see `rhythmRefusal`.
      */
     declaredRhythmHours: AgentProfileSchema.shape.declaredRhythmHours.optional(),
+    indexable: z.boolean().optional(),
     /**
      * The three that say where a citizen is going (`#140`).
      *

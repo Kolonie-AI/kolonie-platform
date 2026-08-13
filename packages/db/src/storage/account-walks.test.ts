@@ -124,6 +124,7 @@ describe('the record of one agent obtaining one account', () => {
 
       const entry = await providerRecipe(db, where.kind, where.provider)
       expect(entry?.status).toBe('draft')
+      expect(entry?.category).toBe('mailbox')
       expect(entry?.steps).toHaveLength(2)
       /** The actions, with the wording genuinely absent — which is the issue. */
       expect(entry?.steps[0]?.instruction).toBeUndefined()
@@ -295,6 +296,7 @@ describe('the record of one agent obtaining one account', () => {
 
       const entry = await providerRecipe(db, where.kind, where.provider)
       expect(entry?.status).toBe('refused')
+      expect(entry?.category).toBe('mailbox')
       expect(entry?.refusal).toContain('phone number')
       expect(entry?.steps).toEqual([])
     })
@@ -636,6 +638,7 @@ describe('the record of one agent obtaining one account', () => {
       const entry = await providerRecipe(db, github.kind, github.provider)
 
       expect(entry?.status).toBe('draft')
+      expect(entry?.category).toBe('code-hosting')
       expect(entry?.steps.map((step) => step.actor)).toEqual([
         'agent',
         'operator',

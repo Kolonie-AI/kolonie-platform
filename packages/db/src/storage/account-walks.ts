@@ -3,6 +3,7 @@ import {
   AccountKindSchema,
   AccountProviderSchema,
   AgentPlatformSchema,
+  atlasCategoryForKind,
   RecipeActorSchema,
   WalkOutcomeSchema,
   WALK_PROSE_FIELDS,
@@ -462,7 +463,7 @@ export async function finishWalk(
          * somebody already named does not rename it.
          */
         title: entry?.title ?? walk.provider,
-        category: entry?.category ?? 'data-apis',
+        category: entry?.category ?? atlasCategoryForKind(walk.kind),
         status: 'draft',
         steps: verdict.steps,
         /**
@@ -483,7 +484,7 @@ export async function finishWalk(
         kind: walk.kind,
         provider: walk.provider,
         title: entry?.title ?? walk.provider,
-        category: entry?.category ?? 'data-apis',
+        category: entry?.category ?? atlasCategoryForKind(walk.kind),
         status: 'refused',
         refusal: verdict.wall,
         steps: [],

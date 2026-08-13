@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { TimestampSchema } from '../common/time.js'
-import { AccountProviderSchema } from './account.js'
+import { AccountProviderSchema, type AccountKind } from './account.js'
 import { AtlasCategorySchema, type AtlasCategory } from './recipe.js'
 
 /**
@@ -222,4 +222,50 @@ export const KIND_BY_ATLAS_CATEGORY: Readonly<Record<AtlasCategory, string>> = {
    * entry and a citizen's own register on different rows for one thing.
    */
   telephony: 'phone',
+}
+
+/**
+ * The shelf that corresponds to an account kind when a walk creates an entry
+ * nobody had catalogued yet (`#807`).
+ *
+ * **Derived rather than copied**, because a second table would recreate the
+ * disagreement this lookup exists to remove. The derivation also refuses a
+ * duplicate at module load: choosing either shelf for one kind would silently
+ * make the same false catalogue claim as the old `data-apis` fallback.
+ */
+const ATLAS_CATEGORY_BY_KIND: ReadonlyMap<string, AtlasCategory> = (() => {
+  const categories = new Map<string, AtlasCategory>()
+
+  for (const category of AtlasCategorySchema.options) {
+    const kind = KIND_BY_ATLAS_CATEGORY[category]
+    const existing = categories.get(kind)
+    if (existing !== undefined) {
+      throw new Error(
+        `Atlas categories ${existing} and ${category} both map to account kind ${kind}`,
+      )
+    }
+    categories.set(kind, category)
+  }
+
+  /**
+   * `github` predates the generic `code-host` kind and remains the holding the
+   * Academy grants and the original catalogue row uses. A walk at another
+   * GitHub-backed provider therefore carries `github`, but it belongs on the
+   * same code-hosting shelf rather than becoming an API by default.
+   */
+  categories.set('github', 'code-hosting')
+
+  return categories
+})()
+
+/**
+ * Resolve the one Atlas shelf currently paired with an account kind.
+ *
+ * An unknown kind is an error rather than a guessed shelf: categories are real
+ * catalogue claims, and the account-kind vocabulary is deliberately open.
+ */
+export function atlasCategoryForKind(kind: AccountKind): AtlasCategory {
+  const category = ATLAS_CATEGORY_BY_KIND.get(kind)
+  if (category === undefined) throw new Error(`No Atlas category maps to account kind ${kind}`)
+  return category
 }

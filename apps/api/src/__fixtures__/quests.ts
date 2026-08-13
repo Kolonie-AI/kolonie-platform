@@ -24,6 +24,8 @@ import type {
   ColonyQuest,
   HeldReport,
   OwnQuest,
+  QuestModerationHistoryFilters,
+  QuestModerationHistoryRow,
   QuestResult as AcceptedReport,
 } from '@kolonie-ai/db'
 import type { QuestDesk } from '../quests.js'
@@ -57,6 +59,8 @@ export interface FakeQuestDesk extends QuestDesk {
    * half a rule.
    */
   readonly reportReads: readonly { readonly taskId: string; readonly humanId: string }[]
+  /** Every filter the moderation audit was asked with (`#814`). */
+  readonly moderationAsked: readonly QuestModerationHistoryFilters[]
   /** Say what the population holds, for a test about `#524`'s figure. */
   readonly populationHolds: (counts: readonly HoldingCount[]) => void
   /**
@@ -139,6 +143,8 @@ export interface FakeQuestDesk extends QuestDesk {
     readonly unreported?: readonly { taskId: string; title: string; attempts: number }[]
     /** Whether briefings help (`#609`). */
     readonly briefings?: readonly unknown[]
+    /** Quest verdicts shown on the moderation audit (`#814`). */
+    readonly moderations?: readonly QuestModerationHistoryRow[]
     readonly tickets?: readonly { subject: string; openedAt: string; status: string }[]
   }) => void
   /**
@@ -221,7 +227,15 @@ export function fakeQuests(): FakeQuestDesk {
     unreported: readonly { taskId: string; title: string; attempts: number }[]
     /** Whether briefings help (`#609`). */
     briefings: readonly unknown[]
-  } = { tickets: [], arrivals: { agents: [], people: [] }, unreported: [], briefings: [] }
+    /** Quest verdicts shown on the maintainer's audit (`#814`). */
+    moderations: readonly QuestModerationHistoryRow[]
+  } = {
+    tickets: [],
+    arrivals: { agents: [], people: [] },
+    unreported: [],
+    briefings: [],
+    moderations: [],
+  }
   let fixedAudience: number | null = null
   /** Unset until a test turns one, exactly as the settings table is. */
   let caps: Readonly<Record<QuestTier, number>> | null = null
@@ -366,6 +380,7 @@ export function fakeQuests(): FakeQuestDesk {
     { taskId: string; kind: string; text: string | null; scrubbed: string | null }
   >()
   const reportReads: { taskId: string; humanId: string }[] = []
+  const moderationAsked: QuestModerationHistoryFilters[] = []
 
   /**
    * Named rather than returned straight, so one method can be written in terms
@@ -459,6 +474,14 @@ export function fakeQuests(): FakeQuestDesk {
       if (input.arrivals !== undefined) sections.arrivals = input.arrivals
       if (input.unreported !== undefined) sections.unreported = input.unreported
       if (input.briefings !== undefined) sections.briefings = input.briefings
+      if (input.moderations !== undefined) sections.moderations = input.moderations
+    },
+
+    moderationAsked,
+
+    async moderations(filters = {}) {
+      moderationAsked.push(filters)
+      return sections.moderations
     },
 
     /**

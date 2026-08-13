@@ -5,6 +5,8 @@ import type {
   BackendSections,
   BriefingEffect,
   ColonyNumbers,
+  QuestModerationHistoryRow,
+  QuestModerationRefusalStage,
   TaskWithoutReports,
   WantedProviderCount,
 } from '@kolonie-ai/db'
@@ -409,6 +411,155 @@ export function backendQuestsPage(
         'into the day the Colony has written more than that; until then the number above is the ' +
         'whole of the limit and there is nothing hidden behind it.</p>',
       table,
+    ],
+  })
+}
+
+const MODERATION_STAGE_KEYS = ['redLine', 'quality', 'confidentiality', 'dedup'] as const
+const MODERATION_REFUSAL_STAGES = [...MODERATION_STAGE_KEYS, 'unknown'] as const
+
+/** One month's refusal rates, derived from the verdict rows rather than stored. */
+export interface BackendModerationTrendRow {
+  readonly month: string
+  readonly verdicts: number
+  readonly rejected: number
+  readonly refusalRate: number
+  readonly stageRates: Readonly<Record<QuestModerationRefusalStage, number>>
+}
+
+/**
+ * Refusal rates by month and written criterion (`#814`).
+ *
+ * Derived on read so the operational view cannot disagree with the append-only
+ * verdicts it is meant to make visible.
+ */
+export function moderationTrend(
+  moderations: readonly QuestModerationHistoryRow[],
+): readonly BackendModerationTrendRow[] {
+  const months = new Map<
+    string,
+    { verdicts: number; rejected: number; stages: Record<QuestModerationRefusalStage, number> }
+  >()
+
+  for (const moderation of moderations) {
+    const month = moderation.createdAt.slice(0, 7)
+    const held = months.get(month) ?? {
+      verdicts: 0,
+      rejected: 0,
+      stages: { redLine: 0, quality: 0, confidentiality: 0, dedup: 0, unknown: 0 },
+    }
+    held.verdicts += 1
+    if (moderation.decision === 'rejected') {
+      held.rejected += 1
+      held.stages[moderation.refusedAt ?? 'unknown'] += 1
+    }
+    months.set(month, held)
+  }
+
+  return [...months.entries()]
+    .sort(([left], [right]) => right.localeCompare(left))
+    .map(([month, row]) => ({
+      month,
+      verdicts: row.verdicts,
+      rejected: row.rejected,
+      refusalRate: row.rejected / row.verdicts,
+      stageRates: Object.fromEntries(
+        MODERATION_REFUSAL_STAGES.map((stage) => [stage, row.stages[stage] / row.verdicts]),
+      ) as Record<QuestModerationRefusalStage, number>,
+    }))
+}
+
+const moderationStageLabel = (stage: QuestModerationRefusalStage): string =>
+  stage === 'redLine' ? 'red line' : stage
+
+const percent = (rate: number): string => `${(rate * 100).toFixed(1)}%`
+
+/**
+ * `/backend/moderation` — the verdicts that publish or refuse quests (`#814`).
+ *
+ * The subject is a title and id, never the judged text. A digest is enough to
+ * prove which revision was read; repeating the prose here would create a second
+ * publication surface for text the confidentiality rules deliberately bound.
+ */
+export function backendModerationPage(
+  input: BackendPageInput & {
+    readonly moderations: readonly QuestModerationHistoryRow[]
+    readonly trend: readonly BackendModerationTrendRow[]
+    readonly filters: { readonly subject?: string; readonly decision?: string }
+  },
+): string {
+  const selected = (decision: string): string =>
+    input.filters.decision === decision ? ' selected' : ''
+
+  const trend =
+    input.trend.length === 0
+      ? '<p class="note">No verdicts match these filters, so there is no refusal rate to plot.</p>'
+      : [
+          '<table>',
+          '<thead><tr><th>Month</th><th>Verdicts</th><th>Refused</th><th>All refusals</th><th>Red line</th><th>Quality</th><th>Confidentiality</th><th>Dedup</th><th>Unknown</th></tr></thead>',
+          `<tbody>${input.trend
+            .map(
+              (row) =>
+                `<tr><td>${escape(row.month)}</td><td>${String(row.verdicts)}</td><td>${String(row.rejected)}</td><td>${percent(row.refusalRate)}</td>${MODERATION_REFUSAL_STAGES.map((stage) => `<td>${percent(row.stageRates[stage])}</td>`).join('')}</tr>`,
+            )
+            .join('')}</tbody>`,
+          '</table>',
+        ].join('')
+
+  const verdicts =
+    input.moderations.length === 0
+      ? '<p class="note">No quest verdict matches these filters.</p>'
+      : [
+          '<table>',
+          '<thead><tr><th>Subject</th><th>Decision</th><th>Refused at</th><th>Reason</th><th>Model</th><th>Stages</th><th>When</th></tr></thead>',
+          '<tbody>',
+          input.moderations
+            .map((moderation) => {
+              const stages = MODERATION_STAGE_KEYS.map((name) => {
+                const stage = moderation.stages[name]
+                return `<li><strong>${escape(moderationStageLabel(name))}:</strong> ${escape(stage.outcome)}${stage.reason === undefined ? '' : ` — ${escape(stage.reason)}`}</li>`
+              }).join('')
+
+              return [
+                '<tr>',
+                `<td><a href="/backend/quests/${escape(moderation.subject.id)}">${escape(moderation.subject.title)}</a><br><code>${escape(moderation.subject.id)}</code></td>`,
+                `<td>${escape(moderation.decision)}</td>`,
+                `<td>${escape(moderation.refusedAt === null ? '—' : moderationStageLabel(moderation.refusedAt))}</td>`,
+                `<td>${escape(moderation.refusalReason ?? '—')}</td>`,
+                `<td><code>${escape(moderation.model)}</code></td>`,
+                `<td><details><summary>Read stages</summary><ul>${stages}</ul></details></td>`,
+                `<td><time datetime="${escape(moderation.createdAt)}">${escape(relative(moderation.createdAt))}</time><br><code>${escape(moderation.createdAt)}</code></td>`,
+                '</tr>',
+              ].join('')
+            })
+            .join(''),
+          '</tbody>',
+          '</table>',
+        ].join('')
+
+  return backendSection({
+    ...input,
+    body: [
+      '<p class="note">Every quest verdict the Colony’s model reached, newest first. This is ' +
+        'the audit behind publication and refusal: which quest, which written criterion, which ' +
+        'model, and when. The judged prose and its digest are deliberately not repeated here.</p>',
+      '<form method="get" action="/backend/moderation">',
+      '<label for="moderation-subject">Subject title or id</label>',
+      `<input id="moderation-subject" name="subject" type="search" value="${escape(input.filters.subject ?? '')}">`,
+      '<label for="moderation-decision">Decision</label>',
+      '<select id="moderation-decision" name="decision">',
+      `<option value=""${selected('')}>All decisions</option>`,
+      `<option value="approved"${selected('approved')}>Approved</option>`,
+      `<option value="rejected"${selected('rejected')}>Rejected</option>`,
+      '</select>',
+      '<button type="submit">Filter</button>',
+      '</form>',
+      '<h2>Refusal rate by stage over time</h2>',
+      '<p class="note">The subject filter narrows this rate. The decision filter narrows the ' +
+        'verdict table below only, because a refusal rate still needs approvals in its denominator.</p>',
+      trend,
+      '<h2>Verdicts</h2>',
+      verdicts,
     ],
   })
 }

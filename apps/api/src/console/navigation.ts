@@ -122,6 +122,7 @@ export const BACKEND_PAGES = [
   { href: '/backend', label: 'Numbers' },
   { href: '/backend/arrivals', label: 'Who arrived' },
   { href: '/backend/quests', label: 'Every quest' },
+  { href: '/backend/moderation', label: 'Moderation verdicts' },
   { href: '/backend/briefings', label: 'Whether briefings help' },
   { href: '/backend/unreported', label: 'What nobody has reported on' },
   { href: '/backend/tickets', label: 'Waiting to be read' },

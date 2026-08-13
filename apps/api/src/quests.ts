@@ -54,9 +54,12 @@ import {
   createQuestDraft as createQuestDraftInDatabase,
   listOwnQuests as listOwnQuestsInDatabase,
   listAllQuests as listAllQuestsInDatabase,
+  questModerationHistory as questModerationHistoryInDatabase,
   readAnyQuest as readAnyQuestInDatabase,
   recordQuestReportRead as recordQuestReportReadInDatabase,
   type ColonyQuest,
+  type QuestModerationHistoryFilters,
+  type QuestModerationHistoryRow,
   ownQuestAnswer as ownQuestAnswerInDatabase,
   questAnswerCounts as questAnswerCountsInDatabase,
   questAuditQueue as questAuditQueueInDatabase,
@@ -277,6 +280,10 @@ export interface QuestDesk {
    * behind these was filed about.
    */
   listAll(limit?: number): Promise<readonly ColonyQuest[]>
+  /** Every verdict the Colony reached about a quest, for the maintainer (`#814`). */
+  moderations(
+    filters?: QuestModerationHistoryFilters,
+  ): Promise<readonly QuestModerationHistoryRow[]>
   /** One quest, whoever wrote it. Behind the same guard as {@link listAll}. */
   readAny(taskId: TaskId): Promise<ColonyQuest | undefined>
   /**
@@ -506,6 +513,7 @@ export function databaseQuests(
     listOwn: (authorId) => listOwnQuestsInDatabase(db, authorId),
     readOwn: (authorId, taskId) => readOwnQuestInDatabase(db, authorId, taskId),
     listAll: (limit) => listAllQuestsInDatabase(db, limit),
+    moderations: (filters) => questModerationHistoryInDatabase(db, filters),
     readAny: (taskId) => readAnyQuestInDatabase(db, taskId),
     recordReportRead: (input) => recordQuestReportReadInDatabase(db, input),
     results: (taskId) => questResultsInDatabase(db, taskId),

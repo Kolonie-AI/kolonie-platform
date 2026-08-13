@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { fakeHumans } from '../__fixtures__/humans.js'
 import { fakeArtefactChallenges } from '../__fixtures__/artefact.js'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { DEFAULT_PLATFORM_FEE_PERCENT, ERROR_STATUS } from '@kolonie-ai/core'
+import { DEFAULT_PLATFORM_FEE_PERCENT, ERROR_STATUS, noStagesRun } from '@kolonie-ai/core'
 import type { FastifyInstance } from 'fastify'
 import { buildApp } from '../app.js'
 import { noProviderEnquiries, type ProviderEnquiryDesk } from '../provider-enquiries.js'
@@ -1628,6 +1628,7 @@ describe('who arrived and what is waiting', () => {
       '/backend',
       '/backend/arrivals',
       '/backend/quests',
+      '/backend/moderation',
       '/backend/briefings',
       '/backend/unreported',
       '/backend/tickets',
@@ -1642,6 +1643,140 @@ describe('who arrived and what is waiting', () => {
       expect(response.body).not.toContain('newest-arrival')
       expect(response.body).not.toContain('waiting the longest')
     }
+  })
+})
+
+/** `#814`: the verdicts the Colony reached about quests, readable without psql. */
+describe('the Colony’s quest moderation history', () => {
+  const aMaintainer = async () => {
+    const human = humans_.store.holdsIdentity({
+      provider: 'github',
+      subject: `subject-${randomUUID()}`,
+      email: 'someone@example.test',
+    })
+    humans_.store.maintains(human.id)
+    const { session: cookie } = await humans_.store.openSession(human.id, {})
+    return cookie
+  }
+
+  const backend = (cookie: string, path = '/backend/moderation', accept = 'text/html') =>
+    app.inject({
+      method: 'GET',
+      url: path,
+      headers: { host: CONSOLE_HOST, accept, cookie: `__Host-kolonie_session=${cookie}` },
+    })
+
+  const rejectedStages = () => ({
+    ...noStagesRun(),
+    redLine: { outcome: 'crossed', reason: 'The quest asks for a credential.' },
+  })
+
+  it('shows the verdict, model, stages and monthly refusal rate without the judged text', async () => {
+    quests.showsOnBackend({
+      moderations: [
+        {
+          subject: { id: randomUUID() as never, title: 'A billing question' },
+          decision: 'rejected',
+          refusalReason: 'The quest asks for a credential.',
+          refusedAt: 'redLine',
+          model: 'model-two',
+          stages: rejectedStages(),
+          createdAt: '2026-08-12T10:00:00.000Z' as never,
+        },
+        {
+          subject: { id: randomUUID() as never, title: 'A registration question' },
+          decision: 'approved',
+          refusalReason: null,
+          refusedAt: null,
+          model: 'model-one',
+          stages: noStagesRun(),
+          createdAt: '2026-08-01T10:00:00.000Z' as never,
+        },
+      ],
+    })
+
+    const cookie = await aMaintainer()
+    const page = await backend(cookie)
+
+    expect(page.statusCode).toBe(200)
+    expect(page.body).toContain('Moderation verdicts')
+    expect(page.body).toContain('A billing question')
+    expect(page.body).toContain('rejected')
+    expect(page.body).toContain('model-two')
+    expect(page.body).toContain('The quest asks for a credential.')
+    expect(page.body).toContain('2026-08')
+    expect(page.body).toContain('50.0%')
+    expect(page.body).not.toContain('content_sha256')
+    expect(page.body).not.toContain('Text the moderation history must not return')
+
+    const json = (await backend(cookie, '/backend/moderation', 'application/json')).json()
+    expect(json.moderations).toHaveLength(2)
+    expect(json.trend[0]).toMatchObject({ month: '2026-08', verdicts: 2 })
+    expect(JSON.stringify(json)).not.toContain('contentSha256')
+  })
+
+  it('filters rows by decision without turning the refusal rate into a tautology', async () => {
+    quests.showsOnBackend({
+      moderations: [
+        {
+          subject: { id: randomUUID() as never, title: 'A registration question' },
+          decision: 'rejected',
+          refusalReason: 'The quest asks for a credential.',
+          refusedAt: 'redLine',
+          model: 'model-two',
+          stages: rejectedStages(),
+          createdAt: '2026-08-12T10:00:00.000Z' as never,
+        },
+        {
+          subject: { id: randomUUID() as never, title: 'Another registration question' },
+          decision: 'approved',
+          refusalReason: null,
+          refusedAt: null,
+          model: 'model-one',
+          stages: noStagesRun(),
+          createdAt: '2026-08-01T10:00:00.000Z' as never,
+        },
+      ],
+    })
+    const cookie = await aMaintainer()
+
+    const response = await backend(
+      cookie,
+      '/backend/moderation?subject=registration&decision=rejected',
+      'application/json',
+    )
+
+    expect(quests.moderationAsked).toEqual([{ subject: 'registration' }])
+    expect(response.json().moderations).toHaveLength(1)
+    expect(response.json().moderations[0].decision).toBe('rejected')
+    expect(response.json().trend[0].refusalRate).toBe(0.5)
+  })
+
+  it('rejects an unknown decision before it reaches the store', async () => {
+    const response = await backend(
+      await aMaintainer(),
+      '/backend/moderation?decision=pending',
+      'application/json',
+    )
+
+    expect(response.statusCode).toBe(ERROR_STATUS.validation_failed)
+    expect(response.json().code).toBe('validation_failed')
+    expect(quests.moderationAsked).toEqual([])
+  })
+
+  it('shows no moderation history to somebody without the role', async () => {
+    const human = humans_.store.holdsIdentity({
+      provider: 'github',
+      subject: `subject-${randomUUID()}`,
+      email: 'someone@example.test',
+    })
+    const { session: cookie } = await humans_.store.openSession(human.id, {})
+
+    const response = await backend(cookie)
+
+    expect(response.statusCode).toBe(404)
+    expect(response.body).not.toContain('Moderation verdicts')
+    expect(quests.moderationAsked).toEqual([])
   })
 })
 

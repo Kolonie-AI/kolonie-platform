@@ -7,6 +7,7 @@ import {
   agentContacts,
   agentCallHours,
   agentOrigins,
+  diagnoses,
   agentSessions,
   taskConsiderations,
   agentBadges,
@@ -84,7 +85,7 @@ describe('the erasure boundary', () => {
                         autonomy_contracts, autonomy_form_invitations, operator_pages,
                         operator_addresses, operator_request_messages, operator_requests,
                         permission_reports,
-                        agent_contacts, agent_sessions, agent_origins, agent_call_hours,
+                        agent_contacts, agent_sessions, agent_origins, agent_call_hours, diagnoses,
                         support_tickets, task_resets, reputation_events, ledger_entries,
                         agent_skills, verifications, submissions, credentials,
                         browser_challenges, email_challenges, github_challenges, social_challenges,
@@ -231,6 +232,42 @@ describe('the erasure boundary', () => {
       routeKey: '/v1/agents/me',
       hourStartedAt: '2026-08-13T09:00:00.000Z',
       calls: 3,
+    })
+
+    /**
+     * And what the Colony concluded from those hours (`#838`). The sharpest of
+     * the three: an origin and a call count are observations, and a diagnosis is
+     * a **judgement** the Colony made about somebody. One that outlived its
+     * subject would be a verdict about a citizen who is no longer here to
+     * disagree with it.
+     */
+    await db.insert(diagnoses).values({
+      scope: 'agent',
+      agentId: agent.id,
+      subject: agent.id,
+      kind: 'polling-loop',
+      severity: 'concern',
+      confidence: 0.7,
+      evidence: { routeKeys: ['/v1/agents/me'], figures: { hours: 3 } },
+      policyVersion: '2026-08-13.1',
+    })
+
+    /**
+     * And a colony-scoped one beside it, which must **stay**. It names nobody —
+     * `scope: colony` carries a null `agent_id`, refused otherwise by the
+     * schema's own check — and *this route returns 500* is a fact about the
+     * Colony rather than about anybody who happened to call it. The survivor
+     * count below is what asserts the difference, in the same pass that asserts
+     * the cascade.
+     */
+    await db.insert(diagnoses).values({
+      scope: 'colony',
+      subject: '/v1/tasks',
+      kind: 'retry-storm',
+      severity: 'serious',
+      confidence: 0.9,
+      evidence: { routeKeys: ['/v1/tasks'], figures: { serverErrors: 400 } },
+      policyVersion: '2026-08-13.1',
     })
 
     await db.insert(browserChallenges).values({ agentId: agent.id, expiresAt: later() })
@@ -432,6 +469,7 @@ describe('the erasure boundary', () => {
     'agent_badges',
     'agent_origins',
     'agent_call_hours',
+    'diagnoses',
     'agent_runtime_declarations',
     'credentials',
     'agent_skills',
@@ -491,6 +529,14 @@ describe('the erasure boundary', () => {
   const SURVIVING: Partial<Record<(typeof CITIZEN_TABLES)[number], number>> = {
     task_attempts: 1,
     task_reports: 1,
+    /**
+     * The colony-scoped diagnosis (`#838`). The citizen's own is gone with it —
+     * a judgement about somebody must not outlive them — and this one names
+     * nobody and is about a route. Asserted here rather than in a test beside
+     * this one, so that the two halves of the rule are checked in the same pass
+     * and neither can be satisfied by a cascade that took everything.
+     */
+    diagnoses: 1,
   }
 
   describe('what goes with the citizen', () => {
@@ -1047,6 +1093,21 @@ describe('the erasure boundary', () => {
        */
       'colony_payments.agent_id n',
       'credentials.agent_id c',
+      /**
+       * `#838`. Cascades, and it is the sharpest case in this list. An origin is
+       * an observation and a call count is arithmetic; a diagnosis is a
+       * **judgement the Colony made about somebody** — that they were looping,
+       * that they were getting nowhere. One that outlived its subject would be a
+       * verdict standing about a citizen who is no longer here to disagree with
+       * it, which is worse than any of the residue §4 enumerates.
+       *
+       * **Colony-scoped rows have a null here and survive**, and that is the
+       * whole reason the column is nullable. *This route returns 500* names
+       * nobody and is a fact about the Colony; the schema's own check refuses a
+       * colony-scoped row that carries a citizen, so the two cannot be confused
+       * by a later writer.
+       */
+      'diagnoses.agent_id c',
       // The `domain` rung (kolonie-docs#89). Cascades, matching every other
       // challenge table: a challenge is the citizen's own attempt at a rung, and
       // `erasure.md` §2 lists *what it proved* among the things that do not

@@ -1,6 +1,10 @@
 import { pgEnum } from 'drizzle-orm/pg-core'
 import {
   AccountProvenanceSchema,
+  DiagnosisStateSchema,
+  FindingKindSchema,
+  FindingScopeSchema,
+  FindingSeveritySchema,
   ProviderReportOutcomeSchema,
   AccountStatusSchema,
   AccountTypeSchema,
@@ -461,3 +465,49 @@ export const profileReviewState = pgEnum(
   'profile_review_state',
   valuesOf(ProfileReviewStateSchema.options),
 )
+
+/**
+ * Whose problem a diagnosis is (`#838`).
+ *
+ * **An enum because it decides where a row may go**, which is the sharpest kind
+ * of `where` clause there is: an agent-scoped diagnosis reaches the citizen it
+ * is about and never a ticket queue, and a colony-scoped one reaches the people
+ * who run the Colony and never a citizen. A boolean would have to be read as one
+ * of the two and it is not obvious which.
+ */
+export const diagnosisScope = pgEnum('diagnosis_scope', valuesOf(FindingScopeSchema.options))
+
+/**
+ * Which of the six signatures produced a diagnosis (`#838`).
+ *
+ * **From core's own list, so the table cannot know a kind the rules cannot
+ * produce.** A seventh signature therefore costs a migration, and that is the
+ * right price: `#836` defends the six as a closed list, and an addition it is
+ * possible to make without noticing is an addition nobody argued for.
+ */
+export const diagnosisKind = pgEnum('diagnosis_kind', valuesOf(FindingKindSchema.options))
+
+/**
+ * How bad a diagnosis is (`#838`).
+ *
+ * Three values, defended at length in `#836`: a scale nobody can distinguish
+ * between is a scale that gets ignored. An enum rather than an integer level so
+ * that a fourth cannot be inserted in the middle and silently change what a
+ * stored row means.
+ */
+export const diagnosisSeverity = pgEnum(
+  'diagnosis_severity',
+  valuesOf(FindingSeveritySchema.options),
+)
+
+/**
+ * Where a diagnosis stands (`#838`).
+ *
+ * **Three, and there is deliberately no `wontfix` and no manual close.** The
+ * Doctor is not a ticket queue: a finding stops being open when its evidence
+ * stops matching, computed by the same rules that opened it. A state a person
+ * could set would put an opinion into a machine defined by evidence, and the two
+ * would drift within a month — which is the argument `#841` makes for the
+ * console being read-only.
+ */
+export const diagnosisState = pgEnum('diagnosis_state', valuesOf(DiagnosisStateSchema.options))

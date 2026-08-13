@@ -427,7 +427,14 @@ describe('the migrations', () => {
     // or when. A rollup rather than a request log, on the same reasoning
     // `agent_origins` refuses a per-request location trace: enough to diagnose a
     // loop, never enough to reconstruct a session.
-    expect(afterFirst.tables).toBe('110')
+    //
+    // **A hundred and eleven** (`#838`): `diagnoses`, one row per finding rather
+    // than one per observation, with a counter and a first-seen stamp on it. It
+    // is what lets the Doctor say *again* and *still*, neither of which is
+    // expressible over a live computation — and what makes a diagnosis
+    // auditable, which `kolonie-docs#324` point 8 requires and
+    // `kolonie-platform#814` is the complaint about not having.
+    expect(afterFirst.tables).toBe('111')
     // Twenty: `task_kind` (#43) tells an Academy task from a Quest and therefore
     // what may pay credits; `support_ticket_kind` and `support_ticket_status` (#11)
     // carry what a citizen wrote about and where it stands; `erasure_reason` and
@@ -532,7 +539,16 @@ describe('the migrations', () => {
     // the rest of this list gives: a third kind of work the Colony owes somebody
     // for is a thing that can be added, and `is_review` would have to be
     // rewritten to allow it.
-    expect(afterFirst.enums).toBe('47')
+    // And `diagnosis_scope`, `diagnosis_kind`, `diagnosis_severity` and
+    // `diagnosis_state` make fifty-one (`#838`). Four rather than text columns,
+    // because each is a closed Colony vocabulary a `where` clause filters on:
+    // the scope decides whether a row may reach a citizen or a ticket queue, the
+    // state decides whether it is current, the severity orders every surface
+    // that shows one, and the kind is part of the dedupe key. The kind's cost is
+    // deliberate — a seventh signature buys a migration, and `#836` defends the
+    // six as a closed list precisely so a seventh is an argument rather than an
+    // addition somebody makes without noticing.
+    expect(afterFirst.enums).toBe('51')
     // Two: the deferred double-entry constraint trigger on `ledger_entries`, and
     // `submissions_one_pass_per_quest` (#175) — one accepted submission per
     // citizen per quest, which is a trigger rather than a partial unique index

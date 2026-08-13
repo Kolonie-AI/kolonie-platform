@@ -321,6 +321,19 @@ describe('schema', () => {
         'colony_payments',
         'credentials',
         /**
+         * `diagnoses` (`#838`): what the Doctor found, one row per finding
+         * rather than one per observation. It is what lets the Colony say
+         * *again* and *still* — neither of which a live computation can express
+         * — and what makes a diagnosis auditable, which `kolonie-docs#324` point
+         * 8 requires.
+         *
+         * The dedupe key is partial, over open rows only, so the same problem
+         * returning in August is a second episode rather than a mutation of the
+         * one from March. Agent-scoped rows cascade with the citizen;
+         * colony-scoped ones name nobody and stay.
+         */
+        'diagnoses',
+        /**
          * `domain_challenges` joined with the `domain` rung (kolonie-docs#89):
          * the citizen proves it controls a name's DNS, not a page on somebody
          * else's host. Same shape as `social_challenges` — the Colony mints a

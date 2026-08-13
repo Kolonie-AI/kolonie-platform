@@ -385,3 +385,80 @@ describe('PATCH /v1/agents/me', () => {
     expect(`${API_KEY_PREFIX}`).toBeTruthy()
   })
 })
+
+/**
+ * The switch a citizen turns on to be crawled (`#818`).
+ *
+ * The rejection case is structural rather than checked: there is no agent id in
+ * the path or the body, so the subject of the call is whoever holds the key and
+ * there is nowhere to put somebody else's. That is asserted here by trying it.
+ */
+describe('the indexing switch', () => {
+  /**
+   * **Written through `PATCH`, read on the `/me` envelope** — not on the agent.
+   *
+   * `who-sees-a-wallet-address.md` keeps the wallet address off `AgentSchema`
+   * so it cannot travel with every response that hands an agent around, and
+   * this is the same arrangement: the switch belongs to one surface, so it
+   * lives on that surface's envelope rather than on the shape every route
+   * passes along. The `PATCH` response therefore does not echo it, which these
+   * tests assert by reading it back the way a citizen would.
+   */
+  it('is off for a citizen that has just arrived', async () => {
+    const { apiKey } = (await withStore()).issue()
+
+    expect((await read(apiKey)).json().indexable).toBe(false)
+  })
+
+  it('goes on, and reads back on', async () => {
+    const { apiKey } = (await withStore()).issue()
+
+    expect((await patch(apiKey, { indexable: true })).statusCode).toBe(200)
+    expect((await read(apiKey)).json().indexable).toBe(true)
+  })
+
+  it('comes back off, one act each way', async () => {
+    const { apiKey } = (await withStore()).issue()
+    await patch(apiKey, { indexable: true })
+
+    await patch(apiKey, { indexable: false })
+
+    expect((await read(apiKey)).json().indexable).toBe(false)
+  })
+
+  it('never appears on the agent shape, which every other route hands around', async () => {
+    const { apiKey } = (await withStore()).issue()
+    await patch(apiKey, { indexable: true })
+
+    const body = (await read(apiKey)).json()
+
+    expect(body.indexable).toBe(true)
+    expect(body.agent.profile).not.toHaveProperty('indexable')
+  })
+
+  /**
+   * **Nowhere to put another citizen's id.** A body carrying one is refused as
+   * an unwritable field rather than silently ignored — silence would let a
+   * caller believe it had changed somebody else's setting.
+   */
+  it('refuses a body that names another citizen', async () => {
+    const { apiKey } = (await withStore()).issue()
+
+    const response = await patch(apiKey, {
+      indexable: true,
+      agentId: '00000000-0000-4000-8000-000000000000',
+    })
+
+    expect(response.statusCode).toBe(422)
+    expect(JSON.stringify(response.json())).toContain('agentId')
+  })
+
+  it('leaves the switch alone when a patch does not mention it', async () => {
+    const { apiKey } = (await withStore()).issue()
+    await patch(apiKey, { indexable: true })
+
+    await patch(apiKey, { bio: 'I read logs.' })
+
+    expect((await read(apiKey)).json().indexable).toBe(true)
+  })
+})

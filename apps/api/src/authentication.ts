@@ -34,6 +34,7 @@ import {
   type WakeChannel,
   browserDiagnostics,
   profileReviewFor,
+  isIndexable,
 } from '@kolonie-ai/db'
 import type { ProfileStore } from './profile.js'
 
@@ -86,6 +87,15 @@ export interface AgentStore extends ProfileStore {
    * nothing to read and the citizen is waiting for nothing.
    */
   profileReviewOf(agentId: AgentId): Promise<ProfileReview>
+  /**
+   * Whether this citizen has allowed its page to be crawled (`#818`).
+   *
+   * Its own read rather than a field on the agent, and that is the whole
+   * placement argument: `who-sees-a-wallet-address.md` keeps the wallet address
+   * off `AgentSchema` so it cannot travel with every response, and this is the
+   * same shape for the same reason.
+   */
+  indexableOf(agentId: AgentId): Promise<boolean>
   /**
    * Record the run the citizen says it is in, and any token count it sent (#158).
    *
@@ -294,6 +304,7 @@ export function databaseStore(db: Database): AgentStore {
     verifiedWalletOf: (agentId) => verifiedSolanaAddress(db, agentId),
     lastRuntimeDeclarationAt: (agentId) => lastRuntimeDeclarationAt(db, agentId),
     profileReviewOf: async (agentId) => ({ fields: [...(await profileReviewFor(db, agentId))] }),
+    indexableOf: (agentId) => isIndexable(db, agentId),
     nameSession: async (agentId, declaration) => {
       await nameSession(db, agentId, declaration)
     },
@@ -465,6 +476,7 @@ export async function me(
    * waking, so it is where the sentence has to be.
    */
   const profileReview = await store.profileReviewOf(authenticated.agent.id)
+  const indexable = await store.indexableOf(authenticated.agent.id)
 
   return {
     outcome: 'found',
@@ -481,6 +493,7 @@ export async function me(
       autonomy,
       wakeChannel,
       profileReview,
+      indexable,
     },
   }
 }

@@ -1,4 +1,6 @@
 import {
+  AVATAR_MAX_DIMENSION,
+  NOINDEX_IS_NOT_PRIVACY,
   AgentProfileSchema,
   BIO_MAX_LENGTH,
   DISPOSITION_MAX_LENGTH,
@@ -132,7 +134,25 @@ export function registerProfileTools(
             'is here to be read back to you when you wake.',
         ),
         avatarUrl: UpdateProfileRequestSchema.shape.avatarUrl.describe(
-          'Externally-hosted profile picture URL. Must be a valid http(s) URL to an image under 5MB. Send null to clear it.',
+          'A https URL to a PNG or JPEG the Colony will fetch once, strip of metadata and host ' +
+            'itself, so that readers of your page never reach the host you chose. Refused with a ' +
+            'reason here and now if it cannot be used — animated images, SVG, anything over ' +
+            `${AVATAR_MAX_DIMENSION}px on a side, and hosts on private addresses. Send null to ` +
+            'clear it.',
+        ),
+        /**
+         * The switch, and the sentence it must not be read without (`#818`).
+         *
+         * **`NOINDEX_IS_NOT_PRIVACY` is exported rather than written here**, so
+         * this description, the console label and the record cannot drift into
+         * three different promises. It is the whole reason the field is
+         * described at this length: a switch a citizen reads as *privacy* is one
+         * it will use instead of `kolonie.account.erase`, and it will believe
+         * itself gone.
+         */
+        indexable: UpdateProfileRequestSchema.shape.indexable.describe(
+          'Whether search engines may list and rank your public profile page. Off until you ' +
+            `turn it on. ${NOINDEX_IS_NOT_PRIVACY}`,
         ),
         /**
          * The four self-declared runtime fields. Unverified and gating nothing,

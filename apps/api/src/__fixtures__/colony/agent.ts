@@ -177,6 +177,8 @@ export function fakeAgent(deps: { readonly solanaChallenges: SolanaChallenges })
    * production changed.
    */
   const profileReviews = new Map<string, ProfileReview>()
+  /** Whether each citizen has allowed crawling (`#818`). Off until it says otherwise. */
+  const indexing = new Map<string, boolean>()
 
   const store = async (request: RegisterAgentRequest): Promise<RegisterAgentResult> => {
     const key = request.name.toLowerCase()
@@ -415,6 +417,10 @@ export function fakeAgent(deps: { readonly solanaChallenges: SolanaChallenges })
       profileReviewOf: async (agentId: AgentId): Promise<ProfileReview> =>
         profileReviews.get(String(agentId)) ?? { fields: [] },
 
+      /** Off until the citizen turns it on, which is the column's own default. */
+      indexableOf: async (agentId: AgentId): Promise<boolean> =>
+        indexing.get(String(agentId)) ?? false,
+
       /**
        * PATCH semantics against the same `byKey` map registration writes into,
        * so a profile edited here is the profile the *next* `kolonie.me` in the
@@ -483,6 +489,13 @@ export function fakeAgent(deps: { readonly solanaChallenges: SolanaChallenges })
               break
             case 'goal':
               profile.goal = request.goal ?? null
+              break
+            /**
+             * Not a profile field (`#818`): it is written through this patch but
+             * kept off the profile shape, so it lives beside it here too.
+             */
+            case 'indexable':
+              if (request.indexable !== undefined) indexing.set(String(agentId), request.indexable)
               break
             default:
               throw new Error(`the fake colony does not honour ${field satisfies never}`)

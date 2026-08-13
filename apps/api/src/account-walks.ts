@@ -5,6 +5,7 @@ import {
   WalkTakenStepPositionsSchema,
   RECIPE_REFUSAL_MAX_LENGTH,
   unreportedWalkRefusal,
+  whyNotPublishable,
   type Account,
   type AccountKind,
   type AccountProofMethod,
@@ -349,6 +350,10 @@ async function statusOf(
               ? 'withdrawn'
               : 'not-proposed'
 
+  /** Empty rather than absent for a draft with nothing outstanding: it is waiting on a reader. */
+  const holding = entry?.status === 'draft' ? whyNotPublishable(entry) : undefined
+  const held = holding === undefined ? [] : [holding]
+
   return {
     walkId: walk.id,
     kind: walk.kind,
@@ -359,7 +364,19 @@ async function statusOf(
     statusChangedAt: entry?.updatedAt ?? walk.finishedAt,
     appearsInRecipes: entry !== undefined && !['proposed', 'draft'].includes(entry.status),
     refusalReason: status === 'refused' ? (entry?.refusal ?? walk.wall) : null,
-    requiredChanges: null,
+    /**
+     * **What the draft is actually waiting on** (`#857`), derived on every read
+     * from the row rather than swept onto it — the same arrangement the Atlas
+     * uses for its ordering and its staleness, and for the same reason: a stored
+     * answer is one that can disagree with the entry it describes.
+     *
+     * A walk arrives wordless by design (`#517`), so *the Colony has not written
+     * the sentence yet* is the ordinary state of a fresh draft and not a fault of
+     * the walker's. Naming it beats `null`, which a citizen reading
+     * `appearsInRecipes: false` could only read as *something, and nobody will
+     * say what* — the complaint `#857` was opened about.
+     */
+    requiredChanges: status === 'draft' ? held : null,
     proof,
   }
 }
@@ -471,9 +488,18 @@ export async function openDraftHint(
   )
   if (draft === undefined) return undefined
 
+  /**
+   * **The specific sentence, where there is one** (`#857`). *Waiting for a
+   * steward* was true and told a citizen nothing they could act on or wait out;
+   * what a draft is held on is usually that the Colony has not written the
+   * published wording yet, which is a fact about the Colony and worth saying so.
+   */
+  const held = draft.requiredChanges?.[0]
+
   return (
     ` Your walk ${draft.walkId} produced a private draft for this provider. It is waiting for ` +
-    `a steward, not lost; poll kolonie.accounts.walk-status with that walkId instead of resubmitting.`
+    `a steward, not lost; poll kolonie.accounts.walk-status with that walkId instead of resubmitting.` +
+    (held === undefined ? '' : ` What it is held on: ${held}`)
   )
 }
 

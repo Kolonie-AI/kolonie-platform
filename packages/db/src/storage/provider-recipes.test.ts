@@ -7,7 +7,12 @@ import {
 } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
-import { providerRecipe, providerRecipeList, writeProviderRecipe } from './provider-recipes.js'
+import {
+  dressProviderRecipeDraft,
+  providerRecipe,
+  providerRecipeList,
+  writeProviderRecipe,
+} from './provider-recipes.js'
 import { PROVIDER_CATALOGUE, seedProviderCatalogue } from '../provider-catalogue.js'
 
 const target = databaseTestTarget()
@@ -527,6 +532,92 @@ describe('the provider catalogue', () => {
       expect(back.status).toBe('joinable')
       expect(back.retiredAt).toBeNull()
       expect(back.retiredReason).toBeNull()
+    })
+  })
+
+  /**
+   * Writing the Colony's words onto a draft a walk left wordless (`#857`).
+   *
+   * A walk records that a step happened and who it needed; the sentence stays the
+   * Colony's to write (`#517`), so a walked draft arrives with no instruction and
+   * no proof method and `whyNotPublishable` holds it forever. What is asserted
+   * here is the write that was missing, and the guard on it: it touches a
+   * `draft` and it moves no status, so it can never publish anything by itself.
+   */
+  describe('dressing a walked draft', () => {
+    const walked = {
+      kind: kind('mailbox'),
+      provider: 'wordless.example',
+      title: 'Wordless',
+      category: 'mailbox' as const,
+      status: 'draft' as const,
+      steps: [{ actor: 'agent' as const }, { actor: 'operator' as const, ask: 'Please sign in.' }],
+    }
+
+    it('writes the sentences and the proof method onto the draft', async () => {
+      await writeProviderRecipe(db, walked)
+
+      const dressed = await dressProviderRecipeDraft(db, {
+        kind: walked.kind,
+        provider: walked.provider,
+        steps: [
+          { actor: 'agent', instruction: 'Ask the provider for a mailbox.' },
+          { actor: 'operator', instruction: 'The operator signs in.', ask: 'Please sign in.' },
+        ],
+        proves: 'rung',
+        provesTask: 'email-inbox',
+      })
+
+      expect(dressed).toBe(true)
+      const found = await providerRecipe(db, walked.kind, walked.provider)
+      expect(found?.steps[0]?.instruction).toBe('Ask the provider for a mailbox.')
+      expect(found?.proves).toBe('rung')
+      expect(found?.provesTask).toBe('email-inbox')
+      /** It describes; it does not decide. The verdict is still a separate act. */
+      expect(found?.status).toBe('draft')
+    })
+
+    /** A rung is the only proof the Colony checks itself, so it is the only one that names one. */
+    it('drops a rung name from a proof that is not a rung', async () => {
+      await writeProviderRecipe(db, walked)
+
+      await dressProviderRecipeDraft(db, {
+        kind: walked.kind,
+        provider: walked.provider,
+        steps: [
+          { actor: 'agent', instruction: 'Ask the provider for a mailbox.' },
+          { actor: 'operator', instruction: 'The operator signs in.', ask: 'Please sign in.' },
+        ],
+        proves: 'provider-mail',
+        provesTask: 'email-inbox',
+      })
+
+      expect((await providerRecipe(db, walked.kind, walked.provider))?.provesTask).toBeNull()
+    })
+
+    /**
+     * The rejection case: a published entry is not a draft, and a write that
+     * could reach one would let the curation screen rewrite the catalogue.
+     */
+    it('leaves an entry that is not a draft alone', async () => {
+      await writeProviderRecipe(db, {
+        ...walked,
+        status: 'joinable',
+        steps: [{ actor: 'agent', instruction: 'The published sentence.' }],
+        proves: 'provider-post',
+      })
+
+      const dressed = await dressProviderRecipeDraft(db, {
+        kind: walked.kind,
+        provider: walked.provider,
+        steps: [{ actor: 'agent', instruction: 'A sentence nobody reviewed.' }],
+        proves: 'provider-mail',
+      })
+
+      expect(dressed).toBe(false)
+      expect((await providerRecipe(db, walked.kind, walked.provider))?.steps[0]?.instruction).toBe(
+        'The published sentence.',
+      )
     })
   })
 

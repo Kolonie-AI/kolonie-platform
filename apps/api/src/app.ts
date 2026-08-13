@@ -433,6 +433,7 @@ export function buildApp({
     providerProposals: async () => [],
     decideProvider: async () => ({ outcome: 'not-pending' }),
     decideDraft: async () => false,
+    dressDraft: async () => false,
     fallingRates: async () => [],
     decide: async () => undefined,
   }

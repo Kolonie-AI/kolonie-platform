@@ -22,6 +22,7 @@ import {
   operatorStepCount,
   recipeWall,
   type AccountKind,
+  type AccountProofMethod,
   type ApiError,
   type AtlasAudience,
   type BootstrapTemplate,
@@ -49,6 +50,7 @@ import {
   pendingProposals,
   providerBriefingsAt,
   publishProviderRecipe,
+  dressProviderRecipeDraft,
   providerRecipe,
   providerRecipeList,
   type FallingRate,
@@ -116,6 +118,25 @@ export interface ProviderRecipes {
     decision:
       { readonly verdict: 'published' } | { readonly verdict: 'refused'; readonly refusal: string },
   ): Promise<boolean>
+  /**
+   * Write a steward's wording onto a walked draft (`#857`).
+   *
+   * **The exception to *read-only over the API* above, and it is a narrow one.**
+   * This is not a citizen writing an entry: it is reachable from the console
+   * only, it touches a `draft` and nothing else, and the steps it writes are the
+   * ones the walk recorded with sentences added. What it exists for is that a
+   * walk arrives wordless on purpose (`#517`) and the Colony had nowhere to write
+   * the words it reserves to itself.
+   */
+  dressDraft(
+    kind: AccountKind,
+    provider: string,
+    wording: {
+      readonly steps: readonly RecipeStep[]
+      readonly proves: AccountProofMethod
+      readonly provesTask?: string | undefined
+    },
+  ): Promise<boolean>
 }
 
 export function databaseProviderRecipes(db: Database): ProviderRecipes {
@@ -132,6 +153,8 @@ export function databaseProviderRecipes(db: Database): ProviderRecipes {
     decideProvider: (id, action) => decideProviderProposal(db, id, action),
     decideDraft: (kind, provider, decision) =>
       publishProviderRecipe(db, { kind, provider, ...decision }),
+    dressDraft: (kind, provider, wording) =>
+      dressProviderRecipeDraft(db, { kind, provider, ...wording }),
   }
 }
 

@@ -1922,10 +1922,21 @@ export function registerAccountTools(
       if (result.outcome === 'rejected') return toolError(result.error)
 
       const status = result.response
+      /**
+       * **What the draft is held on, where the Colony can name it** (`#857`).
+       *
+       * *Waiting for a steward* was true and unactionable: the usual reason is
+       * that the walk arrived wordless by design (`#517`) and nobody has written
+       * the published sentence yet, which is a fact about the Colony rather than
+       * about the walker. Saying it is what keeps a walker from resubmitting the
+       * same walk to fix something that was never theirs to fix.
+       */
+      const held = status.requiredChanges?.[0]
       const text =
         status.status === 'draft'
           ? `Your walk ${status.walkId} is a private draft waiting for a steward. It is not lost ` +
-            `and does not appear in kolonie.accounts.recipes yet.`
+            `and does not appear in kolonie.accounts.recipes yet.` +
+            (held === undefined ? '' : ` What it is held on: ${held}`)
           : status.status === 'published'
             ? `Your walk ${status.walkId} is published and now appears in kolonie.accounts.recipes.`
             : status.status === 'refused'

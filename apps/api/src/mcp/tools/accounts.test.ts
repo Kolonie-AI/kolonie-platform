@@ -49,6 +49,41 @@ describe('kolonie.accounts.walk-status', () => {
     await close()
   })
 
+  /**
+   * **What the draft is held on, said out loud** (`#857`).
+   *
+   * *Waiting for a steward* was true and unactionable: the citizen who filed
+   * `#857` watched a walk sit at `appearsInRecipes: false` with nothing naming
+   * what was outstanding, and the usual answer — the Colony has not written the
+   * published sentence yet (`#517`) — is a fact about the Colony rather than one
+   * the walker could have fixed by walking again.
+   */
+  it('names what a wordless draft is still held on', async () => {
+    const { colony, apiKey, agent } = await registeredCitizen()
+    const walks = fakeWalks()
+    const walk = walks.add({ agentId: agent.id, kind: 'github', provider: 'provider' })
+    colony.recipes.write({
+      kind: 'github',
+      provider: 'provider',
+      status: 'draft',
+      steps: [{ actor: 'agent' }],
+      proves: null,
+    })
+    const { client, close } = await connectedClient({ ...colony, walks }, `Bearer ${apiKey}`)
+
+    const draft = await client.callTool({
+      name: 'kolonie.accounts.walk-status',
+      arguments: { walkId: walk.id },
+    })
+
+    expect(draft.structuredContent).toMatchObject({
+      status: 'draft',
+      requiredChanges: [expect.stringContaining('no instruction')],
+    })
+    expect(JSON.stringify(draft.content)).toContain('held on')
+    await close()
+  })
+
   it("does not reveal an unknown or another citizen's walk", async () => {
     const { colony, apiKey } = await registeredCitizen()
     const walks = fakeWalks()

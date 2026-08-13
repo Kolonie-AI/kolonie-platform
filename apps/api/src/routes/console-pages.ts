@@ -5,6 +5,11 @@ import {
   AccountKindSchema,
   AccountProviderSchema,
   RECIPE_REFUSAL_MAX_LENGTH,
+  RECIPE_STEP_MAX_LENGTH,
+  DraftWordingSchema,
+  dressWalkedSteps,
+  type DraftWording,
+  type ProviderRecipe,
   solFromLamports,
   platformFeePercentFromEnv,
   reportAudience,
@@ -3976,6 +3981,56 @@ function audienceOf(quest: Task) {
 }
 
 /**
+ * The wording a steward typed into the draft form, if they typed any (`#857`).
+ *
+ * **Read positionally, from fields named by index.** A form that repeated one
+ * name would hand back a string for a one-step walk and an array for a two-step
+ * one, and the step a mis-indexed sentence lands on is the step an agent then
+ * follows. `instruction-0` cannot drift.
+ *
+ * **Absence is the answer for a draft that already reads as a recipe**: the
+ * whole form is optional, and `proves` is what says a steward filled it in —
+ * every publishable draft has one, so its presence cannot be accidental.
+ */
+function wordingIn(
+  body: unknown,
+  steps: number,
+):
+  | { readonly ok: true; readonly wording: DraftWording }
+  | { readonly ok: false; readonly why: string }
+  | undefined {
+  const fields = (body ?? {}) as Record<string, unknown>
+  const field = (name: string): string | undefined => {
+    const value = fields[name]
+
+    return typeof value === 'string' && value.trim() !== '' ? value.trim() : undefined
+  }
+
+  if (field('proves') === undefined) return undefined
+
+  const written = Array.from({ length: steps }, (_, at) => ({
+    instruction: field(`instruction-${String(at)}`) ?? '',
+    ...(field(`ask-${String(at)}`) === undefined ? {} : { ask: field(`ask-${String(at)}`) }),
+  }))
+
+  const parsed = DraftWordingSchema.safeParse({
+    steps: written,
+    proves: field('proves'),
+    ...(field('provesTask') === undefined ? {} : { provesTask: field('provesTask') }),
+  })
+
+  return parsed.success
+    ? { ok: true, wording: parsed.data }
+    : {
+        ok: false,
+        why:
+          'That wording does not fit a recipe: every step needs a sentence of at most ' +
+          `${String(RECIPE_STEP_MAX_LENGTH)} characters, and the proof method has to be one the ` +
+          'Colony recognises.',
+      }
+}
+
+/**
  * Everything else on the console host is the sign-in page.
  *
  * A 404 listing the API's routes would be an oracle for which console pages
@@ -4050,7 +4105,10 @@ export function registerStewardPages(app: FastifyInstance, deps: RouteDependenci
       : reply.send(curation)
   })
 
-  /** Publish or refuse the walked steps already in a draft (`#808`). */
+  /**
+   * Publish or refuse the walked steps in a draft (`#808`), writing the wording
+   * first where the steward supplied it (`#857`).
+   */
   for (const verdict of ['publish', 'refuse'] as const) {
     app.post(`/recipe-drafts/:kind/:provider/${verdict}`, async (request, reply) => {
       const caller = await steward(request, reply)
@@ -4079,12 +4137,64 @@ export function registerStewardPages(app: FastifyInstance, deps: RouteDependenci
       const draft = await deps.recipes.one(params.data.kind, params.data.provider)
       if (draft === undefined || draft.status !== 'draft') return consoleNotFound(reply, request)
 
-      const missing = verdict === 'publish' ? whyNotPublishable(draft) : undefined
+      /**
+       * **The wording is optional and the press is the same press** (`#857`).
+       * A draft that already reads as a recipe publishes exactly as it did
+       * before; one that arrived wordless from a walk is dressed and published
+       * in one steward action, because two presses is where a half-dressed
+       * draft would live.
+       */
+      const wording =
+        verdict === 'publish' ? wordingIn(request.body, draft.steps.length) : undefined
+      if (wording?.ok === false) {
+        return reply.status(ERROR_STATUS['validation_failed']).send({
+          code: 'validation_failed',
+          message: wording.why,
+        })
+      }
+
+      const dressed =
+        wording === undefined ? undefined : dressWalkedSteps(draft.steps, wording.wording.steps)
+      if (dressed?.ok === false) {
+        return reply.status(ERROR_STATUS['validation_failed']).send({
+          code: 'validation_failed',
+          message: dressed.why,
+        })
+      }
+
+      /**
+       * Judged on what publishing would leave behind, so a draft that would
+       * still be unpublishable is refused **before** anything is written and the
+       * steward's form comes back rather than half-landing.
+       */
+      const effective: ProviderRecipe =
+        dressed === undefined || wording === undefined
+          ? draft
+          : {
+              ...draft,
+              steps: [...dressed.steps],
+              proves: wording.wording.proves,
+              provesTask: wording.wording.provesTask ?? null,
+            }
+
+      const missing = verdict === 'publish' ? whyNotPublishable(effective) : undefined
       if (missing !== undefined) {
         return reply.status(ERROR_STATUS['validation_failed']).send({
           code: 'validation_failed',
           message: missing,
         })
+      }
+
+      if (dressed !== undefined && wording !== undefined) {
+        const written = await deps.recipes.dressDraft(params.data.kind, params.data.provider, {
+          steps: dressed.steps,
+          proves: wording.wording.proves,
+          ...(wording.wording.provesTask === undefined
+            ? {}
+            : { provesTask: wording.wording.provesTask }),
+        })
+
+        if (!written) return consoleNotFound(reply, request)
       }
 
       const moved = await deps.recipes.decideDraft(

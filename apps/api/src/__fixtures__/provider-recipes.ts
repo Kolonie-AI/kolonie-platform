@@ -219,6 +219,28 @@ export function fakeProviderRecipes(): FakeProviderRecipes {
       return true
     },
 
+    // @mirrors packages/db/src/storage/provider-recipes.ts dressProviderRecipeDraft 31d86d4d
+    async dressDraft(kind, provider, wording) {
+      const at = rows.findIndex(
+        (row) =>
+          row.kind === kind &&
+          row.provider.toLowerCase() === provider.toLowerCase() &&
+          row.status === 'draft',
+      )
+      const found = rows[at]
+      if (found === undefined) return false
+
+      rows[at] = {
+        ...found,
+        steps: [...wording.steps],
+        proves: wording.proves,
+        provesTask: wording.proves === 'rung' ? (wording.provesTask ?? null) : null,
+        updatedAt: currentTime(),
+      }
+
+      return true
+    },
+
     proposeProvider(proposal) {
       providersProposed.push(proposal)
     },

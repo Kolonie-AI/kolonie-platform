@@ -454,5 +454,153 @@ describe('the curation section', () => {
         (await colony.recipes.one(AccountKindSchema.parse('mailbox'), 'walked.example'))?.status,
       ).toBe('draft')
     })
+
+    /**
+     * The dead end `#857` was filed about (`#517`, `#601`).
+     *
+     * A walk writes its steps wordless on purpose, so **every** draft a walk
+     * produced was refused by the test above and the only other button emptied
+     * the row. What is asserted here is the third option: the steward writes the
+     * Colony's sentences and the draft publishes in the same press, because two
+     * presses is where a half-dressed draft would live.
+     */
+    describe('writing the wording a walk could not', () => {
+      const seedWordless = () =>
+        colony.recipes.write({
+          kind: 'mailbox',
+          provider: 'walked.example',
+          status: 'draft',
+          category: 'mailbox',
+          steps: [{ actor: 'agent' }, { actor: 'operator', ask: 'Please pass the check.' }],
+          proves: null,
+          provesTask: null,
+        })
+
+      const publish = async (payload: Record<string, string>) =>
+        app.inject({
+          method: 'POST',
+          url: '/recipe-drafts/mailbox/walked.example/publish',
+          headers: {
+            host: consoleHost,
+            accept: 'application/json',
+            authorization: `Bearer ${steward()}`,
+          },
+          payload,
+        })
+
+      it('dresses a wordless walk and publishes it in one press', async () => {
+        seedWordless()
+
+        const response = await publish({
+          'instruction-0': 'Ask the provider for a mailbox.',
+          'instruction-1': 'The operator passes the human check.',
+          proves: 'rung',
+          provesTask: 'email-inbox',
+        })
+
+        expect(response.statusCode).toBe(200)
+        const entry = await colony.recipes.one(AccountKindSchema.parse('mailbox'), 'walked.example')
+        expect(entry?.status).toBe('joinable')
+        expect(entry?.steps[0]?.instruction).toBe('Ask the provider for a mailbox.')
+        /** The shape stays the walk's: the recorded ask survives the dressing. */
+        expect(entry?.steps[1]?.ask).toBe('Please pass the check.')
+        expect(entry?.proves).toBe('rung')
+        expect(entry?.provesTask).toBe('email-inbox')
+      })
+
+      /**
+       * **Nothing lands when the wording does not fit.** A steward who described
+       * one step of two gets the form back with the sentence saying so, rather
+       * than a draft carrying half a rewrite.
+       */
+      it('refuses a wording that describes fewer steps than the walk recorded', async () => {
+        seedWordless()
+
+        const response = await publish({
+          'instruction-0': 'Ask the provider for a mailbox.',
+          proves: 'provider-mail',
+        })
+
+        expect(response.statusCode).toBe(422)
+        const entry = await colony.recipes.one(AccountKindSchema.parse('mailbox'), 'walked.example')
+        expect(entry?.status).toBe('draft')
+        expect(entry?.steps[0]?.instruction).toBeUndefined()
+      })
+
+      /** The red line, on the one surface that types free text into a published entry. */
+      it('refuses a sentence carrying a credential', async () => {
+        seedWordless()
+
+        const response = await publish({
+          'instruction-0': 'Paste ghp_abcdefghijklmnopqrstuvwxyz01 into the field.',
+          'instruction-1': 'The operator passes the human check.',
+          proves: 'provider-mail',
+        })
+
+        expect(response.statusCode).toBe(422)
+        expect(response.json().message).toContain('credential')
+        expect(
+          (await colony.recipes.one(AccountKindSchema.parse('mailbox'), 'walked.example'))?.status,
+        ).toBe('draft')
+      })
+
+      /**
+       * **The press is the same press.** A draft that already reads as a recipe
+       * publishes with no body at all, exactly as it did before `#857` — the
+       * wording is an addition to the route and not a new requirement on it.
+       */
+      it('still publishes an already-written draft with no wording at all', async () => {
+        seedDraft()
+
+        const response = await app.inject({
+          method: 'POST',
+          url: '/recipe-drafts/mailbox/walked.example/publish',
+          headers: {
+            host: consoleHost,
+            accept: 'application/json',
+            authorization: `Bearer ${steward()}`,
+          },
+        })
+
+        expect(response.statusCode).toBe(200)
+        expect(
+          (await colony.recipes.one(AccountKindSchema.parse('mailbox'), 'walked.example'))?.status,
+        ).toBe('joinable')
+      })
+
+      /** The steward needs the walker's account beside the boxes, or there is nothing to write from. */
+      it('offers the form and the walker’s own account on a held draft', async () => {
+        const { curationSections } = await import('../console/curation.js')
+        colony.recipes.write({
+          kind: 'mailbox',
+          provider: 'walked.example',
+          status: 'draft',
+          category: 'mailbox',
+          steps: [{ actor: 'agent' }],
+          proves: null,
+          provesTask: null,
+          walkedRecipe: {
+            prerequisites: [],
+            steps: [{ title: 'Open the signup page', detail: 'it asks for an address' }],
+            walls: [],
+            verification: [],
+          },
+        })
+        const draft = (await colony.recipes.listInternal())[0] as ProviderRecipe
+
+        const rendered = curationSections({
+          proposals: [],
+          providerProposals: [],
+          falling: [],
+          entries: [],
+          unpublished: [draft],
+          divergences: [],
+        })
+
+        expect(rendered).toContain('name="instruction-0"')
+        expect(rendered).toContain('name="proves"')
+        expect(rendered).toContain('Open the signup page')
+      })
+    })
   })
 })

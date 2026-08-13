@@ -14,6 +14,7 @@ import {
   recipeStatusIsPublic,
   ReferralArrangementSchema,
   type AccountKind,
+  type AccountProofMethod,
   type AgentApi,
   type AtlasCategory,
   type SignupCode,
@@ -510,6 +511,57 @@ export async function publishProviderRecipe(
     .returning({ id: providerRecipes.id })
 
   return moved.length > 0
+}
+
+/**
+ * Write the wording onto a walked draft, so it can be published at all (`#857`).
+ *
+ * **The write that was missing.** A walk records the shape of what happened and
+ * `#517` reserves the sentence a recipe publishes to the Colony, so every draft a
+ * walk produced arrived wordless and `whyNotPublishable` held it — correctly, and
+ * forever, because nothing anywhere could supply the missing sentence. The screen
+ * offered a Publish button that would not fire and a Refuse button that empties
+ * the row. This is the third thing to do with such a draft.
+ *
+ * **Guarded on `draft` in the `where`, for the reason `publishProviderRecipe`
+ * is.** Dressing an entry that has since been published would overwrite a
+ * live recipe from a form somebody opened an hour ago.
+ *
+ * **It moves no status**, which is what lets the screen dress and publish in one
+ * press without the press being the thing that decides: the verdict that follows
+ * is a verdict about a row the runner can actually read.
+ *
+ * Steps arrive already checked by `dressWalkedSteps` — this writes them.
+ */
+export async function dressProviderRecipeDraft(
+  db: Handle,
+  entry: {
+    readonly kind: AccountKind
+    readonly provider: string
+    readonly steps: readonly RecipeStep[]
+    readonly proves: AccountProofMethod
+    /** Only ever set beside `proves: 'rung'`; the write schema refines that. */
+    readonly provesTask?: string | undefined
+  },
+): Promise<boolean> {
+  const dressed = await db
+    .update(providerRecipes)
+    .set({
+      steps: [...entry.steps],
+      proves: entry.proves,
+      provesTask: entry.proves === 'rung' ? (entry.provesTask ?? null) : null,
+      updatedAt: sql`now()`,
+    })
+    .where(
+      and(
+        eq(providerRecipes.kind, entry.kind),
+        eq(providerRecipes.provider, AccountProviderSchema.parse(entry.provider)),
+        eq(providerRecipes.status, 'draft'),
+      ),
+    )
+    .returning({ id: providerRecipes.id })
+
+  return dressed.length > 0
 }
 
 /**

@@ -1,7 +1,14 @@
 import { z } from 'zod'
 import { looksLikeCredential } from '../operator/request.js'
 import { MODERATION_STAGE_NOT_RUN, ModerationStageSchema } from '../guidance/guidance.js'
-import { AtlasCategorySchema, type ProviderRecipe, type RecipeStep } from './recipe.js'
+import { AccountProofMethodSchema } from './account.js'
+import {
+  AtlasCategorySchema,
+  RECIPE_MAX_STEPS,
+  RECIPE_STEP_MAX_LENGTH,
+  type ProviderRecipe,
+  type RecipeStep,
+} from './recipe.js'
 
 /**
  * What decided whether a walked recipe is fit to send another agent down
@@ -235,3 +242,142 @@ export const RECIPE_RED_LINE_REFUSAL =
   'such an account, obtained together with its operator. This is not about the quality of the ' +
   'walk, and there is nothing here to reword: see governance/red-lines.md for the register ' +
   'this refusal comes from.'
+
+/**
+ * The wording a steward supplies so a walked draft can be published (`#857`).
+ *
+ * ## The half of the pipeline that was missing
+ *
+ * A walk records **actions with the wording genuinely missing** — see
+ * `walkToSteps` — because `#517` reserves the sentence a recipe publishes to the
+ * Colony, and the walk did not observe one. {@link whyNotPublishable} then holds
+ * every such draft, correctly, and says the sentence *is still the Colony's to
+ * write*. Until `#857` there was nowhere to write it: the curation screen offered
+ * **Publish**, refused by the wordless step, and **Refuse**, which empties the row.
+ * So every draft a walk produced was stuck between a button that would not fire
+ * and a button that discarded the walk, and the citizen who filed `#857` watched
+ * a ClawHub walk sit at `appearsInRecipes: false` with no third option existing.
+ *
+ * ## Why this is a separate act from the verdict
+ *
+ * `publishProviderRecipe` moves a state and restates nothing. Dressing writes
+ * text and moves nothing. Keeping them apart is what lets the screen do both in
+ * one press without the *press* being the thing that decides: a steward who
+ * dresses a draft and then reads it again has changed no state, and the
+ * moderation runner's verdict about the dressed row is a verdict about what it
+ * can actually see.
+ *
+ * ## What a steward may write and what stays the walk's
+ *
+ * **Only the words.** `actor`, `secret` and the position come from what the
+ * Colony observed and are not settable here — a steward retyping the shape would
+ * be editing the record of what happened rather than describing it. An `ask`
+ * already recorded is the sentence the Colony itself sent and wins over anything
+ * offered; one is asked for only where an operator step has none.
+ */
+export const DraftWordingSchema = z
+  .object({
+    /**
+     * One entry per observed step, in the walk's own order.
+     *
+     * **Positional and required to match exactly.** A shorter list would leave a
+     * step to be filled by index arithmetic, and the step it silently attached
+     * the wrong sentence to is the one an agent then follows.
+     */
+    steps: z
+      .array(
+        z
+          .object({
+            instruction: z.string().trim().min(1).max(RECIPE_STEP_MAX_LENGTH),
+            ask: z.string().trim().min(1).max(RECIPE_STEP_MAX_LENGTH).optional(),
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(RECIPE_MAX_STEPS),
+    proves: AccountProofMethodSchema,
+    provesTask: z.string().trim().min(1).max(64).optional(),
+  })
+  .strict()
+export type DraftWording = z.infer<typeof DraftWordingSchema>
+
+/** Dressed steps, or the one sentence saying why these words do not fit this walk. */
+export type DressedSteps =
+  | { readonly ok: true; readonly steps: readonly RecipeStep[] }
+  | { readonly ok: false; readonly why: string }
+
+/**
+ * Put a steward's sentences onto the steps a walk observed.
+ *
+ * Pure, so the screen and the write agree about what a dressed draft is, and so
+ * the rejection cases are testable without a database. Every refusal names the
+ * position it is about, because that is how a steward finds the field to fix.
+ */
+export function dressWalkedSteps(
+  observed: readonly RecipeStep[],
+  wording: DraftWording['steps'],
+): DressedSteps {
+  if (observed.length === 0) {
+    return { ok: false, why: 'This walk recorded no steps, so there is nothing to describe.' }
+  }
+
+  if (observed.length !== wording.length) {
+    return {
+      ok: false,
+      why:
+        `This walk recorded ${String(observed.length)} step${observed.length === 1 ? '' : 's'} and ` +
+        `${String(wording.length)} ${wording.length === 1 ? 'was' : 'were'} described. Describe ` +
+        'each one in the order it happened — a shorter list would attach a sentence to the wrong step.',
+    }
+  }
+
+  const steps: RecipeStep[] = []
+
+  for (const [at, step] of observed.entries()) {
+    /** Checked above; the index is in range because the lengths are equal. */
+    const written = wording[at] as DraftWording['steps'][number]
+
+    if (step.actor === 'agent' && written.ask !== undefined) {
+      return {
+        ok: false,
+        why:
+          `Step ${String(at + 1)} is the agent acting alone and carries an ask. An ask is what an ` +
+          'operator is shown, and a step with both would put a question in front of nobody.',
+      }
+    }
+
+    /**
+     * **The recorded ask wins.** It is the sentence the Colony sent, stored when
+     * it was sent; letting a later reading of the walk replace it would make the
+     * recipe disagree with what the operator actually read.
+     */
+    const ask = step.ask ?? written.ask
+
+    if (step.actor === 'operator' && ask === undefined) {
+      return {
+        ok: false,
+        why:
+          `Step ${String(at + 1)} needs an operator and no ask was recorded or written. The recipe ` +
+          'carries the sentence the operator is shown, so that the agent does not compose it.',
+      }
+    }
+
+    steps.push({
+      ...step,
+      instruction: written.instruction,
+      ...(ask === undefined ? {} : { ask }),
+    })
+  }
+
+  const credential = stepNamingACredential(steps)
+  if (credential !== undefined) {
+    return {
+      ok: false,
+      why:
+        `Step ${String(credential)} reads as a credential. A recipe describes what to do and never ` +
+        'what was typed — a value written here is one the Colony holds and cannot un-hold.',
+    }
+  }
+
+  return { ok: true, steps }
+}

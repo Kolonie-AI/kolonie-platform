@@ -1,9 +1,13 @@
 import {
   ATLAS_ADMISSION_QUESTIONS,
+  AccountProofMethodSchema,
   AtlasCategorySchema,
+  PROOF_LABEL,
   RECIPE_REFUSAL_MAX_LENGTH,
+  RECIPE_STEP_MAX_LENGTH,
   isStale,
   stepInstruction,
+  walkedRecipeAsText,
   walkReportAnswers,
   whyNotPublishable,
   type AccountWalk,
@@ -270,6 +274,86 @@ export function staleEntriesSection(entries: readonly AtlasEntry[]): string {
  * an entry arrives here by nothing having published it, rather than by anything
  * having routed it here.
  */
+/**
+ * The walker's own account of the provider, beside the draft it produced (`#857`).
+ *
+ * **Source material and never the recipe.** `#517` reserves the published
+ * sentence to the Colony and `walkedRecipeAsText` says so in its own banner; a
+ * steward writing the wording is reading a report, exactly as they would read a
+ * `provider-report` reason. Until now this column was the only thing on the
+ * screen and the account was stored where nobody looked — which is how a steward
+ * came to be asked for a sentence with the material for it one table away.
+ *
+ * Folded shut, because most drafts do not need it open to be judged.
+ */
+function walkersAccount(entry: ProviderRecipe): string {
+  if (entry.walkedRecipe === null) return ''
+
+  return (
+    '<details><summary>The walker’s own account</summary>' +
+    `<pre>${escape(walkedRecipeAsText(entry.walkedRecipe))}</pre></details>`
+  )
+}
+
+/**
+ * Where a steward writes the sentences a walk could not record (`#857`).
+ *
+ * **The third thing to do with a held draft.** A walk arrives wordless on
+ * purpose, so `whyNotPublishable` holds it and the screen offered a Publish
+ * button that would not fire beside a Refuse button that empties the row.
+ * A draft could be discarded or left, and there was no way to finish it.
+ *
+ * **The shape is fixed and only the words are asked for.** No field here can
+ * change `actor`, an order or a recorded ask: those are what the Colony saw
+ * happen, and a form that let them be retyped would be editing the record rather
+ * than describing it. An ask is asked for exactly where an operator step has
+ * none, and never on a step the agent takes alone.
+ *
+ * It posts to the same publish route, so dressing and publishing are one press.
+ */
+function wordingForm(entry: ProviderRecipe, route: string): string {
+  if (entry.steps.length === 0) return ''
+
+  const fields = entry.steps
+    .map((step, at) => {
+      const asked =
+        step.actor === 'operator' && step.ask === undefined
+          ? `<input type="text" name="ask-${String(at)}" ` +
+            `maxlength="${String(RECIPE_STEP_MAX_LENGTH)}" required ` +
+            'placeholder="the sentence the operator is shown" />'
+          : ''
+
+      return (
+        `<label><small>${String(at + 1)}. ${escape(step.actor)}</small>` +
+        `<input type="text" name="instruction-${String(at)}" ` +
+        `maxlength="${String(RECIPE_STEP_MAX_LENGTH)}" required ` +
+        `value="${escape(step.instruction ?? '')}" ` +
+        'placeholder="what this step does, in the Colony’s words" />' +
+        `${asked}</label>`
+      )
+    })
+    .join('')
+
+  const proves = AccountProofMethodSchema.options
+    .map(
+      (method) =>
+        `<option value="${escape(method)}"${entry.proves === method ? ' selected' : ''}>` +
+        `${escape(method)} — ${escape(PROOF_LABEL[method])}</option>`,
+    )
+    .join('')
+
+  return (
+    `<details><summary>Write the wording</summary>` +
+    `<form method="post" action="/recipe-drafts/${route}/publish">` +
+    fields +
+    `<label><small>Proof</small><select name="proves">${proves}</select></label>` +
+    '<label><small>Rung, for a proof the Colony checks itself</small>' +
+    `<input type="text" name="provesTask" maxlength="64" ` +
+    `value="${escape(entry.provesTask ?? '')}" placeholder="e.g. github-account" /></label>` +
+    '<button type="submit">Write and publish</button></form></details>'
+  )
+}
+
 function unpublishedSection(entries: readonly ProviderRecipe[]): string {
   if (entries.length === 0) {
     return '<p class="note">Nothing is waiting. Every entry in the catalogue is published.</p>'
@@ -311,13 +395,14 @@ function unpublishedSection(entries: readonly ProviderRecipe[]): string {
         `<tr><td>${escape(entry.provider)}</td><td>${escape(entry.kind)}</td>` +
         '<td>' +
         `<ol>${steps}</ol><small>Proof: ${proof}. Shelf: ${escape(entry.category)}.</small>` +
+        walkersAccount(entry) +
         '</td>' +
         `<td>${escape(relative(entry.updatedAt))}</td>` +
         '<td>' +
         (missing === undefined
           ? `<form method="post" action="/recipe-drafts/${route}/publish">` +
             '<button type="submit">Publish</button></form>'
-          : `<small>Cannot publish yet: ${escape(missing)}</small>`) +
+          : `<small>Cannot publish yet: ${escape(missing)}</small>` + wordingForm(entry, route)) +
         `<form method="post" action="/recipe-drafts/${route}/refuse">` +
         `<input type="text" name="reason" maxlength="${String(RECIPE_REFUSAL_MAX_LENGTH)}" ` +
         'placeholder="why this route cannot be published" required />' +

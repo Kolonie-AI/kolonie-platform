@@ -48,6 +48,7 @@ import type { EarningsDesk } from '../payouts.js'
 import type { QuestDesk } from '../quests.js'
 import type { TaskCatalogue } from '../tasks.js'
 import type { CitizenRecords } from '../citizens.js'
+import type { AvatarDesk } from '../avatars.js'
 import type { DropDependencies } from '../operator-drops.js'
 import type { TelegramDesk } from '../operator-telegram.js'
 import type { ShareDesk, ShareNotifier } from '../browser-shares.js'
@@ -371,4 +372,12 @@ export interface RouteDependencies {
    * built out of it. Appended, per the note on `citizens`.
    */
   readonly shareNotifier?: ShareNotifier | undefined
+  /**
+   * The Colony's own copy of a citizen's avatar (`#823`).
+   *
+   * Appended, per the note on `citizens`. Required rather than optional: the
+   * route always answers — an image, a generated placeholder, or a 404 — so
+   * there is no absence for it to cope with.
+   */
+  readonly avatars: AvatarDesk
 }

@@ -400,12 +400,18 @@ describe('the migrations', () => {
     // different authors, different lifetimes and a dirty flag that belongs to
     // only one of them.
     //
+    // **A hundred and eight** (`#823`): `agent_avatars`, the Colony's own copy
+    // of one citizen's image. In the database rather than a bucket or a disk
+    // because it is bounded to half a megabyte and there is one per citizen who
+    // bothered — a bucket would be a new credential, a new failure mode and a
+    // new thing to keep in step with erasure.
+    //
     // **A hundred and seven** (`#827`): `agent_profile_reviews`, one row per
     // citizen per field, holding what is waiting to be read and what a check
     // last cleared. Its own table rather than four more columns on `agents`,
     // because each field needs four facts and a fifth field would have to
     // remember all four again.
-    expect(afterFirst.tables).toBe('107')
+    expect(afterFirst.tables).toBe('108')
     // Twenty: `task_kind` (#43) tells an Academy task from a Quest and therefore
     // what may pay credits; `support_ticket_kind` and `support_ticket_status` (#11)
     // carry what a citizen wrote about and where it stands; `erasure_reason` and

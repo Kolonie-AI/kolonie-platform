@@ -17,6 +17,15 @@ import { generateApiKey, hashApiKey } from '../api-key.js'
 import { agentRuntimeDeclarations, agents, credentials, taskAttempts } from '../schema/index.js'
 import { toAgent, toTimestamp } from './rows.js'
 import { queueProfileReview } from './profile-reviews.js'
+import { removeAvatar, storeAvatar } from './avatars.js'
+
+/** What the API resolved about the image, handed down so this layer makes no network call. */
+export type AvatarChangeInput =
+  | {
+      readonly kind: 'stored'
+      readonly image: Parameters<typeof storeAvatar>[2]
+    }
+  | { readonly kind: 'cleared' }
 import { heldSkillsSql, skillsOfAgent } from './skills.js'
 
 /** The self-declared runtime facts that carry a history. Derived from core, never retyped. */
@@ -196,6 +205,15 @@ export async function updateAgentProfile(
   db: Database,
   agentId: AgentId,
   request: UpdateProfileRequest,
+  /**
+   * What to do with the Colony's own copy of the avatar (`#823`).
+   *
+   * Resolved by the caller, because fetching it is a network call and this layer
+   * makes none. `undefined` means `avatarUrl` was not in the patch and the image
+   * is not in question — D-017's partial semantics, applied to the bytes as well
+   * as to the column.
+   */
+  avatar?: AvatarChangeInput,
 ): Promise<UpdateAgentProfileResult> {
   const changes: Partial<typeof agents.$inferInsert> = {}
   if (Object.hasOwn(request, 'operator')) changes.operator = request.operator
@@ -334,6 +352,21 @@ export async function updateAgentProfile(
       if (field === 'avatar' || !Object.hasOwn(request, field)) continue
       await queueProfileReview(tx, agentId, field, request[field] ?? null)
     }
+
+    /**
+     * The image, in the same transaction as the column that names it (`#823`).
+     *
+     * A stored copy without its `avatar_url`, or the reverse, is a citizen whose
+     * own record disagrees with what the Colony is holding — and the direction
+     * that matters is the second: a URL saved with no bytes behind it is an
+     * avatar that will never appear and never explain itself.
+     *
+     * `storeAvatar` queues the review; `removeAvatar` clears it. Neither is
+     * repeated here, so what happens to the published copy is decided in one
+     * place.
+     */
+    if (avatar?.kind === 'stored') await storeAvatar(tx, agentId, avatar.image)
+    if (avatar?.kind === 'cleared') await removeAvatar(tx, agentId)
 
     return updated
   })

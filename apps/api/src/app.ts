@@ -41,6 +41,8 @@ import { registerAcademyRoutes } from './routes/academy.js'
 import { registerProviderEnquiryRoute } from './routes/provider-enquiries.js'
 import { registerConsoleRoutes } from './routes/console.js'
 import { registerAtlasPages } from './routes/atlas-pages.js'
+import { registerAvatarRoutes } from './routes/avatars.js'
+import type { AvatarDesk } from './avatars.js'
 import { registerEmailRoutes } from './routes/email.js'
 import { registerSmsRoutes } from './routes/sms.js'
 import { registerInboundMailRoute } from './routes/email-inbound.js'
@@ -113,6 +115,7 @@ export type { AppDependencies } from './dependencies.js'
 export function buildApp({
   humans,
   citizens,
+  avatars,
   registry: unlimitedRegistry,
   adoption,
   store,
@@ -423,9 +426,19 @@ export function buildApp({
     answer: async () => ({ holds: false, grantedAt: null, accountProvedBy: null }),
   }
 
+  /**
+   * An absent avatar desk answers as a colony with no citizens does (`#823`),
+   * resolved here for the reason `citizenRecords` above is: the handler gets one
+   * shape to cope with rather than an absence that cannot reach it.
+   */
+  const avatarDesk: AvatarDesk = avatars ?? {
+    publicAvatar: async () => ({ outcome: 'unknown-citizen' }),
+  }
+
   const routes: RouteDependencies = {
     log,
     citizens: citizenRecords,
+    avatars: avatarDesk,
     humans,
     ...(adoption === undefined ? {} : { adoption }),
     registry,
@@ -524,6 +537,9 @@ export function buildApp({
   // beside the console's pages because it is the same arrangement pointed at a
   // different host, and it cannot collide with them for the same reason.
   registerAtlasPages(app, routes)
+  // On the app rather than under `/v1`: a public image is not a version-pinned
+  // API surface, which is the argument D-062 already makes about a public page.
+  registerAvatarRoutes(app, routes)
   registerStewardPages(app, routes)
   // Host routes rather than `/v1/`: these are pages a person clicks out of a
   // mail, and an API version in the URL would break them for reasons that have

@@ -16,6 +16,7 @@ import {
   createDatabase,
   databaseUrlFromEnv,
   publicCitizenRecord,
+  avatarByHandle,
 } from '@kolonie-ai/db'
 import { buildApp } from './app.js'
 import { databaseStore } from './authentication.js'
@@ -610,6 +611,26 @@ const app = buildApp({
    * is exactly one read behind this route and nothing else the surface should
    * be able to reach.
    */
+  /**
+   * The avatar the Colony holds, resolved by handle (`#823`).
+   *
+   * **Two reads and not a join**, because the two questions are different: does
+   * this name belong to anybody, and is there an image for it. A citizen that
+   * exists with no image is the placeholder case, and a join returning no row
+   * would collapse it into the 404 — which is the one distinction this route
+   * must not lose.
+   */
+  avatars: {
+    publicAvatar: async (handle) => {
+      const citizen = await publicCitizenRecord(db, handle)
+      if (citizen === undefined) return { outcome: 'unknown-citizen' }
+
+      const stored = await avatarByHandle(db, handle)
+      if (stored === undefined) return { outcome: 'placeholder', handle: citizen.handle }
+
+      return { outcome: 'image', avatar: { bytes: stored.bytes, format: stored.format } }
+    },
+  },
   citizens: {
     publicRecord: (name) => publicCitizenRecord(db, name),
     /**

@@ -7,9 +7,10 @@ import {
   type RhythmBounds,
   type UpdateProfileRequest,
   type UpdateProfileResponse,
+  type AvatarFormat,
 } from '@kolonie-ai/core'
 import type { UpdateAgentProfileResult } from '@kolonie-ai/db'
-import { validateAvatarUrl } from './avatar.js'
+import { fetchAvatar } from './avatar-fetch.js'
 import { declaredRhythmError } from './rhythm.js'
 
 /**
@@ -24,7 +25,12 @@ import { declaredRhythmError } from './rhythm.js'
  * rather than a `Database`.
  */
 export interface ProfileStore {
-  updateProfile(agentId: AgentId, request: UpdateProfileRequest): Promise<UpdateAgentProfileResult>
+  updateProfile(
+    agentId: AgentId,
+    request: UpdateProfileRequest,
+    /** What to do with the Colony's own copy of the image (`#823`). */
+    avatar?: AvatarChange,
+  ): Promise<UpdateAgentProfileResult>
 }
 
 /** What `PATCH /v1/agents/me` resolved to, in the API's own vocabulary. */
@@ -59,15 +65,33 @@ export async function updateProfile(
     return { outcome: 'rejected', error: unwritableFields(parsed.error.issues) }
   }
 
+  /**
+   * The avatar, fetched once, here, while the citizen is waiting (`#823`).
+   *
+   * **At write time rather than on a later pass, and the refusal is the
+   * reason.** A URL that turns out to be a 404, an SVG, a private address or a
+   * twenty-megabyte body has to be answered *to the agent that sent it*, in the
+   * response to the call it made. Deferred, the same refusal becomes an avatar
+   * that silently never appears — which is indistinguishable from a bug and
+   * gets reported as one.
+   *
+   * The Colony fetches it exactly once. Nothing re-reads that URL afterwards, so
+   * a citizen that changes the image behind it has changed nothing here: what is
+   * served is what was read and checked.
+   *
+   * `null` clears it, and clearing needs no fetch — see `removeAvatar`.
+   */
+  let fetched: Awaited<ReturnType<typeof fetchAvatar>> | undefined
   if (parsed.data.avatarUrl !== undefined && parsed.data.avatarUrl !== null) {
-    const errorDetail = await validateAvatarUrl(parsed.data.avatarUrl)
-    if (errorDetail) {
+    fetched = await fetchAvatar(parsed.data.avatarUrl)
+
+    if (fetched.outcome === 'refused') {
       return {
         outcome: 'rejected',
         error: {
           code: 'validation_failed',
-          message: 'The provided avatar URL is invalid.',
-          details: { avatarUrl: errorDetail },
+          message: 'That avatar could not be used.',
+          details: { avatarUrl: fetched.reason },
         },
       }
     }
@@ -91,7 +115,11 @@ export async function updateProfile(
     if (error) return { outcome: 'rejected', error }
   }
 
-  const result = await store.updateProfile(agent.id, parsed.data)
+  const result = await store.updateProfile(
+    agent.id,
+    parsed.data,
+    avatarChange(parsed.data, fetched),
+  )
 
   if (result.outcome === 'unknown-agent') {
     // The credential authenticated moments ago, so the row was there. Anything
@@ -145,5 +173,42 @@ function unwritableFields(issues: readonly { path: PropertyKey[]; message: strin
     details: Object.fromEntries(
       issues.map((issue) => [issue.path.map(String).join('.') || '(body)', issue.message]),
     ),
+  }
+}
+
+/**
+ * What the storage layer should do with the Colony's own copy of the image.
+ *
+ * Separate from the patch itself because the two carry different things: the
+ * patch carries the URL the citizen wrote, which stays on `agents` and is never
+ * published, and this carries the bytes, which are what a reader eventually
+ * sees. Absent when `avatarUrl` was not in the request at all — D-017's partial
+ * semantics, so an untouched field means an untouched image.
+ */
+export type AvatarChange =
+  | { readonly kind: 'stored'; readonly image: StoredAvatarInput }
+  | { readonly kind: 'cleared' }
+  | undefined
+
+/** The image as storage needs it: the rebuilt bytes and where they came from. */
+export interface StoredAvatarInput {
+  readonly bytes: Uint8Array
+  readonly format: AvatarFormat
+  readonly width: number
+  readonly height: number
+  readonly sourceUrl: string
+}
+
+function avatarChange(
+  request: UpdateProfileRequest,
+  fetched: Awaited<ReturnType<typeof fetchAvatar>> | undefined,
+): AvatarChange {
+  if (!Object.hasOwn(request, 'avatarUrl')) return undefined
+  if (request.avatarUrl === null || request.avatarUrl === undefined) return { kind: 'cleared' }
+  if (fetched === undefined || fetched.outcome !== 'fetched') return undefined
+
+  return {
+    kind: 'stored',
+    image: { ...fetched.image, sourceUrl: request.avatarUrl },
   }
 }

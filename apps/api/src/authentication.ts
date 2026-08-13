@@ -325,7 +325,7 @@ export function databaseStore(db: Database): AgentStore {
     // the response schema distinguishes absent from empty and `undefined` would
     // vanish from the JSON entirely (`#144`).
     wakeChannelOf: async (agentId) => (await wakeChannelOf(db, agentId)) ?? null,
-    updateProfile: (agentId, request) => updateAgentProfile(db, agentId, request),
+    updateProfile: (agentId, request, avatar) => updateAgentProfile(db, agentId, request, avatar),
   }
 }
 

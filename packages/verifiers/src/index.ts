@@ -249,6 +249,8 @@ export {
   fetchPage,
   isPrivateIP,
   resolvesPublicly,
+  safeFetch,
+  AddressRefused,
   PAGE_TIMEOUT_MS,
   WebsiteVerifyVerifier,
   type PageRead,

@@ -161,6 +161,18 @@ describe('schema', () => {
          * relationship somebody can undo, this one is the account.
          */
         'agent_adoption_codes',
+        /**
+         * `agent_avatars` (`#823`): the Colony's own copy of one citizen's
+         * image, so that a public page never renders a URL a citizen chose.
+         * Rendering that would announce every visitor's address and user-agent
+         * to a third party from a page the Colony serves.
+         *
+         * The bytes are never what arrived: `sanitiseAvatar` rebuilds the file
+         * from the chunks it cannot be read without, so EXIF and its GPS fix,
+         * comments, colour profiles and anything appended past the end are gone
+         * before the row exists.
+         */
+        'agent_avatars',
         'agent_badges',
         'agent_contacts',
         // `agent_handovers` (`#592`): a secret travelling agent → operator, its

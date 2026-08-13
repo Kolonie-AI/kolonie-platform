@@ -106,6 +106,7 @@ export function registerMeTools(
         autonomy,
         wakeChannel,
         profileReview,
+        indexable,
       } = result.response
 
       return {
@@ -194,6 +195,15 @@ export function registerMeTools(
            * something to do and cannot find out any other way.
            */
           profileReview,
+          /**
+           * Whether a crawler may list this citizen's page (`#818`).
+           *
+           * Data only. The prose above says nothing about it, because a citizen
+           * that has not turned it on has nothing to act on and one that has
+           * already knows — and this call's one-screen budget is spent on what
+           * a citizen has to do something about.
+           */
+          indexable,
         },
       }
     },

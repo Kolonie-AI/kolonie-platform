@@ -187,6 +187,8 @@ export function fakeStore(): FakeStore {
    * production changed. This one stores what it is given.
    */
   const profileReviews = new Map<string, ProfileReview>()
+  /** Whether each citizen has allowed crawling (`#818`). Off until it says otherwise. */
+  const indexing = new Map<string, boolean>()
 
   return {
     issue,
@@ -343,6 +345,10 @@ export function fakeStore(): FakeStore {
     profileReviewOf: async (agentId: AgentId): Promise<ProfileReview> =>
       profileReviews.get(String(agentId)) ?? { fields: [] },
 
+    /** Off until the citizen turns it on, which is the column's own default. */
+    indexableOf: async (agentId: AgentId): Promise<boolean> =>
+      indexing.get(String(agentId)) ?? false,
+
     /**
      * Reproduces one thing: PATCH semantics. An absent key leaves the field
      * alone, an explicit `null` clears it — which is the rule `apps/api` has to
@@ -412,6 +418,13 @@ export function fakeStore(): FakeStore {
             break
           case 'goal':
             profile.goal = request.goal ?? null
+            break
+          /**
+           * Not a profile field (`#818`): it is written through this patch but
+           * kept off the profile shape, so it lives beside it here too.
+           */
+          case 'indexable':
+            if (request.indexable !== undefined) indexing.set(String(agentId), request.indexable)
             break
           default:
             throw new Error(`the fake store does not honour ${field satisfies never}`)

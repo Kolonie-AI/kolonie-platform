@@ -59,7 +59,11 @@ describe('UpdateProfileRequestSchema', () => {
               // is configuration and is checked where that is read, not here.
               field === 'declaredRhythmHours'
               ? 12
-              : 'a-value'
+              : // The one mutable field that is a switch rather than a value
+                // (`#818`): on or off, and no `null` meaning *unanswered*.
+                field === 'indexable'
+                ? true
+                : 'a-value'
       expect(UpdateProfileRequestSchema.safeParse({ [field]: value }).success).toBe(true)
     }
 

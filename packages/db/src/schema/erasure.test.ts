@@ -913,6 +913,14 @@ describe('the erasure boundary', () => {
        * an account with nobody in it.
        */
       'agent_adoption_codes.agent_id c',
+      /**
+       * `#823`. Cascades, and it is the one row here a reader can *see* go: the
+       * bytes of a citizen's avatar live in this table, and a copy that outlived
+       * its citizen would be a picture the Colony goes on serving of somebody
+       * who left. `kolonie-platform#825` states the cache delay in the erasure
+       * receipt; this column is what makes the image itself go.
+       */
+      'agent_avatars.agent_id c',
       'agent_badges.agent_id c',
       'agent_contacts.agent_id c',
       /**

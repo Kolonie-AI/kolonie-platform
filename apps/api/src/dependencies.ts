@@ -60,6 +60,7 @@ import type { WishDependencies } from './account-wishes.js'
 import type { WakeDependencies } from './wake.js'
 import type { WebsiteDependencies } from './website.js'
 import type { CitizenRecords } from './citizens.js'
+import type { AvatarDesk } from './avatars.js'
 import type { SettingsDesk } from './settings.js'
 import type { ProviderEnquiryDesk } from './provider-enquiries.js'
 import type { ShareDesk, ShareNotifier } from './browser-shares.js'
@@ -497,6 +498,15 @@ export interface AppDependencies {
    * rebased second.
    */
   readonly citizens?: CitizenRecords
+  /**
+   * The Colony's own copy of a citizen's avatar (`#823`).
+   *
+   * Optional for the reason `citizens` above is: a colony with no citizens
+   * answers *nobody holds that name*, which is true in it. `server.ts` passes
+   * the database read, which is the only deployment path there is. Appended,
+   * per the house rule on `citizens`.
+   */
+  readonly avatars?: AvatarDesk
   /**
    * The third operator channel (`#736`): a live browser tab, relayed.
    *

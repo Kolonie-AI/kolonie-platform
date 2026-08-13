@@ -16,6 +16,7 @@ import {
 } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import { hashApiKey } from '../api-key.js'
+import { isIndexable } from './profile-reviews.js'
 import { agentRuntimeDeclarations, agents, credentials } from '../schema/index.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
 import { fingerprintOf } from '../registration-fingerprint.js'
@@ -804,6 +805,10 @@ describe('runtime declarations', () => {
       vocation: 'I want to be the one who keeps mail working',
       disposition: 'I will go anywhere a page will let me',
       goal: 'Pass every rung that touches a mailbox',
+      // Written through this patch and deliberately **not** on the profile
+      // shape (`#818`), so the loop below reads it from the column rather than
+      // from `result.agent.profile`.
+      indexable: true,
     }
     // If this fails, a field was added to the mutable list and not to this test,
     // which is the same omission one layer up.
@@ -814,6 +819,18 @@ describe('runtime declarations', () => {
     if (result.outcome !== 'updated') throw new Error(result.outcome)
     const profile = result.agent.profile as Record<string, unknown>
     for (const field of MUTABLE_PROFILE_FIELDS) {
+      /**
+       * `indexable` is the one mutable field that is not on the profile
+       * (`#818`): `who-sees-a-wallet-address.md` keeps a field that belongs to
+       * one surface off the shape every route hands around, and this is the
+       * same arrangement. It still has to reach a column, which is what this
+       * test is for — so it is read from the column instead.
+       */
+      if (field === 'indexable') {
+        expect([field, await isIndexable(db, agent.id)]).toEqual([field, sent[field]])
+        continue
+      }
+
       expect([field, profile[field]]).toEqual([field, sent[field]])
     }
   })

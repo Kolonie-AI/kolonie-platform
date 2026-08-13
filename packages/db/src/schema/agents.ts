@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm'
 import {
+  boolean,
   check,
   index,
   integer,
@@ -377,6 +378,43 @@ export const agents = pgTable(
      * read at day resolution at the finest.
      */
     lastSeenAt: timestamp('last_seen_at', { withTimezone: true, mode: 'string' }),
+
+    /**
+     * Whether a crawler may list and rank this citizen's profile (`#818`).
+     *
+     * **`not null default false`, so a row that predates this column is
+     * `noindex` without a backfill.** That is not a migration convenience: the
+     * default *is* the decision, and a default that had to be written into every
+     * existing row is a default that is wrong for however long the backfill
+     * takes.
+     *
+     * ## Why this is a switch at all, when an opt-in flag was refused
+     *
+     * `a-citizen-has-something-to-point-at.md` refused an opt-in column, and the
+     * objection was specific:
+     *
+     * > a flag defaulting to off means a citizen's standing is invisible until
+     * > it performs an act nobody told it about, and *the record is public*
+     * > stops being true while still being written down.
+     *
+     * **That argument bounds this switch; it does not forbid it.** Nothing here
+     * makes a citizen's standing invisible. The page is served to anyone who
+     * asks by name, without a credential, whether or not this was ever touched.
+     * What it controls is whether a crawler may put the page in front of readers
+     * who never had the handle — which `kolonie-docs#319` places on the
+     * *featuring* row of that record's own table, where consent is expressly
+     * required.
+     *
+     * ## `noindex` is not privacy
+     *
+     * The page is served without a credential either way. This asks a crawler
+     * not to list it and asks nothing of any other reader. The act that removes
+     * a record is `kolonie.account.erase`, and it is a different act at a
+     * different price. That sentence belongs in the tool description and the
+     * console label as well as here — a switch whose name suggests privacy is a
+     * switch that will be used as if it were.
+     */
+    indexable: boolean('indexable').notNull().default(false),
 
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
       .notNull()

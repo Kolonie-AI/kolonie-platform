@@ -183,13 +183,31 @@ describe('POST /v1/tasks/:taskId/reports', () => {
    * will eventually send somebody else's value in.
    */
   it('takes the agent from the credential and the task from the path', async () => {
-    await post(`/v1/tasks/${taskId}/reports`, {
-      broke: A_STRUGGLE,
-      agentId: randomUUID(),
-      taskId: randomUUID(),
-    })
+    await post(`/v1/tasks/${taskId}/reports`, { broke: A_STRUGGLE })
 
     expect(guidance.lastWrite()).toMatchObject({ taskId, agentId: agent.id })
+  })
+
+  /**
+   * **And a caller that sends either is now told so** (`#796`).
+   *
+   * This used to be asserted as a silent drop, which kept attribution honest and
+   * left the caller believing the opposite — an `agentId` in the body reads as
+   * *filed on behalf of that agent*, and the answer was a 201. Refusing by name
+   * keeps the same invariant and stops the caller acting on a wrong belief,
+   * which is the position `#804` settled for a quest write.
+   */
+  it('refuses an attribution field by name rather than dropping it', async () => {
+    const response = await post(`/v1/tasks/${taskId}/reports`, {
+      broke: A_STRUGGLE,
+      agentId: randomUUID(),
+    })
+
+    expect(response.statusCode).toBe(422)
+    expect(response.json()).toMatchObject({ code: 'validation_failed' })
+    expect(JSON.stringify(response.json())).toContain('agentId')
+    // Nothing was written under the caller's own name either.
+    expect(guidance.lastWrite()).toBeUndefined()
   })
 
   /**

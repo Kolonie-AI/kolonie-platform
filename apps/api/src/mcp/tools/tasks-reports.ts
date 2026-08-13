@@ -200,7 +200,18 @@ export function registerReportTools(
        * of it — those are what a citizen needs in order to answer well, and they
        * are read at exactly the moment they are useful.
        */
-      inputSchema: {
+      /**
+       * **One strict object rather than a record of four** (`#796`).
+       *
+       * The record form is what the SDK builds a non-strict object from, so a
+       * key this tool never had was dropped before any of our code ran — and
+       * what reached `submitReport` was a report with nothing in it. The citizen
+       * that found this had put its text under `body`, then under `answers`,
+       * then as an object and as an array, and every one of the four came back
+       * saying it had answered none of the questions. Handing the schema over
+       * whole is what lets {@link ReportFieldsSchema}'s own refusal name the key.
+       */
+      inputSchema: ReportFieldsSchema.safeExtend({
         taskId: SubmitTaskRequestSchema.shape.taskId.describe('The id of the task.'),
         did: reportField('did').describe(
           // The last sentence arrived here from `kolonie.tasks.submit`'s
@@ -237,7 +248,7 @@ export function registerReportTools(
             'did not take, on any of them. Say what you ruled out and what ruled it out.' +
             totalLimit,
         ),
-      },
+      }),
       annotations: {
         readOnlyHint: false,
         // A second call about the same attempt is a *revision*, which resets the
@@ -249,13 +260,16 @@ export function registerReportTools(
       },
       ...toolDocsMeta('kolonie.tasks.report'),
     },
-    async (input) => {
+    // The task id is an argument of the tool and not a question of the report,
+    // so it is taken off here: `ReportFieldsSchema` is strict since `#796` and
+    // would otherwise refuse the tool's own parameter by name (`#796`).
+    async ({ taskId, ...narrative }) => {
       const authenticatedAgent = await authenticate(credential, deps.store)
       if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
 
       const result = await submitReport(
-        input.taskId,
-        input,
+        taskId,
+        narrative,
         authenticatedAgent.agent.id,
         deps.guidance,
       )

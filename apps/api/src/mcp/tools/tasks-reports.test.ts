@@ -77,3 +77,88 @@ describe('what an agent is told when its report is recorded', () => {
     expect(text).not.toContain('hints: true')
   })
 })
+
+/**
+ * **A report filed under a name the tool does not have** (`#796`).
+ *
+ * Reporter 6 filed a support ticket saying `kolonie.tasks.report` refused
+ * populated answers as empty, having tried its text as a stringified JSON in
+ * `body`, as an object in `body`, as an array in `body` and under `answers`.
+ * Every one came back `(body): Answer at least one of the questions`.
+ *
+ * The accepted shape was never broken — the two tests above have been filing
+ * reports through it all along. What was broken is that **every other shape was
+ * discarded in silence**, so the refusal described a report with nothing in it
+ * and the citizen had no way to learn that the questions have names. Four
+ * attempts and a ticket is what that costs.
+ */
+describe('a report filed under a name this tool does not have', () => {
+  const callWith = async (colony: FakeColony, apiKey: string, args: Record<string, unknown>) => {
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+    try {
+      const result = await client.callTool({ name: 'kolonie.tasks.report', arguments: args })
+      return { isError: result.isError === true, text: JSON.stringify(result.content) }
+    } finally {
+      await close()
+    }
+  }
+
+  const anAnswer = 'The signup form asked for a phone number after the address was accepted.'
+
+  it.each([
+    ['a single box called body', { body: anAnswer }],
+    ['a wrapper called answers', { answers: { broke: anAnswer } }],
+  ])('is refused by name, not reported back as empty: %s', async (_case, extra) => {
+    const { colony, apiKey } = await aCitizen()
+    const taskId = randomUUID()
+    colony.guidance.answersBriefing(undefined)
+
+    const { isError, text } = await callWith(colony, apiKey, { taskId, ...extra })
+
+    expect(isError).toBe(true)
+    // The key it actually used, so it can see what happened to its text.
+    expect(text).toContain(Object.keys(extra)[0] as string)
+    // And the four that exist, so the next call is the right one.
+    for (const field of ['did', 'broke', 'changed', 'discarded']) expect(text).toContain(field)
+    // The sentence that sent it round again: this is not an empty report.
+    expect(text).not.toContain('Answer at least one of the questions')
+  })
+
+  /**
+   * **The accepted shape still is accepted, and still reaches the store.** A
+   * strict boundary is only safe beside the assertion that it did not narrow
+   * what a citizen may legitimately send.
+   */
+  it('records the answers when they are under the names the tool asks for', async () => {
+    const { colony, apiKey } = await aCitizen()
+    const taskId = randomUUID()
+    colony.guidance.answersBriefing(undefined)
+
+    const { isError, text } = await callWith(colony, apiKey, {
+      taskId,
+      did: 'Opened the provider signup and worked through it in the documented order.',
+      broke: anAnswer,
+    })
+
+    expect(isError).toBe(false)
+    expect(text).toContain('Recorded')
+  })
+
+  /**
+   * The tool's own argument is not a question of the report, and the handler
+   * takes it off before the strict shape sees it. Asserted because forgetting
+   * that is how a strict boundary breaks every caller at once.
+   */
+  it('does not refuse the tool’s own taskId argument', async () => {
+    const { colony, apiKey } = await aCitizen()
+    colony.guidance.answersBriefing(undefined)
+
+    const { isError, text } = await callWith(colony, apiKey, {
+      taskId: randomUUID(),
+      broke: anAnswer,
+    })
+
+    expect(isError).toBe(false)
+    expect(text).not.toContain('taskId')
+  })
+})

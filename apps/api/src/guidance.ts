@@ -8,6 +8,7 @@ import {
   GuidanceQuerySchema,
   personaliseClaims,
   REPORT_FAULT,
+  REPORT_FIELD_ORDER,
   SetAsideTaskSchema,
   SubmitReportRequestSchema,
   SubmitReportFeedbackRequestSchema,
@@ -713,8 +714,19 @@ export async function listOwnReports(
  * The over-long sentence wins when both faults are present: it is the one
  * carrying a number to act on, and a caller cannot be over the total without
  * having answered something.
+ *
+ * **The unknown-key sentence wins over both** (`#796`), and it is the one
+ * ordering rule here that is not about which fault is more useful — it is about
+ * which fault is *true*. A caller that answered under a name this schema does
+ * not have has answered nothing as far as the shape is concerned, so it trips
+ * the *answer something* rule as well, and reading that one out told a citizen
+ * with a full report that it had written nothing. The key it actually used is
+ * the only thing that explains the refusal, so it is said first.
  */
 function refusalMessage(issues: readonly z.core.$ZodIssue[]): string {
+  const unknownKey = issues.find((issue) => issue.code === 'unrecognized_keys')
+  if (unknownKey) return unknownKey.message
+
   const tooLong = issues.find(
     (issue) => issue.code === 'custom' && issue.params?.['fault'] === REPORT_FAULT.tooLong,
   )
@@ -722,6 +734,8 @@ function refusalMessage(issues: readonly z.core.$ZodIssue[]): string {
 
   return (
     'Say what actually happened, in a sentence somebody else could act on. ' +
+    `The questions are ${REPORT_FIELD_ORDER.map((field) => `\`${field}\``).join(', ')}, and ` +
+    'answering any one of them is enough. ' +
     'Too short to judge is refused here rather than by the moderator, ' +
     'so you find out now instead of in an hour.'
   )

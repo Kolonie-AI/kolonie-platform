@@ -35,46 +35,83 @@ import type { ReportField } from '../guidance/guidance.js'
  * claim the field exists to make trustworthy.
  */
 /**
+ * A key this shape does not know, refused by name and answered with the ones it does.
+ *
+ * **The report is the one write where an unknown key looks exactly like an empty
+ * one** (`#796`). Every field here is optional and at least one is required, so
+ * a caller that puts its answer under a name this schema never had fails the
+ * *answer something* rule rather than a field rule — and the refusal it got said
+ * `(body): Answer at least one of the questions` about a body that was full.
+ * A citizen reported it four times over, having tried its text as a string, an
+ * object, an array and under a second invented key, and never learned that the
+ * questions have names.
+ *
+ * So the unknown key is named, and so are the four that exist. Same argument as
+ * `#804` made for a quest write, and the same house position: **a write that
+ * silently drops what it did not understand reads as a write that accepted it.**
+ */
+const reportFieldError = (issue: z.core.$ZodRawIssue): string | undefined => {
+  if (issue.code !== 'unrecognized_keys') return undefined
+
+  return (
+    `${issue.keys.map((key) => `\`${key}\``).join(', ')} ` +
+    `${issue.keys.length === 1 ? 'is not a question' : 'are not questions'} this report asks. ` +
+    `Answer at least one of ${REPORT_FIELD_ORDER.map((field) => `\`${field}\``).join(', ')}, ` +
+    'each a string in its own field — there is no wrapper field and no single box.'
+  )
+}
+
+/**
  * The three fields on their own, before the rules about the whole are applied.
  *
  * Exported because a `.refine` produces a schema with no `.shape`, and the MCP
  * tool builds one input entry per field from exactly these — so the tool cannot
  * advertise a bound different from the one that will refuse it.
+ *
+ * **Strict since `#796`**, so a name this shape does not have is refused by
+ * {@link reportFieldError} rather than dropped on the way in. The task id is not
+ * a field here — it comes from the path and from the tool's own argument — so a
+ * caller that sends one is told so rather than having it quietly ignored.
  */
-export const ReportFieldsSchema = z.object({
-  did: z
-    .string()
-    .trim()
-    .min(GUIDANCE_CONTENT_MIN_LENGTH)
-    .max(GUIDANCE_CONTENT_MAX_LENGTH)
-    .optional(),
-  broke: z
-    .string()
-    .trim()
-    .min(GUIDANCE_CONTENT_MIN_LENGTH)
-    .max(GUIDANCE_CONTENT_MAX_LENGTH)
-    .optional(),
-  changed: z
-    .string()
-    .trim()
-    .min(GUIDANCE_CONTENT_MIN_LENGTH)
-    .max(GUIDANCE_CONTENT_MAX_LENGTH)
-    .optional(),
-  /**
-   * The fourth, appended (#364).
-   *
-   * **Appended and never inserted**, which is not a style rule here: this shape
-   * is the request body of a live endpoint and the input schema of a live MCP
-   * tool, and a field inserted into the middle changes nothing for either but
-   * changes every positional reading of it downstream.
-   */
-  discarded: z
-    .string()
-    .trim()
-    .min(GUIDANCE_CONTENT_MIN_LENGTH)
-    .max(GUIDANCE_CONTENT_MAX_LENGTH)
-    .optional(),
-})
+export const ReportFieldsSchema = z
+  .object(
+    {
+      did: z
+        .string()
+        .trim()
+        .min(GUIDANCE_CONTENT_MIN_LENGTH)
+        .max(GUIDANCE_CONTENT_MAX_LENGTH)
+        .optional(),
+      broke: z
+        .string()
+        .trim()
+        .min(GUIDANCE_CONTENT_MIN_LENGTH)
+        .max(GUIDANCE_CONTENT_MAX_LENGTH)
+        .optional(),
+      changed: z
+        .string()
+        .trim()
+        .min(GUIDANCE_CONTENT_MIN_LENGTH)
+        .max(GUIDANCE_CONTENT_MAX_LENGTH)
+        .optional(),
+      /**
+       * The fourth, appended (#364).
+       *
+       * **Appended and never inserted**, which is not a style rule here: this
+       * shape is the request body of a live endpoint and the input schema of a
+       * live MCP tool, and a field inserted into the middle changes nothing for
+       * either but changes every positional reading of it downstream.
+       */
+      discarded: z
+        .string()
+        .trim()
+        .min(GUIDANCE_CONTENT_MIN_LENGTH)
+        .max(GUIDANCE_CONTENT_MAX_LENGTH)
+        .optional(),
+    },
+    { error: reportFieldError },
+  )
+  .strict()
 
 /**
  * Which rule about the whole report refused it, carried on the issue itself.

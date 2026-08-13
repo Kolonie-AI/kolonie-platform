@@ -2022,6 +2022,11 @@ While the version is `0.x`, **breaking changes bump the minor version**.
   (`kolonie-platform#741`). It now repeats the invoice rule that publishing is
   the purchase and capacity nobody fills is not returned at expiry.
 
+- **A walk-born Atlas entry lands on the shelf its account kind names**
+  (`kolonie-platform#807`). `atlasCategoryForKind` reverses the existing
+  category-to-kind table rather than maintaining a second one, and refuses an
+  unmapped or ambiguous kind instead of filing it under `data-apis`.
+
 ## 0.1.0 — 2026-07-26
 
 Initial domain model.

@@ -2,12 +2,14 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { FastifyInstance } from 'fastify'
 import { buildApp } from '../app.js'
 import { fakeColony, type FakeColony } from '../__fixtures__/colony/index.js'
+import { fakeStore, type FakeStore } from '../__fixtures__/store.js'
 import {
   AccountKindSchema,
   now,
   type AccountWalk,
   type AtlasProposal,
   type EntryProposal,
+  type ProviderRecipe,
 } from '@kolonie-ai/core'
 
 const proposal = (overrides: Partial<EntryProposal> = {}): EntryProposal => ({
@@ -33,10 +35,14 @@ const proposal = (overrides: Partial<EntryProposal> = {}): EntryProposal => ({
 describe('the curation section', () => {
   let app: FastifyInstance
   let colony: FakeColony
+  let store: FakeStore
+  let consoleHost: string
 
   const build = () => {
     colony = fakeColony()
-    return buildApp({ ...colony })
+    store = fakeStore()
+    consoleHost = new URL(colony.console.consoleUrl).host
+    return buildApp({ ...colony, store })
   }
 
   beforeEach(async () => {
@@ -144,6 +150,38 @@ describe('the curation section', () => {
     expect(rendered).toContain('caution')
     expect(rendered).toContain('I walked it on 2026-08-08.')
     expect(rendered).toContain('citizen')
+  })
+
+  it('shows a walked draft and gives a steward both decisions', async () => {
+    const { curationSections } = await import('../console/curation.js')
+    colony.recipes.write({
+      kind: 'mailbox',
+      provider: 'walked.example',
+      status: 'draft',
+      category: 'mailbox',
+      steps: [
+        { actor: 'agent', instruction: 'Open the signup form.' },
+        { actor: 'operator', instruction: 'Pass the human check.', ask: 'Please pass the check.' },
+      ],
+      proves: 'rung',
+      provesTask: 'email-inbox',
+    })
+    const draft = (await colony.recipes.listInternal())[0] as ProviderRecipe
+
+    const rendered = curationSections({
+      proposals: [],
+      providerProposals: [],
+      falling: [],
+      entries: [],
+      unpublished: [draft],
+      divergences: [],
+    })
+
+    expect(rendered).toContain('Open the signup form.')
+    expect(rendered).toContain('Please pass the check.')
+    expect(rendered).toContain('email-inbox')
+    expect(rendered).toContain('/recipe-drafts/mailbox/walked.example/publish')
+    expect(rendered).toContain('/recipe-drafts/mailbox/walked.example/refuse')
   })
 
   /**
@@ -308,6 +346,113 @@ describe('the curation section', () => {
 
       // The property that actually matters: nothing was decided.
       expect(await colony.recipes.proposals()).toHaveLength(1)
+    })
+  })
+
+  describe('deciding a walked draft', () => {
+    const seedDraft = () =>
+      colony.recipes.write({
+        kind: 'mailbox',
+        provider: 'walked.example',
+        status: 'draft',
+        category: 'mailbox',
+        steps: [{ actor: 'agent', instruction: 'Open the signup form.' }],
+        proves: 'rung',
+        provesTask: 'email-inbox',
+      })
+
+    const steward = () => {
+      const issued = store.issue({})
+      store.setRoles(issued.agent.id, ['steward'])
+      return String(issued.apiKey)
+    }
+
+    it('publishes the walked steps in one steward action', async () => {
+      seedDraft()
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/recipe-drafts/mailbox/walked.example/publish',
+        headers: {
+          host: consoleHost,
+          accept: 'application/json',
+          authorization: `Bearer ${steward()}`,
+        },
+      })
+
+      expect(response.statusCode).toBe(200)
+      expect(
+        (await colony.recipes.one(AccountKindSchema.parse('mailbox'), 'walked.example'))?.status,
+      ).toBe('joinable')
+    })
+
+    it('refuses with a reason and discards the unpublished steps', async () => {
+      seedDraft()
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/recipe-drafts/mailbox/walked.example/refuse',
+        headers: {
+          host: consoleHost,
+          accept: 'application/json',
+          authorization: `Bearer ${steward()}`,
+        },
+        payload: { reason: 'The route asks the operator to perform the whole signup.' },
+      })
+
+      expect(response.statusCode).toBe(200)
+      const entry = await colony.recipes.one(AccountKindSchema.parse('mailbox'), 'walked.example')
+      expect(entry?.status).toBe('refused')
+      expect(entry?.refusal).toContain('whole signup')
+      expect(entry?.steps).toEqual([])
+    })
+
+    it('refuses an empty refusal and leaves the draft untouched', async () => {
+      seedDraft()
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/recipe-drafts/mailbox/walked.example/refuse',
+        headers: {
+          host: consoleHost,
+          accept: 'application/json',
+          authorization: `Bearer ${steward()}`,
+        },
+        payload: { reason: '   ' },
+      })
+
+      expect(response.statusCode).toBe(422)
+      expect(
+        (await colony.recipes.one(AccountKindSchema.parse('mailbox'), 'walked.example'))?.status,
+      ).toBe('draft')
+    })
+
+    it('refuses to publish a draft whose walked step still has no sentence', async () => {
+      colony.recipes.write({
+        kind: 'mailbox',
+        provider: 'walked.example',
+        status: 'draft',
+        category: 'mailbox',
+        steps: [{ actor: 'agent' }],
+        proves: 'rung',
+        provesTask: 'email-inbox',
+      })
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/recipe-drafts/mailbox/walked.example/publish',
+        headers: {
+          host: consoleHost,
+          accept: 'application/json',
+          authorization: `Bearer ${steward()}`,
+        },
+      })
+
+      expect(response.statusCode).toBe(422)
+      expect(response.json().message).toContain('no instruction')
+      expect(
+        (await colony.recipes.one(AccountKindSchema.parse('mailbox'), 'walked.example'))?.status,
+      ).toBe('draft')
     })
   })
 })

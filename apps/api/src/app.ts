@@ -405,6 +405,7 @@ export function buildApp({
     proposals: async () => [],
     providerProposals: async () => [],
     decideProvider: async () => ({ outcome: 'not-pending' }),
+    decideDraft: async () => false,
     fallingRates: async () => [],
     decide: async () => undefined,
   }

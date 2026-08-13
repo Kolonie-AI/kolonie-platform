@@ -174,6 +174,34 @@ export function fakeProviderRecipes(): FakeProviderRecipes {
       return { outcome: 'decided' as const, proposal: decided }
     },
 
+    // @mirrors packages/db/src/storage/provider-recipes.ts publishProviderRecipe e3863628
+    async decideDraft(kind, provider, decision) {
+      const at = rows.findIndex(
+        (row) =>
+          row.kind === kind &&
+          row.provider.toLowerCase() === provider.toLowerCase() &&
+          row.status === 'draft',
+      )
+      const found = rows[at]
+      if (found === undefined) return false
+
+      rows[at] =
+        decision.verdict === 'published'
+          ? { ...found, status: 'joinable', refusal: null, updatedAt: currentTime() }
+          : {
+              ...found,
+              status: 'refused',
+              refusal: decision.refusal,
+              steps: [],
+              proves: null,
+              provesTask: null,
+              reaches: null,
+              updatedAt: currentTime(),
+            }
+
+      return true
+    },
+
     proposeProvider(proposal) {
       providersProposed.push(proposal)
     },

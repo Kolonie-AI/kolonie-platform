@@ -52,6 +52,7 @@ describe('the console navigation', () => {
       '/backend',
       '/backend/arrivals',
       '/backend/quests',
+      '/backend/moderation',
       '/backend/briefings',
       '/backend/unreported',
       '/backend/tickets',

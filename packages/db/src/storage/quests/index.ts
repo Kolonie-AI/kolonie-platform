@@ -14,4 +14,5 @@
 export * from './write.js'
 export * from './read.js'
 export * from './steward.js'
+export * from './moderation-history.js'
 export type { OwnQuest, ScrubbedAnswer } from './shared.js'

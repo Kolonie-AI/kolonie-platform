@@ -62,6 +62,7 @@ import {
   backendAtlasPage,
   backendBriefingsPage,
   backendEnquiriesPage,
+  backendModerationPage,
   backendPage,
   backendQuestPage,
   backendQuestsPage,
@@ -69,6 +70,7 @@ import {
   backendTicketsPage,
   backendUnreportedPage,
   backendWantedPage,
+  moderationTrend,
 } from '../console/backend.js'
 import { curationSections } from '../console/curation.js'
 import { atlasCatalogue, atlasCuration } from '../provider-recipes.js'
@@ -1237,6 +1239,66 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
           }),
         )
       : reply.send({ quests, limit: COLONY_QUEST_LIMIT })
+  })
+
+  /**
+   * The verdicts that decide whether a quest is published or refused (`#814`).
+   *
+   * The subject filter narrows both the history and its rate. The decision
+   * filter narrows the history only: applying it before the aggregation would
+   * make *rejected* read as a 100% refusal rate and *approved* as 0%, which is a
+   * tautology rather than an operational signal.
+   */
+  app.get<{
+    Querystring: { subject?: unknown; decision?: unknown }
+  }>('/backend/moderation', async (request, reply) => {
+    if ((await backendGuard(request, reply)) === null) return reply
+
+    const parsed = z
+      .object({
+        subject: z.string().trim().max(120).optional(),
+        decision: z.union([z.literal(''), z.enum(['approved', 'rejected'])]).optional(),
+      })
+      .safeParse(request.query)
+
+    if (!parsed.success) {
+      const error: ApiError = {
+        code: 'validation_failed',
+        message: parsed.error.issues[0]?.message ?? 'Invalid moderation filter.',
+      }
+      return wantsHtml(request)
+        ? html(reply.status(ERROR_STATUS[error.code]), errorPage(error.message))
+        : reply.status(ERROR_STATUS[error.code]).send(error)
+    }
+
+    const filters = {
+      ...(parsed.data.subject === undefined || parsed.data.subject === ''
+        ? {}
+        : { subject: parsed.data.subject }),
+      ...(parsed.data.decision === undefined || parsed.data.decision === ''
+        ? {}
+        : { decision: parsed.data.decision }),
+    }
+    const candidates = await deps.quests.moderations(
+      filters.subject === undefined ? {} : { subject: filters.subject },
+    )
+    const moderations =
+      filters.decision === undefined
+        ? candidates
+        : candidates.filter((moderation) => moderation.decision === filters.decision)
+    const trend = moderationTrend(candidates)
+
+    return wantsHtml(request)
+      ? html(
+          reply,
+          backendModerationPage({
+            nav: navFor(request, ['maintainer']),
+            moderations,
+            trend,
+            filters,
+          }),
+        )
+      : reply.send({ moderations, trend, filters })
   })
 
   /**

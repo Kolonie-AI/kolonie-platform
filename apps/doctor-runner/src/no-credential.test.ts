@@ -29,10 +29,16 @@ import { fileURLToPath } from 'node:url'
  *
  * ## What it deliberately does not do
  *
- * It does not stop this runner reaching *anything*. A future rule may need to
- * read a log store or a metrics endpoint, and neither is a write credential. The
- * rule is about GitHub, because GitHub is where this Colony's issues are and
- * writing one is the act `#407` reserved to a single process.
+ * It does not stop this runner reaching *anything*, and since `#840` it reaches
+ * something: the LLM gateway, for the one sentence a diagnosis carries. That is
+ * a read of a model's opinion and not a write credential — it cannot file an
+ * issue, cannot open a ticket, and its output lands in one nullable text column
+ * that nothing parses.
+ *
+ * The rule is about GitHub, because GitHub is where this Colony's issues are and
+ * writing one is the act `#407` reserved to a single process. **Adding the
+ * gateway did not weaken this test and is named here so the next reader knows
+ * the omission was noticed rather than overlooked.**
  */
 describe('the doctor runner', () => {
   const FORBIDDEN = [

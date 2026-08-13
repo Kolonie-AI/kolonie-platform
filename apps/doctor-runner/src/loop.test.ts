@@ -50,6 +50,7 @@ const LOOPING = [4, 3, 2, 1].map((n) => bucket(n))
 const fakeStore = (overrides: Partial<DoctorStore> = {}) => {
   const recorded: { finding: Finding; policyVersion: string }[] = []
   const resolved: { subject: string; stillFound: readonly Finding['kind'][] }[] = []
+  const attached: { diagnosisId: string; prose: string; proseModel: string }[] = []
 
   const store: DoctorStore = {
     active: async () => [ONE],
@@ -58,7 +59,7 @@ const fakeStore = (overrides: Partial<DoctorStore> = {}) => {
     deprecatedRoutes: async () => ({}),
     record: async (finding, policyVersion): Promise<DiagnosisRecorded> => {
       recorded.push({ finding, policyVersion })
-      return { outcome: 'opened', refusal: null }
+      return { outcome: 'opened', refusal: null, diagnosisId: 'a-diagnosis', hasProse: false }
     },
     resolveDisappeared: async (subject, stillFound) => {
       resolved.push({ subject, stillFound })
@@ -67,10 +68,13 @@ const fakeStore = (overrides: Partial<DoctorStore> = {}) => {
     supersedeOlderPolicies: async () => 0,
     sweepCallHours: async () => 0,
     sweepDiagnoses: async () => 0,
+    attachProse: async (diagnosisId, prose, proseModel) => {
+      attached.push({ diagnosisId, prose, proseModel })
+    },
     ...overrides,
   }
 
-  return { store, recorded, resolved }
+  return { store, recorded, resolved, attached }
 }
 
 const pass = (store: DoctorStore) => runPass({ store, now: () => NOW })
@@ -192,7 +196,7 @@ describe('a doctor pass', () => {
       },
       record: async () => {
         order.push('recorded')
-        return { outcome: 'opened', refusal: null }
+        return { outcome: 'opened', refusal: null, diagnosisId: 'a-diagnosis', hasProse: false }
       },
     })
 
@@ -208,7 +212,12 @@ describe('a doctor pass', () => {
    */
   it('reports a refused finding without failing the pass', async () => {
     const { store } = fakeStore({
-      record: async () => ({ outcome: 'refused', refusal: 'evidence must be numbers' }),
+      record: async () => ({
+        outcome: 'refused',
+        refusal: 'evidence must be numbers',
+        diagnosisId: null,
+        hasProse: false,
+      }),
     })
 
     const outcome = await pass(store)
@@ -255,6 +264,9 @@ describe('a doctor pass', () => {
 
     expect(Object.keys(store).sort()).toEqual([
       'active',
+      // `#840` added one, and it is the only write a model's output reaches. It
+      // lands in one nullable text column that nothing parses back.
+      'attachProse',
       'callHours',
       'deprecatedRoutes',
       'progress',
@@ -285,5 +297,126 @@ describe('a doctor pass', () => {
       expect.any(Error),
       expect.objectContaining({ event: 'doctor.citizen.threw', agentId: ONE }),
     )
+  })
+})
+
+/**
+ * The sentence beside the finding (`#840`).
+ *
+ * The test this file exists for is the call count across two passes: an open
+ * diagnosis that costs a model call every hour forever is the failure mode a
+ * cost control is written against, and it would show up as a bill rather than as
+ * a broken test.
+ */
+describe('a doctor pass with a writer', () => {
+  const writer = (describe: (finding: Finding) => Promise<string | null>) => ({
+    available: true,
+    model: 'a-model-the-repository-does-not-name',
+    describe: vi.fn(describe),
+  })
+
+  it('asks for a sentence when a diagnosis opens, and stores what came back', async () => {
+    const { store, recorded, attached } = fakeStore()
+    const prose = writer(async () => 'You are calling one route every twelve seconds.')
+
+    const outcome = await runPass({ store, prose, now: () => NOW })
+
+    // One per finding this window produces, counted from what was recorded
+    // rather than written down here: the fixture's window is `#836`'s to change,
+    // and a hard number would make this test about the rules instead of about
+    // the asking.
+    expect(outcome.prose).toEqual({ asked: recorded.length, written: recorded.length })
+    expect(attached[0]).toEqual({
+      diagnosisId: 'a-diagnosis',
+      prose: 'You are calling one route every twelve seconds.',
+      proseModel: 'a-model-the-repository-does-not-name',
+    })
+  })
+
+  /**
+   * **The cost control, and the thing that would show up as a bill.** A
+   * re-evaluation that only moved `last_seen_at` has changed nothing a reader's
+   * view depends on, so the sentence is not rewritten — and a diagnosis that is
+   * open for a month does not cost seven hundred model calls.
+   */
+  it('asks once across two passes over the same finding', async () => {
+    let seenBefore = false
+    const { store } = fakeStore({
+      record: async () => ({
+        // The second pass finds the same diagnosis already open and carrying a
+        // sentence, which is what an unchanged re-evaluation looks like.
+        outcome: seenBefore ? ('observed' as const) : ('opened' as const),
+        refusal: null,
+        diagnosisId: 'a-diagnosis',
+        hasProse: seenBefore,
+      }),
+    })
+    const prose = writer(async () => 'a sentence')
+
+    const first = await runPass({ store, prose, now: () => NOW })
+    seenBefore = true
+    const second = await runPass({ store, prose, now: () => NOW })
+
+    expect(second.prose).toEqual({ asked: 0, written: 0 })
+    expect(prose.describe).toHaveBeenCalledTimes(first.prose.asked)
+  })
+
+  /** A severity that moved is different: the sentence said one thing and the finding now says another. */
+  it('asks again when the severity moved', async () => {
+    const { store } = fakeStore({
+      record: async () => ({
+        outcome: 'escalated',
+        refusal: null,
+        diagnosisId: 'a-diagnosis',
+        hasProse: true,
+      }),
+    })
+    const prose = writer(async () => 'a sharper sentence')
+
+    const outcome = await runPass({ store, prose, now: () => NOW })
+    expect(outcome.prose.asked).toBeGreaterThan(0)
+    expect(outcome.prose.written).toBe(outcome.prose.asked)
+  })
+
+  /**
+   * **A gateway outage costs a sentence and never a finding.** The pass
+   * completes, the diagnosis is stored, and the two counters show the gap — which
+   * is the only thing that distinguishes a bad gateway day from a Colony that
+   * wired none.
+   */
+  it('completes with the diagnosis stored when no sentence comes back', async () => {
+    const { store, recorded, attached } = fakeStore()
+    const prose = writer(async () => null)
+
+    const outcome = await runPass({ store, prose, now: () => NOW })
+
+    expect(outcome.opened).toBeGreaterThan(0)
+    expect(recorded.length).toBeGreaterThan(0)
+    expect(outcome.prose.asked).toBeGreaterThan(0)
+    expect(outcome.prose.written).toBe(0)
+    expect(attached).toEqual([])
+  })
+
+  it('asks nothing at all when no writer was wired', async () => {
+    const { store, attached } = fakeStore()
+
+    expect((await pass(store)).prose).toEqual({ asked: 0, written: 0 })
+    expect(attached).toEqual([])
+  })
+
+  it('asks nothing for a finding the store refused', async () => {
+    const { store } = fakeStore({
+      record: async () => ({
+        outcome: 'refused',
+        refusal: 'evidence must be numbers',
+        diagnosisId: null,
+        hasProse: false,
+      }),
+    })
+    const prose = writer(async () => 'a sentence')
+
+    await runPass({ store, prose, now: () => NOW })
+
+    expect(prose.describe).not.toHaveBeenCalled()
   })
 })

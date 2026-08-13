@@ -81,16 +81,16 @@ export const GATEWAY_BASE_URL_VAR = 'LLM_GATEWAY_BASE_URL'
 export const GATEWAY_MODEL_VAR = 'LLM_GATEWAY_MODEL'
 
 /**
- * One key per service, and the reason there are four rather than one.
+ * One key per service, and the reason there are several rather than one.
  *
  * A single key would mean one service's runaway loop is billed, capped and
  * revoked together with the other three — so the moderation queue stops because
- * a verifier misbehaved. Four keys make *whose traffic is this* answerable at
- * the gateway rather than only in our own logs, and let one be revoked alone.
+ * a verifier misbehaved. A key per service makes *whose traffic is this* answerable
+ * at the gateway rather than only in our own logs, and lets one be revoked alone.
  *
- * Named here rather than at each service so the set is enumerable: the four
- * strings have to match what is installed on the deployment, and one list is one
- * thing to reconcile. The Reviewer Agent's key is read by a workflow in
+ * Named here rather than at each service so the set is enumerable: the strings
+ * have to match what is installed on the deployment, and one list is one thing to
+ * reconcile. The Reviewer Agent's key is read by a workflow in
  * `Kolonie-AI/kolonie-docs` rather than by this repository; it is named here
  * anyway, because the point of the list is to be complete.
  */
@@ -99,6 +99,19 @@ export const GATEWAY_API_KEY_VARS = {
   moderation: 'LLM_GATEWAY_API_KEY_MODERATION',
   triage: 'LLM_GATEWAY_API_KEY_TRIAGE',
   reviewer: 'LLM_GATEWAY_API_KEY_REVIEWER',
+  /**
+   * The Doctor's sentences (`#840`).
+   *
+   * **A fifth key rather than reusing triage's**, on this list's own reasoning:
+   * one key per service is what makes *whose traffic is this* answerable at the
+   * gateway and lets one be revoked alone. The Doctor writes a sentence per new
+   * finding across the whole Colony, which is a different volume and a different
+   * blast radius from a support queue — and the two must not be capped together.
+   *
+   * **Unset is the ordinary state and means no prose at all**, which every layer
+   * below is built to treat as complete rather than as broken.
+   */
+  doctor: 'LLM_GATEWAY_API_KEY_DOCTOR',
 } as const
 
 /** One of the four services the gateway knows by name. */
@@ -128,6 +141,7 @@ export const GATEWAY_MODEL_VARS: Record<GatewayService, string> = {
   moderation: 'LLM_GATEWAY_MODEL_MODERATION',
   triage: 'LLM_GATEWAY_MODEL_TRIAGE',
   reviewer: 'LLM_GATEWAY_MODEL_REVIEWER',
+  doctor: 'LLM_GATEWAY_MODEL_DOCTOR',
 } as const
 
 /**

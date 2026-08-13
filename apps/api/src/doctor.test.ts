@@ -292,6 +292,11 @@ describe('the doctor surface', () => {
         'callHoursSince',
         'deprecatedRoutes',
         'progressOf',
+        // `#840` added a fourth, and it is a **read** of what a runner wrote out
+        // of band. Nothing on this seam asks a model for anything: that would
+        // put the citizen surface behind a third party being up, which is the
+        // one thing `#837` is built not to be.
+        'proseFor',
       ])
     })
 
@@ -302,5 +307,82 @@ describe('the doctor surface', () => {
         await doctorAnswerFor(ONE, source, NOW),
       )
     })
+  })
+})
+
+/**
+ * The sentence beside the numbers (`#840`).
+ *
+ * The property worth testing here is the one the whole layer is built around:
+ * the same fixture, run with prose and without, produces the same findings.
+ * A gateway outage costs the Colony a sentence and never a finding, and this is
+ * where that stops being a slogan.
+ */
+describe('the doctor surface, with and without a sentence', () => {
+  const looping = [4, 3, 2, 1].map((n) => bucket(n))
+
+  it('renders the same findings either way', async () => {
+    const silent = await doctorAnswerFor(
+      ONE,
+      fakeDoctorSource({ [ONE]: looping }, { [ONE]: ESTABLISHED }),
+      NOW,
+    )
+    const spoken = await doctorAnswerFor(
+      ONE,
+      fakeDoctorSource(
+        { [ONE]: looping },
+        { [ONE]: ESTABLISHED },
+        {},
+        {
+          [ONE]: { 'polling-loop': 'You are calling one route every twelve seconds.' },
+        },
+      ),
+      NOW,
+    )
+
+    expect(spoken.findings.map(({ prose: _sentence, ...rest }) => rest)).toEqual(
+      silent.findings.map(({ prose: _sentence, ...rest }) => rest),
+    )
+    expect(silent.findings.every((finding) => finding.prose === null)).toBe(true)
+    expect(spoken.findings.find((finding) => finding.kind === 'polling-loop')?.prose).toContain(
+      'twelve seconds',
+    )
+  })
+
+  /**
+   * A sentence about a kind this citizen no longer has is not attached to a
+   * different one. The join is on the kind, and a mismatch must produce an
+   * absence rather than a sentence about the wrong finding.
+   */
+  it('attaches nothing when the stored sentence is about another kind', async () => {
+    const answer = await doctorAnswerFor(
+      ONE,
+      fakeDoctorSource(
+        { [ONE]: looping },
+        { [ONE]: ESTABLISHED },
+        {},
+        {
+          [ONE]: { 'stalled-arrival': 'You arrived and stopped.' },
+        },
+      ),
+      NOW,
+    )
+
+    expect(answer.findings.every((finding) => finding.prose === null)).toBe(true)
+  })
+
+  it('answers with the findings when the sentences cannot be read at all', async () => {
+    const source = fakeDoctorSource({ [ONE]: looping }, { [ONE]: ESTABLISHED })
+    const broken = {
+      ...source,
+      proseFor: async () => {
+        throw new Error('the sentences could not be read')
+      },
+    }
+
+    const answer = await doctorAnswerFor(ONE, broken, NOW)
+
+    expect(answer.findings.length).toBeGreaterThan(0)
+    expect(answer.findings.every((finding) => finding.prose === null)).toBe(true)
   })
 })

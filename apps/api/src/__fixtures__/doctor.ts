@@ -15,12 +15,21 @@ export function fakeDoctorSource(
   rows: Readonly<Record<string, readonly CallHour[]>> = {},
   progress: Readonly<Record<string, AcademyProgress>> = {},
   deprecated: Readonly<Record<string, string>> = {},
+  /**
+   * The sentences a runner would have written (`#840`).
+   *
+   * **Empty by default**, which is the ordinary state: a deployment with no
+   * gateway writes none, and a finding the runner has not reached yet has none
+   * either. The tests that are *about* prose hand over their own.
+   */
+  prose: Readonly<Record<string, Readonly<Record<string, string>>>> = {},
 ): DoctorSource {
   return {
     callHoursSince: async (agentId: AgentId, since: Date) =>
       (rows[agentId] ?? []).filter((hour) => Date.parse(hour.hourStartedAt) >= since.getTime()),
     progressOf: async (agentId: AgentId) => progress[agentId] ?? EMPTY_PROGRESS,
     deprecatedRoutes: async () => deprecated,
+    proseFor: async (agentId: AgentId) => prose[agentId] ?? {},
   }
 }
 

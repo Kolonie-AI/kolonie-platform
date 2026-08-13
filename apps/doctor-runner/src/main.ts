@@ -1,6 +1,12 @@
-import { createLog } from '@kolonie-ai/core'
+import {
+  GATEWAY_API_KEY_VARS,
+  GATEWAY_MODEL_VARS,
+  createLog,
+  gatewayFromEnvironment,
+} from '@kolonie-ai/core'
 import {
   academyProgressFor,
+  attachProse,
   callHoursSince,
   citizensWithCallsSince,
   createDatabase,
@@ -13,6 +19,7 @@ import {
 } from '@kolonie-ai/db'
 import { startRunner, type DoctorStore, type Log } from './loop.js'
 import { createHealthServer, STALE_POLLS } from './health.js'
+import { gatewayProse, noProse } from './prose.js'
 
 /**
  * Entry point of the doctor runner (`#839`).
@@ -64,7 +71,24 @@ const store: DoctorStore = {
    * from disagreeing about the same route.
    */
   deprecatedRoutes: async () => ({}),
-  record: (finding, policyVersion, now) => recordDiagnosis(db, finding, policyVersion, now),
+  /**
+   * The store's own answer, narrowed to what the pass needs (`#840`).
+   *
+   * `RecordedDiagnosis` carries the whole row; the pass is handed the outcome,
+   * the id and whether a sentence is already there. Narrowing here rather than
+   * widening `DoctorStore` keeps the prose step unable to read a stored evidence
+   * blob, which is the property `#838` refuses free text to protect.
+   */
+  record: async (finding, policyVersion, now) => {
+    const written = await recordDiagnosis(db, finding, policyVersion, now)
+    return {
+      outcome: written.outcome,
+      refusal: written.refusal,
+      diagnosisId: written.diagnosis?.id ?? null,
+      hasProse: written.diagnosis?.prose !== null && written.diagnosis?.prose !== undefined,
+    }
+  },
+  attachProse: (diagnosisId, prose, proseModel) => attachProse(db, diagnosisId, prose, proseModel),
   resolveDisappeared: (subject, stillFound, now) =>
     resolveDisappeared(db, subject, stillFound, now),
   supersedeOlderPolicies: (policyVersion, now) => supersedeOlderPolicies(db, policyVersion, now),
@@ -80,8 +104,31 @@ const store: DoctorStore = {
   sweepDiagnoses: (now) => sweepDiagnoses(db, now),
 }
 
+/**
+ * Who writes the sentences, or nobody (`#840`).
+ *
+ * **The gateway and nothing else.** `gatewayFromEnvironment` answers `undefined`
+ * unless the base URL, this service's key and a model are all set — so the
+ * ordinary state of a deployment that has not configured one is no prose at all,
+ * with every diagnosis stored complete and silent.
+ *
+ * **No model name in this file and none in any other** (`#207`): the slug arrives
+ * in `LLM_GATEWAY_MODEL_DOCTOR`, is written onto the diagnosis row for audit, and
+ * appears nowhere in the repository.
+ */
+const gateway = gatewayFromEnvironment('doctor')
+const prose = gateway === undefined ? noProse : gatewayProse(gateway, { log })
+
+if (!prose.available) {
+  log.warn(
+    `${GATEWAY_API_KEY_VARS.doctor} or ${GATEWAY_MODEL_VARS.doctor} is not set. ` +
+      'Diagnoses will be stored with no sentence, which every surface treats as complete.',
+    { event: 'config.missing', variable: GATEWAY_API_KEY_VARS.doctor },
+  )
+}
+
 const runner = startRunner(
-  { store, log, now: () => new Date() },
+  { store, prose, log, now: () => new Date() },
   { pollIntervalMs: POLL_INTERVAL_MS },
 )
 

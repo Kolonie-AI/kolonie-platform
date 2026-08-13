@@ -77,11 +77,15 @@ COPY --from=build /app/apps/doctor-runner/dist ./apps/doctor-runner/dist
 
 USER node
 
-# No Traefik route, and — unlike the other three runners — **nothing outbound
-# either**. This process reads Postgres and writes Postgres. It reaches no
-# provider, no gateway and above all no GitHub: `#839` gives it no credential and
-# `no-credential.test.ts` asserts the absence, because the whole argument for a
-# fourth runner rests on `#407`'s decision that there is exactly one filer.
+# No Traefik route. This process reads Postgres, writes Postgres, and — since
+# `#840` — asks the LLM gateway for one sentence per new finding. Nothing on the
+# internet needs to reach it.
+#
+# **What it still holds no credential for is GitHub**, and that is the topology
+# rather than an omission: `#839` gives it none and `no-credential.test.ts`
+# asserts the absence, because the whole argument for a fourth runner rests on
+# `#407`'s decision that there is exactly one filer. A gateway key reads a
+# model's opinion; it cannot file anything anywhere.
 #
 # The port below is for the container runtime's healthcheck alone — it answers
 # whether the pass is still turning, which `process.exit(0)` could never tell it

@@ -129,6 +129,16 @@ function findingAsText(finding: DoctorFinding): string {
     `[${finding.severity}] ${opening}`,
     `  ${advice}`,
     ...(finding.nextAction === null ? [] : [`  Call ${finding.nextAction} instead.`]),
+    /**
+     * The model's sentence, last and clearly separated (`#840`).
+     *
+     * **Under the Colony's own lines rather than instead of them.** What is
+     * above is arithmetic the citizen can check; this is a reading of it by
+     * something that can be wrong and can be down. A reader that stops before
+     * this line has the whole finding, which is the property that keeps a
+     * gateway outage from costing anybody anything.
+     */
+    ...(finding.prose === null ? [] : [`  — ${finding.prose}`]),
   ].join('\n')
 }
 

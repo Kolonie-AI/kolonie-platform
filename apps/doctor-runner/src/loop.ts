@@ -13,6 +13,7 @@ import {
   type Finding,
   type Log,
 } from '@kolonie-ai/core'
+import { noProse, type ProseWriter } from './prose.js'
 
 export type { Log }
 
@@ -46,12 +47,32 @@ export interface DoctorStore {
   sweepCallHours(now: Date): Promise<number>
   /** Delete resolved agent-scoped diagnoses past theirs. */
   sweepDiagnoses(now: Date): Promise<number>
+  /**
+   * Attach a model's sentence to a diagnosis (`#840`).
+   *
+   * **The only write on this interface a model's output ever reaches**, and it
+   * reaches one column. Nothing parses it back into a structured field, which is
+   * what *the model only writes* means when it is a property of an interface
+   * rather than a sentence in a comment.
+   */
+  attachProse(diagnosisId: string, prose: string, proseModel: string): Promise<void>
 }
 
 /** What `record` said it did. Mirrors `RecordedDiagnosis` without importing it. */
 export interface DiagnosisRecorded {
   readonly outcome: 'opened' | 'observed' | 'escalated' | 'refused'
   readonly refusal: string | null
+  /**
+   * The row it wrote, where there is one (`#840`).
+   *
+   * Needed so a sentence can be attached to the diagnosis this pass just opened.
+   * It carries the id and whether one is already there, and nothing else about
+   * the stored row — the prose step is allowed to know a finding's identity and
+   * no more.
+   */
+  readonly diagnosisId: string | null
+  /** Whether it already carries a sentence. `#840` does not rewrite one. */
+  readonly hasProse: boolean
 }
 
 export interface PassOutcome {
@@ -71,10 +92,28 @@ export interface PassOutcome {
   readonly failed: number
   /** Rollup buckets and diagnoses swept. */
   readonly swept: { readonly callHours: number; readonly diagnoses: number }
+  /**
+   * Sentences asked for and sentences written (`#840`).
+   *
+   * Two numbers rather than one, because the gap between them is the only thing
+   * that says the gateway is having a bad day — a pass that asked for eleven and
+   * wrote none is a Colony whose findings are all complete and all silent, which
+   * looks identical to a Colony that wired no gateway unless somebody counted.
+   */
+  readonly prose: { readonly asked: number; readonly written: number }
 }
 
 export interface PassDependencies {
   readonly store: DoctorStore
+  /**
+   * Who writes the sentences (`#840`).
+   *
+   * **Optional, and `noProse` is the ordinary state.** A deployment that wired
+   * no gateway stores every diagnosis complete and silent, which is the shape
+   * `#838` gave the columns and `#837` gave the answer — prose is nullable
+   * everywhere and its absence is never a half-written anything.
+   */
+  readonly prose?: ProseWriter
   readonly log?: Log
   /**
    * The moment the pass is being made at.
@@ -145,6 +184,37 @@ export async function runPass(deps: PassDependencies): Promise<PassOutcome> {
   const counts = { opened: 0, observed: 0, escalated: 0, resolved: 0, failed: 0 }
   const refused: string[] = []
   const inputs: DoctorInput[] = []
+  const prose = deps.prose ?? noProse
+  const sentences = { asked: 0, written: 0 }
+
+  /**
+   * Ask for a sentence, once per diagnosis rather than once per pass (`#840`).
+   *
+   * **`opened` and `escalated`, and never `observed`.** A re-evaluation that only
+   * moved `last_seen_at` has changed nothing a reader's view of the finding
+   * depends on, and rewriting the sentence for it would cost a model call every
+   * hour for as long as the diagnosis stays open. A severity change is different:
+   * the sentence said *concern* and the finding now says *serious*.
+   *
+   * **And never over a sentence that is already there**, which is what stops a
+   * pass from re-describing a finding whose severity has not moved.
+   *
+   * Awaited rather than left dangling: this is a runner, not a request path, and
+   * a pass that ended while its writes were still in flight would report counts
+   * it had not finished earning.
+   */
+  const describe = async (written: DiagnosisRecorded, finding: Finding): Promise<void> => {
+    if (!prose.available || written.diagnosisId === null) return
+    if (written.outcome !== 'opened' && written.outcome !== 'escalated') return
+    if (written.hasProse && written.outcome !== 'escalated') return
+
+    sentences.asked += 1
+    const sentence = await prose.describe(finding)
+    if (sentence === null) return
+
+    await store.attachProse(written.diagnosisId, sentence, prose.model)
+    sentences.written += 1
+  }
 
   for (const agentId of citizens) {
     try {
@@ -173,6 +243,7 @@ export async function runPass(deps: PassDependencies): Promise<PassOutcome> {
         const written = await store.record(finding, DOCTOR_POLICY_VERSION, now)
         if (written.outcome === 'refused') refused.push(written.refusal ?? 'refused')
         else counts[written.outcome] += 1
+        await describe(written, finding)
       }
 
       counts.resolved += await store.resolveDisappeared(
@@ -202,6 +273,7 @@ export async function runPass(deps: PassDependencies): Promise<PassOutcome> {
     const written = await store.record(finding, DOCTOR_POLICY_VERSION, now)
     if (written.outcome === 'refused') refused.push(written.refusal ?? 'refused')
     else counts[written.outcome] += 1
+    await describe(written, finding)
   }
 
   const swept = {
@@ -209,7 +281,7 @@ export async function runPass(deps: PassDependencies): Promise<PassOutcome> {
     diagnoses: await store.sweepDiagnoses(now),
   }
 
-  return { citizens: citizens.length, ...counts, refused, swept }
+  return { citizens: citizens.length, ...counts, refused, swept, prose: sentences }
 }
 
 export interface RunnerHealth {
@@ -297,6 +369,10 @@ export function startRunner(deps: PassDependencies, options: RunnerOptions = {})
             refused: outcome.refused.length,
             sweptCallHours: outcome.swept.callHours,
             sweptDiagnoses: outcome.swept.diagnoses,
+            // Both, for the reason `PassOutcome` gives: the gap between them is
+            // the only thing that says the gateway is having a bad day.
+            proseAsked: outcome.prose.asked,
+            proseWritten: outcome.prose.written,
           },
         )
 

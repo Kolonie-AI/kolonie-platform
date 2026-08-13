@@ -22,6 +22,7 @@ import {
   callHoursSince,
   academyProgressFor,
   recordTelling,
+  proseForOpenDiagnoses,
 } from '@kolonie-ai/db'
 import { buildApp } from './app.js'
 import { databaseStore } from './authentication.js'
@@ -993,6 +994,14 @@ const app = buildApp({
      * deployment and the rules are arithmetic.
      */
     deprecatedRoutes: async () => ({}),
+    /**
+     * The sentences the runner wrote, where there are any (`#840`).
+     *
+     * A read and nothing more: this surface never asks a model for one, which is
+     * what keeps it cheap enough to call on every waking and independent of a
+     * third party being up.
+     */
+    proseFor: (agentId) => proseForOpenDiagnoses(db, agentId),
   },
   website: { challenges: databaseWebsiteChallenges(db), obstruction },
   /**

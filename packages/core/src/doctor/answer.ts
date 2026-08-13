@@ -62,6 +62,21 @@ export const DoctorFindingSchema = z
     nextAction: z.string().max(ROUTE_KEY_MAX_LENGTH).nullable(),
     /** A reasonable interval for anything rate-shaped, or `null`. */
     retryAfterSeconds: z.int().positive().nullable(),
+    /**
+     * What a model wrote about this finding, or `null` (`#840`).
+     *
+     * **Absent is the ordinary case and the answer is complete without it.** The
+     * sentence is written out of band by the runner and stored beside the
+     * *diagnosis*; this surface computes findings live, so a finding the runner
+     * has not reached yet has none — and neither does any finding at all in a
+     * deployment that wired no gateway. Either way the numbers above are the
+     * answer and this is a courtesy on top of it.
+     *
+     * **It never carries a fact the structured fields do not.** Nothing here is
+     * parsed, nothing branches on it, and a citizen that ignores it has lost
+     * nothing it could have acted on.
+     */
+    prose: z.string().nullable(),
     since: TimestampSchema,
     until: TimestampSchema,
   })

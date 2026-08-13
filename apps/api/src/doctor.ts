@@ -13,6 +13,9 @@ import {
   type Finding,
 } from '@kolonie-ai/core'
 
+/** No sentence for anything, which is the ordinary state (`#840`). */
+const NO_PROSE: Readonly<Record<string, string>> = {}
+
 /**
  * What the Doctor needs to read, as a seam (`#837`).
  *
@@ -38,6 +41,20 @@ export interface DoctorSource {
    * Colony has superseded nothing today.
    */
   deprecatedRoutes(): Promise<Readonly<Record<string, string>>>
+  /**
+   * What a model wrote about this citizen's open findings, by kind (`#840`).
+   *
+   * **Optional, and absent means every finding is served with `prose: null`** —
+   * which `#837`'s answer shape treats as complete, because it was built that
+   * way before any sentence existed.
+   *
+   * By kind rather than by diagnosis id, because the two sides are computed
+   * differently: this surface derives findings live from the rollup and has no
+   * stored row in hand, and the diagnosis is unique per `(scope, subject, kind)`
+   * while it is open. A live finding and a stored one of the same kind about the
+   * same citizen are the same finding — that is what the dedupe key means.
+   */
+  proseFor?(agentId: AgentId): Promise<Readonly<Record<string, string>>>
 }
 
 /**
@@ -73,10 +90,22 @@ export async function doctorAnswerFor(
 ): Promise<DoctorAnswer> {
   const since = new Date(now.getTime() - DOCTOR_WINDOW_HOURS * CALL_HOUR_MS)
 
-  const [hours, progress, deprecatedRoutes] = await Promise.all([
+  const [hours, progress, deprecatedRoutes, prose] = await Promise.all([
     source.callHoursSince(agentId, since),
     source.progressOf(agentId),
     source.deprecatedRoutes(),
+    /**
+     * The sentences, where there are any (`#840`).
+     *
+     * Started alongside the other three rather than after them: it is an
+     * independent indexed read, and a surface that must stay cheap enough to
+     * call on every waking should not pay for it in series.
+     *
+     * A failure here is an absence rather than an error — the answer is complete
+     * without prose, and refusing to say anything because the courtesy could not
+     * be fetched would be the tail wagging the dog.
+     */
+    source.proseFor?.(agentId).catch(() => NO_PROSE) ?? Promise.resolve(NO_PROSE),
   ])
 
   /**
@@ -102,7 +131,7 @@ export async function doctorAnswerFor(
     since: since.toISOString(),
     until: now.toISOString(),
     observed: hours.length > 0,
-    findings: findings.map(asDoctorFinding),
+    findings: findings.map((finding) => asDoctorFinding(finding, prose[finding.kind] ?? null)),
     calls: hours.reduce((sum, hour) => sum + hour.calls, 0),
     bytesOut: hours.reduce((sum, hour) => sum + hour.bytesOut, 0),
     busiestRoutes: busiestOf(hours),
@@ -119,7 +148,7 @@ export async function doctorAnswerFor(
  * through untouched, because a surface that recomputed any of them would be a
  * second opinion about arithmetic that is already settled.
  */
-function asDoctorFinding(finding: Finding): DoctorFinding {
+function asDoctorFinding(finding: Finding, prose: string | null): DoctorFinding {
   return {
     kind: finding.kind,
     severity: finding.severity,
@@ -127,6 +156,7 @@ function asDoctorFinding(finding: Finding): DoctorFinding {
     recommendation: finding.recommendation,
     nextAction: NEXT_ACTION_FOR[finding.recommendation],
     retryAfterSeconds: finding.retryAfterSeconds,
+    prose,
     since: finding.since,
     until: finding.until,
   }

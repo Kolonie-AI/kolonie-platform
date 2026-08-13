@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, lt, sql, type SQL } from 'drizzle-orm'
+import { and, desc, eq, inArray, isNotNull, lt, sql, type SQL } from 'drizzle-orm'
 import {
   DIAGNOSIS_RETENTION_DAYS,
   DOCTOR_TELLING_COOLING_HOURS,
@@ -506,4 +506,37 @@ export async function recordTelling(
  */
 function severityRank(column: unknown): SQL<number> {
   return sql<number>`case ${column} when 'serious' then 0 when 'concern' then 1 when 'notice' then 2 else 3 end`
+}
+
+/**
+ * What a model wrote about this citizen's open findings, by kind (`#840`).
+ *
+ * **Keyed by kind because that is what the dedupe key means.** A diagnosis is
+ * unique per `(scope, subject, kind, policy_version)` while it is open, so a
+ * finding computed live and a diagnosis stored earlier are the same finding when
+ * their kinds match — and the live surface has no stored id in hand to match on
+ * instead.
+ *
+ * **Only rows that have one.** A citizen whose findings all predate the runner
+ * gets an empty map, which the surface renders as `prose: null` on every finding
+ * — complete, and indistinguishable from a Colony that wired no gateway. That is
+ * the intended shape rather than a degradation.
+ */
+export async function proseForOpenDiagnoses(
+  db: Database | Transaction,
+  agentId: AgentId,
+): Promise<Readonly<Record<string, string>>> {
+  const rows = await db
+    .select({ kind: diagnoses.kind, prose: diagnoses.prose })
+    .from(diagnoses)
+    .where(
+      and(
+        eq(diagnoses.subject, agentId),
+        eq(diagnoses.scope, 'agent'),
+        eq(diagnoses.state, 'open'),
+        isNotNull(diagnoses.prose),
+      ),
+    )
+
+  return Object.fromEntries(rows.map((row) => [row.kind, row.prose ?? '']))
 }

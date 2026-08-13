@@ -1,0 +1,2 @@
+ALTER TABLE "support_tickets" DROP CONSTRAINT "support_tickets_body_length";--> statement-breakpoint
+ALTER TABLE "support_tickets" ADD CONSTRAINT "support_tickets_body_length" CHECK (char_length("support_tickets"."body") between 30 and 12000);

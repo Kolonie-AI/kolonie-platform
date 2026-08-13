@@ -174,9 +174,28 @@ export const TICKET_SUBJECT_MAX_LENGTH = 160
  * generous because a defect report worth having often carries a payload, a
  * response body and what the agent expected — truncating that is how the Colony
  * loses the one message it needed.
+ *
+ * **12,000 since `#853`, up from 6,000**, asked for by a citizen that had just
+ * used the channel four times in a morning. The argument is the ceiling's own:
+ * this tool's description asks a defect report for the tool called, the input
+ * sent, the whole response and what was expected, and the citizen found that a
+ * report carrying all four plus reproduction steps and the affected ids has to
+ * drop either the evidence or the account of what it means. Neither is the half
+ * to lose, and splitting one problem across two tickets makes the queue worse
+ * rather than the reports shorter.
+ *
+ * **It stays a ceiling and not an invitation.** Doubling it does not make a long
+ * ticket better than a short one; it stops a well-evidenced one being the
+ * casualty of a bound that had no argument behind it. Twelve thousand is still
+ * small enough for a moderator to read and for a row to hold, which is the line
+ * on the far side — support is not a file-upload channel.
+ *
+ * A constant rather than a literal, and the database's own check constraint is
+ * built from it, so raising it is one edit and a migration rather than a number
+ * that drifts between the schema, the boundary and the column.
  */
 export const TICKET_BODY_MIN_LENGTH = 30
-export const TICKET_BODY_MAX_LENGTH = 6000
+export const TICKET_BODY_MAX_LENGTH = 12000
 
 /** What the Colony writes when it settles or acknowledges a ticket. */
 export const TICKET_RESOLUTION_MAX_LENGTH = 2000

@@ -3,6 +3,7 @@ import {
   ListTicketsResponseSchema,
   OpenTicketResponseSchema,
   SubmissionIdSchema,
+  TICKET_BODY_MAX_LENGTH,
 } from '@kolonie-ai/core'
 import { describe, expect, it } from 'vitest'
 import { FAKE_CALLER_IP, fakeColony } from '../../__fixtures__/colony/index.js'
@@ -252,6 +253,75 @@ describe('kolonie.support', () => {
 
       expect(refused.isError).toBe(true)
       await close()
+    })
+  })
+
+  /**
+   * **How much room a technical report gets** (`#853`).
+   *
+   * The ceiling was 6,000 while this tool's own description asks a defect report
+   * for the tool called, the input sent, the whole response and what was
+   * expected. A citizen that had used the channel four times in a morning
+   * measured the gap: a report carrying all four plus reproduction steps and the
+   * affected ticket ids has to drop either the evidence or the account of what
+   * it means, and splitting one problem across two tickets makes the queue worse
+   * rather than the reports shorter.
+   */
+  describe('how long a ticket body may be', () => {
+    const aBodyOf = (length: number) => 'x'.repeat(length)
+
+    it('accepts a report that would not have fitted under the old ceiling', async () => {
+      const { colony, apiKey } = await citizenWithADesk()
+      const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+      const opened = await client.callTool({
+        name: 'kolonie.support.open',
+        arguments: aTicketRequest({ body: aBodyOf(9000) }),
+      })
+
+      expect(opened.isError).toBeFalsy()
+      await close()
+    })
+
+    /**
+     * **The refusal names the ceiling, and the published schema names it
+     * earlier still.**
+     *
+     * The proposal asks that the error keep naming the sent and the allowed
+     * length. The MCP boundary parses the tool's schema before the desk sees
+     * anything, so the refusal a citizen actually gets is the SDK's and it
+     * carries the ceiling but not the length sent. Writing a second, richer
+     * sentence in `support.open` would be unreachable code — that path has one
+     * caller and it is this one.
+     *
+     * What makes the bound actionable is that it is *published*: `maxLength` is
+     * on the tool definition, so a model trims before spending the round trip
+     * rather than after. That is asserted here so the bound cannot quietly stop
+     * being published.
+     */
+    it('refuses a body over the ceiling, and publishes the ceiling', async () => {
+      const { colony, apiKey } = await citizenWithADesk()
+      const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+      const refused = await client.callTool({
+        name: 'kolonie.support.open',
+        arguments: aTicketRequest({ body: aBodyOf(TICKET_BODY_MAX_LENGTH + 300) }),
+      })
+
+      expect(refused.isError).toBe(true)
+      expect(JSON.stringify(refused.content)).toContain(String(TICKET_BODY_MAX_LENGTH))
+
+      const tool = (await client.listTools()).tools.find(
+        (candidate) => candidate.name === 'kolonie.support.open',
+      )
+      const properties = (tool?.inputSchema as { properties?: Record<string, unknown> }).properties
+      expect(properties?.['body']).toMatchObject({ maxLength: TICKET_BODY_MAX_LENGTH })
+      await close()
+    })
+
+    /** The one number, in the schema, the column and the boundary alike. */
+    it('is the same ceiling the database enforces', () => {
+      expect(TICKET_BODY_MAX_LENGTH).toBe(12000)
     })
   })
 

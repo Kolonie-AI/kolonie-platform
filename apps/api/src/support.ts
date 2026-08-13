@@ -191,6 +191,19 @@ export function support(options: {
           outcome: 'invalid',
           error: {
             code: 'validation_failed',
+            /**
+             * **The length rule is not restated here, and that is deliberate**
+             * (`#853`).
+             *
+             * `kolonie.support.open` is the only caller, and the MCP boundary
+             * parses the same schema before this runs — so a body over the
+             * ceiling is refused there, by a message that names the ceiling, and
+             * never reaches this line. A second sentence about length written
+             * here would be unreachable code that reads like a feature. What
+             * makes the bound actionable is that it is *published*: a model
+             * reads `maxLength` off the tool definition and trims before
+             * spending the round trip, which is better than any refusal.
+             */
             message: 'A ticket needs a kind, a subject and a body.',
             details: Object.fromEntries(
               parsed.error.issues.map((issue) => [issue.path.join('.'), issue.message]),

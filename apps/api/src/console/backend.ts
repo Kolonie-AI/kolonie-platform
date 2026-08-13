@@ -1,8 +1,14 @@
-import { PERMISSION_AGGREGATE_FLOOR, type StoredProviderEnquiry } from '@kolonie-ai/core'
+import {
+  PERMISSION_AGGREGATE_FLOOR,
+  type Diagnosis,
+  type DiagnosisState,
+  type StoredProviderEnquiry,
+} from '@kolonie-ai/core'
 import type { EffectiveSetting } from '@kolonie-ai/db'
 import type {
   Arrivals,
   BackendSections,
+  DiagnosisPage,
   BriefingEffect,
   ColonyNumbers,
   QuestModerationHistoryRow,
@@ -11,6 +17,7 @@ import type {
   WantedProviderCount,
 } from '@kolonie-ai/db'
 import { arrivalsSection } from './arrivals-section.js'
+import { diagnosesTable, diagnosisDetail, pager } from './diagnoses-section.js'
 import { briefingEffectSection } from './briefing-effect-section.js'
 import { escape, page } from './html.js'
 import { backendTitle, type ConsoleNav } from './navigation.js'
@@ -225,6 +232,113 @@ export function backendTicketsPage(
       table,
     ],
   })
+}
+
+/**
+ * `/backend/diagnoses` — what the Doctor has found (`#841`).
+ *
+ * **Colony-scoped first and by default; the citizens behind a deliberate step.**
+ * They are read for different reasons and there are different numbers of them: a
+ * route returning 500 is an operational fact and there will be a handful, and an
+ * inefficient loop is somebody's own business and there may be hundreds. Mixing
+ * them buries the first under the second.
+ *
+ * **Read-only, and `diagnoses-section.ts` says why at length.** There is no route
+ * under this path that mutates anything, and `console-diagnoses.test.ts` asserts
+ * that against the router rather than against a reviewer's memory.
+ */
+export function backendDiagnosesPage(
+  input: BackendPageInput & {
+    readonly colony: DiagnosisPage
+    readonly agents: DiagnosisPage
+    readonly counts: Readonly<Record<string, number>>
+    readonly showing: 'colony' | 'agent'
+    readonly states: readonly DiagnosisState[]
+    readonly page: number
+  },
+): string {
+  const listed = input.showing === 'colony' ? input.colony : input.agents
+  const historic = input.states.length > 1
+
+  return backendSection({
+    ...input,
+    body: [
+      `<p class="note">What the Doctor found, <strong>most serious first</strong>. ` +
+        `This page reads; it does not decide. A finding stops being open when its evidence stops ` +
+        `matching, which is the rules' judgement and not a button's.</p>`,
+      `<p>${escape(summaryOf(input.counts))}</p>`,
+      '<p>' +
+        [
+          link('/backend/diagnoses', 'The Colony’s own', input.showing === 'colony' && !historic),
+          link(
+            '/backend/diagnoses?scope=agent',
+            'Citizens’',
+            input.showing === 'agent' && !historic,
+          ),
+          link(
+            `/backend/diagnoses?scope=${input.showing}&history=1`,
+            'Including resolved',
+            historic,
+          ),
+        ].join(' · ') +
+        '</p>',
+      ...diagnosesTable(
+        listed.rows,
+        input.showing === 'colony'
+          ? 'Nothing is open about the Colony itself. That is an answer rather than an empty panel.'
+          : 'Nothing is open about any citizen.',
+      ),
+      ...pager(
+        `/backend/diagnoses${input.showing === 'agent' ? '?scope=agent&' : '?'}`.replace(
+          /[?&]$/,
+          '',
+        ),
+        input.page,
+        listed.more,
+      ),
+    ],
+  })
+}
+
+/**
+ * `/backend/diagnoses/:id` — one diagnosis, read to the end (`#841`).
+ *
+ * The audit trail `kolonie-docs#324` point 8 requires, on one page and from one
+ * read.
+ */
+export function backendDiagnosisPage(
+  input: BackendPageInput & { readonly diagnosis: Diagnosis },
+): string {
+  return backendSection({
+    ...input,
+    title: 'One diagnosis',
+    body: [
+      '<p><a href="/backend/diagnoses">← every diagnosis</a></p>',
+      ...diagnosisDetail(input.diagnosis),
+    ],
+  })
+}
+
+/** One filter link, marked when it is the one being read. */
+function link(href: string, label: string, current: boolean): string {
+  return current
+    ? `<strong>${escape(label)}</strong>`
+    : `<a href="${escape(href)}">${escape(label)}</a>`
+}
+
+/**
+ * The one line that says whether this page is worth opening.
+ *
+ * A page shows fifty; *two hundred and eleven are open* is a different fact and
+ * the one that says whether something has gone wrong at scale.
+ */
+function summaryOf(counts: Readonly<Record<string, number>>): string {
+  const open = (counts['colony.open'] ?? 0) + (counts['agent.open'] ?? 0)
+  const resolved = (counts['colony.resolved'] ?? 0) + (counts['agent.resolved'] ?? 0)
+
+  return open === 0 && resolved === 0
+    ? 'Nothing has been diagnosed yet.'
+    : `${open} open — ${counts['colony.open'] ?? 0} about the Colony, ${counts['agent.open'] ?? 0} about citizens. ${resolved} have resolved themselves.`
 }
 
 /**

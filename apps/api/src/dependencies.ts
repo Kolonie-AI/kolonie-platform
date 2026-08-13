@@ -1,5 +1,6 @@
 import type { CallRollup } from './call-rollup.js'
 import type { DoctorSource } from './doctor.js'
+import type { DiagnosesDesk } from './diagnoses.js'
 import type { OpenSource } from './open.js'
 import type { AgentId, Log, RhythmBounds, SkillReleases } from '@kolonie-ai/core'
 import type { OpenProspects } from '@kolonie-ai/db'
@@ -466,6 +467,14 @@ export interface AppDependencies {
    * which is the harmless direction.
    */
   readonly tell?: OpenSource['tell']
+  /**
+   * What the console's diagnoses pages read (`#841`).
+   *
+   * Optional: a deployment that wires none serves no page rather than an empty
+   * one. Three reads and no writes — see `DiagnosesDesk` for why the absence of a
+   * `close` is the design rather than an omission.
+   */
+  readonly diagnoses?: DiagnosesDesk
   /** Browser sign-in: the mailer, the console's base URL and both limiters (`#172`). */
   readonly console: ConsoleDependencies
   /**

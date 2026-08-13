@@ -1,5 +1,6 @@
 import type { CallRollup } from '../call-rollup.js'
 import type { DoctorSource } from '../doctor.js'
+import type { DiagnosesDesk } from '../diagnoses.js'
 import type { OpenSource } from '../open.js'
 import type { HandoverStore } from '../handovers.js'
 import type { AgentId, ApiError, Log, RhythmBounds, SkillReleases } from '@kolonie-ai/core'
@@ -103,6 +104,19 @@ export interface RouteDependencies {
   readonly rollup?: CallRollup
   /** What the doctor surface reads (`#837`). Absent switches both doors off. */
   readonly doctor?: DoctorSource
+  /**
+   * What the console's diagnoses pages read (`#841`).
+   *
+   * **Three reads and no writes, which is the whole of what that surface may
+   * do.** A diagnosis resolves when its evidence stops matching; a desk with a
+   * `close` on it would be a surface that could disagree with the rules, and the
+   * shape of this interface is where that is refused rather than in a reviewer's
+   * memory.
+   *
+   * Optional: a deployment that wires none serves no page rather than an empty
+   * one, which is D-013's way of switching a surface off.
+   */
+  readonly diagnoses?: DiagnosesDesk
   /**
    * Recording that a citizen was told about a finding on waking (`#842`).
    *

@@ -23,6 +23,9 @@ import {
   academyProgressFor,
   recordTelling,
   proseForOpenDiagnoses,
+  listDiagnoses,
+  diagnosisById,
+  diagnosisCounts,
 } from '@kolonie-ai/db'
 import { buildApp } from './app.js'
 import { databaseStore } from './authentication.js'
@@ -683,6 +686,19 @@ const app = buildApp({
    */
   tell: async (diagnosisId, severity) => {
     await recordTelling(db, diagnosisId, severity, new Date())
+  },
+  /**
+   * What the console's diagnoses pages read (`#841`).
+   *
+   * Three reads and no writes. There is no `close` here and there is not going
+   * to be one: a diagnosis resolves when its evidence stops matching, and a
+   * person closing one would put an opinion into a state machine defined by
+   * evidence.
+   */
+  diagnoses: {
+    list: (query) => listDiagnoses(db, query),
+    byId: (id) => diagnosisById(db, id),
+    counts: () => diagnosisCounts(db),
   },
   // A citizen's private notes against the skills it holds (`#348`).
   skillNotes: {

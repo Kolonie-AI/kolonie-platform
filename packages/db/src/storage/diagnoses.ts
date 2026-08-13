@@ -540,3 +540,109 @@ export async function proseForOpenDiagnoses(
 
   return Object.fromEntries(rows.map((row) => [row.kind, row.prose ?? '']))
 }
+
+/**
+ * How many diagnoses one page of the console lists (`#841`).
+ *
+ * **Paginated rather than complete**, because a Colony with many citizens has
+ * many findings and a page that grew with the Colony would be a page nobody
+ * opens twice. Fifty is more than a person reads in one sitting and few enough
+ * that the query stays a range scan over an index rather than a sort of the
+ * table.
+ */
+export const DIAGNOSES_PAGE = 50
+
+/** What the console asks for. Every field narrows; none of them widens. */
+export interface DiagnosisQuery {
+  /** `agent` or `colony`. Absent means both, which is deliberately not the default view. */
+  readonly scope?: Finding['scope']
+  /** Which states to show. Absent means `open` alone — *what is wrong now*. */
+  readonly states?: readonly DiagnosisState[]
+  readonly limit?: number
+  /** How many to skip. A page number the caller has already multiplied out. */
+  readonly offset?: number
+}
+
+/** One page of diagnoses, and whether there is another. */
+export interface DiagnosisPage {
+  readonly rows: readonly Diagnosis[]
+  /** `true` when a further page exists — read by asking for one more than the page. */
+  readonly more: boolean
+}
+
+/**
+ * Diagnoses for the console, most serious first (`#841`).
+ *
+ * **The default is open diagnoses**, because the question a person opens this to
+ * answer is *what is wrong now*. Resolved and superseded ones are reachable by
+ * asking, and are never deleted from view — the history is the point, and
+ * `kolonie-platform#814` is the complaint about verdicts nobody can read back.
+ *
+ * **Most serious first, then most recently seen.** The same order
+ * `openDiagnosesFor` uses and spelled out the same way, so a reader of either
+ * query does not have to open `enums.ts` to know what it resolved to.
+ *
+ * **One more row than the page is fetched**, which is how *is there another page*
+ * is answered without a second count over a table that is growing. The extra row
+ * is dropped before it is returned.
+ */
+export async function listDiagnoses(
+  db: Database | Transaction,
+  query: DiagnosisQuery = {},
+): Promise<DiagnosisPage> {
+  const limit = query.limit ?? DIAGNOSES_PAGE
+  const states = query.states ?? (['open'] as const)
+
+  const rows = await db
+    .select()
+    .from(diagnoses)
+    .where(
+      and(
+        inArray(diagnoses.state, [...states]),
+        ...(query.scope === undefined ? [] : [eq(diagnoses.scope, query.scope)]),
+      ),
+    )
+    .orderBy(severityRank(diagnoses.severity), desc(diagnoses.lastSeenAt))
+    .limit(limit + 1)
+    .offset(query.offset ?? 0)
+
+  return {
+    rows: rows.slice(0, limit).map(rowToDiagnosis),
+    more: rows.length > limit,
+  }
+}
+
+/**
+ * One diagnosis, read to the end (`#841`).
+ *
+ * `null` for an id that names nothing, which the route turns into a 404 — the
+ * same refusal it makes for a reader who is not a maintainer, so this surface
+ * tells a stranger nothing about which ids are real.
+ */
+export async function diagnosisById(
+  db: Database | Transaction,
+  id: string,
+): Promise<Diagnosis | null> {
+  const [row] = await db.select().from(diagnoses).where(eq(diagnoses.id, id)).limit(1)
+
+  return row === undefined ? null : rowToDiagnosis(row)
+}
+
+/**
+ * How many diagnoses stand in each state, for the one line that says whether
+ * this page is worth opening (`#841`).
+ *
+ * **Counted rather than derived from a page.** A page shows fifty; *there are
+ * two hundred and eleven open* is a different fact and the one that says whether
+ * something has gone wrong at scale.
+ */
+export async function diagnosisCounts(
+  db: Database | Transaction,
+): Promise<Readonly<Record<string, number>>> {
+  const rows = await db
+    .select({ scope: diagnoses.scope, state: diagnoses.state, total: sql<number>`count(*)::int` })
+    .from(diagnoses)
+    .groupBy(diagnoses.scope, diagnoses.state)
+
+  return Object.fromEntries(rows.map((row) => [`${row.scope}.${row.state}`, row.total]))
+}

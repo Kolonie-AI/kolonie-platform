@@ -36,7 +36,8 @@ import type { SolanaChallenges } from '../../solana.js'
 import type { StandingHintSource } from '../../hints.js'
 import type { WakeupSource } from '../../wakeup.js'
 import type { DoctorSource } from '../../doctor.js'
-import { fakeDoctorSource } from '../doctor.js'
+import type { DiagnosesDesk } from '../../diagnoses.js'
+import { fakeDiagnosesDesk, fakeDoctorSource } from '../doctor.js'
 import { checkName, register, type AgentRegistry, type Caller } from '../../registration.js'
 import { fakeSkillNotes, type FakeSkillNotes } from '../skill-notes.js'
 import { fakeStandingHints } from '../hints.js'
@@ -99,6 +100,15 @@ export interface FakeAgent {
    * the doctor hands over its own rows.
    */
   readonly doctor: DoctorSource
+  /**
+   * What the console's diagnoses pages read (`#841`).
+   *
+   * Wired by default and answering with nothing, for the reason `doctor` above
+   * is: the navigation names `/backend/diagnoses`, and `console-links.test.ts`
+   * crawls every link the console emits. A fixture without this would make that
+   * entry a promise the test colony cannot keep.
+   */
+  readonly diagnoses: DiagnosesDesk
   /**
    * The state facts behind the wake-up's non-rung suggestions (`#347`).
    *
@@ -271,6 +281,9 @@ export function fakeAgent(deps: { readonly solanaChallenges: SolanaChallenges })
     // A citizen the Colony has recorded nothing about, which is the state most
     // tests are not about (`#837`).
     doctor: fakeDoctorSource(),
+    // An empty Colony, which is the state the page has to render as a sentence
+    // rather than as a blank panel (`#841`).
+    diagnoses: fakeDiagnosesDesk(),
     prospects: async () => ({
       hasOperator: true,
       ticketsOpened: 0,

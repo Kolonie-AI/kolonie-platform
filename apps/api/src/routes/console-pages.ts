@@ -68,6 +68,8 @@ import {
   backendQuestsPage,
   backendSettingsPage,
   backendTicketsPage,
+  backendDiagnosesPage,
+  backendDiagnosisPage,
   backendUnreportedPage,
   backendWantedPage,
   moderationTrend,
@@ -103,7 +105,7 @@ import { stewardFor } from './privileged.js'
 import { clientIp } from '../client-ip.js'
 import { cookieValue, sessionCookie } from './authenticated.js'
 import { consoleOperatorPath, operatorPageBody } from '../operator-page-body.js'
-import { COLONY_QUEST_LIMIT, type OperatorPageView } from '@kolonie-ai/db'
+import { COLONY_QUEST_LIMIT, DIAGNOSES_PAGE, type OperatorPageView } from '@kolonie-ai/db'
 import {
   autonomyFormPage,
   autonomyRevisedPage,
@@ -1445,6 +1447,93 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
       ? html(reply, backendTicketsPage({ nav: navFor(request, ['maintainer']), sections }))
       : reply.send({ ...sections })
   })
+
+  /**
+   * What the Doctor found (`#841`).
+   *
+   * **Every route under this path is a `GET`, and that is asserted rather than
+   * observed** — `console-diagnoses.test.ts` walks the router and fails on any
+   * method that is not one. A diagnosis resolves when its evidence stops
+   * matching (`#838`); a button that closed one would put a person's opinion
+   * into a state machine defined by evidence, and the two would drift.
+   *
+   * **Registered only where a reader was wired**, which is D-013's way of
+   * switching a surface off: a deployment with no diagnoses desk serves no page
+   * rather than an empty one.
+   */
+  if (deps.diagnoses !== undefined) {
+    const diagnoses = deps.diagnoses
+
+    app.get<{ Querystring: { scope?: string; history?: string; page?: string } }>(
+      '/backend/diagnoses',
+      async (request, reply) => {
+        if ((await backendGuard(request, reply)) === null) return reply
+
+        const showing = request.query.scope === 'agent' ? ('agent' as const) : ('colony' as const)
+        /**
+         * **Resolved and superseded are reachable, never deleted from view.**
+         * The history is the point: `kolonie-platform#814` is the complaint that
+         * verdicts cannot be read back, and a page that only showed what is
+         * currently true would earn the same one.
+         */
+        const states =
+          request.query.history === '1'
+            ? (['open', 'resolved', 'superseded'] as const)
+            : (['open'] as const)
+        const page = Math.max(0, Number.parseInt(request.query.page ?? '0', 10) || 0)
+
+        const [colony, agents, counts] = await Promise.all([
+          diagnoses.list({
+            scope: 'colony',
+            states: [...states],
+            offset: showing === 'colony' ? page * DIAGNOSES_PAGE : 0,
+          }),
+          diagnoses.list({
+            scope: 'agent',
+            states: [...states],
+            offset: showing === 'agent' ? page * DIAGNOSES_PAGE : 0,
+          }),
+          diagnoses.counts(),
+        ])
+
+        return wantsHtml(request)
+          ? html(
+              reply,
+              backendDiagnosesPage({
+                nav: navFor(request, ['maintainer']),
+                colony,
+                agents,
+                counts,
+                showing,
+                states: [...states],
+                page,
+              }),
+            )
+          : reply.send({ colony, agents, counts, showing, states, page })
+      },
+    )
+
+    /**
+     * One diagnosis, read to the end.
+     *
+     * **404 and never 403 for an id that names nothing**, the same refusal the
+     * guard above makes for a reader who is not a maintainer: this surface tells
+     * a stranger nothing about which ids are real.
+     */
+    app.get<{ Params: { diagnosisId: string } }>(
+      '/backend/diagnoses/:diagnosisId',
+      async (request, reply) => {
+        if ((await backendGuard(request, reply)) === null) return reply
+
+        const diagnosis = await diagnoses.byId(request.params.diagnosisId)
+        if (diagnosis === null) return reply.callNotFound()
+
+        return wantsHtml(request)
+          ? html(reply, backendDiagnosisPage({ nav: navFor(request, ['maintainer']), diagnosis }))
+          : reply.send({ diagnosis })
+      },
+    )
+  }
 
   /**
    * Providers writing in about the Atlas (`#544`). Reachable before the form is

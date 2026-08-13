@@ -2,6 +2,7 @@ import { and, asc, desc, eq, isNotNull, isNull, ne, sql } from 'drizzle-orm'
 import {
   AccountKindSchema,
   AccountProviderSchema,
+  AgentPlatformSchema,
   RecipeActorSchema,
   WalkOutcomeSchema,
   WALK_PROSE_FIELDS,
@@ -13,6 +14,7 @@ import {
   type AccountKind,
   type AccountWalk,
   type AgentId,
+  type AgentPlatform,
   type ProviderRecipe,
   type WalkOutcome,
   type WalkProse,
@@ -21,8 +23,10 @@ import {
 } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import { accountWalks, accountWalkSteps } from '../schema/account-walks.js'
+import { agents } from '../schema/agents.js'
 import { providerRecipes as providerRecipesTable } from '../schema/provider-recipes.js'
 import { canonicalProvider } from './atlas-renames.js'
+import { markProviderBriefingStale } from './provider-briefing.js'
 import { providerRecipe, writeProviderRecipe } from './provider-recipes.js'
 import { toTimestamp } from './rows.js'
 
@@ -602,9 +606,33 @@ export async function recordWalkProseModeration(
         ...unchanged,
       ),
     )
-    .returning({ id: accountWalks.id })
+    .returning({
+      id: accountWalks.id,
+      kind: accountWalks.kind,
+      provider: accountWalks.provider,
+    })
 
-  return { outcome: written[0] === undefined ? 'stale' : 'written' }
+  const row = written[0]
+  if (row === undefined) return { outcome: 'stale' }
+
+  /**
+   * **The provider's briefing is marked stale here, and not by the caller**
+   * (`#831`). This is the only place a walk's words become readable, so it is the
+   * only place that has to remember: a moderation path that approved prose and
+   * left the briefing alone would serve a write-up that is missing the walk it
+   * was waiting for, and nothing downstream could tell.
+   *
+   * A rejection marks nothing. The corpus reads the scrubbed column alone, so
+   * refused words changed nothing a synthesis would read.
+   */
+  if (command.decision === 'approved') {
+    await markProviderBriefingStale(db, {
+      kind: AccountKindSchema.parse(row.kind),
+      provider: row.provider,
+    })
+  }
+
+  return { outcome: 'written' }
 }
 
 /** One walk's words as anybody but their author may read them. */
@@ -612,6 +640,18 @@ export interface ModeratedWalkProse {
   readonly walkId: string
   readonly finishedAt: string
   readonly outcome: WalkOutcome
+  /**
+   * Which runtime the walker was running, for the breakdown a provider briefing
+   * carries (`#831`).
+   *
+   * **The runtime and never the walker.** It is the one thing about the author
+   * that a reader is served, it is served only as a count on a claim that several
+   * walks support, and it is here for the reason `BriefingClaim.platforms` exists:
+   * a wall six agents hit on one runtime and nobody hit elsewhere is a fact about
+   * that runtime, and a reader who cannot make that comparison draws the wrong
+   * conclusion about the provider.
+   */
+  readonly platform: AgentPlatform
   readonly prose: WalkProse
 }
 
@@ -640,9 +680,17 @@ export async function moderatedWalkProse(
       id: accountWalks.id,
       finishedAt: accountWalks.finishedAt,
       outcome: accountWalks.outcome,
+      platform: agents.platform,
       scrubbedProse: accountWalks.scrubbedProse,
     })
     .from(accountWalks)
+    /**
+     * An inner join, which is what makes *every row has a runtime* a property of
+     * the query rather than of a default written into the mapping below. The
+     * reference is `not null` and cascades, so a walk whose agent is gone is a
+     * walk that is gone too — there is no row this can drop.
+     */
+    .innerJoin(agents, eq(agents.id, accountWalks.agentId))
     .where(
       and(
         eq(accountWalks.kind, where.kind),
@@ -658,6 +706,7 @@ export async function moderatedWalkProse(
     walkId: row.id,
     finishedAt: toTimestamp(row.finishedAt as string),
     outcome: WalkOutcomeSchema.parse(row.outcome),
+    platform: AgentPlatformSchema.parse(row.platform),
     prose: row.scrubbedProse as WalkProse,
   }))
 }

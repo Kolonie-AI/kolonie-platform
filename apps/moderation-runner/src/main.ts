@@ -30,6 +30,9 @@ import {
   writeScrubbedAnswers,
   staleBriefings,
   writeBriefing,
+  providerBriefingCorpus,
+  staleProviderBriefings,
+  writeProviderBriefing,
   atlasEntryFor,
   recordAtlasModeration,
   unjudgedAtlasProposals,
@@ -46,6 +49,7 @@ import {
   synthesiseNow,
   type BriefingStore,
   type Log,
+  type ProviderBriefingStore,
   type ModerationStore,
 } from './loop.js'
 import type { QuestModerationStore } from './quests.js'
@@ -289,6 +293,25 @@ const briefings: BriefingStore = {
 }
 
 /**
+ * The provider half of the same loop (`#831`).
+ *
+ * A second store rather than three more methods on {@link briefings}, on that
+ * interface's own argument: one store serving both documents is the seam along
+ * which a task's claims eventually land in a provider's row. It is handed to the
+ * same runner, so an unreachable model is one outage and one backoff rather than
+ * two loops discovering it separately.
+ *
+ * There is no branch here of the kind the task corpus needs. A provider corpus
+ * has one source — the walks, scrubbed — and `moderatedWalkProse` is the only
+ * thing that reads them.
+ */
+const providerBriefings: ProviderBriefingStore = {
+  stale: (limit) => staleProviderBriefings(db, limit),
+  corpus: (where) => providerBriefingCorpus(db, where),
+  write: (input) => writeProviderBriefing(db, input),
+}
+
+/**
  * The provider-change tripwire (#115).
  *
  * `resynthesise` is the *immediate* half — one task's briefing rewritten now
@@ -502,7 +525,7 @@ const questRunner = startQuestRunner(
   { pollIntervalMs: QUEST_POLL_INTERVAL_MS },
 )
 const briefingRunner = startBriefingRunner(
-  { store: briefings, model, log },
+  { store: briefings, providers: providerBriefings, model, log },
   { pollIntervalMs: BRIEFING_INTERVAL_MS },
 )
 

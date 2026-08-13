@@ -491,6 +491,14 @@ describe('schema', () => {
          * reason they belong together, for an operator with one agent who needs
          * a recommendation rather than a catalogue.
          */
+        /**
+         * `provider_briefings` (`#831`): what the Colony wrote up about one
+         * provider from the walks of it, one row per kind and provider. Beside
+         * `provider_recipes` rather than inside it, because a recipe is edited by
+         * hand and a briefing is rewritten by a model whenever a walk of that
+         * provider is approved.
+         */
+        'provider_briefings',
         'provider_bundle_entries',
         'provider_bundles',
         'provider_claims',

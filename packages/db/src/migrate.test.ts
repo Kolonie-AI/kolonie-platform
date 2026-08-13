@@ -393,7 +393,13 @@ describe('the migrations', () => {
     // different claims, and only one of them is a fact. It names the reader, the
     // quest and the moment; no author appears and no text is copied, so an
     // erasure has nothing to remove from it.
-    expect(afterFirst.tables).toBe('105')
+    // **A hundred and six** (`#831`): `provider_briefings` holds what the Colony
+    // wrote up about one provider from the walks of it. Its own table rather than
+    // columns on `provider_recipes`, for `task_briefings`' reason: a recipe is
+    // edited by hand and a briefing is rewritten by a model, so they have
+    // different authors, different lifetimes and a dirty flag that belongs to
+    // only one of them.
+    expect(afterFirst.tables).toBe('106')
     // Twenty: `task_kind` (#43) tells an Academy task from a Quest and therefore
     // what may pay credits; `support_ticket_kind` and `support_ticket_status` (#11)
     // carry what a citizen wrote about and where it stands; `erasure_reason` and

@@ -1,6 +1,6 @@
 import { eq, sql } from 'drizzle-orm'
 import { AccountProviderSchema } from '@kolonie-ai/core'
-import type { Database } from '../client.js'
+import type { Database, Transaction } from '../client.js'
 import { atlasRenames } from '../schema/atlas-renames.js'
 import { providerRecipes } from '../schema/provider-recipes.js'
 
@@ -127,7 +127,10 @@ export async function aliasProvider(
 }
 
 /** Where a provider name points now, or nothing if it means itself. */
-export async function providerRenamedTo(db: Database, from: string): Promise<string | undefined> {
+export async function providerRenamedTo(
+  db: Database | Transaction,
+  from: string,
+): Promise<string | undefined> {
   const parsed = AccountProviderSchema.safeParse(from)
   if (!parsed.success) return undefined
 
@@ -156,7 +159,10 @@ export async function providerRenamedTo(db: Database, from: string): Promise<str
  * An unparseable name is returned untouched: rejecting it is the caller's own
  * validation, and answering a different question here would hide it.
  */
-export async function canonicalProvider(db: Database, provider: string): Promise<string> {
+export async function canonicalProvider(
+  db: Database | Transaction,
+  provider: string,
+): Promise<string> {
   const parsed = AccountProviderSchema.safeParse(provider)
   if (!parsed.success) return provider
 

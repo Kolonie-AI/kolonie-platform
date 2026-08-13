@@ -5,6 +5,7 @@ import {
   type BriefingClaim,
   type ConfidentialSpan,
   type ModerationStages,
+  type ProviderBriefingClaim,
   type ReportKind,
   type Log,
   type ReportNarrative,
@@ -15,11 +16,14 @@ import type {
   BriefingSource,
   ModerationVerdict,
   PendingReport,
+  ProviderBriefingSource,
   ProviderChange,
+  ProviderKey,
   TaskText,
 } from '@kolonie-ai/db'
 import { markConfidential } from './confidentiality.js'
 import { synthesise } from './synthesis.js'
+import { synthesiseProvider } from './provider-synthesis.js'
 import { respondToChange, type Tripwire } from './tripwire.js'
 import { findDuplicate } from './dedup.js'
 import { heldQuestTick, questTick, type QuestLoopDependencies } from './quests.js'
@@ -1075,8 +1079,43 @@ export interface BriefingStore {
   }): Promise<void>
 }
 
+/**
+ * Where the provider synthesis reads and writes (`#831`).
+ *
+ * Its own store beside {@link BriefingStore}, on that interface's argument: the
+ * two write different documents about different subjects, and one store serving
+ * both would be the seam along which somebody eventually writes a task's claims
+ * into a provider's row.
+ */
+export interface ProviderBriefingStore {
+  /** Providers whose walks have moved since their briefing was written. */
+  stale(limit: number): Promise<readonly ProviderKey[]>
+  corpus(where: ProviderKey): Promise<readonly ProviderBriefingSource[]>
+  write(
+    input: ProviderKey & {
+      readonly claims: readonly ProviderBriefingClaim[]
+      readonly model: string
+    },
+  ): Promise<void>
+}
+
 export interface BriefingDependencies {
   readonly store: BriefingStore
+  /**
+   * The provider half, when it is configured (`#831`).
+   *
+   * **Optional, and the same tick rather than a third runner.** A second poll
+   * loop would need its own backoff, its own outage rule and its own health
+   * entry, all of which exist here and all of which are about the model rather
+   * than about tasks — the provider that refuses a task synthesis is refusing
+   * the provider synthesis in the same second. Running both phases inside
+   * {@link briefingTick} means one outage is still one alarm.
+   *
+   * Optional so that a deployment can run the task briefings without the
+   * provider ones, and so that every existing test constructing these
+   * dependencies keeps compiling and keeps testing what it tested.
+   */
+  readonly providers?: ProviderBriefingStore
   readonly model: Model
   readonly log?: Log
 }
@@ -1119,11 +1158,37 @@ export async function briefingTick(
   deps: BriefingDependencies,
   batchSize: number,
 ): Promise<BriefingTickOutcome> {
-  const { store, model, log = silentLog } = deps
+  const { store, providers, model, log = silentLog } = deps
   const outcome = { written: 0, failed: 0, unreachable: 0 }
 
   for (const taskId of await store.stale(batchSize)) {
     const result = await synthesiseNow(store, model, taskId, log)
+    if (result === 'written') outcome.written++
+    else {
+      outcome.failed++
+      if (result === 'unreachable') outcome.unreachable++
+    }
+  }
+
+  /**
+   * The provider phase, counted into the same three numbers (`#831`).
+   *
+   * **One batch size for both**, so a pass costs at most twice it rather than
+   * some new configured amount nobody would tune separately. And one set of
+   * counters, so the outage rule below covers both phases: with the model gone,
+   * every task and every provider fails the same way, and that is one alarm.
+   *
+   * Second rather than first because the task briefings are what a citizen
+   * reads before every attempt, and if a batch is going to exhaust anything it
+   * should exhaust it on the provider half.
+   */
+  for (const where of (await providers?.stale(batchSize)) ?? []) {
+    const result = await synthesiseProviderNow(
+      providers as ProviderBriefingStore,
+      model,
+      where,
+      log,
+    )
     if (result === 'written') outcome.written++
     else {
       outcome.failed++
@@ -1419,6 +1484,116 @@ export async function synthesiseNow(
     log.error(`could not write the briefing for ${taskId}`, error, {
       event: 'briefing.failed',
       taskId,
+    })
+    return 'failed'
+  }
+}
+
+/**
+ * Write one provider's briefing now (`#831`).
+ *
+ * {@link synthesiseNow} for providers, down to never throwing and to answering
+ * which of the three happened so the caller counts both phases the same way. A
+ * provider whose synthesis fails keeps its flag and is retried next pass, and the
+ * briefing already stored stays where it is — the degradation contract the whole
+ * subsystem is built around, and the one a provider briefing needs most: a stale
+ * write-up of a signup form is worth a great deal more than an error where the
+ * Atlas entry's guidance should be.
+ *
+ * There is no `taskText` equivalent to fail on, so this has one fewer failure
+ * mode than the task side. A provider cannot be missing: it is the key itself.
+ */
+export async function synthesiseProviderNow(
+  store: ProviderBriefingStore,
+  model: Model,
+  where: ProviderKey,
+  log: Log,
+): Promise<SynthesisOutcome> {
+  const provider = `${where.kind}/${where.provider}`
+
+  try {
+    const corpus = await store.corpus(where)
+    const { claims, proposed, unsourced, blank, overlong } = await synthesiseProvider(
+      { provider: where, corpus },
+      model,
+    )
+    await store.write({ kind: where.kind, provider: where.provider, claims, model: model.name })
+
+    if (claims.length === 0) {
+      log.info(`no briefing for ${provider}: nothing to say from ${corpus.length} walks`, {
+        event: 'provider.briefing.none',
+        provider,
+        walks: corpus.length,
+      })
+    } else {
+      log.info(
+        `briefing for ${provider} written from ${corpus.length} walks, ${claims.length} claims`,
+        {
+          event: 'provider.briefing.written',
+          provider,
+          walks: corpus.length,
+          claims: claims.length,
+        },
+      )
+    }
+
+    /**
+     * The two-causes line, on the task side's terms and for its reason (`#374`).
+     *
+     * A provider with moderated walks and no claims is either a prompt that will
+     * not generalise or a schema the model is answering around, and the counters
+     * are what separate them. Warned rather than retried: the flag is already
+     * cleared and a retry would loop against a model answering consistently.
+     */
+    if (corpus.length > 0 && claims.length === 0) {
+      const because =
+        proposed === 0
+          ? 'the model proposed no claims at all'
+          : `the model proposed ${proposed}, and every one was dropped here ` +
+            `(${unsourced} naming no walk in the corpus, ${blank} with empty text, ` +
+            `${overlong} running past the length bound)`
+
+      log.warn(
+        `briefing for ${provider} is empty over ${corpus.length} moderated walks — ${because}`,
+        {
+          event: 'provider.briefing.empty',
+          provider,
+          walks: corpus.length,
+          proposed,
+          unsourced,
+          blank,
+          overlong,
+        },
+      )
+    }
+
+    if (overlong > 0) {
+      log.warn(`${overlong} claim(s) for ${provider} ran past the length bound and were dropped`, {
+        event: 'provider.briefing.claim.overlong',
+        provider,
+        overlong,
+        proposed,
+      })
+    }
+
+    return 'written'
+  } catch (error) {
+    // A warning with its own event name, never `error`: the triage runner files
+    // one issue per error signature, and a connection reset is not a defect. The
+    // alarm moves up to `briefingTick`, which raises one throw for a pass that
+    // reached nothing at all.
+    if (error instanceof ProviderUnreachable) {
+      log.warn(`briefing for ${provider} deferred — ${error.message}`, {
+        event: 'provider.briefing.unreachable',
+        provider,
+        endpoint: error.endpoint,
+      })
+      return 'unreachable'
+    }
+
+    log.error(`could not write the briefing for ${provider}`, error, {
+      event: 'provider.briefing.failed',
+      provider,
     })
     return 'failed'
   }

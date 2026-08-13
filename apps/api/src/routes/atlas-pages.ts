@@ -206,6 +206,12 @@ export function registerAtlasPages(app: FastifyInstance, deps: RouteDependencies
          * nothing for a fact only the entry page states.
          */
         quests: await atlasQuests?.naming(asked.data),
+        /**
+         * What the Colony wrote up from this provider's walks (`#831`). Read
+         * here for the reason directly above: the index and the catalogue
+         * document show no briefing, and neither should pay for one.
+         */
+        briefings: await recipes.briefings(asked.data),
       }),
       'text/html; charset=utf-8',
     )

@@ -398,6 +398,7 @@ export function buildApp({
     listInternal: async () => [],
     one: async () => undefined,
     figures: async () => [],
+    briefings: async () => new Map(),
     proposals: async () => [],
     providerProposals: async () => [],
     decideProvider: async () => ({ outcome: 'not-pending' }),

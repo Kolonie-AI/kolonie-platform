@@ -26,11 +26,13 @@ import {
   type EntryProposal,
   type ProposalAction,
   type ProposalWithDemand,
+  type ProviderBriefing,
   type ProviderRecipe,
   type RecipeStep,
   walkedRecipeAsText,
 } from '@kolonie-ai/core'
 import type { Database } from '@kolonie-ai/db'
+import { providerBriefingAsText } from './mcp/text/provider-briefing.js'
 import type { WalkStore } from './account-walks.js'
 import type { HeldAccount } from './accounts.js'
 import {
@@ -41,6 +43,7 @@ import {
   type DecideProposalOutcome,
   fallingSuccessRates,
   pendingProposals,
+  providerBriefingsAt,
   providerRecipe,
   providerRecipeList,
   type FallingRate,
@@ -81,6 +84,16 @@ export interface ProviderRecipes {
    * caller of it is one grep away.
    */
   listInternal(): Promise<readonly ProviderRecipe[]>
+  /**
+   * What the Colony wrote up about one provider's walks (`#831`).
+   *
+   * **One provider and never the catalogue**, keyed like the figures so a surface
+   * holding both looks them up the same way. The index shows no briefing, and a
+   * read that walked four hundred providers to render none of them would be a
+   * cost paid on the page that does not spend it — the same argument `#602` made
+   * for reading the paying quests on the entry page only.
+   */
+  briefings(provider: string): Promise<ReadonlyMap<string, ProviderBriefing>>
   /** The review queue `#549` works through: proposals nobody has decided. */
   proposals(): Promise<readonly EntryProposal[]>
   /** The signal `#549` says will actually be used: rates that have fallen sharply. */
@@ -99,6 +112,7 @@ export function databaseProviderRecipes(db: Database): ProviderRecipes {
     listInternal: () => providerRecipeList(db, undefined, { includeInternal: true }),
     one: (kind, provider) => providerRecipe(db, kind, provider),
     figures: (options) => atlasFigures(db, options ?? {}),
+    briefings: (provider) => providerBriefingsAt(db, provider),
     proposals: () => pendingProposals(db),
     fallingRates: () => fallingSuccessRates(db),
     decide: (id, status) => decideProposal(db, id, status),
@@ -212,7 +226,12 @@ export async function readAtlas(
    */
   secretHandoff: boolean,
 ): Promise<
-  RecipeOutcome<{ readonly entries: readonly AtlasEntry[]; readonly secretHandoff: boolean }>
+  RecipeOutcome<{
+    readonly entries: readonly AtlasEntry[]
+    readonly secretHandoff: boolean
+    /** What the Colony wrote up, by `figureKey`. Empty unless one provider was named. */
+    readonly briefings: ReadonlyMap<string, ProviderBriefing>
+  }>
 > {
   if (input.kind !== undefined && !AccountKindSchema.safeParse(input.kind).success) {
     return {
@@ -280,7 +299,22 @@ export async function readAtlas(
     }
   }
 
-  return { outcome: 'ok', response: { entries, secretHandoff } }
+  /**
+   * The write-ups, on the read that asked for one provider (`#831`).
+   *
+   * **Only there**, and the bound is what makes this affordable: an agent reading
+   * the whole catalogue is deciding *where to go*, which the figures answer, and
+   * carrying every provider's claims into that result would be hundreds of
+   * paragraphs about providers it is not going to attempt. An agent that named
+   * one provider has already decided, and is asking the question the briefing
+   * answers.
+   */
+  const briefings =
+    input.provider === undefined || entries.length === 0
+      ? new Map<string, ProviderBriefing>()
+      : await recipes.briefings(input.provider)
+
+  return { outcome: 'ok', response: { entries, secretHandoff, briefings } }
 }
 
 /**
@@ -294,7 +328,20 @@ export async function readAtlas(
  * the page — a marker shown to people and not to agents would be a disclosure
  * that stops where it becomes inconvenient.
  */
-export function atlasEntryAsText(entry: AtlasEntry, secretHandoff: boolean): string {
+export function atlasEntryAsText(
+  entry: AtlasEntry,
+  secretHandoff: boolean,
+  /**
+   * What the Colony wrote up about each kind here, by `figureKey` (`#831`).
+   *
+   * **Defaulted to empty rather than required**, because the catalogue read does
+   * not carry briefings and rendering an entry is the same job either way. An
+   * absent briefing prints nothing: the figures beside it already say how many
+   * walked, and a paragraph announcing that nobody has written it up yet is that
+   * same absence stated twice.
+   */
+  briefings: ReadonlyMap<string, ProviderBriefing> = new Map(),
+): string {
   const parts = [`## ${entry.title} (${entry.provider})`]
 
   if (entry.recipes.some((recipe) => recipe.paid)) {
@@ -305,7 +352,11 @@ export function atlasEntryAsText(entry: AtlasEntry, secretHandoff: boolean): str
   }
 
   for (const recipe of entry.recipes) {
-    parts.push(recipeAsText(recipe, secretHandoff), figuresAsText(recipe.figures))
+    parts.push(
+      recipeAsText(recipe, secretHandoff),
+      figuresAsText(recipe.figures),
+      providerBriefingAsText(briefings.get(figureKey(recipe.kind, recipe.provider))),
+    )
   }
 
   return parts.filter((part) => part !== '').join('\n\n')

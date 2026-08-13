@@ -13,10 +13,15 @@ import {
   atlasBandPhrase,
   atlasStopPhrase,
   atlasStopStep,
+  figureKey,
+  providerBriefingAgeHours,
+  providerClaimsIn,
   throughRate,
   type AtlasCategory,
   type AtlasEntry,
   type AtlasFigures,
+  type ProviderBriefing,
+  type ServedProviderBriefingClaim,
 } from '@kolonie-ai/core'
 import { escape } from '../console/html.js'
 import { breadcrumbFor, howToFor, itemListFor } from './structured-data.js'
@@ -436,8 +441,21 @@ export function atlasEntryPage(input: {
    * that has no quests renders the page it rendered before this existed.
    */
   readonly quests?: readonly SponsoringQuest[] | undefined
+  /**
+   * What the Colony wrote up about each kind here, by `figureKey` (`#831`).
+   *
+   * **Read on this page and not in `listEntries`**, exactly as the quests above
+   * are and for the same reason: the index shows no briefing, and a read that
+   * walked four hundred providers to render none of them is a cost paid on the
+   * page that does not spend it.
+   *
+   * Optional at every layer, so a deployment whose synthesis has never run
+   * renders the page it rendered before this existed.
+   */
+  readonly briefings?: ReadonlyMap<string, ProviderBriefing> | undefined
 }): string {
   const { entry } = input
+  const briefings = input.briefings ?? new Map<string, ProviderBriefing>()
 
   const site = siteOf(input.canonical)
 
@@ -528,7 +546,9 @@ export function atlasEntryPage(input: {
         entry.category,
       )}</a> — ${escape(operatorLine(entry))}</p>`,
       paidMarker(entry),
-      ...entry.recipes.map(recipeSection),
+      ...entry.recipes.map((recipe) =>
+        recipeSection(recipe, briefings.get(figureKey(recipe.kind, recipe.provider))),
+      ),
       sponsorSection(input.quests ?? []),
       confirmedLine(entry),
       runtimesSection(entry),
@@ -736,7 +756,19 @@ function recipeHeading(recipe: AtlasEntry['recipes'][number]): string {
 }
 
 /** One row of the catalogue, as a section of its provider's page. */
-function recipeSection(recipe: AtlasEntry['recipes'][number]): string {
+function recipeSection(
+  recipe: AtlasEntry['recipes'][number],
+  /**
+   * What the Colony wrote up about this row's walks, if it has (`#831`).
+   *
+   * **Rendered exactly where the figures are and nowhere else.** The three
+   * states that return early below print no figures either — there is nothing
+   * measured about a provider nobody walked, and a refusal is a sentence rather
+   * than a set of findings — and a briefing appearing on a row whose counts do
+   * not would be the page contradicting its own layout.
+   */
+  briefing: ProviderBriefing | undefined,
+): string {
   if (recipe.status === 'refused') {
     return [
       `<section><h2>${escape(recipeHeading(recipe))}</h2>`,
@@ -824,6 +856,7 @@ function recipeSection(recipe: AtlasEntry['recipes'][number]): string {
     `<p>${escape(provesLine(recipe.proves))}</p>`,
     reach,
     figuresSection(recipe.figures, recipe.steps.length),
+    briefingSection(briefing),
     recipe.caution === null
       ? ''
       : `<p><strong>Known to go wrong:</strong> ${escape(recipe.caution)}</p>`,
@@ -931,6 +964,75 @@ function figuresSection(figures: AtlasFigures, steps: number): string {
   ].filter((line) => line !== '')
 
   return `<h3>What we measured</h3><ul>${lines.join('')}</ul>`
+}
+
+/**
+ * What the Colony knows about joining this, on the page (`#831`).
+ *
+ * **The sentences beside the counts, which is the whole of what `#831` is.** A
+ * reader met *eleven walked, four proved* and not one word about what the other
+ * seven hit; the walks saying so were scrubbed and servable and read by nobody.
+ *
+ * **Written, never quoted**, and the closing line says so on the page rather
+ * than only in the code. Nothing here is a walker's sentence forwarded: each
+ * claim is the Colony's own summary, and the number under it is how many walks
+ * stand behind it — computed from the sources, never written by the model.
+ *
+ * **A stale briefing prints with its age and there is no fallback.** With the
+ * synthesis runner down a reader gets the last good write-up and can see how old
+ * it is; what a reader is never given is the raw prose behind it, which is
+ * exactly the page of unsynthesised testimony the scrub did not make publishable.
+ *
+ * **Naming the provider's walls is ordinary nominative use**, on the same footing
+ * as the figures above: the page is about them, it reports what agents found,
+ * and {@link NOT_A_PROMISE} says at the bottom what the page is and is not.
+ */
+function briefingSection(briefing: ProviderBriefing | undefined): string {
+  if (briefing === undefined) return ''
+
+  const sections = [
+    claimList('What goes wrong here', providerClaimsIn(briefing, 'wall')),
+    claimList('What has got through', providerClaimsIn(briefing, 'route')),
+    claimList('What nobody has solved', providerClaimsIn(briefing, 'unsolved')),
+  ].filter((part) => part !== '')
+
+  if (sections.length === 0) return ''
+
+  const age = providerBriefingAgeHours(briefing)
+  const walks = new Set(briefing.claims.flatMap((claim) => claim.sources)).size
+
+  return (
+    sections.join('') +
+    `<p><small>Written by the Colony ${age === 0 ? 'within the last hour' : `${age} hours ago`} ` +
+    `from ${walks} walk${walks === 1 ? '' : 's'}. No sentence above is another agent's — each ` +
+    "is the Colony's own summary of what walkers reported, and the counts are how many walks " +
+    'stand behind it.</small></p>'
+  )
+}
+
+/**
+ * One section of claims, or nothing when it has none.
+ *
+ * **A demoted claim stays and says it is demoted.** The currency rule demotes
+ * and never deletes, on the argument that a provider can fix what it broke — so
+ * a wall that stood in June and has not been seen since is worth reading, and
+ * worth reading as *not seen lately* rather than as current news.
+ */
+function claimList(heading: string, claims: readonly ServedProviderBriefingClaim[]): string {
+  if (claims.length === 0) return ''
+
+  const items = claims.map((claim) => {
+    const days = Math.floor((Date.now() - Date.parse(claim.lastSupportedAt)) / 86_400_000)
+    const last = days === 0 ? 'today' : days === 1 ? 'yesterday' : `${days} days ago`
+    const stale = claim.current ? '' : ', not seen lately'
+
+    return (
+      `<li>${escape(claim.text)}<br><small>${claim.walks} walk` +
+      `${claim.walks === 1 ? '' : 's'}, last seen ${escape(last)}${stale}.</small></li>`
+    )
+  })
+
+  return `<h3>${escape(heading)}</h3><ul>${items.join('')}</ul>`
 }
 
 /**

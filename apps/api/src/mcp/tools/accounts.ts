@@ -1139,7 +1139,11 @@ export function registerAccountTools(
                   result.response.entries
                     .map((entry) =>
                       [
-                        atlasEntryAsText(entry, result.response.secretHandoff),
+                        atlasEntryAsText(
+                          entry,
+                          result.response.secretHandoff,
+                          result.response.briefings,
+                        ),
                         ownAccountsAsText(ownAccounts),
                       ]
                         .filter((part) => part !== '')
@@ -1150,6 +1154,14 @@ export function registerAccountTools(
         ],
         structuredContent: {
           ...result.response,
+          /**
+           * **A list rather than the map it is held as** (`#831`). A `Map` is
+           * `{}` once this crosses JSON, so a reader of the structured half
+           * would see the briefings vanish while the text half showed them.
+           * Each carries its own `kind` and `provider`, so nothing is lost by
+           * dropping the key.
+           */
+          briefings: [...result.response.briefings.values()],
           ...(provider === undefined ? {} : { providerCanonical: provider }),
         },
       }

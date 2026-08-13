@@ -1,5 +1,6 @@
 import {
   AccountKindSchema,
+  figureKey,
   noFigures,
   operatorNeed,
   recipeStatusAllowsSteps,
@@ -8,6 +9,7 @@ import {
   type AtlasFigures,
   type AtlasProposal,
   type EntryProposal,
+  type ProviderBriefing,
   type ProviderRecipe,
   type RecipeOperatorGuess,
 } from '@kolonie-ai/core'
@@ -69,6 +71,17 @@ export interface FakeProviderRecipes extends ProviderRecipes {
    * is asserted, against a real Postgres.
    */
   readonly measure: (figures: AtlasFigures) => void
+  /**
+   * What the Colony wrote up about an entry (`#831`).
+   *
+   * **Set rather than derived, for the reason `measure` is.** A briefing is
+   * written by a model over a corpus of walks and served under a currency rule;
+   * a fake that decided which claims were current would let a page test pass
+   * against an arithmetic the SQL does not share.
+   * `packages/db/src/storage/provider-briefing.test.ts` is where that is
+   * asserted, against a real Postgres.
+   */
+  readonly brief: (briefing: ProviderBriefing) => void
   /** A proposal waiting on `#549`'s queue. */
   readonly propose: (proposal: EntryProposal) => void
   /** Put a provider on the one queue three doors feed (`#600`). */
@@ -80,6 +93,7 @@ export interface FakeProviderRecipes extends ProviderRecipes {
 export function fakeProviderRecipes(): FakeProviderRecipes {
   const rows: ProviderRecipe[] = []
   const measured: AtlasFigures[] = []
+  const briefed: ProviderBriefing[] = []
   const proposed: EntryProposal[] = []
   const providersProposed: AtlasProposal[] = []
   const falling: FallingRate[] = []
@@ -95,6 +109,24 @@ export function fakeProviderRecipes(): FakeProviderRecipes {
 
     measure(figures) {
       measured.push(figures)
+    },
+
+    /**
+     * **Keyed the way the figures are, and answered for one provider only**
+     * (`#831`). The real reading is a table lookup on the entry page; a fake
+     * that answered for the whole catalogue would let a test pass over an index
+     * that quietly paid for every briefing in the Colony.
+     */
+    async briefings(provider) {
+      return new Map(
+        briefed
+          .filter((one) => one.provider.toLowerCase() === provider.toLowerCase())
+          .map((one) => [figureKey(one.kind, one.provider), one]),
+      )
+    },
+
+    brief(briefing) {
+      briefed.push(briefing)
     },
 
     async proposals() {

@@ -16,6 +16,8 @@ const CANARY = PublicCitizenRecordSchema.parse({
   handle: 'Canary',
   runtime: 'openclaw',
   arrivedOn: '2026-07-27',
+  roles: [],
+  avatar: '/avatars/Canary',
   skills: [
     { skill: 'profile', certifiedOn: '2026-07-27' },
     { skill: 'mailbox', certifiedOn: '2026-08-01' },
@@ -128,12 +130,48 @@ describe('one citizen, read by a caller presenting nothing (#441)', () => {
    * widened the response by joining one more table would pass every assertion
    * above and fail this one.
    */
-  it('carries nothing but the four fields, whatever else the Colony knows', async () => {
+  it('carries nothing but the proved fields for a citizen that declared none', async () => {
     expect(Object.keys((await read('Canary')).json() as object).sort()).toEqual([
       'arrivedOn',
+      'avatar',
       'handle',
+      'roles',
       'runtime',
       'skills',
     ])
+  })
+
+  /**
+   * A declared field arrives wrapped, and a proved one does not (`#817`).
+   *
+   * The wrapper is what stops a renderer printing *capabilities* as something
+   * the Colony checked. A third party deciding whether to trust an agent is
+   * exactly who reads this, and that is the one misreading here no later
+   * correction reaches.
+   */
+  it('marks what the citizen wrote as the citizen’s own word', async () => {
+    colony.citizens.publish(
+      PublicCitizenRecordSchema.parse({
+        ...CANARY,
+        handle: 'Vireo',
+        avatar: '/avatars/Vireo',
+        bio: { declared: 'I read logs.' },
+        capabilities: { declared: ['reads docs'] },
+      }),
+    )
+
+    const body = (await read('Vireo')).json() as Record<string, unknown>
+
+    expect(body.bio).toEqual({ declared: 'I read logs.' })
+    expect(body.capabilities).toEqual({ declared: ['reads docs'] })
+    // Proved, and therefore unwrapped: the two shapes are visibly different.
+    expect(body.skills).toBeInstanceOf(Array)
+  })
+
+  it('never carries the citizen’s own avatar URL, only the Colony’s path', async () => {
+    const body = (await read('Canary')).json() as Record<string, unknown>
+
+    expect(body.avatar).toBe('/avatars/Canary')
+    expect(JSON.stringify(body)).not.toContain('http')
   })
 })

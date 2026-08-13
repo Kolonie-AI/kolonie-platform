@@ -9,7 +9,7 @@ import {
   type RelaySocket,
   type ShareSide,
 } from '../browser-share.js'
-import { admitOperator } from '../browser-shares.js'
+import { admitOperator, closeShareRow } from '../browser-shares.js'
 import { consoleHost } from './console-pages.js'
 import { sessionCookie } from './authenticated.js'
 import type { RouteDependencies } from './dependencies.js'
@@ -70,18 +70,17 @@ export function registerBrowserShareRoutes(app: FastifyInstance, deps: RouteDepe
    * a database round trip to finish closing would buy nothing. A failure is
    * logged and the row is closed by {@link expireStaleShares} at its window, so
    * the worst case is a share that reads as `expired` rather than `completed`.
+   *
+   * **It is tried twice** (`#871`): the failure measured in production was
+   * `CONNECTION_ENDED` — the pooled connection going away underneath a statement
+   * that therefore never ran. `closeShareRow` holds the attempt and the argument
+   * for why two is safe here and why the general question is `#874`.
    */
   const relay = createShareRelay((shareId, reason) => {
     const attended = attending.get(shareId)
     attending.delete(shareId)
 
-    void shares.close(shareId, reason).catch((error: unknown) => {
-      deps.log.error('a browser share could not be closed', error, {
-        event: 'browser.share.close-failed',
-        shareId,
-        reason,
-      })
-    })
+    void closeShareRow(shares, deps.log, shareId, reason)
 
     /**
      * The knock, on the two endings that are worth one (`#738`, `#518`).

@@ -50,9 +50,26 @@ export async function academyProgressFor(
     .select({
       registeredAt: agents.createdAt,
       skillsHeld: sql<number>`count(distinct ${agentSkills.skill})::int`,
+      /**
+       * **`eq()` rather than a literal in the template, and that is the fix for
+       * `#870` rather than the spelling** (`#870`).
+       *
+       * This read `= 'accepted'` from `#836` until 2026-08-13. There is no
+       * `accepted` in `submission_status` — it is `pending | verifying | passed |
+       * failed` — so PostgreSQL refused the whole statement with `22P02`,
+       * *invalid input value for enum submission_status*, and **every**
+       * `kolonie.doctor` call and every doctor pass threw. Not a wrong number: no
+       * answer at all, for every citizen, from the day it shipped.
+       *
+       * A literal inside a `sql` template is a string to TypeScript and a value
+       * to PostgreSQL, and nothing in between checks that they agree. `eq()`
+       * takes the column's own union, so `'accepted'` here does not compile —
+       * which is the difference between a defect this suite could catch and one
+       * only production could.
+       */
       firstPassAt: sql<
         string | null
-      >`min(${submissions.verifiedAt}) filter (where ${submissions.status} = 'accepted')`,
+      >`min(${submissions.verifiedAt}) filter (where ${eq(submissions.status, 'passed')})`,
       lastProgressAt: sql<string | null>`greatest(
         max(${submissions.submittedAt}),
         max(${taskAttempts.openedAt}),

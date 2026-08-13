@@ -97,6 +97,69 @@ export function databaseShares(db: Database): ShareDesk {
  * in the defect: a person arriving at a share whose citizen has no sharer on the
  * relay is neither an intruder nor a session.
  */
+/**
+ * End a share's row, and try twice before giving up (`#871`).
+ *
+ * **Called from the relay's close handler and awaited by nobody**, which is the
+ * arrangement `routes/browser-share.ts` argues for: both sockets are already
+ * shut by the time this runs, and a person's window should not wait on a
+ * database round trip to finish closing.
+ *
+ * ## Why two attempts and not one, and not a general retry
+ *
+ * The failure that actually happened was `CONNECTION_ENDED` from
+ * `postgres:5432` — the pooled connection went away underneath the statement,
+ * so it never ran. Nothing about the share, no constraint, no missing row.
+ * `postgres-js` reconnects on the next statement, so a second attempt is very
+ * likely to succeed and costs one round trip on a path nobody is waiting on.
+ *
+ * **A second attempt is safe here specifically**, and that is the whole
+ * justification: `closeShare` is idempotent by its `closed_at is null` guard and
+ * its own doc comment says so — *"the ways a share ends race by construction …
+ * the first reason wins"*. A duplicate close is a case that function already
+ * answers, so retrying it cannot write a second ending.
+ *
+ * **Whether the database client should reattempt idempotent statements in
+ * general is `#874`** and is deliberately not decided here. That question is
+ * about every query in the Colony; this is about the one function that already
+ * documents itself as safe to call twice.
+ *
+ * ## What it costs when both attempts fail
+ *
+ * Nothing that loses data. `expireStaleShares` closes the row at its window, so
+ * the share reads as `expired` rather than as the reason it actually ended. The
+ * `attempts` field is logged so that the next reader of the issue the log
+ * detector files (`#407`) knows the cheap answer was already tried.
+ */
+export async function closeShareRow(
+  shares: Pick<ShareDesk, 'close'>,
+  log: Log,
+  shareId: string,
+  reason: ShareCloseReason,
+): Promise<void> {
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    try {
+      await shares.close(shareId, reason)
+      return
+    } catch (error: unknown) {
+      if (attempt < 2) continue
+
+      log.error('a browser share could not be closed', error, {
+        event: 'browser.share.close-failed',
+        shareId,
+        reason,
+        /**
+         * The cause is on `err.cause` — `serialiseError` carries it, and it is
+         * where `CONNECTION_ENDED` and any constraint name actually appear. The
+         * wrapper's own message is drizzle's `Failed query: …`, which names the
+         * statement and never the reason.
+         */
+        attempts: attempt,
+      })
+    }
+  }
+}
+
 export type ShareAdmission =
   /** Attach it. The far end is there and the offer has just become a session. */
   | { readonly outcome: 'admitted'; readonly share: ShareForRelay }

@@ -1,3 +1,4 @@
+import { robotsDirective, ROBOTS_HEADER } from '@kolonie-ai/core'
 import type { FastifyInstance } from 'fastify'
 import type { RouteDependencies } from './dependencies.js'
 
@@ -81,6 +82,24 @@ export function registerCitizenRoutes(v1: FastifyInstance, deps: RouteDependenci
         message: 'No citizen holds that name.',
       })
     }
+
+    /**
+     * The same directive the page carries, on a surface that cannot carry a
+     * meta tag (`#830`).
+     *
+     * **This is why the mechanism is a header.** A JSON document is indexable —
+     * search engines index JSON, and an archive certainly does — and it holds
+     * the citizen's own words. There is no element to put a rule in, so the rule
+     * travels in a header, and the HTML page's `<meta>` is the redundant copy
+     * rather than the other way round.
+     *
+     * **Absent when the citizen has opted in**, because *index this* is the
+     * web's default and a directive saying so is a directive to keep in step
+     * with for no gain. The lookup is a second read of one indexed row; `#828`
+     * is where that is measured rather than assumed.
+     */
+    const robots = robotsDirective(await citizens.indexing(request.params.name))
+    if (robots !== undefined) void reply.header(ROBOTS_HEADER, robots)
 
     /**
      * A minute of cache, and it is short on purpose. This record changes when

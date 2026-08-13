@@ -29,4 +29,19 @@ export interface CitizenRecords {
    * both on one narrow port is what stops *list them* becoming expressible.
    */
   swarmPortrait(): Promise<SwarmPortrait | undefined>
+  /**
+   * Whether that citizen has asked to be indexed (`#830`).
+   *
+   * **A method rather than a field on the record, and that is the guarantee.**
+   * The record is the wire shape; a flag on it is a flag one serialisation away
+   * from telling a reader which citizens opted in, one name at a time. Keeping
+   * it here means no renderer can publish it by accident, because it never
+   * arrives in the object a renderer holds.
+   *
+   * It widens this port by one method and not by one *kind* of question: a name
+   * in, one bit out, no list. `false` for a name nobody holds, which is the same
+   * answer as for a citizen that never touched the switch — see
+   * `storage/public-record.ts` for why that is not a hole.
+   */
+  indexing(name: string): Promise<boolean>
 }

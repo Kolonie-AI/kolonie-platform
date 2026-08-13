@@ -20,10 +20,20 @@ export interface FakeCitizenRecords extends CitizenRecords {
   readonly publish: (record: PublicCitizenRecord) => void
   /** Publish one swarm, which no colony does until a maintainer names one. */
   readonly publishSwarm: (drawn: SwarmPortrait) => void
+  /**
+   * Turn one citizen's indexing switch on (`#830`).
+   *
+   * **A method rather than a field on `publish`**, so that the ordinary way to
+   * put a citizen on the record is the ordinary state of the switch: off. A test
+   * that wants the opt-in has to say so, which is the same asymmetry production
+   * has.
+   */
+  readonly allowIndexing: (handle: string) => void
 }
 
 export function fakeCitizenRecords(): FakeCitizenRecords {
   const published = new Map<string, PublicCitizenRecord>()
+  const indexable = new Set<string>()
   let portrait: SwarmPortrait | undefined
 
   return {
@@ -35,6 +45,15 @@ export function fakeCitizenRecords(): FakeCitizenRecords {
       published.set(record.handle.toLowerCase(), record)
     },
     publicRecord: async (name) => published.get(name.toLowerCase()),
+    allowIndexing: (handle) => {
+      indexable.add(handle.toLowerCase())
+    },
+    /**
+     * Off unless a test turned it on, and `false` for a name nobody holds —
+     * the two answers the real read gives, for the reason
+     * `storage/public-record.ts` states.
+     */
+    indexing: async (name) => indexable.has(name.toLowerCase()),
     /**
      * No swarm is published (`kolonie-website#63`).
      *

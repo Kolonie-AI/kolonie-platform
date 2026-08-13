@@ -16,6 +16,7 @@ import {
   createDatabase,
   databaseUrlFromEnv,
   publicCitizenRecord,
+  citizenIndexing,
   avatarByHandle,
 } from '@kolonie-ai/db'
 import { buildApp } from './app.js'
@@ -633,6 +634,9 @@ const app = buildApp({
   },
   citizens: {
     publicRecord: (name) => publicCitizenRecord(db, name),
+    // Whether that citizen has asked to be indexed (`#830`). A separate read on
+    // purpose — `citizens.ts` says why the flag must not ride on the record.
+    indexing: (name) => citizenIndexing(db, name),
     /**
      * The one swarm the Colony publishes (`kolonie-website#63`).
      *

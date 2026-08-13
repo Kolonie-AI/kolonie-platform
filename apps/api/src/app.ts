@@ -42,6 +42,7 @@ import { registerProviderEnquiryRoute } from './routes/provider-enquiries.js'
 import { registerConsoleRoutes } from './routes/console.js'
 import { registerAtlasPages } from './routes/atlas-pages.js'
 import { registerAvatarRoutes } from './routes/avatars.js'
+import { registerProfilePages } from './routes/profile-pages.js'
 import type { AvatarDesk } from './avatars.js'
 import { registerEmailRoutes } from './routes/email.js'
 import { registerSmsRoutes } from './routes/sms.js'
@@ -387,6 +388,9 @@ export function buildApp({
    */
   const citizenRecords: CitizenRecords = citizens ?? {
     publicRecord: async () => undefined,
+    // Nobody has opted in, which is what a colony with no citizens answers and
+    // also the answer for every citizen that has not touched the switch (`#830`).
+    indexing: async () => false,
     // And no swarm is published, which is the default in production too
     // (`kolonie-website#63`): a portrait needs a maintainer to name one.
     swarmPortrait: async () => undefined,
@@ -538,6 +542,11 @@ export function buildApp({
   // beside the console's pages because it is the same arrangement pointed at a
   // different host, and it cannot collide with them for the same reason.
   registerAtlasPages(app, routes)
+  // A citizen's own page, on the same host as the Atlas and by the same
+  // arrangement (`#819`). After the Atlas because it reads as the next public
+  // page and not because anything matches in order: `/@:handle` and `/atlas/*`
+  // share no prefix.
+  registerProfilePages(app, routes)
   // On the app rather than under `/v1`: a public image is not a version-pinned
   // API surface, which is the argument D-062 already makes about a public page.
   registerAvatarRoutes(app, routes)

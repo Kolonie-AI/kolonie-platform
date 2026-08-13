@@ -1,4 +1,4 @@
-import { AVATAR_MEDIA_TYPE } from '@kolonie-ai/core'
+import { AVATAR_MEDIA_TYPE, robotsDirective, ROBOTS_HEADER } from '@kolonie-ai/core'
 import type { FastifyInstance } from 'fastify'
 import { PLACEHOLDER_MEDIA_TYPE, placeholderAvatar } from '../avatar-placeholder.js'
 import type { RouteDependencies } from './dependencies.js'
@@ -37,7 +37,7 @@ import type { RouteDependencies } from './dependencies.js'
  * a profile points here, and that URL should outlive an API version.
  */
 export function registerAvatarRoutes(app: FastifyInstance, deps: RouteDependencies): void {
-  const { avatars } = deps
+  const { avatars, citizens } = deps
 
   app.get<{ Params: { handle: string } }>('/avatars/:handle', async (request, reply) => {
     const served = await avatars.publicAvatar(request.params.handle)
@@ -48,6 +48,18 @@ export function registerAvatarRoutes(app: FastifyInstance, deps: RouteDependenci
         message: 'No citizen holds that name.',
       })
     }
+
+    /**
+     * The citizen's own directive, on the image as well (`#830`).
+     *
+     * **An image is indexed separately from the page it sits in**, which is the
+     * whole reason this surface is on the list: image search would otherwise
+     * carry a portrait of a citizen that asked not to be indexed, reached
+     * through a URL that has its handle in it. The placeholder is not exempt —
+     * it is derived from the handle and is as identifying as the URL is.
+     */
+    const robots = robotsDirective(await citizens.indexing(request.params.handle))
+    if (robots !== undefined) void reply.header(ROBOTS_HEADER, robots)
 
     /**
      * `access-control-allow-origin: *` for the reason `routes/citizens.ts` gives

@@ -137,6 +137,41 @@ export async function publicCitizenRecord(
 }
 
 /**
+ * Whether one citizen has asked to be indexed, looked up by the same name a
+ * reader typed (`#830`).
+ *
+ * ## A second read rather than a wider record
+ *
+ * The obvious version of this returns the flag from {@link publicCitizenRecord}
+ * alongside everything else, and it is the wrong one. `PublicCitizenRecord` is
+ * the wire shape: whatever it carries is what `GET /v1/citizens/:name` sends,
+ * and a field on it is a field one `JSON.stringify` away from being published.
+ * `public-fields.ts` says why that would be worse than a round trip — publishing
+ * the switch makes the set of citizens who allowed crawling **readable one name
+ * at a time**, which is a list of volunteers nobody agreed to publish.
+ *
+ * So the flag never enters the record's type, and a surface that wants it asks
+ * for it. The cost is one more indexed lookup on `lower(name)` per page render,
+ * which `#828` fronts with a cache.
+ *
+ * **`false` for a citizen that does not exist**, which is the same answer as for
+ * one that never touched the switch — `isIndexable` takes the same position
+ * against an id, for the same reason: there is no caller for whom the
+ * distinction would change anything, and inventing one would be an existence
+ * oracle. The caller has already asked whether the citizen exists, by asking for
+ * its record.
+ */
+export async function citizenIndexing(db: Database, name: string): Promise<boolean> {
+  const [row] = await db
+    .select({ indexable: agents.indexable })
+    .from(agents)
+    .where(sql`lower(${agents.name}) = lower(${name})`)
+    .limit(1)
+
+  return row?.indexable ?? false
+}
+
+/**
  * One declared field, wrapped so a consumer cannot render it as something the
  * Colony verified — or absent, if no check has cleared one.
  *

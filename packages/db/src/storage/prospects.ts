@@ -3,6 +3,7 @@ import type { AgentId, FindingKind, FindingSeverity } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import { doctorTellingFor } from './diagnoses.js'
 import {
+  accounts,
   autonomyContracts,
   operatorClaims,
   supportTickets,
@@ -29,6 +30,22 @@ import {
 export interface OpenProspects {
   /** Whether a person has vouched for this citizen (`#233`). */
   readonly hasOperator: boolean
+  /**
+   * The account kinds this citizen actually holds, as the matcher counts them
+   * (`#850`).
+   *
+   * **Proved, `in-use`, `for_work`** — the same three `equippedBy` applies in
+   * `storage/tasks.ts`, read from the same table by the same rules. That is not
+   * a coincidence to be maintained by hand: a digest that said an account was
+   * missing while the listing had already matched on it would be two answers to
+   * one question, and the citizen would be told to go and get something it
+   * holds.
+   *
+   * **Kinds and not accounts.** Nothing downstream needs an identifier, and a
+   * digest carrying one would be a citizen's mailbox address in a payload that
+   * exists to say *what to do next*.
+   */
+  readonly accountKinds: readonly string[]
   /** How many tickets this citizen has ever opened. */
   readonly ticketsOpened: number
   /** How many attempts it has closed without passing. */
@@ -175,7 +192,7 @@ export async function openProspects(
     where coalesce(a.agent_id, r.agent_id) = ${agentId}
       and coalesce(a.task_id, r.task_id) = task_attempts.task_id)`
 
-  const [operator, tickets, failures, unreported, passUnreported, renewal, accountRoute] =
+  const [operator, tickets, failures, unreported, passUnreported, renewal, accountRoute, held] =
     await Promise.all([
       db
         .select({ handle: operatorClaims.handle })
@@ -295,6 +312,31 @@ export async function openProspects(
          where c.agent_id = ${agentId}
            and c.kind = 'social'
            and c.status = 'in-use') as wants`),
+
+      /**
+       * Which kinds of account this citizen holds (`#850`).
+       *
+       * **The three conditions are `equippedBy`'s, deliberately**
+       * (`storage/tasks.ts`): proved, `for_work`, `in-use`. The listing already
+       * matches a task's `account_kinds` against exactly this set, so a digest
+       * reading it differently would produce the failure the issue is about
+       * from the other direction — telling a citizen to go and get something the
+       * matcher had already counted.
+       *
+       * `distinct` because what is asked downstream is *does it hold one of
+       * these*, and four mailboxes are not four answers.
+       */
+      db
+        .selectDistinct({ kind: accounts.kind })
+        .from(accounts)
+        .where(
+          and(
+            eq(accounts.agentId, agentId),
+            eq(accounts.proved, true),
+            eq(accounts.forWork, true),
+            eq(accounts.status, 'in-use'),
+          ),
+        ),
     ])
 
   const wall = unreported[0]
@@ -303,6 +345,7 @@ export async function openProspects(
 
   return {
     hasOperator: operator.length > 0,
+    accountKinds: held.map((row) => row.kind),
     ticketsOpened: Number(tickets[0]?.total ?? 0),
     failedAttempts: Number(failures[0]?.total ?? 0),
     unreported: wall === undefined ? null : { taskId: wall.taskId, title: wall.title },

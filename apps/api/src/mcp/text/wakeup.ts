@@ -565,6 +565,21 @@ function forwardBlock(digest: WakeupResponse): readonly Block[] {
           `    why: ${entry.why}`,
           `    gets: ${entry.gets}`,
           `    needs: ${entry.needs}`,
+          /**
+           * The structured answer, rendered **only when it is not `ready`**
+           * (`#850`).
+           *
+           * A line saying `feasibility: ready` on four entries out of five is a
+           * line a reader learns to skip, and the fifth is then the one it skips
+           * too. Absence is the ordinary case and the marker is the exception,
+           * which is the same argument `robotsDirective` makes about emitting an
+           * explicit `index`.
+           *
+           * `needs` above already says the same thing in prose. This is the
+           * half an agent can branch on without parsing English, which is what
+           * the citizen asked for.
+           */
+          ...(entry.feasibility === 'ready' ? [] : [`    feasibility: ${entry.feasibility}`]),
           `    ${entry.repeatable ? 'you can do this more than once now' : 'once'}`,
           /**
            * The procedure, on the rare entry that carries one (`#414`).

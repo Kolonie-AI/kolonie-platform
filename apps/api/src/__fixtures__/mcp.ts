@@ -141,6 +141,7 @@ export const anonymousClient = (registry = fakeRegistry()) =>
      */
     prospects: async () => ({
       hasOperator: true,
+      accountKinds: [],
       ticketsOpened: 0,
       failedAttempts: 0,
       unreported: null,

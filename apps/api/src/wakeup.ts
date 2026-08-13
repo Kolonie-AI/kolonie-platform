@@ -475,6 +475,13 @@ export async function wakeup(
     .filter((quest) => quest.transition === 'awaiting_payment')
     .map((quest) => ({
       what: `Pay the invoice for ${quest.title}`,
+      /**
+       * `ready` because it is (`#850`). The lamports are named in `needs` and
+       * paying them is the citizen's own act with nothing standing in front of
+       * it — the wallet is already verified, or the quest would not have
+       * reached review.
+       */
+      feasibility: 'ready' as const,
       call: `kolonie.quests.read with questId: ${quest.taskId}`,
       why:
         'the quest cleared review and stays invisible until its invoice is paid' +

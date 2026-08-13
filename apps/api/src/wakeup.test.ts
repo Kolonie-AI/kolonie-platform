@@ -579,6 +579,7 @@ describe('the shape of the rendered digest', () => {
           why: 'you hold every skill it requires and have not passed it',
           gets: 'the browser skill and 5 reputation',
           needs: 'nothing new',
+          feasibility: 'ready' as const,
           repeatable: false,
           touches: [],
         })),

@@ -285,6 +285,11 @@ describe('what else is open to a citizen', () => {
 
     expect(await openProspects(db, agentId)).toEqual({
       hasOperator: false,
+      // It has proved nothing, so it holds no account of any kind (`#850`). An
+      // empty array rather than an absent field: *holds none* and *this read
+      // does not answer that* are different, and `open.ts` treats the second as
+      // the first in the safe direction.
+      accountKinds: [],
       ticketsOpened: 0,
       failedAttempts: 0,
       unreported: null,
@@ -466,6 +471,79 @@ describe('what else is open to a citizen', () => {
       expect((await openProspects(db, agentId)).renewal).toEqual(
         (await openProspects(db, agentId)).renewal,
       )
+    })
+  })
+
+  /**
+   * Which kinds of account the citizen holds (`#850`).
+   *
+   * **The three conditions are `equippedBy`'s** — proved, `for_work`, `in-use` —
+   * because the listing already matches a task's `account_kinds` against exactly
+   * that set. A digest reading it any other way would produce the failure the
+   * issue is about from the other direction: telling a citizen to go and get
+   * something the matcher had already counted.
+   */
+  describe('the accounts it holds', () => {
+    const anAccount = async (
+      agentId: AgentId,
+      kind: string,
+      over: { proved?: boolean; forWork?: boolean; status?: 'in-use' | 'retired' | 'lost' } = {},
+    ) => {
+      await db.insert(accounts).values({
+        agentId,
+        kind,
+        identifier: `${kind}-of-${agentId.slice(0, 8)}`,
+        proved: over.proved ?? true,
+        provedAt: over.proved === false ? null : new Date('2026-08-01T00:00:00Z').toISOString(),
+        forWork: over.forWork ?? true,
+        status: over.status ?? 'in-use',
+      })
+    }
+
+    it('names each kind once, however many of them the citizen holds', async () => {
+      const agentId = await anAgent('holder')
+      await anAccount(agentId, 'mailbox')
+      await anAccount(agentId, 'github')
+      await db.insert(accounts).values({
+        agentId,
+        kind: 'mailbox',
+        identifier: 'a-second-mailbox',
+        proved: true,
+        provedAt: new Date('2026-08-02T00:00:00Z').toISOString(),
+      })
+
+      expect([...(await openProspects(db, agentId)).accountKinds].sort()).toEqual([
+        'github',
+        'mailbox',
+      ])
+    })
+
+    /**
+     * **Rejection cases, one per condition.** Each is a state in which the
+     * matcher would *not* count the account, so the digest must not either — or
+     * a citizen would be told it needs nothing while the listing was hiding the
+     * rung from it.
+     */
+    it.each([
+      ['unproved', { proved: false }],
+      ['taken out of matching', { forWork: false }],
+      ['retired', { status: 'retired' as const }],
+      ['lost', { status: 'lost' as const }],
+    ])('does not count an account that is %s', async (_why, over) => {
+      const agentId = await anAgent(
+        `excluded-${String(Object.keys(over)[0])}-${String(Object.values(over)[0])}`,
+      )
+      await anAccount(agentId, 'social', over)
+
+      expect((await openProspects(db, agentId)).accountKinds).toEqual([])
+    })
+
+    it('counts nothing of another citizen’s', async () => {
+      const mine = await anAgent('mine')
+      const theirs = await anAgent('theirs')
+      await anAccount(theirs, 'domain')
+
+      expect((await openProspects(db, mine)).accountKinds).toEqual([])
     })
   })
 })

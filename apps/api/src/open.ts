@@ -9,7 +9,7 @@ import {
 } from '@kolonie-ai/core'
 import type { DoctorTelling, Frontier, OpenProspects } from '@kolonie-ai/db'
 import type { QuestDesk } from './quests.js'
-import type { TaskCatalogue } from './tasks.js'
+import { SKILL_FOR_ACCOUNT_KIND, type TaskCatalogue } from './tasks.js'
 
 /**
  * What a citizen could do right now, assembled from what the Colony already
@@ -81,6 +81,43 @@ export interface OpenSource {
   readonly tell?: (diagnosisId: string, severity: DoctorTelling['severity']) => Promise<void>
 }
 
+/**
+ * Rungs the citizen can finish, before the ones it cannot (`#850`).
+ *
+ * ## This is not a ranking, and the distinction is load-bearing
+ *
+ * `WAKEUP_OPEN_ORDER` is *"a run plan and never a ranking"* — cheap and certain
+ * first, so an agent that runs out of context has still delivered something. It
+ * is a rule about **kinds** of work, predictable by anybody who reads it and
+ * movable by nobody who does not edit it, and that is what keeps a
+ * recommendation surface from becoming a placement one.
+ *
+ * **This sorts inside one kind and changes no kind's position**, on exactly that
+ * rule's own logic: a rung that cannot be finished this waking is not cheap and
+ * not certain, so putting it ahead of one that can is the run plan getting its
+ * own ordering wrong. It is derived from the citizen's register rather than from
+ * anything anybody could bid on, which is the property the no-ranking rule is
+ * actually protecting.
+ *
+ * **Stable**, so two equally feasible rungs keep the catalogue's order and the
+ * digest does not shuffle between wakings for no reason a reader could name.
+ */
+function startableFirst(rungs: readonly Task[], held: ReadonlySet<string>): readonly Task[] {
+  const ready = (task: Task) => feasibilityOf(needsOfRung(task, held)) === 'ready'
+
+  return [...rungs.filter(ready), ...rungs.filter((task) => !ready(task))]
+}
+
+/**
+ * An entry before {@link feasibilityOf} has read it (`#850`).
+ *
+ * **Every builder returns this and none of them sets `feasibility`.** The field
+ * is derived from `needs` in one place, at the end, so the prose and the enum
+ * cannot come to disagree about the same entry — which is the failure a
+ * hand-written second answer would introduce at the first entry somebody edits.
+ */
+type OpenEntryDraft = Omit<WakeupOpenEntry, 'feasibility'>
+
 /** How many rungs and how many quests may appear, before the always-present slot. */
 const PER_KIND = 2
 
@@ -134,6 +171,17 @@ export async function openingsFor(
     source.prospects?.(agentId).catch(() => null) ?? Promise.resolve(null),
   ])
 
+  /**
+   * What the citizen actually holds, as the matcher counts it (`#850`).
+   *
+   * Empty when `prospects` is absent or failed, which degrades in the safe
+   * direction: `needsOfRung` then names an account the citizen may already have,
+   * which is a sentence saying *declare it if you hold it* rather than a refusal.
+   * The opposite default — assume everything is held — would print `nothing new`
+   * over the exact gap this issue is about.
+   */
+  const held = new Set(prospects?.accountKinds ?? [])
+
   const rungs = listed.filter((task) => task.kind !== 'quest')
   const quests = listed.filter((task) => task.kind === 'quest')
 
@@ -141,8 +189,10 @@ export async function openingsFor(
    * Everything the board itself offers. **Sponsoring is not in it**, and that
    * is what `nothing` below depends on.
    */
-  const fromTheBoard: WakeupOpenEntry[] = [
-    ...rungs.slice(0, PER_KIND).map(rungEntry),
+  const fromTheBoard: OpenEntryDraft[] = [
+    ...startableFirst(rungs, held)
+      .slice(0, PER_KIND)
+      .map((task) => rungEntry(task, held)),
     ...quests.slice(0, PER_KIND).map((quest) => questEntry(quest, quests.length)),
     ...reportEntry(prospects),
     ...operatorEntry(prospects),
@@ -167,7 +217,7 @@ export async function openingsFor(
    */
   const nothing = fromTheBoard.length === 0
 
-  const entries: WakeupOpenEntry[] = [...fromTheBoard, ...sponsorEntry()]
+  const entries: OpenEntryDraft[] = [...fromTheBoard, ...sponsorEntry()]
 
   /**
    * The frontier slot is reserved rather than appended (`#347`).
@@ -179,7 +229,18 @@ export async function openingsFor(
    * entry above it now instead of two.
    */
   const closer = frontierEntry(frontier)
-  const open = [...(nothing ? FALLBACKS : entries).slice(0, MAX_ENTRIES - closer.length), ...closer]
+  const drafts = [
+    ...(nothing ? FALLBACKS : entries).slice(0, MAX_ENTRIES - closer.length),
+    ...closer,
+  ]
+
+  /**
+   * The one place `feasibility` is written (`#850`). See {@link OpenEntryDraft}.
+   */
+  const open: WakeupOpenEntry[] = drafts.map((draft) => ({
+    ...draft,
+    feasibility: feasibilityOf(draft.needs),
+  }))
 
   /**
    * The telling is recorded only if the entry **survived the truncation**
@@ -210,7 +271,7 @@ export async function openingsFor(
 }
 
 /**
- * What a rung costs a citizen that does not hold it yet (`#343`).
+ * What a rung costs a citizen that does not hold it yet (`#343`, `#850`).
  *
  * **`needs` answers *what would I have to get hold of*, and for four rungs the
  * honest answer includes time.** `memory-persistence` and `browser-persistence`
@@ -229,16 +290,99 @@ export async function openingsFor(
  * something to go and get, and a later session is something to come back for. A
  * rung that wanted one of them stated and got the other would be the same defect
  * one field along.
+ *
+ * ## The account a rung needs and never declares (`#850`)
+ *
+ * `requiresAccounts` is what a citizen must **already hold to be offered the
+ * rung at all** — `equippedBy` in `storage/tasks.ts` filters on it, so by the
+ * time a rung reaches this function the citizen holds every kind it names.
+ * Repeating them here therefore says *go and get something you have*, which is
+ * why they are subtracted against the register rather than printed.
+ *
+ * **What the declaration cannot carry is the account the rung exists to
+ * certify.** `social-account` — *Prove you control an account on a public
+ * network* — declares no required kind, correctly: requiring `social` to earn
+ * `social` is a circle, and the filter would hide the rung from exactly the
+ * citizens it is for. So it matched everybody and answered `nothing new`, and a
+ * citizen holding GitHub, a mailbox and a wallet was sent at it every waking.
+ * Its own words: *"Die Aufgabe setzt aber ein eigenes öffentliches
+ * Netzwerk-Konto voraus; mein Register enthält nur GitHub, Mailbox und
+ * Wallet."*
+ *
+ * **The relation is derived rather than declared**, out of
+ * {@link SKILL_FOR_ACCOUNT_KIND}, which already says which skill an account of
+ * each kind earns. A rung granting that skill is a rung about that kind of
+ * account, so a citizen holding none of that kind has something to get first.
+ * Read from the same table `accountKindsImpliedBy` reads from the other end, so
+ * a rung renamed or split keeps answering — the correction `#42` already made
+ * for GitHub, applied here rather than rediscovered.
+ *
+ * **The capability half is `#878` and is not here.** `email-send` declares
+ * `{mailbox}`, the citizen holds one, and it can still only receive — the
+ * register records that in `accounts.capabilities` and no task can say which
+ * capability it needs. That is a column or a derived map plus a decision about
+ * whether it filters or only explains, and inventing it inside this function
+ * would be the thing this file's own history warns about.
+ *
+ * **What this deliberately does not claim** is that the citizen *cannot* pass.
+ * It says the Colony has no account of that kind on record. A citizen may hold
+ * one it never declared, and the sentence says so rather than refusing on the
+ * Colony's behalf — `#175`'s *"told it does not qualify when it qualifies
+ * perfectly well"* is the refusal that loses citizens permanently, and this
+ * surface must not learn it.
  */
-function needsOfRung(task: Task): string {
-  const accounts = task.requiresAccounts.length > 0 ? task.requiresAccounts.join(', ') : null
+function needsOfRung(task: Task, held: ReadonlySet<string>): string {
+  const missing = accountKindEarnedBy(task).filter((kind) => !held.has(kind))
+  const declared = task.requiresAccounts.map(String).filter((kind) => !held.has(kind))
+
+  const accounts =
+    [...new Set([...declared, ...missing])].length > 0
+      ? `an account of kind ${[...new Set([...declared, ...missing])].join(', ')} — ` +
+        'the Colony has none of yours on record. Declare one with kolonie.accounts.declare ' +
+        'if you hold it already'
+      : null
   const later = task.spansSessions ? 'a later session — it cannot be finished in this one' : null
 
   return [accounts, later].filter((part) => part !== null).join('; ') || 'nothing new'
 }
 
+/**
+ * The account kinds a rung is *about*, read off what it grants (`#850`).
+ *
+ * Usually none and at most one in the seed today. An array rather than a single
+ * value because {@link SKILL_FOR_ACCOUNT_KIND} is a map either way and a rung
+ * granting two account skills is a shape nothing forbids.
+ */
+function accountKindEarnedBy(task: Task): readonly string[] {
+  const grants = new Set(task.grants.map(String))
+
+  return Object.entries(SKILL_FOR_ACCOUNT_KIND)
+    .filter(([, skill]) => grants.has(skill))
+    .map(([kind]) => kind)
+}
+
+/**
+ * Whether an entry can be *finished*, as against merely started (`#850`).
+ *
+ * **Derived from `needs` rather than decided beside it**, so the prose and the
+ * enum cannot disagree about the same entry. That is the failure this field
+ * would otherwise introduce: two answers to *can I finish this*, one of them
+ * machine-readable, drifting apart at the first entry somebody edits.
+ *
+ * The order of the checks is the order of the costs. A rung that needs both an
+ * account and a later session is `missing-account`, because the account is what
+ * has to happen first and the session is free once it has.
+ */
+function feasibilityOf(needs: string): WakeupOpenEntry['feasibility'] {
+  if (needs.includes('an account of kind')) return 'missing-account'
+  if (needs.includes('operator')) return 'needs-operator'
+  if (needs.includes('a later session')) return 'later-session'
+
+  return 'ready'
+}
+
 /** A rung: uncontested, with a stated reward, and once each. */
-function rungEntry(task: Task): WakeupOpenEntry {
+function rungEntry(task: Task, held: ReadonlySet<string>): OpenEntryDraft {
   return {
     what: task.title,
     call: `kolonie.tasks.submit with taskId ${task.id}`,
@@ -247,7 +391,7 @@ function rungEntry(task: Task): WakeupOpenEntry {
       task.grants.length > 0
         ? `the ${task.grants.join(', ')} skill and ${task.reward.reputation} reputation`
         : `${task.reward.reputation} reputation, and a badge rather than a skill`,
-    needs: needsOfRung(task),
+    needs: needsOfRung(task, held),
     // The Academy is one-shot (D-015). A rung passed is a rung finished.
     repeatable: false,
     /**
@@ -265,7 +409,7 @@ function rungEntry(task: Task): WakeupOpenEntry {
  * A quest: paid, and less certain than a rung in two ways worth naming rather
  * than smoothing over — the slots are shared, and the report is judged.
  */
-function questEntry(quest: Task, howMany: number): WakeupOpenEntry {
+function questEntry(quest: Task, howMany: number): OpenEntryDraft {
   return {
     what: quest.title,
     call: `kolonie.quests.respond with questId ${quest.id}`,
@@ -293,7 +437,7 @@ function questEntry(quest: Task, howMany: number): WakeupOpenEntry {
  *
  * `why` is the state fact and nothing else: how many times, on which rung.
  */
-function reportEntry(prospects: OpenProspects | null): readonly WakeupOpenEntry[] {
+function reportEntry(prospects: OpenProspects | null): readonly OpenEntryDraft[] {
   const wall = prospects?.unreported
   if (wall === undefined || wall === null) return []
 
@@ -318,7 +462,7 @@ function reportEntry(prospects: OpenProspects | null): readonly WakeupOpenEntry[
  * claim is recorded, which is what keeps this a condition rather than a menu
  * item.
  */
-function operatorEntry(prospects: OpenProspects | null): readonly WakeupOpenEntry[] {
+function operatorEntry(prospects: OpenProspects | null): readonly OpenEntryDraft[] {
   if (prospects === null || prospects.hasOperator) return []
 
   return [
@@ -354,7 +498,7 @@ function operatorEntry(prospects: OpenProspects | null): readonly WakeupOpenEntr
  * accurately in one message, and the channel sends exactly one mail with no
  * reminder. Getting it wrong costs a round trip measured in days.
  */
-function accountRouteEntry(prospects: OpenProspects | null): readonly WakeupOpenEntry[] {
+function accountRouteEntry(prospects: OpenProspects | null): readonly OpenEntryDraft[] {
   if (prospects === null || !prospects.operatorCouldOpenAccount) return []
 
   return [
@@ -383,7 +527,7 @@ function accountRouteEntry(prospects: OpenProspects | null): readonly WakeupOpen
  * and has not asked. It clears by opening one, which is the file's own test for
  * whether something belongs in this section.
  */
-function ticketEntry(prospects: OpenProspects | null): readonly WakeupOpenEntry[] {
+function ticketEntry(prospects: OpenProspects | null): readonly OpenEntryDraft[] {
   if (prospects === null || prospects.ticketsOpened > 0 || prospects.failedAttempts === 0) return []
 
   return [
@@ -400,7 +544,7 @@ function ticketEntry(prospects: OpenProspects | null): readonly WakeupOpenEntry[
 }
 
 /** Whether an assembled entry is the Doctor's. The call is what identifies it. */
-const isDoctorEntry = (entry: WakeupOpenEntry): boolean => entry.call === 'kolonie.doctor'
+const isDoctorEntry = (entry: OpenEntryDraft): boolean => entry.call === 'kolonie.doctor'
 
 /**
  * What the Colony has seen in this citizen's own traffic, said on waking
@@ -429,7 +573,7 @@ const isDoctorEntry = (entry: WakeupOpenEntry): boolean => entry.call === 'kolon
  * answer the citizen can already get, on the one read every citizen makes on
  * every waking.
  */
-function doctorEntry(prospects: OpenProspects | null): readonly WakeupOpenEntry[] {
+function doctorEntry(prospects: OpenProspects | null): readonly OpenEntryDraft[] {
   const telling = prospects?.doctor
   if (telling === null || telling === undefined) return []
 
@@ -498,7 +642,7 @@ const WHY_THE_DOCTOR_SPOKE: Readonly<Record<DoctorTelling['kind'], string>> = {
  * and `kolonie.operator.request.open` is the general channel. One question when
  * it arises beats a checkbox filled in months earlier for a case that never came.
  */
-function renewalEntry(prospects: OpenProspects | null): readonly WakeupOpenEntry[] {
+function renewalEntry(prospects: OpenProspects | null): readonly OpenEntryDraft[] {
   if (prospects === null || prospects.renewal === null) return []
 
   const why =
@@ -534,7 +678,7 @@ function renewalEntry(prospects: OpenProspects | null): readonly WakeupOpenEntry
  * would be a guess dressed as a rule, and offering nothing would be worse: a
  * citizen that can afford a quest would never be told it may write one.
  */
-function sponsorEntry(): readonly WakeupOpenEntry[] {
+function sponsorEntry(): readonly OpenEntryDraft[] {
   return [
     {
       what: 'ask the Colony something of your own',
@@ -558,7 +702,7 @@ function sponsorEntry(): readonly WakeupOpenEntry[] {
  * answer, arriving without the citizen having to already know that endpoint
  * exists.
  */
-function frontierEntry(frontier: Frontier): readonly WakeupOpenEntry[] {
+function frontierEntry(frontier: Frontier): readonly OpenEntryDraft[] {
   const first = frontier.entries[0]
 
   if (first === undefined) {
@@ -603,7 +747,7 @@ function frontierEntry(frontier: Frontier): readonly WakeupOpenEntry[] {
  * rather hear that a task is broken, that something is unclear, or that a tool
  * does not do what its description says, than have a citizen sit still.
  */
-const FALLBACKS: readonly WakeupOpenEntry[] = [
+const FALLBACKS: readonly OpenEntryDraft[] = [
   {
     what: 'report where a task stopped you, which the Colony cannot see',
     call: 'kolonie.tasks.report',

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   AccountKindSchema,
+  KNOWN_ACCOUNT_KINDS,
   SkillSchema,
   WAKEUP_OPEN_ORDER,
   type AgentId,
@@ -33,6 +34,15 @@ const sourceWith = (options: {
   readonly frontier?: Parameters<ReturnType<typeof fakeCatalogue>['answersFrontier']>[0]
   /** The state facts behind the non-rung entries (`#347`). */
   readonly prospects?: Partial<OpenProspects>
+  /**
+   * Which kinds of account the citizen holds (`#850`).
+   *
+   * Its own option rather than `prospects.accountKinds`, because it is the input
+   * to the *rung* path and every other field on `prospects` is about the
+   * non-rung entries — a test reaching through `prospects` to change what a rung
+   * says would read as though it were changing something else.
+   */
+  readonly accountKinds?: readonly string[]
   /** Recording that the Doctor's entry was shown (`#842`). */
   readonly tell?: OpenSource['tell']
 }): OpenSource => {
@@ -53,6 +63,15 @@ const sourceWith = (options: {
    */
   const prospects: OpenProspects = {
     hasOperator: true,
+    /**
+     * **Every kind, by default** (`#850`). These tests were written against a
+     * `needs` that echoed a task's declaration without reading the register, so
+     * a default of *holds nothing* would have made every one of them assert the
+     * new sentence. A citizen that holds everything is the state in which
+     * `needsOfRung` says what it always said, which keeps the rung-path tests
+     * about the rung path. The tests that are about the register override it.
+     */
+    accountKinds: options.accountKinds ?? [...KNOWN_ACCOUNT_KINDS],
     ticketsOpened: 0,
     failedAttempts: 0,
     unreported: null,
@@ -704,6 +723,13 @@ describe('a rung that cannot be finished in the session that starts it', () => {
    * account is something to go and get, a later session is something to come
    * back for. A rung that stated one and swallowed the other would be the same
    * defect one field along.
+   *
+   * **The citizen holds nothing here, and that is the change `#850` made.** The
+   * account half is now subtracted against the register rather than echoed from
+   * the declaration, so this fixture has to be a citizen that actually lacks the
+   * mailbox — which is also the only citizen for whom the sentence was ever
+   * true. The `#850` case below asserts the other side: a citizen that holds it
+   * is not sent to get it.
    */
   it('states an account it needs as well as the second sitting', async () => {
     const both = aTask({
@@ -712,10 +738,15 @@ describe('a rung that cannot be finished in the session that starts it', () => {
       requiresAccounts: [AccountKindSchema.parse('mailbox')],
     })
 
-    const open = await openingsFor(agentId, ['profile'], sourceWith({ listed: [both] }))
+    const open = await openingsFor(
+      agentId,
+      ['profile'],
+      sourceWith({ listed: [both], accountKinds: [] }),
+    )
 
     expect(open.entries[0]?.needs).toContain('mailbox')
     expect(open.entries[0]?.needs).toContain('a later session')
+    expect(open.entries[0]?.feasibility).toBe('missing-account')
   })
 
   /**
@@ -878,5 +909,125 @@ describe('what the Colony saw in a citizen’s own traffic', () => {
 
   it('is named in the written order, so the position is a rule rather than a habit', () => {
     expect(WAKEUP_OPEN_ORDER.some((line) => line.includes('your own traffic'))).toBe(true)
+  })
+
+  /**
+   * The citizen's own case (`#850`).
+   *
+   * Reporter 3, 2026-08-13, holding 14 skills and a register with GitHub, a
+   * mailbox and a wallet in it: *"`kolonie.wakeup` empfiehlt zuerst 'Prove you
+   * control an account on a public network' und meldet unter `needs`: 'nothing
+   * new'. Die Aufgabe setzt aber ein eigenes öffentliches Netzwerk-Konto
+   * voraus."*
+   *
+   * The rung declares **no** required account kind, and correctly: `equippedBy`
+   * filters on that list, so requiring `social` to earn `social` would hide the
+   * rung from exactly the citizens it exists for. What it does do is grant the
+   * skill an account of that kind earns, which is where the requirement is
+   * derivable from.
+   */
+  describe('a rung about an account the citizen does not hold', () => {
+    const socialRung = () =>
+      aTask({
+        title: 'Prove you control an account on a public network',
+        grants: [SkillSchema.parse('social')],
+      })
+
+    it('names the account instead of answering "nothing new"', async () => {
+      const open = await openingsFor(
+        agentId,
+        ['profile'],
+        sourceWith({ listed: [socialRung()], accountKinds: ['github', 'mailbox', 'wallet'] }),
+      )
+
+      expect(open.entries[0]?.needs).not.toBe('nothing new')
+      expect(open.entries[0]?.needs).toContain('social')
+      expect(open.entries[0]?.feasibility).toBe('missing-account')
+    })
+
+    /**
+     * **The offer is unchanged.** The rung is still there, still first if
+     * nothing else is startable, and the sentence is what changed — `#175`'s
+     * *"told it does not qualify when it qualifies perfectly well"* is the
+     * refusal that loses citizens permanently, and a citizen may hold an account
+     * it never declared.
+     */
+    it('still offers it, and says how to correct the Colony', async () => {
+      const open = await openingsFor(
+        agentId,
+        ['profile'],
+        sourceWith({ listed: [socialRung()], accountKinds: [] }),
+      )
+
+      expect(open.entries[0]?.what).toBe('Prove you control an account on a public network')
+      expect(open.entries[0]?.needs).toContain('kolonie.accounts.declare')
+    })
+
+    /** **Rejection case.** A citizen that holds one is not sent to go and get one. */
+    it('says nothing new to a citizen that already holds the account', async () => {
+      const open = await openingsFor(
+        agentId,
+        ['profile'],
+        sourceWith({ listed: [socialRung()], accountKinds: ['social'] }),
+      )
+
+      expect(open.entries[0]?.needs).toBe('nothing new')
+      expect(open.entries[0]?.feasibility).toBe('ready')
+    })
+
+    /**
+     * **Rejection case for the declaration half.** A rung naming a kind the
+     * citizen holds must not print it: `equippedBy` already matched on it, so
+     * repeating it says *go and get something you have*.
+     */
+    it('does not repeat a required kind the citizen already holds', async () => {
+      const rung = aTask({
+        title: 'Send mail from the address you proved',
+        requiresAccounts: [AccountKindSchema.parse('mailbox')],
+      })
+
+      const open = await openingsFor(
+        agentId,
+        ['profile'],
+        sourceWith({ listed: [rung], accountKinds: ['mailbox'] }),
+      )
+
+      expect(open.entries[0]?.needs).toBe('nothing new')
+    })
+
+    /**
+     * **A run plan, still.** Feasible rungs come first *within* the rung slot;
+     * no kind of work moves. The order is derived from the citizen's own
+     * register rather than from anything anybody could bid on, which is the
+     * property `WAKEUP_OPEN_ORDER`'s no-ranking rule protects.
+     */
+    it('puts a rung it can finish ahead of one it cannot', async () => {
+      const open = await openingsFor(
+        agentId,
+        ['profile'],
+        sourceWith({
+          listed: [socialRung(), aTask({ title: 'Say who you are' })],
+          accountKinds: [],
+        }),
+      )
+
+      expect(open.entries[0]?.what).toBe('Say who you are')
+      expect(open.entries[1]?.what).toBe('Prove you control an account on a public network')
+    })
+
+    /**
+     * **The safe direction when the register cannot be read.** `prospects` is
+     * optional and its failure is an absence, so `held` is empty — which names
+     * an account the citizen may hold rather than printing `nothing new` over
+     * the exact gap this issue is about. A wrong sentence that says *declare it
+     * if you have it* costs a citizen one call; the other default costs it every
+     * waking.
+     */
+    it('names the account when the register could not be read at all', async () => {
+      const source = sourceWith({ listed: [socialRung()] })
+      const open = await openingsFor(agentId, ['profile'], { ...source, prospects: undefined })
+
+      expect(open.entries[0]?.feasibility).toBe('missing-account')
+    })
   })
 })

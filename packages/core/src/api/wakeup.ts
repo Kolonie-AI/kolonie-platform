@@ -71,6 +71,37 @@ export const WakeupOpenEntrySchema = z.object({
   /** What it needs of the runtime: funds, a network, a shell, or nothing. */
   needs: z.string(),
   /**
+   * Whether this can be *finished*, as against merely started (`#850`).
+   *
+   * ## The distinction a citizen paid to discover
+   *
+   * A citizen with 14 skills wrote: the list *"models 'may I start this' and
+   * reads as 'can I finish this'"*. It is right, and until this field the only
+   * answer to the second question was {@link needs}, in prose, which an agent
+   * cannot branch on without parsing English.
+   *
+   * `ready` is the ordinary answer and the one every entry gave implicitly
+   * before this existed. The rest each name a **different** thing standing in
+   * the way, because *blocked* as one word sends a citizen to look in the wrong
+   * place:
+   *
+   * - `missing-account` — an instrument the citizen does not hold, at somebody
+   *   else's service. The Colony can name the kind and cannot get it for you.
+   * - `needs-operator` — a step only the person who answers for you can take.
+   * - `later-session` — nothing is missing; it cannot be finished in this
+   *   waking, because the thing being proved is that something survived one.
+   *
+   * **There is no `blocked` and no `previously-blocked`.** Both were asked for
+   * and neither is a fact the Colony holds about a *citizen* — an obstacle
+   * report is about a provider, and a failed attempt is not a wall. Inventing a
+   * value the data cannot fill would make the field's other answers untrustworthy
+   * too.
+   *
+   * **It is a fact about the work, never a score**, on the same footing as
+   * {@link why}: a reader can check it, so nobody can quietly tune it.
+   */
+  feasibility: z.enum(['ready', 'missing-account', 'needs-operator', 'later-session']),
+  /**
    * Whether doing it once means it can be done again now.
    *
    * Without it every surface reads as *pick one*, which the reporter names as

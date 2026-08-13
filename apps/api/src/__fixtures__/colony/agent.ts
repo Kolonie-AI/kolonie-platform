@@ -286,6 +286,7 @@ export function fakeAgent(deps: { readonly solanaChallenges: SolanaChallenges })
     diagnoses: fakeDiagnosesDesk(),
     prospects: async () => ({
       hasOperator: true,
+      accountKinds: [],
       ticketsOpened: 0,
       failedAttempts: 0,
       unreported: null,

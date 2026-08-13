@@ -1,6 +1,12 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { eq } from 'drizzle-orm'
 import { AccountKindSchema } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
+import { accountWalks } from '../schema/account-walks.js'
+import { accounts as agentAccounts } from '../schema/accounts.js'
+import { agents } from '../schema/agents.js'
+import { providerBriefings } from '../schema/provider-briefings.js'
+import { providerReports } from '../schema/provider-reports.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
 import {
   aliasProvider,
@@ -24,6 +30,66 @@ const entry = async (db: Database, provider: string, kindName = 'social') =>
     steps: [{ actor: 'agent', instruction: 'sign up' }],
     proves: 'provider-post',
   })
+
+/**
+ * The rows a rename has to move besides the recipes (`#845`). Written straight
+ * to the tables rather than through their own write paths: what is under test is
+ * the update, and each of those paths would drag in a verifier, a moderation
+ * verdict or a walk runner that has nothing to do with it.
+ */
+const anAgent = async (db: Database, name: string): Promise<string> => {
+  const [row] = await db.insert(agents).values({ name, platform: 'openclaw' }).returning({
+    id: agents.id,
+  })
+  if (row === undefined) throw new Error('inserting an agent returned no row')
+  return row.id
+}
+
+const aWalk = async (db: Database, agentId: string, provider: string, kindName: string) => {
+  await db.insert(accountWalks).values({ agentId, provider, kind: kindName })
+}
+
+const anAccount = async (db: Database, agentId: string, provider: string, kindName: string) => {
+  await db
+    .insert(agentAccounts)
+    .values({ agentId, provider, kind: kindName, identifier: `${agentId}@${provider}` })
+}
+
+const aReport = async (db: Database, agentId: string, provider: string, kindName: string) => {
+  await db
+    .insert(providerReports)
+    .values({ agentId, provider, kind: kindName, outcome: 'signup-refused' })
+}
+
+/** A briefing that has been written, so that losing it is visible. */
+const aBriefing = async (db: Database, provider: string, kindName: string, text: string) => {
+  await db.insert(providerBriefings).values({
+    kind: kindName,
+    provider,
+    claims: [
+      {
+        section: 'wall',
+        text,
+        walks: 1,
+        platforms: { openclaw: 1 },
+        lastSupportedAt: '2026-08-01T00:00:00.000Z',
+        sources: ['11111111-1111-4111-8111-111111111111'],
+      },
+    ],
+    model: 'a-model',
+    writtenAt: '2026-08-01T00:00:00.000Z',
+    dirty: false,
+  })
+}
+
+/** Every provider name a table currently holds, deduplicated. */
+const providersOn = async (
+  db: Database,
+  table: typeof accountWalks | typeof agentAccounts | typeof providerReports,
+): Promise<readonly string[]> => {
+  const rows = await db.select({ provider: table.provider }).from(table)
+  return [...new Set(rows.map((row) => row.provider).filter((one): one is string => one !== null))]
+}
 
 /**
  * Renaming a provider, and remembering where it used to be (`#546`).
@@ -99,9 +165,135 @@ describe('renaming a provider', () => {
   it('is a no-op when the name does not change', async () => {
     await entry(db, 'github')
 
-    expect(await renameProvider(db, 'github', 'github')).toEqual({ moved: 0 })
+    expect(await renameProvider(db, 'github', 'github')).toEqual({
+      moved: 0,
+      walks: 0,
+      accounts: 0,
+      reports: 0,
+      briefings: 0,
+    })
     expect(await providerRenamedTo(db, 'github')).toBeUndefined()
     expect(await providerRecipeList(db)).toHaveLength(1)
+  })
+
+  /**
+   * **Every provider-keyed table, not only the recipes** (`#845`).
+   *
+   * This moved `provider_recipes` and nothing else, and the rows left behind
+   * were not merely mislabelled: every read and every write resolves forward
+   * through `canonicalProvider`, so **nothing reached them again.** Walks filed
+   * under the old name became unreachable and the Atlas would answer *nobody has
+   * walked this* about a provider it had walked; `agent_accounts` and
+   * `provider_reports` split into two rows, so a provider audience paying to see
+   * its own numbers under `#548` got the part written since the rename with
+   * nothing in the answer saying so.
+   *
+   * No rename has run in production, so what these hold is a correctness fix
+   * ahead of the first one rather than a repair.
+   */
+  describe('the rows that are not recipes', () => {
+    it('moves walks, accounts and reports, and says how many of each', async () => {
+      await entry(db, 'twitter', 'social')
+      const agentId = await anAgent(db, 'walker')
+      await aWalk(db, agentId, 'twitter', 'social')
+      await anAccount(db, agentId, 'twitter', 'social')
+      await aReport(db, agentId, 'twitter', 'social')
+
+      const outcome = await renameProvider(db, 'twitter', 'x')
+
+      expect(outcome).toMatchObject({ moved: 1, walks: 1, accounts: 1, reports: 1 })
+      expect(await providersOn(db, accountWalks)).toEqual(['x'])
+      expect(await providersOn(db, agentAccounts)).toEqual(['x'])
+      expect(await providersOn(db, providerReports)).toEqual(['x'])
+    })
+
+    /** A rename touches one provider, and the neighbours keep their rows. */
+    it('leaves another provider’s rows where they are', async () => {
+      const agentId = await anAgent(db, 'walker')
+      await aWalk(db, agentId, 'twitter', 'social')
+      await aWalk(db, agentId, 'github', 'social')
+
+      await renameProvider(db, 'twitter', 'x')
+
+      expect([...(await providersOn(db, accountWalks))].sort()).toEqual(['github', 'x'])
+    })
+
+    /**
+     * **A briefing is recomposed rather than moved.** It is keyed by
+     * `(kind, provider)`, so one may already exist at the target — and picking
+     * one of two by age would publish a write-up of half the evidence under a
+     * name that now covers all of it. A briefing is derived, so it is dropped
+     * and queued, and the next synthesis writes it from the merged walks.
+     */
+    it('empties a colliding briefing and queues it for recomposition', async () => {
+      const agentId = await anAgent(db, 'walker')
+      await aWalk(db, agentId, 'twitter', 'social')
+      await aBriefing(db, 'twitter', 'social', 'what the old name knew')
+      await aBriefing(db, 'x', 'social', 'what the new name knew')
+
+      const outcome = await renameProvider(db, 'twitter', 'x')
+
+      expect(outcome.briefings).toBe(2)
+      const rows = await db
+        .select()
+        .from(providerBriefings)
+        .where(eq(providerBriefings.kind, 'social'))
+      // One row, at the new name, empty and queued — never a survivor of the two.
+      expect(rows).toHaveLength(1)
+      expect(rows[0]?.provider).toBe('x')
+      expect(rows[0]?.claims).toEqual([])
+      expect(rows[0]?.writtenAt).toBeNull()
+      expect(rows[0]?.dirty).toBe(true)
+    })
+
+    /**
+     * The target's briefing is stale once walks arrive under it, even where the
+     * old name had none of that kind to collide with — which is why the kinds
+     * are taken from the walks and not from the briefing rows.
+     */
+    it('queues the target’s briefing even with nothing to collide with', async () => {
+      const agentId = await anAgent(db, 'walker')
+      await aWalk(db, agentId, 'twitter', 'social')
+      await aBriefing(db, 'x', 'social', 'written before the walks arrived')
+
+      await renameProvider(db, 'twitter', 'x')
+
+      const [row] = await db
+        .select()
+        .from(providerBriefings)
+        .where(eq(providerBriefings.provider, 'x'))
+      expect(row?.dirty).toBe(true)
+      expect(row?.claims).toEqual([])
+    })
+
+    /**
+     * A briefing is composed from what citizens walked, so a rename that moves
+     * no walks changes nothing about what any write-up would say.
+     */
+    it('leaves briefings alone when no walk moved', async () => {
+      await entry(db, 'twitter', 'social')
+      await aBriefing(db, 'x', 'social', 'untouched')
+
+      const outcome = await renameProvider(db, 'twitter', 'x')
+
+      expect(outcome.briefings).toBe(0)
+      const [row] = await db.select().from(providerBriefings)
+      expect(row?.claims).not.toEqual([])
+      expect(row?.dirty).toBe(false)
+    })
+
+    /**
+     * **Half a rename is worse than none**, and nothing afterwards knows which
+     * half. The new tables join the transaction the redirect was already in.
+     */
+    it('moves nothing at all when the rename is refused', async () => {
+      const agentId = await anAgent(db, 'walker')
+      await aWalk(db, agentId, 'twitter', 'social')
+
+      await expect(renameProvider(db, 'twitter', 'not a provider')).rejects.toThrow()
+
+      expect(await providersOn(db, accountWalks)).toEqual(['twitter'])
+    })
   })
 })
 

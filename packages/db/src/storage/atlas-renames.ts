@@ -1,8 +1,23 @@
-import { eq, sql } from 'drizzle-orm'
+import { and, eq, inArray, sql } from 'drizzle-orm'
 import { AccountProviderSchema } from '@kolonie-ai/core'
 import type { Database, Transaction } from '../client.js'
+import { accounts as agentAccounts } from '../schema/accounts.js'
+import { accountWalks } from '../schema/account-walks.js'
 import { atlasRenames } from '../schema/atlas-renames.js'
+import { providerBriefings } from '../schema/provider-briefings.js'
 import { providerRecipes } from '../schema/provider-recipes.js'
+import { providerReports } from '../schema/provider-reports.js'
+
+/** What a rename moved, per table (`#845`). */
+export interface RenameOutcome {
+  /** Recipes. Named `moved` since `#546`, and kept so callers do not have to change. */
+  readonly moved: number
+  readonly walks: number
+  readonly accounts: number
+  readonly reports: number
+  /** Briefings emptied and queued for recomposition, rather than moved. */
+  readonly briefings: number
+}
 
 /**
  * Renaming a provider, and remembering where it used to be (`#546`).
@@ -11,16 +26,42 @@ import { providerRecipes } from '../schema/provider-recipes.js'
  * a rename that moved the rows and lost the redirect is the dead link this
  * table exists to prevent, and it would be unrecoverable — nothing afterwards
  * knows what the old name was.
+ *
+ * ## Every provider-keyed table, not only the recipes (`#845`)
+ *
+ * This moved `provider_recipes` and left every other row filed under the old
+ * string. Because each read and each write resolves forward through
+ * {@link canonicalProvider}, those rows were not merely mislabelled — **nothing
+ * reached them again.** Walks filed under `twitter` became unreachable and the
+ * Atlas would answer *nobody has walked this* about a provider it had walked;
+ * `agent_accounts` and `provider_reports` split into two rows, so a provider
+ * audience paying to see its own numbers under `#548` would get the part written
+ * since the rename with nothing in the answer saying so.
+ *
+ * The redirect cannot cover it. `atlasRenames` maps old → new, which is what
+ * makes a read of `twitter` find the recipe now filed under `x`; it cannot make
+ * a read of `x` find rows still filed under `twitter`, and making
+ * `canonicalProvider` fan out over every historical name would push the cost
+ * onto every read to fix a write that happens rarely.
+ *
+ * **In the transaction that already exists**, because it already carries the
+ * argument: a rename that moved half is worse than one that moved none, and
+ * nothing afterwards knows which half.
+ *
+ * Not triggered by anything in production — no rename has been run there — so
+ * this is a correctness fix ahead of the first one rather than a repair.
  */
 export async function renameProvider(
   db: Database,
   from: string,
   to: string,
-): Promise<{ readonly moved: number }> {
+): Promise<RenameOutcome> {
   const fromProvider = AccountProviderSchema.parse(from)
   const toProvider = AccountProviderSchema.parse(to)
 
-  if (fromProvider === toProvider) return { moved: 0 }
+  if (fromProvider === toProvider) {
+    return { moved: 0, walks: 0, accounts: 0, reports: 0, briefings: 0 }
+  }
 
   return db.transaction(async (tx) => {
     const moved = await tx
@@ -28,6 +69,79 @@ export async function renameProvider(
       .set({ provider: toProvider, updatedAt: sql`now()` })
       .where(eq(providerRecipes.provider, fromProvider))
       .returning({ kind: providerRecipes.kind })
+
+    /**
+     * **A citizen's own rows, and the rename does not change what any citizen
+     * said** — only the name it is filed under. Both are read through
+     * `canonicalProvider` or aggregated on the raw column, and either way a row
+     * left behind is a row that has left the total.
+     */
+    const walks = await tx
+      .update(accountWalks)
+      .set({ provider: toProvider })
+      .where(eq(accountWalks.provider, fromProvider))
+      .returning({ kind: accountWalks.kind })
+
+    const accounts = await tx
+      .update(agentAccounts)
+      .set({ provider: toProvider })
+      .where(eq(agentAccounts.provider, fromProvider))
+      .returning({ id: agentAccounts.id })
+
+    const reports = await tx
+      .update(providerReports)
+      .set({ provider: toProvider })
+      .where(eq(providerReports.provider, fromProvider))
+      .returning({ kind: providerReports.kind })
+
+    /**
+     * **A briefing is recomposed, not moved** (`#845`).
+     *
+     * `provider_briefings` is keyed by `(kind, provider)`, so a briefing may
+     * already exist at the target and the collision has to be decided rather
+     * than left to the primary key. Picking one of two by age would publish a
+     * write-up of half the evidence under a name that now covers all of it — and
+     * a briefing is *derived*, so there is a right answer: compose it again from
+     * the merged walks.
+     *
+     * Which is what this does, using the machinery that already exists for it.
+     * Every briefing on either side of an affected kind is dropped and one
+     * empty, dirty row is left at the target; `staleProviderBriefings` picks it
+     * up and the next synthesis writes it from the walks that are now all in one
+     * place. The schema documents that exact state — *"an empty array here means
+     * the row was created by the dirty-marking and no synthesis has run yet"* —
+     * so nothing reads it as a briefing that says nothing.
+     *
+     * **The kinds come from the walks and not from the briefing rows**, because
+     * the target's own briefing is stale too once walks have arrived under it,
+     * even where the old name had no briefing of that kind to collide with. And
+     * from the walks and not from the recipes: a briefing is composed from what
+     * citizens walked, so a recipe moving on its own changes nothing about what
+     * the write-up would say.
+     */
+    const affectedKinds = [...new Set(walks.map((walk) => walk.kind))]
+
+    let briefings = 0
+    if (affectedKinds.length > 0) {
+      const dropped = await tx
+        .delete(providerBriefings)
+        .where(
+          and(
+            inArray(providerBriefings.kind, affectedKinds),
+            inArray(providerBriefings.provider, [fromProvider, toProvider]),
+          ),
+        )
+        .returning({ kind: providerBriefings.kind })
+      briefings = dropped.length
+
+      await tx
+        .insert(providerBriefings)
+        .values(affectedKinds.map((kind) => ({ kind, provider: toProvider })))
+        .onConflictDoUpdate({
+          target: [providerBriefings.kind, providerBriefings.provider],
+          set: { dirty: true },
+        })
+    }
 
     /**
      * **Every earlier hop is repointed, so a chain is never followed at read
@@ -48,7 +162,13 @@ export async function renameProvider(
         set: { toProvider, reason: 'renamed', renamedAt: sql`now()` },
       })
 
-    return { moved: moved.length }
+    return {
+      moved: moved.length,
+      walks: walks.length,
+      accounts: accounts.length,
+      reports: reports.length,
+      briefings,
+    }
   })
 }
 

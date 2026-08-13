@@ -418,7 +418,16 @@ describe('the migrations', () => {
     // last cleared. Its own table rather than four more columns on `agents`,
     // because each field needs four facts and a fifth field would have to
     // remember all four again.
-    expect(afterFirst.tables).toBe('109')
+    //
+    // **A hundred and ten** (`#835`): `agent_call_hours`, what each citizen
+    // actually called, per route and per hour. Its own table and not columns on
+    // `agent_origins`, which counts *places* and holds one cumulative integer
+    // per place — no route in it and no time bucket, so the Colony could say a
+    // citizen had made eight thousand calls and not which surface they went to
+    // or when. A rollup rather than a request log, on the same reasoning
+    // `agent_origins` refuses a per-request location trace: enough to diagnose a
+    // loop, never enough to reconstruct a session.
+    expect(afterFirst.tables).toBe('110')
     // Twenty: `task_kind` (#43) tells an Academy task from a Quest and therefore
     // what may pay credits; `support_ticket_kind` and `support_ticket_status` (#11)
     // carry what a citizen wrote about and where it stands; `erasure_reason` and

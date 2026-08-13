@@ -245,9 +245,37 @@ export interface AgentStore extends ProfileStore {
  * unawaited promise here would be a write racing the erasure that is about to
  * delete the row it targets.
  */
-export function observing(store: AgentStore, origin: ObservedOrigin): AgentStore {
+export function observing(
+  store: AgentStore,
+  origin: ObservedOrigin,
+  /**
+   * Told who the credential resolved to, where the caller wants to know (`#835`).
+   *
+   * **The same argument the paragraph above makes, for a second observation.**
+   * The hourly call rollup is written when the *response* finishes, and by then
+   * the citizen is out of scope — so the door has to say whose request this was
+   * at the moment it finds out, which is here and nowhere earlier. Adding it to
+   * this decorator rather than to `authenticate` keeps that true of every one of
+   * the fifty call sites without any of them being edited.
+   *
+   * **Optional, and the MCP door deliberately passes nothing.** That door
+   * hijacks its socket, so Fastify never finishes its response and the hook this
+   * feeds never runs for it; it counts its own calls under tool names instead.
+   * An argument that were required here would have to be given a value there
+   * that does nothing, which is a worse lie than an absence.
+   *
+   * **It is synchronous and its failures are not caught**, because the only
+   * implementation writes to a `WeakMap`. Anything that needed to await here
+   * would be doing work on the authentication path, which is the thing this
+   * whole arrangement is avoiding.
+   */
+  attribute?: (agentId: AgentId) => void,
+): AgentStore {
   const recording = async (result: AuthenticationResult): Promise<AuthenticationResult> => {
-    if (result.outcome === 'authenticated') await store.recordOrigin(result.agent.id, origin)
+    if (result.outcome === 'authenticated') {
+      attribute?.(result.agent.id)
+      await store.recordOrigin(result.agent.id, origin)
+    }
     return result
   }
 

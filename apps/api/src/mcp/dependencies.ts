@@ -1,3 +1,4 @@
+import type { CallRollup } from '../call-rollup.js'
 import type { AgentId, RhythmBounds, SkillReleases } from '@kolonie-ai/core'
 import type { OpenProspects } from '@kolonie-ai/db'
 import type { AcademyDependencies } from '../academy.js'
@@ -175,6 +176,20 @@ export interface McpDependencies {
    * handing over a source that answers null.
    */
   readonly hints: StandingHintSource
+  /**
+   * Where a finished tool call is counted, per route and per hour (`#835`).
+   *
+   * **On this interface because the MCP door counts its own calls.** Every other
+   * call in the API is counted by a response hook in `app.ts`; this door hijacks
+   * its socket so that hook never runs, and the tool name is a better `route_key`
+   * than `/mcp` would have been anyway — a citizen polling `kolonie.tasks.list`
+   * and one polling `kolonie.me` are two different findings.
+   *
+   * Optional, and absent means the surface is off, which is D-013's way of
+   * switching one off. A test that wires no rollup measures nothing and behaves
+   * identically otherwise.
+   */
+  readonly rollup?: CallRollup
   readonly website: WebsiteDependencies
   /**
    * The rung above the hosting account (`#244`): controlling a web server rather

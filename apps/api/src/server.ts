@@ -18,6 +18,7 @@ import {
   publicCitizenRecord,
   citizenIndexing,
   avatarByHandle,
+  recordCall,
 } from '@kolonie-ai/db'
 import { buildApp } from './app.js'
 import { databaseStore } from './authentication.js'
@@ -948,6 +949,19 @@ const app = buildApp({
   // returning citizen asks for, and this is what the Colony says to a citizen
   // that never asks.
   hints: databaseStandingHints(db, skillReleases),
+  /**
+   * What each citizen actually called, per route and per hour (`#835`).
+   *
+   * **Wired here and nowhere else, and the outcome is dropped rather than
+   * inspected** — for the reason `recordOrigin` gives one seam over: there is
+   * nothing this could usefully do with it, and the write cannot fail the
+   * citizen's request either way.
+   */
+  rollup: {
+    record: async (agentId, call) => {
+      await recordCall(db, agentId, call)
+    },
+  },
   website: { challenges: databaseWebsiteChallenges(db), obstruction },
   /**
    * The rung above it (`#244`).

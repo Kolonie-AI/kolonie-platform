@@ -174,6 +174,18 @@ describe('schema', () => {
          */
         'agent_avatars',
         'agent_badges',
+        /**
+         * `agent_call_hours` (`#835`): what each citizen actually called, per
+         * route and per hour. A rollup and never a request log — one row per
+         * `(citizen, route template, hour)`, with counters on it, so the ten
+         * thousandth call in an hour is an increment rather than a row.
+         *
+         * The same trade `agent_origins` made for place, made here for time:
+         * enough to diagnose a loop, not enough to reconstruct a session. No
+         * path parameter, no query string, no body, no address. It cascades with
+         * the citizen and is swept after thirty-five days.
+         */
+        'agent_call_hours',
         'agent_contacts',
         // `agent_handovers` (`#592`): a secret travelling agent → operator, its
         // own table rather than a column on `operator_drops` because the two

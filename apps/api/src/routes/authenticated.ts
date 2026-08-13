@@ -3,6 +3,7 @@ import { ERROR_STATUS } from '@kolonie-ai/core'
 import type { FastifyReply, FastifyRequest } from 'fastify'
 import { authenticate, BEARER_SCHEME, observing, type AgentStore } from '../authentication.js'
 import { observedOrigin } from '../observed-origin.js'
+import { attributeTo } from '../call-rollup.js'
 import { SESSION_COOKIE } from './console.js'
 
 /**
@@ -38,7 +39,13 @@ export async function callerFor(
     // (`#191`). Every authenticated route in the API resolves its caller through
     // this function, so wrapping the store once here is what makes the
     // observation impossible to forget in the forty-seventh route.
-    observing(store, observedOrigin(request.headers, request.ip)),
+    observing(store, observedOrigin(request.headers, request.ip), (agentId) =>
+      // And whose request this is, for the hourly rollup written when the
+      // response finishes (`#835`). Here for the reason the origin is: every
+      // authenticated route resolves its caller through this function, so one
+      // wrapping covers the forty-seventh route as well.
+      attributeTo(request, agentId),
+    ),
     sessionCookie(request.headers.cookie),
   )
   if (authenticated.outcome !== 'rejected') return authenticated.agent

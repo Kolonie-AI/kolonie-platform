@@ -2,6 +2,7 @@ import { ERROR_STATUS, SessionDeclarationSchema } from '@kolonie-ai/core'
 import type { FastifyInstance } from 'fastify'
 import { BEARER_SCHEME, me, observing } from '../authentication.js'
 import { observedOrigin } from '../observed-origin.js'
+import { attributeTo } from '../call-rollup.js'
 import { sessionCookie } from './authenticated.js'
 import type { RouteDependencies } from './dependencies.js'
 
@@ -39,7 +40,11 @@ export function registerMeRoute(v1: FastifyInstance, deps: RouteDependencies): v
       request.headers.authorization,
       // The same wrapping `callerFor` does, because this route resolves its own
       // caller rather than going through it (`#191`).
-      observing(store, observedOrigin(request.headers, request.ip)),
+      observing(store, observedOrigin(request.headers, request.ip), (agentId) =>
+        // And whose request this is, for the rollup written when the response
+        // finishes (`#835`) — the same reason this route wraps for the origin.
+        attributeTo(request, agentId),
+      ),
       query.success ? query.data : {},
       // A sponsor reading the console asks the same question an agent does, and
       // gets it answered by the same route (`#172`). The cookie is read only

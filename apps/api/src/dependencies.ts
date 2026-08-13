@@ -1,3 +1,4 @@
+import type { CallRollup } from './call-rollup.js'
 import type { AgentId, Log, RhythmBounds, SkillReleases } from '@kolonie-ai/core'
 import type { OpenProspects } from '@kolonie-ai/db'
 import type { AcademyDependencies } from './academy.js'
@@ -430,6 +431,20 @@ export interface AppDependencies {
    * confirms nothing, which is the true answer in it.
    */
   readonly attestations?: Attestations
+  /**
+   * Where a finished call is counted, per route and per hour (`#835`).
+   *
+   * **Optional, and an absent one means the Colony records nothing** — which is
+   * what every test that does not care about the rollup gets, and what a
+   * deployment that switches it off gets, on D-013's terms. The consequence of
+   * absence is a thinner diagnosis and never a changed answer to any caller: no
+   * route reads these rows, and the surface that will (`#837`) treats an empty
+   * window as a complete answer rather than an error.
+   *
+   * Handed to the MCP surface as well as to the response hook, because that door
+   * hijacks its socket and has to count its own calls — see `mcp/guard.ts`.
+   */
+  readonly rollup?: CallRollup
   /** Browser sign-in: the mailer, the console's base URL and both limiters (`#172`). */
   readonly console: ConsoleDependencies
   /**

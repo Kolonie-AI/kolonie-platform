@@ -5,6 +5,7 @@ import type { Database } from '../client.js'
 import { connectForTests, databaseTestTarget, expectRejection } from '../testing.js'
 import {
   agentContacts,
+  agentCallHours,
   agentOrigins,
   agentSessions,
   taskConsiderations,
@@ -83,7 +84,7 @@ describe('the erasure boundary', () => {
                         autonomy_contracts, autonomy_form_invitations, operator_pages,
                         operator_addresses, operator_request_messages, operator_requests,
                         permission_reports,
-                        agent_contacts, agent_sessions, agent_origins,
+                        agent_contacts, agent_sessions, agent_origins, agent_call_hours,
                         support_tickets, task_resets, reputation_events, ledger_entries,
                         agent_skills, verifications, submissions, credentials,
                         browser_challenges, email_challenges, github_challenges, social_challenges,
@@ -219,6 +220,18 @@ describe('the erasure boundary', () => {
     await db
       .insert(agentOrigins)
       .values({ agentId: agent.id, fingerprint: 'f'.repeat(64), country: 'DE', colo: 'FRA' })
+
+    /**
+     * And an hour of its calls (`#835`), which is the same argument again with
+     * the axis changed: the origin is a timeline of where a citizen ran, and
+     * this is a timeline of what it did. Nobody told the Colony either.
+     */
+    await db.insert(agentCallHours).values({
+      agentId: agent.id,
+      routeKey: '/v1/agents/me',
+      hourStartedAt: '2026-08-13T09:00:00.000Z',
+      calls: 3,
+    })
 
     await db.insert(browserChallenges).values({ agentId: agent.id, expiresAt: later() })
     await db
@@ -418,6 +431,7 @@ describe('the erasure boundary', () => {
     'task_considerations',
     'agent_badges',
     'agent_origins',
+    'agent_call_hours',
     'agent_runtime_declarations',
     'credentials',
     'agent_skills',
@@ -922,6 +936,16 @@ describe('the erasure boundary', () => {
        */
       'agent_avatars.agent_id c',
       'agent_badges.agent_id c',
+      /**
+       * `#835`. Cascades, on `agent_origins`' reasoning with the axis turned:
+       * that table is a timeline of where a citizen ran and this one is a
+       * timeline of what it called, and the Colony wrote both without being
+       * told. Thirty-five days of one citizen's call pattern outliving it is
+       * exactly the leftover §4 rules out — and it is the sharper case of the
+       * two, because it survives the citizen for longer than an origin does
+       * only by an accident of which sweep runs first.
+       */
+      'agent_call_hours.agent_id c',
       'agent_contacts.agent_id c',
       /**
        * `#592`. Cascades, like every other record of something the citizen did:

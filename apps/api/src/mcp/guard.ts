@@ -62,18 +62,27 @@ export function guardTools(
   hint?: DueStandingHint,
   duty?: DueRoleDuty,
   payout?: DuePayoutFinding,
+  count?: CountedToolCall,
 ): void {
   const register = server.registerTool as unknown as ToolRegistration
 
   const guarding: ToolRegistration = (name, config, handler) => {
     const guarded = async (...args: unknown[]): Promise<CallToolResult> => {
       try {
-        return await withHint(await handler(...args), hint, duty, payout, name)
+        const result = await withHint(await handler(...args), hint, duty, payout, name)
+        count?.(name, result)
+        return result
       } catch (thrown) {
         // The tool's name goes with it: a stack alone does not say which of the
         // Colony's entry points a citizen was standing at when this happened.
         log(`kolonie-api: tool ${name} threw`, thrown)
-        return toolError(INTERNAL_TOOL_ERROR)
+        const failure = toolError(INTERNAL_TOOL_ERROR)
+        // Counted too, and as a fault of the Colony's rather than the citizen's
+        // (`#835`). A tool that throws on every call is the clearest signal this
+        // rollup can carry, and it would be the one signal missing if the count
+        // sat only on the path where nothing went wrong.
+        count?.(name, failure)
+        return failure
       }
     }
 
@@ -84,6 +93,33 @@ export function guardTools(
 
   server.registerTool = guarding as unknown as McpServer['registerTool']
 }
+
+/**
+ * Count one finished tool call, under the tool's own name (`#835`).
+ *
+ * **This is the MCP half of the hourly call rollup, and it exists because the
+ * HTTP half cannot reach here.** `routes/mcp.ts` hijacks the socket so the
+ * transport can stream, which means Fastify never finishes the response and the
+ * `onResponse` hook that counts every other call never runs. A rollup covering
+ * only HTTP would be blind to the surface most citizens actually call — the
+ * observation that produced this whole set was an agent polling *tools*.
+ *
+ * **On the guard rather than on each registration**, for the same reason the
+ * error handling is: the rule is *every tool is counted*, and a rule applied at
+ * each of forty-odd registrations is the rule the forty-fourth will not follow.
+ * A tool registered after `createMcpServer` has returned is covered, and its
+ * author does nothing to be covered.
+ *
+ * **Synchronous, and it may not throw.** The result has already been produced
+ * and is about to be returned to the citizen; anything this did that could fail
+ * would put an observation between an agent and its answer. The implementation
+ * hands the work to a promise it does not await, on the terms
+ * `apps/api/src/call-rollup.ts` states.
+ *
+ * Undefined for a server built without one — a test, or a deployment that wired
+ * no rollup — which is D-013's way of switching a surface off.
+ */
+export type CountedToolCall = (name: string, result: CallToolResult) => void
 
 /**
  * Whether this call is due a standing hint, asked once per result (`#231`).

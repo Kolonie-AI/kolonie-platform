@@ -3,6 +3,7 @@ import { createLog, type AgentId } from '@kolonie-ai/core'
 import { standingHintText } from '../hints.js'
 import type { McpDependencies } from './dependencies.js'
 import { guardTools } from './guard.js'
+import { toolResultBytes, toolResultStatus } from '../call-rollup.js'
 import { advertiseOnlyWhatIsSent } from './handshake.js'
 import { publishLeanSchemas } from './published-schema.js'
 import { registerAboutTools } from './tools/about.js'
@@ -188,6 +189,35 @@ export function createMcpServer(
       : async () => {
           const money = await deps.hints.payout(agentId)
           return money === null ? undefined : standingHintText(money)
+        },
+    /**
+     * And every finished tool call is counted, under its own name (`#835`).
+     *
+     * **Same tier rule as the three above, and for a plainer reason:** the
+     * rollup is keyed on a citizen, and a stranger calling `kolonie.register` is
+     * not one yet. What a stranger does is Traefik's to count, exactly as it is
+     * for an unauthenticated HTTP call.
+     *
+     * **Not awaited, and it cannot be.** The guard hands the result straight
+     * back to the transport; a promise waited on here would put an observation
+     * between an agent and its answer, which is the one thing `recordCall` is
+     * written not to do. The write swallows its own failures, so there is
+     * nothing here that a rejection handler could usefully act on.
+     */
+    agentId === undefined || deps.rollup === undefined
+      ? undefined
+      : (name, result) => {
+          void deps.rollup
+            ?.record(agentId, {
+              routeKey: name,
+              status: toolResultStatus(result),
+              bytesOut: toolResultBytes(result),
+              at: new Date(),
+            })
+            .catch(() => {
+              // See `apps/api/src/call-rollup.ts`: a missing call count is a
+              // thinner diagnosis and never a failed call.
+            })
         },
   )
 

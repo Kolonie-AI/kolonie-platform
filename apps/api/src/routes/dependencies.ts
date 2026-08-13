@@ -1,3 +1,4 @@
+import type { CallRollup } from '../call-rollup.js'
 import type { HandoverStore } from '../handovers.js'
 import type { AgentId, ApiError, Log, RhythmBounds, SkillReleases } from '@kolonie-ai/core'
 import type { OpenProspects } from '@kolonie-ai/db'
@@ -89,6 +90,15 @@ export interface RouteDependencies {
   /** The rate-limited registry. See the note above: never the raw one. */
   readonly registry: AgentRegistry
   readonly store: AgentStore
+  /**
+   * Where a finished call is counted, per route and per hour (`#835`).
+   *
+   * Forwarded to the MCP surface, which counts its own tool calls because its
+   * door hijacks the socket the response hook would have seen. Optional for the
+   * reason it is optional on `AppDependencies`: an absent rollup records nothing
+   * and changes no answer.
+   */
+  readonly rollup?: CallRollup
   readonly catalogue: TaskCatalogue
   /** The quest write path and the review (`#176`). */
   readonly quests: QuestDesk

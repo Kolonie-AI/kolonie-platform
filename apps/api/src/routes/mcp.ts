@@ -18,6 +18,7 @@ export function registerMcpRoutes(app: FastifyInstance, deps: RouteDependencies)
     log,
     registry,
     store,
+    rollup,
     catalogue,
     recipes,
     renames,
@@ -169,6 +170,12 @@ export function registerMcpRoutes(app: FastifyInstance, deps: RouteDependencies)
           // Absent in a deployment with no wallet, and then the one sponsor tool
           // about arrivals is simply not registered (`#760`).
           ...(paymentDesk === undefined ? {} : { paymentDesk }),
+          /**
+           * Where a finished tool call is counted (`#835`), absent in a
+           * deployment that wired no rollup — and then nothing is counted, which
+           * changes no answer this door gives.
+           */
+          ...(rollup === undefined ? {} : { rollup }),
           support,
           operatorRequests,
           operatorNotes,

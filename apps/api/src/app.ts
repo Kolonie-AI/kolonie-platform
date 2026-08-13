@@ -92,6 +92,8 @@ import type { AppDependencies } from './dependencies.js'
 import { emailUnavailable } from './email.js'
 import type { RouteDependencies } from './routes/dependencies.js'
 import { registerMcpRoutes } from './routes/mcp.js'
+import { attributeTo, registerCallRollup } from './call-rollup.js'
+import { authenticate } from './authentication.js'
 import { registerOpenApiRoute } from './routes/openapi.js'
 import type { RegisteredRoute } from './openapi/document.js'
 import { rateLimited } from './registration.js'
@@ -183,6 +185,7 @@ export function buildApp({
   walks,
   attestations,
   profileTier,
+  rollup,
   console: consoleDeps,
   rhythm = DEFAULT_RHYTHM_BOUNDS,
   skillReleases = DEFAULT_SKILL_RELEASES,
@@ -217,6 +220,20 @@ export function buildApp({
   app.addHook('onRoute', (route) => {
     registeredRoutes.push({ method: route.method, url: route.url })
   })
+
+  /**
+   * What each citizen actually called, counted per route and per hour (`#835`).
+   *
+   * Beside the route collector and for a related reason: both are hooks that
+   * cover every route by being installed once, rather than a line each
+   * registration has to remember. This one is the response side — the route
+   * template, the status and the size are all known there and nowhere earlier,
+   * and who the caller was is carried to it by `attributeTo`.
+   *
+   * Absent when no rollup was wired, and then no hook is installed at all rather
+   * than one that checks a flag on every response.
+   */
+  if (rollup !== undefined) registerCallRollup(app, rollup)
 
   /**
    * An empty body with `Content-Type: application/json` means `{}`.
@@ -446,6 +463,7 @@ export function buildApp({
     log,
     citizens: citizenRecords,
     avatars: avatarDesk,
+    ...(rollup === undefined ? {} : { rollup }),
     humans,
     ...(adoption === undefined ? {} : { adoption }),
     registry,
@@ -677,6 +695,28 @@ export function buildApp({
     // the one place a human is reading.
     if (isConsoleRequest(request, routes.console.consoleUrl)) {
       return consoleNotFound(reply, request)
+    }
+
+    /**
+     * A citizen calling a route that does not exist is a finding, so its call is
+     * attributed here (`#835`).
+     *
+     * **The one place the rollup has to resolve a credential itself.** Every
+     * other call is attributed by the route that authenticates it, and a request
+     * that matched no route reached no such code — so without this, a
+     * misconfigured agent hammering `/v1/task/:id` for a day would be the single
+     * shape this table cannot see, and *misconfiguration* is one of the four
+     * things the Doctor exists to tell apart.
+     *
+     * **Only when a key was presented, and its outcome is discarded.** A
+     * stranger's 404 costs nothing extra, and a key that does not resolve is
+     * attributed to nobody — which is the same rule the response hook already
+     * follows. What this cannot become is an oracle: the refusal below is
+     * identical either way, and this runs after the answer has been decided.
+     */
+    if (rollup !== undefined && request.headers.authorization !== undefined) {
+      const authenticated = await authenticate(request.headers.authorization, store)
+      if (authenticated.outcome === 'authenticated') attributeTo(request, authenticated.agent.id)
     }
 
     const error: ApiError = {

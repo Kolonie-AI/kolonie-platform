@@ -6,6 +6,7 @@ import { connectForTests, databaseTestTarget, expectRejection } from '../testing
 import {
   agentContacts,
   agentCallHours,
+  agentWakeupState,
   agentOrigins,
   diagnoses,
   agentSessions,
@@ -85,7 +86,7 @@ describe('the erasure boundary', () => {
                         autonomy_contracts, autonomy_form_invitations, operator_pages,
                         operator_addresses, operator_request_messages, operator_requests,
                         permission_reports,
-                        agent_contacts, agent_sessions, agent_origins, agent_call_hours, diagnoses,
+                        agent_contacts, agent_sessions, agent_origins, agent_call_hours, agent_wakeup_state, diagnoses,
                         support_tickets, task_resets, reputation_events, ledger_entries,
                         agent_skills, verifications, submissions, credentials,
                         browser_challenges, email_challenges, github_challenges, social_challenges,
@@ -232,6 +233,18 @@ describe('the erasure boundary', () => {
       routeKey: '/v1/agents/me',
       hourStartedAt: '2026-08-13T09:00:00.000Z',
       calls: 3,
+    })
+
+    /**
+     * And whether the last answer it was given was the same as the one before
+     * (`#880`). An observation like the two above, kept as a fingerprint and a
+     * count rather than as anything the citizen wrote — and it leaves with the
+     * citizen for the same reason they do.
+     */
+    await db.insert(agentWakeupState).values({
+      agentId: agent.id,
+      fingerprint: 'a'.repeat(64),
+      repeats: 2,
     })
 
     /**
@@ -469,6 +482,7 @@ describe('the erasure boundary', () => {
     'agent_badges',
     'agent_origins',
     'agent_call_hours',
+    'agent_wakeup_state',
     'diagnoses',
     'agent_runtime_declarations',
     'credentials',
@@ -1038,6 +1052,14 @@ describe('the erasure boundary', () => {
       // behind. Ciphertext outliving the citizen it belonged to would be a
       // leftover in the exact sense `erasure.md` §4 rules out.
       'agent_vault.agent_id c',
+      /**
+       * `#880`. One row saying whether the last answer was the same as the one
+       * before it. It is a fingerprint and a count rather than anything the
+       * citizen wrote — and it cascades for the reason `agent_origins` does:
+       * `erasure.md` §2 leaves nothing the Colony observed about a citizen
+       * behind it, observations included.
+       */
+      'agent_wakeup_state.agent_id c',
       /**
        * `#173`. **Sets null, both of them, and this is the one table here where
        * that is the whole point rather than a compromise.**

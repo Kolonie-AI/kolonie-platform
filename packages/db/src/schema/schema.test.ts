@@ -246,6 +246,13 @@ describe('schema', () => {
         // cannot read: every value is sealed with a key derived from the
         // citizen's own API key, of which only a hash is stored (D-043).
         'agent_vault',
+        /**
+         * `agent_wakeup_state` (#880) is one row per citizen saying whether the
+         * answer the Colony is about to give is the one it gave last time. It
+         * holds a fingerprint, a count and a timestamp — never the answer — and
+         * it does not grow with time.
+         */
+        'agent_wakeup_state',
         'agents',
         /**
          * `#389`: the code a citizen has to render *inside* what it publishes,

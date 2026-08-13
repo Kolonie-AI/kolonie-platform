@@ -434,7 +434,7 @@ describe('the migrations', () => {
     // expressible over a live computation — and what makes a diagnosis
     // auditable, which `kolonie-docs#324` point 8 requires and
     // `kolonie-platform#814` is the complaint about not having.
-    expect(afterFirst.tables).toBe('111')
+    expect(afterFirst.tables).toBe('112')
     // Twenty: `task_kind` (#43) tells an Academy task from a Quest and therefore
     // what may pay credits; `support_ticket_kind` and `support_ticket_status` (#11)
     // carry what a citizen wrote about and where it stands; `erasure_reason` and

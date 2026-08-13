@@ -17,6 +17,7 @@ import {
   countUnreadOperatorNotes,
   countWaitingOperatorReplies,
   previousSessionStart,
+  recordWakeupAnswer,
   shareForWakeup,
   wakeChannelOf,
   wakeTargetFor,
@@ -31,6 +32,7 @@ const toTimestamp = (value: string): WakeupWantedAccount['wantedAt'] =>
   new Date(value).toISOString() as WakeupWantedAccount['wantedAt']
 import { listContributions, type ContributionDependencies } from './contributions.js'
 import { availableNow, openingsFor, type OpenSource } from './open.js'
+import { fingerprintOfOpen, nothingMoved } from './wakeup-repetition.js'
 import { startDueRechecks, type RecheckDependencies } from './recheck.js'
 import { SKILL_NOTE_WORKED_EXAMPLE, type SkillNotes } from './skills.js'
 
@@ -114,6 +116,24 @@ export interface WakeupSource {
    * position as though it were a movement.
    */
   standing(agentId: AgentId): Promise<WakeupStanding>
+  /**
+   * Record the answer this citizen is about to read, and say how many wakings in
+   * a row have said the same thing (`#880`).
+   *
+   * **Optional, and absent means the Colony simply does not notice.** Every real
+   * caller passes it; a test about a verdict or a window must not have to hold a
+   * database to ask its question, and the digest is unchanged when it is missing
+   * — which is also the behaviour when the write fails.
+   *
+   * **It is on this port rather than computed here** because it is the one part
+   * of the mechanism that is storage: the fingerprint and the reset signal are
+   * both derived from what this file has already assembled.
+   */
+  recordAnswer?(
+    agentId: AgentId,
+    fingerprint: string,
+    quiet: boolean,
+  ): Promise<{ readonly repeats: number }>
   changes(
     agentId: AgentId,
     since: string,
@@ -205,6 +225,8 @@ export function databaseWakeup(db: Database, rechecks?: RecheckDependencies): Wa
     },
     browserShare: (agentId, since) => shareForWakeup(db, agentId, since),
     standing: (agentId) => wakeupStanding(db, agentId),
+    recordAnswer: (agentId, fingerprint, quiet) =>
+      recordWakeupAnswer(db, agentId, fingerprint, quiet),
     ...(rechecks === undefined
       ? {}
       : { startDueRechecks: (agentId: AgentId) => startDueRechecks(agentId, rechecks) }),
@@ -499,6 +521,29 @@ export async function wakeup(
     ...open,
     entries: [...sponsorOpen, ...open.entries].slice(0, 5),
   }
+
+  /**
+   * Whether this is the same answer as last time, and how many times in a row
+   * (`#880`).
+   *
+   * **After assembly and after the sponsor entries**, because the fingerprint
+   * has to describe what the citizen actually saw — anything added or filtered
+   * out afterwards would otherwise be invisible to it.
+   *
+   * **The reset signal is the `since` block the citizen reads**, not a second
+   * list of conditions beside it. `changes` is that block, so the counter cannot
+   * come to disagree with the answer printed around it.
+   *
+   * Nothing about this reaches the response. `#881` is what a citizen reads once
+   * the Colony knows; a number a citizen can see is a number it would optimise,
+   * and the point is that the answer changes rather than that a counter is
+   * published.
+   */
+  await source.recordAnswer?.(
+    agentId,
+    fingerprintOfOpen(openWithSponsor.entries),
+    nothingMoved(changes),
+  )
 
   return {
     response: {

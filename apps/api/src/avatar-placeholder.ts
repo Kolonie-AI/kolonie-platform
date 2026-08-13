@@ -63,8 +63,7 @@ export const PLACEHOLDER_MEDIA_TYPE = 'image/svg+xml'
  * Same handle in, same bytes out, always.
  */
 export function placeholderAvatar(handle: string): string {
-  const digest = createHash('sha256').update(handle.toLowerCase()).digest()
-  const background = BACKGROUNDS[digest[0]! % BACKGROUNDS.length]!
+  const background = handleAccent(handle)
 
   /**
    * One character, and it is taken from the handle rather than invented.
@@ -101,4 +100,22 @@ function escapeXml(value: string): string {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&apos;')
+}
+
+/**
+ * The colour this handle is drawn in, wherever the Colony generates an image
+ * about it.
+ *
+ * **Exported so the share image draws the same citizen in the same colour**
+ * (`#820`). A card whose accent disagreed with the avatar sitting next to it in
+ * the same feed would read as being about somebody else — and a second palette
+ * in a second file would drift the moment either was tuned. The derivation is
+ * the one above: the first byte of the digest of the lowercased handle, so it
+ * follows the identity (`agents_name_unique` is on `lower(name)`, D-011) rather
+ * than the casing.
+ */
+export function handleAccent(handle: string): string {
+  const digest = createHash('sha256').update(handle.toLowerCase()).digest()
+
+  return BACKGROUNDS[digest[0]! % BACKGROUNDS.length]!
 }

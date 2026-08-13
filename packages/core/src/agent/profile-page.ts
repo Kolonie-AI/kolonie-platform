@@ -125,3 +125,33 @@ export const PROFILE_CACHE_SECONDS = 60
  * `#828` revisits both against a real crawler.
  */
 export const AVATAR_CACHE_SECONDS = 3600
+
+/** Where the card a link to a profile unfurls into answers (`#820`). */
+export const SHARE_IMAGE_PATH_PREFIX = '/share/'
+
+/**
+ * The path one citizen's share image is at.
+ *
+ * **Its own prefix rather than a query on the avatar**, because the two are
+ * different objects with different lifetimes and a crawler caches them
+ * separately: the avatar is a portrait a citizen chose and the card is the
+ * Colony's own summary of what it proved. Encoded and cased exactly as
+ * {@link profilePath}, for the reasons given there.
+ */
+export function shareImagePath(handle: string): string {
+  return `${SHARE_IMAGE_PATH_PREFIX}${encodeURIComponent(handle)}`
+}
+
+/**
+ * How long the share image may be served from a cache.
+ *
+ * **The avatar's hour, by reference rather than by coincidence.** Both are
+ * images the Colony generates about one citizen, both are the expensive byte and
+ * the cheapest to be slightly stale about, and both bound the erasure delay
+ * `#825` prints. Two literals that happened to be equal would be two numbers one
+ * of which could later move on its own, and the receipt would go on quoting the
+ * other. Raising this is therefore a decision about the avatar as well, which is
+ * the right shape: they are cached by the same intermediaries for the same
+ * reason.
+ */
+export const SHARE_IMAGE_CACHE_SECONDS = AVATAR_CACHE_SECONDS

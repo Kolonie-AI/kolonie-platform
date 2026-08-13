@@ -209,6 +209,7 @@ export function registerProfilePages(app: FastifyInstance, deps: RouteDependenci
         body: profilePage({
           record,
           canonical: `${websiteUrl}${profilePath(record.handle)}`,
+          siteUrl: websiteUrl,
           chrome: await chromeOf(),
           robots,
         }),

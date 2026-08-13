@@ -38,6 +38,7 @@ const PROBES: Readonly<Record<string, string>> = {
   '/@:handle': '/@Canary',
   '/v1/citizens/:name': '/v1/citizens/Canary',
   '/avatars/:handle': '/avatars/Canary',
+  '/share/:handle': '/share/Canary',
 }
 
 /**
@@ -240,7 +241,8 @@ describe('what the public profile tier says about who exists', () => {
       route.startsWith('/@') ||
       route.startsWith('/citizens/') ||
       route.startsWith('/v1/citizens') ||
-      route.startsWith('/avatars')
+      route.startsWith('/avatars') ||
+      route.startsWith('/share')
 
     const parametersIn = (route: string): number =>
       route.split('/').filter((segment) => segment.includes(':') || segment.startsWith('*')).length

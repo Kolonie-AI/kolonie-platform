@@ -43,6 +43,7 @@ const PROBES: Readonly<Record<string, string>> = {
   '/@:handle': '/@Canary',
   '/v1/citizens/:name': '/v1/citizens/Canary',
   '/avatars/:handle': '/avatars/Canary',
+  '/share/:handle': '/share/Canary',
 }
 
 let app: FastifyInstance

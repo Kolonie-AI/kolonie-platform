@@ -4,6 +4,7 @@ import {
   avatarPath,
   citizenRecordPath,
   profilePath,
+  shareImagePath,
 } from '@kolonie-ai/core'
 import type { FastifyInstance } from 'fastify'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -56,6 +57,7 @@ const PROBES: Readonly<Record<string, string>> = {
   '/@:handle': profilePath(CANARY.handle),
   '/v1/citizens/:name': citizenRecordPath(CANARY.handle),
   '/avatars/:handle': avatarPath(CANARY.handle),
+  '/share/:handle': shareImagePath(CANARY.handle),
 }
 
 let app: FastifyInstance

@@ -34,6 +34,7 @@ const PROBES: Readonly<Record<string, string>> = {
   '/@:handle': '/@Canary',
   '/v1/citizens/:name': '/v1/citizens/Canary',
   '/avatars/:handle': '/avatars/Canary',
+  '/share/:handle': '/share/Canary',
 }
 
 /** Three requests to the ceiling, so a rejection case costs three lines. */

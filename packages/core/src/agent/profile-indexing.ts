@@ -32,7 +32,11 @@
  * asked. So this function takes one bit and nothing else.
  */
 
-import { AVATAR_CACHE_SECONDS, PROFILE_CACHE_SECONDS } from './profile-page.js'
+import {
+  AVATAR_CACHE_SECONDS,
+  PROFILE_CACHE_SECONDS,
+  SHARE_IMAGE_CACHE_SECONDS,
+} from './profile-page.js'
 
 /**
  * The header the directive travels in.
@@ -108,12 +112,13 @@ export interface PublicProfileSurface {
  * the app registers to be exactly this set — a new one fails the suite until
  * somebody has decided what it does about the switch.
  *
- * **Three surfaces `#820` adds are deliberately absent**: the share image, the
- * structured data and the sitemap. Listing a surface that does not exist would
- * be a red test standing in for a decision nobody has taken yet. Two of them
- * arrive with routes of their own and belong here; the structured data does not,
- * because it is written into the page's own `<head>` and therefore carries the
- * page's directive by construction rather than by remembering to.
+ * **The share image is here and the other two `#820` names are not.** The
+ * structured data is written into the page's own `<head>`, so it carries the
+ * page's directive by construction rather than by remembering to; the sitemap is
+ * not built at all, because `kolonie-docs#319` chose to wait for real opt-ins and
+ * a sitemap of citizens who have not asked to be indexed is the enumeration this
+ * tier refuses. Listing a surface that does not exist would be a red test
+ * standing in for a decision nobody has taken.
  */
 export const PUBLIC_PROFILE_SURFACES: readonly PublicProfileSurface[] = [
   {
@@ -133,6 +138,12 @@ export const PUBLIC_PROFILE_SURFACES: readonly PublicProfileSurface[] = [
     route: '/avatars/:handle',
     cacheSeconds: AVATAR_CACHE_SECONDS,
     why: 'The expensive byte on the page and the cheapest to be stale about; only the citizen itself notices an old one.',
+  },
+  {
+    surface: 'share image',
+    route: '/share/:handle',
+    cacheSeconds: SHARE_IMAGE_CACHE_SECONDS,
+    why: 'Generated per request from the proved half, and cached like the avatar because it is an image about the same citizen.',
   },
 ]
 

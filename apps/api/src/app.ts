@@ -42,6 +42,7 @@ import { registerProviderEnquiryRoute } from './routes/provider-enquiries.js'
 import { registerConsoleRoutes } from './routes/console.js'
 import { registerAtlasPages } from './routes/atlas-pages.js'
 import { registerAvatarRoutes } from './routes/avatars.js'
+import { registerShareImageRoutes } from './routes/share-images.js'
 import { registerProfilePages } from './routes/profile-pages.js'
 import type { AvatarDesk } from './avatars.js'
 import { registerEmailRoutes } from './routes/email.js'
@@ -557,6 +558,10 @@ export function buildApp({
   // On the app rather than under `/v1`: a public image is not a version-pinned
   // API surface, which is the argument D-062 already makes about a public page.
   registerAvatarRoutes(app, routes)
+  // The card a link to a profile unfurls into (`#820`). Beside the avatar and
+  // outside `/v1` for the same reason: a URL a stranger's feed has cached
+  // outlives an API version.
+  registerShareImageRoutes(app, routes)
   registerStewardPages(app, routes)
   // Host routes rather than `/v1/`: these are pages a person clicks out of a
   // mail, and an API version in the URL would break them for reasons that have

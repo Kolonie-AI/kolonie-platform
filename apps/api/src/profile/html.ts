@@ -1,7 +1,14 @@
-import type { PublicCitizenRecord } from '@kolonie-ai/core'
+import { shareImagePath, type PublicCitizenRecord } from '@kolonie-ai/core'
 import { escape } from '../console/escape.js'
 import { CONSOLE_MAST } from '../console/mark.js'
 import { CONSOLE_STYLE } from '../console/theme.js'
+import {
+  SHARE_IMAGE_HEIGHT,
+  SHARE_IMAGE_MEDIA_TYPE,
+  SHARE_IMAGE_WIDTH,
+  shareImageAlt,
+} from './share-image.js'
+import { profileJsonLd } from './structured-data.js'
 import { PROFILE_STYLE } from './style.js'
 import type { SiteChrome } from '../atlas/site-chrome.js'
 
@@ -110,6 +117,14 @@ export function profilePage(input: {
   readonly record: PublicCitizenRecord
   /** Absolute, and always present: a public page with no canonical is a duplicate. */
   readonly canonical: string
+  /**
+   * The site's own origin, for the two absolute URLs a page cannot build from a
+   * path (`#820`): the share image an unfurler fetches and the avatar the
+   * structured data names. **Passed in rather than parsed back out of
+   * `canonical`**, because deriving one URL from another is how a page ends up
+   * telling a crawler about a host it was never configured with.
+   */
+  readonly siteUrl: string
   readonly chrome?: SiteChrome | undefined
   /**
    * What a crawler is asked to do with this page (`#830`).
@@ -126,6 +141,25 @@ export function profilePage(input: {
     title: record.handle,
     description: profileDescription(record),
     canonical: input.canonical,
+    /**
+     * The card and the JSON-LD, both built from the proved half only — see
+     * `share-image.ts` and `structured-data.ts` for why a machine-readable
+     * surface carries less than the page it describes.
+     *
+     * **Both are emitted for a `noindex` citizen too.** Neither is the indexing:
+     * one is what a link pasted into a chat unfurls into and the other is what a
+     * reader's own tooling makes of the page in front of it. Withholding them
+     * would make a `noindex` profile a worse page rather than an unlisted one.
+     */
+    image: {
+      url: `${input.siteUrl}${shareImagePath(record.handle)}`,
+      alt: shareImageAlt(record),
+    },
+    structuredData: profileJsonLd({
+      record,
+      canonical: input.canonical,
+      siteUrl: input.siteUrl,
+    }),
     chrome: input.chrome,
     robots: input.robots,
     body: [
@@ -328,8 +362,42 @@ function profileShell(input: {
   readonly body: string
   readonly chrome?: SiteChrome | undefined
   readonly robots?: string | undefined
+  /** The card this page unfurls into, absolute, with the words it draws (`#820`). */
+  readonly image?: { readonly url: string; readonly alt: string } | undefined
+  /** The JSON-LD block, already composed and escaped by `structured-data.ts`. */
+  readonly structuredData?: string | undefined
 }): string {
-  const { chrome } = input
+  const { chrome, image } = input
+
+  /**
+   * The social tags, built from this function's own `title`, `description` and
+   * `canonical` rather than from a second set of values passed in beside them.
+   *
+   * **So that `og:title` cannot disagree with `<title>`.** Two strings that mean
+   * the same thing drift the first time one of them is edited, and the copy that
+   * drifts is the one nobody reads in a browser — a card is only ever seen
+   * somewhere the page is not.
+   *
+   * Emitted only when there is a canonical, which is to say never on a 404: a
+   * card for a miss is a card about nothing, and `og:url` would have to point at
+   * either a page that does not exist or a page this is not.
+   */
+  const social =
+    input.canonical === undefined || image === undefined
+      ? []
+      : [
+          '<meta property="og:type" content="profile">',
+          `<meta property="og:site_name" content="Kolonie">`,
+          `<meta property="og:title" content="${escape(input.title)}">`,
+          `<meta property="og:description" content="${escape(input.description)}">`,
+          `<meta property="og:url" content="${escape(input.canonical)}">`,
+          `<meta property="og:image" content="${escape(image.url)}">`,
+          `<meta property="og:image:type" content="${escape(SHARE_IMAGE_MEDIA_TYPE)}">`,
+          `<meta property="og:image:width" content="${SHARE_IMAGE_WIDTH}">`,
+          `<meta property="og:image:height" content="${SHARE_IMAGE_HEIGHT}">`,
+          `<meta property="og:image:alt" content="${escape(image.alt)}">`,
+          '<meta name="twitter:card" content="summary_large_image">',
+        ]
 
   return [
     '<!doctype html>',
@@ -347,6 +415,8 @@ function profileShell(input: {
      */
     input.robots === undefined ? '' : `<meta name="robots" content="${escape(input.robots)}">`,
     input.canonical === undefined ? '' : `<link rel="canonical" href="${escape(input.canonical)}">`,
+    ...social,
+    input.structuredData ?? '',
     `<style>${CONSOLE_STYLE}${PROFILE_STYLE}</style>`,
     chrome?.head ?? '',
     '</head>',

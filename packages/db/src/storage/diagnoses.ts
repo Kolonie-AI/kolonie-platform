@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, isNotNull, lt, sql, type SQL } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, isNotNull, isNull, lt, sql, type SQL } from 'drizzle-orm'
 import {
   DIAGNOSIS_RETENTION_DAYS,
   DOCTOR_TELLING_COOLING_HOURS,
@@ -309,6 +309,98 @@ export async function recordConsequence(
   supportTicketId: string,
 ): Promise<void> {
   await db.update(diagnoses).set({ supportTicketId }).where(eq(diagnoses.id, diagnosisId))
+}
+
+/** One colony-scoped diagnosis, as the escalation reads it (`#869`). */
+export interface EscalatableDiagnosis {
+  readonly id: string
+  readonly kind: string
+  readonly severity: string
+  readonly subject: string
+  readonly policyVersion: string
+  readonly firstSeenAt: string
+  readonly lastSeenAt: string
+  readonly observations: number
+  /** What a model wrote about it, or null. Never parsed — see {@link attachProse}. */
+  readonly prose: string | null
+}
+
+/**
+ * Open colony-scoped diagnoses that have never been escalated (`#869`).
+ *
+ * ## Three conditions, and each is one of the issue's three decisions
+ *
+ * **`scope = 'colony'`** — `kolonie-docs#324` point 3: an agent-scoped diagnosis
+ * is never escalated to anything, because an inefficient loop is not an
+ * incident. The check constraint refuses one on the row as well, so this
+ * condition is the read agreeing with the table rather than the only defence.
+ *
+ * **`state = 'open'`** — a diagnosis whose evidence stopped matching resolved
+ * itself, and filing an issue about it would be filing a condition that has
+ * ended.
+ *
+ * **`escalated_issue_url is null`** — one escalation per diagnosis, ever. The
+ * fact is on the row rather than in a process, so a restart cannot reset it and
+ * two passes cannot race into two issues.
+ *
+ * **`limit` is the cap, applied in SQL.** `#839` asked for a hard cap per pass
+ * with one summary over it, so that a rule regression cannot open two hundred
+ * issues before anybody notices. Reading `limit + 1` is how the caller learns
+ * there was more without reading it all — see the runner.
+ *
+ * Oldest first: a finding that has stood longest is the one that has waited.
+ */
+export async function escalatableDiagnoses(
+  db: Database,
+  limit: number,
+): Promise<readonly EscalatableDiagnosis[]> {
+  return db
+    .select({
+      id: diagnoses.id,
+      kind: diagnoses.kind,
+      severity: diagnoses.severity,
+      subject: diagnoses.subject,
+      policyVersion: diagnoses.policyVersion,
+      firstSeenAt: diagnoses.firstSeenAt,
+      lastSeenAt: diagnoses.lastSeenAt,
+      observations: diagnoses.observations,
+      prose: diagnoses.prose,
+    })
+    .from(diagnoses)
+    .where(
+      and(
+        eq(diagnoses.scope, 'colony'),
+        eq(diagnoses.state, 'open'),
+        isNull(diagnoses.escalatedIssueUrl),
+      ),
+    )
+    .orderBy(asc(diagnoses.firstSeenAt), asc(diagnoses.id))
+    .limit(limit)
+}
+
+/**
+ * Record the issue a diagnosis was escalated as (`#869`).
+ *
+ * **Conditional on the column still being null**, so that two passes racing
+ * produce one escalation rather than two — the second write finds nothing to
+ * update and the caller learns it lost. `recordConsequence` above does not need
+ * this because a ticket was only ever written once by construction; an
+ * escalation is written by a loop that runs every half hour.
+ *
+ * Returns whether this call is the one that recorded it.
+ */
+export async function recordEscalation(
+  db: Database,
+  diagnosisId: string,
+  issueUrl: string,
+): Promise<boolean> {
+  const rows = await db
+    .update(diagnoses)
+    .set({ escalatedIssueUrl: issueUrl })
+    .where(and(eq(diagnoses.id, diagnosisId), isNull(diagnoses.escalatedIssueUrl)))
+    .returning({ id: diagnoses.id })
+
+  return rows.length > 0
 }
 
 /**

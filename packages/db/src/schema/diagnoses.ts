@@ -131,6 +131,37 @@ export const diagnoses = pgTable(
     announcedAt: timestamp('announced_at', { withTimezone: true, mode: 'string' }),
     /** @see announcedAt */
     announcedSeverity: diagnosisSeverity('announced_severity'),
+    /**
+     * The issue this diagnosis was escalated as, or null (`#869`).
+     *
+     * ## Why an issue and not the support ticket `#839` proposed
+     *
+     * `#839`'s decision table said colony findings *"enter the existing pipeline
+     * as support tickets"*, and that could not be built: `support_tickets.agent_id`
+     * is `not null`, with an argument at length for why — *"a ticket without an
+     * author is an anonymous complaint the Colony cannot answer … the ticket is
+     * the citizen's own writing about the Colony, and it leaves with them"*. A
+     * colony-scoped diagnosis has no citizen **by construction**; the check
+     * constraint below refuses one. Making `agent_id` nullable to fit would
+     * change what a support ticket *is* and would re-open erasure, which is a
+     * much larger thing than getting one finding to a reader.
+     *
+     * So the consequence is a GitHub issue, and this is the column
+     * {@link supportTicketId} is the wrong shape for. `#838` deliberately did not
+     * add a nullable column for a consequence nobody had built; this is that
+     * consequence.
+     *
+     * ## It is also the dedupe, which is why it is a column and not a log line
+     *
+     * **One escalation per diagnosis, ever.** `#839` states the rule and had
+     * nothing to attach it to. Not-null here means *this has been escalated*, so
+     * a restart cannot reset it and two passes cannot race into two issues — the
+     * fact lives where the diagnosis lives rather than in a process's memory.
+     *
+     * Null on an agent-scoped row and always will be: an inefficient loop is not
+     * an incident, and `kolonie-docs#324` point 3 refuses escalating one.
+     */
+    escalatedIssueUrl: text('escalated_issue_url'),
   },
   (table) => [
     /**
@@ -166,6 +197,21 @@ export const diagnoses = pgTable(
      * that quietly identifies somebody, and it would pass every test written
      * about scopes because it would still *say* `colony`.
      */
+    /**
+     * Only a colony-scoped diagnosis is ever escalated (`#869`).
+     *
+     * **In SQL rather than in the runner**, on the same footing as the scope
+     * check below: `kolonie-docs#324` point 3 refuses escalating a finding about
+     * a citizen, and a rule that only the filing code remembers is a rule the
+     * second filing path breaks. What the Colony must never do is turn *this
+     * agent is looping* into an issue with a name on it, and the cheapest place
+     * to make that impossible is here.
+     */
+    check(
+      'diagnoses_only_colony_is_escalated',
+      sql`${table.escalatedIssueUrl} is null or ${table.scope} = 'colony'`,
+    ),
+
     check(
       'diagnoses_scope_names_its_subject',
       sql`(${table.scope} = 'agent' and ${table.agentId} is not null)

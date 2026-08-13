@@ -18,6 +18,9 @@ const aDiagnosis = (overrides: Partial<Diagnosis> = {}): Diagnosis => ({
   confidence: 0.91,
   evidence: { routeKeys: ['/v1/tasks'], figures: { hours: 4, serverErrors: 400 } },
   policyVersion: '2026-08-13.1',
+  // Null until the escalation files an issue for it (`#869`). A colony-scoped
+  // finding is the only kind that ever carries one.
+  escalatedIssueUrl: null,
   state: 'open',
   firstSeenAt: '2026-08-13T09:00:00.000Z',
   lastSeenAt: '2026-08-13T13:00:00.000Z',

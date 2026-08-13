@@ -1,0 +1,2 @@
+ALTER TABLE "diagnoses" ADD COLUMN "escalated_issue_url" text;--> statement-breakpoint
+ALTER TABLE "diagnoses" ADD CONSTRAINT "diagnoses_only_colony_is_escalated" CHECK ("diagnoses"."escalated_issue_url" is null or "diagnoses"."scope" = 'colony');

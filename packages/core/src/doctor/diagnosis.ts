@@ -127,6 +127,27 @@ export const DiagnosisSchema = z
      */
     supportTicketId: z.uuid().nullable(),
     /**
+     * The issue this diagnosis was escalated as, or `null` (`#869`).
+     *
+     * **The second consequence, and the column the paragraph above said would
+     * get one when it existed.** It is not a ticket, and the reason is
+     * `support_tickets.agent_id`: it is `not null`, with the argument written
+     * out at the column — *"the ticket is the citizen's own writing about the
+     * Colony, and it leaves with them"* — and a colony-scoped diagnosis has no
+     * citizen by construction. Making that column nullable to fit would change
+     * what a support ticket is and re-open what erasure does to one, which is
+     * far larger than getting a finding to a reader.
+     *
+     * **It is also the dedupe.** Not-null means *this has been escalated*, so
+     * one diagnosis produces one issue ever, and the fact survives a restart
+     * because it lives on the row rather than in a process.
+     *
+     * `null` on every agent-scoped diagnosis and always will be: an inefficient
+     * loop is not an incident (`kolonie-docs#324` point 3), and a check
+     * constraint refuses one.
+     */
+    escalatedIssueUrl: z.string().url().nullable(),
+    /**
      * When the citizen was last told about this, on a waking, or `null`.
      *
      * **On the diagnosis rather than held in a process**, so a restart cannot

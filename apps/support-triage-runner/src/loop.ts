@@ -2,6 +2,7 @@ import { silentLog, type Log, type SupportTicket, type SupportTicketId } from '@
 import type { Issues, KnownIssue } from './github.js'
 import { watchLogs, type WatchDependencies } from './watch.js'
 import { watchDebt, type DebtWatchDependencies } from './debt.js'
+import { escalateDiagnoses, type DiagnosisEscalationDependencies } from './diagnoses.js'
 import {
   closingNote,
   filing,
@@ -73,6 +74,15 @@ export interface LoopDependencies {
    * still the argument against a fourth runner.
    */
   readonly debt?: DebtWatchDependencies | undefined
+  /**
+   * A colony-scoped diagnosis's way out of the table (`#869`).
+   *
+   * **Optional on the same terms as the two above.** A deployment with no doctor
+   * writes no diagnoses and has none to escalate, and all three share the one
+   * GitHub App — which is the whole reason this is a source here rather than a
+   * credential in `apps/doctor-runner` (`#839`, `#407`).
+   */
+  readonly diagnoses?: DiagnosisEscalationDependencies | undefined
 }
 
 /**
@@ -419,6 +429,37 @@ export async function tick(deps: LoopDependencies, batchSize: number): Promise<T
       log.error('the debt pass failed; tickets and logs are unaffected', error, {
         event: 'debt.pass.failed',
       })
+    }
+  }
+
+  /**
+   * The escalation pass (`#869`), in its own `try` for the reason the two above
+   * give: three sources in one process are three jobs, and one of them failing
+   * must not take the others down.
+   *
+   * **Silent on an ordinary pass.** Almost every pass finds nothing — a
+   * colony-wide finding is rare by construction — and a line saying so every
+   * half hour is `#231`'s wallpaper aimed at a log rather than at a maintainer.
+   * The cap being hit is the exception and is always said, because a pass that
+   * quietly dropped work reads afterwards as one that found none.
+   */
+  if (deps.diagnoses !== undefined) {
+    try {
+      const escalated = await escalateDiagnoses(deps.diagnoses)
+      if (escalated.filed > 0 || escalated.over > 0) {
+        log.info(
+          `escalation pass: filed ${escalated.filed}, ${escalated.over} left for the next pass`,
+          { event: 'diagnoses.pass.done', ...escalated },
+        )
+      }
+    } catch (error) {
+      log.error(
+        'the escalation pass failed; tickets, logs and the debt alarm are unaffected',
+        error,
+        {
+          event: 'diagnoses.pass.failed',
+        },
+      )
     }
   }
 

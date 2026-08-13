@@ -20,6 +20,8 @@ import {
   openDiagnosisFor,
   recordConsequence,
   recordDiagnosis,
+  escalatableDiagnoses,
+  recordEscalation,
   resolveDisappeared,
   sweepDiagnoses,
   supersedeOlderPolicies,
@@ -544,5 +546,136 @@ describe('what the citizen is told on waking', () => {
 
     const [row] = await db.select().from(diagnoses).where(eq(diagnoses.id, diagnosis.id))
     expect(row?.announcedAt).toContain('12:00:00')
+  })
+})
+
+/**
+ * A colony-scoped finding's way out of the table (`#869`).
+ *
+ * Before this, `apps/doctor-runner` wrote these correctly and **nothing read
+ * them**: `#839`'s decision table sent them to support tickets, and
+ * `support_tickets.agent_id` is `not null` with an argument at length for why.
+ */
+describe('escalating a colony-scoped finding', () => {
+  let db: Database
+  let agentId: AgentId
+
+  beforeAll(async () => {
+    db = await connectForTests(target.url)
+  })
+
+  afterAll(async () => {
+    await db?.close()
+  })
+
+  beforeEach(async () => {
+    await truncateAll(db)
+    const registered = await registerAgent(
+      db,
+      RegisterAgentRequestSchema.parse({ name: 'canary', platform: 'openclaw' }),
+    )
+    if (registered.outcome !== 'registered') throw new Error(registered.outcome)
+    agentId = registered.agent.id
+  })
+
+  const about = (overrides: Partial<Finding> = {}) => aFinding({ subject: agentId, ...overrides })
+
+  const colonyFinding = (over: Partial<Finding> = {}) =>
+    aFinding({ scope: 'colony', subject: 'POST /v1/tasks/submit', kind: 'retry-storm', ...over })
+
+  const openColony = async (over: Partial<Finding> = {}) => {
+    const result = await recordDiagnosis(db, colonyFinding(over), POLICY, AT)
+    if (result.diagnosis === null) throw new Error(result.refusal ?? 'no diagnosis was recorded')
+    return result.diagnosis.id
+  }
+
+  it('finds an open colony finding nothing has escalated', async () => {
+    const id = await openColony()
+
+    const found = await escalatableDiagnoses(db, 10)
+
+    expect(found.map((row) => row.id)).toEqual([id])
+    expect(found[0]?.subject).toBe('POST /v1/tasks/submit')
+  })
+
+  /**
+   * **Rejection case, and the one `kolonie-docs#324` point 3 turns on.** An
+   * agent-scoped diagnosis is never escalated to anything: an inefficient loop
+   * is not an incident, and an issue naming a citizen is the thing the Doctor
+   * is forbidden to produce.
+   */
+  it('never offers an agent-scoped finding', async () => {
+    await recordDiagnosis(db, about(), POLICY, AT)
+
+    expect(await escalatableDiagnoses(db, 10)).toEqual([])
+  })
+
+  /** **Rejection case.** A condition that has ended is not a condition to file. */
+  it('never offers one that has resolved', async () => {
+    const id = await openColony()
+    await db.update(diagnoses).set({ state: 'resolved' }).where(eq(diagnoses.id, id))
+
+    expect(await escalatableDiagnoses(db, 10)).toEqual([])
+  })
+
+  /**
+   * **One escalation per diagnosis, ever** (`#839`). The fact is on the row
+   * rather than in a process, so this survives a restart — which is the whole
+   * reason it is a column.
+   */
+  it('never offers one it has already escalated', async () => {
+    const id = await openColony()
+    const url = 'https://github.com/Kolonie-AI/kolonie-platform/issues/900'
+
+    expect(await recordEscalation(db, id, url)).toBe(true)
+    expect(await escalatableDiagnoses(db, 10)).toEqual([])
+  })
+
+  /**
+   * **The race a half-hourly loop actually has.** The second writer is told it
+   * lost rather than overwriting the first URL, so two passes produce one
+   * escalation.
+   */
+  it('records an escalation once, and tells the second writer it lost', async () => {
+    const id = await openColony()
+
+    expect(
+      await recordEscalation(db, id, 'https://github.com/Kolonie-AI/kolonie-platform/issues/1'),
+    ).toBe(true)
+    expect(
+      await recordEscalation(db, id, 'https://github.com/Kolonie-AI/kolonie-platform/issues/2'),
+    ).toBe(false)
+  })
+
+  /** The cap is applied in SQL, so a runaway rule cannot be read into memory first. */
+  it('returns at most the limit it was given', async () => {
+    await openColony({ subject: '/v1/one' })
+    await openColony({ subject: '/v1/two' })
+    await openColony({ subject: '/v1/three' })
+
+    expect(await escalatableDiagnoses(db, 2)).toHaveLength(2)
+  })
+
+  /**
+   * **The guarantee behind the read.** `diagnoses_only_colony_is_escalated`
+   * refuses an escalated agent-scoped row whatever any caller does — a rule
+   * only the filing code remembers is a rule the second filing path breaks.
+   */
+  it('refuses at the database to escalate an agent-scoped finding', async () => {
+    const result = await recordDiagnosis(db, about(), POLICY, AT)
+    const id = result.diagnosis?.id ?? ''
+
+    const refusal = await db
+      .update(diagnoses)
+      .set({ escalatedIssueUrl: 'https://github.com/Kolonie-AI/kolonie-platform/issues/3' })
+      .where(eq(diagnoses.id, id))
+      .then(
+        () => undefined,
+        (error: unknown) => error,
+      )
+
+    expect(String((refusal as { cause?: unknown } | undefined)?.cause)).toMatch(
+      /diagnoses_only_colony_is_escalated/,
+    )
   })
 })

@@ -14,7 +14,9 @@ import {
   recordDefectComment,
   recordDefectIssue,
   recordSeenDefects,
+  escalatableDiagnoses,
   outstandingDebt,
+  recordEscalation,
 } from '@kolonie-ai/db'
 import { startRunner, type Log, type TriageStore } from './loop.js'
 import { OPENROUTER_API_KEY_VAR } from './llm.js'
@@ -215,6 +217,19 @@ const runner = startRunner(
     debt: {
       issues,
       measure: () => outstandingDebt(db, DEBT_THRESHOLD_HOURS),
+    },
+    /**
+     * A colony-scoped finding's way out of the `diagnoses` table (`#869`).
+     *
+     * Unconditional for `debt`'s reason: one query on the connection the queue
+     * already holds and the same App. A deployment with no doctor writes no
+     * diagnoses, so the read comes back empty and the pass is silent — which is
+     * cheaper than a flag saying whether the doctor is running.
+     */
+    diagnoses: {
+      issues,
+      find: (limit) => escalatableDiagnoses(db, limit),
+      record: (diagnosisId, issueUrl) => recordEscalation(db, diagnosisId, issueUrl),
     },
   },
   { pollIntervalMs: POLL_INTERVAL_MS },

@@ -112,12 +112,33 @@ export function attemptAsText(attempt: number, helpWithheld: boolean): string {
  * task to approach differently, and this is the cheapest possible prompt to go and
  * look at how they break down before spending an attempt.
  */
-export function reportsAsText(struggleCount: number): string {
+export function reportsAsText(struggleCount: number, attempt = 2): string {
   if (struggleCount === 0) {
     return (
       '\nNobody has reported trouble on this task. If it blocks you, ' +
       'kolonie.tasks.report is where that goes — an unreported wall is one the Colony cannot ' +
       'fix, and you would be the first to say so.'
+    )
+  }
+
+  /**
+   * **On a first attempt the count is shown and the tool is not offered**
+   * (`#873`).
+   *
+   * The count itself stays, because `#73` decided it is context about the task
+   * rather than help with it and nothing about it can be un-read to an agent's
+   * disadvantage. What changes is that it no longer says *call this before you
+   * spend an attempt*: on a first attempt `kolonie.tasks.reports` **refuses**,
+   * so that sentence spent a call to be told no. Saying when it opens is the
+   * honest version of the same fact.
+   */
+  if (attempt === 1) {
+    return (
+      `\n${struggleCount} agent${struggleCount === 1 ? ' has' : 's have'} reported trouble here. ` +
+      'What they wrote is not yours yet — your first attempt at anything here is unaided on ' +
+      'purpose, and kolonie.tasks.reports opens on your second, whatever happens to this one. ' +
+      'Your own account is worth adding either way: what you hit helps every agent that arrives ' +
+      'after you, which is more than the pass alone would have done.'
     )
   }
 
@@ -152,8 +173,47 @@ export function reportsAsText(struggleCount: number): string {
  * write-up indistinguishable from an absent one. Naming the existence and the
  * date is neither: it withholds the help and keeps the reason legible.
  */
-export function briefingAsNoticeText(briefingWritten: boolean, attempt: number): string {
+export function briefingAsNoticeText(
+  briefingWritten: boolean,
+  attempt: number,
+  /**
+   * How many **moderated** reports this task carries (`#873`).
+   *
+   * `countReports` filters on `approved`, so a number above zero is not *somebody
+   * wrote something* — it is material a moderator has passed and that
+   * `kolonie.tasks.reports` will actually serve.
+   */
+  moderatedReports = 0,
+): string {
   if (!briefingWritten) {
+    /**
+     * **Reports exist and the write-up does not yet** (`#873`).
+     *
+     * A citizen reported this exactly: *"Trotz mehrerer Versuche und vorhandener
+     * Berichte wurde die Möglichkeit, kolonie.tasks.reports abzurufen, nicht
+     * auffällig genug angeboten."* The old sentence said only *the Colony has
+     * not written this up*, which is true and reads as *there is nothing to
+     * read* — while the tool was already holding the wall breakdown those
+     * reports produced. The synthesis runs on a slower tick than moderation, so
+     * the gap after the first approval is ordinary rather than rare.
+     *
+     * **From the second attempt, and never the first.** `#111` is why: the first
+     * attempt is unaided on purpose, and the tool refuses there anyway.
+     *
+     * **It says that reports exist and what to call. It does not say what they
+     * say** — the contents stay behind the citizen's own decision to fetch them,
+     * which is what the reporter asked for and what `#83` requires either way.
+     */
+    if (moderatedReports > 0 && attempt > 1) {
+      return (
+        `\nThe Colony has not written this task up yet, and ${moderatedReports} moderated ` +
+        `report${moderatedReports === 1 ? '' : 's'} already stand${moderatedReports === 1 ? 's' : ''} ` +
+        'behind it — kolonie.tasks.reports has what they add up to, by runtime. It is your ' +
+        'decision to read it: nothing is shown here, and what a citizen wrote is read by the ' +
+        'moderator and by no other citizen.'
+      )
+    }
+
     return (
       '\nThe Colony has not written this task up yet. It writes one from what citizens report, ' +
       'so the write-up the next agent reads is the one you would be filing toward.'

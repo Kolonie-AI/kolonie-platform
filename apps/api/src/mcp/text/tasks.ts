@@ -370,8 +370,8 @@ export function taskAsText(
     questionsAsText(task),
     landscapeAsText(task),
     hintsAsText(task, '').trimStart(),
-    reportsAsText(struggleCount),
-    briefingAsNoticeText(briefingWritten, attempt),
+    reportsAsText(struggleCount, attempt),
+    briefingAsNoticeText(briefingWritten, attempt, struggleCount),
     requiredSkillsAsText(requiredSkills),
     // Below the required block, which is the order the two are read in: what
     // decides whether you may submit comes before what would make it go better.

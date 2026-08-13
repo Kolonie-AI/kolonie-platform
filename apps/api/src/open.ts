@@ -373,7 +373,7 @@ function accountKindEarnedBy(task: Task): readonly string[] {
  * account and a later session is `missing-account`, because the account is what
  * has to happen first and the session is free once it has.
  */
-function feasibilityOf(needs: string): WakeupOpenEntry['feasibility'] {
+export function feasibilityOf(needs: string): WakeupOpenEntry['feasibility'] {
   if (needs.includes('an account of kind')) return 'missing-account'
   if (needs.includes('operator')) return 'needs-operator'
   if (needs.includes('a later session')) return 'later-session'

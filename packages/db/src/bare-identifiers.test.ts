@@ -274,10 +274,32 @@ describe('a subquery never interpolates columns of two tables', () => {
    * Every identifier qualified, including the outward correlation to
    * `"agents"."id"`. Only the `not exists` fragment is counted: the `where` that
    * composes it names one table of its own, and `coalesce(min(…))` names one.
+   *
+   * ## `exploration.ts`, added 2026-08-14 (`#881`)
+   *
+   * `unwalkedAtlasEntry` asks which catalogue entries nobody has ever walked,
+   * which is `provider_recipes` with no matching row in `account_walks` — two
+   * tables, correlated on two columns, which is the shape this rule flags.
+   *
+   * **In a `where`, and measured rather than assumed.** Rendered through this
+   * dialect on 2026-08-14:
+   *
+   * ```
+   * not exists (
+   *   select 1 from "account_walks"
+   *    where "account_walks"."kind" = "provider_recipes"."kind"
+   *      and "account_walks"."provider" = "provider_recipes"."provider")
+   * and "provider_recipes"."kind" <> all(($1))
+   * ```
+   *
+   * Every identifier qualified, both halves of the correlation included. The
+   * held kinds arrive as a bound parameter rather than as SQL text, which is the
+   * other half of what this rule is watching for.
    */
   const MEASURED_SAFE: Readonly<Record<string, number>> = {
     'tasks.ts': 2,
     'arrivals.ts': 1,
+    'exploration.ts': 1,
     'briefing.ts': 1,
     'guidance.ts': 1,
     'submissions.ts': 1,

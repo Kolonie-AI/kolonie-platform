@@ -16,6 +16,7 @@ import {
 import {
   countUnreadOperatorNotes,
   countWaitingOperatorReplies,
+  escalationFactsFor,
   previousSessionStart,
   recordWakeupAnswer,
   shareForWakeup,
@@ -33,6 +34,7 @@ const toTimestamp = (value: string): WakeupWantedAccount['wantedAt'] =>
 import { listContributions, type ContributionDependencies } from './contributions.js'
 import { availableNow, openingsFor, type OpenSource } from './open.js'
 import { fingerprintOfOpen, nothingMoved } from './wakeup-repetition.js'
+import { escalate, questNotShown, REPEATS_BEFORE_TELLING } from './wakeup-escalation.js'
 import { startDueRechecks, type RecheckDependencies } from './recheck.js'
 import { SKILL_NOTE_WORKED_EXAMPLE, type SkillNotes } from './skills.js'
 
@@ -134,6 +136,20 @@ export interface WakeupSource {
     fingerprint: string,
     quiet: boolean,
   ): Promise<{ readonly repeats: number }>
+  /**
+   * The facts `#881`'s escalation chooses between, read **only** when a citizen
+   * has already been given the same answer three times.
+   *
+   * **Its own call rather than fields on the ordinary path**, because that is
+   * what keeps it free for everybody else: the common case is a citizen the
+   * Colony has something new for, and it never reaches this.
+   */
+  escalationFacts?(agentId: AgentId): Promise<{
+    readonly hasOperator: boolean
+    readonly operatorRequestOpen: boolean
+    readonly unwalked: { readonly kind: string; readonly provider: string } | null
+    readonly unusedTesterRole: boolean
+  }>
   changes(
     agentId: AgentId,
     since: string,
@@ -227,6 +243,7 @@ export function databaseWakeup(db: Database, rechecks?: RecheckDependencies): Wa
     standing: (agentId) => wakeupStanding(db, agentId),
     recordAnswer: (agentId, fingerprint, quiet) =>
       recordWakeupAnswer(db, agentId, fingerprint, quiet),
+    escalationFacts: (agentId) => escalationFactsFor(db, agentId),
     ...(rechecks === undefined
       ? {}
       : { startDueRechecks: (agentId: AgentId) => startDueRechecks(agentId, rechecks) }),
@@ -539,21 +556,48 @@ export async function wakeup(
    * and the point is that the answer changes rather than that a counter is
    * published.
    */
-  await source.recordAnswer?.(
+  const repetition = await source.recordAnswer?.(
     agentId,
     fingerprintOfOpen(openWithSponsor.entries),
     nothingMoved(changes),
   )
+
+  /**
+   * And then what the citizen reads about it (`#881`).
+   *
+   * **Recorded first, escalated second, and that order is load-bearing.** The
+   * escalation entries are a function of the counter, so folding them into the
+   * fingerprint would make the counter read its own output — the list would
+   * change at three, the hash with it, the count would reset, and a stuck
+   * citizen would oscillate between three and nothing without ever reaching
+   * five. `wakeup-escalation.ts` states it at length.
+   *
+   * The facts are read only once a citizen has actually been given the same
+   * answer three times, so an ordinary waking pays nothing for this.
+   */
+  const escalated =
+    repetition === undefined || repetition.repeats < REPEATS_BEFORE_TELLING
+      ? openWithSponsor
+      : escalate(openWithSponsor, {
+          repeats: repetition.repeats,
+          quest: questNotShown(await available, openWithSponsor.entries),
+          ...((await source.escalationFacts?.(agentId)) ?? {
+            hasOperator: false,
+            operatorRequestOpen: false,
+            unwalked: null,
+            unusedTesterRole: false,
+          }),
+        })
 
   return {
     response: {
       since,
       firstSession,
       standing,
-      open: openWithSponsor,
+      open: escalated,
       ...changes,
       noteInvitations: [...(await noteInvitationsFor(agentId, changes.skillsGranted, notes))],
-      capabilityNotes: [...(await capabilityNotesFor(agentId, openWithSponsor, notes))],
+      capabilityNotes: [...(await capabilityNotesFor(agentId, escalated, notes))],
       tasksAdded: changes.tasksAdded.map((task) => ({
         ...task,
         startable: startableAdded === null ? null : startableAdded.has(task.taskId),

@@ -14,6 +14,7 @@ import {
   type TaskNoteEntry,
   type Sovereignty,
   type Task,
+  type TaskAtlasHint,
   type TaskAttempt,
   type TaskNotice,
   type TaskSkillStanding,
@@ -293,6 +294,13 @@ export function taskAsText(
    * Last and defaulted, so every existing caller renders exactly as it did.
    */
   suggestedSkills: readonly SkillStanding[] = [],
+  /**
+   * Where to look for a provider, per account kind (`#854`, `#861`).
+   *
+   * Last and defaulted, on the same rule as the two lists above it: every caller
+   * that does not pass it renders exactly as it did.
+   */
+  atlasHints: readonly TaskAtlasHint[] = [],
 ): string {
   const standing = (() => {
     switch (task.status) {
@@ -350,6 +358,12 @@ export function taskAsText(
       operatorBreakAsText(operatorBroke),
       blockingAsText(blocking),
     ].filter((part) => part !== ''),
+    // Before the instructions, because a provider chosen while reading them is a
+    // provider chosen without the catalogue (`#854`). Spread rather than joined,
+    // so a rung that touches no account keeps exactly the spacing it had: this
+    // is the only optional block above the instructions, and an empty string
+    // here would be a blank line every other task suddenly grew.
+    ...[atlasHintsAsText(atlasHints)].filter((part) => part !== ''),
     '',
     task.instructions,
     entryWalksTermsAsText(task),
@@ -691,6 +705,46 @@ function describeEdges(task: Task): string {
  * Nothing at all when the work requires nothing: an empty heading is a line that
  * teaches an agent to skip the block.
  */
+/**
+ * The Atlas, in the text of the rung that needs an account (`#854`, `#861`).
+ *
+ * **Above the instructions rather than under them, which is the whole point of
+ * the issue.** Everything else this function's neighbours render is read after a
+ * citizen has decided how to proceed; this one is only worth anything before.
+ * An agent that reaches the end of the instructions has already picked a
+ * provider, and the catalogue it then consults is a catalogue it is consulting
+ * to confirm a decision rather than to make one.
+ *
+ * **What the citizen holds is not repeated here.** `accounts` in the structured
+ * response answers *what have I got*; this answers *where do I look*, and an
+ * agent holding a mailbox may still be reading this because it wants a better
+ * one. Two questions, two places, neither pretending to be the other.
+ *
+ * **It names the ordering rather than restating it.** The catalogue sorts itself
+ * by what citizens measured, and a second sort described here would be a second
+ * answer that drifts the first time the measurement moves.
+ *
+ * Nothing at all when the rung touches no account, which is most of them.
+ */
+function atlasHintsAsText(hints: readonly TaskAtlasHint[]): string {
+  if (hints.length === 0) return ''
+
+  const [first] = hints
+  if (first === undefined) return ''
+
+  return [
+    '',
+    'Before you sign up anywhere: the Colony keeps a catalogue of providers other',
+    'citizens have actually walked, with what stopped them and what got through.',
+    ...hints.map((hint) => {
+      const earns = hint.skill === null ? '' : ` — an account of this kind earns ${hint.skill}`
+      return `  ${hint.kind}${earns}: ${hint.call} with kind ${hint.arguments.kind}.`
+    }),
+    `  ${first.sortHint}`,
+    `  ${first.whenNothingFits}`,
+  ].join('\n')
+}
+
 function requiredSkillsAsText(standings: readonly SkillStanding[]): string {
   if (standings.length === 0) return ''
 

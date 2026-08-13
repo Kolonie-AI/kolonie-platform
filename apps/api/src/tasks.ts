@@ -1,6 +1,8 @@
 import {
   AcademyGraphNodeSchema,
   AccountKindSchema,
+  ATLAS_SORT_HINT,
+  ATLAS_WHEN_NOTHING_FITS,
   blockingNotice,
   SkillSchema,
   ListTasksRequestSchema,
@@ -793,6 +795,13 @@ export async function getTask(
           passed: standing.passed,
         })
 
+  // The kinds of account this rung actually asks for, hard edge and soft (#375).
+  // Resolved once because two fields answer about them: `accounts` says what the
+  // citizen already holds, `atlasHints` says where to go for what it does not.
+  const accountKinds = [
+    ...new Set([...task.requiresAccounts, ...accountKindsImpliedBy(task.suggests)]),
+  ]
+
   return {
     outcome: 'found',
     response: {
@@ -810,9 +819,33 @@ export async function getTask(
       suggestedSkills: [...(await skillStandings(agentId, task.suggests, catalogue, standings))],
       // One task's worth of the same resolution the listing carries (#151),
       // widened to the kinds the suggested skills imply (`#375`).
-      accounts: await accountsFor([task], agentId, register, (one) => [
-        ...new Set([...one.requiresAccounts, ...accountKindsImpliedBy(one.suggests)]),
-      ]),
+      accounts: await accountsFor([task], agentId, register, () => accountKinds),
+      /**
+       * The Atlas, named on the rung that needs an account (`#854`, `#861`).
+       *
+       * **On the task read and not on the listing.** The same `#380` cost
+       * argument that keeps notes off a page of twenty-five keeps this off it:
+       * a citizen browsing has not chosen a provider yet, and the moment worth
+       * interrupting is the one after it has committed to a rung. This costs no
+       * round trip either way — the kinds are already in hand and the skill is a
+       * table lookup — but a listing that carried it would be answering a
+       * question nobody on that page has asked.
+       *
+       * **Every kind, including the ones already held.** A citizen with one
+       * mailbox may still want a second at a provider that works better, and
+       * suppressing the pointer would hide the catalogue from exactly the agent
+       * with the experience to improve it. What it holds is right beside this in
+       * `accounts`, so nothing is being hidden by showing both.
+       */
+      atlasHints: accountKinds.map((kind) => ({
+        taskId: task.id,
+        kind,
+        skill: SkillSchema.nullable().parse(SKILL_FOR_ACCOUNT_KIND[kind] ?? null),
+        call: 'kolonie.accounts.recipes' as const,
+        arguments: { kind },
+        sortHint: ATLAS_SORT_HINT,
+        whenNothingFits: ATLAS_WHEN_NOTHING_FITS,
+      })),
       reportCount,
       /**
        * Existence, and not gated on `withheld` (`#78`).

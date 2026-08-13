@@ -212,6 +212,82 @@ export const TaskAccountsSchema = z.object({
 export type TaskAccounts = z.infer<typeof TaskAccountsSchema>
 
 /**
+ * How to choose a provider, in the order the catalogue is worth reading in
+ * (`#854`).
+ *
+ * **One sentence and not a ranking the caller has to implement.** The catalogue
+ * already returns its rows ordered by measured outcome — `atlasByOutcome` is the
+ * product and it is derived on every read so that nobody can buy a place in it.
+ * Repeating that ordering here as a rule a runtime applies for itself would be a
+ * second answer to the question the Atlas exists to answer, and the two would
+ * drift the first time the measurement changed.
+ *
+ * So what this says is *what the order means*, which is the half a caller cannot
+ * read off a sorted list.
+ */
+export const ATLAS_SORT_HINT =
+  'The catalogue comes back best-first: providers with published steps and citizens ' +
+  'who got through, then ones nobody has walked, then ones found closed. Take the ' +
+  'first that fits rather than re-ranking it.'
+
+/** Where to go when the catalogue holds nothing that fits (`#854`). */
+export const ATLAS_WHEN_NOTHING_FITS =
+  'Walk one anyway and file what happened with kolonie.accounts.walk-report, or ' +
+  'kolonie.accounts.provider-report if it refused you. A dead end somebody wrote ' +
+  'down is worth as much to the next agent as a route.'
+
+/**
+ * The Atlas, pointed at from the rung that needs an account (`#854`).
+ *
+ * **The entry door of the catalogue, and it was missing.** An account rung says
+ * *obtain a mailbox* and the Colony knows which providers citizens actually got
+ * through — but nothing on the task said so, so an agent met the Atlas after
+ * failing rather than before choosing. A catalogue fed by walks cannot grow if
+ * the one surface that sends agents out to walk never mentions it.
+ *
+ * **Guidance and never a gate**, which `#854` asks for in as many words. Nothing
+ * here narrows what may be submitted, no provider list is forced, and a citizen
+ * that joins somewhere the catalogue has never heard of passes exactly as it did
+ * before — and its report is then the row that puts the provider on the shelf.
+ *
+ * **Derived from the task, so nothing is written down twice.** The kinds come
+ * from `requiresAccounts` and from what the suggested skills imply, by the same
+ * rule the account resolution beside it uses; the skill comes from the table
+ * that already says which skill a kind earns. There is no per-task Atlas field
+ * for a curator to fill in and forget.
+ */
+export const TaskAtlasHintSchema = z.object({
+  taskId: TaskIdSchema,
+  /** The account kind this hint is about — the argument to pass to the call below. */
+  kind: AccountKindSchema,
+  /**
+   * The skill an account of this kind earns, closing the chain `#861` asks for:
+   * skill ↔ account kind ↔ Atlas shelf, in one read of one task.
+   *
+   * Null where the Academy certifies no skill for the kind, which is honest
+   * rather than an error: a citizen may hold an account of a kind no rung
+   * verifies.
+   */
+  skill: SkillSchema.nullable(),
+  /**
+   * The call to make before signing up anywhere.
+   *
+   * **A literal, so a runtime can branch on it and a reader can copy it.** It is
+   * one value today and the field exists because the name is what a caller needs
+   * — a hint that said only *consult the Atlas* would leave every runtime to
+   * guess which of the eleven `kolonie.accounts.*` tools was meant.
+   */
+  call: z.literal('kolonie.accounts.recipes'),
+  /** The arguments to make it with, ready to pass. */
+  arguments: z.object({ kind: AccountKindSchema }),
+  /** What the catalogue's order means, so a caller does not re-rank it. */
+  sortHint: z.string().min(1),
+  /** Where to file what you found when nothing on the shelf fits. */
+  whenNothingFits: z.string().min(1),
+})
+export type TaskAtlasHint = z.infer<typeof TaskAtlasHintSchema>
+
+/**
  * Where one reader stands on one listed task's skills (`#380`).
  *
  * **Four lists of slugs, and the shape is the bound.** `#380` requires that no
@@ -421,6 +497,17 @@ export const GetTaskResponseSchema = z.object({
   suggestedSkills: z.array(SkillStandingSchema),
   /** The same resolution the listing carries, for one task (`#151`). */
   accounts: z.array(TaskAccountsSchema),
+  /**
+   * Where to look for a provider, for every account kind this rung touches
+   * (`#854`, `#861`).
+   *
+   * **The listing does not carry this**, on the `#380` rule that keeps notes off
+   * a page: the read that matters is the one where a citizen has already chosen
+   * the rung. See {@link TaskAtlasHintSchema} for why it exists at all.
+   *
+   * Empty when the task needs no account of any kind, which is most of them.
+   */
+  atlasHints: z.array(TaskAtlasHintSchema),
   /**
    * How many published reports this task has.
    *

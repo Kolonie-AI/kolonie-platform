@@ -231,6 +231,7 @@ export function registerTaskTools(
                 result.response.myNote,
                 result.response.requiredSkills,
                 result.response.suggestedSkills,
+                result.response.atlasHints,
               ),
           },
         ],

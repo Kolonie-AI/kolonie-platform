@@ -434,5 +434,14 @@ export function fakeStore(): FakeStore {
       held.agent = { ...held.agent, profile, updatedAt: new Date().toISOString() }
       return { outcome: 'updated', agent: held.agent }
     },
+
+    /**
+     * The same record the write answers with, read by id (`#829`). No
+     * credential is consulted — the console has already decided who may ask,
+     * and a fake that re-decided it here would be testing its own opinion.
+     */
+    profileOf: async (agentId: AgentId): Promise<Agent | null> =>
+      [...byKey.values()].find((entry) => String(entry.agent.id) === String(agentId))?.agent ??
+      null,
   }
 }

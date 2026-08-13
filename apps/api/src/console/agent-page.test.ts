@@ -223,6 +223,7 @@ describe('the contents list on the agent page', () => {
       'quests-it-wrote',
       'accounts',
       'autonomy-contract',
+      'public-profile',
     ])
     expect(listed(html)).toEqual(rendered(html))
   })
@@ -232,7 +233,8 @@ describe('the contents list on the agent page', () => {
     const start = html.indexOf('<nav class="page-contents"')
     const contents = html.slice(start, html.indexOf('</nav>', start))
 
-    // Eight sections, eight marks: this agent has nothing anywhere.
+    // Nine sections, eight marks: this agent has nothing anywhere, and the
+    // public page is the one section that exists whether or not it does.
     expect([...contents.matchAll(/\(empty\)/g)]).toHaveLength(8)
   })
 
@@ -283,15 +285,15 @@ describe('the overview on the agent page', () => {
 
   /**
    * **The rejection case the definition of done asks for.** An agent with
-   * nothing renders eight lines saying so — `#583`'s rule, which this page
+   * nothing renders nine lines saying so — `#583`'s rule, which this page
    * cannot break: a missing entry reads as *this agent cannot do that*, and an
    * entry marked empty reads as *nothing here yet*.
    */
-  it('gives an agent that has done nothing eight lines saying so', () => {
+  it('gives an agent that has done nothing nine lines saying so', () => {
     const html = agentPage(aView())
-    const eight = lines(html)
+    const nine = lines(html)
 
-    expect(eight).toHaveLength(8)
+    expect(nine).toHaveLength(9)
     expect(overview(html)).toContain('No wallet proved yet')
     expect(overview(html)).toContain('None held yet')
     expect(overview(html)).toContain('None cleared yet')
@@ -300,6 +302,8 @@ describe('the overview on the agent page', () => {
     expect(overview(html)).toContain('None written')
     expect(overview(html)).toContain('Nothing proved, and nothing on the list')
     expect(overview(html)).toContain('No contract recorded yet')
+    // The one line that says nothing is missing: the page exists either way.
+    expect(overview(html)).toContain('asking for this agent by name')
   })
 
   it('leads each line to the section or the page that holds it', () => {
@@ -316,6 +320,8 @@ describe('the overview on the agent page', () => {
       // The one section whose content is a page of its own already (`#582`).
       '/agents/11111111-1111-4111-8111-111111111111/accounts',
       '#autonomy-contract',
+      // The second, for the same reason: the boxes and the preview are a page.
+      '/agents/11111111-1111-4111-8111-111111111111/profile',
     ])
   })
 
@@ -418,11 +424,11 @@ describe('the overview on the agent page', () => {
     expect(overview(html)).toContain('1 taken, the last')
   })
 
-  it('adds a ninth line only when there is a door to leave a note at', () => {
-    expect(lines(agentPage(aView()))).toHaveLength(8)
+  it('adds a tenth line only when there is a door to leave a note at', () => {
+    expect(lines(agentPage(aView()))).toHaveLength(9)
 
     const withDoor = lines(agentPage(aView({ operator: '<p>the form</p>' })))
-    expect(withDoor).toHaveLength(9)
-    expect(withDoor[8]).toContain('A door is open')
+    expect(withDoor).toHaveLength(10)
+    expect(withDoor[9]).toContain('A door is open')
   })
 })

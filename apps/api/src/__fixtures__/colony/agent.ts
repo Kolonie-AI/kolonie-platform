@@ -516,6 +516,15 @@ export function fakeAgent(deps: { readonly solanaChallenges: SolanaChallenges })
         held.agent = { ...held.agent, profile, updatedAt: new Date().toISOString() }
         return { outcome: 'updated', agent: held.agent }
       },
+
+      /**
+       * The same record the write answers with, read by id (`#829`) — out of the
+       * same `byKey` map, so the console form and the save it posts to are
+       * looking at one agent.
+       */
+      profileOf: async (agentId: AgentId): Promise<Agent | null> =>
+        [...byKey.values()].find((entry) => String(entry.agent.id) === String(agentId))?.agent ??
+        null,
     },
 
     revoke: (apiKey) => {

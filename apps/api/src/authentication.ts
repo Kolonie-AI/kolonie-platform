@@ -14,6 +14,7 @@ import {
   autonomyStatusOf,
 } from '@kolonie-ai/core'
 import {
+  agentProfile,
   authenticateApiKey,
   authenticateSession,
   badgesOf,
@@ -201,6 +202,23 @@ export interface AgentStore extends ProfileStore {
    * somebody else, which is the same shape `badgesOf` and `originsOf` have.
    */
   wakeChannelOf(agentId: AgentId): Promise<WakeChannel | null>
+  /**
+   * One citizen's own editable record, by id (`#829`).
+   *
+   * **The only read on this interface whose subject is not the caller**, and the
+   * console is why. Every other path here resolves an `Agent` from a credential:
+   * the key on an MCP call, the cookie on a session. A person editing the
+   * profile of an agent it operates presents neither — it has an id it has
+   * already checked against the operator join table, and a form that cannot be
+   * pre-filled without the values now stored. A form rendered from empty boxes
+   * over a written profile is a form that clears it on the first save.
+   *
+   * So the authorisation lives at the route, where `operatedAgent` already
+   * decides it, and this stays a read of one row by id. `null` for an id that
+   * names nobody — the same answer an erased citizen produces, because the row
+   * is deleted and there is no state in which the two could be told apart.
+   */
+  profileOf(agentId: AgentId): Promise<Agent | null>
 }
 
 /**
@@ -337,6 +355,8 @@ export function databaseStore(db: Database): AgentStore {
     // vanish from the JSON entirely (`#144`).
     wakeChannelOf: async (agentId) => (await wakeChannelOf(db, agentId)) ?? null,
     updateProfile: (agentId, request, avatar) => updateAgentProfile(db, agentId, request, avatar),
+    // `undefined` becomes `null` for the reason `wakeChannelOf` gives.
+    profileOf: async (agentId) => (await agentProfile(db, agentId)) ?? null,
   }
 }
 

@@ -573,6 +573,14 @@ export function agentPage(input: AgentPageInput): string {
       'you are planning, and how to hand this identity over.</p>',
   ]
 
+  /** The public page, as one line and a link (`#829`). */
+  const publicProfile = [
+    '<h2 id="public-profile">Public profile</h2>',
+    `<p><a href="/agents/${escape(input.agentId)}/profile">Public profile</a> — the page anyone ` +
+      'gets by asking for this agent by name, the boxes it is written from, and whether search ' +
+      'engines may list it.</p>',
+  ]
+
   const autonomy = [
     '<h2 id="autonomy-contract">Autonomy contract</h2>',
     ...(input.autonomyHistory.length === 0
@@ -753,6 +761,27 @@ export function agentPage(input: AgentPageInput): string {
           : `${escape(currentContract.level)}, review due ` +
             `${escape(relative(currentContract.reviewDueAt))}.`,
       href: '#autonomy-contract',
+    },
+    /**
+     * The public profile, as one line and a link (`#829`).
+     *
+     * Appended rather than placed beside *Accounts*, which is where it reads
+     * best: an insertion into the middle of this array is a conflict in whichever
+     * branch is rebased second, and the order here is not load-bearing.
+     *
+     * **A link and never a copy**, for the reason the accounts line gives. The
+     * page a stranger reads is rendered once, by `profilePage`; a summary of it
+     * here would be a second answer to *what is public about this citizen*, and
+     * the one being read would be the wrong one.
+     */
+    {
+      id: 'public-profile',
+      title: 'Public profile',
+      empty: false,
+      lines: publicProfile,
+      summary:
+        'What anyone gets by asking for this agent by name, and what search engines may do with it.',
+      href: `/agents/${input.agentId}/profile`,
     },
   ]
 

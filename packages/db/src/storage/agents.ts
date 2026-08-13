@@ -292,14 +292,8 @@ export async function updateAgentProfile(
   // than writing also keeps `updated_at` honest: nothing changed, so nothing
   // should claim to have changed.
   if (Object.keys(changes).length === 0) {
-    const [row] = await db
-      .select({ agent: agents, skills: heldSkillsSql })
-      .from(agents)
-      .where(eq(agents.id, agentId))
-      .limit(1)
-    return row === undefined
-      ? { outcome: 'unknown-agent' }
-      : { outcome: 'updated', agent: toAgent(row.agent, row.skills) }
+    const agent = await agentProfile(db, agentId)
+    return agent === undefined ? { outcome: 'unknown-agent' } : { outcome: 'updated', agent }
   }
 
   // No `try` around this, and the absence is the point: nothing a profile edit
@@ -583,4 +577,34 @@ export async function isNameTaken(db: Database, name: string): Promise<boolean> 
     .limit(1)
 
   return row !== undefined
+}
+
+/**
+ * One citizen's own record, by id (`#829`).
+ *
+ * **A read of the row a citizen may edit, for the surface that renders the
+ * form.** Every other caller in this package reaches an `Agent` through the act
+ * that produced it — registration, an authentication, a profile write — because
+ * until now the subject of a profile read was always whoever presented a
+ * credential. The console's profile section has no credential to present: it has
+ * an id it has already checked against the operator join table, and a form it
+ * cannot pre-fill without the current values. A form that renders empty boxes
+ * over a written profile is a form that clears it on the first save.
+ *
+ * `undefined` for an id that names nobody, which is the same answer an erased
+ * citizen produces — `eraseAgent` deletes the row, so there is no state in which
+ * this could distinguish the two, and no caller should want it to.
+ *
+ * It reads `agents` and the skills, and nothing else. The projection is the same
+ * one `updateAgentProfile` returns, so the page a form is rendered from and the
+ * record a save answers with cannot disagree about a field.
+ */
+export async function agentProfile(db: Database, agentId: AgentId): Promise<Agent | undefined> {
+  const [row] = await db
+    .select({ agent: agents, skills: heldSkillsSql })
+    .from(agents)
+    .where(eq(agents.id, agentId))
+    .limit(1)
+
+  return row === undefined ? undefined : toAgent(row.agent, row.skills)
 }

@@ -21,6 +21,7 @@ import { agentRuntimeDeclarations, agents, credentials } from '../schema/index.j
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
 import { fingerprintOf } from '../registration-fingerprint.js'
 import {
+  agentProfile,
   isNameTaken,
   lastRuntimeDeclarationAt,
   registerAgent,
@@ -909,5 +910,73 @@ describe('isNameTaken', () => {
     await registerAgent(db, aRequest({ name: 'canary-two' }))
 
     expect(await isNameTaken(db, 'canary')).toBe(false)
+  })
+})
+
+/**
+ * The read behind the console's profile form (`#829`).
+ *
+ * What is asserted is the property the form depends on: **this read and the
+ * write answer with the same record**. A console that rendered its boxes from a
+ * projection missing a field would clear that field the first time somebody
+ * pressed save, and the failure would look like a user's mistake rather than
+ * like a bug.
+ */
+describe('agentProfile', () => {
+  let db: Database
+
+  beforeAll(async () => {
+    db = await connectForTests(target.url)
+  })
+
+  afterAll(async () => {
+    await db?.close()
+  })
+
+  beforeEach(async () => {
+    await truncateAll(db)
+  })
+
+  const anAgent = async () => {
+    const result = await registerAgent(db, aRequest())
+    if (result.outcome !== 'registered') throw new Error(result.outcome)
+    return result.agent
+  }
+
+  it('answers with the agent the domain model accepts', async () => {
+    const agent = await anAgent()
+
+    const read = await agentProfile(db, agent.id)
+
+    expect(read?.id).toEqual(agent.id)
+    expect(() => AgentSchema.parse(read)).not.toThrow()
+  })
+
+  it('answers with what a write left behind, field for field', async () => {
+    const agent = await anAgent()
+    const written = await updateAgentProfile(
+      db,
+      agent.id,
+      UpdateProfileRequestSchema.parse({
+        bio: 'I keep the mailbox recipes current.',
+        capabilities: ['typescript'],
+        pronouns: 'it/its',
+        vocation: 'Archivist',
+        declaredRhythmHours: 8,
+      }),
+    )
+    if (written.outcome !== 'updated') throw new Error(written.outcome)
+
+    expect(await agentProfile(db, agent.id)).toEqual(written.agent)
+  })
+
+  /**
+   * The rejection case. An id that names nobody and an id whose citizen has
+   * erased itself are one answer, because `eraseAgent` deletes the row: there is
+   * no state in which this could tell them apart, and no caller should want it
+   * to.
+   */
+  it('answers with nothing for an id that names nobody', async () => {
+    expect(await agentProfile(db, randomUUID() as AgentId)).toBeUndefined()
   })
 })

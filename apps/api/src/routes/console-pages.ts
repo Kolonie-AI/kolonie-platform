@@ -131,6 +131,11 @@ import {
   oauthStateCookie,
   stateMatches,
 } from '../humans/humans.js'
+import { profilePath, robotsDirective } from '@kolonie-ai/core'
+import { profileNotFoundPage, profilePage } from '../profile/html.js'
+import { siteChromeFrom } from '../atlas/site-chrome.js'
+import { updateProfile } from '../profile.js'
+import { profilePatchFromForm, profileSectionPage } from '../console/profile-section.js'
 import type { RouteDependencies } from './dependencies.js'
 
 /**
@@ -2725,6 +2730,186 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
       await operatorPageBody(deps, door.token, action, door.view, {
         answerError: result.error.message,
         fillDrops: true,
+      }),
+    )
+  })
+
+  /**
+   * The site's header and footer, for the one console route that renders a
+   * public page rather than a console page.
+   *
+   * The same expression `registerProfilePages` uses, and deliberately the same
+   * dependency: a preview assembled from a second source of chrome would differ
+   * from the page it claims to be exactly when the site changed, which is the
+   * moment somebody is most likely to be looking at it.
+   */
+  const profileChrome =
+    deps.siteChrome ?? siteChromeFrom({ websiteUrl: deps.websiteUrl, log: deps.log })
+
+  /**
+   * The profile section for one operated agent (`#829`).
+   *
+   * **Every value comes from `profileOf`**, which is the record the write path
+   * answers with — so a form that renders and a save that returns cannot
+   * disagree about a field. Nothing here reads a credential, a key or a token,
+   * and there is nothing on the projection that could be rendered by accident:
+   * `Agent` carries a profile, a status, roles and skills.
+   */
+  const renderAgentProfile = async (
+    request: FastifyRequest,
+    reply: FastifyReply,
+    operated: { readonly agentId: AgentId; readonly roles: readonly string[] },
+    outcome: {
+      readonly error?: string
+      readonly values?: Readonly<Record<string, string>>
+      readonly saved?: boolean
+      readonly status?: number
+    },
+  ): Promise<FastifyReply> => {
+    const agent = await deps.store.profileOf(operated.agentId)
+    if (agent === null) return consoleNotFound(reply, request)
+
+    const indexable = await deps.store.indexableOf(operated.agentId)
+    const review = await deps.store.profileReviewOf(operated.agentId)
+
+    /**
+     * Asked rather than assumed: a candidate has a profile and no page, and the
+     * preview would answer *not found* for it. The section is where a citizen
+     * finds out what its page does, so it says which of the two it is looking at.
+     */
+    const published = (await deps.citizens.publicRecord(agent.profile.name)) !== undefined
+
+    const canonical = `${deps.websiteUrl}${profilePath(agent.profile.name)}`
+    const previewPath = `/agents/${operated.agentId}/profile/preview`
+    const status = outcome.status ?? 200
+
+    if (!wantsHtml(request)) {
+      return reply.status(status).send({
+        agentId: String(operated.agentId),
+        name: agent.profile.name,
+        canonical,
+        published,
+        profile: agent.profile,
+        indexable,
+        review,
+        ...(outcome.error === undefined ? {} : { error: outcome.error }),
+      })
+    }
+
+    return html(
+      reply.status(status),
+      profileSectionPage({
+        nav: navFor(request, operated.roles),
+        agentId: String(operated.agentId),
+        name: agent.profile.name,
+        canonical,
+        previewPath,
+        published,
+        profile: agent.profile,
+        indexable,
+        review,
+        ...outcome,
+      }),
+    )
+  }
+
+  app.get('/agents/:agentId/profile', async (request, reply) => {
+    if (!(await guard(request, reply))) return reply
+
+    const operated = await operatedAgent(request, reply)
+    if (operated === null) return reply
+
+    return renderAgentProfile(request, reply, operated, {})
+  })
+
+  app.post('/agents/:agentId/profile', async (request, reply) => {
+    if (!(await guard(request, reply))) return reply
+
+    const operated = await operatedAgent(request, reply)
+    if (operated === null) return reply
+
+    const agent = await deps.store.profileOf(operated.agentId)
+    if (agent === null) return consoleNotFound(reply, request)
+
+    /**
+     * Through `updateProfile`, and there is no console-shaped shortcut past it.
+     *
+     * The rhythm bounds, the avatar fetch, the moderation reset and the refusal
+     * a citizen reads all live in that function; a console that wrote to the
+     * store directly would be a second write path with none of them, and the
+     * first thing to go missing would be the refusal.
+     */
+    const result = await updateProfile(
+      profilePatchFromForm(request.body, agent.profile),
+      agent,
+      deps.store,
+      deps.rhythm,
+    )
+
+    if (result.outcome === 'rejected') {
+      const form = (request.body ?? {}) as Record<string, unknown>
+
+      return renderAgentProfile(request, reply, operated, {
+        error: result.error.message,
+        // Handed back so a refusal costs the typing rather than only the save.
+        values: Object.fromEntries(
+          Object.entries(form).flatMap(([key, value]) =>
+            typeof value === 'string' ? [[key, value] as const] : [],
+          ),
+        ),
+        status: ERROR_STATUS[result.error.code],
+      })
+    }
+
+    return renderAgentProfile(request, reply, operated, { saved: true })
+  })
+
+  /**
+   * The public page itself, on the console host, for whoever operates it.
+   *
+   * **`profilePage`'s bytes and not a second rendering of them.** The issue asks
+   * for a preview that cannot show a friendlier version of reality, and the only
+   * arrangement that holds is the one where there is nothing to keep in step:
+   * this handler builds the same arguments the public route builds and hands
+   * them to the same function. A test compares the two responses byte for byte.
+   *
+   * The headers differ and must: this is a console response, so `guard` has
+   * already applied `no-store` and the console's CSP. What the issue is about is
+   * the body.
+   */
+  app.get('/agents/:agentId/profile/preview', async (request, reply) => {
+    if (!(await guard(request, reply))) return reply
+
+    const operated = await operatedAgent(request, reply)
+    if (operated === null) return reply
+
+    const agent = await deps.store.profileOf(operated.agentId)
+    if (agent === null) return consoleNotFound(reply, request)
+
+    const record = await deps.citizens.publicRecord(agent.profile.name)
+    const chrome = await profileChrome()
+
+    /**
+     * The site's own miss, rather than the console's.
+     *
+     * An agent with no public record has a page that answers `404` to everybody,
+     * and showing its operator the console's not-found page instead would say
+     * *you may not look at this* about something that is simply not there.
+     */
+    if (record === undefined) {
+      return reply
+        .status(404)
+        .type('text/html; charset=utf-8')
+        .send(profileNotFoundPage({ chrome }))
+    }
+
+    return reply.type('text/html; charset=utf-8').send(
+      profilePage({
+        record,
+        canonical: `${deps.websiteUrl}${profilePath(record.handle)}`,
+        siteUrl: deps.websiteUrl,
+        chrome,
+        robots: robotsDirective(await deps.citizens.indexing(record.handle)),
       }),
     )
   })

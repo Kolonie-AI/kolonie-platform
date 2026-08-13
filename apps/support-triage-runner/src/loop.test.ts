@@ -157,6 +157,60 @@ describe('one ticket', () => {
   })
 
   /**
+   * **The whole path, because the two signals are read from two places**
+   * (`#783`). `filing` takes the citizen's kind from the ticket and the model's
+   * from the decision, and the defect this closes was that neither reached a
+   * label at all. A unit test on `filing` cannot catch the loop passing the
+   * wrong ticket's kind, or forgetting to pass one.
+   */
+  describe('what the filed issue is labelled as', () => {
+    const fileWith = async (ticketKind: SupportTicket['kind'], answer: Record<string, unknown>) => {
+      const ticket = aTicket({ kind: ticketKind })
+      const { store } = fakeStore([ticket])
+      const { issues, created } = fakeIssues()
+
+      await triageOne(
+        ticket,
+        { issues: [], answered: [] },
+        deps({
+          store,
+          issues,
+          model: modelAnswering({
+            kind: 'new',
+            repository: 'Kolonie-AI/kolonie-platform',
+            title: 'A title that is long enough to be accepted',
+            summary: 'A summary that is long enough to be worth acting on, and then some.',
+            ...answer,
+          }),
+        }),
+      )
+
+      return { ticket, issue: created[0] }
+    }
+
+    it('writes bug only when the citizen and the model agree', async () => {
+      const agreed = await fileWith('defect', { defect: true })
+      expect(agreed.issue?.labels).toContain('bug')
+
+      const proposed = await fileWith('proposal', { defect: true })
+      expect(proposed.issue?.labels).toContain('enhancement')
+      expect(proposed.issue?.labels).not.toContain('bug')
+    })
+
+    /**
+     * The end-to-end version of the promise: a report of an attack surface
+     * reaches a public issue with the citizen's words left out of it.
+     */
+    it('files a security report without publishing the citizen’s words', async () => {
+      const { ticket, issue } = await fileWith('defect', { defect: true, security: true })
+
+      expect(issue?.labels).toContain('security')
+      expect(issue?.body).not.toContain(ticket.body)
+      expect(issue?.body).toContain(ticket.id)
+    })
+  })
+
+  /**
    * The circumstances reach the issue, and they are read from the store rather
    * than inferred from the ticket (#255). Both halves matter: a maintainer
    * reading the issue can tell a runtime-specific defect from a general one, and

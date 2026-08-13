@@ -21,6 +21,19 @@ const ISSUE_LABELS = new Set([
   'p1',
   'p2',
   'bug',
+  /**
+   * The other half of `bug`, and the label a citizen's proposal now carries
+   * (`#783`). Both exist in kolonie-platform, kolonie-infra and kolonie-docs —
+   * checked against the three repositories on 2026-08-13 before the runner was
+   * allowed to write either.
+   */
+  'enhancement',
+  /**
+   * A report that describes an attack surface (`#783`). It is a property of a
+   * ticket rather than a route for one: same repository, same `area:`, and the
+   * citizen's words are withheld from the public issue.
+   */
+  'security',
   'area:platform',
   'area:infra',
   'area:docs',

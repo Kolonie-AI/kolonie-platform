@@ -175,7 +175,7 @@ export async function triageOne(
     }
 
     case 'new': {
-      const where = filing(decision)
+      const where = filing(decision, ticket.kind)
       // **Read here rather than with the queue** (#255): only a ticket that
       // becomes an issue needs it, and that is a minority of the queue. A
       // failure throws into the caller's per-ticket catch, which leaves the row
@@ -185,7 +185,7 @@ export async function triageOne(
       const url = await deps.issues.create({
         repository: where.repository,
         title: decision.title,
-        body: issueBody(ticket, decision.summary, context, call),
+        body: issueBody(ticket, decision.summary, context, call, decision.security),
         labels: where.labels,
       })
 

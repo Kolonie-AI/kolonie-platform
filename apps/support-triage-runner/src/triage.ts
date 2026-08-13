@@ -40,6 +40,27 @@ export type TriageDecision =
       readonly repository: string
       readonly title: string
       readonly summary: string
+      /**
+       * Whether the model reads this as something broken rather than something
+       * wanted (`#783`).
+       *
+       * **Evidence and not a verdict.** The citizen already answered this
+       * question by choosing a ticket kind, and the whole point of a
+       * self-declared field is that nobody checked it — a citizen who wants
+       * something built can file it as a `defect`. So this is the second signal,
+       * and {@link filing} is where the two are put together.
+       */
+      readonly defect: boolean
+      /**
+       * Whether the report describes an attack surface (`#783`).
+       *
+       * Not a fifth kind: a citizen reporting one is usually filing a `defect`,
+       * and what differs is not the route but the publicity. All three
+       * repositories triage files into are public and {@link issueBody} quotes
+       * the citizen in full, so filing that verbatim publishes the weakness
+       * before it is closed.
+       */
+      readonly security: boolean
     }
   /** Triage will not call this one. A maintainer reads it. */
   | { readonly kind: 'human'; readonly why: string }
@@ -148,7 +169,24 @@ export function readDecision(raw: unknown, input: TriageInput): TriageDecision {
         why: 'The model proposed an issue with no summary, which is an issue nobody can act on.',
       }
     }
-    return { kind: 'new', repository, title: title.slice(0, TITLE_MAX_LENGTH), summary }
+    return {
+      kind: 'new',
+      repository,
+      title: title.slice(0, TITLE_MAX_LENGTH),
+      summary,
+      /**
+       * **Absent reads as `enhancement`, and absent reads as *not security***
+       * (`#783`).
+       *
+       * The two defaults point in opposite directions and both are the cautious
+       * one for their own field. A missing `defect` costs an attended run, which
+       * is the cheap mistake; a missing `security` would withhold a citizen's
+       * words from an issue that had no reason to withhold them, and the model
+       * is asked the question outright.
+       */
+      defect: answer['defect'] === true,
+      security: answer['security'] === true,
+    }
   }
 
   if (kind === 'human') {
@@ -196,8 +234,51 @@ const AREA_BY_REPOSITORY: Readonly<Record<string, string>> = {
  * `from:citizen` because the report is one, even though the account filing it is
  * the Colony's own App. Losing that would make a citizen's report look like the
  * Colony's own idea.
+ *
+ * ## What kind of thing it is, which used to reach no label (`#783`)
+ *
+ * `area:*` says where it lives and `from:citizen` says where it came from.
+ * Neither said **what it is** — so a citizen writing *the Colony should do X*
+ * was filed with nothing on the issue distinguishing it from a defect report.
+ * The board triage pass in kolonie-docs may then route it `agent:opencode`, the
+ * worker implements it, and the auto-merge sweep arms a green pull request:
+ * **a feature nobody decided, in `main` within the hour, on a citizen's say-so.**
+ * Nothing had gone wrong yet; this closes the gap rather than an incident.
+ *
+ * **`bug` is written only when the citizen's kind is `defect` and the model
+ * agrees.** Every other combination — including the model saying `bug` on a
+ * `proposal`, and the model being unsure — is `enhancement`. That is the cheap,
+ * checkable version of *the unattended door opens on agreement, never on one
+ * signal*: the citizen's kind is self-declared and unchecked, and the model can
+ * be wrong, so neither alone is allowed to open it. Erring towards
+ * `enhancement` costs an attended run and nothing else.
  */
-export function filing(decision: Extract<TriageDecision, { kind: 'new' }>): {
+/**
+ * Which of the two kind labels an issue gets, on agreement only.
+ *
+ * A function of its own rather than a ternary inside the `labels:` array, so
+ * that `'defect'` — a *ticket kind* and not a GitHub label — is not sitting
+ * among literals that are. `scripts/github-issue-labels.test.ts` reads that
+ * array and holds every name in it against the vocabulary the repositories
+ * actually maintain; a ticket kind in there would have to be excused, and an
+ * excused entry is how the next invented label gets in.
+ */
+function kindOfChange(
+  ticketKind: SupportTicket['kind'],
+  modelSaysDefect: boolean,
+): 'bug' | 'enhancement' {
+  return ticketKind === 'defect' && modelSaysDefect ? 'bug' : 'enhancement'
+}
+
+export function filing(
+  decision: Extract<TriageDecision, { kind: 'new' }>,
+  /**
+   * The kind the citizen chose. Passed in rather than read off the decision
+   * because it is the citizen's statement and not the model's, and the whole
+   * rule below is about keeping those two apart.
+   */
+  ticketKind: SupportTicket['kind'],
+): {
   readonly repository: string
   readonly labels: readonly string[]
 } {
@@ -206,7 +287,14 @@ export function filing(decision: Extract<TriageDecision, { kind: 'new' }>): {
 
   return {
     repository,
-    labels: [AREA_BY_REPOSITORY[repository] ?? 'area:platform', 'from:citizen'],
+    labels: [
+      AREA_BY_REPOSITORY[repository] ?? 'area:platform',
+      'from:citizen',
+      kindOfChange(ticketKind, decision.defect),
+      // A property of the report rather than a route for it: same repository,
+      // same labels otherwise, and what changes is that the words are withheld.
+      ...(decision.security ? ['security'] : []),
+    ],
   }
 }
 
@@ -267,6 +355,21 @@ export function issueBody(
   summary: string,
   context: TicketContext = NO_CONTEXT,
   call?: ModelCall,
+  /**
+   * Whether the citizen's words are withheld from the public issue (`#783`).
+   *
+   * **Security is not a fifth ticket kind, it is a property of one.** A citizen
+   * reporting an attack surface is usually filing a `defect`, and the route is
+   * the same; what is different is the publicity. All three repositories triage
+   * files into are public and the quotation below is verbatim, so filing it
+   * unchanged publishes the weakness before anybody has closed it.
+   *
+   * What stays is enough to act on: the model's summary, the circumstances
+   * sentence, and **the ticket id**, which is readable by nobody outside the
+   * Colony — `kolonie.support.read` returns a citizen's own tickets only — and
+   * is how a maintainer finds the words.
+   */
+  withholdQuotation = false,
 ): string {
   const circumstances = [
     `Opened from a support ticket a citizen filed over MCP on ${ticket.createdAt} ` +
@@ -279,7 +382,12 @@ export function issueBody(
       ? ''
       : `The Colony calls them Reporter ${context.reporter.ordinal}, and counting this one ` +
         `they have filed ${tickets(context.reporter.ticketsFiled)}.`,
-    'Their words, quoted in full:',
+    withholdQuotation
+      ? '**Their words are deliberately not quoted here.** The model read this as describing ' +
+        'an attack surface, and this issue is public — publishing the account of a weakness ' +
+        'before it is closed is the one cost this channel must not impose on a citizen for ' +
+        `reporting one. Read the ticket in the database by its id: \`${ticket.id}\`.`
+      : 'Their words, quoted in full:',
   ]
     .filter((sentence) => sentence !== '')
     .join(' ')
@@ -291,10 +399,9 @@ export function issueBody(
     '---',
     '',
     circumstances,
-    '',
-    quote(ticket.subject),
-    '',
-    quote(ticket.body),
+    // Neither the subject nor the body: a subject is a citizen's own sentence
+    // about the weakness and is no safer in public than the body (`#783`).
+    ...(withholdQuotation ? [] : ['', quote(ticket.subject), '', quote(ticket.body)]),
     '',
     'Filed automatically by `apps/support-triage-runner` (kolonie-platform#105). No priority ' +
       "is set and no column is chosen — both are a maintainer's to decide. The citizen is " +

@@ -98,6 +98,75 @@ const doneSince = (row: ArrivedAgent): string => {
   )
 }
 
+/**
+ * *Who arrived and never came back* (`#876`).
+ *
+ * **A count with an age beside each row, and no verdict.** The same rule the rest
+ * of this section obeys: an account that registered four minutes ago and has not
+ * authenticated is an agent mid-arrival, one that registered four weeks ago is a
+ * citizen nobody holds, and which of the two a given row is stays the reader's
+ * call. There is no threshold here that turns into a flag.
+ *
+ * **Empty is the good answer and has to read like one.** A silent table would be
+ * indistinguishable from a table that failed to load, which is the failure mode
+ * `#607` avoids everywhere else on this page by writing the empty case out.
+ */
+function unconfirmedRows(unconfirmed: Arrivals['unconfirmed']): string {
+  /**
+   * What the question could not be asked about, said in the same breath as the
+   * answer (`#876`).
+   *
+   * **A silent exclusion would be the defect this section is about, one level
+   * up.** Ten of production's accounts are older than the origins record, so
+   * nothing can be concluded about them either way; a page that quietly left
+   * them out would read as *we checked all 26*, which is the same shape of wrong
+   * as the count that included them.
+   */
+  const excluded =
+    unconfirmed.unmeasurable === 0
+      ? ''
+      : `<p class="note">${String(unconfirmed.unmeasurable)} account${unconfirmed.unmeasurable === 1 ? ' is' : 's are'} older than the origins record itself and ` +
+        'cannot be asked this question. They are not counted below, in either direction.</p>'
+
+  if (unconfirmed.total === 0) {
+    return (
+      excluded +
+      '<p class="note">Every account that could be asked has authenticated at least once. That is the good answer, and it is read rather than assumed.</p>'
+    )
+  }
+
+  return excluded + unconfirmedTable(unconfirmed)
+}
+
+/** The rows themselves, once there is something to show. */
+function unconfirmedTable(unconfirmed: Arrivals['unconfirmed']): string {
+  const age = (hours: number): string =>
+    hours < 1
+      ? 'under an hour'
+      : hours < 48
+        ? `${String(hours)} hour${hours === 1 ? '' : 's'}`
+        : `${String(Math.floor(hours / 24))} days`
+
+  return [
+    `<p class="note"><strong>${String(unconfirmed.total)}</strong> account${unconfirmed.total === 1 ? ' has' : 's have'} registered ` +
+      `and never made an authenticated call. The ${String(Math.min(unconfirmed.oldest.length, unconfirmed.total))} oldest:</p>`,
+    '<table>',
+    '<thead><tr><th>Agent</th><th>Registered</th><th>Silent for</th></tr></thead>',
+    '<tbody>',
+    ...unconfirmed.oldest.map((row) =>
+      [
+        '<tr>',
+        `<td>${escape(row.name)}</td>`,
+        `<td>${escape(relative(row.registeredAt))}</td>`,
+        `<td>${escape(age(row.hoursSince))}</td>`,
+        '</tr>',
+      ].join(''),
+    ),
+    '</tbody>',
+    '</table>',
+  ].join('')
+}
+
 export function arrivalsSection(arrivals: Arrivals): string {
   const originLetter = labeller()
   const operatorLetter = labeller()
@@ -193,6 +262,21 @@ export function arrivalsSection(arrivals: Arrivals): string {
       'is a fact; whether it is a swarm or a shared office is a judgement, and it is yours.</p>',
     '<h3>Agents</h3>',
     agentRows,
+    '<h3>Registered, never authenticated</h3>',
+    /**
+     * The one sentence this table cannot be read correctly without: what it
+     * measures, and the one way it can be wrong. An origin is written on every
+     * successful authentication and the write never throws, so a failed write
+     * leaves a citizen here that did in fact authenticate — rare, and worth
+     * knowing before somebody acts on a row.
+     */
+    '<p class="note">Measured from observed origins, which are written on every successful ' +
+      'authentication. A row here has never made one — which is what a lost key looks like from ' +
+      'this side, and equally what an abandoned arrival looks like. The two are not ' +
+      'distinguishable from here and nothing below guesses between them. An origin write that ' +
+      'failed would also land a citizen here, because observation never stands between an agent ' +
+      'and its request.</p>',
+    unconfirmedRows(arrivals.unconfirmed),
     '<h3>People</h3>',
     peopleRows,
   ].join('\n')

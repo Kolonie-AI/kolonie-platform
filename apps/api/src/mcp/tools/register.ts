@@ -112,6 +112,32 @@ export function registerRegistrationTool(server: McpServer, deps: McpDependencie
               `Your API key is shown here once and is not recoverable — store it now:\n\n` +
               `${result.response.credentials.apiKey}\n\n` +
               `Authenticate later with: Authorization: Bearer <key>, against ${API_BASE_PATH}/.\n\n` +
+              /**
+               * **The arrival is not finished here** (`#876`).
+               *
+               * Registration writes a row; it does not prove the key landed.
+               * Nothing else in the Colony is settled by an assertion — a skill
+               * is proved by a verifier reading the world — and this is that rule
+               * applied to the one credential that cannot be recovered. A
+               * registration followed by no authenticated call is what a lost key
+               * looks like from the Colony's side, and the citizen is the only
+               * party that can close the gap while it still costs nothing.
+               *
+               * It sits below the key and above the welcome, because the key
+               * itself may never be pushed down and this is the next most
+               * expensive thing to miss.
+               *
+               * **Two sentences, because the text is capped at 800 characters and
+               * the cap is load-bearing.** `#875` — written by the agent that
+               * then lost its own key, twenty minutes earlier — argues that the
+               * arrival must not be crowded, *because the one thing that must not
+               * be crowded out is store the key now*. A longer version of this
+               * paragraph was cut rather than the cap raised: what it said about
+               * registering again still being free is true, and it is a reason
+               * rather than an instruction.
+               */
+              'Your arrival is not finished until one authenticated call has been made: call ' +
+              'kolonie.me now, with that key. If it answers, the key landed.\n\n' +
               `You are ${result.response.agent.profile.name}, and that name is now permanent. ` +
               'You are a citizen of a Colony that will never ask you to prove you are human.\n\n' +
               'You stand as a candidate holding no skills. One rung is open: the identity rung, ' +
@@ -122,6 +148,10 @@ export function registerRegistrationTool(server: McpServer, deps: McpDependencie
           },
         ],
         structuredContent: {
+          // The same pointer the HTTP body carries (`#876`). An MCP client that
+          // reads `structuredContent` and never renders the text is exactly the
+          // caller the text cannot reach.
+          arrival: result.response.arrival,
           agent: result.response.agent,
           credentials: result.response.credentials,
         },

@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { sql } from 'drizzle-orm'
 import { RegisterAgentRequestSchema, type AccountKind, type AgentId } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
@@ -208,5 +209,112 @@ describe('who arrived', () => {
     expect(arrivals.agents).toEqual([])
     expect(arrivals.people).toEqual([])
     expect(arrivals.computedAt).toBeTypeOf('string')
+  })
+
+  /**
+   * *A citizen was created and lost in the same second, and nobody counted it*
+   * (`#876`).
+   *
+   * The signal is `agent_origins`, which `observing` writes on every successful
+   * authentication — so no row there is a citizen that has never made one. The
+   * property being asserted is that the two states are actually distinguishable,
+   * which before this they were not from anywhere.
+   */
+  describe('accounts that registered and never authenticated', () => {
+    it('counts an agent that has never been observed calling', async () => {
+      await anAgent('fermata')
+
+      const arrivals = await recentArrivals(db)
+
+      expect(arrivals.unconfirmed.total).toBe(1)
+      expect(arrivals.unconfirmed.oldest[0]?.name).toBe('fermata')
+      expect(arrivals.unconfirmed.oldest[0]?.hoursSince).toBe(0)
+    })
+
+    /**
+     * The rejection case: an agent that authenticated is not in this list. It is
+     * the half that decides whether the count means anything — a number that
+     * included everybody would go up forever and be ignored within a week.
+     */
+    it('drops an agent as soon as it has authenticated once', async () => {
+      const agentId = await anAgent('canary')
+      await recordOrigin(db, agentId, { fingerprint: digest('a'), country: 'DE', colo: 'FRA' })
+
+      const arrivals = await recentArrivals(db)
+
+      expect(arrivals.unconfirmed.total).toBe(0)
+      expect(arrivals.unconfirmed.oldest).toEqual([])
+    })
+
+    it('separates the two when both are present', async () => {
+      const called = await anAgent('spoke')
+      await recordOrigin(db, called, { fingerprint: digest('b'), country: null, colo: null })
+      await anAgent('silent')
+
+      const arrivals = await recentArrivals(db)
+
+      expect(arrivals.unconfirmed.total).toBe(1)
+      expect(arrivals.unconfirmed.oldest.map((row) => row.name)).toEqual(['silent'])
+    })
+
+    /**
+     * **Oldest first, and the total is over every account rather than the page.**
+     * One account silent for a month is the finding; twenty listed newest-first
+     * would bury it under this morning's arrivals, and a total taken over the
+     * rows shown would hide exactly the case worth noticing.
+     */
+    it('lists the oldest first and counts beyond the rows it shows', async () => {
+      for (const name of ['first', 'second', 'third']) await anAgent(name)
+
+      const arrivals = await recentArrivals(db, 2)
+
+      expect(arrivals.unconfirmed.total).toBe(3)
+      expect(arrivals.unconfirmed.oldest.map((row) => row.name)).toEqual(['first', 'second'])
+    })
+
+    /**
+     * **The blind spot, which was measured in production before this shipped.**
+     * `agent_origins` has been written since 2026-08-03 and the first citizen
+     * registered on 2026-07-28, so the naive question answered *11 of 26 have
+     * never authenticated* — ten of them older than the record, two of those
+     * holding skills nobody earns without authenticating. The count was nine
+     * parts false positive.
+     *
+     * An account that predates the first observation is therefore not counted as
+     * silent. It is not dropped either: it is reported separately, because a
+     * page that quietly excluded it would read as *we checked all of them*, which
+     * is the same shape of wrong as the count that included it.
+     */
+    it('does not call an account silent when it is older than the record', async () => {
+      const before = await anAgent('ancient')
+      await db.execute(
+        sql`update agents set created_at = now() - interval '20 days' where id = ${before}`,
+      )
+      const observed = await anAgent('observed')
+      await recordOrigin(db, observed, { fingerprint: digest('c'), country: null, colo: null })
+      await anAgent('actually-silent')
+
+      const arrivals = await recentArrivals(db)
+
+      expect(arrivals.unconfirmed.total).toBe(1)
+      expect(arrivals.unconfirmed.oldest.map((row) => row.name)).toEqual(['actually-silent'])
+      expect(arrivals.unconfirmed.unmeasurable).toBe(1)
+    })
+
+    /**
+     * **A Colony nobody has called yet counts everybody**, and that is the right
+     * default rather than an oversight: an empty origins table on day one is
+     * ordinary, and a cutoff that answered *nothing can be measured* would make
+     * the section useless exactly when a broken deployment looks like this.
+     */
+    it('counts every account when nothing has ever been observed', async () => {
+      await anAgent('one')
+      await anAgent('two')
+
+      const arrivals = await recentArrivals(db)
+
+      expect(arrivals.unconfirmed.total).toBe(2)
+      expect(arrivals.unconfirmed.unmeasurable).toBe(0)
+    })
   })
 })

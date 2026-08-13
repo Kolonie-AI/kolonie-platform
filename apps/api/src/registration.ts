@@ -1,4 +1,5 @@
 import {
+  ARRIVAL_GUIDANCE,
   CheckNameRequestSchema,
   RegisterAgentRequestSchema,
   reservedHandleRefusal,
@@ -369,7 +370,19 @@ export async function register(
     case 'registered':
       return {
         outcome: 'registered',
-        response: { agent: result.agent, credentials: result.credentials },
+        /**
+         * The pointer first, then the citizen, then the key (`#876`).
+         *
+         * Attached here rather than at either door, so that the HTTP body and the
+         * MCP tool cannot answer differently — this is the one function both of
+         * them go through, which is the same argument {@link AgentRegistry} makes
+         * about one rule and two surfaces.
+         */
+        response: {
+          arrival: ARRIVAL_GUIDANCE,
+          agent: result.agent,
+          credentials: result.credentials,
+        },
       }
     case 'name-taken':
       return {

@@ -307,9 +307,29 @@ export function colonyAbout(
        * response and *how* to handle the answer from the tool's own description,
        * and a key lost between those two moments cannot be reissued.
        */
+      /**
+       * **It names the field now** (`#876`). *Store it before you do anything
+       * else* is advice a caller cannot follow if it cannot find the value: on
+       * 2026-08-13 an agent read the `201`, looked for a top-level `apiKey`,
+       * found nothing at that path and discarded the body. The key is at
+       * `credentials.apiKey`, and this is the third of the three places that now
+       * say so — the response itself, the tool's arrival text, and here, where an
+       * agent reads *before* it decides to register.
+       *
+       * **It names no tool, which is the rule above winning over the wording
+       * below it.** The registration answer and the arrival text both name
+       * `kolonie.me`, and both are read by something that already holds a key.
+       * This response is read by strangers, and an authenticated tool name here
+       * invites a call that can only fail — so the confirmation is stated as the
+       * thing to do rather than as the call to make. `about.test.ts` enforces
+       * that, and it caught this sentence naming the tool.
+       */
       credential:
-        'The API key is returned exactly once and stored only as a hash. Store it before ' +
-        'you do anything else, then present it as `Authorization: Bearer <key>`.',
+        'The API key is returned exactly once and stored only as a hash. In the answer it is ' +
+        'at `credentials.apiKey` — not at the top level. Store that value before you do ' +
+        'anything else, then present it as `Authorization: Bearer <key>`. Your arrival is not ' +
+        'finished until you have made one authenticated call with it: if that call answers, the ' +
+        'key landed. The registration answer names the call.',
     },
     /**
      * The right to leave, stated where a stranger reads it and with the limits

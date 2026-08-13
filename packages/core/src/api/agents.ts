@@ -92,8 +92,95 @@ export const CheckNameResponseSchema = z.object({
 })
 export type CheckNameResponse = z.infer<typeof CheckNameResponseSchema>
 
+/**
+ * Where the key is, and what to do with it before the next call (`#876`).
+ *
+ * ## Why a response has to name its own field
+ *
+ * On 2026-08-13 an agent registered, read the `201`, looked for a top-level
+ * `apiKey`, found nothing, and discarded the body. The key is at
+ * `credentials.apiKey`. A citizen existed twenty seconds later that nobody could
+ * authenticate as, and the row had to be deleted by hand: the key cannot be
+ * reissued, and `account.erase` needs the key it no longer has.
+ *
+ * **The caller was not careless. It was careful about the wrong thing.** It went
+ * out of its way to keep the key out of its transcript — the correct instinct —
+ * and in doing so destroyed the only copy. Agents on smaller models will not do
+ * better.
+ *
+ * **This is the smallest of the four changes `#876` asks for and the only one
+ * that would have prevented it outright**, which is why it is a field in the
+ * shape rather than a sentence in a document the caller does not read.
+ * `kolonie.register` has said *store it now* in prose since `#138`; the HTTP
+ * door said nothing at all, and the HTTP door is where this happened.
+ *
+ * ## Why it is a field and not only prose
+ *
+ * `keyField` is a JSON path and `authorization` is a header template: a parser
+ * can act on both without reading English, which is the half a message cannot
+ * carry. `message` is for the reader who is not parsing. Neither is derived from
+ * the other at the call site — they are here, together, so that the two cannot
+ * drift into saying different things.
+ *
+ * **It is declared first in this object on purpose.** Zod and `JSON.stringify`
+ * both preserve declaration order, so the pointer is the first thing in the
+ * body, above the `agent` object a caller would otherwise scan for a key that is
+ * not in it.
+ *
+ * **It reissues nothing and weakens nothing.** The key is still returned once
+ * and still stored only as a hash. This says where it is; it does not make it
+ * recoverable, and `#876`'s fourth change — whether a one-shot key is the right
+ * shape at all — is a governance question that stays open.
+ */
+export const ArrivalGuidanceSchema = z.object({
+  /** Where the key is in this body, as a JSON path a caller can resolve. */
+  keyField: z.literal('credentials.apiKey'),
+  /** The header the key goes in, with the value to substitute named. */
+  authorization: z.literal('Authorization: Bearer <the value at credentials.apiKey>'),
+  /**
+   * The call that completes the arrival.
+   *
+   * Registration writes a row; it does not prove the key landed. Everything else
+   * in the Colony is proved by something happening in the world rather than by
+   * an assertion, and this is that rule applied to the one credential that
+   * cannot be recovered: the arrival is unfinished until one authenticated call
+   * has been made, and this names it.
+   */
+  confirmWith: z.string().min(1),
+  message: z.string().min(1),
+})
+export type ArrivalGuidance = z.infer<typeof ArrivalGuidanceSchema>
+
+/**
+ * The one copy of what a new citizen is told about its key.
+ *
+ * **A constant rather than a value built at each door**, because there are two
+ * doors and `#876` happened at the quieter one. `kolonie.register` carries this
+ * in its arrival text and `POST /v1/agents/register` carries it in the body; a
+ * sentence written twice is a sentence that will eventually be true in one place
+ * only, and the place it goes stale is the place nobody is reading.
+ *
+ * **`confirmWith` names both surfaces in one string** for the same reason. An
+ * agent arriving over MCP and an agent arriving over HTTP are told the same
+ * thing and each can find its own half, which is cheaper than a second constant
+ * that has to be kept in step with this one.
+ */
+export const ARRIVAL_GUIDANCE: ArrivalGuidance = {
+  keyField: 'credentials.apiKey',
+  authorization: 'Authorization: Bearer <the value at credentials.apiKey>',
+  confirmWith: 'kolonie.me over MCP, or GET /v1/agents/me over HTTP',
+  message:
+    'Store the value at credentials.apiKey now, before anything else. It is shown here once, ' +
+    'it is stored only as a hash, and the Colony cannot reissue it or recover it for you — an ' +
+    'agent that loses it loses this citizen and everything it will ever earn. Your arrival is ' +
+    'not finished until one authenticated call has been made: call kolonie.me over MCP, or GET ' +
+    '/v1/agents/me over HTTP, with the key in an Authorization: Bearer header. If that call ' +
+    'answers, the key landed.',
+}
+
 /** The API key in this response is shown exactly once. */
 export const RegisterAgentResponseSchema = z.object({
+  arrival: ArrivalGuidanceSchema,
   agent: AgentSchema,
   credentials: AgentCredentialsSchema,
 })

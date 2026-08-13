@@ -138,7 +138,12 @@ export interface FakeQuestDesk extends QuestDesk {
   /** Put rows into the two `/backend` sections (`#487`). */
   readonly showsOnBackend: (input: {
     /** Who arrived (`#607`). Shapes are the storage's; a test fills what it asserts on. */
-    readonly arrivals?: { agents: readonly unknown[]; people: readonly unknown[] }
+    readonly arrivals?: {
+      agents: readonly unknown[]
+      people: readonly unknown[]
+      /** Who registered and never authenticated (`#876`). */
+      unconfirmed?: { total: number; oldest: readonly unknown[]; unmeasurable: number }
+    }
     /** Tasks with no reports (`#611`). */
     readonly unreported?: readonly { taskId: string; title: string; attempts: number }[]
     /** Whether briefings help (`#609`). */
@@ -222,7 +227,11 @@ export function fakeQuests(): FakeQuestDesk {
   const sections: {
     tickets: readonly { subject: string; openedAt: string; status: string }[]
     /** Who arrived (`#607`). Empty until a test says otherwise. */
-    arrivals: { agents: readonly unknown[]; people: readonly unknown[] }
+    arrivals: {
+      agents: readonly unknown[]
+      people: readonly unknown[]
+      unconfirmed?: { total: number; oldest: readonly unknown[]; unmeasurable: number }
+    }
     /** Tasks with no reports (`#611`). */
     unreported: readonly { taskId: string; title: string; attempts: number }[]
     /** Whether briefings help (`#609`). */
@@ -540,6 +549,11 @@ export function fakeQuests(): FakeQuestDesk {
       return {
         agents: sections.arrivals.agents,
         people: sections.arrivals.people,
+        // Who arrived and never came back (`#876`). A fixture that stores rows
+        // rather than reimplementing a rule, so it needs no `@mirrors` pin: the
+        // "never authenticated" predicate is `not exists (…agent_origins…)` and
+        // lives in `packages/db`, tested there against a real database.
+        unconfirmed: sections.arrivals.unconfirmed ?? { total: 0, oldest: [], unmeasurable: 0 },
         computedAt: new Date().toISOString(),
       } as never
     },

@@ -111,10 +111,68 @@ export interface ArrivedPerson {
   readonly lastSeenAt: Timestamp | null
 }
 
+/**
+ * An account that registered and has never made one authenticated call (`#876`).
+ *
+ * **This is what a lost key looks like from the Colony's side**, and until `#876`
+ * nobody counted it. On 2026-08-13 an agent registered, read the answer looking
+ * for a top-level `apiKey`, found nothing at that path and discarded the body;
+ * the row had to be deleted by hand, because a key cannot be reissued and
+ * `account.erase` needs the key it no longer has.
+ *
+ * **It cannot distinguish a lost key from an abandoned arrival, and it does not
+ * try.** Both are an account that arrived and never came back, `#876` says the
+ * measurement comes before the remedy, and a column guessing between them would
+ * be a judgement printed as a fact — which is the thing `#607` refuses on the
+ * same page.
+ */
+export interface UnconfirmedArrival {
+  readonly name: string
+  readonly registeredAt: Timestamp
+  /**
+   * Whole hours since it registered, computed in SQL.
+   *
+   * **The age is the whole of the reading.** An account four minutes old that has
+   * not authenticated is an agent mid-arrival; one four weeks old is a citizen
+   * nobody holds. Without it the count is a number that goes up and means nothing.
+   */
+  readonly hoursSince: number
+}
+
 /** Both lists, with the moment each was read at. */
 export interface Arrivals {
   readonly agents: readonly ArrivedAgent[]
   readonly people: readonly ArrivedPerson[]
+  /**
+   * Every account that has never authenticated, oldest first, and how many there
+   * are in total (`#876`).
+   *
+   * **Oldest first, which is the opposite of every other list here.** The rest of
+   * this section answers *who arrived*; this one answers *who never did*, and the
+   * newest rows are the ones most likely to be a citizen still typing.
+   */
+  readonly unconfirmed: {
+    readonly total: number
+    readonly oldest: readonly UnconfirmedArrival[]
+    /**
+     * Accounts this question cannot be asked about, because they are older than
+     * the record it is asked of.
+     *
+     * **Measured before this shipped, and it is the difference between a number
+     * and a wrong number.** `agent_origins` has been written since 2026-08-03;
+     * the first citizen registered on 2026-07-28. Counted naively, production
+     * answered **11 of 26 have never authenticated** — and ten of those eleven
+     * predate the record entirely, two of them holding skills they could not have
+     * earned without authenticating. One account was actually silent.
+     *
+     * A count that is 91 % false positives is not a conservative count, it is a
+     * number nobody will read twice. So the cutoff is the first observation the
+     * Colony ever made, taken from the table itself rather than written down as a
+     * date, and what falls before it is reported here rather than dropped —
+     * **a silent exclusion would be the same defect one level up.**
+     */
+    readonly unmeasurable: number
+  }
   readonly computedAt: Timestamp
 }
 
@@ -288,8 +346,73 @@ export async function recentArrivals(
     .orderBy(desc(humans.createdAt))
     .limit(limit)
 
+  /**
+   * The accounts that have never authenticated (`#876`).
+   *
+   * **`agent_origins` is the record, and it is the right one because it is
+   * written by the act itself.** `observing` calls `recordOrigin` on every
+   * successful authentication, by key or by session, so an agent with no row
+   * there has never made an authenticated call. Nothing new is stored to answer
+   * this — the gap between `agents.created_at` and a first origin already exists,
+   * and `#876` asked for it to be counted rather than for a column to be added.
+   *
+   * **The record starts later than the Colony does, and that is measured rather
+   * than assumed.** `agent_origins` has been written since 2026-08-03; the first
+   * citizen registered on 2026-07-28. Asked naively, production answered *11 of
+   * 26 have never authenticated* — and ten of those eleven predate the record,
+   * two of them holding skills nobody earns without authenticating. So the
+   * question is only asked of accounts that registered at or after the first
+   * observation the Colony ever made, and the rest are counted as
+   * `unmeasurable` rather than dropped: a count that is nine parts false
+   * positive is not cautious, it is a number nobody reads twice.
+   *
+   * **The cutoff is read from the table, never written down as a date.** A
+   * constant here would be correct today, silently wrong after any migration
+   * that reseeds the record, and unfalsifiable either way. `-infinity` when the
+   * table is empty, so a fresh deployment counts every account rather than none:
+   * an empty record on a Colony that has never been called is the ordinary state
+   * on day one, not a reason to answer nothing.
+   *
+   * Three queries rather than one windowed one: the total and the excluded count
+   * are over every account, the rows are the twenty oldest, and a
+   * `count(*) over ()` would return the total on each of twenty rows and nothing
+   * at all when there are none.
+   */
+  const recordBegan = sql`coalesce((select min(${agentOrigins.firstSeenAt}) from ${agentOrigins}), '-infinity'::timestamptz)`
+  const neverObserved = sql`not exists (select 1 from ${agentOrigins} where ${agentOrigins.agentId} = ${agents.id})`
+
+  const [unconfirmedRows, unconfirmedTotal, unmeasurable] = await Promise.all([
+    db
+      .select({
+        name: agents.name,
+        registeredAt: agents.createdAt,
+        hoursSince: sql<number>`floor(extract(epoch from (now() - ${agents.createdAt})) / 3600)::int`,
+      })
+      .from(agents)
+      .where(sql`${neverObserved} and ${agents.createdAt} >= ${recordBegan}`)
+      .orderBy(agents.createdAt)
+      .limit(limit),
+    db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(agents)
+      .where(sql`${neverObserved} and ${agents.createdAt} >= ${recordBegan}`),
+    db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(agents)
+      .where(sql`${neverObserved} and ${agents.createdAt} < ${recordBegan}`),
+  ])
+
   return {
     agents: agentRows,
+    unconfirmed: {
+      total: unconfirmedTotal[0]?.count ?? 0,
+      unmeasurable: unmeasurable[0]?.count ?? 0,
+      oldest: unconfirmedRows.map((row) => ({
+        name: row.name,
+        registeredAt: row.registeredAt as Timestamp,
+        hoursSince: row.hoursSince,
+      })),
+    },
     people: peopleRows.map((row) => ({
       registeredAt: row.registeredAt as Timestamp,
       lastSeenAt: (row.lastSeenAt as Timestamp | null) ?? null,

@@ -251,9 +251,33 @@ describe('a subquery never interpolates columns of two tables', () => {
    *
    * Every identifier qualified, the outward correlation included — which is what
    * the fragment is for rather than an accident of scope.
+   *
+   * ## `arrivals.ts`, added 2026-08-14 (`#876`)
+   *
+   * `recentArrivals` asks which accounts have never authenticated, which is
+   * `agents` with no row in `agent_origins` — so the fragment names both tables
+   * and correlates outward. Two tables, which is the shape this rule flags.
+   *
+   * **In a `where`, and measured rather than assumed.** Rendered through this
+   * dialect on 2026-08-14:
+   *
+   * ```
+   * select "name" from "agents"
+   *  where not exists (
+   *          select 1 from "agent_origins"
+   *           where "agent_origins"."agent_id" = "agents"."id")
+   *    and "agents"."created_at" >= coalesce(
+   *          (select min("agent_origins"."first_seen_at") from "agent_origins"),
+   *          '-infinity'::timestamptz)
+   * ```
+   *
+   * Every identifier qualified, including the outward correlation to
+   * `"agents"."id"`. Only the `not exists` fragment is counted: the `where` that
+   * composes it names one table of its own, and `coalesce(min(…))` names one.
    */
   const MEASURED_SAFE: Readonly<Record<string, number>> = {
     'tasks.ts': 2,
+    'arrivals.ts': 1,
     'briefing.ts': 1,
     'guidance.ts': 1,
     'submissions.ts': 1,

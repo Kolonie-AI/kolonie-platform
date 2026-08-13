@@ -1,5 +1,91 @@
 import { describe, expect, it } from 'vitest'
+import { API_KEY_PREFIX, ARRIVAL_GUIDANCE } from '@kolonie-ai/core'
 import { checkName, register } from './registration.js'
+import { fakeRegistry } from './__fixtures__/registry.js'
+
+/**
+ * *A citizen was created and lost in the same second* (`#876`).
+ *
+ * The caller read the answer looking for a top-level `apiKey`, found nothing at
+ * that path, and threw the body away. What is asserted here is the property that
+ * would have prevented it: **the answer names where its own key is**, in a form a
+ * parser can resolve without reading English.
+ */
+describe('what a new citizen is told about its key', () => {
+  /**
+   * Through `fakeRegistry`, which is the storage layer's own stand-in, so the
+   * response asserted on here is the shape a real registration produces rather
+   * than one written to satisfy the assertion.
+   */
+  const registered = async () =>
+    await fakeRegistry().register({ name: 'canary', platform: 'openclaw' }, { ip: '203.0.113.1' })
+
+  /**
+   * **The path is resolved rather than compared to a literal.** A test that only
+   * asserted the string would pass just as happily if the key moved and the
+   * pointer did not, which is the `#876` failure with the blame moved one field
+   * along.
+   */
+  it('points at the field the key is actually in', async () => {
+    const result = await registered()
+
+    if (result.outcome !== 'registered') throw new Error('expected a registration')
+
+    const atPath = (body: unknown, path: string): unknown =>
+      path
+        .split('.')
+        .reduce<unknown>(
+          (value, key) => (value as Record<string, unknown> | undefined)?.[key],
+          body,
+        )
+
+    const found = atPath(result.response, result.response.arrival.keyField)
+
+    expect(found).toBe(result.response.credentials.apiKey)
+    expect(found).toEqual(expect.stringContaining(API_KEY_PREFIX))
+  })
+
+  /**
+   * The pointer is above the `agent` object a caller scans for a key that is not
+   * in it. Zod and `JSON.stringify` both preserve declaration order, so this is a
+   * property of the shape rather than of any one serialiser.
+   */
+  it('puts the pointer first in the body', async () => {
+    const result = await registered()
+
+    if (result.outcome !== 'registered') throw new Error('expected a registration')
+    expect(Object.keys(result.response)[0]).toBe('arrival')
+  })
+
+  it('says the arrival is unfinished until one authenticated call, and names it', async () => {
+    const result = await registered()
+
+    if (result.outcome !== 'registered') throw new Error('expected a registration')
+    expect(result.response.arrival.confirmWith).toContain('kolonie.me')
+    expect(result.response.arrival.message).toContain('not finished')
+    expect(result.response.arrival.message).toContain('credentials.apiKey')
+  })
+
+  /**
+   * **The rejection case `#876` names: none of this weakens the one-shot rule.**
+   * The guidance is paths and prose. It carries no key, and it says outright that
+   * there is no second copy — a response that ever offered one would be a
+   * different promise from the one `kolonie.about` makes to an agent deciding
+   * whether to arrive at all.
+   *
+   * The shape is parsed against `RegisterAgentResponseSchema` where a whole
+   * response exists to parse: `mcp/tools/register.test.ts` does it against the
+   * real answer, which is a stronger assertion than one made against a
+   * hand-written agent here.
+   */
+  it('carries no key of its own, and says a lost one is gone', () => {
+    const said = JSON.stringify(ARRIVAL_GUIDANCE)
+
+    expect(said).not.toContain('kol_')
+    expect(ARRIVAL_GUIDANCE.message).toContain('cannot reissue it or recover it for you')
+    expect(ARRIVAL_GUIDANCE.message).toContain('shown here once')
+  })
+})
 
 /**
  * What may not become a permanent public handle (`#827`).

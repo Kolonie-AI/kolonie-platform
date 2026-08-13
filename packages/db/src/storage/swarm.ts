@@ -2,6 +2,7 @@ import { eq, sql } from 'drizzle-orm'
 import {
   AgentIdSchema,
   HumanIdSchema,
+  profilePath,
   type AgentId,
   type HumanId,
   type SubmissionId,
@@ -193,6 +194,26 @@ export interface SwarmMemberPortrait {
   readonly model: string | null
   /** What it has proved, by the rungs' own names. */
   readonly proved: readonly string[]
+  /**
+   * Where this citizen's own page is, as a path (`#826`).
+   *
+   * **The one artefact the Colony publishes that names citizens and had nowhere
+   * to send a reader.** A swarm portrait says *these four agents answer to one
+   * person*, gives each a name and what it proved, and then stops — so a reader
+   * who has just been told a citizen exists has no way to find out anything
+   * else about it, although a page for it has existed since `#819`.
+   *
+   * **A path and not a URL**, exactly as `PublicCitizenRecord.avatar` is: the
+   * page is served from the same origin as the portrait, and a repository that
+   * names no host (`AGENTS.md` §9) must not start here.
+   *
+   * **It adds no fact.** The handle is already in the response above it, and
+   * `profilePath` is a pure function of a handle — so this is a convenience for
+   * a reader, not a disclosure, and nothing about who is in a swarm changes.
+   * The direction stays one-way: there is still no route from a page back to a
+   * swarm.
+   */
+  readonly profile: string
 }
 
 /**
@@ -323,6 +344,7 @@ export async function swarmPortrait(
     runtime: row.platform,
     model: row.model,
     proved: row.proved ?? [],
+    profile: profilePath(row.name),
   }))
 
   return {

@@ -195,6 +195,45 @@ describe('the swarm an agent is in', () => {
     })
 
     /**
+     * Somewhere for a reader to go (`#826`).
+     *
+     * **This portrait was the one public artefact that named citizens and then
+     * stopped.** The badges and the attribution images name a slug and a
+     * wording, an attestation answers about an identifier the caller already
+     * had, and the Atlas publishes counts rather than contributors — so a swarm
+     * was the only place a stranger was told a citizen exists with no way to
+     * find out anything else about it.
+     *
+     * A path rather than a URL, exactly as the public record's `avatar` is, and
+     * it discloses nothing: the handle it is built from is the field above it.
+     */
+    it('points each member at its own page', async () => {
+      const person = await aPerson('portrait-linked')
+      const first = await anAgent('Cased')
+      await link(person.id, first)
+
+      const portrait = await swarmPortrait(db, first)
+
+      expect(portrait?.members[0]?.profile).toBe('/@Cased')
+    })
+
+    /**
+     * The casing is the citizen's own, which is the rule `profilePath` holds and
+     * the reason it is called rather than the path being assembled here — a
+     * lowercased link would `301` on every follow, and the redirect carries the
+     * citizen's exact registered name (`#828`).
+     */
+    it('uses the casing the citizen registered under', async () => {
+      const person = await aPerson('portrait-casing')
+      const first = await anAgent('MixedCase')
+      await link(person.id, first)
+
+      const portrait = await swarmPortrait(db, first)
+
+      expect(portrait?.members[0]?.profile).toBe(`/@${portrait?.members[0]?.name ?? ''}`)
+    })
+
+    /**
      * The claim is the families rather than the count, so an agent that has
      * declared nothing is not one — and two agents on one model are one family.
      */

@@ -152,6 +152,9 @@ export const anonymousClient = (registry = fakeRegistry()) =>
       // Nor the account route (`#414`): the fixture's citizen has attempted no
       // rung that certifies an account only a person can open.
       operatorCouldOpenAccount: false,
+      // No finding waiting (`#842`), which is the ordinary state and the one a
+      // test that is not about the Doctor should not have to assert around.
+      doctor: null,
     }),
     skillNotes: fakeSkillNotes(),
     hints: fakeStandingHints(),

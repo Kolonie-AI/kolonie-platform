@@ -115,6 +115,22 @@ export const diagnoses = pgTable(
     supportTicketId: uuid('support_ticket_id').references(() => supportTickets.id, {
       onDelete: 'set null',
     }),
+    /**
+     * When this citizen was last told about it on a waking, and at what severity
+     * (`#842`).
+     *
+     * **On the row rather than in a process, so a restart cannot reset it.** The
+     * pair is what makes *told and unchanged* distinguishable from *told and it
+     * got worse*: the stamp alone would either re-announce every re-evaluation
+     * or none of them, and both are wrong in the direction that costs the
+     * channel its credibility.
+     *
+     * Null on a colony-scoped row and always will be — nothing announces those
+     * to anybody, because there is nobody they are about.
+     */
+    announcedAt: timestamp('announced_at', { withTimezone: true, mode: 'string' }),
+    /** @see announcedAt */
+    announcedSeverity: diagnosisSeverity('announced_severity'),
   },
   (table) => [
     /**

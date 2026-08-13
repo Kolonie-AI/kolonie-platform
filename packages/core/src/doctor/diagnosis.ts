@@ -126,6 +126,24 @@ export const DiagnosisSchema = z
      * whose meaning nobody can check.
      */
     supportTicketId: z.uuid().nullable(),
+    /**
+     * When the citizen was last told about this, on a waking, or `null`.
+     *
+     * **On the diagnosis rather than held in a process**, so a restart cannot
+     * reset it and a citizen that was told is not told again by a runner that
+     * has forgotten (`#842`).
+     */
+    announcedAt: TimestampSchema.nullable(),
+    /**
+     * The severity it carried when it was announced, or `null`.
+     *
+     * **Beside the stamp rather than derived from the current severity**, which
+     * is what makes *it got worse* answerable at all: without it, a finding that
+     * rose from `concern` to `serious` is indistinguishable from one that was
+     * always `serious`, and the citizen either hears about every re-evaluation
+     * or about none.
+     */
+    announcedSeverity: FindingSeveritySchema.nullable(),
   })
   .strict()
 
@@ -142,3 +160,35 @@ export type Diagnosis = z.infer<typeof DiagnosisSchema>
  * what an operator wants when it returns.
  */
 export const DIAGNOSIS_RETENTION_DAYS = 90
+
+/**
+ * How long after being told a citizen may be told again about an unchanged
+ * finding, in hours (`#842`).
+ *
+ * **Twenty. Nagging is how a channel gets ignored**, and the `open` list holds
+ * five things — a Doctor that reappeared on every waking would be spending one
+ * of them on a sentence the citizen has already read and decided about.
+ *
+ * Under a day rather than over it, so a citizen on a daily rhythm hears about a
+ * standing problem roughly once a day rather than roughly never: at 24 hours
+ * exactly, a waking a few minutes early would skip, and the skip would repeat
+ * every day for the same few minutes.
+ */
+export const DOCTOR_TELLING_COOLING_HOURS = 20
+
+/**
+ * How long a telling still shows the same entry, in minutes (`#842`).
+ *
+ * **This is what keeps `kolonie.wakeup` safe to call twice.** That call is
+ * documented as consuming nothing and being safe to repeat, and an entry that
+ * vanished on the second call within one waking would quietly break that — an
+ * agent that called `wakeup`, did something else, and called it again to
+ * re-read the list would find the Doctor gone and reasonably conclude the
+ * finding had been resolved.
+ *
+ * So a repeat inside this window is the *same telling* rather than a second one:
+ * the entry stands, and nothing about the diagnosis moves. Ten minutes is longer
+ * than any plausible single waking and far shorter than the cooling period, so
+ * the two cannot be confused.
+ */
+export const DOCTOR_TELLING_GRACE_MINUTES = 10

@@ -283,6 +283,9 @@ export function fakeAgent(deps: { readonly solanaChallenges: SolanaChallenges })
       renewal: null,
       // Nor the account route (`#414`): nothing has been attempted here.
       operatorCouldOpenAccount: false,
+      // No finding waiting (`#842`), which is the ordinary state and the one a
+      // test that is not about the Doctor should not have to assert around.
+      doctor: null,
     }),
     skillNotes: fakeSkillNotes(),
     hints: fakeStandingHints(),

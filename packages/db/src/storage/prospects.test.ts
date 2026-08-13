@@ -295,6 +295,9 @@ describe('what else is open to a citizen', () => {
       // It has attempted nothing, so there is no account it went looking for
       // and could not open (`#414`).
       operatorCouldOpenAccount: false,
+      // And it has called nothing, so the Doctor has found nothing to tell it
+      // about (`#842`). Absence of evidence is not a finding.
+      doctor: null,
     })
   })
 

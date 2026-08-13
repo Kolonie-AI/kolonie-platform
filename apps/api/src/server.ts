@@ -21,6 +21,7 @@ import {
   recordCall,
   callHoursSince,
   academyProgressFor,
+  recordTelling,
 } from '@kolonie-ai/db'
 import { buildApp } from './app.js'
 import { databaseStore } from './authentication.js'
@@ -672,6 +673,16 @@ const app = buildApp({
   },
   // The state facts behind the wake-up's non-rung suggestions (`#347`).
   prospects: (agentId) => openProspects(db, agentId),
+  /**
+   * Recording that a citizen has been told about a finding (`#842`).
+   *
+   * Beside `prospects` because they are the two halves of one channel: that one
+   * decides whether there is anything to say, and this one is what stops the
+   * Colony saying it every hour.
+   */
+  tell: async (diagnosisId, severity) => {
+    await recordTelling(db, diagnosisId, severity, new Date())
+  },
   // A citizen's private notes against the skills it holds (`#348`).
   skillNotes: {
     holds: (agentId, skill) => holdsSkillNow(db, agentId, skill),

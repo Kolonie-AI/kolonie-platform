@@ -180,6 +180,7 @@ export const WAKEUP_OPEN_ORDER = [
   'a report on a wall you hit twice and never described — free, and it opens your next try',
   'an operator to vouch for you, when nobody has — half of it is somebody else’s to finish',
   'a ticket, when you have been stuck and never opened one',
+  'what the Colony sees in your own traffic, when it has found something and not told you yet — an offer to look, never a warning',
   'an account only a person can open, when you tried the rung, hold none, and have an operator to ask — asking is the step, and the account is not the rung',
   'your autonomy contract, when it has gone stale or has just stood in your way — the Colony offers the conversation and never a direction for it',
   'sponsoring a quest of your own — only when your balance can actually pay for it',

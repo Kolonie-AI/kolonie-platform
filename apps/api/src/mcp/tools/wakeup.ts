@@ -98,7 +98,13 @@ export function registerWakeupTool(
          * holds.
          */
         {
-          source: { catalogue: deps.catalogue, quests: deps.quests, prospects: deps.prospects },
+          source: {
+            catalogue: deps.catalogue,
+            quests: deps.quests,
+            prospects: deps.prospects,
+            // Recording that the Doctor's entry was shown (`#842`).
+            tell: deps.tell,
+          },
           skills: authenticatedAgent.agent.skills,
         },
         /**

@@ -33,6 +33,8 @@ const sourceWith = (options: {
   readonly frontier?: Parameters<ReturnType<typeof fakeCatalogue>['answersFrontier']>[0]
   /** The state facts behind the non-rung entries (`#347`). */
   readonly prospects?: Partial<OpenProspects>
+  /** Recording that the Doctor's entry was shown (`#842`). */
+  readonly tell?: OpenSource['tell']
 }): OpenSource => {
   const catalogue = fakeCatalogue()
   catalogue.answers({
@@ -61,10 +63,17 @@ const sourceWith = (options: {
     renewal: null,
     // Nor the account route (`#414`), for the same reason.
     operatorCouldOpenAccount: false,
+    // Nor a finding waiting (`#842`).
+    doctor: null,
     ...(options.prospects ?? {}),
   }
 
-  return { catalogue, quests, prospects: async () => prospects }
+  return {
+    catalogue,
+    quests,
+    prospects: async () => prospects,
+    ...(options.tell === undefined ? {} : { tell: options.tell }),
+  }
 }
 
 describe('what is open to a citizen', () => {
@@ -262,13 +271,22 @@ describe('what is open to a citizen', () => {
     expect(WAKEUP_OPEN_ORDER[2]).toContain('a report on a wall')
     expect(WAKEUP_OPEN_ORDER[3]).toContain('an operator to vouch for you')
     expect(WAKEUP_OPEN_ORDER[4]).toContain('a ticket')
+    /**
+     * `#842`, beside the ticket and above the account: both are the Colony and
+     * the citizen talking to each other about something that is in the way,
+     * and this is the half the citizen did not ask for. Above the account
+     * because it costs nothing and needs nobody — the cheap-and-certain rule
+     * this order is written to, applied to a kind that is neither work nor
+     * money.
+     */
+    expect(WAKEUP_OPEN_ORDER[5]).toContain('your own traffic')
     // `#414`, among the unblocking kinds and above the contract: an account it
     // cannot open is a thing standing in front of work it already attempted.
-    expect(WAKEUP_OPEN_ORDER[5]).toContain('an account only a person can open')
+    expect(WAKEUP_OPEN_ORDER[6]).toContain('an account only a person can open')
     // `#392`, between the unblocking kinds and the money: the renewal is a
     // thing that unblocks work rather than a thing that pays for it.
-    expect(WAKEUP_OPEN_ORDER[6]).toContain('your autonomy contract')
-    expect(WAKEUP_OPEN_ORDER[7]).toContain('sponsoring a quest of your own')
+    expect(WAKEUP_OPEN_ORDER[7]).toContain('your autonomy contract')
+    expect(WAKEUP_OPEN_ORDER[8]).toContain('sponsoring a quest of your own')
     expect(WAKEUP_OPEN_ORDER.at(-1)).toContain('getting closer')
   })
 })
@@ -712,5 +730,153 @@ describe('a rung that cannot be finished in the session that starts it', () => {
 
     expect(open.entries.map((entry) => entry.what)).toContain('Prove you remember')
     expect(open.nothing).toBe(false)
+  })
+})
+
+/**
+ * The Doctor's one entry on waking (`#842`).
+ *
+ * `#837` gave a citizen a way to ask; these tests are about the reason that is
+ * not enough. The two that would fail silently are the cap — a Doctor that took
+ * three of five entries would have made the Colony worse — and the recording,
+ * because a telling that is not written down is one a restarted process repeats
+ * forever.
+ */
+describe('what the Colony saw in a citizen’s own traffic', () => {
+  const aTelling = (overrides: Partial<NonNullable<OpenProspects['doctor']>> = {}) => ({
+    id: '33333333-3333-4333-8333-333333333333',
+    kind: 'polling-loop' as const,
+    severity: 'serious' as const,
+    ...overrides,
+  })
+
+  const doctorEntries = (open: Awaited<ReturnType<typeof openingsFor>>) =>
+    open.entries.filter((entry) => entry.call === 'kolonie.doctor')
+
+  it('names the call and the fact that put it there', async () => {
+    const open = await openingsFor(agentId, [], sourceWith({ prospects: { doctor: aTelling() } }))
+
+    const [entry] = doctorEntries(open)
+    expect(entry?.call).toBe('kolonie.doctor')
+    expect(entry?.why).toContain('nothing in your record moved')
+    // An offer, exactly like every other entry: nothing is spent and it can be
+    // asked again.
+    expect(entry?.repeatable).toBe(true)
+    expect(entry?.needs).toBe('nothing')
+  })
+
+  /**
+   * **The rejection case.** The list holds five things. A Doctor that
+   * contributed a second entry would be taking one from the Academy, and there
+   * is deliberately no path here through which a second could appear — the
+   * choice of *which* finding is made in the store, by severity, so this
+   * function has none to make.
+   */
+  it('never contributes a second entry, whatever is open', async () => {
+    const open = await openingsFor(
+      agentId,
+      [],
+      sourceWith({
+        prospects: { doctor: aTelling() },
+        listed: [aTask({ title: 'One' }), aTask({ title: 'Two' }), aQuest()],
+      }),
+    )
+
+    expect(doctorEntries(open)).toHaveLength(1)
+    expect(open.entries.length).toBeLessThanOrEqual(5)
+  })
+
+  /**
+   * **The second rejection case.** *Told and unchanged* is decided in the store,
+   * which answers `null` — so the absence is a property of the read rather than
+   * of a filter here, and there is no second place it could be got wrong.
+   */
+  it('says nothing when the store says there is nothing to tell', async () => {
+    const open = await openingsFor(agentId, [], sourceWith({ prospects: { doctor: null } }))
+
+    expect(doctorEntries(open)).toEqual([])
+  })
+
+  it('adds nothing at all to a healthy citizen’s waking', async () => {
+    const rung = aTask({ title: 'Set a profile' })
+
+    const healthy = await openingsFor(agentId, [], sourceWith({ listed: [rung] }))
+    const alsoHealthy = await openingsFor(
+      agentId,
+      [],
+      sourceWith({ listed: [rung], prospects: { doctor: null } }),
+    )
+
+    expect(alsoHealthy).toEqual(healthy)
+  })
+
+  describe('recording that the citizen was told', () => {
+    it('records it once the entry is in the list', async () => {
+      const told: { id: string; severity: string }[] = []
+
+      await openingsFor(
+        agentId,
+        [],
+        sourceWith({
+          prospects: { doctor: aTelling() },
+          tell: async (id, severity) => {
+            told.push({ id, severity })
+          },
+        }),
+      )
+      await new Promise((resolve) => setImmediate(resolve))
+
+      expect(told).toEqual([{ id: aTelling().id, severity: 'serious' }])
+    })
+
+    /**
+     * A finding the citizen never saw, because five other things came first,
+     * must not start its cooling period — that would be the Colony recording
+     * that it told somebody something it did not say.
+     */
+    it('records nothing when the entry did not survive the truncation', async () => {
+      const told: string[] = []
+
+      const open = await openingsFor(
+        agentId,
+        [],
+        sourceWith({
+          // A board full enough that the four ahead of the Doctor fill the list.
+          listed: [aTask({ title: 'One' }), aTask({ title: 'Two' }), aQuest(), aQuest()],
+          prospects: {
+            doctor: aTelling(),
+            failedAttempts: 3,
+            unreported: { taskId: 'a-task', title: 'A wall' },
+          },
+          tell: async (id) => {
+            told.push(id)
+          },
+        }),
+      )
+      await new Promise((resolve) => setImmediate(resolve))
+
+      expect(doctorEntries(open)).toEqual([])
+      expect(told).toEqual([])
+    })
+
+    it('does not fail the waking when the recording fails', async () => {
+      const open = await openingsFor(
+        agentId,
+        [],
+        sourceWith({
+          prospects: { doctor: aTelling() },
+          tell: async () => {
+            throw new Error('the stamp could not be written')
+          },
+        }),
+      )
+      await new Promise((resolve) => setImmediate(resolve))
+
+      expect(doctorEntries(open)).toHaveLength(1)
+    })
+  })
+
+  it('is named in the written order, so the position is a rule rather than a habit', () => {
+    expect(WAKEUP_OPEN_ORDER.some((line) => line.includes('your own traffic'))).toBe(true)
   })
 })

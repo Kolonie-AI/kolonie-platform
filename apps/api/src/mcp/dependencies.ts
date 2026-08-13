@@ -1,5 +1,6 @@
 import type { CallRollup } from '../call-rollup.js'
 import type { DoctorSource } from '../doctor.js'
+import type { OpenSource } from '../open.js'
 import type { AgentId, RhythmBounds, SkillReleases } from '@kolonie-ai/core'
 import type { OpenProspects } from '@kolonie-ai/db'
 import type { AcademyDependencies } from '../academy.js'
@@ -198,6 +199,16 @@ export interface McpDependencies {
    * switch `AppDependencies` describes, seen from the surface it removes.
    */
   readonly doctor?: DoctorSource
+  /**
+   * Recording that a citizen was told about a finding on waking (`#842`).
+   *
+   * Beside `prospects` in effect though not in shape: that one decides whether
+   * there is anything to say, and this is what stops the Colony saying it every
+   * hour. Optional on the same terms — absent means nothing is recorded, and the
+   * consequence is a citizen told more often than the cooling period intends,
+   * which is the harmless direction.
+   */
+  readonly tell?: OpenSource['tell']
   readonly website: WebsiteDependencies
   /**
    * The rung above the hosting account (`#244`): controlling a web server rather

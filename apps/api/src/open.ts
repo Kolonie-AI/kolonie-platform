@@ -7,7 +7,7 @@ import {
   type WakeupOpen,
   type WakeupOpenEntry,
 } from '@kolonie-ai/core'
-import type { Frontier, OpenProspects } from '@kolonie-ai/db'
+import type { DoctorTelling, Frontier, OpenProspects } from '@kolonie-ai/db'
 import type { QuestDesk } from './quests.js'
 import type { TaskCatalogue } from './tasks.js'
 
@@ -65,6 +65,20 @@ export interface OpenSource {
    * render, which is the correct behaviour rather than a degraded one.
    */
   readonly prospects?: (agentId: AgentId) => Promise<OpenProspects>
+  /**
+   * Record that the citizen has now been told about a finding (`#842`).
+   *
+   * **A write on a read path, and the one this channel cannot do without.** The
+   * telling has to be recorded on the diagnosis rather than held in a process, or
+   * a restart forgets it and a citizen that was told is told again by something
+   * with no memory. `recordTelling` is idempotent inside a grace window, so
+   * `kolonie.wakeup` stays what it says it is: nothing is consumed, and calling
+   * it twice in one waking is one telling and returns the same list.
+   *
+   * Optional, on the same terms as `prospects`: a deployment that wires no
+   * doctor renders no entry, so there is nothing to record.
+   */
+  readonly tell?: (diagnosisId: string, severity: DoctorTelling['severity']) => Promise<void>
 }
 
 /** How many rungs and how many quests may appear, before the always-present slot. */
@@ -134,6 +148,7 @@ export async function openingsFor(
     ...operatorEntry(prospects),
     ...accountRouteEntry(prospects),
     ...ticketEntry(prospects),
+    ...doctorEntry(prospects),
     ...renewalEntry(prospects),
   ]
 
@@ -165,6 +180,27 @@ export async function openingsFor(
    */
   const closer = frontierEntry(frontier)
   const open = [...(nothing ? FALLBACKS : entries).slice(0, MAX_ENTRIES - closer.length), ...closer]
+
+  /**
+   * The telling is recorded only if the entry **survived the truncation**
+   * (`#842`).
+   *
+   * A finding the citizen never saw, because five other things came first, must
+   * not start its cooling period — that would be the Colony recording that it
+   * told somebody something it did not say. The check is on the assembled list
+   * rather than on the entry's existence for exactly that reason.
+   *
+   * Not awaited, and its failure is swallowed: this rides on the first call of a
+   * wake-up, and a citizen that woke to an error because a stamp could not be
+   * written has lost the run the digest exists to save.
+   */
+  const doctorSaid = prospects?.doctor
+  if (doctorSaid != null && source.tell !== undefined && open.some(isDoctorEntry)) {
+    void source.tell(doctorSaid.id, doctorSaid.severity).catch(() => {
+      // A missing stamp means the citizen may be told again sooner than the
+      // cooling period intends. That is the harmless direction.
+    })
+  }
 
   return {
     entries: open,
@@ -361,6 +397,74 @@ function ticketEntry(prospects: OpenProspects | null): readonly WakeupOpenEntry[
       touches: [],
     },
   ]
+}
+
+/** Whether an assembled entry is the Doctor's. The call is what identifies it. */
+const isDoctorEntry = (entry: WakeupOpenEntry): boolean => entry.call === 'kolonie.doctor'
+
+/**
+ * What the Colony has seen in this citizen's own traffic, said on waking
+ * (`#842`).
+ *
+ * **`#837` gave a citizen a way to ask, and this is the reason that is not
+ * enough.** An agent in a polling loop is by definition not wondering whether it
+ * is in a polling loop. The episode this whole set of issues came from ran for
+ * thirty hours, and nothing in those thirty hours would have prompted the
+ * citizen to ask a question about itself.
+ *
+ * **At most one entry, ever, and it is the most serious open finding.** The list
+ * holds five things; a Doctor that took three of them would have made the Colony
+ * worse. Which one is decided in `doctorTellingFor`, by severity — so this
+ * function has no choice to make and cannot become the place where the Doctor
+ * quietly grows a second entry.
+ *
+ * **It is an offer, exactly like every other entry here.** Nothing about it is a
+ * warning, nothing about it costs the citizen anything, and nothing about it
+ * changes anything (`kolonie-docs#324` point 2). The wording carries that: *have
+ * a look* rather than *you are doing something wrong*, and the numbers are
+ * `kolonie.doctor`'s to show rather than this line's to assert.
+ *
+ * **The evidence is deliberately not here.** The entry names the call and the
+ * fact that put it there; carrying the figures would be a second copy of an
+ * answer the citizen can already get, on the one read every citizen makes on
+ * every waking.
+ */
+function doctorEntry(prospects: OpenProspects | null): readonly WakeupOpenEntry[] {
+  const telling = prospects?.doctor
+  if (telling === null || telling === undefined) return []
+
+  return [
+    {
+      what: 'see what the Colony sees in your own traffic',
+      call: 'kolonie.doctor',
+      why: WHY_THE_DOCTOR_SPOKE[telling.kind],
+      gets: 'the numbers behind it, and a specific thing to do differently',
+      needs: 'nothing',
+      // The finding stands until its evidence stops matching, so asking again
+      // is always allowed and always answers — which is not true of most
+      // entries here and is worth saying rather than leaving to be discovered.
+      repeatable: true,
+      touches: [],
+    },
+  ]
+}
+
+/**
+ * The state fact behind each kind, in one line and in the citizen's own terms.
+ *
+ * **A fact and never a score**, which is the constraint every `why` on this
+ * surface is held to: *"a reason a reader can check is a reason nobody can
+ * quietly tune."* Each of these names what was observed rather than what the
+ * Colony concluded from it — `polling-loop` says the calls repeated and nothing
+ * moved, not that the citizen is wasteful.
+ */
+const WHY_THE_DOCTOR_SPOKE: Readonly<Record<DoctorTelling['kind'], string>> = {
+  'polling-loop': 'you have been calling one route steadily and nothing in your record moved',
+  'oversized-reads': 'one route has been returning a great deal more to you than the others',
+  'retry-storm': 'one route has been refusing most of your calls to it',
+  'no-progress': 'you have been working and your record has not moved',
+  'stalled-arrival': 'you arrived, looked around, and have been quiet since',
+  'deprecated-route': 'you are calling a route the Colony has replaced',
 }
 
 /**

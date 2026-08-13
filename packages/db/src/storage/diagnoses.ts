@@ -1,6 +1,8 @@
-import { and, desc, eq, inArray, lt, sql } from 'drizzle-orm'
+import { and, desc, eq, inArray, lt, sql, type SQL } from 'drizzle-orm'
 import {
   DIAGNOSIS_RETENTION_DAYS,
+  DOCTOR_TELLING_COOLING_HOURS,
+  DOCTOR_TELLING_GRACE_MINUTES,
   DiagnosisSchema,
   EvidenceSchema,
   type AgentId,
@@ -380,5 +382,128 @@ function rowToDiagnosis(row: typeof diagnoses.$inferSelect): Diagnosis {
     firstSeenAt: toTimestamp(row.firstSeenAt),
     lastSeenAt: toTimestamp(row.lastSeenAt),
     resolvedAt: row.resolvedAt === null ? null : toTimestamp(row.resolvedAt),
+    announcedAt: row.announcedAt === null ? null : toTimestamp(row.announcedAt),
   })
+}
+
+/**
+ * The one finding worth telling this citizen about on this waking, or `null`
+ * (`#842`).
+ *
+ * **At most one, ever.** The `open` list holds five things and a Doctor that
+ * took three of them would have made the Colony worse — so the most serious open
+ * finding is the answer and the rest wait. That is a rule about the channel
+ * rather than about the findings: a citizen with three problems has one it should
+ * look at first, and telling it about all three is telling it about none.
+ *
+ * **Agent-scoped only.** A colony-scoped diagnosis is about a route and reaches
+ * the people who run the Colony; announcing one to a citizen would be telling
+ * somebody about a defect that is not theirs and that they cannot act on.
+ *
+ * ## When a finding is tellable
+ *
+ * Four cases, and the third is the one that keeps `kolonie.wakeup` honest:
+ *
+ * 1. **Never announced.** It opens and the citizen hears about it.
+ * 2. **Announced, and it has since got worse.** A severity that rose is new
+ *    information. One that fell is not — the citizen was already told, and
+ *    telling it again to say *slightly better* would spend an entry on nothing.
+ * 3. **Announced within the grace window.** The same telling, re-read. This is
+ *    what makes a second `wakeup` in one waking return the same list rather than
+ *    a shorter one, which that call promises and which an entry that vanished
+ *    would quietly break.
+ * 4. **Announced, unchanged, and the cooling period has passed.** A citizen that
+ *    was told and did not change is told again eventually — but not hourly,
+ *    because nagging is how a channel gets ignored.
+ *
+ * **One indexed read.** This rides on `kolonie.wakeup`, which every citizen calls
+ * on every waking, so it is a single scan of `(subject, state)` and never a rule
+ * evaluation — the rules ran when the runner passed, and re-running them here
+ * would put the whole Doctor on the hottest read in the Colony.
+ */
+export async function doctorTellingFor(
+  db: Database | Transaction,
+  agentId: AgentId,
+  now: Date,
+): Promise<Diagnosis | null> {
+  const coolingBefore = new Date(
+    now.getTime() - DOCTOR_TELLING_COOLING_HOURS * 60 * 60 * 1000,
+  ).toISOString()
+  const graceAfter = new Date(
+    now.getTime() - DOCTOR_TELLING_GRACE_MINUTES * 60 * 1000,
+  ).toISOString()
+
+  const [row] = await db
+    .select()
+    .from(diagnoses)
+    .where(
+      and(
+        eq(diagnoses.subject, agentId),
+        eq(diagnoses.scope, 'agent'),
+        eq(diagnoses.state, 'open'),
+        sql`(
+          ${diagnoses.announcedAt} is null
+          or ${diagnoses.announcedAt} >= ${graceAfter}
+          or ${diagnoses.announcedAt} < ${coolingBefore}
+          or ${severityRank(diagnoses.severity)} < ${severityRank(diagnoses.announcedSeverity)}
+        )`,
+      ),
+    )
+    .orderBy(
+      severityRank(diagnoses.severity),
+      desc(diagnoses.confidence),
+      desc(diagnoses.lastSeenAt),
+    )
+    .limit(1)
+
+  return row === undefined ? null : rowToDiagnosis(row)
+}
+
+/**
+ * Record that the citizen was told (`#842`).
+ *
+ * **Idempotent inside one waking, which is the point.** A second call with the
+ * same severity inside the grace window leaves the row exactly as it was, so
+ * reading `wakeup` twice is one telling and not two. Outside the window, or at a
+ * different severity, the stamp moves and the cooling period starts again.
+ *
+ * **A write on a read path, and it is the one this channel needs.** `wakeup` is
+ * documented as consuming nothing and being safe to call twice, and both stay
+ * true — nothing here is spent, and the grace window is what makes the repeat
+ * identical. What it buys is the property `#842` is built on: the telling is
+ * recorded on the diagnosis, so a restarted process cannot forget it and a
+ * citizen that was told is not told again by something with no memory.
+ */
+export async function recordTelling(
+  db: Database | Transaction,
+  diagnosisId: string,
+  severity: Diagnosis['severity'],
+  now: Date,
+): Promise<void> {
+  await db
+    .update(diagnoses)
+    .set({ announcedAt: now.toISOString(), announcedSeverity: severity })
+    .where(
+      and(
+        eq(diagnoses.id, diagnosisId),
+        // Only when this is a new telling. A repeat inside the grace window is
+        // the same one, and moving the stamp would let a citizen that calls
+        // `wakeup` every ten minutes hold the cooling period open forever.
+        sql`(${diagnoses.announcedAt} is null
+             or ${diagnoses.announcedSeverity} is distinct from ${severity})`,
+      ),
+    )
+}
+
+/**
+ * `serious` before `concern` before `notice`, as a number a query can compare.
+ *
+ * Spelled out rather than left to the enum's storage order, for the reason
+ * `openDiagnosesFor` gives: a reader of the query should not have to open
+ * `enums.ts` to know what *most serious* resolved to. `null` sorts last, which is
+ * what makes an unannounced severity compare as *less serious than anything* in
+ * the tellable condition above.
+ */
+function severityRank(column: unknown): SQL<number> {
+  return sql<number>`case ${column} when 'serious' then 0 when 'concern' then 1 when 'notice' then 2 else 3 end`
 }

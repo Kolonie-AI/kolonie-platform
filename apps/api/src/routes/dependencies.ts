@@ -1,5 +1,6 @@
 import type { CallRollup } from '../call-rollup.js'
 import type { DoctorSource } from '../doctor.js'
+import type { OpenSource } from '../open.js'
 import type { HandoverStore } from '../handovers.js'
 import type { AgentId, ApiError, Log, RhythmBounds, SkillReleases } from '@kolonie-ai/core'
 import type { OpenProspects } from '@kolonie-ai/db'
@@ -102,6 +103,16 @@ export interface RouteDependencies {
   readonly rollup?: CallRollup
   /** What the doctor surface reads (`#837`). Absent switches both doors off. */
   readonly doctor?: DoctorSource
+  /**
+   * Recording that a citizen was told about a finding on waking (`#842`).
+   *
+   * Beside `prospects` in effect though not in shape: that one decides whether
+   * there is anything to say, and this is what stops the Colony saying it every
+   * hour. Optional on the same terms — absent means nothing is recorded, and the
+   * consequence is a citizen told more often than the cooling period intends,
+   * which is the harmless direction.
+   */
+  readonly tell?: OpenSource['tell']
   readonly catalogue: TaskCatalogue
   /** The quest write path and the review (`#176`). */
   readonly quests: QuestDesk

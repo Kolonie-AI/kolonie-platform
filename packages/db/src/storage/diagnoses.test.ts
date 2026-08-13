@@ -2,6 +2,8 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { eq } from 'drizzle-orm'
 import {
   DIAGNOSIS_RETENTION_DAYS,
+  DOCTOR_TELLING_COOLING_HOURS,
+  DOCTOR_TELLING_GRACE_MINUTES,
   RegisterAgentRequestSchema,
   type AgentId,
   type Finding,
@@ -12,6 +14,8 @@ import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
 import { registerAgent } from './agents.js'
 import {
   attachProse,
+  doctorTellingFor,
+  recordTelling,
   openDiagnosesFor,
   openDiagnosisFor,
   recordConsequence,
@@ -361,5 +365,184 @@ describe('stored diagnoses', () => {
       expect(await sweepDiagnoses(db, now)).toBe(0)
       expect(await db.select().from(diagnoses)).toHaveLength(1)
     })
+  })
+})
+
+/**
+ * Telling the citizen, on waking (`#842`).
+ *
+ * The two that would fail silently: a citizen told hourly about the same thing
+ * — which is how a channel gets ignored — and a `wakeup` that answered
+ * differently on a second call in the same waking, which would quietly break
+ * what that call promises about itself.
+ */
+describe('what the citizen is told on waking', () => {
+  let db: Database
+  let agentId: AgentId
+
+  const AT = new Date('2026-08-13T12:00:00.000Z')
+  const POLICY = '2026-08-13.1'
+
+  const hoursAfter = (from: Date, hours: number) =>
+    new Date(from.getTime() + hours * 60 * 60 * 1000)
+  const minutesAfter = (from: Date, minutes: number) =>
+    new Date(from.getTime() + minutes * 60 * 1000)
+
+  beforeAll(async () => {
+    db = await connectForTests(target.url)
+  })
+
+  afterAll(async () => {
+    await db?.close()
+  })
+
+  beforeEach(async () => {
+    await truncateAll(db)
+    const registered = await registerAgent(
+      db,
+      RegisterAgentRequestSchema.parse({ name: 'canary', platform: 'openclaw' }),
+    )
+    if (registered.outcome !== 'registered') throw new Error(registered.outcome)
+    agentId = registered.agent.id
+  })
+
+  const open = async (overrides: Partial<Finding> = {}, at = AT) => {
+    const written = await recordDiagnosis(
+      db,
+      aFinding({ subject: agentId, ...overrides }),
+      POLICY,
+      at,
+    )
+    if (written.diagnosis === null) throw new Error(written.refusal ?? 'not stored')
+    return written.diagnosis
+  }
+
+  it('offers a finding the citizen has never been told about', async () => {
+    const diagnosis = await open()
+
+    expect((await doctorTellingFor(db, agentId, AT))?.id).toBe(diagnosis.id)
+  })
+
+  it('offers the most serious of several, and only that one', async () => {
+    await open({ kind: 'deprecated-route', severity: 'notice' })
+    const worst = await open({ kind: 'polling-loop', severity: 'serious' })
+    await open({ kind: 'no-progress', severity: 'concern' })
+
+    expect((await doctorTellingFor(db, agentId, AT))?.id).toBe(worst.id)
+  })
+
+  /**
+   * **The rejection case.** A citizen that was told and did not change is not
+   * told again the next hour. Nagging is how a channel gets ignored, and the
+   * `open` list holds five things.
+   */
+  it('says nothing on the next waking when nothing has changed', async () => {
+    const diagnosis = await open()
+    await recordTelling(db, diagnosis.id, 'concern', AT)
+
+    expect(await doctorTellingFor(db, agentId, hoursAfter(AT, 1))).toBeNull()
+  })
+
+  /**
+   * **The second rejection case.** `kolonie.wakeup` says of itself that it
+   * consumes nothing and is safe to call twice. An entry that vanished on the
+   * second call in one waking would break that quietly — an agent re-reading its
+   * own list would find the Doctor gone and conclude the finding had resolved.
+   */
+  it('answers the same on a second call in the same waking', async () => {
+    const diagnosis = await open()
+    await recordTelling(db, diagnosis.id, 'concern', AT)
+
+    const again = await doctorTellingFor(db, agentId, minutesAfter(AT, 1))
+    expect(again?.id).toBe(diagnosis.id)
+    expect(
+      await doctorTellingFor(db, agentId, minutesAfter(AT, DOCTOR_TELLING_GRACE_MINUTES + 1)),
+    ).toBeNull()
+  })
+
+  it('offers it again once the cooling period has passed', async () => {
+    const diagnosis = await open()
+    await recordTelling(db, diagnosis.id, 'concern', AT)
+
+    expect(
+      await doctorTellingFor(db, agentId, hoursAfter(AT, DOCTOR_TELLING_COOLING_HOURS - 1)),
+    ).toBeNull()
+    expect(
+      (await doctorTellingFor(db, agentId, hoursAfter(AT, DOCTOR_TELLING_COOLING_HOURS + 1)))?.id,
+    ).toBe(diagnosis.id)
+  })
+
+  it('re-announces when the severity rises, before any cooling', async () => {
+    const diagnosis = await open({ severity: 'concern' })
+    await recordTelling(db, diagnosis.id, 'concern', AT)
+    await recordDiagnosis(
+      db,
+      aFinding({ subject: agentId, severity: 'serious' }),
+      POLICY,
+      hoursAfter(AT, 1),
+    )
+
+    expect((await doctorTellingFor(db, agentId, hoursAfter(AT, 1)))?.id).toBe(diagnosis.id)
+  })
+
+  /**
+   * A decrease is not new information. The citizen was told, it is getting
+   * better, and spending one of five entries to say *slightly better* would be
+   * the Colony talking about itself.
+   */
+  it('does not re-announce when the severity falls', async () => {
+    const diagnosis = await open({ severity: 'serious' })
+    await recordTelling(db, diagnosis.id, 'serious', AT)
+    await recordDiagnosis(
+      db,
+      aFinding({ subject: agentId, severity: 'concern' }),
+      POLICY,
+      hoursAfter(AT, 1),
+    )
+
+    expect(await doctorTellingFor(db, agentId, hoursAfter(AT, 1))).toBeNull()
+  })
+
+  it('stops offering a diagnosis that resolved, without anything clearing it', async () => {
+    await open()
+    await resolveDisappeared(db, agentId, [], hoursAfter(AT, 1))
+
+    expect(await doctorTellingFor(db, agentId, hoursAfter(AT, 2))).toBeNull()
+  })
+
+  /**
+   * A colony-scoped diagnosis is about a route and reaches the people who run
+   * the Colony. Announcing one to a citizen would be telling somebody about a
+   * defect that is not theirs and that they cannot act on.
+   */
+  it('never offers a colony-scoped finding to a citizen', async () => {
+    await open({ scope: 'colony', subject: '/v1/tasks', kind: 'retry-storm' })
+
+    expect(await doctorTellingFor(db, agentId, AT)).toBeNull()
+  })
+
+  it('offers nothing about another citizen', async () => {
+    await open()
+    const other = await registerAgent(
+      db,
+      RegisterAgentRequestSchema.parse({ name: 'stranger', platform: 'openclaw' }),
+    )
+    if (other.outcome !== 'registered') throw new Error(other.outcome)
+
+    expect(await doctorTellingFor(db, other.agent.id, AT)).toBeNull()
+  })
+
+  /**
+   * The stamp does not move on a repeat inside the grace window. Without that, a
+   * citizen calling `wakeup` every ten minutes would hold its own cooling period
+   * open forever and be told the same thing every time.
+   */
+  it('does not move the stamp when the same telling is recorded twice', async () => {
+    const diagnosis = await open()
+    await recordTelling(db, diagnosis.id, 'concern', AT)
+    await recordTelling(db, diagnosis.id, 'concern', minutesAfter(AT, 5))
+
+    const [row] = await db.select().from(diagnoses).where(eq(diagnoses.id, diagnosis.id))
+    expect(row?.announcedAt).toContain('12:00:00')
   })
 })

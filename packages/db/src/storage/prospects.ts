@@ -1,6 +1,7 @@
 import { and, desc, eq, isNull, sql } from 'drizzle-orm'
-import type { AgentId } from '@kolonie-ai/core'
+import type { AgentId, FindingKind, FindingSeverity } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
+import { doctorTellingFor } from './diagnoses.js'
 import {
   autonomyContracts,
   operatorClaims,
@@ -103,12 +104,57 @@ export interface OpenProspects {
    * condition belongs here.
    */
   readonly operatorCouldOpenAccount: boolean
+  /**
+   * The one open finding worth telling this citizen about on this waking, or
+   * `null` (`#842`).
+   *
+   * **Here rather than in a channel of its own**, because a citizen already reads
+   * this on waking and a channel it has to learn about is a channel that reaches
+   * nobody. `#837` gives a citizen a way to *ask*; this is the reason that is not
+   * enough — an agent in a polling loop is by definition not wondering whether it
+   * is in a polling loop, and the episode that prompted all of this ran for thirty
+   * hours without anything prompting it to ask.
+   *
+   * **At most one, ever, and the most serious.** The `open` list holds five
+   * things. A Doctor that took three of them would have made the Colony worse.
+   *
+   * `null` when there is nothing to say, when the citizen was told and nothing has
+   * changed, or when no doctor source is wired — and then no entry is rendered at
+   * all, which is the same shape every other conditional entry here has.
+   */
+  readonly doctor: DoctorTelling | null
+}
+
+/**
+ * What the `open` entry needs to render, and nothing more (`#842`).
+ *
+ * **Not the whole diagnosis.** The entry says *what was seen* and *which call to
+ * make*; the numbers behind it are `kolonie.doctor`'s to serve, which is the
+ * whole reason the entry names that call. A wake-up that carried the evidence
+ * would be a second copy of an answer the citizen can already get, on the one
+ * read every citizen makes on every waking.
+ */
+export interface DoctorTelling {
+  readonly id: string
+  readonly kind: FindingKind
+  readonly severity: FindingSeverity
 }
 
 /** How many failures make an unreported wall worth naming. */
 const WALL_AFTER = 2
 
-export async function openProspects(db: Database, agentId: AgentId): Promise<OpenProspects> {
+export async function openProspects(
+  db: Database,
+  agentId: AgentId,
+  /**
+   * The moment the waking is being answered at (`#842`).
+   *
+   * **Defaulted rather than required**, so the three dozen callers that predate
+   * the Doctor say nothing — and an argument, so the cooling period and the grace
+   * window are testable against a fixture rather than against the wall clock.
+   */
+  now: Date = new Date(),
+): Promise<OpenProspects> {
   /**
    * The same `not exists` both unreported queries stand on.
    *
@@ -253,6 +299,7 @@ export async function openProspects(db: Database, agentId: AgentId): Promise<Ope
 
   const wall = unreported[0]
   const passed = passUnreported[0]
+  const telling = await doctorTellingFor(db, agentId, now)
 
   return {
     hasOperator: operator.length > 0,
@@ -262,6 +309,18 @@ export async function openProspects(db: Database, agentId: AgentId): Promise<Ope
     passUnreported: passed === undefined ? null : { taskId: passed.taskId, title: passed.title },
     renewal: renewalFrom(renewal[0]),
     operatorCouldOpenAccount: operator.length > 0 && accountRoute[0]?.wants === true,
+    /**
+     * The Doctor's one entry (`#842`).
+     *
+     * **Its own read rather than a subquery in the statement above**, for two
+     * reasons that point the same way: the tellable condition is four cases over
+     * two columns and a clock, which is a paragraph of SQL nobody would want
+     * inlined here — and `doctorTellingFor` is the same read `#843` will one day
+     * need for its precondition, which must not be a second definition of *was
+     * this citizen told*.
+     */
+    doctor:
+      telling === null ? null : { id: telling.id, kind: telling.kind, severity: telling.severity },
   }
 }
 

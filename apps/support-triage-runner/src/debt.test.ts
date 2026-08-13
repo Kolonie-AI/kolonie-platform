@@ -34,7 +34,10 @@ const anIssue = (body: string): KnownIssue => ({
 })
 
 /** An `Issues` that records what it was asked to do and reaches nothing. */
-function spyIssues(open: readonly KnownIssue[] = []): Issues & {
+function spyIssues(
+  open: readonly KnownIssue[] = [],
+  unreadable: readonly string[] = [],
+): Issues & {
   readonly created: unknown[]
   readonly closed_: unknown[]
 } {
@@ -42,7 +45,7 @@ function spyIssues(open: readonly KnownIssue[] = []): Issues & {
   const closed_: unknown[] = []
   return {
     available: true,
-    open: async () => open,
+    open: async () => ({ issues: open, unreadable }),
     closed: async () => [],
     create: async (issue) => {
       created.push(issue)
@@ -177,5 +180,39 @@ describe('one pass of the watcher', () => {
     expect(outcome.skipped).toBe('no-app')
     expect(outcome.count).toBe(2)
     expect(create).not.toHaveBeenCalled()
+  })
+
+  /**
+   * `#867`, as a case. The App was configured and `available` was true; GitHub
+   * answered the installation listing with a 500 (`#868`), the corpus came back
+   * empty, and the watcher filed a second copy of an alarm that had been open
+   * since 2026-08-11. An empty corpus and an unreadable one are the same
+   * corpus — the difference has to be carried, and this is it.
+   */
+  it('does not file when the App is configured and the listing failed anyway', async () => {
+    const issues = spyIssues([], [DEBT_REPOSITORY])
+
+    const outcome = await watchDebt({ issues, measure: async () => theTwoDebts })
+
+    expect(outcome.skipped).toBe('unreadable')
+    expect(outcome.action).toBe('quiet')
+    expect(outcome.count).toBe(2)
+    expect(issues.created).toHaveLength(0)
+  })
+
+  /**
+   * And only that repository. The condition is read from the database and is not
+   * in doubt; what is in doubt is whether an issue already says so, which is a
+   * question about `DEBT_REPOSITORY` alone. A debt is still a debt when
+   * `kolonie-infra` cannot be listed.
+   */
+  it('files anyway when the repository that failed is not the one it files into', async () => {
+    const issues = spyIssues([], ['Kolonie-AI/kolonie-infra'])
+
+    const outcome = await watchDebt({ issues, measure: async () => theTwoDebts })
+
+    expect(outcome.skipped).toBeUndefined()
+    expect(outcome.action).toBe('file')
+    expect(issues.created).toHaveLength(1)
   })
 })

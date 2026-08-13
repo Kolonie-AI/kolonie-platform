@@ -114,7 +114,26 @@ describe('a repository listing that throws', () => {
     const found = await issues.open()
 
     expect(asked).toEqual([...TRIAGE_REPOSITORIES])
-    expect(found.map((issue) => issue.number)).toEqual([2])
+    expect(found.issues.map((issue) => issue.number)).toEqual([2])
+    // …and it says which one it lost, which is the whole of `#867`: an empty
+    // listing and an unread one are the same listing to every caller that only
+    // gets the array.
+    expect(found.unreadable).toEqual([FIRST])
+  })
+
+  /**
+   * A pass that read everything says so, and that is the value the callers act
+   * on — `watchDebt` files against a corpus whose gaps are empty and withholds
+   * against one whose are not.
+   */
+  it('names nothing as unreadable when every repository answered', async () => {
+    const { issues } = github({
+      [FIRST]: [{ number: 1, title: 'known', html_url: 'https://example.invalid/1' }],
+      [SECOND]: [],
+      [THIRD]: [],
+    })
+
+    await expect(issues.open()).resolves.toMatchObject({ unreadable: [] })
   })
 
   it('warns with the cause, so the next one can be told apart from a DNS outage', async () => {

@@ -193,16 +193,29 @@ export interface DebtWatchOutcome {
   readonly count: number
   readonly lamports: number
   /** Set when the pass did nothing because a seam could not be read. */
-  readonly skipped?: 'no-app'
+  readonly skipped?: 'no-app' | 'unreadable'
 }
 
 /**
  * One pass of the debt watcher.
  *
  * **It does not act when it cannot read GitHub**, on the same argument the log
- * detector gives: with no App, `open()` answers `[]`, and an empty corpus is
- * indistinguishable from an unreadable one. Filing against that would open a
- * fresh alarm every half hour for a condition that already had an issue.
+ * detector gives: an empty corpus is indistinguishable from an unreadable one,
+ * and filing against that opens a fresh alarm every half hour for a condition
+ * that already had an issue.
+ *
+ * There are two ways not to be able to read it, and until `#867` this checked
+ * only the first. No App is decided once, at construction, and `available`
+ * carries it. **A pass that has an App and could not use it is the other**, and
+ * it is the one that actually happened: on 2026-08-13 at 14:37:04 GitHub
+ * answered the installation listing with a 500 (`#868`), `open()` answered `[]`
+ * two seconds before this filed `#867`, and the alarm it duplicated — `#727` —
+ * had been open for two days.
+ *
+ * The condition is read from the database and is not in doubt; what is in doubt
+ * is only whether an issue already says so. So it is `DEBT_REPOSITORY` that has
+ * to have been readable, and not the other two: a debt is still a debt when
+ * `kolonie-infra` cannot be listed.
  */
 export async function watchDebt(deps: DebtWatchDependencies): Promise<DebtWatchOutcome> {
   const debt = await deps.measure()
@@ -210,7 +223,12 @@ export async function watchDebt(deps: DebtWatchDependencies): Promise<DebtWatchO
     return { action: 'quiet', count: debt.count, lamports: debt.lamports, skipped: 'no-app' }
   }
 
-  const action = decideDebt(debt, openDebtIssue(await deps.issues.open()))
+  const corpus = await deps.issues.open()
+  if (corpus.unreadable.includes(DEBT_REPOSITORY)) {
+    return { action: 'quiet', count: debt.count, lamports: debt.lamports, skipped: 'unreadable' }
+  }
+
+  const action = decideDebt(debt, openDebtIssue(corpus.issues))
 
   if (action.kind === 'file') {
     await deps.issues.create({

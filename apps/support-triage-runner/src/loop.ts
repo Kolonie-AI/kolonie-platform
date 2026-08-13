@@ -450,7 +450,22 @@ export async function tick(deps: LoopDependencies, batchSize: number): Promise<T
     return counts
   }
 
-  const issues = [...(await deps.issues.open())]
+  // A partial corpus is worth having here and is not worth having everywhere,
+  // which is why `open()` names its gaps rather than deciding for its callers
+  // (`#867`). Triage *matches* against this corpus and files only what no issue
+  // covers; two repositories out of three still recognise most of a ticket, and
+  // the cost of the third is a duplicate a maintainer closes in a second. Said
+  // out loud, because a pass that matched against two thirds of the Colony and
+  // reported nothing unusual is the quiet version of the same failure.
+  const corpus = await deps.issues.open()
+  if (corpus.unreadable.length > 0) {
+    log.warn(
+      `triaging against a partial corpus: ${corpus.unreadable.join(', ')} could not be listed`,
+      { event: 'triage.corpus.partial', unreadable: [...corpus.unreadable] },
+    )
+  }
+
+  const issues = [...corpus.issues]
   const answered: AnsweredTicket[] = (await deps.store.answered(ANSWERED_CORPUS))
     .filter((t) => t.status === 'resolved' && t.resolution !== null)
     .map((t) => ({

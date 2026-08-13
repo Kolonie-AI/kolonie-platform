@@ -55,7 +55,7 @@ function fakeIssues(over: Partial<Issues> = {}): Issues & {
 
   return {
     available: true,
-    open: async () => [],
+    open: async () => ({ issues: [], unreadable: [] }),
     closed: async () => [],
     close: async (url) => {
       closes.push(url)
@@ -203,6 +203,42 @@ describe('the log defect detector', () => {
     expect(store.recorded()).toEqual([])
   })
 
+  /**
+   * **The other way not to be able to read** (`#867`). `available` answers *is
+   * an App configured*, once, at construction. A pass that had an App and still
+   * could not list a repository lands past that check with an empty corpus and
+   * files a duplicate of everything routed into it — which is what happened to
+   * the debt watcher next door on 2026-08-13.
+   *
+   * Per signature rather than per pass: `traefik` files into `kolonie-infra`,
+   * which was read, so it is filed while the platform signature waits. One
+   * unlisted repository costs the signatures routed into it and no others.
+   */
+  it('leaves alone the signatures routed into a repository it could not list', async () => {
+    const platform = aSignature()
+    const infra = aSignature({
+      signature: signatureOf('traefik', 'route.failed'),
+      service: 'traefik',
+      event: 'route.failed',
+      count: 3,
+    })
+    const store = fakeStore()
+
+    const outcome = await watchLogs({
+      logs: fakeLogs([platform, infra]),
+      issues: fakeIssues({
+        open: async () => ({ issues: [], unreadable: [routeFor('api').repository] }),
+      }),
+      store,
+      writer: noWriter,
+      now: () => NOW,
+    })
+
+    expect(outcome.unreadable).toBe(1)
+    expect(outcome.filed).toBe(1)
+    expect(store.recorded()).toEqual([infra.signature])
+  })
+
   /** And the same when there is no log store: nothing read, nothing claimed. */
   it('does nothing when it cannot read the logs', async () => {
     const outcome = await watchLogs({
@@ -219,7 +255,7 @@ describe('the log defect detector', () => {
 
   it('comments on the open issue instead of filing again', async () => {
     const signature = signatureOf('api', 'poll.failed')
-    issues = fakeIssues({ open: async () => [openIssue(signature)] })
+    issues = fakeIssues({ open: async () => ({ issues: [openIssue(signature)], unreadable: [] }) })
     const store = fakeStore()
 
     const outcome = await watchLogs({
@@ -243,7 +279,7 @@ describe('the log defect detector', () => {
    */
   it('says it once a day and not once a tick', async () => {
     const signature = signatureOf('api', 'poll.failed')
-    issues = fakeIssues({ open: async () => [openIssue(signature)] })
+    issues = fakeIssues({ open: async () => ({ issues: [openIssue(signature)], unreadable: [] }) })
 
     const outcome = await watchLogs({
       logs: fakeLogs([aSignature()]),
@@ -433,7 +469,7 @@ describe('the log defect detector', () => {
 
       await watchLogs({
         logs: fakeLogs(branch.logs),
-        issues: fakeIssues({ open: async () => branch.open, close }),
+        issues: fakeIssues({ open: async () => ({ issues: branch.open, unreadable: [] }), close }),
         store: fakeStore(),
         writer: {
           available: true,

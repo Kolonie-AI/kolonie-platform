@@ -101,6 +101,32 @@ export interface ClosedIssue {
   readonly closedAt: string | null
 }
 
+/**
+ * One reading of what the Colony has open, and **what it could not see**.
+ *
+ * `Issues.available` was meant to be the whole of this: *without it the loop
+ * cannot tell an empty corpus from an unreadable one*. It answers that question
+ * for a runner with no App configured, and only for that — it is fixed at
+ * construction. A pass that has an App and could not use it lands on the other
+ * side of it, answering `[]` and looking exactly like a Colony with nothing
+ * open.
+ *
+ * That happened on 2026-08-13 (`#867`). `github.installations.failed` logged a
+ * 500 from GitHub at 14:37:04 (`#868`); two seconds later the debt watcher filed
+ * a second copy of an alarm that had been open since 2026-08-11, because the
+ * corpus it deduplicated against was empty and nothing said why.
+ *
+ * So the answer carries its own gaps. **Per repository, not one flag**, because
+ * the callers do not want the same thing from it: triage matching a citizen's
+ * ticket is better off with two repositories than none, while anything that
+ * *files* into a repository it could not read is filing a duplicate.
+ */
+export interface IssueCorpus {
+  readonly issues: readonly KnownIssue[]
+  /** Repositories whose listing could not be read on this pass. */
+  readonly unreadable: readonly string[]
+}
+
 export interface NewIssue {
   readonly repository: string
   readonly title: string
@@ -131,8 +157,14 @@ export interface Issues {
    * was tickets nobody read, not tickets somebody guessed at.
    */
   readonly available: boolean
-  /** Every open issue across the repositories triage covers. */
-  open(): Promise<readonly KnownIssue[]>
+  /**
+   * Every open issue across the repositories triage covers, and the ones that
+   * could not be read this pass.
+   *
+   * `available` is the same question asked once, at construction; this is it
+   * asked again on every pass, which is where a 500 arrives (`#867`).
+   */
+  open(): Promise<IssueCorpus>
   /**
    * Recently closed issues, most recently touched first (#165).
    *
@@ -171,7 +203,11 @@ export interface Issues {
 /** An `Issues` that reads nothing and writes nothing, for a runner with no App. */
 export const noIssues: Issues = {
   available: false,
-  open: async () => [],
+  // Nothing read, and every repository named as unread rather than left out —
+  // `[]` with an empty gap list would be this seam claiming the Colony has
+  // nothing open. Callers check `available` first, so nothing depends on it;
+  // saying it anyway is what stops the next caller depending on the wrong one.
+  open: async () => ({ issues: [], unreadable: [...TRIAGE_REPOSITORIES] }),
   // Empty for the same reason `open` is, and it matters in the same way: a seam
   // that reads nothing must not be read as *nothing is closed*. The caller
   // checks `available` before it acts on either.
@@ -379,21 +415,33 @@ export function githubIssues(options: GitHubOptions): Issues {
     available: true,
     open: async () => {
       const headers = await authed()
-      if (headers === undefined) return []
+      // No token this pass. Every repository is unread, and the reason is
+      // already in the log as `github.installations.failed` or
+      // `github.token.failed` — what was missing was anybody downstream being
+      // able to tell that from a quiet Colony (`#867`).
+      if (headers === undefined) return { issues: [], unreadable: [...TRIAGE_REPOSITORIES] }
 
       const found: KnownIssue[] = []
+      const unreadable: string[] = []
       for (const repository of TRIAGE_REPOSITORIES) {
         // One unreadable repository must not empty the corpus: a triage run
         // with a partial corpus files a duplicate, which a maintainer closes
         // in a second. One with an empty corpus files a duplicate of
         // *everything*. `listing` holds that for a throw as well as a status.
+        //
+        // It is *named* as well as skipped, because that trade is triage's and
+        // not everybody's — a caller that files into this repository would be
+        // filing against a corpus with the matching issue missing from it.
         const read = await listing(
           repository,
           'open',
           `https://api.github.com/repos/${repository}/issues?state=open&per_page=100`,
           headers,
         )
-        if (read === undefined) continue
+        if (read === undefined) {
+          unreadable.push(repository)
+          continue
+        }
 
         const issues = read as ReadonlyArray<{
           number?: number
@@ -424,7 +472,7 @@ export function githubIssues(options: GitHubOptions): Issues {
           })
         }
       }
-      return found
+      return { issues: found, unreadable }
     },
 
     closed: async () => {

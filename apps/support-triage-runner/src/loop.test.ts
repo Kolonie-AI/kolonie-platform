@@ -57,7 +57,7 @@ function fakeIssues(overrides: Partial<Issues> = {}) {
   const comments: Array<{ url: string; body: string }> = []
   const issues: Issues = {
     available: true,
-    open: async () => [],
+    open: async () => ({ issues: [], unreadable: [] }),
     closed: async () => [],
     // The debt watcher's, and never the log detector's: that one closes nothing
     // on purpose (`#720`).
@@ -362,7 +362,7 @@ describe('one ticket', () => {
 
 describe('a tick over the queue', () => {
   it('does nothing, and reads nothing, when the queue is empty', async () => {
-    const open = vi.fn(async () => [])
+    const open = vi.fn(async () => ({ issues: [], unreadable: [] }))
     const outcome = await tick(
       deps({ store: fakeStore([]).store, issues: fakeIssues({ open }).issues }),
       10,

@@ -11,6 +11,7 @@ import {
   defectIssue,
   openIssueFor,
   recurrenceComment,
+  routeFor,
   type DefectHistory,
   type DefectReport,
 } from './defects.js'
@@ -79,6 +80,11 @@ export interface WatchOutcome {
   readonly regressions: number
   /** Signatures that would have been filed and were not, because of a cap. */
   readonly withheld: number
+  /**
+   * Signatures left alone because the repository they file into could not be
+   * listed, so *no issue is open for this* was not something this pass knew.
+   */
+  readonly unreadable: number
   readonly skipped?: string
 }
 
@@ -99,6 +105,7 @@ export async function watchLogs(deps: WatchDependencies): Promise<WatchOutcome> 
     quiet: 0,
     regressions: 0,
     withheld: 0,
+    unreadable: 0,
   }
 
   if (!deps.logs.available) {
@@ -124,7 +131,8 @@ export async function watchLogs(deps: WatchDependencies): Promise<WatchOutcome> 
     signatures.map((s) => ({ signature: s.signature, service: s.service, occurrences: s.count })),
   )
 
-  const [open, closed] = await Promise.all([deps.issues.open(), deps.issues.closed()])
+  const [corpus, closed] = await Promise.all([deps.issues.open(), deps.issues.closed()])
+  const open = corpus.issues
 
   const dayAgo = new Date(now() - 86_400_000).toISOString()
   const filedToday = await deps.store.filedSince(dayAgo)
@@ -136,6 +144,7 @@ export async function watchLogs(deps: WatchDependencies): Promise<WatchOutcome> 
     quiet: number
     regressions: number
     withheld: number
+    unreadable: number
   }
 
   /**
@@ -145,6 +154,19 @@ export async function watchLogs(deps: WatchDependencies): Promise<WatchOutcome> 
   const ordered = [...signatures].sort((a, b) => b.count - a.count)
 
   for (const signature of ordered) {
+    /**
+     * **A repository that could not be listed makes the answer unknown, not
+     * negative** (`#867`). `openIssueFor` would search a corpus missing exactly
+     * the issues it is looking for and report that nothing is open, which is
+     * how the debt watcher filed a second copy of a two-day-old alarm. Per
+     * signature rather than per pass, so one unlisted repository costs the
+     * signatures routed into it and not the whole window.
+     */
+    if (corpus.unreadable.includes(routeFor(signature.service).repository)) {
+      counts.unreadable++
+      continue
+    }
+
     const openIssue = openIssueFor(signature.signature, open)
     const closedIssue = closedIssueFor(signature.signature, closed)
 
@@ -227,6 +249,19 @@ export async function watchLogs(deps: WatchDependencies): Promise<WatchOutcome> 
         `${MAX_ISSUES_PER_RUN} per run, ${MAX_ISSUES_PER_DAY} per day, ${filedToday} already ` +
         'filed today. They stay in the store and will be filed on a later tick.',
       { event: 'defects.withheld', withheld: counts.withheld, filedToday },
+    )
+  }
+
+  if (counts.unreadable > 0) {
+    log.warn(
+      `${counts.unreadable} signature(s) were left alone because ` +
+        `${corpus.unreadable.join(', ')} could not be listed, so whether an issue is already ` +
+        'open for them was not known. The next tick asks again.',
+      {
+        event: 'defects.corpus.unreadable',
+        unreadable: counts.unreadable,
+        repositories: [...corpus.unreadable],
+      },
     )
   }
 

@@ -169,6 +169,39 @@ interface Section {
   readonly title: string
   readonly empty: boolean
   readonly lines: readonly string[]
+  /**
+   * What the overview says about this section for this agent (`#798`).
+   *
+   * **One sentence, already escaped, and never the section's content.** A
+   * section that is three lines today is a page tomorrow, and an overview that
+   * copied it would rebuild the long page one line at a time.
+   *
+   * **Computed from the same `input` the section body reads**, which is the
+   * acceptance criterion that matters: a figure here and the figure on the page
+   * it points at are one read of one fact, so they cannot drift apart. Where
+   * the page's own figure would cost another query, the line says less rather
+   * than saying something cheaper that could disagree.
+   */
+  readonly summary: string
+  /** Where the line leads: a page of its own where one exists, this page's anchor otherwise. */
+  readonly href: string
+}
+
+/**
+ * The most recent moment in a set of rows, or `null` when there are none.
+ *
+ * The overview states *when something last happened*, and the arrays it reads
+ * are ordered for the tables they render — rungs oldest first, the pulse newest
+ * first. Taking the maximum rather than an end of the array means a line cannot
+ * start lying because a section changed the order it prints in.
+ */
+function lastMoment<T>(rows: readonly T[], at: (row: T) => string): string | null {
+  let latest: string | null = null
+  for (const row of rows) {
+    const moment = at(row)
+    if (latest === null || Date.parse(moment) > Date.parse(latest)) latest = moment
+  }
+  return latest
 }
 
 /**
@@ -213,6 +246,44 @@ function pageContents(sections: readonly Section[]): string {
     `<ul>${items}</ul>`,
     '</nav>',
   ].join('')
+}
+
+/**
+ * The overview: one line per section, saying what is there (`#798`).
+ *
+ * ## Not a table of contents
+ *
+ * The contents column above answers *where on this page is that*; this answers
+ * *how is this agent doing*, which is the question somebody arrives with. A
+ * reader should be able to leave without opening anything, and the line is
+ * chosen so they can decide whether to.
+ *
+ * ## Every section has a line, including the ones with nothing in them
+ *
+ * `#583`'s rule, and it is the one this page cannot break: *a missing entry
+ * reads as* this agent cannot do that*; an entry marked empty reads as* nothing
+ * here yet*, and only the second is true.* So the empty state is written as a
+ * sentence — *No wallet proved yet* — rather than as an omission.
+ *
+ * ## Why it is one screen and stays one screen
+ *
+ * `#797` moves the sections onto pages of their own. When that lands this is
+ * what is left of `/agents/:agentId`, and a line that had grown into a
+ * paragraph would have rebuilt the page it replaced. One sentence each, no
+ * tables, no rows.
+ */
+function pageOverview(sections: readonly Section[]): string {
+  const items = sections
+    .map(
+      (section) =>
+        '<li>' +
+        `<a href="${escape(section.href)}">${escape(section.title)}</a> ` +
+        `<span class="page-overview__said">${section.summary}</span>` +
+        '</li>',
+    )
+    .join('')
+
+  return `<ul class="page-overview">${items}</ul>`
 }
 
 export function agentPage(input: AgentPageInput): string {
@@ -544,39 +615,144 @@ export function agentPage(input: AgentPageInput): string {
    * yet*, which is the true one.* Every section below renders whatever its
    * state, and the contents list says which ones have nothing in them.
    */
+  /**
+   * The sentences the overview carries (`#798`).
+   *
+   * **Every figure below is read off the same `input` the section beside it
+   * renders**, and never asked for a second time in a different shape — which
+   * is what makes the line and the section it points at incapable of
+   * disagreeing. Two figures the issue suggests are deliberately not here:
+   * *how many rungs exist* and *what the wallet holds*. The first is a read
+   * this page does not do, and the second is a balance the Colony does not keep
+   * (D-106). A line that says less is the acceptance criterion; a line that
+   * says something cheaper and nearby is what it refuses.
+   */
+  const lastRung = lastMoment(input.facts.rungs, (rung) => rung.passedAt)
+  const lastAttempt = lastMoment(input.facts.attempts, (attempt) => attempt.at)
+  const lastQuest = lastMoment(input.quests, (quest) => quest.at)
+  /**
+   * The one status the route composes rather than reads from the quest
+   * (`console-pages.ts`), and the only one an operator can act on the timing of
+   * — so it is the one the line counts.
+   */
+  const waiting = (input.questsWritten ?? []).filter(
+    (quest) => quest.status === 'awaiting moderation',
+  ).length
+
+  const currentContract = input.autonomyHistory[0]
+
   const sections: readonly Section[] = [
-    { id: 'wallet', title: 'Wallet', empty: input.walletAddress == null, lines: wallet },
-    { id: 'skills', title: 'Skills', empty: input.facts.skills.length === 0, lines: skills },
+    {
+      id: 'wallet',
+      title: 'Wallet',
+      empty: input.walletAddress == null,
+      lines: wallet,
+      summary:
+        input.walletAddress == null
+          ? 'No wallet proved yet, so there is nowhere to send it SOL.'
+          : 'A wallet of its own, ready to receive SOL.',
+      href: '#wallet',
+    },
+    {
+      id: 'skills',
+      title: 'Skills',
+      empty: input.facts.skills.length === 0,
+      lines: skills,
+      /**
+       * Count and what it opens, and never *the most recent one*: the facts
+       * carry no moment for a skill, and dating it from the rungs would be a
+       * second answer to the same question that could disagree with the first.
+       */
+      summary:
+        input.facts.skills.length === 0
+          ? 'None held yet.'
+          : `${String(input.facts.skills.length)} held, ` +
+            (input.opensNext.length === 0
+              ? 'and nothing open with them right now.'
+              : `${String(input.opensNext.length)} more open with them.`),
+      href: '#skills',
+    },
     {
       id: 'rungs-cleared',
       title: 'Rungs cleared',
       empty: input.facts.rungs.length === 0,
       lines: rungs,
+      summary:
+        lastRung === null
+          ? 'None cleared yet.'
+          : `${String(input.facts.rungs.length)} cleared, the last ${escape(relative(lastRung))}.`,
+      href: '#rungs-cleared',
     },
     {
       id: 'recent-activity',
       title: 'Recent activity',
       empty: input.facts.attempts.length === 0,
       lines: activity,
+      summary:
+        lastAttempt === null
+          ? 'Nothing attempted yet.'
+          : `Last attempt ${escape(relative(lastAttempt))}.`,
+      href: '#recent-activity',
     },
-    { id: 'quests', title: 'Quests', empty: input.quests.length === 0, lines: quests },
+    {
+      id: 'quests',
+      title: 'Quests',
+      empty: input.quests.length === 0,
+      lines: quests,
+      summary:
+        lastQuest === null
+          ? 'None taken yet.'
+          : `${String(input.quests.length)} taken, the last ${escape(relative(lastQuest))}.`,
+      href: '#quests',
+    },
     {
       id: 'quests-it-wrote',
       title: 'Quests it wrote',
       empty: input.questsWritten === undefined || input.questsWritten.length === 0,
       lines: written,
+      summary:
+        input.questsWritten === undefined || input.questsWritten.length === 0
+          ? 'None written.'
+          : `${String(input.questsWritten.length)} written, ` +
+            (waiting === 0
+              ? 'none waiting on the Colony.'
+              : `${String(waiting)} awaiting moderation.`),
+      href: '#quests-it-wrote',
     },
     {
       id: 'accounts',
       title: 'Accounts',
       empty: input.accounts.held === 0 && input.accounts.planned === 0,
       lines: accounts,
+      summary:
+        input.accounts.held === 0 && input.accounts.planned === 0
+          ? 'Nothing proved, and nothing on the list you keep together.'
+          : `${String(input.accounts.held)} proved, ` +
+            `${String(input.accounts.planned)} on the list you keep together, ` +
+            `${String(input.accounts.wanted)} marked as wanted.`,
+      /**
+       * The one section whose content is already a page of its own (`#582`), so
+       * the line leads there rather than to the summary of it below.
+       */
+      href: `/agents/${input.agentId}/accounts`,
     },
     {
       id: 'autonomy-contract',
       title: 'Autonomy contract',
       empty: input.autonomyHistory.length === 0,
       lines: autonomy,
+      /**
+       * The anchor and not `/autonomy`, which is the form for revising the
+       * contract rather than the page that holds it. A line saying *review due*
+       * that landed somebody in a form is an invitation to change something
+       * they came to read.
+       */
+      summary:
+        currentContract === undefined
+          ? 'No contract recorded yet.'
+          : `${escape(currentContract.level)}, review due ` +
+            `${escape(relative(currentContract.reviewDueAt))}.`,
+      href: '#autonomy-contract',
     },
   ]
 
@@ -598,6 +774,8 @@ export function agentPage(input: AgentPageInput): string {
           id: NOTE_ANCHOR,
           title: 'Leaving this agent a note',
           empty: false,
+          summary: 'A door is open — the agent reads what you leave at its next waking.',
+          href: `#${NOTE_ANCHOR}`,
           lines: [
             `<h2 id="${NOTE_ANCHOR}">Leaving this agent a note</h2>`,
             /**
@@ -615,6 +793,16 @@ export function agentPage(input: AgentPageInput): string {
     pageContents(note === undefined ? sections : [...sections, note]),
     '<div class="agent-page__sections">',
     ...identity,
+    /**
+     * The overview, above every section and below the identity table (`#798`).
+     *
+     * A reader arrives asking *how is this agent doing*, and until this issue
+     * the page answered by making them scroll eight sections. It sits under the
+     * identity table because the first question is still *which agent is this*,
+     * and above the sections because an overview underneath what it summarises
+     * is a summary nobody reaches.
+     */
+    pageOverview(note === undefined ? sections : [...sections, note]),
     ...sections.flatMap((section) => section.lines),
     /**
      * The dashboard's sentence, and it sits **above** the operator section

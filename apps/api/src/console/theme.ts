@@ -553,6 +553,28 @@ ${declarations(LOCAL_TOKENS)}
      gets the same fact, which is the point of writing it as text. */
   .page-contents__empty { color: var(--k-text-faint); margin-left: var(--k-space-1); }
 
+  /* The overview on the agent page (#798): one line per section, saying what is
+     there. Unlike the contents column above it this is content rather than
+     navigation, so it is shown at every width — on a phone, where that column
+     is not displayed at all, it is the only thing that says what is in a
+     section without scrolling the whole page.
+
+     Comments in here are served to the browser inside the page, so keep them
+     clear of the words a page test asserts are absent: a note written here once
+     matched an assertion about what the page does not carry.
+
+     No grid and no columns: the title and the sentence wrap as one line so a
+     narrow screen breaks them where the words allow, and eight lines still fit
+     one screen at a desktop width, which is the point of the page. */
+  .page-overview { list-style: none; margin: 0 0 var(--k-space-6); padding: 0; }
+  .page-overview li {
+    padding: var(--k-space-2) 0;
+    border-bottom: var(--k-border) solid var(--k-hairline);
+    font-size: var(--k-text-sm);
+  }
+  .page-overview li a { color: var(--k-text-strong); }
+  .page-overview__said { color: var(--k-text-muted); }
+
   .note { color: var(--k-text-faint); font-size: var(--k-text-sm); }
   .note strong { color: var(--k-text-muted); }
 

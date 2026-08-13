@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { agentPage } from './agent-page.js'
+import { relative } from './time.js'
 
 /** A page with nothing on it, so each test adds only the thing it is about. */
 const aView = (overrides: Partial<Parameters<typeof agentPage>[0]> = {}) =>
@@ -260,5 +261,168 @@ describe('the contents list on the agent page', () => {
     expect(own).not.toMatch(/<details\b/)
     // Every anchor the list points at is an id in the same document.
     for (const id of listed(html)) expect(html).toContain(`id="${id}"`)
+  })
+})
+
+/**
+ * The overview (`#798`).
+ *
+ * **A reader should be able to answer *how is this agent doing* without opening
+ * anything.** That is the whole test: one line per section whatever the agent's
+ * state, each carrying a figure or a phrase rather than the section itself, and
+ * every figure the same read as the section it points at.
+ */
+describe('the overview on the agent page', () => {
+  const overview = (html: string): string => {
+    const start = html.indexOf('<ul class="page-overview">')
+    return html.slice(start, html.indexOf('</ul>', start))
+  }
+
+  const lines = (html: string): string[] =>
+    [...overview(html).matchAll(/<li>(.*?)<\/li>/g)].map((match) => match[1] as string)
+
+  /**
+   * **The rejection case the definition of done asks for.** An agent with
+   * nothing renders eight lines saying so — `#583`'s rule, which this page
+   * cannot break: a missing entry reads as *this agent cannot do that*, and an
+   * entry marked empty reads as *nothing here yet*.
+   */
+  it('gives an agent that has done nothing eight lines saying so', () => {
+    const html = agentPage(aView())
+    const eight = lines(html)
+
+    expect(eight).toHaveLength(8)
+    expect(overview(html)).toContain('No wallet proved yet')
+    expect(overview(html)).toContain('None held yet')
+    expect(overview(html)).toContain('None cleared yet')
+    expect(overview(html)).toContain('Nothing attempted yet')
+    expect(overview(html)).toContain('None taken yet')
+    expect(overview(html)).toContain('None written')
+    expect(overview(html)).toContain('Nothing proved, and nothing on the list')
+    expect(overview(html)).toContain('No contract recorded yet')
+  })
+
+  it('leads each line to the section or the page that holds it', () => {
+    const html = agentPage(aView())
+    const targets = [...overview(html).matchAll(/href="([^"]+)"/g)].map((match) => match[1])
+
+    expect(targets).toEqual([
+      '#wallet',
+      '#skills',
+      '#rungs-cleared',
+      '#recent-activity',
+      '#quests',
+      '#quests-it-wrote',
+      // The one section whose content is a page of its own already (`#582`).
+      '/agents/11111111-1111-4111-8111-111111111111/accounts',
+      '#autonomy-contract',
+    ])
+  })
+
+  /**
+   * **The figure and the section it points at are one read of one fact.** Not a
+   * second query answering the same question in a different shape, which is the
+   * acceptance criterion — so the count on the line is asserted against the rows
+   * the section actually renders rather than against the input that produced
+   * both.
+   */
+  it('states a figure the section it points at agrees with', () => {
+    const html = agentPage(
+      aView({
+        facts: {
+          lastSeenAt: null,
+          citizenSince: '2026-08-01T00:00:00.000Z',
+          questsAccepted: 0,
+          skills: ['mailbox', 'browser'],
+          rungs: [
+            { rung: 'a-rung', title: 'A rung', passedAt: '2026-08-01T00:00:00.000Z' },
+            { rung: 'b-rung', title: 'B rung', passedAt: '2026-08-03T00:00:00.000Z' },
+            { rung: 'c-rung', title: 'C rung', passedAt: '2026-08-02T00:00:00.000Z' },
+          ],
+          attempts: [],
+          accounts: [],
+        },
+        accounts: { held: 4, planned: 2, wanted: 1 },
+      }),
+    )
+
+    const rungsSection = html.slice(
+      html.indexOf('<h2 id="rungs-cleared">'),
+      html.indexOf('<h2 id="recent-activity">'),
+    )
+
+    expect(overview(html)).toContain('3 cleared')
+    expect([...rungsSection.matchAll(/<tr><td>/g)]).toHaveLength(3)
+    // And the accounts line carries the counts `/agents/:agentId/accounts` was
+    // given, in the same read that produced the section's own sentence.
+    expect(overview(html)).toContain(
+      '4 proved, 2 on the list you keep together, 1 marked as wanted',
+    )
+    expect(html).toContain('4 proved, 2 on the list you keep together')
+  })
+
+  /**
+   * `AGENTS.md` §7: a figure that carries a moment keeps it. The rungs render
+   * oldest first and the pulse newest first, so *the last one* is the newest
+   * moment in the set rather than an end of an array — a section that changed
+   * the order it prints in must not make this line start lying.
+   */
+  it('dates the last rung by its moment and not by its place in the table', () => {
+    const html = agentPage(
+      aView({
+        facts: {
+          lastSeenAt: null,
+          citizenSince: '2026-08-01T00:00:00.000Z',
+          questsAccepted: 0,
+          skills: [],
+          rungs: [
+            { rung: 'newest', title: 'Newest', passedAt: '2026-08-12T00:00:00.000Z' },
+            { rung: 'oldest', title: 'Oldest', passedAt: '2020-01-01T00:00:00.000Z' },
+          ],
+          attempts: [],
+          accounts: [],
+        },
+      }),
+    )
+
+    // The newest of the two, which is the first in the array here and the last
+    // in the table the section renders.
+    expect(overview(html)).toContain(`2 cleared, the last ${relative('2026-08-12T00:00:00.000Z')}`)
+    expect(overview(html)).not.toContain(relative('2020-01-01T00:00:00.000Z'))
+  })
+
+  /**
+   * Nothing on the overview is a section's full content — a section that is
+   * short today is a page tomorrow, and duplicating it here would rebuild the
+   * long page one line at a time.
+   */
+  it('carries no rows of its own', () => {
+    const html = agentPage(
+      aView({
+        walletAddress: 'C8kdTzzyDXyPGjoNBefTZZ9KZt7feXAUQgY4vhuHVh1s',
+        quests: [
+          {
+            questId: 'aaaaaaaa-1111-4111-8111-111111111111',
+            title: 'A thousand mailboxes',
+            at: '2026-08-10T00:00:00.000Z',
+            outcome: 'accepted',
+          },
+        ],
+      }),
+    )
+
+    expect(overview(html)).not.toMatch(/<table|<tr|<h2/)
+    // The wallet address is on the page and never on the line about it.
+    expect(overview(html)).not.toContain('C8kdTzzyDXyPGjoNBefTZZ9KZt7feXAUQgY4vhuHVh1s')
+    expect(overview(html)).not.toContain('A thousand mailboxes')
+    expect(overview(html)).toContain('1 taken, the last')
+  })
+
+  it('adds a ninth line only when there is a door to leave a note at', () => {
+    expect(lines(agentPage(aView()))).toHaveLength(8)
+
+    const withDoor = lines(agentPage(aView({ operator: '<p>the form</p>' })))
+    expect(withDoor).toHaveLength(9)
+    expect(withDoor[8]).toContain('A door is open')
   })
 })

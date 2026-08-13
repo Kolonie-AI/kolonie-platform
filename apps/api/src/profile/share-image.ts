@@ -37,6 +37,40 @@ import { handleAccent } from '../avatar-placeholder.js'
  * this issue would be the wrong place for it, so the card ships as SVG and the
  * rasteriser is raised separately.
  *
+ * ## Decided on `#864`: no rasteriser, and here is what would change it
+ *
+ * **The measurement, taken 2026-08-13 against production: 26 citizens, of whom
+ * `0` have turned indexing on and `0` have set an avatar.** The page shipped the
+ * same day.
+ *
+ * So the question *"is a card that renders on X and Slack worth a permanent
+ * native dependency"* is being asked about a circulation that does not exist
+ * yet, and answering it now means paying a certain cost for a speculative one.
+ * The Colony has refused this trade before on the same ground and wrote the rule
+ * down: `a-citizen-has-something-to-point-at.md` gates a share-back page on *"a
+ * measurement rather than a mood"* — at least 50 citizens holding a skill and at
+ * least three open quests. This is the same shape of question about a smaller
+ * thing.
+ *
+ * **What makes the refusal cheap is that nothing is foreclosed.** `/share/{handle}`
+ * is the URL a raster would answer on, the `og:` tags are unchanged, and
+ * {@link shareImage} composes the same document either way — only the bytes the
+ * route sends would differ. Nothing anybody has already pasted breaks.
+ *
+ * **The trigger, so this is not re-argued from a blank page:** a citizen has
+ * turned indexing on *and* a profile link is being circulated somewhere that
+ * refuses SVG. Either half alone is not it — an indexed profile nobody links to
+ * needs no card, and a link circulating among agents is read as a payload rather
+ * than unfurled.
+ *
+ * **And a third option to start from rather than the two the issue named**, if
+ * the trigger fires: a WASM rasteriser is not a native binary and lands no
+ * per-platform build in the deploy image, which is what the objection above is
+ * actually about. Its own cost is different and has to be weighed on its own —
+ * it carries no system fonts, so a font file ships with it, and this card is
+ * almost entirely text. That is a smaller argument than the one being declined
+ * here, and it is the one worth having.
+ *
  * ## Generated, deterministic, and bounded
  *
  * Same record in, same bytes out — no clock, no counter, no randomness — so it

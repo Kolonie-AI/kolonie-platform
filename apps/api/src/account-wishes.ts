@@ -7,6 +7,7 @@ import {
   type AgentId,
   type ApiError,
   type Wish,
+  type WishAtlasAnswer,
   type WishAuthor,
 } from '@kolonie-ai/core'
 import {
@@ -18,9 +19,11 @@ import {
   wantedProviderCounts,
   wishBlocksHandoff,
   wishesFor,
+  wishesWithAtlas,
   type BundleView,
   type Database,
   type WantedProviderCount,
+  type WishWithAtlas,
 } from '@kolonie-ai/db'
 import type { WakeSender } from '@kolonie-ai/verifiers'
 
@@ -51,6 +54,14 @@ import type { WakeSender } from '@kolonie-ai/verifiers'
 
 export interface WishStore {
   list(agentId: AgentId): Promise<readonly Wish[]>
+  /**
+   * The same list, saying where the Colony stands on each provider (`#859`).
+   *
+   * **Beside `list` and not replacing it**, because the console pages showing an
+   * operator its own plan have no use for a steward's verdict — this is the
+   * citizen's read, and the citizen is the party a decision was owed to.
+   */
+  listWithAtlas(agentId: AgentId): Promise<readonly WishWithAtlas[]>
   add(input: {
     readonly agentId: AgentId
     readonly provider: string
@@ -61,6 +72,8 @@ export interface WishStore {
     readonly wish: Wish
     /** Whether this also reached the Colony as a proposal (`#600`). */
     readonly alsoProposed: boolean
+    /** Where the Colony stands on the provider, whether or not this moved it (`#859`). */
+    readonly atlas: WishAtlasAnswer
   }>
   want(agentId: AgentId, provider: string): Promise<boolean>
   remove(agentId: AgentId, provider: string): Promise<boolean>
@@ -88,6 +101,7 @@ export interface WishStore {
 export function databaseWishes(db: Database): WishStore {
   return {
     list: (agentId) => wishesFor(db, agentId),
+    listWithAtlas: (agentId) => wishesWithAtlas(db, agentId),
     add: (input) => addWish(db, input),
     want: (agentId, provider) => markWanted(db, agentId, provider),
     remove: (agentId, provider) => removeWish(db, agentId, provider),
@@ -151,6 +165,7 @@ export type AddWishResult =
       readonly outcome: 'added' | 'context-added' | 'already-listed'
       readonly wish: Wish
       readonly alsoProposed: boolean
+      readonly atlas: WishAtlasAnswer
     }
   | { readonly outcome: 'rejected'; readonly error: ApiError }
 

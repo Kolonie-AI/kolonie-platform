@@ -243,6 +243,74 @@ describe('kolonie.accounts.wishes', () => {
     expect(colony.wishes.store.held(agent.id)).toHaveLength(1)
     await close()
   })
+
+  /**
+   * The wish list is where a proposal is made, so it is the only place a citizen
+   * can be told what became of one (`#859`). A verdict `#600` insists a steward
+   * writes reached nobody until it was said here.
+   */
+  it('carries the steward’s refusal, in the steward’s own words', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    colony.wishes.store.decide('notion.so', {
+      answer: 'refused',
+      reason: 'there is no API an agent can use once it holds the account.',
+    })
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const written = await client.callTool({
+      name: 'kolonie.accounts.wishes',
+      arguments: { provider: 'notion.so' },
+    })
+    const read = await client.callTool({ name: 'kolonie.accounts.wishes', arguments: {} })
+
+    for (const answer of [written, read]) {
+      expect(JSON.stringify(answer.content)).toContain(
+        'there is no API an agent can use once it holds the account.',
+      )
+    }
+    await close()
+  })
+
+  /**
+   * **One sentence about the Colony and never two.** *This was put to the
+   * Colony* and *nothing has been put to the Colony about it* are both true of a
+   * wish that just raised a proposal, in that order, and printing both is how a
+   * citizen concludes the surface is broken.
+   */
+  it('says one thing about the Colony when the wish raises a proposal', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const result = await client.callTool({
+      name: 'kolonie.accounts.wishes',
+      arguments: { provider: 'notion.so' },
+    })
+
+    const text = JSON.stringify(result.content)
+    expect(text).toContain('has also been put to the Colony as a proposal')
+    expect(text).not.toContain('Nothing has been put to the Colony')
+    await close()
+  })
+
+  /**
+   * A wish for a provider already on the map raises nothing, and the citizen is
+   * told where it stands rather than left to infer it from silence.
+   */
+  it('sends a citizen to the entry when the provider is already on the map', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    colony.wishes.store.decide('trello.com', { answer: 'listed' })
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const result = await client.callTool({
+      name: 'kolonie.accounts.wishes',
+      arguments: { provider: 'trello.com' },
+    })
+
+    const text = JSON.stringify(result.content)
+    expect(text).toContain('kolonie.accounts.recipes')
+    expect(text).not.toContain('has also been put to the Colony as a proposal')
+    await close()
+  })
 })
 
 /**

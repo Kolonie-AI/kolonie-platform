@@ -32,6 +32,7 @@ import {
   bootstrapTemplatesAsHint,
   recipeStatusIsOfferable,
   walkIsReported,
+  wishAtlasSentence,
   type ApiError,
   type ProviderRecipe,
   type RecipeStep,
@@ -2011,6 +2012,16 @@ export function registerAccountTools(
         const added = await putOnWishList(agentId, 'citizen', input, deps.wishes)
         if (added.outcome === 'rejected') return toolError(added.error)
 
+        /**
+         * **One sentence about the Colony and never two** (`#859`). A wish that
+         * raised a proposal is told exactly that and nothing more is known yet;
+         * every other wish gets where the provider already stands — which is the
+         * decision `#600` recorded and, until this, delivered to nobody.
+         */
+        const atlasLine = added.alsoProposed
+          ? WISH_ALSO_PROPOSED
+          : wishAtlasSentence(added.wish.provider, added.atlas)
+
         if (added.outcome === 'already-listed') {
           return {
             content: [
@@ -2020,14 +2031,15 @@ export function registerAccountTools(
                   `${added.wish.provider} is already on the list — added ` +
                   `${added.wish.author === 'operator' ? 'by your operator' : 'by you'}, and ` +
                   `${added.wish.wantedAt === null ? 'not marked as wanted yet' : 'marked as wanted'}. ` +
-                  'Nothing was changed and nothing was duplicated.' +
-                  (added.alsoProposed ? ` ${WISH_ALSO_PROPOSED}` : ''),
+                  'Nothing was changed and nothing was duplicated. ' +
+                  atlasLine,
               },
             ],
             structuredContent: {
               wish: added.wish,
               added: false,
               alsoProposed: added.alsoProposed,
+              atlas: added.atlas,
             },
           }
         }
@@ -2040,7 +2052,7 @@ export function registerAccountTools(
                 text:
                   `${added.wish.provider} was already on the list, and your context was added. ` +
                   `${added.wish.wantedAt === null ? 'It is not marked as wanted yet.' : 'It is marked as wanted.'}` +
-                  (added.alsoProposed ? ` ${WISH_ALSO_PROPOSED}` : ''),
+                  ` ${atlasLine}`,
               },
             ],
             structuredContent: {
@@ -2048,6 +2060,7 @@ export function registerAccountTools(
               added: false,
               contextAdded: true,
               alsoProposed: added.alsoProposed,
+              atlas: added.atlas,
             },
           }
         }
@@ -2060,15 +2073,25 @@ export function registerAccountTools(
                 `${added.wish.provider} is on the list. Your operator decides whether it is ` +
                 'attempted — until they mark it as wanted, a recipe for it will not ask them ' +
                 'for anything. There is nothing to wait for: read the list again on a later ' +
-                'waking.' +
-                (added.alsoProposed ? ` ${WISH_ALSO_PROPOSED}` : ''),
+                `waking. ${atlasLine}`,
             },
           ],
-          structuredContent: { wish: added.wish, added: true, alsoProposed: added.alsoProposed },
+          structuredContent: {
+            wish: added.wish,
+            added: true,
+            alsoProposed: added.alsoProposed,
+            atlas: added.atlas,
+          },
         }
       }
 
-      const wishes = await deps.wishes.store.list(agentId)
+      /**
+       * **The citizen's read carries the Colony's answer** (`#859`). The list is
+       * where a proposal was made, so it is the only place a citizen can be told
+       * what became of one — there is no second tool, and a verdict it never
+       * hears is a verdict that costs a steward's time for nothing.
+       */
+      const wishes = await deps.wishes.store.listWithAtlas(agentId)
 
       return {
         content: [
@@ -2081,10 +2104,11 @@ export function registerAccountTools(
                   'act on it.'
                 : wishes
                     .map(
-                      (wish) =>
+                      ({ wish, atlas }) =>
                         `${wish.provider} — ${wish.author === 'operator' ? 'your operator' : 'you'}` +
                         `, ${wish.wantedAt === null ? 'not yet marked as wanted' : 'marked as wanted'}` +
-                        `${wish.noticedWhile === null ? '' : `\n  noticed while: ${wish.noticedWhile}`}`,
+                        `${wish.noticedWhile === null ? '' : `\n  noticed while: ${wish.noticedWhile}`}` +
+                        `\n  ${wishAtlasSentence(wish.provider, atlas)}`,
                     )
                     .join('\n'),
           },

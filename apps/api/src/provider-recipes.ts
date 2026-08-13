@@ -1,5 +1,6 @@
 import {
   AccountKindSchema,
+  ATLAS_ABSENCE_NEXT_MOVES,
   AtlasCategorySchema,
   BOOTSTRAP_TEMPLATES,
   atlasByOutcome,
@@ -409,8 +410,8 @@ export async function readAtlas(
         code: 'not_found',
         message:
           'The Atlas has no entry for that provider. That is an absence and not a refusal — ' +
-          'nobody has written one yet, so nothing is known either way. If you walk it, ' +
-          'kolonie.accounts.provider-report is where what you found goes.',
+          'nobody has written one yet, so nothing is known either way. ' +
+          ATLAS_ABSENCE_NEXT_MOVES,
       },
     }
   }
@@ -559,8 +560,8 @@ export async function readRecipe(
         code: 'not_found',
         message:
           'The catalogue has no entry for that provider under that kind. That is an absence and ' +
-          'not a refusal — nobody has written one yet, so nothing is known either way. If you ' +
-          'walk it, kolonie.accounts.provider-report is where what you found goes.',
+          'not a refusal — nobody has written one yet, so nothing is known either way. ' +
+          ATLAS_ABSENCE_NEXT_MOVES,
       },
     }
   }

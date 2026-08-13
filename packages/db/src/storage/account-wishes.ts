@@ -1,23 +1,26 @@
 import { and, asc, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm'
 import {
   PERMISSION_AGGREGATE_FLOOR,
+  ProposalDecisionSchema,
   RecipeOperatorGuessSchema,
   RecipeStatusSchema,
   RecipeStepSchema,
   atlasEntryOperatorNeed,
   atlasEntryStatus,
   operatorNeed,
+  wishAtlasAnswer,
   type AgentId,
   type RecipeOperatorNeed,
   type RecipeStatus,
   type RecipeStep,
   type Wish,
+  type WishAtlasAnswer,
   type WishAuthor,
   type WishId,
 } from '@kolonie-ai/core'
 import type { Database, Transaction } from '../client.js'
 import { proposeProvider } from './atlas-proposals.js'
-import { accounts, accountWishes, providerRecipes } from '../schema/index.js'
+import { accounts, accountWishes, atlasProposals, providerRecipes } from '../schema/index.js'
 
 /**
  * The shared account list, in storage (#527).
@@ -38,8 +41,16 @@ import { accounts, accountWishes, providerRecipes } from '../schema/index.js'
  * only its operator. It is `false` for a provider the Atlas already holds — the
  * ordinary case — and for one already in the queue.
  */
+/**
+ * **`atlas` says where the provider stands, which `alsoProposed` cannot**
+ * (`#859`). *This raised nothing* is true of a provider already on the map, one
+ * a steward refused with a reason last month, and one that turned out to be
+ * something else — three different next moves behind one `false`. The verdict
+ * `#600` insists a refusal carries reached nobody until this field existed.
+ */
 export interface WishAlsoProposed {
   readonly alsoProposed: boolean
+  readonly atlas: WishAtlasAnswer
 }
 
 export type AddWishOutcome =
@@ -88,14 +99,14 @@ export async function addWish(
         return {
           outcome: 'context-added',
           wish: asWish(updated),
-          alsoProposed: await alsoPropose(db, input),
+          ...(await alsoPropose(db, input)),
         }
     }
 
     return {
       outcome: 'already-listed',
       wish: asWish(existing),
-      alsoProposed: await alsoPropose(db, input),
+      ...(await alsoPropose(db, input)),
     }
   }
 
@@ -113,7 +124,7 @@ export async function addWish(
 
   if (row === undefined) throw new Error('account_wishes insert returned no row')
 
-  return { outcome: 'added', wish: asWish(row), alsoProposed: await alsoPropose(db, input) }
+  return { outcome: 'added', wish: asWish(row), ...(await alsoPropose(db, input)) }
 }
 
 /**
@@ -132,6 +143,11 @@ export async function addWish(
  *
  * **`noticedWhile` is the `why`**, and it is the citizen's own sentence. An
  * operator's wish carries none, which the table already enforces one field up.
+ *
+ * **It answers with where the provider stands and not only with whether it
+ * moved** (`#859`). `proposeProvider` already knows both — the listed case is
+ * how it declines to raise anything, and the already-known case carries the
+ * decided row — so the answer is read off the outcome rather than fetched again.
  */
 async function alsoPropose(
   db: Database | Transaction,
@@ -140,14 +156,20 @@ async function alsoPropose(
     readonly author: WishAuthor
     readonly noticedWhile?: string | undefined
   },
-): Promise<boolean> {
+): Promise<WishAlsoProposed> {
   const raised = await proposeProvider(db, {
     provider: input.provider,
     source: input.author === 'citizen' ? 'citizen' : 'operator',
     why: input.noticedWhile ?? null,
   })
 
-  return raised.outcome === 'raised'
+  return {
+    alsoProposed: raised.outcome === 'raised',
+    atlas: wishAtlasAnswer({
+      proposal: raised.outcome === 'already-listed' ? null : raised.proposal,
+      listed: raised.outcome === 'already-listed',
+    }),
+  }
 }
 
 /** The whole list for one agent, oldest first. */
@@ -162,6 +184,82 @@ export async function wishesFor(
     .orderBy(asc(accountWishes.addedAt))
 
   return rows.map(asWish)
+}
+
+/** One wish, and where the Colony stands on the provider it names (`#859`). */
+export interface WishWithAtlas {
+  readonly wish: Wish
+  readonly atlas: WishAtlasAnswer
+}
+
+/**
+ * The same list, saying what became of each provider (`#859`).
+ *
+ * **Beside `wishesFor` rather than replacing it.** The console pages that read
+ * the list are showing an operator its own plan and have no use for a steward's
+ * verdict on the Atlas; widening the type they all read would put a field in
+ * front of four surfaces to serve one.
+ *
+ * **Derived on read and stored nowhere**, which is the Atlas rule and here it is
+ * also the correctness argument: `atlas_proposals` owns the decision, and a copy
+ * of it on the wish row would be a second writer of one fact — wrong from the
+ * moment a steward changes their mind, and wrong silently.
+ *
+ * **Two left joins and no filtering.** A wish whose provider was refused still
+ * belongs on the citizen's list: it asked for the thing, and *no, and here is
+ * why* is the answer it is owed rather than a row quietly disappearing.
+ */
+export async function wishesWithAtlas(
+  db: Database | Transaction,
+  agentId: AgentId,
+): Promise<readonly WishWithAtlas[]> {
+  const rows = await db
+    .select({
+      wish: accountWishes,
+      status: atlasProposals.status,
+      decidedReason: atlasProposals.decidedReason,
+      mergedInto: atlasProposals.mergedInto,
+      /**
+       * **Any recipe row for the provider is the listed case**, whatever its
+       * kind and whatever its status. `proposeProvider` declines to raise a
+       * proposal on exactly that test, so reading it any other way here would
+       * make the write and the read-back disagree about the same provider.
+       */
+      listed: providerRecipes.provider,
+    })
+    .from(accountWishes)
+    .leftJoin(atlasProposals, eq(atlasProposals.provider, accountWishes.provider))
+    .leftJoin(providerRecipes, eq(providerRecipes.provider, accountWishes.provider))
+    .where(eq(accountWishes.agentId, agentId))
+    .orderBy(asc(accountWishes.addedAt))
+
+  /**
+   * A provider carries a recipe row per kind, so the catalogue join multiplies
+   * a wish by its kinds. Every copy answers the same, because the only thing
+   * read off that join is whether a row was there at all — so the first is kept
+   * and the rest dropped, which `distinct` could not have done over `jsonb`.
+   */
+  const byWish = new Map<string, WishWithAtlas>()
+  for (const row of rows) {
+    if (byWish.has(row.wish.id)) continue
+
+    byWish.set(row.wish.id, {
+      wish: asWish(row.wish),
+      atlas: wishAtlasAnswer({
+        proposal:
+          row.status === null
+            ? null
+            : {
+                status: ProposalDecisionSchema.parse(row.status),
+                decidedReason: row.decidedReason,
+                mergedInto: row.mergedInto,
+              },
+        listed: row.listed !== null,
+      }),
+    })
+  }
+
+  return [...byWish.values()]
 }
 
 /**

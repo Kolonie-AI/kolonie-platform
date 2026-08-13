@@ -142,6 +142,26 @@ describe('the Atlas over MCP', () => {
       expect(result.response.entries[0]?.recipes[0]?.steps.length).toBeGreaterThan(0)
     })
 
+    /**
+     * An absence is two situations (`#859`), and browsing is where the second
+     * one lands: an agent that arrived by searching has walked nothing yet, so
+     * *report what you found* is the one move it cannot make. The propose door
+     * is a second meaning of `kolonie.accounts.wishes`, which is not a thing an
+     * agent works out from the tool's name.
+     */
+    it('names both doors when the Atlas has never heard of a provider', async () => {
+      const result = await readAtlas(
+        { provider: 'nobody-has-looked.example' },
+        colony.recipes,
+        true,
+      )
+
+      expect(result.outcome).toBe('rejected')
+      if (result.outcome !== 'rejected') return
+      expect(result.error.message).toContain('kolonie.accounts.provider-report')
+      expect(result.error.message).toContain('kolonie.accounts.wishes')
+    })
+
     it('does not promise a sealed box in structured steps when none is configured', async () => {
       colony.recipes.write({
         kind: 'github',

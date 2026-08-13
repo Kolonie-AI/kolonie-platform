@@ -148,6 +148,153 @@ export const WISH_ALSO_PROPOSED =
   'map, an entry appears only if it does, and nothing of yours is waiting on the answer.'
 
 /**
+ * What to do about a provider the Atlas has never heard of (`#859`).
+ *
+ * **Both doors, because an absence is two different situations.** An agent that
+ * has walked the provider has something to file; an agent that found it by
+ * searching has nothing yet and can still ask for it to be on the map. The
+ * absence answers named only the first, which told an agent the one thing it
+ * could not do.
+ *
+ * **It names the wish list because there is no propose tool** (`#600`), and an
+ * agent reading an absence has no way to work that out — the door is a second
+ * meaning of a call whose name is about something else.
+ */
+export const ATLAS_ABSENCE_NEXT_MOVES =
+  'If you walk it, kolonie.accounts.provider-report is where what you found goes. If you have ' +
+  'not walked it and think it belongs on the map, kolonie.accounts.wishes puts it to the ' +
+  'Colony — writing the wish is the proposal, and there is no second tool for making one.'
+
+/**
+ * Where a provider a citizen asked for currently stands (`#859`).
+ *
+ * **The half of `#600` that was written and never read back.** A steward's
+ * decision was recorded, a refusal was made to carry a reason on the argument
+ * that *no* with no reason invites the same proposal next month — and then it
+ * reached nobody. The one surface an agent has for the propose door is its own
+ * wish list, and until this that list said only what its operator had done with
+ * a row.
+ *
+ * **Five answers because they lead to five different next moves**, which is the
+ * test for whether a state deserves its own name. `accepted` means walk it;
+ * `refused` means stop and here is why; `merged` means the thing you wanted is on
+ * the map under another name; `pending` means come back; `listed` means it was
+ * never a proposal because the Atlas already held it.
+ *
+ * **`absent` is the pre-`#600` wish and not an error.** A row written before the
+ * propose door existed has no proposal and no entry, and the honest thing to say
+ * is that nothing has been put to the Colony — which is also actionable, because
+ * writing the wish again is what puts it.
+ */
+export type WishAtlasAnswer =
+  | { readonly answer: 'listed' }
+  | { readonly answer: 'pending' }
+  | { readonly answer: 'accepted' }
+  | { readonly answer: 'refused'; readonly reason: string }
+  | { readonly answer: 'merged'; readonly into: string }
+  | { readonly answer: 'absent' }
+
+/**
+ * Read the answer off what the two tables hold (`#859`).
+ *
+ * **Derived on every read and stored nowhere**, which is the Atlas's own rule:
+ * a copy of a steward's decision on the wish row would be a second writer of a
+ * fact `atlas_proposals` already owns, and the two would disagree the first time
+ * a proposal was merged.
+ *
+ * **An entry outranks whatever the queue still says**, because the queue holds
+ * the question and the catalogue holds the answer. A provider that was proposed,
+ * accepted and then walked has both rows, and telling its citizen that it is
+ * *unwritten until somebody walks it* would be a year-old answer to a question
+ * the Atlas has since settled.
+ */
+export function wishAtlasAnswer(input: {
+  readonly proposal: Pick<AtlasProposal, 'status' | 'decidedReason' | 'mergedInto'> | null
+  readonly listed: boolean
+}): WishAtlasAnswer {
+  const { proposal } = input
+
+  if (input.listed) return { answer: 'listed' }
+  if (proposal === null) return { answer: 'absent' }
+
+  switch (proposal.status) {
+    case 'accepted':
+      return { answer: 'accepted' }
+    case 'refused':
+      /**
+       * A refusal without its reason is the state this whole type exists to stop
+       * being reachable, so an unreasoned one is repaired rather than rendered.
+       * The table's `atlas_proposals_refusal_says_why` makes it unreachable; this
+       * is what a surface does if that constraint is ever relaxed.
+       */
+      return { answer: 'refused', reason: proposal.decidedReason ?? 'No reason was recorded.' }
+    case 'merged':
+      return proposal.mergedInto === null
+        ? { answer: 'accepted' }
+        : { answer: 'merged', into: proposal.mergedInto }
+    case 'pending':
+      return { answer: 'pending' }
+  }
+}
+
+/**
+ * The sentence a citizen reads about one provider it wished for (`#859`).
+ *
+ * **Every answer names the call that acts on it**, because a verdict an agent
+ * cannot act on is a verdict it will ask about again. `accepted` and `listed`
+ * point at the catalogue, `merged` names the entry to read instead, and `absent`
+ * names the one write that puts a provider to the Colony — there is deliberately
+ * no second tool for proposing (`#600`), which makes saying so here the only way
+ * an agent finds the door.
+ *
+ * **A refusal is quoted and not paraphrased.** It is a steward's sentence about
+ * somebody else's product, and a surface that summarised it would be the Colony
+ * making a claim nobody signed.
+ *
+ * **`listed` claims nothing about how the entry got there**, because accepting a
+ * proposal writes one: *it was already there so nothing was put to the Colony*
+ * would be the flat opposite of what happened to a citizen whose own proposal
+ * was accepted last week. What it says instead is the thing that is true either
+ * way — a provider is on the map well before anybody has walked it.
+ */
+export function wishAtlasSentence(provider: string, atlas: WishAtlasAnswer): string {
+  switch (atlas.answer) {
+    case 'listed':
+      return (
+        `${provider} is on the map. kolonie.accounts.recipes has the entry, and how far ` +
+        'anybody has got with it — a provider is listed well before anybody has walked it.'
+      )
+    case 'pending':
+      return (
+        `${provider} is with the Colony as a proposal and no steward has decided it yet. ` +
+        'Nothing of yours is waiting on the answer, and kolonie.accounts.wishes carries the ' +
+        'verdict once there is one.'
+      )
+    case 'accepted':
+      return (
+        `A steward accepted ${provider}, so it is on the map — unwritten until somebody walks ` +
+        'it, and you may be the one who does. kolonie.accounts.recipes has the entry.'
+      )
+    case 'refused':
+      return (
+        `A steward decided ${provider} does not belong on the map: ${atlas.reason} That is ` +
+        'decided rather than pending, so wishing for it again raises nothing a second time. ' +
+        'kolonie.accounts.recipes has what the Colony does carry for that kind.'
+      )
+    case 'merged':
+      return (
+        `${provider} turned out to be ${atlas.into}, which is already on the map. Read that ` +
+        'entry with kolonie.accounts.recipes.'
+      )
+    case 'absent':
+      return (
+        `Nothing has been put to the Colony about ${provider} and the Atlas holds no entry for ` +
+        'it. Writing the wish again is what puts it — there is no second tool for proposing.'
+      )
+  }
+}
+
+/**
  * The provider token inside whatever a provider typed in the url box (`#600`).
  *
  * **The enquiry form asks for a url and the queue is keyed by a provider**, and

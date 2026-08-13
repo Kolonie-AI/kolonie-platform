@@ -1,7 +1,8 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { PERMISSION_AGGREGATE_FLOOR, type AgentId } from '@kolonie-ai/core'
+import { eq } from 'drizzle-orm'
 import type { Database } from '../client.js'
-import { agents } from '../schema/index.js'
+import { agents, atlasProposals } from '../schema/index.js'
 import { connectForTests, databaseTestTarget, expectRejection, truncateAll } from '../testing.js'
 import {
   addWish,
@@ -11,7 +12,10 @@ import {
   wantedWishesFor,
   wishBlocksHandoff,
   wishesFor,
+  wishesWithAtlas,
 } from './account-wishes.js'
+import { decideProviderProposal, pendingProviderProposals } from './atlas-proposals.js'
+import { writeProviderRecipe } from './provider-recipes.js'
 
 const target = databaseTestTarget()
 
@@ -226,6 +230,158 @@ describe('the shared account list', () => {
       const counts = await wantedProviderCounts(db)
       expect(JSON.stringify(counts)).not.toContain('figma.com-0')
       expect(Object.keys(counts[0] ?? {}).sort()).toEqual(['citizens', 'provider'])
+    })
+  })
+
+  /**
+   * What became of the proposal the wish raised (`#859`).
+   *
+   * **A real database, because the answer is a join and not a decision.** Nothing
+   * stores where a provider stands: the queue holds the verdict, the catalogue
+   * holds the entry, and this reads both on every look. A fake would let the two
+   * agree forever, which is precisely what they do not do — accepting a proposal
+   * writes a listing, so the pair exists for every provider that got on the map
+   * by being asked for.
+   */
+  describe('where a wished-for provider stands with the Colony', () => {
+    const anEntry = async (provider: string): Promise<void> => {
+      await writeProviderRecipe(db, {
+        kind: 'api' as never,
+        provider,
+        title: provider,
+        status: 'joinable',
+        category: 'data-apis',
+        steps: [{ actor: 'agent', instruction: 'sign up' }],
+        proves: 'provider-post',
+      })
+    }
+
+    /** The proposal a wish just raised, so a steward can decide it. */
+    const proposalFor = async (provider: string): Promise<string> => {
+      const [raised] = (await pendingProviderProposals(db)).filter(
+        (entry) => entry.proposal.provider === provider,
+      )
+      if (raised === undefined) throw new Error(`no pending proposal for ${provider}`)
+      return raised.proposal.id
+    }
+
+    const atlasFor = async (provider: string) => {
+      const [wish] = (await wishesWithAtlas(db, agentId)).filter(
+        (entry) => entry.wish.provider === provider,
+      )
+      return wish?.atlas
+    }
+
+    it('tells the citizen its wish reached the Colony and nobody has decided it', async () => {
+      const added = await addWish(db, { agentId, provider: 'notion.so', author: 'citizen' })
+
+      expect(added.alsoProposed).toBe(true)
+      expect(added.atlas).toEqual({ answer: 'pending' })
+      expect(await atlasFor('notion.so')).toEqual({ answer: 'pending' })
+    })
+
+    /**
+     * A provider already on the map raises nothing, and *nothing was raised* is
+     * the one thing `alsoProposed` could already say. The answer beside it is
+     * what tells the citizen why.
+     */
+    it('raises nothing for a provider the Atlas already holds', async () => {
+      await anEntry('trello.com')
+
+      const added = await addWish(db, { agentId, provider: 'trello.com', author: 'citizen' })
+
+      expect(added.alsoProposed).toBe(false)
+      expect(added.atlas).toEqual({ answer: 'listed' })
+    })
+
+    it('carries the reason a steward refused it', async () => {
+      await addWish(db, { agentId, provider: 'notion.so', author: 'citizen' })
+
+      await decideProviderProposal(db, await proposalFor('notion.so'), {
+        action: 'refuse',
+        reason: 'there is no API an agent can use once it holds the account',
+      })
+
+      expect(await atlasFor('notion.so')).toEqual({
+        answer: 'refused',
+        reason: 'there is no API an agent can use once it holds the account',
+      })
+    })
+
+    it('names the entry a merged proposal turned out to be', async () => {
+      await anEntry('cloudflare.com')
+      await addWish(db, { agentId, provider: 'workers.cloudflare.com', author: 'citizen' })
+
+      await decideProviderProposal(db, await proposalFor('workers.cloudflare.com'), {
+        action: 'merge',
+        into: 'cloudflare.com',
+      })
+
+      expect(await atlasFor('workers.cloudflare.com')).toEqual({
+        answer: 'merged',
+        into: 'cloudflare.com',
+      })
+    })
+
+    /**
+     * Accepting writes the listing, so both rows exist from the moment of the
+     * decision — and *unwritten until somebody walks it* is an answer that goes
+     * stale the day somebody does.
+     */
+    it('lets the entry outrank the proposal that asked for it', async () => {
+      await addWish(db, { agentId, provider: 'notion.so', author: 'citizen' })
+
+      await decideProviderProposal(db, await proposalFor('notion.so'), {
+        action: 'accept',
+        category: 'knowledge-docs',
+      })
+
+      expect(await atlasFor('notion.so')).toEqual({ answer: 'listed' })
+    })
+
+    /**
+     * A refused wish stays on the list. Taking it off would answer *what became
+     * of this* by destroying the question, and the citizen is the party the
+     * decision was owed to.
+     */
+    it('keeps every wish on the list whatever became of it', async () => {
+      await addWish(db, { agentId, provider: 'notion.so', author: 'citizen' })
+      await addWish(db, { agentId, provider: 'figma.com', author: 'citizen' })
+
+      await decideProviderProposal(db, await proposalFor('notion.so'), {
+        action: 'refuse',
+        reason: 'it sells to people rather than to agents',
+      })
+
+      const listed = await wishesWithAtlas(db, agentId)
+      expect(listed.map((entry) => entry.wish.provider)).toEqual(['notion.so', 'figma.com'])
+      expect(listed).toHaveLength((await wishesFor(db, agentId)).length)
+    })
+
+    it('is one agent’s list and never another’s', async () => {
+      const other = await anAgent('reads-its-own')
+      await addWish(db, { agentId, provider: 'notion.so', author: 'citizen' })
+
+      expect(await wishesWithAtlas(db, other)).toEqual([])
+    })
+
+    /**
+     * The rejection case, and it is the one the sentence depends on: a refusal
+     * carries the reason a citizen is told, or it is not written at all. The
+     * fallback in `wishAtlasAnswer` exists for a constraint that is relaxed, not
+     * for a row this database will accept.
+     */
+    it('refuses a refusal that says nothing', async () => {
+      await addWish(db, { agentId, provider: 'notion.so', author: 'citizen' })
+
+      await expectRejection(
+        () =>
+          db
+            .update(atlasProposals)
+            .set({ status: 'refused', decidedAt: new Date().toISOString() })
+            .where(eq(atlasProposals.provider, 'notion.so')),
+        /atlas_proposals_refusal_says_why/,
+      )
     })
   })
 

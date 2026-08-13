@@ -56,6 +56,23 @@ describe('reading the catalogue', () => {
     expect(result.error.message).toContain('provider-report')
   })
 
+  /**
+   * An absence is two situations (`#859`): an agent that walked the provider has
+   * something to file, and one that arrived by searching has nothing yet and can
+   * still ask for it to be on the map. Naming only the first told an agent the
+   * one thing it could not do — and the propose door is a second meaning of a
+   * call whose name is about something else, so nothing but this sentence leads
+   * to it.
+   */
+  it('names both doors out of an absence, propose as well as report', async () => {
+    const result = await readRecipe('trello', 'trello.com', recipes)
+
+    expect(result.outcome).toBe('rejected')
+    if (result.outcome !== 'rejected') return
+    expect(result.error.message).toContain('kolonie.accounts.provider-report')
+    expect(result.error.message).toContain('kolonie.accounts.wishes')
+  })
+
   it('puts what can be acted on above what cannot', async () => {
     recipes.write({ kind: 'social', provider: 'closed.example', status: 'refused' })
     recipes.write({ kind: 'trello', provider: 'trello.com', status: 'joinable' })

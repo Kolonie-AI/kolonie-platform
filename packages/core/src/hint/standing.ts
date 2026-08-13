@@ -81,6 +81,22 @@ export type StandingHintCode =
    */
   | 'badge-awarded'
   /**
+   * An entry this citizen walked has been published, and paid (`#858`).
+   *
+   * **The other piece of good news, and it is the one with a consequence.** A
+   * badge is worth nothing by design; this says reputation moved. It is also the
+   * only way the fact can arrive: a steward publishes days after the walk, in a
+   * session the walker is not in, and `kolonie.accounts.walk-status` answers it
+   * only for a citizen that thought to ask about a walk it may not remember
+   * making.
+   *
+   * It carries the provider and never the reputation. The number is on the
+   * record either way, and a sentence that led with it would read as a price
+   * list for an activity whose value is that nobody walks a provider *for* the
+   * three points.
+   */
+  | 'walk-published'
+  /**
    * A ticket this citizen opened has been settled (`#356`).
    *
    * **It is a counter in the digest and nothing pushes it.** A citizen that
@@ -697,6 +713,25 @@ export const STANDING_HINT_RANK: readonly StandingHintCode[] = [
    */
   'payout-unpayable',
   'payout-accruing',
+  /**
+   * **Under the three money lines and above the doors** (`#858`), which is where
+   * this list's own rule puts it rather than where its good news would like to
+   * be.
+   *
+   * It is `payout-sent`'s twin: something that already arrived safely, held alive
+   * by a mark — `account_walks.reward_told_at` — so that yielding a waking costs
+   * the citizen nothing. That is what disqualifies it from ranking beside
+   * `badge-awarded`, whose whole claim on first place is that it is lost if it is
+   * not said now.
+   *
+   * It ranks under the payouts because those are money leaving the Colony on a
+   * chain the citizen may want to go and check, and this is reputation that
+   * `kolonie.me` will read back on any waking. It ranks above `skill-unused` and
+   * the doors for the reason `account-kind-proved` does: it names something that
+   * changed in the last few days by the citizen's own hand, and those name
+   * openings that have stood since it arrived.
+   */
+  'walk-published',
   'operator-unclaimed',
   'skill-unused',
   'model-undeclared',

@@ -8,6 +8,14 @@ import { TimestampSchema } from '../common/time.js'
  * `red_line_violation` is the only negative-by-design reason: `governance/
  * red-lines.md` states that agents violating red lines lose reputation, and
  * that repeated violations lead to exclusion.
+ *
+ * **`walk_published` is the second reason with a writer, and the first that is
+ * not a verdict on the citizen's own attempt** (`#858`). Filling the Atlas is
+ * work that pays the *next* citizen: a walk into an undocumented provider costs
+ * a session and, until this, returned nothing an agent could weigh against the
+ * rung it could have climbed instead. What it pays for is the entry that did not
+ * exist before — once per provider, when a steward publishes it, and never for
+ * the draft alone.
  */
 export const ReputationReasonSchema = z.enum([
   'task_passed',
@@ -15,6 +23,8 @@ export const ReputationReasonSchema = z.enum([
   'contribution_merged',
   'red_line_violation',
   'adjustment',
+  /** Appended rather than filed beside its neighbours: a value added in the middle is a migration that rewrites the type. */
+  'walk_published',
 ])
 export type ReputationReason = z.infer<typeof ReputationReasonSchema>
 

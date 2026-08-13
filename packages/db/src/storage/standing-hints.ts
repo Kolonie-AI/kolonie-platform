@@ -24,6 +24,7 @@ import {
 import { openProspects } from './prospects.js'
 import { currentSessionIdSql, previousSessionStartSql } from './sessions.js'
 import { markBadgeTold, untoldBadge } from './badges.js'
+import { markWalkRewardTold, untoldWalkReward } from './account-walks.js'
 
 /**
  * Which standing hint this citizen is due, if any, and the claiming of it
@@ -64,6 +65,8 @@ interface Standing {
   readonly consideration: string | null
   /** The `agent_badges` row behind a `badge-awarded` finding, if any. */
   readonly badge: string | null
+  /** The `account_walks` row behind a `walk-published` finding, if any (`#858`). */
+  readonly walkReward: string | null
   /** The general sentence behind a `general` finding, if any (`#355`). */
   readonly general: string | null
   /** The `support_tickets` row behind a `ticket-settled` finding, if any (`#356`). */
@@ -887,6 +890,7 @@ async function standing(
       slot: null,
       consideration: null,
       badge: null,
+      walkReward: null,
       general: null,
       ticket: null,
       account: null,
@@ -925,6 +929,7 @@ async function conditions(
     payoutUntold,
     accrualUntold,
     addressUntold,
+    walkReward,
   ] = await Promise.all([
     unpromptedConsideration(db, agentId, cheap.declaredRhythmHours),
     untoldBadge(db, agentId),
@@ -944,6 +949,7 @@ async function conditions(
     untoldPayout(db, agentId),
     untoldAccrual(db, agentId),
     untoldMissingAddress(db, agentId),
+    untoldWalkReward(db, agentId),
   ])
 
   const general = untoldGeneralHint(cheap.generalHintsTold)
@@ -1078,7 +1084,18 @@ async function conditions(
    * `payout-accruing`'s: this sentence carries no constant either, and the
    * amount owed is `kolonie.me.earnings`'s to state exactly.
    */
-  if (addressUntold) applicable.push({ code: 'payout-unpayable', subject: null })
+  /**
+   * **The subject is the provider token** (`#858`), which is a name the citizen
+   * typed — and it is inside this channel's rule rather than an exception to it,
+   * because a provider is a hostname the Colony parsed with
+   * `AccountProviderSchema` and then published in its own catalogue. What is
+   * never carried is the reputation: the number is on the record, and a sentence
+   * that led with it would price an activity whose whole worth is that nobody
+   * walks a provider *for* the three points.
+   */
+  if (walkReward !== null) {
+    applicable.push({ code: 'walk-published', subject: walkReward.provider })
+  }
   if (general !== null) applicable.push({ code: 'general', subject: general })
 
   return {
@@ -1086,6 +1103,7 @@ async function conditions(
     slot: cheap.slot,
     consideration: considered?.id ?? null,
     badge: badge?.id ?? null,
+    walkReward: walkReward?.id ?? null,
     general,
     ticket: seven.ticket?.id ?? null,
     account: untoldKind?.id ?? null,
@@ -1247,6 +1265,12 @@ export async function dueStandingHint(
     if (chosen.code === 'payout-sent') {
       if (!found.payoutUntold) return null
       if (!(await claimPayoutHint(db, agentId))) return null
+    }
+
+    /** `badge-awarded`'s branch exactly (`#858`) — one row, marked once, or nothing said. */
+    if (chosen.code === 'walk-published') {
+      if (found.walkReward === null) return null
+      if (!(await markWalkRewardTold(db, found.walkReward))) return null
     }
 
     /**

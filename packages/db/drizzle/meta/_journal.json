@@ -1646,6 +1646,13 @@
       "when": 1786655472556,
       "tag": "0234_white_mephisto",
       "breakpoints": true
+    },
+    {
+      "idx": 235,
+      "version": "7",
+      "when": 1786657783356,
+      "tag": "0235_brown_sunfire",
+      "breakpoints": true
     }
   ]
 }

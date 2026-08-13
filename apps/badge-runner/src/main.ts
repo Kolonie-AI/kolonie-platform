@@ -4,12 +4,13 @@ import {
   createDatabase,
   databaseUrlFromEnv,
   recordAttributionReading,
+  rewardPublishedWalks,
   sweepBadges,
 } from '@kolonie-ai/db'
 import { fetchPage, PAGE_TIMEOUT_MS } from '@kolonie-ai/verifiers'
 import type { Log } from './loop.js'
 import { attributionSweep, sweepAttribution } from './attribution.js'
-import { badgeSweep } from './sweeps.js'
+import { badgeSweep, walkRewardSweep } from './sweeps.js'
 import { createHealthServer } from './health.js'
 import { runnerLoops } from './runner-loops.js'
 
@@ -49,6 +50,22 @@ const POLL_INTERVAL_MS = Number(process.env['POLL_INTERVAL_MS'] ?? 21_600_000)
  * tonight, and nothing in the Colony was waiting for it.
  */
 const ATTRIBUTION_INTERVAL_MS = Number(process.env['ATTRIBUTION_INTERVAL_MS'] ?? 21_600_000)
+
+/**
+ * One hour for the walk rewards, six times the badge sweep (`#858`).
+ *
+ * **Faster than badges because something does wait on it**, which is the exact
+ * argument the badge interval makes in the other direction. This one books
+ * reputation, and the citizen hears about it on the first waking after the sweep
+ * ran — so the interval is the delay between a steward pressing publish and the
+ * walker being able to find out. Six hours would mean a citizen that walked,
+ * waited days for a steward and then woke twice to silence.
+ *
+ * It is still an hour rather than a minute: the pass is a single statement, and
+ * nothing downstream of it is time-critical enough to justify running it while
+ * no steward has published anything, which is most hours.
+ */
+const WALK_REWARD_INTERVAL_MS = Number(process.env['WALK_REWARD_INTERVAL_MS'] ?? 3_600_000)
 const HEALTH_PORT = Number(process.env['HEALTH_PORT'] ?? 3004)
 
 const log: Log = createLog({ service: 'badge-runner' })
@@ -79,9 +96,11 @@ const loops = runnerLoops({
       },
     ),
   ),
+  walkRewards: walkRewardSweep(() => rewardPublishedWalks(db)),
   log,
   badgeIntervalMs: POLL_INTERVAL_MS,
   attributionIntervalMs: ATTRIBUTION_INTERVAL_MS,
+  walkRewardIntervalMs: WALK_REWARD_INTERVAL_MS,
 })
 
 for (const loop of loops) loop.start()

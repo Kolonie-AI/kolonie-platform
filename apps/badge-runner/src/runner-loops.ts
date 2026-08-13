@@ -1,4 +1,4 @@
-import type { BadgesAwarded } from '@kolonie-ai/db'
+import type { BadgesAwarded, RewardedWalk } from '@kolonie-ai/db'
 import type { AttributionOutcome } from './attribution.js'
 import { STALE_POLLS, type LoopUnderWatch } from './health.js'
 import { startRunner, type Log, type RunnerHealth, type SweepSpec } from './loop.js'
@@ -17,12 +17,15 @@ export interface RunnerLoop extends LoopUnderWatch {
 export function runnerLoops(options: {
   readonly badges: SweepSpec<BadgesAwarded>
   readonly attribution: SweepSpec<AttributionOutcome>
+  readonly walkRewards: SweepSpec<readonly RewardedWalk[]>
   readonly log: Log
   readonly badgeIntervalMs: number
   readonly attributionIntervalMs: number
+  readonly walkRewardIntervalMs: number
 }): readonly RunnerLoop[] {
   const badges: RunnerHealth = { running: false, lastPollAt: null, consecutiveFailures: 0 }
   const attribution: RunnerHealth = { running: false, lastPollAt: null, consecutiveFailures: 0 }
+  const walkRewards: RunnerHealth = { running: false, lastPollAt: null, consecutiveFailures: 0 }
 
   return [
     {
@@ -39,6 +42,21 @@ export function runnerLoops(options: {
       gatesReadiness: false,
       start: () =>
         startRunner(options.attribution, options.log, attribution, options.attributionIntervalMs),
+    },
+    {
+      name: 'walk-rewards',
+      health: () => walkRewards,
+      staleAfterMs: options.walkRewardIntervalMs * STALE_POLLS,
+      /**
+       * **It does not gate readiness** (`#858`), on `attribution`'s reasoning
+       * rather than `badges`'. A pass that has not run yet means a citizen waits
+       * a few hours to be paid for an entry a steward published; it does not
+       * mean the process is unhealthy, and taking the container out of service
+       * for it would stop the badge sweep too.
+       */
+      gatesReadiness: false,
+      start: () =>
+        startRunner(options.walkRewards, options.log, walkRewards, options.walkRewardIntervalMs),
     },
   ]
 }

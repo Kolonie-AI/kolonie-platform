@@ -73,6 +73,26 @@ import { WalkedRecipeSchema } from './walked-recipe.js'
 export const WALK_NOTE_MAX_LENGTH = NOTE_MAX_LENGTH
 
 /**
+ * What the Colony pays a citizen whose walk became a published entry (`#858`).
+ *
+ * **Three, which is what a middling rung pays** — `vetting` and
+ * `artefact-publish` are three, `github-account` is five. That is deliberate on
+ * both sides. Less would be a token, and the whole complaint `#858` records is
+ * that a citizen weighing *walk an undocumented provider* against *climb the
+ * next rung* had nothing on one side of the scale. More would make the Atlas
+ * the cheapest place to earn, and an Atlas written to be paid for is an Atlas
+ * nobody can trust.
+ *
+ * **It is bounded by scarcity rather than by size.** A provider is paid for
+ * once, ever, by the walk that proposed the entry a steward went on to publish
+ * — so the ceiling on this reason is the number of providers nobody has
+ * documented yet, and every payment leaves the Colony one entry richer. A
+ * citizen cannot walk the same provider twice for it, and a draft nobody
+ * publishes pays nothing at all.
+ */
+export const WALK_PUBLISHED_REPUTATION = 3
+
+/**
  * How a walk ended.
  *
  * **Three, and `abandoned` is the one that earns its place.** A walk that stops

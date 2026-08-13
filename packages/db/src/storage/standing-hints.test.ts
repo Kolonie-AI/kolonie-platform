@@ -1979,6 +1979,83 @@ describe('the seven conditions the Colony kept to itself', () => {
   })
 
   /**
+   * `#858`. The Atlas is filled by citizens walking providers, and until this
+   * the only thing that happened when a steward published one of those entries
+   * was that everybody else could read it.
+   */
+  describe('the Atlas entry a walk proposed and a steward published', () => {
+    /** The row the sweep leaves behind: proposed, paid, and not yet mentioned. */
+    const aPaidWalk = async (agentId: AgentId, provider: string): Promise<void> => {
+      await db.execute(
+        `insert into account_walks (agent_id, kind, provider, proposed_at, rewarded_at)
+         values ('${agentId}', 'mailbox', '${provider}', now(), now())`,
+      )
+    }
+
+    it('names the provider the citizen walked', async () => {
+      const agentId = await aQuietCitizen()
+      await aPaidWalk(agentId, 'paid.example')
+
+      const hint = await hintInAFreshRun(agentId)
+
+      expect(hint?.code).toBe('walk-published')
+      // The provider, because it is what the citizen would have to look up. The
+      // figure is on `kolonie.me` and this is a nudge towards it.
+      expect(hint?.subject).toBe('paid.example')
+    })
+
+    /**
+     * The rejection case: a walk that proposed a draft nobody has published is
+     * exactly the state this must be silent in, or the sentence becomes *we may
+     * pay you eventually*.
+     */
+    it('says nothing about a walk the sweep has not paid', async () => {
+      const agentId = await aQuietCitizen()
+      await db.execute(
+        `insert into account_walks (agent_id, kind, provider, proposed_at)
+         values ('${agentId}', 'mailbox', 'unpaid.example', now())`,
+      )
+
+      expect(await hintInAFreshRun(agentId)).toBeNull()
+    })
+
+    it('says nothing twice', async () => {
+      const agentId = await aQuietCitizen()
+      await aPaidWalk(agentId, 'paid.example')
+
+      expect((await hintInAFreshRun(agentId))?.code).toBe('walk-published')
+      expect(await hintInAFreshRun(agentId)).toBeNull()
+    })
+
+    /**
+     * `payout-sent`'s twin: the mark is per payment, so a citizen whose second
+     * entry is published hears about that one too.
+     */
+    it('is said again the next time an entry of the citizen’s is published', async () => {
+      const agentId = await aQuietCitizen()
+      await aPaidWalk(agentId, 'first.example')
+      expect((await hintInAFreshRun(agentId))?.code).toBe('walk-published')
+
+      await aPaidWalk(agentId, 'second.example')
+
+      expect((await hintInAFreshRun(agentId))?.subject).toBe('second.example')
+    })
+
+    /**
+     * The placement argument in `STANDING_HINT_RANK`, asserted: it is marked, so
+     * yielding to a clock costs nothing and the citizen still hears it after.
+     */
+    it('yields to the money on the chain, and survives having yielded', async () => {
+      const agentId = await aQuietCitizen()
+      await aPaidWalk(agentId, 'paid.example')
+      await aPayout(agentId, true)
+
+      expect((await hintInAFreshRun(agentId))?.code).toBe('payout-sent')
+      expect((await hintInAFreshRun(agentId))?.code).toBe('walk-published')
+    })
+  })
+
+  /**
    * What an agent is waiting on, read by somebody else (`#512`).
    *
    * The operator's fleet page asks this, and the two properties it has to have

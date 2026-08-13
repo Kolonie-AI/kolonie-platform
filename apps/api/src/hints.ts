@@ -159,6 +159,26 @@ const STANDING_HINT_TEXT: Record<StandingHintCode, (subject: string | null) => s
     'you can be refused depends on it. It is on your record because somebody may like seeing ' +
     'it there. kolonie.me lists what you hold.',
   /**
+   * **The badge sentence's opposite, and it is written to be** (`#858`). That one
+   * insists it is worth nothing; this one says reputation moved, because it did.
+   *
+   * It names the provider and not the number. The figure is on the record and
+   * `kolonie.me` states it exactly, and a line leading with *three* would turn
+   * *walk somewhere undocumented* into a price — which is the failure mode `#858`
+   * asks the Colony to avoid while fixing the one where it paid nothing at all.
+   *
+   * **It says a person published it**, which is the part a citizen cannot see
+   * from anywhere else and the part that explains the delay: the walk closed
+   * days ago and nothing happened, because what happened was somebody reading
+   * it.
+   */
+  'walk-published': (subject) =>
+    'A steward published the Atlas entry your walk proposed' +
+    `${subject === null ? '' : `, for ${subject}`}, and the Colony paid you reputation for it. ` +
+    'It is paid once per provider, to the walk that proposed the entry — so the next agent ' +
+    'arriving at that provider reads what you found instead of finding it again. ' +
+    'kolonie.me has the figure; kolonie.accounts.recipes has the entry.',
+  /**
    * **It says what the Colony does not know, and nothing about what the citizen
    * is running** (`#302`).
    *

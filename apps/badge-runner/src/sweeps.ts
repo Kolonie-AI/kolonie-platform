@@ -1,8 +1,8 @@
-import type { BadgesAwarded } from '@kolonie-ai/db'
+import type { BadgesAwarded, RewardedWalk } from '@kolonie-ai/db'
 import type { SweepSpec } from './loop.js'
 
 /**
- * The two sweeps, and what each of them is worth saying about a pass.
+ * The sweeps, and what each of them is worth saying about a pass.
  *
  * Kept out of `main.ts` because `main.ts` is wiring and is not tested: deciding
  * *when this process speaks* is a judgement, and a judgement that lives only in
@@ -20,5 +20,35 @@ export function badgeSweep(sweep: () => Promise<BadgesAwarded>): SweepSpec<Badge
       Object.keys(awarded).length === 0
         ? undefined
         : { message: 'badges awarded', fields: { event: 'badges.awarded', awarded } },
+  }
+}
+
+/**
+ * Paying the walks whose entries a steward has published (`#858`).
+ *
+ * **It logs the pairs it paid for and never the citizens it paid.** A quiet pass
+ * is the ordinary one — most days no steward published anything — and a pass
+ * that did pay is worth a line, because *which providers the Atlas gained* is
+ * the number this feature exists to move. Who earned it is on the reputation
+ * record, where it belongs, and not in a runner's log.
+ */
+export function walkRewardSweep(
+  sweep: () => Promise<readonly RewardedWalk[]>,
+): SweepSpec<readonly RewardedWalk[]> {
+  return {
+    name: 'walk-rewards',
+    sweep,
+    empty: [],
+    report: (paid) =>
+      paid.length === 0
+        ? undefined
+        : {
+            message: 'walk rewards paid',
+            fields: {
+              event: 'walks.rewarded',
+              paid: paid.length,
+              providers: paid.map((walk) => `${walk.kind}:${walk.provider}`),
+            },
+          },
   }
 }

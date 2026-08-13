@@ -7,6 +7,7 @@ import {
   RecipeActorSchema,
   WalkOutcomeSchema,
   WALK_PROSE_FIELDS,
+  WALK_PUBLISHED_REPUTATION,
   WalkedRecipeSchema,
   walkHasProse,
   walkIsReported,
@@ -22,7 +23,7 @@ import {
   type WalkVerdict,
   type WalkedRecipe,
 } from '@kolonie-ai/core'
-import type { Database } from '../client.js'
+import type { Database, Transaction } from '../client.js'
 import { accountWalks, accountWalkSteps } from '../schema/account-walks.js'
 import { agents } from '../schema/agents.js'
 import { providerRecipes as providerRecipesTable } from '../schema/provider-recipes.js'
@@ -477,6 +478,26 @@ export async function finishWalk(
          */
         ...(walk.recipe === null ? {} : { walkedRecipe: walk.recipe }),
       })
+
+      /**
+       * **Who proposed the entry, recorded where it becomes true** (`#858`).
+       *
+       * On `prose_status`' argument thirty lines up, for the same reason: this
+       * is the only moment the fact exists. `provider_recipes` carries no author
+       * column and deliberately does not — an entry is the Colony's sentence,
+       * not a byline — so a sweep asked later *which walk proposed this* would
+       * be guessing from timestamps, and would guess wrong the first time two
+       * citizens walked one provider in an afternoon.
+       *
+       * It also carries `#858`'s *previously had no steps* half for free.
+       * `walkVerdict` reaches this branch only where the entry is absent,
+       * unwritten or still a draft; a walk against something already published
+       * confirms or diverges, and neither is stamped.
+       */
+      await tx
+        .update(accountWalks)
+        .set({ proposedAt: sql`now()` })
+        .where(eq(accountWalks.id, walkId))
     }
 
     if (verdict.kind === 'refusal') {
@@ -514,6 +535,151 @@ export async function finishWalk(
 
     return { walk, verdict }
   })
+}
+
+/** One walk the sweep paid for, for the runner's log (`#858`). */
+export interface RewardedWalk {
+  readonly walkId: string
+  readonly agentId: AgentId
+  readonly kind: string
+  readonly provider: string
+}
+
+/**
+ * Pay the walks whose proposed entries a steward has since published (`#858`).
+ *
+ * **The Atlas is written by citizens and, until this, paid for by none of
+ * them.** A walk into a provider nobody had documented costs a session and
+ * returns an entry the *next* agent reads — so an agent weighing that against
+ * the rung it could climb instead had nothing on one side of the scale, and
+ * `#858` is that complaint. What this pays for is the entry that did not exist:
+ * `WALK_PUBLISHED_REPUTATION`, once per provider, to the walk that proposed the
+ * draft a person went on to publish.
+ *
+ * **A sweep and not a hook on `publishProviderRecipe`.** That function is a
+ * state move with two call sites and no opinion about money; giving it one would
+ * put the payment behind whether a future third caller remembered. This runs
+ * beside `sweepBadges` on the same argument that shaped it — idempotent, safe to
+ * run twice at once, and correct the day after it was not run at all.
+ *
+ * **Three conditions, and each one is a way this could have been farmed.**
+ * `proposed_at is not null` is the entry having been absent when the walk closed
+ * — a walk that merely confirmed something already published proposed nothing.
+ * The `order by proposed_at` picks the first proposer, so a citizen that walks a
+ * held draft the week before a steward reaches it does not take the payment from
+ * whoever wrote it. And the `not exists` refuses a pair somebody was already
+ * paid for, which matters most for an entry that was published, drifted back to
+ * a draft and was published again years later.
+ *
+ * **The `not exists` is the check and the unique index is the guarantee.** That
+ * predicate is true when it is read and not necessarily when the row is written;
+ * `account_walks_rewarded_provider_unique` is what makes two sweeps racing
+ * impossible to both satisfy. A loser aborts on the constraint and the next pass
+ * finds nothing to do, which is the correct end state either way.
+ *
+ * One transaction covering the claim and what it paid, on `bookTaskReward`'s
+ * rule: a `rewarded_at` with no reputation event behind it is a payment the
+ * citizen cannot see and the sweep will never make again.
+ */
+export async function rewardPublishedWalks(
+  db: Database | Transaction,
+): Promise<readonly RewardedWalk[]> {
+  const rows = await db.execute<{
+    id: string
+    agent_id: string
+    kind: string
+    provider: string
+  }>(sql`
+    with claimed as (
+      update account_walks as walk
+         set rewarded_at = now()
+       where walk.rewarded_at is null
+         and walk.proposed_at is not null
+         and exists (
+           select 1 from provider_recipes as entry
+            where entry.kind = walk.kind
+              and entry.provider = walk.provider
+              and entry.status = 'joinable'
+         )
+         and not exists (
+           select 1 from account_walks as paid
+            where paid.kind = walk.kind
+              and paid.provider = walk.provider
+              and paid.rewarded_at is not null
+         )
+         and walk.id = (
+           select first.id from account_walks as first
+            where first.kind = walk.kind
+              and first.provider = walk.provider
+              and first.proposed_at is not null
+            order by first.proposed_at asc, first.id asc
+            limit 1
+         )
+      returning walk.id, walk.agent_id, walk.kind, walk.provider
+    ),
+    -- Executed for its effect and never read: a data-modifying WITH runs to
+    -- completion whether or not the outer query selects from it.
+    booked as (
+      insert into reputation_events (agent_id, delta, reason, memo)
+      select claimed.agent_id,
+             ${WALK_PUBLISHED_REPUTATION},
+             'walk_published',
+             'Atlas entry published: ' || claimed.kind || ' at ' || claimed.provider
+        from claimed
+      returning id
+    )
+    select id, agent_id, kind, provider from claimed`)
+
+  return [...rows].map((row) => ({
+    walkId: row.id,
+    agentId: row.agent_id as AgentId,
+    kind: row.kind,
+    provider: row.provider,
+  }))
+}
+
+/**
+ * The published walk this citizen has not been told was paid, if any (`#858`).
+ *
+ * `untoldBadge`'s shape exactly, and for its reason: a steward publishes days
+ * later, in a session the walker is not in, and nothing else would ever tell it.
+ * Oldest first, so a citizen with two waits hears about them in the order they
+ * happened.
+ */
+export async function untoldWalkReward(
+  db: Database | Transaction,
+  agentId: AgentId,
+): Promise<{ readonly id: string; readonly provider: string } | null> {
+  const rows = await db
+    .select({ id: accountWalks.id, provider: accountWalks.provider })
+    .from(accountWalks)
+    .where(
+      and(
+        eq(accountWalks.agentId, agentId),
+        isNotNull(accountWalks.rewardedAt),
+        isNull(accountWalks.rewardToldAt),
+      ),
+    )
+    .orderBy(asc(accountWalks.rewardedAt))
+    .limit(1)
+
+  return rows[0] ?? null
+}
+
+/**
+ * Mark that the Colony has told this citizen its walk was paid.
+ *
+ * `where reward_told_at is null returning`, so two reads racing inside one run
+ * cannot both spend the hint slot on it — `markBadgeTold`'s idiom, unchanged.
+ */
+export async function markWalkRewardTold(db: Database | Transaction, id: string): Promise<boolean> {
+  const told = await db
+    .update(accountWalks)
+    .set({ rewardToldAt: sql`now()` })
+    .where(and(eq(accountWalks.id, id), isNull(accountWalks.rewardToldAt)))
+    .returning({ id: accountWalks.id })
+
+  return told.length > 0
 }
 
 /** One walk's words, waiting on the stage between them and any other reader (`#810`). */

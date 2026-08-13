@@ -8,6 +8,7 @@ import {
   pgTable,
   text,
   timestamp,
+  uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core'
 import {
@@ -168,6 +169,34 @@ export const accountWalks = pgTable(
      * keeps the pass's queue equal to *walks nobody has read*.
      */
     proseStatus: moderationStatus('prose_status').notNull().default('approved'),
+
+    /**
+     * When this walk proposed the entry for its provider (`#858`).
+     *
+     * **Stamped by `finishWalk` at the moment the draft is written**, on
+     * `prose_status`' argument two fields up: a flag set when the fact becomes
+     * true cannot miss a row, where a sweep reconstructing authorship afterwards
+     * would be guessing. Nothing else records who wrote a catalogue entry —
+     * `provider_recipes` carries no author column and deliberately does not, so
+     * without this the walker behind a published recipe is unrecoverable.
+     *
+     * It also carries the *previously had no steps* half of `#858` for free.
+     * `walkVerdict` reaches its `draft` branch only where the entry is absent,
+     * unwritten or still a draft; a walk against something already published
+     * confirms or diverges and is stamped with nothing.
+     */
+    proposedAt: timestamp('proposed_at', { withTimezone: true }),
+
+    /**
+     * When the Colony paid for the entry this walk proposed (`#858`).
+     *
+     * Claimed by the reward sweep with `where rewarded_at is null returning`,
+     * the shape every other *say it once* marker here uses.
+     */
+    rewardedAt: timestamp('rewarded_at', { withTimezone: true }),
+
+    /** When the citizen was told about that payment, on `agent_badges.told_at`'s pattern. */
+    rewardToldAt: timestamp('reward_told_at', { withTimezone: true }),
   },
   (table) => [
     /** A citizen's own walks, newest first, which is every read of this table. */
@@ -175,6 +204,37 @@ export const accountWalks = pgTable(
 
     /** What a steward's queue reads: finished walks against one provider. */
     index('account_walks_provider_idx').on(table.kind, table.provider, table.finishedAt),
+
+    /**
+     * **One provider is paid for once, and the database is what says so**
+     * (`#858`).
+     *
+     * The sweep already declines to pay a pair somebody was paid for, and that
+     * check is a `not exists` — true when it is read and not afterwards. This is
+     * the guarantee: two sweeps racing, or a second walk published years later
+     * against an entry that had drifted back to a draft, cannot both be paid.
+     * The Atlas pays for the entry that did not exist, not for each walk that
+     * touched it.
+     *
+     * Partial, so the unrewarded walks — nearly all of them, several per
+     * provider — are not the thing being kept unique.
+     */
+    uniqueIndex('account_walks_rewarded_provider_unique')
+      .on(table.kind, table.provider)
+      .where(sql`${table.rewardedAt} is not null`),
+
+    /**
+     * A payment implies the entry it paid for, and telling implies a payment.
+     *
+     * Both halves of the same rule: `rewarded_at` is meaningless on a walk that
+     * proposed nothing, and *the citizen was told it was paid* is a lie on a walk
+     * nothing was paid for.
+     */
+    check(
+      'account_walks_reward_follows_a_proposal',
+      sql`(${table.rewardedAt} is null or ${table.proposedAt} is not null)
+          and (${table.rewardToldAt} is null or ${table.rewardedAt} is not null)`,
+    ),
 
     check(
       'account_walks_outcome_is_known',

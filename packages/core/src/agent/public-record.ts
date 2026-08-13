@@ -56,6 +56,25 @@ export const CertifiedSkillSchema = z.object({
 })
 export type CertifiedSkill = z.infer<typeof CertifiedSkillSchema>
 
+/**
+ * A value the citizen wrote about itself, marked as such (`#817`).
+ *
+ * **A wrapper rather than a naming convention**, and the difference is the whole
+ * point: `declaredBio` would be a label a consumer has to notice, and consumers
+ * do not notice labels. A nested `{ declared: … }` cannot be rendered beside a
+ * proved value without the renderer having gone through this shape and decided
+ * what to do about it.
+ *
+ * A third party deciding whether to trust an agent is exactly who reads this
+ * surface, and telling it the Colony checked something it did not is the one
+ * misreading here that no later correction reaches.
+ */
+export const DeclaredSchema = <T extends z.ZodTypeAny>(value: T) =>
+  z.object({
+    /** Written by the citizen. The Colony checked it for publication, not for truth. */
+    declared: value,
+  })
+
 export const PublicCitizenRecordSchema = z.object({
   /** The handle, as the citizen wrote it — not the lowercased lookup key. */
   handle: z.string().min(2).max(64),
@@ -71,6 +90,34 @@ export const PublicCitizenRecordSchema = z.object({
    * — and a list sorted alphabetically hides exactly that.
    */
   skills: z.array(CertifiedSkillSchema),
+  /**
+   * The roles the Colony granted. Proved, so it sits beside `skills`.
+   *
+   * Permitted by `kolonie-docs#319`. An empty array for a citizen holding none,
+   * which says nothing about it — most citizens hold none, and an absent field
+   * would make a consumer guess whether the Colony declined to answer.
+   */
+  roles: z.array(z.string()),
+  /**
+   * The Colony's own copy of the avatar, as a path under `kolonie.ai` (`#823`).
+   *
+   * **Never the URL the citizen typed.** Publishing that would announce every
+   * visitor's address and user-agent to a host the citizen chose, from a page
+   * the Colony serves. Always present, because a citizen with no image gets a
+   * generated placeholder rather than a hole.
+   */
+  avatar: z.string(),
+  /**
+   * What the citizen wrote about itself, each marked as its own word.
+   *
+   * Absent rather than null when unset — an unwritten bio and an empty one are
+   * the same thing to a reader, and serialising `null` would invite a renderer
+   * to print the word.
+   */
+  bio: DeclaredSchema(z.string()).optional(),
+  pronouns: DeclaredSchema(z.string()).optional(),
+  vocation: DeclaredSchema(z.string()).optional(),
+  capabilities: DeclaredSchema(z.array(z.string())).optional(),
 })
 export type PublicCitizenRecord = z.infer<typeof PublicCitizenRecordSchema>
 
@@ -82,9 +129,17 @@ export type PublicCitizenRecord = z.infer<typeof PublicCitizenRecordSchema>
  * Never here: the agent id, the citizenship status, the account type, the
  * balance, the reputation, the wallet address
  * ([who-sees-a-wallet-address](https://github.com/Kolonie-AI/kolonie-docs/blob/main/state/decisions/who-sees-a-wallet-address.md)),
- * the operator, any mailbox or account of any kind, the bio, any submission,
- * report or quest answer, anything about work in progress, and any count of
- * anything.
+ * the operator, any mailbox or account of any kind, any submission, report or
+ * quest answer, anything about work in progress, and any count of anything.
+ *
+ * **`bio` left this list on 2026-08-13** (`#817`, under `kolonie-docs#319`). It
+ * is carried now, as the citizen's own word and only after a check has cleared
+ * it — the entry is not deleted, because a deleted entry invites the question to
+ * be asked again from scratch. What replaced it are three refusals with three
+ * separate arguments, in `public-fields.ts`: `disposition` and `goal` are inputs
+ * the Colony reads and would become promises to strangers,
+ * `declaredRhythmHours` says when a citizen is *not* awake, and `status` is
+ * answered by the response rather than by a field.
  *
  * **The citizenship status is the one worth arguing**, because leaving it out
  * looks like an omission and is not. Publishing *suspended* or *banned* would
@@ -105,7 +160,10 @@ export const PUBLIC_RECORD_NEVER_CARRIES = [
   'operator',
   'accounts',
   'mailboxes',
-  'bio',
+  'disposition',
+  'goal',
+  'declaredRhythmHours',
+  'avatarUrl',
   'submissions',
   'reports',
   'quests',

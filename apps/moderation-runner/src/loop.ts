@@ -34,6 +34,7 @@ import { answerTick, type AnswerLoopDependencies } from './answers.js'
 import { providerReasonTick, type ProviderReasonLoopDependencies } from './provider-reasons.js'
 import { questReportTick, type QuestReportLoopDependencies } from './quest-reports.js'
 import { directionTick, type DirectionLoopDependencies } from './directions.js'
+import { profileTick, type ProfileLoopDependencies } from './profiles.js'
 import { judgeQuality } from './quality.js'
 import { checkRedLines } from './redline.js'
 import { ProviderUnreachable, type Model } from './llm.js'
@@ -121,6 +122,15 @@ export interface LoopDependencies {
    * existed.
    */
   readonly directions?: DirectionLoopDependencies
+  /**
+   * The profile fields waiting to be read before they are published (`#827`).
+   *
+   * Optional like every other extra pass, so a deployment that has not wired it
+   * runs the moderator exactly as before — and, because publication is the
+   * absence of a write rather than a default, an unwired pass publishes nothing
+   * rather than everything.
+   */
+  readonly profiles?: ProfileLoopDependencies
   /**
    * Whether a proposed provider belongs on the map (`#812`).
    *
@@ -452,6 +462,7 @@ export async function tick(deps: LoopDependencies, batchSize: number): Promise<T
   await scrubQuestReports(deps, batchSize, log)
   await scrubProviderReasons(deps, batchSize, log)
   await readDirections(deps, batchSize, log)
+  await readProfiles(deps, batchSize, log)
   await judgeAtlasProposals(deps, batchSize, log)
   await judgeRecipeDrafts(deps, batchSize, log)
   await scrubWalkProse(deps, batchSize, log)
@@ -562,6 +573,29 @@ async function judgeAtlasProposals(
     }
   } catch (error) {
     log.error('the atlas proposal pass failed', error, { event: 'atlas.pass.failed' })
+  }
+}
+
+/**
+ * Read the profile fields waiting on a check, on the same poll (`#827`).
+ *
+ * Its failure is swallowed like every other extra pass's, and the cost is worth
+ * naming because it is not the same as the others': what a failed pass costs is
+ * that new edits stop appearing on profile pages. Nothing already published
+ * changes, nothing unchecked is published, and the citizen's own console keeps
+ * saying the field is waiting — which is the honest report of what is happening.
+ *
+ * `profileTick` already logs its own counts, so this wrapper does not log a
+ * second line on the way past.
+ */
+async function readProfiles(deps: LoopDependencies, batchSize: number, log: Log): Promise<void> {
+  const { profiles } = deps
+  if (profiles === undefined) return
+
+  try {
+    await profileTick({ log, ...profiles }, batchSize)
+  } catch (error) {
+    log.error('the profile pass failed', error, { event: 'profile.pass.failed' })
   }
 }
 

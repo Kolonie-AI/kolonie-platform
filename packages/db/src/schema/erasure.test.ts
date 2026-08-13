@@ -935,6 +935,15 @@ describe('the erasure boundary', () => {
        * the leftover it rules out.
        */
       'agent_origins.agent_id c',
+      /**
+       * `#827`. Cascades, and it is the one row here whose deletion a reader can
+       * see: the published copy of a bio lives in this table, so a review row
+       * that outlived its citizen would be text the Colony goes on serving about
+       * somebody who left. `kolonie-platform#825` is where the rest of the
+       * published surface is taken down in the same act; this is the column that
+       * makes the text itself go.
+       */
+      'agent_profile_reviews.agent_id c',
       'agent_runtime_declarations.agent_id c',
       /**
        * #158. Cascades: the sessions a citizen named are the first thing the

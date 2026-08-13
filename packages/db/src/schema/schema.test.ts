@@ -179,6 +179,24 @@ describe('schema', () => {
          * on it, and it cascades with the citizen.
          */
         'agent_origins',
+        /**
+         * `agent_profile_reviews` (`#827`): what a citizen wrote about itself,
+         * on its way to being published. One row per citizen per field, holding
+         * what is waiting to be read and what a check last cleared.
+         *
+         * **Its own table rather than four more columns on `agents`**, because
+         * each field needs four facts — waiting, published, state, reason — and
+         * that is sixteen columns for four fields, every one of which a fifth
+         * field would have to remember. A row per field makes adding one an enum
+         * value and nothing else.
+         *
+         * The `published` column is what the public record reads. Nothing reads
+         * `agents.bio` to publish it, which is the placement argument
+         * `who-sees-a-wallet-address.md` makes about the wallet address: there is
+         * no path by which a later change publishes an unreviewed value by
+         * forgetting a rule written in a document.
+         */
+        'agent_profile_reviews',
         // `agent_skills` joined the list with D-030: what an agent may attempt
         // stopped being a number on the agent row and became a set of rows with
         // provenance.

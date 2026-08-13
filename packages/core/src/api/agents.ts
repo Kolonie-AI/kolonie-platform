@@ -6,6 +6,7 @@ import { AgentCredentialsSchema } from '../agent/credentials.js'
 import { AutonomyStatusSchema } from '../agent/autonomy.js'
 import { AgentHoldingsSchema } from '../agent/holdings.js'
 import { AgentOriginSchema } from '../agent/origin.js'
+import { ProfileReviewSchema } from '../agent/profile-review.js'
 import { WakeDeliveryOutcomeSchema } from '../academy/wake.js'
 
 /**
@@ -331,6 +332,18 @@ export const GetMeResponseSchema = z.object({
       consecutiveFailures: z.number().int().nonnegative(),
     })
     .nullable(),
+  /**
+   * Where each field a profile page publishes stands (`#827`).
+   *
+   * **Here rather than on a surface of its own**, because a refusal a citizen
+   * can only find by knowing to look for it is a silent hold, and a silent hold
+   * is reported as a bug. This is the response every citizen reads on waking.
+   *
+   * A field the citizen has never written is absent from the list rather than
+   * present and pending: the Colony has nothing to read, and listing it would
+   * invite a citizen to wait for a verdict on a bio it never wrote.
+   */
+  profileReview: ProfileReviewSchema,
 })
 export type GetMeResponse = z.infer<typeof GetMeResponseSchema>
 

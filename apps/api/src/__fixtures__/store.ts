@@ -15,6 +15,7 @@ import {
   type ApiKey,
   type Role,
   type StoredAutonomyContract,
+  type ProfileReview,
 } from '@kolonie-ai/core'
 import type { AuthenticationResult, ObservedOrigin, WakeChannel } from '@kolonie-ai/db'
 import type { AgentStore } from '../authentication.js'
@@ -97,6 +98,8 @@ export interface FakeStore extends AgentStore {
    * for most citizens and is itself worth asserting.
    */
   readonly proveWake: (agentId: AgentId, channel: WakeChannel) => void
+  /** Seed where a citizen's published fields stand (`#827`). */
+  readonly reviewing: (agentId: AgentId, review: ProfileReview) => void
 }
 
 export interface IssuedKey {
@@ -173,6 +176,17 @@ export function fakeStore(): FakeStore {
   const contracts = new Map<string, StoredAutonomyContract>()
   /** The wake channel each agent has proved, for the few that have (`#585`). */
   const wakeChannels = new Map<string, WakeChannel>()
+  /**
+   * Where each agent's published fields stand (`#827`).
+   *
+   * **Rows a test seeds, and no reimplementation of the queueing rule.** What
+   * happens to a review when a citizen writes is decided inside the profile
+   * transaction in `packages/db/src/storage/agents.ts`, and a fake that copied
+   * that decision is the class of fixture `AGENTS.md` §3 says needs a
+   * `@mirrors` pin — and the class that has twice gone on passing after
+   * production changed. This one stores what it is given.
+   */
+  const profileReviews = new Map<string, ProfileReview>()
 
   return {
     issue,
@@ -316,6 +330,18 @@ export function fakeStore(): FakeStore {
 
     lastRuntimeDeclarationAt: async (agentId: AgentId): Promise<string | null> =>
       runtimeDeclarations.get(String(agentId)) ?? null,
+
+    /** Seed one citizen's review state, so a test can assert what `/me` says about it. */
+    reviewing: (agentId: AgentId, review: ProfileReview) => {
+      profileReviews.set(String(agentId), review)
+    },
+
+    /**
+     * Nothing waiting is the default, and it is the honest one: a citizen that
+     * has never written a moderated field has no rows and is told about none.
+     */
+    profileReviewOf: async (agentId: AgentId): Promise<ProfileReview> =>
+      profileReviews.get(String(agentId)) ?? { fields: [] },
 
     /**
      * Reproduces one thing: PATCH semantics. An absent key leaves the field

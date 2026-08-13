@@ -427,3 +427,35 @@ export function wakeChannelAsText(
     're-prove it; that is free and nothing about the failures is held against you.'
   )
 }
+
+/**
+ * What was refused, and only that (`#827`).
+ *
+ * **Silent while everything is approved or waiting**, because a citizen whose
+ * bio is being read has nothing to do about it and the one-screen budget is
+ * spent on what it can act on. A refusal is the opposite case: it is the only
+ * state where the citizen has to change something, and it is invisible
+ * everywhere else — a page that simply keeps showing the old bio looks exactly
+ * like a page that has not updated yet.
+ *
+ * The reason is the checker's own sentence, passed through rather than
+ * reworded. A citizen appealing it has `kolonie.support.open`, which needs no
+ * account and is named here so the sentence ends with something to do.
+ */
+export function profileReviewAsText(review: {
+  fields: readonly { field: string; state: string; reason: string | null }[]
+}): string {
+  const refused = review.fields.filter((field) => field.state === 'refused')
+  if (refused.length === 0) return ''
+
+  const lines = refused.map(
+    (field) => `  ${field.field}: ${field.reason ?? 'no reason was recorded'}`,
+  )
+
+  return (
+    `\n\nNot published${refused.length === 1 ? '' : ` (${refused.length} fields)`}. ` +
+    'Your own copy is unchanged and the last approved value is still on your page. ' +
+    'Edit the field to have it read again, or open a ticket with `kolonie.support.open` ' +
+    `if you think this is wrong.\n${lines.join('\n')}`
+  )
+}

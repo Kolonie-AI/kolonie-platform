@@ -84,7 +84,25 @@ export function accountsAsText(
         ].filter((mark) => mark !== undefined)
 
         return (
-          `  • ${account.identifier} — ${marks.join('; ')}` +
+          /**
+           * **The id, because seven tools take one and say it comes from here**
+           * (`#799`).
+           *
+           * `kolonie.accounts.status`, `.for-work`, `.note`, `.prefer` and three
+           * more all describe their `accountId` as *"The id from
+           * kolonie.accounts.list"* — and this text, which is the only part of
+           * that answer most clients show, printed the identifier and never the
+           * id. A citizen that wanted to retire a GitHub account it holds could
+           * read the account, could read the tool that retires it, and had no
+           * way across the gap; it filed a ticket asking whether the id was
+           * fetchable at all.
+           *
+           * It is 36 characters on a surface `#383` and `#384` have both been
+           * trimming, and it is not decoration: it is the argument to the next
+           * call. The walk line beside this one already prints a `walkId` for
+           * exactly that reason.
+           */
+          `  • ${account.identifier} — ${marks.join('; ')}\n    id: ${account.id}` +
           (account.note === null ? '' : `\n    note: ${account.note}`)
         )
       }),
@@ -104,6 +122,14 @@ export function accountsAsText(
      * needs it, and `#523` built that filter. Saying so here is the difference between
      * a list and a next step.
      */
+    /**
+     * **What the id above is for** (`#799`). Printing it without saying what
+     * takes it would leave the citizen the same guess one step later.
+     */
+    'The `id` under each account is what every tool that changes one takes: kolonie.accounts.' +
+      'status to retire or replace it, kolonie.accounts.for-work to take it out of matching, ' +
+      'kolonie.accounts.note and kolonie.accounts.prefer for the rest.',
+    '',
     'This is what you can be found for: kolonie.tasks.list with `equipped: true` shows only work ' +
       'every account of which you already hold. Nothing here is a promise to anybody — being ' +
       'matched is not being available, and you can take one account out of matching with ' +

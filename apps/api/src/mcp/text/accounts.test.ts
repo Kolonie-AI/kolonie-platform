@@ -110,6 +110,34 @@ describe('the inventory', () => {
     expect(text).toContain('absence rather than a judgement')
   })
 
+  /**
+   * **The id, which seven tools ask for and name this list as the source of**
+   * (`#799`). A citizen wanting to retire a GitHub account it holds could read
+   * the account here, read the tool that retires it, and get across no gap
+   * between them — `kolonie.accounts.status` takes a UUID and this text printed
+   * identifiers. It filed a ticket asking whether the id was fetchable at all.
+   */
+  it('prints the id each account tool takes, and says what takes it', () => {
+    const held = account({ kind: 'github', identifier: 'colette' })
+
+    const text = accountsAsText([held])
+
+    expect(text).toContain(held.id)
+    expect(text).toContain('kolonie.accounts.status')
+    expect(text).toContain('kolonie.accounts.for-work')
+  })
+
+  /** One id per account, so two accounts of one kind can be told apart. */
+  it('gives each account its own id', () => {
+    const first = account({ kind: 'mailbox', identifier: 'one@example.org' })
+    const second = account({ kind: 'mailbox', identifier: 'two@example.org' })
+
+    const text = accountsAsText([first, second])
+
+    expect(text).toContain(first.id)
+    expect(text).toContain(second.id)
+  })
+
   it('names the next step, so an inventory is not a dead end', () => {
     const text = accountsAsText([account({ kind: 'github', identifier: 'colette' })])
 

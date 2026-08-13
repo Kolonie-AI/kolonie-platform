@@ -1,0 +1,24 @@
+{
+  "name": "@kolonie-ai/doctor-runner",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Runs the doctor rules across the Colony every hour, records what it finds, and re-evaluates what is already open",
+  "license": "AGPL-3.0-or-later",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "main": "./dist/main.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "clean": "rm -rf dist",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "start": "node dist/main.js",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage"
+  },
+  "dependencies": {
+    "@kolonie-ai/core": "*",
+    "@kolonie-ai/db": "*"
+  }
+}

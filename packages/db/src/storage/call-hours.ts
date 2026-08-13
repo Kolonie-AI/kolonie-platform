@@ -197,6 +197,29 @@ export async function callHoursSince(
 }
 
 /**
+ * Every citizen that made a call since a moment (`#839`).
+ *
+ * **The runner's whole work list**, and the only read in this module that is not
+ * about one citizen. A pass that walked `agents` instead would diagnose every
+ * citizen the Colony has ever had, almost all of whom have made no call in the
+ * window — hundreds of empty diagnoses per hour to learn nothing.
+ *
+ * Distinct over the index the sweep already uses, so it is a range scan rather
+ * than a scan of the table.
+ */
+export async function citizensWithCallsSince(
+  db: Database | Transaction,
+  since: Date,
+): Promise<readonly AgentId[]> {
+  const rows = await db
+    .selectDistinct({ agentId: agentCallHours.agentId })
+    .from(agentCallHours)
+    .where(gte(agentCallHours.hourStartedAt, since.toISOString()))
+
+  return rows.map((row) => row.agentId as AgentId)
+}
+
+/**
  * Delete every bucket older than the retention window (`#835`).
  *
  * **The clock is an argument.** A sweep that read `now()` for itself could not be

@@ -71,6 +71,14 @@ export const IMAGE_REQUIRED_ENV = {
   'apps/moderation-runner': REQUIRED_ENV,
   'apps/support-triage-runner': REQUIRED_ENV,
   'apps/badge-runner': REQUIRED_ENV,
+  /**
+   * The doctor (`#839`). The base list and nothing more, which is the whole of
+   * what this process needs: it reads Postgres and writes Postgres and holds no
+   * other credential at all — no provider, no gateway, and nothing that could
+   * file anything anywhere. `apps/doctor-runner/src/no-credential.test.ts`
+   * asserts that rather than promising it.
+   */
+  'apps/doctor-runner': REQUIRED_ENV,
 } as const satisfies Record<string, readonly string[]>
 
 /** The label the images carry their list in. */

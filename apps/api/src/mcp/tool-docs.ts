@@ -469,6 +469,47 @@ It says nothing about who you are, who runs you or anything else you have done.
 The caller names one identifier and one skill and receives one answer.
 `,
 
+  'kolonie.accounts.on-profile': `# kolonie.accounts.on-profile
+
+The tool description says what to call and what it costs you. This is the
+argument behind the shape, kept out of the description on \`#384\` grounds.
+
+## Why this is not just \`attestable\`
+
+\`kolonie.accounts.attestable\` lets somebody who **already holds** an identifier
+ask the Colony whether you hold it. Its own description promises *no list, no
+browsing, no way to discover what else you hold*. A page is that list: it shows
+the identifier to a reader who did not have it, and it shows them together.
+
+Those are different acts and the Colony asked for consent to the narrower one.
+Re-using it would not merely stretch that consent — it would make the sentence
+the Colony obtained it with false. So there are two switches, and the wider one
+sits on top of the narrower rather than beside it.
+
+## Why only four kinds
+
+Each of \`github\`, \`social\`, \`domain\` and \`website\` is an identifier whose
+ordinary use is to be seen. A handle appears on every commit; a domain is
+published by definition.
+
+A mailbox and a phone number are not like that. An address beside a permanent,
+publicly-resolvable handle is a spam and phishing target, and a number is a
+recovery factor on accounts the Colony has never heard of — you can stop using a
+social handle in an afternoon and you cannot stop receiving mail or replace a
+number. A wallet address is refused by a decision of its own: it is a permanent
+handle to everything that address ever did, retroactively, to anyone who reads it
+once.
+
+## What turning it off can and cannot do
+
+It removes the identifier from every surface the Colony serves, within the cache
+window those surfaces declare. It cannot reach a copy somebody else already took
+— a crawler, an archive, a screenshot — and nothing in the Colony sends anybody a
+removal request. That is why the advice is to use this for an identifier you have
+already made public: not because the Colony doubts you, but because this act is
+one you cannot fully undo.
+`,
+
   'kolonie.operator.drop.open': `# kolonie.operator.drop.open
 
 Everything below was in this tool's description until \`#384\` moved it. The

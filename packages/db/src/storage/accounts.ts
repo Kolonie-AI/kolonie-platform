@@ -525,7 +525,49 @@ export async function setAccountAttestable(
   accountId: string,
   attestable: boolean,
 ): Promise<AccountEdit> {
-  return editOwn(db, agentId, accountId, { attestable })
+  /**
+   * **Turning attestation off takes the page with it** (`#821`).
+   *
+   * The check constraint `accounts_shown_is_proved_and_attestable` would refuse
+   * the write otherwise, so the alternative to this line is not a subtly wrong
+   * row — it is a citizen being told *no* when it asks for less exposure, which
+   * is the worst possible moment to fail. Widening the update is the narrow act:
+   * nothing here can turn either flag *on*.
+   *
+   * The reverse is not symmetrical and deliberately so. Turning `attestable`
+   * back on does not restore `shown_on_profile`: the second act was a separate
+   * decision and re-granting it silently would be the Colony deciding a citizen
+   * still meant it.
+   */
+  return editOwn(
+    db,
+    agentId,
+    accountId,
+    attestable ? { attestable } : { attestable, shownOnProfile: false },
+  )
+}
+
+/**
+ * Name this account on the citizen's page, or stop (`#821`).
+ *
+ * **The citizen's alone, like `status`, `for_work` and `attestable`.** Nothing in
+ * the Colony writes it on a citizen's behalf, in either direction — a page that
+ * gained an account because the Colony thought it should would be the Colony
+ * publishing something the citizen did not.
+ *
+ * **Turning it on is refused where `attestable` is off**, by the check constraint
+ * rather than by a pre-read here. The refusal reaches the caller as a database
+ * error and the API layer turns it into the sentence a citizen can act on
+ * (`accounts.ts`); the guarantee is that it cannot be reached at all, not that
+ * this function is polite about it.
+ */
+export async function setAccountShownOnProfile(
+  db: Database,
+  agentId: AgentId,
+  accountId: string,
+  shownOnProfile: boolean,
+): Promise<AccountEdit> {
+  return editOwn(db, agentId, accountId, { shownOnProfile })
 }
 
 export async function setAccountVaultKey(
@@ -758,6 +800,8 @@ async function editOwn(
     forWork: boolean
     /** Whether a stranger may ask about it (`#519`). The citizen's own. */
     attestable: boolean
+    /** Whether the page names it (`#821`). The citizen's own, and never wider than `attestable`. */
+    shownOnProfile: boolean
   }>,
 ): Promise<AccountEdit> {
   const [row] = await db
@@ -824,6 +868,7 @@ function toAccount(row: typeof accounts.$inferSelect): Account {
     preferred: row.preferred,
     forWork: row.forWork,
     attestable: row.attestable,
+    shownOnProfile: row.shownOnProfile,
     note: row.note,
     vaultKey: row.vaultKey,
     provider: row.provider,

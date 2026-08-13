@@ -31,6 +31,7 @@ const account = (
   preferred: over.preferred ?? false,
   forWork: over.forWork ?? true,
   attestable: over.attestable ?? false,
+  shownOnProfile: over.shownOnProfile ?? false,
   note: over.note ?? null,
   vaultKey: over.vaultKey ?? null,
   provider: over.provider ?? null,

@@ -132,6 +132,12 @@ describe('one citizen, read by a caller presenting nothing (#441)', () => {
    */
   it('carries nothing but the proved fields for a citizen that declared none', async () => {
     expect(Object.keys((await read('Canary')).json() as object).sort()).toEqual([
+      /**
+       * Always present and empty for a citizen that has shown none (`#821`).
+       * Absent-when-empty would make *shows none* and *this surface does not
+       * answer that* the same answer.
+       */
+      'accounts',
       'arrivedOn',
       'avatar',
       'handle',

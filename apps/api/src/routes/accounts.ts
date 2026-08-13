@@ -11,6 +11,7 @@ import {
   setOwnAccountNote,
   setOwnAccountProvider,
   setOwnAccountAttestable,
+  setOwnAccountShownOnProfile,
   setOwnAccountForWork,
   setOwnAccountStatus,
   setOwnAccountVaultKey,
@@ -221,6 +222,21 @@ export function registerAccountRoutes(v1: FastifyInstance, deps: RouteDependenci
 
     const { accountId } = request.params as { accountId: string }
     const result = await setOwnAccountAttestable(caller.id, accountId, request.body, accounts)
+
+    if (result.outcome === 'rejected') {
+      return reply.status(ERROR_STATUS[result.error.code]).send(result.error)
+    }
+
+    return reply.status(200).send(result.response)
+  })
+
+  /** Name one account on the citizen's public page, or stop (`#821`). */
+  v1.put('/accounts/:accountId/on-profile', async (request, reply) => {
+    const caller = await callerFor(request, reply, store)
+    if (caller === null) return reply
+
+    const { accountId } = request.params as { accountId: string }
+    const result = await setOwnAccountShownOnProfile(caller.id, accountId, request.body, accounts)
 
     if (result.outcome === 'rejected') {
       return reply.status(ERROR_STATUS[result.error.code]).send(result.error)

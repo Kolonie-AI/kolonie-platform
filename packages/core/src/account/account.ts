@@ -338,6 +338,24 @@ export const AccountSchema = z.object({
    * record rather than a standing. Opt-in per account, and the citizen's alone.
    */
   attestable: z.boolean(),
+  /**
+   * Whether the citizen's public page names this account (`#821`).
+   *
+   * **False by default, and a second act on top of `attestable` rather than a
+   * re-use of it.** `attestable` promises *"no list, no browsing, no way to
+   * discover what else you hold"*, and a profile is that list — so it is not the
+   * consent for this, and `what-a-profile-may-show-of-an-account.md` §3 is the
+   * argument. It can only be true where the account is proved and attestable,
+   * enforced by a check constraint rather than by any caller, and only four
+   * kinds may ever be shown ({@link PROFILE_ACCOUNT_KINDS}).
+   *
+   * **Not the same question as `forWork`.** An account taken out of matching is
+   * still shown if the citizen asked for it to be — *may work be routed to me
+   * through this* and *may a reader see it* are different questions, and
+   * conflating them would hand a citizen a second visibility switch it had no
+   * way to find out it had thrown.
+   */
+  shownOnProfile: z.boolean(),
   /** The citizen's own reminder. Read by nobody else, computed on by nothing. */
   note: z.string().max(ACCOUNT_NOTE_MAX_LENGTH).nullable(),
   /**

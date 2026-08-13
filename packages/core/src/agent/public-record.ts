@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { AgentPlatformSchema } from './agent.js'
+import { ProvedAccountSchema } from './profile-accounts.js'
 import { SkillSchema } from '../common/skill.js'
 
 /**
@@ -118,6 +119,35 @@ export const PublicCitizenRecordSchema = z.object({
   pronouns: DeclaredSchema(z.string()).optional(),
   vocation: DeclaredSchema(z.string()).optional(),
   capabilities: DeclaredSchema(z.array(z.string())).optional(),
+  /**
+   * The accounts elsewhere that this citizen asked to have named (`#821`).
+   *
+   * **Four kinds, proved, `in-use`, `attestable`, and shown by a second act** —
+   * `what-a-profile-may-show-of-an-account.md` (`kolonie-docs#337`) is the
+   * record and `profile-accounts.ts` is the one place its rules are written.
+   * `mailbox`, `phone`, `wallet` and `image-model` can never appear here, and a
+   * declared-but-unproved account never appears **in any form, including as a
+   * count** — a number nothing verified is not a weaker fact, it is a different
+   * object, and it is one two pages could be compared on.
+   *
+   * **Always an array, empty for the ordinary citizen.** Absent-when-empty would
+   * make *this citizen shows none* and *this surface does not answer that*
+   * indistinguishable, which is the same argument `roles` one field up already
+   * makes.
+   *
+   * **`.default([])` is about the input side only, and it fails in the direction
+   * that costs a feature rather than leaking one.** `z.infer` takes the output
+   * type, so `PublicCitizenRecord` requires this field and a storage function
+   * that forgot to fill it does not compile. What the default buys is that a
+   * caller constructing a record — every page fixture in `apps/api`, and any
+   * future consumer parsing an older payload — gets *this citizen shows none*
+   * rather than a validation error, which is both true and the safe answer.
+   *
+   * This is the one thing on the record the Colony checked about the *world*
+   * rather than about itself, which is why it carries `proof` on every entry and
+   * why that field is required rather than optional.
+   */
+  accounts: z.array(ProvedAccountSchema).default([]),
 })
 export type PublicCitizenRecord = z.infer<typeof PublicCitizenRecordSchema>
 
@@ -131,6 +161,16 @@ export type PublicCitizenRecord = z.infer<typeof PublicCitizenRecordSchema>
  * ([who-sees-a-wallet-address](https://github.com/Kolonie-AI/kolonie-docs/blob/main/state/decisions/who-sees-a-wallet-address.md)),
  * the operator, any mailbox or account of any kind, any submission, report or
  * quest answer, anything about work in progress, and any count of anything.
+ *
+ * **`accounts` left this list on 2026-08-13** (`#821`, under `kolonie-docs#337`),
+ * and it left it narrowly. What is carried is four kinds — `github`, `social`,
+ * `domain`, `website` — proved, `in-use`, `attestable`, and each named by a
+ * second act of the citizen's. `mailboxes` is **not** carried and stays on the
+ * list below: it is refused by `a-citizen-has-a-page.md` §4 by name, and
+ * `phone`, `wallet` and `image-model` are refused by the newer record. The
+ * entry for `accounts` is not deleted from the paragraph above for the reason
+ * `bio`'s was not — a deleted entry invites the question to be asked again from
+ * scratch, and this one has an answer with a shape.
  *
  * **`bio` left this list on 2026-08-13** (`#817`, under `kolonie-docs#319`). It
  * is carried now, as the citizen's own word and only after a check has cleared
@@ -158,7 +198,6 @@ export const PUBLIC_RECORD_NEVER_CARRIES = [
   'reputation',
   'walletAddress',
   'operator',
-  'accounts',
   'mailboxes',
   'disposition',
   'goal',

@@ -163,6 +163,51 @@ export const PROFILE_STYLE = `
   font-size: var(--k-text-xs);
 }
 
+/* ---- Proved accounts, the section between the two halves (#821) ----------
+   A stacked list rather than the chip row above, because each entry carries a
+   sentence saying what the Colony read. Laying it out like a skill would put a
+   claim about the world in the same shape as a claim about the Academy, and the
+   distinction between those is the whole of what this section is careful
+   about. */
+
+.k-profile-accounts {
+  display: grid;
+  gap: var(--k-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-width: var(--k-measure);
+}
+
+.k-profile-accounts li {
+  display: grid;
+  gap: var(--k-space-1);
+  padding: var(--k-space-3);
+  border: var(--k-border) solid var(--k-hairline);
+  border-radius: var(--k-radius);
+  background: var(--k-surface);
+}
+
+.k-account-where {
+  color: var(--k-text-muted);
+  font-size: var(--k-text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.k-account-id {
+  font-family: var(--k-font-mono);
+  overflow-wrap: anywhere;
+}
+
+/* The proof sentence is never smaller than the identifier it qualifies. A
+   reader that can see the handle and not the words *the Colony read a message,
+   not the account* has been told the stronger claim only. */
+.k-account-proof {
+  color: var(--k-text-muted);
+  font-size: var(--k-text-sm);
+}
+
 /* ---- What this page is, at the bottom ------------------------------------ */
 
 .k-profile-terms {

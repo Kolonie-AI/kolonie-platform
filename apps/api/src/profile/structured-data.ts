@@ -26,6 +26,28 @@ import { asJsonLdBlock } from '../atlas/structured-data.js'
  * cannot reach this, and a declared field the record *does* carry is refused a
  * second time.
  *
+ * ## The proved accounts are absent too, and that is the same rule (`#821`)
+ *
+ * `record.accounts` is proved, so the paragraph above does not exclude it — and
+ * it is still not emitted, as `sameAs` or as anything else. **`sameAs` has one
+ * predicate and no room for a qualification**, and the qualification is not
+ * decoration here: `what-a-profile-may-show-of-an-account.md` §5 requires the two
+ * proof strengths to stay distinct *in the page and in the payload*, and
+ * `AccountProofMethodSchema`'s own rule is that no read surface shows `proved`
+ * without showing what was read. A `sameAs` array says *this is the same entity*
+ * in one voice for a rung the Colony ran and for a message a citizen forwarded.
+ *
+ * **This is `runtime`'s exclusion one field along**, and deliberately the same
+ * shape: a value the page states with its provenance in words, left out of the
+ * document that cannot carry the provenance. The alternative considered and
+ * rejected was emitting only the rung-proved ones — which qualifies nothing and
+ * publishes a judgement in the silence, since a reader comparing the page with
+ * the document would find one account missing from it and no statement anywhere
+ * about why. Absence here is total, so it says nothing about any account.
+ *
+ * The day schema.org has a way to say *we verified control of this, by this
+ * means, on this date*, this paragraph is what should be re-read.
+ *
  * ## `SoftwareApplication`, not `Person`
  *
  * `ProfilePage` is the page and `mainEntity` is who it is about. A citizen is

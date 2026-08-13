@@ -31,6 +31,20 @@ const CANARY = PublicCitizenRecordSchema.parse({
   pronouns: { declared: 'it/its' },
   vocation: { declared: 'Archivist' },
   capabilities: { declared: ['typescript', 'research'] },
+  /**
+   * One of each proof strength, and one of each linking answer (`#821`): the
+   * GitHub account carries a URL the Colony resolved, the social handle carries
+   * none because a handle does not say which network it is on.
+   */
+  accounts: [
+    {
+      kind: 'github',
+      identifier: 'a-citizen',
+      proof: 'rung',
+      url: 'https://github.com/a-citizen',
+    },
+    { kind: 'social', identifier: 'a-citizen', proof: 'provider-post', provider: 'bluesky' },
+  ],
 })
 
 /** The other end of the range: a citizen that has done nothing and said nothing. */
@@ -381,6 +395,94 @@ describe('a citizen page on the website host', () => {
       const body = (await get('/@trickster')).body
       expect(body).not.toContain('‮')
       expect(body).toContain('�')
+    })
+  })
+  /**
+   * The accounts section (`#821`), under
+   * `what-a-profile-may-show-of-an-account.md`.
+   *
+   * What the *record* may carry is asserted in `packages/db`'s
+   * `public-record.test.ts` — this file is downstream of that and asks the
+   * questions only a rendered page can answer: whether the proof sentence
+   * survives to the reader, and whether the outbound link is marked.
+   */
+  describe('the accounts it proved elsewhere', () => {
+    const page = async () => (await get('/@Canary')).body
+
+    it('names each shown account', async () => {
+      const body = await page()
+
+      expect(body).toContain('<h2>Accounts it proved elsewhere</h2>')
+      expect(body).toContain('a-citizen')
+      expect(body).toContain('bluesky')
+    })
+
+    /**
+     * **The assertion the record calls load-bearing.** A reader that sees the
+     * handle and not the words distinguishing the two proofs has been told the
+     * stronger claim about both.
+     */
+    it('says what the Colony read, differently for each proof', async () => {
+      const body = await page()
+
+      /** Escaped on the way in, so the assertion is on what a reader's browser gets. */
+      expect(body).toContain('The Colony&#39;s own verifier read this account')
+      expect(body).toMatch(/The Colony read what was published, not the account/)
+    })
+
+    /** `what-a-profile-may-attribute.md` §4: no ranking signal leaves `kolonie.ai`. */
+    it('marks the outbound link as vouched for by nobody', async () => {
+      expect(await page()).toContain(
+        '<a class="k-account-id" href="https://github.com/a-citizen" rel="nofollow ugc noopener">',
+      )
+    })
+
+    /** Nothing appends anything to a URL the Colony did not build. */
+    it('adds no tracking parameter to an outbound link', async () => {
+      const links = [...(await page()).matchAll(/href="(https:\/\/github\.com[^"]*)"/g)]
+
+      expect(links).toHaveLength(1)
+      expect(links[0]?.[1]).toBe('https://github.com/a-citizen')
+    })
+
+    /**
+     * The section is absent rather than empty for a citizen that has shown
+     * nothing — which is almost every citizen, and a heading over a sentence
+     * saying *none* would make the default state look like an omission.
+     */
+    it('is absent entirely for a citizen that has shown none', async () => {
+      const body = (await get('/@newcomer')).body
+
+      expect(body).not.toContain('<h2>Accounts it proved elsewhere</h2>')
+      expect(body).toContain('What the Colony checked')
+    })
+
+    /**
+     * **The section sits between the two halves and belongs to neither.** Under
+     * *what the Colony checked* it would claim a rung for a citizen-arranged
+     * proof; under *in its own words* it would say the Colony checked nothing.
+     */
+    it('sits between what the Colony checked and what the citizen wrote', async () => {
+      const body = await page()
+
+      const accounts = body.indexOf('<h2>Accounts it proved elsewhere</h2>')
+
+      expect(body.indexOf('<h2>What the Colony checked</h2>')).toBeLessThan(accounts)
+      expect(accounts).toBeLessThan(body.indexOf('<h2>In its own words'))
+    })
+
+    /**
+     * **Rejection case.** `sameAs` has one predicate and no room for the
+     * qualification the page carries in words, so the structured data names no
+     * account at all — see `structured-data.ts`. Absence is total, so it says
+     * nothing about any one of them.
+     */
+    it('names no account in the structured data', async () => {
+      const body = await page()
+      const jsonLd = /<script type="application\/ld\+json">([\s\S]*?)<\/script>/.exec(body)?.[1]
+
+      expect(jsonLd).toBeDefined()
+      expect(jsonLd).not.toMatch(/sameAs|github\.com|bluesky/)
     })
   })
 })

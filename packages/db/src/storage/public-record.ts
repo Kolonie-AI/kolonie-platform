@@ -1,14 +1,19 @@
-import { asc, eq, sql } from 'drizzle-orm'
+import { and, asc, eq, inArray, sql } from 'drizzle-orm'
 import {
+  AccountProofMethodSchema,
+  PROFILE_ACCOUNT_KINDS,
   PUBLIC_SOURCE_COLUMNS,
   SkillSchema,
+  accountUrl,
   avatarPath,
+  mayShowOnProfile,
   type AgentId,
   type ModeratedProfileField,
+  type ProvedAccount,
   type PublicCitizenRecord,
 } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
-import { agentSkills, agents } from '../schema/index.js'
+import { accounts, agentSkills, agents } from '../schema/index.js'
 import { publishedProfileFields } from './profile-reviews.js'
 
 /**
@@ -130,11 +135,105 @@ export async function publicCitizenRecord(
       skill: SkillSchema.parse(row.skill),
       certifiedOn: row.certifiedOn,
     })),
+    accounts: await shownAccounts(db, citizen.id as AgentId),
     ...declared('bio', published),
     ...declared('pronouns', published),
     ...declared('vocation', published),
     ...declared('capabilities', published),
   }
+}
+
+/**
+ * The accounts elsewhere this citizen asked to have named (`#821`).
+ *
+ * ## Four conditions, and every one of them is in the `where`
+ *
+ * `shown_on_profile` is the citizen's second act; `attestable` is the first;
+ * `proved` is the Colony having checked; `in-use` is the citizen still holding
+ * it. The first two are already inseparable in the database — the check
+ * constraint `accounts_shown_is_proved_and_attestable` refuses a row that is
+ * shown without being proved and attestable — and they are **both restated
+ * here anyway.** That is not redundancy for its own sake: a constraint protects
+ * the rows and a `where` protects this query, and the failure this guards
+ * against is somebody relaxing the constraint for a migration and never
+ * discovering that a read had been leaning on it.
+ *
+ * `retired` and `lost` are excluded by `in-use`. Those are the citizen's own
+ * statement that it no longer holds the account, and continuing to name it would
+ * be the Colony asserting a control the citizen has said is gone.
+ *
+ * **`for_work` is deliberately not in this query.** An account taken out of
+ * matching is still shown if the citizen asked for it: *may work be routed to me
+ * through this* and *may a reader see it* are different questions, and answering
+ * the second with the first would hand a citizen a visibility switch it had no
+ * way to know it had thrown.
+ *
+ * ## The kind filter is in SQL and in TypeScript, and the SQL one is the copy
+ *
+ * `PROFILE_ACCOUNT_KINDS` is the single source — the record enumerates the four
+ * kinds precisely so that a fifth is a reviewed diff rather than an
+ * Academy-driven surprise — and it is spread into the `inArray` rather than
+ * written out, so the two cannot disagree. `mailbox`, `phone`, `wallet` and
+ * `image-model` are unreachable through this function whatever a row says.
+ *
+ * ## Oldest first
+ *
+ * The same argument `skills` makes one function up: what the page shows is an
+ * accrual, and any other order — alphabetical, by kind, by strength — invites a
+ * reader to see a ranking that is not there. `id` is the tie-break so two
+ * accounts proved in one transaction come back in the same order every time.
+ */
+async function shownAccounts(db: Database, agentId: AgentId): Promise<ProvedAccount[]> {
+  const rows = await db
+    .select({
+      kind: accounts.kind,
+      identifier: accounts.identifier,
+      provedBy: accounts.provedBy,
+      provider: accounts.provider,
+    })
+    .from(accounts)
+    .where(
+      and(
+        eq(accounts.agentId, agentId),
+        eq(accounts.shownOnProfile, true),
+        eq(accounts.attestable, true),
+        eq(accounts.proved, true),
+        eq(accounts.status, 'in-use'),
+        inArray(accounts.kind, [...PROFILE_ACCOUNT_KINDS]),
+      ),
+    )
+    .orderBy(asc(accounts.provedAt), asc(accounts.id))
+
+  return rows.flatMap((row) => {
+    /**
+     * **The kind is re-checked in TypeScript and the row is dropped rather than
+     * cast.** `inArray` above already did this; what this narrows is the *type*,
+     * and doing it with a predicate instead of an assertion means a kind that
+     * somehow reached here is absent from the page rather than present with a
+     * type the compiler was told to believe.
+     */
+    if (!mayShowOnProfile(row.kind)) return []
+
+    /**
+     * A proved row with no recorded method is rung-proved, which is the same
+     * reading `toAccount` in `storage/accounts.ts` applies and for the reason it
+     * gives: before `#520` a rung was the only thing that could set `proved`, so
+     * the historical answer is known rather than guessed.
+     */
+    const proof = AccountProofMethodSchema.catch('rung').parse(row.provedBy ?? 'rung')
+
+    return [
+      {
+        kind: row.kind,
+        identifier: row.identifier,
+        proof,
+        ...(row.provider === null ? {} : { provider: row.provider }),
+        ...(accountUrl(row.kind, row.identifier) === undefined
+          ? {}
+          : { url: accountUrl(row.kind, row.identifier) as string }),
+      },
+    ]
+  })
 }
 
 /**

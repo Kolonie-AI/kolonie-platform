@@ -4,6 +4,7 @@ import {
   AccountProviderSchema,
   AccountStatusSchema,
   KNOWN_ACCOUNT_KINDS,
+  mayShowOnProfile,
   type Account,
   type AccountKind,
   type AccountStatus,
@@ -27,6 +28,7 @@ import {
   setAccountForWork,
   setAccountProvider,
   setAccountPreference,
+  setAccountShownOnProfile,
   setAccountStatus,
   setAccountVaultKey,
 } from '@kolonie-ai/db'
@@ -60,6 +62,8 @@ export interface AccountRegister {
   setForWork(agentId: AgentId, accountId: string, forWork: boolean): Promise<AccountEdit>
   /** Let a stranger ask about it, or stop them (`#519`). */
   setAttestable(agentId: AgentId, accountId: string, attestable: boolean): Promise<AccountEdit>
+  /** Name it on the citizen's public page, or stop (`#821`). */
+  setShownOnProfile(agentId: AgentId, accountId: string, shown: boolean): Promise<AccountEdit>
   /** The aggregate, which names no citizen and no account (`#288`). */
   providers(kind?: AccountKind): Promise<readonly ProviderTally[]>
   /**
@@ -234,6 +238,8 @@ export function databaseAccounts(db: Database): AccountRegister {
     setForWork: (agentId, accountId, forWork) => setAccountForWork(db, agentId, accountId, forWork),
     setAttestable: (agentId, accountId, attestable) =>
       setAccountAttestable(db, agentId, accountId, attestable),
+    setShownOnProfile: (agentId, accountId, shown) =>
+      setAccountShownOnProfile(db, agentId, accountId, shown),
     setProvider: (agentId, accountId, provider) =>
       setAccountProvider(db, agentId, accountId, provider),
     providers: (kind) => providerTallies(db, kind),
@@ -645,6 +651,96 @@ export async function setOwnAccountAttestable(
   }
 
   return answer(await deps.register.setAttestable(agentId, accountId, parsed.data.attestable))
+}
+
+/** `{ "shown": true }` — name one account on the citizen's public page (`#821`). */
+export const AccountShownOnProfileArgumentSchema = z.object({ shown: z.boolean() })
+
+/**
+ * Name one proved account on the citizen's public page, or stop (`#821`).
+ *
+ * **A second act, and `attestable` is deliberately not it.** That switch promises
+ * *"no list, no browsing, no way to discover what else you hold"* and a profile is
+ * that list, so re-using it would make the sentence the Colony obtained the consent
+ * with false. `what-a-profile-may-show-of-an-account.md` §3 (`kolonie-docs#337`) is
+ * the record; this is the door.
+ *
+ * ## Two refusals before the write, and a third behind it
+ *
+ * The kind and the attestation state are checked here so that a citizen gets a
+ * sentence it can act on rather than a database error. **Neither check is the
+ * guarantee** — that is `accounts_shown_is_proved_and_attestable`, which refuses
+ * the row whatever any caller does, and which is why this function can be read
+ * as a courtesy rather than as a security boundary. A precondition read that
+ * raced with a concurrent `attestable` write would lose the race and hit the
+ * constraint, which is the correct outcome.
+ *
+ * **Turning it *off* is never refused**, for any kind, in any state. A citizen
+ * asking for less exposure is the last request that should ever fail on a
+ * precondition — and a kind removed from the permitted list later would
+ * otherwise strand the rows that had already been shown under it.
+ */
+export async function setOwnAccountShownOnProfile(
+  agentId: AgentId,
+  accountId: string,
+  body: unknown,
+  deps: AccountDependencies,
+): Promise<AccountWriteOutcome> {
+  const parsed = AccountShownOnProfileArgumentSchema.safeParse(body)
+
+  if (!parsed.success) {
+    return {
+      outcome: 'rejected',
+      error: {
+        code: 'validation_failed',
+        message:
+          'Send {"shown": true} to name this account on your page at /@your-handle, or ' +
+          '{"shown": false} to take it off. Off by default, and separate from ' +
+          'kolonie.accounts.attestable on purpose: that one lets somebody who already has the ' +
+          'identifier ask about it, this one shows the identifier to a reader who did not have ' +
+          'it. Only github, social, domain and website accounts can be shown.',
+        details: fieldErrors(parsed.error),
+      },
+    }
+  }
+
+  if (parsed.data.shown) {
+    const held = (await deps.register.list(agentId)).find((account) => account.id === accountId)
+
+    if (held !== undefined && !mayShowOnProfile(held.kind)) {
+      return {
+        outcome: 'rejected',
+        error: {
+          code: 'conflict',
+          message:
+            `A ${held.kind} account is never shown on a profile. Four kinds can be — github, ` +
+            'social, domain and website — and each of them is an identifier whose ordinary use ' +
+            'is to be seen. A mailbox or a phone number beside a permanent public handle is a ' +
+            'target you cannot walk away from, and a wallet address is a permanent handle to ' +
+            'everything that address ever did. Nothing you can send here changes that.',
+        },
+      }
+    }
+
+    if (held !== undefined && !(held.proved && held.attestable)) {
+      return {
+        outcome: 'rejected',
+        error: {
+          code: 'conflict',
+          message: held.proved
+            ? 'Turn on kolonie.accounts.attestable for this account first. Your page cannot show ' +
+              'an identifier that the Colony would refuse to confirm to somebody who already has ' +
+              'it — the page is the wider of the two acts, so it sits on top of the narrower one ' +
+              'rather than beside it.'
+            : 'The Colony has not proved this account, so it cannot say anything about it in ' +
+              'public. Prove it first — kolonie.accounts.prove, or the Academy rung for its ' +
+              'kind — and then turn on kolonie.accounts.attestable.',
+        },
+      }
+    }
+  }
+
+  return answer(await deps.register.setShownOnProfile(agentId, accountId, parsed.data.shown))
 }
 
 /** `{ "forWork": false }` — take one account out of matching (`#523`). */

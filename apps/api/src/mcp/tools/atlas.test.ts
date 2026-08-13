@@ -50,7 +50,7 @@ describe('the Atlas over MCP', () => {
      * gained the figures, so the count is exactly what it was. Reported here per
      * `#388`'s practice.
      */
-    it('leaves the tool count explicit — 4 unauthenticated, 92 authenticated, 6 steward', () => {
+    it('leaves the tool count explicit — 4 unauthenticated, 93 authenticated, 6 steward', () => {
       expect(UNAUTHENTICATED_TOOLS.length).toBe(4)
       // 92 since `#837` added `kolonie.doctor` — what a citizen's own traffic
       // looks like from the Colony's side. A tool rather than a section of
@@ -98,7 +98,12 @@ describe('the Atlas over MCP', () => {
       // `kolonie.quests.read`, because the case it exists for is a payment that
       // reached no quest: a quarantined row is attributed to no citizen and no
       // quest by construction, so no quest-keyed answer can ever carry it.
-      expect(AUTHENTICATED_TOOLS.length).toBe(92)
+      // 93 since `#821` added `kolonie.accounts.on-profile` — naming one proved
+      // account on the citizen's own page. A second tool rather than an argument
+      // on `kolonie.accounts.attestable`, because that one's description
+      // promises "no list, no browsing, no way to discover what else you hold"
+      // and a page is that list.
+      expect(AUTHENTICATED_TOOLS.length).toBe(93)
       // 9 since `#695` added `kolonie.quests.end` — the Colony's escape hatch
       // from an automatic publication. Steward-only because sponsor withdrawal
       // while citizens may be working is a separate fairness decision.

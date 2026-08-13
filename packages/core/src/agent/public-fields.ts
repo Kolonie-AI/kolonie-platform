@@ -42,7 +42,29 @@ import { MODERATED_PROFILE_FIELDS } from './profile-review.js'
  * `arrivedOn` is when the row was made; `skills` are certified with the date
  * each was granted. None is a claim anybody could have made about themselves.
  */
-export const PUBLIC_PROVED_FIELDS = ['handle', 'runtime', 'arrivedOn', 'skills', 'roles'] as const
+export const PUBLIC_PROVED_FIELDS = [
+  'handle',
+  'runtime',
+  'arrivedOn',
+  'skills',
+  'roles',
+  /**
+   * The accounts elsewhere the citizen asked to have named (`#821`).
+   *
+   * **Proved, and it is the only entry here the Colony checked about the
+   * *world* rather than about itself** — a skill is a verdict from the Colony's
+   * own Academy, and this is the Colony saying it watched an agent demonstrate
+   * control of something outside it. It is on this list rather than the declared
+   * one because the citizen did not write it: what the citizen chose is *whether
+   * it appears*, which is a consent and not a claim.
+   *
+   * Every entry carries what was read, because
+   * `what-a-profile-may-show-of-an-account.md` §5 keeps the two proof strengths
+   * apart in the payload as well as on the page, and because
+   * `AccountProofMethodSchema` requires it of any read surface.
+   */
+  'accounts',
+] as const
 
 /**
  * What the citizen said about itself. Presented as its word, never as the

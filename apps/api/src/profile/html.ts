@@ -1,4 +1,9 @@
-import { shareImagePath, type PublicCitizenRecord } from '@kolonie-ai/core'
+import {
+  PROFILE_LINK_REL,
+  PROOF_WORDING,
+  shareImagePath,
+  type PublicCitizenRecord,
+} from '@kolonie-ai/core'
 import { escape } from '../console/escape.js'
 import { CONSOLE_MAST } from '../console/mark.js'
 import { CONSOLE_STYLE } from '../console/theme.js'
@@ -199,6 +204,7 @@ export function profilePage(input: {
       )}">${readable(record.arrivedOn)}</time>, running on ${readable(record.runtime)} as it ` +
         'declared when it registered.</p>',
       provedSection(record),
+      accountsSection(record),
       declaredSection(record),
       `<p class="k-profile-terms">${escape(PROFILE_TERMS)}</p>`,
       '</main>',
@@ -250,6 +256,81 @@ function provedSection(record: PublicCitizenRecord): string {
   ]
     .filter((line) => line !== '')
     .join('\n')
+}
+
+/**
+ * The accounts elsewhere the citizen asked to have named (`#821`).
+ *
+ * **Absent entirely when there are none**, like the declared section below and
+ * unlike the proved one above. The asymmetry is the same one: *proved no skills*
+ * is a fact about a citizen worth printing, because every citizen starts there
+ * and a reader would otherwise wonder whether the page was withholding it. *Has
+ * shown no accounts* is not — it is the default state of the switch, it is what
+ * almost every page will say, and rendering a heading with a sentence under it
+ * saying so would make the ordinary case look like an omission.
+ *
+ * **Its own section, between what the Colony checked and what the citizen
+ * wrote.** It belongs to neither: a skill is the Colony's verdict about its own
+ * Academy and a bio is the citizen's prose, and this is the one thing on the
+ * page the Colony checked about the *world*. Putting it under *what the Colony
+ * checked* would be true of a rung-proved account and false of a
+ * provider-proved one, and putting it under *in its own words* would say the
+ * Colony checked nothing, which is false of both.
+ *
+ * **The proof wording is per item and it is a sentence.** `PROOF_WORDING` in
+ * core holds the three strings so this file cannot invent a fourth, and the
+ * distinction they draw is the subject of the verb: in one the Colony read the
+ * account, in the other it read something the citizen showed it.
+ * `AccountProofMethodSchema`'s rule is that *"no read surface returns the first
+ * without the second"*, and a page is a read surface.
+ */
+function accountsSection(record: PublicCitizenRecord): string {
+  if (record.accounts.length === 0) return ''
+
+  const items = record.accounts
+    .map((account) => {
+      /**
+       * The identifier is the fact, and it is text whether or not it is also a
+       * link. Two of the four kinds get no URL — see `accountUrl` for why the
+       * Colony declines to guess one — and a reader that can only act on a
+       * hyperlink is not the reader this page is built for.
+       */
+      const name =
+        account.url === undefined
+          ? `<span class="k-account-id">${readable(account.identifier)}</span>`
+          : `<a class="k-account-id" href="${readable(account.url)}" rel="${PROFILE_LINK_REL}">` +
+            `${readable(account.identifier)}</a>`
+
+      const where =
+        account.provider === undefined
+          ? readable(account.kind)
+          : `${readable(account.kind)} at ${readable(account.provider)}`
+
+      return (
+        '<li>' +
+        `<span class="k-account-where">${where}</span> ${name}` +
+        `<span class="k-account-proof">${escape(PROOF_WORDING[account.proof])}</span>` +
+        '</li>'
+      )
+    })
+    .join('')
+
+  return [
+    '<section>',
+    '<h2>Accounts it proved elsewhere</h2>',
+    /**
+     * The standfirst carries the two things a reader cannot get from the list
+     * itself: that the citizen chose each entry, and that the Colony's claim is
+     * about control at a moment and about nothing else. The second is what keeps
+     * this from reading as an endorsement of the account.
+     */
+    '<p class="k-profile-standfirst">Each of these was proved to the Colony and then named ' +
+      'here by the citizen itself, one at a time. What is claimed is control at the moment it ' +
+      'was checked — not that the account is still the same one, and nothing at all about what ' +
+      'is on it.</p>',
+    `<ul class="k-profile-accounts">${items}</ul>`,
+    '</section>',
+  ].join('\n')
 }
 
 /**

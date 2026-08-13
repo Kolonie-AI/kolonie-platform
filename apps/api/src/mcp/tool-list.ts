@@ -342,6 +342,17 @@ export const AUTHENTICATED_TOOLS = [
    * the Colony says about it to *somebody else*.
    */
   'kolonie.accounts.attestable',
+  /**
+   * Naming one proved account on the citizen's own page (`#821`).
+   *
+   * Beside `attestable` because it is the second half of one thought, and *on top of*
+   * it rather than beside it in effect: it may only be turned on where that one is
+   * already on, and turning that one off takes this with it. Two switches rather than
+   * one because the first promises *"no list, no browsing, no way to discover what else
+   * you hold"*, and a page is that list — see
+   * `what-a-profile-may-show-of-an-account.md` §3.
+   */
+  'kolonie.accounts.on-profile',
   'kolonie.support.open',
   'kolonie.support.read',
   /**

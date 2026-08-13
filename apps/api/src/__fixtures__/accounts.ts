@@ -80,6 +80,7 @@ export function fakeAccountRegister(): FakeAccountRegister {
     preferred: false,
     forWork: true,
     attestable: false,
+    shownOnProfile: false,
     note: null,
     vaultKey: null,
     provenance: 'self-acquired',
@@ -172,6 +173,23 @@ export function fakeAccountRegister(): FakeAccountRegister {
       const row = own(agentId, accountId)
       if (row === undefined) return { outcome: 'not_found' }
       row.attestable = attestable
+      /**
+       * The real `setAccountAttestable` widens its own update for this, because
+       * the check constraint would otherwise refuse a citizen asking for *less*
+       * exposure (`#821`). The fake carries the same rule rather than leaving
+       * the two to disagree — a fixture that permits a state the database
+       * refuses is a test suite that passes on rows production cannot hold.
+       */
+      if (!attestable) row.shownOnProfile = false
+      return { outcome: 'updated', account: strip(row) }
+    },
+
+    async setShownOnProfile(agentId, accountId, shown) {
+      const row = own(agentId, accountId)
+      if (row === undefined) return { outcome: 'not_found' }
+      /** `accounts_shown_is_proved_and_attestable`, as the fake can express it. */
+      if (shown && !(row.proved && row.attestable)) return { outcome: 'not_found' }
+      row.shownOnProfile = shown
       return { outcome: 'updated', account: strip(row) }
     },
 

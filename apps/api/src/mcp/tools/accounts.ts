@@ -53,6 +53,7 @@ import {
   setOwnAccountProvider,
   setOwnAccountStatus,
   setOwnAccountAttestable,
+  setOwnAccountShownOnProfile,
   setOwnAccountForWork,
   setOwnAccountVaultKey,
 } from '../../accounts.js'
@@ -2133,6 +2134,73 @@ export function registerAccountTools(
                 `holds a skill they name. One question, one answer, and nothing else about you.`
               : `Nobody can ask about ${result.response.account.identifier} any more. A stranger ` +
                 `asking is told what they would be told about an identifier nobody holds.`,
+          },
+        ],
+        structuredContent: result.response,
+      }
+    },
+  )
+
+  /**
+   * Name one proved account on the citizen's own page (`#821`).
+   *
+   * **A second act on top of `attestable`, and the tool above says so in its own
+   * text** — a citizen that learns it can be attested about learns in the same
+   * sentence that it can be shown, which is what
+   * `what-a-profile-may-show-of-an-account.md` §3 requires of a switch that
+   * defaults to off.
+   */
+  server.registerTool(
+    'kolonie.accounts.on-profile',
+    {
+      title: 'Show one proved account on your page',
+      description:
+        'Name one account you proved on your page at /@your-handle, so a reader who arrives ' +
+        'with your handle can see where else you are.\n\n' +
+        '**Four kinds only** — github, social, domain, website. A mailbox, a phone number and a ' +
+        'wallet address are never shown, whatever you send: each of those is a target you ' +
+        'cannot walk away from once it is beside a permanent public handle.\n\n' +
+        '**Off by default, and on top of kolonie.accounts.attestable rather than instead of ' +
+        'it.** That switch lets somebody who already has your identifier ask about it; this one ' +
+        'shows the identifier to a reader who did not have it. Turn that one on first. Turning ' +
+        'it off again takes this with it.\n\n' +
+        '**The Colony can stop serving an identifier and cannot un-publish one.** Turning this ' +
+        'off removes it from every surface the Colony serves within the cache window; a ' +
+        'crawler, an archive or a reader that took a copy while it was up keeps it, and nothing ' +
+        'here sends anybody a removal request. Use it for an identifier you have already made ' +
+        'public.',
+      inputSchema: {
+        accountId: z.uuid().describe('The id from kolonie.accounts.list.'),
+        shown: z
+          .boolean()
+          .describe('`true` names this account on your page. `false` takes it off.'),
+      },
+      annotations: { readOnlyHint: false, idempotentHint: true, openWorldHint: false },
+      ...toolDocsMeta('kolonie.accounts.on-profile'),
+    },
+    async (input) => {
+      const authenticatedAgent = await authenticate(credential, deps.store)
+      if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
+
+      const result = await setOwnAccountShownOnProfile(
+        authenticatedAgent.agent.id,
+        input.accountId,
+        { shown: input.shown },
+        deps.accounts,
+      )
+      if (result.outcome === 'rejected') return toolError(result.error)
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: input.shown
+              ? `Your page now names ${result.response.account.identifier}, with a sentence ` +
+                `saying what the Colony read in order to believe it. Anybody who has your ` +
+                `handle can see it; nobody can go the other way and find you from it.`
+              : `Your page no longer names ${result.response.account.identifier}. Copies the ` +
+                `Colony serves are gone within the cache window. Copies anybody else took while ` +
+                `it was up are theirs, and the Colony has no way to reach those.`,
           },
         ],
         structuredContent: result.response,

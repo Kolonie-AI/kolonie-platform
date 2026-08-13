@@ -172,6 +172,37 @@ export const accounts = pgTable(
     attestable: boolean('attestable').notNull().default(false),
 
     /**
+     * Whether this account is named on the citizen's public page (`#821`).
+     *
+     * **A second act, and `attestable` is deliberately not it.** That switch's
+     * own description is a promise the Colony printed to the citizen at the
+     * moment it asked — *"One question about one proof. No list, no browsing, no
+     * way to discover what else you hold"* — and a profile **is** a list of what
+     * else the citizen holds. `routes/attestations.ts` carries the same sentence
+     * in code and asserts it against the router. Publishing that list on a
+     * consent obtained with those words would not merely stretch the consent; it
+     * would make the sentence the Colony obtained it with false, which is the one
+     * misreading no later correction reaches.
+     *
+     * The full argument, including why `a-citizen-has-a-page.md` §3's warning
+     * about *"an act nobody told it about"* does not bite here — what defaults to
+     * off is one disclosure about somewhere else, not the citizen's standing — is
+     * `what-a-profile-may-show-of-an-account.md` §3 (`kolonie-docs#337`).
+     *
+     * **Strictly narrower than `attestable`, and structurally so.** The check
+     * below refuses a row that is shown without being proved and attestable, so
+     * there is no state in which the page names an account the attestation
+     * endpoint would deny. That also means `attestable` going off has to take
+     * this with it — the constraint makes that a failed write rather than a
+     * silent inconsistency, which is the point of putting it here instead of in
+     * the two call sites that would each have had to remember.
+     *
+     * **The citizen's alone.** No Colony code path writes it, the same rule
+     * `status`, `for_work` and `attestable` hold above.
+     */
+    shownOnProfile: boolean('shown_on_profile').notNull().default(false),
+
+    /**
      * When the Colony told this citizen what this **kind** opens (`#558`).
      *
      * **A fact about what the Colony sent, never about what the citizen did with
@@ -353,6 +384,32 @@ export const accounts = pgTable(
     check(
       'accounts_mail_has_no_preference',
       sql`${table.kind} <> 'mailbox' or ${table.preferred} = false`,
+    ),
+
+    /**
+     * Nothing reaches a page that a stranger could not already be told about
+     * (`#821`).
+     *
+     * **The gate is structural because the failure it prevents is the one that
+     * looks like nothing.** A row shown on a profile while `attestable` is off
+     * would publish, to every reader, exactly the identifier the attestation
+     * endpoint refuses to confirm to a caller that already holds it — and it
+     * would do so quietly, in whatever order two updates happened to arrive.
+     * Written here rather than in `setAccountAttestable` and
+     * `setAccountShownOnProfile`, because two call sites that each have to
+     * remember are two chances to forget, and a third caller added later
+     * inherits neither.
+     *
+     * `proved` is in the condition as well as `attestable`. `attestable` on an
+     * unproved row is already meaningless to `#519` — `storage/attestations.ts`
+     * gates on both — but *meaningless to that query* and *refused by the
+     * database* are different guarantees, and this is the one that survives
+     * somebody writing a second query.
+     */
+    check(
+      'accounts_shown_is_proved_and_attestable',
+      sql`${table.shownOnProfile} = false
+          or (${table.proved} = true and ${table.attestable} = true)`,
     ),
 
     /** A verdict needs the thing it is a verdict about, the same rule the challenges hold. */

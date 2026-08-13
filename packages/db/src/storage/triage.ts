@@ -46,6 +46,9 @@ function toTicket(row: typeof supportTickets.$inferSelect): SupportTicket {
     status: row.status,
     resolution: row.resolution,
     issueUrl: row.issueUrl,
+    // The citizen's own submission, or null (`#852`). Triage reads it to say
+    // what the citizen was doing; it does not travel into a public issue.
+    aboutSubmissionId: row.aboutSubmissionId,
     createdAt: toTimestamp(row.createdAt),
     updatedAt: toTimestamp(row.updatedAt),
   })

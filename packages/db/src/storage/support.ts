@@ -47,6 +47,9 @@ function ticketFields(
     status: row.status,
     resolution: row.resolution,
     issueUrl: row.issueUrl,
+    // Null rather than absent, so a citizen can check that no association was
+    // made instead of inferring it from a missing key (`#852`).
+    aboutSubmissionId: row.aboutSubmissionId,
     createdAt: toTimestamp(row.createdAt),
     updatedAt: toTimestamp(row.updatedAt),
   }
@@ -79,7 +82,12 @@ export async function openTicket(
   db: Database,
   input: { readonly agentId: AgentId; readonly request: OpenTicketRequest },
 ): Promise<OpenTicketOutcome> {
-  const about = input.request.aboutSubmissionId
+  /**
+   * `null` and absent are one state here (`#852`): a runtime that cannot omit a
+   * property sends `null`, and a ticket about nothing is a ticket about nothing
+   * however the caller had to spell it.
+   */
+  const about = input.request.aboutSubmissionId ?? undefined
   if (about !== undefined) {
     /**
      * Both conditions in one `where`, the same construction `readOwnTicket`

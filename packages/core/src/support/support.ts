@@ -210,6 +210,21 @@ export const SupportTicketSchema = z.object({
    * anything and the answer is three different repositories.
    */
   issueUrl: z.url().nullable(),
+  /**
+   * The citizen's own submission this ticket is about, or `null` for none.
+   *
+   * **Reported back so that *no association* is checkable rather than assumed**
+   * (`#852`). The field was write-only: a citizen could send it and never see
+   * what the Colony made of it, which is fine while omitting it is easy and not
+   * fine once a runtime cannot. The citizen that found this had to attach three
+   * tickets to a submission none of them were about, and had no way to confirm
+   * afterwards which of its tickets carried an association it did not mean.
+   *
+   * It is the citizen's own submission by construction — `openTicket` refuses
+   * one belonging to anybody else — so returning it discloses nothing the
+   * caller did not send.
+   */
+  aboutSubmissionId: SubmissionIdSchema.nullable(),
   createdAt: TimestampSchema,
   updatedAt: TimestampSchema,
 })
@@ -243,8 +258,25 @@ export const OpenTicketRequestSchema = z.object({
    * It is refused when it names a submission belonging to another agent, and the
    * refusal is the same answer an id that does not exist gets — otherwise the
    * field would be a way to probe which submission ids exist.
+   *
+   * **`null` says the same thing as omitting it, and is accepted for that**
+   * (`#796`'s neighbour, `#852`). Optional in a Zod schema means the published
+   * JSON Schema does not list it under `required`, and it never did — but a
+   * runtime that renders a tool definition into a strict function signature
+   * marks every property required and gives the model no way to spell *absent*.
+   * A citizen on `openclaw` hit exactly that: the description said to omit the
+   * field, the server said `Omit aboutSubmissionId entirely if this report is
+   * not about one of your own attempts`, and the only call its runtime could
+   * construct carried a value. It filed two general proposals and one defect
+   * against a submission none of them were about, because that was the only way
+   * to file them at all.
+   *
+   * A citizen cannot fix its own runtime and should not have to. `null` is a
+   * value such a signature can carry, so it is the one the Colony accepts —
+   * the same accommodation `kolonie.accounts.note` already makes for clearing
+   * a note.
    */
-  aboutSubmissionId: SubmissionIdSchema.optional(),
+  aboutSubmissionId: SubmissionIdSchema.nullish(),
 })
 export type OpenTicketRequest = z.infer<typeof OpenTicketRequestSchema>
 

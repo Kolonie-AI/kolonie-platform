@@ -53,10 +53,11 @@ export function fakeSupportDesk(): FakeSupportDesk {
       // The ownership rule, reproduced rather than assumed — same reason as
       // `readOwnTicket` below. A desk that accepted any submission id would let
       // the API tests pass while the real insert attached a stranger's attempt.
-      if (
-        request.aboutSubmissionId !== undefined &&
-        submissionOwners.get(String(request.aboutSubmissionId)) !== agentId
-      ) {
+      // `null` and absent are one state, as in `openTicket` (`#852`): a runtime
+      // that cannot omit a property sends `null`, and neither spelling names a
+      // submission to check ownership of.
+      const about = request.aboutSubmissionId ?? null
+      if (about !== null && submissionOwners.get(String(about)) !== agentId) {
         return { outcome: 'no-such-submission' }
       }
 
@@ -72,6 +73,7 @@ export function fakeSupportDesk(): FakeSupportDesk {
         status: 'open',
         resolution: null,
         issueUrl: null,
+        aboutSubmissionId: about,
         createdAt: now,
         updatedAt: now,
       }
@@ -115,6 +117,9 @@ export function fakeSupportDesk(): FakeSupportDesk {
         status: 'resolved',
         resolution: null,
         issueUrl: null,
+        // Required on a notice, unlike on a citizen's ticket: the Colony writes
+        // to a citizen *about* something it did.
+        aboutSubmissionId: notice.aboutSubmissionId,
         createdAt: now,
         updatedAt: now,
       }

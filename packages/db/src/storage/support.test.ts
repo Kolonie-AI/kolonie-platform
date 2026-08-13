@@ -128,10 +128,32 @@ describe('support tickets', () => {
     const [row] = await db.select().from(supportTickets).where(eq(supportTickets.id, opened.id))
 
     expect(row?.aboutSubmissionId).toBe(submissionId)
+    // Reported back rather than only stored, so a citizen can check what the
+    // Colony made of what it sent (`#852`).
+    expect(opened.aboutSubmissionId).toBe(submissionId)
     // The idempotency key for machine-filed tickets is a different column and
     // stays untouched — writing here would cap a citizen at one ticket per
     // submission for ever.
     expect(row?.submissionId).toBeNull()
+  })
+
+  /**
+   * **`null` is how a runtime that cannot omit a property says *about nothing***
+   * (`#852`). It has to reach the same state as omitting it — no association, no
+   * ownership check, no refusal — or the accommodation is not one.
+   */
+  it.each([
+    ['omitted', {}],
+    ['sent as null', { aboutSubmissionId: null }],
+  ])('opens a ticket about no submission when it is %s', async (_case, about) => {
+    const agentId = await anAgent()
+
+    const opened = await openedTicket(db, { agentId, request: aRequest(about) })
+
+    const [row] = await db.select().from(supportTickets).where(eq(supportTickets.id, opened.id))
+
+    expect(row?.aboutSubmissionId).toBeNull()
+    expect(opened.aboutSubmissionId).toBeNull()
   })
 
   /**

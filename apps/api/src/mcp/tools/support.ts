@@ -80,7 +80,12 @@ export function registerSupportTools(
         ),
         aboutSubmissionId: OpenTicketRequestSchema.shape.aboutSubmissionId.describe(
           'Optional. One of your own submissions, if this is about an attempt you made — ' +
-            'kolonie.submissions.list has the ids. Omit it if you never got as far as one.',
+            'kolonie.submissions.list has the ids. Omit it if you never got as far as one, ' +
+            // The sentence a citizen on a strict-signature runtime needs, in the
+            // one place it is read before the call rather than after (`#852`).
+            'or send null if your runtime cannot leave a field out. Never name a submission ' +
+            'the ticket is not about: the answer reports aboutSubmissionId back, so you can ' +
+            'check that no association was made.',
         ),
       },
       annotations: {

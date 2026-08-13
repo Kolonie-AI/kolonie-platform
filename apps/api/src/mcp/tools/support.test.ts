@@ -163,6 +163,98 @@ describe('kolonie.support', () => {
     await close()
   })
 
+  /**
+   * **A ticket about nothing, from a runtime that cannot say nothing** (`#852`).
+   *
+   * `aboutSubmissionId` has always been optional and the published JSON Schema
+   * has never listed it under `required` — that much was measured before any of
+   * this changed. What a citizen on `openclaw` met is a layer further out: a
+   * runtime that renders a tool definition into a strict function signature
+   * marks every property required, so *omitted* was not a call it could
+   * construct. The description told it to omit the field, the server told it to
+   * omit the field, and it filed two proposals and one defect against a
+   * submission none of them were about, because that was the only way to file
+   * them at all.
+   */
+  describe('a ticket that is about no submission', () => {
+    it('takes null where a runtime cannot leave the field out', async () => {
+      const { colony, apiKey } = await citizenWithADesk()
+      const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+      const opened = await client.callTool({
+        name: 'kolonie.support.open',
+        arguments: { ...aTicketRequest({}), aboutSubmissionId: null },
+      })
+
+      expect(opened.isError).toBeFalsy()
+      const { ticket } = OpenTicketResponseSchema.parse(opened.structuredContent)
+      // And it made no association, which is the point of accepting it.
+      expect(ticket.aboutSubmissionId).toBeNull()
+      await close()
+    })
+
+    /**
+     * The half the citizen asked for by name: *"die Antwort könnte explizit
+     * `aboutSubmissionId: null` zurückgeben, damit sofort prüfbar ist, dass
+     * keine Verknüpfung entstanden ist."* The field was write-only until now.
+     */
+    it('reports back that no association was made', async () => {
+      const { colony, apiKey } = await citizenWithADesk()
+      const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+      const opened = await client.callTool({
+        name: 'kolonie.support.open',
+        arguments: aTicketRequest({}),
+      })
+
+      const { ticket } = OpenTicketResponseSchema.parse(opened.structuredContent)
+      expect(ticket.aboutSubmissionId).toBeNull()
+      await close()
+    })
+
+    /** And an association a citizen did mean is reported back as itself. */
+    it('reports back the submission when there is one', async () => {
+      const { colony, agent, apiKey } = await citizenWithADesk()
+      const mine = SubmissionIdSchema.parse(randomUUID())
+      colony.desk.ownSubmission(agent.id, mine)
+
+      const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+      const opened = await client.callTool({
+        name: 'kolonie.support.open',
+        arguments: aTicketRequest({ aboutSubmissionId: mine }),
+      })
+
+      const { ticket } = OpenTicketResponseSchema.parse(opened.structuredContent)
+      expect(ticket.aboutSubmissionId).toBe(mine)
+      await close()
+    })
+
+    /**
+     * **`null` does not become a way past the ownership rule.** The refusal for
+     * a stranger's submission is what `#255` built; widening the field must not
+     * widen that, so it is asserted beside it rather than assumed.
+     */
+    it('still refuses a submission that is not the caller’s', async () => {
+      const { colony, apiKey } = await citizenWithADesk()
+      const registered = await colony.registry.register(
+        { name: `stranger-${randomUUID().slice(0, 8)}`, platform: 'claude' },
+        { ip: FAKE_CALLER_IP },
+      )
+      if (registered.outcome !== 'registered') throw new Error('fixture failed to register')
+      const theirs = SubmissionIdSchema.parse(randomUUID())
+      colony.desk.ownSubmission(registered.response.agent.id, theirs)
+
+      const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+      const refused = await client.callTool({
+        name: 'kolonie.support.open',
+        arguments: aTicketRequest({ aboutSubmissionId: theirs }),
+      })
+
+      expect(refused.isError).toBe(true)
+      await close()
+    })
+  })
+
   it('lists only the caller’s own tickets', async () => {
     const { colony, apiKey } = await citizenWithADesk()
     const registered = await colony.registry.register(

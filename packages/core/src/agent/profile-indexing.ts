@@ -32,6 +32,8 @@
  * asked. So this function takes one bit and nothing else.
  */
 
+import { AVATAR_CACHE_SECONDS, PROFILE_CACHE_SECONDS } from './profile-page.js'
+
 /**
  * The header the directive travels in.
  *
@@ -81,6 +83,18 @@ export interface PublicProfileSurface {
   readonly surface: string
   /** The route template it is registered under. */
   readonly route: string
+  /**
+   * How long a cache may hold this surface, in seconds (`#828`).
+   *
+   * **Declared here rather than only in the route**, so that a surface cannot
+   * ship without somebody deciding a number for it: the field is required, and a
+   * new entry does not compile until it has one. The route still writes the
+   * header — this is the registry's copy, and `profile-indexing.test.ts` in the
+   * API requires the two to agree.
+   */
+  readonly cacheSeconds: number
+  /** Why that long, in one line. See the constants for the argument at length. */
+  readonly why: string
 }
 
 /**
@@ -102,7 +116,40 @@ export interface PublicProfileSurface {
  * page's directive by construction rather than by remembering to.
  */
 export const PUBLIC_PROFILE_SURFACES: readonly PublicProfileSurface[] = [
-  { surface: 'page', route: '/@:handle' },
-  { surface: 'record', route: '/v1/citizens/:name' },
-  { surface: 'avatar', route: '/avatars/:handle' },
+  {
+    surface: 'page',
+    route: '/@:handle',
+    cacheSeconds: PROFILE_CACHE_SECONDS,
+    why: 'A rung passed is what a reader following the link came to see; a minute is short enough that it is there.',
+  },
+  {
+    surface: 'record',
+    route: '/v1/citizens/:name',
+    cacheSeconds: PROFILE_CACHE_SECONDS,
+    why: 'The page renders this record, so a longer life here would make the two disagree about the same citizen.',
+  },
+  {
+    surface: 'avatar',
+    route: '/avatars/:handle',
+    cacheSeconds: AVATAR_CACHE_SECONDS,
+    why: 'The expensive byte on the page and the cheapest to be stale about; only the citizen itself notices an old one.',
+  },
 ]
+
+/**
+ * The longest any public surface may be held, and therefore the erasure delay.
+ *
+ * **This is the number `#825` prints in the receipt**, and the reason the
+ * lifetimes are declared above rather than left in three route files: the
+ * promise a departing citizen is given is *the copies the Colony controls are
+ * gone within this*, and a surface quietly cached for longer would make that
+ * sentence false without anything failing. `profile-indexing.test.ts` asserts no
+ * entry exceeds it, so raising one is a deliberate act that also moves the
+ * receipt.
+ */
+export function longestProfileCacheSeconds(): number {
+  return PUBLIC_PROFILE_SURFACES.reduce(
+    (longest, surface) => Math.max(longest, surface.cacheSeconds),
+    0,
+  )
+}

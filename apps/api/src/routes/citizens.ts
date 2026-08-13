@@ -1,5 +1,6 @@
-import { robotsDirective, ROBOTS_HEADER } from '@kolonie-ai/core'
+import { PROFILE_CACHE_SECONDS, robotsDirective, ROBOTS_HEADER } from '@kolonie-ai/core'
 import type { FastifyInstance } from 'fastify'
+import { refuseOverLimit } from './profile-tier.js'
 import type { RouteDependencies } from './dependencies.js'
 
 /**
@@ -64,9 +65,19 @@ import type { RouteDependencies } from './dependencies.js'
  * entire purpose of a surface a citizen points at.
  */
 export function registerCitizenRoutes(v1: FastifyInstance, deps: RouteDependencies): void {
-  const { citizens } = deps
+  const { citizens, profileTier } = deps
 
   v1.get<{ Params: { name: string } }>('/citizens/:name', async (request, reply) => {
+    /**
+     * The profile tier's shared brake, before the lookup (`#828`).
+     *
+     * The same allowance the page and the avatar draw on, because a browser
+     * rendering one citizen touches all three — see `profile-tier.ts` for why
+     * three budgets would be three ways round one ceiling.
+     */
+    const refused = refuseOverLimit(profileTier, request, reply)
+    if (refused !== undefined) return refused
+
     const record = await citizens.publicRecord(request.params.name)
 
     if (record === undefined) {
@@ -107,9 +118,16 @@ export function registerCitizenRoutes(v1: FastifyInstance, deps: RouteDependenci
      * is most likely to be looking — `kolonie-website#26` chose a live read over
      * a snapshot for exactly that reason, and a long `max-age` would hand it the
      * snapshot anyway.
+     *
+     * **The page's constant rather than a literal `60`** (`#828`). The page
+     * renders this record; two numbers that happened to agree would be two
+     * numbers that could stop agreeing, and the longer of them would be the
+     * erasure delay without anybody having decided that. `PUBLIC_PROFILE_SURFACES`
+     * declares it, and `profile-indexing.test.ts` requires this header to match
+     * what the registry says about this route.
      */
     return reply
-      .header('cache-control', 'public, max-age=60')
+      .header('cache-control', `public, max-age=${PROFILE_CACHE_SECONDS}`)
       .header('access-control-allow-origin', '*')
       .send(record)
   })

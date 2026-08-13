@@ -49,6 +49,7 @@ import type { QuestDesk } from '../quests.js'
 import type { TaskCatalogue } from '../tasks.js'
 import type { CitizenRecords } from '../citizens.js'
 import type { AvatarDesk } from '../avatars.js'
+import type { ProfileTierDependencies } from './profile-tier.js'
 import type { DropDependencies } from '../operator-drops.js'
 import type { TelegramDesk } from '../operator-telegram.js'
 import type { ShareDesk, ShareNotifier } from '../browser-shares.js'
@@ -380,4 +381,13 @@ export interface RouteDependencies {
    * there is no absence for it to cope with.
    */
   readonly avatars: AvatarDesk
+  /**
+   * The brake the page, the record and the avatar share (`#828`).
+   *
+   * Required here and resolved in `app.ts`, like `reachability`: by the time a
+   * route module has this object the allowance exists, so no surface has an
+   * *unlimited* branch to fall into. One entry for three surfaces on purpose —
+   * see `profile-tier.ts`. Appended, per the note on `citizens`.
+   */
+  readonly profileTier: ProfileTierDependencies
 }

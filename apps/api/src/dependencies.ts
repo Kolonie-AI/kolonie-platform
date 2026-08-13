@@ -64,6 +64,7 @@ import type { AvatarDesk } from './avatars.js'
 import type { SettingsDesk } from './settings.js'
 import type { ProviderEnquiryDesk } from './provider-enquiries.js'
 import type { ShareDesk, ShareNotifier } from './browser-shares.js'
+import type { ProfileTierDependencies } from './routes/profile-tier.js'
 
 /**
  * What a deployment hands `buildApp`.
@@ -526,4 +527,14 @@ export interface AppDependencies {
    * mail, and an offer made without one comes back saying `undeliverable`.
    */
   readonly shareNotifier?: ShareNotifier
+  /**
+   * The brake in front of the public profile tier (`#828`).
+   *
+   * Optional and defaulted in `app.ts`, on exactly the arrangement
+   * `reachability` above uses: the only thing it needs is a limiter, and a
+   * limiter with no configuration is one the assembly can make. A test that
+   * wants to reach the ceiling in three requests, or move time instead of
+   * waiting for it, passes its own. Appended, per the house rule on `citizens`.
+   */
+  readonly profileTier?: ProfileTierDependencies
 }

@@ -323,3 +323,57 @@ export function reachabilityLimiter(now?: () => number): RateLimiter {
     ...(now === undefined ? {} : { now }),
   })
 }
+
+/**
+ * How many public profile-tier requests one source may make per window (`#828`).
+ *
+ * **The tier this bounds is the whole of what a citizen points at**: the page at
+ * `/@{handle}`, the record under `/v1/citizens/:name`, and the avatar. All three
+ * answer without a credential, so there is no citizen to key on and the source
+ * address is what there is — `clientIp` says which header that comes out of and
+ * how forgeable it is.
+ *
+ * **A hundred and twenty a minute, and both halves of that are the decision.**
+ * The rate is sized against a real crawler rather than against a browser: a
+ * search engine fetching a page, its avatar and, later, its share image is three
+ * requests per citizen, and one that walks forty citizens in a minute is doing
+ * nothing wrong. A ceiling that refused it would make `#830`'s opt-in switch
+ * meaningless for the citizens who turned it on.
+ *
+ * **The minute is the more interesting half.** Every other limiter in this file
+ * runs over an hour, because what it protects is scarce or irreversible — a
+ * name, a mail, an outbound connection. Nothing here is: the punishment for a
+ * false positive is that a public page stops answering somebody, and that has to
+ * be over in under a minute rather than in under an hour. A short window also
+ * costs an enumerator far more than it costs a reader, because an enumerator is
+ * the only caller that wants the *next* window.
+ *
+ * **What this does not do is close enumeration.** `GET /@{handle}` answers `200`
+ * for a citizen that exists and `404` for one that does not, so it is an
+ * existence oracle, and no limit changes that — it is the same honest position
+ * `NAME_CHECK_LIMIT` takes: this bounds the rate rather than pretending to close
+ * it. What is refused instead is the cheap sweep, and what is refused absolutely
+ * is a route that answers *which names exist* — see `profile-enumeration.test.ts`.
+ *
+ * Not configurable through the environment, for the reason `REGISTRATION_LIMIT`
+ * gives: changing it is a commit.
+ */
+export const PROFILE_TIER_LIMIT = 120
+
+/**
+ * The window the profile tier runs over — a minute, not the hour above it.
+ *
+ * See `PROFILE_TIER_LIMIT`: a public page must forgive a mistaken refusal
+ * quickly, and `retry-after` on a 429 is only an honest instruction if the
+ * number in it is small.
+ */
+export const PROFILE_TIER_WINDOW_MS = 60 * 1000
+
+/** The brake in front of the public profile tier. See `PROFILE_TIER_LIMIT`. */
+export function profileTierLimiter(now?: () => number): RateLimiter {
+  return fixedWindowLimiter({
+    limit: PROFILE_TIER_LIMIT,
+    windowMs: PROFILE_TIER_WINDOW_MS,
+    ...(now === undefined ? {} : { now }),
+  })
+}

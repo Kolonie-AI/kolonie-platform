@@ -97,7 +97,7 @@ import { rateLimited } from './registration.js'
 import { noEarnings } from './payouts.js'
 import { noSettings } from './settings.js'
 import { noProviderEnquiries } from './provider-enquiries.js'
-import { reachabilityLimiter, registrationLimiter } from './rate-limit.js'
+import { profileTierLimiter, reachabilityLimiter, registrationLimiter } from './rate-limit.js'
 import { DEFAULT_SKILL_RELEASES } from './skill-releases.js'
 
 /**
@@ -181,6 +181,7 @@ export function buildApp({
   siteChrome,
   walks,
   attestations,
+  profileTier,
   console: consoleDeps,
   rhythm = DEFAULT_RHYTHM_BOUNDS,
   skillReleases = DEFAULT_SKILL_RELEASES,
@@ -485,6 +486,12 @@ export function buildApp({
      * or move time, passes its own.
      */
     reachability: reachability ?? { limiter: reachabilityLimiter() },
+    /**
+     * Defaulted here on the same terms as `reachability` above (`#828`): one
+     * allowance shared by the page, the record and the avatar, and a test that
+     * wants to reach the ceiling in three requests passes its own.
+     */
+    profileTier: profileTier ?? { limiter: profileTierLimiter() },
     image,
     scene,
     injection,

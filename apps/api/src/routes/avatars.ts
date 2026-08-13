@@ -6,6 +6,7 @@ import {
 } from '@kolonie-ai/core'
 import type { FastifyInstance } from 'fastify'
 import { PLACEHOLDER_MEDIA_TYPE, placeholderAvatar } from '../avatar-placeholder.js'
+import { refuseOverLimit } from './profile-tier.js'
 import type { RouteDependencies } from './dependencies.js'
 
 /**
@@ -42,9 +43,21 @@ import type { RouteDependencies } from './dependencies.js'
  * a profile points here, and that URL should outlive an API version.
  */
 export function registerAvatarRoutes(app: FastifyInstance, deps: RouteDependencies): void {
-  const { avatars, citizens } = deps
+  const { avatars, citizens, profileTier } = deps
 
   app.get<{ Params: { handle: string } }>('/avatars/:handle', async (request, reply) => {
+    /**
+     * The tier's brake, before the lookup and before any pixel is generated
+     * (`#828`).
+     *
+     * This is the surface where it matters most: the placeholder is *computed*
+     * per request rather than read, so an unbounded sweep of handles nobody
+     * holds would still be the cheapest of the three, and a sweep of handles
+     * somebody holds would be the most expensive.
+     */
+    const refused = refuseOverLimit(profileTier, request, reply)
+    if (refused !== undefined) return refused
+
     const served = await avatars.publicAvatar(request.params.handle)
 
     if (served.outcome === 'unknown-citizen') {

@@ -10,6 +10,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import { PROFILE_HEADERS, profileNotFoundPage, profilePage } from '../profile/html.js'
 import { siteChromeFrom } from '../atlas/site-chrome.js'
 import { isAtlasRequest } from './atlas-pages.js'
+import { refuseOverLimit } from './profile-tier.js'
 import type { RouteDependencies } from './dependencies.js'
 
 /**
@@ -65,7 +66,7 @@ import type { RouteDependencies } from './dependencies.js'
  * which is the point of asserting it instead of intending it.
  */
 export function registerProfilePages(app: FastifyInstance, deps: RouteDependencies): void {
-  const { citizens, websiteUrl } = deps
+  const { citizens, profileTier, websiteUrl } = deps
 
   /** The site's header and footer, on the terms `atlas-pages.ts` sets out. */
   const chromeOf = deps.siteChrome ?? siteChromeFrom({ websiteUrl, log: deps.log })
@@ -124,6 +125,26 @@ export function registerProfilePages(app: FastifyInstance, deps: RouteDependenci
   }
 
   /**
+   * A `301` to the citizen's own casing, with a lifetime on it (`#828`).
+   *
+   * **A permanent redirect with no `cache-control` is cached indefinitely** by
+   * anything that follows the letter of the status, and this one has the
+   * citizen's exact registered casing in its `location`. That would outlive an
+   * erasure: the page and the record would be gone and a proxy would still be
+   * answering *there is a citizen, and this is how it spells its name*. The same
+   * minute the page gets, for the same reason and out of the same constant.
+   *
+   * **No robots directive**, and its absence is a decision rather than an
+   * oversight: a redirect carries no body about anybody, and computing the
+   * directive would need the indexing read this response does not otherwise
+   * make. A crawler that follows it lands on the page, which carries its own.
+   */
+  const permanently = (reply: FastifyReply, location: string): FastifyReply =>
+    reply
+      .header('cache-control', `public, max-age=${PROFILE_CACHE_SECONDS}`)
+      .redirect(location, 301)
+
+  /**
    * The page for a handle nobody holds.
    *
    * One function, called from both routes, so that *not held* cannot come to
@@ -144,6 +165,17 @@ export function registerProfilePages(app: FastifyInstance, deps: RouteDependenci
   app.get<{ Params: { handle: string } }>(
     `${PROFILE_PATH_PREFIX}:handle`,
     async (request, reply) => {
+      /**
+       * Before the host check and before the lookup (`#828`).
+       *
+       * Charging every request that reaches this handler is what makes the
+       * ceiling one number rather than one per branch — and a refusal issued
+       * before `publicRecord` cannot differ between a handle somebody holds and
+       * one nobody does, because neither has been looked up.
+       */
+      const refused = refuseOverLimit(profileTier, request, reply)
+      if (refused !== undefined) return refused
+
       if (wrongHost(request)) return reply.callNotFound()
 
       const record = await citizens.publicRecord(request.params.handle)
@@ -159,7 +191,7 @@ export function registerProfilePages(app: FastifyInstance, deps: RouteDependenci
        * what collapses the variants in an index instead of accumulating them.
        */
       if (record.handle !== request.params.handle) {
-        return reply.redirect(profilePath(record.handle), 301)
+        return permanently(reply, profilePath(record.handle))
       }
 
       /**
@@ -201,12 +233,15 @@ export function registerProfilePages(app: FastifyInstance, deps: RouteDependenci
   app.get<{ Params: { handle: string } }>(
     `${CITIZEN_PATH_PREFIX}:handle`,
     async (request, reply) => {
+      const refused = refuseOverLimit(profileTier, request, reply)
+      if (refused !== undefined) return refused
+
       if (wrongHost(request)) return reply.callNotFound()
 
       const record = await citizens.publicRecord(request.params.handle)
       if (record === undefined) return notFound(reply)
 
-      return reply.redirect(profilePath(record.handle), 301)
+      return permanently(reply, profilePath(record.handle))
     },
   )
 }

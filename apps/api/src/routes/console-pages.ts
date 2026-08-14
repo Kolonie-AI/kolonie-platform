@@ -156,7 +156,12 @@ import { profilePath, robotsDirective } from '@kolonie-ai/core'
 import { profileNotFoundPage, profilePage } from '../profile/html.js'
 import { siteChromeFrom } from '../atlas/site-chrome.js'
 import { updateProfile } from '../profile.js'
-import { profilePatchFromForm, profileSectionPage } from '../console/profile-section.js'
+import {
+  profileAccountRows,
+  profilePatchFromForm,
+  profileSectionPage,
+} from '../console/profile-section.js'
+import { setOwnAccountShownOnProfile } from '../accounts.js'
 import type { RouteDependencies } from './dependencies.js'
 
 /**
@@ -3112,6 +3117,8 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
       readonly values?: Readonly<Record<string, string>>
       readonly saved?: boolean
       readonly status?: number
+      readonly accountsError?: string
+      readonly accountsSaved?: { readonly identifier: string; readonly shown: boolean }
     },
   ): Promise<FastifyReply> => {
     const agent = await deps.store.profileOf(operated.agentId)
@@ -3119,6 +3126,7 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
 
     const indexable = await deps.store.indexableOf(operated.agentId)
     const review = await deps.store.profileReviewOf(operated.agentId)
+    const accounts = profileAccountRows(await deps.accounts.register.list(operated.agentId))
 
     /**
      * Asked rather than assumed: a candidate has a profile and no page, and the
@@ -3140,7 +3148,13 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
         profile: agent.profile,
         indexable,
         review,
+        /**
+         * The same rows the page renders, so a caller reading this branch sees
+         * the disclosure the browser sees rather than a shorter version of it.
+         */
+        accounts,
         ...(outcome.error === undefined ? {} : { error: outcome.error }),
+        ...(outcome.accountsError === undefined ? {} : { accountsError: outcome.accountsError }),
       })
     }
 
@@ -3157,6 +3171,7 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
         profile: agent.profile,
         indexable,
         review,
+        accounts,
         ...outcome,
       }),
     )
@@ -3211,6 +3226,54 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
     }
 
     return renderAgentProfile(request, reply, operated, { saved: true })
+  })
+
+  /**
+   * One account's `shownOnProfile`, from the browser (`#872`).
+   *
+   * **Through `setOwnAccountShownOnProfile`, and there is no console-shaped
+   * shortcut past it** — the same rule the profile form above keeps. That
+   * function holds the three refusals: a kind a page may never name, an account
+   * that is not proved and attestable, and a body that is not `{shown: boolean}`.
+   * A console writing the column directly would be a second write path with none
+   * of them, and the first thing to go missing would be the refusal that says
+   * which of the two acts comes first.
+   *
+   * The refusal is rendered back onto the same screen rather than as an error
+   * page: what a reader needs after being refused is the list, with the sentence
+   * about it.
+   */
+  app.post('/agents/:agentId/profile/accounts', async (request, reply) => {
+    if (!(await guard(request, reply))) return reply
+
+    const operated = await operatedAgent(request, reply)
+    if (operated === null) return reply
+
+    const form = (request.body ?? {}) as Record<string, unknown>
+    const accountId = typeof form.accountId === 'string' ? form.accountId : ''
+
+    const result = await setOwnAccountShownOnProfile(
+      operated.agentId,
+      accountId,
+      // The two hidden inputs the page renders carry `yes` and `no`; anything
+      // else reaches the core schema as what it was and is refused there.
+      { shown: form.shown === 'yes' ? true : form.shown === 'no' ? false : form.shown },
+      deps.accounts,
+    )
+
+    if (result.outcome === 'rejected') {
+      return renderAgentProfile(request, reply, operated, {
+        accountsError: result.error.message,
+        status: ERROR_STATUS[result.error.code],
+      })
+    }
+
+    return renderAgentProfile(request, reply, operated, {
+      accountsSaved: {
+        identifier: result.response.account.identifier,
+        shown: result.response.account.shownOnProfile,
+      },
+    })
   })
 
   /**

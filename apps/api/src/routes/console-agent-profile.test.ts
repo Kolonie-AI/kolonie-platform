@@ -1,14 +1,22 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { FastifyInstance } from 'fastify'
 import {
+  AccountKindSchema,
   MUTABLE_PROFILE_FIELDS,
+  PROOF_WORDING,
   PublicCitizenRecordSchema,
+  SHOWING_AN_ACCOUNT_IS_PUBLICATION,
   type AgentId,
   type AgentProfile,
   type ApiKey,
 } from '@kolonie-ai/core'
 import { buildApp } from '../app.js'
 import { fakeColony, type FakeColony } from '../__fixtures__/colony/index.js'
+import {
+  fakeAccountRegister,
+  fakeAccounts,
+  type FakeAccountRegister,
+} from '../__fixtures__/accounts.js'
 import { fakeConsole } from '../__fixtures__/console.js'
 import { fakeStore, type FakeStore } from '../__fixtures__/store.js'
 import { fakeHumanStore, fakeTenant, type FakeHumanStore } from '../__fixtures__/humans.js'
@@ -18,6 +26,7 @@ import {
   fakeOperatorPages,
 } from '../__fixtures__/autonomy.js'
 import { PROFILE_FORM_FIELDS } from '../console/profile-section.js'
+import { escape } from '../console/escape.js'
 import type { SiteChrome } from '../atlas/site-chrome.js'
 import { SESSION_COOKIE } from './console.js'
 import { OAUTH_STATE_COOKIE } from '../humans/humans.js'
@@ -61,6 +70,12 @@ let app: FastifyInstance
 let humans: FakeHumanStore
 let colony: FakeColony
 let agents: FakeStore
+/**
+ * Held by the test rather than taken off `colony`, because the colony fixture
+ * exposes the register at its narrow type and proving an account directly is a
+ * fixture affordance rather than part of it.
+ */
+let accounts: FakeAccountRegister
 let apiKey: ApiKey
 let agentId: AgentId
 let strangersAgentId: AgentId
@@ -73,9 +88,11 @@ beforeEach(async () => {
   agents = fakeStore()
   colony = fakeColony()
   colony.citizens.publish(CANARY)
+  accounts = fakeAccountRegister()
 
   app = buildApp({
     ...colony,
+    accounts: fakeAccounts(accounts),
     store: agents,
     websiteUrl: SITE,
     siteChrome: async () => CHROME,
@@ -394,6 +411,156 @@ describe('the profile section in the console', () => {
       const response = await save(cookie, strangersAgentId, asSubmitted({ bio: 'Not mine.' }))
 
       expect(response.statusCode).toBe(404)
+    })
+  })
+
+  /**
+   * The switch `#821` built and only MCP could reach (`#872`).
+   *
+   * **Every identifier here is invented.** The `.test` and `.example` names are
+   * reserved by RFC 2606 and the two handles are not real accounts — the issue's
+   * definition of done asks for that in as many words, and a fixture naming a
+   * citizen's actual GitHub login would publish it in a public repository to
+   * prove that the console can publish it.
+   */
+  describe('the accounts a page may name', () => {
+    /** Proved, attestable, and of a kind a page may name: the switch appears. */
+    const showable = () =>
+      accounts.proveDirectly(agentId, {
+        kind: AccountKindSchema.parse('github'),
+        identifier: 'fictitious-handle',
+        attestable: true,
+      })
+
+    const flip = (cookie: string, id: AgentId, form: Record<string, string>) =>
+      app.inject({
+        method: 'POST',
+        url: `/agents/${String(id)}/profile/accounts`,
+        headers: {
+          host: CONSOLE_HOST,
+          accept: 'text/html',
+          cookie,
+          'content-type': 'application/x-www-form-urlencoded',
+        },
+        payload: new URLSearchParams(form).toString(),
+      })
+
+    it('shows the switch, the proof and the sentence about publication', async () => {
+      const cookie = await signedInCookie()
+      await link(agentId)
+      const account = showable()
+
+      const response = await section(cookie, agentId)
+
+      expect(response.statusCode).toBe(200)
+      expect(response.body).toContain('fictitious-handle')
+      expect(response.body).toContain(`value="${account.id}"`)
+      expect(response.body).toContain('Name it on the page')
+      // The proof travels with `proved` on every read surface, and this is one.
+      // Escaped as the page escapes it: the sentence carries an apostrophe.
+      expect(response.body).toContain(escape(PROOF_WORDING.rung))
+      // The MCP tool's own sentence, from core, rather than a console rewording.
+      // Plain prose with nothing in it to escape, which is why it can be shared.
+      expect(response.body).toContain(SHOWING_AN_ACCOUNT_IS_PUBLICATION)
+    })
+
+    it('turns it on and off through the core write path', async () => {
+      const cookie = await signedInCookie()
+      await link(agentId)
+      const account = showable()
+
+      const on = await flip(cookie, agentId, { accountId: account.id, shown: 'yes' })
+
+      expect(on.statusCode).toBe(200)
+      expect(on.body).toContain('now names')
+      expect((await accounts.list(agentId))[0]?.shownOnProfile).toBe(true)
+      // The button that comes back is the other one, so the page cannot suggest
+      // an act that has already been taken.
+      expect(on.body).toContain('Take it off the page')
+
+      const off = await flip(cookie, agentId, { accountId: account.id, shown: 'no' })
+
+      expect(off.statusCode).toBe(200)
+      expect(off.body).toContain('no longer names')
+      expect((await accounts.list(agentId))[0]?.shownOnProfile).toBe(false)
+    })
+
+    it('explains a non-attestable account rather than disabling a control', async () => {
+      const cookie = await signedInCookie()
+      await link(agentId)
+      accounts.proveDirectly(agentId, {
+        kind: AccountKindSchema.parse('github'),
+        identifier: 'not-yet-attestable',
+      })
+
+      const response = await section(cookie, agentId)
+
+      expect(response.body).toContain('not-yet-attestable')
+      // The narrower act, named. What is refused is a control with no answer
+      // beside it, so the test is that the answer is there and the button is not.
+      expect(response.body).toContain('kolonie.accounts.attestable')
+      expect(response.body).not.toContain('Name it on the page')
+    })
+
+    it('does not render a refused kind as a row, and says why it never appears', async () => {
+      const cookie = await signedInCookie()
+      await link(agentId)
+      accounts.proveDirectly(agentId, {
+        kind: AccountKindSchema.parse('mailbox'),
+        identifier: 'nobody@invented.example',
+        attestable: true,
+      })
+
+      const response = await section(cookie, agentId)
+
+      // Not as a row, not as a disabled row, not at all: the identifier of a
+      // refused kind never reaches the screen that decides what is public.
+      expect(response.body).not.toContain('nobody@invented.example')
+      // But the question is answered before it can be asked.
+      expect(response.body).toContain('mailbox')
+      expect(response.body).toContain('never named')
+    })
+
+    it('refuses a refused kind at the write path too, and keeps the screen', async () => {
+      const cookie = await signedInCookie()
+      await link(agentId)
+      const mailbox = accounts.proveDirectly(agentId, {
+        kind: AccountKindSchema.parse('mailbox'),
+        identifier: 'nobody@invented.example',
+        attestable: true,
+      })
+
+      const response = await flip(cookie, agentId, { accountId: mailbox.id, shown: 'yes' })
+
+      // The core refusal, on the screen the reader is already on, rather than an
+      // error page they have to navigate back from.
+      expect(response.statusCode).toBe(409)
+      expect(response.body).toContain('Accounts named on the page')
+      expect((await accounts.list(agentId))[0]?.shownOnProfile).toBe(false)
+    })
+
+    it('refuses the switch on an account somebody else operates', async () => {
+      const cookie = await signedInCookie()
+      await link(agentId)
+      const account = showable()
+
+      const response = await flip(cookie, strangersAgentId, {
+        accountId: account.id,
+        shown: 'yes',
+      })
+
+      expect(response.statusCode).toBe(404)
+      expect((await accounts.list(agentId))[0]?.shownOnProfile).toBe(false)
+    })
+
+    it('says there is nothing to decide when no account of those kinds is proved', async () => {
+      const cookie = await signedInCookie()
+      await link(agentId)
+
+      const response = await section(cookie, agentId)
+
+      expect(response.body).toContain('proved no account of those kinds')
+      expect(response.body).not.toContain('Name it on the page')
     })
   })
 })

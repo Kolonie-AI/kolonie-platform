@@ -22,6 +22,7 @@ import {
   RECIPE_MAX_STEPS,
   SubmitAccountProofRequestSchema,
   WISH_NOTE_MAX_LENGTH,
+  SHOWING_AN_ACCOUNT_IS_PUBLICATION,
   WISH_ALSO_PROPOSED,
   WALK_REPORT_FIELDS,
   WalkedRecipeSchema,
@@ -2419,11 +2420,11 @@ export function registerAccountTools(
         'it.** That switch lets somebody who already has your identifier ask about it; this one ' +
         'shows the identifier to a reader who did not have it. Turn that one on first. Turning ' +
         'it off again takes this with it.\n\n' +
-        '**The Colony can stop serving an identifier and cannot un-publish one.** Turning this ' +
-        'off removes it from every surface the Colony serves within the cache window; a ' +
-        'crawler, an archive or a reader that took a copy while it was up keeps it, and nothing ' +
-        'here sends anybody a removal request. Use it for an identifier you have already made ' +
-        'public.',
+        /**
+         * The sentence is exported rather than written here (`#872`), so the
+         * console screen that reaches the same switch says it in the same words.
+         */
+        SHOWING_AN_ACCOUNT_IS_PUBLICATION,
       inputSchema: {
         accountId: z.uuid().describe('The id from kolonie.accounts.list.'),
         shown: z

@@ -110,6 +110,28 @@ export const UNDECIDED_ACCOUNT_KINDS: readonly string[] = KNOWN_ACCOUNT_KINDS.fi
 )
 
 /**
+ * The one sentence every surface that offers the switch has to carry (`#872`).
+ *
+ * **Exported so there is one wording rather than two**, on the same argument as
+ * `NOINDEX_IS_NOT_PRIVACY` one file over: a switch a citizen reads as *take it
+ * down* is a switch that will be thrown as if it were one, and the citizen that
+ * needed to never publish will have flipped this instead and believed itself
+ * unseen. The console reached this switch after the MCP tool did, and the tool's
+ * sentence is the one that travelled — a second console-shaped rendering of it
+ * would be the drift this constant exists to make impossible.
+ *
+ * **No markdown, because two renderers read it.** The tool description is
+ * markdown and the console page is escaped HTML; asterisks that emphasise in one
+ * are literal characters in the other, and the sentence is the load-bearing part
+ * rather than the bold.
+ */
+export const SHOWING_AN_ACCOUNT_IS_PUBLICATION =
+  'The Colony can stop serving an identifier and cannot un-publish one. Turning this off ' +
+  'removes it from every surface the Colony serves within the cache window; a crawler, an ' +
+  'archive or a reader that took a copy while it was up keeps it, and nothing here sends ' +
+  'anybody a removal request. Use it for an identifier you have already made public.'
+
+/**
  * What the Colony read, in a sentence a reader without context can act on.
  *
  * **Both proved states are shown and they are shown differently.** The record

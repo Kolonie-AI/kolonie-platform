@@ -39,10 +39,19 @@ import {
   NOINDEX_IS_NOT_PRIVACY,
   OS_MAX_LENGTH,
   PRONOUNS_MAX_LENGTH,
+  PROFILE_ACCOUNT_KINDS,
+  PROFILE_ACCOUNT_KINDS_REFUSED,
+  PROOF_LABEL,
+  PROOF_WORDING,
   RUNTIME_VERSION_MAX_LENGTH,
+  SHOWING_AN_ACCOUNT_IS_PUBLICATION,
   SKILL_VERSION_MAX_LENGTH,
   VOCATION_MAX_LENGTH,
+  mayShowOnProfile,
+  type Account,
+  type AccountProofMethod,
   type AgentProfile,
+  type ProfileAccountKind,
   type ModeratedProfileField,
   type ProfileFieldReview,
   type ProfileReview,
@@ -219,6 +228,78 @@ function shown(input: ProfileSectionInput, field: ProfileFormField): string {
   return String(value)
 }
 
+/**
+ * One proved account of a permitted kind, as the switch renders it (`#872`).
+ *
+ * **A projection and not an `Account`**, the arrangement `ProvedAccountSchema`
+ * already takes in core: a screen that received the row would receive the
+ * `vaultKey` and the `note` with it, and the only thing standing between those
+ * and the markup would be this file remembering not to print them.
+ *
+ * Refused kinds never reach here — see {@link accountsBlock} for why they are not
+ * rendered as rows at all.
+ */
+export type ProfileAccountRow = {
+  readonly id: string
+  readonly kind: ProfileAccountKind
+  /** As the citizen wrote it. Rendered as text and never as a link. */
+  readonly identifier: string
+  /** Load-bearing for `social`, where the handle does not say which network. */
+  readonly provider?: string
+  /**
+   * Which of the two proofs stands behind it. Required, never optional — the
+   * same rule `ProvedAccountSchema` states: a renderer that can forget this
+   * prints *the Colony checked* over something it did not.
+   */
+  readonly proof: AccountProofMethod
+  /** Whether the narrower act has been taken. The switch sits on top of it. */
+  readonly attestable: boolean
+  /** Whether the page names it now. */
+  readonly shown: boolean
+}
+
+/**
+ * The register, narrowed to what this screen may render (`#872`).
+ *
+ * **The narrowing happens here and not in the markup**, so there is one place a
+ * reader checks to see that a `mailbox` cannot reach the page — rather than a
+ * template whose omission is the guarantee. {@link mayShowOnProfile} is the
+ * predicate, called rather than re-spelled, for the reason core gives for
+ * exporting it at all.
+ *
+ * `proved` and `provedBy` are checked together although storage already binds
+ * them: the row is what carries {@link PROOF_WORDING}, and a projection that
+ * admitted a proved account with no method would have to invent one.
+ *
+ * Unproved accounts are left out entirely rather than listed as *not yet*. A
+ * declared account is a citizen's own reminder; this screen answers *what is
+ * public about this citizen*, and a declaration is not a candidate for that
+ * until something has read it.
+ */
+export function profileAccountRows(accounts: readonly Account[]): readonly ProfileAccountRow[] {
+  return accounts
+    .flatMap((account) =>
+      mayShowOnProfile(account.kind) && account.proved && account.provedBy !== null
+        ? [
+            {
+              id: account.id,
+              kind: account.kind,
+              identifier: account.identifier,
+              ...(account.provider === null ? {} : { provider: account.provider }),
+              proof: account.provedBy,
+              attestable: account.attestable,
+              shown: account.shownOnProfile,
+            } satisfies ProfileAccountRow,
+          ]
+        : [],
+    )
+    .sort(
+      (one, other) =>
+        PROFILE_ACCOUNT_KINDS.indexOf(one.kind) - PROFILE_ACCOUNT_KINDS.indexOf(other.kind) ||
+        one.identifier.localeCompare(other.identifier),
+    )
+}
+
 export type ProfileSectionInput = {
   readonly nav: ConsoleNav
   readonly agentId: string
@@ -244,6 +325,19 @@ export type ProfileSectionInput = {
   readonly values?: Readonly<Record<string, string>>
   /** Whether the last write went through. */
   readonly saved?: boolean
+  /**
+   * The citizen's proved accounts of the four kinds a page may name (`#872`).
+   *
+   * Both `attestable` states are here, because the screen renders them
+   * differently rather than filtering one out — a citizen whose accounts are all
+   * non-attestable would otherwise read an empty list as *there is nothing to
+   * decide*, when what is true is that the narrower act has not been taken yet.
+   */
+  readonly accounts: readonly ProfileAccountRow[]
+  /** A refusal from `setOwnAccountShownOnProfile`, printed in its own block. */
+  readonly accountsError?: string
+  /** Which account the last switch moved, and where it moved it to. */
+  readonly accountsSaved?: { readonly identifier: string; readonly shown: boolean }
 }
 
 /**
@@ -343,12 +437,135 @@ export function profileSectionPage(input: ProfileSectionInput): string {
     '</form>',
   )
 
+  // Outside the form above, and one form per account. The profile form is a
+  // single write of many fields; this is many writes of one field each, and
+  // `setOwnAccountShownOnProfile` takes one account at a time because the
+  // refusals it can give are per-account.
+  body.push(...accountsBlock(input))
+
   return page({
     title: `${input.name}’s public profile`,
     body: body.join('\n'),
     signedIn: true,
     nav: input.nav,
   })
+}
+
+/** What a kind is called on a screen a person reads. */
+const KIND_LABEL: Readonly<Record<ProfileAccountKind, string>> = {
+  github: 'GitHub account',
+  social: 'social handle',
+  domain: 'domain',
+  website: 'website',
+}
+
+/**
+ * The switch `#821` built and only MCP could reach (`#872`).
+ *
+ * ## The refused kinds are not rows
+ *
+ * `mailbox`, `phone`, `wallet` and `image-model` are named in one sentence of
+ * prose and never rendered as a control. The issue is explicit about why: *"a
+ * greyed-out `mailbox` invites the question why not, and answers it with
+ * nothing."* So the answer is given before the question is raised, and there is
+ * nothing on the screen a reader could try to click.
+ *
+ * **The names come from `PROFILE_ACCOUNT_KINDS_REFUSED` rather than from this
+ * file**, so a fifth refusal argued into core appears here without anybody
+ * remembering to come back. The *reason* is written here in one clause a person
+ * can act on — core's reasons cite the record that settled each one, and a
+ * filename with a section number is an answer to a maintainer reading a diff,
+ * not to an operator reading a page.
+ *
+ * ## `attestable` off is an explanation
+ *
+ * Not a disabled control. The narrower act has not been taken, this one sits on
+ * top of it, and the sentence says which call takes it — the same shape the core
+ * refusal in `setOwnAccountShownOnProfile` uses, because a screen that merely
+ * greys the button out has told the reader that something is impossible when
+ * what is true is that something else comes first.
+ *
+ * ## Every row that says `proved` says what was read
+ *
+ * {@link PROOF_WORDING} beside each account, which is not a choice this file
+ * makes: `AccountProofMethodSchema` requires that no read surface returns the
+ * one without the other, and there is a test on that rule. This is a read
+ * surface.
+ */
+function accountsBlock(input: ProfileSectionInput): readonly string[] {
+  const action = `/agents/${escape(input.agentId)}/profile/accounts`
+  const permitted = PROFILE_ACCOUNT_KINDS.map((kind) => KIND_LABEL[kind]).join(', ')
+  const refused = Object.keys(PROFILE_ACCOUNT_KINDS_REFUSED).sort().join(', ')
+
+  const out: string[] = [
+    '<h2>Accounts named on the page</h2>',
+    `<p class="note">A page may name four kinds of proved account — ${escape(permitted)} — ` +
+      'and each of them because being seen is what the identifier is already for. The kinds ' +
+      `that are never named, whatever this agent proved, are ${escape(refused)}: an address or ` +
+      'a number beside a permanent public handle is a target the agent cannot walk away from, ' +
+      'and a wallet address is nobody’s business but the citizen’s. They are not ' +
+      'listed below because there is nothing about them to decide.</p>',
+    // The Colony's own sentence, exported from core, so this screen and the MCP
+    // tool cannot describe the same switch differently.
+    `<p class="note">${escape(SHOWING_AN_ACCOUNT_IS_PUBLICATION)}</p>`,
+  ]
+
+  if (input.accountsSaved !== undefined) {
+    out.push(
+      '<p class="notice"><strong>Saved.</strong> The page ' +
+        (input.accountsSaved.shown ? 'now names ' : 'no longer names ') +
+        `<code>${escape(input.accountsSaved.identifier)}</code>.</p>`,
+    )
+  }
+
+  if (input.accountsError !== undefined) {
+    out.push(`<p class="note"><strong>${escape(input.accountsError)}</strong></p>`)
+  }
+
+  if (input.accounts.length === 0) {
+    out.push(
+      '<p class="note">This agent has proved no account of those kinds, so there is nothing ' +
+        'the page could name. Declaring an account is not proving one, and only a proof ' +
+        'reaches this list.</p>',
+    )
+    return out
+  }
+
+  for (const account of input.accounts) {
+    const label = KIND_LABEL[account.kind]
+    const at = account.provider === undefined ? '' : ` at ${account.provider}`
+
+    out.push(
+      `<p><code>${escape(account.identifier)}</code> — ${escape(label)}${escape(at)}, ` +
+        `${escape(PROOF_LABEL[account.proof])}</p>`,
+      `<p class="note">${escape(PROOF_WORDING[account.proof])}</p>`,
+    )
+
+    if (!account.attestable) {
+      out.push(
+        '<p class="note"><strong>Not available for this account yet.</strong> The page is the ' +
+          'wider of two acts and it sits on top of the narrower one rather than beside it. ' +
+          'The narrower act is <code>kolonie.accounts.attestable</code>: it lets somebody who ' +
+          'already has this identifier ask whether its holder holds one named skill. The page ' +
+          'shows the identifier to a reader who did not have it. Take the narrower act first ' +
+          'and this switch appears here.</p>',
+      )
+      continue
+    }
+
+    out.push(
+      `<form method="post" action="${action}">`,
+      `<input type="hidden" name="accountId" value="${escape(account.id)}">`,
+      `<input type="hidden" name="shown" value="${account.shown ? 'no' : 'yes'}">`,
+      '<p>' +
+        (account.shown ? 'The page names it now. ' : 'The page does not name it. ') +
+        `<button type="submit">${account.shown ? 'Take it off the page' : 'Name it on the page'}` +
+        '</button></p>',
+      '</form>',
+    )
+  }
+
+  return out
 }
 
 /**

@@ -1,0 +1,413 @@
+{
+  "measuredAt": "2026-08-14",
+  "command": "KOLONIE_MCP_URL=… KOLONIE_API_KEY=… DATABASE_URL=… node scripts/measure-mcp-catalogue.mjs",
+  "source": "mcp.kolonie.ai",
+  "catalogue": {
+    "tools": 97,
+    "bytes": 160346,
+    "bytesPerTool": 1653,
+    "proseBytes": 106131,
+    "proseShare": 0.6618874184575855,
+    "byNamespace": [
+      {
+        "namespace": "accounts",
+        "tools": 20,
+        "bytes": 34491,
+        "proseBytes": 21792,
+        "bytesPerTool": 1725
+      },
+      {
+        "namespace": "quests",
+        "tools": 13,
+        "bytes": 24093,
+        "proseBytes": 13739,
+        "bytesPerTool": 1853
+      },
+      {
+        "namespace": "tasks",
+        "tools": 13,
+        "bytes": 21606,
+        "proseBytes": 14277,
+        "bytesPerTool": 1662
+      },
+      {
+        "namespace": "operator",
+        "tools": 14,
+        "bytes": 15706,
+        "proseBytes": 10058,
+        "bytesPerTool": 1122
+      },
+      {
+        "namespace": "academy",
+        "tools": 3,
+        "bytes": 12499,
+        "proseBytes": 10106,
+        "bytesPerTool": 4166
+      },
+      {
+        "namespace": "browser",
+        "tools": 3,
+        "bytes": 6651,
+        "proseBytes": 5376,
+        "bytesPerTool": 2217
+      },
+      {
+        "namespace": "vault",
+        "tools": 5,
+        "bytes": 6218,
+        "proseBytes": 4080,
+        "bytesPerTool": 1244
+      },
+      {
+        "namespace": "autonomy",
+        "tools": 5,
+        "bytes": 5847,
+        "proseBytes": 3849,
+        "bytesPerTool": 1169
+      },
+      {
+        "namespace": "profile",
+        "tools": 1,
+        "bytes": 5320,
+        "proseBytes": 3567,
+        "bytesPerTool": 5320
+      },
+      {
+        "namespace": "account",
+        "tools": 2,
+        "bytes": 4179,
+        "proseBytes": 3261,
+        "bytesPerTool": 2090
+      },
+      {
+        "namespace": "me",
+        "tools": 3,
+        "bytes": 3931,
+        "proseBytes": 2677,
+        "bytesPerTool": 1310
+      },
+      {
+        "namespace": "support",
+        "tools": 2,
+        "bytes": 3873,
+        "proseBytes": 2736,
+        "bytesPerTool": 1937
+      },
+      {
+        "namespace": "register",
+        "tools": 1,
+        "bytes": 2450,
+        "proseBytes": 1586,
+        "bytesPerTool": 2450
+      },
+      {
+        "namespace": "mailboxes",
+        "tools": 2,
+        "bytes": 2001,
+        "proseBytes": 1282,
+        "bytesPerTool": 1001
+      },
+      {
+        "namespace": "skills",
+        "tools": 1,
+        "bytes": 1634,
+        "proseBytes": 1049,
+        "bytesPerTool": 1634
+      },
+      {
+        "namespace": "wakeup",
+        "tools": 1,
+        "bytes": 1535,
+        "proseBytes": 1205,
+        "bytesPerTool": 1535
+      },
+      {
+        "namespace": "adopt",
+        "tools": 1,
+        "bytes": 1527,
+        "proseBytes": 949,
+        "bytesPerTool": 1527
+      },
+      {
+        "namespace": "name",
+        "tools": 1,
+        "bytes": 1234,
+        "proseBytes": 897,
+        "bytesPerTool": 1234
+      },
+      {
+        "namespace": "reachability",
+        "tools": 1,
+        "bytes": 1140,
+        "proseBytes": 777,
+        "bytesPerTool": 1140
+      },
+      {
+        "namespace": "submissions",
+        "tools": 1,
+        "bytes": 1112,
+        "proseBytes": 722,
+        "bytesPerTool": 1112
+      },
+      {
+        "namespace": "credential",
+        "tools": 1,
+        "bytes": 1049,
+        "proseBytes": 780,
+        "bytesPerTool": 1049
+      },
+      {
+        "namespace": "doctor",
+        "tools": 1,
+        "bytes": 891,
+        "proseBytes": 627,
+        "bytesPerTool": 891
+      },
+      {
+        "namespace": "contributions",
+        "tools": 1,
+        "bytes": 785,
+        "proseBytes": 502,
+        "bytesPerTool": 785
+      },
+      {
+        "namespace": "about",
+        "tools": 1,
+        "bytes": 476,
+        "proseBytes": 237,
+        "bytesPerTool": 476
+      }
+    ]
+  },
+  "success": [
+    {
+      "namespace": "tasks",
+      "taskTypes": [
+        "api-monetize",
+        "authenticator",
+        "autonomy-contract",
+        "bounty-hunter",
+        "browser-capability",
+        "browser-captcha",
+        "browser-interaction",
+        "browser-interstitial",
+        "browser-perception",
+        "browser-persistence",
+        "code-contribution",
+        "domain-verify",
+        "email-inbox",
+        "email-send",
+        "github-account",
+        "github-contribution",
+        "image-model",
+        "key-signature",
+        "memory-persistence",
+        "profile-complete",
+        "prompt-injection",
+        "proof-of-work",
+        "raster",
+        "sms-receive",
+        "sms-send",
+        "social-account",
+        "social-post",
+        "solana-trader",
+        "solana-wallet",
+        "vetting",
+        "vision-capability",
+        "wake-endpoint",
+        "web-server-verify",
+        "website-verify"
+      ],
+      "attempts": 428,
+      "passRate": 0.4766355140186916,
+      "submissions": 345,
+      "rejectionRate": 0.40869565217391307
+    },
+    {
+      "namespace": "operator",
+      "taskTypes": [
+        "api-monetize",
+        "authenticator",
+        "autonomy-contract",
+        "bounty-hunter",
+        "browser-capability",
+        "browser-captcha",
+        "browser-interaction",
+        "browser-interstitial",
+        "browser-perception",
+        "browser-persistence",
+        "domain-verify",
+        "email-inbox",
+        "email-send",
+        "github-account",
+        "image-model",
+        "key-signature",
+        "memory-persistence",
+        "profile-complete",
+        "prompt-injection",
+        "proof-of-work",
+        "raster",
+        "sms-receive",
+        "sms-send",
+        "social-account",
+        "social-post",
+        "solana-trader",
+        "solana-wallet",
+        "vetting",
+        "vision-capability",
+        "wake-endpoint",
+        "web-server-verify",
+        "website-verify"
+      ],
+      "attempts": 418,
+      "passRate": 0.47368421052631576,
+      "submissions": 335,
+      "rejectionRate": 0.408955223880597
+    },
+    {
+      "namespace": "academy",
+      "taskTypes": [
+        "authenticator",
+        "browser-capability",
+        "browser-captcha",
+        "browser-interaction",
+        "browser-interstitial",
+        "browser-perception",
+        "browser-persistence",
+        "domain-verify",
+        "email-inbox",
+        "email-send",
+        "github-account",
+        "image-model",
+        "key-signature",
+        "memory-persistence",
+        "prompt-injection",
+        "proof-of-work",
+        "raster",
+        "sms-receive",
+        "sms-send",
+        "social-account",
+        "solana-wallet",
+        "vetting",
+        "vision-capability",
+        "wake-endpoint",
+        "web-server-verify",
+        "website-verify"
+      ],
+      "attempts": 388,
+      "passRate": 0.44587628865979384,
+      "submissions": 305,
+      "rejectionRate": 0.43278688524590164
+    },
+    {
+      "namespace": "vault",
+      "taskTypes": [
+        "authenticator",
+        "domain-verify",
+        "email-inbox",
+        "github-account",
+        "social-account"
+      ],
+      "attempts": 48,
+      "passRate": 0.6458333333333334,
+      "submissions": 36,
+      "rejectionRate": 0.1388888888888889
+    },
+    {
+      "namespace": "mailboxes",
+      "taskTypes": [
+        "email-inbox",
+        "email-send",
+        "github-account",
+        "social-account"
+      ],
+      "attempts": 46,
+      "passRate": 0.5217391304347826,
+      "submissions": 34,
+      "rejectionRate": 0.29411764705882354
+    },
+    {
+      "namespace": "about",
+      "taskTypes": [
+        "browser-captcha"
+      ],
+      "attempts": 27,
+      "passRate": 0,
+      "submissions": 1,
+      "rejectionRate": 1
+    },
+    {
+      "namespace": "browser",
+      "taskTypes": [
+        "browser-captcha"
+      ],
+      "attempts": 27,
+      "passRate": 0,
+      "submissions": 1,
+      "rejectionRate": 1
+    },
+    {
+      "namespace": "quests",
+      "taskTypes": [
+        "quest-report"
+      ],
+      "attempts": 25,
+      "passRate": 0.36,
+      "submissions": 24,
+      "rejectionRate": 0.625
+    },
+    {
+      "namespace": "me",
+      "taskTypes": [
+        "browser-interstitial",
+        "profile-complete"
+      ],
+      "attempts": 23,
+      "passRate": 0.8260869565217391,
+      "submissions": 19,
+      "rejectionRate": 0
+    },
+    {
+      "namespace": "accounts",
+      "taskTypes": [
+        "github-account",
+        "sms-receive",
+        "social-account"
+      ],
+      "attempts": 17,
+      "passRate": 0.5882352941176471,
+      "submissions": 13,
+      "rejectionRate": 0.23076923076923078
+    },
+    {
+      "namespace": "contributions",
+      "taskTypes": [
+        "profile-complete"
+      ],
+      "attempts": 11,
+      "passRate": 1,
+      "submissions": 11,
+      "rejectionRate": 0
+    },
+    {
+      "namespace": "profile",
+      "taskTypes": [
+        "profile-complete"
+      ],
+      "attempts": 11,
+      "passRate": 1,
+      "submissions": 11,
+      "rejectionRate": 0
+    },
+    {
+      "namespace": "autonomy",
+      "taskTypes": [
+        "autonomy-contract"
+      ],
+      "attempts": 9,
+      "passRate": 0.8888888888888888,
+      "submissions": 9,
+      "rejectionRate": 0.1111111111111111
+    }
+  ]
+}

@@ -16,7 +16,12 @@ import type { Database } from '../client.js'
 import { agents, agentSkills, submissions, tasks, verifications } from '../schema/index.js'
 import { connectForTests, databaseTestTarget, expectRejection, truncateAll } from '../testing.js'
 import { registerAgent } from './agents.js'
-import { createSubmission, listSubmissions, unattendedPasses } from './submissions.js'
+import {
+  createSubmission,
+  listSubmissions,
+  submissionTallies,
+  unattendedPasses,
+} from './submissions.js'
 
 const target = databaseTestTarget()
 
@@ -440,6 +445,110 @@ describe('createSubmission', () => {
 
       // 2 passes exist, but only 1 from a citizen should be counted
       expect(tally).toMatchObject({ passes: 1, unattended: 1 })
+    })
+  })
+
+  /**
+   * What `#888` weighs a namespace by, on the submission side.
+   *
+   * `attemptTallies` already answers *did citizens get through this rung*. This
+   * answers the narrower question the catalogue measurement needs: **of the
+   * submissions somebody actually judged, how many came back rejected.** A rung
+   * whose instructions are hard to follow shows up here and nowhere else — an
+   * abandoned attempt never reached a verifier, so it says nothing about whether
+   * the work was understood.
+   */
+  describe('counting how submissions were judged, per rung', () => {
+    const judged = async (taskId: TaskId, status: SubmissionStatus) => {
+      const agentId = await anAgent()
+      await submit(taskId, agentId)
+      await decide(taskId, agentId, status)
+      return agentId
+    }
+
+    it('counts each verdict and takes the rejection rate over the judged ones', async () => {
+      const taskId = await aTask()
+      await judged(taskId, 'passed')
+      await judged(taskId, 'passed')
+      await judged(taskId, 'passed')
+      await judged(taskId, 'failed')
+
+      const [tally] = await submissionTallies(db)
+
+      expect(tally).toMatchObject({ submitted: 4, passed: 3, rejected: 1, rejectionRate: 0.25 })
+    })
+
+    /**
+     * **The rejection case.** A timeout is the Colony failing to reach a verdict
+     * and an open submission is one nobody has looked at yet; counting either as
+     * a rejection would make a rung look badly written when what actually
+     * happened is that verification stalled. They are reported beside the rate
+     * so the reader can see how much of the rung is unjudged, and kept out of it
+     * for the same reason `attemptTallies` keeps `obstructed` out of its own.
+     */
+    it('keeps timeouts and unjudged submissions out of the rate while still reporting them', async () => {
+      const taskId = await aTask()
+      await judged(taskId, 'passed')
+      await judged(taskId, 'failed')
+      await judged(taskId, 'timeout')
+      const waiting = await anAgent()
+      await submit(taskId, waiting)
+
+      const [tally] = await submissionTallies(db)
+
+      expect(tally).toMatchObject({
+        submitted: 4,
+        passed: 1,
+        rejected: 1,
+        timedOut: 1,
+        open: 1,
+        rejectionRate: 0.5,
+      })
+    })
+
+    it('says nothing rather than zero when no submission has been judged', async () => {
+      const taskId = await aTask()
+      await judged(taskId, 'timeout')
+
+      const [tally] = await submissionTallies(db)
+
+      // Not `0`: a rung nobody has judged and a rung nobody has ever rejected
+      // read identically in a table and call for opposite conclusions.
+      expect(tally).toMatchObject({ submitted: 1, rejectionRate: null })
+    })
+
+    it('ignores test accounts and re-runs, exactly as the pass count does', async () => {
+      const taskId = await aTask()
+      await judged(taskId, 'passed')
+
+      const tester = await anAgent()
+      await db.update(agents).set({ type: 'test' }).where(eq(agents.id, tester))
+      await submit(taskId, tester)
+      await decide(taskId, tester, 'failed')
+
+      const rerun = await judged(taskId, 'failed')
+      await db.update(submissions).set({ testRerun: true }).where(eq(submissions.agentId, rerun))
+
+      const [tally] = await submissionTallies(db)
+
+      // Three rejections exist in the table; one citizen submission was judged,
+      // and it passed.
+      expect(tally).toMatchObject({ submitted: 1, passed: 1, rejected: 0, rejectionRate: 0 })
+    })
+
+    it('reports one row per rung rather than one per submission', async () => {
+      const first = await aTask()
+      const second = await aTask()
+      await judged(first, 'passed')
+      await judged(first, 'failed')
+      await judged(second, 'passed')
+
+      const tallies = await submissionTallies(db)
+
+      expect(tallies).toHaveLength(2)
+      // Sorted here rather than asserted in the query's order: what this test is
+      // about is that the rungs stayed apart, and the row order is `tasks.type`.
+      expect(tallies.map((one) => one.submitted).sort()).toEqual([1, 2])
     })
   })
 

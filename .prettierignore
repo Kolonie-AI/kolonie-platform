@@ -18,3 +18,8 @@ packages/db/src/storage/index.ts
 # `scripts/server-json.test.ts` validates against what the registry validates
 # against rather than against our copy of it (kolonie-platform#443).
 schemas/
+
+# Measurements, written by `scripts/measure-mcp-catalogue.mjs` (#888). Generated
+# on every run and read as evidence rather than as source, so reformatting them
+# by hand only guarantees a diff the next measurement undoes.
+docs/measurements

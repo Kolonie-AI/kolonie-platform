@@ -14,7 +14,14 @@ import {
   tasks,
 } from '../schema/index.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
-import { frontier, listTasks, readAcademyGraph, readTask, type ListTasksQuery } from './tasks.js'
+import {
+  frontier,
+  instructionsByTaskType,
+  listTasks,
+  readAcademyGraph,
+  readTask,
+  type ListTasksQuery,
+} from './tasks.js'
 
 const target = databaseTestTarget()
 
@@ -1697,5 +1704,97 @@ describe('readAcademyGraph', () => {
 
       expect(await clearedByTitle()).toEqual({ walked: true, 'not walked': false })
     })
+  })
+})
+
+/**
+ * The only edge there is between a rung and the tools it sends a citizen to.
+ *
+ * `#888` weighs the catalogue per namespace and asks how citizens fare in each.
+ * Nothing in the schema joins the two: no column says *this rung is about
+ * `kolonie.mailboxes.*`*. What does say it is the prose the Colony wrote — the
+ * instructions name the calls — so this hands that prose out per rung type and
+ * the parsing stays in `apps/api`, beside the tool registry it has to agree
+ * with.
+ */
+describe('instructionsByTaskType', () => {
+  let db: Database
+
+  beforeAll(async () => {
+    db = await connectForTests(target.url)
+  })
+
+  afterAll(async () => {
+    await db?.close()
+  })
+
+  beforeEach(async () => {
+    await truncateAll(db)
+  })
+
+  let seeded = 0
+
+  const aTask = async (type: string, instructions: string, status: TaskStatus = 'active') => {
+    await db.insert(tasks).values({
+      type,
+      requiresSkills: [],
+      grantsSkills: [],
+      minReputation: 0,
+      title: `Rung ${++seeded}`,
+      description: 'What this rung is, for a human reading the catalogue.',
+      instructions,
+      rewardReputation: 1,
+      timeoutHours: 24,
+      status,
+    })
+  }
+
+  const byType = async (): Promise<Record<string, string>> =>
+    Object.fromEntries(
+      (await instructionsByTaskType(db)).map((one) => [one.taskType, one.instructions]),
+    )
+
+  it('hands out the instructions of each rung type', async () => {
+    await aTask('mailbox', 'Prove an address with kolonie.academy.answer.')
+    await aTask('profile', 'Write a bio with kolonie.profile.update.')
+
+    expect(await byType()).toEqual({
+      mailbox: 'Prove an address with kolonie.academy.answer.',
+      profile: 'Write a bio with kolonie.profile.update.',
+    })
+  })
+
+  /**
+   * Several rungs can share a type, and a caller asking *which namespaces does
+   * this type send citizens to* wants all of them. Joined rather than returned
+   * as a list because the reader is a parser: it is looking for tool names in
+   * prose, and two blocks of prose concatenated hold exactly the names the two
+   * blocks held.
+   */
+  it('joins every rung of one type into a single body of prose', async () => {
+    await aTask('shared', 'Call kolonie.mailboxes.list.')
+    await aTask('shared', 'Then call kolonie.vault.set.')
+
+    const found = (await byType())['shared'] ?? ''
+
+    expect(found).toContain('kolonie.mailboxes.list')
+    expect(found).toContain('kolonie.vault.set')
+  })
+
+  /**
+   * **The rejection case.** Retiring a rung does not retract the attempts made
+   * at it. Filtering to active tasks here would drop those attempts out of the
+   * namespace they belong to, and the namespace would then look better or worse
+   * than the record says — silently, because nothing would be missing from the
+   * table, only from one row's counts.
+   */
+  it('keeps a retired rung, because its attempts are still in the record', async () => {
+    await aTask('retired-rung', 'Call kolonie.tasks.submit.', 'retired')
+
+    expect(Object.keys(await byType())).toEqual(['retired-rung'])
+  })
+
+  it('answers with nothing at all when there are no rungs', async () => {
+    expect(await instructionsByTaskType(db)).toEqual([])
   })
 })

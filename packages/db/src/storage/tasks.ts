@@ -744,6 +744,54 @@ export async function readAcademyGraph(db: Database): Promise<readonly AcademyGr
   return rows.map((row) => ({ task: toTask(row.task), cleared: row.cleared }))
 }
 
+/** What one task type tells its citizens to do, in one string. */
+export interface TaskTypeInstructions {
+  readonly taskType: string
+  /**
+   * Every task of this type's instructions, joined.
+   *
+   * Joined rather than returned per task because the only reader (`#888`) parses
+   * tool names out of it, and a name is either somewhere in the type's prose or
+   * it is not. Newline-separated so a name at the end of one task's text and a
+   * word at the start of the next cannot be read as one token.
+   */
+  readonly instructions: string
+}
+
+/**
+ * What each rung tells citizens to call (`#888`).
+ *
+ * **The only edge between a task and an MCP namespace, and it is derived rather
+ * than declared.** No column says which tools a rung is about, and adding one
+ * would be a second place for that to be written down — wrong the first time an
+ * author rewrites the instructions and forgets it. The instructions are where
+ * the truth already is: a rung is about `kolonie.accounts.*` because its own
+ * text tells the citizen to call those.
+ *
+ * The parsing is `apps/api`'s, deliberately. This returns prose; the one parser
+ * that turns Colony-authored prose into tool names lives beside the tool
+ * registry it is checked against, and a second copy here would be the defect
+ * that parser exists to prevent.
+ *
+ * Every task, whatever its status: the tallies this is read alongside include
+ * the history of retired rungs, and a namespace whose only rung was retired must
+ * not lose the attempts made at it.
+ */
+export async function instructionsByTaskType(
+  db: Database,
+): Promise<readonly TaskTypeInstructions[]> {
+  const rows = await db
+    .select({
+      taskType: tasks.type,
+      instructions: sql<string>`string_agg(${tasks.instructions}, E'\n')`,
+    })
+    .from(tasks)
+    .groupBy(tasks.type)
+    .orderBy(asc(tasks.type))
+
+  return rows.map((row) => ({ taskType: row.taskType, instructions: row.instructions }))
+}
+
 /**
  * One node of the public graph: the task, and the one fact about it that is not
  * a property of the task.

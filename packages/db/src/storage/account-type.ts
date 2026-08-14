@@ -43,6 +43,16 @@ export const STATISTICS_EXCLUDING_TEST_ACCOUNTS = [
    * what the Colony says to the next real agent standing in front of the rung.
    */
   'inboundRouteDivide',
+  /**
+   * The twelfth (`#888`), and the list did its job: it was written filtered and
+   * the test refused it until it was named here too.
+   *
+   * It counts how a rung's submissions were judged, and it feeds a per-namespace
+   * table that argues about which part of the tool catalogue to consolidate. A
+   * probe's rejected submission counted there would be an argument for cutting
+   * the namespace a probe was pointed at.
+   */
+  'submissionTallies',
 ] as const
 
 /**

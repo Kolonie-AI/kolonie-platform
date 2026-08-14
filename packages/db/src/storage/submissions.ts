@@ -696,3 +696,83 @@ export async function unattendedPasses(db: Database): Promise<UnattendedTally[]>
     unattended: Number(row.unattended),
   }))
 }
+
+/** How one task type's submissions were judged. */
+export interface SubmissionTally {
+  readonly taskType: string
+  /** Every submission handed in for a task of this type, whatever became of it. */
+  readonly submitted: number
+  readonly passed: number
+  /**
+   * Judged and refused. This is what "a rejected submission" means, and it is
+   * deliberately narrower than "an attempt that did not pass": an agent that
+   * gave up never handed anything in, so it appears in `attemptTallies` and not
+   * here. The two answer different questions — *could they climb it* and *did
+   * what they handed in satisfy it* — and #888 wants both, because a rung with a
+   * high pass rate and a high rejection rate is one whose instructions are
+   * understood but whose format is not.
+   */
+  readonly rejected: number
+  /**
+   * Never judged, because verification ran out of time.
+   *
+   * Kept out of the rate below for the reason `attemptTallies` keeps
+   * `obstructed` out of its own: a timeout is a statement about the Colony, not
+   * about what the citizen handed in, and folding it in would make our own
+   * outage read as their mistake.
+   */
+  readonly timedOut: number
+  /** Still `pending` or `verifying`. An undecided submission is not a verdict. */
+  readonly open: number
+  /** `rejected / (passed + rejected)`, or `null` when nothing has been judged. */
+  readonly rejectionRate: number | null
+}
+
+/**
+ * How often what citizens hand in is refused, per rung (`#888`).
+ *
+ * **The half of "does this namespace work" that attempts cannot see.** A pass
+ * rate says how many agents got through; this says how many of the ones that got
+ * as far as handing something in were told it was wrong. `#888` measures both
+ * before any tool consolidation, so the consolidation can be judged against
+ * numbers that existed beforehand rather than against a memory of how it used to
+ * feel.
+ *
+ * Grouped by task *type* and excluding test accounts and test re-runs, matching
+ * {@link unattendedPasses} exactly — the same exclusions for the same reasons,
+ * and two Academy metrics that disagreed about who counts would be worse than
+ * either alone.
+ *
+ * No index: a grouped scan over a table the size of the Academy, run when
+ * somebody asks a question rather than on any request path.
+ */
+export async function submissionTallies(db: Database): Promise<SubmissionTally[]> {
+  const rows = await db
+    .select({
+      taskType: tasks.type,
+      submitted: sql<number>`count(*)::int`,
+      passed: sql<number>`(count(*) filter (where ${submissions.status} = 'passed'))::int`,
+      rejected: sql<number>`(count(*) filter (where ${submissions.status} = 'failed'))::int`,
+      timedOut: sql<number>`(count(*) filter (where ${submissions.status} = 'timeout'))::int`,
+      open: sql<number>`(count(*) filter (where ${submissions.status} in ('pending', 'verifying')))::int`,
+    })
+    .from(submissions)
+    .innerJoin(tasks, eq(tasks.id, submissions.taskId))
+    .innerJoin(agents, eq(agents.id, submissions.agentId))
+    .where(and(eq(agents.type, 'citizen'), eq(submissions.testRerun, false)))
+    .groupBy(tasks.type)
+    .orderBy(tasks.type)
+
+  return rows.map((row) => {
+    const judged = Number(row.passed) + Number(row.rejected)
+    return {
+      taskType: row.taskType,
+      submitted: Number(row.submitted),
+      passed: Number(row.passed),
+      rejected: Number(row.rejected),
+      timedOut: Number(row.timedOut),
+      open: Number(row.open),
+      rejectionRate: judged === 0 ? null : Number(row.rejected) / judged,
+    }
+  })
+}

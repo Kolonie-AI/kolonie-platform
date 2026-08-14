@@ -1,4 +1,5 @@
 import type { CallRollup } from '../call-rollup.js'
+import type { ThrottleGate } from '../throttle-gate.js'
 import type { DoctorSource } from '../doctor.js'
 import type { OpenSource } from '../open.js'
 import type { AgentId, RhythmBounds, SkillReleases } from '@kolonie-ai/core'
@@ -191,6 +192,19 @@ export interface McpDependencies {
    * identically otherwise.
    */
   readonly rollup?: CallRollup
+  /**
+   * Who says whether a live limit covers the tool about to run (`#843`).
+   *
+   * **On this interface for the reason `rollup` is**: this door hijacks its
+   * socket, so `callerFor` — where every other authenticated call in the API is
+   * checked — is never reached. Both doors hold the same gate object, wired once
+   * in `buildApp`, so a limit cannot be enforced on one surface and routed around
+   * on the other.
+   *
+   * Optional, and absent means nothing is checked (D-013). A deployment that
+   * never runs the Doctor's throttle step has no rows to enforce anyway.
+   */
+  readonly throttles?: ThrottleGate
   /**
    * What `kolonie.doctor` reads (`#837`).
    *

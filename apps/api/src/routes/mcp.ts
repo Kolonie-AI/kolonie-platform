@@ -4,6 +4,7 @@ import { authenticate, BEARER_SCHEME, observing, unsubstituted } from '../authen
 import { clientIp } from '../client-ip.js'
 import { observedOrigin } from '../observed-origin.js'
 import { handleMcpRequest, MCP_PATHS } from '../mcp.js'
+import { gateFor } from '../throttle-gate.js'
 import type { RouteDependencies } from './dependencies.js'
 
 /**
@@ -76,6 +77,10 @@ export function registerMcpRoutes(app: FastifyInstance, deps: RouteDependencies)
     skillReleases,
     hints,
   } = deps
+
+  // Resolved once at registration, because the gate is a property of the store
+  // and the store does not change between requests.
+  const mcpThrottles = gateFor(store)
 
   /**
    * The MCP surface, also unversioned: MCP negotiates its own protocol version
@@ -184,6 +189,18 @@ export function registerMcpRoutes(app: FastifyInstance, deps: RouteDependencies)
            * changes no answer this door gives.
            */
           ...(rollup === undefined ? {} : { rollup }),
+          /**
+           * And who says whether a live limit covers the tool (`#843`).
+           *
+           * **Read off the store rather than taken as a dependency of its own.**
+           * `buildApp` wraps the store with the gate once, which is what covers
+           * the HTTP door; this door holds that same store, so asking it for the
+           * gate is what guarantees the two doors enforce the same rows. A second
+           * field on `RouteDependencies` would be a second chance to wire one
+           * door and not the other, which is the failure a citizen would
+           * experience as a limit it can route around.
+           */
+          ...(mcpThrottles === undefined ? {} : { throttles: mcpThrottles }),
           // The doctor surface (`#837`), absent where no rollup was wired.
           ...(doctor === undefined ? {} : { doctor }),
           // And the half that records a telling (`#842`), so the wake-up over

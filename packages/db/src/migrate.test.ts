@@ -439,11 +439,12 @@ describe('the migrations', () => {
     // auditable, which `kolonie-docs#324` point 8 requires and
     // `kolonie-platform#814` is the complaint about not having.
     //
-    // A hundred and twelve, minus the one that left: `browser_shares` was dropped
-    // by `#914` when the channel it recorded was withdrawn. A count is the one
-    // assertion in this file that a *removal* can break as loudly as an addition,
-    // which is why it is a number and not a lower bound.
-    expect(afterFirst.tables).toBe('111')
+    // A hundred and twelve, minus the one that left and plus the one that
+    // arrived: `browser_shares` was dropped by `#914` when the channel it
+    // recorded was withdrawn, and `throttles` was added by `#843`. A count is
+    // the one assertion in this file that a *removal* can break as loudly as an
+    // addition, which is why it is a number and not a lower bound.
+    expect(afterFirst.tables).toBe('112')
     // Twenty: `task_kind` (#43) tells an Academy task from a Quest and therefore
     // what may pay credits; `support_ticket_kind` and `support_ticket_status` (#11)
     // carry what a citizen wrote about and where it stands; `erasure_reason` and
@@ -675,8 +676,14 @@ describe('the migrations', () => {
         expect(text.toLowerCase(), tag).not.toContain('drop table')
       }
 
+      /**
+       * The drop is its own entry in the journal. Not *the last* entry: this
+       * assertion was written the day the migration landed and would have
+       * failed on the next unrelated one, which would have read as the drop
+       * having been undone.
+       */
       const journal = await readJournal()
-      expect(journal.at(-1)?.tag).toBe('0238_the_shared_tab_is_gone')
+      expect(journal.map((entry) => entry.tag)).toContain('0238_the_shared_tab_is_gone')
     })
   })
 

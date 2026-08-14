@@ -98,11 +98,12 @@ export const SupportTicketKindSchema = z.enum([
    *
    * ## What stops it becoming a channel for anything else
    *
-   * **It is narrow by construction, not by policy.** A notice must name one of
-   * the addressed citizen's own submissions, and the write path refuses one that
-   * belongs to anybody else. There is no route that opens a notice about nothing
-   * — so there is no shape here that a broadcast or an advertisement could take,
-   * and nobody has to be trusted not to send one.
+   * **It is narrow by construction, not by policy.** A notice must name one
+   * thing that belongs to the addressed citizen — a submission of its own, or
+   * (`#843`) a throttle written against it — and each write path refuses one
+   * belonging to anybody else. There is no route that opens a notice about
+   * nothing, so there is no shape here that a broadcast or an advertisement
+   * could take, and nobody has to be trusted not to send one.
    *
    * ## Whether the citizen can answer
    *

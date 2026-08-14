@@ -1,9 +1,10 @@
-import type { Agent } from '@kolonie-ai/core'
+import type { Agent, ApiError } from '@kolonie-ai/core'
 import { ERROR_STATUS } from '@kolonie-ai/core'
 import type { FastifyReply, FastifyRequest } from 'fastify'
 import { authenticate, BEARER_SCHEME, observing, type AgentStore } from '../authentication.js'
 import { observedOrigin } from '../observed-origin.js'
-import { attributeTo } from '../call-rollup.js'
+import { attributeTo, routeKeyOf } from '../call-rollup.js'
+import { gateFor } from '../throttle-gate.js'
 import { SESSION_COOKIE } from './console.js'
 
 /**
@@ -27,6 +28,14 @@ import { SESSION_COOKIE } from './console.js'
  * response is written, and the only correct next statement is `return reply`. A
  * union the caller had to unwrap would put the refusal back in 46 places, which
  * is the thing this removes.
+ *
+ * **And it is the HTTP half of the Doctor's throttle** (`#843`). A citizen with
+ * a live limit on the route it is calling is refused here, for the reason the
+ * origin observation and the rollup attribution are attached here: this is the
+ * one seam every authenticated route passes through, so the eighty-fourth is
+ * covered without its author doing anything. Nothing is checked where no gate
+ * was wired, and nothing is checked before the credential resolves — a refusal
+ * needs a citizen, and a stranger is answered by the paragraph above.
  */
 export async function callerFor(
   request: FastifyRequest,
@@ -48,7 +57,25 @@ export async function callerFor(
     ),
     sessionCookie(request.headers.cookie),
   )
-  if (authenticated.outcome !== 'rejected') return authenticated.agent
+  if (authenticated.outcome !== 'rejected') {
+    const refusal = await throttleRefusalFor(request, store, authenticated.agent.id)
+    if (refusal === undefined) return authenticated.agent
+
+    /**
+     * **`Retry-After` as well as the field**, because this is HTTP and the
+     * header is what a client library acts on without being taught anything.
+     * The same number is in `details.retryAfterSeconds` for the agent reading
+     * the body, which is the rule `ApiErrorSchema` states: `details` is
+     * additional to the message and never the only place a fact appears.
+     */
+    const retryAfter = refusal.details?.['retryAfterSeconds']
+    await reply
+      .status(ERROR_STATUS[refusal.code])
+      .header('retry-after', retryAfter ?? '60')
+      .send(refusal)
+
+    return null
+  }
 
   await reply
     .status(ERROR_STATUS[authenticated.error.code])
@@ -56,6 +83,35 @@ export async function callerFor(
     .send(authenticated.error)
 
   return null
+}
+
+/**
+ * Whether a live limit covers the route this request matched (`#843`).
+ *
+ * **`routeKeyOf` and never `request.url`**, so what is matched against the
+ * throttle is the same string the rollup counted and the finding named. A limit
+ * written from evidence about `/v1/tasks/:taskId` and enforced against
+ * `/v1/tasks/8f2…` would never fire, and would look from the outside exactly
+ * like a limit that had expired.
+ *
+ * **It cannot refuse a citizen because the database is unwell.** A gate that
+ * rejects is treated as one that allowed: the alternative is a Colony that
+ * starts limiting everybody the moment a read goes slow, which is a worse
+ * failure than a limit that missed a few calls.
+ */
+async function throttleRefusalFor(
+  request: FastifyRequest,
+  store: AgentStore,
+  agentId: Agent['id'],
+): Promise<ApiError | undefined> {
+  const gate = gateFor(store)
+  if (gate === undefined) return undefined
+
+  try {
+    return await gate.refusalFor(agentId, routeKeyOf(request), new Date())
+  } catch {
+    return undefined
+  }
 }
 
 /**

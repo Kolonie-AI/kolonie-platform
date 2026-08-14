@@ -1377,6 +1377,15 @@ describe('the erasure boundary', () => {
        * The reason it was ended stays and stops naming an actor.
        */
       'tasks.ended_by n',
+      /**
+       * `#843`. Cascades: a throttle is a limit on one citizen and describes
+       * nothing once that citizen is gone. Nothing aggregates it — the
+       * escalation ordinal is counted per citizen — so it loses a row rather
+       * than a meaning, and leaving one behind would be a standing record of
+       * an erased citizen's mistakes, which is the residue `erasure.md` §4
+       * rules out.
+       */
+      'throttles.agent_id c',
       /** `#206`. Cascades: `erasure.md` §2 lists what a citizen proved among what goes. */
       'totp_secrets.agent_id c',
       /** `#45`. Cascades, like every other challenge table. */

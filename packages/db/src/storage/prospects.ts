@@ -396,9 +396,9 @@ export async function openProspects(
      * **Its own read rather than a subquery in the statement above**, for two
      * reasons that point the same way: the tellable condition is four cases over
      * two columns and a clock, which is a paragraph of SQL nobody would want
-     * inlined here — and `doctorTellingFor` is the same read `#843` will one day
-     * need for its precondition, which must not be a second definition of *was
-     * this citizen told*.
+     * inlined here — and `doctorTellingFor` is the same read `#843` needs for
+     * its precondition, which must not be a second definition of *was this
+     * citizen told*.
      */
     doctor:
       telling === null ? null : { id: telling.id, kind: telling.kind, severity: telling.severity },

@@ -1,4 +1,5 @@
 import type { CallRollup } from './call-rollup.js'
+import type { ThrottleGate } from './throttle-gate.js'
 import type { DoctorSource } from './doctor.js'
 import type { DiagnosesDesk } from './diagnoses.js'
 import type { OpenSource } from './open.js'
@@ -447,6 +448,22 @@ export interface AppDependencies {
    * hijacks its socket and has to count its own calls — see `mcp/guard.ts`.
    */
   readonly rollup?: CallRollup
+  /**
+   * Who says whether a live limit covers the call about to be served (`#843`).
+   *
+   * **Wired once and reaching both doors.** `buildApp` wraps the store with it,
+   * which is what covers all 83 authenticated HTTP routes without any of them
+   * being edited, and hands the same object to the MCP server, whose socket the
+   * response hook never sees. One gate, so a limit cannot be enforced on one
+   * surface and routed around on the other.
+   *
+   * **Optional, and absent means nothing is enforced** (D-013) — the state every
+   * test and every deployment that has not turned the Doctor's throttle step on
+   * is in. There is no flag beside it: the runner is the writer and is gated
+   * there, this is the reader, and a second switch could only produce a limit
+   * applied and not enforced, or one enforced from a table nothing maintains.
+   */
+  readonly throttles?: ThrottleGate
   /**
    * What `kolonie.doctor` and `GET /v1/doctor` read (`#837`).
    *

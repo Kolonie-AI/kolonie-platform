@@ -767,6 +767,13 @@ describe('schema', () => {
          */
         'task_set_asides',
         'tasks',
+        /**
+         * `#843`: the Doctor's third consequence, and the only one that takes
+         * something away. A row per limit rather than a column on the
+         * diagnosis, because a diagnosis may be limited more than once and the
+         * ordinal between those rows is what escalates.
+         */
+        'throttles',
         /** `#206`: one TOTP secret per citizen, checked twice. */
         'totp_secrets',
         /**

@@ -2,16 +2,22 @@ import {
   CALL_HOUR_MS,
   DOCTOR_POLICY_VERSION,
   DOCTOR_WINDOW_HOURS,
+  THROTTLE_CAP_PER_PASS,
   UNDIAGNOSED_ROUTE_KEYS,
   diagnose,
   diagnoseColony,
+  planThrottle,
   silentLog,
+  throttleNotice,
   type AcademyProgress,
   type AgentId,
   type CallHour,
+  type Diagnosis,
   type DoctorInput,
   type Finding,
   type Log,
+  type Throttle,
+  type ThrottlePlan,
 } from '@kolonie-ai/core'
 import { noProse, type ProseWriter } from './prose.js'
 
@@ -47,6 +53,30 @@ export interface DoctorStore {
   sweepCallHours(now: Date): Promise<number>
   /** Delete resolved agent-scoped diagnoses past theirs. */
   sweepDiagnoses(now: Date): Promise<number>
+  /** Delete throttles past theirs — on retention, never on expiry. */
+  sweepThrottles(now: Date): Promise<number>
+  /** Every open diagnosis about one citizen, as the throttle step reads them (`#843`). */
+  openDiagnoses(subject: AgentId): Promise<readonly Diagnosis[]>
+  /** What this diagnosis has already cost the citizen, read from the rows (`#843`). */
+  throttleHistory(diagnosisId: string, now: Date): Promise<ThrottleHistory>
+  /**
+   * Write a throttle the guard planned (`#843`).
+   *
+   * **It takes the plan and nothing else, and the plan cannot be built here.**
+   * `ThrottlePlan` carries a key whose `unique symbol` is declared inside
+   * `packages/core/src/doctor/throttle.ts` and not exported, so the only
+   * expression in the system with this type is the one `planThrottle` returns.
+   * A future caller that wanted to narrow a citizen without asking the guard
+   * would have to change core to do it, which is a different review.
+   */
+  applyThrottle(plan: ThrottlePlan): Promise<ThrottleApplied>
+  /** Tell the citizen and its operator, once per throttle (`#843`). */
+  noticeThrottle(notice: {
+    readonly throttleId: string
+    readonly agentId: AgentId
+    readonly subject: string
+    readonly body: string
+  }): Promise<void>
   /**
    * Attach a model's sentence to a diagnosis (`#840`).
    *
@@ -56,6 +86,19 @@ export interface DoctorStore {
    * rather than a sentence in a comment.
    */
   attachProse(diagnosisId: string, prose: string, proseModel: string): Promise<void>
+}
+
+/** What the guard needs from the rows. Mirrors `ThrottleHistory` in `packages/db`. */
+export interface ThrottleHistory {
+  readonly previousThrottles: number
+  readonly throttleInForce: boolean
+}
+
+/** What writing a throttle did. Mirrors `ApplyThrottleOutcome` without importing it. */
+export interface ThrottleApplied {
+  /** `raced` means another pass wrote this ordinal first, and one limit stands. */
+  readonly outcome: 'applied' | 'raced'
+  readonly throttle: Throttle | null
 }
 
 /** What `record` said it did. Mirrors `RecordedDiagnosis` without importing it. */
@@ -90,8 +133,29 @@ export interface PassOutcome {
   readonly refused: readonly string[]
   /** Citizens whose diagnosis threw. One bad row does not cost the Colony its hour. */
   readonly failed: number
-  /** Rollup buckets and diagnoses swept. */
-  readonly swept: { readonly callHours: number; readonly diagnoses: number }
+  /** Rollup buckets, diagnoses and expired throttles swept. */
+  readonly swept: {
+    readonly callHours: number
+    readonly diagnoses: number
+    readonly throttles: number
+  }
+  /**
+   * Limits applied, and limits the cap held back (`#843`).
+   *
+   * **Two numbers, for the reason the escalation reports two.** A pass that
+   * planned nine throttles and wrote three is the shape a rule regression has,
+   * and it is indistinguishable from a quiet pass unless the number it did not
+   * write is on the log.
+   *
+   * `withheld` is what the guard planned while `throttling` was off — the whole
+   * point of running it observing, and the number a deployment reads before it
+   * decides to turn the mechanism on.
+   */
+  readonly throttled: {
+    readonly applied: number
+    readonly over: number
+    readonly withheld: number
+  }
   /**
    * Sentences asked for and sentences written (`#840`).
    *
@@ -114,6 +178,20 @@ export interface PassDependencies {
    * everywhere and its absence is never a half-written anything.
    */
   readonly prose?: ProseWriter
+  /**
+   * Whether this pass may narrow anybody (`#843`).
+   *
+   * **Off unless a deployment says otherwise, and the default is the decision.**
+   * This is the first thing the Colony has ever built that takes something away
+   * from a citizen, and the ordering the card insists on — understand, then
+   * inform, then limit — applies to the mechanism as much as to any one finding.
+   * A deployment runs it observing for as long as it likes, reads what the
+   * guard *would* have done from the log, and turns it on deliberately.
+   *
+   * It is not a substitute for any check in `planThrottle`: with it on, every
+   * one of them still has to pass.
+   */
+  readonly throttling?: boolean
   readonly log?: Log
   /**
    * The moment the pass is being made at.
@@ -148,11 +226,14 @@ export interface PassDependencies {
  * holds state across ticks, and that is deliberate — a runner that restarted and
  * forgot something would be a runner whose dedupe could be defeated by a restart.
  *
- * **It writes no citizen-visible state other than diagnoses.** It grants nothing,
- * revokes nothing, moves no reputation and touches no standing. `#843` is the one
- * issue in this set that would change anything for a citizen, it is not built,
- * and when it is it may act only from a stored diagnosis and only after the
- * citizen was told.
+ * **It grants nothing, revokes nothing, moves no reputation and touches no
+ * standing.** The one thing it can now change for a citizen is a throttle
+ * (`#843`), and the shape the earlier issues insisted on is what it got: it acts
+ * only from a stored diagnosis, only after that citizen was told about it on a
+ * waking at least a day ago, only on the routes the finding names, and only for
+ * hours. Everything else about a citizen is untouched by this pass, which is
+ * checkable rather than promised — there is no method on {@link DoctorStore} that
+ * could reach any of it.
  */
 export async function runPass(deps: PassDependencies): Promise<PassOutcome> {
   const { store } = deps
@@ -186,6 +267,7 @@ export async function runPass(deps: PassDependencies): Promise<PassOutcome> {
   const inputs: DoctorInput[] = []
   const prose = deps.prose ?? noProse
   const sentences = { asked: 0, written: 0 }
+  const throttled = { applied: 0, over: 0, withheld: 0 }
 
   /**
    * Ask for a sentence, once per diagnosis rather than once per pass (`#840`).
@@ -214,6 +296,91 @@ export async function runPass(deps: PassDependencies): Promise<PassOutcome> {
 
     await store.attachProse(written.diagnosisId, sentence, prose.model)
     sentences.written += 1
+  }
+
+  /**
+   * The one step in this pass that changes anything for a citizen (`#843`).
+   *
+   * **It decides nothing.** `planThrottle` in `packages/core` holds every
+   * precondition the card names — agent-scoped, deterministic kind, serious,
+   * told on a waking at least a day ago, not improved since, evidence still
+   * fresh, no protected route, none already in force — and what is here is the
+   * order the guard and the store are called in. That is the same division
+   * `diagnose` and `record` already have above, and it is what makes the rules
+   * assertable without a database and the writes assertable without a clock.
+   *
+   * **Last in the citizen's block, after the findings were recorded and the
+   * disappeared ones closed.** A citizen that stopped this hour has its
+   * diagnosis resolved a few lines earlier and is not read here at all, so
+   * *stop doing it* is a way out that takes effect in the same pass.
+   *
+   * **A refusal is silent and that is the ordinary outcome.** Nearly every open
+   * diagnosis is refused by one check or another, most often because the
+   * citizen has not been told yet; logging each would drown the pass in
+   * sentences about limits that were never close.
+   */
+  const limit = async (agentId: AgentId): Promise<void> => {
+    for (const diagnosis of await store.openDiagnoses(agentId)) {
+      const history = await store.throttleHistory(diagnosis.id, now)
+      const decision = planThrottle(diagnosis, { now, ...history })
+      if (decision.outcome === 'refused') continue
+
+      /**
+       * The plan is made whether or not it may be written, so a deployment that
+       * has not turned the mechanism on still learns what it would have done.
+       */
+      if (deps.throttling !== true) {
+        throttled.withheld += 1
+        log.info('a throttle was planned and not applied; throttling is off', {
+          event: 'doctor.throttle.withheld',
+          agentId,
+          diagnosisId: diagnosis.id,
+          kind: decision.plan.kind,
+          routeKeys: decision.plan.routeKeys,
+          expiresAt: decision.plan.expiresAt,
+        })
+        continue
+      }
+
+      // The cap is checked here rather than inside the guard because it is the
+      // only condition about the pass rather than about the finding.
+      if (throttled.applied >= THROTTLE_CAP_PER_PASS) {
+        throttled.over += 1
+        continue
+      }
+
+      const written = await store.applyThrottle(decision.plan)
+      if (written.outcome !== 'applied' || written.throttle === null) continue
+      throttled.applied += 1
+
+      /**
+       * The notice is second, and the order matters in the direction a failure
+       * would: a throttle whose notice never arrived is a limit the citizen can
+       * still read on `kolonie.doctor` and appeal through a surface that is
+       * never limited, whereas a notice about a limit that was never applied is
+       * the Colony telling a citizen something untrue about itself.
+       */
+      const notice = throttleNotice(written.throttle)
+      await store.noticeThrottle({
+        throttleId: written.throttle.id,
+        agentId,
+        subject: notice.subject,
+        body: notice.body,
+      })
+
+      // `warn`, not `info`: this is the Colony taking something away, and it
+      // should be findable in a log without knowing what to grep for.
+      log.warn('a citizen was narrowed on the routes one open finding names', {
+        event: 'doctor.throttle.applied',
+        agentId,
+        diagnosisId: diagnosis.id,
+        kind: written.throttle.kind,
+        routeKeys: written.throttle.routeKeys,
+        callsPerHour: written.throttle.callsPerHour,
+        ordinal: written.throttle.ordinal,
+        expiresAt: written.throttle.expiresAt,
+      })
+    }
   }
 
   for (const agentId of citizens) {
@@ -251,6 +418,8 @@ export async function runPass(deps: PassDependencies): Promise<PassOutcome> {
         findings.filter((finding) => finding.scope === 'agent').map((finding) => finding.kind),
         now,
       )
+
+      await limit(agentId)
     } catch (thrown) {
       counts.failed += 1
       // The citizen is named because a pass that failed on one row is only
@@ -276,12 +445,23 @@ export async function runPass(deps: PassDependencies): Promise<PassOutcome> {
     await describe(written, finding)
   }
 
+  if (throttled.over > 0) {
+    log.warn(`${throttled.over} throttles were held back by the per-pass cap`, {
+      event: 'doctor.throttle.capped',
+      over: throttled.over,
+      cap: THROTTLE_CAP_PER_PASS,
+    })
+  }
+
   const swept = {
     callHours: await store.sweepCallHours(now),
     diagnoses: await store.sweepDiagnoses(now),
+    // On retention and never on expiry: an expired row limits nobody and is
+    // still the escalation counter. See `sweepThrottles` in `packages/db`.
+    throttles: await store.sweepThrottles(now),
   }
 
-  return { citizens: citizens.length, ...counts, refused, swept, prose: sentences }
+  return { citizens: citizens.length, ...counts, refused, swept, prose: sentences, throttled }
 }
 
 export interface RunnerHealth {
@@ -369,6 +549,13 @@ export function startRunner(deps: PassDependencies, options: RunnerOptions = {})
             refused: outcome.refused.length,
             sweptCallHours: outcome.swept.callHours,
             sweptDiagnoses: outcome.swept.diagnoses,
+            sweptThrottles: outcome.swept.throttles,
+            // All three, because a pass that withheld eleven and applied none
+            // is the shape a rule regression has while the mechanism is off,
+            // and it is the number a deployment reads before turning it on.
+            throttlesApplied: outcome.throttled.applied,
+            throttlesOverCap: outcome.throttled.over,
+            throttlesWithheld: outcome.throttled.withheld,
             // Both, for the reason `PassOutcome` gives: the gap between them is
             // the only thing that says the gateway is having a bad day.
             proseAsked: outcome.prose.asked,

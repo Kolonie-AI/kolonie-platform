@@ -120,10 +120,13 @@ export const DiagnosisSchema = z
      * The support ticket this diagnosis caused, or `null`.
      *
      * **Audit means reconstructable, not merely recorded**, so *what did this
-     * actually do* is one read rather than a search through a queue. A throttle
-     * (`#843`) will be the second consequence and gets its own column when it
-     * exists — a nullable column for a feature nobody has built is a column
-     * whose meaning nobody can check.
+     * actually do* is one read rather than a search through a queue.
+     *
+     * **The throttle is the third consequence and has no column here** (`#843`).
+     * It is a row in `throttles` pointing back at this one, because a diagnosis
+     * may be limited more than once — the ordinal is what escalates — and a
+     * single column could hold only the last of them. The two above are at most
+     * one each, which is why they are columns and this is not.
      */
     supportTicketId: z.uuid().nullable(),
     /**

@@ -63,12 +63,34 @@ export function guardTools(
   duty?: DueRoleDuty,
   payout?: DuePayoutFinding,
   count?: CountedToolCall,
+  throttle?: ThrottledTool,
 ): void {
   const register = server.registerTool as unknown as ToolRegistration
 
   const guarding: ToolRegistration = (name, config, handler) => {
     const guarded = async (...args: unknown[]): Promise<CallToolResult> => {
       try {
+        /**
+         * Before the handler, which is the whole point of a limit (`#843`).
+         *
+         * A refusal produced after the work was done would cost the Colony
+         * exactly what the throttle exists to stop it spending — and it is the
+         * asymmetry between this and the count below: one is asked before, the
+         * other told after.
+         *
+         * **Counted, and as the citizen's own 429.** A refused call is a call
+         * the citizen made, and a citizen hammering a narrowed route is
+         * precisely the shape the next pass should still be able to see. It
+         * cannot make the limit stricter — the check is `calls >= allowance`,
+         * and past it more calls change nothing.
+         */
+        const refusal = throttle === undefined ? undefined : await throttle(name)
+        if (refusal !== undefined) {
+          const refused = toolError(refusal)
+          count?.(name, refused)
+          return refused
+        }
+
         const result = await withHint(await handler(...args), hint, duty, payout, name)
         count?.(name, result)
         return result
@@ -120,6 +142,26 @@ export function guardTools(
  * no rollup — which is D-013's way of switching a surface off.
  */
 export type CountedToolCall = (name: string, result: CallToolResult) => void
+
+/**
+ * Whether a live limit covers this tool for this citizen, asked before the
+ * handler runs (`#843`).
+ *
+ * **This is the MCP half of the Doctor's throttle, and it exists for the reason
+ * {@link CountedToolCall} does**: `routes/mcp.ts` hijacks the socket, so the
+ * HTTP seam that gates every other authenticated call — `callerFor` — is never
+ * reached here. A limit installed on one door only would be a limit a citizen
+ * routes around by using the other, which is the surface most of them use.
+ *
+ * **A tool name is a route key.** The rollup counts tool calls under the tool's
+ * own name, the finding names what it counted, and the throttle names what the
+ * finding named — so `kolonie.tasks.list` is one string through all four, and
+ * there is no mapping anywhere for a future surface to get wrong.
+ *
+ * Undefined for the unauthenticated tier and for a server built without a gate:
+ * a stranger has no limits, because it has no diagnoses and no citizen.
+ */
+export type ThrottledTool = (name: string) => Promise<ApiError | undefined>
 
 /**
  * Whether this call is due a standing hint, asked once per result (`#231`).

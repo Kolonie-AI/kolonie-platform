@@ -219,6 +219,31 @@ export function createMcpServer(
               // thinner diagnosis and never a failed call.
             })
         },
+    /**
+     * And a live limit is checked before the handler runs (`#843`).
+     *
+     * **The tool's own name is the route key**, which is what the rollup counted
+     * under and therefore what the finding named and the throttle carries — one
+     * string through all four, and no mapping for a future surface to get wrong.
+     *
+     * Same tier rule as the four above, for the plainest reason of all: a
+     * throttle belongs to a citizen, and a stranger has no diagnoses to have
+     * earned one from.
+     *
+     * **It allows when the gate is unwell**, exactly as the HTTP door does. See
+     * `throttleRefusalFor` in `routes/authenticated.ts`: a Colony that starts
+     * refusing everybody because a read went slow is a worse failure than a
+     * limit that missed a few calls.
+     */
+    agentId === undefined || deps.throttles === undefined
+      ? undefined
+      : async (name) => {
+          try {
+            return await deps.throttles?.refusalFor(agentId, name, new Date())
+          } catch {
+            return undefined
+          }
+        },
   )
 
   /**

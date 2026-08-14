@@ -2,16 +2,24 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   CALL_HOUR_MS,
   DOCTOR_POLICY_VERSION,
+  THROTTLE_CAP_PER_PASS,
+  THROTTLE_MIN_HOURS_SINCE_TELLING,
+  ThrottleSchema,
   type AcademyProgress,
   type AgentId,
   type CallHour,
+  type Diagnosis,
   type Finding,
+  type Throttle,
+  type ThrottlePlan,
 } from '@kolonie-ai/core'
 import { runPass, type DiagnosisRecorded, type DoctorStore } from './loop.js'
 
 const NOW = new Date('2026-08-04T00:00:00.000Z')
 const ONE = '11111111-1111-4111-8111-111111111111' as AgentId
 const TWO = '22222222-2222-4222-8222-222222222222' as AgentId
+const DIAGNOSIS = '9f1c2e2a-3c1e-4f5a-9c1a-2b3c4d5e6f70'
+const THROTTLE = '1a2b3c4d-5e6f-4a8b-9c0d-1e2f3a4b5c6d'
 
 const bucket = (n: number, overrides: Partial<CallHour> = {}): CallHour => {
   const started = new Date(NOW.getTime() - n * CALL_HOUR_MS).toISOString()
@@ -51,6 +59,8 @@ const fakeStore = (overrides: Partial<DoctorStore> = {}) => {
   const recorded: { finding: Finding; policyVersion: string }[] = []
   const resolved: { subject: string; stillFound: readonly Finding['kind'][] }[] = []
   const attached: { diagnosisId: string; prose: string; proseModel: string }[] = []
+  const applied: ThrottlePlan[] = []
+  const notified: { throttleId: string; agentId: AgentId }[] = []
 
   const store: DoctorStore = {
     active: async () => [ONE],
@@ -68,14 +78,76 @@ const fakeStore = (overrides: Partial<DoctorStore> = {}) => {
     supersedeOlderPolicies: async () => 0,
     sweepCallHours: async () => 0,
     sweepDiagnoses: async () => 0,
+    sweepThrottles: async () => 0,
+    // Nothing to limit unless a test says so: the ordinary pass finds no open
+    // diagnosis old enough to act on, which is also true of the real Colony.
+    openDiagnoses: async () => [],
+    throttleHistory: async () => ({ previousThrottles: 0, throttleInForce: false }),
+    applyThrottle: async (plan) => {
+      applied.push(plan)
+      return { outcome: 'applied', throttle: aThrottle(plan) }
+    },
+    noticeThrottle: async (notice) => {
+      notified.push({ throttleId: notice.throttleId, agentId: notice.agentId })
+    },
     attachProse: async (diagnosisId, prose, proseModel) => {
       attached.push({ diagnosisId, prose, proseModel })
     },
     ...overrides,
   }
 
-  return { store, recorded, resolved, attached }
+  return { store, recorded, resolved, attached, applied, notified }
 }
+
+/**
+ * A diagnosis in the one state `planThrottle` agrees to, so a test about the
+ * pass changes the pass rather than the guard: serious, open, agent-scoped, told
+ * about more than a day ago, with evidence somebody confirmed within the hour.
+ */
+const aThrottlableDiagnosis = (overrides: Partial<Diagnosis> = {}): Diagnosis => ({
+  id: DIAGNOSIS,
+  scope: 'agent',
+  subject: ONE,
+  kind: 'polling-loop',
+  severity: 'serious',
+  confidence: 0.9,
+  evidence: {
+    routeKeys: ['/v1/tasks'],
+    figures: { hours: 30, calls: 8_790 },
+  },
+  policyVersion: DOCTOR_POLICY_VERSION,
+  state: 'open',
+  firstSeenAt: hoursBefore(72),
+  lastSeenAt: hoursBefore(1),
+  observations: 6,
+  resolvedAt: null,
+  prose: null,
+  proseModel: null,
+  supportTicketId: null,
+  escalatedIssueUrl: null,
+  announcedAt: hoursBefore(THROTTLE_MIN_HOURS_SINCE_TELLING + 1),
+  announcedSeverity: 'serious',
+  ...overrides,
+})
+
+/** The row a write of that plan would return. */
+const aThrottle = (plan: ThrottlePlan): Throttle =>
+  ThrottleSchema.parse({
+    id: THROTTLE,
+    diagnosisId: plan.diagnosisId,
+    agentId: plan.agentId,
+    routeKeys: [...plan.routeKeys],
+    callsPerHour: plan.callsPerHour,
+    ordinal: plan.ordinal,
+    appliedAt: plan.appliedAt,
+    expiresAt: plan.expiresAt,
+    policyVersion: plan.policyVersion,
+    kind: plan.kind,
+    supportTicketId: null,
+  })
+
+const hoursBefore = (hours: number): string =>
+  new Date(NOW.getTime() - hours * 60 * 60 * 1000).toISOString()
 
 const pass = (store: DoctorStore) => runPass({ store, now: () => NOW })
 
@@ -226,10 +298,14 @@ describe('a doctor pass', () => {
     expect(outcome.refused).toContain('evidence must be numbers')
   })
 
-  it('sweeps both retention windows and says how much went', async () => {
-    const { store } = fakeStore({ sweepCallHours: async () => 12, sweepDiagnoses: async () => 3 })
+  it('sweeps every retention window and says how much went', async () => {
+    const { store } = fakeStore({
+      sweepCallHours: async () => 12,
+      sweepDiagnoses: async () => 3,
+      sweepThrottles: async () => 2,
+    })
 
-    expect((await pass(store)).swept).toEqual({ callHours: 12, diagnoses: 3 })
+    expect((await pass(store)).swept).toEqual({ callHours: 12, diagnoses: 3, throttles: 2 })
   })
 
   /**
@@ -259,22 +335,34 @@ describe('a doctor pass', () => {
    * standing. Asserted against the store's own surface rather than by reading
    * the pass: a seam with no such method cannot acquire one by accident.
    */
-  it('is handed a store that can write nothing but diagnoses and the two sweeps', () => {
+  it('is handed a store that can write nothing but diagnoses, throttles and the sweeps', () => {
     const { store } = fakeStore()
 
     expect(Object.keys(store).sort()).toEqual([
       'active',
+      /**
+       * `#843` added two writes, and they are the only ones on this seam that
+       * change anything for a citizen. Both are narrow by construction:
+       * `applyThrottle` takes a plan no caller here can build, and
+       * `noticeThrottle` writes a ticket the citizen owns. There is still no
+       * method that could reach a reputation, a skill, a verdict or a reward.
+       */
+      'applyThrottle',
       // `#840` added one, and it is the only write a model's output reaches. It
       // lands in one nullable text column that nothing parses back.
       'attachProse',
       'callHours',
       'deprecatedRoutes',
+      'noticeThrottle',
+      'openDiagnoses',
       'progress',
       'record',
       'resolveDisappeared',
       'supersedeOlderPolicies',
       'sweepCallHours',
       'sweepDiagnoses',
+      'sweepThrottles',
+      'throttleHistory',
     ])
   })
 
@@ -418,5 +506,95 @@ describe('a doctor pass with a writer', () => {
     await runPass({ store, prose, now: () => NOW })
 
     expect(prose.describe).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * The step that narrows a citizen (`#843`).
+ *
+ * **Two tests here are the ones the card asks for by name**, and both would fail
+ * in the direction of limiting people who should not be limited. A pass may not
+ * narrow the Colony at scale, whatever a rule regression tells it — so the cap
+ * is asserted with more findings than the cap. And a deployment that has not
+ * turned the mechanism on must write nothing while still learning what it would
+ * have done — so the observing pass is asserted to apply none and count them.
+ *
+ * Everything the guard decides is asserted in `packages/core`, against no
+ * database and no clock. What is testable only here is the order the pass calls
+ * things in.
+ */
+describe('a doctor pass that may throttle', () => {
+  const throttling = (store: DoctorStore) => runPass({ store, now: () => NOW, throttling: true })
+
+  it('applies nothing at all unless the deployment turned it on', async () => {
+    const { store, applied, notified } = fakeStore({
+      openDiagnoses: async () => [aThrottlableDiagnosis()],
+    })
+
+    const outcome = await pass(store)
+
+    expect(applied).toEqual([])
+    expect(notified).toEqual([])
+    // And it says what it would have done, which is the point of running it off.
+    expect(outcome.throttled).toEqual({ applied: 0, over: 0, withheld: 1 })
+  })
+
+  it('applies one and tells the citizen about it', async () => {
+    const { store, applied, notified } = fakeStore({
+      openDiagnoses: async () => [aThrottlableDiagnosis()],
+    })
+
+    const outcome = await throttling(store)
+
+    expect(outcome.throttled).toEqual({ applied: 1, over: 0, withheld: 0 })
+    expect(applied[0]?.routeKeys).toEqual(['/v1/tasks'])
+    expect(notified).toEqual([{ throttleId: THROTTLE, agentId: ONE }])
+  })
+
+  /**
+   * **The answer to *a rule regression throttles half the Colony*.** The cap is
+   * about the pass rather than about any finding, so it is the one condition
+   * that is not in the guard — and it holds even when every check the guard
+   * makes passes, which is exactly the situation a bad rule produces.
+   */
+  it('stops at the per-pass cap and says how many it held back', async () => {
+    const many = Array.from({ length: THROTTLE_CAP_PER_PASS + 2 }, (_, n) =>
+      aThrottlableDiagnosis({ id: DIAGNOSIS, kind: n === 0 ? 'polling-loop' : 'retry-storm' }),
+    )
+    const { store, applied } = fakeStore({ openDiagnoses: async () => many })
+
+    const outcome = await throttling(store)
+
+    expect(outcome.throttled.applied).toBe(THROTTLE_CAP_PER_PASS)
+    expect(outcome.throttled.over).toBe(2)
+    expect(applied).toHaveLength(THROTTLE_CAP_PER_PASS)
+  })
+
+  it('applies nothing for a citizen who was never told', async () => {
+    const { store, applied } = fakeStore({
+      openDiagnoses: async () => [aThrottlableDiagnosis({ announcedAt: null })],
+    })
+
+    const outcome = await throttling(store)
+
+    expect(applied).toEqual([])
+    expect(outcome.throttled).toEqual({ applied: 0, over: 0, withheld: 0 })
+  })
+
+  /**
+   * A losing insert is a limit another pass already applied, so this one sends
+   * no notice — the citizen is owed one message about one decision, not one per
+   * runner that raced.
+   */
+  it('sends no notice when another pass got there first', async () => {
+    const { store, notified } = fakeStore({
+      openDiagnoses: async () => [aThrottlableDiagnosis()],
+      applyThrottle: async () => ({ outcome: 'raced', throttle: null }),
+    })
+
+    const outcome = await throttling(store)
+
+    expect(notified).toEqual([])
+    expect(outcome.throttled.applied).toBe(0)
   })
 })

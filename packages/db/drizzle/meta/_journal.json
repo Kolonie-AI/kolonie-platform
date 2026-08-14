@@ -1674,6 +1674,13 @@
       "when": 1786712656597,
       "tag": "0238_the_shared_tab_is_gone",
       "breakpoints": true
+    },
+    {
+      "idx": 239,
+      "version": "7",
+      "when": 1786715161860,
+      "tag": "0239_the_limit_that_lifts_by_itself",
+      "breakpoints": true
     }
   ]
 }

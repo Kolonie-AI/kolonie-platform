@@ -98,6 +98,7 @@ import { authenticate } from './authentication.js'
 import { registerOpenApiRoute } from './routes/openapi.js'
 import type { RegisteredRoute } from './openapi/document.js'
 import { rateLimited } from './registration.js'
+import { throttling } from './throttle-gate.js'
 import { noEarnings } from './payouts.js'
 import { noSettings } from './settings.js'
 import { noProviderEnquiries } from './provider-enquiries.js'
@@ -123,7 +124,7 @@ export function buildApp({
   avatars,
   registry: unlimitedRegistry,
   adoption,
-  store,
+  store: ungatedStore,
   catalogue,
   quests,
   settings = noSettings(),
@@ -185,6 +186,7 @@ export function buildApp({
   attestations,
   profileTier,
   rollup,
+  throttles,
   doctor,
   tell,
   diagnoses,
@@ -201,6 +203,20 @@ export function buildApp({
    * remember — see `rateLimited` for why the limit sits on the operation.
    */
   const registry = rateLimited(unlimitedRegistry, limiter)
+
+  /**
+   * And every surface below sees the gated store, on the same terms (`#843`).
+   *
+   * Beside the line above because it is the same argument: `callerFor` is the one
+   * seam all 83 authenticated routes pass through, so wrapping the store once
+   * here is what makes "a live limit is checked" a property of the wiring rather
+   * than a rule the eighty-fourth route's author has to remember. The gate rides
+   * on the store rather than on an argument — see `throttle-gate.ts` for why the
+   * alternative was a fourth parameter at 83 call sites.
+   *
+   * Absent leaves the store exactly as it arrived and nothing is checked (D-013).
+   */
+  const store = throttles === undefined ? ungatedStore : throttling(ungatedStore, throttles)
 
   const app = Fastify({
     logger: false,

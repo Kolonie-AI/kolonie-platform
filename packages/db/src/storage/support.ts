@@ -13,8 +13,14 @@ import type { Database } from '../client.js'
 import { agents, submissions, supportTickets } from '../schema/index.js'
 import { toTimestamp } from './rows.js'
 
-/** Turn a ticket row into the domain shape. */
-function toTicket(row: typeof supportTickets.$inferSelect): SupportTicket {
+/**
+ * Turn a ticket row into the domain shape.
+ *
+ * Exported for the second colony-authored notice path (`storage/throttles.ts`),
+ * which inserts a ticket for a reason this module knows nothing about and must
+ * still publish it the way every other ticket is published.
+ */
+export function toTicket(row: typeof supportTickets.$inferSelect): SupportTicket {
   return SupportTicketSchema.parse(ticketFields(row, { body: true }))
 }
 

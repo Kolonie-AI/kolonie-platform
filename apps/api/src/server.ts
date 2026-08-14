@@ -7,6 +7,7 @@ import {
   TREASURY_ADDRESS_VAR,
   payoutWalletMismatch,
   solanaAddressFromSeed,
+  throttleRefusal,
 } from '@kolonie-ai/core'
 import type { AgentId, Timestamp } from '@kolonie-ai/core'
 import {
@@ -26,6 +27,7 @@ import {
   listDiagnoses,
   diagnosisById,
   diagnosisCounts,
+  checkThrottle,
 } from '@kolonie-ai/db'
 import { buildApp } from './app.js'
 import { databaseStore } from './authentication.js'
@@ -988,6 +990,27 @@ const app = buildApp({
   rollup: {
     record: async (agentId, call) => {
       await recordCall(db, agentId, call)
+    },
+  },
+  /**
+   * And whether a live limit covers the call about to be served (`#843`).
+   *
+   * **The third step of the card's ordering, and the only one that takes
+   * something away**: understand (`#835`), inform (`#837`, `#842`), then limit.
+   * Which is why the writer is somewhere else entirely — the doctor runner
+   * decides who is narrowed, under `DOCTOR_THROTTLING`, and this reads whatever
+   * rows that produced. A deployment running the pass observing has none, so this
+   * refuses nobody without a flag of its own.
+   *
+   * **Two reads at most and usually one.** `checkThrottle` probes an index first
+   * and only counts the citizen's calls for the hour when a row actually covers
+   * the route — so the cost on the overwhelming majority of calls, which are
+   * covered by nothing, is one indexed miss.
+   */
+  throttles: {
+    refusalFor: async (agentId, routeKey, now) => {
+      const checked = await checkThrottle(db, agentId, routeKey, now)
+      return checked.outcome === 'refused' ? throttleRefusal(checked.throttle, now) : undefined
     },
   },
   /**

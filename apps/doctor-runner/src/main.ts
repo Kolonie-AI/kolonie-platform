@@ -6,16 +6,21 @@ import {
 } from '@kolonie-ai/core'
 import {
   academyProgressFor,
+  applyThrottle,
   attachProse,
   callHoursSince,
   citizensWithCallsSince,
   createDatabase,
   databaseUrlFromEnv,
+  openDiagnosesFor,
+  openThrottleNotice,
   recordDiagnosis,
   resolveDisappeared,
   supersedeOlderPolicies,
   sweepCallHours,
   sweepDiagnoses,
+  sweepThrottles,
+  throttleHistoryFor,
 } from '@kolonie-ai/db'
 import { startRunner, type DoctorStore, type Log } from './loop.js'
 import { createHealthServer, STALE_POLLS } from './health.js'
@@ -102,6 +107,27 @@ const store: DoctorStore = {
    */
   sweepCallHours: (now) => sweepCallHours(db, now),
   sweepDiagnoses: (now) => sweepDiagnoses(db, now),
+  sweepThrottles: (now) => sweepThrottles(db, now),
+  openDiagnoses: (subject) => openDiagnosesFor(db, subject),
+  throttleHistory: (diagnosisId, now) => throttleHistoryFor(db, diagnosisId, now),
+  applyThrottle: async (plan) => {
+    const written = await applyThrottle(db, plan)
+    return {
+      outcome: written.outcome,
+      throttle: written.outcome === 'applied' ? written.throttle : null,
+    }
+  },
+  /**
+   * **The outcome is dropped here, and that is the wiring rather than a
+   * swallow.** `openThrottleNotice` answers `already-sent` when a previous pass
+   * told the citizen about this throttle and `no-such-throttle` when the row is
+   * gone — a resolved diagnosis takes its throttle with it, and a pass may lose
+   * that race. Neither is a fault, neither is actionable, and the pass has
+   * already logged the thing that matters: that a citizen was narrowed.
+   */
+  noticeThrottle: async (notice) => {
+    await openThrottleNotice(db, notice)
+  },
 }
 
 /**
@@ -127,8 +153,28 @@ if (!prose.available) {
   )
 }
 
+/**
+ * Whether this deployment lets the Doctor narrow anybody (`#843`).
+ *
+ * **Off unless the variable says exactly `true`.** Every other setting in this
+ * file has a working default; this one does not, because it is the first thing
+ * the Colony has ever built that takes something away from a citizen. A
+ * deployment runs the pass observing, reads `throttlesWithheld` on the pass line
+ * to see what the guard would have done, and turns it on when that number is one
+ * it recognises.
+ */
+const THROTTLING = process.env['DOCTOR_THROTTLING'] === 'true'
+
+if (!THROTTLING) {
+  log.info(
+    'DOCTOR_THROTTLING is not "true". Findings are recorded and citizens are told, and ' +
+      'nothing is limited; the pass reports what it would have limited as throttlesWithheld.',
+    { event: 'config.default', variable: 'DOCTOR_THROTTLING' },
+  )
+}
+
 const runner = startRunner(
-  { store, prose, log, now: () => new Date() },
+  { store, prose, log, throttling: THROTTLING, now: () => new Date() },
   { pollIntervalMs: POLL_INTERVAL_MS },
 )
 

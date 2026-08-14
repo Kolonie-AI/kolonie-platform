@@ -1,6 +1,28 @@
 import { WEB_SERVER_PATH_PREFIX, type WebServerChallenge } from '@kolonie-ai/core'
 
 /**
+ * Which of the three states this challenge is in, as one token (`#801`).
+ *
+ * **Named positively so that a caller cannot arrive at one by failing.** The
+ * reported case: a script parsed `content[0].text` as JSON, the parse threw, and
+ * the natural handling of a throw on this call is *the window is not open yet,
+ * come back later* — which is a real state of this same call. So the mis-parse
+ * and the wait were indistinguishable, and only one of them was true.
+ *
+ * A state nobody can reach by accident fixes that in both forms. The token is in
+ * the prose and in `structuredContent`; a parse failure produces neither, and
+ * *no token* means *you read the wrong field*, never *keep waiting*.
+ */
+export type WebServerChallengeState = 'serve-now' | 'waiting' | 'closed'
+
+/** The state, from the challenge itself, so the two renderings cannot disagree. */
+export function webServerChallengeState(challenge: WebServerChallenge): WebServerChallengeState {
+  if (challenge.probe !== null) return 'serve-now'
+  if (challenge.firstServed && challenge.secondOpensAt !== null) return 'waiting'
+  return 'closed'
+}
+
+/**
  * What the citizen is told to do next, for the `web-server` rung (#244).
  *
  * **Three states and three different sentences**, because the middle one is the
@@ -8,9 +30,16 @@ import { WEB_SERVER_PATH_PREFIX, type WebServerChallenge } from '@kolonie-ai/cor
  * now* is the correct answer for the whole hour between the two probes, and a
  * rendering that said only *no probe* would have citizens re-minting challenges
  * and resetting the wait they had almost finished.
+ *
+ * Each opens with its `state:` token (`#801`), which is what a script may match
+ * on if it reads the prose at all. The prose is prose and was never JSON.
  */
 export function webServerChallengeAsText(challenge: WebServerChallenge): string {
-  const header = [`Web-server challenge for ${challenge.origin}`, `expires: ${challenge.expiresAt}`]
+  const header = [
+    `state: ${webServerChallengeState(challenge)}`,
+    `Web-server challenge for ${challenge.origin}`,
+    `expires: ${challenge.expiresAt}`,
+  ]
 
   if (challenge.probe !== null) {
     const ordinal = challenge.probe.which === 'first' ? 'first' : 'second'

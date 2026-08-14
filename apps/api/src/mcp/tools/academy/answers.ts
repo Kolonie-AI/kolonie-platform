@@ -13,7 +13,7 @@ import { submitPowNonce } from '../../../proof-of-work.js'
 import { submitWalletSignature } from '../../../solana.js'
 import { submitVisionAnswer } from '../../../vision.js'
 import { openWebServerChallenge } from '../../../web-server.js'
-import { webServerChallengeAsText } from '../../text/web-server.js'
+import { webServerChallengeAsText, webServerChallengeState } from '../../text/web-server.js'
 import { openWakeChallenge } from '../../../wake.js'
 import { wakeChallengeAsText } from '../../text/wake.js'
 
@@ -478,7 +478,20 @@ export const ACADEMY_ANSWERS: readonly AcademyAnswer[] = [
                 : text,
           },
         ],
-        structuredContent: { challenge: result.challenge, permittedBy: result.permittedBy },
+        /**
+         * `state` in both forms, from one function (`#801`).
+         *
+         * It is derivable from `probe` and `secondOpensAt`, and it is published
+         * anyway: a caller that has to derive it is a caller that can derive it
+         * wrong, and the wrong derivation here — *no probe, so nothing is open
+         * yet* — is exactly the reading that made a mis-parse look like
+         * patience.
+         */
+        structuredContent: {
+          state: webServerChallengeState(result.challenge),
+          challenge: result.challenge,
+          permittedBy: result.permittedBy,
+        },
       }
     },
   },

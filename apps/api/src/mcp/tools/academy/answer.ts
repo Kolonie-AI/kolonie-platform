@@ -151,7 +151,11 @@ export function registerAcademyAnswerTool(
         `the kind: ${answerVocabulary()}. ` +
         ACADEMY_ANSWERS.map((entry) => entry.summary).join('. ') +
         '. Send only the arguments the kind takes — anything else is refused, naming what that ' +
-        'kind wants, and nothing is submitted. The minting half is kolonie.academy.challenge, ' +
+        'kind wants, and nothing is submitted. **A script reads `structuredContent`**: ' +
+        '`content[0].text` is prose and never JSON, so a parse failure there means the wrong ' +
+        'field was read and never a window that is not open yet — `web-server.challenge` answers ' +
+        'that as `state`, one of "serve-now", "waiting" or "closed", in both forms. ' +
+        'The minting half is kolonie.academy.challenge, ' +
         'and every rung is claimed by handing its task in with kolonie.tasks.submit afterwards: ' +
         'this call proves it, the submission is what pays.',
       /**

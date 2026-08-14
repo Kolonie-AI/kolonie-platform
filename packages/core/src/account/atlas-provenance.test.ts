@@ -3,6 +3,7 @@ import { AccountKindSchema, AccountProviderSchema } from './account.js'
 import {
   atlasEntries,
   atlasEntryHealth,
+  atlasEntryStatus,
   atlasEntrySource,
   atlasHealthPhrase,
   atlasSourcePhrase,
@@ -11,7 +12,7 @@ import {
 } from './atlas.js'
 import { noFigures } from './atlas-figures.js'
 import type { AtlasFigures } from './atlas-figures.js'
-import { RECIPE_STALE_AFTER_DAYS } from './recipe.js'
+import { RECIPE_STALE_AFTER_DAYS, RecipeStatusSchema, recipeStatusIsPublic } from './recipe.js'
 import type { ProviderRecipe, RecipeStatus } from './recipe.js'
 
 const daysAgo = (days: number): string =>
@@ -310,7 +311,15 @@ describe('the rows the figures imply', () => {
 
     expect(entries).toHaveLength(1)
     expect(entries[0]?.source).toBe('measured')
-    expect(entries[0]?.status).toBe('unwritten')
+    /**
+     * **`measured`, and it said `unwritten` until `#903` put the status in the
+     * rollup.** This assertion was written when a synthesised row *was*
+     * `unwritten`, so it went on passing after the label changed and quietly
+     * became the test that held the bug in place — `atlasEntryStatus` ranks the
+     * public statuses in a list, and one missing from it takes the
+     * *no rows at all* fallback and reports itself as the very thing it is not.
+     */
+    expect(entries[0]?.status).toBe('measured')
   })
 })
 
@@ -334,5 +343,36 @@ describe('what the two labels say out loud', () => {
     expect(atlasHealthPhrase('retired')).toContain('Do not walk it')
     expect(atlasHealthPhrase('stale')).toContain('provider-report')
     expect(atlasHealthPhrase('caution')).toContain('Take care')
+  })
+})
+
+/**
+ * The rollup covers every status a stranger can see (`#903`).
+ *
+ * **A regression test for a bug that produced no error.** `atlasEntryStatus`
+ * ranks the public statuses in a list and falls back to `unwritten` for an entry
+ * with no rows at all. A status missing from that list takes the fallback — so
+ * when `measured` shipped without being added, all seventeen measured entries in
+ * production reported themselves as `unwritten` on 2026-08-14, which is the one
+ * thing a measured row exists to stop being confused with.
+ *
+ * Asserting the coverage rather than the ordering is deliberate: the order is a
+ * judgement each addition has to make, and this cannot make it. What it can do
+ * is refuse an addition that was never placed at all.
+ */
+describe('the entry status rollup', () => {
+  it('places every public status, so none can fall through to the default', () => {
+    for (const status of RecipeStatusSchema.options.filter(recipeStatusIsPublic)) {
+      expect(atlasEntryStatus([{ status }])).toBe(status)
+    }
+  })
+
+  it('answers unwritten for an entry with no rows, which is what the default is for', () => {
+    expect(atlasEntryStatus([])).toBe('unwritten')
+  })
+
+  it('puts a measured row under a walk and above a listing', () => {
+    expect(atlasEntryStatus([{ status: 'measured' }, { status: 'unwritten' }])).toBe('measured')
+    expect(atlasEntryStatus([{ status: 'draft' }, { status: 'measured' }])).toBe('draft')
   })
 })

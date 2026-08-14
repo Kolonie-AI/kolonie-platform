@@ -477,7 +477,32 @@ export function atlasEntries(
  * and a second implementation of this ordering is a second answer to it.
  */
 export function atlasEntryStatus(rows: readonly { readonly status: RecipeStatus }[]): RecipeStatus {
-  const order: readonly RecipeStatus[] = ['joinable', 'draft', 'refused', 'retired', 'unwritten']
+  /**
+   * **`measured` sits under `draft` and above `unwritten`** (`#903`, and
+   * measured in production on 2026-08-14, where its absence from this list made
+   * all seventeen measured entries report themselves as `unwritten`).
+   *
+   * Under `draft`, because a draft is a walk: somebody went and wrote down what
+   * they did, and this is only *citizens have been through here*. Above
+   * `unwritten`, for the reason the whole status exists — evidence beats a
+   * provider somebody shelved.
+   *
+   * **The bug this fixes is the shape the fallback invites.** The list is
+   * exhaustive over the public statuses and the `?? 'unwritten'` behind it is
+   * meant for *no rows at all*; a status missing from the list falls into that
+   * fallback and is reported as the very thing it is not, silently and with no
+   * type error. Adding a public status means adding it here, and
+   * `atlas-provenance.test.ts` now asserts the list covers every one of them so
+   * the next addition cannot repeat this.
+   */
+  const order: readonly RecipeStatus[] = [
+    'joinable',
+    'draft',
+    'measured',
+    'refused',
+    'retired',
+    'unwritten',
+  ]
 
   return order.find((status) => rows.some((row) => row.status === status)) ?? 'unwritten'
 }

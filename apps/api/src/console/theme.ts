@@ -498,66 +498,19 @@ ${declarations(LOCAL_TOKENS)}
     background: var(--k-surface);
   }
 
+  /* A page of this agent's with nothing on it yet (#797, keeping #583's rule).
+     Marked in the markup and only coloured here, so a reader with no stylesheet
+     gets the same fact — which is the point of writing it as text.
 
-  /* The contents column on a long page (#583). The agent page grew a section
-     per feature — nine of them in one column with nothing to navigate them
-     with — and each addition was correct on its own.
-
-     Two columns from 75rem and not from 60rem: below that the console's own
-     navigation (#608) already holds the left, and a second column beside it
-     leaves the content too narrow to read.
-
-     Below 75rem the list is not displayed at all, which #583 sanctions in as
-     many words: "a contents list that eats half a phone screen is worse than
-     none". The page is then exactly what it was, and the anchors it points at
-     are still in the HTML of one fetch — nothing here hides content. */
-  .agent-page { display: grid; grid-template-columns: 1fr; }
-  .agent-page__sections { min-width: 0; }
-
-  .page-contents { display: none; }
-
-  @media (min-width: 75rem) {
-    .agent-page {
-      grid-template-columns: 12rem minmax(0, 1fr);
-      gap: var(--k-space-6);
-      align-items: start;
-    }
-    .page-contents {
-      display: block;
-      position: sticky;
-      top: var(--k-space-4);
-      font-size: var(--k-text-sm);
-      /* The h1 sits in the content column, so the list starts level with the
-         first section rather than with the page title. */
-      padding-top: var(--k-space-6);
-    }
-  }
-
-  .page-contents__label {
-    margin: 0 0 var(--k-space-2);
-    color: var(--k-text-muted);
-    letter-spacing: var(--k-tracking-label);
-    text-transform: uppercase;
-    font-size: var(--k-text-xs);
-  }
-  .page-contents ul { list-style: none; margin: 0; padding: 0; }
-  .page-contents li a {
-    display: flex;
-    align-items: center;
-    min-height: var(--k-tap);
-    color: var(--k-text-muted);
-    text-decoration: none;
-  }
-  .page-contents li a:hover { color: var(--k-text-strong); }
-  /* Marked in the markup and only coloured here: a reader with no stylesheet
-     gets the same fact, which is the point of writing it as text. */
-  .page-contents__empty { color: var(--k-text-faint); margin-left: var(--k-space-1); }
+     The contents column this replaces lived here until #797. It was displayed
+     only from 75rem, so the one reader it was built for — somebody scrolling a
+     long page on a phone — never saw it. The sections are pages now, and the
+     column that navigates them is the console's own, which is shown at every
+     width because it is a details element rather than a second grid track. */
+  .console-nav__empty { color: var(--k-text-faint); margin-left: var(--k-space-1); }
 
   /* The overview on the agent page (#798): one line per section, saying what is
-     there. Unlike the contents column above it this is content rather than
-     navigation, so it is shown at every width — on a phone, where that column
-     is not displayed at all, it is the only thing that says what is in a
-     section without scrolling the whole page.
+     there. It is content rather than navigation, and it is shown at every width.
 
      Comments in here are served to the browser inside the page, so keep them
      clear of the words a page test asserts are absent: a note written here once

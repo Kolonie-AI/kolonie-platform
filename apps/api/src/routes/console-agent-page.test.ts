@@ -110,6 +110,20 @@ const openPage = (cookie: string, id: AgentId, zone = 'Europe/Berlin') =>
     headers: { host: CONSOLE_HOST, accept: 'text/html', cookie, 'cf-timezone': zone },
   })
 
+/**
+ * One of the agent's own pages (`#797`).
+ *
+ * The sections these open used to be `#anchor`s on the page above, which is
+ * why several tests in this file follow their subject here rather than
+ * asserting it on the overview.
+ */
+const openSection = (cookie: string, id: AgentId, slug: string, zone = 'Europe/Berlin') =>
+  app.inject({
+    method: 'GET',
+    url: `/agents/${id}/${slug}`,
+    headers: { host: CONSOLE_HOST, accept: 'text/html', cookie, 'cf-timezone': zone },
+  })
+
 describe('the agent page', () => {
   it('shows identity, standing, balance and activity behind a session', async () => {
     const cookie = await signedInCookie()
@@ -133,13 +147,100 @@ describe('the agent page', () => {
     expect(response.statusCode).toBe(200)
     expect(response.body).toContain('canary')
     expect(response.body).toContain('Standing')
-    // No `Balance` heading since `#553`: the Colony holds none. The Wallet block
+    // No `Balance` heading since `#553`: the Colony holds none. The Wallet page
     // is what stands there now, and `#573`'s tests cover it.
     expect(response.body).not.toContain('<h2>Balance</h2>')
-    expect(response.body).toContain('<h2 id="wallet">Wallet</h2>')
-    expect(response.body).toContain('mailbox')
-    expect(response.body).toContain('email-inbox')
     expect(response.body).toContain('2 hours ago')
+    // **The sections are pages since `#797`**, so what the overview carries of
+    // them is a line each and a link. What is *in* them is asserted where it
+    // renders, which is the point of the change.
+    expect(response.body).toContain(`href="/agents/${agentId}/wallet"`)
+    expect((await openSection(cookie, agentId, 'skills')).body).toContain('mailbox')
+    expect((await openSection(cookie, agentId, 'activity')).body).toContain('email-inbox')
+  })
+
+  /**
+   * **Every page in the navigation answers** (`#797`), which is the criterion
+   * *a path that answers today keeps answering* in the form a test can hold.
+   * The crawl in `console-links.test.ts` proves the console emits no link that
+   * 404s; this proves the ten it emits here are these ten.
+   */
+  it('answers on every one of the agent’s own pages', async () => {
+    const cookie = await signedInCookie()
+    await link(agentId)
+    pages.nameFor(agentId, 'canary')
+
+    for (const slug of [
+      'wallet',
+      'skills',
+      'rungs',
+      'activity',
+      'quests',
+      'quests-written',
+      'accounts',
+      'autonomy',
+      'profile',
+    ]) {
+      const response = await openSection(cookie, agentId, slug)
+      expect(response.statusCode, slug).toBe(200)
+      // Each carries the console's own navigation, which is what a reader on a
+      // phone gets instead of the contents column this replaced.
+      expect(response.body, slug).toContain('<nav class="console-nav"')
+      expect(response.body, slug).toContain(`href="/agents/${agentId}"`)
+    }
+  })
+
+  /**
+   * **The rejection case, on every new path.** `operatedAgent` is the one gate,
+   * so an agent somebody does not operate is indistinguishable from one that
+   * does not exist here exactly as it is on the page above.
+   */
+  it('answers a stranger’s agent as missing on every one of them', async () => {
+    const cookie = await signedInCookie()
+    await link(agentId)
+
+    for (const slug of [
+      'wallet',
+      'skills',
+      'rungs',
+      'activity',
+      'quests',
+      'quests-written',
+      'accounts',
+      'autonomy',
+      'profile',
+    ]) {
+      expect((await openSection(cookie, strangersAgentId, slug)).statusCode, slug).toBe(404)
+    }
+  })
+
+  /**
+   * **The mobile regression, stated as a check** (`#797`).
+   *
+   * The contents column `#583` added was in a grid track that appeared only
+   * from 75rem, so the reader it was built for — somebody scrolling a long page
+   * on a phone — never saw it. What replaced it is the console's own navigation,
+   * which is a `<details>` element in normal flow: there is no width at which it
+   * is not rendered, and the assertion is that no rule hides it at one.
+   */
+  it('draws the agent’s pages at every width, and no contents column at any', async () => {
+    const cookie = await signedInCookie()
+    await link(agentId)
+
+    const body = (await openPage(cookie, agentId)).body
+
+    expect(body).toContain('<nav class="console-nav"')
+    expect(body).not.toContain('page-contents')
+    // Nothing in the stylesheet gates the navigation on a viewport width, and
+    // nothing declares it hidden. A media query that added one would fail here.
+    // The one `display: none` the navigation does carry is on a pseudo-element
+    // — the browser's own disclosure triangle, replaced by a drawn one — and
+    // the selector boundary is what keeps it out of this.
+    const styles = body.slice(body.indexOf('<style'), body.indexOf('</style>'))
+    expect(styles).not.toMatch(
+      /\.console-nav(\s+(details|summary|ul|li))?\s*\{[^}]*display:\s*none/,
+    )
+    expect(styles).not.toContain('.page-contents')
   })
 
   /**
@@ -193,12 +294,16 @@ describe('the agent page', () => {
 
     const body = (await openPage(cookie, agentId)).body
 
-    expect(body).toContain('None yet')
+    expect(body).toContain('None held yet')
     expect(body).toContain('Nothing attempted yet')
-    // `Nothing on account` went with the balance block (`#553`). The empty state
-    // that replaced it says whose step the wallet is.
-    expect(body).toContain('has not proved a wallet yet')
     expect(body).not.toContain('<td>—</td>')
+    // `Nothing on account` went with the balance block (`#553`). The empty state
+    // that replaced it says whose step the wallet is, and since `#797` it says
+    // it on the wallet page — the line above it only says there is nothing yet.
+    expect(body).toContain('No wallet proved yet')
+    expect((await openSection(cookie, agentId, 'wallet')).body).toContain(
+      'has not proved a wallet yet',
+    )
   })
 
   /**
@@ -221,11 +326,14 @@ describe('the agent page', () => {
     const cookie = await signedInCookie()
     await link(agentId)
 
-    const body = (await openPage(cookie, agentId)).body
+    const body = (await openSection(cookie, agentId, 'quests')).body
 
-    expect(body).toContain('<h2 id="quests">Quests</h2>')
+    expect(body).toContain('<h1>Quests</h1>')
     expect(body).toContain('None yet')
     expect(body).toContain('finds paid work itself')
+    // And the page above says the same thing in one line, which is what a
+    // reader deciding whether to open it needs.
+    expect((await openPage(cookie, agentId)).body).toContain('None taken yet')
   })
 
   /** Its one permission write changes the operator's agreement, not the agent's identity. */
@@ -337,7 +445,9 @@ describe('the agent page', () => {
         'accompanied',
         'free',
       ])
-      expect((await openPage(cookie, agentId)).body).toContain('Previous version 1')
+      // The history and the form that revises it are one page since `#797`:
+      // *what may this agent do* and *change what it may do* are one question.
+      expect((await openSection(cookie, agentId, 'autonomy')).body).toContain('Previous version 1')
     })
 
     it('is unreachable for an agent this person does not operate', async () => {
@@ -401,7 +511,7 @@ describe('the agent page', () => {
         outcome: 'refused',
       })
 
-      const body = (await openPage(cookie, agentId)).body
+      const body = (await openSection(cookie, agentId, 'quests')).body
 
       expect(body).toContain('A thousand registrations')
       expect(body).toContain('accepted')
@@ -409,6 +519,9 @@ describe('the agent page', () => {
       expect(body.indexOf('A survey nobody wanted')).toBeLessThan(
         body.indexOf('A thousand registrations'),
       )
+      // The overview counts them and names the newest moment, and carries
+      // neither title: one read, said twice as far as it is useful.
+      expect((await openPage(cookie, agentId)).body).toContain('2 taken, the last')
     })
 
     /**
@@ -426,7 +539,7 @@ describe('the agent page', () => {
         outcome: 'accepted',
       })
 
-      const body = (await openPage(cookie, agentId)).body
+      const body = (await openSection(cookie, agentId, 'quests')).body
 
       expect(body).toContain('A quest')
       expect(body).not.toContain('answers')
@@ -443,7 +556,7 @@ describe('the agent page', () => {
         outcome: 'waiting',
       })
 
-      const body = (await openPage(cookie, agentId)).body
+      const body = (await openSection(cookie, agentId, 'quests')).body
 
       expect(body).not.toContain('Withdraw')
       expect(body).not.toContain('Resubmit')
@@ -457,7 +570,14 @@ describe('the agent page', () => {
    * is.
    */
   describe('the operator view, folded in', () => {
-    it('renders as a section once the citizen has issued a page', async () => {
+    /**
+     * **A line to the door rather than the form itself, since `#797`.** Folding
+     * the form in meant every read of the page above opened the door and moved
+     * its `lastOpenedAt`, so a person looking at their own agent looked like the
+     * operator arriving. `/agents/:agentId/operator` existed before this page
+     * did and is where the form lives.
+     */
+    it('leads to the door once the citizen has issued a page', async () => {
       const cookie = await signedInCookie()
       await link(agentId)
       await pages.issue(agentId, 'op@example.org')
@@ -465,7 +585,11 @@ describe('the agent page', () => {
       const body = (await openPage(cookie, agentId)).body
 
       expect(body).toContain('Leaving this agent a note')
-      expect(body).toContain(`action="/agents/${agentId}/operator"`)
+      expect(body).toContain(`href="/agents/${agentId}/operator"`)
+      expect(body).not.toContain(`action="/agents/${agentId}/operator"`)
+      expect((await openSection(cookie, agentId, 'operator')).body).toContain(
+        `action="/agents/${agentId}/operator"`,
+      )
     })
 
     /**

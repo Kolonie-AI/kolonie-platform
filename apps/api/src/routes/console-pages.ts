@@ -58,7 +58,19 @@ import {
 import { sharePage, SHARE_PAGE_HEADERS } from '../console/browser-share.js'
 import type { ConsoleNav } from '../console/navigation.js'
 import { relative, zoneFrom } from '../console/time.js'
-import { agentPage } from '../console/agent-page.js'
+import {
+  activityLines,
+  agentPage,
+  agentSectionPage,
+  autonomyLines,
+  emptyAgentPages,
+  questsLines,
+  questsWrittenLines,
+  rungsLines,
+  skillsLines,
+  walletLines,
+} from '../console/agent-page.js'
+import { AGENT_PAGES } from '../console/navigation.js'
 import { answerAutonomyFormForAgent } from '../autonomy.js'
 import { agentAccountsPage } from '../console/agent-accounts.js'
 import { curationPage, numbersPage } from '../console/steward.js'
@@ -2111,6 +2123,92 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
   }
 
   /**
+   * What the navigation says about the agent whose page this is (`#797`).
+   *
+   * ## Why every page pays for every mark
+   *
+   * The navigation lists all ten of an agent's pages on each of them, and `#583`'s
+   * rule is that a page with nothing on it keeps its entry and is marked rather
+   * than dropped. So *is the wallet empty* has to be answered on the rungs page,
+   * and *are there quests* on the wallet page: the marks are a property of the
+   * navigation, not of the page being rendered.
+   *
+   * That is one round trip of six parallel reads on pages that would otherwise do
+   * one or two. It is the price of the rule, and it is smaller than what it
+   * replaced — the single long page did all six of these *plus* the catalogue,
+   * the operator door and the door's rendered body, on every view.
+   *
+   * **Accounts and profile read `factsOf` twice**, once here and once for their
+   * own content. Passing it down would thread a parameter through four renderers
+   * to save one read of a view the mailed page already builds on every open;
+   * noted here rather than fixed, because the fix is a cache and this project
+   * does not have one.
+   */
+  const agentNavFor = async (agentId: AgentId): Promise<ConsoleNav['agent'] | undefined> => {
+    const [facts, wallet, quests, written, history, planned] = await Promise.all([
+      deps.autonomy.pages.factsOf(agentId),
+      deps.store.verifiedWalletOf(agentId),
+      deps.quests.takenPartIn(agentId),
+      deps.quests.listOwn(agentId),
+      deps.autonomy.store.history(agentId),
+      deps.wishes.store.list(agentId),
+    ])
+    if (facts === null) return undefined
+
+    return {
+      agentId: String(agentId),
+      name: facts.name,
+      empty: emptyAgentPages({
+        hasWallet: wallet !== null,
+        skills: facts.facts.skills.length,
+        rungs: facts.facts.rungs.length,
+        attempts: facts.facts.attempts.length,
+        quests: quests.length,
+        questsWritten: written.length,
+        accounts:
+          facts.facts.accounts.reduce((sum, account) => sum + account.count, 0) + planned.length,
+        autonomyVersions: history.length,
+      }),
+    }
+  }
+
+  /**
+   * One of an agent's sections, on a page of its own (`#797`).
+   *
+   * Every one of them is the same four steps — the guard, the facts, the marks
+   * for the navigation, and the section's own lines — so they are one function
+   * taking the last of those. A renderer per page would have been six copies of
+   * the guard, and the rejection case is the criterion this issue names: a
+   * person who does not operate this agent gets the console's 404 from every one
+   * of these paths, identical to the answer for an id that names nothing.
+   */
+  const renderAgentSection = async (
+    request: FastifyRequest,
+    reply: FastifyReply,
+    operated: { readonly agentId: AgentId; readonly roles: readonly string[] },
+    slug: string,
+    lines: (
+      facts: NonNullable<Awaited<ReturnType<typeof deps.autonomy.pages.factsOf>>>,
+    ) => Promise<readonly string[]>,
+  ) => {
+    const held = await deps.autonomy.pages.factsOf(operated.agentId)
+    if (held === null) return consoleNotFound(reply, request)
+
+    const [agent, rendered] = await Promise.all([agentNavFor(operated.agentId), lines(held)])
+
+    return html(
+      reply,
+      agentSectionPage({
+        nav: navFor(request, operated.roles, agent),
+        agentId: String(operated.agentId),
+        name: held.name,
+        title: AGENT_PAGES.find((entry) => entry.slug === slug)?.title ?? slug,
+        lines: rendered,
+      }),
+    )
+  }
+
+  /**
    * One agent, as the person paying for the runtime reads it (`#452`).
    *
    * **Assembly, not new modelling.** Every figure comes from the source that
@@ -2145,15 +2243,19 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
     if (held === null) return consoleNotFound(reply, request)
 
     /**
-     * The operator's view, folded in as a section (`#453`).
+     * Whether the door is open (`#453`), and no longer what is behind it
+     * (`#797`).
      *
      * `undefined` when the citizen has issued no page — `#428` decided that no
      * live page means no door, and this side of the door is not an exception.
-     * Read through `pages.open`, exactly as the standalone route reads it, so
-     * `lastOpenedAt` moves for the same reason on both.
+     *
+     * **`pages.open` is not called here any more.** Folding the form in meant
+     * every read of this page opened the door and moved its `lastOpenedAt`,
+     * which made *when did somebody last look at the note channel* a fact about
+     * the overview instead. The line the overview now draws leads to
+     * `/agents/:agentId/operator`, which opens it for the reason the name says.
      */
     const token = await deps.autonomy.pages.liveToken(operated.agentId)
-    const door = token === undefined ? null : await deps.autonomy.pages.open(token)
 
     const [open, quests, written, walletAddress, autonomyHistory] = await Promise.all([
       /**
@@ -2247,15 +2349,33 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
     }
 
     /**
-     * **The operator section is HTML, so it is built only for the HTML
-     * representation.** Putting a rendered fragment on the JSON answer would
-     * make a caller with a key parse a page to find out what its own agent may
-     * be told — the exact inversion `routes/console.ts` guards against.
+     * The marks for the navigation, from what this page has already read
+     * (`#797`).
+     *
+     * `agentNavFor` would answer the same thing in six more queries, and this
+     * is the one page that holds every figure it needs. That the two agree is
+     * `emptyAgentPages`' job: one definition of *empty*, called twice with the
+     * counts, rather than two places deciding what counts as nothing.
      */
+    const agent: ConsoleNav['agent'] = {
+      agentId: String(operated.agentId),
+      name: held.name,
+      empty: emptyAgentPages({
+        hasWallet: walletAddress !== null,
+        skills: held.facts.skills.length,
+        rungs: held.facts.rungs.length,
+        attempts: held.facts.attempts.length,
+        quests: quests.length,
+        questsWritten: written.length,
+        accounts: accounts.held + accounts.planned,
+        autonomyVersions: autonomyHistory.length,
+      }),
+    }
+
     return html(
       reply,
       agentPage({
-        nav: navFor(request, operated.roles),
+        nav: navFor(request, operated.roles, agent),
         ...view,
         /**
          * Accounts as one line (`#582`).
@@ -2265,17 +2385,7 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
          * records of one fact.
          */
         accounts,
-        ...(token === undefined || door === null
-          ? {}
-          : {
-              operator: await operatorPageBody(
-                deps,
-                token,
-                consoleOperatorPath(String(operated.agentId)),
-                door,
-                { as: 'section', fillDrops: true },
-              ),
-            }),
+        hasDoor: token !== undefined,
       }),
     )
   }
@@ -2323,14 +2433,127 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
     return renderAgentPage(request, reply, operated)
   })
 
-  /** The operator may revisit its own consent without waiting for the citizen to ask (#658). */
+  /**
+   * The sections of the agent page, each on a path of its own (`#797`).
+   *
+   * Six here; `accounts`, `autonomy` and `profile` were pages before this issue
+   * and stay where they are, which is half of why the sections moved to them
+   * rather than the other way round. The overview keeps the tenth entry.
+   *
+   * **Each page reads what it renders.** The wallet page asks for the wallet;
+   * it does not ask the Academy what the skills open next, and the quests page
+   * does not read the contract history. What every one of them also pays for is
+   * the navigation's marks — see `agentNavFor`.
+   */
+  app.get('/agents/:agentId/wallet', async (request, reply) => {
+    if (!(await guard(request, reply))) return reply
+    const operated = await operatedAgent(request, reply)
+    if (operated === null) return reply
+
+    return renderAgentSection(request, reply, operated, 'wallet', async () =>
+      walletLines(await deps.store.verifiedWalletOf(operated.agentId)),
+    )
+  })
+
+  app.get('/agents/:agentId/skills', async (request, reply) => {
+    if (!(await guard(request, reply))) return reply
+    const operated = await operatedAgent(request, reply)
+    if (operated === null) return reply
+
+    return renderAgentSection(request, reply, operated, 'skills', async (facts) => {
+      /** `availableOnly` and bounded at five, for the reason `renderAgentPage` gives. */
+      const open = await deps.catalogue.list({
+        agentId: operated.agentId,
+        availableOnly: true,
+        limit: 5,
+        hints: false,
+      })
+
+      return skillsLines(
+        facts.facts.skills,
+        open.outcome === 'listed'
+          ? open.page.items.map((task) => ({ title: task.title, requires: [...task.requires] }))
+          : [],
+      )
+    })
+  })
+
+  app.get('/agents/:agentId/rungs', async (request, reply) => {
+    if (!(await guard(request, reply))) return reply
+    const operated = await operatedAgent(request, reply)
+    if (operated === null) return reply
+
+    return renderAgentSection(request, reply, operated, 'rungs', (facts) =>
+      Promise.resolve(rungsLines(facts.facts.rungs)),
+    )
+  })
+
+  app.get('/agents/:agentId/activity', async (request, reply) => {
+    if (!(await guard(request, reply))) return reply
+    const operated = await operatedAgent(request, reply)
+    if (operated === null) return reply
+
+    return renderAgentSection(request, reply, operated, 'activity', (facts) =>
+      Promise.resolve(activityLines(facts.facts.attempts)),
+    )
+  })
+
+  app.get('/agents/:agentId/quests', async (request, reply) => {
+    if (!(await guard(request, reply))) return reply
+    const operated = await operatedAgent(request, reply)
+    if (operated === null) return reply
+
+    return renderAgentSection(request, reply, operated, 'quests', async () => {
+      const quests = await deps.quests.takenPartIn(operated.agentId)
+
+      return questsLines(
+        quests.map((quest) => ({
+          questId: String(quest.questId),
+          title: quest.title,
+          at: quest.at,
+          outcome: quest.outcome,
+        })),
+      )
+    })
+  })
+
+  app.get('/agents/:agentId/quests-written', async (request, reply) => {
+    if (!(await guard(request, reply))) return reply
+    const operated = await operatedAgent(request, reply)
+    if (operated === null) return reply
+
+    return renderAgentSection(request, reply, operated, 'quests-written', async () => {
+      const written = await deps.quests.listOwn(operated.agentId)
+
+      return questsWrittenLines(
+        written.map((quest) => ({
+          questId: String(quest.task.id),
+          title: quest.task.title,
+          status: quest.awaitingModeration ? 'awaiting moderation' : quest.task.status,
+        })),
+      )
+    })
+  })
+
+  /**
+   * The operator may revisit its own consent without waiting for the citizen to
+   * ask (`#658`), and reads what is recorded on the same page (`#797`).
+   *
+   * The contract used to be drawn on the overview and revised here, so *what may
+   * this agent do* and *change what it may do* were two paths. They are one
+   * question, and this is now the `Autonomy contract` entry in the navigation.
+   */
   app.get('/agents/:agentId/autonomy', async (request, reply) => {
     if (!(await guard(request, reply))) return reply
     const operated = await operatedAgent(request, reply)
     if (operated === null) return reply
     const facts = await deps.autonomy.pages.factsOf(operated.agentId)
     if (facts === null) return consoleNotFound(reply, request)
-    const current = await deps.autonomy.store.read(operated.agentId)
+    const [current, history, agent] = await Promise.all([
+      deps.autonomy.store.read(operated.agentId),
+      deps.autonomy.store.history(operated.agentId),
+      agentNavFor(operated.agentId),
+    ])
     const { agentId } = request.params as { agentId: string }
 
     return html(
@@ -2339,6 +2562,8 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
         agentName: facts.name,
         action: `/agents/${agentId}/autonomy`,
         source: 'console',
+        nav: navFor(request, operated.roles, agent),
+        history: autonomyLines(history, zoneFrom(request.headers)),
         ...(current === null
           ? {}
           : {
@@ -2459,7 +2684,8 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
     return html(
       reply,
       agentAccountsPage({
-        nav: navFor(request, operated.roles),
+        /** Inside an agent, so the navigation carries that agent's pages (`#797`). */
+        nav: navFor(request, operated.roles, await agentNavFor(operated.agentId)),
         agentId: String(operated.agentId),
         name: held.name,
         zone: zoneFrom(request.headers),
@@ -2643,7 +2869,8 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
     const shelf = pickerCategory(category)
 
     const input = {
-      nav: navFor(request, operated.roles),
+      /** Inside an agent, so the navigation carries that agent's pages (`#797`). */
+      nav: navFor(request, operated.roles, await agentNavFor(operated.agentId)),
       agentId: String(operated.agentId),
       entries,
       state,
@@ -2956,7 +3183,8 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
     return html(
       reply.status(status),
       profileSectionPage({
-        nav: navFor(request, operated.roles),
+        /** Inside an agent, so the navigation carries that agent's pages (`#797`). */
+        nav: navFor(request, operated.roles, await agentNavFor(operated.agentId)),
         agentId: String(operated.agentId),
         name: agent.profile.name,
         canonical,
@@ -4355,13 +4583,25 @@ export function consoleNotFound(reply: FastifyReply, request: FastifyRequest): F
  * person with a session — those pages have no role to read, and a navigation
  * that guessed would be guessing about somebody who cannot use the answer.
  */
-const navFor = (request: FastifyRequest, roles?: readonly string[]): ConsoleNav => {
+const navFor = (
+  request: FastifyRequest,
+  roles?: readonly string[],
+  /**
+   * The agent whose pages this one is among (`#797`), from `agentNavFor`.
+   *
+   * Omitted everywhere else, which is what keeps the section out of the
+   * navigation on every page that is not inside an agent.
+   */
+  agent?: ConsoleNav['agent'],
+): ConsoleNav => {
   // The path only: a query string is not a destination the navigation carries,
   // and `?filled=…` on the dashboard would stop `/` matching itself.
   const path = request.url.split('?')[0] ?? '/'
-  return roles?.includes('maintainer') === true
-    ? { current: path, maintains: true }
-    : { current: path }
+  return {
+    current: path,
+    ...(roles?.includes('maintainer') === true ? { maintains: true } : {}),
+    ...(agent === undefined ? {} : { agent }),
+  }
 }
 
 /** Whether this request arrived on the console's host, as `app.ts` asks it. */

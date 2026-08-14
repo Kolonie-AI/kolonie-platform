@@ -76,11 +76,38 @@ export interface ConsoleNav {
    * to agree.
    */
   readonly maintains?: boolean
+  /**
+   * The agent being read, when the page is one of that agent's own (`#797`).
+   *
+   * **The current agent only, and never a list of them.** *All agents* sits
+   * above this section and is how somebody reaches a different one; a
+   * navigation that carried every agent's every page would grow with the
+   * person's fleet rather than with the console.
+   *
+   * Absent on every page that is not inside an agent, which is what makes the
+   * section appear only where it means something.
+   */
+  readonly agent?: {
+    readonly agentId: string
+    readonly name: string
+    /**
+     * The slugs of `AGENT_PAGES` that have nothing in them for this agent.
+     *
+     * `#583`'s rule, carried over from the contents list this navigation
+     * replaces: *"`empty` is a fact about this agent, not about the section:
+     * nothing here is ever omitted for being empty, because a missing entry
+     * says the agent cannot do the thing and an entry marked empty says nothing
+     * has happened yet."*
+     */
+    readonly empty?: readonly string[]
+  }
 }
 
 interface NavItem {
   readonly href: string
   readonly label: string
+  /** Nothing in it yet — marked in the navigation rather than dropped from it. */
+  readonly empty?: boolean
 }
 
 interface NavSection {
@@ -147,17 +174,79 @@ export function backendTitle(path: string): string {
 }
 
 /**
+ * One agent's pages, in the order a person reads them (`#797`).
+ *
+ * ## Why a table and not a literal at each call site
+ *
+ * `BACKEND_PAGES` above is one for the same reason: the routes in
+ * `console-pages.ts` register these paths, so a path exists in one place and an
+ * entry with no route behind it fails the crawl in `console-links.test.ts`
+ * rather than a reader.
+ *
+ * ## The order is identity → history → open work → what you can do
+ *
+ * `#583` settled it for the page these were sections of, and moving them onto
+ * paths does not re-open the question. *Overview* leads because it is the page
+ * every other one is a part of.
+ *
+ * ## `title` and not the other word
+ *
+ * The trap `backendTitle` above documents: `scripts/github-issue-labels.test.ts`
+ * reads every string literal out of a function whose name carries that word, in
+ * any file mentioning GitHub, and asks whether it is an issue label.
+ */
+export const AGENT_PAGES = [
+  { slug: '', title: 'Overview' },
+  { slug: 'wallet', title: 'Wallet' },
+  { slug: 'skills', title: 'Skills' },
+  { slug: 'rungs', title: 'Rungs cleared' },
+  { slug: 'activity', title: 'Recent activity' },
+  { slug: 'quests', title: 'Quests' },
+  { slug: 'quests-written', title: 'Quests it wrote' },
+  { slug: 'accounts', title: 'Accounts' },
+  { slug: 'autonomy', title: 'Autonomy contract' },
+  { slug: 'profile', title: 'Public profile' },
+] as const satisfies readonly { readonly slug: string; readonly title: string }[]
+
+/** Where one of those pages lives. The overview is the agent's own path. */
+export function agentPagePath(agentId: string, slug: string): string {
+  return slug === '' ? `/agents/${agentId}` : `/agents/${agentId}/${slug}`
+}
+
+/**
  * The sections, in the order a signed-in person meets them.
  *
  * Agents first because that is what somebody signs in for; the account last
  * because it is the section you visit when something else has gone wrong.
  */
 function sections(nav: ConsoleNav): readonly NavSection[] {
+  const agent = nav.agent
+  const empty = new Set(agent?.empty ?? [])
+
   return [
     {
       title: 'Your agents',
       items: [{ href: '/', label: 'All agents' }],
     },
+    /**
+     * The agent being read, immediately under *All agents* (`#797`).
+     *
+     * **Only while inside that agent**, which is what the acceptance criterion
+     * asks for and also what keeps two levels enough: a section per agent would
+     * be a third level wearing a flat list.
+     */
+    ...(agent === undefined
+      ? []
+      : [
+          {
+            title: agent.name,
+            items: AGENT_PAGES.map((entry) => ({
+              href: agentPagePath(agent.agentId, entry.slug),
+              label: entry.title,
+              empty: empty.has(entry.slug),
+            })),
+          },
+        ]),
     {
       title: 'Quests',
       items: [
@@ -219,7 +308,13 @@ export function consoleNavigation(nav: ConsoleNav): string {
          */
         const here = item.href === nav.current
         const current = here ? ' aria-current="page"' : ''
-        return `<li><a href="${escape(item.href)}"${current}>${escape(item.label)}</a></li>`
+        /**
+         * Marked in the markup rather than in the stylesheet (`#797`), for the
+         * reason the list this replaces gave: a reader with no CSS gets the
+         * same fact as a reader with it.
+         */
+        const empty = item.empty === true ? ' <span class="console-nav__empty">(empty)</span>' : ''
+        return `<li><a href="${escape(item.href)}"${current}>${escape(item.label)}${empty}</a></li>`
       })
       .join('')
 

@@ -11,6 +11,7 @@ import {
 } from '@kolonie-ai/core'
 import { asciiName } from './console/ascii-name.js'
 import { escape, page } from './console/html.js'
+import type { ConsoleNav } from './console/navigation.js'
 
 /**
  * The one page an operator ever sees (#146).
@@ -245,6 +246,33 @@ export function autonomyFormPage(input: {
   readonly alsoFor?: readonly { readonly agentId: string; readonly name: string }[] | undefined
   /** Which of them survived a rejected submission, so a retry keeps them. */
   readonly ticked?: readonly string[] | undefined
+  /**
+   * The console's navigation, when this is the console's own autonomy page
+   * (`#797`).
+   *
+   * **Absent for the mailed form, and that is not an oversight.** The operator
+   * who follows the invitation link has no account and no session; a navigation
+   * offering them *Your agents* would be a column of links to the console's 404.
+   *
+   * It was absent for the console too until this issue, which meant the one page
+   * an operator reached from the agent page was the one page with no way back to
+   * it. `page()` was already being called without `signedIn`, so the header said
+   * *sign in* to somebody who was signed in.
+   */
+  readonly nav?: ConsoleNav | undefined
+  /**
+   * The contract as it stands, and the versions before it (`#797`).
+   *
+   * The overview used to draw the history and link here for the form, which is
+   * the split this issue removes: *what may this agent do* and *change what it
+   * may do* are one question, so they are one page. Rendered above the form,
+   * because reading what is recorded is what somebody arriving here does first.
+   *
+   * Already-rendered lines rather than the contract rows: the table belongs to
+   * `agent-page.ts`, which is where every other section's markup lives, and
+   * duplicating it here would be two renderings of one contract.
+   */
+  readonly history?: readonly string[] | undefined
 }): string {
   const name = escape(input.agentName)
   const held = input.values ?? {}
@@ -303,6 +331,10 @@ export function autonomyFormPage(input: {
      * button is one they read after deciding not to press it.
      */
     `<p class="note">${escape(AUTONOMY_DIRECTION_NOTE)}</p>`,
+    ...(input.history ?? []),
+    input.history === undefined || input.history.length === 0
+      ? ''
+      : '<h2>Revise this contract</h2>',
     `<form method="post" action="${escape(input.action)}">`,
 
     '<h2>How far may it go?</h2>',
@@ -352,7 +384,24 @@ export function autonomyFormPage(input: {
         ]),
   ]
 
-  return page({ title: `What may ${input.agentName} do?`, body: body.filter(Boolean).join('\n') })
+  const rendered = {
+    title: `What may ${input.agentName} do?`,
+    body: body.filter(Boolean).join('\n'),
+  }
+
+  /**
+   * Signed in exactly when there is a navigation to draw (`#797`), which is the
+   * console and never the mailed form. Two facts, one condition: a person with a
+   * session gets the console's header and its column, and a person with a link
+   * gets the bare page it has always been.
+   *
+   * Two calls rather than a spread, because `PageInput` pairs the two — a page
+   * that says *signed in* and draws no navigation is the state `html.ts` refuses
+   * to let a caller construct.
+   */
+  return input.nav === undefined
+    ? page(rendered)
+    : page({ ...rendered, signedIn: true, nav: input.nav })
 }
 
 /** What the operator sees afterwards. There is nothing further for them to do. */

@@ -1,13 +1,24 @@
 import { describe, expect, it } from 'vitest'
-import { agentPage } from './agent-page.js'
+import {
+  agentPage,
+  agentSectionPage,
+  autonomyLines,
+  emptyAgentPages,
+  questsWrittenLines,
+  rungsLines,
+  walletLines,
+} from './agent-page.js'
+import { AGENT_PAGES, agentPagePath, consoleNavigation } from './navigation.js'
 import { relative } from './time.js'
+
+const AGENT = '11111111-1111-4111-8111-111111111111'
 
 /** A page with nothing on it, so each test adds only the thing it is about. */
 const aView = (overrides: Partial<Parameters<typeof agentPage>[0]> = {}) =>
   ({
     nav: {},
     zone: 'UTC',
-    agentId: '11111111-1111-4111-8111-111111111111',
+    agentId: AGENT,
     name: 'ariadne',
     runtime: 'claude',
     citizenship: 'citizen',
@@ -22,38 +33,49 @@ const aView = (overrides: Partial<Parameters<typeof agentPage>[0]> = {}) =>
     ...overrides,
   }) as unknown as Parameters<typeof agentPage>[0]
 
+/** Every mark set, so a test naming one page names it deliberately. */
+const NOTHING = {
+  hasWallet: false,
+  skills: 0,
+  rungs: 0,
+  attempts: 0,
+  quests: 0,
+  questsWritten: 0,
+  accounts: 0,
+  autonomyVersions: 0,
+}
+
 describe('the autonomy contract', () => {
   it('offers the operator a route to record one without waiting for the agent', () => {
     const html = agentPage(aView())
     expect(html).toContain('No contract recorded yet')
-    expect(html).toContain('/agents/11111111-1111-4111-8111-111111111111/autonomy')
+    expect(html).toContain(`/agents/${AGENT}/autonomy`)
   })
 
   it('keeps a superseded version readable with its own dates', () => {
-    const html = agentPage(
-      aView({
-        autonomyHistory: [
-          {
-            level: 'accompanied',
-            challengesAllowed: false,
-            defaultRule: 'refrain',
-            operatorRoute: 'Use the console.',
-            recordedAt: '2026-08-10T10:00:00.000Z',
-            reviewDueAt: '2027-08-10T10:00:00.000Z',
-            supersededAt: null,
-          },
-          {
-            level: 'free',
-            challengesAllowed: true,
-            defaultRule: 'ask',
-            operatorRoute: 'Use mail.',
-            recordedAt: '2026-08-09T10:00:00.000Z',
-            reviewDueAt: '2027-08-09T10:00:00.000Z',
-            supersededAt: '2026-08-10T10:00:00.000Z',
-          },
-        ],
-      }),
-    )
+    const html = autonomyLines(
+      [
+        {
+          level: 'accompanied',
+          challengesAllowed: false,
+          defaultRule: 'refrain',
+          operatorRoute: 'Use the console.',
+          recordedAt: '2026-08-10T10:00:00.000Z',
+          reviewDueAt: '2027-08-10T10:00:00.000Z',
+          supersededAt: null,
+        },
+        {
+          level: 'free',
+          challengesAllowed: true,
+          defaultRule: 'ask',
+          operatorRoute: 'Use mail.',
+          recordedAt: '2026-08-09T10:00:00.000Z',
+          reviewDueAt: '2027-08-09T10:00:00.000Z',
+          supersededAt: '2026-08-10T10:00:00.000Z',
+        },
+      ],
+      'UTC',
+    ).join('\n')
 
     expect(html).toContain('Current version')
     expect(html).toContain('Previous version 1')
@@ -72,35 +94,27 @@ describe('the autonomy contract', () => {
  */
 describe('the quests an agent wrote', () => {
   /**
-   * **`#454`'s no-empty-heading rule was reversed by `#583`**, and the reason is
-   * the contents list that issue added: an omitted section reads as *this agent
-   * cannot do that*, and an entry marked empty reads as *nothing here yet*.
-   * Only the second is true, so the section renders whatever its state and says
-   * what would put a row in it.
+   * **`#454`'s no-empty-heading rule was reversed by `#583`**, and `#797` kept
+   * the reversal when the sections became pages: an absent page reads as *this
+   * agent cannot do that*, and a page marked empty reads as *nothing here yet*.
+   * Only the second is true.
    */
   it('renders with an empty state, and says whose decision fills it', () => {
-    const html = agentPage(aView())
-
-    expect(html).toContain('<h2 id="quests-it-wrote">Quests it wrote</h2>')
-    expect(html).toContain('None written')
-    // The block above it, which is a different question about different rows.
-    expect(html).toContain('<h2 id="quests">Quests</h2>')
+    expect(questsWrittenLines([]).join('\n')).toContain('None written')
+    expect(questsWrittenLines(undefined).join('\n')).toContain('None written')
+    // The page keeps its entry whatever is in it, and is marked instead.
+    expect(emptyAgentPages(NOTHING)).toContain('quests-written')
   })
 
   it('names them as the agent’s and points at where they overlap', () => {
-    const html = agentPage(
-      aView({
-        questsWritten: [
-          {
-            questId: 'aaaaaaaa-1111-4111-8111-111111111111',
-            title: 'A thousand mailboxes',
-            status: 'active',
-          },
-        ],
-      }),
-    )
+    const html = questsWrittenLines([
+      {
+        questId: 'aaaaaaaa-1111-4111-8111-111111111111',
+        title: 'A thousand mailboxes',
+        status: 'active',
+      },
+    ]).join('\n')
 
-    expect(html).toContain('Quests it wrote')
     expect(html).toContain('A thousand mailboxes')
     // One quest in two places rather than two quests: the person's own list
     // carries the same row with this agent named in the author column.
@@ -123,9 +137,8 @@ describe('the quests an agent wrote', () => {
  */
 describe('where to send an agent SOL', () => {
   it('prints the proved address in full', () => {
-    const html = agentPage(aView({ walletAddress: 'C8kdTzzyDXyPGjoNBefTZZ9KZt7feXAUQgY4vhuHVh1s' }))
+    const html = walletLines('C8kdTzzyDXyPGjoNBefTZZ9KZt7feXAUQgY4vhuHVh1s').join('\n')
 
-    expect(html).toContain('<h2 id="wallet">Wallet</h2>')
     expect(html).toContain('C8kdTzzyDXyPGjoNBefTZZ9KZt7feXAUQgY4vhuHVh1s')
     // Whose key it is, said where the address is read rather than elsewhere.
     expect(html).toContain('Only the agent holds the key')
@@ -137,7 +150,7 @@ describe('where to send an agent SOL', () => {
    * because a person signing for an agent is exactly what `#539` got wrong.
    */
   it('says the rung is the agent’s own step when there is no address', () => {
-    const html = agentPage(aView({ walletAddress: null }))
+    const html = walletLines(null).join('\n')
 
     expect(html).toContain('has not proved a wallet yet')
     expect(html).toContain('solana-wallet')
@@ -145,134 +158,186 @@ describe('where to send an agent SOL', () => {
   })
 
   /**
-   * Nothing in this block asks anybody to sign anything.
+   * Nothing in this section asks anybody to sign anything.
    *
-   * Scoped to the block rather than the page: the layout's header carries a
-   * *Sign out* button on every console page, and an assertion that failed on it
-   * would be testing the furniture.
+   * **Asserted on the lines rather than on the rendered page** (`#797`). It used
+   * to slice the page between two `<h2 id>`s, which is exactly the fragile thing
+   * the anchors made necessary — and the page around them carries a *Sign out*
+   * button that a page-wide assertion would have failed on. The section is its
+   * own function now, so the scope is the function's return value.
    */
   it('offers no way for a person to prove a wallet', () => {
-    const html = agentPage(aView({ walletAddress: null }))
-    const from = html.indexOf('<h2 id="wallet">Wallet</h2>')
-    // `<h2` and not `<h2>`: every heading carries an id since `#583`, so the
-    // old needle matched nothing and the "block" ran to the end of the page.
-    const block = html.slice(from, html.indexOf('<h2', from + 1))
+    const html = walletLines(null).join('\n')
 
-    expect(from).toBeGreaterThan(-1)
-    expect(block).not.toMatch(/<button|<form|<input/i)
-    expect(block).not.toMatch(/sign with|prove a wallet with/i)
-    expect(block).not.toContain('href')
+    expect(html).not.toMatch(/<button|<form|<input/i)
+    expect(html).not.toMatch(/sign with|prove a wallet with/i)
+    expect(html).not.toContain('href')
   })
 })
 
 /**
- * The contents column (`#583`).
+ * What *empty* means, decided once (`#797`).
  *
- * **The drift between the list and the sections is the thing that will happen**,
- * which is the definition of done's own wording — so it is asserted as a set
- * equality in both directions rather than by naming the sections here. A section
- * added without an entry, or an entry pointing at an id nothing renders, fails.
+ * The overview marks a line and the navigation marks an entry, and until this
+ * they were two computations of one fact — which is D-002 in the small. Both
+ * read this, so the test is of the definition rather than of either reader.
  */
-describe('the contents list on the agent page', () => {
-  const idsIn = (html: string, pattern: RegExp): string[] =>
-    [...html.matchAll(pattern)].map((match) => match[1] as string)
-
-  const rendered = (html: string): string[] => idsIn(html, /<h2 id="([^"]+)"/g)
-  const listed = (html: string): string[] => {
-    const start = html.indexOf('<nav class="page-contents"')
-    const end = html.indexOf('</nav>', start)
-    return idsIn(html.slice(start, end), /href="#([^"]+)"/g)
-  }
-
-  it('lists exactly the sections the page renders, in the same order', () => {
-    const html = agentPage(
-      aView({
-        walletAddress: 'So11111111111111111111111111111111111111112',
-        facts: {
-          lastSeenAt: null,
-          citizenSince: '2026-08-01T00:00:00.000Z',
-          questsAccepted: 0,
-          skills: ['mailbox'],
-          rungs: [{ rung: 'a-rung', title: 'A rung', passedAt: '2026-08-01T00:00:00.000Z' }],
-          attempts: [],
-          accounts: [{ kind: 'mailbox', count: 1 }],
-        },
-        quests: [],
-        questsWritten: [],
-        accounts: { held: 1, planned: 0, wanted: 0 },
-      }),
-    )
-
-    expect(listed(html)).toEqual(rendered(html))
-  })
-
-  /**
-   * **The rejection case the definition of done asks for.** An agent with
-   * nothing — no skills, no rungs, no quests, no accounts — still lists every
-   * section, because a missing entry would say it cannot do those things.
-   */
-  it('lists every section for an agent that has done nothing at all', () => {
-    const html = agentPage(aView())
-
-    expect(listed(html)).toEqual([
+describe('which of an agent’s pages have nothing on them', () => {
+  it('marks every page an agent that has done nothing has not filled', () => {
+    expect(emptyAgentPages(NOTHING)).toEqual([
       'wallet',
       'skills',
-      'rungs-cleared',
-      'recent-activity',
+      'rungs',
+      'activity',
       'quests',
-      'quests-it-wrote',
+      'quests-written',
       'accounts',
-      'autonomy-contract',
-      'public-profile',
+      'autonomy',
     ])
-    expect(listed(html)).toEqual(rendered(html))
-  })
-
-  it('marks the empty ones as empty rather than hiding them', () => {
-    const html = agentPage(aView())
-    const start = html.indexOf('<nav class="page-contents"')
-    const contents = html.slice(start, html.indexOf('</nav>', start))
-
-    // Nine sections, eight marks: this agent has nothing anywhere, and the
-    // public page is the one section that exists whether or not it does.
-    expect([...contents.matchAll(/\(empty\)/g)]).toHaveLength(8)
   })
 
   /**
-   * The note is the one section that is conditional, and `#583`'s rule does not
-   * cover it: an agent that has issued no operator page has no door (`#428`), so
-   * *you cannot leave this agent a note* is the true reading rather than the
-   * misleading one. Listing it would offer a form that is not there.
+   * The two that are never marked, and for different reasons: the overview is
+   * the page the marks are drawn on, and the public profile exists whether or
+   * not the agent has written one.
    */
-  it('lists the note only when there is a door to it', () => {
-    expect(listed(agentPage(aView()))).not.toContain('leave-a-note')
-    expect(listed(agentPage(aView({ operator: '<p>the form</p>' })))).toContain('leave-a-note')
+  it('never marks the overview or the public profile', () => {
+    const empty = emptyAgentPages(NOTHING)
+
+    expect(empty).not.toContain('')
+    expect(empty).not.toContain('profile')
   })
 
-  it('puts the whole page in one fetch, with nothing behind an interaction', () => {
-    const html = agentPage(aView({ operator: '<p>the form</p>' }))
+  it('marks nothing for an agent that has filled everything', () => {
+    expect(
+      emptyAgentPages({
+        hasWallet: true,
+        skills: 1,
+        rungs: 1,
+        attempts: 1,
+        quests: 1,
+        questsWritten: 1,
+        accounts: 1,
+        autonomyVersions: 1,
+      }),
+    ).toEqual([])
+  })
 
-    expect(html).not.toMatch(/<script\b/)
-    /**
-     * Scoped to this page's own markup: `#608`'s navigation is a `<details>` per
-     * section and is furniture on every console page. What `#583` refuses is a
-     * disclosure around *this page's* content — no tabs, no accordion, nothing
-     * a plain fetch cannot see.
-     */
-    const own = html.slice(html.indexOf('<div class="agent-page">'))
-    expect(own).not.toMatch(/<details\b/)
-    // Every anchor the list points at is an id in the same document.
-    for (const id of listed(html)) expect(html).toContain(`id="${id}"`)
+  /** Every slug it can produce is a page in the table, or the nav would mark nothing. */
+  it('names only slugs the navigation knows', () => {
+    const slugs = new Set(AGENT_PAGES.map((entry) => entry.slug))
+    for (const slug of emptyAgentPages(NOTHING)) expect(slugs).toContain(slug)
   })
 })
 
 /**
- * The overview (`#798`).
+ * The navigation into an agent's pages (`#797`).
+ *
+ * This is the fix for the mobile regression: the contents column `#583` added
+ * was displayed only from 75rem, so the one reader it was built for — somebody
+ * on a phone with a long page to scroll — never saw it. The console's own
+ * navigation is a `<details>` element and is shown at every width, which is why
+ * the entries moved into it rather than into a second column.
+ */
+describe('an agent’s pages in the console navigation', () => {
+  const inAgent = (empty: readonly string[] = [], current = agentPagePath(AGENT, '')) =>
+    consoleNavigation({ current, agent: { agentId: AGENT, name: 'ariadne', empty } })
+
+  const hrefs = (html: string): string[] =>
+    [...html.matchAll(/href="([^"]+)"/g)].map((match) => match[1] as string)
+
+  it('lists every one of that agent’s pages, titled with its name', () => {
+    const html = inAgent()
+
+    expect(html).toContain('ariadne')
+    for (const entry of AGENT_PAGES) {
+      expect(hrefs(html)).toContain(agentPagePath(AGENT, entry.slug))
+      expect(html).toContain(entry.title)
+    }
+  })
+
+  /**
+   * **The criterion, stated as the assertion.** A `#fragment` in the navigation
+   * would be an entry `aria-current` can never land on, which is what the old
+   * contents column was made of.
+   */
+  it('carries no fragment as a destination', () => {
+    for (const href of hrefs(inAgent())) expect(href).not.toContain('#')
+  })
+
+  it('marks where you are, on exactly one entry, on every one of them', () => {
+    for (const entry of AGENT_PAGES) {
+      const html = inAgent([], agentPagePath(AGENT, entry.slug))
+      expect([...html.matchAll(/aria-current="page"/g)]).toHaveLength(1)
+    }
+  })
+
+  /**
+   * `#583`'s rule, carried over: *`empty` is a fact about this agent, not about
+   * the section*. A missing entry says the agent cannot do the thing; an entry
+   * marked empty says nothing has happened yet.
+   */
+  it('keeps the empty pages and marks them', () => {
+    const html = inAgent(emptyAgentPages(NOTHING))
+
+    expect([...html.matchAll(/\(empty\)/g)]).toHaveLength(8)
+    for (const entry of AGENT_PAGES) {
+      expect(hrefs(html)).toContain(agentPagePath(AGENT, entry.slug))
+    }
+  })
+
+  /**
+   * **The current agent only.** *All agents* is above it and is how somebody
+   * reaches a different one; a navigation listing every agent's ten pages would
+   * be the long page again, in a column.
+   */
+  it('is absent everywhere outside an agent', () => {
+    const html = consoleNavigation({ current: '/quests' })
+
+    expect(html).not.toContain('ariadne')
+    for (const href of hrefs(html)) expect(href).not.toContain('/agents/')
+  })
+})
+
+/**
+ * One section, on a page of its own (`#797`).
+ */
+describe('a section page', () => {
+  const rendered = agentSectionPage({
+    nav: { current: agentPagePath(AGENT, 'rungs'), agent: { agentId: AGENT, name: 'ariadne' } },
+    agentId: AGENT,
+    name: 'ariadne',
+    title: 'Rungs cleared',
+    lines: rungsLines([{ rung: 'a-rung', title: 'A rung', passedAt: '2026-08-01T00:00:00.000Z' }]),
+  })
+
+  it('is titled with the section and carries only that section', () => {
+    expect(rendered).toContain('<h1>Rungs cleared</h1>')
+    expect(rendered).toContain('A rung')
+    // Not the whole page in disguise: no other section's content came with it.
+    expect(rendered).not.toContain('has not proved a wallet yet')
+    expect(rendered).not.toContain('No contract recorded yet')
+  })
+
+  it('leads back to the agent it belongs to', () => {
+    expect(rendered).toContain(`href="${agentPagePath(AGENT, '')}"`)
+    expect(rendered).toContain('Back to ariadne')
+  })
+
+  /** No second menu on the page — the column to the left is the only one. */
+  it('draws no contents list of its own', () => {
+    expect(rendered).not.toContain('page-contents')
+    expect(rendered).not.toMatch(/href="#/)
+  })
+})
+
+/**
+ * The overview (`#798`), which is what `/agents/:agentId` is now (`#797`).
  *
  * **A reader should be able to answer *how is this agent doing* without opening
- * anything.** That is the whole test: one line per section whatever the agent's
- * state, each carrying a figure or a phrase rather than the section itself, and
- * every figure the same read as the section it points at.
+ * anything.** That is the whole test: one line per page whatever the agent's
+ * state, each carrying a figure or a phrase rather than the page itself, and
+ * every figure the same read as the page it points at.
  */
 describe('the overview on the agent page', () => {
   const overview = (html: string): string => {
@@ -300,39 +365,51 @@ describe('the overview on the agent page', () => {
     expect(overview(html)).toContain('Nothing attempted yet')
     expect(overview(html)).toContain('None taken yet')
     expect(overview(html)).toContain('None written')
-    expect(overview(html)).toContain('Nothing proved, and nothing on the list')
+    expect(overview(html)).toContain('Nothing proved yet')
     expect(overview(html)).toContain('No contract recorded yet')
     // The one line that says nothing is missing: the page exists either way.
     expect(overview(html)).toContain('asking for this agent by name')
   })
 
-  it('leads each line to the section or the page that holds it', () => {
+  /**
+   * **Every line leads to a page, and none of them to a fragment** (`#797`).
+   *
+   * Six of these were `#anchor`s into a page that rendered all nine sections at
+   * once. Two were already pages of their own, which is what settled the
+   * direction: the sections became pages rather than the pages becoming
+   * sections.
+   */
+  it('leads each line to the page that holds it', () => {
     const html = agentPage(aView())
     const targets = [...overview(html).matchAll(/href="([^"]+)"/g)].map((match) => match[1])
 
     expect(targets).toEqual([
-      '#wallet',
-      '#skills',
-      '#rungs-cleared',
-      '#recent-activity',
-      '#quests',
-      '#quests-it-wrote',
-      // The one section whose content is a page of its own already (`#582`).
-      '/agents/11111111-1111-4111-8111-111111111111/accounts',
-      '#autonomy-contract',
-      // The second, for the same reason: the boxes and the preview are a page.
-      '/agents/11111111-1111-4111-8111-111111111111/profile',
+      `/agents/${AGENT}/wallet`,
+      `/agents/${AGENT}/skills`,
+      `/agents/${AGENT}/rungs`,
+      `/agents/${AGENT}/activity`,
+      `/agents/${AGENT}/quests`,
+      `/agents/${AGENT}/quests-written`,
+      `/agents/${AGENT}/accounts`,
+      `/agents/${AGENT}/autonomy`,
+      `/agents/${AGENT}/profile`,
     ])
+    for (const target of targets) expect(target).not.toContain('#')
   })
 
   /**
-   * **The figure and the section it points at are one read of one fact.** Not a
+   * **The line and the page it points at are one read of one fact.** Not a
    * second query answering the same question in a different shape, which is the
    * acceptance criterion — so the count on the line is asserted against the rows
-   * the section actually renders rather than against the input that produced
-   * both.
+   * the section's own renderer produces rather than against the input twice.
    */
-  it('states a figure the section it points at agrees with', () => {
+  it('states a figure the page it points at agrees with', () => {
+    const rungs = [
+      { rung: 'a-rung', title: 'A rung', passedAt: '2026-08-01T00:00:00.000Z' },
+      { rung: 'b-rung', title: 'B rung', passedAt: '2026-08-03T00:00:00.000Z' },
+      { rung: 'c-rung', title: 'C rung', passedAt: '2026-08-02T00:00:00.000Z' },
+    ]
+
     const html = agentPage(
       aView({
         facts: {
@@ -340,11 +417,7 @@ describe('the overview on the agent page', () => {
           citizenSince: '2026-08-01T00:00:00.000Z',
           questsAccepted: 0,
           skills: ['mailbox', 'browser'],
-          rungs: [
-            { rung: 'a-rung', title: 'A rung', passedAt: '2026-08-01T00:00:00.000Z' },
-            { rung: 'b-rung', title: 'B rung', passedAt: '2026-08-03T00:00:00.000Z' },
-            { rung: 'c-rung', title: 'C rung', passedAt: '2026-08-02T00:00:00.000Z' },
-          ],
+          rungs,
           attempts: [],
           accounts: [],
         },
@@ -352,26 +425,30 @@ describe('the overview on the agent page', () => {
       }),
     )
 
-    const rungsSection = html.slice(
-      html.indexOf('<h2 id="rungs-cleared">'),
-      html.indexOf('<h2 id="recent-activity">'),
-    )
-
     expect(overview(html)).toContain('3 cleared')
-    expect([...rungsSection.matchAll(/<tr><td>/g)]).toHaveLength(3)
+    expect([
+      ...rungsLines(rungs)
+        .join('\n')
+        .matchAll(/<tr><td>/g),
+    ]).toHaveLength(3)
     // And the accounts line carries the counts `/agents/:agentId/accounts` was
-    // given, in the same read that produced the section's own sentence.
+    // given, in the same read that produced the page's own sentence.
     expect(overview(html)).toContain(
       '4 proved, 2 on the list you keep together, 1 marked as wanted',
     )
-    expect(html).toContain('4 proved, 2 on the list you keep together')
+  })
+
+  it('says nothing is proved and nothing planned, in that order, for a new agent', () => {
+    expect(overview(agentPage(aView()))).toContain(
+      'Nothing proved yet, nothing on the list you keep together.',
+    )
   })
 
   /**
    * `AGENTS.md` §7: a figure that carries a moment keeps it. The rungs render
    * oldest first and the pulse newest first, so *the last one* is the newest
-   * moment in the set rather than an end of an array — a section that changed
-   * the order it prints in must not make this line start lying.
+   * moment in the set rather than an end of an array — a page that changed the
+   * order it prints in must not make this line start lying.
    */
   it('dates the last rung by its moment and not by its place in the table', () => {
     const html = agentPage(
@@ -392,17 +469,16 @@ describe('the overview on the agent page', () => {
     )
 
     // The newest of the two, which is the first in the array here and the last
-    // in the table the section renders.
+    // in the table the rungs page renders.
     expect(overview(html)).toContain(`2 cleared, the last ${relative('2026-08-12T00:00:00.000Z')}`)
     expect(overview(html)).not.toContain(relative('2020-01-01T00:00:00.000Z'))
   })
 
   /**
-   * Nothing on the overview is a section's full content — a section that is
-   * short today is a page tomorrow, and duplicating it here would rebuild the
-   * long page one line at a time.
+   * The overview carries no section's content — which since `#797` is the whole
+   * of what this page is, rather than a rule about one list on it.
    */
-  it('carries no rows of its own', () => {
+  it('carries no rows of its own, and neither does the page around it', () => {
     const html = agentPage(
       aView({
         walletAddress: 'C8kdTzzyDXyPGjoNBefTZZ9KZt7feXAUQgY4vhuHVh1s',
@@ -418,17 +494,34 @@ describe('the overview on the agent page', () => {
     )
 
     expect(overview(html)).not.toMatch(/<table|<tr|<h2/)
-    // The wallet address is on the page and never on the line about it.
-    expect(overview(html)).not.toContain('C8kdTzzyDXyPGjoNBefTZZ9KZt7feXAUQgY4vhuHVh1s')
-    expect(overview(html)).not.toContain('A thousand mailboxes')
     expect(overview(html)).toContain('1 taken, the last')
+    // The address is on the wallet page and on neither the line nor this one.
+    expect(html).not.toContain('C8kdTzzyDXyPGjoNBefTZZ9KZt7feXAUQgY4vhuHVh1s')
+    expect(html).not.toContain('A thousand mailboxes')
+  })
+
+  /**
+   * **One fetch, nothing behind an interaction**, and no second menu (`#797`).
+   *
+   * The `<details>` assertion is scoped away from `#608`'s navigation, which is
+   * furniture on every console page. What is asserted here is that this page's
+   * own body has no disclosure and no contents column.
+   */
+  it('draws one menu and puts the whole page in one fetch', () => {
+    const html = agentPage(aView({ hasDoor: true }))
+
+    expect(html).not.toMatch(/<script\b/)
+    expect(html).not.toContain('page-contents')
+    const body = html.slice(html.indexOf('<ul class="page-overview">'))
+    expect(body).not.toMatch(/<details\b/)
   })
 
   it('adds a tenth line only when there is a door to leave a note at', () => {
     expect(lines(agentPage(aView()))).toHaveLength(9)
 
-    const withDoor = lines(agentPage(aView({ operator: '<p>the form</p>' })))
+    const withDoor = lines(agentPage(aView({ hasDoor: true })))
     expect(withDoor).toHaveLength(10)
     expect(withDoor[9]).toContain('A door is open')
+    expect(withDoor[9]).toContain(`/agents/${AGENT}/operator`)
   })
 })

@@ -8,6 +8,11 @@ import {
   ProviderReportOutcomeSchema,
   AccountStatusSchema,
   AccountTypeSchema,
+  ThreadPartySchema,
+  EpisodeKindSchema,
+  EpisodeTurnSchema,
+  EpisodeOutcomeSchema,
+  SlotFillerSchema,
   AgentPlatformSchema,
   AssistanceSchema,
   AttemptOpenerSchema,
@@ -94,6 +99,30 @@ export const accountProvenance = pgEnum(
   'account_provenance',
   valuesOf(AccountProvenanceSchema.options),
 )
+
+/**
+ * The account conversation's four closed vocabularies (`#929`).
+ *
+ * Enums rather than text, and the opposite call to `accounts.kind` one screen
+ * up. A new account *kind* arrives whenever the Academy learns to verify
+ * something new, so it must not be a migration. A fifth `outcome`, or a fourth
+ * party to a thread, would be a change to what can be said about an account at
+ * all — an argument rather than a routine addition, and the database is the
+ * right place for it to have to be made.
+ *
+ * `thread_party` serves both `opened_by` and `author`: three parties, one
+ * vocabulary, argued in `packages/core/src/account/thread.ts`.
+ */
+export const threadParty = pgEnum('thread_party', valuesOf(ThreadPartySchema.options))
+
+export const episodeKind = pgEnum('episode_kind', valuesOf(EpisodeKindSchema.options))
+
+export const episodeTurn = pgEnum('episode_turn', valuesOf(EpisodeTurnSchema.options))
+
+export const episodeOutcome = pgEnum('episode_outcome', valuesOf(EpisodeOutcomeSchema.options))
+
+/** Two members where {@link threadParty} has three: the Colony never fills a slot. */
+export const slotFiller = pgEnum('slot_filler', valuesOf(SlotFillerSchema.options))
 
 /**
  * D-001: roles and citizenship are separate types, so `candidate` and `citizen`

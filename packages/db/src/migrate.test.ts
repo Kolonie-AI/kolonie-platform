@@ -449,7 +449,15 @@ describe('the migrations', () => {
     // the token the refused first call hands out waits for the second. It holds
     // no name for anybody — the row is a token and not a reservation — so it is
     // the rare table whose expired rows can be swept without a decision.
-    expect(afterFirst.tables).toBe('113')
+    //
+    // **A hundred and seventeen** (`#929`): the account conversation, in four —
+    // `account_threads`, `account_episodes`, `account_slots`,
+    // `account_entries`. Four rather than one because the three levels each
+    // hold a different lifetime: the thread never closes, an episode opens and
+    // closes and may happen many times, and a slot is one thing changing hands
+    // within one of them. Folding any pair would put two lifetimes on one row,
+    // which is the shape the design replaced.
+    expect(afterFirst.tables).toBe('117')
     // Twenty: `task_kind` (#43) tells an Academy task from a Quest and therefore
     // what may pay credits; `support_ticket_kind` and `support_ticket_status` (#11)
     // carry what a citizen wrote about and where it stands; `erasure_reason` and
@@ -563,7 +571,16 @@ describe('the migrations', () => {
     // deliberate — a seventh signature buys a migration, and `#836` defends the
     // six as a closed list precisely so a seventh is an argument rather than an
     // addition somebody makes without noticing.
-    expect(afterFirst.enums).toBe('51')
+    // And `thread_party`, `episode_kind`, `episode_turn`, `episode_outcome` and
+    // `slot_filler` make fifty-six (`#929`). Enums where `accounts.kind` is
+    // text, and the difference is the one this list keeps making: a new *kind*
+    // of account arrives whenever the Academy learns to verify something new,
+    // while a fifth way an episode can end, or a fourth party that can act on
+    // one, is an argument about what the conversation is — so the database is
+    // the right place to make it. `slot_filler` is the deliberate short one:
+    // two members where `thread_party` has three, because the Colony can notice
+    // that an account is broken and cannot know the password.
+    expect(afterFirst.enums).toBe('56')
     // Two: the deferred double-entry constraint trigger on `ledger_entries`, and
     // `submissions_one_pass_per_quest` (#175) — one accepted submission per
     // citizen per quest, which is a trigger rather than a partial unique index
@@ -578,7 +595,21 @@ describe('the migrations', () => {
     // re-report every retirement the Colony ever made. A trigger rather than a
     // clause in the seed's upsert, so that the next writer of `tasks.status` is
     // correct without knowing the column is there.
-    expect(afterFirst.triggers).toBe('4')
+    //
+    // `#929` makes seven, and each of the three is here for the reason this
+    // list keeps giving: the guarantee has to survive the next caller who has
+    // not read the design. `accounts_open_thread` makes the thread appear when
+    // the account does, so that no insert path has to remember. Three already
+    // write accounts and a fourth will, and an account whose thread is missing
+    // looks exactly like an account nothing has happened to.
+    // `account_episodes_stamp_close` writes `closed_at` and sets `turn` to
+    // `nobody` in one act — the `tasks_stamp_retirement` pattern, and for the
+    // same reason: a date a caller supplies is a date that can disagree with
+    // the state beside it. And `account_entries_are_append_only` refuses
+    // `UPDATE` and deliberately does **not** refuse `DELETE`, because erasure
+    // reaches those rows by cascade and a row-level delete guard would refuse
+    // erasure itself.
+    expect(afterFirst.triggers).toBe('7')
 
     await expect(migrate(db, { migrationsFolder: MIGRATIONS_FOLDER })).resolves.not.toThrow()
     expect(await objectCounts()).toEqual(afterFirst)

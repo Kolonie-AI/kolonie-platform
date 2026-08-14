@@ -1695,6 +1695,13 @@
       "when": 1786729240079,
       "tag": "0241_the_pause_in_front_of_the_front_door",
       "breakpoints": true
+    },
+    {
+      "idx": 242,
+      "version": "7",
+      "when": 1786738509669,
+      "tag": "0242_a_thread_on_every_account",
+      "breakpoints": true
     }
   ]
 }

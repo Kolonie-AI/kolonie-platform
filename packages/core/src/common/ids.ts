@@ -130,3 +130,29 @@ export type HumanIdentityId = z.infer<typeof HumanIdentityIdSchema>
  */
 export const HumanSessionIdSchema = z.uuid().brand<'HumanSessionId'>()
 export type HumanSessionId = z.infer<typeof HumanSessionIdSchema>
+
+/**
+ * The conversation hanging off one account (`#929`).
+ *
+ * Branded, and so are the three ids below it, for the reason
+ * {@link HumanIdSchema} gives rather than for tidiness. A thread, an episode, a
+ * slot and an entry are four uuids that travel together through every call in
+ * this family — `writeEntry(episodeId)`, `fillSlot(slotId)` — and the argument
+ * lists are short enough that a transposition type-checks perfectly and is
+ * caught, if at all, by a foreign key at runtime. The compiler refusing the
+ * substitution costs one line each.
+ */
+export const AccountThreadIdSchema = z.uuid().brand<'AccountThreadId'>()
+export type AccountThreadId = z.infer<typeof AccountThreadIdSchema>
+
+/** One stretch of work about an account (`#929`). */
+export const AccountEpisodeIdSchema = z.uuid().brand<'AccountEpisodeId'>()
+export type AccountEpisodeId = z.infer<typeof AccountEpisodeIdSchema>
+
+/** One labelled thing that has to change hands within an episode (`#929`). */
+export const AccountSlotIdSchema = z.uuid().brand<'AccountSlotId'>()
+export type AccountSlotId = z.infer<typeof AccountSlotIdSchema>
+
+/** One appended note (`#929`). Named because nothing may edit it and everything may cite it. */
+export const AccountEntryIdSchema = z.uuid().brand<'AccountEntryId'>()
+export type AccountEntryId = z.infer<typeof AccountEntryIdSchema>

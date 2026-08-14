@@ -113,6 +113,25 @@ describe('schema', () => {
       )
       expect(rows.map((r) => r.table_name)).toEqual([
         /**
+         * The account conversation, in four tables (`#929`).
+         *
+         * `account_threads` is one per account and holds no state — it exists so
+         * that *everything that ever happened about this account* is one query,
+         * and it is created by a trigger rather than by a call site, because an
+         * account whose thread is missing looks exactly like an account nothing
+         * has happened to.
+         *
+         * `account_episodes` is what opens, runs and closes: at most one
+         * `acquisition` per thread ever, and any number of `maintenance` ones
+         * afterwards. `account_slots` carries the things that have to change
+         * hands, sealed by whichever direction they came from and never by this
+         * schema. `account_entries` is append-only — a trigger refuses `UPDATE`
+         * and deliberately does not refuse `DELETE`, because erasure reaches
+         * these rows by cascade.
+         */
+        'account_entries',
+        'account_episodes',
+        /**
          * `agent_contacts` (#141): which buckets a citizen was in contact in,
          * bounded to `CONTACT_RETENTION_DAYS`. It is what makes a declared
          * rhythm measurable at all — one timestamp answers *is it still there*
@@ -129,6 +148,8 @@ describe('schema', () => {
          * mechanics of proving are per-method and stay in their own table.
          */
         'account_proofs',
+        'account_slots',
+        'account_threads',
         /**
          * #601. One agent obtaining one account, and what happened during it.
          * A walk writes the recipe: the first successful one against a provider

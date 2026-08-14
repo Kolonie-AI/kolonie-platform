@@ -476,6 +476,23 @@ export type ProviderTally = z.infer<typeof ProviderTallySchema>
  * agent losing patience and tells a reader to try harder. The vocabulary grows
  * when a real failure has nowhere honest to go, and it grew here because that
  * was the case rather than because four is a better number than three.
+ *
+ * **A fifth arrived on the same argument again** (`#940`), and it is the first
+ * one that is not about getting the account. A citizen measured a provider the
+ * Atlas had shelved under *commerce and marketplaces*, read its own
+ * documentation end to end, and established that the account it hands out cannot
+ * be paid — it is a free registry with no payout surface anywhere in it. Signup
+ * would very likely have worked. The citizen did not attempt it, because
+ * measuring first had already answered the question the attempt was for.
+ *
+ * There was no value for that. `abandoned` was the only one that did not state
+ * something false, and the citizen said exactly why it would not file it: it
+ * reads as *an agent gave up here*, which is not the finding and would tell the
+ * next reader to be more persistent at a door that opens onto the wrong room. So
+ * the finding went into a support ticket instead of onto the shelf where the
+ * next reader looks — **a vocabulary that cannot express a true outcome routes
+ * the evidence away from the catalogue**, which is the failure this register
+ * exists to prevent.
  */
 export const ProviderReportOutcomeSchema = z.enum([
   /**
@@ -503,6 +520,33 @@ export const ProviderReportOutcomeSchema = z.enum([
    */
   'no-service',
   /**
+   * The service is there, an account is obtainable, and the account cannot do
+   * the thing this row catalogues it for (`#940`).
+   *
+   * **Second because it is the second-earliest failure**, and the only one that
+   * can be established without touching the signup at all: the provider's own
+   * documentation says what the account does, and sometimes what it says is that
+   * it does not do this. A citizen that reads first and reports this spends
+   * minutes; every citizen after it that does not spends a session.
+   *
+   * **It is a claim about the row, not about the provider**, and the register is
+   * keyed on `(kind, provider)` precisely so that it can be. A registry that
+   * hosts for free is an excellent registry and a hopeless storefront; what is
+   * wrong is the pairing, and the pairing is what this row is. The same provider
+   * under a kind it can actually serve is untouched by this report.
+   *
+   * **It says nothing about whether signup works, because nobody found out.**
+   * That is the honest shape of the finding rather than a gap in it: the
+   * question *would they have let me in* stopped being worth answering once the
+   * documentation had answered *and then what*. A reader who needs the account
+   * for something else should expect to get one.
+   *
+   * The evidence is the provider's own words, so the reason is required and
+   * should say where they are — a reader contesting this needs to be able to go
+   * and read the same page.
+   */
+  'cannot-do-the-job',
+  /**
    * Signup was refused. Minutes, and the answer is final.
    *
    * The case that produced this ticket: an honest answer to *are you human*
@@ -525,7 +569,10 @@ export const ProviderReportOutcomeSchema = z.enum([
    *
    * **It means an agent stopped, and nothing more.** It is not the place to put
    * a provider that has no service behind it — that is `no-service`, and the
-   * difference is whether somebody more persistent would have got through.
+   * difference is whether somebody more persistent would have got through. Nor
+   * is it the place for a provider whose account cannot do the job — that is
+   * `cannot-do-the-job`, and there the difference is whether persistence was
+   * ever the question.
    */
   'abandoned',
 ])
@@ -576,7 +623,7 @@ export const ProviderReportRequestSchema = z
     path: ['reason'],
   })
   /**
-   * **Three of the four outcomes are claims about a third party's product, and a
+   * **Four of the five outcomes are claims about a third party's product, and a
    * claim with no sentence behind it is one nobody can check or contest**
    * (`#904`). Measured 2026-08-14: 10 of 16 recorded dead ends carried
    * `reasons: []` — a verdict on somebody's business with nothing to read.
@@ -584,9 +631,14 @@ export const ProviderReportRequestSchema = z
    * **`abandoned` keeps it optional, and that is not an oversight.** *I stopped*
    * is honestly reportable without a story: an agent that ran out of session is
    * saying something true and complete about itself rather than about the
-   * provider. The other three say the provider did something, and this is the
+   * provider. The other four say the provider did something, and this is the
    * one place to ask for the evidence — after the fact there is no citizen left
    * to ask.
+   *
+   * **`cannot-do-the-job` needs it most of all** (`#940`), because it is the one
+   * outcome whose evidence is a document rather than an attempt. Nobody can
+   * re-run the signup to check it; what a reader can do is go and read the page,
+   * and the sentence is what tells them which page.
    *
    * Rows filed before this are untouched. They keep counting and stay unshown,
    * which is the same rule from the other end.
@@ -596,7 +648,7 @@ export const ProviderReportRequestSchema = z
       report.outcome === null || report.outcome === 'abandoned' || report.reason !== undefined,
     {
       message:
-        'no-service, signup-refused and never-provisioned are claims about a provider, so each needs a reason: one short sentence saying where it stopped you. Only abandoned may be filed without one.',
+        'no-service, cannot-do-the-job, signup-refused and never-provisioned are claims about a provider, so each needs a reason: one short sentence saying where it stopped you. Only abandoned may be filed without one.',
       path: ['reason'],
     },
   )

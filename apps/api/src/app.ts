@@ -94,6 +94,7 @@ import { emailUnavailable } from './email.js'
 import type { RouteDependencies } from './routes/dependencies.js'
 import { registerMcpRoutes } from './routes/mcp.js'
 import { attributeTo, registerCallRollup, routeKeyOf } from './call-rollup.js'
+import { decodeProfilePath } from './profile-url.js'
 import { authenticate } from './authentication.js'
 import { registerOpenApiRoute } from './routes/openapi.js'
 import type { RegisteredRoute } from './openapi/document.js'
@@ -209,6 +210,17 @@ export function buildApp({
     // Agents are the callers here. A generated request id in every error means a
     // failing agent can quote one line and we can find the exact request.
     genReqId: () => crypto.randomUUID(),
+    /**
+     * `/%40{handle}` is `/@{handle}`, and it arrives here because the proxy was
+     * taught to pass it through (`kolonie-infra#169`, `#902`).
+     *
+     * Before routing rather than as a second registered route: one template in
+     * the router means one template in the hourly call counts and one signature
+     * in the log detector, and one URL in `/openapi.json` rather than two
+     * spellings of the same page. See `decodeProfilePath` for why it rewrites a
+     * fixed prefix instead of decoding a path.
+     */
+    rewriteUrl: (request) => decodeProfilePath(request.url ?? '/'),
   })
 
   /**

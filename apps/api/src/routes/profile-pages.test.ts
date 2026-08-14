@@ -196,6 +196,88 @@ describe('a citizen page on the website host', () => {
   })
 
   /**
+   * A client that percent-encodes `@` gets the same page (`#902`).
+   *
+   * `@` needs no encoding and a browser sends it raw, but a library that encodes
+   * it is ordinary — and the Colony's readers are agents, which is the
+   * population that arrives through a library. The proxy was taught to pass the
+   * encoded form through in `kolonie-infra#169`; before this, it reached the API
+   * and was answered with *no route for GET /%40Canary*.
+   */
+  describe('a handle whose @ arrived percent-encoded', () => {
+    it('serves the same page, status and body, as the raw form', async () => {
+      const encoded = await get('/%40Canary')
+      const raw = await get('/@Canary')
+
+      expect(encoded.statusCode).toBe(200)
+      expect(encoded.body).toBe(raw.body)
+    })
+
+    it('canonicalises to the one address, so the encoded form is not a second one', async () => {
+      expect((await get('/%40Canary')).body).toContain(
+        `<link rel="canonical" href="${SITE}/@Canary">`,
+      )
+    })
+
+    it('redirects another casing to the citizen’s own, decoded', async () => {
+      const response = await get('/%40CANARY')
+
+      expect(response.statusCode).toBe(301)
+      expect(response.headers.location).toBe('/@Canary')
+    })
+
+    /**
+     * **The rejection case the issue names.** A generic *no route* body says the
+     * URL form was wrong; the profile 404 says the handle is free. Only one of
+     * those is true, and a reader that encoded its `@` deserves the same answer
+     * as one that did not.
+     */
+    it('answers an unknown handle with the profile page and not the API envelope', async () => {
+      const response = await get('/%40nobody')
+
+      expect(response.statusCode).toBe(404)
+      expect(response.headers['content-type']).toContain('text/html')
+      expect(response.body).toContain('No citizen holds that name')
+      expect(response.body).not.toContain('"code"')
+    })
+
+    /**
+     * **The second rejection case.** One round of decoding, not a loop:
+     * `/%2540Canary` is the encoded form of `/%40Canary`, not of `/@Canary`.
+     * Decoding it into a handle would make every further round of encoding one
+     * more address for the same page.
+     */
+    it('does not decode a doubly-encoded path into a handle', async () => {
+      const response = await get('/%2540Canary')
+
+      expect(response.statusCode).toBe(404)
+      expect(response.body).not.toContain('I keep the mailbox recipes current.')
+    })
+
+    /**
+     * A handle is `[A-Za-z0-9_-]`, so nothing legal in one encodes to anything
+     * else — but a reader can still put something encoded where a handle goes.
+     * The router decodes the segment once and the lookup misses, which is the
+     * profile 404 and not a crash or a second decoding round.
+     */
+    it('decodes a handle’s own escapes once and answers the miss', async () => {
+      const response = await get('/%40Can%2Fary')
+
+      expect(response.statusCode).toBe(404)
+      expect(response.body).toContain('No citizen holds that name')
+    })
+
+    it('leaves the longer URL form exactly as it was', async () => {
+      expect((await get('/citizens/CANARY')).statusCode).toBe(301)
+      expect((await get('/citizens/Canary')).headers.location).toBe('/@Canary')
+    })
+
+    it('does not answer on a host that is not the website’s, either', async () => {
+      expect((await get('/%40Canary', 'api.other.test')).statusCode).toBe(404)
+    })
+  })
+
+  /**
    * A handle whose citizen erased itself (`#824`).
    *
    * The assertion is byte-identity with a handle nobody ever held, because

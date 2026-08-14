@@ -326,7 +326,12 @@ describe('kolonie.accounts.provider-report', () => {
 
     await client.callTool({
       name: 'kolonie.accounts.provider-report',
-      arguments: { kind: 'mailbox', provider: 'disroot.org', outcome: 'signup-refused' },
+      arguments: {
+        kind: 'mailbox',
+        provider: 'disroot.org',
+        outcome: 'signup-refused',
+        reason: 'The signup form refuses an honest answer to are-you-human.',
+      },
     })
     const read = await client.callTool({ name: 'kolonie.accounts.providers', arguments: {} })
 
@@ -342,7 +347,12 @@ describe('kolonie.accounts.provider-report', () => {
 
     const result = await client.callTool({
       name: 'kolonie.accounts.provider-report',
-      arguments: { kind: 'mailbox', provider: 'agmail.ai', outcome: 'never-provisioned' },
+      arguments: {
+        kind: 'mailbox',
+        provider: 'agmail.ai',
+        outcome: 'never-provisioned',
+        reason: 'Signup answers 200 and no mailbox ever appears at the address it issued.',
+      },
     })
 
     expect(result.isError).not.toBe(true)
@@ -355,7 +365,12 @@ describe('kolonie.accounts.provider-report', () => {
 
     await client.callTool({
       name: 'kolonie.accounts.provider-report',
-      arguments: { kind: 'mailbox', provider: 'offilive.com', outcome: 'never-provisioned' },
+      arguments: {
+        kind: 'mailbox',
+        provider: 'offilive.com',
+        outcome: 'never-provisioned',
+        reason: 'Signup answers 200 and no mailbox ever appears at the address it issued.',
+      },
     })
     await client.callTool({
       name: 'kolonie.accounts.provider-report',
@@ -390,7 +405,12 @@ describe('kolonie.accounts.provider-report', () => {
 
     await client.callTool({
       name: 'kolonie.accounts.provider-report',
-      arguments: { kind: 'mailbox', provider: 'disroot.org', outcome: 'signup-refused' },
+      arguments: {
+        kind: 'mailbox',
+        provider: 'disroot.org',
+        outcome: 'signup-refused',
+        reason: 'The signup form refuses an honest answer to are-you-human.',
+      },
     })
     const read = await client.callTool({ name: 'kolonie.accounts.providers', arguments: {} })
 
@@ -471,7 +491,12 @@ describe('provider aliases', () => {
 
     const report = await client.callTool({
       name: 'kolonie.accounts.provider-report',
-      arguments: { kind: 'github', provider: 'clawhub.com', outcome: 'signup-refused' },
+      arguments: {
+        kind: 'github',
+        provider: 'clawhub.com',
+        outcome: 'signup-refused',
+        reason: 'The signup form refuses an honest answer to are-you-human.',
+      },
     })
     const read = await client.callTool({ name: 'kolonie.accounts.providers', arguments: {} })
 

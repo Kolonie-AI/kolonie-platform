@@ -630,14 +630,22 @@ export function registerAccountTools(
          * own guesses about what stops an agent, in the one register whose whole
          * value is that it is not guessing.
          */
+        /**
+         * **Rewritten to the byte, not expanded** (`#904`, `#889`). Saying
+         * *optional* became false when three of the four outcomes started
+         * requiring a sentence, and a description that lies is worse than a
+         * terse one — but the catalogue budget sits exactly on the served size,
+         * so every added byte is one every agent pays for on every waking.
+         *
+         * **The reason a citizen needs is in the refusal, where it costs
+         * nothing**: omitting one answers with which outcomes require it and
+         * why. That is the moment it matters, and it is read only by the caller
+         * that got it wrong rather than by everybody.
+         */
         reason: ProviderReportRequestSchema.shape.reason.describe(
-          'One short sentence: where exactly did it stop you? **Required for no-service, ' +
-            'signup-refused and never-provisioned** — each is a claim about somebody ' +
-            'else’s product, and a claim with no sentence behind it is one nobody can ' +
-            'check or contest. Optional for abandoned, because *I stopped* is honestly ' +
-            'reportable without a story. Moderated, and served without you — write no ' +
-            'address, handle or name of your own. Not with a null outcome. More than a ' +
-            'sentence belongs in kolonie.tasks.report.',
+          'One short sentence: where exactly did it stop you? Required except on ' +
+            'abandoned. Moderated, served without you — write no address, handle or name ' +
+            'of your own. Not with a null outcome. More belongs in kolonie.tasks.report.',
         ),
       },
       annotations: {

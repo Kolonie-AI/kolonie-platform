@@ -12,6 +12,8 @@ import type { Database } from '../client.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
 import { agentSkills } from '../schema/agent-skills.js'
 import { registerAgent } from './agents.js'
+import { entriesOf, openEpisodesFor } from './account-threads.js'
+import { reputationOfAgent } from './balance.js'
 import { skillsOfAgent } from './skills.js'
 import { providerRecipe, providerRecipeList } from './provider-recipes.js'
 import {
@@ -688,6 +690,121 @@ describe('the account register', () => {
       await prove(agentId, 'social', '@handle', 'publish')
 
       expect(await recheckableAccounts(db, agentId, ['domain'])).toEqual([])
+    })
+
+    /**
+     * What a re-check *says*, and to whom (`#934`).
+     *
+     * A failure used to reach the agent inside a wake-up digest beside
+     * everything else that happened, and reach the operator nowhere at all — so
+     * an account could stop working in March and be discovered in May. These
+     * assert the conversation it opens instead, and the three rules that keep
+     * one outage from becoming a page of identical rows.
+     */
+    describe('saying so in the conversation about the account', () => {
+      const maintenanceOn = async (agent: AgentId) =>
+        (await openEpisodesFor(db, agent)).filter((open) => open.episode.kind === 'maintenance')
+
+      it('opens one episode on the first failure, with the turn on the agent', async () => {
+        const account = await prove(agentId, 'domain', 'example.test', 'control')
+
+        await recordAccountRecheck(db, account.id, 'gone', new Date().toISOString())
+
+        const open = await maintenanceOn(agentId)
+        expect(open).toHaveLength(1)
+        expect(open[0]?.episode).toMatchObject({ openedBy: 'colony', turn: 'agent', outcome: null })
+        // The failure itself is the first thing said, in the Colony's voice.
+        const entries = await entriesOf(db, open[0]!.episode.id)
+        expect(entries).toHaveLength(1)
+        expect(entries[0]?.author).toBe('colony')
+      })
+
+      /**
+       * The rejection case. **A provider down for a day fails every re-check it
+       * is asked**, and each failure opening its own episode is the outcome this
+       * issue exists to prevent.
+       */
+      it('appends a second failure and opens nothing', async () => {
+        const account = await prove(agentId, 'domain', 'example.test', 'control')
+        await recordAccountRecheck(db, account.id, 'gone', new Date().toISOString())
+
+        await recordAccountRecheck(db, account.id, 'gone', new Date().toISOString())
+
+        const open = await maintenanceOn(agentId)
+        expect(open).toHaveLength(1)
+        expect(await entriesOf(db, open[0]!.episode.id)).toHaveLength(2)
+      })
+
+      /**
+       * **A success appends and does not close.** Closing is a judgement about
+       * whether the account is usable, and that belongs to the agent or the
+       * operator: a prober knows one packet came back, which is not the same
+       * thing.
+       */
+      it('appends a later success and leaves the episode open', async () => {
+        const account = await prove(agentId, 'domain', 'example.test', 'control')
+        await recordAccountRecheck(db, account.id, 'gone', new Date().toISOString())
+
+        await recordAccountRecheck(db, account.id, 'held', new Date().toISOString())
+
+        const open = await maintenanceOn(agentId)
+        expect(open).toHaveLength(1)
+        expect(open[0]?.episode.outcome).toBeNull()
+        expect(await entriesOf(db, open[0]!.episode.id)).toHaveLength(2)
+      })
+
+      /**
+       * *It worked, as it has every other time* is not a conversation, and an
+       * episode exists to carry one.
+       */
+      it('says nothing when a re-check succeeds and nothing was open', async () => {
+        const account = await prove(agentId, 'domain', 'example.test', 'control')
+
+        await recordAccountRecheck(db, account.id, 'held', new Date().toISOString())
+
+        expect(await maintenanceOn(agentId)).toEqual([])
+      })
+
+      /** The title is what an operator reads, and it is never the address. */
+      it('names the kind and the provider, and never the identifier', async () => {
+        await declareAccount(db, agentId, {
+          kind: kind('domain'),
+          identifier: 'secret.test',
+          provider: 'registrar.example',
+        })
+        const account = await prove(agentId, 'domain', 'secret.test', 'control')
+
+        await recordAccountRecheck(db, account.id, 'gone', new Date().toISOString())
+
+        const [open] = await maintenanceOn(agentId)
+        expect(open?.episode.title).toContain('registrar.example')
+        expect(open?.episode.title).not.toContain('secret.test')
+      })
+
+      /** The rule under the whole feature: nothing is revoked, either way. */
+      it('moves no reputation and takes no skill', async () => {
+        const account = await prove(agentId, 'domain', 'example.test', 'control')
+        const before = await reputationOfAgent(db, agentId)
+        const skills = await skillsOfAgent(db, agentId)
+
+        await recordAccountRecheck(db, account.id, 'gone', new Date().toISOString())
+
+        expect(await reputationOfAgent(db, agentId)).toBe(before)
+        expect(await skillsOfAgent(db, agentId)).toEqual(skills)
+      })
+
+      /** An unproved account is not re-checked, so it has nothing to report. */
+      it('opens nothing for an account that was never proved', async () => {
+        const declared = await declareAccount(db, agentId, {
+          kind: kind('domain'),
+          identifier: 'declared.test',
+        })
+        if (declared.outcome !== 'declared') throw new Error(declared.outcome)
+
+        await recordAccountRecheck(db, declared.account.id, 'gone', new Date().toISOString())
+
+        expect(await maintenanceOn(agentId)).toEqual([])
+      })
     })
   })
 })

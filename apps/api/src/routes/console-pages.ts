@@ -2785,12 +2785,35 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
 
     const wishes = await deps.wishes.store.list(operated.agentId)
 
+    /**
+     * The accounts a re-check could not reach (`#934`).
+     *
+     * **Filtered to `maintenance` here rather than read separately**, because
+     * `openEpisodes` is one statement and one order and a second query for a
+     * subset of the same rows is a second thing to keep true. The others are an
+     * acquisition or a repair one of the two parties opened, and they are
+     * conversations rather than news.
+     *
+     * **The title is the episode's own** — composed where the failure was
+     * recorded, from the kind and the provider and never the identifier, which
+     * is the rule this page has held since `#582`.
+     */
+    const maintenance = ((await deps.accountThreads?.openEpisodes(operated.agentId)) ?? [])
+      .filter((open) => open.episode.kind === 'maintenance')
+      .map((open) => ({
+        title: open.episode.title,
+        openedBy: open.episode.openedBy,
+        turn: open.episode.turn,
+        openedAt: open.episode.openedAt,
+      }))
+
     if (!wantsHtml(request)) {
       return reply.send({
         agentId: String(operated.agentId),
         name: held.name,
         held: held.facts.accounts,
         wishes,
+        maintenance,
         ...(adoption === undefined ? {} : { adoption }),
       })
     }
@@ -2817,6 +2840,8 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
         catalogue: await wishCatalogue(deps, operated.agentId),
         // The recommendation, beside the list it fills (`#531`).
         bundles: await deps.wishes.store.bundles(),
+        // What stopped answering, if anything has (`#934`).
+        maintenance,
         ...(adoption === undefined ? {} : { adoption }),
       }),
     )

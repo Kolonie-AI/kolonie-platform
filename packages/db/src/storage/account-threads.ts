@@ -889,6 +889,126 @@ export async function writeEntry(
   return toEntry(row)
 }
 
+/** The newest open maintenance episode on this thread, whoever opened it. */
+async function openMaintenanceOn(
+  db: Database | Transaction,
+  threadId: AccountThreadId,
+): Promise<AccountEpisode | undefined> {
+  const [row] = await db
+    .select()
+    .from(accountEpisodes)
+    .where(
+      and(
+        eq(accountEpisodes.threadId, threadId),
+        eq(accountEpisodes.kind, 'maintenance'),
+        isNull(accountEpisodes.outcome),
+      ),
+    )
+    .orderBy(desc(accountEpisodes.openedAt))
+    .limit(1)
+
+  return row === undefined ? undefined : toEpisode(row)
+}
+
+export type NoteRecheckCommand = {
+  readonly accountId: string
+  /** What the re-check found. Only `gone` may open an episode. */
+  readonly found: 'held' | 'gone'
+  /** What the entry says. Composed by the caller, in the Colony's voice. */
+  readonly note: string
+  /** The one line an episode is listed under. Used only if one is opened. */
+  readonly title: string
+}
+
+export type NoteRecheckOutcome =
+  | { readonly outcome: 'opened'; readonly episode: AccountEpisode; readonly entry: AccountEntry }
+  | { readonly outcome: 'appended'; readonly episode: AccountEpisode; readonly entry: AccountEntry }
+  /**
+   * The account is answering again and nobody was talking about it.
+   *
+   * **Not an error and not a reason to open one.** An episode exists to carry a
+   * conversation, and *it worked, as it has every other time* is not one.
+   */
+  | { readonly outcome: 'nothing-to-say' }
+  | { readonly outcome: 'no-thread' }
+
+/**
+ * Say what a re-check found, in the conversation about the account (`#934`).
+ *
+ * **The Colony is the third party that notices first, and it was the one party
+ * that said nothing.** A failure reached the agent buried in a wake-up digest
+ * beside everything else that happened, and reached the operator nowhere at all,
+ * so a mailbox could stop working in March and be discovered in May.
+ *
+ * Three rules, and each is a decision rather than an implementation detail:
+ *
+ * - **Only a failure opens an episode, and only the first one.** While one is
+ *   open every further failure appends to it, so a provider down for a day
+ *   produces one conversation with a history rather than forty conversations.
+ * - **The turn goes to the agent, and only at the opening.** It may be a token
+ *   to refresh, and involving a person before the agent has looked is a cost
+ *   with no cause. Appending never moves the turn: if the operator already owes
+ *   this episode something, another failed probe does not change who owes what.
+ * - **A success appends and does not close.** Closing is a judgement about
+ *   whether the account is *usable*, and that belongs to the agent or the
+ *   operator. A prober knows that one packet came back, which is not the same
+ *   thing.
+ *
+ * **It opens its own row rather than calling `openEpisode`.** The recovery those
+ * two need is opposite: `openEpisode` losing the acquisition race hands back the
+ * winner and reports that nothing was opened, while a re-check losing this race
+ * wants to *append to* the winner — which is what the second failure would have
+ * done anyway, half a second later.
+ */
+export async function noteRecheck(
+  db: Database | Transaction,
+  command: NoteRecheckCommand,
+): Promise<NoteRecheckOutcome> {
+  const thread = await threadOf(db, command.accountId)
+  if (thread === undefined) return { outcome: 'no-thread' }
+
+  const appendTo = async (episode: AccountEpisode): Promise<NoteRecheckOutcome> => ({
+    outcome: 'appended',
+    episode,
+    entry: await writeEntry(db, {
+      episodeId: episode.id,
+      author: 'colony',
+      body: command.note,
+    }),
+  })
+
+  const open = await openMaintenanceOn(db, thread.id)
+  if (open !== undefined) return appendTo(open)
+  if (command.found === 'held') return { outcome: 'nothing-to-say' }
+
+  const [row] = await db
+    .insert(accountEpisodes)
+    .values({
+      threadId: thread.id,
+      openedBy: 'colony',
+      kind: 'maintenance',
+      title: command.title,
+      turn: 'agent',
+    })
+    .onConflictDoNothing()
+    .returning()
+
+  if (row === undefined) {
+    // The index refused it between the read above and this insert. Another
+    // prober opened the episode; this failure is the second one, and appends.
+    const winner = await openMaintenanceOn(db, thread.id)
+    if (winner === undefined) throw new Error('the maintenance episode could not be opened')
+    return appendTo(winner)
+  }
+
+  const episode = toEpisode(row)
+  return {
+    outcome: 'opened',
+    episode,
+    entry: await writeEntry(db, { episodeId: episode.id, author: 'colony', body: command.note }),
+  }
+}
+
 /** One episode's notes, in the order they were written. There is no other read. */
 export async function entriesOf(
   db: Database | Transaction,

@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "account_episodes_one_open_colony_maintenance" ON "account_episodes" USING btree ("thread_id") WHERE "account_episodes"."kind" = 'maintenance' and "account_episodes"."outcome" is null and "account_episodes"."opened_by" = 'colony';

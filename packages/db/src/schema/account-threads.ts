@@ -138,6 +138,25 @@ export const accountEpisodes = pgTable(
       .where(sql`${table.kind} = 'acquisition'`),
 
     /**
+     * **At most one open maintenance episode the Colony opened** (`#934`).
+     *
+     * A provider down for a day fails every re-check it is asked, and each
+     * failure would otherwise open its own episode — a page of identical rows
+     * about one outage. The application appends to the open one instead; this
+     * makes that structural, so two probers racing produce one episode and the
+     * loser appends.
+     *
+     * **Scoped to `colony` on purpose.** The agent and the operator may open as
+     * many maintenance episodes as they have things to repair, and an index that
+     * stopped them would be this rule reaching somewhere it was never about.
+     */
+    uniqueIndex('account_episodes_one_open_colony_maintenance')
+      .on(table.threadId)
+      .where(
+        sql`${table.kind} = 'maintenance' and ${table.outcome} is null and ${table.openedBy} = 'colony'`,
+      ),
+
+    /**
      * A failure says what it failed at.
      *
      * The wall is what the next citizen reads and what the Atlas learns from, so

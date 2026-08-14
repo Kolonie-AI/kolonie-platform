@@ -10,6 +10,7 @@ import {
   type ProviderTally,
 } from '@kolonie-ai/core'
 import type { Database, Transaction } from '../client.js'
+import { noteRecheck } from './account-threads.js'
 import { accountKindIsUnique, accounts } from '../schema/accounts.js'
 import { mailboxIdentity } from '../schema/email.js'
 import { submissions, verifications } from '../schema/index.js'
@@ -788,13 +789,20 @@ export async function accountsObtainedThrough(
 }
 
 /**
- * Record what a re-check found (`#152`).
+ * Record what a re-check found (`#152`), and say so in the conversation about
+ * the account (`#934`).
  *
  * **Nothing is revoked either way.** A confirmation stamps the date and clears
  * any earlier failure; a failure stamps the date it happened and leaves the
  * proof, the skill and the reward exactly where they are. That asymmetry is the
  * whole model: an account is allowed to stop working, and the Colony's job is to
  * be able to say so rather than to take something away.
+ *
+ * **Saying so happens here rather than at either caller**, and that is what
+ * makes it reliable. A re-check is decided in two places — a verifier's verdict
+ * inside its own transaction, and a window that closed unanswered three wakings
+ * running — and a third will be added by somebody who has not read this file. A
+ * hook at each call site is a hook that will be forgotten at the next one.
  */
 export async function recordAccountRecheck(
   db: Handle,
@@ -802,7 +810,7 @@ export async function recordAccountRecheck(
   found: 'held' | 'gone',
   at: string,
 ): Promise<void> {
-  await db
+  const [row] = await db
     .update(accounts)
     .set(
       found === 'held'
@@ -810,6 +818,41 @@ export async function recordAccountRecheck(
         : { unconfirmedSince: at, updatedAt: sql`now()` },
     )
     .where(and(eq(accounts.id, accountId), eq(accounts.proved, true)))
+    .returning()
+
+  // Unproved, or gone: nothing was recorded, so there is nothing to report.
+  if (row === undefined) return
+
+  await noteRecheck(db, {
+    accountId,
+    found,
+    title: recheckTitle(row.kind, row.provider),
+    note: recheckNote(row.kind, found),
+  })
+}
+
+/**
+ * The one line the episode is listed under.
+ *
+ * **The kind and the provider, never the identifier.** This is read on the
+ * operator console, which does not print an agent's addresses and does not start
+ * now — and an operator with three mailboxes is served by *which provider*
+ * anyway.
+ */
+function recheckTitle(kind: string, provider: string | null): string {
+  return provider === null
+    ? `This ${kind} stopped answering`
+    : `The ${kind} at ${provider} stopped answering`
+}
+
+function recheckNote(kind: string, found: 'held' | 'gone'): string {
+  return found === 'gone'
+    ? `A re-check of this ${kind} did not come back. Nothing has been taken away: the ` +
+        'skill it earned and the reputation that came with it are permanent. What lapses is ' +
+        'the account counting as current, and re-proving it puts that back.'
+    : `A later re-check of this ${kind} came back, so it is answering again. Whether it is ` +
+        'usable is yours to say — this stays open until one of you closes it, because the ' +
+        'Colony knows one probe succeeded and not that the account works.'
 }
 
 /**

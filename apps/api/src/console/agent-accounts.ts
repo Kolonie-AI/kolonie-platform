@@ -29,7 +29,7 @@
  * No JavaScript, D-062, like every console page. Everything here is a form.
  */
 
-import type { RecipeStatus, Wish } from '@kolonie-ai/core'
+import type { EpisodeTurn, RecipeStatus, ThreadParty, Wish } from '@kolonie-ai/core'
 import type { BundleView } from '@kolonie-ai/db'
 import { escape, page } from './html.js'
 import type { ConsoleNav } from './navigation.js'
@@ -165,6 +165,19 @@ function bundleEntryNote(entry: BundleView['entries'][number]): string {
   return ''
 }
 
+/**
+ * Whose turn it is on an open episode, said to the person reading (`#934`).
+ *
+ * **`nobody` is a real answer and is not *the agent's*.** An episode nobody owes
+ * anything on is one both of them may leave alone, and printing the agent's name
+ * there would be this page inventing an obligation.
+ */
+function turnCell(turn: EpisodeTurn, name: string): string {
+  if (turn === 'operator') return 'yours'
+  if (turn === 'agent') return `${escape(name)}’s`
+  return 'nobody’s'
+}
+
 /** What one agent's accounts page is rendered from. */
 export interface AgentAccountsInput {
   /** Who is reading and where they are, for the navigation (`#608`). */
@@ -186,6 +199,25 @@ export interface AgentAccountsInput {
   readonly bundles?: readonly BundleView[] | undefined
   /** The hand-over, when this identity can still be handed over at all (`#459`). */
   readonly adoption?: AdoptionSection | undefined
+  /**
+   * Accounts with something open about them (`#934`).
+   *
+   * **The half of the re-check that reached nobody.** A failed re-check told the
+   * agent, inside a digest carrying everything else that happened, and told the
+   * operator nothing at all — so an account could stop working in March and be
+   * found in May. Empty renders no section, on the dashboard's rule: a heading
+   * that says *nothing is wrong* is a heading a reader learns to skip, and the
+   * one time it says something they will have stopped looking.
+   */
+  readonly maintenance?: readonly MaintenanceEpisode[] | undefined
+}
+
+/** One open episode, as this page needs it. Never the identifier it is about. */
+export interface MaintenanceEpisode {
+  readonly title: string
+  readonly openedBy: ThreadParty
+  readonly turn: EpisodeTurn
+  readonly openedAt: string
 }
 
 export function agentAccountsPage(input: AgentAccountsInput): string {
@@ -240,6 +272,54 @@ export function agentAccountsPage(input: AgentAccountsInput): string {
                   `<form method="post" action="/agents/${escape(input.agentId)}/adopt-code">` +
                     '<button type="submit">Generate a code</button></form>',
                 ]),
+        ]
+
+  /**
+   * What stopped answering (`#934`).
+   *
+   * **Directly under what the agent holds**, because it is the same list read
+   * the other way round: these are the accounts in it that a re-check could not
+   * reach. Above the planning list, which is about accounts that do not exist
+   * yet — an account that has stopped working is worth more attention than one
+   * nobody has opened.
+   *
+   * **No section when there is nothing open.** A heading that says *nothing is
+   * wrong* is a heading a reader learns to skip, and the one time it says
+   * something they will have stopped looking.
+   *
+   * **The kind and the provider, never the address.** This page prints no
+   * identifier of an agent's and does not start here.
+   */
+  const maintenance =
+    input.maintenance === undefined || input.maintenance.length === 0
+      ? []
+      : [
+          '<h2>What stopped answering</h2>',
+          '<p>The Colony re-checks a proved account from time to time. These did not come ' +
+            'back, and it has said so where your agent can read it and answer.</p>',
+          /**
+           * The sentence that stops this reading as a punishment. Nothing is
+           * revoked by a failed re-check, and an operator who thinks otherwise
+           * will treat a row here as an emergency.
+           */
+          '<p class="note"><strong>Nothing has been taken away.</strong> The skill the account ' +
+            'earned and the reputation that came with it are permanent. What lapses is the ' +
+            'account counting as current, and re-proving it puts that back.</p>',
+          '<table>',
+          '<thead><tr><th>Account</th><th>Since</th><th>Whose turn</th></tr></thead>',
+          `<tbody>${input.maintenance
+            .map((episode) =>
+              [
+                '<tr>',
+                `<td>${escape(episode.title)}</td>`,
+                `<td>${escape(relative(episode.openedAt))}, at ` +
+                  `${escape(absolute(episode.openedAt, input.zone))}</td>`,
+                `<td>${turnCell(episode.turn, input.name)}</td>`,
+                '</tr>',
+              ].join(''),
+            )
+            .join('')}</tbody>`,
+          '</table>',
         ]
 
   /**
@@ -394,6 +474,7 @@ export function agentAccountsPage(input: AgentAccountsInput): string {
       `<a href="/agents/${escape(input.agentId)}">its page</a>.</p>`,
     '<h2>What this agent holds</h2>',
     ...held,
+    ...maintenance,
     ...wishes,
     ...bundleBlock,
     ...adoption,

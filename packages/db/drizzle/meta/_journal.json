@@ -1723,6 +1723,13 @@
       "when": 1786745199342,
       "tag": "0245_account_slots_carry_secrets",
       "breakpoints": true
+    },
+    {
+      "idx": 246,
+      "version": "7",
+      "when": 1786747338137,
+      "tag": "0246_a_recheck_opens_one_episode",
+      "breakpoints": true
     }
   ]
 }

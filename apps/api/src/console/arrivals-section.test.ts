@@ -263,7 +263,9 @@ describe('the accounts that never authenticated', () => {
     )
 
     expect(html).toContain('under an hour')
-    expect(html).not.toContain('0 hours')
+    // The cell rather than the page: `#876` put a *Registered* column beside the
+    // silence, and a bare `0 hours` matches `20 hours ago` in it.
+    expect(html).not.toContain('<td>0 hours</td>')
   })
 
   /** Empty is the good answer, and a silent table would read as a broken one. */

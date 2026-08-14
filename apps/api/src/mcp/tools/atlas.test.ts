@@ -401,7 +401,13 @@ describe('the Atlas over MCP', () => {
 
       const entry = result.response.entries[0]
       expect(entry?.source).toBe('measured')
-      expect(entry?.status).toBe('unwritten')
+      /**
+       * **`measured` since `#903` put the status in the rollup.** This said
+       * `unwritten` when a synthesised row genuinely was one, and went on
+       * passing after the label changed — so it was one of the two assertions
+       * holding the rollup bug in place rather than catching it.
+       */
+      expect(entry?.status).toBe('measured')
     })
 
     it('says out loud that nobody wrote it, and what would put steps there', async () => {

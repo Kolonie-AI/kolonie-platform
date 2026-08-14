@@ -391,6 +391,17 @@ export function atlasRank(input: {
   if (input.status === 'unwritten') return -1
   if (input.status === 'draft') return -0.5
 
+  /**
+   * **A measured row outranks one nobody has walked, and falls through to the
+   * rate rather than taking a rung of its own** (`#905`). A provider a citizen
+   * proved is better evidence than a provider somebody shelved, which is rule 2
+   * of D-109 reaching a shelf where until `#903` nothing measured could appear.
+   * Falling through means it is judged on the same arithmetic as every walked
+   * entry: a floored one scores 0 and still beats `unwritten`'s -1, and one that
+   * clears the floor is ranked on what citizens actually did rather than on the
+   * label.
+   */
+
   const attempted = input.figures.reduce((sum, one) => sum + one.attempted, 0)
   const proved = input.figures.reduce((sum, one) => sum + one.proved, 0)
   const suppressed = input.figures.every((one) => one.suppressed)

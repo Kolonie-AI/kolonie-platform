@@ -2,6 +2,7 @@ import { seedAcademyTasks } from './academy-tasks.js'
 import { seedProviderCatalogue } from './provider-catalogue.js'
 import { curateListedAtlasEntries, seedListedAtlasEntries } from './atlas-providers.js'
 import { seedBundles } from './storage/provider-bundles.js'
+import { backfillMeasuredProviders } from './atlas-backfill.js'
 import { createDatabase, databaseUrlFromEnv } from './client.js'
 
 /**
@@ -73,6 +74,30 @@ async function main(): Promise<void> {
     console.log(
       `atlas curation: ${refused} refused with a named wall, ${retired} withdrawn as not ` +
         `accounts, ${leftToTheirWalks} left to the walk that has since answered them`,
+    )
+
+    /**
+     * The catalogue caught up with the register (`#906`), after the listing and
+     * the curation above.
+     *
+     * **After them, because it never overwrites an entry and the ordering makes
+     * that visible rather than merely true.** Every curated row is in place when
+     * this runs, so the pairs it leaves untouched are the ones it is meant to
+     * leave untouched, and the number it reports as written is the number of
+     * providers the catalogue genuinely did not know about.
+     *
+     * It is safe on every deploy and reports zero once it has run, which is why
+     * it lives here rather than in `drizzle/`.
+     */
+    const {
+      written: measured,
+      untouched: alreadyShelved,
+      unshelved,
+    } = await backfillMeasuredProviders(db)
+    console.log(
+      `atlas backfill: ${measured} providers the Colony has evidence about newly on a shelf, ` +
+        `${alreadyShelved} already in the catalogue and left untouched, ` +
+        `${unshelved} skipped for want of a shelf`,
     )
 
     const bundles = await seedBundles(db)

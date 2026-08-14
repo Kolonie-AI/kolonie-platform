@@ -229,14 +229,19 @@ describe('how well an entry has aged', () => {
  * The providers the Colony had measured and could not show (`#856`).
  */
 describe('the rows the figures imply', () => {
-  it('stands an unwritten row in for a measured provider nobody has written up', () => {
+  it('stands a measured row in for a provider nobody has written up', () => {
     const synthesized = measuredOnlyRecipes(
       [],
       [figures({ kind: 'mailbox', provider: 'somewhere.test', attempted: 8, proved: 5 })],
     )
 
     expect(synthesized).toHaveLength(1)
-    expect(synthesized[0]?.status).toBe('unwritten')
+    /**
+     * **`measured` since `#903`, and the rename is the point of it.** Both
+     * labels say *nobody has written the route*; only this one also says
+     * *citizens have been here*, which is why this function exists at all.
+     */
+    expect(synthesized[0]?.status).toBe('measured')
     expect(synthesized[0]?.steps).toEqual([])
     expect(synthesized[0]?.category).toBe('mailbox')
   })

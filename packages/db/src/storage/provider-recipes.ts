@@ -4,6 +4,7 @@ import {
   AccountProviderSchema,
   AgentApiSchema,
   AtlasCategorySchema,
+  atlasCategoryForKind,
   SignupCodeSchema,
   RecipeOperatorGuessSchema,
   RecipeRuntimeNoteSchema,
@@ -110,13 +111,19 @@ export function toRecipe(row: typeof providerRecipes.$inferSelect): ProviderReci
 /**
  * Every entry, or every entry for one kind.
  *
- * **Joinable first, then drafts, then unwritten, then refusals and withdrawals;
- * within each, by provider.** A reader scanning the catalogue wants what it can
- * act on at the top; an entry nobody has looked at yet may still work and so
- * sits above one known not to (`#588`). The ordering is stated here rather than
- * left to the caller, so two surfaces cannot present one catalogue differently —
- * and it agrees with `atlasRank`, which orders the entries the same way one
- * level up.
+ * **Joinable first, then drafts, then measured, then unwritten, then refusals
+ * and withdrawals; within each, by provider.** A reader scanning the catalogue
+ * wants what it can act on at the top; an entry nobody has looked at yet may
+ * still work and so sits above one known not to (`#588`). The ordering is stated
+ * here rather than left to the caller, so two surfaces cannot present one
+ * catalogue differently — and it agrees with `atlasRank`, which orders the
+ * entries the same way one level up.
+ *
+ * **`measured` above `unwritten` is the one placement with an argument behind
+ * it** (`#903`, `kolonie-docs#352`): a provider a citizen actually proved is
+ * better evidence than one somebody shelved, which is D-109 rule 2 — *ordering
+ * comes from measured outcomes* — applied to a shelf where until now nothing
+ * measured could appear at all.
  *
  * **`includeInternal` is the parameter `#604` added, and the default is the safe
  * direction.** Two of the six states never reach a stranger: a `proposed` entry
@@ -152,10 +159,11 @@ export async function providerRecipeList(
       sql`case ${providerRecipes.status}
             when 'joinable' then 0
             when 'draft' then 1
-            when 'unwritten' then 2
-            when 'refused' then 3
-            when 'retired' then 4
-            else 5
+            when 'measured' then 2
+            when 'unwritten' then 3
+            when 'refused' then 4
+            when 'retired' then 5
+            else 6
           end`,
       asc(providerRecipes.kind),
       asc(providerRecipes.provider),
@@ -379,6 +387,76 @@ export async function listAtlasProvider(
       steps: [],
       proves: null,
       refusal: null,
+    })
+    .onConflictDoNothing({ target: [providerRecipes.kind, providerRecipes.provider] })
+    .returning({ id: providerRecipes.id })
+
+  return written.length > 0
+}
+
+/**
+ * A provider gets a row because a citizen proved an account there (`#903`).
+ *
+ * **The row is written on the proof and not on the walk**, which is the whole
+ * decision (`kolonie-docs#352`). A proof is a transaction the Colony already
+ * runs and already trusts; a walk is a favour a stateless citizen may not live
+ * long enough to do. Hanging the catalogue off the second is what produced a
+ * `telephony` shelf of three unwalked entries while the one phone provider
+ * anybody proved — `agentmessage.io`, measured 2026-08-14 — was not on it.
+ *
+ * **It writes a row and no prose.** No steps, no `proves`, no `caution`, no
+ * `refusal`. Those are the four claims that say *somebody investigated this*,
+ * and a proof says only *a citizen got in here*. The counts are not written
+ * either: `atlasFigures` computes them live from `accounts` and
+ * `provider_reports`, so a stored copy would be a second answer that goes stale.
+ *
+ * **`onConflictDoNothing` is what protects a curated entry**, in the same shape
+ * `listAtlasProvider` uses one function up and for a sharper reason: a proof at
+ * a provider a steward has written up must update figures and touch nothing
+ * else. Since the figures are computed rather than stored, *touch nothing else*
+ * is the whole of it — so doing nothing is not a shortcut here, it is the
+ * specified behaviour.
+ *
+ * **A kind with no shelf gets no row**, on the argument `measuredOnlyRecipes`
+ * already makes: `atlasCategoryForKind` throws rather than guessing, and a
+ * provider filed on a wrong shelf is worse than one reachable only by its kind.
+ * The proof itself must never fail for this, so the throw is caught here rather
+ * than left to the transaction that is recording it.
+ *
+ * Returns whether a row was created, so a backfill can report what it changed.
+ */
+export async function recordMeasuredProvider(
+  /** A transaction, so the row lands with the proof that caused it or not at all. */
+  db: Handle,
+  entry: { readonly kind: AccountKind; readonly provider: string },
+): Promise<boolean> {
+  let category: AtlasCategory
+  try {
+    category = atlasCategoryForKind(entry.kind)
+  } catch {
+    return false
+  }
+
+  const provider = AccountProviderSchema.safeParse(entry.provider)
+  if (!provider.success) return false
+
+  const written = await db
+    .insert(providerRecipes)
+    .values({
+      kind: entry.kind,
+      provider: provider.data,
+      /**
+       * The provider's own name, because it is the only thing anybody has
+       * written down. A title the Colony invented would be prose, and prose is
+       * the one thing this row may not carry.
+       */
+      title: provider.data,
+      category,
+      status: 'measured',
+      steps: [],
+      proves: null,
+      refusal: null,
+      caution: null,
     })
     .onConflictDoNothing({ target: [providerRecipes.kind, providerRecipes.provider] })
     .returning({ id: providerRecipes.id })

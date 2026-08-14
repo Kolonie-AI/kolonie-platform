@@ -11,6 +11,7 @@ import {
   dressProviderRecipeDraft,
   providerRecipe,
   providerRecipeList,
+  recordMeasuredProvider,
   writeProviderRecipe,
 } from './provider-recipes.js'
 import { PROVIDER_CATALOGUE, seedProviderCatalogue } from '../provider-catalogue.js'
@@ -839,5 +840,154 @@ describe('what a recipe may ask an operator for', () => {
     // And the thing the agent actually works through still arrives sealed, the
     // other way, through the drop.
     expect(github?.steps.filter((step) => step.secret === true)).toHaveLength(1)
+  })
+})
+
+/**
+ * A proved account writes its own catalogue row (`#903`).
+ *
+ * **The claim under test is that the catalogue stops depending on a favour.**
+ * Until now the only entrance was `finishWalk`, and a walk is a separate, later,
+ * voluntary act — so the shelf stayed empty while the register filled up. These
+ * assert the other entrance: a proof, which is a transaction the Colony already
+ * runs.
+ */
+describe('a provider row the Colony measured', () => {
+  let db: Database
+
+  beforeAll(async () => {
+    db = await connectForTests(target.url)
+  })
+
+  afterAll(async () => {
+    await db?.close()
+  })
+
+  beforeEach(async () => {
+    await truncateAll(db)
+  })
+
+  it('puts a provider nobody has written up on the shelf, with no prose', async () => {
+    const written = await recordMeasuredProvider(db, {
+      kind: kind('phone'),
+      provider: 'agent.example',
+    })
+    expect(written).toBe(true)
+
+    const entry = await providerRecipe(db, kind('phone'), 'agent.example')
+    expect(entry?.status).toBe('measured')
+    expect(entry?.category).toBe('telephony')
+
+    /**
+     * The four claims that would say *somebody investigated this*. A proof says
+     * only *a citizen got in here*, so all four stay empty — and the absence is
+     * the row's content rather than a gap in it.
+     */
+    expect(entry?.steps).toEqual([])
+    expect(entry?.proves).toBeNull()
+    expect(entry?.refusal).toBeNull()
+    expect(entry?.caution).toBeNull()
+  })
+
+  it('shows it to a stranger, without a steward', async () => {
+    await recordMeasuredProvider(db, { kind: kind('phone'), provider: 'agent.example' })
+
+    const listed = await providerRecipeList(db, kind('phone'))
+    expect(listed.map((one) => one.provider)).toContain('agent.example')
+  })
+
+  it('ranks it above an entry nobody has walked', async () => {
+    await writeProviderRecipe(db, {
+      kind: kind('phone'),
+      provider: 'shelved.example',
+      title: 'Shelved',
+      status: 'unwritten',
+      category: 'telephony',
+      steps: [],
+    })
+    await recordMeasuredProvider(db, { kind: kind('phone'), provider: 'agent.example' })
+
+    const listed = await providerRecipeList(db, kind('phone'))
+    const order = listed.map((one) => one.provider)
+    expect(order.indexOf('agent.example')).toBeLessThan(order.indexOf('shelved.example'))
+  })
+
+  /**
+   * **The rejection case `#903` asks for.** A proof at a provider a steward has
+   * written up updates figures and touches nothing else — and since the figures
+   * are computed live from `accounts` and `provider_reports` rather than stored
+   * on the row, *touches nothing else* is the whole of the behaviour.
+   */
+  it('leaves a curated entry exactly as it stood', async () => {
+    await writeProviderRecipe(db, {
+      kind: kind('phone'),
+      provider: 'curated.example',
+      title: 'Curated',
+      status: 'refused',
+      category: 'telephony',
+      steps: [],
+      refusal: 'The signup demands a natural person and says so.',
+      caution: 'Read the refusal before spending an afternoon here.',
+    })
+
+    const before = await providerRecipe(db, kind('phone'), 'curated.example')
+    const written = await recordMeasuredProvider(db, {
+      kind: kind('phone'),
+      provider: 'curated.example',
+    })
+    const after = await providerRecipe(db, kind('phone'), 'curated.example')
+
+    expect(written).toBe(false)
+    expect(after?.status).toBe('refused')
+    expect(after?.caution).toBe(before?.caution)
+    expect(after?.refusal).toBe(before?.refusal)
+    expect(after?.title).toBe(before?.title)
+  })
+
+  /**
+   * **A kind with no shelf gets no row, and the proof still succeeds.** The
+   * catalogue is filed by shelf and `atlasCategoryForKind` throws rather than
+   * guessing; a provider on a wrong shelf is worse than one reachable only by
+   * its kind. What must never happen is a proof failing because the Atlas has
+   * nowhere to put it.
+   */
+  it('writes nothing for a kind no shelf claims, and does not throw', async () => {
+    const written = await recordMeasuredProvider(db, {
+      kind: kind('nothing-has-a-shelf-for-this'),
+      provider: 'unshelved.example',
+    })
+
+    expect(written).toBe(false)
+    expect(
+      await providerRecipe(db, kind('nothing-has-a-shelf-for-this'), 'unshelved.example'),
+    ).toBeUndefined()
+  })
+
+  it('is idempotent, so a second proof at the same provider writes nothing', async () => {
+    expect(
+      await recordMeasuredProvider(db, { kind: kind('phone'), provider: 'agent.example' }),
+    ).toBe(true)
+    expect(
+      await recordMeasuredProvider(db, { kind: kind('phone'), provider: 'agent.example' }),
+    ).toBe(false)
+  })
+
+  /**
+   * **Refused in SQL and not only in TypeScript.** `recipeStatusAllowsSteps`
+   * excludes `measured`, but a writer that bypasses it must not get a second
+   * chance — so `provider_recipes_unjoinable_is_empty` refuses the row at the
+   * database. This asserts the constraint rather than the function.
+   */
+  it('refuses a measured row carrying steps, at the database', async () => {
+    await expect(
+      writeProviderRecipe(db, {
+        kind: kind('phone'),
+        provider: 'steps.example',
+        title: 'Steps',
+        status: 'measured',
+        category: 'telephony',
+        steps: [{ actor: 'agent', instruction: 'Open the signup page and fill it in.' }],
+      }),
+    ).rejects.toThrow()
   })
 })

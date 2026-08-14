@@ -1,0 +1,2 @@
+ALTER TABLE "provider_recipes" DROP CONSTRAINT "provider_recipes_status_is_known";--> statement-breakpoint
+ALTER TABLE "provider_recipes" ADD CONSTRAINT "provider_recipes_status_is_known" CHECK ("provider_recipes"."status" in ('proposed', 'unwritten', 'measured', 'draft', 'joinable', 'refused', 'retired'));

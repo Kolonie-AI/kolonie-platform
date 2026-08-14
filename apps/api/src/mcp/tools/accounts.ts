@@ -630,10 +630,22 @@ export function registerAccountTools(
          * own guesses about what stops an agent, in the one register whose whole
          * value is that it is not guessing.
          */
+        /**
+         * **Rewritten to the byte, not expanded** (`#904`, `#889`). Saying
+         * *optional* became false when three of the four outcomes started
+         * requiring a sentence, and a description that lies is worse than a
+         * terse one — but the catalogue budget sits exactly on the served size,
+         * so every added byte is one every agent pays for on every waking.
+         *
+         * **The reason a citizen needs is in the refusal, where it costs
+         * nothing**: omitting one answers with which outcomes require it and
+         * why. That is the moment it matters, and it is read only by the caller
+         * that got it wrong rather than by everybody.
+         */
         reason: ProviderReportRequestSchema.shape.reason.describe(
-          'Optional, one short sentence: where exactly did it stop you? Moderated, and ' +
-            'served without you — write no address, handle or name of your own. Not with a ' +
-            'null outcome. More than a sentence belongs in kolonie.tasks.report.',
+          'One short sentence: where exactly did it stop you? Required except on ' +
+            'abandoned. Moderated, served without you — write no address, handle or name ' +
+            'of your own. Not with a null outcome. More belongs in kolonie.tasks.report.',
         ),
       },
       annotations: {
@@ -1194,6 +1206,15 @@ export function registerAccountTools(
                   'warning — what you find walking a provider belongs in ' +
                   'kolonie.accounts.provider-report.'
                 : answeredAs +
+                  /**
+                   * **First, because it changes how the list below is read**
+                   * (`#905`). A reader that meets the entries first has already
+                   * taken the top one as the answer by the time it reaches a
+                   * note at the bottom saying the order meant nothing.
+                   */
+                  (result.response.nothingMeasured === null
+                    ? ''
+                    : `${result.response.nothingMeasured}\n\n---\n\n`) +
                   result.response.entries
                     .map((entry) =>
                       [

@@ -11,6 +11,7 @@ import {
   fillHandoffAsk,
   handoffStep,
   knownHandoffValues,
+  readAtlas,
   readRecipe,
   readRecipes,
   recipeAsText,
@@ -723,5 +724,61 @@ describe('the handoff a pattern names, where no entry does (#800)', () => {
     if (!('error' in found)) return
     expect(found.error.message).toContain('is yours, not your operator')
     expect(found.error.message).toContain(String(positionOf((step) => step.secret === true)))
+  })
+})
+
+/**
+ * "Best-first" is a promise, and a shelf has to be able to keep it (`#905`).
+ *
+ * **The defect was not the ordering — it was the silence around it.** Measured
+ * 2026-08-14 the whole `telephony` shelf was `unwritten` with `attempted: 0`
+ * between its three entries, while the hint on the rung told an agent to take
+ * the first that fits rather than re-rank it. There was no first clause and no
+ * third clause; every entry was the middle one, and the instruction pointed at
+ * `telnyx.com`, whose own caution says nobody has walked it.
+ */
+describe('a shelf that has nothing to rank', () => {
+  it('says so, rather than leaving the caller to infer it from attempted: 0', async () => {
+    const recipes = fakeProviderRecipes()
+    recipes.write({ kind: 'phone', provider: 'shelved-a.example', status: 'unwritten' })
+    recipes.write({ kind: 'phone', provider: 'shelved-b.example', status: 'unwritten' })
+
+    const result = await readAtlas({ kind: 'phone' }, recipes, false)
+
+    expect(result.outcome).toBe('ok')
+    if (result.outcome !== 'ok') return
+    expect(result.response.nothingMeasured).toContain('carries no evidence')
+  })
+
+  /**
+   * **The rejection case `#905` asks for.** One measured entry is something to
+   * rank, so the statement must not appear — a shelf that disclaimed its own
+   * order while holding evidence would teach a reader to ignore the disclaimer.
+   */
+  it('says nothing of the sort once one entry rests on evidence', async () => {
+    const recipes = fakeProviderRecipes()
+    recipes.write({ kind: 'phone', provider: 'shelved.example', status: 'unwritten' })
+    recipes.write({ kind: 'phone', provider: 'proved.example', status: 'measured' })
+
+    const result = await readAtlas({ kind: 'phone' }, recipes, false)
+
+    expect(result.outcome).toBe('ok')
+    if (result.outcome !== 'ok') return
+    expect(result.response.nothingMeasured).toBeNull()
+  })
+
+  it('puts the measured entry above the ones nobody has walked', async () => {
+    const recipes = fakeProviderRecipes()
+    recipes.write({ kind: 'phone', provider: 'shelved.example', status: 'unwritten' })
+    recipes.write({ kind: 'phone', provider: 'proved.example', status: 'measured' })
+
+    const result = await readAtlas({ kind: 'phone' }, recipes, false)
+
+    expect(result.outcome).toBe('ok')
+    if (result.outcome !== 'ok') return
+    expect(result.response.entries.map((entry) => entry.provider)).toEqual([
+      'proved.example',
+      'shelved.example',
+    ])
   })
 })

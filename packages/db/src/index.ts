@@ -12,6 +12,7 @@ export {
   seedProviderCatalogue,
   type CatalogueSeedResult,
 } from './provider-catalogue.js'
+export { backfillMeasuredProviders, type AtlasBackfillResult } from './atlas-backfill.js'
 export {
   LISTED_ATLAS_ENTRIES,
   curateListedAtlasEntries,

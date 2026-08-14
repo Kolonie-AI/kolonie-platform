@@ -7,7 +7,7 @@ import type {
 } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import { providerReports } from '../schema/provider-reports.js'
-import { markProviderRecipeStale } from './provider-recipes.js'
+import { markProviderRecipeStale, recordMeasuredProvider } from './provider-recipes.js'
 
 /**
  * Reports about providers that produced no account (`#298`).
@@ -94,6 +94,26 @@ export async function reportProvider(
    * it exactly as it reads *never confirmed* — a reader can act on neither.
    */
   await markProviderRecipeStale(db, input.kind, input.provider)
+
+  /**
+   * **A report against a provider with no entry gives it one** (`#904`).
+   *
+   * This is the gap the issue is named for, and it is narrow: refusals were
+   * never categorically shut out of the catalogue — `walkVerdict` publishes a
+   * walk reported as `refused` with a wall named. But that route runs through
+   * `walk-report`, and the channel agents actually reach for is this one.
+   * Sixteen rows here against nothing on the telephony shelf, measured
+   * 2026-08-14, is the measurement of which one gets used.
+   *
+   * **It creates a row and never a verdict.** `recordMeasuredProvider` writes
+   * `measured` with no steps, no refusal and no caution, so a report cannot
+   * mark a provider closed — that stays a walk's finding with a wall named. All
+   * this does is give the citizen's own sentence somewhere to be read.
+   *
+   * `onConflictDoNothing` inside means a provider that already has an entry,
+   * curated or measured, is untouched.
+   */
+  await recordMeasuredProvider(db, { kind: input.kind, provider: input.provider })
 
   return { outcome: 'recorded' }
 }

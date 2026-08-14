@@ -10,6 +10,7 @@ import type { Database } from '../client.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
 import { registerAgent } from './agents.js'
 import { declareAccount } from './accounts.js'
+import { providerRecipe, writeProviderRecipe } from './provider-recipes.js'
 import {
   providerReportTallies,
   recordProviderReasonModeration,
@@ -372,5 +373,103 @@ describe('providers that produced no account', () => {
     await db.execute(sql`delete from agents where id = ${agentId}`)
 
     expect(await providerReportTallies(db)).toEqual([])
+  })
+})
+
+/**
+ * The channel agents actually use reaches the shelf (`#904`).
+ *
+ * **Refusals were never categorically shut out of the catalogue** — `walkVerdict`
+ * publishes a walk reported as `refused` with a wall named. The gap is narrower
+ * and worse: that route runs through `walk-report`, and this is the one agents
+ * reach for. Sixteen rows here against nothing on the telephony shelf, measured
+ * 2026-08-14, is the measurement of which one gets used.
+ */
+describe('a provider report reaching the catalogue', () => {
+  let db: Database
+  let seeded = 0
+
+  const kind = MAILBOX
+  const citizen = async (name: string): Promise<AgentId> => {
+    const result = await registerAgent(
+      db,
+      RegisterAgentRequestSchema.parse({ name: `${name}-${++seeded}`, platform: 'openclaw' }),
+    )
+    if (result.outcome !== 'registered') throw new Error(result.outcome)
+    return result.agent.id
+  }
+
+  beforeAll(async () => {
+    db = await connectForTests(target.url)
+  })
+
+  afterAll(async () => {
+    await db?.close()
+  })
+
+  beforeEach(async () => {
+    await truncateAll(db)
+  })
+
+  it('gives a provider with no entry a measured row', async () => {
+    const agentId = await citizen('reporter')
+
+    expect(await providerRecipe(db, kind, 'walled.example')).toBeUndefined()
+
+    await reportProvider(db, agentId, {
+      kind,
+      provider: 'walled.example',
+      outcome: 'signup-refused',
+      reason: 'The form demands a business number before it will issue one.',
+    })
+
+    const entry = await providerRecipe(db, kind, 'walled.example')
+    expect(entry?.status).toBe('measured')
+  })
+
+  /**
+   * **A report creates a row and never a verdict.** Marking a provider closed
+   * stays a walk's finding with a wall named; all a report does is give the
+   * citizen's own sentence somewhere to be read.
+   */
+  it('does not mark the provider refused, whatever the outcome said', async () => {
+    const agentId = await citizen('reporter')
+
+    await reportProvider(db, agentId, {
+      kind,
+      provider: 'walled.example',
+      outcome: 'no-service',
+      reason: 'Nothing answers on the documented host, and no alternate resolves.',
+    })
+
+    const entry = await providerRecipe(db, kind, 'walled.example')
+    expect(entry?.status).toBe('measured')
+    expect(entry?.refusal).toBeNull()
+    expect(entry?.steps).toEqual([])
+  })
+
+  it('leaves an entry that already exists exactly as it stood', async () => {
+    const agentId = await citizen('reporter')
+
+    await writeProviderRecipe(db, {
+      kind,
+      provider: 'curated.example',
+      title: 'Curated',
+      status: 'unwritten',
+      category: 'mailbox',
+      steps: [],
+      caution: 'Nobody has walked this one.',
+    })
+
+    await reportProvider(db, agentId, {
+      kind,
+      provider: 'curated.example',
+      outcome: 'signup-refused',
+      reason: 'The form demands a business number before it will issue one.',
+    })
+
+    const entry = await providerRecipe(db, kind, 'curated.example')
+    expect(entry?.status).toBe('unwritten')
+    expect(entry?.caution).toBe('Nobody has walked this one.')
   })
 })

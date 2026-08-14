@@ -27,6 +27,7 @@ import type { ProviderRecipes } from '../provider-recipes.js'
 const LIST_ORDER: readonly ProviderRecipe['status'][] = [
   'joinable',
   'draft',
+  'measured',
   'unwritten',
   'refused',
   'retired',

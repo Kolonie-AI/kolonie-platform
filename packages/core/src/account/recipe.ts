@@ -559,6 +559,7 @@ export const RECIPE_MAX_PACE_PER_DAY = 100
  * |---|---|
  * | `proposed` | somebody asked for this provider and nobody has decided whether it belongs |
  * | `unwritten` | on the map, nobody has looked |
+ * | `measured` | citizens have been here and nobody has written the route |
  * | `draft` | a walk produced steps that no steward has approved |
  * | `joinable` | steps exist, `proves` is set, and the Colony stands behind it |
  * | `refused` | walked, no honest route, reason required |
@@ -567,6 +568,24 @@ export const RECIPE_MAX_PACE_PER_DAY = 100
  * **The order is the life and not an alphabet**, and it is load-bearing in one
  * place: `RECIPE_STATUSES` reaches the table's check constraint in this order,
  * so a `psql` prompt reading the constraint reads the sequence.
+ *
+ * **`measured` sits beside `unwritten` rather than at the end of the sequence**
+ * (`kolonie-docs#352`), because it is the same moment of the life with evidence
+ * attached: nobody has written the route either way, and the difference is only
+ * whether citizens have been through. Appending it after `retired` would read as
+ * a state that comes *after* withdrawal, which is the one thing it is not.
+ *
+ * **It is the only status whose content the Colony observed rather than wrote**,
+ * and that is why it needs no steward. The two invisible states above are
+ * invisible for a reason about prose nobody vetted — a suggestion by somebody
+ * else, or our own unfinished work. A measurement carries neither: it says what
+ * happened to our own citizens, and the Colony is the witness. A steward reading
+ * one would be checking our arithmetic against itself.
+ *
+ * **What it may never carry is enforced below and in SQL, not by review.**
+ * `recipeStatusAllowsSteps` excludes it, and `provider_recipes_unjoinable_is_empty`
+ * refuses a `measured` row with steps or a `proves` at the database. The absence
+ * of steps is the row's content rather than a gap in it.
  *
  * **`joinable` was not renamed to `published`**, which would be tidier and would
  * touch every surface that shipped on 2026-08-08 for no behaviour change. `#604`
@@ -582,6 +601,7 @@ export const RECIPE_MAX_PACE_PER_DAY = 100
 export const RecipeStatusSchema = z.enum([
   'proposed',
   'unwritten',
+  'measured',
   'draft',
   'joinable',
   'refused',
@@ -592,11 +612,17 @@ export type RecipeStatus = z.infer<typeof RecipeStatusSchema>
 /**
  * Whether a stranger may see this entry at all (`#604`).
  *
- * **Two of the six are internal and the reasons are different.** A `proposed`
+ * **Two of the seven are internal and the reasons are different.** A `proposed`
  * entry is *somebody else's suggestion* — publishing it would put a claim about
  * a third party's product on `kolonie.ai` before anybody at the Colony had read
  * it. A `draft` is the Colony's own work in progress, and publishing it would
  * offer an agent a path no steward has stood behind.
+ *
+ * **Both reasons are about prose nobody vetted, and that is what admits
+ * `measured`** (`kolonie-docs#352`). Neither reason is about a fact the Colony
+ * measured itself — that a citizen proved an account here, or reported being
+ * turned away and why. There was no status for that, so those facts had nowhere
+ * to go and the shelf stayed empty while the tables filled up.
  *
  * **`retired` is public and that is the point of it.** `growth/README.md`'s
  * standing rule is that *a refusal is a page, not an omission*; a withdrawal is
@@ -802,6 +828,14 @@ export function recipeWall(steps: readonly RecipeStep[]): RecipeStep | undefined
  * store it would mean the walk's output lived in a GitHub issue, which is the
  * defect `#601` is named for. It carries steps and is not public, and the two
  * facts are the same decision.
+ *
+ * **`measured` is excluded and the exclusion is the whole status**
+ * (`kolonie-docs#352`). A measured row says *citizens have been here and nobody
+ * has written the route*; one step on it turns that into a route the Colony
+ * published without a steward, which is the gate this status was admitted past
+ * rather than through. It is refused in SQL too, by
+ * `provider_recipes_unjoinable_is_empty`, so a writer that bypasses this
+ * function does not get a second chance at it.
  *
  * **`retired` constrains nothing, deliberately.** It is a *former* state of any
  * of the others and keeps whatever it had — an entry withdrawn while joinable

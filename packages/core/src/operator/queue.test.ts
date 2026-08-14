@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { WAITING_EFFORT, inClearingOrder, type WaitingItem } from './queue.js'
+import {
+  WAITING_EFFORT,
+  WaitingItemSchema,
+  WaitingKindSchema,
+  inClearingOrder,
+  type WaitingItem,
+} from './queue.js'
 
 /**
  * The operator queue's ordering (#530).
@@ -19,24 +25,16 @@ describe('the operator queue', () => {
     answerAt: null,
     requestId: null,
     dropId: null,
-    shareId: null,
-    expiresAt: null,
   })
 
   it('puts what is quick to clear first, however long the slow ones have waited', () => {
     const ordered = inClearingOrder([
       item('question', '2026-08-01T00:00:00.000Z'),
       item('credential', '2026-08-05T00:00:00.000Z'),
-      item('browser-share', '2026-08-07T00:00:00.000Z'),
       item('code', '2026-08-08T00:00:00.000Z'),
     ])
 
-    expect(ordered.map((row) => row.kind)).toEqual([
-      'code',
-      'browser-share',
-      'credential',
-      'question',
-    ])
+    expect(ordered.map((row) => row.kind)).toEqual(['code', 'credential', 'question'])
   })
 
   it('breaks a tie on age, oldest first', () => {
@@ -59,15 +57,24 @@ describe('the operator queue', () => {
   })
 
   /**
-   * A fifth kind would need a rank, and a rank invented at the call site is how
+   * A fourth kind would need a rank, and a rank invented at the call site is how
    * two surfaces end up disagreeing about which of two items is cheaper.
    */
   it('ranks every kind it can be given', () => {
-    expect(Object.keys(WAITING_EFFORT).sort()).toEqual([
-      'browser-share',
-      'code',
-      'credential',
-      'question',
-    ])
+    expect(Object.keys(WAITING_EFFORT).sort()).toEqual(['code', 'credential', 'question'])
+  })
+
+  /**
+   * The rejection case for `#912`: a queue that still knew the word.
+   *
+   * `browser-share` was a kind, ranked second, and it is gone with the channel
+   * behind it. Asserted on the schema rather than on a rendered page, because
+   * this is where a reinstatement would start.
+   */
+  it('has no kind for a shared browser tab', () => {
+    expect(WaitingKindSchema.options).toEqual(['code', 'credential', 'question'])
+    expect(Object.keys(WAITING_EFFORT)).not.toContain('browser-share')
+    expect(Object.keys(WaitingItemSchema.shape)).not.toContain('shareId')
+    expect(Object.keys(WaitingItemSchema.shape)).not.toContain('expiresAt')
   })
 })

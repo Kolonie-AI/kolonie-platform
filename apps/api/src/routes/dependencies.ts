@@ -56,7 +56,6 @@ import type { AvatarDesk } from '../avatars.js'
 import type { ProfileTierDependencies } from './profile-tier.js'
 import type { DropDependencies } from '../operator-drops.js'
 import type { TelegramDesk } from '../operator-telegram.js'
-import type { ShareDesk, ShareNotifier } from '../browser-shares.js'
 import type { VaultDependencies } from '../vault.js'
 import type { VisionDependencies } from '../vision.js'
 import type { WebServerDependencies } from '../web-server.js'
@@ -393,24 +392,12 @@ export interface RouteDependencies {
    * above it.
    */
   readonly citizens: CitizenRecords
-  /**
-   * What is left of the third operator channel (`#736`), on its way out.
-   *
-   * The two sockets it used to register are gone (`#911`) and the console page
-   * is the only route that still reads it, until `#912` takes that too. Still
-   * optional, so that a deployment or a test that wires no database builds an
-   * app. Appended rather than placed among its neighbours, per the note on
-   * `citizens`.
+  /*
+   * `shares` and `shareNotifier` were here (`#736`, `#774`): the third operator
+   * channel's desk and the mail that told a person their agent had offered a
+   * tab. The sockets went in `#911`, the console page and the mail in `#912`,
+   * and nothing in the app constructs either any more.
    */
-  readonly shares?: ShareDesk | undefined
-  /**
-   * The Colony's own word to the person a share was offered to (`#774`).
-   *
-   * **Read by nothing since `#911`** — the tool that made an offer was its one
-   * caller. Held here rather than unpicked halfway, because the mail and the
-   * desk come out together in `#912`. Appended, per the note on `citizens`.
-   */
-  readonly shareNotifier?: ShareNotifier | undefined
   /**
    * The Colony's own copy of a citizen's avatar (`#823`).
    *

@@ -86,7 +86,6 @@ import {
 import {
   githubAccountOf,
   holdsSkillNow,
-  linkedOperator,
   openProspects,
   readSkillNote,
   readSkillNotes,
@@ -121,7 +120,6 @@ import {
   telegramFromEnv,
   type TelegramDesk,
 } from './operator-telegram.js'
-import { databaseShares, mailingShareNotifier } from './browser-shares.js'
 import { databaseVault } from './vault.js'
 import { databaseAccounts, databaseAccountResolution } from './accounts.js'
 import { databaseAccountProofs } from './account-proofs.js'
@@ -1116,28 +1114,12 @@ const app = buildApp({
   // Same origin the operator's other links use. AGENTS.md §3 keeps host names
   // out of this repository.
   dropBaseUrl: process.env['CONSOLE_URL'] ?? '',
-  /**
-   * The third operator channel (`#736`): a live browser tab.
-   *
-   * **No configuration and no key of the Colony's**, unlike the two channels
-   * above. Nothing is sealed here because nothing is kept — the frames go
-   * through the relay and into the other socket, and what the database holds is
-   * that a share happened and how it ended.
-   */
-  shares: databaseShares(db),
-  /**
-   * And the Colony's own word to the person on the other end (`#774`).
-   *
-   * The one piece of configuration this channel does have, and it is the same
-   * pair the operator request above it uses: a sender, and the console origin an
-   * operator's links are already built from. Either missing is not an error —
-   * `mailingShareNotifier` answers `undeliverable`, the offer stands in the
-   * queue, and the citizen is told which of the two it got.
-   *
-   * `supportSurface` for the allowance, deliberately: `close` is free and
-   * idempotent, so *offer, withdraw, offer again* is a loop, and the one-share
-   * rule is therefore not a ceiling on how much mail an agent can cause. The
-   * shared window is, and `support.ts` says why there must not be a second one.
+  /*
+   * The third operator channel (`#736`) was constructed here: the desk behind a
+   * live browser tab, and the mail that told the person on the other end. Both
+   * are gone (`#912`). The notifier in particular is *not constructed* rather
+   * than merely uncalled — a mailer this process still built is a mailer one
+   * forgotten call site could still send from.
    */
   /**
    * The operator's desk on Telegram (`#793`).
@@ -1154,13 +1136,6 @@ const app = buildApp({
    * break the ones already sitting in people's chat histories.
    */
   telegram: operatorTelegram,
-  shareNotifier: mailingShareNotifier({
-    recipient: (agentId) => linkedOperator(db, agentId),
-    mailer: mail.operatorMailer,
-    consoleUrl: process.env['CONSOLE_URL'] || undefined,
-    allowance: supportSurface,
-    log,
-  }),
   // The account register (#150): what a citizen holds, beside what it can do.
   // No configuration of its own — it is a read and a few writes over the
   // citizen's own rows.

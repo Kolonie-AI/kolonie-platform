@@ -29,8 +29,6 @@ describe('the operator queue on the fleet page', () => {
     answerAt: null,
     requestId: null,
     dropId: null,
-    shareId: null,
-    expiresAt: null,
     ...over,
   })
 
@@ -139,55 +137,42 @@ describe('the operator queue on the fleet page', () => {
   })
 
   /**
-   * A live tab (`#738`).
+   * The rejection case for `#912`: the two channels that stayed, side by side.
    *
-   * The row has to answer two things no other kind does: how long the offer has
-   * left, and whether it is still worth clicking. The second is the one the issue
-   * names as a failure — *"an expired item is visibly expired in the list rather
-   * than on the click"* — because a link that dies on the click is how a person
-   * concludes the console is broken.
+   * A live tab was the third kind here (`#738`), the only row with a deadline
+   * and the only one whose action was a link into a window rather than a field
+   * or a door. It is gone with the channel behind it, and what this asserts is
+   * the thing a removal can quietly break: that the rows either side of it are
+   * *unchanged* — both drawn, in the order they were given, each with the action
+   * it always had, and no deadline left anywhere on the page.
    */
-  describe('a share, which is the only item with a deadline', () => {
-    const shareId = '33333333-3333-4333-8333-333333333333'
-    const withShare = (expiresAt: string) =>
-      dashboardPage({
-        nav: {},
-        zone: 'UTC',
-        agents: [agent],
-        waiting: [
-          item({
-            kind: 'browser-share',
-            ask: 'The signup page wants a picture puzzle solved.',
-            about: 'mail.tm, step 3',
-            shareId,
-            expiresAt,
-          }),
-        ],
-      })
-
-    /** Far enough out that the page is the same on any day this test runs. */
-    const live = () => new Date(Date.now() + 3_600_000).toISOString()
-
-    it('opens the window, and says what the item costs to clear', () => {
-      const html = withShare(live())
-
-      expect(html).toContain(`href="/browser/share/${shareId}"`)
-      expect(html).toContain('a live tab')
-      // Not a form. Nothing is submitted from this row — the socket is the
-      // whole of the interaction, and it proves itself against the session.
-      expect(html).not.toContain(`action="/browser/share/${shareId}"`)
+  it('draws a pending drop and a pending question unchanged, in the order given', () => {
+    const html = dashboardPage({
+      nav: {},
+      zone: 'UTC',
+      agents: [agent],
+      waiting: [
+        item({ kind: 'code', dropId: '22222222-2222-4222-8222-222222222222' }),
+        item({
+          kind: 'question',
+          ask: 'May I open an account at this provider?',
+          answerAt: '/operator/page/abc',
+          requestId: '44444444-4444-4444-8444-444444444444',
+        }),
+      ],
     })
 
-    it('shows how long the offer has left, beside how long it has waited', () => {
-      expect(withShare(live())).toContain('lapses')
-    })
-
-    it('replaces the link with the word once the offer has lapsed', () => {
-      const html = withShare('2026-01-01T00:00:00.000Z')
-
-      expect(html).toContain('expired — the agent has to offer again')
-      expect(html).not.toContain(`href="/browser/share/${shareId}"`)
-    })
+    expect(html).toContain('Waiting on you (2)')
+    expect(html.indexOf('action="/drops/22222222-2222-4222-8222-222222222222"')).toBeLessThan(
+      html.indexOf('#question-44444444-4444-4444-8444-444444444444'),
+    )
+    expect(html).toContain('type="password"')
+    expect(html).toContain(
+      `href="/agents/${agent.id}/operator#question-44444444-4444-4444-8444-444444444444"`,
+    )
+    // Nothing in this queue runs out in view any more.
+    expect(html).not.toContain('lapses')
+    expect(html).not.toContain('/browser/share/')
   })
 
   /**

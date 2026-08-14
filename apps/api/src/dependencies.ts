@@ -67,7 +67,6 @@ import type { CitizenRecords } from './citizens.js'
 import type { AvatarDesk } from './avatars.js'
 import type { SettingsDesk } from './settings.js'
 import type { ProviderEnquiryDesk } from './provider-enquiries.js'
-import type { ShareDesk, ShareNotifier } from './browser-shares.js'
 import type { ProfileTierDependencies } from './routes/profile-tier.js'
 
 /**
@@ -553,26 +552,14 @@ export interface AppDependencies {
    * per the house rule on `citizens`.
    */
   readonly avatars?: AvatarDesk
-  /**
-   * What is left of the third operator channel (`#736`), on its way out.
-   *
-   * **Nothing offers a share any more** (`#911`): the tools and both sockets are
-   * gone, so the only reader left is the console page that shows a person a
-   * share that already exists, and that page goes with `#912`. Still optional
-   * for the reason it always was — a deployment or a test wired with no database
-   * has no desk to give and must still boot.
+  /*
+   * `shares` and `shareNotifier` were here (`#736`, `#774`): the third operator
+   * channel's desk, and the mail that told a person their agent was waiting on
+   * a tab. The tools and both sockets went in `#911`; the console window, the
+   * queue entry and the mail went in `#912`, and with the last reader gone the
+   * deployment stops constructing either. A notifier a deployment still built
+   * would be a notifier that could still send.
    */
-  readonly shares?: ShareDesk
-  /**
-   * And how the person was told their agent is waiting (`#774`).
-   *
-   * **Nothing reads this now.** Its one reader was the offer tool, withdrawn
-   * with the rest of them (`#911`); it is still wired because the mail it sends
-   * and the desk that holds it come out together in `#912`, and unpicking half
-   * of that here would make the diff that removes it harder to read rather than
-   * smaller.
-   */
-  readonly shareNotifier?: ShareNotifier
   /**
    * The brake in front of the public profile tier (`#828`).
    *

@@ -29,11 +29,10 @@ import { TimestampSchema } from '../common/time.js'
  * reconfigures an agent — `#512` refuses that and this inherits the refusal. The
  * only actions are the ones the channels themselves already have: reply to a
  * request, and fill in a drop. A third one — click on the one tab an agent
- * offered (`#738`) — was the closest this ever came to the refusal, and it is
- * being removed rather than widened: `#894` measured that the challenge it
- * existed for never opens for a driven browser, so the operator arrived at a
- * page with nothing on it to clear. `#911` took the relay; `#912` takes the
- * window and the entry below.
+ * offered (`#738`) — was the closest this ever came to the refusal, and it was
+ * removed rather than widened (`#911`, `#912`): `#894` measured that the
+ * challenge it existed for never opens for a driven browser, so the operator
+ * arrived at a page with nothing on it to clear.
  */
 
 /** Which of the three channels an item is waiting on. */
@@ -43,16 +42,6 @@ export const WaitingKindSchema = z.enum([
    * digit string from a mail. Read once and gone.
    */
   'code',
-  /**
-   * A live browser tab the agent is stuck in front of, offered for a bounded
-   * window (`#736`, `#738`).
-   *
-   * **The only kind with a clock on it.** The other three wait as long as it
-   * takes; this one lapses, and once it has, the row is gone and the agent has
-   * to offer again. That is why it is shown with its remaining validity and why
-   * it sits near the top of the ordering.
-   */
-  'browser-share',
   /** A secret that lands in the agent's vault. Something to find, or to create. */
   'credential',
   /** Words. An open question on the operator page, with no answer yet. */
@@ -69,13 +58,6 @@ export type WaitingKind = z.infer<typeof WaitingKindSchema>
  *
  * - **`code`** is the fastest thing an operator ever does here: a value is
  *   already on a screen in front of them and the field takes it.
- * - **`browser-share`** is second (`#738`). It is a page, a click and a close —
- *   longer than pasting a code and shorter than finding a credential. It is also
- *   the only kind that can be *missed*: the others are still there tomorrow, and
- *   a lapsed offer takes the agent's half-filled form with it. Second and not
- *   first, because a five-second paste that is still there in an hour should
- *   still be cleared first; ranking by urgency rather than by cost is exactly
- *   the change that turns this back into a queue sorted by whoever shouted.
  * - **`credential`** is minutes. Something has to be found in a password
  *   manager, or created at a provider.
  * - **`question`** is last because it is the only one that cannot be bounded. A
@@ -83,13 +65,17 @@ export type WaitingKind = z.infer<typeof WaitingKindSchema>
  *   of these would spend the operator's attention before any of the cheap items
  *   were cleared.
  *
+ * The ranks are 0, 2 and 3 rather than 0, 1 and 2. Nothing sits at 1 any more:
+ * `browser-share` did until `#912`, and the numbers are left where they are
+ * because only their order is read — renumbering would be a change to every
+ * ordering test for no change to any ordering.
+ *
  * **Age is deliberately not in the ordering.** It is shown, because *this has
  * been waiting four days* is worth knowing; it does not sort, because sorting by
  * it is what produces the queue an operator abandons.
  */
 export const WAITING_EFFORT: Readonly<Record<WaitingKind, number>> = {
   code: 0,
-  'browser-share': 1,
   credential: 2,
   question: 3,
 }
@@ -156,32 +142,6 @@ export const WaitingItemSchema = z.object({
    * refused.
    */
   dropId: z.uuid().nullable().default(null),
-  /**
-   * The browser share this item is, when it is one (`#738`). `null` otherwise.
-   *
-   * An id and not a link, for the third time on this schema and for the third
-   * time for the same reason: it authorises nothing. The window it opens is on
-   * the console, behind a session, and `acceptShare` checks `human_agents` again
-   * at the socket — so an id read off somebody else's screen buys them a page
-   * that refuses them.
-   */
-  shareId: z.uuid().nullable().default(null),
-  /**
-   * When this item stops being answerable, for the one kind that lapses in view.
-   *
-   * **`null` on everything except a browser share**, and that is a statement
-   * about the queue rather than about the other kinds. A drop expires too — it
-   * is simply filtered out before it can be rendered, because a drop the
-   * operator can no longer fill is not something waiting on them. A share is
-   * deliberately *not* filtered: `#738` asks that a lapsed offer be *"visibly
-   * expired in the list rather than on the click"*, so it is shown once with its
-   * deadline in the past and is gone on the next load.
-   *
-   * It is also what the live row is worth reading: the offer window is hours and
-   * the live window is minutes, and the same column carries whichever the share
-   * is currently in.
-   */
-  expiresAt: TimestampSchema.nullable().default(null),
 })
 export type WaitingItem = z.infer<typeof WaitingItemSchema>
 

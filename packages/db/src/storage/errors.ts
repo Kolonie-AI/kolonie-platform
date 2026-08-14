@@ -38,12 +38,14 @@ export function isUniqueViolation(error: unknown): boolean {
  * arrives from anywhere.
  *
  * Shared rather than duplicated, for the reason {@link isUniqueViolation} is:
- * the challenge lookups and the browser-share console page both promise a
- * caller that a bad id is indistinguishable from an id that does not exist, and
- * a second copy of the shape is a second place for that promise to come apart.
- * `#768` is what it looks like when one of them has no copy at all — a citizen's
- * operator pasted the share **token** where the share **id** goes and the
- * console answered with its "something went wrong" page.
+ * every lookup that takes an id from outside promises its caller that a bad id
+ * is indistinguishable from an id that does not exist, and a second copy of the
+ * shape is a second place for that promise to come apart. `#768` is what it
+ * looks like when one of them has no copy at all — a citizen's operator pasted
+ * a token where an id goes, and the console answered with its "something went
+ * wrong" page instead of its not-found one. That particular page was the shared
+ * browser tab's and is gone (`#912`); the promise it was making is every other
+ * lookup's too.
  */
 export function isUuid(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)

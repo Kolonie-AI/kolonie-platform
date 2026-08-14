@@ -55,7 +55,6 @@ import {
   sessionsPage,
   signInPage,
 } from '../console/html.js'
-import { sharePage, SHARE_PAGE_HEADERS } from '../console/browser-share.js'
 import type { ConsoleNav } from '../console/navigation.js'
 import { relative, zoneFrom } from '../console/time.js'
 import {
@@ -1063,50 +1062,15 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
       : reply.status(200).send({ ended })
   })
 
-  /**
-   * The third operator channel's window: the agent's live tab (`#738`).
-   *
-   * **The id is checked against the person in the same statement that reads the
-   * row**, exactly as `/sessions/:id/end` is, and `offeredTo` answers `null` for
-   * all five ways this can be wrong — a guessed id, a stranger's share, one that
-   * has closed, one that has lapsed, and one that is not a uuid at all. All five
-   * get {@link consoleNotFound}, which is what a mistyped path gets, so the page
-   * is not a way to ask whether a guessed id ever named anything.
-   *
-   * The fifth was four until `#768`: an operator pasted the share **token** here
-   * — the string their agent had just been handed — and a `uuid` column raises
-   * on that rather than matching nothing, so the console showed the page it
-   * shows when the Colony has broken. The guard sits in `offeredTo` rather than
-   * in this handler, so that every caller of it inherits the same silence.
-   *
-   * **Rendering it does not accept it.** Accepting is what starts the live
-   * minutes, and it happens on the socket the page opens — so a person who
-   * loads this and wanders off has spent nothing, and the offer is still there
-   * when they come back. `browser-share.ts` explains why joining *is* accepting
-   * once the socket is up.
-   *
-   * The page carries script, which no other console page does, and
-   * {@link SHARE_PAGE_HEADERS} is the narrower CSP that permits exactly it.
+  /*
+   * `/browser/share/:shareId` was here (`#738`): the third operator channel's
+   * window onto an agent's live tab, and the one console page that carried
+   * script. It is gone (`#912`) along with the channel — `#894` measured that
+   * the challenge it existed for reads the browser as driven and closes before
+   * the operator arrives, so the window opened onto nothing to clear. No route
+   * is registered for the path, so it answers with whatever an unknown path
+   * answers, which is what a withdrawn page should look like from outside.
    */
-  app.get('/browser/share/:shareId', async (request, reply) => {
-    if (!(await guard(request, reply))) return reply
-
-    const signedIn = await person(request)
-    if (signedIn === null) return signInRequired(request, reply)
-
-    const { shareId } = request.params as { shareId?: string }
-    const share =
-      deps.shares === undefined || shareId === undefined
-        ? null
-        : await deps.shares.offeredTo(shareId, signedIn.human.id as HumanId)
-
-    if (share === null) return consoleNotFound(reply, request)
-
-    if (!wantsHtml(request)) return reply.status(200).send({ share })
-
-    for (const [header, value] of Object.entries(SHARE_PAGE_HEADERS)) reply.header(header, value)
-    return reply.status(200).type('text/html; charset=utf-8').send(sharePage(share, Date.now()))
-  })
 
   /**
    * The maintainer's gate (`#486`).

@@ -1,4 +1,3 @@
-import { eq } from 'drizzle-orm'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import type { AgentId, HumanId, TaskId, WishId } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
@@ -100,12 +99,13 @@ describe('the operator queue', () => {
   }
 
   /**
-   * An open, unaccepted offer of a live tab (`#738`).
+   * An open, unaccepted offer of a live tab — history rather than a channel
+   * (`#738`, withdrawn by `#912`).
    *
-   * Inserted rather than offered through `offerShare`, exactly as the exchanges
-   * above are inserted rather than opened: that function also wants the skill,
-   * the operator link and a mintable token, and none of the three is what this
-   * file is about. What the queue reads is the row.
+   * Nothing writes one of these any more, and the table outlives the feature by
+   * one issue (`#914`). It is inserted here so that the one thing left to check
+   * can be checked: that a person whose account carries such a row still gets
+   * their queue, with nothing in it about a tab.
    */
   const aShare = async (
     agentId: AgentId,
@@ -171,72 +171,33 @@ describe('the operator queue', () => {
     // last, which is the ordering the issue asks for.
     await aQuestion(agentId, 'Which of these two providers should I use?')
     await openDrop(db, { agentId, kind: 'credential', prompt: 'The API key.', vaultKey: 'k' })
-    await aShare(agentId, 'The signup page wants a picture puzzle solved.')
     await openDrop(db, { agentId, kind: 'code', prompt: 'The code from your handset.', taskId })
 
     const queue = await waitingForOperator(db, humanId)
 
-    // A share sits second: it is a couple of clicks on a tab that is already
-    // open, which is more than reading six digits off a handset and less than
-    // going and finding an API key.
-    expect(queue.map((row) => row.kind)).toEqual([
-      'code',
-      'browser-share',
-      'credential',
-      'question',
-    ])
+    expect(queue.map((row) => row.kind)).toEqual(['code', 'credential', 'question'])
   })
 
-  it('carries a waiting share’s id and deadline so the console can open it', async () => {
+  /**
+   * The rejection case for `#912`: an account with share history.
+   *
+   * The row here is exactly what the query used to select — open, unaccepted,
+   * hours of validity left — and the queue is now blind to it. Two things are
+   * being asserted at once: that no third arm survives, and that a person whose
+   * account carries one of these rows still gets a queue rather than an error,
+   * which is what stops this from depending on `#914` dropping the table.
+   */
+  it('says nothing about a tab an agent once offered, and still answers', async () => {
     const agentId = await anAgent('one', humanId)
-    const shareId = await aShare(agentId, 'A picture puzzle I cannot read.', {
-      provider: 'mail.tm',
-      step: 3,
-    })
+    await aShare(agentId, 'A picture puzzle I cannot read.', { provider: 'mail.tm', step: 3 })
 
-    const [item] = await waitingForOperator(db, humanId)
+    expect(await waitingForOperator(db, humanId)).toEqual([])
 
-    expect(item?.kind).toBe('browser-share')
-    expect(item?.ask).toBe('A picture puzzle I cannot read.')
-    // Assembled rather than joined — a share belongs to no task, so there is no
-    // title to fall back to the way the other two kinds have.
-    expect(item?.about).toBe('mail.tm, step 3')
-    expect(item?.shareId).toBe(shareId)
-    expect(item?.expiresAt).not.toBeNull()
-    // Nobody is on it yet, so there is no page for it in the operator's own set.
-    expect(item?.answerAt).toBeNull()
-  })
+    await aQuestion(agentId, 'May I open an account at this provider?')
+    const queue = await waitingForOperator(db, humanId)
 
-  it('leaves a lapsed offer in the list once, and not twice', async () => {
-    const agentId = await anAgent('one', humanId)
-    await aShare(agentId, 'A picture puzzle I cannot read.', {}, -1)
-
-    /**
-     * The one place the *is this still waiting* rule is knowingly relaxed
-     * (`#738`): an offer that ran out is shown once, plainly expired, because an
-     * item that vanished between two page loads leaves the operator wondering
-     * whether they imagined it. The sweep runs after the read, so the second
-     * load is empty.
-     */
-    expect(await waitingForOperator(db, humanId)).toHaveLength(1)
-    expect(await waitingForOperator(db, humanId)).toHaveLength(0)
-  })
-
-  it('stops offering a share somebody is already on', async () => {
-    const agentId = await anAgent('one', humanId)
-    const shareId = await aShare(agentId, 'A picture puzzle I cannot read.')
-
-    expect(await waitingForOperator(db, humanId)).toHaveLength(1)
-
-    await db
-      .update(browserShares)
-      .set({ acceptedAt: new Date().toISOString() })
-      .where(eq(browserShares.id, shareId))
-
-    // A second window onto a session somebody is already driving is not
-    // something to offer; the person on it opens the page again from their own
-    // history, which `shareOfferedTo` still answers.
-    expect(await waitingForOperator(db, humanId)).toHaveLength(0)
+    expect(queue.map((row) => row.kind)).toEqual(['question'])
+    expect(JSON.stringify(queue)).not.toContain('picture puzzle')
   })
 
   it('drops an exchange the operator has already replied to', async () => {

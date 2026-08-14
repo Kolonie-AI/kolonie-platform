@@ -55,18 +55,21 @@ describe('the browser share, withdrawn', () => {
   /**
    * Through a real client rather than over the constant, because the constant is
    * what a tier is built from and `tools/list` is what an agent actually reads.
-   * The citizen here holds the skill that used to open the channel, which is the
-   * only set of skills that could tell this apart from a list nobody unlocked.
+   *
+   * The citizen used to be handed the channel's own prerequisites here, through a
+   * desk the deployment no longer builds (`#912`). Nothing is lost by that: the
+   * desk gated the *offer*, and what is asserted is that the names are absent
+   * from the list — which is D-013's way of switching a surface off, and is true
+   * of every citizen rather than of one that failed a check.
    */
-  it('is named by no tool a citizen holding the skill is offered', async () => {
+  it('is named by no tool a citizen is offered', async () => {
     const colony = fakeColony()
     const registered = await colony.registry.register(
       { name: `withdrawn-${randomUUID().slice(0, 8)}`, platform: 'openclaw' },
       { ip: FAKE_CALLER_IP },
     )
     if (registered.outcome !== 'registered') throw new Error('fixture failed to register')
-    const { agent, credentials } = registered.response
-    colony.shares.allow(agent.id)
+    const { credentials } = registered.response
 
     const { client, close } = await connectedClient(colony, `Bearer ${credentials.apiKey}`)
     const { tools } = await client.listTools()
@@ -97,7 +100,6 @@ describe('the browser share, withdrawn', () => {
       { ip: FAKE_CALLER_IP },
     )
     if (registered.outcome !== 'registered') throw new Error('fixture failed to register')
-    colony.shares.allow(registered.response.agent.id)
 
     const { client, close } = await connectedClient(
       colony,
@@ -141,6 +143,37 @@ describe('the relay the sharer dialled', () => {
       method: 'GET',
       url: `${API_BASE_PATH}/browser/share/relay`,
       headers: { authorization: 'Bearer a-token-nothing-mints-any-more' },
+    })
+    await app.close()
+
+    expect(answered.statusCode).toBe(404)
+  })
+})
+
+/**
+ * The other end of the same wire (`#912`).
+ *
+ * The operator's window lived at `/browser/share/:shareId` on the console host and
+ * was the one page in that app carrying script. It is withdrawn with the channel,
+ * and a bookmark or a mail three days old lands on the app's own 404 rather than
+ * on a frame, a socket or an error page — which is what a page that is gone should
+ * look like from outside.
+ */
+describe('the console window the operator was sent to', () => {
+  it('answers 404', async () => {
+    const app = buildApp({
+      ...fakeColony(),
+      store: fakeStore(),
+      console: fakeConsole(),
+    })
+    await app.ready()
+
+    const answered = await app.inject({
+      method: 'GET',
+      url: `/browser/share/${randomUUID()}`,
+      // On the console's own host: the API host would have answered 404 for a
+      // path it never served, which would prove nothing about this one.
+      headers: { host: new URL(fakeConsole().consoleUrl).host },
     })
     await app.close()
 

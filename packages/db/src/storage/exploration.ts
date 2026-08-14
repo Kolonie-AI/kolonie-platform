@@ -1,4 +1,4 @@
-import { eq, sql } from 'drizzle-orm'
+import { and, eq, notInArray, sql } from 'drizzle-orm'
 import type { AgentId } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import { accountWalks } from '../schema/account-walks.js'
@@ -54,11 +54,31 @@ export async function unwalkedAtlasEntry(
     .select({ kind: providerRecipes.kind, provider: providerRecipes.provider })
     .from(providerRecipes)
     .where(
-      sql`not exists (
-            select 1 from ${accountWalks}
-             where ${accountWalks.kind} = ${providerRecipes.kind}
-               and ${accountWalks.provider} = ${providerRecipes.provider})
-          and ${providerRecipes.kind} <> all(${heldKinds})`,
+      and(
+        sql`not exists (
+              select 1 from ${accountWalks}
+               where ${accountWalks.kind} = ${providerRecipes.kind}
+                 and ${accountWalks.provider} = ${providerRecipes.provider})`,
+        // **`notInArray`, not `<> all(${heldKinds})`** (`#895`).
+        //
+        // A JS array interpolated into a `sql` template is expanded by Drizzle
+        // into a parenthesised *parameter list* — `($1, $2, $3)` — which is a
+        // row constructor and not an array. `all()` requires an array on its
+        // right, so Postgres refused it with `42809: op ANY/ALL (array)
+        // requires array on right side`, and `kolonie.wakeup` threw for **every
+        // citizen holding at least one account kind**. Measured in production
+        // on 2026-08-14, once every thirty minutes:
+        //
+        //     and "provider_recipes"."kind" <> all(($1, $2, $3))
+        //     params: mailbox,github,wallet,1
+        //
+        // The empty case is guarded rather than fixed, on the shape
+        // `verifications.ts` already uses: holding no kinds excludes nothing,
+        // and a predicate over an empty list is a predicate nobody needs to
+        // write. `notInArray` with an empty array is a footgun in its own right
+        // — it is the one input for which the operator has no honest SQL.
+        ...(heldKinds.length > 0 ? [notInArray(providerRecipes.kind, [...heldKinds])] : []),
+      ),
     )
     .orderBy(providerRecipes.kind, providerRecipes.provider)
     .limit(1)

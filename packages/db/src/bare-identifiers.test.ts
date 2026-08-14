@@ -289,12 +289,37 @@ describe('a subquery never interpolates columns of two tables', () => {
    *   select 1 from "account_walks"
    *    where "account_walks"."kind" = "provider_recipes"."kind"
    *      and "account_walks"."provider" = "provider_recipes"."provider")
-   * and "provider_recipes"."kind" <> all(($1))
+   * and "provider_recipes"."kind" not in ($1, $2, $3)
    * ```
    *
    * Every identifier qualified, both halves of the correlation included. The
-   * held kinds arrive as a bound parameter rather than as SQL text, which is the
+   * held kinds arrive as bound parameters rather than as SQL text, which is the
    * other half of what this rule is watching for.
+   *
+   * ### The exclusion said `<> all(($1))` here, and that query could not run
+   *
+   * Worth a paragraph rather than a quiet edit, because this file passed on it
+   * and the passing was correct (`#895`).
+   *
+   * `unwalkedAtlasEntry` shipped with `<> all(${heldKinds})`. Drizzle expands a
+   * JS array in a `sql` template into a parenthesised *parameter list*, which is
+   * a row constructor and not an array, so Postgres refused every execution with
+   * `42809: op ANY/ALL (array) requires array on right side`. `kolonie.wakeup`
+   * threw for every citizen holding at least one account kind, every thirty
+   * minutes, for eight days.
+   *
+   * The rendering above was taken from this dialect the day it shipped and
+   * written into this comment. It was accurate. **What it could not say is
+   * whether the query runs**, because this file is a lint over the SQL *text* —
+   * it asks whether every identifier is qualified, and every identifier was.
+   *
+   * So the boundary is worth stating where somebody will read it before adding
+   * the next entry: **a query listed in `MEASURED_SAFE` has been checked for the
+   * things visible in a string and for nothing else.** It is not a claim that
+   * the query is correct, and a rendering pasted here is evidence about
+   * qualification rather than about execution. `exploration-query.test.ts`
+   * exercises this one against a real database, which is the check that fails
+   * when the SQL is valid-looking and wrong.
    */
   const MEASURED_SAFE: Readonly<Record<string, number>> = {
     'tasks.ts': 2,

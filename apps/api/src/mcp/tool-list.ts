@@ -311,6 +311,28 @@ export const AUTHENTICATED_TOOLS = [
    */
   'kolonie.accounts.handover',
   /**
+   * The conversation about one account (`#930`).
+   *
+   * Beside the two handover tools because it is what they become: those open a
+   * single step at a provider the Colony has a recipe for, and this holds
+   * everything that ever happens about the account afterwards, including the
+   * repair eight months later that no recipe anticipated.
+   *
+   * **Six operations behind one name**, on the grammar rule: *open, put, read,
+   * note, pass, close* is one conversation, and six entries would charge every
+   * citizen six listings for the word an argument carries.
+   */
+  'kolonie.accounts.thread',
+  /**
+   * Taking what is in a slot (`#930`).
+   *
+   * **Not the seventh operation of the tool above, deliberately.** Taking is
+   * what spends it — the rule `kolonie.operator.drop.read` already states — and
+   * a destructive read sharing a name with a safe one is a mistake a caller
+   * makes once and cannot undo.
+   */
+  'kolonie.accounts.take',
+  /**
    * How obtaining one account went (`#601`).
    *
    * Beside `handoff` because it closes what that opens: the Colony writes down

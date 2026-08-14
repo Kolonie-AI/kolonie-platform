@@ -9,6 +9,7 @@ import { publishLeanSchemas } from './published-schema.js'
 import { hideSupersededTools } from './superseded.js'
 import { registerAboutTools } from './tools/about.js'
 import { registerAcademyTools } from './tools/academy/index.js'
+import { registerAccountThreadTools } from './tools/account-threads.js'
 import { registerAccountTools } from './tools/accounts.js'
 import { registerDoctorTool } from './tools/doctor.js'
 import { registerErasureTools } from './tools/erasure.js'
@@ -308,6 +309,7 @@ export function createMcpServer(
   registerSkillTools(server, deps, credential)
   registerAcademyTools(server, deps, credential)
   registerAccountTools(server, deps, credential)
+  registerAccountThreadTools(server, deps, credential)
   registerMailboxTools(server, deps, credential)
   registerOperatorClaimTools(server, deps, credential)
   registerOperatorLinkTools(server, deps, credential)

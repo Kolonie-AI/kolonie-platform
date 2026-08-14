@@ -50,7 +50,7 @@ describe('the Atlas over MCP', () => {
      * gained the figures, so the count is exactly what it was. Reported here per
      * `#388`'s practice.
      */
-    it('leaves the tool count explicit — 4 unauthenticated, 90 authenticated, 6 steward', () => {
+    it('leaves the tool count explicit — 4 unauthenticated, 93 authenticated, 6 steward', () => {
       expect(UNAUTHENTICATED_TOOLS.length).toBe(4)
       // 92 since `#837` added `kolonie.doctor` — what a citizen's own traffic
       // looks like from the Colony's side. A tool rather than a section of
@@ -118,7 +118,14 @@ describe('the Atlas over MCP', () => {
       // removed from `tools/list` on the way out. `SUPERSEDED_TOOLS` is what a
       // citizen is actually offered fewer of, and `superseded.test.ts` asserts
       // both halves.
-      expect(AUTHENTICATED_TOOLS.length).toBe(91)
+      // 93 since `#930` added `kolonie.accounts.thread` and
+      // `kolonie.accounts.take` — the account conversation. Two rather than one,
+      // because taking a secret out of a slot is the single act that spends
+      // something, and folding it into the tool a citizen calls on waking would
+      // make *read what is open* and *consume the one copy* neighbours in the
+      // same argument. Two rather than seven, because the other six moves differ
+      // only in what they write and all of them are safe to repeat.
+      expect(AUTHENTICATED_TOOLS.length).toBe(93)
       // 9 since `#695` added `kolonie.quests.end` — the Colony's escape hatch
       // from an automatic publication. Steward-only because sponsor withdrawal
       // while citizens may be working is a separate fairness decision.

@@ -69,6 +69,7 @@ export function registerMcpRoutes(app: FastifyInstance, deps: RouteDependencies)
     memory,
     vision,
     vault,
+    accountThreads,
     drops,
     handovers,
     dropBaseUrl,
@@ -261,6 +262,7 @@ export function registerMcpRoutes(app: FastifyInstance, deps: RouteDependencies)
            * carrying secrets normally. The two doors have to be given the same
            * things or they are not the same Colony.
            */
+          accountThreads,
           ...(drops === undefined ? {} : { drops }),
           ...(handovers === undefined ? {} : { handovers }),
           dropBaseUrl,

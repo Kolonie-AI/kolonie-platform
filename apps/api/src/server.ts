@@ -114,6 +114,7 @@ import { databaseArtefactChallenges } from './artefact.js'
 import { databaseDomainChallenges } from './domain.js'
 import { databaseVisionChallenges } from './vision.js'
 import { databaseHandovers } from './handovers.js'
+import { databaseAccountThreads } from './account-threads.js'
 import { databaseDrops, usableSealingKey } from './operator-drops.js'
 import { operatorNotifierFor } from './operator-notifier.js'
 import {
@@ -1108,6 +1109,22 @@ const app = buildApp({
   // is sealed with the caller's own key, which arrives in the request that uses
   // it. There is no master key to provision here and none to leak (#98).
   vault: { vault: databaseVault(db) },
+  /**
+   * The conversation about an account (`#930`).
+   *
+   * **Constructed whether or not the sealing key is there**, unlike the two
+   * channels below. Almost all of this surface carries no secret at all — an
+   * episode, its turn, its notes, its outcome — and a Colony that lost the whole
+   * conversation because it could not carry a password would be one where the
+   * agent cannot even say what it is stuck on. The store knows whether it can
+   * seal, and refuses the one operation that needs it.
+   */
+  accountThreads: databaseAccountThreads(
+    db,
+    usableSealingKey(process.env[OPERATOR_DROP_SEALING_KEY_VAR])
+      ? process.env[OPERATOR_DROP_SEALING_KEY_VAR]
+      : undefined,
+  ),
   /**
    * The operator-to-agent secret channel (`#410`).
    *

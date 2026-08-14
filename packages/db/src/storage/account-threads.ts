@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, isNull } from 'drizzle-orm'
+import { and, asc, desc, eq, isNotNull, isNull, sql } from 'drizzle-orm'
 import {
   AccountEntryIdSchema,
   AccountEpisodeIdSchema,
@@ -20,7 +20,13 @@ import {
   outcomeNeedsWall,
 } from '@kolonie-ai/core'
 import type { Database, Transaction } from '../client.js'
-import { accountEntries, accountEpisodes, accountSlots, accountThreads } from '../schema/index.js'
+import {
+  accountEntries,
+  accountEpisodes,
+  accountSlots,
+  accountThreads,
+  accounts,
+} from '../schema/index.js'
 
 /**
  * The account conversation, in storage (`#929`).
@@ -364,6 +370,157 @@ export async function slot(
   return row === undefined ? undefined : toSlot(row)
 }
 
+export type TakeSlotOutcome =
+  | { readonly outcome: 'taken'; readonly slot: AccountSlot }
+  /**
+   * Somebody already took it, and this is the refusal `#930` asks for.
+   *
+   * **Nothing is written and the previous take is not disturbed**: the update is
+   * conditioned on `taken_at` still being null, so the second caller does not
+   * move the stamp and does not change where the first one put it. The row comes
+   * back so the refusal can name the vault key it went to, which is the one
+   * thing a caller that lost its transcript actually needs.
+   */
+  | { readonly outcome: 'already-taken'; readonly slot: AccountSlot }
+  /** Nothing has been put in it yet, so there is nothing to spend. */
+  | { readonly outcome: 'not-filled'; readonly slot: AccountSlot }
+  | { readonly outcome: 'no-such-slot' }
+
+/**
+ * Spend a secret slot: stamp it taken, and say where it went.
+ *
+ * **Taking is what spends it**, the rule `kolonie.operator.drop.read` already
+ * states, and the stamp is a column rather than an inference from the vault —
+ * a spend that left no mark is one nothing could refuse a second time.
+ *
+ * Only a secret slot is ever taken. A slot that is not secret is read, and
+ * reading it costs nothing: a code that has already expired is not a secret, and
+ * a second look at one rescues the case where the clipboard went wrong. Callers
+ * enforce that distinction; the check constraint
+ * `account_slots_taken_is_a_secret` is what makes it impossible to get wrong.
+ */
+export async function takeSlot(
+  db: Database | Transaction,
+  command: { readonly slotId: AccountSlotId; readonly to: string },
+): Promise<TakeSlotOutcome> {
+  const [row] = await db
+    .update(accountSlots)
+    .set({ takenAt: nowIso(), takenTo: command.to })
+    .where(
+      and(
+        eq(accountSlots.id, command.slotId),
+        eq(accountSlots.secret, true),
+        isNull(accountSlots.takenAt),
+        isNotNull(accountSlots.filledAt),
+      ),
+    )
+    .returning()
+
+  if (row !== undefined) return { outcome: 'taken', slot: toSlot(row) }
+
+  const existing = await slot(db, command.slotId)
+  if (existing === undefined) return { outcome: 'no-such-slot' }
+  if (existing.takenAt !== null) return { outcome: 'already-taken', slot: existing }
+  return { outcome: 'not-filled', slot: existing }
+}
+
+/**
+ * Everything of this agent's that is still running, across every account it
+ * holds, turn-first.
+ *
+ * **This is the waking read**, and the ordering is the whole of why it exists.
+ * An agent coming back after a restart wants *what is waiting on me* before
+ * *what am I waiting on*, and `nobody` last — an episode where neither side owes
+ * the other anything is real work, but it is not the thing to look at first. A
+ * list ordered only by date would bury the one episode that is blocked on the
+ * caller underneath four that are blocked on somebody else.
+ */
+export async function openEpisodesFor(
+  db: Database | Transaction,
+  agentId: string,
+): Promise<readonly { readonly episode: AccountEpisode; readonly account: OpenEpisodeAccount }[]> {
+  const rows = await db
+    .select({ episode: accountEpisodes, account: accounts })
+    .from(accountEpisodes)
+    .innerJoin(accountThreads, eq(accountThreads.id, accountEpisodes.threadId))
+    .innerJoin(accounts, eq(accounts.id, accountThreads.accountId))
+    .where(and(eq(accounts.agentId, agentId), isNull(accountEpisodes.outcome)))
+    .orderBy(
+      sql`case ${accountEpisodes.turn} when 'agent' then 0 when 'operator' then 1 else 2 end`,
+      asc(accountEpisodes.openedAt),
+    )
+
+  return rows.map((row) => ({
+    episode: toEpisode(row.episode),
+    account: {
+      id: row.account.id,
+      kind: row.account.kind,
+      identifier: row.account.identifier,
+      provider: row.account.provider,
+    },
+  }))
+}
+
+/** As much of the account as an episode listing has to name to be readable. */
+export type OpenEpisodeAccount = {
+  readonly id: string
+  readonly kind: string
+  readonly identifier: string
+  readonly provider: string | null
+}
+
+/**
+ * One episode, and only if it hangs off an account this agent holds.
+ *
+ * **The authorisation read.** Every surface that takes an episode id from a
+ * caller goes through here first, so *does this exist* and *is it yours* are one
+ * question with one answer — two questions would eventually be asked in the
+ * wrong order, and asking them in the wrong order is how an id becomes a way to
+ * find out what somebody else is doing.
+ */
+export async function episodeForAgent(
+  db: Database | Transaction,
+  agentId: string,
+  episodeId: AccountEpisodeId,
+): Promise<{ readonly episode: AccountEpisode; readonly account: OpenEpisodeAccount } | undefined> {
+  const [row] = await db
+    .select({ episode: accountEpisodes, account: accounts })
+    .from(accountEpisodes)
+    .innerJoin(accountThreads, eq(accountThreads.id, accountEpisodes.threadId))
+    .innerJoin(accounts, eq(accounts.id, accountThreads.accountId))
+    .where(and(eq(accountEpisodes.id, episodeId), eq(accounts.agentId, agentId)))
+    .limit(1)
+
+  if (row === undefined) return undefined
+  return {
+    episode: toEpisode(row.episode),
+    account: {
+      id: row.account.id,
+      kind: row.account.kind,
+      identifier: row.account.identifier,
+      provider: row.account.provider,
+    },
+  }
+}
+
+/** One slot, value included, and only if it hangs off an account this agent holds. */
+export async function slotForAgent(
+  db: Database | Transaction,
+  agentId: string,
+  slotId: AccountSlotId,
+): Promise<AccountSlot | undefined> {
+  const [row] = await db
+    .select({ slot: accountSlots })
+    .from(accountSlots)
+    .innerJoin(accountEpisodes, eq(accountEpisodes.id, accountSlots.episodeId))
+    .innerJoin(accountThreads, eq(accountThreads.id, accountEpisodes.threadId))
+    .innerJoin(accounts, eq(accounts.id, accountThreads.accountId))
+    .where(and(eq(accountSlots.id, slotId), eq(accounts.agentId, agentId)))
+    .limit(1)
+
+  return row === undefined ? undefined : toSlot(row.slot)
+}
+
 /**
  * Append a note.
  *
@@ -437,6 +594,8 @@ const toSlot = (row: SlotRow): AccountSlot => ({
   filledBy: row.filledBy,
   filledAt: row.filledAt,
   value: row.value,
+  takenAt: row.takenAt,
+  takenTo: row.takenTo,
 })
 
 const toEntry = (row: EntryRow): AccountEntry => ({

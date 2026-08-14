@@ -222,6 +222,23 @@ export const AccountSlotSchema = z.object({
   filledAt: TimestampSchema.nullable(),
   /** Absent until it is filled, and **never returned for a secret slot** by any read that lists. */
   value: z.string().max(SLOT_VALUE_MAX_LENGTH).nullable(),
+  /**
+   * When a secret slot was taken, and null on every slot that is not one.
+   *
+   * **Taking is what spends it** — the rule `kolonie.operator.drop.read` already
+   * states — and a spend that left no mark would be one nobody could refuse
+   * twice. A slot that is not secret is not spent by being read, so it never
+   * stamps this: a code that has already expired is not a secret, and a second
+   * look at one rescues the case where the clipboard went wrong.
+   */
+  takenAt: TimestampSchema.nullable(),
+  /**
+   * Where it went, so the refusal of a second take can say something useful.
+   *
+   * A vault key, which is a plaintext label rather than a secret — the same
+   * thing `kolonie.operator.drop.read` names when it declines to repeat a value.
+   */
+  takenTo: z.string().nullable(),
 })
 export type AccountSlot = z.infer<typeof AccountSlotSchema>
 

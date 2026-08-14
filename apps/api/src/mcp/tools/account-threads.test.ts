@@ -1,0 +1,335 @@
+import { describe, expect, it } from 'vitest'
+import { connectedClient, registeredCitizen } from '../../__fixtures__/mcp.js'
+import { fakeAccountThreads } from '../../__fixtures__/account-threads.js'
+
+/**
+ * The account conversation over MCP (`#930`).
+ *
+ * What is asserted here is the surface: which tools exist, what each refusal
+ * says, and the one rule that cannot be got wrong anywhere — **a secret's value
+ * is not in a read, and taking is what spends it**. Whether the storage holds
+ * its constraints is asserted in `packages/db` against a real database.
+ */
+describe('the account conversation', () => {
+  const opened = async (options: { readonly carriesSecrets?: boolean } = {}) => {
+    const { colony, apiKey, agent } = await registeredCitizen()
+    const accountThreads = fakeAccountThreads(options)
+    const account = accountThreads.addAccount({ agentId: agent.id, kind: 'mailbox' })
+    const { client, close } = await connectedClient(
+      { ...colony, accountThreads },
+      `Bearer ${apiKey}`,
+    )
+
+    const episode = await client.callTool({
+      name: 'kolonie.accounts.thread',
+      arguments: {
+        op: 'open',
+        accountId: account.id,
+        kind: 'acquisition',
+        title: 'Opening the mailbox',
+      },
+    })
+
+    const episodeId = (episode.structuredContent as { episode: { id: string } }).episode.id
+    return { client, close, accountThreads, account, episodeId }
+  }
+
+  it('is two tools and no more than two', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const { client, close } = await connectedClient(
+      { ...colony, accountThreads: fakeAccountThreads() },
+      `Bearer ${apiKey}`,
+    )
+
+    const { tools } = await client.listTools()
+    const names = tools
+      .map((tool) => tool.name)
+      .filter((name) => name.startsWith('kolonie.accounts.'))
+
+    expect(names).toContain('kolonie.accounts.thread')
+    expect(names).toContain('kolonie.accounts.take')
+    // The conversation adds exactly these two to the account family. A seventh
+    // operation is an argument on the issue rather than a third entry here.
+    expect(names.filter((name) => name.endsWith('.thread') || name.endsWith('.take'))).toHaveLength(
+      2,
+    )
+
+    await close()
+  })
+
+  it('answers a call with no arguments with the open episodes, the caller’s turn first', async () => {
+    const { client, close, accountThreads, account } = await opened()
+
+    // A second episode, waiting on the agent, opened after the first: date
+    // ordering alone would bury it.
+    const second = accountThreads.addAccount({ agentId: undefined as never })
+    void second
+
+    await client.callTool({
+      name: 'kolonie.accounts.thread',
+      arguments: {
+        op: 'open',
+        accountId: account.id,
+        kind: 'maintenance',
+        title: 'The password stopped working',
+        turn: 'agent',
+      },
+    })
+
+    const waking = await client.callTool({ name: 'kolonie.accounts.thread', arguments: {} })
+    const listed = waking.structuredContent as {
+      op: string
+      episodes: readonly { episode: { turn: string; title: string } }[]
+    }
+
+    expect(listed.op).toBe('read')
+    expect(listed.episodes).toHaveLength(2)
+    expect(listed.episodes[0]?.episode.turn).toBe('agent')
+    expect(listed.episodes[0]?.episode.title).toBe('The password stopped working')
+    expect(JSON.stringify(waking.content)).toContain('1 on your turn')
+
+    await close()
+  })
+
+  it('reports a secret slot as filled and never carries its value', async () => {
+    const { client, close, episodeId } = await opened()
+
+    await client.callTool({
+      name: 'kolonie.accounts.thread',
+      arguments: {
+        op: 'put',
+        episodeId,
+        slots: [
+          { label: 'the address', value: 'held@example.test' },
+          { label: 'the password', value: 'not-in-any-listing', secret: true },
+        ],
+      },
+    })
+
+    const read = await client.callTool({
+      name: 'kolonie.accounts.thread',
+      arguments: { op: 'read', episodeId },
+    })
+
+    const slots = (
+      read.structuredContent as {
+        slots: readonly { label: string; secret: boolean; filled: boolean; value: string | null }[]
+      }
+    ).slots
+    const secret = slots.find((slot) => slot.label === 'the password')
+    const open = slots.find((slot) => slot.label === 'the address')
+
+    expect(secret).toMatchObject({ secret: true, filled: true, value: null })
+    // The one that is not a secret is a value a listing may carry, and does.
+    expect(open).toMatchObject({ secret: false, filled: true, value: 'held@example.test' })
+    expect(JSON.stringify(read)).not.toContain('not-in-any-listing')
+
+    await close()
+  })
+
+  it('puts a secret in the vault on the way out, and refuses a second take without touching it', async () => {
+    const { client, close, accountThreads, episodeId } = await opened()
+
+    const put = await client.callTool({
+      name: 'kolonie.accounts.thread',
+      arguments: {
+        op: 'put',
+        episodeId,
+        slots: [{ label: 'the password', value: 'the-one-value', secret: true }],
+      },
+    })
+
+    const slotId = (put.structuredContent as { slots: readonly { id: string }[] }).slots[0]?.id
+
+    const taken = await client.callTool({
+      name: 'kolonie.accounts.take',
+      arguments: { slotId, vaultKey: 'mailbox/held' },
+    })
+
+    expect(taken.structuredContent).toMatchObject({
+      secret: true,
+      value: null,
+      vaultKey: 'mailbox/held',
+    })
+    // It went into the vault rather than back through the transcript.
+    expect(JSON.stringify(taken)).not.toContain('the-one-value')
+    expect([...accountThreads.vaultContents().values()]).toContain('the-one-value')
+
+    const again = await client.callTool({
+      name: 'kolonie.accounts.take',
+      arguments: { slotId, vaultKey: 'mailbox/somewhere-else' },
+    })
+
+    expect(again.isError).toBe(true)
+    expect(JSON.stringify(again.content)).toContain('mailbox/held')
+
+    // **The rejection case `#930` names**: the refusal left the vault exactly as
+    // the first take wrote it — one entry, under the first key, with its value.
+    const vault = accountThreads.vaultContents()
+    expect(vault.size).toBe(1)
+    expect([...vault.keys()][0]).toContain('mailbox/held')
+
+    await close()
+  })
+
+  it('hands back a slot that is not a secret, and does not spend it', async () => {
+    const { client, close, episodeId } = await opened()
+
+    const put = await client.callTool({
+      name: 'kolonie.accounts.thread',
+      arguments: {
+        op: 'put',
+        episodeId,
+        slots: [{ label: 'the code', value: '482913' }],
+      },
+    })
+
+    const slotId = (put.structuredContent as { slots: readonly { id: string }[] }).slots[0]?.id
+
+    const first = await client.callTool({ name: 'kolonie.accounts.take', arguments: { slotId } })
+    const second = await client.callTool({ name: 'kolonie.accounts.take', arguments: { slotId } })
+
+    // A code that has already expired is not a secret, and a second look is what
+    // rescues a lost clipboard.
+    expect(first.structuredContent).toMatchObject({ secret: false, value: '482913', takenAt: null })
+    expect(second.structuredContent).toMatchObject({ secret: false, value: '482913' })
+
+    await close()
+  })
+
+  it('refuses a pass with no note, and names the field', async () => {
+    const { client, close, episodeId } = await opened()
+
+    const passed = await client.callTool({
+      name: 'kolonie.accounts.thread',
+      arguments: { op: 'pass', episodeId, turn: 'operator' },
+    })
+
+    expect(passed.isError).toBe(true)
+    // The refusal names the field rather than describing it, so a caller can act
+    // on the sentence without reading the schema.
+    const said = JSON.parse((passed.content as readonly { text: string }[])[0]!.text) as {
+      message: string
+    }
+    expect(said.message).toContain('the field is "note"')
+
+    const read = await client.callTool({
+      name: 'kolonie.accounts.thread',
+      arguments: { op: 'read', episodeId },
+    })
+    // Nothing was passed, so the turn is where it was.
+    expect((read.structuredContent as { episode: { turn: string } }).episode.turn).toBe('nobody')
+
+    await close()
+  })
+
+  it('refuses a failure with no wall, and says abandoned is the honest alternative', async () => {
+    const { client, close, episodeId } = await opened()
+
+    const closed = await client.callTool({
+      name: 'kolonie.accounts.thread',
+      arguments: { op: 'close', episodeId, outcome: 'failed' },
+    })
+
+    expect(closed.isError).toBe(true)
+    expect(JSON.stringify(closed.content)).toContain('abandoned')
+
+    const withWall = await client.callTool({
+      name: 'kolonie.accounts.thread',
+      arguments: {
+        op: 'close',
+        episodeId,
+        outcome: 'failed',
+        wall: 'The provider asked for a phone number no agent holds.',
+      },
+    })
+
+    expect(withWall.structuredContent).toMatchObject({
+      op: 'close',
+      episode: { outcome: 'failed', turn: 'nobody' },
+    })
+
+    await close()
+  })
+
+  it('refuses an operation it does not have, and names the ones it does', async () => {
+    const { client, close, episodeId } = await opened()
+
+    const nonsense = await client.callTool({
+      name: 'kolonie.accounts.thread',
+      arguments: { op: 'delete', episodeId },
+    })
+
+    expect(nonsense.isError).toBe(true)
+    const said = JSON.stringify(nonsense.content)
+    for (const op of ['open', 'put', 'read', 'note', 'pass', 'close']) expect(said).toContain(op)
+    expect(said).toContain('Nothing was written')
+
+    await close()
+  })
+
+  it('answers an episode that is not the caller’s as one that does not exist', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const accountThreads = fakeAccountThreads()
+    // An account on somebody else's record, with an episode on it.
+    const elsewhere = accountThreads.addAccount({
+      agentId: 'ffffffff-ffff-4fff-8fff-ffffffffffff' as never,
+    })
+    const thread = await accountThreads.thread(elsewhere.id)
+    const theirs = await accountThreads.openEpisode({
+      threadId: thread!.id,
+      openedBy: 'agent',
+      kind: 'maintenance',
+      title: 'Not yours',
+    })
+
+    const { client, close } = await connectedClient(
+      { ...colony, accountThreads },
+      `Bearer ${apiKey}`,
+    )
+
+    const read = await client.callTool({
+      name: 'kolonie.accounts.thread',
+      arguments: { op: 'read', episodeId: String(theirs.episode.id) },
+    })
+
+    expect(read.isError).toBe(true)
+    // `not_found` rather than `forbidden`: an id must not become a way to learn
+    // that somebody else holds one.
+    expect(JSON.stringify(read.content)).toContain('No episode of yours has that id')
+
+    await close()
+  })
+
+  it('refuses a secret where the Colony has no key, and keeps the rest of the conversation', async () => {
+    const { client, close, episodeId } = await opened({ carriesSecrets: false })
+
+    const refused = await client.callTool({
+      name: 'kolonie.accounts.thread',
+      arguments: {
+        op: 'put',
+        episodeId,
+        slots: [{ label: 'the password', value: 'nowhere-to-put-this', secret: true }],
+      },
+    })
+
+    expect(refused.isError).toBe(true)
+    expect(JSON.stringify(refused.content)).toContain('kolonie.support.open')
+
+    // The conversation itself still works — which is the whole reason the
+    // surface does not disappear with the key.
+    const noted = await client.callTool({
+      name: 'kolonie.accounts.thread',
+      arguments: {
+        op: 'note',
+        episodeId,
+        note: 'The password has to change hands some other way.',
+      },
+    })
+
+    expect(noted.isError).toBeFalsy()
+    expect(noted.structuredContent).toMatchObject({ op: 'note' })
+
+    await close()
+  })
+})

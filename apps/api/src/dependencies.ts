@@ -56,6 +56,7 @@ import type { TreasurySweepDependencies } from './treasury.js'
 import type { QuestDesk } from './quests.js'
 import type { TaskCatalogue } from './tasks.js'
 import type { HandoverStore } from './handovers.js'
+import type { AccountThreadStore } from './account-threads.js'
 import type { DropStore } from './operator-drops.js'
 import type { TelegramDependencies } from './operator-telegram.js'
 import type { VaultDependencies } from './vault.js'
@@ -345,6 +346,15 @@ export interface AppDependencies {
    * and it arrives in the request that uses it.
    */
   readonly vault: VaultDependencies
+  /**
+   * The conversation that hangs off an account (`#930`).
+   *
+   * Optional in the type and present on every Colony the API constructs: the
+   * store itself knows whether it can carry a secret, so there is no deployment
+   * in which the conversation is missing — only ones in which the one operation
+   * that needs a sealing key is refused.
+   */
+  readonly accountThreads?: AccountThreadStore | undefined
   /**
    * The operator-to-agent secret channel (`#410`).
    *

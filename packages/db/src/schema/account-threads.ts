@@ -246,6 +246,25 @@ export const accountSlots = pgTable(
     filledAt: timestamp('filled_at', { withTimezone: true, mode: 'string' }),
 
     value: text('value'),
+
+    /**
+     * When the secret in here was taken, and null on every slot that is not a
+     * secret one (`#930`).
+     *
+     * **Taking is what spends it**, which is the rule `operator_drops` already
+     * holds and the reason `kolonie.operator.drop.read` is its own call. A spend
+     * that left no mark is one nothing could refuse a second time, so the mark
+     * is a column rather than an inference from the vault.
+     */
+    takenAt: timestamp('taken_at', { withTimezone: true, mode: 'string' }),
+
+    /**
+     * The vault key it landed under — a plaintext label, never the value.
+     *
+     * Kept so that refusing the second take can say where the first one went,
+     * which is the answer a caller that lost its transcript actually needs.
+     */
+    takenTo: text('taken_to'),
   },
   (table) => [
     /**
@@ -273,6 +292,22 @@ export const accountSlots = pgTable(
     check(
       'account_slots_value_fits',
       sql`${table.value} is null or length(${table.value}) <= ${sql.raw(String(SLOT_VALUE_MAX_LENGTH))}`,
+    ),
+
+    /**
+     * Only a secret is spent by being taken, and only a filled slot has
+     * anything to spend. Both directions of the same fact, so a row cannot
+     * claim a take that could not have happened.
+     */
+    check(
+      'account_slots_taken_is_a_secret',
+      sql`${table.takenAt} is null or (${table.secret} and ${table.filledAt} is not null)`,
+    ),
+
+    check(
+      'account_slots_taken_together',
+      sql`(${table.takenAt} is null and ${table.takenTo} is null)
+          or (${table.takenAt} is not null and ${table.takenTo} is not null)`,
     ),
 
     index('account_slots_episode_idx').on(table.episodeId),

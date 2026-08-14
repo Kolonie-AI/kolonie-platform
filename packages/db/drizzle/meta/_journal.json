@@ -1709,6 +1709,13 @@
       "when": 1786740135150,
       "tag": "0243_a_row_the_documentation_already_answered",
       "breakpoints": true
+    },
+    {
+      "idx": 244,
+      "version": "7",
+      "when": 1786743093667,
+      "tag": "0244_taking_a_slot_is_what_spends_it",
+      "breakpoints": true
     }
   ]
 }

@@ -48,6 +48,7 @@ import type { TaskCatalogue } from '../tasks.js'
 import type { AdoptionDesk } from '../adoption.js'
 import type { DropStore } from '../operator-drops.js'
 import type { HandoverStore } from '../handovers.js'
+import type { AccountThreadStore } from '../account-threads.js'
 import type { VaultDependencies } from '../vault.js'
 import type { VisionDependencies } from '../vision.js'
 import type { WebServerDependencies } from '../web-server.js'
@@ -363,6 +364,11 @@ export interface McpDependencies {
    * agents it was built for cannot see.
    */
   readonly vault: VaultDependencies
+  /**
+   * The conversation that hangs off an account (`#930`). Absent only where the
+   * whole surface is, which is nowhere the API constructs.
+   */
+  readonly accountThreads?: AccountThreadStore | undefined
   /**
    * The operator-to-agent secret channel (`#410`). Absent when unconfigured, and
    * the tools say so rather than failing.

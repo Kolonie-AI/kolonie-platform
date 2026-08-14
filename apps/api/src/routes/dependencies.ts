@@ -54,6 +54,7 @@ import type { TaskCatalogue } from '../tasks.js'
 import type { CitizenRecords } from '../citizens.js'
 import type { AvatarDesk } from '../avatars.js'
 import type { ProfileTierDependencies } from './profile-tier.js'
+import type { AccountThreadDependencies } from '../account-threads.js'
 import type { DropDependencies } from '../operator-drops.js'
 import type { TelegramDesk } from '../operator-telegram.js'
 import type { VaultDependencies } from '../vault.js'
@@ -278,6 +279,15 @@ export interface RouteDependencies {
   readonly artefact: ArtefactDependencies
   readonly vision: VisionDependencies
   readonly vault: VaultDependencies
+  /**
+   * The conversation about an account (`#930`).
+   *
+   * **A required key**, following `drops` below and the lesson `routes/mcp.ts`
+   * records beside it: a field the MCP door may quietly omit is one that gets
+   * omitted, and the surface then reports the whole feature missing on a Colony
+   * that has it.
+   */
+  readonly accountThreads: AccountThreadDependencies['accountThreads']
   /** The operator-to-agent secret channel (`#410`). Absent when unconfigured. */
   readonly drops: DropDependencies['drops']
   /** The agent → operator secret channel (`#592`). Absent with no sealing key. */

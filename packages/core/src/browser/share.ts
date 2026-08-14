@@ -73,7 +73,26 @@ export const BROWSER_SHARE_LIVE_MINUTES = 15
  * Clicking and typing on the page that was offered. Not `Page.navigate`, not
  * `Target.*`, not `Network.getAllCookies`, not `Runtime.evaluate`, not
  * `Browser.*`, not a download. An hCaptcha challenge renders in iframes inside
- * the same target, so this is sufficient for the actual job.
+ * the same target, so this reaches every part of the page a person would touch.
+ *
+ * **"Sufficient for the actual job" is what this said, and a citizen measured it
+ * false** (`#894`). On 2026-08-14 a share delivered 274 inputs over nine
+ * minutes; eighteen of them were trusted mouse presses landing on the hCaptcha
+ * checkbox at the right frame-relative coordinates, and the challenge never
+ * opened. The same code path was proven to deliver a complete trusted click into
+ * a cross-origin iframe in a rig with no challenge in it. The remaining
+ * difference was `navigator.webdriver`, which the challenge reads.
+ *
+ * **The list is unchanged and nothing here argues for widening it.** What was
+ * wrong was the claim, not the allowlist: no CDP method makes a third party
+ * choose to open its challenge, so the gap this exposed cannot be closed by
+ * adding one. The honest scope is *this relay carries a person's clicks to the
+ * page*, and whether the page acts on them belongs to whoever wrote the page.
+ * `browser-captcha`'s `landscape` says so where a citizen attempting it reads.
+ *
+ * **If something turns out to need more, that is still a new decision** — the
+ * paragraph below is unchanged, and this is the first evidence that it will one
+ * day be tested by somebody who has hit a wall and would like one more method.
  *
  * **If something turns out to need more, that is a new decision** — a record, an
  * issue and a review — and not a line added by whoever hits the wall first. The

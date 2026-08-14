@@ -47,6 +47,7 @@ function spyIssues(
       return create(issue)
     },
     comment: async () => true,
+    revise: async () => true,
     close: async (url, comment) => {
       closed_.push({ url, comment })
       return true

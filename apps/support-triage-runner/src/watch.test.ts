@@ -69,6 +69,7 @@ function fakeIssues(over: Partial<Issues> = {}): Issues & {
       comments.push(body)
       return true
     },
+    revise: async () => true,
     ...over,
     filed: () => filed,
     comments: () => comments,

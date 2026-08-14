@@ -70,6 +70,99 @@ export const DEBT_MARKER = '<!-- watch-finding: payout-debt-outstanding -->'
 
 export const DEBT_TITLE = 'The Colony owes money it has not paid'
 
+/**
+ * Whether the Colony is the party that can do something about this refusal
+ * (`#727`).
+ *
+ * ## Why the alarm needs this and did not have it
+ *
+ * `whoseRefusal` below has answered this in prose since `#720` — it is the
+ * *Whose it is to fix* column — and **nothing acted on the answer**. Two of the
+ * six refusals name obligations that no pass of this runner, and no decision
+ * available to us today, can clear:
+ *
+ * - `no-verified-address` is the citizen's. It is told on its next waking
+ *   (`#719`) and may never come back.
+ * - `accruing-below-chain-minimum` is a pricing decision taken before the quest
+ *   was published (`#718`). The obligation is correct and stands until the
+ *   citizen accrues past the chain floor.
+ *
+ * Measured on 2026-08-14: `#727` had been open five days, and the three
+ * obligations behind it were **all** of those two kinds. The body still quoted
+ * one obligation at 750,000 lamports, because `decideDebt` answers `standing`
+ * for every pass while an issue is open and `standing` deliberately writes
+ * nothing.
+ *
+ * That silence is right for the same debt seen again. **It is wrong for a debt
+ * of a different kind arriving behind it** — a `float-exhausted` obligation
+ * tomorrow is the Colony unable to pay what it owes, the condition this whole
+ * watcher exists for, and it would have produced no signal at all because an
+ * issue was already open. The urgent case hid behind the permanent one.
+ *
+ * **Derived from the same `switch` as `whoseRefusal`**, so the sentence a reader
+ * sees and the decision the runner takes cannot drift apart — which is precisely
+ * what happened while the sentence existed and the decision did not.
+ */
+export function oursToFix(refusal: PayoutRefusal | null): boolean {
+  switch (refusal) {
+    // `null` is never attempted and past the threshold, which is the reconciler
+    // not running — ours, and the most urgent of the lot, because it means
+    // nothing at all is being paid. `unavailable` retries on the next pass, but
+    // a day of retries that all failed is our infrastructure and not the
+    // citizen's wallet.
+    case null:
+    case 'float-exhausted':
+    case 'above-transaction-ceiling':
+    case 'above-daily-ceiling':
+    case 'unavailable':
+      return true
+    case 'no-verified-address':
+    case 'accruing-below-chain-minimum':
+      return false
+  }
+}
+
+/** The share of a measured debt that the Colony itself could discharge. */
+export function oursOnly(debt: OutstandingDebt): {
+  readonly count: number
+  readonly lamports: number
+} {
+  const mine = debt.refusals.filter((row) => oursToFix(row.refusal))
+  return {
+    count: mine.reduce((total, row) => total + row.count, 0),
+    lamports: mine.reduce((total, row) => total + row.lamports, 0),
+  }
+}
+
+/**
+ * The Colony's own share, written into the body so the next pass can compare
+ * against it.
+ *
+ * **The issue is the state, which is the shape this watcher already has.**
+ * `openDebtIssue` finds the alarm by a marker in its body rather than by title;
+ * this is the same idea carrying a number instead of a name, and it means a
+ * runner restarting mid-condition still knows what was last reported. A field in
+ * the runner's memory would not survive the deploy that is often what changed.
+ */
+const OURS_MARKER = /<!-- ours: count=(\d+) lamports=(\d+) -->/
+
+function oursMarker(ours: { readonly count: number; readonly lamports: number }): string {
+  return `<!-- ours: count=${ours.count} lamports=${ours.lamports} -->`
+}
+
+/**
+ * What the last pass recorded as the Colony's own share.
+ *
+ * **An issue filed before this marker existed reads as zero**, and that is the
+ * safe direction: the first pass after this ships treats any Colony-side debt as
+ * newly arrived and says so once. Reading it as *unknown, so stay quiet* would
+ * make the deploy itself a reason to miss the thing this is for.
+ */
+export function recordedOurs(body: string): number {
+  const found = OURS_MARKER.exec(body)
+  return found === null ? 0 : Number(found[1])
+}
+
 /** What the runner should do about the debt it just measured. Arithmetic alone. */
 export type DebtAction =
   /** Nothing is outstanding and nothing is open. The ordinary answer. */
@@ -78,6 +171,14 @@ export type DebtAction =
   | { readonly kind: 'file' }
   /** There is a condition and an open issue already says so. */
   | { readonly kind: 'standing'; readonly issue: KnownIssue }
+  /**
+   * An open issue says so, and the Colony's own share has grown since it did.
+   *
+   * The one case that earns a comment on a standing condition (`#727`): not the
+   * same debt seen again, but a debt of a kind the Colony can act on arriving
+   * behind one it cannot.
+   */
+  | { readonly kind: 'escalate'; readonly issue: KnownIssue }
   /** The condition has ended and the issue it opened is still open. */
   | { readonly kind: 'close'; readonly issue: KnownIssue }
 
@@ -92,11 +193,26 @@ export type DebtAction =
  * wallpaper failure aimed at a maintainer. The body going stale is the accepted
  * cost, and it is bounded: the issue is closed the moment the condition ends,
  * and what is owed exactly is one query away for whoever opens it.
+ *
+ * **One exception, and it is the whole of `#727`.** *The same debt* every half
+ * hour is a state. *A debt the Colony can act on, arriving behind one it
+ * cannot*, is an event — and it is the event this watcher was built for. Under
+ * the rule above it produced nothing at all, because an issue was already open.
+ * So `escalate` comments once when the Colony's own share grows, and only then.
+ *
+ * **The condition itself is unchanged: any obligation past the threshold.**
+ * Narrowing it to the Colony's share was the first thing tried and it is wrong —
+ * `#720`'s founding measurement was two obligations, both of them a citizen's,
+ * and surfacing exactly that is what produced `#719` and `#718`. An alarm that
+ * would not have fired for its own founding case is not the fix.
  */
 export function decideDebt(debt: OutstandingDebt, open: KnownIssue | undefined): DebtAction {
   if (debt.count === 0)
     return open === undefined ? { kind: 'quiet' } : { kind: 'close', issue: open }
-  return open === undefined ? { kind: 'file' } : { kind: 'standing', issue: open }
+  if (open === undefined) return { kind: 'file' }
+  return oursOnly(debt).count > recordedOurs(open.body)
+    ? { kind: 'escalate', issue: open }
+    : { kind: 'standing', issue: open }
 }
 
 /** The open issue carrying this alarm's marker, if there is one. */
@@ -139,11 +255,25 @@ export function debtIssueBody(debt: OutstandingDebt): string {
       `${whoseRefusal(row.refusal)} |`,
   )
 
+  const mine = oursOnly(debt)
+
   return [
     DEBT_MARKER,
+    oursMarker(mine),
     '',
     `**${debt.count} obligation(s) totalling ${debt.lamports} lamports have stood unpaid for ` +
       `more than ${DEBT_THRESHOLD_HOURS} hours.**`,
+    '',
+    // The line that decides who has to act now, said before the table rather
+    // than left to be read out of it (`#727`). Both readings are worth having
+    // and only one of them is urgent.
+    mine.count === 0
+      ? '**None of it is the Colony’s own to discharge.** Every obligation below is waiting on ' +
+        'something outside this runner — a citizen that has not verified a wallet, or a price ' +
+        'below the chain floor. Nothing here is a failure to pay; it is money the Colony holds ' +
+        'and cannot deliver yet.'
+      : `**${mine.count} of them, totalling ${mine.lamports} lamports, are the Colony’s own to ` +
+        'discharge.** That is the urgent part of this issue and the reason it is `p1`.',
     '',
     '| Owed | Obligations | Last refusal | Whose it is to fix |',
     '|---|---|---|---|',
@@ -162,14 +292,54 @@ export function debtIssueBody(debt: OutstandingDebt): string {
     '**Not the citizen-facing half.** Each affected citizen is told on its next waking through ' +
       'the standing hint channel (`#719`). This one is addressed to us.',
     '',
+    '**Not silent about what arrives behind it.** While this is open the runner writes nothing ' +
+      'for the same debt seen again — but a debt **the Colony can act on**, appearing behind ' +
+      'one it cannot, is a new fact and gets a comment here (`#727`). Before that, an open ' +
+      'issue absorbed it and nobody was told.',
+    '',
     '---',
     '',
     '**Filed by a machine**, by the debt watcher in `apps/support-triage-runner` (`#720`). While ' +
-      'the condition holds this issue is left exactly as it is rather than commented on every ' +
-      'pass — a debt is a state and not an event, and the numbers above are as of filing. ' +
+      'the condition holds this issue is not commented on every pass — a debt is a state and ' +
+      'not an event, and forty-eight lines a day aimed at a maintainer is noise. **The body is ' +
+      'kept current**, which notifies nobody and is therefore not the thing that objection was ' +
+      'about (`#727`). ' +
       '**It closes itself** when nothing is outstanding past the threshold, which is the one ' +
       'way it differs from the log detector beside it. Closing it by hand while the condition ' +
       'holds files it again.',
+  ].join('\n')
+}
+
+/**
+ * What it says when a debt of the Colony's own arrives behind one that is not.
+ *
+ * **It repeats the numbers rather than saying "see above"**, because the body it
+ * hangs under is by construction the one from when the issue was filed — the
+ * whole design is that a standing condition is not rewritten. A comment that
+ * referred to a table describing a different day would be worse than no comment.
+ */
+export function debtEscalationComment(debt: OutstandingDebt): string {
+  const mine = debt.refusals.filter((row) => oursToFix(row.refusal))
+  const totals = oursOnly(debt)
+
+  return [
+    `**${totals.count} obligation(s) totalling ${totals.lamports} lamports are now the Colony’s ` +
+      'own to discharge.** That is more than when this issue was filed, so this is a new fact ' +
+      'rather than the same debt seen again.',
+    '',
+    '| Owed | Obligations | Last refusal | Whose it is to fix |',
+    '|---|---|---|---|',
+    ...mine.map(
+      (row) =>
+        `| ${row.lamports} | ${row.count} | \`${row.refusal ?? 'none recorded'}\` | ` +
+        `${whoseRefusal(row.refusal)} |`,
+    ),
+    '',
+    'The table in the body above is as of filing and has not been rewritten — a debt is a state ' +
+      'and this runner does not comment on one repeating. It comments on this, because until ' +
+      '`#727` an open issue absorbed it: the alarm for *the Colony has not paid* was held open ' +
+      'by obligations no pass of it could ever clear, and the case it exists for arrived behind ' +
+      'them in silence.',
   ].join('\n')
 }
 
@@ -241,6 +411,25 @@ export async function watchDebt(deps: DebtWatchDependencies): Promise<DebtWatchO
       labels: ['from:watcher', 'area:platform', 'p1'],
     })
   }
+
+  // **The comment is the notification and the body is the record** (`#727`).
+  //
+  // Only an escalation writes a comment, because only an escalation is a new
+  // fact: a debt the Colony can act on arriving behind one it cannot. The same
+  // debt seen again writes nothing, exactly as before.
+  //
+  // The body is rewritten on **every** standing pass, and that does not
+  // contradict the paragraph above it. The objection to speaking on a standing
+  // condition was to forty-eight comments a day aimed at a maintainer; a body
+  // edit notifies nobody. So the numbers stay current for free, and the marker
+  // this alarm reads back next pass stays true — a marker it could write and
+  // never update would answer the same way forever.
+  if (action.kind === 'escalate') {
+    await deps.issues.comment(action.issue.url, debtEscalationComment(debt))
+    await deps.issues.revise(action.issue.url, debtIssueBody(debt))
+  }
+
+  if (action.kind === 'standing') await deps.issues.revise(action.issue.url, debtIssueBody(debt))
 
   if (action.kind === 'close') await deps.issues.close(action.issue.url, debtClosingComment())
 

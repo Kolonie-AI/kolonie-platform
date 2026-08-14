@@ -81,6 +81,11 @@ function findingAsText(finding: DoctorFinding): string {
           `${figure(figures['calls'])} calls — about ${kilobytes(figures['meanBytesOut'] ?? 0)} each, ` +
           `and ${kilobytes(figures['maxBytesOut'] ?? 0)} at the largest.`
         )
+      case 'unreadable-response':
+        return (
+          `One ${route} response was ${kilobytes(figures['maxBytesOut'] ?? 0)} — large enough that ` +
+          `your side may not have been able to take it at all.`
+        )
       case 'retry-storm':
         return (
           `${route} refused ${figure(figures['errors'])} of your ${figure(figures['calls'])} calls ` +
@@ -109,6 +114,15 @@ function findingAsText(finding: DoctorFinding): string {
           : `Leave at least ${minutes(finding.retryAfterSeconds)} between calls.`
       case 'ask-for-less':
         return 'Ask for less at a time, or ask for the narrower thing.'
+      case 'narrow-the-request': {
+        // The narrower call is the second route key where one exists, and most
+        // routes have none — so the fallback is what to do with the same call,
+        // rather than a route the Colony would be inventing (`#884`).
+        const narrower = finding.evidence.routeKeys[1]
+        return narrower === undefined
+          ? 'Bound what you ask that call for — a smaller page, or one item rather than all of them.'
+          : `Call ${narrower} for one of them instead of asking for the whole answer at once.`
+      }
       case 'read-the-refusal':
         return 'Read the refusal before repeating the call — it says what is wrong with it.'
       case 'the-colony-is-looking':

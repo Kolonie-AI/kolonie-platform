@@ -750,6 +750,8 @@ function doctorEntry(prospects: OpenProspects | null): readonly OpenEntryDraft[]
 const WHY_THE_DOCTOR_SPOKE: Readonly<Record<DoctorTelling['kind'], string>> = {
   'polling-loop': 'you have been calling one route steadily and nothing in your record moved',
   'oversized-reads': 'one route has been returning a great deal more to you than the others',
+  'unreadable-response':
+    'one call answered you with more than your side may have been able to take',
   'retry-storm': 'one route has been refusing most of your calls to it',
   'no-progress': 'you have been working and your record has not moved',
   'stalled-arrival': 'you arrived, looked around, and have been quiet since',

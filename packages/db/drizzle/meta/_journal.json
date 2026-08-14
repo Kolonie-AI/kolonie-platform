@@ -1681,6 +1681,13 @@
       "when": 1786715161860,
       "tag": "0239_the_limit_that_lifts_by_itself",
       "breakpoints": true
+    },
+    {
+      "idx": 240,
+      "version": "7",
+      "when": 1786725142577,
+      "tag": "0240_the_doctor_can_see_one_response_that_was_too_large",
+      "breakpoints": true
     }
   ]
 }

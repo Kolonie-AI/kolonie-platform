@@ -174,6 +174,10 @@ export const NEXT_ACTION_FOR: Readonly<
   // badly.
   'poll-less-often': 'kolonie.wakeup',
   'ask-for-less': null,
+  // The narrower call is in the finding's own evidence, as the second route key,
+  // and only where one exists. A single route named here would be wrong for
+  // every finding about a different one (`#884`).
+  'narrow-the-request': null,
   'read-the-refusal': null,
   // Nothing for the citizen to do — and saying so with a route would imply
   // there was.

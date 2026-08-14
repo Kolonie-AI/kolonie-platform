@@ -499,12 +499,13 @@ export const profileReviewState = pgEnum(
 export const diagnosisScope = pgEnum('diagnosis_scope', valuesOf(FindingScopeSchema.options))
 
 /**
- * Which of the six signatures produced a diagnosis (`#838`).
+ * Which signature produced a diagnosis (`#838`).
  *
  * **From core's own list, so the table cannot know a kind the rules cannot
- * produce.** A seventh signature therefore costs a migration, and that is the
- * right price: `#836` defends the six as a closed list, and an addition it is
- * possible to make without noticing is an addition nobody argued for.
+ * produce.** A new signature therefore costs a migration, and that is the right
+ * price: `#836` defends the list as a closed one, and an addition it is possible
+ * to make without noticing is an addition nobody argued for. `#884` paid it for
+ * `unreadable-response`, which is what the price is for.
  */
 export const diagnosisKind = pgEnum('diagnosis_kind', valuesOf(FindingKindSchema.options))
 

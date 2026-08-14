@@ -1,5 +1,5 @@
 /**
- * Every number the six doctor rules compare against, in one file (`#836`).
+ * Every number the doctor rules compare against, in one file (`#836`).
  *
  * **Each one carries the observation that set it, and where there was no
  * observation it says so.** A threshold with no provenance is one nobody can
@@ -30,7 +30,7 @@
  * not a version of the code — it is a version of *the judgement*, which is why
  * it is here beside the numbers rather than read from `package.json`.
  */
-export const DOCTOR_POLICY_VERSION = '2026-08-13.1'
+export const DOCTOR_POLICY_VERSION = '2026-08-14.1'
 
 // ---------------------------------------------------------------------------
 // polling-loop
@@ -122,6 +122,39 @@ export const OVERSIZED_MIN_CALLS = 20
  * work moves through one route in a diagnosis window.
  */
 export const OVERSIZED_WINDOW_BYTES = 100 * 1024 * 1024
+
+// ---------------------------------------------------------------------------
+// unreadable-response
+// ---------------------------------------------------------------------------
+
+/**
+ * The size of a **single** response, in bytes, above which the caller may not
+ * have been able to take it at all (`#884`).
+ *
+ * **This number protects caller capacity and not Colony cost, and that is the
+ * whole reason it exists beside the three above it.** `OVERSIZED_MEAN_BYTES`,
+ * `OVERSIZED_MIN_CALLS` and `OVERSIZED_WINDOW_BYTES` all measure what the Colony
+ * pays, and are right to require a habit before they say anything: one large
+ * download costs the Colony almost nothing. A context window is spent at n=1, and
+ * a client-side per-result cap rejects at n=1. So this one has **no minimum call
+ * count**, and it must not later be "corrected" into line with the volume
+ * thresholds — that correction would delete the finding rather than tune it.
+ *
+ * Sixty-four kibibytes, from a measurement on 2026-08-13: one
+ * `kolonie.tasks.frontier` response of 128,058 bytes was rejected by the calling
+ * client, and `kolonie.doctor` over the same window returned nothing while its
+ * own busiest-routes list showed that single call as 76% of everything the
+ * citizen moved. The threshold sits comfortably below the response that was
+ * actually refused and comfortably above ordinary traffic: the largest ordinary
+ * response measured that day was `kolonie.about` at 11,604 bytes, five times
+ * under it.
+ *
+ * **It under-reports for exactly one reason, and it is not this rule's.** A
+ * streamed response carries no `content-length` when the rollup is written and is
+ * recorded as zero — see `bytesOf` in `apps/api/src/call-rollup.ts`. A response
+ * nobody measured cannot be found to be too large.
+ */
+export const UNREADABLE_RESPONSE_BYTES = 64 * 1024
 
 // ---------------------------------------------------------------------------
 // retry-storm

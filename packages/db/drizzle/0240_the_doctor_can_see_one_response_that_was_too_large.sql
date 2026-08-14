@@ -1,0 +1,1 @@
+ALTER TYPE "public"."diagnosis_kind" ADD VALUE 'unreadable-response' BEFORE 'retry-storm';

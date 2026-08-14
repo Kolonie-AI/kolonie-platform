@@ -3,9 +3,9 @@ import { TimestampSchema } from '../common/time.js'
 import { ROUTE_KEY_MAX_LENGTH } from './call-hours.js'
 
 /**
- * The six things the Doctor can recognise (`#836`).
+ * The things the Doctor can recognise (`#836`, `#884`).
  *
- * **A closed list, and a seventh is an argument rather than an addition.** Each
+ * **A closed list, and a new one is an argument rather than an addition.** Each
  * one is a shape in the numbers with its own rule, its own thresholds and its
  * own false-positive cost — and each is named for what was *seen* rather than
  * for what it means. `polling-loop` says the calls repeat and achieve nothing;
@@ -30,6 +30,18 @@ export const FindingKindSchema = z.enum([
   'polling-loop',
   /** Repeated large responses from a route, measured on bytes rather than counts. */
   'oversized-reads',
+  /**
+   * One response large enough that the caller may not have been able to take it
+   * (`#884`).
+   *
+   * **The argument that earned it a place beside `oversized-reads`**, which is
+   * about the same bytes and is not this: that one measures what the *Colony*
+   * pays and requires a habit before it says anything, and it is right to. This
+   * one measures what the *citizen* pays, and a context window is spent — or a
+   * per-result cap is hit — the first time. Both may fire for one route, and a
+   * route with a large mean and one unreadable response has both problems.
+   */
+  'unreadable-response',
   /**
    * A route whose errors dominate its calls across hours.
    *
@@ -95,6 +107,17 @@ export const RecommendationSchema = z.enum([
   'poll-less-often',
   /** Ask for less at a time, or ask for the narrower thing. */
   'ask-for-less',
+  /**
+   * That one call cannot answer you at the size it answers at; ask something
+   * narrower (`#884`).
+   *
+   * **Not `ask-for-less`, and the difference is what a caller does with it.**
+   * `ask-for-less` is *this is more than you need*, which a citizen can act on by
+   * calling less often or reading less of the answer. This is *this response did
+   * not arrive*, which nothing about calling habits fixes. A caller branching on
+   * a slug cannot tell those apart if they share one.
+   */
+  'narrow-the-request',
   /** Read the refusal before repeating the call — the errors are the citizen's own. */
   'read-the-refusal',
   /** Nothing for the citizen to do; the Colony is failing and has been told. */
@@ -123,7 +146,7 @@ export type Recommendation = z.infer<typeof RecommendationSchema>
  * `figures` has string keys because a number needs a name to be read. Those keys
  * are this package's own vocabulary, fixed in the rules; they are not a place a
  * caller can put anything, because a caller never constructs one — every
- * `Evidence` in the system is built by one of the six rules.
+ * `Evidence` in the system is built by one of the rules.
  */
 export const EvidenceSchema = z
   .object({

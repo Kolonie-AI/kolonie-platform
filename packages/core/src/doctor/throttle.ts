@@ -65,11 +65,17 @@ export const NEVER_THROTTLED_ROUTE_KEYS: readonly string[] = [
 /**
  * The findings a throttle may ever follow from.
  *
- * **The four that describe a citizen calling too much**, and no others. The two
- * left out say the opposite or say nothing about volume: `stalled-arrival` is a
- * citizen that has gone quiet, and `deprecated-route` is the Colony's own
- * renaming — narrowing either would be answering a diagnosis with a limit that
- * cannot address it.
+ * **The four that describe a citizen calling too much**, and no others. The rest
+ * say the opposite or say nothing about volume: `stalled-arrival` is a citizen
+ * that has gone quiet, and `deprecated-route` is the Colony's own renaming —
+ * narrowing either would be answering a diagnosis with a limit that cannot
+ * address it.
+ *
+ * **`unreadable-response` is `serious` and is still not here**, which is the case
+ * that shows what this list is for (`#884`). It clears the severity bar, and it
+ * describes a call the *Colony* answered too largely: the citizen made one
+ * ordinary request. Narrowing that citizen would limit it for something it did
+ * not do, while leaving the response that stopped it exactly as large.
  */
 export const THROTTLEABLE_FINDING_KINDS: readonly string[] = [
   'polling-loop',

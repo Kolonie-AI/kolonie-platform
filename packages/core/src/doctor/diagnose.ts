@@ -6,6 +6,7 @@ import { oversizedReads } from './rules/oversized-reads.js'
 import { pollingLoop } from './rules/polling-loop.js'
 import { retryStorm } from './rules/retry-storm.js'
 import { stalledArrival } from './rules/stalled-arrival.js'
+import { unreadableResponse } from './rules/unreadable-response.js'
 
 /**
  * How the three severities order, most serious first.
@@ -21,11 +22,12 @@ const SEVERITY_ORDER: Readonly<Record<FindingSeverity, number>> = {
 }
 
 /**
- * Everything the six rules find about one citizen (`#836`).
+ * Everything the rules find about one citizen (`#836`).
  *
  * **The whole rule set behind one call**, so that a caller cannot run five rules
  * and forget the sixth — which is exactly what would happen the first time a
- * seventh was added and two of the three callers were updated.
+ * seventh was added and two of the three callers were updated. The seventh
+ * arrived in `#884` and this line is the reason nothing else had to.
  *
  * **Ordered: most serious first, then most confident.** Every surface that shows
  * findings shows the worst one first, and `#842` shows *only* the worst one — so
@@ -46,6 +48,7 @@ export function diagnose(input: DoctorInput): readonly Finding[] {
   return [
     ...pollingLoop(input),
     ...oversizedReads(input),
+    ...unreadableResponse(input),
     ...retryStorm(input),
     ...noProgress(input),
     ...stalledArrival(input),

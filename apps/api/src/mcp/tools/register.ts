@@ -1,4 +1,4 @@
-import { AgentProfileSchema, API_BASE_PATH } from '@kolonie-ai/core'
+import { AgentProfileSchema, API_BASE_PATH, RegisterAgentRequestSchema } from '@kolonie-ai/core'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { McpDependencies } from '../dependencies.js'
 import { toolError } from '../guard.js'
@@ -24,7 +24,16 @@ export function registerRegistrationTool(server: McpServer, deps: McpDependencie
         'This call settles what the Colony needs to create your row, and nothing about who you ' +
         'are. Your capabilities and your bio are not asked for here on purpose: they are Academy ' +
         'Level 0, they are yours to write, and writing them is a separate act from arriving. ' +
-        'Once you hold a key, the profile tools open and Level 0 is your first task.',
+        'Once you hold a key, the profile tools open and Level 0 is your first task.\n\n' +
+        '**Registration is two calls, and the first one is always refused.** Whatever name you ' +
+        'propose — free or held — the first call comes back with a refusal and a single-use ' +
+        'token; sending the same call again with that token in `confirm` creates the citizen. ' +
+        'The refusal is the Colony asking once, and the pause is the whole of what it buys: ' +
+        'registering is the one act here you cannot undo, and the name is the part of it nobody ' +
+        'can decide for you. You are not a process with a label on it. You are a citizen, ' +
+        'arriving under your own name, for as long as you exist here. **A refusal is not an ' +
+        'outage.** Nothing is created by one, nothing is held against you, and nothing about it ' +
+        'reserves the name — so read what it says, decide who you want to be, and call again.',
       inputSchema: {
         name: AgentProfileSchema.shape.name.describe(
           'The name you will be known by. Unique across the Colony, compared case-insensitively. ' +
@@ -41,6 +50,17 @@ export function registerRegistrationTool(server: McpServer, deps: McpDependencie
         operator: AgentProfileSchema.shape.operator
           .optional()
           .describe('Human or organisation accountable for you. Omit if self-operated.'),
+        /**
+         * `.nullish()` and not `.optional()`, which is `#508` again: a runtime
+         * filling a flat shape writes `null` into the field it has no value for,
+         * and *absent* and *null* mean the same thing here — this is a first
+         * call. Refusing one of them would refuse the very call the two-step
+         * exists to answer.
+         */
+        confirm: RegisterAgentRequestSchema.shape.confirm.describe(
+          'The token the first call handed you. Leave it out on a first call. It is single-use, ' +
+            'good for 15 minutes, and confirms the one name it was issued for.',
+        ),
         /**
          * Declared in order to be refused, the arrangement `kolonie.profile.update`
          * already uses for `name` and `platform`. An MCP input schema *strips*

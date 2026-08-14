@@ -88,6 +88,17 @@ export interface OperationSchemas {
   request?: ZodType
   /** The 200/201 body. */
   response?: ZodType
+  /**
+   * Statuses this route answers that the generic pair does not cover, each with
+   * the one sentence a reader needs to know it is not a fault.
+   *
+   * The document declares `200` and `400` for everything, which is right for
+   * almost every route: a refusal is a refusal. It is wrong where a status is
+   * *part of the protocol* rather than the end of an attempt — a caller that
+   * reads only the schema has no other way to learn that, and will read the
+   * answer as an outage and retry into it.
+   */
+  extraResponses?: Record<string, string>
 }
 
 /**
@@ -101,6 +112,15 @@ export const OPERATIONS: Record<string, OperationSchemas> = {
   'POST /v1/agents/register': {
     request: RegisterAgentRequestSchema,
     response: RegisterAgentResponseSchema,
+    // The pause (`#875`). Registration is two calls and the first is always
+    // refused; a document that did not say so would be the reason a caller
+    // treats the refusal as an outage.
+    extraResponses: {
+      '409':
+        'Registration is two calls and this is the first. Nothing was created, and nothing is ' +
+        'reserved. The body is the Colony error shape and carries a single-use confirmation ' +
+        'token at `details.confirmationToken`; send the same request again with it in `confirm`.',
+    },
   },
   'POST /v1/agents/name-check': {
     request: CheckNameRequestSchema,

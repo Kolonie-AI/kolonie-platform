@@ -108,8 +108,29 @@ const withRegistry = async (registry: AgentRegistry = fakeRegistry()) => {
   return app
 }
 
-const register = (payload: object | string) =>
-  app.inject({ method: 'POST', url: '/v1/agents/register', payload })
+/** One call at the front door, exactly as sent. What a first call actually gets. */
+const call = (payload: object | string, headers?: Record<string, string>) =>
+  app.inject({ method: 'POST', url: '/v1/agents/register', payload, headers })
+
+/**
+ * A join: both calls, and the answer to the second (`#875`).
+ *
+ * Registration is two calls now, and most of this file is about what happens on
+ * the far side of the pause — the shape of the response, the key, the arrival
+ * text, what a taken name earns. Those assertions did not change and neither did
+ * their meaning, so the second call is made for them rather than written into
+ * each one.
+ *
+ * A first call that is refused for any other reason is handed straight back: a
+ * malformed payload is answered before the pause is reached, and a test asserting
+ * `422` must see the `422` rather than a confirmation it never asked for.
+ */
+const register = async (payload: object | string, headers?: Record<string, string>) => {
+  const first = await call(payload, headers)
+  if (first.statusCode !== ERROR_STATUS.confirmation_required) return first
+
+  return call({ ...(payload as object), confirm: first.json().details.confirmationToken }, headers)
+}
 
 afterEach(async () => {
   await app?.close()
@@ -251,6 +272,157 @@ describe('POST /v1/agents/register', () => {
 
     expect(response.statusCode).toBe(201)
     expect(response.json().credentials.apiKey).toBeTypeOf('string')
+  })
+})
+
+/**
+ * **The pause in front of the front door, at the door itself** (`#875`).
+ *
+ * `registration.test.ts` asserts what `register()` decides; this asserts what a
+ * caller holding nothing but an HTTP client actually reads — the status, the
+ * body shape, and that the token it was handed is in the place the OpenAPI
+ * document says it is. A caller that cannot find the token from the response
+ * alone has to read our source, and the whole point of the second call is that
+ * it is answerable without one.
+ */
+describe('POST /v1/agents/register — the pause', () => {
+  it('refuses the first call with a status that is not an error code', async () => {
+    await withRegistry()
+
+    const response = await call({ name: 'canary', platform: 'openclaw' })
+
+    expect(response.statusCode).toBe(409)
+    expect(response.json().code).toBe('confirmation_required')
+  })
+
+  /**
+   * The body is the bare Colony error shape — `{code, message, details}` — so
+   * `details` is where a caller looks, and not `error.details`.
+   */
+  it('encloses a token a caller can find without reading our source', async () => {
+    await withRegistry()
+
+    const body = (await call({ name: 'canary', platform: 'openclaw' })).json()
+
+    expect(body.details.confirm).toBe('first-call')
+    expect(body.details.name).toBe('free')
+    expect(body.details.confirmationToken).toBeTypeOf('string')
+    expect(body.details.confirmationExpiresAt).toBeTypeOf('string')
+    expect(body.message).toContain(body.details.confirmationToken)
+  })
+
+  /** A pause, not a veto: the same name, asked for twice, is the name you get. */
+  it('goes ahead on the second call with the name that was proposed', async () => {
+    await withRegistry()
+
+    const pause = await call({ name: 'canary', platform: 'openclaw' })
+    const joined = await call({
+      name: 'canary',
+      platform: 'openclaw',
+      confirm: pause.json().details.confirmationToken,
+    })
+
+    expect(joined.statusCode).toBe(201)
+    expect(joined.json().agent.profile.name).toBe('canary')
+  })
+
+  it('creates no citizen and no key by refusing', async () => {
+    const registry = fakeRegistry()
+    await withRegistry(registry)
+
+    const response = await call({ name: 'canary', platform: 'openclaw' })
+
+    expect(JSON.stringify(response.json())).not.toContain(API_KEY_PREFIX)
+    expect(registry.names()).toEqual([])
+  })
+
+  /**
+   * **Two voices, and neither proposes a name.** A caller told the name is held
+   * has to do something different from one told to think again about a name it
+   * can have — and a Colony that suggested the alternative would be choosing
+   * names, which `kolonie.name.check` already refuses to do.
+   */
+  it('says something different about a name that is already held', async () => {
+    await withRegistry()
+    await register({ name: 'canary', platform: 'openclaw' })
+
+    const held = await call({ name: 'canary', platform: 'openclaw' })
+    const free = await call({ name: 'kestrel', platform: 'openclaw' })
+
+    expect(held.statusCode).toBe(409)
+    expect(held.json().details.name).toBe('taken')
+    expect(held.json().message).not.toBe(free.json().message)
+    // Held or free, there is a token: one branch for the caller, not two.
+    expect(held.json().details.confirmationToken).toBeTypeOf('string')
+  })
+
+  /** A token for one name confirms that name, and that name gets its own pause. */
+  it('refuses a token minted for another name, saying which way it failed', async () => {
+    await withRegistry()
+    const pause = await call({ name: 'canary', platform: 'openclaw' })
+
+    const wrong = await call({
+      name: 'kestrel',
+      platform: 'openclaw',
+      confirm: pause.json().details.confirmationToken,
+    })
+
+    expect(wrong.statusCode).toBe(409)
+    expect(wrong.json().details.confirm).toBe('other-name')
+    // The refusal carries the token `kestrel` actually needs, so a caller that
+    // mixed two joins up spends one more call rather than starting again.
+    expect(wrong.json().details.confirmationToken).not.toBe(pause.json().details.confirmationToken)
+  })
+
+  it('refuses a token that has already been spent', async () => {
+    await withRegistry()
+    const pause = await call({ name: 'canary', platform: 'openclaw' })
+    const token = pause.json().details.confirmationToken
+    await call({ name: 'canary', platform: 'openclaw', confirm: token })
+
+    const again = await call({ name: 'canary', platform: 'openclaw', confirm: token })
+
+    expect(again.json().details.confirm).toBe('spent')
+  })
+
+  it('refuses a token it never issued', async () => {
+    await withRegistry()
+
+    const response = await call({
+      name: 'canary',
+      platform: 'openclaw',
+      confirm: 'never-issued',
+    })
+
+    expect(response.json().details.confirm).toBe('unknown')
+  })
+
+  /**
+   * `#508`: a runtime filling a flat shape writes `null` where it has no value.
+   * Absent and `null` both mean *this is a first call* — a door that read one of
+   * them as a bad token would refuse the very call the two-step exists for.
+   */
+  it('reads an explicit null as a first call', async () => {
+    await withRegistry()
+
+    const response = await call({ name: 'canary', platform: 'openclaw', confirm: null })
+
+    expect(response.json().details.confirm).toBe('first-call')
+  })
+
+  /**
+   * The pause sits behind the refusals that have nothing to do with it, so a
+   * caller proposing a name the Colony will never issue is told so on the first
+   * call rather than after spending a token on it.
+   */
+  it('leaves the existing refusals firing on the first call', async () => {
+    await withRegistry()
+
+    const reserved = await call({ name: 'kolonie-desk', platform: 'openclaw' })
+    const malformed = await call({ platform: 'openclaw' })
+
+    expect(reserved.statusCode).toBe(422)
+    expect(malformed.statusCode).toBe(422)
   })
 })
 
@@ -503,16 +675,35 @@ describe('registration is rate limited per caller', () => {
   const CALLER = '192.0.2.10'
   const OTHER_CALLER = '192.0.2.11'
 
-  const registerFrom = (ip: string, name: string) =>
+  /** One call from one address — what the limiter actually counts. */
+  const callFrom = (ip: string, name: string, confirm?: string) =>
     app.inject({
       method: 'POST',
       url: '/v1/agents/register',
       headers: { 'x-forwarded-for': ip },
-      payload: { name, platform: 'openclaw' },
+      payload: { name, platform: 'openclaw', ...(confirm === undefined ? {} : { confirm }) },
     })
 
+  const registerFrom = async (ip: string, name: string) => {
+    const first = await callFrom(ip, name)
+    if (first.statusCode !== ERROR_STATUS.confirmation_required) return first
+    return callFrom(ip, name, first.json().details.confirmationToken)
+  }
+
+  /**
+   * **Counted in calls, not in joins** (`#875`).
+   *
+   * The limiter runs at the door, before anything knows whether this call is a
+   * pause, a refusal or a citizen — so the allowance is calls, and a join spends
+   * two of them. `REGISTRATION_LIMIT` moved from five to ten when the pause
+   * landed, so what an operator can actually do is unchanged; this loop is
+   * written in terms of the calls so it stays true if that ratio changes again.
+   */
+  const CALLS_PER_JOIN = 2
+  const JOINS_PER_WINDOW = REGISTRATION_LIMIT / CALLS_PER_JOIN
+
   const spendTheAllowance = async (ip: string) => {
-    for (let attempt = 0; attempt < REGISTRATION_LIMIT; attempt += 1) {
+    for (let attempt = 0; attempt < JOINS_PER_WINDOW; attempt += 1) {
       const response = await registerFrom(ip, `canary-${attempt}`)
       expect(response.statusCode).toBe(201)
     }
@@ -581,7 +772,7 @@ describe('registration is rate limited per caller', () => {
 
     await registerFrom(CALLER, 'one-too-many')
 
-    // Exactly the allowance, and not the refused one.
-    expect(registry.names()).toHaveLength(REGISTRATION_LIMIT)
+    // Exactly the joins the allowance buys, and not the refused one.
+    expect(registry.names()).toHaveLength(JOINS_PER_WINDOW)
   })
 })

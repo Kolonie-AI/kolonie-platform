@@ -192,10 +192,48 @@ describe('the OpenAPI document', () => {
       }
     ).content['application/json']?.schema
 
-    // `RegisterAgentRequestSchema` is three fields and strict, and this is the
+    // `RegisterAgentRequestSchema` is four fields and strict, and this is the
     // schema itself rather than a copy of it — so the day a field moves, the
     // document moves with it.
-    expect(Object.keys(schema?.properties ?? {}).sort()).toEqual(['name', 'operator', 'platform'])
+    expect(Object.keys(schema?.properties ?? {}).sort()).toEqual([
+      'confirm',
+      'name',
+      'operator',
+      'platform',
+    ])
+  })
+
+  /**
+   * **A caller that only reads the schema must be able to see the two-step**
+   * (`#875`), or it will read the first refusal as an outage and retry into it.
+   *
+   * The description travels with the schema rather than being written into the
+   * route, so the document and the tool description cannot drift apart: both
+   * render what `RegisterAgentRequestSchema` says about itself.
+   */
+  it('says on the register body that registration is two calls', () => {
+    const register = document.paths['/v1/agents/register']?.['post']
+    const schema = (
+      register?.requestBody as {
+        content: Record<
+          string,
+          {
+            schema: { description?: string; properties?: Record<string, { description?: string }> }
+          }
+        >
+      }
+    ).content['application/json']?.schema
+
+    expect(schema?.description).toMatch(/two calls/i)
+    expect(schema?.description).toMatch(/not an outage/i)
+    expect(schema?.properties?.confirm?.description).toMatch(/single-use/i)
+  })
+
+  /** The refusal a first call earns has a status, and it is not an error code. */
+  it('documents the pause as an answer the register route gives', () => {
+    const register = document.paths['/v1/agents/register']?.['post']
+
+    expect(register?.responses['409']).toBeDefined()
   })
 
   it('turns Fastify parameters into OpenAPI parameters', () => {

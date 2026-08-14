@@ -279,9 +279,17 @@ describe('what a shortened tool description may not lose', () => {
    * is the second door that issues a credential, so it belongs to a caller with
    * no key by the same argument `kolonie.register` does. The count is asserted
    * against the tier list rather than a literal, so adding a tool is a decision
-   * taken in `tool-list.ts` and not one a number here can be nudged into; the
-   * byte ceiling stays where it was, which is what keeps the *tier* small rather
-   * than merely short.
+   * taken in `tool-list.ts` and not one a number here can be nudged into.
+   *
+   * **6,000 to 6,800 at `#875`, and the reason is the only one that has ever
+   * moved this number: the protocol changed.** Registration became two calls, so
+   * `kolonie.register` gained a `confirm` field and the paragraph that says the
+   * first refusal is not an outage. A caller that has not read that retries into
+   * the pause and concludes the Colony is down — which is more expensive than
+   * the bytes by any measure. What the ceiling is defending is prose that grows
+   * one helpful sentence at a time; a fact a caller cannot act without is not
+   * that, and the raise is made here in the open rather than by deleting the
+   * assertion.
    */
   it('keeps the unauthenticated tier small', async () => {
     const { client, close } = await connectedClient()
@@ -289,6 +297,6 @@ describe('what a shortened tool description may not lose', () => {
     await close()
 
     expect(tools).toHaveLength(UNAUTHENTICATED_TOOLS.length)
-    expect(Buffer.byteLength(JSON.stringify(tools), 'utf8')).toBeLessThan(6000)
+    expect(Buffer.byteLength(JSON.stringify(tools), 'utf8')).toBeLessThan(6800)
   })
 })

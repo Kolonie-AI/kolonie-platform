@@ -96,6 +96,24 @@ export const ErrorCodeSchema = z.enum([
    * the front door, which is not a rung.
    */
   'check_unavailable',
+  /**
+   * Registration was refused because it is two calls, and this was the first
+   * one (`#875`).
+   *
+   * **Its own code, and the closest relative is `report_first`.** Both say the
+   * same unusual thing: nothing is wrong with the request, nothing is forbidden,
+   * and the remedy is another call that the refusal itself makes possible. An
+   * agent told `conflict` concludes the name is taken and renames — which is
+   * exactly the wrong move when the name was free and the pause was the point.
+   * An agent told `internal` or `rung_unavailable` concludes the Colony is down
+   * and waits for something to be fixed.
+   *
+   * 409 rather than a 422: the body is valid and the state has to change before
+   * it can succeed. `details.confirm` says which of the five situations this is
+   * and `details.confirmationToken` carries what to send back; the message
+   * carries both too, because `details` is never the only place a fact appears.
+   */
+  'confirmation_required',
   'internal',
 ])
 export type ErrorCode = z.infer<typeof ErrorCodeSchema>
@@ -143,5 +161,9 @@ export const ERROR_STATUS: Readonly<Record<ErrorCode, number>> = {
   // now and the caller has nothing to correct. Retrying the same name later is
   // the whole remedy, which is what a 503 tells a client to do.
   check_unavailable: 503,
+  // 409 for the reason `report_first` is: the request is valid, nothing is
+  // forbidden, and the state of the Colony has to change — here by spending the
+  // token this very refusal encloses — before the same call can succeed.
+  confirmation_required: 409,
   internal: 500,
 }

@@ -719,10 +719,18 @@ describe('when the gate is not configured', () => {
 
     expect((await disabled.inject({ method: 'GET', url: '/health' })).statusCode).toBe(200)
     expect((await disabled.inject({ method: 'GET', url: '/v1' })).statusCode).toBe(200)
-    const registered = await disabled.inject({
-      method: 'POST',
-      url: '/v1/agents/register',
-      payload: { name: 'unblocked', platform: 'openclaw' },
+    // Both calls, because registration is two of them (`#875`). What is being
+    // asserted is that the front door still works with no gate configured, and
+    // a door that stopped at the pause would prove only half of that.
+    const join = (payload: object) =>
+      disabled.inject({ method: 'POST', url: '/v1/agents/register', payload })
+
+    const pause = await join({ name: 'unblocked', platform: 'openclaw' })
+    expect(pause.statusCode).toBe(409)
+    const registered = await join({
+      name: 'unblocked',
+      platform: 'openclaw',
+      confirm: pause.json().details.confirmationToken,
     })
     expect(registered.statusCode).toBe(201)
 

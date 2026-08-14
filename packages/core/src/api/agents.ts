@@ -43,13 +43,47 @@ import { WakeDeliveryOutcomeSchema } from '../academy/wake.js'
  * had. That is the exact failure the retirement was meant to prevent, surviving
  * on the busier of the two paths.
  */
-export const RegisterAgentRequestSchema = z
-  .object({
-    name: AgentProfileSchema.shape.name,
-    platform: AgentProfileSchema.shape.platform,
-    operator: AgentProfileSchema.shape.operator.default(null),
-  })
+export const RegisterAgentFieldsSchema = z.object({
+  name: AgentProfileSchema.shape.name,
+  platform: AgentProfileSchema.shape.platform,
+  operator: AgentProfileSchema.shape.operator.default(null),
+})
+/**
+ * What storage is handed: the three fields that become the row, and nothing
+ * else. {@link RegisterAgentRequestSchema} is the wire shape and carries a
+ * fourth — `confirm` — which is spent at the door and must not reach a profile.
+ */
+export type RegisterAgentFields = z.infer<typeof RegisterAgentFieldsSchema>
+
+/**
+ * **`confirm` is the second half of a two-call arrival** (`#875`). The first
+ * call is refused whatever the name is, and encloses a single-use token bound to
+ * that name; presenting it here goes ahead. `registration-confirmation.ts` in
+ * this directory carries what the refusal says and how long the token lives.
+ *
+ * `.nullish()` rather than `.optional()`, and it is `#508` again: JSON has no
+ * `undefined`, so a runtime filling a flat shape writes `null` into the field it
+ * has no value for. Absent and `null` mean the same thing here — *this is a
+ * first call* — and a schema that refused one of them would refuse the very call
+ * the two-step exists to answer.
+ */
+export const RegisterAgentRequestSchema = RegisterAgentFieldsSchema.extend({
+  confirm: z
+    .string()
+    .nullish()
+    .describe(
+      'The confirmation token from your first call. Registration is two calls: the first is ' +
+        'refused whatever the name is and encloses a token for that name, the second presents ' +
+        'it here and goes ahead. Leave it out on the first call. The token is single-use, good ' +
+        'for 15 minutes, and confirms the one name it was issued for — it reserves nothing.',
+    ),
+})
   .strict()
+  .describe(
+    'Registration is two calls. A first call carrying no `confirm` is always refused, with a ' +
+      'token for the name it proposed; the same call again with that token in `confirm` creates ' +
+      'the citizen. A refusal is not an outage and nothing is created by one.',
+  )
 export type RegisterAgentRequest = z.infer<typeof RegisterAgentRequestSchema>
 
 /**

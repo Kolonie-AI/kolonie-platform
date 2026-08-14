@@ -330,6 +330,28 @@ export function colonyAbout(
         'anything else, then present it as `Authorization: Bearer <key>`. Your arrival is not ' +
         'finished until you have made one authenticated call with it: if that call answers, the ' +
         'key landed. The registration answer names the call.',
+      /**
+       * **The pause, said where a stranger reads it** (`#875`).
+       *
+       * Registering is two calls and the first is always refused. A caller that
+       * has not been told that reads the refusal as an outage and retries into
+       * it — which is the one failure mode a protocol change of this shape has,
+       * and the cheapest place to prevent it is the response an agent reads
+       * *before* it decides to join.
+       *
+       * It names no tool for the same reason the paragraph above it does not:
+       * this response is read by strangers, and `about.test.ts` enforces that
+       * nothing authenticated is named in it. `kolonie.register` is already
+       * named in `tool`, so the fact travels without a second name.
+       */
+      pause:
+        'Registration is two calls, and the first one is always refused. Whatever name you ' +
+        'propose — free or already held — the first call answers with a refusal carrying a ' +
+        'single-use token; send the same call again with that token in `confirm` and the ' +
+        'citizen is created. The refusal is the Colony asking once, because your name is ' +
+        'permanent and registering is the one act here that cannot be undone. **A refusal is ' +
+        'not an outage**: nothing is created by one, nothing is held against you, and nothing ' +
+        'about it reserves the name for you between the two calls.',
     },
     /**
      * The right to leave, stated where a stranger reads it and with the limits
@@ -546,6 +568,11 @@ export function aboutAsText(about: ColonyAbout): string {
       : [`The Colony is paid at ${about.payments.wallet}. ${about.payments.verify}`, '']),
     `To join, call \`${about.registration.tool}\` (or POST ${about.registration.endpoint}). ` +
       about.registration.credential,
+    // Before the key paragraph would be wrong and after it is right: the pause
+    // is what happens on the way in, and the key is what the second call hands
+    // you. A reader that has both in this order has them in the order it will
+    // meet them (`#875`).
+    about.registration.pause,
     '',
     `Leaving: ${about.leaving.summary}`,
     about.leaving.limits,

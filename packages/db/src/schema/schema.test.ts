@@ -604,6 +604,17 @@ describe('schema', () => {
          */
         'recipe_moderations',
         /**
+         * `registration_confirmations` joined with the pause in front of the
+         * front door (`#875`). Registration is two calls, and this is where the
+         * token the first one hands out lives between them — single-use, bound
+         * to the one name it was issued for, and expiring on its own.
+         *
+         * **A row here is not a reservation.** Nothing about a token holds the
+         * name for the caller in between, which is why this table can be swept
+         * of expired rows without anybody losing something they were promised.
+         */
+        'registration_confirmations',
+        /**
          * `report_feedback` joined with #110, carrying the votes that used to
          * live in `tip_feedback`. What widened is what may be voted on: with one
          * table a wall can be voted on too, which costs nothing and closes an

@@ -20,7 +20,7 @@ import {
   type SessionDeclaration,
   type ProfileReview,
   type ApiKey,
-  type RegisterAgentRequest,
+  type RegisterAgentFields,
   type StoredAutonomyContract,
 } from '@kolonie-ai/core'
 import type {
@@ -39,6 +39,7 @@ import type { DoctorSource } from '../../doctor.js'
 import type { DiagnosesDesk } from '../../diagnoses.js'
 import { fakeDiagnosesDesk, fakeDoctorSource } from '../doctor.js'
 import { checkName, register, type AgentRegistry, type Caller } from '../../registration.js'
+import { memoryGate } from '../registry.js'
 import { fakeSkillNotes, type FakeSkillNotes } from '../skill-notes.js'
 import { fakeStandingHints } from '../hints.js'
 import { fakeWakeup } from '../wakeup.js'
@@ -77,6 +78,15 @@ export const FAKE_CALLER_IP = '192.0.2.10'
  */
 export interface FakeAgent {
   readonly registry: AgentRegistry
+  /**
+   * A confirmation token for a name, without rehearsing the two calls (`#875`).
+   *
+   * Registration is two calls for a citizen, and almost none of these tests are
+   * about that: they need a citizen to exist so they can assert something else.
+   * This mints the token the first refusal would have enclosed, so joining stays
+   * one line. The tests that are *about* the pause make both calls.
+   */
+  readonly confirm: (name: string) => Promise<string>
   /** The hand-over door (`#459`), so the tool it registers exists in a test colony. */
   readonly adoption: AdoptionDesk
   readonly store: AgentStore
@@ -202,7 +212,7 @@ export function fakeAgent(deps: { readonly solanaChallenges: SolanaChallenges })
   /** Whether each citizen has allowed crawling (`#818`). Off until it says otherwise. */
   const indexing = new Map<string, boolean>()
 
-  const store = async (request: RegisterAgentRequest): Promise<RegisterAgentResult> => {
+  const store = async (request: RegisterAgentFields): Promise<RegisterAgentResult> => {
     const key = request.name.toLowerCase()
     if (takenNames.has(key)) return { outcome: 'name-taken', name: request.name }
 
@@ -264,13 +274,48 @@ export function fakeAgent(deps: { readonly solanaChallenges: SolanaChallenges })
     }
   }
 
+  const isTaken = async (name: string) => takenNames.has(name.toLowerCase())
+  const gate = memoryGate(isTaken)
+
   return {
+    confirm: gate.confirm,
     registry: {
-      register: (request) => register(request, store),
+      /**
+       * **This door answers a first call, and the real one does not** (`#875`).
+       *
+       * Every other test in this app registers in order to have a citizen to
+       * assert something else about — the throttle, the rollup, a tool. Making
+       * fifty of those rehearse two calls would spend fifty readers' attention
+       * on a step none of them is about, and would put the pause into files
+       * that would never notice if it broke.
+       *
+       * So a request arriving here without a `confirm` is handed one. The gate
+       * still runs on the second half, so a token that stopped being accepted
+       * would still fail here — what is skipped is only the round trip. The
+       * refusal itself is asserted where a citizen meets it: at both doors, in
+       * `registration.test.ts`, `routes/agents.test.ts` and
+       * `mcp/tools/register.test.ts`.
+       */
+      register: async (request) => {
+        const proposed =
+          typeof request === 'object' && request !== null && 'name' in request
+            ? (request as { name?: unknown }).name
+            : undefined
+        const needsToken =
+          typeof proposed === 'string' &&
+          (typeof request !== 'object' ||
+            request === null ||
+            (request as { confirm?: unknown }).confirm == null)
+
+        return register(
+          needsToken ? { ...(request as object), confirm: await gate.confirm(proposed) } : request,
+          store,
+          gate,
+        )
+      },
       // Same `takenNames` set the registration path writes into (#138), so the
       // check and the front door cannot disagree inside one test.
-      checkName: (request) =>
-        checkName(request, async (name) => takenNames.has(name.toLowerCase())),
+      checkName: (request) => checkName(request, isTaken),
     },
     caller: { ip: FAKE_CALLER_IP },
     // `#459`. Wired by default so the tool is registered and the tier lists

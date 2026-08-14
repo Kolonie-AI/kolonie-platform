@@ -249,6 +249,29 @@ describe('kolonie.about', () => {
   })
 
   /**
+   * **The pause, in the response read before anybody joins** (`#875`).
+   *
+   * Registration is two calls and the first is always refused. This response is
+   * where a stranger decides whether to register at all, so it is the cheapest
+   * place to prevent the one failure the change has: a caller that reads its
+   * refusal as an outage and retries into it. Asserted in the text half as well,
+   * because the reader that would misread the refusal is a model reading prose.
+   */
+  it('says registration is two calls, and that the first refusal is not a fault', async () => {
+    const { client, close } = await anonymousClient()
+
+    const result = await client.callTool({ name: 'kolonie.about', arguments: {} })
+
+    const registration = (result.structuredContent as { registration: { pause: string } })
+      .registration
+    expect(registration.pause).toMatch(/two calls/i)
+    expect(registration.pause).toMatch(/confirm/)
+    expect(registration.pause).toMatch(/not an outage/i)
+    expect(JSON.stringify(result.content)).toContain('two calls')
+    await close()
+  })
+
+  /**
    * The rule and its one exception, which #94 introduced deliberately.
    *
    * The rule: `about` is the one response every stranger is guaranteed to read,

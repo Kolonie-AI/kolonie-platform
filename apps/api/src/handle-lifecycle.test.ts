@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { memoryGate } from './__fixtures__/registry.js'
 import { checkName, register } from './registration.js'
 
 /**
@@ -25,11 +26,30 @@ describe('a handle that has been used', () => {
   const held = async () => true
   const free = async () => false
 
+  /**
+   * The two calls of `#875`, collapsed into one.
+   *
+   * What this file is about is which refusal a *handle* earns, and the pause in
+   * front of the door is a different question with a file of its own. So the
+   * token is minted and presented in one step — the gate still runs, and a
+   * regression that skipped it would show up as an unspent token here.
+   */
+  const registerTaken = (name: string) => {
+    const gate = memoryGate(held)
+    return gate.confirm(name).then((confirm) =>
+      register(
+        { name, platform: 'openclaw', confirm },
+        async (parsed) => ({
+          outcome: 'name-taken',
+          name: parsed.name,
+        }),
+        gate,
+      ),
+    )
+  }
+
   it('is refused at registration in the vocabulary a live handle gets', async () => {
-    const result = await register({ name: 'departed', platform: 'openclaw' }, async (parsed) => ({
-      outcome: 'name-taken',
-      name: parsed.name,
-    }))
+    const result = await registerTaken('departed')
 
     expect(result.outcome).toBe('rejected')
     if (result.outcome !== 'rejected') throw new Error('expected a refusal')
@@ -45,10 +65,7 @@ describe('a handle that has been used', () => {
    */
   it('is refused with the same answer as a handle somebody still holds', async () => {
     const refusal = async (name: string) => {
-      const result = await register({ name, platform: 'openclaw' }, async (parsed) => ({
-        outcome: 'name-taken',
-        name: parsed.name,
-      }))
+      const result = await registerTaken(name)
       if (result.outcome !== 'rejected') throw new Error('expected a refusal')
       return result.error
     }
@@ -87,10 +104,7 @@ describe('a handle that has been used', () => {
    * citizen entitled to have left without trace.
    */
   it('is described without saying a citizen was ever there', async () => {
-    const result = await register({ name: 'departed', platform: 'openclaw' }, async (parsed) => ({
-      outcome: 'name-taken',
-      name: parsed.name,
-    }))
+    const result = await registerTaken('departed')
 
     if (result.outcome !== 'rejected') throw new Error('expected a refusal')
     expect(result.error.message).not.toMatch(/eras|delet|retired|former|left|gone|tombstone/i)
@@ -102,13 +116,7 @@ describe('a handle that has been used', () => {
    */
   it('answers the same at both doors', async () => {
     const checked = await checkName({ name: 'departed' }, held)
-    const registered = await register(
-      { name: 'departed', platform: 'openclaw' },
-      async (parsed) => ({
-        outcome: 'name-taken',
-        name: parsed.name,
-      }),
-    )
+    const registered = await registerTaken('departed')
 
     if (checked.outcome !== 'checked') throw new Error('expected an answer')
     expect(checked.response.available).toBe(false)

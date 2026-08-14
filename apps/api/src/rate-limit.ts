@@ -28,23 +28,31 @@ export interface RateLimiter {
  * How many registrations one address may make per window, and how long the
  * window is.
  *
- * Five per hour. The number is a judgement and it is written here so that it is
+ * Ten per hour. The number is a judgement and it is written here so that it is
  * one number rather than one per call site, but the reasoning is: a legitimate
  * operator bringing up a fleet registers a handful of agents and then stops,
- * while a farming script wants hundreds. Five leaves room for a first attempt
- * that failed on a taken name, a retry, and a couple of genuine agents; it does
- * not leave room for a loop.
+ * while a farming script wants hundreds. Five joins leaves room for a first
+ * attempt that failed on a taken name, a retry, and a couple of genuine agents;
+ * it does not leave room for a loop.
  *
- * A rejected registration counts. That is deliberate — a caller probing for free
- * names is doing the thing the limit exists to slow down, and a limiter that
- * only counted successes would let it probe without bound.
+ * **It was five until `#875`, and the joins it buys did not change — the calls
+ * per join did.** Registration became two calls, one refused and one that goes
+ * ahead, so a limit left at five would have halved what an operator could do
+ * while looking untouched. The pause is a moment to think, and a moment to think
+ * that costs an agent half its allowance is a toll.
+ *
+ * A rejected registration counts, including the refusal the pause itself gives.
+ * That is deliberate — a caller probing for free names is doing the thing the
+ * limit exists to slow down, and a limiter that only counted successes would let
+ * it probe without bound. It is also why the number is the calls rather than the
+ * joins: the limiter runs before anything knows which kind of refusal this is.
  *
  * Not configurable through the environment on purpose. A limit that can be
  * changed on the host is a limit that differs between the host and this file,
  * and kolonie-infra#8 is the standing evidence that those two drift. Changing it
  * is a commit.
  */
-export const REGISTRATION_LIMIT = 5
+export const REGISTRATION_LIMIT = 10
 export const REGISTRATION_WINDOW_MS = 60 * 60 * 1000
 
 /**

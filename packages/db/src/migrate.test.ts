@@ -444,7 +444,12 @@ describe('the migrations', () => {
     // recorded was withdrawn, and `throttles` was added by `#843`. A count is
     // the one assertion in this file that a *removal* can break as loudly as an
     // addition, which is why it is a number and not a lower bound.
-    expect(afterFirst.tables).toBe('112')
+    //
+    // **A hundred and thirteen** (`#875`): `registration_confirmations`, where
+    // the token the refused first call hands out waits for the second. It holds
+    // no name for anybody — the row is a token and not a reservation — so it is
+    // the rare table whose expired rows can be swept without a decision.
+    expect(afterFirst.tables).toBe('113')
     // Twenty: `task_kind` (#43) tells an Academy task from a Quest and therefore
     // what may pay credits; `support_ticket_kind` and `support_ticket_status` (#11)
     // carry what a citizen wrote about and where it stands; `erasure_reason` and

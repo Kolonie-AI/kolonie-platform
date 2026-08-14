@@ -1688,6 +1688,13 @@
       "when": 1786725142577,
       "tag": "0240_the_doctor_can_see_one_response_that_was_too_large",
       "breakpoints": true
+    },
+    {
+      "idx": 241,
+      "version": "7",
+      "when": 1786729240079,
+      "tag": "0241_the_pause_in_front_of_the_front_door",
+      "breakpoints": true
     }
   ]
 }

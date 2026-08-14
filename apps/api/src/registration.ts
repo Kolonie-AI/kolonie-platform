@@ -2,16 +2,21 @@ import {
   ARRIVAL_GUIDANCE,
   CheckNameRequestSchema,
   RegisterAgentRequestSchema,
+  registrationConfirmationRefusal,
   reservedHandleRefusal,
+  type ConfirmationVerdict,
   type ProfileChecker,
   type ProfileCheckVerdict,
   type ApiError,
   type CheckNameResponse,
+  type RegisterAgentFields,
   type RegisterAgentResponse,
 } from '@kolonie-ai/core'
 import {
   fingerprintOf,
+  mintRegistrationConfirmation,
   registerAgent,
+  spendRegistrationConfirmation,
   wasHandleEverHeld,
   type Database,
   type RegisterAgentResult,
@@ -161,6 +166,17 @@ export function databaseRegistry(
           (await everHeld(parsed.name))
             ? { outcome: 'name-taken', name: parsed.name }
             : registerAgent(db, parsed, fingerprintOf(caller.ip)),
+        /**
+         * The pause reuses {@link everHeld} for its voice, so the refusal a
+         * first call reads and the refusal `store` would give agree about
+         * whether the name is held — including for a handle somebody erased,
+         * which reads as taken here exactly as it does at the name check.
+         */
+        {
+          taken: everHeld,
+          mint: (name) => mintRegistrationConfirmation(db, name),
+          spend: (name, token) => spendRegistrationConfirmation(db, name, token),
+        },
         checker,
       ),
     checkName: (request) => checkName(request, everHeld, checker),
@@ -216,6 +232,69 @@ async function handleRefusal(
     code: 'validation_failed',
     message: `${verdict.reason} A name is permanent, so this is refused now rather than later.`,
     details: { name: 'refused' },
+  }
+}
+
+/**
+ * The two-call arrival, as the one seam both surfaces go through (`#875`).
+ *
+ * **Required rather than optional, and that is the only interesting decision on
+ * this interface.** Every other dependency registration takes is optional with a
+ * stated cost — a missing checker loses a reading and says so. A missing pause
+ * would lose the pause, silently, and a deployment whose front door quietly
+ * became one call again is indistinguishable from one where the feature was
+ * never written. A pause that can be skipped by forgetting to wire it is not a
+ * pause.
+ *
+ * `taken` picks the voice and nothing else: the front door's own uniqueness
+ * check is still the authority on the name, so a name that goes from free to
+ * held between the two calls is refused by `store` exactly as it always was.
+ */
+export interface RegistrationGate {
+  /** Only to choose which refusal the caller reads. Never load-bearing. */
+  taken(name: string): Promise<boolean>
+  mint(name: string): Promise<{ token: string; expiresAt: string }>
+  spend(name: string, token: string): Promise<ConfirmationVerdict>
+}
+
+/**
+ * Decide whether this call goes ahead, and build the refusal when it does not.
+ *
+ * **Exactly one refusal per registration.** A caller that presents a stale token
+ * is not refused twice — the stale one is reported and a fresh one is enclosed
+ * in the same answer, so the number of round trips to a citizen is two whatever
+ * went wrong on the way.
+ *
+ * The token is in the message as well as in `details`, because `ApiError`
+ * documents `details` as additional to the message and never the only place a
+ * fact appears — an agent reading prose has to be able to act on this.
+ */
+async function confirmation(
+  gate: RegistrationGate,
+  name: string,
+  token: string | undefined,
+): Promise<ApiError | undefined> {
+  const verdict = token === undefined ? 'first-call' : await gate.spend(name, token)
+  if (verdict === 'confirmed') return undefined
+
+  const taken = await gate.taken(name)
+  const minted = await gate.mint(name)
+
+  return {
+    code: 'confirmation_required',
+    message: registrationConfirmationRefusal({
+      name,
+      taken,
+      problem: verdict,
+      token: minted.token,
+      expiresAt: minted.expiresAt,
+    }),
+    details: {
+      name: taken ? 'taken' : 'free',
+      confirm: verdict,
+      confirmationToken: minted.token,
+      confirmationExpiresAt: minted.expiresAt,
+    },
   }
 }
 
@@ -340,9 +419,8 @@ export function rateLimited(
  */
 export async function register(
   request: unknown,
-  store: (
-    parsed: ReturnType<typeof RegisterAgentRequestSchema.parse>,
-  ) => Promise<RegisterAgentResult>,
+  store: (parsed: RegisterAgentFields) => Promise<RegisterAgentResult>,
+  gate: RegistrationGate,
   checker?: ProfileChecker,
 ): Promise<RegistrationOutcome> {
   const parsed = RegisterAgentRequestSchema.safeParse(request)
@@ -364,7 +442,22 @@ export async function register(
     return { outcome: 'rejected', error: refusal }
   }
 
-  const result = await store(parsed.data)
+  /**
+   * The pause, and it sits **after** the refusals above on purpose (`#875`).
+   *
+   * A caller that proposed `kolonie-desk`, or a name the checker reads as an
+   * impersonation, is told that on its first call. Deferring those to the second
+   * one would make the pause a delay in front of the real answer instead of a
+   * moment to reconsider — and the whole point is that the moment is spent
+   * thinking about a name that could actually be issued.
+   */
+  const { confirm, ...fields } = parsed.data
+  const gated = await confirmation(gate, fields.name, confirm ?? undefined)
+  if (gated !== undefined) {
+    return { outcome: 'rejected', error: gated }
+  }
+
+  const result = await store(fields)
 
   switch (result.outcome) {
     case 'registered':

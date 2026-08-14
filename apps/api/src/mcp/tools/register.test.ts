@@ -1,6 +1,6 @@
 import { fakeHumans } from '../../__fixtures__/humans.js'
 import { fakeArtefactChallenges } from '../../__fixtures__/artefact.js'
-import { API_KEY_PREFIX, RegisterAgentResponseSchema } from '@kolonie-ai/core'
+import { API_KEY_PREFIX, RegisterAgentResponseSchema, type ApiError } from '@kolonie-ai/core'
 import { describe, expect, it } from 'vitest'
 import { fakeAcademy } from '../../__fixtures__/academy.js'
 import { fakeAccounts } from '../../__fixtures__/accounts.js'
@@ -46,6 +46,39 @@ import { buildApp } from '../../app.js'
 import { erasure } from '../../erasure.js'
 import { support } from '../../support.js'
 
+type Client = Awaited<ReturnType<typeof anonymousClient>>['client']
+
+/**
+ * The refusal a tool answered with, or nothing if it did not refuse.
+ *
+ * `unknown` in, because a `CallToolResult` is a union that still carries the
+ * legacy `toolResult` arm — a narrower parameter type is one the SDK's own
+ * return value does not satisfy.
+ */
+const refusalOf = (result: unknown): ApiError | undefined =>
+  (result as { structuredContent?: { error?: ApiError } }).structuredContent?.error
+
+/** One call, exactly as sent — what a first call actually gets. */
+const callRegister = (client: Client, args: Record<string, unknown>) =>
+  client.callTool({ name: 'kolonie.register', arguments: args })
+
+/**
+ * A join over MCP: both calls, and the answer to the second (`#875`).
+ *
+ * Most of this file is about what happens on the far side of the pause — the
+ * arrival text, the key, the shape of the structured answer. None of those
+ * assertions changed meaning, so the second call is made for them here rather
+ * than written into each one. A first call refused for any other reason is
+ * handed straight back, so a test asserting `validation_failed` still sees it.
+ */
+const join = async (client: Client, args: Record<string, unknown>) => {
+  const first = await callRegister(client, args)
+  const refusal = refusalOf(first)
+  if (refusal?.code !== 'confirmation_required') return first
+
+  return callRegister(client, { ...args, confirm: refusal.details?.confirmationToken })
+}
+
 describe('kolonie.register', () => {
   it('is offered to an agent that presents no credential', async () => {
     const { client, close } = await anonymousClient()
@@ -72,10 +105,7 @@ describe('kolonie.register', () => {
   it('registers an agent and returns the same shape the HTTP endpoint does', async () => {
     const { client, close } = await anonymousClient()
 
-    const result = await client.callTool({
-      name: 'kolonie.register',
-      arguments: { name: 'canary', platform: 'openclaw' },
-    })
+    const result = await join(client, { name: 'canary', platform: 'openclaw' })
 
     expect(result.isError).toBeFalsy()
     expect(() => RegisterAgentResponseSchema.parse(result.structuredContent)).not.toThrow()
@@ -182,15 +212,12 @@ describe('kolonie.register', () => {
   it('accepts antigravity, and still refuses a runtime it does not know', async () => {
     const { client, close } = await anonymousClient()
 
-    const accepted = await client.callTool({
-      name: 'kolonie.register',
-      arguments: { name: 'canary', platform: 'antigravity' },
-    })
+    const accepted = await join(client, { name: 'canary', platform: 'antigravity' })
     expect(accepted.isError).toBeFalsy()
 
-    const refused = await client.callTool({
-      name: 'kolonie.register',
-      arguments: { name: 'canary-two', platform: 'a-runtime-that-does-not-exist' },
+    const refused = await join(client, {
+      name: 'canary-two',
+      platform: 'a-runtime-that-does-not-exist',
     })
     expect(refused.isError).toBe(true)
     await close()
@@ -203,10 +230,7 @@ describe('kolonie.register', () => {
   describe('the arrival text', () => {
     const arrival = async () => {
       const { client, close } = await anonymousClient()
-      const result = await client.callTool({
-        name: 'kolonie.register',
-        arguments: { name: 'canary', platform: 'openclaw' },
-      })
+      const result = await join(client, { name: 'canary', platform: 'openclaw' })
       await close()
       return (result.content as Array<{ text: string }>)[0]?.text ?? ''
     }
@@ -264,12 +288,122 @@ describe('kolonie.register', () => {
     it('leaves structuredContent alone', async () => {
       const { client, close } = await anonymousClient()
 
-      const result = await client.callTool({
-        name: 'kolonie.register',
-        arguments: { name: 'canary', platform: 'openclaw' },
-      })
+      const result = await join(client, { name: 'canary', platform: 'openclaw' })
 
       expect(() => RegisterAgentResponseSchema.parse(result.structuredContent)).not.toThrow()
+      await close()
+    })
+  })
+
+  /**
+   * **The pause, on the surface an agent actually arrives through** (`#875`).
+   *
+   * An agent registering over MCP has read one string before it calls: the tool
+   * description. So the refusal has to be legible to a model reading prose *and*
+   * to a client parsing structure, which is what `toolError` promises — and it
+   * is the promise that would go quietly missing if only `structuredContent`
+   * were asserted.
+   */
+  describe('the pause', () => {
+    it('refuses the first call and encloses a token in both halves', async () => {
+      const { client, close } = await anonymousClient()
+
+      const result = await callRegister(client, { name: 'canary', platform: 'openclaw' })
+
+      expect(result.isError).toBe(true)
+      const refusal = refusalOf(result)
+      expect(refusal?.code).toBe('confirmation_required')
+      expect(refusal?.details?.confirm).toBe('first-call')
+      const token = refusal?.details?.confirmationToken
+      expect(token).toBeTypeOf('string')
+      // The text half carries it too, because that is what a model reads.
+      expect(JSON.stringify(result.content)).toContain(String(token))
+      await close()
+    })
+
+    it('goes ahead on the second call, with the name that was proposed', async () => {
+      const { client, close } = await anonymousClient()
+
+      const result = await join(client, { name: 'canary', platform: 'openclaw' })
+
+      expect(result.isError).toBeFalsy()
+      expect(
+        (result.structuredContent as { agent: { profile: { name: string } } }).agent.profile.name,
+      ).toBe('canary')
+      await close()
+    })
+
+    it('creates no citizen by refusing', async () => {
+      const registry = fakeRegistry()
+      const { client, close } = await anonymousClient(registry)
+
+      await callRegister(client, { name: 'canary', platform: 'openclaw' })
+
+      expect(registry.names()).toEqual([])
+      await close()
+    })
+
+    /** Held or free, one branch for the caller: both voices carry a token. */
+    it('says something different about a name that is held, and still mints one', async () => {
+      const { client, close } = await anonymousClient()
+      await join(client, { name: 'canary', platform: 'openclaw' })
+
+      const held = refusalOf(await callRegister(client, { name: 'canary', platform: 'openclaw' }))
+      const free = refusalOf(await callRegister(client, { name: 'kestrel', platform: 'openclaw' }))
+
+      expect(held?.details?.name).toBe('taken')
+      expect(free?.details?.name).toBe('free')
+      expect(held?.message).not.toBe(free?.message)
+      expect(held?.details?.confirmationToken).toBeTypeOf('string')
+      await close()
+    })
+
+    it.each([
+      ['a token it never issued', 'never-issued', 'unknown'],
+      ['a token minted for another name', 'other', 'other-name'],
+      ['a token already spent', 'spent', 'spent'],
+    ])('says which way %s failed', async (_case, kind, problem) => {
+      const { client, close } = await anonymousClient()
+
+      const confirm = await (async () => {
+        if (kind === 'never-issued') return 'never-issued'
+        if (kind === 'other') {
+          const other = await callRegister(client, { name: 'kestrel', platform: 'openclaw' })
+          return String(refusalOf(other)?.details?.confirmationToken)
+        }
+        const first = await callRegister(client, { name: 'canary', platform: 'openclaw' })
+        const token = String(refusalOf(first)?.details?.confirmationToken)
+        await callRegister(client, { name: 'canary', platform: 'openclaw', confirm: token })
+        return token
+      })()
+
+      const result = await callRegister(client, {
+        name: 'canary',
+        platform: 'openclaw',
+        confirm,
+      })
+
+      const refusal = refusalOf(result)
+      expect(refusal?.details?.confirm).toBe(problem)
+      // Every one of them encloses a fresh token, so the number of calls a
+      // citizen spends recovering stays one rather than a fresh start.
+      expect(refusal?.details?.confirmationToken).toBeTypeOf('string')
+      expect(refusal?.details?.confirmationToken).not.toBe(confirm)
+      await close()
+    })
+
+    /**
+     * The tool description is the only thing an agent has read before it calls,
+     * so a two-step it does not mention is a refusal that reads as a fault.
+     */
+    it('says in the tool description that registration is two calls', async () => {
+      const { client, close } = await anonymousClient()
+
+      const { tools } = await client.listTools()
+      const register = tools.find((tool) => tool.name === 'kolonie.register')
+
+      expect(register?.description).toMatch(/two calls/i)
+      expect(register?.inputSchema.properties).toHaveProperty('confirm')
       await close()
     })
   })
@@ -277,10 +411,7 @@ describe('kolonie.register', () => {
   it('puts the key where an agent reading text will find it', async () => {
     const { client, close } = await anonymousClient()
 
-    const result = await client.callTool({
-      name: 'kolonie.register',
-      arguments: { name: 'canary', platform: 'openclaw' },
-    })
+    const result = await join(client, { name: 'canary', platform: 'openclaw' })
 
     const text = JSON.stringify(result.content)
     expect(text).toContain(API_KEY_PREFIX)
@@ -290,14 +421,8 @@ describe('kolonie.register', () => {
   it('reports a taken name as an error carrying the same code as HTTP', async () => {
     const { client, close } = await anonymousClient()
 
-    await client.callTool({
-      name: 'kolonie.register',
-      arguments: { name: 'canary', platform: 'openclaw' },
-    })
-    const second = await client.callTool({
-      name: 'kolonie.register',
-      arguments: { name: 'canary', platform: 'openclaw' },
-    })
+    await join(client, { name: 'canary', platform: 'openclaw' })
+    const second = await join(client, { name: 'canary', platform: 'openclaw' })
 
     expect(second.isError).toBe(true)
     expect(JSON.stringify(second.content)).toContain('conflict')
@@ -371,19 +496,22 @@ describe('kolonie.register', () => {
       authenticator: fakeAuthenticator(),
     })
     await app.ready()
-    await app.inject({
-      method: 'POST',
-      url: '/v1/agents/register',
-      payload: { name: 'canary', platform: 'openclaw' },
+    // Both calls, because one door's pause is the other door's too (`#875`) —
+    // a single call would leave the name free and prove nothing about sharing.
+    const overHttp = (payload: object) =>
+      app.inject({ method: 'POST', url: '/v1/agents/register', payload })
+    const pause = await overHttp({ name: 'canary', platform: 'openclaw' })
+    await overHttp({
+      name: 'canary',
+      platform: 'openclaw',
+      confirm: pause.json().details.confirmationToken,
     })
 
     const { client, close } = await anonymousClient(registry)
-    const overMcp = await client.callTool({
-      name: 'kolonie.register',
-      arguments: { name: 'canary', platform: 'openclaw' },
-    })
+    const overMcp = await join(client, { name: 'canary', platform: 'openclaw' })
 
     expect(overMcp.isError).toBe(true)
+    expect(refusalOf(overMcp)?.code).toBe('conflict')
     await close()
     await app.close()
   })

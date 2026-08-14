@@ -121,6 +121,12 @@ export function buildOpenApiDocument(
             description: 'The request was refused. The body is the Colony error shape.',
             content: { 'application/json': { schema: errorSchema } },
           },
+          ...Object.fromEntries(
+            Object.entries(declared.extraResponses ?? {}).map(([status, description]) => [
+              status,
+              { description, content: { 'application/json': { schema: errorSchema } } },
+            ]),
+          ),
         },
       }
 

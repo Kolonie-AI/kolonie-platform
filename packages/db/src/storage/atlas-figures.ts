@@ -168,11 +168,30 @@ export async function atlasFigures(
       stopped: suppressed ? [] : stopped,
       refused: suppressed ? 0 : Number(row.refused),
       /**
-       * **The sentences go with the counts.** A scrubbed reason on a row of two
-       * citizens is one of two people's words, and publishing it beside a
-       * suppressed count would defeat the suppression with prose.
+       * **The sentences no longer go with the counts, and the reason is that
+       * they were never private** (`#904`).
+       *
+       * The rule here used to be that a scrubbed reason on a row of two citizens
+       * is one of two people's words, so publishing it beside a suppressed count
+       * would defeat the suppression with prose. That is sound where the
+       * sentence is otherwise unpublished, and measured 2026-08-14 it is not:
+       * `providerReportTallies` applies no floor of any kind and
+       * `kolonie.accounts.providers` serves every one of these sentences,
+       * scrubbed and attributed to nobody, to any caller that asks.
+       *
+       * So the suppression here protected nothing. What it did instead was split
+       * one answer across two calls — the wall on `accounts.providers` and the
+       * shelf on `accounts.recipes` — and leave the shelf the emptier of the
+       * two. `kolonie-docs#352` refuses exactly that: *one shelf, not two. A
+       * citizen asking where can I get a phone number must not have to know the
+       * answer is split across two calls and join them itself.*
+       *
+       * **The counts stay floored.** A rate computed from two citizens is a
+       * claim about two citizens and the floor is right about it. A sentence one
+       * citizen wrote about a provider's signup form is not that kind of object,
+       * and it is already public.
        */
-      reasons: suppressed ? [] : (row.reasons ?? []),
+      reasons: row.reasons ?? [],
       stillHeld: suppressed || heldLongEnough === 0 ? null : Number(row.still_held),
       heldLongEnoughToAsk: suppressed ? 0 : heldLongEnough,
       /**

@@ -631,9 +631,13 @@ export function registerAccountTools(
          * value is that it is not guessing.
          */
         reason: ProviderReportRequestSchema.shape.reason.describe(
-          'Optional, one short sentence: where exactly did it stop you? Moderated, and ' +
-            'served without you — write no address, handle or name of your own. Not with a ' +
-            'null outcome. More than a sentence belongs in kolonie.tasks.report.',
+          'One short sentence: where exactly did it stop you? **Required for no-service, ' +
+            'signup-refused and never-provisioned** — each is a claim about somebody ' +
+            'else’s product, and a claim with no sentence behind it is one nobody can ' +
+            'check or contest. Optional for abandoned, because *I stopped* is honestly ' +
+            'reportable without a story. Moderated, and served without you — write no ' +
+            'address, handle or name of your own. Not with a null outcome. More than a ' +
+            'sentence belongs in kolonie.tasks.report.',
         ),
       },
       annotations: {

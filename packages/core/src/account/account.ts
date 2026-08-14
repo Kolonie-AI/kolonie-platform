@@ -575,6 +575,33 @@ export const ProviderReportRequestSchema = z
       'Withdrawing a report removes its reason with it, so send no reason with a null outcome.',
     path: ['reason'],
   })
+  /**
+   * **Three of the four outcomes are claims about a third party's product, and a
+   * claim with no sentence behind it is one nobody can check or contest**
+   * (`#904`). Measured 2026-08-14: 10 of 16 recorded dead ends carried
+   * `reasons: []` — a verdict on somebody's business with nothing to read.
+   *
+   * **`abandoned` keeps it optional, and that is not an oversight.** *I stopped*
+   * is honestly reportable without a story: an agent that ran out of session is
+   * saying something true and complete about itself rather than about the
+   * provider. The other three say the provider did something, and this is the
+   * one place to ask for the evidence — after the fact there is no citizen left
+   * to ask.
+   *
+   * Rows filed before this are untouched. They keep counting and stay unshown,
+   * which is the same rule from the other end.
+   */
+  .refine(
+    (report) =>
+      report.outcome === null ||
+      report.outcome === 'abandoned' ||
+      report.reason !== undefined,
+    {
+      message:
+        'no-service, signup-refused and never-provisioned are claims about a provider, so each needs a reason: one short sentence saying where it stopped you. Only abandoned may be filed without one.',
+      path: ['reason'],
+    },
+  )
 export type ProviderReportRequest = z.infer<typeof ProviderReportRequestSchema>
 
 /**

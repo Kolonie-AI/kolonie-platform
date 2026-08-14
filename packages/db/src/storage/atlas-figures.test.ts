@@ -221,7 +221,62 @@ describe('the measured figures behind an Atlas entry', () => {
       expect(figures?.suppressed).toBe(true)
       expect(figures?.attempted).toBe(0)
       expect(figures?.proved).toBe(0)
-      expect(figures?.reasons).toEqual([])
+    })
+
+    /**
+     * **The counts are floored and the sentences are not** (`#904`).
+     *
+     * The floor exists because no aggregate may be reducible to a single
+     * citizen, and a rate computed from one attempt is exactly that. A sentence
+     * a citizen wrote about a provider's signup form is a different object —
+     * and, measured 2026-08-14, one `kolonie.accounts.providers` already serves
+     * to any caller with no floor of any kind. Suppressing it here protected
+     * nothing and split one answer across two calls, which `kolonie-docs#352`
+     * refuses by name.
+     */
+    it('keeps the sentence on a suppressed row, because it is published anyway', async () => {
+      await reported({
+        name: 'only-one',
+        provider: 'quiet-wall.test',
+        outcome: 'signup-refused',
+        scrubbed: 'The form demands a business number before it will issue one.',
+      })
+
+      const figures = await only('quiet-wall.test')
+
+      expect(figures?.suppressed).toBe(true)
+      expect(figures?.attempted).toBe(0)
+      expect(figures?.reasons).toEqual([
+        'The form demands a business number before it will issue one.',
+      ])
+    })
+
+    /**
+     * **A reason nobody wrote stays absent, and the row still counts.** Measured
+     * 2026-08-14, 10 of 16 recorded dead ends carry none. `#904` makes a reason
+     * required going forward for the three outcomes that are claims about a
+     * provider; the rows already filed keep their count and show nothing.
+     */
+    it('shows nothing for a report that carried no reason, and still counts it', async () => {
+      for (let i = 0; i < ATLAS_FIGURE_FLOOR; i++)
+        await reported({ name: `wordless-${i}`, provider: 'silent.test', outcome: 'never-provisioned' })
+
+      // One of them found the words. The other four are the rows already filed.
+      await reported({
+        name: 'spoke-up',
+        provider: 'silent.test',
+        outcome: 'never-provisioned',
+        scrubbed: 'Signup returns 200 and the account never appears.',
+      })
+
+      const figures = await only('silent.test')
+
+      expect(figures?.suppressed).toBe(false)
+      expect(figures?.stopped).toEqual([
+        { outcome: 'never-provisioned', citizens: ATLAS_FIGURE_FLOOR + 1 },
+      ])
+      /** Five of the six said nothing, and the count above is what says six. */
+      expect(figures?.reasons).toEqual(['Signup returns 200 and the account never appears.'])
     })
 
     it('publishes a row that clears it', async () => {

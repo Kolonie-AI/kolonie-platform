@@ -5,6 +5,7 @@ import {
   CURRENT_CLAIM_ATTEMPTS,
   isKnownPassableAlone,
   MINIMUM_PASSES_FOR_SHARE,
+  NOTHING_PASSED,
   RegisterAgentRequestSchema,
   SNAPSHOT_TEXT_MAX_LENGTH,
   TaskIdSchema,
@@ -2018,7 +2019,32 @@ describe('task attempts', () => {
     it('answers zeroes for a task nobody has passed', async () => {
       const taskId = await aTask()
 
-      expect(await sovereigntyFor(db, taskId)).toEqual({ passes: 0, unattended: 0, share: null })
+      expect(await sovereigntyFor(db, taskId)).toEqual(NOTHING_PASSED)
+    })
+
+    /**
+     * The three counts reach the citizen-facing read, not only the tally
+     * underneath it (`#887`).
+     *
+     * The one that would have been silently wrong is `undeclared`: everything
+     * that is not an explicit `none` used to arrive as one anonymous remainder,
+     * and the share computed from it was published as though it answered *how
+     * many needed a human*.
+     */
+    it('carries help and silence as separate counts', async () => {
+      const taskId = await aTask({ type: 'the-divided-rung' })
+
+      await passWith(await anAgent(), taskId, 'the-divided-rung', 'none')
+      await passWith(await anAgent(), taskId, 'the-divided-rung', 'operator-performed')
+      await passWith(await anAgent(), taskId, 'the-divided-rung', 'unknown')
+      await passWith(await anAgent(), taskId, 'the-divided-rung', 'unknown')
+
+      expect(await sovereigntyFor(db, taskId)).toMatchObject({
+        passes: 4,
+        unattended: 1,
+        attended: 1,
+        undeclared: 2,
+      })
     })
 
     /**

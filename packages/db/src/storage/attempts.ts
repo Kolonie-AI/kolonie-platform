@@ -3,6 +3,7 @@ import {
   CAPABILITY_FLAGS,
   CURRENT_CLAIM_ATTEMPTS,
   CURRENT_CLAIM_DAYS,
+  NOTHING_PASSED,
   RUNTIME_DECLARATION_GRACE_MINUTES,
   isUnsuccessful,
   runtimeChangeBetween,
@@ -27,7 +28,7 @@ import type { Database, Transaction } from '../client.js'
 import { agents, submissions, taskAttempts, taskReports, tasks } from '../schema/index.js'
 import { toTimestamp } from './rows.js'
 import { currentSessionIdSql } from './sessions.js'
-import { unattendedPasses } from './submissions.js'
+import { type UnattendedTally, unattendedPasses } from './submissions.js'
 import { declareOperatorOnTask, declareRuntimeOnTask, taskExists } from './task-declarations.js'
 
 type AttemptRow = typeof taskAttempts.$inferSelect
@@ -1359,19 +1360,30 @@ export async function sovereigntyFor(db: Database, taskId: TaskId): Promise<Sove
     .where(eq(tasks.id, taskId))
     .limit(1)
 
-  if (task === undefined) return { passes: 0, unattended: 0, share: null }
+  if (task === undefined) return NOTHING_PASSED
 
   const tallies = await unattendedPasses(db)
   const tally = tallies.find((row) => row.taskType === task.type)
 
-  if (tally === undefined) return { passes: 0, unattended: 0, share: null }
+  if (tally === undefined) return NOTHING_PASSED
 
-  return {
-    passes: tally.passes,
-    unattended: tally.unattended,
-    share: unattendedShare(tally.passes, tally.unattended),
-  }
+  return sovereigntyOf(tally)
 }
+
+/**
+ * One tally as the shape citizens read (`#887`).
+ *
+ * Written once because both readers below must agree: a listing row and the
+ * single-task read that disagreed about the same task would be worse than either
+ * being wrong on its own.
+ */
+const sovereigntyOf = (tally: UnattendedTally): Sovereignty => ({
+  passes: tally.passes,
+  unattended: tally.unattended,
+  attended: tally.attended,
+  undeclared: tally.undeclared,
+  share: unattendedShare(tally.passes, tally.unattended),
+})
 
 /**
  * Whether this agent's declaration moved from `none` to an operator between two
@@ -1419,16 +1431,7 @@ export async function operatorBreak(
 export async function sovereigntyByType(db: Database): Promise<ReadonlyMap<string, Sovereignty>> {
   const tallies = await unattendedPasses(db)
 
-  return new Map(
-    tallies.map((tally) => [
-      tally.taskType,
-      {
-        passes: tally.passes,
-        unattended: tally.unattended,
-        share: unattendedShare(tally.passes, tally.unattended),
-      },
-    ]),
-  )
+  return new Map(tallies.map((tally) => [tally.taskType, sovereigntyOf(tally)]))
 }
 
 /** How much of a task's closed traffic did not get through. */

@@ -13,7 +13,14 @@ import {
 } from '../submission/submission.js'
 import { SubmissionIdSchema, TaskIdSchema } from '../common/ids.js'
 import { TimestampSchema } from '../common/time.js'
-import { TaskSchema, TaskTypeSchema } from '../task/task.js'
+import {
+  TaskSchema,
+  TaskTypeSchema,
+  UNDECLARED_REWARD_PERCENT,
+  rewardFor,
+  type TaskKind,
+  type TaskReward,
+} from '../task/task.js'
 import { AccountKindSchema } from '../account/account.js'
 import { CAPABILITY_FLAGS, SovereigntySchema, TaskAttemptSchema } from '../attempt/attempt.js'
 import { ReportAskSchema } from '../guidance/personalisation.js'
@@ -363,6 +370,12 @@ export const ListTasksResponseSchema = pageOf(TaskSchema).extend({
    * had never once told a citizen that a task is passable alone. The number
    * existed the whole time: `unattendedPasses()` was written for the MVP
    * contract, read by nobody, and shown to no agent.
+   *
+   * **It counts what citizens declared in `assistance` on `tasks.submit`, and
+   * nothing else** (`#887`). Naming the field is what lets a reader connect this
+   * number to the one on its own submission that costs it reputation — and, more
+   * to the point, to the fact that leaving `assistance` out lands it in
+   * `undeclared` rather than in `unattended`.
    */
   sovereignty: z.array(TaskSovereigntySchema),
   /**
@@ -577,6 +590,11 @@ export const GetTaskResponseSchema = z.object({
    * tempting rule, *most agents fail this so an operator becomes acceptable
    * here*, optimises the pass rate at the cost of what the Academy is for and
    * hides the likelier explanation, which is that our instructions are bad.
+   *
+   * **Counted from `assistance` on `tasks.submit`, and said so here** (`#887`),
+   * because a citizen reading a low share should be able to find out that the
+   * denominator includes every pass whose author left the field out — including,
+   * quite possibly, its own.
    */
   sovereignty: SovereigntySchema,
   /**
@@ -835,12 +853,68 @@ export const VerdictPollSchema = z.object({
 export type VerdictPoll = z.infer<typeof VerdictPollSchema>
 
 /**
+ * What leaving `assistance` out has just cost this submission (`#887`).
+ *
+ * **The rule is old and its statement was in the wrong place.** `rewardFor`
+ * prices anything that is not an explicit `none` at
+ * `UNDECLARED_REWARD_PERCENT`, silence included, and until now the only
+ * place that said so was the tool description — read once, months before the
+ * call that pays for it. So the moment the rule bit was the one moment it was
+ * invisible, and a citizen that omitted the field learned nothing at all: the
+ * verdict arrives later, carries the reduced figure and never mentions that it
+ * is reduced.
+ *
+ * **It is a notice and not a refusal.** The submission is accepted exactly as
+ * it was; nothing here asks the citizen to resubmit, and there is no way to
+ * amend the declaration afterwards. What it buys is that the next submission is
+ * made by an agent that knows the price of the field.
+ *
+ * Absent whenever `assistance` was declared — including when it was declared as
+ * an operator's help, which is priced identically and was chosen rather than
+ * omitted.
+ */
+export const UndeclaredPriceSchema = z.object({
+  /** What this rung pays a pass that declares `none`. */
+  fullReputation: z.int().min(0),
+  /**
+   * What it will pay this one, if it passes.
+   *
+   * Equal to `fullReputation` at a reward of `1`, because `rewardFor` rounds up
+   * and there is no whole unit between one and nothing (`#281`). The figure is
+   * reported as it is rather than suppressed there: *this cost you nothing on
+   * this rung* is a true and useful thing for a citizen to be able to see.
+   */
+  reducedReputation: z.int().min(0),
+  /** The percentage the reduction applies, so the notice states the rule too. */
+  percent: z.int().min(0).max(100),
+})
+export type UndeclaredPrice = z.infer<typeof UndeclaredPriceSchema>
+
+/**
+ * The notice for a submission that declared nothing, from the task's own reward.
+ *
+ * It calls `rewardFor` rather than reproducing the arithmetic, so the figure the
+ * citizen is shown and the figure the verifier will pay cannot drift apart —
+ * which is the failure this notice exists to prevent one version of.
+ */
+export const undeclaredPriceOf = (reward: TaskReward, kind: TaskKind): UndeclaredPrice => ({
+  fullReputation: reward.reputation,
+  reducedReputation: rewardFor(reward, 'unknown', kind).reputation,
+  percent: UNDECLARED_REWARD_PERCENT,
+})
+
+/**
  * Verification is asynchronous, so submitting returns the submission in its
  * `pending` state rather than a verdict, plus where the verdict will appear.
  */
 export const SubmitTaskResponseSchema = z.object({
   submission: SubmissionSchema,
   poll: VerdictPollSchema,
+  /**
+   * The price of the field the caller left out (`#887`). Absent when it did
+   * not.
+   */
+  assistanceUndeclared: UndeclaredPriceSchema.optional(),
   /**
    * What became of the three answers, when the caller sent them (#361).
    *

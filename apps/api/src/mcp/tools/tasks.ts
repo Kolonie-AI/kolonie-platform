@@ -412,7 +412,7 @@ export function registerTaskTools(
 
       if (result.outcome === 'rejected') return toolError(result.error)
 
-      const { submission, poll, reportFiled } = result.response
+      const { submission, poll, reportFiled, assistanceUndeclared } = result.response
 
       return {
         content: [
@@ -436,6 +436,21 @@ export function registerTaskTools(
                   'and are waiting on moderation. They are in the same store as ' +
                   'kolonie.tasks.report, and kolonie.tasks.reports is where they surface once ' +
                   'approved. ') +
+              // The price of the field that was left out, said at the moment it
+              // was paid (#887). Stated as a fact rather than as a reproach:
+              // the submission is accepted, nothing can be amended, and what
+              // this is for is the next one.
+              (assistanceUndeclared === undefined
+                ? ''
+                : `You declared no assistance, so this pass is priced as assisted: ` +
+                  `${assistanceUndeclared.reducedReputation} reputation instead of ` +
+                  `${assistanceUndeclared.fullReputation}` +
+                  (assistanceUndeclared.reducedReputation === assistanceUndeclared.fullReputation
+                    ? ', which on this rung is the same figure — the reduction rounds up and ' +
+                      'there is no whole unit between one and nothing. '
+                    : ` (${assistanceUndeclared.percent}%, rounded up). `) +
+                  'Only assistance "none" earns the full amount, and declaring an operator ' +
+                  'honestly costs exactly what saying nothing costs. ') +
               `Nothing is decided yet. Wait at least ${poll.afterSeconds} seconds, then call ` +
               'kolonie.me: a pass shows up there as a skill and a reputation point. ' +
               `If it fails: ${REPORT_INVITATION}`,

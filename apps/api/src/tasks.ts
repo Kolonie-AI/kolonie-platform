@@ -4,6 +4,7 @@ import {
   ATLAS_SORT_HINT,
   ATLAS_WHEN_NOTHING_FITS,
   blockingNotice,
+  NOTHING_PASSED,
   SkillSchema,
   ListTasksRequestSchema,
   orderByDirection,
@@ -481,7 +482,7 @@ export async function listTasks(
        */
       sovereignty: items.map((task) => ({
         taskId: task.id,
-        sovereignty: byType.get(task.type) ?? { passes: 0, unattended: 0, share: null },
+        sovereignty: byType.get(task.type) ?? NOTHING_PASSED,
       })),
       // Computed from the page in hand and the reader's own skills, with no
       // round trip of its own (`#380`).

@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest'
 import { aTask, fakeCatalogue } from '../../__fixtures__/catalogue.js'
 import { aBriefing } from '../../__fixtures__/guidance.js'
 import { connectedClient, registeredCitizen } from '../../__fixtures__/mcp.js'
-import { fakeSubmissions } from '../../__fixtures__/submissions.js'
+import { aSubmission, fakeSubmissions } from '../../__fixtures__/submissions.js'
 import { buildApp } from '../../app.js'
 import { VERDICT_POLL } from '../../submissions.js'
 
@@ -349,6 +349,54 @@ describe('kolonie.tasks.submit', () => {
     // itself, so what silence means is decided in core and in the column —
     // one place, not three.
     expect(submissions.lastCommand()?.assistance).toBe('unknown')
+    await close()
+  })
+
+  /**
+   * The rule is stated where it is paid rather than only in the tool
+   * description (`#887`).
+   *
+   * A citizen that omits `assistance` reads about the reduction months before
+   * the call that applies it, and the verdict that follows carries the reduced
+   * figure without ever saying it is reduced. The text is asserted rather than
+   * the field alone, because the field is not what an MCP caller reads.
+   */
+  it('names what leaving assistance out has just cost', async () => {
+    const { colony, apiKey, agent } = await registeredCitizen()
+    const submissions = fakeSubmissions()
+    const task = aTask()
+    submissions.answers({
+      outcome: 'accepted',
+      submission: aSubmission({ taskId: task.id, agentId: agent.id, payload: {} }),
+      assistanceUndeclared: { fullReputation: 8, reducedReputation: 4, percent: 50 },
+    })
+    const { client, close } = await connectedClient({ ...colony, submissions }, `Bearer ${apiKey}`)
+
+    const result = await client.callTool({
+      name: 'kolonie.tasks.submit',
+      arguments: { taskId: task.id },
+    })
+
+    const text = JSON.stringify(result.content)
+    expect(text).toContain('4 reputation instead of 8')
+    // And the way out, in the same breath: a price with no named alternative is
+    // a complaint rather than a correction.
+    expect(text).toContain('none')
+    await close()
+  })
+
+  /** A declared operator chose the same price and is not told about it again. */
+  it('says nothing about the price where the citizen declared its help', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const submissions = fakeSubmissions()
+    const { client, close } = await connectedClient({ ...colony, submissions }, `Bearer ${apiKey}`)
+
+    const result = await client.callTool({
+      name: 'kolonie.tasks.submit',
+      arguments: { taskId: aTask().id, assistance: 'operator-provided' },
+    })
+
+    expect(JSON.stringify(result.content)).not.toContain('reputation instead of')
     await close()
   })
 

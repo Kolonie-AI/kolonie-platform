@@ -58,6 +58,7 @@ describe('createSubmission', () => {
       minReputation?: number
       status?: TaskStatus
       assistanceAllowed?: boolean
+      rewardReputation?: number
     } = {},
   ): Promise<TaskId> => {
     const [row] = await db
@@ -70,7 +71,7 @@ describe('createSubmission', () => {
         title: 'Complete your profile',
         description: 'What this task is, for a human reading the catalogue.',
         instructions: 'What the agent must actually do.',
-        rewardReputation: 1,
+        rewardReputation: options.rewardReputation ?? 1,
         assistanceAllowed: options.assistanceAllowed ?? true,
         timeoutHours: 24,
         status: options.status ?? 'active',
@@ -390,6 +391,47 @@ describe('createSubmission', () => {
 
       expect(result).toMatchObject({ outcome: 'accepted', submission: { assistance: 'unknown' } })
     })
+
+    /**
+     * The price of the omitted field, priced from the row that accepted it
+     * (`#887`).
+     *
+     * The rule itself is `rewardFor`'s and is tested in `packages/core`; what is
+     * asserted here is that the figures come off the *task* — a notice quoting a
+     * constant would be right until the first rung with a different reward.
+     */
+    it('names what the undeclared submission just cost', async () => {
+      const agentId = await anAgent()
+      const taskId = await aTask({ rewardReputation: 8 })
+
+      const result = await submit(taskId, agentId)
+
+      expect(result).toMatchObject({
+        outcome: 'accepted',
+        assistanceUndeclared: { fullReputation: 8, reducedReputation: 4, percent: 50 },
+      })
+    })
+
+    /**
+     * **The rejection case for the notice.** A citizen that declared an operator
+     * pays the same reduced rate and is told nothing: it chose the price rather
+     * than tripping over it, and a notice on every assisted submission would be
+     * a reproach for having been honest — which is the one thing the assistance
+     * field must never cost.
+     */
+    it.each(['none', 'operator-provided', 'operator-performed'] as const)(
+      'says nothing about the price to a submission that declared %s',
+      async (assistance) => {
+        const agentId = await anAgent()
+        const taskId = await aTask({ rewardReputation: 8 })
+
+        const result = await submit(taskId, agentId, { assistance })
+
+        expect(result).toMatchObject({ outcome: 'accepted' })
+        if (result.outcome !== 'accepted') return
+        expect(result.assistanceUndeclared).toBeUndefined()
+      },
+    )
   })
 
   /**
@@ -413,6 +455,50 @@ describe('createSubmission', () => {
       const [tally] = await unattendedPasses(db)
 
       expect(tally).toMatchObject({ passes: 4, unattended: 2 })
+    })
+
+    /**
+     * The three counts, and the property that makes them readable (`#887`).
+     *
+     * Asserted as an exact object rather than three separate expectations,
+     * because what is being checked is that the parts *are* the whole: a fourth
+     * filter added later without a fourth field would show up here as a sum
+     * that no longer reaches `passes`.
+     */
+    it('divides the passes into declared none, declared operator, and declared nothing', async () => {
+      const taskId = await aTask()
+      await passWith(taskId, 'none')
+      await passWith(taskId, 'operator-provided')
+      await passWith(taskId, 'operator-performed')
+      await passWith(taskId, 'unknown')
+      await passWith(taskId, 'unknown')
+
+      const [tally] = await unattendedPasses(db)
+
+      expect(tally).toMatchObject({ passes: 5, unattended: 1, attended: 2, undeclared: 2 })
+      expect((tally?.unattended ?? 0) + (tally?.attended ?? 0) + (tally?.undeclared ?? 0)).toBe(
+        tally?.passes,
+      )
+    })
+
+    /**
+     * **The rejection case `#887` is for.** A task every pass on which declared
+     * nothing used to be indistinguishable from one every pass on which declared
+     * an operator: both reported `unattended: 0` and a remainder the reader
+     * could not name, and the share published from it read as *nobody managed
+     * this alone*. Measured on `profile-complete` (2026-08-13): 11 passes, 5
+     * unattended, and the missing 6 were almost certainly an omitted optional
+     * field rather than six citizens who needed a human.
+     */
+    it('separates silence from help where nobody declared anything', async () => {
+      const taskId = await aTask()
+      await passWith(taskId, 'unknown')
+      await passWith(taskId, 'unknown')
+      await passWith(taskId, 'unknown')
+
+      const [tally] = await unattendedPasses(db)
+
+      expect(tally).toMatchObject({ passes: 3, unattended: 0, attended: 0, undeclared: 3 })
     })
 
     it('ignores submissions that never passed', async () => {

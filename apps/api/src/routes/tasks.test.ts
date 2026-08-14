@@ -932,16 +932,34 @@ describe('sovereignty on a task', () => {
 
   it('tells a reader how many got through alone', async () => {
     catalogue.answersRead(theTask)
-    guidance.answersSovereignty({ passes: 10, unattended: 4, share: 0.4 })
+    guidance.answersSovereignty({
+      passes: 10,
+      unattended: 4,
+      attended: 2,
+      undeclared: 4,
+      share: 0.4,
+    })
 
     const body = GetTaskResponseSchema.parse((await get(`/v1/tasks/${theTask.id}`)).json())
 
-    expect(body.sovereignty).toEqual({ passes: 10, unattended: 4, share: 0.4 })
+    expect(body.sovereignty).toEqual({
+      passes: 10,
+      unattended: 4,
+      attended: 2,
+      undeclared: 4,
+      share: 0.4,
+    })
   })
 
   it('withholds a share that would mislead, and keeps the counts', async () => {
     catalogue.answersRead(theTask)
-    guidance.answersSovereignty({ passes: 2, unattended: 1, share: null })
+    guidance.answersSovereignty({
+      passes: 2,
+      unattended: 1,
+      attended: 1,
+      undeclared: 0,
+      share: null,
+    })
 
     const body = GetTaskResponseSchema.parse((await get(`/v1/tasks/${theTask.id}`)).json())
 
@@ -951,7 +969,13 @@ describe('sovereignty on a task', () => {
 
   it('carries the polarity where nobody has managed it alone', async () => {
     catalogue.answersRead(theTask)
-    guidance.answersSovereignty({ passes: 6, unattended: 0, share: 0 })
+    guidance.answersSovereignty({
+      passes: 6,
+      unattended: 0,
+      attended: 1,
+      undeclared: 5,
+      share: 0,
+    })
 
     const body = GetTaskResponseSchema.parse((await get(`/v1/tasks/${theTask.id}`)).json())
 

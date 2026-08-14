@@ -286,6 +286,12 @@ export async function submitTask(
       submission: result.submission,
       poll: VERDICT_POLL,
       ...(filed === undefined ? {} : { reportFiled: filed }),
+      // Forwarded rather than recomputed (#887): the price was worked out from
+      // the same locked task row that accepted the submission, and a second
+      // computation here would be a second place for the rule to be wrong in.
+      ...(result.assistanceUndeclared === undefined
+        ? {}
+        : { assistanceUndeclared: result.assistanceUndeclared }),
     },
   }
 }

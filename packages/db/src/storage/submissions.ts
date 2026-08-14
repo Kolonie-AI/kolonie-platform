@@ -8,6 +8,8 @@ import {
   type Submission,
   type SubmissionPayload,
   type TaskId,
+  type UndeclaredPrice,
+  undeclaredPriceOf,
   QuestAnswersSchema,
   StoredQuestQuestionsSchema,
   checkQuestAnswers,
@@ -120,7 +122,18 @@ export interface CreateSubmissionCommand {
  * either way.
  */
 export type CreateSubmissionResult =
-  | { readonly outcome: 'accepted'; readonly submission: Submission }
+  | {
+      readonly outcome: 'accepted'
+      readonly submission: Submission
+      /**
+       * What leaving `assistance` out cost this one (`#887`).
+       *
+       * Optional rather than nullable: a submission that declared something is
+       * not *undeclared with no price*, it is a submission this notice has
+       * nothing to say about. Absent for every declared value.
+       */
+      readonly assistanceUndeclared?: UndeclaredPrice
+    }
   | { readonly outcome: 'unknown-task' }
   | { readonly outcome: 'task-retired' }
   /**
@@ -286,6 +299,15 @@ export async function createSubmission(
         audience: tasks.audience,
         slots: tasks.slots,
         kind: tasks.kind,
+        /**
+         * Read so the accepted result can name what silence just cost (`#887`).
+         *
+         * The row is already being fetched and locked for the checks above, so
+         * two more columns are free; a second read to price the submission
+         * could disagree with the one that accepted it.
+         */
+        rewardReputation: tasks.rewardReputation,
+        rewardLamports: tasks.rewardLamports,
         // Read here rather than through `notAuthoredBy`'s SQL, because the row
         // is already in hand and a second statement to ask a question this
         // select can answer would be a second read that could disagree with it.
@@ -632,17 +654,43 @@ export async function createSubmission(
     if (row === undefined) throw new Error('insert into submissions returned no row')
 
     // Just handed in, so nothing has judged it yet (#208).
-    return { outcome: 'accepted', submission: toSubmission(row, null) }
+    return {
+      outcome: 'accepted',
+      submission: toSubmission(row, null),
+      // Priced from the same locked row that accepted it (#887), and only when
+      // the citizen declared nothing — an operator that was declared chose the
+      // same price knowingly and is not told about it again.
+      ...(declared === 'unknown'
+        ? {
+            assistanceUndeclared: undeclaredPriceOf(
+              { reputation: task.rewardReputation, lamports: task.rewardLamports ?? 0 },
+              task.kind,
+            ),
+          }
+        : {}),
+    }
   })
 }
 
-/** How one task's passes divide between declared-unattended and everything else. */
+/**
+ * How one task's passes divide across the three things `assistance` can say.
+ *
+ * **Three counts rather than two, so that a reader can tell help from silence**
+ * (`#887`). The two-term version pooled *declared an operator* with *declared
+ * nothing* in one remainder, and the pooled number was then published to
+ * citizens as `sovereignty.share`, where it read as a claim about how many
+ * needed a human. `passes === unattended + attended + undeclared`, always.
+ */
 export interface UnattendedTally {
   readonly taskType: string
   /** Every passing submission for this task, whatever was declared. */
   readonly passes: number
-  /** Those that declared `none`. The rest are `unknown` or an operator. */
+  /** Those that declared `none`, and only those. */
   readonly unattended: number
+  /** Those that declared `operator-provided` or `operator-performed`. */
+  readonly attended: number
+  /** Those that declared nothing: `assistance` left at `unknown`. */
+  readonly undeclared: number
 }
 
 /**
@@ -663,6 +711,14 @@ export interface UnattendedTally {
  * is written in and a retired row would otherwise split its own history in two.
  * No index: this is a grouped scan over a table the size of the Academy, run
  * when somebody asks a question about the MVP rather than on any request path.
+ *
+ * **It returns three counts and the MVP criterion still reads one of them**
+ * (`#887`). `unattended` is explicit `none` and nothing else, exactly as it was;
+ * `attended` and `undeclared` exist because the same figure is now published to
+ * citizens, where pooling *declared an operator* with *declared nothing* made
+ * the published share unreadable. Widening `unattended` would have been the
+ * other way to make the number look better, and it is the one that would have
+ * made it untrue.
  */
 export async function unattendedPasses(db: Database): Promise<UnattendedTally[]> {
   const rows = await db
@@ -670,6 +726,15 @@ export async function unattendedPasses(db: Database): Promise<UnattendedTally[]>
       taskType: tasks.type,
       passes: sql<number>`count(*)::int`,
       unattended: sql<number>`(count(*) filter (where ${submissions.assistance} = 'none'))::int`,
+      /**
+       * The two operator values pooled, and `unknown` on its own (`#887`). Three
+       * filters over one scan rather than a second query: the grouping, the
+       * joins and the exclusions must be identical or the counts stop summing to
+       * `passes`, and the cheapest way to guarantee that is to compute them
+       * here.
+       */
+      attended: sql<number>`(count(*) filter (where ${submissions.assistance} in ('operator-provided', 'operator-performed')))::int`,
+      undeclared: sql<number>`(count(*) filter (where ${submissions.assistance} = 'unknown'))::int`,
     })
     .from(submissions)
     .innerJoin(tasks, eq(tasks.id, submissions.taskId))
@@ -694,6 +759,8 @@ export async function unattendedPasses(db: Database): Promise<UnattendedTally[]>
     taskType: row.taskType,
     passes: Number(row.passes),
     unattended: Number(row.unattended),
+    attended: Number(row.attended),
+    undeclared: Number(row.undeclared),
   }))
 }
 

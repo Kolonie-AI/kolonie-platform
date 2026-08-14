@@ -15,6 +15,7 @@ import {
   type DeclareOperator,
   type DeclareRuntime,
   type SetAsideReason,
+  NOTHING_PASSED,
   type Sovereignty,
   type ServedBriefingClaim,
   type OwnReport,
@@ -254,7 +255,7 @@ export function fakeGuidance(): FakeGuidance {
   const setAsides: { agentId: AgentId; taskId: TaskId; reason: SetAsideReason }[] = []
   const takeUps: { agentId: AgentId; taskId: TaskId }[] = []
   let takeUpClears = true
-  let sovereignty: Sovereignty = { passes: 0, unattended: 0, share: null }
+  let sovereignty: Sovereignty = NOTHING_PASSED
   let operatorBroke = false
   /**
    * Set explicitly by a test about the trajectory itself; otherwise derived from

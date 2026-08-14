@@ -529,8 +529,35 @@ export type DeclareOperator = z.infer<typeof DeclareOperatorSchema>
 export const SovereigntySchema = z.object({
   /** Every passing submission on this task, whatever was declared. */
   passes: z.int().min(0),
-  /** Those that declared `none`. The first one flips what every later citizen is told. */
+  /**
+   * Those that declared `assistance: 'none'`. The first one flips what every
+   * later citizen is told.
+   *
+   * **This reads explicit `none` and nothing else, and `#887` did not loosen
+   * it.** An absent declaration is not an unattended pass; crediting one would
+   * poison the single number `ROADMAP.md`'s definition of done is checked
+   * against.
+   */
   unattended: z.int().min(0),
+  /**
+   * Those that declared an operator — `operator-provided` or
+   * `operator-performed` — pooled, because the distinction between *given a key*
+   * and *driven* answers a question about one agent rather than about a task
+   * (`#887`).
+   */
+  attended: z.int().min(0),
+  /**
+   * Those that declared nothing at all: `assistance` left at `unknown` (`#887`).
+   *
+   * **The count that was missing, and the reason the share alone misleads.**
+   * `unattended + attended + undeclared === passes`, so a reader can compute
+   * either ratio and, crucially, see which of the two it is looking at. Measured
+   * 2026-08-13 on `profile-complete`: 11 passes, 5 unattended — which reads as
+   * *55% needed a human* and is far likelier to be *most of them omitted an
+   * optional field*. Those are different facts about the Academy and the reader
+   * could not tell them apart.
+   */
+  undeclared: z.int().min(0),
   /**
    * The share, or `null` where too few have passed for a share to mean
    * anything.
@@ -540,10 +567,33 @@ export const SovereigntySchema = z.object({
    * tell *50%* over two from *50%* over two hundred. The **polarity** needs no
    * threshold and never has one — one citizen getting through alone is a fact
    * about what is possible, not a rate.
+   *
+   * **Its denominator is every pass, including the undeclared ones**, and it is
+   * left that way on purpose (`#887`): a share that quietly dropped them would
+   * be a different number under the same name. The three counts beside it are
+   * what let a reader compute the other ratio when that is the question.
    */
   share: z.number().min(0).max(1).nullable(),
 })
 export type Sovereignty = z.infer<typeof SovereigntySchema>
+
+/**
+ * A task nobody has passed at all.
+ *
+ * **Written once because three readers need it** (`#887`): the single-task read,
+ * the listing row, and the API's fallback for a task absent from the tally. Each
+ * had its own literal, and the third field this issue adds would have had to be
+ * remembered in all three — so the next field would too. Zeroes across every
+ * count with a null share is the *nobody has managed this yet* branch, not an
+ * error and not an omission.
+ */
+export const NOTHING_PASSED: Sovereignty = {
+  passes: 0,
+  unattended: 0,
+  attended: 0,
+  undeclared: 0,
+  share: null,
+}
 
 /**
  * How many passes a task needs before its unattended share is reported as a

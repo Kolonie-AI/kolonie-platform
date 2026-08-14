@@ -184,6 +184,27 @@ export interface Issues {
   /** Say on an existing issue that another citizen reported the same thing. */
   comment(url: string, body: string): Promise<boolean>
   /**
+   * Rewrite an existing issue's body (`#727`).
+   *
+   * **Not a comment, and the difference is the whole reason this exists.** A
+   * comment notifies everybody watching, which is why the debt alarm refuses to
+   * write one per pass — forty-eight lines a day aimed at a maintainer is
+   * `#231`'s wallpaper failure. A body edit notifies nobody. So the objection
+   * that made a standing alarm's numbers go stale was an objection to
+   * *comments*, and it never argued for the body being wrong.
+   *
+   * It also makes the body usable as machine state. The debt alarm records its
+   * own last measurement there and reads it back on the next pass, which is what
+   * lets it tell *the same debt again* from *a new kind of debt behind it* — and
+   * a marker it can write but never update is one that answers the same way
+   * forever.
+   *
+   * **Only for an issue this runner filed.** Rewriting a person's issue would be
+   * taking their words away without a trace, which no automation here may do;
+   * every caller reaches this through a marker it put in the body itself.
+   */
+  revise(url: string, body: string): Promise<boolean>
+  /**
    * Close one, saying why (`#720`).
    *
    * **The log detector must never call this and does not**, and the rule it
@@ -214,6 +235,7 @@ export const noIssues: Issues = {
   closed: async () => [],
   create: async () => null,
   comment: async () => false,
+  revise: async () => false,
   close: async () => false,
 }
 
@@ -562,6 +584,27 @@ export function githubIssues(options: GitHubOptions): Issues {
       if (!response.ok)
         log.warn(`could not comment on ${url}: ${response.status}`, {
           event: 'github.comment.failed',
+          url,
+          status: response.status,
+        })
+      return response.ok
+    },
+
+    revise: async (url, body) => {
+      const headers = await authed()
+      if (headers === undefined) return false
+
+      const at = issueApiPath(url)
+      if (at === undefined) return false
+
+      const response = await doFetch(at, {
+        method: 'PATCH',
+        headers,
+        body: JSON.stringify({ body }),
+      })
+      if (!response.ok)
+        log.warn(`could not revise ${url}: ${response.status}`, {
+          event: 'github.revise.failed',
           url,
           status: response.status,
         })

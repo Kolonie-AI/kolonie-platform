@@ -70,6 +70,7 @@ function fakeIssues(overrides: Partial<Issues> = {}) {
       comments.push({ url, body })
       return true
     },
+    revise: async () => true,
     ...overrides,
   }
   return { issues, created, comments }

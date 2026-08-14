@@ -20,6 +20,7 @@ const report = (
     signature: 'api/mcp.tool.threw',
     service: 'api',
     event: 'mcp.tool.threw',
+    route: null,
     count: 4,
   },
   evidence: {

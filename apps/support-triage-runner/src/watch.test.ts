@@ -22,6 +22,7 @@ const aSignature = (over: Partial<LogSignature> = {}): LogSignature => ({
   signature: signatureOf('api', 'poll.failed'),
   service: 'api',
   event: 'poll.failed',
+  route: null,
   count: 12,
   ...over,
 })

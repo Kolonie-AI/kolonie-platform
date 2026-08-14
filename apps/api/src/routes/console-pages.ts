@@ -108,6 +108,7 @@ import {
 } from '../quests.js'
 import { stewardFor } from './privileged.js'
 import { clientIp } from '../client-ip.js'
+import { routeKeyOf } from '../call-rollup.js'
 import { cookieValue, sessionCookie } from './authenticated.js'
 import { consoleOperatorPath, operatorPageBody } from '../operator-page-body.js'
 import { COLONY_QUEST_LIMIT, DIAGNOSES_PAGE, type OperatorPageView } from '@kolonie-ai/db'
@@ -4470,6 +4471,7 @@ export function consoleError(
     event: 'request.failed',
     requestId: request.id,
     method: request.method,
+    route: routeKeyOf(request),
     url: request.url,
     status: 500,
     errorId,

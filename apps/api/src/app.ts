@@ -93,7 +93,7 @@ import type { AppDependencies } from './dependencies.js'
 import { emailUnavailable } from './email.js'
 import type { RouteDependencies } from './routes/dependencies.js'
 import { registerMcpRoutes } from './routes/mcp.js'
-import { attributeTo, registerCallRollup } from './call-rollup.js'
+import { attributeTo, registerCallRollup, routeKeyOf } from './call-rollup.js'
 import { authenticate } from './authentication.js'
 import { registerOpenApiRoute } from './routes/openapi.js'
 import type { RegisteredRoute } from './openapi/document.js'
@@ -791,11 +791,22 @@ export function buildApp({
     // half: a malformed request is the caller's mistake and is answered, not
     // reported, and logging it would drown the failures that are ours in
     // failures that are not.
+    //
+    // **`route` is the template and `url` is what was asked for, and the line
+    // carries both** (`#896`). The detector keys a defect on `<service>/<event>`
+    // (`logs.ts`), so without a third field every 500 anywhere in the API is one
+    // signature: `#896` — a failed query on `GET /v1/agents/me` — was filed as a
+    // *regression* of `#764`, a payout balance check answering 522, because the
+    // two lines are indistinguishable to it. `url` cannot be that field, since
+    // it carries the id the caller sent and would make one defect a new
+    // signature per citizen. `routeKeyOf` is the same one-line answer `#835`
+    // needed for the call rollup, and it is deliberately the same one.
     if (status >= 500) {
       log.error(`${request.method} ${request.url} failed`, caught, {
         event: 'request.failed',
         requestId: request.id,
         method: request.method,
+        route: routeKeyOf(request),
         url: request.url,
         status,
       })

@@ -62,6 +62,7 @@ describe('every query that parses JSON skips the lines it cannot parse', () => {
         signature: signatureOf('api', 'poll.failed'),
         service: 'api',
         event: 'poll.failed',
+        route: null,
         count: 3,
       },
       3600,
@@ -93,6 +94,7 @@ describe('every query that parses JSON skips the lines it cannot parse', () => {
         signature: signatureOf('api', 'poll.failed'),
         service: 'api',
         event: 'poll.failed',
+        route: null,
         count: 3,
       },
       3600,
@@ -102,6 +104,7 @@ describe('every query that parses JSON skips the lines it cannot parse', () => {
         signature: signatureOf('traefik', '«no event field»'),
         service: 'traefik',
         event: '«no event field»',
+        route: null,
         count: 3,
       },
       3600,
@@ -133,6 +136,7 @@ describe('every query that parses JSON skips the lines it cannot parse', () => {
           signature: signatureOf('api', 'poll.failed'),
           service: 'api',
           event: 'poll.failed',
+          route: null,
           count: 3,
         },
         3600,
@@ -154,6 +158,7 @@ describe('every query that parses JSON skips the lines it cannot parse', () => {
         signature: signatureOf('api', 'poll.failed'),
         service: 'api',
         event: 'poll.failed',
+        route: null,
         count: 3,
       },
       3600,
@@ -161,6 +166,104 @@ describe('every query that parses JSON skips the lines it cannot parse', () => {
 
     void queries
     expect(captured[0]).toBe(String(SAMPLE_LINES))
+  })
+})
+
+/**
+ * One endpoint is one defect (`#896`).
+ *
+ * `api` logs one event — `request.failed` — for every failing endpoint it has,
+ * so on `<service>/<event>` alone the whole API is one signature. The
+ * measurement: `#896`, a failed query on `GET /v1/agents/me`, was filed as a
+ * *regression* of `#764`, a payout balance check answering 522. Worse than the
+ * mislabel is what the dedupe does with it — while either is open, a genuinely
+ * new endpoint failure is quiet.
+ */
+describe('an HTTP failure is keyed on the route it failed', () => {
+  const counting = (result: unknown) =>
+    capturing({
+      data: {
+        result,
+      },
+    })
+
+  it('two endpoints failing are two signatures', async () => {
+    const { fetchImpl } = counting([
+      {
+        metric: { service: 'api', event: 'request.failed', route: '/v1/agents/me' },
+        value: [0, '1'],
+      },
+      {
+        metric: { service: 'api', event: 'request.failed', route: '/v1/payouts/run' },
+        value: [0, '2'],
+      },
+    ])
+
+    const found = await lokiLogs(options(fetchImpl)).signatures(3600)
+
+    expect(found.map((one) => one.signature)).toEqual([
+      'api/request.failed /v1/agents/me',
+      'api/request.failed /v1/payouts/run',
+    ])
+  })
+
+  it('asks the store to count by route, or nothing above could be true', async () => {
+    const { queries, fetchImpl } = counting([])
+    await lokiLogs(options(fetchImpl)).signatures(3600)
+
+    expect(queries[0]).toContain('sum by (service, event, route)')
+  })
+
+  /**
+   * The rejection case, and it is the ordinary one: a runner's `poll.failed`
+   * has no route, and a key that invented one for it would draw a distinction
+   * the line does not make. Loki renders an absent label as an empty string.
+   */
+  it('a line with no route keys exactly as it did before', async () => {
+    const { fetchImpl } = counting([
+      { metric: { service: 'verifier-runner', event: 'poll.failed' }, value: [0, '3'] },
+      { metric: { service: 'api', event: 'request.failed', route: '' }, value: [0, '1'] },
+    ])
+
+    const found = await lokiLogs(options(fetchImpl)).signatures(3600)
+
+    expect(found.map((one) => one.signature)).toEqual([
+      'verifier-runner/poll.failed',
+      'api/request.failed',
+    ])
+    expect(found.every((one) => one.route === null)).toBe(true)
+  })
+
+  it('the evidence for one route is not sampled from another', async () => {
+    const { queries, fetchImpl } = capturing()
+    await lokiLogs(options(fetchImpl)).evidence(
+      {
+        signature: signatureOf('api', 'request.failed', '/v1/agents/me'),
+        service: 'api',
+        event: 'request.failed',
+        route: '/v1/agents/me',
+        count: 1,
+      },
+      3600,
+    )
+
+    expect(queries[0]).toContain('| event="request.failed" | route="/v1/agents/me"')
+  })
+
+  it('a signature with no route asks for no route', async () => {
+    const { queries, fetchImpl } = capturing()
+    await lokiLogs(options(fetchImpl)).evidence(
+      {
+        signature: signatureOf('api', 'poll.failed'),
+        service: 'api',
+        event: 'poll.failed',
+        route: null,
+        count: 1,
+      },
+      3600,
+    )
+
+    expect(queries[0]).not.toContain('route=')
   })
 })
 

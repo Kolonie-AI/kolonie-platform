@@ -624,6 +624,9 @@ describe('when the console throws', () => {
     const fields = log.lines().find((line) => line.level === 'error')?.fields
     expect(fields?.['event']).toBe('request.failed')
     expect(fields?.['method']).toBe('GET')
+    // The console renders its own 5xx, so it carries the field on its own —
+    // and without it every console failure is one signature (`#896`).
+    expect(fields?.['route']).toBe('/')
     expect(fields?.['url']).toBe('/')
     expect(fields?.['status']).toBe(500)
     expect(fields?.['requestId']).toEqual(expect.any(String))

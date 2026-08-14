@@ -31,11 +31,19 @@ import { reachableFetch, REACHES } from './reachable.js'
 
 /** One error signature and what the window said about it. */
 export interface LogSignature {
-  /** `<service>/<event>` — deterministic, and the dedupe key. */
+  /** `<service>/<event>`, and the route where there is one. The dedupe key. */
   readonly signature: string
   readonly service: string
   /** The event slug, or the masked shape of the message when there is none. */
   readonly event: string
+  /**
+   * The route template the line carried, where it carried one (`#896`).
+   *
+   * **`null` for every line that is not an HTTP failure**, which is most of
+   * them — a runner's `poll.failed` has no route, and a signature that invented
+   * one for it would be a distinction the line does not make.
+   */
+  readonly route: string | null
   /** Lines in the window. */
   readonly count: number
 }
@@ -259,9 +267,19 @@ export function causeChain(line: string): readonly LogCause[] {
  * it — the chronicle failure `kolonie-docs` `AGENTS.md` §2 names, one level up.
  * A key derived from *the thing that is wrong* is what makes each finding a
  * piece of work somebody can close.
+ *
+ * **The route is part of the key where the line has one** (`#896`). `api` logs
+ * one event for every failing endpoint, so on `<service>/<event>` alone every
+ * 500 in the API is one defect: `#896` — a failed query on `GET /v1/agents/me` —
+ * was filed as a *regression* of `#764`, a payout balance check answering 522,
+ * and while either was open a genuinely new endpoint failure would have been
+ * deduped into it and never said out loud. The route is the template
+ * (`/v1/agents/:handle`) and never the URL, so one defect stays one signature
+ * however many citizens hit it.
  */
-export function signatureOf(service: string, event: string): string {
-  return `${service}/${event}`
+export function signatureOf(service: string, event: string, route?: string | null): string {
+  const base = `${service}/${event}`
+  return route === undefined || route === null || route === '' ? base : `${base} ${route}`
 }
 
 interface LokiOptions {
@@ -349,7 +367,7 @@ export function lokiLogs(options: LokiOptions): Logs {
        * fatal.
        */
       const counted = (await query('/loki/api/v1/query', {
-        query: `sum by (service, event) (count_over_time({job="containers", level="error"} | json | __error__="" [${windowSeconds}s]))`,
+        query: `sum by (service, event, route) (count_over_time({job="containers", level="error"} | json | __error__="" [${windowSeconds}s]))`,
         time: String(end),
       })) as
         | {
@@ -368,10 +386,15 @@ export function lokiLogs(options: LokiOptions): Logs {
         // lines one, and everything else — a runtime crash, a stack trace, an
         // image the Colony did not write — is exactly the class worth catching.
         const event = row.metric?.['event'] ?? '«no event field»'
+        // Absent on every line that is not an HTTP failure, and Loki renders an
+        // absent label as an empty string rather than omitting the key — so both
+        // are read as *this line has no route* (`#896`).
+        const routeLabel = row.metric?.['route']
+        const route = routeLabel === undefined || routeLabel === '' ? null : routeLabel
         const count = Number(row.value?.[1] ?? 0)
         if (!Number.isFinite(count) || count <= 0) continue
 
-        found.push({ signature: signatureOf(service, event), service, event, count })
+        found.push({ signature: signatureOf(service, event, route), service, event, route, count })
       }
 
       void start
@@ -382,10 +405,16 @@ export function lokiLogs(options: LokiOptions): Logs {
       const end = Math.floor(now() / 1000)
       const start = end - windowSeconds
 
+      // The same narrowing the count made, or the evidence is another endpoint's
+      // (`#896`): a signature counted for one route and sampled across all of
+      // them would quote a line the issue is not about, which is worse than
+      // quoting none.
+      const route = signature.route === null ? '' : ` | route=${JSON.stringify(signature.route)}`
+
       const selector =
         signature.event === '«no event field»'
           ? `{job="containers", service="${signature.service}", level="error"}`
-          : `{job="containers", service="${signature.service}", level="error"} | json | __error__="" | event="${signature.event}"`
+          : `{job="containers", service="${signature.service}", level="error"} | json | __error__="" | event="${signature.event}"${route}`
 
       const found = (await query('/loki/api/v1/query_range', {
         query: selector,

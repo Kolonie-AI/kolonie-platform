@@ -119,8 +119,14 @@ describe('how many got through', () => {
 })
 
 describe('the floor', () => {
-  /** `#545` asks for the permission report's floor rather than a second number. */
-  it('is the one the permission aggregate already uses', () => {
+  /**
+   * **Its own constant since `#909`, and the value is deliberately unchanged.**
+   * `#545` asked for `PERMISSION_AGGREGATE_FLOOR` by reference and the two do
+   * happen to agree; what the alias hid is that they protect different subjects
+   * — one a citizen's autonomy contract, this one a count about a provider — and
+   * that distinction is what let a row exist below a figure floor.
+   */
+  it('is five, and is no longer read from the permission aggregate', () => {
     expect(ATLAS_FIGURE_FLOOR).toBe(5)
   })
 })

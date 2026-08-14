@@ -258,10 +258,19 @@ describe('the rows the figures imply', () => {
   })
 
   /**
-   * Publishing *this provider exists because somebody tried it* below the floor
-   * is the disclosure the floor forbids, wearing a different shape.
+   * **The row exists from the first proof, and the counts stay behind the floor**
+   * (`#909`, on `kolonie-docs#352`). This test asserted the opposite until then,
+   * on the argument that publishing *this provider exists because somebody tried
+   * it* is the same disclosure as the numbers wearing a different shape.
+   *
+   * The measurement is what overturned it: the largest provider sample in the
+   * Colony was **3** on 2026-08-14 against a floor of 5, so the skip never
+   * delayed a row — it meant none was ever synthesised, which is the feature not
+   * existing. And the two claims are not the same claim: *three citizens hold a
+   * mailbox here* is a number about three citizens, *a citizen got in here* is a
+   * fact about the provider and names nobody.
    */
-  it('skips a pair whose figures are suppressed', () => {
+  it('stands a row in for a pair whose counts are below the floor', () => {
     const synthesized = measuredOnlyRecipes(
       [],
       [
@@ -270,6 +279,53 @@ describe('the rows the figures imply', () => {
           provider: 'somewhere.test',
           attempted: 2,
           proved: 1,
+          suppressed: true,
+        }),
+      ],
+    )
+
+    expect(synthesized).toHaveLength(1)
+    expect(synthesized[0]?.status).toBe('measured')
+    /**
+     * The row and nothing else. A measured entry's content is that citizens got
+     * in, so it may carry no route, no warning and no sentence about succeeding
+     * — the absence is the content rather than a gap in it.
+     */
+    expect(synthesized[0]?.steps).toEqual([])
+    expect(synthesized[0]?.caution).toBeNull()
+    expect(synthesized[0]?.proves).toBeNull()
+  })
+
+  /**
+   * **The floor still governs the counts**, which is the half `#909` did not
+   * change: suppression rides on the figures and the row carries none of them.
+   */
+  it('leaves the suppressed figures suppressed beside the row it stood in', () => {
+    const suppressed = figures({
+      kind: 'mailbox',
+      provider: 'somewhere.test',
+      attempted: 2,
+      proved: 1,
+      suppressed: true,
+    })
+
+    expect(measuredOnlyRecipes([], [suppressed])).toHaveLength(1)
+    expect(suppressed.suppressed).toBe(true)
+  })
+
+  /**
+   * The rejection case that survives: a pair nobody has attempted is not
+   * evidence, and no floor is involved in saying so.
+   */
+  it('still skips a pair with nothing measured at all', () => {
+    const synthesized = measuredOnlyRecipes(
+      [],
+      [
+        figures({
+          kind: 'mailbox',
+          provider: 'untouched.test',
+          attempted: 0,
+          proved: 0,
           suppressed: true,
         }),
       ],

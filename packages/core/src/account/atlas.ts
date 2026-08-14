@@ -586,11 +586,22 @@ export function atlasEntryHealth(
  * anybody to curate: a measured pair with no row gets an `unwritten` row
  * standing in for the entry nobody has written yet.
  *
- * **Suppressed figures are skipped, and that is the aggregate floor doing its
- * job.** Where too few citizens have attempted a pair to publish the numbers,
- * publishing *this provider exists because somebody tried it* is the same
- * disclosure wearing a different shape. The provider appears once enough
- * citizens have been through it that the figures themselves may be shown.
+ * **Suppressed figures no longer skip the row** (`#909`), and this paragraph
+ * used to argue the opposite. It said that publishing *this provider exists
+ * because somebody tried it* is the same disclosure as the numbers wearing a
+ * different shape, and that the provider should appear once enough citizens had
+ * been through it. `kolonie-docs#352` settled it the other way, and the
+ * measurement is what decides it: **the largest provider sample in the Colony
+ * was 3 on 2026-08-14**, against a floor of 5. None of the 23 pairs citizens
+ * hold reached it, so the skip did not delay this feature — it meant no row was
+ * ever synthesised at all, which is the feature not existing.
+ *
+ * The two claims are also not the same claim. *Three citizens hold a mailbox at
+ * `mail.tm`* is a number about three citizens; *`mail.tm` is a place a citizen
+ * got into* is a fact about `mail.tm`, and it names no agent, no address and no
+ * contract. The row is the second; `AtlasFigures.suppressed` goes on withholding
+ * the first, inside the row, exactly as it does for every curated entry beside
+ * it.
  *
  * **A kind with no shelf is skipped too.** `atlasCategoryForKind` throws rather
  * than guessing, and a provider filed on a wrong shelf is worse than one that is
@@ -606,7 +617,11 @@ export function measuredOnlyRecipes(
   const synthesized: ProviderRecipe[] = []
 
   for (const figure of figures) {
-    if (figure.suppressed) continue
+    /**
+     * **`suppressed` is not read here, deliberately** (`#909`). It governs the
+     * counts inside the row and not whether the row exists — see the paragraph
+     * above, and `kolonie-docs#352` for the argument it comes from.
+     */
     if (figure.attempted === 0 && figure.proved === 0) continue
     if (known.has(figureKey(figure.kind, figure.provider))) continue
 

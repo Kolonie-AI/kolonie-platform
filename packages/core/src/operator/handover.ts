@@ -31,9 +31,27 @@ import { TimestampSchema } from '../common/time.js'
  * 3. **The Colony transports and does not hold.** Sealed at rest, destroyed on
  *    expiry or after the last read, never unsealed in a log, an error body or a
  *    wake payload.
- * 4. **A step of a recipe, not a free channel.** The Colony writes the sentence
- *    the operator sees, exactly as it does for a handoff. An agent that could
- *    send arbitrary secrets unprompted is a different and worse thing.
+ * 4. **The Colony writes the sentence the operator sees**, exactly as it does for
+ *    a handoff. An agent that could compose the message arriving beside its
+ *    secret is a different and worse thing.
+ *
+ * ## What the fourth constraint used to say, and why it changed (`#926`)
+ *
+ * It used to read *a step of a recipe, not a free channel* — the step had to
+ * exist, be the agent's, and be marked `handover`, and the sentence came from
+ * it. That precondition was buying two things and only one of them was real.
+ *
+ * The real half is the sentence, and it is kept: `handoverPrompt` writes it here
+ * whether or not a step supplied one, so there is still no field on the request
+ * through which an agent's prose could arrive.
+ *
+ * The other half — a guarantee that the handover belongs to a known point in a
+ * known process — was ceremony, and it cost the channel entirely at every
+ * provider nobody has walked. Measured 2026-08-13: the `telephony` shelf held
+ * three entries, all `unwritten`, all with `steps: []`. **No step existed, so no
+ * handover was possible, for any phone provider** — and that is the normal state
+ * of anything new rather than an edge. An operator reading a sealed value in
+ * their own console does not need a recipe to know what they asked for.
  */
 
 /**
@@ -72,19 +90,52 @@ export const HANDOVER_PROMPT_MAX_LENGTH = 500
 /**
  * What an agent opens a handover with.
  *
- * **No prompt field, and that is the fourth constraint as a schema.** The
- * sentence the operator reads comes from the recipe step, so an agent cannot
- * compose the message that arrives beside its secret — the same rule
- * `kolonie.accounts.handoff` follows for an ask.
+ * **No prompt field, and that is the fourth constraint as a schema.** The Colony
+ * writes the sentence the operator reads, so an agent cannot compose the message
+ * that arrives beside its secret — the same rule `kolonie.accounts.handoff`
+ * follows for an ask. That is the constraint the absent field enforces, and it
+ * is untouched by `#926`.
+ *
+ * **`step` is optional and does not gate** (`#926`). Given, it is recorded and
+ * its instruction becomes the sentence; absent, or naming a step that is not a
+ * handover, the sentence comes from `handoverPrompt` instead. Either way the
+ * agent did not write it.
  */
 export const OpenHandoverSchema = z
   .object({
     provider: z.string().trim().min(1).max(120),
-    step: z.number().int().min(1).max(20),
+    step: z.number().int().min(1).max(20).optional(),
     value: z.string().min(1).max(HANDOVER_VALUE_MAX_LENGTH),
   })
   .strict()
 export type OpenHandover = z.infer<typeof OpenHandoverSchema>
+
+/**
+ * The sentence the operator reads above the sealed value (`#926`).
+ *
+ * **The Colony's words in both branches**, which is the whole of what the
+ * removed precondition was protecting. A recipe step that carries its own
+ * instruction wins, because it is more specific and it is also the Colony's; a
+ * provider nobody has walked gets the general sentence rather than getting
+ * nothing, which is what it used to get.
+ *
+ * The general sentence has to do the work the step's instruction was doing:
+ * tell a person who may not have been expecting this what the thing in front of
+ * them is and where it came from. It does not say what to do with it — that is
+ * `handoverNotice`, which is rendered with it and says plainly that no copy is
+ * being kept.
+ */
+export function handoverPrompt(provider: string, instruction?: string): string {
+  const fromTheStep = instruction?.trim()
+  if (fromTheStep !== undefined && fromTheStep.length > 0) {
+    return fromTheStep.slice(0, HANDOVER_PROMPT_MAX_LENGTH)
+  }
+  return (
+    `Your agent has sealed a credential for you, for an account at ${provider}. It chose the ` +
+    `value itself and is handing it over so that you can use it where it is needed — at a signup ` +
+    `form, a recovery page, or wherever you agreed the account would be set up.`
+  ).slice(0, HANDOVER_PROMPT_MAX_LENGTH)
+}
 
 /** One handover as the operator's console lists it — never carrying the value. */
 export const HandoverSummarySchema = z.object({

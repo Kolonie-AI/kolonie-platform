@@ -2,6 +2,7 @@ import {
   HANDOVER_MAX_READS,
   OpenHandoverSchema,
   handoverNotice,
+  handoverPrompt,
   recipeStatusIsOfferable,
   type AgentId,
   type ApiError,
@@ -80,13 +81,22 @@ export type HandoverResult =
   | { readonly outcome: 'rejected'; readonly error: ApiError }
 
 /**
- * Seal a value for this citizen's operator, as a named step of a recipe.
+ * Seal a value for this citizen's operator, at any provider (`#926`).
  *
- * **The step is what authorises it**, which is the fourth constraint `#592`
- * names: an agent that could send arbitrary secrets unprompted is a different
- * and worse thing than the one the decision permits. So the step has to exist,
- * has to be the agent's, and has to be marked `handover` — and the sentence the
- * operator reads is the step's own instruction, written by the Colony.
+ * **What authorises it is that somebody can read it**, and that is the one check
+ * left below. The recipe step used to be the gate — it had to exist, be the
+ * agent's, and be marked `handover` — and removing it is `#926`'s whole content.
+ *
+ * The fourth constraint `#592` names survives the removal, because it was never
+ * the step: an agent still cannot compose the sentence that arrives beside its
+ * secret. `handoverPrompt` writes it, from the step's instruction where there is
+ * one and from the Colony's own words where there is not, and `OpenHandoverSchema`
+ * still has no field prose could arrive through.
+ *
+ * What the gate cost is measurable. On 2026-08-13 the `telephony` shelf held
+ * three entries, all `unwritten`, all with `steps: []` — so the channel was
+ * closed for every phone provider, and for every provider nobody had walked,
+ * which is the normal state of anything new.
  */
 export async function openHandover(
   input: {
@@ -116,22 +126,10 @@ export async function openHandover(
       error: {
         code: 'validation_failed',
         message:
-          'Send {"provider": "…", "step": <the step number>, "value": "<the secret>"}. The step ' +
-          'is what makes this a recipe step rather than a free channel, and the sentence your ' +
-          'operator reads comes from it.',
-      },
-    }
-  }
-
-  const recipe = input.recipe
-  if (recipe === undefined || !recipeStatusIsOfferable(recipe.status)) {
-    return {
-      outcome: 'rejected',
-      error: {
-        code: 'validation_failed',
-        message:
-          `The catalogue has no recipe on offer for ${parsed.data.provider}, so there is no step ` +
-          'to hand anything over on. Read what it does have with kolonie.accounts.recipes.',
+          'Send {"provider": "…", "value": "<the secret>"}, and "step": <the step number> if you ' +
+          'are on a recipe step. The step is optional and records where you were; the sentence ' +
+          'your operator reads is the Colony’s either way, and there is no field here to ' +
+          'write it with.',
       },
     }
   }
@@ -172,28 +170,34 @@ export async function openHandover(
     }
   }
 
-  const step = recipe.steps[parsed.data.step - 1]
-  if (step === undefined || step.handover !== true) {
-    return {
-      outcome: 'rejected',
-      error: {
-        code: 'validation_failed',
-        message:
-          `Step ${parsed.data.step} of the ${recipe.provider} recipe is not a handover, so there ` +
-          'is nothing to seal there. A secret travels only on a step the recipe marks as one — ' +
-          'this is not a channel you can use for anything you like, and that is deliberate. ' +
-          'kolonie.accounts.recipes prints which step it is.',
-      },
-    }
-  }
+  /**
+   * **The recipe is read for its wording, not for permission** (`#926`).
+   *
+   * An offerable recipe whose numbered step is marked `handover` has a sentence
+   * written for this exact moment, and it is better than the general one. Every
+   * other case — no recipe, a recipe not on offer, a step out of range, a step
+   * that is not a handover — falls through to `handoverPrompt`, which is also
+   * the Colony's words. None of them refuses.
+   *
+   * **The provider is the caller's own string** where no recipe answers for it.
+   * It cannot be `recipe.provider` any more: at a provider the Atlas has never
+   * heard of there is no row to take a canonical spelling from, and the whole
+   * point of `#926` is that this is the ordinary case.
+   */
+  const recipe = input.recipe
+  const offerable = recipe !== undefined && recipeStatusIsOfferable(recipe.status)
+  const step =
+    offerable && parsed.data.step !== undefined ? recipe.steps[parsed.data.step - 1] : undefined
+  const instruction = step?.handover === true ? step.instruction : undefined
 
   const opened = await store.open({
     agentId: input.agentId,
-    provider: recipe.provider,
+    provider: offerable ? recipe.provider : parsed.data.provider,
     // The Colony's sentence and never the agent's, exactly as the ask is on a
     // handoff. There is no field on the request through which prose could
-    // arrive.
-    prompt: step.instruction ?? '',
+    // arrive — which is what `#592`'s fourth constraint was actually protecting,
+    // and it is untouched by the step no longer gating.
+    prompt: handoverPrompt(offerable ? recipe.provider : parsed.data.provider, instruction),
     value: parsed.data.value,
   })
 

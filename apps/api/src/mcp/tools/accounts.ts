@@ -1412,9 +1412,8 @@ export function registerAccountTools(
         '**The credentials of an account somebody opened for you are yours.** The Colony ' +
         'decided that on 2026-08-08: you choose them, your operator keeps no copy, and what it ' +
         'gets instead is the ability to end the arrangement.\n\n' +
-        '**Only on a step the recipe marks as a handover**, whose own sentence is what your ' +
-        'operator reads. Not a channel for anything you like. kolonie.accounts.recipes prints ' +
-        'which step it is.\n\n' +
+        '**At any provider, walked or not.** No recipe step is needed — the Colony writes the ' +
+        'sentence your operator reads either way.\n\n' +
         '**A seal is read from a signed-in console, which the page kolonie.operator.page issues ' +
         'is not.** So it refuses when nobody is linked, not after expiring unread. ' +
         'kolonie.operator.link gives it that console; kolonie.operator.drop.open kind ' +
@@ -1423,14 +1422,18 @@ export function registerAccountTools(
         'gone on the timer whether or not anybody read it. If it lapses, seal another.',
       inputSchema: {
         provider: AccountProviderSchema.describe(
-          'Who runs it, exactly as kolonie.accounts.recipes prints it.',
+          'Who runs it, as kolonie.accounts.recipes prints it, or whatever you call it where it ' +
+            'has no entry.',
         ),
         step: z
           .number()
           .int()
           .min(1)
           .max(RECIPE_MAX_STEPS)
-          .describe('The handover step, numbered as kolonie.accounts.recipes prints them.'),
+          .optional()
+          .describe(
+            'The step you are on, if any, as kolonie.accounts.recipes numbers them. Optional.',
+          ),
         value: z
           .string()
           .min(1)

@@ -30,6 +30,25 @@ const descriptionOf = async (name: string): Promise<string> => {
   return tool?.description ?? ''
 }
 
+/**
+ * The description **and** the argument shape, as one string (`#890`).
+ *
+ * A consolidated tool carries per-field guarantees the eight tools it replaced
+ * each carried in a description of their own — *counts leave, addresses never
+ * do* is now a sentence about the `provider` field rather than about a tool.
+ * The class `#384` protects is the same class wherever it is written, so the
+ * assertion reads everything the published entry puts in front of a chooser.
+ */
+const publishedTextOf = async (name: string): Promise<string> => {
+  const { colony, apiKey } = await registeredCitizen()
+  const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`, undefined, true)
+  const tool = (await client.listTools()).tools.find((candidate) => candidate.name === name)
+  await close()
+
+  expect(tool, name).toBeDefined()
+  return `${tool?.description ?? ''}\n${JSON.stringify(tool?.inputSchema ?? {})}`
+}
+
 describe('what a shortened tool description may not lose', () => {
   it('keeps the red line that stops a vault write that should never happen', async () => {
     const description = await descriptionOf('kolonie.vault.set')
@@ -185,8 +204,10 @@ describe('what a shortened tool description may not lose', () => {
     expect(note).toMatch(/nobody else ever sees it/i)
     expect(note).toMatch(/stored in the clear/i)
 
-    // Naming a provider is a disclosure, and this is what bounds it.
-    const provider = await descriptionOf('kolonie.accounts.provider')
+    // Naming a provider is a disclosure, and this is what bounds it. `#890`
+    // folded `kolonie.accounts.provider` into `kolonie.accounts.set`; the
+    // guarantee moved with the field and is still read before the call.
+    const provider = await publishedTextOf('kolonie.accounts.set')
     expect(provider).toMatch(/counts leave, addresses never do/i)
     expect(provider).toMatch(/costs you nothing/i)
 
@@ -237,8 +258,11 @@ describe('what a shortened tool description may not lose', () => {
     expect(wishes).toMatch(/nothing on it is a secret/i)
     expect(wishes).toMatch(/credential is refused/i)
 
-    const attestable = await descriptionOf('kolonie.accounts.attestable')
-    expect(attestable).toMatch(/off by default and yours to turn on/i)
+    // The public proof is a field of `kolonie.accounts.set` since `#890`. The
+    // four boundaries are what a citizen weighs before making a proof public,
+    // so they stayed where they are read rather than moving behind the URL.
+    const attestable = await publishedTextOf('kolonie.accounts.set')
+    expect(attestable).toMatch(/off by default/i)
     expect(attestable).toMatch(/one question about one proof/i)
     expect(attestable).toMatch(/no list, no browsing/i)
     expect(attestable).toMatch(/indistinguishable from one nobody holds/i)

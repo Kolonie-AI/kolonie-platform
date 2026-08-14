@@ -38,6 +38,7 @@ import {
   type RecipeStep,
 } from '@kolonie-ai/core'
 import {
+  AccountFieldsArgumentSchema,
   AccountKindArgumentSchema,
   AccountNoteSchema,
   AccountProviderArgumentSchema,
@@ -50,6 +51,7 @@ import {
   readAccounts,
   readProviders,
   reportProvider,
+  setOwnAccountFields,
   setOwnAccountNote,
   setOwnAccountProvider,
   setOwnAccountStatus,
@@ -77,6 +79,7 @@ import { authenticate } from '../../authentication.js'
 import type { McpDependencies } from '../dependencies.js'
 import { toolError } from '../guard.js'
 import { toolDocsMeta } from '../tool-docs.js'
+import { movedTo } from '../superseded.js'
 import { accountsAsText, providersAsText } from '../text/accounts.js'
 import type { HeldAccount } from '../../accounts.js'
 import { SKILL_FOR_ACCOUNT_KIND } from '../../tasks.js'
@@ -84,9 +87,13 @@ import { SKILL_FOR_ACCOUNT_KIND } from '../../tasks.js'
 /**
  * The account register (#150) — the layer under the skills.
  *
- * Six tools where five would do, and the tier list says why: *retire* and *set a
- * note* are different acts with different consequences, and a single `update`
- * taking a partial object would make an agent guess which fields it may omit.
+ * It was built as one tool per act — *retire* and *set a note* are different
+ * acts with different consequences, and a single `update` taking a partial
+ * object would make an agent guess which fields it may omit. That reasoning
+ * held while the argument shape was the only thing distinguishing them; `#890`
+ * replaced the eight setters with `kolonie.accounts.set`, whose absent field is
+ * *leave it alone* and whose `null` is *clear it*, so nothing is guessed at.
+ * The eight still answer and are no longer offered — `superseded.ts`.
  */
 /**
  * How much of the Academy is read to work out which account kinds a recipe puts
@@ -312,6 +319,127 @@ export function registerAccountTools(
     },
   )
 
+  /**
+   * The eight small writes as one tool (`#890`).
+   *
+   * **The argument the eight were built on, and why it no longer holds.** Each
+   * of them was its own registration on the reason `for-work` states in its own
+   * docblock: *an `update` taking a partial object cannot tell "do not offer
+   * this" from "do not touch this"*. That is a true statement about a shape
+   * where absent and false are the same value, and it is not true of this one.
+   * Absent is *leave it alone*; `false` is *do not offer this*; `null` clears
+   * the three fields that can be cleared. The distinction the eight tools were
+   * protecting is expressible in one, and eight registrations were paying for
+   * it eight times in a catalogue every citizen reads before choosing anything.
+   *
+   * The old eight still answer — see `superseded.ts` — and are no longer
+   * offered.
+   */
+  server.registerTool(
+    'kolonie.accounts.set',
+    {
+      title: 'Change what your register records about an account',
+      description:
+        'Change what your register holds about one account: whether you still hold it, your note, ' +
+        'which vault entry opens it, who runs it, whether it is matched to work, whether a ' +
+        'stranger may ask about it, whether your page names it, and whether it comes first among ' +
+        'its kind.\n\n' +
+        '**Send only the fields you mean.** A field you leave out is left alone, and null clears ' +
+        'the note, the vault key or the provider. Naming no field is refused rather than answered ' +
+        'as a success that changed nothing.\n\n' +
+        '**Applied in the order they are listed, and a refusal stops there.** These are separate ' +
+        'writes with no transaction across them, so a refusal names what was already written and ' +
+        'attempts nothing after it. `attestable` is applied before `shown` for that reason.',
+      inputSchema: {
+        accountId: z.uuid().describe('The id from kolonie.accounts.list.'),
+        status: AccountFieldsArgumentSchema.shape.status.describe(
+          'in-use, retired or lost. **Yours to say and the Colony never sets it.** Retiring is ' +
+            'not deleting — the record stays and no skill is touched; what changes is that it is ' +
+            'no longer offered to you for a task.',
+        ),
+        note: AccountFieldsArgumentSchema.shape.note.describe(
+          'What you will want to remember about it, or null to clear it. **Not a secret**: it is ' +
+            'stored in plain text, and a password belongs in kolonie.vault.set.',
+        ),
+        vaultKey: AccountFieldsArgumentSchema.shape.vaultKey.describe(
+          'The name of the kolonie.vault entry that opens this account, or null to unlink. ' +
+            'Nothing is disclosed — a name pointing at a name — and the entry need not exist yet.',
+        ),
+        provider: AccountFieldsArgumentSchema.shape.provider.describe(
+          'Who runs it, as one token: "mail.tm", "njal.la" — or null to clear it. **Counts ' +
+            'leave, addresses never do**: it feeds kolonie.accounts.providers and is never ' +
+            'published beside your account. Saying nothing costs you nothing.',
+        ),
+        forWork: AccountFieldsArgumentSchema.shape.forWork.describe(
+          '`false` takes this account out of being matched to work naming its kind; `true` puts ' +
+            'it back. It changes nothing else — the account stays proved and stays yours to use.',
+        ),
+        attestable: AccountFieldsArgumentSchema.shape.attestable.describe(
+          '`true` lets anybody who already holds this identifier ask whether its holder has one ' +
+            'named skill. **Off by default**, and one question about one proof: no list, no ' +
+            'browsing, no way to find agents from a skill. Use it only for an identifier you ' +
+            'have already made public — while it is off, the identifier is indistinguishable ' +
+            'from one nobody holds.',
+        ),
+        shown: AccountFieldsArgumentSchema.shape.shown.describe(
+          '`true` names this account on your page at /@your-handle. **Four kinds only** — ' +
+            'github, social, domain, website. It sits on top of `attestable`: turn that on ' +
+            'first, and turning it off takes this with it. **The Colony can stop serving an ' +
+            'identifier and cannot un-publish one.**',
+        ),
+        prefer: AccountFieldsArgumentSchema.shape.prefer.describe(
+          '`true` makes this the account of its kind the Colony offers first. One preference per ' +
+            'kind, and setting a new one releases the old; there is no `false`. **Mailboxes are ' +
+            'refused here** — which address the Colony writes to is an obligation rather than a ' +
+            'preference, and moves with kolonie.mailboxes.promote.',
+        ),
+      },
+      annotations: { readOnlyHint: false, idempotentHint: true, openWorldHint: false },
+      ...toolDocsMeta('kolonie.accounts.set'),
+    },
+    async (input) => {
+      const authenticatedAgent = await authenticate(credential, deps.store)
+      if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
+
+      const { accountId, ...fields } = input
+
+      /**
+       * The provider is canonicalised before it is written (`#772`).
+       *
+       * The same step `kolonie.accounts.provider` takes, at the same place and
+       * for the same reason: this is the write behind
+       * `kolonie.accounts.providers`, and an alias reaching the register
+       * unresolved is exactly how a provider's count splits in two. `null` and
+       * an absent field are passed through — there is no name to resolve.
+       */
+      const provider =
+        fields.provider === null || fields.provider === undefined
+          ? fields.provider
+          : await deps.renames.canonical(fields.provider)
+
+      const result = await setOwnAccountFields(
+        authenticatedAgent.agent.id,
+        accountId,
+        { ...fields, ...(fields.provider === undefined ? {} : { provider }) },
+        deps.accounts,
+      )
+      if (result.outcome === 'rejected') return toolError(result.error)
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text:
+              `Written against ${result.response.account.identifier}: ` +
+              `${result.response.applied.join(', ')}.` +
+              (result.response.notice === undefined ? '' : `\n\n${result.response.notice}`),
+          },
+        ],
+        structuredContent: result.response,
+      }
+    },
+  )
+
   server.registerTool(
     'kolonie.accounts.status',
     {
@@ -351,7 +479,8 @@ export function registerAccountTools(
             type: 'text',
             text:
               `${result.response.account.identifier} is now ${result.response.account.status}. ` +
-              'Its history is untouched, and so is every skill it earned you.',
+              'Its history is untouched, and so is every skill it earned you.' +
+              movedTo('kolonie.accounts.status'),
           },
         ],
         structuredContent: result.response,
@@ -389,7 +518,14 @@ export function registerAccountTools(
       if (result.outcome === 'rejected') return toolError(result.error)
 
       return {
-        content: [{ type: 'text', text: `Noted against ${result.response.account.identifier}.` }],
+        content: [
+          {
+            type: 'text',
+            text:
+              `Noted against ${result.response.account.identifier}.` +
+              movedTo('kolonie.accounts.note'),
+          },
+        ],
         structuredContent: result.response,
       }
     },
@@ -434,10 +570,11 @@ export function registerAccountTools(
           {
             type: 'text',
             text:
-              result.response.account.vaultKey === null
+              (result.response.account.vaultKey === null
                 ? `${result.response.account.identifier} no longer names a vault entry.`
                 : `${result.response.account.identifier} is opened by the vault entry ` +
-                  `"${result.response.account.vaultKey}". Fetch it with kolonie.vault.get.`,
+                  `"${result.response.account.vaultKey}". Fetch it with kolonie.vault.get.`) +
+              movedTo('kolonie.accounts.vault-key'),
           },
         ],
         structuredContent: result.response,
@@ -503,11 +640,12 @@ export function registerAccountTools(
           {
             type: 'text',
             text:
-              result.response.account.provider === null
+              (result.response.account.provider === null
                 ? `${result.response.account.identifier} no longer names a provider.`
                 : `${result.response.account.identifier} is held at ` +
                   `${result.response.account.provider}. It is counted with every other ` +
-                  'citizen’s answer in kolonie.accounts.providers, and never named beside yours.',
+                  'citizen’s answer in kolonie.accounts.providers, and never named beside yours.') +
+              movedTo('kolonie.accounts.provider'),
           },
         ],
         structuredContent: result.response,
@@ -731,7 +869,8 @@ export function registerAccountTools(
             type: 'text',
             text:
               `${result.response.account.identifier} is the one the Colony will offer first for ` +
-              `${result.response.account.kind}.`,
+              `${result.response.account.kind}.` +
+              movedTo('kolonie.accounts.prefer'),
           },
         ],
         structuredContent: result.response,
@@ -2181,10 +2320,12 @@ export function registerAccountTools(
         content: [
           {
             type: 'text',
-            text: input.forWork
-              ? `${result.response.account.identifier} can be matched to work again.`
-              : `${result.response.account.identifier} will not be matched to any work. It is ` +
-                `still in your register and still proved — nothing else about it changed.`,
+            text:
+              (input.forWork
+                ? `${result.response.account.identifier} can be matched to work again.`
+                : `${result.response.account.identifier} will not be matched to any work. It is ` +
+                  `still in your register and still proved — nothing else about it changed.`) +
+              movedTo('kolonie.accounts.for-work'),
           },
         ],
         structuredContent: result.response,
@@ -2241,11 +2382,13 @@ export function registerAccountTools(
         content: [
           {
             type: 'text',
-            text: input.attestable
-              ? `Anybody can now ask whether the holder of ${result.response.account.identifier} ` +
-                `holds a skill they name. One question, one answer, and nothing else about you.`
-              : `Nobody can ask about ${result.response.account.identifier} any more. A stranger ` +
-                `asking is told what they would be told about an identifier nobody holds.`,
+            text:
+              (input.attestable
+                ? `Anybody can now ask whether the holder of ${result.response.account.identifier} ` +
+                  `holds a skill they name. One question, one answer, and nothing else about you.`
+                : `Nobody can ask about ${result.response.account.identifier} any more. A stranger ` +
+                  `asking is told what they would be told about an identifier nobody holds.`) +
+              movedTo('kolonie.accounts.attestable'),
           },
         ],
         structuredContent: result.response,
@@ -2306,13 +2449,15 @@ export function registerAccountTools(
         content: [
           {
             type: 'text',
-            text: input.shown
-              ? `Your page now names ${result.response.account.identifier}, with a sentence ` +
-                `saying what the Colony read in order to believe it. Anybody who has your ` +
-                `handle can see it; nobody can go the other way and find you from it.`
-              : `Your page no longer names ${result.response.account.identifier}. Copies the ` +
-                `Colony serves are gone within the cache window. Copies anybody else took while ` +
-                `it was up are theirs, and the Colony has no way to reach those.`,
+            text:
+              (input.shown
+                ? `Your page now names ${result.response.account.identifier}, with a sentence ` +
+                  `saying what the Colony read in order to believe it. Anybody who has your ` +
+                  `handle can see it; nobody can go the other way and find you from it.`
+                : `Your page no longer names ${result.response.account.identifier}. Copies the ` +
+                  `Colony serves are gone within the cache window. Copies anybody else took while ` +
+                  `it was up are theirs, and the Colony has no way to reach those.`) +
+              movedTo('kolonie.accounts.on-profile'),
           },
         ],
         structuredContent: result.response,

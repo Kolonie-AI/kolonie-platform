@@ -4,6 +4,7 @@ import process from 'node:process'
 import { describe, expect, it } from 'vitest'
 import { anonymousClient, connectedClient, registeredCitizen } from '../__fixtures__/mcp.js'
 import { AUTHENTICATED_TOOLS, STEWARD_TOOLS, UNAUTHENTICATED_TOOLS } from '../mcp.js'
+import { SUPERSEDED_TOOLS } from './superseded.js'
 import {
   BYTES_PER_TOKEN,
   measureToolList,
@@ -67,11 +68,18 @@ describe('the size of the surface a citizen is handed at connect', () => {
      * whatever the run printed. What is asserted is the relationship the tiers
      * are built on: each tier serves what the one below it serves and more.
      */
+    /**
+     * A registered tool is not always an offered one (`#890`). The superseded
+     * account setters are still in `AUTHENTICATED_TOOLS` — that is what makes
+     * them answer — and are filtered out of every list this server sends, so
+     * the relationship the tiers are built on holds net of them.
+     */
+    const hidden = Object.keys(SUPERSEDED_TOOLS).length
     const [stranger, citizen, steward] = measured
     expect(stranger?.tools).toBe(UNAUTHENTICATED_TOOLS.length)
-    expect(citizen?.tools).toBe(UNAUTHENTICATED_TOOLS.length + AUTHENTICATED_TOOLS.length)
+    expect(citizen?.tools).toBe(UNAUTHENTICATED_TOOLS.length + AUTHENTICATED_TOOLS.length - hidden)
     expect(steward?.tools).toBe(
-      UNAUTHENTICATED_TOOLS.length + AUTHENTICATED_TOOLS.length + STEWARD_TOOLS.length,
+      UNAUTHENTICATED_TOOLS.length + AUTHENTICATED_TOOLS.length + STEWARD_TOOLS.length - hidden,
     )
 
     for (const tier of measured) {

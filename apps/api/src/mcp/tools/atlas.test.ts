@@ -111,7 +111,14 @@ describe('the Atlas over MCP', () => {
       // own vocabulary, because `kolonie.browser.share.*` now means a thing that
       // was tried and did not work, and a citizen that finds the name and reads
       // the old write-up would be reading an obituary as an instruction.
-      expect(AUTHENTICATED_TOOLS.length).toBe(90)
+      // 91 since `#890` added `kolonie.accounts.set` — the eight small account
+      // writes as one tool. The eight it replaces are still in this list and
+      // are what the count is now larger by: a superseded name stays registered
+      // so a skill file written before the consolidation keeps working, and is
+      // removed from `tools/list` on the way out. `SUPERSEDED_TOOLS` is what a
+      // citizen is actually offered fewer of, and `superseded.test.ts` asserts
+      // both halves.
+      expect(AUTHENTICATED_TOOLS.length).toBe(91)
       // 9 since `#695` added `kolonie.quests.end` — the Colony's escape hatch
       // from an automatic publication. Steward-only because sponsor withdrawal
       // while citizens may be working is a separate fairness decision.

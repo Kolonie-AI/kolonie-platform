@@ -822,6 +822,158 @@ export async function preferOwnAccount(
   return answer(await deps.register.prefer(agentId, accountId))
 }
 
+/**
+ * The eight small writes as one object (`#890`).
+ *
+ * **An absent field is *leave it alone* and `null` is *clear it*,** which is the
+ * distinction each of the single-field schemas above already draws and the one
+ * the `for-work` docblock said a partial object could not: *do not offer this*
+ * is `forWork: false`, *do not touch this* is the field not being there.
+ *
+ * `prefer` takes `true` and nothing else. There is no unprefer — setting a
+ * preference releases the old one — so a `false` here would name an act the
+ * register cannot perform.
+ */
+export const AccountFieldsArgumentSchema = z.object({
+  status: AccountStatusSchema.optional(),
+  note: AccountNoteFieldSchema.nullable().optional(),
+  vaultKey: z.string().trim().min(1).max(128).nullable().optional(),
+  provider: AccountProviderSchema.nullable().optional(),
+  forWork: z.boolean().optional(),
+  attestable: z.boolean().optional(),
+  shown: z.boolean().optional(),
+  prefer: z.literal(true).optional(),
+})
+
+export type AccountFieldsOutcome =
+  | {
+      readonly outcome: 'written'
+      readonly response: {
+        readonly account: Account
+        /** The fields this call actually wrote, in the order it wrote them. */
+        readonly applied: readonly string[]
+        readonly notice?: string
+      }
+    }
+  | { readonly outcome: 'rejected'; readonly error: ApiError }
+
+/**
+ * Apply whichever fields were named, in an order the register can accept.
+ *
+ * **Through the eight functions above rather than past them.** Each carries
+ * guards a consolidated write would otherwise have to restate: the four kinds
+ * `shown` accepts, the proved-and-attestable precondition, the mailbox that
+ * refuses a preference and names `kolonie.mailboxes.promote` instead. A second
+ * copy of any of those is a second thing to keep true.
+ *
+ * **`attestable` before `shown`, and that is a rule rather than a tidiness.**
+ * `setOwnAccountShownOnProfile` refuses `shown: true` on an account that is not
+ * attestable, so `{attestable: true, shown: true}` sent the other way round
+ * would be refused for a condition the same call was about to satisfy.
+ *
+ * **A refusal stops the sequence and says what is already written.** These are
+ * separate writes against the register and there is no transaction spanning
+ * them, so the honest answer to a mid-sequence refusal is the list — not a
+ * silence that leaves the citizen unable to tell a call that did nothing from
+ * one that did half.
+ */
+export async function setOwnAccountFields(
+  agentId: AgentId,
+  accountId: string,
+  body: unknown,
+  deps: AccountDependencies,
+): Promise<AccountFieldsOutcome> {
+  const parsed = AccountFieldsArgumentSchema.safeParse(body)
+
+  if (!parsed.success) {
+    return {
+      outcome: 'rejected',
+      error: {
+        code: 'validation_failed',
+        message:
+          'Send the fields you want to change: status, note, vaultKey, provider, forWork, ' +
+          'attestable, shown, prefer. A field you leave out is left alone; null clears note, ' +
+          'vaultKey and provider.',
+        details: fieldErrors(parsed.error),
+      },
+    }
+  }
+
+  const fields = parsed.data
+  const named = Object.keys(fields).filter(
+    (field) => fields[field as keyof typeof fields] !== undefined,
+  )
+
+  if (named.length === 0) {
+    return {
+      outcome: 'rejected',
+      error: {
+        code: 'validation_failed',
+        message:
+          'Name at least one field to change. A call naming none is not a write with nothing ' +
+          'to do — it is a call whose intention the Colony cannot read, and it would answer ' +
+          'as a success that changed nothing.',
+      },
+    }
+  }
+
+  const writes: readonly (readonly [string, () => Promise<AccountWriteOutcome>])[] = [
+    ['status', () => setOwnAccountStatus(agentId, accountId, { status: fields.status }, deps)],
+    ['note', () => setOwnAccountNote(agentId, accountId, { note: fields.note }, deps)],
+    [
+      'vaultKey',
+      () => setOwnAccountVaultKey(agentId, accountId, { vaultKey: fields.vaultKey }, deps),
+    ],
+    [
+      'provider',
+      () => setOwnAccountProvider(agentId, accountId, { provider: fields.provider }, deps),
+    ],
+    ['forWork', () => setOwnAccountForWork(agentId, accountId, { forWork: fields.forWork }, deps)],
+    [
+      'attestable',
+      () => setOwnAccountAttestable(agentId, accountId, { attestable: fields.attestable }, deps),
+    ],
+    ['shown', () => setOwnAccountShownOnProfile(agentId, accountId, { shown: fields.shown }, deps)],
+    ['prefer', () => preferOwnAccount(agentId, accountId, deps)],
+  ]
+
+  const applied: string[] = []
+  let last: AccountWriteOutcome | undefined
+
+  for (const [field, write] of writes) {
+    if (fields[field as keyof typeof fields] === undefined) continue
+
+    last = await write()
+
+    if (last.outcome === 'rejected') {
+      return {
+        outcome: 'rejected',
+        error: {
+          ...last.error,
+          message:
+            `${last.error.message} This was the \`${field}\` field. ` +
+            (applied.length === 0
+              ? 'Nothing was written.'
+              : `Already written before it: ${applied.join(', ')}. Nothing after it was attempted.`),
+        },
+      }
+    }
+
+    applied.push(field)
+  }
+
+  const written = last as Extract<AccountWriteOutcome, { outcome: 'written' }>
+
+  return {
+    outcome: 'written',
+    response: {
+      account: written.response.account,
+      applied,
+      ...(written.response.notice === undefined ? {} : { notice: written.response.notice }),
+    },
+  }
+}
+
 function answer(edit: AccountEdit): AccountWriteOutcome {
   if (edit.outcome === 'not_found') {
     return {

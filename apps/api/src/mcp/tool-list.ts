@@ -240,6 +240,7 @@ export const AUTHENTICATED_TOOLS = [
    */
   'kolonie.accounts.list',
   'kolonie.accounts.declare',
+  'kolonie.accounts.set',
   'kolonie.accounts.status',
   'kolonie.accounts.note',
   'kolonie.accounts.vault-key',

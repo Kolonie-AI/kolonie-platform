@@ -142,10 +142,18 @@ describe('where a relocated paragraph goes', () => {
     const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`, undefined, true)
     const tools = (await client.listTools()).tools
 
+    /**
+     * `kolonie.accounts.attestable` was here until `#890` superseded it. Its
+     * long form is still served — the name still answers — but the published
+     * list no longer carries the tool, so the `_meta` assertion moved to the
+     * successor that does. The invalid-input call below stayed on the old name
+     * on purpose: an unlisted tool that stopped validating would be an unlisted
+     * tool nobody was checking.
+     */
     for (const name of [
       'kolonie.accounts.recipes',
       'kolonie.accounts.wishes',
-      'kolonie.accounts.attestable',
+      'kolonie.accounts.set',
     ]) {
       expect(tools.find((tool) => tool.name === name)?._meta).toEqual({
         [TOOL_DOCS_META_KEY]: toolDocsUrl(name),

@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import { silentLog } from '@kolonie-ai/core'
-import { lokiLogs, signatureOf, SAMPLE_LINES } from './logs.js'
+import {
+  causeChain,
+  CAUSE_MESSAGE_LENGTH,
+  lokiLogs,
+  MAX_CAUSE_DEPTH,
+  signatureOf,
+  SAMPLE_LINES,
+} from './logs.js'
 
 /**
  * The queries this seam sends, captured.
@@ -130,7 +137,7 @@ describe('every query that parses JSON skips the lines it cannot parse', () => {
         },
         3600,
       ),
-    ).toEqual({ firstAt: null, lastAt: null, samples: [] })
+    ).toEqual({ firstAt: null, lastAt: null, samples: [], causes: [] })
     expect(await logs.lastStart('api', '2026-08-06T11:00:00.000Z')).toBeNull()
   })
 
@@ -154,5 +161,110 @@ describe('every query that parses JSON skips the lines it cannot parse', () => {
 
     void queries
     expect(captured[0]).toBe(String(SAMPLE_LINES))
+  })
+})
+
+/**
+ * Reading the cause off a line before the line is truncated (`#898`).
+ *
+ * The case is `#895`: two samples cut at the same column, both of them mid-SQL,
+ * and `42809` — the one field that says what was actually wrong — in neither
+ * issue. What is pinned here is that the chain is read from the whole line, and
+ * that the odd shapes a `cause` can hold produce a row rather than an exception.
+ */
+describe('the cause chain', () => {
+  const lineWith = (err: unknown): string =>
+    JSON.stringify({ level: 'error', service: 'api', event: 'mcp.tool.threw', err })
+
+  it('carries the cause of a query that failed, whatever length the message is', () => {
+    const line = lineWith({
+      name: 'Error',
+      message: `Failed query: select ${'"column", '.repeat(80)}from "provider_recipes"`,
+      cause: {
+        name: 'PostgresError',
+        code: '42809',
+        message: 'op ANY/ALL (array) requires array on right side',
+      },
+    })
+
+    expect(causeChain(line)).toEqual([
+      {
+        name: 'PostgresError',
+        code: '42809',
+        message: 'op ANY/ALL (array) requires array on right side',
+      },
+    ])
+  })
+
+  it('follows a nested chain, and stops where the logger stopped serialising it', () => {
+    const nest = (depth: number): unknown =>
+      depth === 0
+        ? { name: 'Deepest', message: 'the bottom' }
+        : { name: `L${depth}`, message: `at ${depth}`, cause: nest(depth - 1) }
+
+    const chain = causeChain(lineWith({ name: 'Error', message: 'outer', cause: nest(8) }))
+
+    expect(chain).toHaveLength(MAX_CAUSE_DEPTH)
+    expect(chain[0]?.name).toBe('L8')
+  })
+
+  /** The rejection case: most errors have no cause, and file what they filed before. */
+  it('an error with no cause has no chain — not a row of nothings', () => {
+    expect(causeChain(lineWith({ name: 'ZodError', message: 'invalid' }))).toEqual([])
+    expect(causeChain(JSON.stringify({ level: 'error', event: 'poll.failed' }))).toEqual([])
+  })
+
+  /**
+   * The rejection case that would cost the most. This runs inside the pass that
+   * reports every other signature, so a `cause` that is a string, a number or an
+   * object with none of the expected fields must not throw.
+   */
+  it('a cause that is not an object does not throw, and says what it was', () => {
+    expect(
+      causeChain(lineWith({ name: 'Error', message: 'm', cause: 'the socket closed' })),
+    ).toEqual([{ name: null, code: null, message: 'the socket closed' }])
+    expect(causeChain(lineWith({ name: 'Error', message: 'm', cause: 42 }))).toEqual([
+      { name: null, code: null, message: '42' },
+    ])
+    expect(causeChain(lineWith({ name: 'Error', message: 'm', cause: { odd: true } }))).toEqual([
+      { name: null, code: null, message: null },
+    ])
+    expect(causeChain(lineWith({ name: 'Error', message: 'm', cause: null }))).toEqual([])
+  })
+
+  it('a line that is not JSON at all is a line with no chain', () => {
+    expect(causeChain('    at Object.<anonymous> (/app/dist/main.js:1:1)')).toEqual([])
+    expect(causeChain('')).toEqual([])
+  })
+
+  /**
+   * A client that cannot reach its server quotes the connection string, and a
+   * connection string carries a password. The writer redacts the hosts it was
+   * configured with; nothing configured this reader, so it quotes no URL at all.
+   */
+  it('a URL in a cause message is not quoted', () => {
+    const chain = causeChain(
+      lineWith({
+        name: 'Error',
+        message: 'm',
+        cause: {
+          name: 'ConnectionError',
+          code: 'ECONNREFUSED',
+          message: 'could not connect to postgres://someone:letmein@somewhere/db now',
+        },
+      }),
+    )
+
+    expect(chain[0]?.message).toBe('could not connect to <url> now')
+    expect(chain[0]?.message).not.toContain('letmein')
+  })
+
+  it('a message long enough to be a document is bounded', () => {
+    const chain = causeChain(
+      lineWith({ name: 'Error', message: 'm', cause: { name: 'X', message: 'y'.repeat(5_000) } }),
+    )
+
+    expect(chain[0]?.message?.length).toBeLessThanOrEqual(CAUSE_MESSAGE_LENGTH + 20)
+    expect(chain[0]?.message).toContain('truncated')
   })
 })

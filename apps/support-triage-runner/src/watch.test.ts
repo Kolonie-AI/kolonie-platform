@@ -30,6 +30,7 @@ const EVIDENCE: DefectEvidence = {
   firstAt: '2026-08-05T13:18:12.000Z',
   lastAt: '2026-08-05T13:59:00.000Z',
   samples: ['{"level":"error","event":"poll.failed","msg":"ZodError"}'],
+  causes: [],
 }
 
 function fakeLogs(signatures: readonly LogSignature[], over: Partial<Logs> = {}): Logs {
@@ -596,6 +597,7 @@ describe('a closed issue and lines older than the closure', () => {
           firstAt: '2026-08-07T22:45:00.000Z',
           lastAt: BEFORE_THE_FIX,
           samples: ['{"level":"error","event":"mcp.tool.threw"}'],
+          causes: [],
         }),
       }),
       issues,

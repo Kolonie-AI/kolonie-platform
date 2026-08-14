@@ -1,6 +1,7 @@
 import type { ModelCall } from '@kolonie-ai/core'
 import type { ClosedIssue, KnownIssue, NewIssue } from './github.js'
-import type { DefectEvidence, LogSignature } from './logs.js'
+import type { DefectEvidence, LogCause, LogSignature } from './logs.js'
+import { MAX_CAUSE_DEPTH } from './logs.js'
 import { modelCallLine } from './triage.js'
 
 /**
@@ -299,6 +300,8 @@ export function defectBody(report: DefectReport): string {
     lines.push('')
   }
 
+  lines.push(...causeSection(evidence.causes))
+
   lines.push('## What the model makes of it')
   lines.push('')
   lines.push(
@@ -325,6 +328,56 @@ export function defectBody(report: DefectReport): string {
   )
 
   return lines.join('\n')
+}
+
+/**
+ * The cause chain, in its own section, in full (`#898`).
+ *
+ * **Independent of how long `message` is**, which is the whole of the change.
+ * The sample above is truncated and always will be — Drizzle puts the entire
+ * statement in `message`, so a longer budget buys a longer prefix of SQL and the
+ * `cause` is still last. `#895` was filed twice from lines cut at the same
+ * column, and the model judging them wrote that it could not tell data from
+ * schema from connectivity. `42809` — *op ANY/ALL (array) requires array on
+ * right side* — was on both lines and in neither issue.
+ *
+ * **Nothing here is a section when there is nothing to put in it.** An error
+ * without a cause is most errors, and it files exactly what it filed before: no
+ * heading, no empty table, no `undefined`.
+ */
+function causeSection(causes: readonly LogCause[]): readonly string[] {
+  if (causes.length === 0) return []
+
+  const cell = (value: string | null, code: boolean): string =>
+    value === null
+      ? '—'
+      : code
+        ? `\`${value}\``
+        : value.replaceAll('|', '\\|').replaceAll('\n', ' ')
+
+  const lines = [
+    '## The cause',
+    '',
+    '**This is the field that names the failure**, and it is below the truncation ' +
+      'in the line above rather than missing from it.',
+    '',
+    '| Depth | Name | Code | Message |',
+    '|---|---|---|---|',
+  ]
+  causes.forEach((cause, index) => {
+    lines.push(
+      `| ${index + 1} | ${cell(cause.name, true)} | ${cell(cause.code, true)} | ${cell(cause.message, false)} |`,
+    )
+  })
+  lines.push('')
+  lines.push(
+    `Followed to ${MAX_CAUSE_DEPTH} link(s), which is where the logger stops serialising one. ` +
+      'Only `name`, `code` and `message` are read: `detail`, `where`, `query` and `parameters` ' +
+      'are where a driver puts row values and bound parameters, and this issue is public.',
+  )
+  lines.push('')
+
+  return lines
 }
 
 /** What a comment on a recurrence says. Short, and it says how often. */

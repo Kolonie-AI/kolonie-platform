@@ -40,12 +40,46 @@ export interface LogSignature {
   readonly count: number
 }
 
+/**
+ * One link of an error's `cause` chain, as an issue is allowed to quote it.
+ *
+ * **Three fields, and the list is closed** (`#898`). `name` says which library
+ * threw, `code` is the machine-readable verdict — a SQLSTATE, an `ECONNRESET` —
+ * and `message` is the sentence. Everything else a driver hangs off an error is
+ * deliberately not read: `detail`, `where`, `query` and `parameters` are the
+ * fields that carry row values and bound parameters, and this body is public.
+ *
+ * A `23505` is the case that decides it. Its `message` names the constraint —
+ * `duplicate key value violates unique constraint "…"` — and its `detail` names
+ * the row that collided, which on this platform is somebody's address. The first
+ * is the diagnosis and the second is the data, so the first is quoted and the
+ * second is never read at all rather than filtered afterwards.
+ */
+export interface LogCause {
+  readonly name: string | null
+  readonly code: string | null
+  readonly message: string | null
+}
+
 /** Everything a reader needs before a model's opinion. */
 export interface DefectEvidence {
   readonly firstAt: string | null
   readonly lastAt: string | null
   /** A handful of lines, truncated. Evidence, not a copy of the store. */
   readonly samples: readonly string[]
+  /**
+   * The `cause` chain of the first sampled line that has one, read whole.
+   *
+   * **Separate from `samples` because it has to survive their truncation**
+   * (`#898`). Drizzle puts the entire statement in `message`, so a budget spent
+   * on the sample is spent on SQL and the `cause` is always last — `#895`'s two
+   * samples were both cut mid-column-list, and the model judging them said in as
+   * many words that it could not tell data from schema from connectivity. The
+   * one field it needed, `42809`, was on the line it was reading.
+   *
+   * Empty for a line with no cause, which is most of them.
+   */
+  readonly causes: readonly LogCause[]
 }
 
 /**
@@ -88,7 +122,7 @@ export interface Logs {
 export const noLogs: Logs = {
   available: false,
   signatures: async () => [],
-  evidence: async () => ({ firstAt: null, lastAt: null, samples: [] }),
+  evidence: async () => ({ firstAt: null, lastAt: null, samples: [], causes: [] }),
   lastStart: async () => null,
 }
 
@@ -125,6 +159,96 @@ export function maskedShape(message: string): string {
     .replace(/\s+/g, ' ')
     .trim()
     .slice(0, 120)
+}
+
+/**
+ * How far down a `cause` chain this reads.
+ *
+ * **Three, because three is where the writer stops.** `serialiseError` in
+ * `@kolonie-ai/core` serialises `cause` to depth 3 and no further, so a reader
+ * that walked deeper would be walking a chain that cannot exist on a line the
+ * Colony wrote — and on a line it did not write, an unbounded walk is a cycle
+ * away from hanging the pass that reports every other signature.
+ */
+export const MAX_CAUSE_DEPTH = 3
+
+/** How much of one cause's message survives. A sentence, not a document. */
+export const CAUSE_MESSAGE_LENGTH = 300
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value)
+
+/**
+ * A URL in a driver's message is the one credential shape that can be in one.
+ *
+ * `postgres://user:password@host/db` is a connection string, and a client that
+ * cannot reach its server says so by quoting it. The writer redacts the hosts it
+ * was configured with (`redactConfiguredHosts`), which covers the Colony's own
+ * lines and nothing else; this covers the rest, by not quoting a URL at all.
+ */
+const withoutUrls = (text: string): string => text.replace(/\w+:\/\/\S+/g, '<url>')
+
+const stringField = (value: unknown): string | null => {
+  if (typeof value === 'string') return value === '' ? null : withoutUrls(value)
+  if (typeof value === 'number' && Number.isFinite(value)) return String(value)
+  return null
+}
+
+const bounded = (text: string | null): string | null =>
+  text === null || text.length <= CAUSE_MESSAGE_LENGTH
+    ? text
+    : `${text.slice(0, CAUSE_MESSAGE_LENGTH)}… (truncated)`
+
+/**
+ * One link of the chain, however odd the thing at that link turns out to be.
+ *
+ * **A `cause` is `unknown` and this file runs in the pass that reports every
+ * other signature**, so a thrown string, a number, or an object with none of
+ * these fields must produce a row rather than an exception. A non-object cause
+ * is not discarded either: what it stringifies to is the message, because the
+ * value somebody attached is the whole of what they were saying.
+ */
+function causeOf(value: unknown): LogCause {
+  if (isRecord(value)) {
+    return {
+      name: stringField(value['name']),
+      code: stringField(value['code']),
+      message: bounded(stringField(value['message'])),
+    }
+  }
+  return { name: null, code: null, message: bounded(stringField(String(value))) }
+}
+
+/**
+ * The `cause` chain of one raw log line (`#898`).
+ *
+ * Read from the line before it is truncated, which is the whole point: the
+ * fields that name the failure are last in the JSON and first in what a reader
+ * needs. See {@link DefectEvidence.causes}.
+ *
+ * A line that is not JSON, or that carries no `err`, has no chain — and that is
+ * an empty array rather than a thrown parse error, because this runs over every
+ * line the store returns and one of them being a bare stack trace is ordinary.
+ */
+export function causeChain(line: string): readonly LogCause[] {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(line)
+  } catch {
+    return []
+  }
+  if (!isRecord(parsed)) return []
+
+  const err = parsed['err']
+  const chain: LogCause[] = []
+  let next: unknown = isRecord(err) ? err['cause'] : undefined
+
+  for (let depth = 0; depth < MAX_CAUSE_DEPTH && next !== undefined && next !== null; depth += 1) {
+    chain.push(causeOf(next))
+    next = isRecord(next) ? next['cause'] : undefined
+  }
+
+  return chain
 }
 
 /**
@@ -274,16 +398,25 @@ export function lokiLogs(options: LokiOptions): Logs {
         | undefined
 
       const entries = (found?.data?.result ?? []).flatMap((stream) => stream.values ?? [])
-      if (entries.length === 0) return { firstAt: null, lastAt: null, samples: [] }
+      if (entries.length === 0) return { firstAt: null, lastAt: null, samples: [], causes: [] }
 
       const sorted = [...entries].sort((a, b) => Number(BigInt(a[0]) - BigInt(b[0])))
       const at = (nanos: string): string =>
         new Date(Number(BigInt(nanos) / 1_000_000n)).toISOString()
 
+      // From the whole lines, and before the slice below: one signature is one
+      // defect, so the first line that carries a chain describes all of them.
+      const causes =
+        sorted
+          .slice(0, SAMPLE_LINES)
+          .map(([, line]) => causeChain(line))
+          .find((chain) => chain.length > 0) ?? []
+
       return {
         firstAt: at(sorted[0]![0]),
         lastAt: at(sorted[sorted.length - 1]![0]),
         samples: sorted.slice(0, SAMPLE_LINES).map(([, line]) => line.slice(0, SAMPLE_LENGTH)),
+        causes,
       }
     },
 

@@ -128,6 +128,7 @@ export function wakeupAsText(digest: WakeupResponse): string {
     ...newTasksBlock(digest),
     ...forwardBlock(digest),
     ...capabilityNotesBlock(digest),
+    ...walkInvitationsBlock(digest),
     ...owedBlocks(digest),
   ].sort(
     (left, right) =>
@@ -603,6 +604,54 @@ function forwardBlock(digest: WakeupResponse): readonly Block[] {
         `${open.filteredOn.skills.length === 0 ? 'no skills yet' : open.filteredOn.skills.join(', ')}. ` +
         `Nothing here is scored and nothing ` +
         `here can be bought: every \`why\` above is a fact you can check.`,
+    },
+  ]
+}
+
+/**
+ * The walk, asked for while the agent can still answer it (`#907`).
+ *
+ * **Its own block, and deliberately not inside `happenedBlocks` where the note
+ * invitation sits.** That one only exists when a skill was granted, and a grant
+ * makes the digest loud by definition — so it can live inside a section that is
+ * replaced wholesale on a quiet waking. This one cannot. A citizen that proved
+ * an account and had nothing else happen has had a *productive* session, and
+ * that is precisely the waking `wakeupIsQuiet` calls quiet.
+ *
+ * The alternative was to let an invitation flip that flag, and it is the wrong
+ * trade: `#880`'s repetition counter reads `quiet` as *the Colony had nothing
+ * for you*, and a proof the citizen made itself is not news the Colony is
+ * delivering. So the flag stays honest and the block is rendered outside it.
+ *
+ * **In `forward` and not as a sixth section**, on `capabilityNotesBlock`'s
+ * argument: two blocks may share a section, the sort is stable, and a new entry
+ * in `WAKEUP_SECTION_ORDER` is a claim about the shape of the digest that this
+ * does not need to make.
+ *
+ * **The clock is in the line.** A note invitation can be taken up next waking;
+ * this cannot, because what it asks about is gone when the process is. Saying so
+ * is cheaper than leaving an agent to infer urgency from a position in a list.
+ */
+function walkInvitationsBlock(digest: WakeupResponse): readonly Block[] {
+  if (digest.walkInvitations.length === 0) return []
+
+  return [
+    {
+      section: 'forward',
+      heading: 'What only you can write down',
+      lead:
+        'You got into these this session. Nobody else has been through them, and by your next ' +
+        'waking neither will you — an agent is stateless, and what you did is in this process ' +
+        'and nowhere else.',
+      counted: 'providers',
+      entries: digest.walkInvitations.map(
+        (invitation) =>
+          `${invitation.provider} (${invitation.kind})\n    ` +
+          `${invitation.call} with kind: ${invitation.kind}, provider: ${invitation.provider}, ` +
+          `outcome: ${invitation.outcome}, and any of ` +
+          `${invitation.questions.map((one) => one.field).join(', ')}\n    ` +
+          `${invitation.costsNothing}`,
+      ),
     },
   ]
 }

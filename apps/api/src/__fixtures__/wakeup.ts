@@ -30,6 +30,9 @@ type Changes = Omit<
   // Computed by `wakeup` from `skillsGranted` and the note store, never by the
   // source (`#377`).
   | 'noteInvitations'
+  // Likewise, from the walk store, and bounded by the run rather than by the
+  // window this type describes (`#907`).
+  | 'walkInvitations'
   // Likewise, from `open` and the note store (`#376`).
   | 'capabilityNotes'
 >
@@ -80,6 +83,12 @@ export interface FakeWakeup extends WakeupSource {
   /** Where the citizen stands, for the section that says so (`#344`). */
   readonly answersStanding: (standing: WakeupStanding) => void
   readonly answersChanges: (changes: Partial<Changes>) => void
+  /** Providers proved in this run and not written up, for `#907`'s invitation. */
+  readonly answersWalksToAskAbout: (
+    walks: readonly { readonly kind: string; readonly provider: string }[],
+  ) => void
+  /** Makes the walk store fail, so a test can assert the digest survives it. */
+  readonly walkStoreIsUnhappy: () => void
   /** The windows the digest was asked about, so a test can assert the derivation. */
   readonly windows: () => readonly string[]
 }
@@ -100,6 +109,8 @@ export function fakeWakeup(): FakeWakeup {
   let channel: WakeupWakeChannel | null = null
   let wanted: readonly WakeupWantedAccount[] = []
   let standing: WakeupStanding = AT_THE_START
+  let walks: readonly { readonly kind: string; readonly provider: string }[] = []
+  let walksThrow = false
   const windows: string[] = []
 
   return {
@@ -109,6 +120,10 @@ export function fakeWakeup(): FakeWakeup {
     wakeChannel: async (_agentId: AgentId) => channel,
     wantedAccounts: async (_agentId: AgentId) => wanted,
     standing: async (_agentId: AgentId) => standing,
+    walksToAskAbout: async (_agentId: AgentId) => {
+      if (walksThrow) throw new Error('the walk store is unhappy')
+      return walks
+    },
     changes: async (_agentId: AgentId, since: string) => {
       windows.push(since)
       return changes
@@ -133,6 +148,12 @@ export function fakeWakeup(): FakeWakeup {
     },
     answersChanges: (next) => {
       changes = { ...NOTHING, ...next }
+    },
+    answersWalksToAskAbout: (next) => {
+      walks = next
+    },
+    walkStoreIsUnhappy: () => {
+      walksThrow = true
     },
     windows: () => [...windows],
   }

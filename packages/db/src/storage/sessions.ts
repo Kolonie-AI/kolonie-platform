@@ -276,3 +276,30 @@ export async function recentSessions(
     submissions: Number(row.submissions),
   }))
 }
+
+/**
+ * When the run the caller is in began, as a scalar subquery (`#907`).
+ *
+ * **The sibling of {@link previousSessionStartSql}, and the boundary a different
+ * question needs.** That one bounds *news* — everything since the citizen last
+ * woke, which spans the previous run because that is where the news happened.
+ * This one bounds *context*: what the agent still has in front of it, which ends
+ * at the edge of the run it is in.
+ *
+ * `#907` is the case that needs the distinction. An ask for a walk is worth
+ * making while the agent can still answer it and worthless afterwards, so *offer
+ * it once more in this session* and *offer it again next session* are opposite
+ * behaviours — and the first is only expressible against this boundary.
+ *
+ * `null` where no session is current, and a caller reading that as *nothing is
+ * in this session* is reading it correctly: a citizen that has never named a run
+ * has no context the Colony can claim is still open.
+ */
+export function currentSessionStartSql(agentId: AgentId) {
+  return sql<string | null>`(
+    select s.first_seen_at from agent_sessions s
+     where s.agent_id = ${agentId}
+       and s.id = ${currentSessionIdSql(agentId)}
+     limit 1
+  )`
+}

@@ -513,7 +513,13 @@ export function fakeAccountProofs(register: FakeAccountRegister): AccountProofs 
 
       await record(row)
 
-      return { outcome: 'proved', kind: row.kind as AccountKind, identifier: row.identifier }
+      return {
+        outcome: 'proved',
+        kind: row.kind as AccountKind,
+        identifier: row.identifier,
+        /** Carried since `#907`: the walk ask is keyed on it and cannot ask for it. */
+        provider: row.provider,
+      }
     },
 
     async inbound(token, from) {

@@ -624,6 +624,36 @@ describe('nothing decides on a session', () => {
     'standing-hints.ts',
     'standing-hints.test.ts',
     /**
+     * **`account-walks.ts`, which branches on a session and gives nothing away**
+     * (`#907`).
+     *
+     * The session decides one thing here: whether the Colony asks this citizen
+     * to write up a provider it just got into. `walksToAskAbout` is bounded by
+     * `currentSessionStartSql` because a walk is answerable while the agent
+     * still has the signup in front of it and is a plausible reconstruction
+     * afterwards — an ask that outlived its run would fill the catalogue with
+     * invented recipes, which is the failure the walk channel exists to avoid.
+     *
+     * **It passes the standard `standing-hints.ts` is held to, in the same
+     * direction.** Everything the session influences is *whether the citizen is
+     * asked*, never what it may do. No skill, no reward, no reputation, no
+     * eligibility and no ordering reads this. The walk itself is accepted
+     * whenever the citizen sends one — `walk-report` has no session condition on
+     * it — so a citizen that never sees the ask can still write the walk, and one
+     * that games its session ids changes only how often it is invited to.
+     *
+     * **The direction a citizen would want does not exist.** Naming a fresh
+     * session per call would produce *more* invitations to do unpaid work for the
+     * catalogue, and naming none produces silence. Neither buys anything: the ask
+     * is an offer that says in its own words that declining costs nothing.
+     *
+     * If anything here ever rewards a walk differently for having been invited,
+     * or gates the walk itself on a session, this entry is where the argument has
+     * to be revisited.
+     */
+    'account-walks.ts',
+    'account-walks.test.ts',
+    /**
      * **`activity.ts`, which branches on a session to decide what is listed**
      * (`#227`).
      *
@@ -716,7 +746,25 @@ describe('nothing decides on a session', () => {
       // `runtimeTools` is named beside the table (`#192`) so that a file
       // reaching for the column without going through `agentSessions` — a raw
       // `sql` fragment, a join written by hand — is caught by the same rule.
-      if (/agentSessions|sessionId|session_id|runtimeTools|runtime_tools/.test(source)) {
+      //
+      // **The two session subqueries are named for the same reason** (`#907`).
+      // `currentSessionIdSql` and `previousSessionStartSql` are the sanctioned
+      // way to reach a session boundary, and until they were listed here a
+      // module could branch on a run without matching any of the patterns above
+      // — which is precisely the hole the sentence above claims to close.
+      // `account-walks.ts` was the first module to fall in it, and it was caught
+      // only by its own test file naming a `sessionId`.
+      //
+      // **Matched as a call and not as a word**, because several modules discuss
+      // these helpers in prose without reaching for one — `skills.ts` cites
+      // `currentSessionIdSql` twice to explain an unrelated aliasing decision.
+      // Naming a file that merely argues about sessions would make the list
+      // longer and the rule weaker.
+      if (
+        /agentSessions|sessionId|session_id|runtimeTools|runtime_tools|SessionIdSql\(|SessionStartSql\(/.test(
+          source,
+        )
+      ) {
         offenders.push(file)
       }
     }

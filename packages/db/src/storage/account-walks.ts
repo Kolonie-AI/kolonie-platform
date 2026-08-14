@@ -29,6 +29,7 @@ import { accountWalks, accountWalkSteps } from '../schema/account-walks.js'
 import { agents } from '../schema/agents.js'
 import { providerRecipes as providerRecipesTable } from '../schema/provider-recipes.js'
 import { canonicalProvider } from './atlas-renames.js'
+import { currentSessionStartSql } from './sessions.js'
 import { markProviderBriefingStale } from './provider-briefing.js'
 import { providerRecipe, writeProviderRecipe } from './provider-recipes.js'
 import { toTimestamp } from './rows.js'
@@ -957,4 +958,59 @@ export async function divergentWalks(
   }
 
   return out
+}
+
+/**
+ * Providers this citizen proved in the run it is still in, and has not written
+ * up (`#907`).
+ *
+ * ## Why the boundary is the session and not the wake-up window
+ *
+ * **A walk is answerable only while the agent still has it in front of it.** The
+ * digest's own window runs from the previous session's start, because that is
+ * where *news* happened; asking for a walk against that window would put the ask
+ * in front of an agent whose memory of the signup ended when the last run did.
+ * What comes back then is not a walk — it is a plausible reconstruction, which
+ * is the one thing the catalogue must not be filled with.
+ *
+ * So the ask is offered once more inside the run that earned it and is then
+ * dropped. `currentSessionStartSql` is the boundary that says so, and a citizen
+ * that has named no session gets nothing here rather than a guess.
+ *
+ * ## What counts as written up
+ *
+ * A finished walk with any answer, on `walkIsReported`'s rule — except that a
+ * `proved` outcome does **not** clear it here, and that is the difference worth
+ * stating. `walkIsReported` answers *may this citizen retry*, and a citizen that
+ * got through is never held up. This answers *is there anything left to ask
+ * for*, and a citizen that got through and said nothing about how is exactly the
+ * one worth asking.
+ */
+export async function walksToAskAbout(
+  db: Database,
+  agentId: AgentId,
+): Promise<readonly { readonly kind: string; readonly provider: string }[]> {
+  const rows = await db.execute<{ kind: string; provider: string }>(sql`
+    select a.kind, a.provider
+      from accounts a
+     where a.agent_id = ${agentId}
+       and a.proved
+       and a.provider is not null
+       and a.proved_at >= ${currentSessionStartSql(agentId)}
+       and not exists (
+         select 1 from account_walks w
+          where w.agent_id = a.agent_id
+            and w.kind = a.kind
+            and w.provider = a.provider
+            and w.finished_at is not null
+            and (coalesce(w.did, '') <> ''
+              or coalesce(w.broke, '') <> ''
+              or coalesce(w.changed, '') <> ''
+              or coalesce(w.discarded, '') <> ''
+              or coalesce(w.note, '') <> '')
+       )
+     order by a.proved_at desc
+  `)
+
+  return [...rows]
 }

@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { AccountKindSchema } from '../account/account.js'
 import { RecipeOperatorNeedSchema, RecipeStatusSchema } from '../account/recipe.js'
+import { WalkAskSchema } from '../account/walk-ask.js'
 import { SkillSchema } from '../common/skill.js'
 import { SubmissionIdSchema, SupportTicketIdSchema, TaskIdSchema } from '../common/ids.js'
 import { TimestampSchema } from '../common/time.js'
@@ -774,6 +775,26 @@ export const WakeupResponseSchema = z.object({
    * changed the same field twice.
    */
   noteInvitations: z.array(WakeupNoteInvitationSchema),
+  /**
+   * Providers this citizen got into in this run and has not written up (`#907`).
+   *
+   * **Offered once more, and only inside the run that earned it.** The ask rides
+   * on the proof's own response first; this is the second and last time it is
+   * made. A walk is answerable while the agent still has the signup in front of
+   * it and is a plausible reconstruction afterwards — so an ask that outlived
+   * its session would produce exactly the invented recipe the walk channel
+   * exists to avoid, and the boundary is `currentSessionStartSql` rather than
+   * the digest's own window for that reason.
+   *
+   * **An offer and never a gate**, on the terms {@link WalkAskSchema} carries in
+   * its own `costsNothing` field: the account is proved, the reputation is
+   * already booked, and nothing about standing depends on this.
+   *
+   * Not part of {@link wakeupIsQuiet}. A citizen with nothing else waiting has
+   * had a productive session rather than a quiet one, and calling that waking
+   * loud would make the digest's own repetition counter read a proof as news.
+   */
+  walkInvitations: z.array(WalkAskSchema),
   /**
    * The citizen's own notes on the capabilities the offered work touches
    * (`#376`).

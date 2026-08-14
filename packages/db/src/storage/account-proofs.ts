@@ -273,7 +273,22 @@ export async function openAccountProof(
 }
 
 export type ProofRedemption =
-  | { readonly outcome: 'proved'; readonly kind: AccountKind; readonly identifier: string }
+  | {
+      readonly outcome: 'proved'
+      readonly kind: AccountKind
+      readonly identifier: string
+      /**
+       * Who runs it, where the citizen named one, or null (`#907`).
+       *
+       * **Returned because the walk ask needs it and cannot ask for it.** A walk
+       * is keyed on `(kind, provider)`, so a proof that comes back without the
+       * provider it was minted with can only offer an ask the citizen would have
+       * to complete by hand — which is the form-filling the prefill exists to
+       * remove. Null where the citizen named none, and the ask is then absent
+       * rather than guessed at.
+       */
+      readonly provider: string | null
+    }
   | { readonly outcome: 'no-open-proof' }
   | { readonly outcome: 'already-proved-by-another' }
 
@@ -348,6 +363,7 @@ export async function redeemPostProof(
         outcome: 'proved' as const,
         kind: AccountKindSchema.parse(spent.kind),
         identifier: spent.identifier,
+        provider: spent.provider,
       }
     })
   } catch (error) {

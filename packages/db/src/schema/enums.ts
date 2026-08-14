@@ -17,7 +17,9 @@ import {
   HumanRoleSchema,
   IdentityProviderSchema,
   InboundRouteSchema,
-  WakeEventSchema,
+  RETIRED_WAKE_EVENTS,
+  type RetiredWakeEvent,
+  type WakeEvent,
   PaymentObserverSchema,
   ModeratedProfileFieldSchema,
   ProfileReviewStateSchema,
@@ -413,8 +415,27 @@ export const identityProvider = pgEnum(
  * is told something is waiting and finds out what by asking — so this enum
  * exists for the Colony's own record. *Which events actually wake agents* is a
  * question about the design that only the deliveries table can answer.
+ *
+ * **Two of these values are retired and the type still carries them** (`#913`).
+ * `share-ended` and `share-joined` knocked about a browser share, which is gone;
+ * nothing raises them and `WakeEventSchema` does not name them. They stay because
+ * PostgreSQL will not drop a value from an enum in place — the type has to be
+ * recreated and every referencing row moved first, and an unreachable value costs
+ * less than a rewrite of a live table. **The order below is the order the type was
+ * built in**, so the two sit where they always sat and this schema still diffs
+ * clean against the database.
  */
-export const wakeEvent = pgEnum('wake_event', valuesOf(WakeEventSchema.options))
+export const wakeEvent = pgEnum(
+  'wake_event',
+  valuesOf([
+    'operator-answer',
+    'operator-note',
+    'wish-wanted',
+    ...RETIRED_WAKE_EVENTS,
+    'verdict',
+    'quest-opened',
+  ] as const satisfies readonly (WakeEvent | RetiredWakeEvent)[]),
+)
 
 /**
  * What became of one wake delivery (`#518`).

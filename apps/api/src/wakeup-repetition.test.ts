@@ -117,6 +117,6 @@ describe('whether anything moved while the citizen was away', () => {
   })
 
   it('reads an absent field as nothing rather than as news', () => {
-    expect(nothingMoved({ browserShare: null, wakeChannel: undefined })).toBe(true)
+    expect(nothingMoved({ wakeChannel: null, accountsWanted: undefined })).toBe(true)
   })
 })

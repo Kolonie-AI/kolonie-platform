@@ -3,9 +3,12 @@ import { randomUUID } from 'node:crypto'
 import {
   AccountKindSchema,
   AgentIdSchema,
+  CITIZEN_RAISED_WAKE_EVENTS,
+  RAISED_WAKE_EVENTS,
   SubmissionIdSchema,
   TaskIdSchema,
   wakeupIsQuiet,
+  WakeEventSchema,
   WakeupResponseSchema,
 } from '@kolonie-ai/core'
 import { fakeWakeup, type FakeWakeup } from './__fixtures__/wakeup.js'
@@ -224,7 +227,6 @@ describe('a rung whose requirements moved', () => {
       operatorRepliesWaiting: 0,
       wakeChannel: null,
       accountsWanted: [],
-      browserShare: null,
     })
 
     expect(wakeupIsQuiet(digest)).toBe(false)
@@ -312,7 +314,6 @@ describe('a due mailbox re-check', () => {
           operatorRepliesWaiting: 0,
           wakeChannel: null,
           accountsWanted: [],
-          browserShare: null,
         }),
         accountRechecks: [
           {
@@ -362,7 +363,6 @@ describe('a role granted or taken back', () => {
       operatorRepliesWaiting: 0,
       wakeChannel: null,
       accountsWanted: [],
-      browserShare: null,
       ...fields,
     })
 
@@ -620,7 +620,6 @@ describe('the shape of the rendered digest', () => {
       operatorRepliesWaiting: 0,
       wakeChannel: null,
       accountsWanted: [],
-      browserShare: null,
     })
 
   interface Positions {
@@ -740,7 +739,6 @@ describe('the shape of the rendered digest', () => {
       operatorRepliesWaiting: 0,
       wakeChannel: null,
       accountsWanted: [],
-      browserShare: null,
       // A payment that landed while the citizen slept is news (`#346`), so a
       // digest carrying one is not quiet. The balance stays: a standing is
       // always there and counting it would make every wake-up loud.
@@ -799,7 +797,6 @@ describe('the new tasks a waking citizen is shown', () => {
       operatorRepliesWaiting: 0,
       wakeChannel: null,
       accountsWanted: [],
-      browserShare: null,
     })
 
   /** The first session, with the whole catalogue as the input. */
@@ -1064,6 +1061,51 @@ describe('the operator channel and the wake channel, in the digest', () => {
     const result = await wakeup(agentId, {}, source, noContributions)
 
     expect(result.response.wakeChannel?.activatedBy).toContain('verdict')
+  })
+
+  /**
+   * The withdrawal, stated where an agent would meet it (`#913`).
+   *
+   * `share-joined` and `share-ended` knocked about a tab handed to an operator.
+   * The channel is gone, and what has to be true afterwards is not only that the
+   * two names are absent but that the other five are exactly as they were — a
+   * removal that quietly took a sixth with it would look identical from inside
+   * the code that no longer mentions any of them.
+   */
+  it('raises the five surviving events and neither of the share knocks', async () => {
+    expect(WakeEventSchema.options).toEqual([
+      'operator-answer',
+      'operator-note',
+      'wish-wanted',
+      'verdict',
+      'quest-opened',
+    ])
+    expect(RAISED_WAKE_EVENTS).toEqual([
+      'operator-answer',
+      'operator-note',
+      'wish-wanted',
+      'verdict',
+    ])
+    expect(CITIZEN_RAISED_WAKE_EVENTS).toEqual(['verdict'])
+  })
+
+  /** And nothing an agent reads still points at the channel that is gone. */
+  it('says nothing about a shared tab, in the digest or in what it suggests', async () => {
+    source.answersWakeChannel({
+      url: 'https://mine.invalid/wake',
+      lastKnockedAt: '2026-08-10T08:35:31.764Z',
+      lastOutcome: 'answered',
+      consecutiveFailures: 0,
+      replacementOpen: false,
+    })
+
+    const result = await wakeup(agentId, {}, source, noContributions)
+
+    expect(JSON.stringify(result.response)).not.toContain('share')
+    expect(result.response.open.entries.map((entry) => entry.call)).not.toContain(
+      'kolonie.browser.share.status',
+    )
+    expect(wakeupAsText(result.response)).not.toContain('shared tab')
   })
 
   it('leaves a working channel unmentioned, because that is not news', async () => {

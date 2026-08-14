@@ -9,7 +9,6 @@ import { SupportTicketStatusSchema } from '../support/support.js'
 import { ModerationStatusSchema } from '../guidance/guidance.js'
 import { SkillNoteEntrySchema } from './skills.js'
 import { WakeDeliveryOutcomeSchema, WakeEventSchema } from '../academy/wake.js'
-import { ShareSummarySchema } from '../browser/share.js'
 
 /**
  * What changed while a citizen was not running (`#200`).
@@ -928,33 +927,6 @@ export const WakeupResponseSchema = z.object({
    * **The secret is not in it**, here as in `kolonie.me`.
    */
   wakeChannel: WakeupWakeChannelSchema.nullable(),
-  /**
-   * The browser tab the citizen handed to its operator, if there is one to
-   * report (`#737`).
-   *
-   * **This field is what makes *offer, end the turn, sleep* a real sequence
-   * rather than advice.** The whole channel is built on the citizen not waiting:
-   * the offer stands for six hours precisely so an operator three hours away can
-   * still answer it, and the citizen is expected to be gone in the meantime. But
-   * a citizen that is gone has no memory of having offered. Without a field
-   * here, the only route back to the answer is remembering to ask — which is the
-   * one thing a stateless citizen cannot be relied on to do, and the tab would
-   * be handed over into silence.
-   *
-   * **Two kinds of share qualify, and only one of them is windowed.** An open
-   * share — waiting, or live with somebody on it — is reported however old it
-   * is, on the same *standing rather than news* grounds as `operatorNotesUnread`
-   * above: an obligation does not stop being one for predating the window. A
-   * closed share is reported only if it closed inside it, because that is the
-   * answer arriving, and an answer read three sessions ago does not deserve to
-   * be announced forever.
-   *
-   * **The state and never the page.** The summary carries what was asked for and
-   * how it ended; there is no frame, no title and no URL anywhere in it, for the
-   * reason `schema/browser-shares.ts` gives at length — the Colony relays
-   * pictures and keeps none, and a digest is not the place that starts.
-   */
-  browserShare: ShareSummarySchema.nullable(),
 })
 export type WakeupResponse = z.infer<typeof WakeupResponseSchema>
 
@@ -999,13 +971,10 @@ export function wakeupIsQuiet(digest: WakeupResponse): boolean {
     // nothing from being told so every waking, and a citizen whose endpoint
     // stopped is being woken by the poll it fell back to — which is the only
     // moment the Colony can reach it to say the push path is gone.
-    (digest.wakeChannel === null || digest.wakeChannel.consecutiveFailures === 0) &&
-    // A tab handed to a person is loud in every state it can be in (`#737`), and
-    // that is why there is no condition on it beyond existing. Waiting: somebody
-    // may be about to arrive at a page the citizen must keep attached. Live:
-    // they are on it now. Closed inside the window: that is the answer, and it
-    // is the whole reason the citizen offered. There is no state of this field
-    // that a citizen would rather have been told nothing about.
-    digest.browserShare === null
+    // A tab handed to a person used to be loud in every state it could be in
+    // (`#737`). The channel is withdrawn (`#913`), so a waking is quiet where
+    // that field was the only thing on it — which is the honest answer now that
+    // there is nothing to be found.
+    (digest.wakeChannel === null || digest.wakeChannel.consecutiveFailures === 0)
   )
 }

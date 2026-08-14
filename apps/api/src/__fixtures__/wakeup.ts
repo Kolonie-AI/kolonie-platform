@@ -1,7 +1,6 @@
 import { CITIZEN_RAISED_WAKE_EVENTS } from '@kolonie-ai/core'
 import type {
   AgentId,
-  ShareSummary,
   WakeupResponse,
   WakeupStanding,
   WakeupWakeChannel,
@@ -25,10 +24,6 @@ type Changes = Omit<
   // is an open request rather than news, and windowing it would hide it from a
   // citizen that asked for a narrow window (`#581`).
   | 'accountsWanted'
-  // Its own call again (`#737`): an open share is a standing obligation, and one
-  // that closed while the citizen was away is the only part of it a window
-  // decides — so the source answers both, not `changes`.
-  | 'browserShare'
   | 'open'
   | 'standing'
   | 'pays'
@@ -80,8 +75,6 @@ export interface FakeWakeup extends WakeupSource {
   readonly answersWakeChannel: (channel: FakeWakeChannel | null) => void
   /** What the operator has marked and the citizen has not got (`#581`). */
   readonly answersWantedAccounts: (wanted: readonly WakeupWantedAccount[]) => void
-  /** The tab it handed over, open or lately closed, or `null` (`#737`). */
-  readonly answersBrowserShare: (share: ShareSummary | null) => void
   /** What the previous session's start should answer. `null` is "first session". */
   readonly answersPreviousSession: (at: string | null) => void
   /** Where the citizen stands, for the section that says so (`#344`). */
@@ -107,9 +100,6 @@ export function fakeWakeup(): FakeWakeup {
   let channel: WakeupWakeChannel | null = null
   let wanted: readonly WakeupWantedAccount[] = []
   let standing: WakeupStanding = AT_THE_START
-  // `null` is the ordinary state here too: the channel is the last resort, and
-  // most wakings are of a citizen that never reached for it.
-  let share: ShareSummary | null = null
   const windows: string[] = []
 
   return {
@@ -118,7 +108,6 @@ export function fakeWakeup(): FakeWakeup {
     waitingOperatorReplies: async (_agentId: AgentId) => waitingReplies,
     wakeChannel: async (_agentId: AgentId) => channel,
     wantedAccounts: async (_agentId: AgentId) => wanted,
-    browserShare: async (_agentId: AgentId, _since: string) => share,
     standing: async (_agentId: AgentId) => standing,
     changes: async (_agentId: AgentId, since: string) => {
       windows.push(since)
@@ -138,9 +127,6 @@ export function fakeWakeup(): FakeWakeup {
     },
     answersWantedAccounts: (next) => {
       wanted = next
-    },
-    answersBrowserShare: (next) => {
-      share = next
     },
     answersStanding: (next) => {
       standing = next

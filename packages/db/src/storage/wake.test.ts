@@ -1,7 +1,8 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { eq } from 'drizzle-orm'
 import { MAX_OPEN_WAKE_CHALLENGES, type AgentId } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
-import { agents } from '../schema/index.js'
+import { agents, wakeDeliveries } from '../schema/index.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
 import {
   liveWakeChallenge,
@@ -222,6 +223,32 @@ describe('the wake channel’s storage', () => {
       expect(await wakeAddressFor(db, other)).toBeUndefined()
       const hour = new Date(Date.now() - 60 * 60 * 1000)
       expect(await wakeDeliveriesSince(db, other, hour)).toBe(1)
+    })
+
+    /**
+     * A row written by a mechanism that no longer exists (`#913`).
+     *
+     * `share-joined` was a knock about a browser tab handed to an operator. The
+     * channel is withdrawn and `WakeEvent` does not name the value any more, so
+     * this row cannot be written through `recordWakeDelivery` — which is why it
+     * is inserted straight into the table, exactly as history holds it. What
+     * must not happen is that a citizen with one in its record stops being
+     * readable: the value stays in the database type for this reason, and this
+     * is the assertion that says so.
+     */
+    it('still counts a knock from the withdrawn share channel', async () => {
+      await db
+        .insert(wakeDeliveries)
+        .values({ agentId, event: 'share-joined', outcome: 'answered', status: 200 })
+
+      const hour = new Date(Date.now() - 60 * 60 * 1000)
+      expect(await wakeDeliveriesSince(db, agentId, hour)).toBe(1)
+
+      const [row] = await db
+        .select({ event: wakeDeliveries.event })
+        .from(wakeDeliveries)
+        .where(eq(wakeDeliveries.agentId, agentId))
+      expect(row?.event).toBe('share-joined')
     })
   })
 

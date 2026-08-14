@@ -11,7 +11,6 @@ import {
   type WakeupStanding,
   type WakeupWakeChannel,
   type WakeupWantedAccount,
-  type ShareSummary,
 } from '@kolonie-ai/core'
 import {
   countUnreadOperatorNotes,
@@ -19,7 +18,6 @@ import {
   escalationFactsFor,
   previousSessionStart,
   recordWakeupAnswer,
-  shareForWakeup,
   wakeChannelOf,
   wakeTargetFor,
   wakeupChanges,
@@ -93,23 +91,6 @@ export interface WakeupSource {
    */
   wantedAccounts(agentId: AgentId): Promise<readonly WakeupWantedAccount[]>
   /**
-   * The tab the citizen handed to its operator, if there is one worth saying
-   * (`#737`).
-   *
-   * **Its own call and not part of `changes`, though it is the one standing
-   * fact here that takes `since` at all.** That is not an inconsistency: half of
-   * what it answers is standing and half is news, and the two cannot be split
-   * across two ports without asking the same table twice. An open share is
-   * reported however old it is, because a tab waiting on a person is an
-   * obligation; a closed one only inside the window, because that is an answer
-   * and answers are read once.
-   *
-   * `changes` could not hold it for the standing half — the offer made eight
-   * hours before a two-hour window would vanish, and the citizen would wake with
-   * its tab handed over into silence.
-   */
-  browserShare(agentId: AgentId, since: string): Promise<ShareSummary | null>
-  /**
    * Where the citizen stands (`#344`).
    *
    * **Its own call, for the reason `unreadOperatorNotes` is one**: everything
@@ -163,7 +144,6 @@ export interface WakeupSource {
       | 'operatorRepliesWaiting'
       | 'wakeChannel'
       | 'accountsWanted'
-      | 'browserShare'
       | 'open'
       | 'standing'
       | 'pays'
@@ -239,7 +219,6 @@ export function databaseWakeup(db: Database, rechecks?: RecheckDependencies): Wa
         operatorNeedIsGuess: row.operatorNeedIsGuess,
       }))
     },
-    browserShare: (agentId, since) => shareForWakeup(db, agentId, since),
     standing: (agentId) => wakeupStanding(db, agentId),
     recordAnswer: (agentId, fingerprint, quiet) =>
       recordWakeupAnswer(db, agentId, fingerprint, quiet),
@@ -491,7 +470,6 @@ export async function wakeup(
     operatorRepliesWaiting,
     wakeChannel,
     accountsWanted,
-    browserShare,
     standing,
     open,
     startableAdded,
@@ -502,7 +480,6 @@ export async function wakeup(
     source.waitingOperatorReplies(agentId),
     source.wakeChannel(agentId),
     source.wantedAccounts(agentId),
-    source.browserShare(agentId, since),
     source.standing(agentId),
     openings === undefined
       ? Promise.resolve(NOTHING_OPEN)
@@ -616,7 +593,6 @@ export async function wakeup(
       operatorRepliesWaiting,
       wakeChannel,
       accountsWanted: [...accountsWanted],
-      browserShare,
     },
   }
 }

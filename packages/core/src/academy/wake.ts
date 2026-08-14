@@ -235,8 +235,11 @@ export function wakeSignatureMatches(
  * the agent wakes and asks the Colony what changed; if nothing was written before
  * the knock, the answer is *nothing* and the cycle is spent. That is what makes
  * the wired ones eligible and a bare *poke this agent* button not — `#518`
- * refuses one, and nothing here is a step towards it. It is also why
- * `share-ended` is raised on two of a share's five endings and not on all five.
+ * refuses one, and nothing here is a step towards it.
+ *
+ * **Two values left this list and are still in the database type**
+ * ({@link RETIRED_WAKE_EVENTS}). Nothing raises them; nothing tells an agent to
+ * wait for one.
  */
 export const WakeEventSchema = z.enum([
   /** An operator replied on the operator page. The one this rung exists for. */
@@ -258,50 +261,6 @@ export const WakeEventSchema = z.enum([
    * cooldown was added for this.
    */
   'wish-wanted',
-  /**
-   * A browser share the operator was on has ended (`#738`).
-   *
-   * **Raised only where a person actually arrived**, whether they closed the
-   * window deliberately or the live minutes ran out under them. The agent that
-   * offered a tab, ended its turn and slept is exactly the citizen a knock is
-   * for: what is waiting for it is a page somebody has just been clicking on,
-   * and the difference between finding that out now and finding it out at its
-   * next rhythm is hours on a form that was half filled.
-   *
-   * **The three endings that do not knock**, and each for the same reason — that
-   * a contentless wake is only worth sending when there is something new to be
-   * found:
-   *
-   * - **Nobody came.** The offer lapsed unaccepted. Waking a citizen to tell it
-   *   that its six hours passed spends a cycle on the absence of news.
-   * - **The agent withdrew it.** It was there when it did; it knows.
-   * - **The sharer went away.** A restart or a crash closed the share `lost`,
-   *   and whatever is running afterwards did not offer it.
-   *
-   * `kolonie.wakeup` names the share either way, so nothing is lost by not
-   * knocking — only the immediacy, which is what these three do not need.
-   */
-  'share-ended',
-  /**
-   * Somebody accepted a browser share and is on the page (`#774`).
-   *
-   * **The event with the shortest fuse of any here, which is the argument for
-   * it.** `share-ended` above wakes a citizen after the fact and loses nothing by
-   * being a little late. This one is the opposite: the live window is measured in
-   * minutes — `BROWSER_SHARE_LIVE_MINUTES` — and an agent that learns at its next
-   * rhythm that somebody joined learns it after they have gone, having
-   * offered a tab, slept through the one window it asked for, and woken to a
-   * share that ended with nobody on either side of it.
-   *
-   * **Raised after `accept` has committed**, per the rule the neighbours state: by
-   * the time this knocks, the row says `live`, `kolonie.browser.share.status`
-   * answers with it, and there is something to be found. Never raised on a refused
-   * accept — a stranger's guess at an id is not news for the citizen it guessed
-   * at.
-   *
-   * The origin is `operator` and not the citizen: a person did this.
-   */
-  'share-joined',
   /**
    * A verdict was recorded on a submission (`#518`, assembled by `#745`).
    *
@@ -346,11 +305,32 @@ export const WAKE_EVENT_ORIGINS: Readonly<Record<WakeEvent, 'citizen' | 'operato
   'operator-answer': 'operator',
   'operator-note': 'operator',
   'wish-wanted': 'operator',
-  'share-ended': 'operator',
-  'share-joined': 'operator',
   verdict: 'citizen',
   'quest-opened': null,
 }
+
+/**
+ * The two knocks the browser share had, withdrawn (`#913`).
+ *
+ * **A vocabulary that is retired is not the same as one that never existed**, and
+ * this is where the difference is kept. `share-joined` and `share-ended` woke a
+ * citizen about a tab it had handed to its operator (`#737`, `#738`, `#774`); the
+ * channel is gone, for the reason `#894` measured — the challenge it existed for
+ * reads the browser as driven and never opens, so the person arrived at a page
+ * with nothing on it to clear.
+ *
+ * **They are absent from {@link WakeEventSchema} and present in the database
+ * type.** PostgreSQL cannot drop a value from an enum in place; the type has to
+ * be recreated and every row referencing it moved first. An unreachable value in
+ * a type is cheaper than a rewrite of a live table, so the two stay orphaned —
+ * deliberately, and `schema/enums.ts` builds the type from this list beside the
+ * live one so that a reader meets the decision rather than an inconsistency.
+ *
+ * Rows written before the withdrawal keep their event and are still readable. The
+ * names are not reused: a later mechanism gets its own.
+ */
+export const RETIRED_WAKE_EVENTS = ['share-ended', 'share-joined'] as const
+export type RetiredWakeEvent = (typeof RETIRED_WAKE_EVENTS)[number]
 
 /** The events that actually knock. Derived, so it cannot disagree with the map (D-002). */
 export const RAISED_WAKE_EVENTS: readonly WakeEvent[] = WakeEventSchema.options.filter(

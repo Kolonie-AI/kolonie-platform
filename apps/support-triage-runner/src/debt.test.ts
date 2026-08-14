@@ -412,3 +412,76 @@ describe('what the alarm keeps current', () => {
     expect(debtIssueBody(andOneOfOurs)).toContain('are the Colony')
   })
 })
+
+/**
+ * `#919`: what the six identical blocked-check comments on `#727` were each
+ * establishing by hand, written into the body that is rewritten anyway.
+ *
+ * The waste was structural rather than anybody's oversight. A session assembling
+ * a work package is sent to the Blocked column, finds a `p1` carrying an agent
+ * label, and can only learn it needs nothing by redoing the query — then writes
+ * the conclusion as a comment, where the next session does not read it before
+ * repeating the work.
+ */
+describe('the blocked-check the body answers by itself', () => {
+  /** A fixed moment, so the sentence under test is a string and not a clock. */
+  const noon = Date.parse('2026-08-14T12:00:00.000Z')
+
+  it('states that nothing on the board discharges it, and when that was last true', () => {
+    const said = debtIssueBody(threeDebtsNoneOurs, noon)
+
+    expect(said).toContain('Nothing on the board discharges this')
+    expect(said).toContain('last confirmed 2026-08-14T12:00:00.000Z')
+  })
+
+  it('says it is not agent work, which is what put it into package assembly', () => {
+    const said = debtIssueBody(threeDebtsNoneOurs, noon)
+
+    expect(said).toContain('not agent work')
+    expect(said).toContain('`agent:*`')
+  })
+
+  /**
+   * The claim is *nothing here is ours*, so it must not be made about a debt
+   * that is. A verdict that read the same either way would be worse than none:
+   * the next session would learn to distrust it and go back to the query.
+   */
+  it('makes no such claim when the Colony has its own share to discharge', () => {
+    const said = debtIssueBody(andOneOfOurs, noon)
+
+    expect(said).not.toContain('Nothing on the board discharges this')
+    expect(said).not.toContain('not agent work')
+    // Still stamped, because *as of when* is the question in both directions.
+    expect(said).toContain('Last confirmed 2026-08-14T12:00:00.000Z')
+  })
+
+  /**
+   * A stamp written once and never refreshed answers the same way forever, which
+   * is the failure mode `recordedOurs`' marker was given the same treatment for.
+   * The standing pass already rewrites the body; this rides on it.
+   */
+  it('is refreshed on every standing pass rather than fixed at filing', async () => {
+    const issues = spyIssues([anIssue(debtIssueBody(threeDebtsNoneOurs, noon))])
+
+    const later = noon + 7 * 3_600_000
+    const outcome = await watchDebt({
+      issues,
+      measure: async () => threeDebtsNoneOurs,
+      now: () => later,
+    })
+
+    expect(outcome.action).toBe('standing')
+    expect(issues.revised[0]?.body).toContain('last confirmed 2026-08-14T19:00:00.000Z')
+    expect(issues.commented).toHaveLength(0)
+  })
+
+  it('carries the stamp on the pass that files it', async () => {
+    const issues = spyIssues([])
+
+    await watchDebt({ issues, measure: async () => threeDebtsNoneOurs, now: () => noon })
+
+    expect(issues.created[0]).toMatchObject({
+      body: expect.stringContaining('last confirmed 2026-08-14T12:00:00.000Z'),
+    })
+  })
+})

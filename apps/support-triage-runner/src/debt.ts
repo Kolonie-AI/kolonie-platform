@@ -247,8 +247,60 @@ export function whoseRefusal(refusal: PayoutRefusal | null): string {
   }
 }
 
+/**
+ * The one line a session assembling a work package needs, and the timestamp that
+ * makes it worth reading (`#919`).
+ *
+ * **The verdict was already computed and was not written down.** `oursToFix` has
+ * decided since `#727` whether anything here is the Colony's, and the body said
+ * so in prose — but not *as of when*, which is the whole of the question a
+ * package-assembling session is asking. `AGENTS.md` §4 sends it to the Blocked
+ * column; the body carries current figures; the only way to learn the answer was
+ * to redo the query. `#727` collected six identical blocked-check comments in
+ * three days from four sessions, each reaching this sentence by hand.
+ *
+ * So it is stated, with the moment it was last true, and refreshed on the same
+ * pass that refreshes the figures — which costs nothing, because that pass is
+ * already rewriting the body.
+ *
+ * **And it says the finding is not agent work**, which is the second half of
+ * `#919`. Nothing in this repository applies the `agent:*` label; the routing
+ * pass in `kolonie-docs` reads the issue and decides. A finding with no
+ * Colony-side action saying so plainly is the lever this side actually has, and
+ * it is addressed to a reader rather than to a parser for that reason.
+ */
+function dischargeVerdict(
+  mine: { readonly count: number; readonly lamports: number },
+  confirmedAt: number,
+): readonly string[] {
+  const at = new Date(confirmedAt).toISOString()
+
+  if (mine.count > 0) {
+    return [
+      `**${mine.count} of them, totalling ${mine.lamports} lamports, are the Colony’s own to ` +
+        'discharge.** That is the urgent part of this issue and the reason it is `p1`.',
+      '',
+      `Last confirmed ${at}.`,
+    ]
+  }
+
+  return [
+    '**None of it is the Colony’s own to discharge.** Every obligation below is waiting on ' +
+      'something outside this runner — a citizen that has not verified a wallet, or a price ' +
+      'below the chain floor. Nothing here is a failure to pay; it is money the Colony holds ' +
+      'and cannot deliver yet.',
+    '',
+    `**Nothing on the board discharges this, last confirmed ${at}.** That sentence is the ` +
+      'answer to the blocked-check, and it is rewritten every pass — so it needs no query to ' +
+      'trust and no comment to record. **This is not agent work while it says so**: there is ' +
+      'no Colony-side action to take, so it wants no `agent:*` route and no owner. It clears ' +
+      'itself when the third party acts, and the line above changes on the same pass if a debt ' +
+      'the Colony *can* act on arrives behind these.',
+  ]
+}
+
 /** The alarm, as somebody who has to act on it reads it. */
-export function debtIssueBody(debt: OutstandingDebt): string {
+export function debtIssueBody(debt: OutstandingDebt, confirmedAt: number = Date.now()): string {
   const rows = debt.refusals.map(
     (row) =>
       `| ${row.lamports} | ${row.count} | \`${row.refusal ?? 'none recorded'}\` | ` +
@@ -267,13 +319,7 @@ export function debtIssueBody(debt: OutstandingDebt): string {
     // The line that decides who has to act now, said before the table rather
     // than left to be read out of it (`#727`). Both readings are worth having
     // and only one of them is urgent.
-    mine.count === 0
-      ? '**None of it is the Colony’s own to discharge.** Every obligation below is waiting on ' +
-        'something outside this runner — a citizen that has not verified a wallet, or a price ' +
-        'below the chain floor. Nothing here is a failure to pay; it is money the Colony holds ' +
-        'and cannot deliver yet.'
-      : `**${mine.count} of them, totalling ${mine.lamports} lamports, are the Colony’s own to ` +
-        'discharge.** That is the urgent part of this issue and the reason it is `p1`.',
+    ...dischargeVerdict(mine, confirmedAt),
     '',
     '| Owed | Obligations | Last refusal | Whose it is to fix |',
     '|---|---|---|---|',
@@ -356,6 +402,15 @@ export function debtClosingComment(): string {
 export interface DebtWatchDependencies {
   readonly issues: Issues
   measure(): Promise<OutstandingDebt>
+  /**
+   * When this pass ran, for the *last confirmed* stamp on the verdict (`#919`).
+   *
+   * Injected on the convention `logs.ts` and `watch.ts` already use here, and
+   * for the reason they use it: a timestamp read from the ambient clock makes
+   * the body of this issue untestable, and the body is now where the answer to
+   * the blocked-check lives.
+   */
+  readonly now?: () => number
 }
 
 export interface DebtWatchOutcome {
@@ -388,6 +443,7 @@ export interface DebtWatchOutcome {
  * `kolonie-infra` cannot be listed.
  */
 export async function watchDebt(deps: DebtWatchDependencies): Promise<DebtWatchOutcome> {
+  const now = deps.now ?? Date.now
   const debt = await deps.measure()
   if (!deps.issues.available) {
     return { action: 'quiet', count: debt.count, lamports: debt.lamports, skipped: 'no-app' }
@@ -404,7 +460,7 @@ export async function watchDebt(deps: DebtWatchDependencies): Promise<DebtWatchO
     await deps.issues.create({
       repository: DEBT_REPOSITORY,
       title: DEBT_TITLE,
-      body: debtIssueBody(debt),
+      body: debtIssueBody(debt, now()),
       // `from:watcher` because nobody read this before it was filed, and `p1`
       // because an undischarged debt is the Colony failing at the one promise
       // every other claim it makes rests on.
@@ -426,10 +482,11 @@ export async function watchDebt(deps: DebtWatchDependencies): Promise<DebtWatchO
   // never update would answer the same way forever.
   if (action.kind === 'escalate') {
     await deps.issues.comment(action.issue.url, debtEscalationComment(debt))
-    await deps.issues.revise(action.issue.url, debtIssueBody(debt))
+    await deps.issues.revise(action.issue.url, debtIssueBody(debt, now()))
   }
 
-  if (action.kind === 'standing') await deps.issues.revise(action.issue.url, debtIssueBody(debt))
+  if (action.kind === 'standing')
+    await deps.issues.revise(action.issue.url, debtIssueBody(debt, now()))
 
   if (action.kind === 'close') await deps.issues.close(action.issue.url, debtClosingComment())
 

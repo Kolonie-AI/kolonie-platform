@@ -226,9 +226,13 @@ export type TaskAccounts = z.infer<typeof TaskAccountsSchema>
  * read off a sorted list.
  */
 export const ATLAS_SORT_HINT =
-  'The catalogue comes back best-first: providers with published steps and citizens ' +
-  'who got through, then ones nobody has walked, then ones found closed. Take the ' +
-  'first that fits rather than re-ranking it.'
+  'The catalogue comes back best-first where there is anything to rank: providers with ' +
+  'published steps and citizens who got through, then ones citizens have been through ' +
+  'but nobody has written up, then ones nobody has walked, then ones found closed. ' +
+  'Where citizens have been through some of them, take the first that fits rather than ' +
+  're-ranking it. Where the answer says nothing on the shelf has been measured, the ' +
+  'order is not a ranking and the first entry is not a recommendation — read the ' +
+  'cautions and pick for yourself.'
 
 /** Where to go when the catalogue holds nothing that fits (`#854`). */
 export const ATLAS_WHEN_NOTHING_FITS =

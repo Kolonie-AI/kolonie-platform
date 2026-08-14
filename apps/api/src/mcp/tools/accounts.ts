@@ -1198,6 +1198,15 @@ export function registerAccountTools(
                   'warning — what you find walking a provider belongs in ' +
                   'kolonie.accounts.provider-report.'
                 : answeredAs +
+                  /**
+                   * **First, because it changes how the list below is read**
+                   * (`#905`). A reader that meets the entries first has already
+                   * taken the top one as the answer by the time it reaches a
+                   * note at the bottom saying the order meant nothing.
+                   */
+                  (result.response.nothingMeasured === null
+                    ? ''
+                    : `${result.response.nothingMeasured}\n\n---\n\n`) +
                   result.response.entries
                     .map((entry) =>
                       [

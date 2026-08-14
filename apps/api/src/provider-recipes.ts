@@ -5,6 +5,8 @@ import {
   BOOTSTRAP_TEMPLATES,
   atlasByOutcome,
   atlasEntries,
+  atlasShelfHasEvidence,
+  ATLAS_NOTHING_MEASURED,
   measuredOnlyRecipes,
   RecipeStatusSchema,
   bootstrapTemplate,
@@ -302,6 +304,16 @@ export async function readAtlas(
     readonly secretHandoff: boolean
     /** What the Colony wrote up, by `figureKey`. Empty unless one provider was named. */
     readonly briefings: ReadonlyMap<string, ProviderBriefing>
+    /**
+     * Said out loud when nothing in this answer rests on evidence (`#905`),
+     * `null` when something does.
+     *
+     * **A field rather than a thing the caller works out**, which is the whole
+     * acceptance criterion: a reader should not have to notice that every entry
+     * says `attempted: 0` and draw the conclusion itself. An order that implies
+     * evidence it does not have is worse than no order.
+     */
+    readonly nothingMeasured: string | null
   }>
 > {
   if (input.kind !== undefined && !AccountKindSchema.safeParse(input.kind).success) {
@@ -431,7 +443,15 @@ export async function readAtlas(
       ? new Map<string, ProviderBriefing>()
       : await recipes.briefings(input.provider)
 
-  return { outcome: 'ok', response: { entries, secretHandoff, briefings } }
+  /**
+   * **Asked of what is being returned, not of the whole catalogue.** A caller
+   * that narrowed to one shelf is asking about that shelf, and answering from
+   * the catalogue would tell it the Atlas has evidence somewhere else — which
+   * is true and not what it asked.
+   */
+  const nothingMeasured = atlasShelfHasEvidence(entries) ? null : ATLAS_NOTHING_MEASURED
+
+  return { outcome: 'ok', response: { entries, secretHandoff, briefings, nothingMeasured } }
 }
 
 /**

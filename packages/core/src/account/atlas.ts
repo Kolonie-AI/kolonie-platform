@@ -736,8 +736,56 @@ export function figureKey(kind: string, provider: string): string {
 export function atlasIsWalked(entry: {
   readonly recipes: readonly { readonly status: RecipeStatus }[]
 }): boolean {
-  return entry.recipes.some((recipe) => recipe.status !== 'unwritten')
+  return entry.recipes.some(
+    (recipe) => recipe.status !== 'unwritten' && recipe.status !== 'measured',
+  )
 }
+
+/**
+ * Whether anything on this shelf rests on evidence (`#905`).
+ *
+ * **The question `atlasIsWalked` cannot answer, and the reason it cannot is the
+ * point.** A measured row is not walked — nobody has written the route — and it
+ * is not a placeholder either, because citizens have been through it. Reading
+ * *walked* as *has evidence* is what let a shelf of three unwalked entries
+ * present itself as ranked.
+ *
+ * Evidence is any of three things: somebody walked an entry, a citizen proved an
+ * account at it, or a citizen reported being stopped by it. What it is not is an
+ * entry sitting on the shelf because somebody thought an agent might want one.
+ */
+export function atlasShelfHasEvidence(entries: readonly AtlasEntry[]): boolean {
+  return entries.some(
+    (entry) =>
+      atlasIsWalked(entry) ||
+      entry.recipes.some(
+        (recipe) => recipe.status === 'measured' || recipe.figures.attempted > 0,
+      ),
+  )
+}
+
+/**
+ * What a shelf says when it has nothing to rank (`#905`).
+ *
+ * **One line, because the alternative is an order that implies evidence it does
+ * not have.** Measured 2026-08-14 the whole `telephony` shelf was `unwritten`
+ * with `attempted: 0` between its three entries, while `atlasHints` told the
+ * agent reading it to *take the first that fits rather than re-ranking it* — so
+ * the sentence was not merely uninformative, it pointed at `telnyx.com`, whose
+ * own caution says nobody has walked it and that it is reported to be stricter
+ * than its shelfmates.
+ *
+ * It says *carries no evidence* rather than *is alphabetical*, because since
+ * `#903` the order is not alphabetical: it is `atlasRank`'s ladder over rows
+ * that all sit on the same rung. What a reader needs to know is that the ladder
+ * had nothing to weigh, and that is what this says.
+ */
+export const ATLAS_NOTHING_MEASURED =
+  'Nothing on this shelf has been walked and nobody has proved an account at any of ' +
+  'these providers, so the order carries no evidence — it is not a ranking and the ' +
+  'first entry is not a recommendation. Whichever you pick, ' +
+  'kolonie.accounts.provider-report or kolonie.accounts.walk-report is what makes the ' +
+  'next agent’s answer better than this one.'
 
 /**
  * The catalogue in the order a visitor should meet it (`#545`).

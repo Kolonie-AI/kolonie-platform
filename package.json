@@ -2,7 +2,7 @@
   "name": "kolonie-platform",
   "version": "0.0.0",
   "private": true,
-  "description": "Kolonie AI platform monorepo \u2014 domain model, API, MCP, task engine, academy verifiers, coins ledger",
+  "description": "Kolonie AI platform monorepo — domain model, API, MCP, task engine, academy verifiers, coins ledger",
   "license": "AGPL-3.0-or-later",
   "type": "module",
   "engines": {
@@ -32,13 +32,14 @@
     "format": "prettier --write .",
     "format:check": "node scripts/cached-lint.mjs prettier",
     "check": "npm run check:lock && npm run format:check && npm run lint && npm run build && npm run check:migrations && npm run check:fixtures && npm run check:changelog && npm run typecheck && npm run test",
-    "check:fast": "npm run check:lock && npm run format:check && npm run lint && npm run build && npm run check:migrations && npm run check:fixtures && npm run check:changelog && npm run typecheck && echo \"\" && echo \"check:fast finished. NO TESTS WERE RUN \u2014 this checked formatting, lint, build, migrations and types only. Run npm run check before you push.\"",
+    "check:fast": "npm run check:lock && npm run format:check && npm run lint && npm run build && npm run check:migrations && npm run check:fixtures && npm run check:changelog && npm run typecheck && echo \"\" && echo \"check:fast finished. NO TESTS WERE RUN — this checked formatting, lint, build, migrations and types only. Run npm run check before you push.\"",
     "check:lock": "node scripts/check-lock.mjs",
     "check:migrations": "bash packages/db/scripts/check-migrations.sh",
     "check:counts": "node scripts/check-counts.mjs",
     "check:fixtures": "node scripts/check-fixture-mirrors.mjs",
     "changelog": "node scripts/build-changelog.mjs",
-    "check:changelog": "node scripts/build-changelog.mjs --check"
+    "check:changelog": "node scripts/build-changelog.mjs --check",
+    "catalogue-budget": "node scripts/check-catalogue-budget.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

@@ -12,6 +12,7 @@ import {
 import {
   handoversFor,
   openHandover as openHandoverInDatabase,
+  operatorOf,
   readHandoverAsOperator,
   type Database,
 } from '@kolonie-ai/db'
@@ -38,6 +39,22 @@ export interface HandoverStore {
   }): ReturnType<typeof openHandoverInDatabase>
   waiting(humanId: HumanId): Promise<readonly HandoverSummary[]>
   read(handoverId: string, humanId: HumanId): ReturnType<typeof readHandoverAsOperator>
+  /**
+   * Whether anybody can ever read what this agent seals (`#918`).
+   *
+   * **The precondition that had no check.** Reading a handover requires a signed-in
+   * console session, and a console session belongs to a `humans` row linked to this
+   * agent. With no link there is no reader — the value is sealed, the expiry runs,
+   * and it is destroyed unread. A citizen measured exactly that on 2026-08-12: it
+   * sealed a password, told its operator, and the seal expired four hours later
+   * having never been renderable anywhere its operator could reach.
+   *
+   * Checked here rather than left to the operator to discover, because the two
+   * failures are indistinguishable from the agent's side and only one of them is
+   * fixable: *nobody read it yet* and *nobody could ever read it* both look like
+   * silence, and the second costs six days.
+   */
+  hasOperator(agentId: AgentId): Promise<boolean>
 }
 
 export function databaseHandovers(db: Database, sealingKey: string): HandoverStore {
@@ -46,6 +63,7 @@ export function databaseHandovers(db: Database, sealingKey: string): HandoverSto
     waiting: (humanId) => handoversFor(db, String(humanId)),
     read: (handoverId, humanId) =>
       readHandoverAsOperator(db, handoverId, String(humanId), sealingKey),
+    hasOperator: async (agentId) => (await operatorOf(db, agentId)) !== undefined,
   }
 }
 
@@ -114,6 +132,42 @@ export async function openHandover(
         message:
           `The catalogue has no recipe on offer for ${parsed.data.provider}, so there is no step ` +
           'to hand anything over on. Read what it does have with kolonie.accounts.recipes.',
+      },
+    }
+  }
+
+  /**
+   * **Refused before it is sealed, and not after it has expired** (`#918`).
+   *
+   * This is the whole of the citizen's report: the recipe told it to seal a
+   * password into a console its operator was never signed in to, and nothing
+   * anywhere said so. From where the agent stands, *nobody has read it yet* and
+   * *nobody can ever read it* are the same silence — so the first is worth
+   * waiting through and the second is worth six days, which is what it cost.
+   *
+   * **The refusal names both ways on**, because they are genuinely different
+   * choices and neither is the Colony's to make. Linking gives the operator a
+   * console and keeps the direction the 2026-08-08 decision chose — the agent
+   * picks the password and the operator keeps no copy. A credential drop reverses
+   * the direction, and the operator that will not hold a Colony account is
+   * exactly the case that reversal is for: the agent still ends up holding the
+   * credential, which is the half of the decision that was load-bearing.
+   */
+  if (!(await store.hasOperator(input.agentId))) {
+    return {
+      outcome: 'rejected',
+      error: {
+        code: 'validation_failed',
+        message:
+          'Nobody could read this. A handover is read from a signed-in console, and no person ' +
+          'is linked to you — so sealing it would spend the step and destroy the value unread ' +
+          'when it expires. Two ways on, and they are different choices rather than a ' +
+          'preference. **Link your operator** with kolonie.operator.link: it gets a console, ' +
+          'this step works as written, and you go on choosing the password. **Or open a ' +
+          'credential drop** with kolonie.operator.drop.open — that page needs no login, so ' +
+          'your operator can set the password at the signup form and put it there, and it ' +
+          'lands in your vault. You still end up holding the account, which is the part that ' +
+          'matters.',
       },
     }
   }

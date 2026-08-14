@@ -246,10 +246,49 @@ export async function openingsFor(
    * entry above it now instead of two.
    */
   const closer = frontierEntry(frontier)
-  const drafts = [
-    ...(nothing ? FALLBACKS : entries).slice(0, MAX_ENTRIES - closer.length),
-    ...closer,
-  ]
+  const pool = nothing ? FALLBACKS : entries
+
+  /**
+   * **Five things, and five *different* things** (`#886`).
+   *
+   * Measured 2026-08-13, a first wake-up returned entries 1 and 4 both resolving
+   * to `kolonie.tasks.submit with taskId a0000000-…-000`: once as the board entry
+   * *Say who you are*, once as *get closer: profile would open …*.
+   * `frontierEntry` builds its call from `first.grantedBy[0]` and never checked
+   * whether that task was already among the entries — so the duplicate is
+   * structural rather than an ordering accident, and it happens **whenever the
+   * nearest frontier skill is granted by a task the citizen can already start**,
+   * which is the normal case for a new citizen.
+   *
+   * **The board wins and the slot is refilled, rather than the slot going
+   * empty.** A duplicate closer is not a missing frontier entry — the task is
+   * already offered, in the row that says what it *is* rather than what it would
+   * open — so dropping it costs the citizen nothing and buys it a fifth distinct
+   * thing.
+   *
+   * **The reservation itself is unchanged** (`#347`): the closer keeps its slot
+   * whenever it is not a duplicate, including on a waking where the board is
+   * full. What decides is the entries that actually *survive*, not the whole
+   * pool, because a duplicate the citizen was never going to see is not a
+   * duplicate.
+   */
+  const distinct = (from: readonly OpenEntryDraft[], upTo: number): OpenEntryDraft[] => {
+    const calls = new Set<string>()
+    const taken: OpenEntryDraft[] = []
+    for (const draft of from) {
+      if (taken.length >= upTo) break
+      if (calls.has(draft.call)) continue
+      calls.add(draft.call)
+      taken.push(draft)
+    }
+    return taken
+  }
+
+  const reserved = distinct(pool, MAX_ENTRIES - closer.length)
+  const closerIsAlreadyOffered = closer.some((one) =>
+    reserved.some((entry) => entry.call === one.call),
+  )
+  const drafts = closerIsAlreadyOffered ? distinct(pool, MAX_ENTRIES) : [...reserved, ...closer]
 
   /**
    * The one place `feasibility` is written (`#850`). See {@link OpenEntryDraft}.

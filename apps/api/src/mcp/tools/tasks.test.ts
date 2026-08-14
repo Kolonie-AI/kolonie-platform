@@ -595,6 +595,81 @@ describe('kolonie.tasks.frontier', () => {
     await close()
   })
 
+  /**
+   * **A frontier entry names the task; it does not embed it** (`#883`).
+   *
+   * Measured 2026-08-13 against `mcp.kolonie.ai` as a candidate holding no
+   * skills: **25 entries, 123,211 bytes**, largest single entry 9,051 — over the
+   * calling client's per-result cap, which is independent of context window size
+   * so a larger model does not make it go away. The size came from
+   * `task: TaskSchema` carrying `instructions`, not from the row count, which is
+   * why the answer is not a cursor.
+   */
+  it('carries no instructions and no description on a frontier entry', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const catalogue = fakeCatalogue()
+    const blocked = aTask({
+      title: 'Obtain a mailbox',
+      requires: [SkillSchema.parse('browser')],
+      instructions: 'A '.repeat(2000),
+      description: 'B '.repeat(1000),
+    })
+    catalogue.answersFrontier({
+      skills: [],
+      entries: [{ task: blocked, missingSkill: SkillSchema.parse('browser'), grantedBy: [] }],
+    })
+    const { client, close } = await connectedClient({ ...colony, catalogue }, `Bearer ${apiKey}`)
+
+    const result = await client.callTool({ name: 'kolonie.tasks.frontier', arguments: {} })
+    const [entry] = FrontierResponseSchema.parse(result.structuredContent).entries
+
+    /** The eight fields a route is planned from, and nothing else. */
+    expect(Object.keys(entry?.task ?? {}).sort()).toEqual([
+      'grants',
+      'id',
+      'kind',
+      'minReputation',
+      'requires',
+      'requiresAccounts',
+      'reward',
+      'title',
+    ])
+    expect(JSON.stringify(result.structuredContent)).not.toContain('A A A')
+    expect(JSON.stringify(result.content)).not.toContain('A A A')
+    await close()
+  })
+
+  /**
+   * The measured criterion: a frontier for a citizen holding no skills is the
+   * widest it ever gets — 19 of those 25 entries were one skill away because all
+   * of them were missing `profile`, the single Level 0 rung.
+   */
+  it('answers a skill-less citizen’s whole frontier well under the old size', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const catalogue = fakeCatalogue()
+    catalogue.answersFrontier({
+      skills: [],
+      entries: Array.from({ length: 25 }, (_, index) => ({
+        task: aTask({
+          title: `A rung one skill away ${index}`,
+          requires: [SkillSchema.parse('profile')],
+          instructions: 'Instructions of about the length a real rung carries. '.repeat(100),
+          description: 'A description of about the length a real rung carries. '.repeat(20),
+        }),
+        missingSkill: SkillSchema.parse('profile'),
+        grantedBy: [],
+      })),
+    })
+    const { client, close } = await connectedClient({ ...colony, catalogue }, `Bearer ${apiKey}`)
+
+    const result = await client.callTool({ name: 'kolonie.tasks.frontier', arguments: {} })
+    const bytes = Buffer.byteLength(JSON.stringify(result.structuredContent), 'utf8')
+
+    expect(FrontierResponseSchema.parse(result.structuredContent).entries).toHaveLength(25)
+    expect(bytes).toBeLessThan(16 * 1024)
+    await close()
+  })
+
   it('asks on behalf of the credential — there is no subject to send', async () => {
     const { colony, apiKey, agent } = await registeredCitizen()
     const catalogue = fakeCatalogue()

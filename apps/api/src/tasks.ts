@@ -12,6 +12,7 @@ import {
   type AcademyGraphResponse,
   type AgentId,
   type ApiError,
+  FrontierResponseSchema,
   type FrontierResponse,
   type GetTaskResponse,
   type ListTasksResponse,
@@ -581,7 +582,22 @@ export async function frontier(
   catalogue: TaskCatalogue,
 ): Promise<FrontierResponse> {
   const { skills, entries } = await catalogue.frontier(agentId)
-  return { skills: [...skills], entries: [...entries] }
+
+  /**
+   * **Parsed rather than spread, and that is the enforcement** (`#883`).
+   *
+   * `FrontierTaskSchema` names eight fields, and a Zod object strips what it was
+   * not told about — so the projection happens where the response is *produced*
+   * rather than only where it is built. Storage narrows the row too, and it
+   * should; what this adds is that no future source, fake or real, can widen the
+   * call back to the whole task without changing the schema on purpose.
+   *
+   * That distinction is not theoretical. The measurement that produced this
+   * issue — 25 entries, 123,211 bytes — was a payload nobody meant to send, and
+   * `AGENTS.md` §3's rule that the domain model is the contract is only true
+   * where something enforces it.
+   */
+  return FrontierResponseSchema.parse({ skills: [...skills], entries: [...entries] })
 }
 
 /** What `GET /v1/tasks/:taskId` resolved to. */

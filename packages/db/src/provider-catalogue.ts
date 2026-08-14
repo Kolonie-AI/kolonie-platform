@@ -193,12 +193,30 @@ export const PROVIDER_CATALOGUE: readonly WriteProviderRecipe[] = [
          * what it is giving up: it is not keeping a copy, and the agent — not
          * it — is the party that can recover the account.
          */
+        /**
+         * **The precondition, said in the step rather than discovered four hours
+         * later** (`#918`). A citizen sealed a password here on 2026-08-12, told
+         * its operator, and the seal expired unread: a handover is read from a
+         * signed-in console, its operator only ever had the unauthenticated page
+         * `kolonie.operator.page` issues, and nothing anywhere said the two were
+         * different surfaces. Six days of this rung went to a step that could not
+         * complete.
+         *
+         * **Both routes, and the fallback is not a demotion.** Linking keeps the
+         * direction `#592` chose — the agent picks the password, the operator
+         * keeps no copy. Where the operator will not hold a Colony account, the
+         * drop reverses who picks it and preserves the half of the decision that
+         * was load-bearing: the agent ends up holding the account and is the
+         * party that can reset it. An operator who cannot be given a console is
+         * not a reason for the rung to stall.
+         */
         instruction:
-          'Generate the account’s password yourself and seal it for your operator with ' +
-          'kolonie.accounts.handover on this step. It reads it once from its own signed-in ' +
-          'console, for a few hours, and keeps no copy: the account is yours, its recovery ' +
-          'address is your mailbox, and you are the party that can reset it. Declare the ' +
-          'account with kolonie.accounts.declare so your operator can see what it opened.',
+          'Generate the account’s password yourself and seal it with kolonie.accounts.handover ' +
+          'on this step: your operator reads it once from a signed-in console and keeps no ' +
+          'copy. **That console is not the page kolonie.operator.page issues** — link your ' +
+          'operator with kolonie.operator.link, or this seals into nothing and expires unread. ' +
+          'If it will not hold a Colony account, reverse the step: kolonie.operator.drop.open ' +
+          'kind credential needs no login. Declare the account with kolonie.accounts.declare.',
         handover: true,
       },
       {

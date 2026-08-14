@@ -629,10 +629,34 @@ export async function wakeup(
       noteInvitations: [...(await noteInvitationsFor(agentId, changes.skillsGranted, notes))],
       walkInvitations: [...(await walkInvitationsFor(agentId, source))],
       capabilityNotes: [...(await capabilityNotesFor(agentId, escalated, notes))],
-      tasksAdded: changes.tasksAdded.map((task) => ({
-        ...task,
-        startable: startableAdded === null ? null : startableAdded.has(task.taskId),
-      })),
+      /**
+       * **A first waking says *everything is new to you* rather than shipping
+       * the proof of it** (`#885`).
+       *
+       * `since` falls back to the epoch on a first session, which is the honest
+       * window and is not changed here: `firstSession` is what a reader branches
+       * on, and it stays exactly as it was. What changes is that the payload
+       * stops being sent anyway. Measured 2026-08-13, a first `kolonie.wakeup`
+       * carried 35 entries in `tasksAdded` and 5 in `tasksRetired`, including
+       * `endedReason` prose for rungs withdrawn before that citizen existed —
+       * one of them explaining a speculation rung retired on 2026-08-09.
+       *
+       * A reader that has to branch on a flag to discard forty rows has already
+       * paid for them, on the one call every citizen makes before it knows
+       * anything else. The flag plus `kolonie.tasks.list` carries the meaning.
+       *
+       * **Only where no `since` was asked for**, which is the rejection case:
+       * asking for the epoch is different from defaulting into it, and a citizen
+       * that asked gets what it asked for.
+       */
+      ...(firstSession
+        ? { tasksAdded: [], tasksRetired: [] }
+        : {
+            tasksAdded: changes.tasksAdded.map((task) => ({
+              ...task,
+              startable: startableAdded === null ? null : startableAdded.has(task.taskId),
+            })),
+          }),
       contributions: {
         pullRequests: pulls.response.pullRequests.map((pull) => ({
           url: pull.url,

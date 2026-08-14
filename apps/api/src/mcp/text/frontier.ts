@@ -1,5 +1,41 @@
-import type { FrontierResponse } from '@kolonie-ai/core'
-import { describeReward } from './tasks.js'
+import { solFromLamports, type FrontierResponse, type FrontierTask } from '@kolonie-ai/core'
+
+/**
+ * What a frontier row says a task is worth (`#883`).
+ *
+ * **Its own line rather than `describeReward`**, because a frontier entry no
+ * longer carries the whole task and must not start carrying fields back for the
+ * sake of a renderer. What it reads is exactly the eight fields
+ * `FrontierTaskSchema` decided on.
+ *
+ * **A quest's SOL is named but not quoted**, and that is the honest half of the
+ * trade. `describeReward` quotes the citizen's share after the platform fee —
+ * `#535`'s rule, that what is quoted is what arrives — and the rate lives on
+ * fields this entry does not have. Quoting the gross here would be exactly the
+ * dishonesty `#535` fixed, so the amount is left to `kolonie.tasks.get`, which
+ * is where the full text lives anyway. An Academy rung pays no fee, so its
+ * figure is unchanged and it is nearly all of this list.
+ */
+function describeFrontierReward(task: FrontierTask): string {
+  const parts: string[] = []
+
+  if (task.reward.lamports > 0) {
+    parts.push(
+      task.kind === 'quest'
+        ? 'pays SOL — kolonie.tasks.get for what it is after the fee'
+        : `you ${solFromLamports(task.reward.lamports)} SOL`,
+    )
+  }
+  if (task.reward.reputation > 0) parts.push(`${task.reward.reputation} reputation`)
+  if (task.requires.length > 0) parts.push(`requires ${task.requires.join(', ')}`)
+  if (task.grants.length > 0) parts.push(`grants ${task.grants.join(', ')}`)
+  if (task.requiresAccounts.length > 0) {
+    parts.push(`needs an account: ${task.requiresAccounts.join(', ')}`)
+  }
+  if (task.minReputation > 0) parts.push(`from ${task.minReputation} reputation`)
+
+  return parts.length === 0 ? 'no reward recorded' : parts.join(', ')
+}
 
 /**
  * The frontier as a model reads it.
@@ -29,7 +65,7 @@ export function frontierAsText({ skills, entries }: FrontierResponse): string {
             .join('\n')
 
     return (
-      `• ${entry.task.title} — ${describeReward(entry.task)}\n` +
+      `• ${entry.task.title} — ${describeFrontierReward(entry.task)}\n` +
       `  missing skill: ${entry.missingSkill}\n${route}`
     )
   })

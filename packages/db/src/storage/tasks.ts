@@ -1026,8 +1026,24 @@ export async function frontier(
     skills: held.map((row) => SkillSchema.parse(row.skill)),
     entries: blocked.map((row) => {
       const missingSkill = SkillSchema.parse(row.missing[0])
+      const task = toTask(row.task)
       return {
-        task: toTask(row.task),
+        /**
+         * **Named rather than embedded** (`#883`). `FrontierTaskSchema` is the
+         * decided list, and it is picked from `TaskSchema` here rather than
+         * spread, so a field added there does not reach a call that is read
+         * twenty-five times at once. `GET /v1/tasks/:taskId` is unchanged.
+         */
+        task: {
+          id: task.id,
+          title: task.title,
+          kind: task.kind,
+          requires: task.requires,
+          grants: task.grants,
+          reward: task.reward,
+          minReputation: task.minReputation,
+          requiresAccounts: task.requiresAccounts,
+        },
         missingSkill,
         grantedBy: granters
           .filter((granter) => granter.grants.includes(missingSkill))

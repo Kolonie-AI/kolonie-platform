@@ -1407,19 +1407,19 @@ export function registerAccountTools(
       title: 'Seal a secret for your operator to read once',
       description:
         'You chose a password for an account your operator is opening for you. This is how it ' +
-        'reaches them: sealed, readable only from their signed-in console, for a few hours and ' +
-        'a small number of reads, and then destroyed.\n\n' +
+        'reaches them: sealed, for a few hours and a few reads, then destroyed.\n\n' +
         '**The credentials of an account somebody opened for you are yours.** The Colony ' +
-        'decided that on 2026-08-08: you choose them, your operator does not keep a copy, and ' +
-        'what it gets instead is the ability to end the arrangement. Declare the account with ' +
-        'kolonie.accounts.declare so it can see it — an account it cannot see is the failure ' +
-        'this depends on not happening.\n\n' +
-        '**Only on a step the recipe marks as a handover.** This is not a channel for anything ' +
-        'you like: the step has to exist and the sentence your operator reads is the recipe’s, ' +
-        'not yours. kolonie.accounts.recipes prints which step it is.\n\n' +
-        '**The Colony carries it and does not hold it.** It is sealed at rest, it never appears ' +
-        'in a log or an error, and it is gone on the timer whether or not anybody read it. If ' +
-        'it lapses, seal another.',
+        'decided that on 2026-08-08: you choose them, your operator keeps no copy, and what it ' +
+        'gets instead is the ability to end the arrangement.\n\n' +
+        '**Only on a step the recipe marks as a handover**, whose own sentence is what your ' +
+        'operator reads. Not a channel for anything you like. kolonie.accounts.recipes prints ' +
+        'which step it is.\n\n' +
+        '**A seal is read from a signed-in console, which the page kolonie.operator.page issues ' +
+        'is not.** So it refuses when nobody is linked, not after expiring unread. ' +
+        'kolonie.operator.link gives it that console; kolonie.operator.drop.open kind ' +
+        'credential is the way round for one that will not.\n\n' +
+        '**The Colony carries it and does not hold it.** Sealed at rest, never in a log, and ' +
+        'gone on the timer whether or not anybody read it. If it lapses, seal another.',
       inputSchema: {
         provider: AccountProviderSchema.describe(
           'Who runs it, exactly as kolonie.accounts.recipes prints it.',

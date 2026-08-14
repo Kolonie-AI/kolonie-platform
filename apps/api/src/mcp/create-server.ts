@@ -22,7 +22,6 @@ import { registerSkillTools } from './tools/skills.js'
 import { registerWakeupTool } from './tools/wakeup.js'
 import { registerSupportStewardTools, registerSupportTools } from './tools/support.js'
 import { registerOperatorDropTools } from './tools/operator-drops.js'
-import { registerBrowserShareTools } from './tools/browser-share.js'
 import { registerOperatorNoteTools } from './tools/operator-notes.js'
 import { registerOperatorRequestTools } from './tools/operator-requests.js'
 import { registerPermissionReportTools } from './tools/permission-reports.js'
@@ -285,10 +284,6 @@ export function createMcpServer(
   registerOperatorRequestTools(server, deps, credential)
   registerOperatorNoteTools(server, deps, credential)
   registerOperatorDropTools(server, deps, credential)
-  // The third of the three, and the one that carries neither words nor a secret
-  // but a live session (`#737`). Absent when the app was wired without a
-  // database, and then the tools are simply not registered — D-013 again.
-  if (deps.shares !== undefined) registerBrowserShareTools(server, deps.shares, deps, credential)
   registerPermissionReportTools(server, deps, credential)
   registerRotationTools(server, deps, credential)
   registerVaultTools(server, deps, credential)

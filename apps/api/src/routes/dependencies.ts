@@ -394,21 +394,21 @@ export interface RouteDependencies {
    */
   readonly citizens: CitizenRecords
   /**
-   * The third operator channel (`#736`): a live browser tab, relayed.
+   * What is left of the third operator channel (`#736`), on its way out.
    *
-   * Optional, so that a deployment or a test that wires no database still builds
-   * an app — the two sockets register nothing when it is absent, which is the
-   * same shape `drops` above uses and for the same reason. Appended rather than
-   * placed among its neighbours, per the note on `citizens`.
+   * The two sockets it used to register are gone (`#911`) and the console page
+   * is the only route that still reads it, until `#912` takes that too. Still
+   * optional, so that a deployment or a test that wires no database builds an
+   * app. Appended rather than placed among its neighbours, per the note on
+   * `citizens`.
    */
   readonly shares?: ShareDesk | undefined
   /**
    * The Colony's own word to the person a share was offered to (`#774`).
    *
-   * Beside the desk and not on it, and optional for a different consequence than
-   * the desk's — `McpDependencies.shareNotifier` states both. Here for one
-   * reason: this interface is what `app.ts` destructures, and the tool tier is
-   * built out of it. Appended, per the note on `citizens`.
+   * **Read by nothing since `#911`** — the tool that made an offer was its one
+   * caller. Held here rather than unpicked halfway, because the mail and the
+   * desk come out together in `#912`. Appended, per the note on `citizens`.
    */
   readonly shareNotifier?: ShareNotifier | undefined
   /**

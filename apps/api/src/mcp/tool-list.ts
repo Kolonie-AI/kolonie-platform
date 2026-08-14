@@ -98,8 +98,7 @@ export const AUTHENTICATED_TOOLS = [
    * *Did you see this transfer?* (`#760`).
    *
    * Registered only where a payment desk is wired, exactly as `kolonie.adopt`
-   * and the `browser.share` tools are — D-013's way of switching a surface off
-   * is to not register it. **This list still names it**, because the list is
+   * is — D-013's way of switching a surface off is to not register it. **This list still names it**, because the list is
    * what the surface serves when it is whole, and the fixtures wire every desk
    * for that reason: a tier assertion that described a half-wired server would
    * stop describing the one production runs.
@@ -394,22 +393,6 @@ export const AUTHENTICATED_TOOLS = [
   'kolonie.operator.drop.open',
   'kolonie.operator.drops',
   'kolonie.operator.drop.read',
-  /**
-   * The third channel's other half, and the one that carries neither (`#737`).
-   *
-   * Named `browser.share` rather than `operator.share`, which is a decision and
-   * not an oversight: the other two are named for the *person*, because words and
-   * a secret are things only a person has. This one is named for the *thing being
-   * handed over*, because what makes it different from every other call in the
-   * Colony is that a live browser is on the end of it. A citizen looking for the
-   * channel that solves a challenge on a page looks under what it is holding.
-   *
-   * Three entries, and there is deliberately no fourth for the operator's side:
-   * the operator has a browser and a queue and no account here.
-   */
-  'kolonie.browser.share.open',
-  'kolonie.browser.share.status',
-  'kolonie.browser.share.close',
   /**
    * Blocked by permission rather than by ability (#147) — saying so, reading the case
    * it makes, and taking one back.

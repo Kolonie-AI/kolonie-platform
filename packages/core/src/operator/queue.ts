@@ -28,10 +28,12 @@ import { TimestampSchema } from '../common/time.js'
  * The operator answers what was asked. Nothing here starts, stops, retries or
  * reconfigures an agent — `#512` refuses that and this inherits the refusal. The
  * only actions are the ones the channels themselves already have: reply to a
- * request, fill in a drop, and — since `#738` — click on the one tab an agent
- * offered. That third one is the closest this ever comes to the refusal, and the
- * distance is `CDP_RELAY_METHODS`: a click and a keystroke on a page the agent
- * chose, with no address bar and no second tab.
+ * request, and fill in a drop. A third one — click on the one tab an agent
+ * offered (`#738`) — was the closest this ever came to the refusal, and it is
+ * being removed rather than widened: `#894` measured that the challenge it
+ * existed for never opens for a driven browser, so the operator arrived at a
+ * page with nothing on it to clear. `#911` took the relay; `#912` takes the
+ * window and the entry below.
  */
 
 /** Which of the three channels an item is waiting on. */

@@ -4,34 +4,28 @@ import { RECIPE_MAX_STEPS } from '../account/recipe.js'
 import { TimestampSchema } from '../common/time.js'
 
 /**
- * The third operator channel: an agent hands its live browser tab to the person
- * who operates it, for a bounded window, and gets it back (`#736`).
+ * What is left of the third operator channel, on its way out (`#911`).
  *
- * The decision is `kolonie-docs`
- * `state/decisions/an-agent-may-hand-its-browser-to-its-operator.md`, and the
- * five limits it fixes are the reason this file is as small as it is. What lives
- * here is the vocabulary both ends of the relay have to agree on and nothing
- * else: the states a share can be in, how long each of its two windows lasts,
- * the wire messages, and the method allowlist.
+ * An agent used to hand its live browser tab to the person who operates it, for
+ * a bounded window, and get it back (`#736`). `#894` measured why that does not
+ * work: the challenge it existed for reads the browser as driven and never
+ * opens, so the operator arrives at a page with nothing on it to clear. The
+ * mechanism is being removed — `#910` retired the rung, `#911` withdrew the
+ * tools and the relay.
  *
- * ## Where each channel's cargo goes
+ * **The wire vocabulary is already gone.** The frame, the input, the peer line,
+ * the agent and operator message unions, and the CDP method allowlist went with
+ * the relay that carried them; nothing is left to speak to. Their history is in
+ * `#911`'s commit, which is where somebody asking *what did the wire look like*
+ * should read rather than here.
  *
- * `kolonie.operator.request.*` carries **words** and refuses secrets.
- * `kolonie.operator.drop.*` carries **a secret** and is read once. This one
- * carries **a live session**, and the thing it must never carry is a copy of
- * one: a frame is relayed and never stored, which is stated in the schema, in
- * the relay, and in a test that reads what was persisted rather than reading the
- * code.
- *
- * ## The security boundary is not in this file, and that is deliberate
- *
- * {@link CDP_RELAY_METHODS} is the list of things an operator socket may cause,
- * and it is exported from here so that both ends can *state* it. The end that
- * **enforces** it is the agent-side sharer, next to the CDP connection — never
- * the relay. A Colony that had been compromised, or that was simply wrong, would
- * then still be unable to drive the browser past clicking and typing on the page
- * the agent chose to offer. An allowlist checked only by the party you are
- * defending against is decoration.
+ * **What is left is held for the three issues that finish the removal**, and it
+ * is here rather than inlined into them because all three still read it: the
+ * two windows and the skill are read by the console and the table (`#912`,
+ * `#914`), and {@link ShareSummarySchema} is a field of the wake-up answer
+ * (`#913`). This file goes when they do. Nothing here is a foundation for a
+ * later mechanism — one gets its own vocabulary, because a share now means a
+ * thing that was tried and did not work.
  */
 
 /**
@@ -66,57 +60,6 @@ export const BROWSER_SHARE_OFFER_HOURS = 6
  * the agent's turn is not.
  */
 export const BROWSER_SHARE_LIVE_MINUTES = 15
-
-/**
- * What an operator socket is allowed to cause, and the entire list of it.
- *
- * Clicking and typing on the page that was offered. Not `Page.navigate`, not
- * `Target.*`, not `Network.getAllCookies`, not `Runtime.evaluate`, not
- * `Browser.*`, not a download. An hCaptcha challenge renders in iframes inside
- * the same target, so this reaches every part of the page a person would touch.
- *
- * **"Sufficient for the actual job" is what this said, and a citizen measured it
- * false** (`#894`). On 2026-08-14 a share delivered 274 inputs over nine
- * minutes; eighteen of them were trusted mouse presses landing on the hCaptcha
- * checkbox at the right frame-relative coordinates, and the challenge never
- * opened. The same code path was proven to deliver a complete trusted click into
- * a cross-origin iframe in a rig with no challenge in it. The remaining
- * difference was `navigator.webdriver`, which the challenge reads.
- *
- * **The list is unchanged and nothing here argues for widening it.** What was
- * wrong was the claim, not the allowlist: no CDP method makes a third party
- * choose to open its challenge, so the gap this exposed cannot be closed by
- * adding one. The honest scope is *this relay carries a person's clicks to the
- * page*, and whether the page acts on them belongs to whoever wrote the page.
- * `browser-captcha`'s `landscape` says so where a citizen attempting it reads.
- *
- * **If something turns out to need more, that is still a new decision** — the
- * paragraph below is unchanged, and this is the first evidence that it will one
- * day be tested by somebody who has hit a wall and would like one more method.
- *
- * **If something turns out to need more, that is a new decision** — a record, an
- * issue and a review — and not a line added by whoever hits the wall first. The
- * distance between *the operator passes a captcha for me* and *the operator has
- * a remote browser* is exactly this array.
- */
-export const CDP_RELAY_METHODS = [
-  'Input.dispatchMouseEvent',
-  'Input.dispatchKeyEvent',
-  'Input.insertText',
-] as const
-
-export type CdpRelayMethod = (typeof CDP_RELAY_METHODS)[number]
-
-/**
- * Whether a CDP method name may be forwarded to the browser.
- *
- * Allowlist and never a denylist: a denylist is a claim to have enumerated every
- * dangerous method in a protocol that grows with every Chrome release, and that
- * claim would be false the first time it was written.
- */
-export function isRelayableCdpMethod(method: string): method is CdpRelayMethod {
-  return (CDP_RELAY_METHODS as readonly string[]).includes(method)
-}
 
 /**
  * The one skill a citizen has to hold before it may offer a share (`#737`).
@@ -202,11 +145,14 @@ export const ShareStateSchema = z.enum([
 export type ShareState = z.infer<typeof ShareStateSchema>
 
 /**
- * What `kolonie.browser.share.status` answers, and what the relay's own state
- * machine is describing.
+ * What a share row looks like to everything that still reads one.
  *
- * **No frame, no dimension, no page title, no URL.** What the agent gets back is
- * that a session was open, when, and how it ended — which is precisely what the
+ * `kolonie.browser.share.status` used to answer this and no longer exists
+ * (`#911`); what is left reading it is the wake-up answer (`#913`) and the
+ * operator's own window (`#912`), and it goes with the later of them.
+ *
+ * **No frame, no dimension, no page title, no URL.** What is recorded is that a
+ * session was open, when, and how it ended — which is precisely what the
  * decision record says is recorded.
  *
  * *By whom* is deliberately not a field. An agent has at most one linked
@@ -245,86 +191,3 @@ export const ShareSummarySchema = z.object({
   closedFor: ShareCloseReasonSchema.nullable(),
 })
 export type ShareSummary = z.infer<typeof ShareSummarySchema>
-
-/**
- * A screencast frame on its way from the agent to the person watching.
- *
- * `data` is a base64 JPEG — under CDP, exactly as `Page.screencastFrame`
- * produced it. It is copied from one socket to the other and **is not read,
- * decoded, measured, logged or written down** by anything in between. Its own
- * pixel dimensions are the coordinate space the input below comes back in,
- * because the operator's window scales clicks by the rendered image's natural
- * size; that is a fact a sharer has to know and is written down for it in
- * `TOOL_DOCS['kolonie.browser.share.open']` (`#866`).
- *
- * `ack` is an integer handed straight back to the sharer and read by nothing in
- * between — under CDP, the frame's `sessionId`, so the sharer can call
- * `Page.screencastFrameAck` once the operator's socket has actually taken the
- * bytes. That is what makes a slow link apply backpressure instead of building a
- * queue of stale pictures nobody will look at. A sharer whose protocol has no
- * such acknowledgement sends `0` and ignores it.
- */
-export const ShareFrameSchema = z.object({
-  type: z.literal('frame'),
-  data: z.string(),
-  ack: z.number().int(),
-})
-export type ShareFrame = z.infer<typeof ShareFrameSchema>
-
-/**
- * A click or a keystroke on its way back.
- *
- * `params` is deliberately unvalidated here and deliberately opaque to the
- * relay: CDP's input parameter shapes are Chrome's to define and change, and a
- * schema in the Colony that lagged a Chrome release would break clicking for
- * everybody in order to enforce something the browser enforces anyway. **What is
- * validated is the method**, which is the boundary, and it is validated
- * agent-side.
- *
- * **This is the one direction of the relay that is not protocol-neutral**
- * (`#866`). {@link ShareSummarySchema.shape.targetId} is opaque and a frame is
- * just a JPEG, so a sharer may drive whatever it likes; what arrives here is
- * named in CDP's vocabulary because the operator's console was written against a
- * CDP sharer. A sharer driving something else translates the three methods in
- * {@link CDP_RELAY_METHODS} into its own protocol — `input.performActions` under
- * WebDriver BiDi — and three is the whole of the translation.
- */
-export const ShareInputSchema = z.object({
-  type: z.literal('input'),
-  method: z.string(),
-  params: z.record(z.string(), z.unknown()),
-})
-export type ShareInput = z.infer<typeof ShareInputSchema>
-
-/** The share is over. Sent to whichever socket did not cause it. */
-export const ShareClosedSchema = z.object({
-  type: z.literal('closed'),
-  reason: ShareCloseReasonSchema,
-})
-export type ShareClosed = z.infer<typeof ShareClosedSchema>
-
-/** Everything the agent's socket may send. */
-export const ShareAgentMessageSchema = z.discriminatedUnion('type', [
-  ShareFrameSchema,
-  ShareClosedSchema,
-])
-export type ShareAgentMessage = z.infer<typeof ShareAgentMessageSchema>
-
-/** Everything the operator's socket may send. */
-export const ShareOperatorMessageSchema = z.discriminatedUnion('type', [
-  ShareInputSchema,
-  ShareClosedSchema,
-])
-export type ShareOperatorMessage = z.infer<typeof ShareOperatorMessageSchema>
-
-/**
- * Told to the operator's socket when it joins and to the agent's socket when
- * somebody arrives, so neither has to poll a REST endpoint to find out that the
- * other end is there.
- */
-export const SharePeerSchema = z.object({
-  type: z.literal('peer'),
-  /** `true` when the other end is attached, `false` when it has gone. */
-  present: z.boolean(),
-})
-export type SharePeer = z.infer<typeof SharePeerSchema>

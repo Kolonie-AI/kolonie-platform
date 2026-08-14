@@ -50,7 +50,7 @@ describe('the Atlas over MCP', () => {
      * gained the figures, so the count is exactly what it was. Reported here per
      * `#388`'s practice.
      */
-    it('leaves the tool count explicit — 4 unauthenticated, 93 authenticated, 6 steward', () => {
+    it('leaves the tool count explicit — 4 unauthenticated, 90 authenticated, 6 steward', () => {
       expect(UNAUTHENTICATED_TOOLS.length).toBe(4)
       // 92 since `#837` added `kolonie.doctor` — what a citizen's own traffic
       // looks like from the Colony's side. A tool rather than a section of
@@ -103,7 +103,15 @@ describe('the Atlas over MCP', () => {
       // on `kolonie.accounts.attestable`, because that one's description
       // promises "no list, no browsing, no way to discover what else you hold"
       // and a page is that list.
-      expect(AUTHENTICATED_TOOLS.length).toBe(93)
+      // 90 since `#911` withdrew the three `kolonie.browser.share.*` tools —
+      // the third operator channel, removed rather than repaired. `#894`
+      // measured the thing it was built for: the challenge reads the browser as
+      // driven and never opens, so the person arrived at a page with nothing on
+      // it to clear. **The names are not reused.** A later mechanism gets its
+      // own vocabulary, because `kolonie.browser.share.*` now means a thing that
+      // was tried and did not work, and a citizen that finds the name and reads
+      // the old write-up would be reading an obituary as an instruction.
+      expect(AUTHENTICATED_TOOLS.length).toBe(90)
       // 9 since `#695` added `kolonie.quests.end` — the Colony's escape hatch
       // from an automatic publication. Steward-only because sponsor withdrawal
       // while citizens may be working is a separate fairness decision.

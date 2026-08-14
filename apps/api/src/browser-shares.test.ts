@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest'
 import type { AgentId, HumanId, Log, LogFields } from '@kolonie-ai/core'
 import type { OfferShareOutcome } from '@kolonie-ai/db'
 import { fakeShares } from './__fixtures__/browser-shares.js'
-import { createShareRelay } from './browser-share.js'
 import type { OperatorMailer } from './email.js'
 import type { OutboundAllowance } from './support.js'
 import {
@@ -272,16 +271,19 @@ describe('opening a share', () => {
  *
  * Accepting is not a read: it stamps the row, rewrites the six-hour offer into
  * the fifteen live minutes and knocks on the agent. Doing that before asking
- * whether anything of the citizen's is on the relay spent all three on a window
+ * whether anything of the citizen's was attached spent all three on a window
  * that could never show a frame — so the property here is **the presence
  * question comes first, and a share nobody can stream is left exactly as it
  * was**.
+ *
+ * **Nothing calls this in production since `#911`.** The relay that used to
+ * answer the presence question is gone with the socket that asked it, so what
+ * the tests pass now is the bare predicate `admitOperator` always took. The
+ * function itself comes out with the desk it lives on (`#912`); until then this
+ * is what says it still behaves.
  */
 describe('admitting an operator to a share', () => {
   const HUMAN = '00000000-0000-4000-8000-0000000000bb' as HumanId
-
-  /** A socket the relay can hold. Nothing is asserted about what reaches it. */
-  const socket = () => ({ send: () => undefined, close: () => undefined })
 
   async function anOffer(shares: ReturnType<typeof fakeShares>): Promise<string> {
     shares.allow(AGENT)
@@ -308,11 +310,10 @@ describe('admitting an operator to a share', () => {
   it('spends nothing when the citizen’s own sharer is not attached', async () => {
     const shares = fakeShares()
     const shareId = await anOffer(shares)
-    const relay = createShareRelay()
 
-    expect(await admitOperator(shareId, HUMAN, shares, (id) => relay.present(id, 'agent'))).toEqual(
-      { outcome: 'nothing-to-show' },
-    )
+    expect(await admitOperator(shareId, HUMAN, shares, () => false)).toEqual({
+      outcome: 'nothing-to-show',
+    })
 
     const share = shares.all().find((candidate) => candidate.id === shareId)
     expect(share?.state).toBe('offered')
@@ -322,12 +323,8 @@ describe('admitting an operator to a share', () => {
   it('admits them once there is something on the other end', async () => {
     const shares = fakeShares()
     const shareId = await anOffer(shares)
-    const relay = createShareRelay()
-    relay.attach(shareId, 'agent', socket())
 
-    const admission = await admitOperator(shareId, HUMAN, shares, (id) =>
-      relay.present(id, 'agent'),
-    )
+    const admission = await admitOperator(shareId, HUMAN, shares, () => true)
 
     expect(admission.outcome).toBe('admitted')
     expect(shares.all().find((candidate) => candidate.id === shareId)?.state).toBe('live')

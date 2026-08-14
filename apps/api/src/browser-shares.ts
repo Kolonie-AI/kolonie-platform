@@ -30,8 +30,12 @@ import type { OperatorMailer } from './email.js'
 import type { OutboundAllowance } from './support.js'
 
 /**
- * The browser share as the API sees it (`#736`): a port, so the two sockets and
- * the tools over them are testable without a PostgreSQL.
+ * The browser share as the API sees it (`#736`): a port, so what read it was
+ * testable without a PostgreSQL.
+ *
+ * **Nothing offers one any more** (`#911`). The tools and both sockets are
+ * withdrawn, and what is left calling this is the console window that shows a
+ * person a share already in the table — which goes, with this file, in `#912`.
  *
  * The same arrangement `DropStore` in `operator-drops.ts` uses, and for the same
  * reason — every rule about *who may* lives in `packages/db/src/storage`, next to
@@ -94,16 +98,17 @@ export function databaseShares(db: Database): ShareDesk {
  * What the operator's socket is allowed to do with the share it named (`#805`).
  *
  * Three answers rather than two, and the third is the whole of this file's part
- * in the defect: a person arriving at a share whose citizen has no sharer on the
- * relay is neither an intruder nor a session.
+ * in the defect: a person arriving at a share whose citizen has nothing attached
+ * is neither an intruder nor a session.
  */
 /**
  * End a share's row, and try twice before giving up (`#871`).
  *
- * **Called from the relay's close handler and awaited by nobody**, which is the
- * arrangement `routes/browser-share.ts` argues for: both sockets are already
- * shut by the time this runs, and a person's window should not wait on a
- * database round trip to finish closing.
+ * **Called from the relay's close handler and awaited by nobody**, which was the
+ * arrangement the relay route argued for: both sockets were already shut by the
+ * time this ran, and a person's window should not wait on a database round trip
+ * to finish closing. That route is gone (`#911`) and so is the caller; what the
+ * test below still holds is the retry, until `#912` takes the function.
  *
  * ## Why two attempts and not one, and not a general retry
  *
@@ -435,8 +440,8 @@ export function shareOfferNotificationText(offer: {
  *
  * The link is built here, from a host this deployment was configured with, and
  * handed to a person the Colony can name — never returned to the citizen, which
- * is the distinction the no-URL rule in `mcp/tools/browser-share.ts` is actually
- * about. An agent may cause a link to exist; it may not hold one.
+ * is the distinction the withdrawn offer tool's no-URL rule was actually about
+ * (`#911`). An agent may cause a link to exist; it may not hold one.
  *
  * **The recipient is the linked person and not `operator_addresses`.** Reaching
  * the share needs their console session, so the address has to belong to somebody

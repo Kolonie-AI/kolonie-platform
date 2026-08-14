@@ -68,7 +68,6 @@ import { registerInjectionRoute } from './routes/injection.js'
 import { registerVettingRoute } from './routes/vetting.js'
 import { registerAuthenticatorRoutes } from './routes/authenticator.js'
 import { registerAttributionRoutes } from './routes/attribution.js'
-import { registerBrowserShareRoutes } from './routes/browser-share.js'
 import { registerBadgeRoutes } from './routes/badges.js'
 import { registerAutonomyPageRoutes } from './routes/autonomy-page.js'
 import { registerTelegramRoutes } from './routes/telegram.js'
@@ -615,16 +614,6 @@ export function buildApp({
   // with it (`#243`). Beside the award badges and outside `/v1` for the same
   // reason: this one ends up in an `<img>` on somebody else's page.
   registerAttributionRoutes(app)
-  /**
-   * The two sockets of a browser share (`#736`).
-   *
-   * On the app rather than inside the `/v1` tree although one of them answers
-   * under it, because the other one cannot be: the operator's socket has to be
-   * same-origin with the console page that opens it, or its `SameSite=Lax`
-   * session cookie does not travel. Both are in one registrar so that the relay
-   * they share is one object, and both spell their own path out.
-   */
-  registerBrowserShareRoutes(app, routes)
 
   /**
    * The whole REST surface, one call per domain.

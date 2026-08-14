@@ -9,7 +9,6 @@ import type { ProviderRecipes } from '../provider-recipes.js'
 import type { AtlasRenames } from '../atlas/renames.js'
 import type { AgentStore } from '../authentication.js'
 import type { ContributionDependencies } from '../contributions.js'
-import type { ShareDesk, ShareNotifier } from '../browser-shares.js'
 import type { SkillNotes } from '../skills.js'
 import type { WakeupSource } from '../wakeup.js'
 import type { ArtefactDependencies } from '../artefact.js'
@@ -273,34 +272,6 @@ export interface McpDependencies {
   readonly operatorClaim: OperatorClaimDependencies
   /** People with accounts, and the link between one and an agent (`#426`). */
   readonly humans: HumanDependencies
-  /**
-   * The third operator channel: a live tab, handed over and got back (`#737`).
-   *
-   * **Optional, like `drops` and `handovers` beside it, and for the reason the
-   * HTTP door already has.** `RouteDependencies.shares` is optional so that an
-   * app wired with no database still builds; the two sockets then register
-   * nothing at all. A tool surface that registered itself anyway would be the
-   * one thing worse than an absent one — three tools whose only possible answer
-   * is that the desk is missing. So the tier is built the way D-013 builds every
-   * tier: by registering fewer tools, not by refusing more.
-   */
-  readonly shares?: ShareDesk | undefined
-  /**
-   * The Colony telling the person that their agent is waiting (`#774`).
-   *
-   * **Optional like the desk above it, and absent for the opposite consequence.**
-   * A missing desk unregisters the tools, because a share with no storage cannot
-   * happen at all. A missing notifier unregisters nothing: the offer is written,
-   * it stands in the operator's console queue for the full window, and the person
-   * can answer it — all this changes is that nobody was *told*, which is a state
-   * the citizen is handed in `notifyStatus` as `undeliverable` rather than left to
-   * infer. Hiding it would be the failure; the tools going away over it would be a
-   * larger one.
-   *
-   * Separate from `shares` because it holds what a desk must not: a mailer, an
-   * outbound ceiling and a configured console host.
-   */
-  readonly shareNotifier?: ShareNotifier | undefined
   /** The autonomy module (#146). */
   readonly autonomy: AutonomyDependencies
   readonly domain: DomainDependencies

@@ -554,22 +554,23 @@ export interface AppDependencies {
    */
   readonly avatars?: AvatarDesk
   /**
-   * The third operator channel (`#736`): a live browser tab, relayed.
+   * What is left of the third operator channel (`#736`), on its way out.
    *
-   * **Optional, and absent means the two sockets are never registered.** The
-   * same trade `drops` makes above: a deployment that has not got this is a
-   * deployment where the channel is not there, and it should still boot. A test
-   * that is not about browser sharing passes nothing and gets an app with no
-   * upgradeable path on it at all.
+   * **Nothing offers a share any more** (`#911`): the tools and both sockets are
+   * gone, so the only reader left is the console page that shows a person a
+   * share that already exists, and that page goes with `#912`. Still optional
+   * for the reason it always was — a deployment or a test wired with no database
+   * has no desk to give and must still boot.
    */
   readonly shares?: ShareDesk
   /**
-   * And how the person is told their agent is waiting (`#774`).
+   * And how the person was told their agent is waiting (`#774`).
    *
-   * Optional beside the desk, and the two absences mean different things —
-   * `McpDependencies.shareNotifier` states both. Here, absent is the ordinary
-   * shape of a test: nothing about browser sharing is broken by there being no
-   * mail, and an offer made without one comes back saying `undeliverable`.
+   * **Nothing reads this now.** Its one reader was the offer tool, withdrawn
+   * with the rest of them (`#911`); it is still wired because the mail it sends
+   * and the desk that holds it come out together in `#912`, and unpicking half
+   * of that here would make the diff that removes it harder to read rather than
+   * smaller.
    */
   readonly shareNotifier?: ShareNotifier
   /**

@@ -35,9 +35,9 @@ import { CONSOLE_STYLE } from './theme.js'
  * second tab, no way to name a URL — the decision record's limit is that an
  * operator clicks and types on the page the agent chose, and a field that took an
  * address would be the whole of the distance between this and a remote browser.
- * The script sends three CDP methods and it is the same three
- * `CDP_RELAY_METHODS` names, which the agent-side sharer is what actually
- * enforces.
+ * The script sends three CDP methods and the agent-side sharer is what actually
+ * enforced them; the allowlist they were named by went with the relay (`#911`),
+ * and this page goes with `#912`.
  *
  * **Nothing is stored.** A frame arrives, becomes the `src` of one `<img>`, and
  * is replaced by the next one. There is no buffer, no canvas the page reads back,

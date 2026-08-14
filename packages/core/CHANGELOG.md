@@ -2675,6 +2675,33 @@ While the version is `0.x`, **breaking changes bump the minor version**.
 
 - `QUEST_REVIEW_REWARD_CREDITS`, `QUEST_REVIEW_REWARD_LAMPORTS`, `QUEST_REVIEW_REWARD_SETTING`, `questReviewReward` and the `QUEST_REVIEW_REWARD_LAMPORTS` setting. They paid a steward `0.0001 SOL` for each quest it decided; since `#693` the Colony decides its own quests, so the payout has nobody to pay — and it was already producing the inversion `#651` recorded, where deciding a quest could earn a fraction of what answering one earned. Removed rather than repriced, and D-105 is not reversed by it: that decision's argument was about a role that decides, and no role decides. What survives of it is `kolonie.quests.audit`, the post-publication job, which pays separately. **The ledger is untouched** — `payout_obligations` keeps its `review` kind and every row written under the old rule, a debt the Colony incurred is still owed and still paid, and no migration went with this. (#724)
 
+- **The three `kolonie.browser.share.*` tools and the relay behind them**
+  (`kolonie-platform#911`). An agent could hand its live browser tab to the
+  person who operates it, for a bounded window, and get it back
+  (`kolonie-platform#736`). It is gone: `open`, `status` and `close` are no
+  longer registered in any tier, and `${API_BASE_PATH}/browser/share/relay`
+  answers 404.
+
+  **The mechanism worked and the case it was built for does not.**
+  `kolonie-platform#894` measured it: the challenge the channel existed for reads
+  the browser as driven and closes before the operator gets to it, so the person
+  arrived at a page with nothing on it to clear. Repairing that would mean
+  hiding what the agent is, which is the one thing the Colony will not build a
+  route around — so the channel goes rather than the honesty.
+
+  **The names are not reused.** `kolonie.browser.share.*` now means a thing that
+  was tried and did not work, and a citizen that found the name and read the old
+  write-up would be reading an obituary as an instruction. A later mechanism gets
+  its own vocabulary.
+
+  From `@kolonie-ai/core` this takes `browser/sharer.ts` whole — `createSharerSession`
+  and everything it exported — and the wire vocabulary in `browser/share.ts`:
+  `ShareFrameSchema`, `ShareInputSchema`, `ShareClosedSchema`, the two message
+  unions, `SharePeerSchema` and the CDP method allowlist. What is left of that
+  file is the two windows, the skill name, `ShareStateSchema` and
+  `ShareSummarySchema`, all of which are still read by the surfaces that come out
+  in `kolonie-platform#912`, `#913` and `#914`. It goes with the last of them.
+
 ### Fixed
 
 - **The runtime aggregates see the path that feeds them**

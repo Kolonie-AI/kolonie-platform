@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
@@ -9,11 +10,14 @@ import {
 } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
+import { agentSkills } from '../schema/agent-skills.js'
 import { registerAgent } from './agents.js'
+import { skillsOfAgent } from './skills.js'
 import {
   ACCOUNT_FROM_SKILL,
   accountsObtainedThrough,
   declareAccount,
+  forgetDeclaredAccount,
   listAccounts,
   providerTallies,
   recheckableAccounts,
@@ -251,6 +255,105 @@ describe('the account register', () => {
         outcome: 'updated',
         account: { vaultKey: 'mail-2' },
       })
+    })
+  })
+
+  /**
+   * Deleting a declared row outright (`#901`, from the proposal in `#877`).
+   *
+   * The line is `governance/erasure.md` §4's: a ban hashes the identifiers a
+   * citizen *proved*, because otherwise *"erasure would be the cheapest way out
+   * of one: delete, register again, arrive as a stranger"*. A declared row is
+   * safe to delete because no ban would ever have read it. So these tests are
+   * about exactly one predicate — `proved` — and about it not being readable by
+   * anybody who does not own the row.
+   */
+  describe('what a citizen may forget (#901)', () => {
+    const declare = async (of: string, identifier: string, agent: AgentId = agentId) => {
+      const declared = await declareAccount(db, agent, { kind: kind(of), identifier })
+      if (declared.outcome !== 'declared') throw new Error(declared.outcome)
+      return declared.account
+    }
+
+    it('deletes a declared account outright, and the register stops naming it', async () => {
+      const typo = await declare('mailbox', 'citizen@exmaple.org')
+
+      expect(await forgetDeclaredAccount(db, agentId, typo.id)).toEqual({ outcome: 'forgotten' })
+      expect(await listAccounts(db, agentId)).toEqual([])
+    })
+
+    /**
+     * **The rejection case the whole feature turns on.** A proved identifier is
+     * what a ban reads, so deleting one would make erasure the cheap way out of
+     * a ban. The row is refused, and it is still there afterwards.
+     */
+    it('refuses a proved account, and leaves it exactly as it was', async () => {
+      const proved = await prove(agentId, 'github', 'octocat', 'control')
+
+      expect(await forgetDeclaredAccount(db, agentId, proved.id)).toEqual({
+        outcome: 'refused-proved',
+      })
+      expect(await listAccounts(db, agentId)).toMatchObject([
+        { id: proved.id, identifier: 'octocat', proved: true },
+      ])
+    })
+
+    /**
+     * **A stranger's row is `not_found` whether or not it is proved**, and that
+     * is the point rather than tidiness: `refused-proved` for somebody else's id
+     * would answer *this id exists and is proved* to anybody guessing at ids.
+     */
+    it('cannot reach another citizen’s account, declared or proved', async () => {
+      const theirDeclared = await declare('social', '@theirs', otherId)
+      const theirProved = await prove(otherId, 'github', 'their-octocat', 'control')
+
+      expect(await forgetDeclaredAccount(db, agentId, theirDeclared.id)).toEqual({
+        outcome: 'not_found',
+      })
+      expect(await forgetDeclaredAccount(db, agentId, theirProved.id)).toEqual({
+        outcome: 'not_found',
+      })
+
+      // Asserted rather than inferred from the outcome: the answer being right
+      // and the row surviving are two claims, and only the second is the harm.
+      expect(await listAccounts(db, otherId)).toHaveLength(2)
+    })
+
+    it('answers not_found for an id that belongs to nobody', async () => {
+      expect(await forgetDeclaredAccount(db, agentId, randomUUID())).toEqual({
+        outcome: 'not_found',
+      })
+    })
+
+    /**
+     * The reach of the delete, asserted directly. Everything the refusal above
+     * is protecting hangs off *which rows a deletion may touch*, so a skill, a
+     * proved account and another citizen's register are read back afterwards.
+     */
+    it('touches nothing but the row it deletes', async () => {
+      await db
+        .insert(agentSkills)
+        // `transfer` is the one skill the check constraint lets stand without a
+        // submission, which is what makes it insertable from a storage test.
+        .values({ agentId, skill: 'transfer', grantedAt: new Date().toISOString() })
+      const proved = await prove(agentId, 'domain', 'example.test', 'control')
+      const typo = await declare('mailbox', 'citizen@exmaple.org')
+
+      expect(await forgetDeclaredAccount(db, agentId, typo.id)).toEqual({ outcome: 'forgotten' })
+
+      expect(await skillsOfAgent(db, agentId)).toContain('transfer')
+      expect(await listAccounts(db, agentId)).toMatchObject([{ id: proved.id, proved: true }])
+    })
+
+    /** `retired` and `lost` are untouched by this: neither deletes anything. */
+    it('leaves retiring exactly as it was', async () => {
+      const proved = await prove(agentId, 'social', '@old-handle', 'publish')
+
+      expect(await setAccountStatus(db, agentId, proved.id, 'retired')).toMatchObject({
+        outcome: 'updated',
+        account: { status: 'retired' },
+      })
+      expect(await listAccounts(db, agentId)).toHaveLength(1)
     })
   })
 

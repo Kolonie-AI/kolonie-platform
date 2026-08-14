@@ -391,6 +391,68 @@ export async function setAccountStatus(
   return editOwn(db, agentId, accountId, { status })
 }
 
+/** What deleting one of the citizen's own declared accounts did (`#901`). */
+export type AccountForgotten =
+  | { readonly outcome: 'forgotten' }
+  /** The row was the caller's and the Colony has checked it. */
+  | { readonly outcome: 'refused-proved' }
+  | { readonly outcome: 'not_found' }
+
+/**
+ * Delete one of the caller's **declared, unproved** accounts outright (`#901`).
+ *
+ * **The half of `#877` that is granted**, and the line is drawn where
+ * `governance/erasure.md` §4 draws it. A ban hashes the identifiers a citizen
+ * *proved* — *"the only kind worth hashing"* — because otherwise *"erasure would
+ * be the cheapest way out of one: delete, register again, arrive as a
+ * stranger"*. A declared row is safe to delete because no ban would ever have
+ * read it; a proved row is not, because a ban is the one thing that does.
+ *
+ * The gap this closes is small and permanent: a citizen that declared a typo, or
+ * an address at a provider that turned out not to exist, carried that row for
+ * the life of the account. `retired` is a statement about an account that
+ * existed, and using it to mean *I wrote this down wrong* makes the one field
+ * that is a statement of fact by its owner say something untrue.
+ *
+ * **A proved row and a stranger's row are not distinguishable to a caller that
+ * owns neither.** `refused-proved` is returned only for a row the caller
+ * actually owns, so the outcome cannot be read as *this id exists and is
+ * proved* by somebody guessing at ids. That is the same shape `editOwn` already
+ * has, kept deliberately.
+ *
+ * **Only the citizen calls this.** There is no Colony path and no operator path,
+ * on the same reasoning as `setAccountStatus`: what a citizen wrote down about
+ * itself is not something the Colony may quietly unwrite.
+ */
+export async function forgetDeclaredAccount(
+  db: Database,
+  agentId: AgentId,
+  accountId: string,
+): Promise<AccountForgotten> {
+  // One statement, so a row that is proved between the read and the delete is
+  // refused rather than deleted: the predicate is in the `where`, not in a
+  // branch above it.
+  const [row] = await db
+    .delete(accounts)
+    .where(
+      and(eq(accounts.id, accountId), eq(accounts.agentId, agentId), eq(accounts.proved, false)),
+    )
+    .returning({ id: accounts.id })
+
+  if (row !== undefined) return { outcome: 'forgotten' }
+
+  // Nothing went. Either the caller owns no such row — a stranger's id, or none
+  // at all — or it owns it and the row is proved, and only the second of those
+  // may be named.
+  const [own] = await db
+    .select({ proved: accounts.proved })
+    .from(accounts)
+    .where(and(eq(accounts.id, accountId), eq(accounts.agentId, agentId)))
+    .limit(1)
+
+  return own?.proved === true ? { outcome: 'refused-proved' } : { outcome: 'not_found' }
+}
+
 /** The citizen's own reminder. Bounded by the check constraint, computed on by nothing. */
 export async function setAccountNote(
   db: Database,

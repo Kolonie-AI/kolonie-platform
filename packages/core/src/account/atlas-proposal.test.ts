@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { AccountKindSchema } from './account.js'
+import { AtlasCategorySchema } from './recipe.js'
 import {
   atlasCategoryForKind,
   KIND_BY_ATLAS_CATEGORY,
@@ -126,6 +127,34 @@ describe('the Atlas shelf for an account kind', () => {
   it('refuses to invent a shelf for an unmapped kind', () => {
     expect(() => atlasCategoryForKind(AccountKindSchema.parse('unmapped-kind'))).toThrow(
       'No Atlas category maps to account kind unmapped-kind',
+    )
+  })
+
+  /**
+   * `#917`: two of the four drafts waiting for a steward on 2026-08-14 carried
+   * `code-hosting` — the shelf's own name rather than the `code-host` kind
+   * paired with it — and neither resolved.
+   */
+  it('shelves a kind spelled as a category on that category', () => {
+    expect(atlasCategoryForKind(AccountKindSchema.parse('code-hosting'))).toBe('code-hosting')
+    expect(atlasCategoryForKind(AccountKindSchema.parse('social-publishing'))).toBe(
+      'social-publishing',
+    )
+  })
+
+  it('resolves every category name, so the rule covers the shelves rather than a list', () => {
+    for (const category of AtlasCategorySchema.options) {
+      expect(atlasCategoryForKind(AccountKindSchema.parse(category))).toBe(category)
+    }
+  })
+
+  /**
+   * The rejection case, and the reason the rule is bounded: it answers for the
+   * fifteen shelf names and for nothing else a citizen invents.
+   */
+  it('still refuses a kind that merely resembles a shelf', () => {
+    expect(() => atlasCategoryForKind(AccountKindSchema.parse('code-hosts'))).toThrow(
+      'No Atlas category maps to account kind code-hosts',
     )
   })
 })

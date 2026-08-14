@@ -17,6 +17,7 @@ import {
   type AccountWalk,
   type AgentId,
   type AgentPlatform,
+  type AtlasCategory,
   type ProviderRecipe,
   type WalkOutcome,
   type WalkProse,
@@ -453,7 +454,32 @@ export async function finishWalk(
     const entry = await providerRecipe(tx, walk.kind, walk.provider)
     const verdict = walkVerdict(walk, entry)
 
-    if (verdict.kind === 'draft') {
+    /**
+     * The shelf this walk's entry would go on, or nothing (`#917`).
+     *
+     * **A kind with no shelf writes no entry rather than defaulting to one**,
+     * which is the rule `measuredOnlyRecipes` and `recordMeasuredProvider`
+     * already follow and the one this path was missing. `atlasCategoryForKind`
+     * throws by design — a guessed shelf is a false catalogue claim — and the
+     * throw was landing inside the transaction that closes the walk, so an
+     * unmappable kind did not lose its entry, it lost the whole
+     * `accounts.walk-report` call. The citizen's account of how it joined was
+     * refused for a reason it could do nothing about, on the one channel the
+     * Atlas depends on.
+     *
+     * An existing entry's shelf still wins, unchanged: a walk against something
+     * somebody already catalogued does not re-shelve it.
+     */
+    const shelf = ((): AtlasCategory | undefined => {
+      if (entry !== undefined) return entry.category
+      try {
+        return atlasCategoryForKind(walk.kind)
+      } catch {
+        return undefined
+      }
+    })()
+
+    if (verdict.kind === 'draft' && shelf !== undefined) {
       await writeProviderRecipe(tx, {
         kind: walk.kind,
         provider: walk.provider,
@@ -464,7 +490,7 @@ export async function finishWalk(
          * somebody already named does not rename it.
          */
         title: entry?.title ?? walk.provider,
-        category: entry?.category ?? atlasCategoryForKind(walk.kind),
+        category: shelf,
         status: 'draft',
         steps: verdict.steps,
         /**
@@ -500,12 +526,12 @@ export async function finishWalk(
         .where(eq(accountWalks.id, walkId))
     }
 
-    if (verdict.kind === 'refusal') {
+    if (verdict.kind === 'refusal' && shelf !== undefined) {
       await writeProviderRecipe(tx, {
         kind: walk.kind,
         provider: walk.provider,
         title: entry?.title ?? walk.provider,
-        category: entry?.category ?? atlasCategoryForKind(walk.kind),
+        category: shelf,
         status: 'refused',
         refusal: verdict.wall,
         steps: [],

@@ -13,6 +13,7 @@ export {
   type CatalogueSeedResult,
 } from './provider-catalogue.js'
 export { backfillMeasuredProviders, type AtlasBackfillResult } from './atlas-backfill.js'
+export { repairAtlasShelves, type AtlasShelfRepairResult } from './atlas-shelf.js'
 export {
   LISTED_ATLAS_ENTRIES,
   curateListedAtlasEntries,

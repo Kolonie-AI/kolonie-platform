@@ -147,6 +147,48 @@ describe('the record of one agent obtaining one account', () => {
     })
 
     /**
+     * **A kind with no shelf writes no entry rather than defaulting to one**
+     * (`#917`), which is the rule `measuredOnlyRecipes` and
+     * `recordMeasuredProvider` already follow.
+     *
+     * The failure it replaces was worse than a wrong shelf:
+     * `atlasCategoryForKind` throws by design, and the throw landed inside the
+     * transaction that closes the walk — so an unmappable kind did not lose its
+     * entry, it lost the whole call. The citizen's account of how it joined was
+     * refused for a reason it could do nothing about.
+     */
+    it('closes a walk on an unshelvable kind and proposes nothing', async () => {
+      const nowhere = { kind: AccountKindSchema.parse('sourdough'), provider: 'starter.example' }
+      const walkId = await walkInProgress(db, agentId, nowhere)
+      await recordWalkStep(db, walkId, { actor: 'agent' })
+
+      const finished = await finishWalk(db, walkId, { outcome: 'proved' })
+
+      /** The walk itself is finished and readable — that is the half that used to be lost. */
+      expect(finished?.walk.outcome).toBe('proved')
+      expect(await providerRecipe(db, nowhere.kind, nowhere.provider)).toBeUndefined()
+      /** And nothing was stamped as proposed, because nothing was. */
+      expect((await accountWalk(db, walkId))?.id).toBe(walkId)
+    })
+
+    /**
+     * The other half of `#917`: a kind spelled as the shelf's own name resolves,
+     * rather than falling through to the unshelvable branch above. Two of the
+     * four drafts waiting for a steward on 2026-08-14 were in exactly this state.
+     */
+    it('files a walk whose kind is a category name on that shelf', async () => {
+      const named = {
+        kind: AccountKindSchema.parse('code-hosting'),
+        provider: 'clawhub.example',
+      }
+      const walkId = await walkInProgress(db, agentId, named)
+      await recordWalkStep(db, walkId, { actor: 'agent' })
+      await finishWalk(db, walkId, { outcome: 'proved' })
+
+      expect((await providerRecipe(db, named.kind, named.provider))?.category).toBe('code-hosting')
+    })
+
+    /**
      * The walker's own account travels with the draft it proposed (`#769`).
      *
      * Without this the long form sits on the walk row and the steward reviewing

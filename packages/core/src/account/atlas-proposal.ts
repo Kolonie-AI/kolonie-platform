@@ -402,6 +402,37 @@ const ATLAS_CATEGORY_BY_KIND: ReadonlyMap<string, AtlasCategory> = (() => {
    */
   categories.set('github', 'code-hosting')
 
+  /**
+   * **A kind spelled as a shelf belongs on that shelf** (`#917`).
+   *
+   * The kind vocabulary is deliberately open — `kolonie.accounts.declare` invites
+   * *another slug of your own* — and the single most predictable thing a citizen
+   * reaches for is the name of the shelf it can see. Measured 2026-08-14, two of
+   * the four drafts waiting for a steward carried `code-hosting`, which is the
+   * category's own name and not the `code-host` kind paired with it. Neither
+   * resolved, so both sat on `data-apis` waiting to be published onto a shelf
+   * nobody browsing for a code host would look at.
+   *
+   * **Derived and bounded rather than an alias list.** It covers exactly the
+   * fifteen category names and grows only when a shelf does, which is what makes
+   * it different from answering each citizen's invention with another line. A
+   * kind that is not a category name still throws, and that is still right.
+   *
+   * **It cannot mask a pairing.** `set` runs after the map above, so a category
+   * name that is already a kind of some other shelf would be an overwrite — the
+   * guard refuses it rather than silently re-shelving the pair. Today the two
+   * that coincide, `mailbox` and `storage`, name their own shelf and agree.
+   */
+  for (const category of AtlasCategorySchema.options) {
+    const existing = categories.get(category)
+    if (existing !== undefined && existing !== category) {
+      throw new Error(
+        `Account kind ${category} is a category name but is paired with shelf ${existing}`,
+      )
+    }
+    categories.set(category, category)
+  }
+
   return categories
 })()
 

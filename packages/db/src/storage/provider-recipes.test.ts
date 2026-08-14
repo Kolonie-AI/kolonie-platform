@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { sql } from 'drizzle-orm'
 import {
   AccountKindSchema,
   AtlasCategorySchema,
@@ -12,6 +13,7 @@ import {
   providerRecipe,
   providerRecipeList,
   recordMeasuredProvider,
+  stewardQueue,
   writeProviderRecipe,
 } from './provider-recipes.js'
 import { PROVIDER_CATALOGUE, seedProviderCatalogue } from '../provider-catalogue.js'
@@ -989,5 +991,68 @@ describe('a provider row the Colony measured', () => {
         steps: [{ actor: 'agent', instruction: 'Open the signup page and fill it in.' }],
       }),
     ).rejects.toThrow()
+  })
+
+  /**
+   * The steward queue as the alarm in `apps/support-triage-runner` reads it
+   * (`#917`). Four completed walks sat in it unread for two days on 2026-08-14,
+   * and nothing measured it.
+   */
+  describe('the walks waiting for a steward', () => {
+    const aDraft = async (provider: string, ageHours: number) => {
+      await writeProviderRecipe(db, {
+        kind: kind('phone'),
+        provider,
+        title: provider,
+        status: 'draft',
+        category: 'telephony',
+        steps: [{ actor: 'agent', instruction: 'Open the signup page and fill it in.' }],
+      })
+      await db.execute(
+        sql`update provider_recipes set updated_at = now() - make_interval(hours => ${ageHours})
+             where provider = ${provider}`,
+      )
+    }
+
+    it('counts a draft that has waited past the threshold, oldest first', async () => {
+      await aDraft('newer.example', 60)
+      await aDraft('older.example', 100)
+
+      const queue = await stewardQueue(db, 48)
+
+      expect(queue.count).toBe(2)
+      expect(queue.drafts.map((row) => row.provider)).toEqual(['older.example', 'newer.example'])
+      expect(queue.drafts[0]?.category).toBe('telephony')
+      expect(queue.oldestSince).not.toBeNull()
+    })
+
+    /** A draft written this morning has not been neglected, it has not been reached. */
+    it('leaves a draft younger than the threshold out of the queue', async () => {
+      await aDraft('fresh.example', 2)
+
+      expect(await stewardQueue(db, 48)).toEqual({ count: 0, drafts: [], oldestSince: null })
+    })
+
+    /**
+     * **Drafts and not the whole unpublished set.** A proposal waits on a
+     * different question and carries no citizen's completed walk behind it,
+     * which is the thing here with a clock on it.
+     */
+    it('counts only drafts, not everything that is unpublished', async () => {
+      await aDraft('draft.example', 60)
+      await writeProviderRecipe(db, {
+        kind: kind('phone'),
+        provider: 'listed.example',
+        title: 'Listed',
+        status: 'unwritten',
+        category: 'telephony',
+        steps: [],
+      })
+
+      const queue = await stewardQueue(db, 48)
+
+      expect(queue.count).toBe(1)
+      expect(queue.drafts[0]?.provider).toBe('draft.example')
+    })
   })
 })

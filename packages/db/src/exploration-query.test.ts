@@ -1,10 +1,12 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
-import { AccountKindSchema, RegisterAgentRequestSchema } from '@kolonie-ai/core'
+import { sql } from 'drizzle-orm'
+import { AccountKindSchema, RegisterAgentRequestSchema, type AgentId } from '@kolonie-ai/core'
 import type { Database } from './client.js'
 import { connectForTests, databaseTestTarget, truncateAll } from './testing.js'
 import { writeProviderRecipe } from './storage/provider-recipes.js'
 import { registerAgent } from './storage/agents.js'
-import { unwalkedAtlasEntry } from './storage/exploration.js'
+import { obstacleAhead, unwalkedAtlasEntry } from './storage/exploration.js'
+import { tasks } from './schema/tasks.js'
 
 const target = databaseTestTarget()
 
@@ -139,5 +141,155 @@ describe('the unwalked Atlas entry a stuck citizen is offered', () => {
     const entry = await unwalkedAtlasEntry(db, ['github', 'mailbox', 'domain'])
 
     expect(entry).toBeNull()
+  })
+})
+
+/**
+ * `obstacleAhead` against a real database (`#893`).
+ *
+ * **Exercised rather than rendered**, on the lesson the file above records: a
+ * query that is only ever read as a string has been checked for the things you
+ * can see in a string and nothing else. Every case below is a `where` clause
+ * that has to actually filter.
+ */
+describe('the obstacle a stuck citizen is pointed at', () => {
+  let db: Database
+  let agentId: AgentId
+  let seeded = 0
+
+  beforeAll(async () => {
+    db = await connectForTests(target.url)
+  })
+
+  afterAll(async () => {
+    await db?.close()
+  })
+
+  beforeEach(async () => {
+    await truncateAll(db)
+    const registered = await registerAgent(
+      db,
+      RegisterAgentRequestSchema.parse({ name: 'Reader', platform: 'openclaw' }),
+    )
+    if (registered.outcome !== 'registered') throw new Error(registered.outcome)
+    agentId = registered.agent.id
+  })
+
+  /** One active task, through the schema rather than through hand-written SQL. */
+  const aTask = async (over: { readonly requires?: readonly string[] } = {}) => {
+    const [row] = await db
+      .insert(tasks)
+      .values({
+        type: `a-rung-${++seeded}`,
+        title: `A rung ${seeded}`,
+        description: 'What this task is, for a human reading the catalogue.',
+        instructions: 'What the agent must actually do.',
+        rewardReputation: 1,
+        timeoutHours: 24,
+        status: 'active',
+        requiresSkills: [...(over.requires ?? [])],
+      })
+      .returning({ id: tasks.id })
+
+    if (row === undefined) throw new Error('insert into tasks returned no row')
+    return String(row.id)
+  }
+
+  /** A briefing that says something, which is the only kind worth pointing at. */
+  const briefed = async (taskId: string, over: { readonly claims?: number } = {}) => {
+    const claims = over.claims ?? 1
+    /** `written_at` and `model` are set together — the table refuses one without the other. */
+    await db.execute(sql`
+      insert into task_briefings (task_id, claims, written_at, model)
+      values (${taskId},
+              ${sql.raw(
+                `'${JSON.stringify(
+                  Array.from({ length: claims }, () => ({
+                    claim: 'The signup form refuses a generated address.',
+                    citizens: 3,
+                    platforms: {},
+                  })),
+                )}'::jsonb`,
+              )},
+              now(), 'a-model')
+    `)
+  }
+
+  it('offers a task the citizen could attempt whose briefing says something', async () => {
+    const taskId = await aTask()
+    await briefed(taskId)
+
+    expect(await obstacleAhead(db, agentId)).toEqual({
+      taskId,
+      title: expect.stringContaining('A rung'),
+    })
+  })
+
+  /**
+   * **The rejection case `#893` names**: not offered on a task the citizen
+   * cannot attempt. `attemptableBy` is the rule, read from `tasks.ts` rather
+   * than restated, so this also asserts the import did what it claims.
+   */
+  it('says nothing about a task whose skills the citizen does not hold', async () => {
+    await briefed(await aTask({ requires: ['browser'] }))
+
+    expect(await obstacleAhead(db, agentId)).toBeNull()
+  })
+
+  /**
+   * A row exists as soon as a task is marked dirty. `written_at` separates
+   * *nobody has synthesised this* from *this was synthesised*, and an empty
+   * `claims` separates a corpus that produced a claim from one that produced
+   * none — pointing at either sends a reader to an empty page.
+   */
+  it('says nothing about a briefing nobody has written', async () => {
+    const taskId = await aTask()
+    await db.execute(sql`insert into task_briefings (task_id, claims) values (${taskId}, '[]')`)
+
+    expect(await obstacleAhead(db, agentId)).toBeNull()
+  })
+
+  it('says nothing about a written briefing that produced no claim', async () => {
+    const taskId = await aTask()
+    await db.execute(sql`
+      insert into task_briefings (task_id, claims, written_at, model)
+      values (${taskId}, '[]', now(), 'a-model')
+    `)
+
+    expect(await obstacleAhead(db, agentId)).toBeNull()
+  })
+
+  /**
+   * **A task it attempted and did not pass is still offered**, which is the case
+   * this exists for: an agent that stopped somewhere is exactly the reader a
+   * write-up of where others stopped is worth something to. Only a pass takes it
+   * off the list.
+   */
+  it('stops offering a task once the citizen has passed it', async () => {
+    const taskId = await aTask()
+    await briefed(taskId)
+
+    /**
+     * A verdict carries its moment — `submissions_verified_at_matches_status` —
+     * and each attempt is numbered, which `submissions_task_agent_attempt_unique`
+     * enforces.
+     */
+    await db.execute(sql`
+      insert into submissions (agent_id, task_id, payload, status, attempt, verified_at)
+      values (${agentId}, ${taskId}, '{}'::jsonb, 'failed', 1, now())
+    `)
+    expect((await obstacleAhead(db, agentId))?.taskId).toBe(taskId)
+
+    await db.execute(sql`
+      insert into submissions (agent_id, task_id, payload, status, attempt, verified_at)
+      values (${agentId}, ${taskId}, '{}'::jsonb, 'passed', 2, now())
+    `)
+    expect(await obstacleAhead(db, agentId)).toBeNull()
+  })
+
+  it('says nothing at all when no task carries a briefing', async () => {
+    await aTask()
+
+    expect(await obstacleAhead(db, agentId)).toBeNull()
   })
 })

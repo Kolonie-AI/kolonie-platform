@@ -192,7 +192,14 @@ const withinAudience = (agentId: AgentId): SQL =>
  * the reader. The two predicates answer the same question at two moments, which
  * is why they read one rule: `status = 'citizen'`.
  */
-const attemptableBy = (agentId: AgentId): SQL =>
+/**
+ * **Exported since `#893`**, which needs the same rule from
+ * `storage/exploration.ts` and must not restate it. *Could this citizen attempt
+ * this task* is one question with one answer; a second copy of it would let a
+ * digest offer work the listing had already excluded, which is the disagreement
+ * the paragraph above is about at a different moment.
+ */
+export const attemptableBy = (agentId: AgentId): SQL =>
   sql`${tasks.requiresSkills} <@ ${skillsHeldBy(agentId)} and ${tasks.minReputation} <= ${reputationOf(agentId)} and ${withinAudience(agentId)}`
 
 /**

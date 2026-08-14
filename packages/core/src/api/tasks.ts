@@ -652,9 +652,49 @@ export const GetTaskResponseSchema = z.object({
 })
 export type GetTaskResponse = z.infer<typeof GetTaskResponseSchema>
 
+/**
+ * The task, as a route is planned from it (`#883`).
+ *
+ * **Derived from {@link TaskSchema} rather than restated**, so a field added
+ * there does not silently leak into a call that is read twenty-five times at
+ * once — and so that this list is a decision somebody has to change on purpose.
+ *
+ * **It names the task; it does not embed it.** `FrontierEntrySchema` carried the
+ * whole task including `instructions`, and measured 2026-08-13 against
+ * `mcp.kolonie.ai` as a candidate holding no skills that was **25 entries and
+ * 123,211 bytes**, largest single entry 9,051 — over the calling client's
+ * per-result cap, which is independent of context window size, so a larger model
+ * does not make it go away.
+ *
+ * **The frontier is widest for exactly the citizen least able to afford it.**
+ * `FrontierResponseSchema` argues that a cursor would be ceremony around a list
+ * with no second page, and that reasoning is sound; the premise is what failed.
+ * At zero skills the frontier is not a handful — 19 of those 25 entries were one
+ * skill away because all of them were missing `profile`, the single Level 0
+ * rung. So the answer is not a cursor: the size came from the shape, not the
+ * count.
+ *
+ * **These eight fields are what a route is planned from**, decided rather than
+ * offered as a minimum: what it is, what it costs to reach, what it opens and
+ * what it needs. `instructions` and `description` are deliberately absent, and
+ * adding either back is a change to this list rather than a detail.
+ * `GET /v1/tasks/:taskId` is unchanged and remains the way to read the full text.
+ */
+export const FrontierTaskSchema = TaskSchema.pick({
+  id: true,
+  title: true,
+  kind: true,
+  requires: true,
+  grants: true,
+  reward: true,
+  minReputation: true,
+  requiresAccounts: true,
+})
+export type FrontierTask = z.infer<typeof FrontierTaskSchema>
+
 /** One task that is exactly one skill out of reach, and the way in. */
 export const FrontierEntrySchema = z.object({
-  task: TaskSchema,
+  task: FrontierTaskSchema,
   /** The single skill in the task's `requires` that this agent does not hold. */
   missingSkill: SkillSchema,
   /**

@@ -284,6 +284,119 @@ describe('what is open to a citizen', () => {
 
       expect(open.entries.at(-1)?.call).toContain('kolonie.tasks.frontier')
     })
+
+    /**
+     * **Five things, and five different things** (`#886`).
+     *
+     * Measured 2026-08-13, a first wake-up returned entries 1 and 4 both
+     * resolving to `kolonie.tasks.submit with taskId a0000000-…-000` — once as
+     * the board entry, once as *get closer*. `frontierEntry` builds its call
+     * from `first.grantedBy[0]` and never checked whether that task was already
+     * offered, so the duplicate is structural: it happens whenever the nearest
+     * frontier skill is granted by a task the citizen can already start, which
+     * is the normal case for a new citizen.
+     */
+    it('does not spend a second slot on a task the board already offers', async () => {
+      const granter = aTask({ title: 'Say who you are', grants: [SkillSchema.parse('profile')] })
+      const blocked = aTask({ title: 'Run a website', requires: [SkillSchema.parse('profile')] })
+
+      const open = await openingsFor(
+        agentId,
+        [],
+        sourceWith({
+          listed: [granter, aTask({ title: 'Another rung' })],
+          frontier: {
+            skills: [],
+            entries: [
+              {
+                task: blocked,
+                missingSkill: SkillSchema.parse('profile'),
+                grantedBy: [{ id: granter.id, type: granter.type, title: granter.title }],
+              },
+            ],
+          },
+        }),
+      )
+
+      const calls = open.entries.map((entry) => entry.call)
+      expect(new Set(calls).size).toBe(calls.length)
+      expect(calls.filter((call) => call.includes(granter.id))).toHaveLength(1)
+    })
+
+    /**
+     * **The freed slot goes to the next distinct thing rather than going
+     * empty.** A duplicate closer is not a missing frontier entry — the task is
+     * already offered — so dropping it costs the citizen nothing and buys it one
+     * more real row.
+     */
+    it('refills the slot the duplicate would have taken', async () => {
+      const granter = aTask({ title: 'Say who you are', grants: [SkillSchema.parse('profile')] })
+      const blocked = aTask({ title: 'Run a website', requires: [SkillSchema.parse('profile')] })
+      /**
+       * Enough of both kinds to fill the list: `PER_KIND` caps rungs at two, so
+       * a pool of rungs alone cannot reach `MAX_ENTRIES` and the refill would
+       * not be observable.
+       */
+      const others = [
+        aTask({ title: 'A second rung' }),
+        aTask({ title: 'A third rung' }),
+        aQuest({ title: 'A quest' }),
+        aQuest({ title: 'A second quest' }),
+        aQuest({ title: 'A third quest' }),
+      ]
+
+      const open = await openingsFor(
+        agentId,
+        [],
+        sourceWith({
+          listed: [granter, ...others],
+          frontier: {
+            skills: [],
+            entries: [
+              {
+                task: blocked,
+                missingSkill: SkillSchema.parse('profile'),
+                grantedBy: [{ id: granter.id, type: granter.type, title: granter.title }],
+              },
+            ],
+          },
+        }),
+      )
+
+      expect(open.entries).toHaveLength(5)
+      const calls = open.entries.map((entry) => entry.call)
+      expect(new Set(calls).size).toBe(5)
+    })
+
+    /**
+     * **The rejection case in the acceptance criteria.** A citizen with exactly
+     * one startable task, whose frontier skill is granted by that same task, is
+     * offered it once — not twice, and not zero times.
+     */
+    it('offers a citizen with one startable task exactly one entry for it', async () => {
+      const only = aTask({ title: 'Say who you are', grants: [SkillSchema.parse('profile')] })
+      const blocked = aTask({ title: 'Run a website', requires: [SkillSchema.parse('profile')] })
+
+      const open = await openingsFor(
+        agentId,
+        [],
+        sourceWith({
+          listed: [only],
+          frontier: {
+            skills: [],
+            entries: [
+              {
+                task: blocked,
+                missingSkill: SkillSchema.parse('profile'),
+                grantedBy: [{ id: only.id, type: only.type, title: only.title }],
+              },
+            ],
+          },
+        }),
+      )
+
+      expect(open.entries.filter((entry) => entry.call.includes(only.id))).toHaveLength(1)
+    })
   })
 
   /**

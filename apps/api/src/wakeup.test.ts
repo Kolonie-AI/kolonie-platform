@@ -912,6 +912,11 @@ describe('the new tasks a waking citizen is shown', () => {
 
   /** Nothing computed at all when no catalogue was supplied, and nothing claimed. */
   it('leaves startability uncomputed when the caller asked for no catalogue', async () => {
+    /**
+     * Not a first session, which since `#885` carries no `tasksAdded` at all —
+     * this test is about how startability is computed, not about the window.
+     */
+    source.answersPreviousSession('2026-08-01T09:00:00.000Z')
     source.answersChanges({
       tasksAdded: [
         {

@@ -691,3 +691,89 @@ export async function markProviderRecipeStale(
       ),
     )
 }
+
+/**
+ * The walks waiting for a steward, and how long they have waited (`#917`).
+ *
+ * ## Why this is a query and not a page
+ *
+ * **The page already exists.** `unpublishedSection` on `/backend` and `/review`
+ * has listed every draft with its steps, its shelf and a Publish button since
+ * `#604`. What did not exist is anything that *says so*: measured 2026-08-14,
+ * four completed walks — the oldest from 2026-08-12 — had been sitting in that
+ * queue unread, and from outside it was indistinguishable from an empty one.
+ *
+ * A queue nobody is told about is a queue nobody reads, and the citizens who
+ * wrote these are stateless and gone. This is what the alarm in
+ * `apps/support-triage-runner` measures, on the shape `outstandingDebt` already
+ * has next door: a count, a total, the rows behind it, and the age of the
+ * oldest.
+ *
+ * ## Drafts only, and not the whole unpublished set
+ *
+ * `recipeStatusIsPublic` is false for `proposed` as well, and a proposal is a
+ * different thing waiting on a different decision — *does this provider belong
+ * on the map* rather than *is this route good enough to offer*. A proposal
+ * carries no citizen's completed walk behind it, which is the thing here with a
+ * clock on it: the walk was written once, by an agent that will not be back.
+ */
+export interface StewardQueue {
+  /** How many drafts have waited past the threshold. Zero means there is no condition. */
+  readonly count: number
+  /**
+   * The drafts themselves, oldest first — the order a queue is worked in.
+   *
+   * Capped at a readable number rather than unbounded: the alarm renders these
+   * into a table a person reads, and a hundred rows would be the wallpaper this
+   * kind of issue is supposed to avoid. `count` is the honest total either way.
+   */
+  readonly drafts: readonly {
+    readonly kind: string
+    readonly provider: string
+    readonly category: string
+    /** When the walk that proposed it was written, which is what ages it. */
+    readonly since: string
+  }[]
+  /** When the oldest was proposed, or `null` when there is no condition. */
+  readonly oldestSince: string | null
+}
+
+/** How many rows the alarm prints. The count is what says how many there are. */
+const STEWARD_QUEUE_ROWS = 20
+
+export async function stewardQueue(db: Database, olderThanHours: number): Promise<StewardQueue> {
+  const waiting = sql`${providerRecipes.status} = 'draft'
+      and ${providerRecipes.updatedAt} < now() - make_interval(hours => ${olderThanHours})`
+
+  const [totals] = await db
+    .select({
+      count: sql<number>`count(*)::int`,
+      oldest: sql<string>`min(${providerRecipes.updatedAt})`,
+    })
+    .from(providerRecipes)
+    .where(waiting)
+
+  const drafts = await db
+    .select({
+      kind: providerRecipes.kind,
+      provider: providerRecipes.provider,
+      category: providerRecipes.category,
+      since: providerRecipes.updatedAt,
+    })
+    .from(providerRecipes)
+    .where(waiting)
+    .orderBy(asc(providerRecipes.updatedAt))
+    .limit(STEWARD_QUEUE_ROWS)
+
+  return {
+    count: totals?.count ?? 0,
+    drafts: drafts.map((row) => ({
+      kind: row.kind,
+      provider: row.provider,
+      category: row.category,
+      since: String(row.since),
+    })),
+    /** `min()` over an empty set is null, which is the no-condition answer rather than a gap. */
+    oldestSince: totals?.oldest == null ? null : String(totals.oldest),
+  }
+}

@@ -442,19 +442,40 @@ describe('the Atlas over MCP', () => {
       expect(text).toContain('provider-report')
     })
 
-    /** The aggregate floor forbids the count, and *somebody tried it* is the count. */
-    it('leaves a provider below the floor off the shelf entirely', async () => {
+    /**
+     * **The floor governs the counts and not the row** (`#909`, on
+     * `kolonie-docs#352`). This asserted the opposite until then, on the reading
+     * that *somebody tried it* is the count wearing a different shape — and the
+     * measurement overturned it: no provider sample in the Colony reached the
+     * floor, so the shelf showed none of the providers citizens had actually got
+     * into.
+     *
+     * The row names the provider and nothing countable. What the floor withholds
+     * is `attempted` and `proved`, and it still does.
+     */
+    it('shows a provider below the floor, without its counts', async () => {
       colony.recipes.measure({
         ...noFigures('mailbox', 'quiet.test'),
         attempted: 2,
         proved: 1,
+        /** The band survives the floor (`#792`), so a real row below it carries one. */
+        band: 'about-half',
         suppressed: true,
       })
 
       const result = await readAtlas({}, colony.recipes, true)
       if (result.outcome !== 'ok') throw new Error('expected the read to succeed')
 
-      expect(result.response.entries.map((one) => one.provider)).not.toContain('quiet.test')
+      const entry = result.response.entries.find((one) => one.provider === 'quiet.test')
+      if (entry === undefined) throw new Error('expected the measured row to be on the shelf')
+
+      expect(entry.source).toBe('measured')
+      expect(entry.status).toBe('measured')
+
+      /** The counts stay behind the floor, which is the half that did not change. */
+      const text = atlasEntryAsText(entry, true)
+      expect(text).toContain('counts behind them are withheld')
+      expect(text).not.toMatch(/\b2\b|\b1 of\b/)
     })
 
     it('says nothing about provenance on an entry a maintainer wrote', async () => {

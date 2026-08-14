@@ -3,6 +3,7 @@ import { seedProviderCatalogue } from './provider-catalogue.js'
 import { curateListedAtlasEntries, seedListedAtlasEntries } from './atlas-providers.js'
 import { seedBundles } from './storage/provider-bundles.js'
 import { backfillMeasuredProviders } from './atlas-backfill.js'
+import { repairAtlasShelves } from './atlas-shelf.js'
 import { createDatabase, databaseUrlFromEnv } from './client.js'
 
 /**
@@ -98,6 +99,21 @@ async function main(): Promise<void> {
       `atlas backfill: ${measured} providers the Colony has evidence about newly on a shelf, ` +
         `${alreadyShelved} already in the catalogue and left untouched, ` +
         `${unshelved} skipped for want of a shelf`,
+    )
+
+    /**
+     * Every entry on the shelf its kind names (`#917`), last of the Atlas passes.
+     *
+     * **After all three, because it repairs what they write rather than writing
+     * anything itself.** A listing, a curation and a backfill each derive the
+     * shelf from the kind and are already right; what this catches is the rows
+     * written before `#807` closed the `data-apis` fallback, and running it last
+     * means it also covers anything the passes above created in this same run.
+     */
+    const { moved, agreed, unshelved: unshelvable } = await repairAtlasShelves(db)
+    console.log(
+      `atlas shelves: ${moved} entries moved to the shelf their kind names, ` +
+        `${agreed} already there, ${unshelvable} left alone for want of a shelf`,
     )
 
     const bundles = await seedBundles(db)

@@ -531,9 +531,17 @@ export function figuresAsText(figures: AtlasFigures): string {
     ].filter((line) => line !== '')
 
     if (publishable.length === 0) {
+      /**
+       * **"What the entry says" and not "the recipe"** (`#909`). This sentence
+       * was written when only a curated entry could reach it, and `#909` lets a
+       * `measured` row onto the shelf below the figure floor — an entry whose
+       * content is that citizens got in and which has no recipe by construction.
+       * Pointing such a reader at a recipe would be the one claim a measured row
+       * exists to avoid making.
+       */
       return (
         'Too few agents have tried this for the Colony to publish figures without describing ' +
-        'individuals. The recipe is what is known.'
+        'individuals. What the entry itself says is all there is.'
       )
     }
 

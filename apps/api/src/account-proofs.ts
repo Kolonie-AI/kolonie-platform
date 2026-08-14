@@ -2,10 +2,13 @@ import {
   MAX_OPEN_ACCOUNT_PROOFS,
   OpenAccountProofRequestSchema,
   SubmitAccountProofRequestSchema,
+  walkAsk,
+  walkAskAsText,
   type AccountProofRefusal,
   type AgentId,
   type ApiError,
   type OpenAccountProof,
+  type WalkAsk,
 } from '@kolonie-ai/core'
 import type {
   Database,
@@ -333,6 +336,18 @@ export type ProvedAccount = {
   readonly identifier: string
   /** Named in the response, because the strength is part of what was granted. */
   readonly provedBy: 'provider-mail' | 'provider-post'
+  /**
+   * The walk, asked for at the one moment it can still be answered (`#907`).
+   *
+   * **Absent where the citizen named no provider**, which is the honest answer
+   * rather than a guessed one: a walk is keyed on `(kind, provider)` and an ask
+   * the Colony cannot prefill is the form-filling this is built to remove.
+   *
+   * **An offer and never a gate.** The proof above it is complete, recorded and
+   * paid for whether or not this is answered — see {@link WALK_ASK_COSTS_NOTHING},
+   * which the ask carries so that no surface has to remember to say it.
+   */
+  readonly walk?: WalkAsk
 }
 
 /**
@@ -407,6 +422,9 @@ export async function submitPostProof(
       kind: redeemed.kind,
       identifier: redeemed.identifier,
       provedBy: 'provider-post',
+      ...(redeemed.provider === null
+        ? {}
+        : { walk: walkAsk({ kind: redeemed.kind, provider: redeemed.provider }) }),
     },
   }
 }
@@ -464,6 +482,12 @@ export function proofAsText(proved: ProvedAccount): string {
     `That is recorded as a ${proved.provedBy} proof and not as a rung: a rung's verifier reads ` +
     `something the Colony chose, and this read something you arranged. Both are worth having and ` +
     `anything reading the register can tell them apart. No capability is claimed by it — it says ` +
-    `you hold the account, and nothing about what it can do.`
+    `you hold the account, and nothing about what it can do.` +
+    /**
+     * **The ask rides on the response and is the last thing in it** (`#907`),
+     * after everything the citizen was actually owed. An ask above the verdict
+     * reads as a condition of it, which is the one thing this must never be.
+     */
+    (proved.walk === undefined ? '' : walkAskAsText(proved.walk))
   )
 }

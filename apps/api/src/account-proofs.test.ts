@@ -151,10 +151,20 @@ describe('opening a proof', () => {
 })
 
 describe('submitting a post proof', () => {
-  const openPost = async (identifier = 'colette-board') => {
+  /**
+   * `provider` is `null` and never `undefined` for *no provider named*: passing
+   * `undefined` to a defaulted parameter is what the default is for, so the
+   * sentinel has to be a value.
+   */
+  const openPost = async (identifier = 'colette-board', provider: string | null = 'trello.com') => {
     const opened = await openProof(
       agentId,
-      { kind: 'trello', identifier, method: 'provider-post', provider: 'trello.com' },
+      {
+        kind: 'trello',
+        identifier,
+        method: 'provider-post',
+        ...(provider === null ? {} : { provider }),
+      },
       deps,
     )
     if (opened.outcome !== 'ok') throw new Error('expected the proof to open')
@@ -178,11 +188,32 @@ describe('submitting a post proof', () => {
 
     expect(submitted.outcome).toBe('ok')
     if (submitted.outcome !== 'ok') return
-    expect(submitted.response).toEqual({
+    expect(submitted.response).toMatchObject({
       kind: 'trello',
       identifier: 'colette-board',
       provedBy: 'provider-post',
     })
+
+    /**
+     * **The walk, asked for at the one moment it can be answered** (`#907`),
+     * prefilled with the three facts the Colony already holds so that what is
+     * left is the part only the agent saw.
+     */
+    expect(submitted.response.walk).toMatchObject({
+      call: 'kolonie.accounts.walk-report',
+      kind: 'trello',
+      provider: 'trello.com',
+      outcome: 'proved',
+    })
+    expect(submitted.response.walk?.questions.map((one) => one.field)).toEqual([
+      'did',
+      'broke',
+      'changed',
+      'discarded',
+    ])
+
+    /** An offer and never a gate: the response says so in the same breath. */
+    expect(proofAsText(submitted.response)).toContain('costs you nothing')
 
     const held = await register.list(agentId)
     const account = held.find((row) => row.kind === 'trello')
@@ -195,6 +226,43 @@ describe('submitting a post proof', () => {
     // The provider named at mint lands on the row, so the aggregate can count it
     // without the citizen making a second call it would forget.
     expect(account?.provider).toBe('trello.com')
+  })
+
+  /**
+   * **The rejection case in `#907`'s acceptance criteria.** A proof succeeds,
+   * grants everything it grants, and is recorded identically whether or not a
+   * walk follows it — the ask is an offer and never a toll on proving an
+   * account, which is the one thing the Colony most wants agents to do.
+   *
+   * Where no provider was named there is nothing to prefill: a walk is keyed on
+   * `(kind, provider)`, and an ask the Colony cannot fill in is the form-filling
+   * the prefill exists to remove. Absent rather than guessed.
+   */
+  it('proves an account with no provider named, and asks for no walk', async () => {
+    const proof = await openPost('colette-noprovider', null)
+
+    const submitted = await submitPostProof(
+      agentId,
+      proof.id,
+      { url: 'https://trello.com/colette-noprovider' },
+      withReader({
+        outcome: 'read',
+        html: `<p>hello ${proof.secret}</p>`,
+        contentType: 'text/html',
+      }),
+    )
+
+    expect(submitted.outcome).toBe('ok')
+    if (submitted.outcome !== 'ok') return
+
+    expect(submitted.response.walk).toBeUndefined()
+    expect(proofAsText(submitted.response)).not.toContain('walk-report')
+
+    /** Recorded identically: the account is proved and carries the same strength. */
+    const held = await register.list(agentId)
+    const account = held.find((row) => row.identifier === 'colette-noprovider')
+    expect(account?.proved).toBe(true)
+    expect(account?.provedBy).toBe('provider-post')
   })
 
   it('does not spend the proof when the string is absent, so a retry works', async () => {

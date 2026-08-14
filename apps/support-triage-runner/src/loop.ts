@@ -3,6 +3,7 @@ import type { Issues, KnownIssue } from './github.js'
 import { watchLogs, type WatchDependencies } from './watch.js'
 import { watchDebt, type DebtWatchDependencies } from './debt.js'
 import { escalateDiagnoses, type DiagnosisEscalationDependencies } from './diagnoses.js'
+import { watchDrafts, type DraftWatchDependencies } from './drafts.js'
 import {
   closingNote,
   filing,
@@ -83,6 +84,16 @@ export interface LoopDependencies {
    * credential in `apps/doctor-runner` (`#839`, `#407`).
    */
   readonly diagnoses?: DiagnosisEscalationDependencies | undefined
+  /**
+   * The steward queue alarm (`#917`).
+   *
+   * **Optional on `debt`'s terms and for the same reason.** It is one query on
+   * the connection the queue already holds and the same App, so a deployment
+   * that has neither simply does not pass it — and one with no walks measures an
+   * empty queue and is silent, which is cheaper than a flag saying whether
+   * anybody is walking.
+   */
+  readonly drafts?: DraftWatchDependencies | undefined
 }
 
 /**
@@ -460,6 +471,30 @@ export async function tick(deps: LoopDependencies, batchSize: number): Promise<T
           event: 'diagnoses.pass.failed',
         },
       )
+    }
+  }
+
+  /**
+   * The steward-queue pass (`#917`), in its own `try` on the argument the three
+   * above give: four jobs in one process are four jobs.
+   *
+   * **Silent while the queue is empty**, which is the ordinary state and the one
+   * this alarm wants to be in. A line every half hour saying nothing is waiting
+   * is the wallpaper `#231` refuses.
+   */
+  if (deps.drafts !== undefined) {
+    try {
+      const found = await watchDrafts(deps.drafts)
+      if (found.skipped === undefined && found.action !== 'quiet') {
+        log.info(`draft pass: ${found.action}, ${found.waiting} waiting for a steward`, {
+          event: 'drafts.pass.done',
+          ...found,
+        })
+      }
+    } catch (error) {
+      log.error('the draft pass failed; tickets, logs and the debt alarm are unaffected', error, {
+        event: 'drafts.pass.failed',
+      })
     }
   }
 

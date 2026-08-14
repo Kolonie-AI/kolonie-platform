@@ -7,6 +7,7 @@ import {
 } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
+import { sql } from 'drizzle-orm'
 import {
   accountWalk,
   reportFinishedWalk,
@@ -24,6 +25,7 @@ import {
   unmoderatedWalkProse,
   untoldWalkReward,
   walkInProgress,
+  walksToAskAbout,
 } from './account-walks.js'
 import {
   dressProviderRecipeDraft,
@@ -32,6 +34,7 @@ import {
   writeProviderRecipe,
 } from './provider-recipes.js'
 import { registerAgent } from './agents.js'
+import { nameSession } from './sessions.js'
 import { reputationOfAgent } from './balance.js'
 
 const target = databaseTestTarget()
@@ -144,6 +147,48 @@ describe('the record of one agent obtaining one account', () => {
       expect(entry?.steps[0]?.instruction).toBeUndefined()
       /** And the one piece of wording that is real: the ask the Colony sent. */
       expect(entry?.steps[1]?.ask).toBe('Please open this URL.')
+    })
+
+    /**
+     * **A kind with no shelf writes no entry rather than defaulting to one**
+     * (`#917`), which is the rule `measuredOnlyRecipes` and
+     * `recordMeasuredProvider` already follow.
+     *
+     * The failure it replaces was worse than a wrong shelf:
+     * `atlasCategoryForKind` throws by design, and the throw landed inside the
+     * transaction that closes the walk — so an unmappable kind did not lose its
+     * entry, it lost the whole call. The citizen's account of how it joined was
+     * refused for a reason it could do nothing about.
+     */
+    it('closes a walk on an unshelvable kind and proposes nothing', async () => {
+      const nowhere = { kind: AccountKindSchema.parse('sourdough'), provider: 'starter.example' }
+      const walkId = await walkInProgress(db, agentId, nowhere)
+      await recordWalkStep(db, walkId, { actor: 'agent' })
+
+      const finished = await finishWalk(db, walkId, { outcome: 'proved' })
+
+      /** The walk itself is finished and readable — that is the half that used to be lost. */
+      expect(finished?.walk.outcome).toBe('proved')
+      expect(await providerRecipe(db, nowhere.kind, nowhere.provider)).toBeUndefined()
+      /** And nothing was stamped as proposed, because nothing was. */
+      expect((await accountWalk(db, walkId))?.id).toBe(walkId)
+    })
+
+    /**
+     * The other half of `#917`: a kind spelled as the shelf's own name resolves,
+     * rather than falling through to the unshelvable branch above. Two of the
+     * four drafts waiting for a steward on 2026-08-14 were in exactly this state.
+     */
+    it('files a walk whose kind is a category name on that shelf', async () => {
+      const named = {
+        kind: AccountKindSchema.parse('code-hosting'),
+        provider: 'clawhub.example',
+      }
+      const walkId = await walkInProgress(db, agentId, named)
+      await recordWalkStep(db, walkId, { actor: 'agent' })
+      await finishWalk(db, walkId, { outcome: 'proved' })
+
+      expect((await providerRecipe(db, named.kind, named.provider))?.category).toBe('code-hosting')
     })
 
     /**
@@ -1022,5 +1067,128 @@ describe('the record of one agent obtaining one account', () => {
 
       expect(refused).toBe('provider_recipes_published_steps_are_written')
     })
+  })
+})
+
+/**
+ * The providers a citizen got into in the run it is still in (`#907`).
+ *
+ * **The boundary is the whole of it.** A walk is answerable while the agent
+ * still has the signup in front of it and is a plausible reconstruction
+ * afterwards, so the ask is offered once more inside the run that earned it and
+ * then dropped. That is a different window from the digest's, which spans the
+ * previous run because that is where news happened.
+ */
+describe('the walks worth asking about', () => {
+  let db: Database
+  let agentId: AgentId
+
+  beforeAll(async () => {
+    db = await connectForTests(databaseTestTarget().url)
+  })
+
+  afterAll(async () => {
+    await db?.close()
+  })
+
+  beforeEach(async () => {
+    await truncateAll(db)
+    const registered = await registerAgent(db, {
+      name: 'walk-asker',
+      platform: 'openclaw',
+      operator: null,
+    })
+    if (registered.outcome !== 'registered') throw new Error('could not register the agent')
+    agentId = registered.agent.id
+  })
+
+  const inSession = async () => {
+    await nameSession(db, agentId, { sessionId: 'a-run' })
+  }
+
+  const proved = async (provider: string, agoHours = 0) => {
+    await db.execute(sql`
+      insert into accounts (agent_id, kind, identifier, provider, proved, proved_at)
+      values (${agentId}, 'mailbox', ${`held-at-${provider}`}, ${provider}, true,
+              now() - make_interval(hours => ${agoHours}))
+    `)
+  }
+
+  it('asks about a provider proved in this run', async () => {
+    await inSession()
+    await proved('somewhere.example')
+
+    expect(await walksToAskAbout(db, agentId)).toEqual([
+      { kind: 'mailbox', provider: 'somewhere.example' },
+    ])
+  })
+
+  /**
+   * **The rejection case in `#907`'s acceptance criteria**: the unanswered ask
+   * does not reappear in a later session. A proof made before this run began is
+   * one the agent no longer has the context for, and asking about it invites
+   * exactly the invented recipe the walk channel exists to avoid.
+   */
+  it('does not ask about a provider proved before this run began', async () => {
+    await inSession()
+    await proved('earlier.example', 5)
+
+    expect(await walksToAskAbout(db, agentId)).toEqual([])
+  })
+
+  /** A citizen that has named no run has no context the Colony can claim is open. */
+  it('asks about nothing when no session has been named', async () => {
+    await proved('somewhere.example')
+
+    expect(await walksToAskAbout(db, agentId)).toEqual([])
+  })
+
+  it('stops asking once the citizen has written the walk up', async () => {
+    await inSession()
+    await proved('somewhere.example')
+
+    const walkId = await walkInProgress(db, agentId, {
+      kind: kind('mailbox'),
+      provider: 'somewhere.example',
+    })
+    await finishWalk(db, walkId, {
+      outcome: 'proved',
+      did: 'Opened the signup form and filled it in; the code arrived in about a minute.',
+    })
+
+    expect(await walksToAskAbout(db, agentId)).toEqual([])
+  })
+
+  /**
+   * **A `proved` outcome does not clear this on its own**, which is where it
+   * parts company with `walkIsReported`. That answers *may this citizen retry*
+   * and never holds up an agent that got through; this answers *is there
+   * anything left to ask for*, and an agent that got through and said nothing
+   * about how is exactly the one worth asking.
+   */
+  it('still asks when a walk was closed without a word about how it went', async () => {
+    await inSession()
+    await proved('somewhere.example')
+
+    const walkId = await walkInProgress(db, agentId, {
+      kind: kind('mailbox'),
+      provider: 'somewhere.example',
+    })
+    await finishWalk(db, walkId, { outcome: 'proved' })
+
+    expect(await walksToAskAbout(db, agentId)).toEqual([
+      { kind: 'mailbox', provider: 'somewhere.example' },
+    ])
+  })
+
+  /** An unproved declaration is an intention, and the ask is about what happened. */
+  it('asks about nothing for an account that was only declared', async () => {
+    await inSession()
+    await db.execute(sql`
+      insert into accounts (agent_id, kind, identifier, provider, proved)
+      values (${agentId}, 'mailbox', 'declared-only', 'declared.example', false)
+    `)
+
+    expect(await walksToAskAbout(db, agentId)).toEqual([])
   })
 })

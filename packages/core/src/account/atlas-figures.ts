@@ -1,5 +1,4 @@
 import { z } from 'zod'
-import { PERMISSION_AGGREGATE_FLOOR } from '../operator/permission-report.js'
 import { AccountKindSchema, AccountProviderSchema, ProviderReportOutcomeSchema } from './account.js'
 import type { RecipeStatus } from './recipe.js'
 
@@ -40,14 +39,28 @@ import type { RecipeStatus } from './recipe.js'
 export const ATLAS_RETENTION_DAYS = 30
 
 /**
- * The floor a published figure has to clear.
+ * The floor a published *count* has to clear.
  *
- * **`PERMISSION_AGGREGATE_FLOOR` and not a second number**, on `#545`'s explicit
- * instruction to reuse it rather than re-derive it. Its reasoning transfers
- * exactly: *"no aggregate may be reducible to a single citizen"*, and a provider
- * one citizen attempted is a fact about that citizen however the row is phrased.
+ * **Its own number since `#909`, and it used to be `PERMISSION_AGGREGATE_FLOOR`
+ * by reference.** `#545` instructed the reuse and the reasoning did transfer as
+ * far as it went — *"no aggregate may be reducible to a single citizen"* — but
+ * the two floors protect different subjects, and the alias made that impossible
+ * to see:
+ *
+ * - `PERMISSION_AGGREGATE_FLOOR` protects **a citizen**. What it withholds is a
+ *   fact about one agent's autonomy contract, which is *"nobody else's
+ *   business"* in its own words.
+ * - This one protects **a count about a provider**. *Three citizens hold a
+ *   mailbox at `mail.tm`* is small enough to describe three agents, so it is
+ *   withheld; *`mail.tm` is a place a citizen got into* names nobody and is not.
+ *
+ * That distinction is what `#909` turns on, and an alias would have hidden it
+ * again the next time either number moved. **The value is deliberately unchanged
+ * at 5** — whether a figure floor of 5 is right for a Colony whose largest
+ * provider sample was 3 on 2026-08-14 is a separate decision, and this is only
+ * the separation that makes it askable.
  */
-export const ATLAS_FIGURE_FLOOR = PERMISSION_AGGREGATE_FLOOR
+export const ATLAS_FIGURE_FLOOR = 5
 
 /**
  * Who is reading a figure.

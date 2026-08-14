@@ -2,11 +2,13 @@ import {
   CITIZEN_RAISED_WAKE_EVENTS,
   SkillSchema,
   WakeupRequestSchema,
+  walkAsk,
   type AgentId,
   type WakeupOpen,
   type Task,
   type WakeupResponse,
   type SkillNoteEntry,
+  type WalkAsk,
   type WakeupNoteInvitation,
   type WakeupStanding,
   type WakeupWakeChannel,
@@ -16,6 +18,7 @@ import {
   countUnreadOperatorNotes,
   countWaitingOperatorReplies,
   escalationFactsFor,
+  walksToAskAbout,
   previousSessionStart,
   recordWakeupAnswer,
   wakeChannelOf,
@@ -100,6 +103,22 @@ export interface WakeupSource {
    */
   standing(agentId: AgentId): Promise<WakeupStanding>
   /**
+   * Providers the citizen proved in this run and has not written up (`#907`).
+   *
+   * **Optional, and absent means the digest simply does not ask.** Every real
+   * caller passes it; a test about a window or a verdict must not have to hold a
+   * walk store to ask its question, which is the judgement `recordAnswer` and
+   * `escalationFacts` already make on this port.
+   *
+   * **Its own call rather than part of `changes`, and the boundary is why.**
+   * Everything `changes` answers is news inside the digest's window, which spans
+   * the previous run. This is bounded by the *current* run, because a walk is
+   * answerable only while the agent still has the signup in front of it.
+   */
+  walksToAskAbout?(
+    agentId: AgentId,
+  ): Promise<readonly { readonly kind: string; readonly provider: string }[]>
+  /**
    * Record the answer this citizen is about to read, and say how many wakings in
    * a row have said the same thing (`#880`).
    *
@@ -151,6 +170,11 @@ export interface WakeupSource {
       // (`#377`). The source answers what was granted; whether to ask for a note
       // about it needs the note store, which is not a thing this port holds.
       | 'noteInvitations'
+      // Computed in `wakeup` from the walk store (`#907`), for the reason above
+      // it: the source answers what changed, and a provider the citizen got into
+      // this session and has not written up is not news — it is context that is
+      // about to expire.
+      | 'walkInvitations'
       // Computed in `wakeup` from `open` and the note store (`#376`), for the
       // reason above it: the source answers what changed, and this is not that.
       | 'capabilityNotes'
@@ -223,6 +247,7 @@ export function databaseWakeup(db: Database, rechecks?: RecheckDependencies): Wa
     recordAnswer: (agentId, fingerprint, quiet) =>
       recordWakeupAnswer(db, agentId, fingerprint, quiet),
     escalationFacts: (agentId) => escalationFactsFor(db, agentId),
+    walksToAskAbout: (agentId) => walksToAskAbout(db, agentId),
     ...(rechecks === undefined
       ? {}
       : { startDueRechecks: (agentId: AgentId) => startDueRechecks(agentId, rechecks) }),
@@ -363,6 +388,34 @@ async function noteInvitationsFor(
         'nothing in it that opens an account: a credential belongs in kolonie.vault.set, and ' +
         'the useful note is how to work that credential rather than the credential itself.',
     }))
+}
+
+/**
+ * The providers this citizen got into in this run and has not written up
+ * (`#907`).
+ *
+ * **What makes it stop is the session, not a counter** — the same shape
+ * `noteInvitationsFor` uses one function up, against a different boundary. That
+ * one is bounded by the digest's window, because a grant is news; this one is
+ * bounded by the run, because a walk is context and context expires with the
+ * process that held it. Nothing is recorded about having asked, so an agent that
+ * crashes between reading and writing sees the same invitation, and an agent
+ * that reads it and declines leaves no trace — which is the honest version of
+ * *not answering costs you nothing*.
+ *
+ * **It never throws.** A wake-up that failed because the walk store was unhappy
+ * would be a worse answer than one without the invitation, which is the
+ * judgement every optional section on this port makes.
+ */
+async function walkInvitationsFor(
+  agentId: AgentId,
+  source: WakeupSource,
+): Promise<readonly WalkAsk[]> {
+  if (source.walksToAskAbout === undefined) return []
+
+  const waiting = await source.walksToAskAbout(agentId).catch(() => [])
+
+  return waiting.map((one) => walkAsk({ kind: one.kind, provider: one.provider }))
 }
 
 /**
@@ -574,6 +627,7 @@ export async function wakeup(
       open: escalated,
       ...changes,
       noteInvitations: [...(await noteInvitationsFor(agentId, changes.skillsGranted, notes))],
+      walkInvitations: [...(await walkInvitationsFor(agentId, source))],
       capabilityNotes: [...(await capabilityNotesFor(agentId, escalated, notes))],
       tasksAdded: changes.tasksAdded.map((task) => ({
         ...task,

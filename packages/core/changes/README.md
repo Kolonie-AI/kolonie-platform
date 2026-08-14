@@ -34,7 +34,32 @@ Sections are Keep a Changelog's: `Added`, `Changed`, `Deprecated`, `Removed`,
 `@kolonie-ai/core`, so **two changes in flight at once conflicted there by
 construction** — whatever else they touched and however unrelated they were. On
 2026-08-10 `#668` and `#670` collided on it: two entries, two different subjects,
-both inserted under `### Added`. Two changes now touch two files and never meet.
+both inserted under `### Added`. Two changes now write two files, and **those two
+files never meet**.
+
+### They still meet on the assembled file, and here is what to do about it
+
+`CHANGELOG.md` is generated _and committed_, so a change that adds an entry also
+rewrites it — and two branches in flight collide there, on a file neither author
+wrote. Measured 2026-08-14 on one branch, twice in an hour: `#948` and `#950`
+shared nothing, added `214-…md` and `215-…md`, and conflicted on the assembled
+file the moment the first merged; rebased and pushed, and `#929` merging did it
+again.
+
+**The resolution is always the same and is never a judgement:**
+
+```bash
+node scripts/build-changelog.mjs   # then `git add packages/core/CHANGELOG.md`
+```
+
+Take neither side. `git checkout --ours` on a generated file silently drops the
+other change's entry — `npm run check` catches it at `check:changelog`, so it
+fails safe, but it fails safe because somebody wrote that check and not because
+resolving it by hand is sound.
+
+**Whether the collision should exist at all is `#951`**, which weighs a merge
+driver against not committing the file and picks neither. This paragraph is true
+whichever way that goes.
 
 **The argument was made once already in this organisation and won.**
 `kolonie-docs/state/decisions.md` had the same shape, reached 3052 lines on

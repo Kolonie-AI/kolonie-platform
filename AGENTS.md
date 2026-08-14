@@ -265,7 +265,10 @@ A verifier deployed late must never fail submissions that were correct.
 - [ ] A file in `packages/core/changes/` if the domain model changed, and
       `node scripts/build-changelog.mjs` run — **not an edit to
       `packages/core/CHANGELOG.md`**, which is produced from that directory
-      (`#672`). `npm run check` fails if the two disagree
+      (`#672`). `npm run check` fails if the two disagree. **A rebase conflict on
+      the assembled file is resolved by regenerating it, never by taking a
+      side** — `--ours` drops the other branch's entry
+      ([`changes/README.md`](packages/core/changes/README.md), `#951`)
 - [ ] Breaking changes labelled in the PR, with affected workspaces named
 - [ ] No secrets, hosts or IPs anywhere in the diff
 

@@ -297,7 +297,13 @@ describe('the account conversation', () => {
   describe('slots', () => {
     it('records which side filled it, and when', async () => {
       const id = await anEpisode()
-      const opened = await openSlot(db, { episodeId: id, label: 'password', secret: true })
+      const opened = await openSlot(db, {
+        episodeId: id,
+        label: 'password',
+        secret: true,
+        awaits: 'operator',
+        vaultKey: 'mailbox/held',
+      })
 
       const filled = await fillSlot(db, {
         slotId: opened.slot.id,
@@ -312,14 +318,42 @@ describe('the account conversation', () => {
     })
 
     /**
+     * **A slot names the side that owes it, and the other side cannot answer it**
+     * (`#931`). Not a courtesy: the whole reason the agent may ask its operator
+     * for a password is that what comes back was typed by the operator, and a
+     * write from either side would make the record of who supplied it a guess.
+     */
+    it('refuses a fill from the side the slot is not waiting on', async () => {
+      const id = await anEpisode()
+      const opened = await openSlot(db, {
+        episodeId: id,
+        label: 'password',
+        secret: true,
+        awaits: 'operator',
+        vaultKey: 'mailbox/held',
+      })
+
+      const wrongWay = await fillSlot(db, {
+        slotId: opened.slot.id,
+        filledBy: 'agent',
+        value: 'mine, not theirs',
+      })
+
+      expect(wrongWay.outcome).toBe('not-awaited')
+      expect((await slot(db, opened.slot.id))?.value).toBeNull()
+    })
+
+    /**
      * Overwriting would destroy a value the other side may already have acted
      * on, and the loser of that race has no way to find out.
      */
     it('refuses to overwrite something already handed over', async () => {
       const id = await anEpisode()
       const opened = await openSlot(db, { episodeId: id, label: 'password', secret: true })
-      await fillSlot(db, { slotId: opened.slot.id, filledBy: 'operator', value: 'the first one' })
+      await fillSlot(db, { slotId: opened.slot.id, filledBy: 'agent', value: 'the first one' })
 
+      // The same side twice, so what is asserted is *already filled* rather than
+      // the direction predicate, which is one test up.
       const again = await fillSlot(db, {
         slotId: opened.slot.id,
         filledBy: 'agent',
@@ -335,13 +369,13 @@ describe('the account conversation', () => {
       const id = await anEpisode()
       const secret = await openSlot(db, { episodeId: id, label: 'password', secret: true })
       const plain = await openSlot(db, { episodeId: id, label: 'handle', secret: false })
-      await fillSlot(db, { slotId: secret.slot.id, filledBy: 'operator', value: 'sealed' })
-      await fillSlot(db, { slotId: plain.slot.id, filledBy: 'operator', value: 'citizen' })
+      await fillSlot(db, { slotId: secret.slot.id, filledBy: 'agent', value: 'sealed' })
+      await fillSlot(db, { slotId: plain.slot.id, filledBy: 'agent', value: 'citizen' })
 
       const listed = await slotsOf(db, id)
 
       const listedSecret = listed.find((row) => row.label === 'password')
-      expect(listedSecret?.filledBy).toBe('operator')
+      expect(listedSecret?.filledBy).toBe('agent')
       expect(listedSecret?.value).toBeNull()
       expect(listed.find((row) => row.label === 'handle')?.value).toBe('citizen')
     })

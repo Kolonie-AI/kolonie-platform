@@ -17,6 +17,8 @@ import {
   type EpisodeTurn,
   type SlotFiller,
   type ThreadParty,
+  SLOT_LIFETIME_DAYS,
+  SLOT_MAX_READS,
   outcomeNeedsWall,
 } from '@kolonie-ai/core'
 import type { Database, Transaction } from '../client.js'
@@ -26,6 +28,7 @@ import {
   accountSlots,
   accountThreads,
   accounts,
+  humanAgents,
 } from '../schema/index.js'
 
 /**
@@ -229,6 +232,11 @@ export type CloseEpisodeOutcome =
  * `turn` and `closed_at` are not arguments and are not set here: the trigger
  * writes both, so *closed* and *resting* cannot come apart however this is
  * called.
+ *
+ * **Closing destroys every secret still in it** (`#931`), in the same call and
+ * only on the transition — an already-closed episode has nothing left to
+ * destroy, and a second close that swept again would be a second answer to
+ * *when did this credential stop existing*.
  */
 export async function closeEpisode(
   db: Database | Transaction,
@@ -249,7 +257,10 @@ export async function closeEpisode(
     .where(and(eq(accountEpisodes.id, episodeId), isNull(accountEpisodes.outcome)))
     .returning()
 
-  if (row !== undefined) return { outcome: 'closed', episode: toEpisode(row) }
+  if (row !== undefined) {
+    await destroyEpisodeSecrets(db, episodeId)
+    return { outcome: 'closed', episode: toEpisode(row) }
+  }
 
   const closed = await episode(db, episodeId)
   if (closed === undefined) return { outcome: 'no-such-episode' }
@@ -262,6 +273,16 @@ export type OpenSlotCommand = {
   readonly episodeId: AccountEpisodeId
   readonly label: string
   readonly secret: boolean
+  /**
+   * Which side is expected to fill it (`#931`). Defaults to the agent, which is
+   * what every slot `#930` could open was.
+   */
+  readonly awaits?: SlotFiller | undefined
+  /**
+   * Where an operator-filled secret lands, **named by the agent**. Refused by
+   * `account_slots_vault_key_is_for_the_operator` on any other shape of slot.
+   */
+  readonly vaultKey?: string | undefined
 }
 
 export type OpenSlotOutcome =
@@ -269,13 +290,29 @@ export type OpenSlotOutcome =
   /** One label is one slot within one episode; the existing row comes back. */
   | { readonly outcome: 'already-open'; readonly slot: AccountSlot }
 
+/**
+ * When a secret opened now stops answering.
+ *
+ * Computed here rather than passed in, so that every door onto a slot gets the
+ * same lifetime and no caller can quietly ask for a longer one.
+ */
+const expiryForSecret = (): string =>
+  new Date(Date.now() + SLOT_LIFETIME_DAYS * 24 * 60 * 60 * 1000).toISOString()
+
 export async function openSlot(
   db: Database | Transaction,
   command: OpenSlotCommand,
 ): Promise<OpenSlotOutcome> {
   const [row] = await db
     .insert(accountSlots)
-    .values({ episodeId: command.episodeId, label: command.label, secret: command.secret })
+    .values({
+      episodeId: command.episodeId,
+      label: command.label,
+      secret: command.secret,
+      awaits: command.awaits ?? 'agent',
+      vaultKey: command.vaultKey ?? null,
+      expiresAt: command.secret ? expiryForSecret() : null,
+    })
     .onConflictDoNothing({ target: [accountSlots.episodeId, accountSlots.label] })
     .returning()
 
@@ -314,6 +351,14 @@ export type FillSlotOutcome =
    * loser of the race can detect.
    */
   | { readonly outcome: 'already-filled'; readonly slot: AccountSlot }
+  /**
+   * The slot was opened for the other side (`#931`).
+   *
+   * **Which side fills it decides which mechanism sealed the value**, so a slot
+   * filled by the wrong party carries a secret nobody at the far end can open —
+   * and that failure stays silent until somebody tries, days later.
+   */
+  | { readonly outcome: 'not-awaited'; readonly slot: AccountSlot }
   | { readonly outcome: 'no-such-slot' }
 
 export async function fillSlot(
@@ -323,7 +368,13 @@ export async function fillSlot(
   const [row] = await db
     .update(accountSlots)
     .set({ filledBy: command.filledBy, value: command.value, filledAt: nowIso() })
-    .where(and(eq(accountSlots.id, command.slotId), isNull(accountSlots.filledBy)))
+    .where(
+      and(
+        eq(accountSlots.id, command.slotId),
+        isNull(accountSlots.filledBy),
+        eq(accountSlots.awaits, command.filledBy),
+      ),
+    )
     .returning()
 
   if (row !== undefined) return { outcome: 'filled', slot: toSlot(row) }
@@ -335,6 +386,7 @@ export async function fillSlot(
     .limit(1)
 
   if (existing === undefined) return { outcome: 'no-such-slot' }
+  if (existing.filledBy === null) return { outcome: 'not-awaited', slot: toSlot(existing) }
   return { outcome: 'already-filled', slot: toSlot(existing) }
 }
 
@@ -384,6 +436,15 @@ export type TakeSlotOutcome =
   | { readonly outcome: 'already-taken'; readonly slot: AccountSlot }
   /** Nothing has been put in it yet, so there is nothing to spend. */
   | { readonly outcome: 'not-filled'; readonly slot: AccountSlot }
+  /**
+   * The timer ran, or the episode closed over it (`#931`).
+   *
+   * One outcome for both, which is the answer `agent_handovers` gives and for
+   * the same reason: the two are the same fact from the caller's side — there is
+   * nothing here any more — and separating them would only say something about
+   * *when* the Colony stopped holding a credential.
+   */
+  | { readonly outcome: 'closed'; readonly slot: AccountSlot }
   | { readonly outcome: 'no-such-slot' }
 
 /**
@@ -412,6 +473,11 @@ export async function takeSlot(
         eq(accountSlots.secret, true),
         isNull(accountSlots.takenAt),
         isNotNull(accountSlots.filledAt),
+        // The timer and the episode, in the same predicate as everything else:
+        // a take that read the row first and then updated it would be the race
+        // where a close lands in between and the credential leaves anyway.
+        isNull(accountSlots.destroyedAt),
+        sql`${accountSlots.expiresAt} > now()`,
       ),
     )
     .returning()
@@ -421,7 +487,284 @@ export async function takeSlot(
   const existing = await slot(db, command.slotId)
   if (existing === undefined) return { outcome: 'no-such-slot' }
   if (existing.takenAt !== null) return { outcome: 'already-taken', slot: existing }
+  if (existing.destroyedAt !== null || expired(existing.expiresAt)) {
+    return { outcome: 'closed', slot: existing }
+  }
   return { outcome: 'not-filled', slot: existing }
+}
+
+/** Whether a timer has run. Null is *no timer*, which is every slot but a secret. */
+const expired = (expiresAt: string | null): boolean =>
+  expiresAt !== null && Date.parse(expiresAt) <= Date.now()
+
+/**
+ * Fill a secret slot from the operator's console (`#931`).
+ *
+ * ## The join is the authorisation
+ *
+ * `readHandoverAsOperator` says this about the other direction and it is the
+ * same rule here: the human id arrives from a signed-in session, `human_agents`
+ * answers *is this your agent*, and the query has no way to return a row for
+ * anybody else's. There is no token path onto this and there is no parameter one
+ * could be left out of.
+ *
+ * **The value is already sealed** — with the agent's vault key at the far end,
+ * so what lands here is a ciphertext the Colony cannot open and neither can this
+ * function. That is the drop's mechanism reused rather than a new one, which is
+ * the whole content of `#931`.
+ *
+ * The write is conditioned on everything that could have changed since the
+ * console rendered the form: still empty, still awaiting the operator, still
+ * within its timer, still not closed over. All of them answer `closed`, which is
+ * the same answer a stranger's id gets.
+ */
+export async function fillSlotAsOperator(
+  db: Database,
+  command: {
+    readonly slotId: AccountSlotId
+    readonly humanId: string
+    readonly sealedValue: string
+  },
+): Promise<{ readonly outcome: 'filled' } | { readonly outcome: 'closed' }> {
+  const [mine] = await db
+    .select({ id: accountSlots.id })
+    .from(accountSlots)
+    .innerJoin(accountEpisodes, eq(accountEpisodes.id, accountSlots.episodeId))
+    .innerJoin(accountThreads, eq(accountThreads.id, accountEpisodes.threadId))
+    .innerJoin(accounts, eq(accounts.id, accountThreads.accountId))
+    .innerJoin(humanAgents, eq(humanAgents.agentId, accounts.agentId))
+    .where(and(eq(accountSlots.id, command.slotId), eq(humanAgents.humanId, command.humanId)))
+    .limit(1)
+
+  if (mine === undefined) return { outcome: 'closed' }
+
+  const [filled] = await db
+    .update(accountSlots)
+    .set({ filledBy: 'operator', value: command.sealedValue, filledAt: nowIso() })
+    .where(
+      and(
+        eq(accountSlots.id, command.slotId),
+        eq(accountSlots.awaits, 'operator'),
+        isNull(accountSlots.filledBy),
+        isNull(accountSlots.destroyedAt),
+        sql`${accountSlots.expiresAt} > now()`,
+      ),
+    )
+    .returning({ id: accountSlots.id })
+
+  return filled === undefined ? { outcome: 'closed' } : { outcome: 'filled' }
+}
+
+export type ReadSlotAsOperatorOutcome =
+  | {
+      readonly outcome: 'read'
+      readonly label: string
+      /** Still sealed. The app layer opens it, exactly as it sealed it. */
+      readonly sealedValue: string
+      /** Whose envelope this is. The app layer needs it to open one. */
+      readonly agentId: string
+      readonly readsLeft: number
+      readonly account: OpenEpisodeAccount
+    }
+  /** Read out, expired, closed over, never filled, or never theirs. */
+  | { readonly outcome: 'closed' }
+
+/**
+ * Read a secret the agent left for its operator (`#931`).
+ *
+ * Modelled on `readHandoverAsOperator` line for line, and the four properties
+ * that matter are the same four:
+ *
+ * **The count moves before the value is returned.** A caller that dies between
+ * the two loses the read rather than getting a free one, which is the direction
+ * to fail in when what is being counted is a credential.
+ *
+ * **The last read destroys it in the same statement.** Not a sweep, not a second
+ * call — the row that hands over the third copy is the row that stops holding
+ * anything.
+ *
+ * **Every dead state answers `closed`.** Spent, expired, closed over, filled by
+ * nobody, or somebody else's: a console that distinguished them would be
+ * answering questions about rows the asker was never entitled to.
+ *
+ * **`for update` and a transaction**, because two tabs posting at once would
+ * otherwise both read the same count and both spend one.
+ */
+export async function readSlotAsOperator(
+  db: Database,
+  slotId: AccountSlotId,
+  humanId: string,
+): Promise<ReadSlotAsOperatorOutcome> {
+  return db.transaction(async (tx) => {
+    const [row] = await tx
+      .select({ slot: accountSlots, account: accounts })
+      .from(accountSlots)
+      .innerJoin(accountEpisodes, eq(accountEpisodes.id, accountSlots.episodeId))
+      .innerJoin(accountThreads, eq(accountThreads.id, accountEpisodes.threadId))
+      .innerJoin(accounts, eq(accounts.id, accountThreads.accountId))
+      .innerJoin(humanAgents, eq(humanAgents.agentId, accounts.agentId))
+      .where(
+        and(
+          eq(accountSlots.id, slotId),
+          eq(humanAgents.humanId, humanId),
+          eq(accountSlots.secret, true),
+          eq(accountSlots.awaits, 'agent'),
+          isNotNull(accountSlots.value),
+          isNull(accountSlots.destroyedAt),
+          sql`${accountSlots.expiresAt} > now()`,
+          sql`${accountSlots.reads} < ${SLOT_MAX_READS}`,
+        ),
+      )
+      .limit(1)
+      .for('update')
+
+    if (row === undefined || row.slot.value === null) return { outcome: 'closed' } as const
+
+    const reads = row.slot.reads + 1
+    const last = reads >= SLOT_MAX_READS
+
+    await tx
+      .update(accountSlots)
+      .set(last ? { reads, value: null, destroyedAt: nowIso() } : { reads })
+      .where(eq(accountSlots.id, slotId))
+
+    return {
+      outcome: 'read',
+      label: row.slot.label,
+      sealedValue: row.slot.value,
+      agentId: row.account.agentId,
+      readsLeft: Math.max(SLOT_MAX_READS - reads, 0),
+      account: {
+        id: row.account.id,
+        kind: row.account.kind,
+        identifier: row.account.identifier,
+        provider: row.account.provider,
+      },
+    } as const
+  })
+}
+
+export type WaitingSlot = {
+  readonly id: string
+  readonly label: string
+  readonly awaits: SlotFiller
+  /** Whose envelope a value here goes into. The app layer needs it to seal one. */
+  readonly agentId: string
+  readonly filled: boolean
+  readonly readsLeft: number
+  readonly expiresAt: string
+  readonly episodeId: string
+  readonly episodeTitle: string
+  readonly account: OpenEpisodeAccount
+}
+
+/**
+ * Every live secret slot on the accounts of the agents one person operates.
+ *
+ * **The console's listing, and it carries no value and no ciphertext.** The same
+ * promise `handoversFor` makes: a page that listed the sealed strings would put
+ * every one of them through a response that is not the one the operator asked
+ * for, and reading one is supposed to cost a read.
+ *
+ * Both directions are here, because both are things waiting on this person: one
+ * they must fill, one they may read.
+ */
+export async function slotsForOperator(
+  db: Database | Transaction,
+  humanId: string,
+): Promise<readonly WaitingSlot[]> {
+  const rows = await db
+    .select({ slot: accountSlots, episode: accountEpisodes, account: accounts })
+    .from(accountSlots)
+    .innerJoin(accountEpisodes, eq(accountEpisodes.id, accountSlots.episodeId))
+    .innerJoin(accountThreads, eq(accountThreads.id, accountEpisodes.threadId))
+    .innerJoin(accounts, eq(accounts.id, accountThreads.accountId))
+    .innerJoin(humanAgents, eq(humanAgents.agentId, accounts.agentId))
+    .where(
+      and(
+        eq(humanAgents.humanId, humanId),
+        eq(accountSlots.secret, true),
+        isNull(accountSlots.destroyedAt),
+        sql`${accountSlots.expiresAt} > now()`,
+        sql`${accountSlots.reads} < ${SLOT_MAX_READS}`,
+      ),
+    )
+    .orderBy(asc(accountSlots.expiresAt))
+
+  return rows
+    .filter((row) => row.slot.awaits === 'operator' || row.slot.value !== null)
+    .map((row) => ({
+      id: row.slot.id,
+      label: row.slot.label,
+      awaits: row.slot.awaits,
+      agentId: row.account.agentId,
+      filled: row.slot.value !== null,
+      readsLeft: Math.max(SLOT_MAX_READS - row.slot.reads, 0),
+      expiresAt: row.slot.expiresAt ?? '',
+      episodeId: row.episode.id,
+      episodeTitle: row.episode.title,
+      account: {
+        id: row.account.id,
+        kind: row.account.kind,
+        identifier: row.account.identifier,
+        provider: row.account.provider,
+      },
+    }))
+}
+
+/**
+ * Destroy every secret still sitting in one episode (`#931`).
+ *
+ * **Closing the episode is what gets there first**, in the ordinary case, and
+ * the timer is the backstop for the episode nobody ever closes. An acceptance
+ * criterion of `#931` says so in the other direction: a closed episode yields
+ * nothing further, whether or not the seven days have run.
+ *
+ * Non-secret slots are untouched. An address or a handle is part of the record
+ * of what happened, and destroying it would take away the answer to *what did we
+ * end up using* at the moment the episode is filed.
+ */
+export async function destroyEpisodeSecrets(
+  db: Database | Transaction,
+  episodeId: AccountEpisodeId,
+): Promise<number> {
+  const destroyed = await db
+    .update(accountSlots)
+    .set({ value: null, destroyedAt: nowIso() })
+    .where(
+      and(
+        eq(accountSlots.episodeId, episodeId),
+        eq(accountSlots.secret, true),
+        isNull(accountSlots.destroyedAt),
+      ),
+    )
+    .returning({ id: accountSlots.id })
+
+  return destroyed.length
+}
+
+/**
+ * The sweep: secrets whose timer has run.
+ *
+ * `destroyExpiredHandovers` in shape and in purpose. The value would already be
+ * unreadable — every read is conditioned on the expiry — so this is about not
+ * holding a ciphertext the Colony has promised to stop holding, which is a
+ * different promise from not serving it.
+ */
+export async function destroyExpiredSlots(db: Database): Promise<number> {
+  const destroyed = await db
+    .update(accountSlots)
+    .set({ value: null, destroyedAt: nowIso() })
+    .where(
+      and(
+        eq(accountSlots.secret, true),
+        isNull(accountSlots.destroyedAt),
+        sql`${accountSlots.expiresAt} <= now()`,
+      ),
+    )
+    .returning({ id: accountSlots.id })
+
+  return destroyed.length
 }
 
 /**
@@ -591,11 +934,16 @@ const toSlot = (row: SlotRow): AccountSlot => ({
   episodeId: AccountEpisodeIdSchema.parse(row.episodeId),
   label: row.label,
   secret: row.secret,
+  awaits: row.awaits,
+  vaultKey: row.vaultKey,
   filledBy: row.filledBy,
   filledAt: row.filledAt,
   value: row.value,
   takenAt: row.takenAt,
   takenTo: row.takenTo,
+  expiresAt: row.expiresAt,
+  reads: row.reads,
+  destroyedAt: row.destroyedAt,
 })
 
 const toEntry = (row: EntryRow): AccountEntry => ({

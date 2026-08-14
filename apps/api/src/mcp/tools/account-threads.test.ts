@@ -31,8 +31,15 @@ describe('the account conversation', () => {
     })
 
     const episodeId = (episode.structuredContent as { episode: { id: string } }).episode.id
-    return { client, close, accountThreads, account, episodeId }
+    return { client, close, accountThreads, account, episodeId, agent }
   }
+
+  /** The id of the one slot a `put` opened, which is what every take needs. */
+  const onlySlot = (put: unknown): string =>
+    (
+      (put as { structuredContent: { slots: readonly { id: string }[] } }).structuredContent
+        .slots[0] as { id: string }
+    ).id
 
   it('is two tools and no more than two', async () => {
     const { colony, apiKey } = await registeredCitizen()
@@ -299,6 +306,171 @@ describe('the account conversation', () => {
     expect(JSON.stringify(read.content)).toContain('No episode of yours has that id')
 
     await close()
+  })
+
+  /**
+   * The other direction (`#931`).
+   *
+   * The half above is the agent filling a slot. These are the half where the
+   * agent *asks* — the slot is opened empty, the operator answers it from a page
+   * they sign in to, and the value lands in the vault under a name the agent
+   * chose before anybody was asked for anything.
+   */
+  describe('a slot the operator owes', () => {
+    it('lands in the vault under the key the agent named at the ask', async () => {
+      const { client, close, accountThreads, episodeId, agent } = await opened()
+      accountThreads.addOperator(agent.id, 'the-person')
+
+      const put = await client.callTool({
+        name: 'kolonie.accounts.thread',
+        arguments: {
+          op: 'put',
+          episodeId,
+          slots: [
+            {
+              label: 'the password',
+              secret: true,
+              awaits: 'operator',
+              vaultKey: 'mailbox/held',
+            },
+          ],
+        },
+      })
+
+      const slotId = onlySlot(put)
+      // Opened empty and waiting: the read says which, because *nothing here
+      // yet* and *your operator owes this* are not the same state.
+      const asked = await client.callTool({
+        name: 'kolonie.accounts.thread',
+        arguments: { op: 'read', episodeId },
+      })
+      expect(JSON.stringify(asked.content)).toContain('waiting on your operator')
+
+      const filled = await accountThreads.fillAsOperator({
+        slotId: slotId as never,
+        humanId: 'the-person',
+        value: 'what-the-operator-typed',
+      })
+      expect(filled.outcome).toBe('filled')
+
+      // No key at the take: it was named at the ask, and the take does not get
+      // to move it.
+      const taken = await client.callTool({
+        name: 'kolonie.accounts.take',
+        arguments: { slotId },
+      })
+
+      expect(taken.structuredContent).toMatchObject({
+        secret: true,
+        value: null,
+        vaultKey: 'mailbox/held',
+      })
+      expect(JSON.stringify(taken)).not.toContain('what-the-operator-typed')
+      expect([...accountThreads.vaultContents().values()]).toContain('what-the-operator-typed')
+
+      await close()
+    })
+
+    it('is refused, with nothing written and nobody asked, when the name is already in use', async () => {
+      const { client, close, accountThreads, episodeId, agent } = await opened()
+      await accountThreads.vaultClaim('', agent.id, 'mailbox/held', 'the-one-already-there')
+      const before = accountThreads.vaultContents()
+
+      const refused = await client.callTool({
+        name: 'kolonie.accounts.thread',
+        arguments: {
+          op: 'put',
+          episodeId,
+          slots: [
+            { label: 'the address', value: 'held@example.test' },
+            { label: 'the password', secret: true, awaits: 'operator', vaultKey: 'mailbox/held' },
+          ],
+        },
+      })
+
+      expect(refused.isError).toBe(true)
+      const said = JSON.parse((refused.content as readonly { text: string }[])[0]!.text) as {
+        message: string
+      }
+      expect(said.message).toContain('mailbox/held')
+
+      /**
+       * **The rejection case `#931` names.** The entry that was there is
+       * byte-for-byte what it was — and the slot beside it, which was perfectly
+       * well formed, was not opened either: `put` checks every slot before it
+       * writes any, so a refusal leaves the episode where it stood.
+       */
+      expect(accountThreads.vaultContents()).toEqual(before)
+      const read = await client.callTool({
+        name: 'kolonie.accounts.thread',
+        arguments: { op: 'read', episodeId },
+      })
+      expect((read.structuredContent as { slots: readonly unknown[] }).slots).toHaveLength(0)
+
+      await close()
+    })
+
+    it('refuses a description that contradicts itself, and says which slot it was', async () => {
+      const { client, close, episodeId } = await opened()
+
+      const both = await client.callTool({
+        name: 'kolonie.accounts.thread',
+        arguments: {
+          op: 'put',
+          episodeId,
+          slots: [{ label: 'the password', awaits: 'operator', value: 'mine-already' }],
+        },
+      })
+      expect(both.isError).toBe(true)
+      expect(JSON.stringify(both.content)).toContain('the password')
+
+      const nowhereToLand = await client.callTool({
+        name: 'kolonie.accounts.thread',
+        arguments: {
+          op: 'put',
+          episodeId,
+          slots: [{ label: 'the password', awaits: 'operator', secret: true }],
+        },
+      })
+      expect(nowhereToLand.isError).toBe(true)
+      // Named rather than described: the caller can act on the sentence.
+      expect(JSON.stringify(nowhereToLand.content)).toContain('vaultKey')
+
+      await close()
+    })
+
+    it('is destroyed by closing the episode, before its timer and before anybody read it', async () => {
+      const { client, close, accountThreads, episodeId, agent } = await opened()
+      accountThreads.addOperator(agent.id, 'the-person')
+
+      const put = await client.callTool({
+        name: 'kolonie.accounts.thread',
+        arguments: {
+          op: 'put',
+          episodeId,
+          slots: [{ label: 'the password', value: 'unread-when-it-closed', secret: true }],
+        },
+      })
+      const slotId = onlySlot(put)
+
+      await client.callTool({
+        name: 'kolonie.accounts.thread',
+        arguments: { op: 'close', episodeId, outcome: 'abandoned' },
+      })
+
+      const taken = await client.callTool({ name: 'kolonie.accounts.take', arguments: { slotId } })
+      expect(taken.isError).toBe(true)
+      expect(JSON.stringify(taken.content)).toContain('destroyed when its episode closes')
+      expect(JSON.stringify(taken)).not.toContain('unread-when-it-closed')
+
+      // The operator's side is shut in the same act, and by the same fact:
+      // there is nothing in the slot to read from either end.
+      const theirs = await accountThreads.readAsOperator(slotId as never, 'the-person')
+      expect(theirs.outcome).toBe('closed')
+      expect([...accountThreads.vaultContents().values()]).not.toContain('unread-when-it-closed')
+
+      await close()
+    })
   })
 
   it('refuses a secret where the Colony has no key, and keeps the rest of the conversation', async () => {

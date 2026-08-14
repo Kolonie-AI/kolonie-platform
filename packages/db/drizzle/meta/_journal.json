@@ -1716,6 +1716,13 @@
       "when": 1786743093667,
       "tag": "0244_taking_a_slot_is_what_spends_it",
       "breakpoints": true
+    },
+    {
+      "idx": 245,
+      "version": "7",
+      "when": 1786745199342,
+      "tag": "0245_account_slots_carry_secrets",
+      "breakpoints": true
     }
   ]
 }

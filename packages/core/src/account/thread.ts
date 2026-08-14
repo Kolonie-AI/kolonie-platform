@@ -79,6 +79,38 @@ export const SLOT_LABEL_MAX_LENGTH = 120
 export const SLOT_VALUE_MAX_LENGTH = 8192
 
 /**
+ * How many times an operator may read one secret slot (`#931`).
+ *
+ * `HANDOVER_MAX_READS` and the same number for the same reason, which is worth
+ * stating rather than importing: a person double-clicks, hits back, and opens
+ * the page again on the laptop after reading it on the phone. One read is a
+ * channel that fails on ordinary human behaviour. Three is enough for that and
+ * few enough that a link left open in a browser history is not a standing copy.
+ *
+ * It is a separate constant from the handover's because the two may diverge —
+ * a slot lives for days where a handover lives for hours — and a shared name
+ * would make the next person to change one change both without noticing.
+ */
+export const SLOT_MAX_READS = 3
+
+/**
+ * How long a secret slot lives, in days (`#931`).
+ *
+ * **A slot lives as long as its episode, capped here.** The episode is the
+ * thing with a life: it closes when the work is done, and closing it destroys
+ * every secret still sitting in it, timer or no timer. This cap is what covers
+ * the episode that is never closed at all, which is the ordinary end of an
+ * abandoned piece of work rather than a rare one.
+ *
+ * **Seven days and not the handover's few hours.** That window was measured
+ * against a person who is at their desk. An account that needs an operator's
+ * hand is routinely a thing that lies over a weekend — the citizen whose report
+ * became `#918` sealed a password that expired four hours later, unread, and
+ * the four hours were never the interesting part of the failure.
+ */
+export const SLOT_LIFETIME_DAYS = 7
+
+/**
  * Who acted — on an episode, and on a note within it.
  *
  * **One vocabulary for both**, because they are the same three parties and a
@@ -212,12 +244,45 @@ export type AccountEpisode = z.infer<typeof AccountEpisodeSchema>
  * *password*, *recovery code*, *verification link* would be wrong at the fourth
  * provider, and being wrong there would mean the thing that has to be handed
  * over has nowhere to go — which is exactly the failure the whole design is for.
+ *
+ * ## Which way a secret travels (`#931`)
+ *
+ * Both directions already existed as separate calls — `operator.drop.open` with
+ * `kind: credential` one way, `accounts.handover` the other — and shared no
+ * object, so neither could say which account it was about. A slot is that
+ * object, and the two mechanisms are reused rather than replaced: **no new key
+ * handling is invented here.**
+ *
+ * {@link awaits} is what decides the direction, and it is declared when the slot
+ * is opened rather than inferred when it is filled. Awaiting the **operator**
+ * means the value will land in the agent's vault under {@link vaultKey}, sealed
+ * from the Colony with the agent's own credential — the drop's mechanism.
+ * Awaiting the **agent** means the value is sealed for the operator's signed-in
+ * console and spent by {@link reads} — the handover's.
  */
 export const AccountSlotSchema = z.object({
   id: AccountSlotIdSchema,
   episodeId: AccountEpisodeIdSchema,
   label: z.string().min(1).max(SLOT_LABEL_MAX_LENGTH),
   secret: z.boolean(),
+  /**
+   * Which side is expected to fill it, declared at open (`#931`).
+   *
+   * The same argument `secret` makes: a direction decided at fill time would be
+   * decided by whoever happened to write first, and for a secret the direction
+   * is which of two mechanisms carries it. Declaring it means the side that
+   * fills the slot is told what it is filling and where it goes.
+   */
+  awaits: SlotFillerSchema,
+  /**
+   * Where an operator-filled secret lands, **named by the agent at open**.
+   *
+   * Null on every other kind of slot. The agent names it and the operator never
+   * does: an operator that could choose the key could overwrite a credential the
+   * agent depends on, which is the protection `operator_drops` already holds and
+   * `#931` keeps exactly.
+   */
+  vaultKey: z.string().nullable(),
   filledBy: SlotFillerSchema.nullable(),
   filledAt: TimestampSchema.nullable(),
   /** Absent until it is filled, and **never returned for a secret slot** by any read that lists. */
@@ -239,8 +304,49 @@ export const AccountSlotSchema = z.object({
    * thing `kolonie.operator.drop.read` names when it declines to repeat a value.
    */
   takenTo: z.string().nullable(),
+  /**
+   * When this stops answering, and null on every slot that is not a secret.
+   *
+   * The cap rather than the whole rule — see {@link SLOT_LIFETIME_DAYS}. Closing
+   * the episode gets there first in the ordinary case, and that is deliberate:
+   * the timer is for the episode nobody ever closes.
+   */
+  expiresAt: TimestampSchema.nullable(),
+  /**
+   * How many times the operator has read it, bounded by {@link SLOT_MAX_READS}.
+   *
+   * A count and not a flag, because a person will double-click. Zero on every
+   * slot an operator has never read, including every slot that is not a secret.
+   */
+  reads: z.number().int().min(0),
+  /**
+   * When the value was destroyed, by the last read, the timer, or the episode
+   * closing over it.
+   *
+   * **A destroyed slot still exists**, and the row saying so is the point: the
+   * conversation should be able to say *there was a password here and it is
+   * gone*, which is a different answer from *there was never one*.
+   */
+  destroyedAt: TimestampSchema.nullable(),
 })
 export type AccountSlot = z.infer<typeof AccountSlotSchema>
+
+/**
+ * What an operator is told after reading a secret slot (`#931`).
+ *
+ * The handover's sentence, which is where this channel's wording comes from,
+ * with the one thing that differs said differently: a slot outlives the reading
+ * session by days rather than hours, so *hurry* would be the wrong advice and
+ * *this is the copy* is still the right one.
+ */
+export function slotNotice(readsLeft: number): string {
+  return readsLeft <= 0
+    ? 'That was the last read. The Colony no longer holds this value — it was destroyed as it ' +
+        'was handed to you. If you need it again, ask your agent to fill the slot afresh.'
+    : `Read ${readsLeft} more ${readsLeft === 1 ? 'time' : 'times'}, and then it is gone. The ` +
+        'Colony is not keeping a copy for you, and closing the episode destroys it before the ' +
+        'timer does.'
+}
 
 /**
  * One note, appended.

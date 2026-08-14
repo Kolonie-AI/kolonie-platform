@@ -58,6 +58,10 @@ export function registerAccountThreadTools(
         'containers that hold what has to change hands, **read** shows one episode or lists the ' +
         'open ones, **note** appends a line, **pass** hands the move to the other side, and ' +
         '**close** ends it with an outcome.\n\n' +
+        '**A slot goes either way.** One you fill carries its value. One with awaits "operator" ' +
+        'is a question: it is opened empty and answered from their signed-in console, and if it ' +
+        'is a secret it lands in your vault under the key you named rather than coming back ' +
+        'through the conversation.\n\n' +
         '**No read ever returns a secret’s value** — a listing says a slot is filled and stops ' +
         'there. Getting one out is kolonie.accounts.take, which is a separate call precisely ' +
         'because taking is what spends it.\n\n' +
@@ -132,21 +136,47 @@ export function registerAccountThreadTools(
           .array(
             z.object({
               label: z.string().describe('What this one container holds — free text, your words.'),
-              value: z.string().describe('What goes in it.'),
+              value: z
+                .string()
+                .nullish()
+                .describe(
+                  'What goes in it. Leave it out for a slot you are *asking* for — see "awaits".',
+                ),
               secret: z
                 .boolean()
                 .nullish()
                 .describe(
                   'true for anything that must never come back out in a listing. It is sealed ' +
-                    'at rest and only kolonie.accounts.take gets it out again, once.',
+                    'at rest, it lasts seven days at most, and it is destroyed when the episode ' +
+                    'closes even if the seven days have not run out.',
+                ),
+              awaits: z
+                .string()
+                .nullish()
+                .describe(
+                  'Who owes this slot a value: "agent" — you, the default — or "operator" to ask ' +
+                    'the person who runs you for it. An asked slot is opened empty and carries ' +
+                    'no value here; they fill it from their signed-in console.',
+                ),
+              vaultKey: z
+                .string()
+                .nullish()
+                .describe(
+                  'Where an operator’s secret lands in your vault. Required when awaits is ' +
+                    '"operator" and secret is true, and refused otherwise. **You name it and ' +
+                    'they never see it**, and a name you already hold something under is refused ' +
+                    'here and now — before anybody has typed a password into it — rather than ' +
+                    'replacing what is there.',
                 ),
             }),
           )
           .nullish()
           .describe(
             'put: several at once, which is the point of it — an agent holding three values ' +
-              'should not need three round trips. A label already filled is left exactly as it ' +
-              'is rather than overwritten: the other side may have acted on what is there.',
+              'should not need three round trips. Both directions go through this one list: a ' +
+              'slot with a value is one you are filling, a slot with awaits "operator" is one ' +
+              'you are asking for. A label already filled is left exactly as it is rather than ' +
+              'overwritten: the other side may have acted on what is there.',
           ),
       },
       annotations: { readOnlyHint: false, idempotentHint: false, openWorldHint: false },
@@ -200,8 +230,10 @@ export function registerAccountThreadTools(
           .nullish()
           .describe(
             'Where a secret lands in your vault — required for one, and ignored for anything ' +
-              'else. Reusing a key you already hold something under replaces what is there, so ' +
-              'kolonie.vault.list is worth a look first.',
+              'else. **A name you already hold something under is refused and the entry that is ' +
+              'there is left exactly as it was**, so nothing here can destroy a credential you ' +
+              'are still using; kolonie.vault.list is worth a look first. A slot you asked the ' +
+              'operator for was named when you opened it, so leave this out there.',
           ),
       },
       annotations: { readOnlyHint: false, idempotentHint: false, openWorldHint: false },
@@ -272,7 +304,13 @@ function describe(response: ThreadResponse): string {
                       ? `a secret, already taken into \`${slot.takenTo}\``
                       : 'a secret, filled — kolonie.accounts.take gets it out, once'
                     : (slot.value ?? '')
-                  : 'empty'),
+                  : slot.awaits === 'operator'
+                    ? // An empty slot and a question are not the same state, and the
+                      // difference is whether there is anything for the agent to do.
+                      `empty — waiting on your operator${
+                        slot.vaultKey === null ? '' : `, to land under \`${slot.vaultKey}\``
+                      }`
+                    : 'empty'),
             )
             .join('\n'),
       ...(response.entries ?? []).map((entry) => `${entry.author}: ${entry.body}`),
@@ -290,7 +328,13 @@ function describe(response: ThreadResponse): string {
     const slots = response.slots ?? []
     return (
       `${slots.length} slot${slots.length === 1 ? '' : 's'}: ` +
-      slots.map((slot) => `${slot.label} (${slot.secret ? 'secret' : 'in the open'})`).join(', ') +
+      slots
+        .map(
+          (slot) =>
+            `${slot.label} (${slot.secret ? 'secret' : 'in the open'}` +
+            `${slot.awaits === 'operator' ? ', asked of your operator' : ''})`,
+        )
+        .join(', ') +
       '. Pass the turn when the other side is the one who has to act.'
     )
   }

@@ -3,18 +3,22 @@ import {
   boolean,
   check,
   index,
+  integer,
   pgTable,
   text,
   timestamp,
   uniqueIndex,
   uuid,
+  varchar,
 } from 'drizzle-orm/pg-core'
 import {
   ENTRY_BODY_MAX_LENGTH,
   EPISODE_TITLE_MAX_LENGTH,
   EPISODE_WALL_MAX_LENGTH,
   SLOT_LABEL_MAX_LENGTH,
+  SLOT_MAX_READS,
   SLOT_VALUE_MAX_LENGTH,
+  VAULT_KEY_MAX_LENGTH,
 } from '@kolonie-ai/core'
 import { accounts } from './accounts.js'
 import { episodeKind, episodeOutcome, episodeTurn, slotFiller, threadParty } from './enums.js'
@@ -238,6 +242,33 @@ export const accountSlots = pgTable(
     secret: boolean('secret').notNull().default(false),
 
     /**
+     * Which side is expected to fill it, declared at open (`#931`).
+     *
+     * **This is what folds the two secret channels into one object.** Awaiting
+     * the operator is the drop's direction: the value lands in the agent's vault
+     * under {@link vaultKey}, sealed from the Colony. Awaiting the agent is the
+     * handover's: the value is sealed for the operator's signed-in console and
+     * spent by {@link reads}. Neither mechanism is new and neither is changed —
+     * what is new is that a slot can say which account the secret is about,
+     * which is the thing the two separate calls could not do.
+     *
+     * Declared at open for the same reason {@link secret} is: a direction
+     * decided at fill time would be decided by whoever happened to write first.
+     */
+    awaits: slotFiller('awaits').notNull().default('agent'),
+
+    /**
+     * Where an operator-filled secret is to land — **named by the agent**.
+     *
+     * The operator never chooses it and there is no request shape through which
+     * it could. `operator_drops` holds the same rule and states the reason: an
+     * operator that could name the key could overwrite a credential the agent
+     * depends on. `#931` keeps that protection exactly rather than restating it
+     * more weakly.
+     */
+    vaultKey: varchar('vault_key', { length: VAULT_KEY_MAX_LENGTH }),
+
+    /**
      * Which side filled it — and therefore which direction the secret travelled
      * and which mechanism sealed it. One column, so no caller has to be told.
      */
@@ -265,6 +296,36 @@ export const accountSlots = pgTable(
      * which is the answer a caller that lost its transcript actually needs.
      */
     takenTo: text('taken_to'),
+
+    /**
+     * When a secret stops answering, and null on every slot that is not one
+     * (`#931`).
+     *
+     * **The cap and not the whole rule.** A slot lives as long as its episode;
+     * closing the episode destroys what is in it whether or not this has passed.
+     * Seven days is what covers the episode nobody ever closes, which is the
+     * ordinary end of abandoned work rather than a rare one.
+     */
+    expiresAt: timestamp('expires_at', { withTimezone: true, mode: 'string' }),
+
+    /**
+     * How many times the operator has read it.
+     *
+     * `agent_handovers` holds the same column for the same reason, and the
+     * reason is a person rather than a program: they double-click, they hit
+     * back, they open it again on the laptop. A single read is a channel that
+     * fails on ordinary human behaviour.
+     */
+    reads: integer('reads').notNull().default(0),
+
+    /**
+     * When the value went, by the last read, the timer, or the episode closing.
+     *
+     * **The row survives what it held.** An operator reading the conversation
+     * afterwards should find *there was a password here and it is gone* rather
+     * than nothing at all, and the two are different facts about an account.
+     */
+    destroyedAt: timestamp('destroyed_at', { withTimezone: true, mode: 'string' }),
   },
   (table) => [
     /**
@@ -310,7 +371,68 @@ export const accountSlots = pgTable(
           or (${table.takenAt} is not null and ${table.takenTo} is not null)`,
     ),
 
+    /**
+     * A slot is filled by the side it was opened for, and by nobody else
+     * (`#931`).
+     *
+     * The direction decides which mechanism seals the value, so a row where the
+     * wrong side filled it is a row whose secret was sealed the wrong way — and
+     * that failure is silent until somebody tries to read it, days later, when
+     * the thing it was protecting has already been used.
+     */
+    check(
+      'account_slots_filled_by_the_awaited',
+      sql`${table.filledBy} is null or ${table.filledBy} = ${table.awaits}`,
+    ),
+
+    /**
+     * A vault key belongs to exactly one shape of slot: a secret the operator
+     * fills. On anything else it would name a landing place for a value that is
+     * never going to travel that way, which is a promise the row cannot keep.
+     */
+    check(
+      'account_slots_vault_key_is_for_the_operator',
+      sql`${table.vaultKey} is null or (${table.secret} and ${table.awaits} = 'operator')`,
+    ),
+
+    /**
+     * Every secret has a timer and nothing else has one. A secret that could
+     * sit without an expiry would be the one case where the Colony holds a
+     * credential indefinitely, which is the property this whole channel exists
+     * not to have.
+     */
+    check('account_slots_secrets_expire', sql`(${table.expiresAt} is not null) = ${table.secret}`),
+
+    check(
+      'account_slots_reads_bounded',
+      sql`${table.reads} >= 0 and ${table.reads} <= ${sql.raw(String(SLOT_MAX_READS))}`,
+    ),
+
+    /** Only a secret is read out this way, so only a secret can have been. */
+    check('account_slots_reads_are_a_secrets', sql`${table.reads} = 0 or ${table.secret}`),
+
+    /**
+     * Destroyed means the value is gone, and the row cannot say otherwise.
+     *
+     * One direction only, unlike `agent_handovers_destroyed_holds_nothing`: a
+     * slot that has never been filled also holds nothing, and it is not
+     * destroyed. The half worth enforcing is the half that would be a lie.
+     */
+    check(
+      'account_slots_destroyed_holds_nothing',
+      sql`${table.destroyedAt} is null or ${table.value} is null`,
+    ),
+
     index('account_slots_episode_idx').on(table.episodeId),
+
+    /**
+     * The sweep's index: secrets still holding something, oldest expiry first.
+     * Partial, because the rows it will never look at outnumber the rest within
+     * a week of any busy episode.
+     */
+    index('account_slots_expiry_idx')
+      .on(table.expiresAt)
+      .where(sql`${table.destroyedAt} is null and ${table.expiresAt} is not null`),
   ],
 )
 

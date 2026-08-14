@@ -6,7 +6,9 @@ import {
   EpisodeOutcomeSchema,
   EpisodeTurnSchema,
   SLOT_LABEL_MAX_LENGTH,
+  SLOT_MAX_READS,
   SLOT_VALUE_MAX_LENGTH,
+  SlotFillerSchema,
   VaultKeySchema,
   type AccountEntry,
   type AccountEpisode,
@@ -16,19 +18,23 @@ import {
 } from '@kolonie-ai/core'
 import {
   accountOf,
+  claimVaultEntry,
   closeEpisode,
   entriesOf,
   episodeForAgent,
   fillSlot,
+  fillSlotAsOperator,
   openEpisode,
   openEpisodesFor,
   openSlot,
   passTurn,
-  setVaultEntry,
+  readSlotAsOperator,
   slotForAgent,
+  slotsForOperator,
   slotsOf,
   takeSlot,
   threadOf,
+  vaultHoldsKey,
   writeEntry,
   openVaultValue,
   sealVaultValue,
@@ -66,6 +72,25 @@ import { fieldErrors } from './validation.js'
 /** The scope mixed into a slot's envelope, so one slot's value cannot open another's. */
 const slotScope = (slotId: string): string => `account-slot:${slotId}`
 
+/**
+ * What an operator gets back from one read, with the envelope already opened.
+ *
+ * **Every dead state is the same `closed`**, which is the promise the storage
+ * makes and this layer must not undo: spent, expired, closed over, never filled,
+ * never theirs — and, here, a Colony with no sealing key or an envelope that
+ * would not open. A reader who could tell those apart would be reading answers
+ * about rows they were never entitled to.
+ */
+export type OperatorReadOutcome =
+  | {
+      readonly outcome: 'read'
+      readonly label: string
+      readonly value: string
+      readonly readsLeft: number
+      readonly provider: string | null
+    }
+  | { readonly outcome: 'closed' }
+
 /** Everything this surface needs from the outside world. */
 export interface AccountThreadStore {
   /** The account, scoped to its holder in the same statement. */
@@ -90,13 +115,48 @@ export interface AccountThreadStore {
     episodeId: AccountEpisodeId,
     command: Parameters<typeof closeEpisode>[2],
   ): ReturnType<typeof closeEpisode>
-  /** Where a taken credential lands. The caller's own key seals it. */
-  vaultPut(
+  /**
+   * Where a taken credential lands. The caller's own key seals it.
+   *
+   * **A claim and not a write** (`#931`): a name already holding something is
+   * refused, and what is there is left alone. The value coming through a slot is
+   * one the citizen did not have in its hand, so an upsert here would let the
+   * conversation overwrite a credential the citizen is still using — silently,
+   * and with nothing readable afterwards that would say so.
+   */
+  vaultClaim(
     vaultToken: string,
     agentId: AgentId,
     key: string,
     value: string,
-  ): ReturnType<typeof setVaultEntry>
+  ): ReturnType<typeof claimVaultEntry>
+  /**
+   * Whether a name is spoken for, asked before the operator is.
+   *
+   * **Advice, and the claim is what decides.** Two wakings could ask about the
+   * same free name and both be told it is free; one of them still loses at the
+   * claim, where the entry that is there is left alone. What this buys is the
+   * ordinary case: a slot naming an occupied key is refused at the ask, rather
+   * than after a person has been asked to type a password that had nowhere to
+   * land.
+   */
+  vaultHolds(agentId: AgentId, key: string): ReturnType<typeof vaultHoldsKey>
+  /**
+   * The operator's half, reached from a signed-in console and from nowhere else.
+   *
+   * **Plaintext on both sides of this port and sealed on neither side of it.**
+   * The console never holds a key and the storage never holds one either
+   * (`#929`), so the envelope is opened and closed here, in the one place that
+   * knows the scope it was closed under. `DropStore.fillAsOperator` draws the
+   * same line one layer lower, for the channel that already had a key.
+   */
+  fillAsOperator(command: {
+    readonly slotId: AccountSlotId
+    readonly humanId: string
+    readonly value: string
+  }): Promise<{ readonly outcome: 'filled' } | { readonly outcome: 'closed' }>
+  readAsOperator(slotId: AccountSlotId, humanId: string): Promise<OperatorReadOutcome>
+  waitingFor(humanId: string): ReturnType<typeof slotsForOperator>
   /**
    * Whether this Colony can carry a secret at all.
    *
@@ -133,8 +193,70 @@ export function databaseAccountThreads(
     writeEntry: (command) => writeEntry(db, command),
     passTurn: (episodeId, to) => passTurn(db, episodeId, to),
     closeEpisode: (episodeId, command) => closeEpisode(db, episodeId, command),
-    vaultPut: (vaultToken, agentId, key, value) =>
-      setVaultEntry(db, vaultToken, agentId, key, value),
+    vaultClaim: (vaultToken, agentId, key, value) =>
+      claimVaultEntry(db, vaultToken, agentId, key, value),
+    vaultHolds: (agentId, key) => vaultHoldsKey(db, agentId, key),
+    fillAsOperator: async (command) => {
+      if (sealingKey === undefined) return { outcome: 'closed' }
+
+      /**
+       * The listing is the lookup, and it is the same join the write repeats.
+       *
+       * Sealing needs the agent the envelope belongs to, and the row has to be
+       * found before the value can be closed into it — so it is found through
+       * the one query that already answers *is this yours*, rather than a second
+       * one that would have to answer it again. The write re-checks every
+       * condition anyway, so a slot that is filled or expires in between is
+       * `closed` from the update and not from here.
+       */
+      const waiting = (await slotsForOperator(db, command.humanId)).find(
+        (slot) => slot.id === String(command.slotId),
+      )
+      if (waiting === undefined || waiting.awaits !== 'operator' || waiting.filled) {
+        return { outcome: 'closed' }
+      }
+
+      return fillSlotAsOperator(db, {
+        slotId: command.slotId,
+        humanId: command.humanId,
+        sealedValue: sealVaultValue(
+          sealingKey,
+          waiting.agentId,
+          slotScope(String(command.slotId)),
+          command.value,
+        ),
+      })
+    },
+    readAsOperator: async (slotId, humanId) => {
+      if (sealingKey === undefined) return { outcome: 'closed' }
+
+      const read = await readSlotAsOperator(db, slotId, humanId)
+      if (read.outcome !== 'read') return { outcome: 'closed' }
+
+      /**
+       * **An envelope that will not open is `closed` too, and the read is still
+       * spent.** It is the state a rotated sealing key leaves behind, and there
+       * is nothing an operator could do differently on being told which of the
+       * two it was — while a `read` that returned no value would be a shape
+       * every caller downstream would have to handle for one deployment mistake.
+       */
+      const value = openVaultValue(
+        sealingKey,
+        read.agentId,
+        slotScope(String(slotId)),
+        read.sealedValue,
+      )
+      if (value === null) return { outcome: 'closed' }
+
+      return {
+        outcome: 'read',
+        label: read.label,
+        value,
+        readsLeft: read.readsLeft,
+        provider: read.account.provider,
+      }
+    },
+    waitingFor: (humanId) => slotsForOperator(db, humanId),
     carriesSecrets: sealingKey !== undefined,
     seal: (agentId, slotId, value) =>
       sealingKey === undefined
@@ -178,6 +300,10 @@ export type SlotView = {
   readonly id: string
   readonly label: string
   readonly secret: boolean
+  /** Which side owes this one a value: "agent" is you, "operator" is them. */
+  readonly awaits: AccountSlot['awaits']
+  /** Where an operator's secret lands in your vault. Named by you, at the open. */
+  readonly vaultKey: string | null
   readonly filled: boolean
   readonly filledBy: AccountSlot['filledBy']
   readonly filledAt: string | null
@@ -185,18 +311,29 @@ export type SlotView = {
   readonly value: string | null
   readonly taken: boolean
   readonly takenTo: string | null
+  /** When a secret stops being readable on its own, and null for anything else. */
+  readonly expiresAt: string | null
+  /** Reads left on a secret this side left for the other one. */
+  readonly readsLeft: number | null
+  /** Read out, or closed over before anybody got to it. */
+  readonly destroyed: boolean
 }
 
 const toView = (slot: AccountSlot): SlotView => ({
   id: String(slot.id),
   label: slot.label,
   secret: slot.secret,
+  awaits: slot.awaits,
+  vaultKey: slot.vaultKey,
   filled: slot.filledAt !== null,
   filledBy: slot.filledBy,
   filledAt: slot.filledAt,
   value: slot.secret ? null : slot.value,
   taken: slot.takenAt !== null,
   takenTo: slot.takenTo,
+  expiresAt: slot.expiresAt,
+  readsLeft: slot.secret ? Math.max(SLOT_MAX_READS - slot.reads, 0) : null,
+  destroyed: slot.destroyedAt !== null,
 })
 
 export type ThreadResponse = {
@@ -250,13 +387,94 @@ const NOT_YOURS: ApiError = {
     'open, which is where the id comes from.',
 }
 
+/**
+ * Absent and `null` are one thing here, for the reason `#508` gives: JSON has no
+ * `undefined`, so a runtime filling this shape from a schema writes `null`, and
+ * a field that refused one would refuse the very value a well-behaved caller
+ * sends. Every optional field below goes through it, so that *left out* has one
+ * meaning throughout — including inside {@link slotDirectionRefusal}, which
+ * decides a direction by asking which fields are absent.
+ */
+const absent = <Schema extends z.ZodTypeAny>(schema: Schema) =>
+  schema.nullish().transform((value: z.infer<Schema> | null | undefined) => value ?? undefined)
+
 /** What a slot looks like on the way in. Several may arrive in one `put`. */
 const SlotInputSchema = z.object({
   label: z.string().min(1).max(SLOT_LABEL_MAX_LENGTH),
-  value: z.string().min(1).max(SLOT_VALUE_MAX_LENGTH),
+  /**
+   * Absent is only right when the other side is the one filling it — see
+   * {@link slotDirectionRefusal}, which is where the two are told apart.
+   */
+  value: absent(z.string().min(1).max(SLOT_VALUE_MAX_LENGTH)),
   /** Absent means it is not a secret, which is the safe default of the two. */
-  secret: z.boolean().optional(),
+  secret: absent(z.boolean()),
+  /**
+   * Who owes this slot a value. Absent means you do, which is the direction that
+   * needs nobody else and is therefore the one to default to.
+   */
+  awaits: absent(SlotFillerSchema),
+  /**
+   * Where an operator's secret lands in your vault.
+   *
+   * **The agent names it, always** (`#931`). The operator may not write into the
+   * agent's namespace, and naming it here rather than at the take means the
+   * refusal for a name already in use arrives before anybody has typed a
+   * password into a field.
+   */
+  vaultKey: absent(z.string()),
 })
+
+type SlotInput = z.infer<typeof SlotInputSchema>
+
+/**
+ * The four ways a slot can be described contradictorily, in one place.
+ *
+ * Refused per slot and by label rather than as a schema shape, because a caller
+ * that sent three slots and got back a Zod path has to work out which of the
+ * three it was — and the whole reason `put` takes a list is to save round trips.
+ */
+function slotDirectionRefusal(entry: SlotInput): string | undefined {
+  const awaits = entry.awaits ?? 'agent'
+  const secret = entry.secret === true
+
+  if (awaits === 'operator') {
+    if (entry.value !== undefined) {
+      return (
+        `"${entry.label}" says the operator fills it and carries a value already. One of the two ` +
+        'is wrong: leave the value out to ask them for it, or leave "awaits" out to put your own.'
+      )
+    }
+    if (secret && entry.vaultKey === undefined) {
+      return (
+        `"${entry.label}" is a secret you are asking the operator for, so it lands in your vault ` +
+        'rather than coming back through the conversation — name the key it lands under, in ' +
+        '"vaultKey". You choose it, they never see it, and a name you already hold is refused ' +
+        'now rather than after they have typed something into it.'
+      )
+    }
+    if (!secret && entry.vaultKey !== undefined) {
+      return (
+        `"${entry.label}" names a vault key and is not a secret. Only a secret lands in the ` +
+        'vault; anything else comes back through kolonie.accounts.take as often as you ask.'
+      )
+    }
+    return undefined
+  }
+
+  if (entry.value === undefined) {
+    return (
+      `"${entry.label}" has no value. A slot you fill needs one — set "awaits" to "operator" if ` +
+      'what you meant is that somebody else supplies it.'
+    )
+  }
+  if (entry.vaultKey !== undefined) {
+    return (
+      `"${entry.label}" names a vault key and is one you fill yourself, so there is nothing to ` +
+      'land: the key is named at kolonie.accounts.take, where you decide what to call it.'
+    )
+  }
+  return undefined
+}
 
 export type ThreadCommand = {
   readonly op?: string | null | undefined
@@ -440,9 +658,11 @@ async function putSlots(
       error: {
         code: 'validation_failed',
         message:
-          'put takes the slots as a list, each with a label and a value, and secret: true for ' +
-          'anything that must not come back out in a listing. Several in one call is the point ' +
-          'of it — an agent holding three values should not need three round trips.',
+          'put takes the slots as a list, each with a label, and secret: true for anything that ' +
+          'must not come back out in a listing. A slot you fill carries its value; one you are ' +
+          'asking the operator for carries awaits: "operator" instead, and a vaultKey if it is a ' +
+          'secret. Several in one call is the point of it — an agent holding three values should ' +
+          'not need three round trips.',
         details: fieldErrors(parsed.error),
       },
     }
@@ -460,10 +680,54 @@ async function putSlots(
     return { outcome: 'rejected', error: UNAVAILABLE }
   }
 
+  /**
+   * **Every slot is checked before any slot is written**, on the same reasoning
+   * `carriesSecrets` is asked up front: a list of three that refused on the
+   * third would leave the first two opened, and the caller would have to work
+   * out which of its own slots now exist.
+   */
+  for (const entry of wanted) {
+    const wrong = slotDirectionRefusal(entry)
+    if (wrong !== undefined) return rejected(`${wrong} Nothing was written.`)
+  }
+
+  /**
+   * **The vault name is checked before the operator is asked** (`#931`).
+   *
+   * The claim at the far end is what actually protects the entry, and it refuses
+   * rather than replaces whatever this says. This is here for the sequence: the
+   * alternative is a person being asked to type a password into a slot that
+   * could never have landed, and finding out at the take — which is the one
+   * moment where nothing can be salvaged, because the value is in the row and
+   * the name it was promised is not free.
+   */
+  for (const entry of wanted) {
+    if (entry.vaultKey === undefined) continue
+    if (!(await store.vaultHolds(agentId, entry.vaultKey))) continue
+    return {
+      outcome: 'rejected',
+      error: {
+        code: 'conflict',
+        message:
+          `Your vault already holds something under \`${entry.vaultKey}\`, so "${entry.label}" ` +
+          'cannot land there — and what is there is not replaced by anything on this surface. ' +
+          'Ask under another name, or clear that one with kolonie.vault.delete first. Nothing ' +
+          'was written and nobody was asked for anything.',
+      },
+    }
+  }
+
   const written: SlotView[] = []
   for (const entry of wanted) {
     const secret = entry.secret === true
-    const opened = await store.openSlot({ episodeId: episode.id, label: entry.label, secret })
+    const awaits = entry.awaits ?? 'agent'
+    const opened = await store.openSlot({
+      episodeId: episode.id,
+      label: entry.label,
+      secret,
+      awaits,
+      ...(entry.vaultKey === undefined ? {} : { vaultKey: entry.vaultKey }),
+    })
 
     /**
      * **A label already carrying something is not overwritten**, which is the
@@ -477,15 +741,32 @@ async function putSlots(
     }
 
     /**
+     * **A slot the operator fills is opened and left empty**, which is the whole
+     * of the second direction: what the agent supplied is the question, and the
+     * answer arrives from a signed-in console rather than from here.
+     */
+    if (awaits === 'operator') {
+      written.push(toView(opened.slot))
+      continue
+    }
+
+    /**
      * The seal is computed against the slot's own id, so a value lifted out of
      * one row cannot be opened as another's. That is why the slot is opened
      * first and filled second rather than in one statement.
      */
-    const value = secret ? store.seal(agentId, String(opened.slot.id), entry.value) : entry.value
+    const supplied = entry.value ?? ''
+    const value = secret ? store.seal(agentId, String(opened.slot.id), supplied) : supplied
     if (value === undefined) return { outcome: 'rejected', error: UNAVAILABLE }
 
     const filled = await store.fillSlot({ slotId: opened.slot.id, filledBy: 'agent', value })
-    written.push(toView(filled.outcome === 'no-such-slot' ? opened.slot : filled.slot))
+    written.push(
+      toView(
+        filled.outcome === 'no-such-slot' || filled.outcome === 'not-awaited'
+          ? opened.slot
+          : filled.slot,
+      ),
+    )
   }
 
   return { outcome: 'ok', response: { op: 'put', episode, slots: written } }
@@ -668,14 +949,31 @@ export async function takeAccountSlot(
     }
   }
 
+  if (slot.destroyedAt !== null) {
+    return {
+      outcome: 'rejected',
+      error: {
+        code: 'conflict',
+        message:
+          `"${slot.label}" is empty. A secret does not sit indefinitely: it is destroyed when its ` +
+          'episode closes and when its timer runs out, whichever comes first, and neither is ' +
+          'reversible. Open another episode and ask again — nothing in your vault was touched.',
+      },
+    }
+  }
+
   if (slot.filledAt === null || slot.value === null) {
     return {
       outcome: 'rejected',
       error: {
         code: 'not_found',
         message:
-          `Nothing has been put in "${slot.label}" yet, so there is nothing to take. Looking ` +
-          'costs nothing and spends nothing — come back when the episode says it is filled.',
+          `Nothing has been put in "${slot.label}" yet, so there is nothing to take.` +
+          (slot.awaits === 'operator'
+            ? ' Your operator is the one who fills this one, from the page they sign in to.'
+            : '') +
+          ' Looking costs nothing and spends nothing — come back when the episode says it is ' +
+          'filled.',
       },
     }
   }
@@ -713,7 +1011,27 @@ export async function takeAccountSlot(
     }
   }
 
-  const key = VaultKeySchema.safeParse(args.vaultKey ?? undefined)
+  /**
+   * **A slot the operator filled already carries its key**, named by the agent
+   * when it asked (`#931`). Taking it does not get to rename it: the name was
+   * checked against the vault before the operator was asked for anything, and
+   * letting the take move it would put the collision back at the far end.
+   */
+  const asked = args.vaultKey ?? undefined
+  if (slot.vaultKey !== null && asked !== undefined && asked !== slot.vaultKey) {
+    return {
+      outcome: 'rejected',
+      error: {
+        code: 'conflict',
+        message:
+          `"${slot.label}" was opened to land under \`${slot.vaultKey}\`, which is the name you ` +
+          `gave when you asked for it, so it cannot land under \`${asked}\` now. Take it as it ` +
+          'stands and kolonie.vault.set moves it afterwards. Nothing was spent.',
+      },
+    }
+  }
+
+  const key = VaultKeySchema.safeParse(slot.vaultKey ?? asked)
   if (!key.success) {
     return {
       outcome: 'rejected',
@@ -753,7 +1071,26 @@ export async function takeAccountSlot(
    * that could recover it; a vault entry written before the stamp costs, at
    * worst, a second take that finds the key already holding the same value.
    */
-  const stored = await store.vaultPut(vaultToken, agentId, key.data, value)
+  const stored = await store.vaultClaim(vaultToken, agentId, key.data, value)
+  if (stored.outcome === 'key-taken') {
+    /**
+     * **The existing entry is unchanged**, which is the whole of this refusal
+     * and the reason the write is a claim rather than an upsert (`#931`). A
+     * value arriving through a slot is one this citizen did not have in its
+     * hand; overwriting on its arrival would destroy a credential that may still
+     * be the only copy, and nothing readable afterwards would say it happened.
+     */
+    return {
+      outcome: 'rejected',
+      error: {
+        code: 'conflict',
+        message:
+          `Your vault already holds something under \`${key.data}\`, and it was not touched. ` +
+          'Nothing was spent either — the slot is where it was. kolonie.vault.get is what is ' +
+          'under that name, kolonie.vault.delete clears it, and any other name works now.',
+      },
+    }
+  }
   if (stored.outcome === 'full') {
     return {
       outcome: 'rejected',

@@ -581,6 +581,29 @@ const WAITING_LABEL: Readonly<Record<WaitingKind, string>> = {
   question: 'a question — it needs you to read it and decide',
 }
 
+/**
+ * One live secret slot, as the dashboard draws it (`#931`).
+ *
+ * Structural on purpose: the storage's `WaitingSlot` is what fills it, and this
+ * module does not import a row type. **No value and no ciphertext** — a listing
+ * that carried either would put a credential through a response nobody asked for
+ * it in, which is the reason reading one is a `POST` of its own.
+ */
+export type WaitingSlotItem = {
+  readonly id: string
+  readonly label: string
+  /** `operator` is theirs to fill; `agent` is theirs to read. */
+  readonly awaits: 'agent' | 'operator'
+  readonly filled: boolean
+  readonly readsLeft: number
+  readonly expiresAt: string
+  readonly episodeTitle: string
+  readonly account: {
+    readonly identifier: string
+    readonly provider: string | null
+  }
+}
+
 export function dashboardPage(input: {
   /** Who is reading and where they are, for the navigation (`#608`). */
   readonly nav: ConsoleNav
@@ -617,6 +640,17 @@ export function dashboardPage(input: {
    * property this section has.
    */
   readonly waiting?: readonly WaitingItem[] | undefined
+  /**
+   * Live secret slots on the account conversations of the agents this person
+   * operates (`#931`).
+   *
+   * **Its own section and not a row in the queue above.** The queue is ordered
+   * by what each item costs to clear, and a slot has two directions: one costs a
+   * paste, the other costs a read that is spent whether or not it was needed.
+   * Folding a *you may read this* into a list headed *waiting on you* would ask
+   * somebody to spend one of three by reflex.
+   */
+  readonly slots?: readonly WaitingSlotItem[] | undefined
   /** The code this person is holding, if they have asked for one (`#426`). */
   readonly code?: { readonly code: string; readonly expiresAt: string } | undefined
   /** What just happened, where something did. */
@@ -833,9 +867,70 @@ export function dashboardPage(input: {
             'an agent; you are answering what it asked.</p>',
         ]
 
+  /**
+   * **The account conversations that have a secret in them** (`#931`).
+   *
+   * Under the queue and above the fleet, because it is the same kind of thing as
+   * the queue — something an agent is waiting on a person for — and a different
+   * kind of act: one direction is a paste, the other spends a read.
+   *
+   * **The read is a button and not a link.** A link would be prefetched by a
+   * browser, followed by a crawler and re-run by a back button, and each of
+   * those would burn one of three reads of a live credential.
+   */
+  const slots = input.slots ?? []
+  const secrets =
+    slots.length === 0
+      ? []
+      : [
+          `<h2>Secrets in an account conversation (${String(slots.length)})</h2>`,
+          '<p>One of your agents is working on an account and a secret is in the middle of it. ' +
+            'What you paste goes into the agent’s own vault sealed, under a name the agent chose ' +
+            '— not into a page, and not anywhere the Colony can read it back.</p>',
+          '<table>',
+          '<thead><tr><th>Account</th><th>What it is</th><th>Conversation</th><th>Until</th>' +
+            '<th></th></tr></thead>',
+          `<tbody>${slots
+            .map((slot) =>
+              [
+                '<tr>',
+                `<td>${escape(slot.account.identifier)}<br><small>${escape(
+                  slot.account.provider ?? 'no provider named',
+                )}</small></td>`,
+                `<td>${escape(slot.label)}</td>`,
+                `<td>${escape(slot.episodeTitle)}</td>`,
+                // Relative, like every other deadline on this page. The absolute
+                // time is not worth a column for something measured in days.
+                `<td>${escape(relative(slot.expiresAt))}</td>`,
+                `<td>${
+                  slot.awaits === 'operator'
+                    ? [
+                        `<form method="post" action="/account-slots/${escape(slot.id)}/fill">`,
+                        '<input type="password" name="value" required maxlength="4096" ' +
+                          `autocomplete="off" aria-label="${escape(slot.label)}">`,
+                        '<button type="submit">Send</button>',
+                        '</form>',
+                      ].join('')
+                    : [
+                        `<form method="post" action="/account-slots/${escape(slot.id)}">`,
+                        `<button type="submit">Read it (${String(slot.readsLeft)} left)</button>`,
+                        '</form>',
+                      ].join('')
+                }</td>`,
+                '</tr>',
+              ].join(''),
+            )
+            .join('')}</tbody>`,
+          '</table>',
+          '<p class="note">A secret here lasts days rather than indefinitely, and one your agent ' +
+            'left for you is readable a small number of times before the Colony destroys it. ' +
+            'Closing the conversation destroys it too, whichever way it was going.</p>',
+        ]
+
   const body = [
     ...(input.notice === undefined ? [] : [`<p><strong>${escape(input.notice)}</strong></p>`]),
     ...queue,
+    ...secrets,
     ...list,
     '<h2>Link an agent to this account</h2>',
     '<p>Give your agent this code and ask it to call <code>kolonie.operator.link</code> with it.</p>',

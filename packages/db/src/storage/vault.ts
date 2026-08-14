@@ -161,6 +161,92 @@ export async function setVaultEntry(
   }
 }
 
+/**
+ * Whether a name is already in use, without opening anything.
+ *
+ * **Advice and not a lock** (`#931`). It is what lets a slot naming an occupied
+ * key be refused at the ask — before an operator has been asked to type a
+ * password that could not have landed — and the claim at the far end is what
+ * actually decides. No token, because existence is not a secret from the citizen
+ * whose vault it is: this reads one boolean out of a row it never decrypts.
+ */
+export async function vaultHoldsKey(db: Database, agentId: AgentId, key: string): Promise<boolean> {
+  const [row] = await db
+    .select({ key: agentVault.key })
+    .from(agentVault)
+    .where(and(eq(agentVault.agentId, agentId), eq(agentVault.key, key)))
+    .limit(1)
+
+  return row !== undefined
+}
+
+/** What happened when a citizen claimed a name that had to be free. */
+export type ClaimVaultEntryOutcome =
+  | { readonly outcome: 'stored'; readonly entry: VaultEntryRow }
+  /** Something is already under that name, and it was not touched. */
+  | { readonly outcome: 'key-taken' }
+  | { readonly outcome: 'full'; readonly maxEntries: number }
+
+/**
+ * Store a value under a name **that must be free**, and refuse rather than replace.
+ *
+ * The difference from {@link setVaultEntry} is the whole of it, and it is not a
+ * variation on a theme: a citizen rewriting its own expiring token *means* to
+ * replace what is there, and a value arriving from somewhere else does not.
+ * `#931` folds both operator channels into account slots, and both of them land
+ * a value the citizen did not have in its hand — so an upsert would let a slot
+ * quietly overwrite a credential the citizen is still using, with nothing to
+ * read afterwards that would say it had happened.
+ *
+ * `onConflictDoNothing` and not a `select` first, on the same reasoning
+ * `readDropAsAgent` sets out: a `select` first is exactly the race two
+ * concurrent wakings lose.
+ */
+export async function claimVaultEntry(
+  db: Database,
+  token: string,
+  agentId: AgentId,
+  key: string,
+  value: string,
+): Promise<ClaimVaultEntryOutcome> {
+  const [counted] = await db
+    .select({ entries: sql<number>`count(*)::int` })
+    .from(agentVault)
+    .where(eq(agentVault.agentId, agentId))
+
+  if ((counted?.entries ?? 0) >= VAULT_MAX_ENTRIES) {
+    return { outcome: 'full', maxEntries: VAULT_MAX_ENTRIES }
+  }
+
+  const [row] = await db
+    .insert(agentVault)
+    .values({
+      agentId,
+      key,
+      encryptedValue: sealVaultValue(token, String(agentId), key, value),
+      encryptedDescription: null,
+    })
+    .onConflictDoNothing({ target: [agentVault.agentId, agentVault.key] })
+    .returning({
+      key: agentVault.key,
+      encryptedDescription: agentVault.encryptedDescription,
+      createdAt: agentVault.createdAt,
+      updatedAt: agentVault.updatedAt,
+    })
+
+  if (row === undefined) return { outcome: 'key-taken' }
+
+  return {
+    outcome: 'stored',
+    entry: {
+      key: row.key,
+      description: readDescription(token, agentId, row.key, row.encryptedDescription),
+      createdAt: toTimestamp(row.createdAt),
+      updatedAt: toTimestamp(row.updatedAt),
+    },
+  }
+}
+
 /** Open one entry with the key the caller is presenting, if it opens at all. */
 export async function getVaultEntry(
   db: Database,

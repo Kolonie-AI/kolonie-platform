@@ -3,6 +3,7 @@ import { capabilitiesFromForm, handoverNotice } from '@kolonie-ai/core'
 import {
   ERROR_STATUS,
   AccountKindSchema,
+  AccountSlotIdSchema,
   AccountProviderSchema,
   RECIPE_REFUSAL_MAX_LENGTH,
   RECIPE_STEP_MAX_LENGTH,
@@ -224,6 +225,28 @@ const FILL_NOTICE: Record<string, string | undefined> = {
     'the agent has to remove something first.',
 }
 
+/**
+ * What an operator is told about a slot that is not theirs to act on (`#931`).
+ *
+ * **One sentence for six states**, which is one more than the handover has and
+ * the same reasoning: read out, expired, closed over with its episode, never
+ * filled, never awaiting them, or never theirs. A console that told them apart
+ * would answer questions about a conversation the asker is not in.
+ */
+const SLOT_CLOSED_NOTICE =
+  'That one is not open to you. It may have been answered already, read the number of times it ' +
+  'allows, closed with its episode, or it was never yours \u2014 the Colony answers the same way ' +
+  'to all of them on purpose. Nothing was sent and nothing is held against the agent. Ask your ' +
+  'agent to open another; it costs it nothing.'
+
+/** The two ends of the slot round trip, carried across a redirect like `filled`. */
+const SLOT_NOTICE: Record<string, string | undefined> = {
+  filled:
+    'Sent. It went into the slot sealed, and your agent claims it into its own vault under the ' +
+    'name it chose \u2014 nobody reads it back out, including you and including the Colony.',
+  closed: SLOT_CLOSED_NOTICE,
+}
+
 export function registerConsolePages(app: FastifyInstance, deps: RouteDependencies): void {
   const host = consoleHost(deps.console.consoleUrl)
   if (host === undefined) return
@@ -384,7 +407,19 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
        * on this page in the Colony's voice — and the wording stays in one
        * place when it is edited.
        */
-      const filled = FILL_NOTICE[String((request.query as { filled?: unknown }).filled ?? '')]
+      /**
+       * The secrets sitting in an account conversation (`#931`).
+       *
+       * Its own read and not part of `waitingOnThem`: that query answers *what
+       * is stopping an agent*, and half of these are the other direction — a
+       * value the agent left for the person, which stops nothing. An empty list
+       * on a Colony with no sealing key, and no section on the page.
+       */
+      const slots = (await deps.accountThreads?.waitingFor(signedIn.human.id)) ?? []
+
+      const query = request.query as { filled?: unknown; slot?: unknown }
+      const filled =
+        FILL_NOTICE[String(query.filled ?? '')] ?? SLOT_NOTICE[String(query.slot ?? '')]
 
       return wantsHtml(request)
         ? html(
@@ -394,6 +429,7 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
               zone: zoneFrom(request.headers),
               agents,
               waiting: queue,
+              slots,
               code,
               maintains,
               ...(filled === undefined ? {} : { notice: filled }),
@@ -403,6 +439,7 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
             signedIn: true,
             agents,
             waiting: queue,
+            slots,
             ...(maintains && { maintains: true }),
           })
     }
@@ -945,6 +982,114 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
             nav: navFor(request, signedIn.human.roles),
             provider: result.provider,
             prompt: result.prompt,
+            value: result.value,
+            readsLeft: result.readsLeft,
+          }),
+        )
+      : reply.send({
+          provider: result.provider,
+          value: result.value,
+          readsLeft: result.readsLeft,
+          notice: handoverNotice(result.readsLeft),
+        })
+  })
+
+  /**
+   * Fill a secret slot an agent left waiting for its operator (`#931`).
+   *
+   * The drop's route one screen up, against the conversation instead of a
+   * separate channel — same session, same join, same one sentence for every dead
+   * state. What is different is only where the value lands: an agent-named vault
+   * key it claims for itself, rather than a box the agent opened for one value.
+   *
+   * **The plaintext is sealed above the storage and never below it.** The port
+   * takes what the operator typed and hands the storage a ciphertext; the
+   * console holds no key and this route names none.
+   */
+  app.post('/account-slots/:slotId/fill', async (request, reply) => {
+    if (!(await guard(request, reply))) return reply
+
+    const signedIn = await person(request)
+    if (signedIn === null) return signInRequired(request, reply)
+
+    const { slotId } = request.params as { slotId: string }
+    const { value } = (request.body ?? {}) as { value?: unknown }
+
+    // A malformed id is `closed` and not a 400: it is the shape a stranger's
+    // guess arrives in, and answering it differently would say that the ids
+    // this console accepts are worth guessing at.
+    const slot = AccountSlotIdSchema.safeParse(slotId)
+
+    /**
+     * `closed` when the surface is not configured, which is the same answer a
+     * stranger's slot id gets — for the reason the drop's route sets out, and
+     * with the same consequence: a person cannot be holding a form for a slot on
+     * a Colony that could not have opened one.
+     */
+    const result =
+      deps.accountThreads === undefined ||
+      !slot.success ||
+      typeof value !== 'string' ||
+      value === ''
+        ? ({ outcome: 'closed' } as const)
+        : await deps.accountThreads.fillAsOperator({
+            slotId: slot.data,
+            humanId: signedIn.human.id,
+            value,
+          })
+
+    if (!wantsHtml(request)) {
+      return result.outcome === 'filled'
+        ? reply.status(200).send({ filled: true })
+        : reply.status(ERROR_STATUS.conflict).send({
+            code: 'conflict',
+            message: SLOT_CLOSED_NOTICE,
+          })
+    }
+
+    return reply.status(303).header('location', `/?slot=${result.outcome}`).send()
+  })
+
+  /**
+   * Read a secret an agent sealed into a slot for its operator (`#931`).
+   *
+   * The handover's route, against the conversation. All three of its arguments
+   * hold here unchanged: the signed-in session is the only thing that authorises
+   * it, it is a `POST` because reading it spends one of three, and the value is
+   * in the response body and nowhere else.
+   */
+  app.post('/account-slots/:slotId', async (request, reply) => {
+    if (!(await guard(request, reply))) return reply
+
+    const signedIn = await person(request)
+    if (signedIn === null) return signInRequired(request, reply)
+
+    const { slotId } = request.params as { slotId: string }
+    const slot = AccountSlotIdSchema.safeParse(slotId)
+
+    const result =
+      deps.accountThreads === undefined || !slot.success
+        ? ({ outcome: 'closed' } as const)
+        : await deps.accountThreads.readAsOperator(slot.data, signedIn.human.id)
+
+    if (result.outcome !== 'read') {
+      return wantsHtml(request)
+        ? reply.status(303).header('location', '/?slot=closed').send()
+        : reply.status(ERROR_STATUS.conflict).send({
+            code: 'conflict',
+            message: SLOT_CLOSED_NOTICE,
+          })
+    }
+
+    return wantsHtml(request)
+      ? html(
+          reply,
+          // The handover's page, because it is the same page: a warning that
+          // says how long and how many, the value, and nothing to click.
+          handoverPage({
+            nav: navFor(request, signedIn.human.roles),
+            provider: result.provider ?? 'your agent’s account',
+            prompt: result.label,
             value: result.value,
             readsLeft: result.readsLeft,
           }),

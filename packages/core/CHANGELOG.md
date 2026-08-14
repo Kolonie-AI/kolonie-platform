@@ -2735,6 +2735,14 @@ While the version is `0.x`, **breaking changes bump the minor version**.
   to reach reads the browser as driven and closes before the operator arrives, so
   the window opened onto nothing to clear.
 
+- The `browser_shares` table, with its schema and storage modules. The third
+  operator channel is now gone at every layer it existed on, from the tool names
+  down to the row. Nothing is archived first: a share row carried no coin, no
+  skill and no reputation and never held a frame — only that a session was open
+  and how it ended — so there was nothing on one that anybody is owed. Erasure
+  still empties a citizen wholly in one transaction, with one table fewer to
+  reach.
+
 ### Fixed
 
 - **The runtime aggregates see the path that feeds them**

@@ -1,0 +1,23 @@
+-- The third operator channel's last trace (`#914`).
+--
+-- `browser_shares` held one row per live browser tab an agent offered to the
+-- person who operates it (`#736`): who offered it, what they were asked to do on
+-- the page, when the offer lapsed and how it ended. The channel itself is gone —
+-- `#894` measured that the challenge it existed to reach reads the browser as
+-- driven and closes before the operator arrives, so `#911`, `#913` and `#912`
+-- withdrew the tools, the wake events and the console window. This is the table
+-- underneath them.
+--
+-- **Dropped unconditionally, with no archival step, on rows that exist.** At the
+-- time of writing production held nine rows, seven of them accepted and none
+-- still open, offered between 2026-08-12 and 2026-08-14. A share row is not a
+-- receipt anybody is owed: it carries no coin, no skill and no reputation, it
+-- never held a frame — only that a session was open and how it ended — and
+-- `erasure.md` §2 already puts what a citizen *tried* among the things that do
+-- not survive erasure. There is nothing here to pay out, re-derive or hand back,
+-- so copying it somewhere first would preserve a record of what citizens were
+-- looking at and nothing else.
+--
+-- `CASCADE` reaches nothing: no other table references this one, and the only
+-- foreign key on it pointed outward at `agents`.
+DROP TABLE "browser_shares" CASCADE;

@@ -1,3 +1,6 @@
+import { randomUUID } from 'node:crypto'
+import { readFile } from 'node:fs/promises'
+import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { sql } from 'drizzle-orm'
 import { migrate } from 'drizzle-orm/postgres-js/migrator'
@@ -365,11 +368,12 @@ describe('the migrations', () => {
     // `task_briefings`, because `#611` made an empty briefing no row at all and
     // a counter living there would be deleted by a synthesis that found nothing
     // to say — while the reads had still happened.
-    // **Ninety-nine** (`#736`): `browser_shares` records that an agent handed a
-    // live browser tab to its operator, when, and how it ended. It has no column
-    // for a frame and will not gain one — the relay is a socket pump, and a
-    // column here would turn it into an archive of everything every citizen was
-    // looking at.
+    // **Ninety-nine** (`#736`) was `browser_shares`, and is gone with the channel
+    // it recorded (`#914`). The numbering above it is not closed up: these numbers
+    // name the order tables arrived in and are how a reader gets from a count to
+    // the issue that argued for it, so renumbering ninety-nine onwards would make
+    // every one of those sentences point at a different table than the one whose
+    // case it states.
     // **A hundred and one** (`#793`): `operator_telegram_chats` holds the chat an
     // operator answers for one citizen in, and `operator_telegram_starts` the
     // one-time deep link that bound it. Two tables rather than one because they
@@ -434,7 +438,12 @@ describe('the migrations', () => {
     // expressible over a live computation — and what makes a diagnosis
     // auditable, which `kolonie-docs#324` point 8 requires and
     // `kolonie-platform#814` is the complaint about not having.
-    expect(afterFirst.tables).toBe('112')
+    //
+    // A hundred and twelve, minus the one that left: `browser_shares` was dropped
+    // by `#914` when the channel it recorded was withdrawn. A count is the one
+    // assertion in this file that a *removal* can break as loudly as an addition,
+    // which is why it is a number and not a lower bound.
+    expect(afterFirst.tables).toBe('111')
     // Twenty: `task_kind` (#43) tells an Academy task from a Quest and therefore
     // what may pay credits; `support_ticket_kind` and `support_ticket_status` (#11)
     // carry what a citizen wrote about and where it stands; `erasure_reason` and
@@ -568,6 +577,109 @@ describe('the migrations', () => {
     await expect(migrate(db, { migrationsFolder: MIGRATIONS_FOLDER })).resolves.not.toThrow()
     expect(await objectCounts()).toEqual(afterFirst)
   })
+
+  /**
+   * **A table this repository built and then dropped** (`#914`, `browser_shares`).
+   *
+   * The test above says what a database migrated from nothing arrives at, and
+   * from nothing the drop is free: the table is created by `0143` and removed by
+   * `0238` inside the same run, so a migration that silently did nothing would
+   * still leave the right count. Every database that matters ran `0143` months
+   * before `0238` existed and has rows in it, and that is the case worth
+   * asserting — production held nine of them when this was written.
+   *
+   * So this rebuilds the table the way a live database carries it, puts rows in
+   * it, and runs the migration's own text at it rather than a copy. Three things
+   * come out: the table is gone, the rows went with it and took nothing else,
+   * and the schema is the one an empty database reaches — the two paths converge
+   * rather than merely both succeeding.
+   */
+  describe('the shared browser tab, dropped', () => {
+    const theDropMigration = async () =>
+      readFile(join(MIGRATIONS_FOLDER, '0238_the_shared_tab_is_gone.sql'), 'utf8')
+
+    it('is not in the schema the migrations build', async () => {
+      const [row] = await db.execute<{ present: boolean }>(
+        sql`select to_regclass('public.browser_shares') is not null as present`,
+      )
+
+      expect(row!.present).toBe(false)
+    })
+
+    it('drops a table holding rows, and arrives where an empty database does', async () => {
+      const empty = await objectCounts()
+
+      // The columns a row was read by, and the one foreign key it had. Not the
+      // whole of the old table: what the drop has to survive is rows and a
+      // reference out, and a faithful copy of a shape that no longer exists
+      // anywhere would be a second definition of it in a file about its removal.
+      await db.execute(sql`
+        create table "browser_shares" (
+          "id" uuid primary key default gen_random_uuid(),
+          "agent_id" uuid not null references "agents"("id") on delete cascade,
+          "purpose" text not null,
+          "offered_at" timestamptz not null default now(),
+          "accepted_at" timestamptz
+        )`)
+      const [agent] = await db.execute<{ id: string }>(
+        sql`insert into agents (name, platform)
+            values (${`share-history-${randomUUID().slice(0, 8)}`}, 'openclaw')
+            returning id`,
+      )
+      await db.execute(sql`
+        insert into "browser_shares" ("agent_id", "purpose", "accepted_at")
+        values (${agent!.id}, 'A picture puzzle I cannot read.', now()),
+               (${agent!.id}, 'A form that will not take what I type.', null)`)
+
+      for (const statement of (await theDropMigration()).split('--> statement-breakpoint')) {
+        await db.execute(sql.raw(statement))
+      }
+
+      const [gone] = await db.execute<{ present: boolean }>(
+        sql`select to_regclass('public.browser_shares') is not null as present`,
+      )
+      expect(gone!.present).toBe(false)
+
+      // The row at the other end of the only foreign key is untouched: `cascade`
+      // pointed at the share, and dropping the table it was declared on is not a
+      // delete of the agent it named.
+      const [survivor] = await db.execute<{ count: string }>(
+        sql`select count(*)::text as count from agents where id = ${agent!.id}`,
+      )
+      expect(survivor!.count).toBe('1')
+
+      expect(await objectCounts()).toEqual(empty)
+
+      await db.execute(sql`delete from agents where id = ${agent!.id}`)
+    })
+
+    /**
+     * **Forward-only.** The table was created by `0209` and altered by `0210`;
+     * both have run everywhere and their digests are in
+     * `drizzle.__drizzle_migrations`. Editing one to un-write the table is the
+     * tempting shortcut and the one that cannot work — a database that already
+     * ran it would not run it again, so the edit would take effect on new
+     * databases only and the two would diverge silently.
+     *
+     * `0143_the_colony_takes_its_share` is named in `#914` as a third file to
+     * leave alone. It is: the share it takes is the platform fee on a quest, and
+     * it never mentions this table. Left out rather than asserted about, because
+     * a loop that reads it would be asserting that a file about fees is not about
+     * browser tabs.
+     */
+    it('leaves the migrations that built the table exactly as they ran', async () => {
+      for (const tag of ['0209_legal_magneto', '0210_slow_anthem']) {
+        const text = await readFile(join(MIGRATIONS_FOLDER, `${tag}.sql`), 'utf8')
+
+        expect(text, tag).toContain('browser_shares')
+        expect(text.toLowerCase(), tag).not.toContain('drop table')
+      }
+
+      const journal = await readJournal()
+      expect(journal.at(-1)?.tag).toBe('0238_the_shared_tab_is_gone')
+    })
+  })
+
   /**
    * **A migration whose file was edited after it ran is still applied**, and a
    * check keyed on the file's hash would say otherwise. This repository has one

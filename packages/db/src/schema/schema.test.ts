@@ -311,14 +311,6 @@ describe('schema', () => {
         'ban_marks',
         'browser_challenges',
         /**
-         * One live browser tab an agent offered to its operator (`#736`). Its
-         * own table rather than a column on `operator_drops`, because the two
-         * channels look alike only from a distance: a drop is a value at rest
-         * and a share is two sockets, and a merged table would carry six columns
-         * that are null for one of them.
-         */
-        'browser_shares',
-        /**
          * The way in after D-106 (`#503`): every SOL transfer observed arriving
          * at the Colony's own wallet, attributed to the citizen that sent it or
          * quarantined with a reason. It replaces the premise of the two deposit

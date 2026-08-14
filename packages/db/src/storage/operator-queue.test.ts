@@ -4,7 +4,6 @@ import type { Database } from '../client.js'
 import {
   agents,
   accountWishes,
-  browserShares,
   humanAgents,
   humans,
   operatorRequests,
@@ -98,37 +97,6 @@ describe('the operator queue', () => {
     return wish.id as WishId
   }
 
-  /**
-   * An open, unaccepted offer of a live tab — history rather than a channel
-   * (`#738`, withdrawn by `#912`).
-   *
-   * Nothing writes one of these any more, and the table outlives the feature by
-   * one issue (`#914`). It is inserted here so that the one thing left to check
-   * can be checked: that a person whose account carries such a row still gets
-   * their queue, with nothing in it about a tab.
-   */
-  const aShare = async (
-    agentId: AgentId,
-    purpose: string,
-    where: { readonly provider?: string; readonly step?: number } = {},
-    minutesLeft = 90,
-  ): Promise<string> => {
-    const [row] = await db
-      .insert(browserShares)
-      .values({
-        agentId,
-        tokenHash: 'not-a-token, and never presented to anything in this file',
-        targetId: 'page-1',
-        purpose,
-        provider: where.provider ?? null,
-        step: where.step ?? null,
-        expiresAt: new Date(Date.now() + minutesLeft * 60_000).toISOString(),
-      })
-      .returning({ id: browserShares.id })
-    if (row === undefined) throw new Error('inserting a share returned no row')
-    return row.id
-  }
-
   beforeEach(async () => {
     await truncateAll(db)
     await seedAcademyTasks(db)
@@ -179,26 +147,13 @@ describe('the operator queue', () => {
   })
 
   /**
-   * The rejection case for `#912`: an account with share history.
-   *
-   * The row here is exactly what the query used to select — open, unaccepted,
-   * hours of validity left — and the queue is now blind to it. Two things are
-   * being asserted at once: that no third arm survives, and that a person whose
-   * account carries one of these rows still gets a queue rather than an error,
-   * which is what stops this from depending on `#914` dropping the table.
+   * `#912` left a case here that inserted a real `browser_shares` row and
+   * asserted the queue was blind to it — the point being that an account with
+   * share history did not need the table dropped in order to render. `#914`
+   * dropped it, so the row cannot be written and the case retires with the
+   * fixture it was built on. What it was guarding is now structural: there is no
+   * third arm to select, and no table for one to select from.
    */
-  it('says nothing about a tab an agent once offered, and still answers', async () => {
-    const agentId = await anAgent('one', humanId)
-    await aShare(agentId, 'A picture puzzle I cannot read.', { provider: 'mail.tm', step: 3 })
-
-    expect(await waitingForOperator(db, humanId)).toEqual([])
-
-    await aQuestion(agentId, 'May I open an account at this provider?')
-    const queue = await waitingForOperator(db, humanId)
-
-    expect(queue.map((row) => row.kind)).toEqual(['question'])
-    expect(JSON.stringify(queue)).not.toContain('picture puzzle')
-  })
 
   it('drops an exchange the operator has already replied to', async () => {
     const agentId = await anAgent('one', humanId)

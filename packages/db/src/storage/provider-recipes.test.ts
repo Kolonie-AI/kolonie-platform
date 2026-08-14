@@ -868,7 +868,10 @@ describe('a provider row the Colony measured', () => {
   })
 
   it('puts a provider nobody has written up on the shelf, with no prose', async () => {
-    const written = await recordMeasuredProvider(db, { kind: kind('phone'), provider: 'agent.example' })
+    const written = await recordMeasuredProvider(db, {
+      kind: kind('phone'),
+      provider: 'agent.example',
+    })
     expect(written).toBe(true)
 
     const entry = await providerRecipe(db, kind('phone'), 'agent.example')
@@ -955,12 +958,18 @@ describe('a provider row the Colony measured', () => {
     })
 
     expect(written).toBe(false)
-    expect(await providerRecipe(db, kind('nothing-has-a-shelf-for-this'), 'unshelved.example')).toBeUndefined()
+    expect(
+      await providerRecipe(db, kind('nothing-has-a-shelf-for-this'), 'unshelved.example'),
+    ).toBeUndefined()
   })
 
   it('is idempotent, so a second proof at the same provider writes nothing', async () => {
-    expect(await recordMeasuredProvider(db, { kind: kind('phone'), provider: 'agent.example' })).toBe(true)
-    expect(await recordMeasuredProvider(db, { kind: kind('phone'), provider: 'agent.example' })).toBe(false)
+    expect(
+      await recordMeasuredProvider(db, { kind: kind('phone'), provider: 'agent.example' }),
+    ).toBe(true)
+    expect(
+      await recordMeasuredProvider(db, { kind: kind('phone'), provider: 'agent.example' }),
+    ).toBe(false)
   })
 
   /**

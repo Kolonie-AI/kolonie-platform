@@ -33,8 +33,11 @@ describe('a report about a provider', () => {
     'takes %s once a sentence comes with it',
     (outcome) => {
       expect(
-        report({ ...base, outcome, reason: 'The form refuses an honest answer about being an agent.' })
-          .success,
+        report({
+          ...base,
+          outcome,
+          reason: 'The form refuses an honest answer about being an agent.',
+        }).success,
       ).toBe(true)
     },
   )

@@ -73,7 +73,6 @@ describe('the account register', () => {
       provedAt: new Date().toISOString(),
     })
 
-
   /**
    * The catalogue stops depending on a favour (`#903`).
    *

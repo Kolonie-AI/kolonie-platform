@@ -758,9 +758,7 @@ export function atlasShelfHasEvidence(entries: readonly AtlasEntry[]): boolean {
   return entries.some(
     (entry) =>
       atlasIsWalked(entry) ||
-      entry.recipes.some(
-        (recipe) => recipe.status === 'measured' || recipe.figures.attempted > 0,
-      ),
+      entry.recipes.some((recipe) => recipe.status === 'measured' || recipe.figures.attempted > 0),
   )
 }
 

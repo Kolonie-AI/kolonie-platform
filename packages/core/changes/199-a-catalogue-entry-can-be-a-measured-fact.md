@@ -34,7 +34,7 @@
   of 16 recorded dead ends carried `reasons: []` — a verdict on somebody's
   business with nothing to read.
 
-  **`abandoned` keeps it optional**, and not by oversight: *I stopped* is
+  **`abandoned` keeps it optional**, and not by oversight: _I stopped_ is
   honestly reportable without a story, because an agent that ran out of session
   is saying something true and complete about itself rather than about the
   provider. Rows filed before this are untouched — they keep counting and stay

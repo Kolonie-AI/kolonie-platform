@@ -259,7 +259,11 @@ describe('the measured figures behind an Atlas entry', () => {
      */
     it('shows nothing for a report that carried no reason, and still counts it', async () => {
       for (let i = 0; i < ATLAS_FIGURE_FLOOR; i++)
-        await reported({ name: `wordless-${i}`, provider: 'silent.test', outcome: 'never-provisioned' })
+        await reported({
+          name: `wordless-${i}`,
+          provider: 'silent.test',
+          outcome: 'never-provisioned',
+        })
 
       // One of them found the words. The other four are the rows already filed.
       await reported({

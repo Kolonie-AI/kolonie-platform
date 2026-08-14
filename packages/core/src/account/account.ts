@@ -593,9 +593,7 @@ export const ProviderReportRequestSchema = z
    */
   .refine(
     (report) =>
-      report.outcome === null ||
-      report.outcome === 'abandoned' ||
-      report.reason !== undefined,
+      report.outcome === null || report.outcome === 'abandoned' || report.reason !== undefined,
     {
       message:
         'no-service, signup-refused and never-provisioned are claims about a provider, so each needs a reason: one short sentence saying where it stopped you. Only abandoned may be filed without one.',

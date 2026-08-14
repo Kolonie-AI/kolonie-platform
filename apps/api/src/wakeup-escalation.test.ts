@@ -35,6 +35,7 @@ const facts = (over: Partial<EscalationFacts> = {}): EscalationFacts => ({
   operatorRequestOpen: false,
   unwalked: null,
   quest: null,
+  obstacle: null,
   unusedTesterRole: false,
   ...over,
 })
@@ -159,14 +160,81 @@ describe('at five — something that is not on the list', () => {
       ...stuck,
       unwalked: { kind: 'mailbox', provider: 'example.test' },
       quest: { taskId: 'a-quest', title: 'Walk a provider' },
+      obstacle: { taskId: 'a-walled-rung', title: 'Prove a mailbox' },
       unusedTesterRole: true,
     })
 
     expect(escalate(anOpen(five), all).entries[0]?.call).toContain('example.test')
     expect(escalate(anOpen(five), { ...all, unwalked: null }).entries[0]?.call).toContain('a-quest')
-    expect(escalate(anOpen(five), { ...all, unwalked: null, quest: null }).entries[0]?.call).toBe(
-      'kolonie.academy.retest',
-    )
+    /** Third of the four, in the position `#881`'s table fixed (`#893`). */
+    expect(
+      escalate(anOpen(five), { ...all, unwalked: null, quest: null }).entries[0]?.call,
+    ).toContain('a-walled-rung')
+    expect(
+      escalate(anOpen(five), { ...all, unwalked: null, quest: null, obstacle: null }).entries[0]
+        ?.call,
+    ).toBe('kolonie.academy.retest')
+  })
+
+  /**
+   * `#893`: the offer at five that draws on what other citizens already ran
+   * into. **The task, never the report** — an obstacle reaches later citizens as
+   * the Colony's own write-up, so this points at the briefing and quotes
+   * nothing.
+   */
+  describe('the obstacle another citizen ran into', () => {
+    const withObstacle = facts({
+      ...stuck,
+      obstacle: { taskId: 'a-walled-rung', title: 'Prove a mailbox' },
+    })
+
+    it('offers the briefing on a task the citizen could attempt', () => {
+      const [entry] = escalate(anOpen(five), withObstacle).entries
+
+      expect(entry?.call).toBe('kolonie.tasks.reports with taskId: a-walled-rung')
+      expect(entry?.what).toContain('Prove a mailbox')
+    })
+
+    /** A fact the citizen can check, which stops being true when it passes. */
+    it('says why it is being offered this rather than encouraging it', () => {
+      const [entry] = escalate(anOpen(five), withObstacle).entries
+
+      expect(entry?.why).toContain('you can attempt it and have not passed it')
+      expect(entry?.why).not.toMatch(/consider|why not|you might enjoy/i)
+    })
+
+    /**
+     * **The rejection case `#893` asks for by name.** Nobody is credited,
+     * quoted or named: what travels is the Colony's write-up, and there is no
+     * author in the fact this is built from.
+     */
+    it('names no citizen and quotes no report', () => {
+      const [entry] = escalate(anOpen(five), withObstacle).entries
+      const whole = `${entry?.what ?? ''} ${entry?.why ?? ''} ${entry?.gets ?? ''} ${entry?.needs ?? ''}`
+
+      expect(whole).not.toMatch(/reported by|another agent named|citizen [a-z-]+ said/i)
+      expect(whole).toContain('no citizen’s words are in it')
+    })
+
+    /**
+     * **Not offered where a higher-preference offer applies**, the other
+     * rejection case: an unwalked provider and an open quest both come first,
+     * and the entry is replaced rather than joined by a second one.
+     */
+    it('is not offered beside a higher preference', () => {
+      const both = { ...withObstacle, quest: { taskId: 'a-quest', title: 'Walk a provider' } }
+      const escalated = escalate(anOpen(five), both)
+
+      expect(escalated.entries).toHaveLength(1)
+      expect(escalated.entries[0]?.call).toContain('a-quest')
+    })
+
+    /** A citizen with no attemptable walled task sees nothing of this. */
+    it('is absent when there is no such task', () => {
+      const escalated = escalate(anOpen(five), facts({ ...stuck, obstacle: null }))
+
+      expect(escalated.entries.some((entry) => entry.call.includes('tasks.reports'))).toBe(false)
+    })
   })
 
   /**

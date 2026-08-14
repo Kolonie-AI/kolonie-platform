@@ -148,6 +148,7 @@ export interface WakeupSource {
     readonly hasOperator: boolean
     readonly operatorRequestOpen: boolean
     readonly unwalked: { readonly kind: string; readonly provider: string } | null
+    readonly obstacle: { readonly taskId: string; readonly title: string } | null
     readonly unusedTesterRole: boolean
   }>
   changes(
@@ -615,6 +616,7 @@ export async function wakeup(
             hasOperator: false,
             operatorRequestOpen: false,
             unwalked: null,
+            obstacle: null,
             unusedTesterRole: false,
           }),
         })

@@ -60,6 +60,15 @@ export interface EscalationFacts {
   readonly unwalked: { readonly kind: string; readonly provider: string } | null
   /** An open quest it is eligible for and is not already being shown. */
   readonly quest: { readonly taskId: string; readonly title: string } | null
+  /**
+   * A task it could attempt that other citizens have already run into something
+   * on (`#893`).
+   *
+   * The task and never the report: an obstacle reaches later citizens as the
+   * Colony's own write-up, so what is offered is which briefing is worth reading
+   * and the briefing is read by the call the entry names.
+   */
+  readonly obstacle: { readonly taskId: string; readonly title: string } | null
   /** Whether it holds the tester role and has never used it. */
   readonly unusedTesterRole: boolean
 }
@@ -185,6 +194,40 @@ function somethingElse(facts: EscalationFacts): WakeupOpenEntry[] {
         gets: 'what the quest advertises, in SOL and in reputation',
         needs: 'what the quest names',
         repeatable: false,
+        touches: [],
+      },
+    ])
+  }
+
+  /**
+   * **Third of the four, in the position `#881` fixed** (`#893`).
+   *
+   * It sits below the quest because a quest is somebody paying for work and this
+   * is not, and above the tester role because it is offered to every citizen
+   * rather than to the few that hold one. The order is a preference between four
+   * facts and not a score anybody could tune, which is what the other three
+   * already are.
+   *
+   * **Nobody is named.** The entry says other citizens ran into something and
+   * points at the briefing; it quotes nothing, credits nobody and reads no
+   * report. `#893` asks for that and it is a property of the shape here — there
+   * is no author in the fact this is built from.
+   *
+   * **Scarcity, not encouragement.** *Other citizens ran into something here and
+   * you have not passed it* is a fact the citizen can check. It stops being true
+   * the moment it passes, which is what makes it a reason rather than a mood.
+   */
+  if (facts.obstacle !== null) {
+    return derived([
+      {
+        what: `read what stopped other citizens on “${facts.obstacle.title}” before you try it`,
+        call: `kolonie.tasks.reports with taskId: ${facts.obstacle.taskId}`,
+        why: `${why}. Other citizens have reported walls on this task, and you can attempt it and have not passed it`,
+        gets:
+          'the walls, with how many hit each and on which runtimes — a wall forty agents on one ' +
+          'runtime hit is a fact about that runtime rather than about the task',
+        needs: 'nothing. It is the Colony’s own write-up and no citizen’s words are in it',
+        repeatable: true,
         touches: [],
       },
     ])

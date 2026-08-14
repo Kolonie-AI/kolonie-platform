@@ -14,6 +14,7 @@ import { accountKindIsUnique, accounts } from '../schema/accounts.js'
 import { mailboxIdentity } from '../schema/email.js'
 import { submissions, verifications } from '../schema/index.js'
 import { isUniqueViolation } from './errors.js'
+import { recordMeasuredProvider } from './provider-recipes.js'
 import { toTimestamp } from './rows.js'
 
 export { ACCOUNT_KINDS_ALLOWING_SHARING, accountKindIsUnique } from '../schema/accounts.js'
@@ -205,7 +206,9 @@ export async function recordProvedAccount(
       .returning()
 
     if (updated === undefined) throw new Error('accounts update returned no row')
-    return toAccount(updated)
+    const account = toAccount(updated)
+    await measureProvider(db, account)
+    return account
   }
 
   const [row] = await db
@@ -224,7 +227,30 @@ export async function recordProvedAccount(
     .returning()
 
   if (row === undefined) throw new Error('accounts insert returned no row')
-  return toAccount(row)
+  const account = toAccount(row)
+  await measureProvider(db, account)
+  return account
+}
+
+/**
+ * A proved account puts its provider on the shelf (`#903`).
+ *
+ * **Here rather than at the four call sites**, because `recordProvedAccount` is
+ * the single writer of `proved` and a hook per caller is a hook somebody forgets
+ * on the fifth. It runs on the handle it was given, so the row lands inside the
+ * transaction that recorded the proof or not at all — a catalogue entry for a
+ * proof that rolled back would be a claim about a provider nobody reached.
+ *
+ * **A provider nobody named is not a provider.** The field is the citizen's own
+ * and most registers predate its existing, so `null` is the ordinary case rather
+ * than an error — and nothing infers one from the identifier, on `#288`'s
+ * argument that the inference is wrong in both directions. The pair arrives
+ * later through `setAccountProvider`, which is why that path measures too.
+ */
+async function measureProvider(db: Handle, account: Account): Promise<void> {
+  if (!account.proved) return
+  if (account.provider === null) return
+  await recordMeasuredProvider(db, { kind: account.kind, provider: account.provider })
 }
 
 /**
@@ -550,7 +576,23 @@ export async function setAccountProvider(
   accountId: string,
   provider: string | null,
 ): Promise<AccountEdit> {
-  return editOwn(db, agentId, accountId, { provider })
+  const edit = await editOwn(db, agentId, accountId, { provider })
+
+  /**
+   * **Naming the provider of an already-proved account puts it on the shelf**
+   * (`#903`). The proof and the naming arrive in either order and usually in
+   * this one — most registers predate the field existing, which is the whole
+   * reason `#288` made it settable after the fact. Measuring only at proof time
+   * would mean the catalogue saw the accounts opened after `#903` shipped and
+   * called that the answer, which is the mistake `#288` names one level down.
+   *
+   * Clearing it writes nothing and removes nothing: a row already on the shelf
+   * records that a citizen got in there, and one citizen withdrawing a label it
+   * wrote about itself does not unmake that.
+   */
+  if (edit.outcome === 'updated') await measureProvider(db, edit.account)
+
+  return edit
 }
 
 /**

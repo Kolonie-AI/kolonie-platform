@@ -25,15 +25,29 @@ import {
  * joinable, which is an agent following a recipe nobody approved.
  */
 describe('the life of an Atlas entry (#604)', () => {
-  it('holds all six states, in the order the life happens in', () => {
+  it('holds all seven states, in the order the life happens in', () => {
     expect(RecipeStatusSchema.options).toEqual([
       'proposed',
       'unwritten',
+      'measured',
       'draft',
       'joinable',
       'refused',
       'retired',
     ])
+  })
+
+  /**
+   * **The seventh, and the only one whose content the Colony observed rather
+   * than wrote** (`kolonie-docs#352`, `#903`). It sits beside `unwritten`
+   * because it is the same moment of the life with evidence attached: nobody
+   * has written the route either way. What separates them is whether citizens
+   * have been through.
+   */
+  it('lets a measured row be seen, and never lets it carry steps', () => {
+    expect(recipeStatusIsPublic('measured')).toBe(true)
+    expect(recipeStatusAllowsSteps('measured')).toBe(false)
+    expect(recipeStatusIsOfferable('measured')).toBe(false)
   })
 
   it('keeps two of them off every public surface', () => {

@@ -611,7 +611,15 @@ export function measuredOnlyRecipes(
         referral: null,
         contact: null,
         lastConfirmedAt: null,
-        status: 'unwritten',
+        /**
+         * **`measured` and not `unwritten`, since `#903`.** Both say *nobody has
+         * written the route*, and only one of them also says *citizens have been
+         * here* — which is the entire reason this function exists. Leaving these
+         * rows labelled `unwritten` would have been two names for one thing on
+         * the same shelf, and the reader could not tell the row synthesised from
+         * evidence from the three shelved on a guess beside it.
+         */
+        status: 'measured',
         refusal: null,
         retiredAt: null,
         retiredReason: null,

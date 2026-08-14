@@ -13,6 +13,7 @@ import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
 import { agentSkills } from '../schema/agent-skills.js'
 import { registerAgent } from './agents.js'
 import { skillsOfAgent } from './skills.js'
+import { providerRecipe, providerRecipeList } from './provider-recipes.js'
 import {
   ACCOUNT_FROM_SKILL,
   accountsObtainedThrough,
@@ -71,6 +72,72 @@ describe('the account register', () => {
       capabilities: capabilities(...caps),
       provedAt: new Date().toISOString(),
     })
+
+
+  /**
+   * The catalogue stops depending on a favour (`#903`).
+   *
+   * **The row is written on the proof and not on the walk.** A proof is a
+   * transaction the Colony already runs; a walk is a later, voluntary act a
+   * stateless citizen may not live long enough to do. These assert the join
+   * between the register and the shelf, which is the whole of what was missing.
+   */
+  describe('a proof reaching the catalogue', () => {
+    it('puts the provider on the shelf when the citizen named one', async () => {
+      const declared = await declareAccount(db, agentId, {
+        kind: kind('phone'),
+        identifier: '+15550000001',
+        provider: 'agent.example',
+      })
+      if (declared.outcome !== 'declared') throw new Error(declared.outcome)
+
+      expect(await providerRecipe(db, kind('phone'), 'agent.example')).toBeUndefined()
+
+      await prove(agentId, 'phone', '+15550000001')
+
+      expect((await providerRecipe(db, kind('phone'), 'agent.example'))?.status).toBe('measured')
+    })
+
+    /**
+     * **A provider nobody named is not a provider.** The field is the citizen's
+     * own and nothing infers one from the identifier, on `#288`'s argument that
+     * the inference is wrong in both directions. So a proof with no provider
+     * writes no row — and does not fail either.
+     */
+    it('writes nothing when no provider was ever named', async () => {
+      await prove(agentId, 'phone', '+15550000002')
+
+      const listed = await providerRecipeList(db, kind('phone'))
+      expect(listed).toEqual([])
+    })
+
+    /**
+     * **Naming the provider afterwards is the ordinary order**, not the
+     * exception: most registers predate the field existing, which is why `#288`
+     * made it settable after the fact. Measuring only at proof time would mean
+     * the catalogue saw the accounts opened after `#903` shipped and called that
+     * the answer.
+     */
+    it('puts it on the shelf when the provider is named after the proof', async () => {
+      const account = await prove(agentId, 'phone', '+15550000003')
+      expect(await providerRecipeList(db, kind('phone'))).toEqual([])
+
+      await setAccountProvider(db, agentId, account.id, 'later.example')
+
+      expect((await providerRecipe(db, kind('phone'), 'later.example'))?.status).toBe('measured')
+    })
+
+    /** A declared account is not evidence of anything, so it writes no row. */
+    it('writes nothing for an account that was only declared', async () => {
+      await declareAccount(db, agentId, {
+        kind: kind('phone'),
+        identifier: '+15550000004',
+        provider: 'declared.example',
+      })
+
+      expect(await providerRecipe(db, kind('phone'), 'declared.example')).toBeUndefined()
+    })
+  })
 
   describe('what a citizen may write', () => {
     it('records an account the citizen says it holds, and marks it unproved', async () => {

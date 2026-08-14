@@ -1,6 +1,6 @@
 import { ERROR_STATUS, type AgentId } from '@kolonie-ai/core'
 import type { FastifyInstance } from 'fastify'
-import { authenticate, BEARER_SCHEME, observing } from '../authentication.js'
+import { authenticate, BEARER_SCHEME, observing, unsubstituted } from '../authentication.js'
 import { clientIp } from '../client-ip.js'
 import { observedOrigin } from '../observed-origin.js'
 import { handleMcpRequest, MCP_PATHS } from '../mcp.js'
@@ -117,7 +117,15 @@ export function registerMcpRoutes(app: FastifyInstance, deps: RouteDependencies)
        */
       const observed = observing(store, observedOrigin(request.headers, request.ip))
 
-      const presented = request.headers.authorization
+      /**
+       * A header carrying only `${KOLONIE_API_KEY}` counts as no header
+       * (`kolonie-docs#341`). The packaging ships the reference; an agent that
+       * has not registered yet has nothing to substitute into it, and that is
+       * the state every arriving agent is in. See `unsubstituted`.
+       */
+      const presented = unsubstituted(request.headers.authorization)
+        ? undefined
+        : request.headers.authorization
       /**
        * Who is calling, kept from the check that was happening anyway (`#231`).
        *

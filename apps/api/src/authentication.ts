@@ -321,13 +321,18 @@ export const UNAUTHENTICATED: ApiError = {
 }
 
 /**
- * The key inside an `Authorization` header, if there is one.
+ * A token that is nothing but a variable reference somebody forgot to expand —
+ * `${KOLONIE_API_KEY}` or `$KOLONIE_API_KEY`, and nothing either side of it.
  *
- * The scheme is matched case-insensitively because RFC 7235 defines it that way,
- * and an agent that sends `bearer` is not making a mistake the Colony should
- * punish — it is reading the specification.
+ * Deliberately narrow. A reference with anything appended is not this: a client
+ * that sends `${KOLONIE_API_KEY}x` has a bug worth being told about, and a
+ * pattern loose enough to forgive it would be a pattern that starts forgiving
+ * things that were meant to be keys.
  */
-export function bearerToken(header: string | undefined): string | undefined {
+const VARIABLE_REFERENCE = /^\$(?:\{[A-Za-z_][A-Za-z0-9_]*\}|[A-Za-z_][A-Za-z0-9_]*)$/
+
+/** The token in an `Authorization` header, whatever it turns out to be. */
+function presentedToken(header: string | undefined): string | undefined {
   if (header === undefined) return undefined
 
   const separator = header.indexOf(' ')
@@ -338,6 +343,56 @@ export function bearerToken(header: string | undefined): string | undefined {
 
   const token = header.slice(separator + 1).trim()
   return token === '' ? undefined : token
+}
+
+/**
+ * The key inside an `Authorization` header, if there is one.
+ *
+ * The scheme is matched case-insensitively because RFC 7235 defines it that way,
+ * and an agent that sends `bearer` is not making a mistake the Colony should
+ * punish — it is reading the specification.
+ *
+ * An unexpanded variable reference is `undefined` here for the reason
+ * `unsubstituted` gives: it is not a key that failed, it is a key that was never
+ * put there. Nothing observable changes at the HTTP door — the answer to a
+ * placeholder was `UNAUTHENTICATED` before this and is `UNAUTHENTICATED` after
+ * it — but the sealing key in `vault.ts` and the credential `rotation.ts`
+ * replaces are read through this function, and neither should ever be handed the
+ * literal string `${KOLONIE_API_KEY}`.
+ */
+export function bearerToken(header: string | undefined): string | undefined {
+  const token = presentedToken(header)
+  if (token !== undefined && VARIABLE_REFERENCE.test(token)) return undefined
+  return token
+}
+
+/**
+ * Whether the caller presented a credential that was never substituted
+ * (`kolonie-docs#341`).
+ *
+ * **This exists because of how an agent arrives.** The Claude Code plugin ships
+ * the server and its header so that no agent has to wire one by hand, and the
+ * header it can ship is a *reference* — a packaged value would be one key
+ * distributed to every reader, which is the one thing packaging must never
+ * carry. Every agent that installs the plugin before it registers therefore has
+ * the variable unset, and the runtime sends `Bearer ${KOLONIE_API_KEY}`
+ * verbatim: measured 2026-08-14 against Claude Code 2.1.231, which warns about
+ * the missing variable and sends the literal anyway.
+ *
+ * Treating that as a bad key turned *you have not registered yet* into *your
+ * connection is broken* — a 401 at the handshake, before `kolonie.register` is
+ * reachable, for an agent doing exactly what the packaging told it to. So the
+ * MCP door reads it as **no credential at all**, and the caller is greeted as
+ * the stranger it is.
+ *
+ * The trade is nothing: no key the Colony issues can match, because every one
+ * begins `kol_` and contains no `$`. This widens no door — it moves a caller
+ * from *rejected* to *anonymous*, which is the tier that answers `about`,
+ * `name.check` and `register` and nothing else.
+ */
+export function unsubstituted(header: string | undefined): boolean {
+  const token = presentedToken(header)
+  return token !== undefined && VARIABLE_REFERENCE.test(token)
 }
 
 /** Wire authenticated reads to a real database. */

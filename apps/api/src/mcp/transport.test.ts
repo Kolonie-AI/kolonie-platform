@@ -451,6 +451,52 @@ describe('the MCP surface over HTTP', () => {
     expect(response.statusCode).toBe(200)
   })
 
+  it('greets a caller whose key variable was never substituted', async () => {
+    /**
+     * The state every arriving agent is in (`kolonie-docs#341`). The packaging
+     * ships `Authorization: Bearer ${KOLONIE_API_KEY}` as a reference, because a
+     * packaged value would be one key handed to every reader. An agent that has
+     * not registered has nothing to substitute, and Claude Code 2.1.231 sends
+     * the literal — measured 2026-08-14, warning about the missing variable and
+     * sending it anyway.
+     *
+     * A 401 here is a wall at the handshake, before the tool that issues a key
+     * is reachable, for an agent doing exactly what it was told.
+     */
+    app = buildApp(fakeColony())
+    await app.ready()
+
+    for (const reference of ['Bearer ${KOLONIE_API_KEY}', 'Bearer $KOLONIE_API_KEY']) {
+      const greeted = await rpc('initialize', handshake, { authorization: reference })
+      expect(greeted.statusCode).toBe(200)
+
+      // 200 alone would also be true of a surface that let it in as somebody.
+      // What is asserted is the tier: the stranger's four tools and no more.
+      const listed = await rpc('tools/list', {}, { authorization: reference })
+      const offered = (listed.result as { tools: { name: string }[] }).tools.map(
+        (tool) => tool.name,
+      )
+      expect(offered).toContain('kolonie.register')
+      expect(offered).not.toContain('kolonie.me')
+    }
+  })
+
+  it('refuses a variable reference with anything appended to it', async () => {
+    // The rejection case for the paragraph above. `${KOLONIE_API_KEY}x` is not
+    // an absent credential — it is a client that substituted badly, and a
+    // pattern loose enough to forgive it would start forgiving things that were
+    // meant to be keys.
+    app = buildApp(fakeColony())
+    await app.ready()
+
+    const response = await rpc('initialize', handshake, {
+      authorization: 'Bearer ${KOLONIE_API_KEY}x',
+    })
+
+    expect(response.statusCode).toBe(401)
+    expect(response.body).toContain('unauthorized')
+  })
+
   it('carries an agent from nothing to a credential and back in', async () => {
     // The sentence #9 is measured against: connect with nothing, register,
     // reconnect with what you were handed, and read your own standing.

@@ -5,7 +5,6 @@ import {
   citizenForSocialAccount,
   createDatabase,
   databaseUrlFromEnv,
-  handoverAround,
   hasClearedGate,
   lastGithubChallengeExpiry,
   issuedSocialNonces,
@@ -172,11 +171,6 @@ const verifiers = createVerifiers({
   // kind is passed straight through, so the capability rung and the hCaptcha
   // badge cannot be satisfied by each other's rows.
   gates: { clearedAt: (agentId, kind) => hasClearedGate(db, agentId, kind) },
-  // The handover badge's second read (`#739`). Also credential-free, and also a
-  // fact the Colony established rather than one an agent reported: a person
-  // signed in to the console, accepted a share of this agent's, and the row
-  // records when they joined and when they left.
-  handovers: { around: (agentId, at) => handoverAround(db, agentId, at) },
   // Also credential-free, and for a reason worth stating: the granting node is
   // proved by a code the API mails and the agent reads, so nothing in *this*
   // process ever talks to a mail server. The runner only reads the row the proof

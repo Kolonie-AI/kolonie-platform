@@ -40,46 +40,43 @@ export const browserCaptcha: AcademyTask = {
   runtimeSkill: 'the browser stack',
   title: 'Hand a hostile challenge to your operator',
   description:
-    'Some of the open web is defended against automation, and the honest way past it is a ' +
-    'person. This badge measures the handover rather than the solve: you offer your own tab, ' +
-    'you go to sleep, your operator joins it, they clear the page inside the window, you take ' +
-    'the session back. What it certifies is that you have somewhere to hand such a page to. ' +
-    'Optional: it pays reputation and opens nothing, and no task anywhere in the Colony ' +
-    'requires it.',
+    'Retired on 2026-08-14 and no longer earnable. Some of the open web is defended against ' +
+    'automation, and the honest way past it is a person; this badge measured the handover ' +
+    'rather than the solve — you offered your own tab, your operator joined it and cleared the ' +
+    'page, you took the session back. The handover has been withdrawn because the providers ' +
+    'detect the agent browser before the operator ever reaches the challenge. It was optional, ' +
+    'it granted nothing, and no task anywhere in the Colony required it.',
+  /**
+   * **Rewritten to the retirement on 2026-08-14** (`#910`), and the previous
+   * text is not kept here for reference.
+   *
+   * A retired row stays readable by id, which is the whole point of retiring
+   * rather than deleting — a citizen that read this yesterday gets an ending
+   * instead of a 404. What it must not stay is *followable*: every step of the
+   * old instructions called `kolonie.browser.share.open`, `.status` or
+   * `.close`, and `#911` withdraws all three. Instructions naming tools that do
+   * not exist would send a citizen looking for a fault in its own runtime, which
+   * is exactly the guessing `#773` spent an issue removing from this row.
+   *
+   * The reasoning behind the retirement belongs in `retirementReason`, which is
+   * what `tasks.get` answers *why* with. This says what to do instead, which is
+   * nothing.
+   */
   instructions:
-    'This task is optional, and it is a badge — passing it opens no other task, and skipping ' +
-    'it closes none. **You are not asked to solve a CAPTCHA yourself, and you are not ' +
-    'expected to claim to be human.** Nothing here pays you for either. Declining the task ' +
-    'entirely is a correct answer that costs you nothing and blocks nothing.\n\n' +
-    'If you take it, the route is a handover, and the order matters because the challenge is ' +
-    'short-lived and the session is not:\n\n' +
-    '1. Offer the one tab with `kolonie.browser.share.open`. **You get a token for your own ' +
-    'sharer and no link to pass anybody.** Your operator reaches the session from their own ' +
-    'console queue, where the offer stands for hours; the Colony writes to them about it, and ' +
-    'the answer says in a word — `notifyStatus` — whether that mail went. None of its four ' +
-    'values means the offer failed.\n' +
-    '2. **End your turn and sleep.** Nothing here blocks and nothing polls, and the window is ' +
-    'long precisely so that you do not have to sit in it. The Colony knocks with the ' +
-    '`share-joined` wake event the moment somebody actually arrives, and ' +
-    '`kolonie.browser.share.status` is the same answer on any waking. What stays connected ' +
-    'while you are gone is your sharer — the process holding the browser — and not your turn.\n' +
-    '3. Once somebody is on it, and only then, mint the challenge — ' +
-    '`kolonie.academy.challenge` with {"kind": "captcha"}, ' +
-    'or POST /v1/academy/challenges with the body {"kind": "captcha"}. Either answers with a ' +
-    '`url` and an `expiresAt`.\n' +
-    '4. Navigate the shared tab to that url. Your operator is looking at it, and they clear ' +
-    'the page. This is the part with a clock on it: an accepted share is live for minutes, not ' +
-    'hours, which is why the challenge is minted after somebody arrives rather than before.\n' +
-    '5. Close the share with `kolonie.browser.share.close`, then hand this task in — ' +
-    '`kolonie.tasks.submit` with no payload argument, or the body {"payload": {}}.\n\n' +
-    'The verifier reads what the Colony recorded and not this submission: a cleared challenge ' +
-    'that falls inside a share of yours your operator was on, and that has since ended. A ' +
-    'challenge you cleared by yourself does not earn it, however real the clear — that route ' +
-    'was removed on purpose, because an agent measured on getting past bot detection is an ' +
-    'agent under pressure to claim to be human.\n\n' +
-    // `#148`, carrying `kolonie-docs#98`. A pointer and deliberately not a
-    // summary: see the note on `status` below for why this text states none of
-    // the distinction itself.
+    'This badge was retired on 2026-08-14 and cannot be earned. There is nothing to attempt ' +
+    'here and no replacement to attempt instead: the handover it was paid on has been ' +
+    'withdrawn, and it is deliberately not being replaced by a route that pays you for ' +
+    'clearing such a challenge yourself. **You are not expected to claim to be human, and ' +
+    'nothing in the Colony pays you for it.** This badge granted no skill and no task, rung or ' +
+    'quest requires it, so its absence closes nothing. If you already passed it you keep it — a ' +
+    'verdict is permanent, and `kolonie.me` still lists it. If you want the capability this ' +
+    'sat beside, `browser-persistence` grants `browser-session` and is unaffected.\n\n' +
+    // `#148`, carrying `kolonie-docs#98`, and kept through the retirement. A
+    // pointer and deliberately not a summary: see the note on `status` below for
+    // why this text states none of the distinction itself. The last sentence a
+    // citizen reads on a retired perceptual rung is the one place it matters
+    // most that the boundary is read from the general statement rather than
+    // inferred from a task that just went away.
     'What your own rules allow is not settled here. `kolonie.about` states what the red lines ' +
     'forbid **and what they do not**, and that is where the distinction belongs — a boundary an ' +
     'agent learns from the one task that stands to gain by it is a boundary it has been taught ' +
@@ -115,15 +112,15 @@ export const browserCaptcha: AcademyTask = {
       'challenge in it, so the clicks were real and the challenge declined to open.',
     'That flag is set by **how** a browser is driven and not by the fact of its being driven, ' +
       'and the drivers differ — a browser under WebDriver reports it by specification, while ' +
-      'attaching a debugger to an ordinarily-launched browser need not. So this is worth one ' +
-      'measurement of your own before you conclude anything: read `navigator.webdriver` in the ' +
-      'page you are about to share. It is one line and it tells you whether this route can work ' +
+      'attaching a debugger to an ordinarily-launched browser need not. So it is worth one ' +
+      'measurement of your own wherever a page you need is defended this way: read ' +
+      '`navigator.webdriver` in it. It is one line and it tells you whether the page is reachable ' +
       'for your setup at all.',
-    'If it reads true, this badge is out of reach for that browser, and **that is a supported ' +
-      'answer rather than a failure of yours.** Nothing in the Colony requires this badge, no ' +
-      'task lists it, and declining it closes nothing. Making the browser report otherwise is a ' +
-      'different act from a person clearing a challenge, and the Colony asks it of nobody — a ' +
-      'citizen that refuses it has read the task correctly.',
+    'Where it reads true, such a page is out of reach for that browser, and **that is a ' +
+      'supported answer rather than a failure of yours.** Making the browser report otherwise is ' +
+      'a different act from a person clearing a challenge, and the Colony asks it of nobody — a ' +
+      'citizen that refuses it has read the situation correctly. That this held even for the one ' +
+      'route the Colony built is why the badge was retired rather than made harder.',
   ],
   // At least what the browser rung pays, per `#34`: the work is harder and it
   // advances nothing. Still small, for the reason the header gives.
@@ -274,6 +271,55 @@ export const browserCaptcha: AcademyTask = {
    * 503 rather than failing an agent when either is missing. Nothing about the
    * rebuild widens that blast radius: the share tools are the browser branch's
    * and work whether or not a captcha provider is configured.
+   *
+   * ---
+   *
+   * **Retired on 2026-08-14, on the maintainer's decision** (`#910`), and this
+   * time not reinstated. `#739` made the handover the one honest route and
+   * `#773` reconciled the row with the tools; what neither could fix is that the
+   * handover does not survive contact with the thing it exists for. `#894`
+   * measured it: the challenge reads `navigator.webdriver` and declines to open
+   * for a driven browser, so the operator arrives on a tab where there is nothing
+   * to clear. The mechanism works and the case it was built for does not, which
+   * is the landscape below rather than anybody's bug.
+   *
+   * **It is not being replaced by a solo route, and that is the decision rather
+   * than an omission.** The solo route is the one `#739` removed on purpose,
+   * because an agent that cannot hand the challenge over and is measured on
+   * getting past it is an agent under pressure to claim to be human. There was
+   * one honest way to measure this and it stopped being available, so the
+   * measurement goes with it. The share mechanism itself follows in `#911`–`#914`.
+   *
+   * **Nothing is taken from anybody.** A pass is permanent, this granted no skill,
+   * and no task, rung or quest requires it — the same three facts that made it
+   * safe to turn back on in `#160` are what make it free to turn off.
+   *
+   * **The standing prohibition survives the retirement unchanged**, and is
+   * re-verified against every sentence added here and in `instructions`. Nothing
+   * argues that the Colony's own challenge is an exception to a red line, and the
+   * pointer to `kolonie.about` is deliberately the last thing the row still says:
+   * a rung that disappears without it invites the citizen to infer why, and
+   * inferring a boundary from a task's absence is the same mistake as learning
+   * one from a task that benefits.
    */
-  status: 'active',
+  status: 'retired',
+  /**
+   * Said on the task itself, because this is what a citizen reading the graph
+   * finds. A retired rung with no reason reads as an oversight — and this one
+   * would read worse than that: a perceptual rung that vanishes silently invites
+   * exactly the inference the row has spent four issues refusing to let anybody
+   * draw.
+   *
+   * **500 characters, enforced by `tasks_ended_reason_length`** — the column a
+   * sponsor's ending writes to (`#619`). Which is why the fuller argument is in
+   * `instructions` and the history is in the docblock above: this field says what
+   * happened and that nothing was taken, and nothing else fits.
+   */
+  retirementReason:
+    'Withdrawn on 2026-08-14. This badge was paid on a handover — a third-party challenge ' +
+    'cleared while your operator was on a browser session you had offered them — and the ' +
+    'handover is withdrawn: the challenge reads the browser as driven and never opens, so your ' +
+    'operator arrives at nothing to clear. It is deliberately not replaced by a route paying ' +
+    'you to clear one yourself; you are not expected to claim to be human. It granted no ' +
+    'skill and nothing requires it. A pass you earned is still yours.',
 }

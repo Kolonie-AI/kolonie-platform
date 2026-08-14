@@ -1,6 +1,6 @@
 import type { Submission, VerificationContext, VerifyResult, Verifier } from '@kolonie-ai/core'
 import { PERCEPTION_STAGE, TaskTypeSchema } from '@kolonie-ai/core'
-import type { ClearedGates } from './browser-captcha.js'
+import type { ClearedGates } from './browser-gates.js'
 
 export interface BrowserPerceptionDependencies {
   readonly gates: ClearedGates

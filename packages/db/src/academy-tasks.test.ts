@@ -373,13 +373,25 @@ describe('the Academy task definitions', () => {
    * **`browser-session` joined `requires` with `#739`.** The badge is now earned on a
    * handover and by no other route, and a handover starts at a call that refuses an
    * agent without that skill. The prerequisite is declared rather than discovered.
+   *
+   * **Retired on 2026-08-14 by `#910`, and this test keeps every other assertion.**
+   * The handover it was rebuilt around does not survive the challenge — the page
+   * reads the browser as driven and never opens, so the operator arrives at nothing
+   * to clear (`#894`). What the row must still be is the thing that made retiring it
+   * free: it grants nothing, so no citizen loses a route. That is why `grants` is
+   * asserted below a retired row rather than deleted with it.
    */
   it('offers the third-party challenge as a badge that opens nothing', () => {
     const badge = ACADEMY_TASKS.find((task) => task.type === 'browser-captcha')
 
     expect(badge?.requires).toEqual(['browser', 'browser-session'])
     expect(badge?.grants).toEqual([])
-    expect(badge?.status).toBe('active')
+    expect(badge?.status).toBe('retired')
+    // Retired with a reason, per `rungs.test.ts` — and on this row more than most:
+    // a perceptual rung that vanishes silently invites a citizen to infer why.
+    expect(badge?.retirementReason).toMatch(/2026-08-14/)
+    // Nothing it still says may send a citizen at a tool `#911` withdraws.
+    expect(badge?.instructions).not.toMatch(/kolonie\.browser\.share/)
     // A badge may need an operator; a granting task may not. That is what makes this
     // placement honest rather than convenient.
     expect(badge?.assistanceAllowed).toBe(true)
@@ -1371,8 +1383,15 @@ describe('seeding the Academy', () => {
      * would see a task whose first call turns it away — so the second half of this test
      * is now the interesting one: it asserts the task waits for the skill rather than
      * failing an agent for something it could have been told.
+     *
+     * **Retired on 2026-08-14 by `#910`, so it is now shut to everybody**, and the
+     * third case is the one that changed: an agent holding all three skills used to
+     * see it and no longer does. `listFor` filters retired rows out for every agent
+     * regardless of what it holds, which is what makes the assertion worth keeping
+     * rather than deleting — the failure it guards against is a retired row leaking
+     * back into a listing for the agents best equipped to attempt it.
      */
-    it('keeps the third-party badge shut until the session can be handed over', async () => {
+    it('keeps the third-party badge shut, and after `#910` shuts it to everybody', async () => {
       expect(
         (await listFor(await anAgentHolding('profile'))).map((task) => task.type),
       ).not.toContain('browser-captcha')
@@ -1381,7 +1400,7 @@ describe('seeding the Academy', () => {
       expect((await listFor(capable)).map((task) => task.type)).not.toContain('browser-captcha')
 
       const shareable = await anAgentHolding('profile', 'browser', 'browser-session')
-      expect((await listFor(shareable)).map((task) => task.type)).toContain('browser-captcha')
+      expect((await listFor(shareable)).map((task) => task.type)).not.toContain('browser-captcha')
     })
 
     /**
@@ -1423,10 +1442,19 @@ describe('seeding the Academy', () => {
  *
  * The instructions are the only documentation an agent gets, so this asserts
  * they quote the shape the API actually accepts.
+ *
+ * **Retired rows are exempt from the two hand-in assertions, since `#910`.** A
+ * retired task's instructions are an ending rather than a route — `createSubmission`
+ * refuses one with `task-retired` — so quoting the submission envelope there would
+ * be telling a citizen how to attempt something it cannot attempt. The exemption is
+ * narrow on purpose: every other assertion in this file still binds a retired row,
+ * because a row a citizen can still read by id is a row that still has to be right.
  */
+const attemptable = () => ACADEMY_TASKS.filter((task) => task.status !== 'retired')
+
 describe('the instructions an agent is given', () => {
   it('shows the envelope the submissions endpoint requires', () => {
-    for (const task of ACADEMY_TASKS) {
+    for (const task of attemptable()) {
       expect(task.instructions).toContain('"payload"')
     }
   })
@@ -1545,7 +1573,7 @@ describe('the instructions an agent is given', () => {
   })
 
   it('names the MCP tool as well as the endpoint, because agents arrive holding tools', () => {
-    for (const task of ACADEMY_TASKS) {
+    for (const task of attemptable()) {
       expect(task.instructions).toContain('kolonie.tasks.submit')
     }
   })

@@ -21,11 +21,12 @@ import { silentLog, type Log } from '../log/log.js'
  *
  * ## What is routed, and what is deliberately not
  *
- * **Only `POST …/chat/completions`.** Embeddings stay on OpenRouter permanently:
- * the gateway wraps CLI subscriptions and has no `/embeddings` endpoint at all —
- * it answers 404 — so `moderation-runner`'s briefing synthesis must pass straight
- * through. That is a fact about the gateway rather than a policy, which is why it
- * is a path check here and not a flag somebody can set.
+ * **Only `POST …/chat/completions`.** Everything else — embeddings above all —
+ * goes to OpenRouter untouched, and that is permanent rather than pending.
+ * **`docs/decisions.md` D-122 holds the reasons**, and it is the file to read
+ * before making this uniform: it also carries the per-service model and key
+ * rules, and the one place where a fallback is forbidden. Repeated here it would
+ * be a second copy to keep true.
  *
  * ## The three conditions
  *
@@ -50,7 +51,7 @@ import { silentLog, type Log } from '../log/log.js'
  * Every one is logged at `warn` with its reason class, so *the gateway was down
  * for two hours* is answerable afterwards rather than invisible.
  *
- * ## The two rules `#726` added, stated where the gateway is documented
+ * ## The two rules `#726` added
  *
  * **1. The model is per service, not global.** `LLM_GATEWAY_MODEL` steers every
  * service that names no model of its own; `LLM_GATEWAY_MODEL_<SERVICE>` steers
@@ -58,15 +59,14 @@ import { silentLog, type Log } from '../log/log.js'
  * so there is one list of services rather than two. A deployment setting none of
  * the per-service variables behaves exactly as it did before they existed.
  *
- * **2. A decision the Colony cannot take back does not fall back.** Since `#693`
- * a quest that clears moderation is published by that verdict, and the moderation
- * runner's OpenRouter model is a flash model — so the ordinary fallback composed
- * into *when the good model is down, publish quests judged by the weaker one
- * instead*. {@link gatewayOnlyFetch} is the client for that one call: it throws
- * where {@link gatewayRoutedFetch} replays, and the quest stays `pending_review`
- * for the next tick. Every other stage keeps the fallback, because being served
- * late by a weaker model beats not being served at all — which is true of
- * moderating an answer and false of publishing paid work.
+ * **2. A decision the Colony cannot take back does not fall back.**
+ * {@link gatewayOnlyFetch} is the client for quest moderation: it throws where
+ * {@link gatewayRoutedFetch} replays, and the quest stays `pending_review` for
+ * the next tick. Every other stage keeps the fallback.
+ *
+ * Both are argued in `docs/decisions.md` D-122, with the alternative each was
+ * chosen over — which is what a reader making these uniform "for consistency"
+ * needs and a statement of the rule cannot give them.
  */
 
 /** Where the gateway is. Never a literal: `AGENTS.md` §9, and it is a host of ours. */

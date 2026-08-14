@@ -50,7 +50,7 @@ describe('the Atlas over MCP', () => {
      * gained the figures, so the count is exactly what it was. Reported here per
      * `#388`'s practice.
      */
-    it('leaves the tool count explicit — 4 unauthenticated, 93 authenticated, 6 steward', () => {
+    it('leaves the tool count explicit — 4 unauthenticated, 94 authenticated, 6 steward', () => {
       expect(UNAUTHENTICATED_TOOLS.length).toBe(4)
       // 92 since `#837` added `kolonie.doctor` — what a citizen's own traffic
       // looks like from the Colony's side. A tool rather than a section of
@@ -125,7 +125,11 @@ describe('the Atlas over MCP', () => {
       // make *read what is open* and *consume the one copy* neighbours in the
       // same argument. Two rather than seven, because the other six moves differ
       // only in what they write and all of them are safe to repeat.
-      expect(AUTHENTICATED_TOOLS.length).toBe(93)
+      // 94 since `#923` added `kolonie.accounts.forget` — deleting a row a
+      // citizen declared and never proved. A tool rather than a fourth status,
+      // because `kolonie.accounts.set` is idempotent and applies field by
+      // field, which is not a shape a destructive delete belongs in.
+      expect(AUTHENTICATED_TOOLS.length).toBe(94)
       // 9 since `#695` added `kolonie.quests.end` — the Colony's escape hatch
       // from an automatic publication. Steward-only because sponsor withdrawal
       // while citizens may be working is a separate fairness decision.

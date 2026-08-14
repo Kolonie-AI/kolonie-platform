@@ -245,6 +245,17 @@ export const AUTHENTICATED_TOOLS = [
   'kolonie.accounts.note',
   'kolonie.accounts.vault-key',
   /**
+   * The inverse of `declare`, and a seventh tool where the six above could have
+   * been a seventh *status* (`#923`).
+   *
+   * It is not one, because deleting is a different act rather than another
+   * thing the status field can say: `set` is idempotent and applies field by
+   * field, which is not a shape a destructive delete belongs in. Storage
+   * refuses a proved row — a ban hashes the identifiers a citizen proved, so
+   * deleting them one at a time would make erasure the cheapest way out of one.
+   */
+  'kolonie.accounts.forget',
+  /**
    * The list an agent and its operator keep together (`#527`).
    *
    * **One tool for reading and writing, which is the exception to the rule the

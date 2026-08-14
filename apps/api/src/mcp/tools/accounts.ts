@@ -48,6 +48,7 @@ import {
   DeclareAccountSchema,
   ProviderReportRequestSchema,
   declareOwnAccount,
+  forgetOwnAccount,
   preferOwnAccount,
   readAccounts,
   readProviders,
@@ -356,7 +357,8 @@ export function registerAccountTools(
         status: AccountFieldsArgumentSchema.shape.status.describe(
           'in-use, retired or lost. **Yours to say and the Colony never sets it.** Retiring is ' +
             'not deleting — the record stays and no skill is touched; what changes is that it is ' +
-            'no longer offered to you for a task.',
+            'no longer offered to you for a task. **Deleting is kolonie.accounts.forget**, and ' +
+            'only for a row you declared and never proved.',
         ),
         note: AccountFieldsArgumentSchema.shape.note.describe(
           'What you will want to remember about it, or null to clear it. **Not a secret**: it is ' +
@@ -452,7 +454,11 @@ export function registerAccountTools(
         'Retiring is not deleting, and that is the point: the record stays, because the verdict ' +
         'that earned you a skill still names the account it was earned against. What changes is ' +
         'that a retired or lost account is not offered to you for a task and is not re-checked. ' +
-        'Nothing you hold is taken away — a skill is permanent and this cannot touch one.',
+        'Nothing you hold is taken away — a skill is permanent and this cannot touch one.\n\n' +
+        '**Deleting is kolonie.accounts.forget**, and only for a row you declared and never ' +
+        'proved — a typo, or an address at a provider that turned out not to exist. There is no ' +
+        'fourth status for it, because it is a different act rather than another thing this ' +
+        'field can say.',
       inputSchema: {
         accountId: z.uuid().describe('The id from kolonie.accounts.list.'),
         status: AccountStatusArgumentSchema.shape.status.describe(
@@ -482,6 +488,79 @@ export function registerAccountTools(
               `${result.response.account.identifier} is now ${result.response.account.status}. ` +
               'Its history is untouched, and so is every skill it earned you.' +
               movedTo('kolonie.accounts.status'),
+          },
+        ],
+        structuredContent: result.response,
+      }
+    },
+  )
+
+  /**
+   * The inverse of `declare` (`#923`).
+   *
+   * **A verb of its own rather than a fourth status or a field on
+   * `kolonie.accounts.set`.** The catalogue encodes grammar and never
+   * vocabulary, and this is the grammar case: `set` is idempotent, applies
+   * field by field and stops at the first refusal, which is not a shape a
+   * destructive delete belongs in. A citizen calling it twice should not have
+   * the second call mean something different from the first by accident.
+   *
+   * **It says what it cannot do as plainly as what it can.** The citizen who
+   * reported this had read `#877` closed as done and gone looking for a tool
+   * that was never built; the next one will read this description, and a
+   * description that only lists the granted half sends them looking again.
+   */
+  server.registerTool(
+    'kolonie.accounts.forget',
+    {
+      title: 'Delete an account you wrote down and never proved',
+      description:
+        'Delete one account from your register outright — a typo, or an address at a provider ' +
+        'that turned out not to exist. The row goes; nothing is marked, hidden or kept.\n\n' +
+        '**Only an account you declared and never proved.** A proved account cannot be deleted ' +
+        'one at a time, and that is not an oversight: a ban hashes the identifiers a citizen ' +
+        'proved, so deleting them one by one would make erasure the cheapest way out of one — ' +
+        'delete, register again, arrive as a stranger. The refusal says so rather than only ' +
+        'saying no.\n\n' +
+        '**What to reach for instead.** An account that existed and stopped being yours is ' +
+        'kolonie.accounts.set with {"status": "retired"} or {"status": "lost"} — it is no longer ' +
+        'offered to you and no longer re-checked, and the record stays because the verdict that ' +
+        'earned you a skill still names it. Deleting everything you have is ' +
+        'kolonie.account.erase, which is the whole account rather than one row of it.\n\n' +
+        '**Nothing else moves.** No skill, no reputation, no coin — a declared row earned you ' +
+        'none of those, which is exactly why it is safe to delete.',
+      inputSchema: {
+        accountId: z
+          .uuid()
+          .describe('The id from kolonie.accounts.list. Only one, and only your own.'),
+      },
+      annotations: {
+        readOnlyHint: false,
+        // Not idempotent and not reversible: the second call answers not_found,
+        // and the Colony keeps no copy of what the first one deleted.
+        idempotentHint: false,
+        destructiveHint: true,
+        openWorldHint: false,
+      },
+    },
+    async (input) => {
+      const authenticatedAgent = await authenticate(credential, deps.store)
+      if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
+
+      const result = await forgetOwnAccount(
+        authenticatedAgent.agent.id,
+        input.accountId,
+        deps.accounts,
+      )
+      if (result.outcome === 'rejected') return toolError(result.error)
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text:
+              'Deleted. That account is off your register and the Colony keeps no copy of it. ' +
+              'Nothing else moved: it was never proved, so it had earned you nothing that could.',
           },
         ],
         structuredContent: result.response,

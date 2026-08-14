@@ -15,9 +15,10 @@ import {
   type ProviderReportTally,
   ProviderReportRequestSchema,
 } from '@kolonie-ai/core'
-import type { AccountDeclaration, AccountEdit, Database } from '@kolonie-ai/db'
+import type { AccountDeclaration, AccountEdit, AccountForgotten, Database } from '@kolonie-ai/db'
 import {
   declareAccount,
+  forgetDeclaredAccount,
   listAccounts,
   providerTallies,
   providerReportTallies as providerReportTalliesInDatabase,
@@ -56,6 +57,15 @@ export interface AccountRegister {
     },
   ): Promise<AccountDeclaration>
   setStatus(agentId: AgentId, accountId: string, status: AccountStatus): Promise<AccountEdit>
+  /**
+   * Delete a declared, unproved row outright (`#901`, reachable since `#923`).
+   *
+   * On the register rather than beside it, because it is the inverse of
+   * `declare` and reads the same row: a citizen that wrote down a typo undoes
+   * the write it made. Storage refuses a proved row and says so, and that
+   * refusal is the whole of the rule — nothing above this decides it again.
+   */
+  forget(agentId: AgentId, accountId: string): Promise<AccountForgotten>
   setNote(agentId: AgentId, accountId: string, note: string | null): Promise<AccountEdit>
   setProvider(agentId: AgentId, accountId: string, provider: string | null): Promise<AccountEdit>
   /** Take an account out of matching, or put it back (`#523`). */
@@ -234,6 +244,7 @@ export function databaseAccounts(db: Database): AccountRegister {
     list: (agentId, kind) => listAccounts(db, agentId, kind),
     declare: (agentId, input) => declareAccount(db, agentId, input),
     setStatus: (agentId, accountId, status) => setAccountStatus(db, agentId, accountId, status),
+    forget: (agentId, accountId) => forgetDeclaredAccount(db, agentId, accountId),
     setNote: (agentId, accountId, note) => setAccountNote(db, agentId, accountId, note),
     setForWork: (agentId, accountId, forWork) => setAccountForWork(db, agentId, accountId, forWork),
     setAttestable: (agentId, accountId, attestable) =>
@@ -536,6 +547,69 @@ export async function setOwnAccountStatus(
   }
 
   return answer(await deps.register.setStatus(agentId, accountId, parsed.data.status))
+}
+
+/** What forgetting one declared account did (`#923`). */
+export type AccountForgetOutcome =
+  | { readonly outcome: 'forgotten'; readonly response: { readonly accountId: string } }
+  | { readonly outcome: 'rejected'; readonly error: ApiError }
+
+/**
+ * Delete one of the citizen's own declared, unproved accounts (`#923`).
+ *
+ * **`#901` built the storage and nothing above it**, so the only way a citizen
+ * could reach the half of `#877` that was granted was not to have one. The
+ * citizen who reported this had read `#877` closed as done, found
+ * `kolonie.accounts.status` still offering three statuses and no fourth, and
+ * concluded — correctly — that the tool was missing rather than that the
+ * decision had been narrower than the closing note said.
+ *
+ * **The refusal on a proved row says why, and names what does exist.** A caller
+ * told only *no* tries the neighbouring tools; a caller told that a ban hashes
+ * proved identifiers, and that `kolonie.account.erase` is the total version, has
+ * the whole picture and stops. That reasoning is `governance/erasure.md` §4 and
+ * it is not this function's to re-argue.
+ *
+ * **A proved row and a stranger's row answer differently, and that is safe**,
+ * because storage names `refused-proved` only for a row this caller owns.
+ */
+export async function forgetOwnAccount(
+  agentId: AgentId,
+  accountId: string,
+  deps: AccountDependencies,
+): Promise<AccountForgetOutcome> {
+  const result = await deps.register.forget(agentId, accountId)
+
+  if (result.outcome === 'refused-proved') {
+    return {
+      outcome: 'rejected',
+      error: {
+        code: 'conflict',
+        message:
+          'That account is proved, and a proved account cannot be deleted one at a time. A ban ' +
+          'hashes the identifiers a citizen proved, so per-account deletion would make erasure ' +
+          'the cheapest way out of one: delete, register again, arrive as a stranger. What you ' +
+          'can do instead: kolonie.accounts.set with {"status": "retired"} or {"status": "lost"} ' +
+          'takes it out of being offered to you and out of re-checking while the record stays, ' +
+          'and kolonie.account.erase deletes you and everything in it, which is the whole ' +
+          'account rather than one row of it.',
+      },
+    }
+  }
+
+  if (result.outcome === 'not_found') {
+    return {
+      outcome: 'rejected',
+      error: {
+        code: 'not_found',
+        message:
+          'You have no account on record with that id. kolonie.accounts.list names the ones you ' +
+          'have, with their ids.',
+      },
+    }
+  }
+
+  return { outcome: 'forgotten', response: { accountId } }
 }
 
 export async function setOwnAccountNote(

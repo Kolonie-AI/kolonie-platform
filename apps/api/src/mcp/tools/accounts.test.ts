@@ -1,8 +1,17 @@
 import { describe, expect, it } from 'vitest'
-import { AgentIdSchema, WALK_REPORT_FIELDS, WALK_REPORT_FIELD_ORDER } from '@kolonie-ai/core'
+import {
+  AgentIdSchema,
+  WALK_REPORT_FIELDS,
+  WALK_REPORT_FIELD_ORDER,
+  type AgentId,
+} from '@kolonie-ai/core'
 import { WalkReportSchema } from '../../account-walks.js'
 import { connectedClient, registeredCitizen } from '../../__fixtures__/mcp.js'
-import { fakeAccountRegister, fakeAccounts } from '../../__fixtures__/accounts.js'
+import {
+  fakeAccountRegister,
+  fakeAccounts,
+  type FakeAccountRegister,
+} from '../../__fixtures__/accounts.js'
 import { fakeWalks } from '../../__fixtures__/account-walks.js'
 
 describe('kolonie.accounts.walk-report', () => {
@@ -954,5 +963,111 @@ describe('a second walk waits on the first one’s report', () => {
     expect(stored.filter((walk) => walk.finishedAt === null)).toHaveLength(1)
 
     await session.close()
+  })
+})
+
+/**
+ * The half of `#877` that was granted, reachable at last (`#923`).
+ *
+ * `#901` built `forgetDeclaredAccount` in storage and nothing above it, so a
+ * citizen looking for the tool the closing note promised found three statuses
+ * and no fourth. These assert both halves of the answer: the declared row goes,
+ * and the proved one is refused **with the reason**, because a refusal that only
+ * says no sends the next citizen looking for a tool again.
+ */
+describe('kolonie.accounts.forget', () => {
+  /** Register, pick a row, call the tool. The pick is what each test is about. */
+  const forgetting = async (pick: (register: FakeAccountRegister, agentId: AgentId) => string) => {
+    const { colony, apiKey, agent } = await registeredCitizen()
+    const register = fakeAccountRegister()
+    const accountId = pick(register, agent.id)
+    const { client, close } = await connectedClient(
+      { ...colony, accounts: fakeAccounts(register) },
+      `Bearer ${apiKey}`,
+    )
+    const result = await client.callTool({
+      name: 'kolonie.accounts.forget',
+      arguments: { accountId },
+    })
+
+    return { result, register, agent, client, close }
+  }
+
+  /** The refusal text as a caller receives it, rather than the envelope round it. */
+  const refusal = (result: unknown) =>
+    (
+      JSON.parse((result as { content: readonly { text: string }[] }).content[0]!.text) as {
+        message: string
+      }
+    ).message
+
+  const aMailbox = (identifier: string) => ({ kind: 'mailbox' as never, identifier })
+
+  it('deletes a declared account, and the second call finds nothing', async () => {
+    const { colony, apiKey, agent } = await registeredCitizen()
+    const register = fakeAccountRegister()
+    const declared = await register.declare(agent.id, aMailbox('typo@mail.example'))
+    if (declared.outcome !== 'declared') throw new Error(declared.outcome)
+    const { client, close } = await connectedClient(
+      { ...colony, accounts: fakeAccounts(register) },
+      `Bearer ${apiKey}`,
+    )
+
+    const gone = await client.callTool({
+      name: 'kolonie.accounts.forget',
+      arguments: { accountId: declared.account.id },
+    })
+    const again = await client.callTool({
+      name: 'kolonie.accounts.forget',
+      arguments: { accountId: declared.account.id },
+    })
+
+    expect(gone.isError).not.toBe(true)
+    expect(gone.structuredContent).toMatchObject({ accountId: declared.account.id })
+    expect(await register.list(agent.id)).toEqual([])
+    // Not idempotent, and the annotation says so: the row is gone, so the second
+    // call is a citizen naming an id it no longer holds.
+    expect(again.isError).toBe(true)
+    await close()
+  })
+
+  /**
+   * **The refusal carries the reasoning, not only the verdict.** A proved
+   * identifier is what a ban hashes (`governance/erasure.md` §4), so the one
+   * thing a caller must not conclude is that this half was merely forgotten —
+   * which is exactly what the citizen who reported `#923` concluded about the
+   * whole tool.
+   */
+  it('refuses a proved account, says why, and names what does exist', async () => {
+    const { result, register, agent, close } = await forgetting(
+      (fake, agentId) => fake.proveDirectly(agentId, aMailbox('proved@mail.example')).id,
+    )
+    const message = refusal(result)
+
+    expect(result.isError).toBe(true)
+    expect(message).toContain('ban')
+    expect(message).toContain('kolonie.account.erase')
+    expect(message).toContain('retired')
+    // Refused means refused: the row is still there.
+    expect(await register.list(agent.id)).toHaveLength(1)
+    await close()
+  })
+
+  it("answers a stranger's id exactly as an id that does not exist", async () => {
+    const unknown = await forgetting(() => crypto.randomUUID())
+    const another = await forgetting(
+      (fake) =>
+        fake.proveDirectly(
+          AgentIdSchema.parse(crypto.randomUUID()),
+          aMailbox('theirs@mail.example'),
+        ).id,
+    )
+
+    expect(unknown.result.isError).toBe(true)
+    // The same words for both, so *this id exists and is proved* is not
+    // something a caller can learn by guessing at ids.
+    expect(refusal(another.result)).toBe(refusal(unknown.result))
+    await unknown.close()
+    await another.close()
   })
 })

@@ -155,6 +155,21 @@ export function fakeAccountRegister(): FakeAccountRegister {
       return { outcome: 'updated', account: strip(row) }
     },
 
+    /**
+     * The same three outcomes `forgetDeclaredAccount` has, on the same rule
+     * (`#923`). `refused-proved` is named only for a row this caller owns, so
+     * the fake cannot answer a question about a stranger's id that production
+     * refuses to answer.
+     */
+    async forget(agentId, accountId) {
+      const row = own(agentId, accountId)
+      if (row === undefined) return { outcome: 'not_found' }
+      if (row.proved) return { outcome: 'refused-proved' }
+
+      rows.splice(rows.indexOf(row), 1)
+      return { outcome: 'forgotten' }
+    },
+
     async setNote(agentId, accountId, note) {
       const row = own(agentId, accountId)
       if (row === undefined) return { outcome: 'not_found' }

@@ -212,6 +212,10 @@ function troublesAsText(troubles: readonly ProviderReportTally[]): readonly stri
     // the other three (#334). It is the one outcome that is not a report of what
     // happened to somebody — nothing happened, because there was nothing there.
     'no-service': 'found nothing behind the domain',
+    // The second of those, and for the same reason (#940): nothing happened here
+    // either, because the documentation answered before an attempt was worth
+    // making. `read` rather than `found`, because what was read is the evidence.
+    'cannot-do-the-job': 'read that the account cannot do this',
     'signup-refused': 'refused signup',
     'never-provisioned': 'signed up and never worked',
     abandoned: 'gave up before it was settled',

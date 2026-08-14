@@ -11,6 +11,7 @@ import {
   throughRate,
 } from './atlas-figures.js'
 import type { AtlasFigures } from './atlas-figures.js'
+import { ProviderReportOutcomeSchema } from './account.js'
 import type { RecipeStatus } from './recipe.js'
 
 const measured = (input: Partial<AtlasFigures> & { attempted: number }): AtlasFigures => ({
@@ -201,14 +202,19 @@ describe('where walks stop most often', () => {
     expect(atlasCommonestStop([{ outcome: 'abandoned', citizens: 0 }])).toBeNull()
   })
 
-  it('has a sentence for every outcome', () => {
-    for (const outcome of [
-      'no-service',
-      'signup-refused',
-      'never-provisioned',
-      'abandoned',
-    ] as const)
-      expect(atlasStopPhrase(outcome).length).toBeGreaterThan(0)
+  /**
+   * **Read off the schema rather than listed here** (`#940`). A hand-written
+   * list asserts that the four outcomes somebody thought of have a sentence, and
+   * a fifth value added to the enum passes it without having one — the function
+   * falls through to `abandoned`'s phrase, so the surface prints *they gave up
+   * before it was settled* about a citizen that did nothing of the kind. Reading
+   * the options makes the test fail on the value that is missing instead.
+   */
+  it('has its own sentence for every outcome the schema allows', () => {
+    const phrases = ProviderReportOutcomeSchema.options.map((outcome) => atlasStopPhrase(outcome))
+
+    for (const phrase of phrases) expect(phrase.length).toBeGreaterThan(0)
+    expect(new Set(phrases).size).toBe(phrases.length)
   })
 })
 
@@ -216,7 +222,7 @@ describe('where walks stop most often', () => {
  * Which step of the printed recipe an outcome pins (`#792`).
  *
  * **Only where the outcome pins one.** No report carries a step index, so the
- * two that can be placed are placed and the two that cannot say nothing rather
+ * two that can be placed are placed and the three that cannot say nothing rather
  * than name a number nobody measured.
  */
 describe('the step a stop points at', () => {
@@ -231,6 +237,15 @@ describe('the step a stop points at', () => {
   it('places nothing for a stop before the walk or a walk given up', () => {
     expect(atlasStopStep({ outcome: 'no-service', steps: 4 })).toBeNull()
     expect(atlasStopStep({ outcome: 'abandoned', steps: 4 })).toBeNull()
+  })
+
+  /**
+   * **The walk was not started, so there is no step it reached** (`#940`). This
+   * is the outcome furthest from a step index of all five: the other four are at
+   * least about somebody moving through a recipe.
+   */
+  it('places nothing for a row the documentation answered before the walk began', () => {
+    expect(atlasStopStep({ outcome: 'cannot-do-the-job', steps: 4 })).toBeNull()
   })
 
   it('places nothing when the recipe has no steps to point at', () => {

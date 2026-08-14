@@ -15,11 +15,17 @@ describe('a report about a provider', () => {
   const base = { kind: 'mailbox', provider: 'example.test' }
 
   /**
-   * **The rejection case `#904` asks for.** Three of the four outcomes are
+   * **The rejection case `#904` asks for.** Four of the five outcomes are
    * claims about somebody's business, and 10 of the 16 rows recorded by
    * 2026-08-14 carried no sentence at all.
+   *
+   * **`cannot-do-the-job` is on this list for a stronger reason than the other
+   * three** (`#940`). Their evidence is an attempt somebody made and a reader
+   * can repeat; this one's is a page somebody read, and without the sentence
+   * there is no way to find the page — the claim would be uncontestable rather
+   * than merely unsubstantiated.
    */
-  it.each(['no-service', 'signup-refused', 'never-provisioned'])(
+  it.each(['no-service', 'cannot-do-the-job', 'signup-refused', 'never-provisioned'])(
     'refuses %s with no reason, and says which field is missing',
     (outcome) => {
       const result = report({ ...base, outcome })
@@ -29,7 +35,7 @@ describe('a report about a provider', () => {
     },
   )
 
-  it.each(['no-service', 'signup-refused', 'never-provisioned'])(
+  it.each(['no-service', 'cannot-do-the-job', 'signup-refused', 'never-provisioned'])(
     'takes %s once a sentence comes with it',
     (outcome) => {
       expect(

@@ -1036,7 +1036,9 @@ export async function reportProvider(
           'A provider report is {kind, provider, outcome}. `kind` is what you were trying to ' +
           `get, e.g. ${KNOWN_ACCOUNT_KINDS.slice(0, 3).join(', ')}. \`provider\` is one token, ` +
           'like a hostname. `outcome` is `no-service` if there is no working service behind ' +
-          'the domain at all, `signup-refused` if it turned you down, ' +
+          'the domain at all, `cannot-do-the-job` if its own documentation says the account ' +
+          'cannot do what this kind is for and you therefore never attempted signup, ' +
+          '`signup-refused` if it turned you down, ' +
           '`never-provisioned` if signup appeared to succeed and the account never worked, ' +
           '`abandoned` if you gave up before any of those was settled — or `null` to withdraw a ' +
           'report you filed. There is no value for *it worked*: declare the account with ' +

@@ -754,8 +754,10 @@ export function registerAccountTools(
         ),
         outcome: ProviderReportRequestSchema.shape.outcome.describe(
           '`no-service` — nothing behind the domain, so no signup could have succeeded for ' +
-            'anybody. `signup-refused` — it turned you down; final. `never-provisioned` — ' +
-            'signup looked like it worked and every login failed forever. `abandoned` — you ' +
+            'anybody. `cannot-do-the-job` — its own documentation says the account cannot do ' +
+            'what this kind is for, so you never attempted signup; the pairing is wrong, not ' +
+            'the provider. `signup-refused` — it turned you down; final. `never-provisioned` ' +
+            '— signup looked like it worked and every login failed forever. `abandoned` — you ' +
             'stopped, and nothing more: if the service is not there at all, `no-service` is ' +
             'the honest one and spares the next reader a day of being persistent at a door ' +
             'that is not. `null` withdraws a report you filed earlier.',

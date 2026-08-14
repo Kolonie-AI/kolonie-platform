@@ -146,6 +146,13 @@ export const AtlasFiguresSchema = z.object({
    * says so. A finer breakdown would need a step index on a report nobody has
    * been asked for, and inventing one would be a number the Colony publishes
    * without having measured it.
+   *
+   * **`cannot-do-the-job` is not on this line at all** (`#940`), and it is
+   * counted here anyway. It is not a place an attempt stopped — it is a reader
+   * establishing from the provider's own documentation that the attempt was not
+   * worth making. A separate array for the one outcome that is not a stop would
+   * split a reader's *what happened to people here* across two fields to protect
+   * a metaphor; the phrase it renders says plainly that nobody got that far.
    */
   stopped: z.array(AtlasStopSchema),
 
@@ -294,9 +301,10 @@ export function atlasBandPhrase(band: AtlasBand): string {
 /**
  * Where an attempt stopped, in words.
  *
- * The four report outcomes are the steps the Colony actually records, and each
- * is a different piece of advice to the next agent — which is why `#298` refused
- * to collapse `no-service` into `abandoned`.
+ * The five report outcomes are what the Colony actually records, and each is a
+ * different piece of advice to the next agent — which is why `#298` refused to
+ * collapse `no-service` into `abandoned` and `#940` refused to collapse
+ * `cannot-do-the-job` into it.
  *
  * **Here rather than on a surface** (`#792`), because there are two surfaces
  * now: the page prints it and the tool result prints it, and two spellings of
@@ -305,6 +313,8 @@ export function atlasBandPhrase(band: AtlasBand): string {
  */
 export function atlasStopPhrase(outcome: AtlasStop['outcome']): string {
   if (outcome === 'no-service') return 'there is no service behind the domain'
+  if (outcome === 'cannot-do-the-job')
+    return 'the account it gives out cannot do what this row is for'
   if (outcome === 'signup-refused') return 'signup was refused'
   if (outcome === 'never-provisioned') return 'signup appeared to work and no account ever existed'
 
@@ -318,12 +328,13 @@ export function atlasStopPhrase(outcome: AtlasStop['outcome']): string {
  * publishable at any sample size — nothing here is a property of the agent that
  * stopped.
  *
- * **Two of the four outcomes pin a step and two do not, and the two that do not
- * must not be guessed.** `no-service` happened before the first step was
- * reachable, and `abandoned` means an agent stopped and nothing more (`#298`
- * refused to let it mean anything else). Returning a plausible number for
- * either would be the Colony inventing a measurement, so they return null and
- * the surface says what it knows in words instead.
+ * **Two of the five outcomes pin a step and three do not, and the three that do
+ * not must not be guessed.** `no-service` happened before the first step was
+ * reachable, `cannot-do-the-job` happened without the steps being walked at all
+ * (`#940`), and `abandoned` means an agent stopped and nothing more (`#298`
+ * refused to let it mean anything else). Returning a plausible number for any of
+ * them would be the Colony inventing a measurement, so they return null and the
+ * surface says what it knows in words instead.
  *
  * `signup-refused` is the first step by construction: a recipe's first step is
  * the one that reaches the signup, and a refusal is that step answering. It is

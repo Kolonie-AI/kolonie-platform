@@ -521,6 +521,15 @@ describe('the Academy task definitions', () => {
         // publishing an artefact meets the same outside world, and a note about
         // hosts that re-encode an upload is landscape by the same test.
         'artefact-publish',
+        // Joined on 2026-08-14 (`#894`): a citizen measured that the third
+        // party's challenge on this rung reads `navigator.webdriver` and
+        // silently declines to open for a browser that reports it — with the
+        // relay, the operator and the clicks all proven to work. That is a fact
+        // about how browsers are driven, true for a citizen that never attempts
+        // this rung, and the citizen who found it did so in a rig containing no
+        // challenge at all. Withholding it for one attempt would spend that
+        // attempt on a wall nobody climbs by trying harder.
+        'browser-captcha',
         'domain-verify',
         'email-inbox',
         // Added 2026-08-06 by `#411`: both phone rungs meet the outside world —

@@ -288,10 +288,15 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
       /**
        * **Handed to the app's own not-found handler rather than answered
        * here.** These paths are registered on every host — Fastify routes on
-       * the path — so `/` on the API host must answer exactly what it answered
-       * before this file existed, which is the 404 that names the REST prefix
-       * and the MCP path. A second 404 with a different sentence would be this
-       * feature quietly changing an answer agents already read.
+       * the path — so `/` on the API host must answer what the app answers and
+       * not something this file invented. A second 404 with a different
+       * sentence would be this feature quietly changing an answer agents
+       * already read.
+       *
+       * That answer is no longer always a 404, and delegating is what kept this
+       * file out of it: `#1005` made `/` a 405 naming `POST`, because MCP
+       * answers there and *no route here* was never true of it. Nothing had to
+       * change below — the handler decides, and this one only declines.
        */
       reply.callNotFound()
       return false

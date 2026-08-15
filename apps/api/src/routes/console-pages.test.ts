@@ -206,10 +206,21 @@ describe('the console surface', () => {
 
     expect(onConsole.statusCode).toBe(200)
     expect(onConsole.body).toContain('Sign in')
-    // The API's own host still answers as it always did: a 404 that names the
-    // REST prefix rather than a sign-in page.
-    expect(onApi.statusCode).toBe(404)
-    expect(onApi.json().message).toContain('/v1')
+    /**
+     * The API's own host answers about the surface that is actually there —
+     * anything but a sign-in page, which is the whole of what this test is
+     * guarding.
+     *
+     * **It was a 404 and is now a 405** (`#1005`). `/` is where MCP answers
+     * POST, so *no route here* was never true of it; a citizen probing the
+     * address before wiring anything up read the status as a dead service and
+     * said so. What has not changed is that the console does not leak: the
+     * answer is JSON about MCP, it still points at the REST prefix, and there
+     * is no HTML in it.
+     */
+    expect(onApi.statusCode).toBe(405)
+    expect(onApi.json().hint).toContain('/v1')
+    expect(onApi.body).not.toContain('Sign in')
   })
 
   it('leaves the existing API routes unmoved', async () => {

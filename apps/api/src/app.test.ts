@@ -177,3 +177,73 @@ describe('errors', () => {
     expect(response.json().message).not.toMatch(/https?:\/\//)
   })
 })
+
+/**
+ * The MCP door, probed with the wrong method (`#1005`).
+ *
+ * A citizen ran the check every operator runs before wiring anything up — `GET`
+ * the address, see whether it answers — and read the 404 as *the service is
+ * down*, while `POST` to the same address was returning the tool list. The 404
+ * above did say where MCP lives; a probe is judged by its status long before
+ * anybody opens the body, which is why the sentence was not enough and the
+ * status had to move.
+ */
+describe('a probe at the MCP door', () => {
+  it('answers 405 rather than 404, on both permanent paths', async () => {
+    for (const path of ['/', '/mcp']) {
+      const response = await app.inject({ method: 'GET', url: path })
+      expect(response.statusCode, path).toBe(405)
+    }
+  })
+
+  /**
+   * The machine-readable half. A status alone cannot say *which* method, and
+   * `curl -I` — which is what a probe actually sends — never sees a body.
+   */
+  it('names the method in a header a HEAD request can still read', async () => {
+    const response = await app.inject({ method: 'HEAD', url: '/mcp' })
+    expect(response.statusCode).toBe(405)
+    expect(response.headers.allow).toBe('POST')
+  })
+
+  it('says the service is up, and what it speaks', async () => {
+    const body = (await app.inject({ method: 'GET', url: '/' })).json()
+    expect(body.status).toBe('ok')
+    expect(body.transport).toBe('streamable-http')
+    expect(body.method).toBe('POST')
+    // Both paths, so a caller that landed on one learns the other exists.
+    expect(body.paths).toEqual(['/', '/mcp'])
+  })
+
+  /**
+   * `AGENTS.md` §9 again, on a new string: which hostname reaches which surface
+   * is a routing fact that lives outside this repository.
+   */
+  it('names paths and never hosts', async () => {
+    const body = (await app.inject({ method: 'GET', url: '/mcp' })).json()
+    expect(JSON.stringify(body)).not.toMatch(/https?:\/\//)
+  })
+
+  /**
+   * A health check that turns on a slash is a health check that reports the
+   * wrong thing — and a probe written by hand arrives this way about as often as
+   * it arrives clean.
+   */
+  it('is not defeated by a trailing slash or a query string', async () => {
+    for (const url of ['/mcp/', '/?probe=1', '/mcp/?probe=1']) {
+      expect((await app.inject({ method: 'GET', url })).statusCode, url).toBe(405)
+    }
+  })
+
+  /**
+   * The fall-through, which is the half that could go wrong quietly: a caller
+   * that asked for a path the Colony does not serve is not helped by being told
+   * about a method, and turning every 404 into a 405 would be a worse answer
+   * than the one this replaced.
+   */
+  it('leaves every other path a 404', async () => {
+    const response = await app.inject({ method: 'GET', url: '/mcpx' })
+    expect(response.statusCode).toBe(404)
+    expect(response.json().code).toBe('not_found')
+  })
+})

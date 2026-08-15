@@ -3,8 +3,30 @@ name: CI
 on:
   push:
     branches: [main]
+  # **No `branches:` filter here, and that is the fix for `#971`.** The filter is
+  # matched against the pull request's *base*, so a pull request stacked on
+  # another work branch — the shape a package of dependent issues always takes —
+  # matched nothing and received **no CI run at all**. Not a failing run: zero
+  # check-runs on the head commit, which the pull request page renders as
+  # `BLOCKED` and reads as *waiting for a check* rather than as *there is no
+  # check*. An agent waiting for green waits forever.
+  #
+  # Observed 2026-08-14 while landing `#957`/`#958`/`#959`/`#961`: the sweep
+  # merges on green rather than in order, so `#967` landed before `#966` and left
+  # `#968` pointing at a branch that no longer existed. A force-push to `#968`
+  # triggered nothing, and the only way out was closing and reopening it by hand.
+  #
+  # The filter was buying nothing: every pull request in this repository targets
+  # a branch in this repository, and there is no second long-lived base whose
+  # builds we would want to skip. What it cost was the one case where CI matters
+  # most — a change that is about to be merged into another change.
+  #
+  # A stacked pull request whose base has been *deleted* has no merge ref to
+  # check out, so the run fails at checkout instead of not existing. That is the
+  # intended outcome and not a regression: `stacked-pr-base.yml` repoints those
+  # within seconds of the merge, and a red check that names the reason is worth
+  # more than a silence nobody can diagnose.
   pull_request:
-    branches: [main]
 
 # A newer push makes the previous run irrelevant — on a pull request branch, and
 # not on `main`.

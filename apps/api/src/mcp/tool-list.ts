@@ -419,8 +419,10 @@ export const AUTHENTICATED_TOOLS = [
    * **One, against the exchange's four, and the asymmetry is the design.** A citizen
    * needs to open, read, add to and close an exchange it started. It needs exactly one
    * thing from a note: to be handed what is waiting. There is no reply tool because a
-   * note is not a thread, and no delete tool because a note the citizen has read is
-   * already gone.
+   * note is not a thread, and no delete tool because there is nothing a citizen would
+   * gain by removing a row it is the only reader of — `#927` made the read stop
+   * destroying them and added no way to destroy them on purpose, which is the same
+   * answer arrived at from the other side.
    *
    * It does **not** share the exchange's outbound allowance. That ceiling stops a
    * citizen making a person read too much; this direction is bounded to stop a person
@@ -433,9 +435,13 @@ export const AUTHENTICATED_TOOLS = [
    *
    * Three entries and not one, because the three answer different questions and a
    * dispatcher would have made *taking* a mode of *looking*. Reading spends the
-   * drop, so it has to be its own call — the same reasoning that keeps
-   * `kolonie.operator.notes` honest about consuming what it returns, one step
-   * further along.
+   * drop, so it has to be its own call.
+   *
+   * **`kolonie.operator.notes` used to be cited here as the same reasoning one step
+   * back, and `#927` broke the comparison rather than weakening it.** A note is
+   * words and is now kept after delivery; a drop carries a secret and the Colony
+   * stops holding it the moment it is taken. The two channels look alike and the
+   * thing that decides how they behave is what is inside them.
    */
   'kolonie.operator.drop.open',
   'kolonie.operator.drops',

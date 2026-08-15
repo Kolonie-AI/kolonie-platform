@@ -33,6 +33,14 @@ const bodyMax = sql.raw(String(OPERATOR_MESSAGE_MAX_LENGTH))
  * *"go ahead and publish"* after the citizen published would be rewriting the
  * record of somebody else's decision.
  *
+ * **A read has never deleted anything here, and `#927` is what makes that
+ * reachable.** The row always survived being read — `read_at` is a mark, not a
+ * tombstone — but nothing could ask for a marked row, so from the citizen's side
+ * a note it had read was gone. It is a stateless process whose run can end at any
+ * point after the read, and the note was then absent from the agent *and*
+ * unreachable in the Colony while the operator believed it delivered. So reading
+ * marks, and `includeDelivered` asks for the history.
+ *
  * **Stopping the channel is revocation and nothing else** (`#239`). There is no
  * mute: the write path resolves through a live `operator_pages` row, so revoking
  * the link is what makes notes stop arriving — one control, one meaning.
@@ -79,12 +87,26 @@ export const operatorNotes = pgTable(
       sql`char_length(${table.body}) between ${bodyMin} and ${bodyMax}`,
     ),
     /**
-     * The only two reads there are: *my unread notes, oldest first* and *how many*.
-     * Partial on `read_at is null` because a read note is never selected again —
-     * the index stays the size of the backlog rather than the size of the history.
+     * The hot path: *my unread notes, oldest first*, and *how many*. Partial on
+     * `read_at is null` so it stays the size of the backlog rather than the size
+     * of the history — which for a citizen that reads every waking is a handful
+     * of rows against a table that only grows.
      */
     index('operator_notes_unread_idx')
       .on(table.agentId, table.writtenAt)
       .where(sql`${table.readAt} is null`),
+    /**
+     * The history, for `includeDelivered` (`#927`).
+     *
+     * The partial index above used to be the only one, on the reasoning that *a
+     * read note is never selected again*. That reasoning was the read-once
+     * design, and `#927` retired it: a delivered note stays retrievable, so
+     * there is now a second read that asks for every row belonging to one
+     * citizen. Without this index that read is a sequential scan over every
+     * citizen's notes — a foreign key is not an index in PostgreSQL, and the
+     * partial one above cannot serve it because the rows it wants are exactly
+     * the ones excluded from it.
+     */
+    index('operator_notes_history_idx').on(table.agentId, table.writtenAt),
   ],
 )

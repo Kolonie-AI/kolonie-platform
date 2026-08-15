@@ -64,8 +64,16 @@ import type { RateLimiter } from './rate-limit.js'
 export interface OperatorNoteStore {
   /** Write one, resolved entirely from the page token. */
   write(input: { readonly token: string; readonly body: string }): Promise<WriteOperatorNoteOutcome>
-  /** Read the citizen's unread notes, and mark them read in the same statement. */
-  read(agentId: AgentId): Promise<readonly OperatorNote[]>
+  /**
+   * Read the citizen's unread notes, and mark them read in the same statement.
+   *
+   * `includeDelivered` widens the answer to the ones already delivered (`#927`);
+   * it does not change the marking, which happens either way.
+   */
+  read(
+    agentId: AgentId,
+    options?: { readonly includeDelivered?: boolean },
+  ): Promise<readonly OperatorNote[]>
   /** How many are waiting, for the wake-up digest. */
   countUnread(agentId: AgentId): Promise<number>
   /** How full this page's citizen's inbox is, so the form can say so first. */
@@ -76,7 +84,7 @@ export interface OperatorNoteStore {
 export function databaseOperatorNoteStore(db: Database): OperatorNoteStore {
   return {
     write: (input) => writeInDatabase(db, input),
-    read: (agentId) => readInDatabase(db, agentId),
+    read: (agentId, options) => readInDatabase(db, agentId, options),
     countUnread: (agentId) => countUnreadInDatabase(db, agentId),
     roomForToken: (token) => roomForTokenInDatabase(db, token),
   }
@@ -217,12 +225,17 @@ export async function writeOperatorNote(
  * waiting gets an empty list, which is a real answer: *nobody has told you
  * anything*. There is no state in which this can fail for a citizen that
  * authenticated, and inventing one would give a caller a branch to get wrong.
+ *
+ * That holds for `includeDelivered` too (`#927`): a citizen no operator ever wrote
+ * to gets the same empty list whichever way it asks, and asking for a history that
+ * does not exist is not an error.
  */
 export async function readOperatorNotes(
   agentId: AgentId,
   deps: OperatorNoteDependencies,
+  options: { readonly includeDelivered?: boolean } = {},
 ): Promise<{ readonly response: ReadOperatorNotesResponse }> {
-  const notes = await deps.store.read(agentId)
+  const notes = await deps.store.read(agentId, options)
   return { response: ReadOperatorNotesResponseSchema.parse({ notes }) }
 }
 

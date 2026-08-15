@@ -2070,7 +2070,9 @@ export function registerAccountTools(
           'Only if you walked a provider the Atlas had nothing on, and only if you have more ' +
             'than the note holds: what had to be true before you started, the ordered steps in ' +
             'your own words, the walls and what got past them, and how to tell the account ' +
-            'really exists. Carried to the steward with your draft and attributed to you — it ' +
+            'really exists — plus what it cost you and what the terms said, which are the two ' +
+            'answers that land on the entry itself rather than on your account of it. Carried ' +
+            'to the steward with your draft and attributed to you — it ' +
             'is not published as the Colony\u2019s wording. Never a password, a code or a token, ' +
             'in any field.',
         ),

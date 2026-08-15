@@ -733,6 +733,111 @@ describe('the record of one agent obtaining one account', () => {
       expect(await amendProposedDraft(db, other.agent.id, where, RECIPE)).toBeUndefined()
       expect((await providerRecipe(db, where.kind, where.provider))?.walkedRecipe).toBeNull()
     })
+
+    /** An amendment about the steps has said nothing about the price (`#983`). */
+    it('writes the two answers only where the amendment names them', async () => {
+      await proposedDraft()
+      await amendProposedDraft(db, agentId, where, { ...RECIPE, cost: 'paid-only' })
+
+      const priced = await providerRecipe(db, where.kind, where.provider)
+      expect(priced?.cost).toBe('paid-only')
+
+      await amendProposedDraft(db, agentId, where, RECIPE)
+
+      const after = await providerRecipe(db, where.kind, where.provider)
+      expect(after?.cost).toBe('paid-only')
+    })
+  })
+
+  /**
+   * **What the walk cost and what the terms said, on the entry** (`#983`).
+   *
+   * `cost` and `terms` were curator-only columns and `cost: "unknown"` stood on
+   * 133 of 133 entries on 2026-08-15 — a default reading as a measurement. The
+   * walker is the one agent that has just been quoted the price, so the two land
+   * on the entry's own typed columns rather than in a paragraph a reader has to
+   * parse.
+   */
+  describe('the price and the terms a walk measured', () => {
+    it('lifts both onto the draft it proposes', async () => {
+      const walkId = await walkInProgress(db, agentId, where)
+      await recordWalkStep(db, walkId, { actor: 'agent' })
+
+      await finishWalk(db, walkId, {
+        outcome: 'proved',
+        recipe: { cost: 'card-to-sign-up', terms: 'operator-only' },
+      })
+
+      const entry = await providerRecipe(db, where.kind, where.provider)
+      expect(entry?.cost).toBe('card-to-sign-up')
+      expect(entry?.terms).toBe('operator-only')
+    })
+
+    it('lifts both onto a refusal too, where the walk never got an account', async () => {
+      const walkId = await walkInProgress(db, agentId, where)
+      await recordWalkStep(db, walkId, { actor: 'agent' })
+
+      await finishWalk(db, walkId, {
+        outcome: 'refused',
+        wall: 'There is no free tier and the card was declined.',
+        recipe: { cost: 'paid-only', terms: 'human-only' },
+      })
+
+      const entry = await providerRecipe(db, where.kind, where.provider)
+      expect(entry?.status).toBe('refused')
+      expect(entry?.cost).toBe('paid-only')
+      expect(entry?.terms).toBe('human-only')
+    })
+
+    /**
+     * **The bug this fixed on its way past.** `writeProviderRecipe` is an upsert
+     * whose rule is that an omitted field resets to `unknown` (`#815`) — right
+     * for a curator editing a whole entry, wrong for a walk that is told about
+     * two fields and nothing else. Both branches passed neither, so a walk
+     * against an entry somebody had already answered blanked both.
+     */
+    it('leaves an answer already on the entry standing where the walk was silent', async () => {
+      await writeProviderRecipe(db, {
+        kind: where.kind,
+        provider: where.provider,
+        title: 'Somewhere',
+        category: 'mailbox',
+        status: 'unwritten',
+        steps: [],
+        cost: 'paid-only',
+        terms: 'human-only',
+      })
+
+      const walkId = await walkInProgress(db, agentId, where)
+      await recordWalkStep(db, walkId, { actor: 'agent' })
+      await finishWalk(db, walkId, {
+        outcome: 'proved',
+        recipe: { verification: ['the account page names the address'] },
+      })
+
+      const entry = await providerRecipe(db, where.kind, where.provider)
+      expect(entry?.cost).toBe('paid-only')
+      expect(entry?.terms).toBe('human-only')
+    })
+
+    /** And a walker that did look is what moves it — the entry is not frozen. */
+    it('replaces an answer the entry had where the walk measured a different one', async () => {
+      await writeProviderRecipe(db, {
+        kind: where.kind,
+        provider: where.provider,
+        title: 'Somewhere',
+        category: 'mailbox',
+        status: 'unwritten',
+        steps: [],
+        cost: 'paid-only',
+      })
+
+      const walkId = await walkInProgress(db, agentId, where)
+      await recordWalkStep(db, walkId, { actor: 'agent' })
+      await finishWalk(db, walkId, { outcome: 'proved', recipe: { cost: 'free' } })
+
+      expect((await providerRecipe(db, where.kind, where.provider))?.cost).toBe('free')
+    })
   })
 
   /**

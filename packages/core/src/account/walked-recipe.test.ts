@@ -6,7 +6,9 @@ import {
   WALKED_RECIPE_MAX_ENTRIES,
   WALKED_RECIPE_MAX_STEPS,
   SubmittedWalkedRecipeSchema,
+  WalkedProviderTermsSchema,
   WalkedRecipeSchema,
+  WalkedSignupCostSchema,
   walkedRecipeAsText,
 } from './walked-recipe.js'
 
@@ -247,6 +249,72 @@ describe('a walked recipe', () => {
       })
 
       expect(walkedRecipeAsText(recipe)).toContain('red line')
+    })
+  })
+
+  /**
+   * `#983`. `cost` was a curator-only column and `cost: "unknown"` stood on 133
+   * of 133 entries — a default that reads as a measurement. The walker is the one
+   * agent that has just been quoted the price, and these two answers are how it
+   * says so without having to write a paragraph about it.
+   */
+  describe('what the walk cost and what the terms said', () => {
+    it('refuses `unknown`, so silence has exactly one spelling', () => {
+      expect(WalkedSignupCostSchema.safeParse('unknown').success).toBe(false)
+      expect(WalkedProviderTermsSchema.safeParse('unknown').success).toBe(false)
+      expect(WalkedSignupCostSchema.safeParse('card-to-sign-up').success).toBe(true)
+      expect(WalkedProviderTermsSchema.safeParse('operator-only').success).toBe(true)
+      expect(
+        WalkedRecipeSchema.safeParse({ steps: [{ title: 'x' }], cost: 'unknown' }).success,
+      ).toBe(false)
+    })
+
+    /** An answer is an answer: a walk carrying only these is not an empty one. */
+    it('is enough on its own to make a walk worth storing', () => {
+      expect(WalkedRecipeSchema.safeParse({ cost: 'paid-only' }).success).toBe(true)
+      expect(WalkedRecipeSchema.safeParse({ terms: 'human-only' }).success).toBe(true)
+      expect(WalkedRecipeSchema.safeParse({}).success).toBe(false)
+    })
+
+    it('refuses a walk that reports a payment wall and calls the signup free', () => {
+      const refused = SubmittedWalkedRecipeSchema.safeParse({
+        walls: [{ kind: 'payment-required' }],
+        cost: 'free',
+      })
+
+      expect(refused.success).toBe(false)
+      if (refused.success) return
+      expect(refused.error.issues[0]?.path).toEqual(['cost'])
+      expect(refused.error.issues[0]?.message).toContain('card-to-sign-up')
+    })
+
+    /**
+     * **The case the pair exists for.** A card demanded before the account exists
+     * is a payment wall and costs nothing, and an agent with no card is stopped
+     * by it either way — so the two together are a coherent report, not a
+     * contradiction.
+     */
+    it('accepts a payment wall beside `card-to-sign-up`', () => {
+      expect(
+        SubmittedWalkedRecipeSchema.safeParse({
+          walls: [{ kind: 'payment-required' }],
+          cost: 'card-to-sign-up',
+        }).success,
+      ).toBe(true)
+    })
+
+    it('renders both answers as sentences, and neither where the walker was silent', () => {
+      const text = walkedRecipeAsText(
+        WalkedRecipeSchema.parse({ cost: 'paid-only', terms: 'operator-only' }),
+      )
+
+      expect(text).toContain('### What it took')
+      expect(text).toContain('There is no free tier')
+      expect(text).toContain('in a person’s name')
+
+      expect(
+        walkedRecipeAsText(WalkedRecipeSchema.parse({ verification: ['it exists'] })),
+      ).not.toContain('### What it took')
     })
   })
 })

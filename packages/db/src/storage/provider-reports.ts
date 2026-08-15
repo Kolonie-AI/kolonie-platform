@@ -1,9 +1,11 @@
 import { and, asc, desc, eq, isNotNull, sql } from 'drizzle-orm'
+import { kindHasDirection } from '@kolonie-ai/core'
 import type {
   AccountKind,
   AgentId,
   ProviderReportOutcome,
   ProviderReportTally,
+  RecipeDirection,
 } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import { providerReports } from '../schema/provider-reports.js'
@@ -41,6 +43,14 @@ export async function reportProvider(
      * verdict, which is the one way this column can say something nobody wrote.
      */
     readonly reason?: string
+    /**
+     * Which capability this verdict is about, on a kind with an axis (`#976`).
+     *
+     * Cleared on a kind that has none, like the column's own constraint would
+     * insist — the boundary refuses one there and this makes the storage layer
+     * safe to call from a path that has not yet learned to.
+     */
+    readonly direction?: RecipeDirection
   },
 ): Promise<{ readonly outcome: 'recorded' | 'withdrawn' }> {
   if (input.outcome === null) {
@@ -67,6 +77,13 @@ export async function reportProvider(
   const written = {
     outcome: input.outcome,
     reason,
+    /**
+     * Absent clears it, with the rest of this group and for the same reason: a
+     * scope left standing from a previous verdict would claim this one was
+     * measured in a direction nobody said it was. Cleared outright on a kind
+     * with no axis, which is what the column's check would insist on anyway.
+     */
+    direction: kindHasDirection(input.kind) ? (input.direction ?? null) : null,
     scrubbedReason: null,
     reasonStatus: (reason === null ? 'approved' : 'pending') as 'approved' | 'pending',
     notedAt: new Date().toISOString(),

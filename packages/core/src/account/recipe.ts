@@ -5,6 +5,7 @@ import { AgentPlatformSchema } from '../agent/agent.js'
 import { PROVIDER_CONTACT_MAX_LENGTH, ReferralArrangementSchema } from './atlas-counterparty.js'
 import { AgentApiSchema } from './atlas-admission.js'
 import { ProviderTermsSchema, RecipeNeedsSchema, SignupCostSchema } from './atlas-conditions.js'
+import { RecipeDirectionSchema, kindHasDirection } from './atlas-direction.js'
 import { WalkedRecipeSchema } from './walked-recipe.js'
 import {
   AccountCapabilitySchema,
@@ -990,6 +991,20 @@ export const ProviderRecipeSchema = z.object({
   /** Why not, when the status is `refused`. Null otherwise. */
   refusal: z.string().max(RECIPE_REFUSAL_MAX_LENGTH).nullable(),
   /**
+   * Which direction the `status` above is a verdict about (`#976`).
+   *
+   * Null on every kind with no axis to it — see {@link DIRECTIONAL_KINDS} — and
+   * null on a phone entry nobody has scoped, which `directionAnswers` reads as
+   * covering both rather than neither.
+   *
+   * **The scope of the verdict and not a capability of the provider.** An entry
+   * that says `outbound` is not saying the number cannot receive; it is saying
+   * that sending is what was looked at. What has been looked at for the other
+   * direction is `unwritten`, which is the state the Atlas already has for *no
+   * one has been here*.
+   */
+  direction: RecipeDirectionSchema.nullable(),
+  /**
    * When the Colony withdrew this entry, and why (`#604`).
    *
    * Both null unless the status is `retired`, and both required when it is: a
@@ -1167,6 +1182,15 @@ export const WriteProviderRecipeSchema = z
     contact: z.string().trim().min(1).max(PROVIDER_CONTACT_MAX_LENGTH).optional(),
     status: RecipeStatusSchema,
     refusal: z.string().trim().min(1).max(RECIPE_REFUSAL_MAX_LENGTH).optional(),
+    /**
+     * Which direction this verdict is about, on a kind that has one (`#976`).
+     *
+     * Optional rather than required even on `phone`, because an entry may
+     * genuinely be unscoped and the null is readable — see `directionAnswers`.
+     * Refused outright on every other kind, so nobody records a direction
+     * against a mailbox and expects a reader to act on it.
+     */
+    direction: RecipeDirectionSchema.optional(),
     /**
      * Why the Colony withdrew this entry (`#604`).
      *
@@ -1401,6 +1425,20 @@ export const WriteProviderRecipeSchema = z
       'which says nobody has looked rather than that there is no way through; one that was ' +
       'withdrawn is retired, and carries a retiredReason instead.',
     path: ['refusal'],
+  })
+  /**
+   * A direction only means something on a kind that has one (`#976`).
+   *
+   * The refusal is at the door rather than a silent drop, because a caller that
+   * scoped a mailbox entry to `inbound` believed it had said something and would
+   * otherwise find out by reading a shelf that ignored it.
+   */
+  .refine((entry) => entry.direction === undefined || kindHasDirection(entry.kind), {
+    message:
+      'only a kind whose verdicts have a direction carries one, and today that is phone: a number ' +
+      'that can receive is a different account from one a carrier will let you send from. Leave it ' +
+      'off everywhere else.',
+    path: ['direction'],
   })
   /**
    * A withdrawal says when and why, and nothing else may say why it was

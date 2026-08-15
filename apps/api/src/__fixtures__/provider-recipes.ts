@@ -358,6 +358,12 @@ export function fakeProviderRecipes(): FakeProviderRecipes {
         operatorNeedIsGuess: need.isGuess,
         refusal: entry.refusal ?? (status === 'refused' ? 'no honest route in' : null),
         /**
+         * Unscoped unless a test says which way (`#976`) — the state every entry
+         * written before the axis existed is in, and the one `directionAnswers`
+         * reads as answering whatever a reader asks.
+         */
+        direction: entry.direction ?? null,
+        /**
          * A withdrawal carries both or neither, exactly as the column does
          * (`#604`) — a fake that let one through would let a page test pass over
          * a row the database would refuse.

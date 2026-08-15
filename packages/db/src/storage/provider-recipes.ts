@@ -13,7 +13,9 @@ import {
   RecipeRuntimeNoteSchema,
   RecipeReachSchema,
   RecipeStatusSchema,
+  RecipeDirectionSchema,
   RecipeStepSchema,
+  kindHasDirection,
   operatorNeed,
   recipeStatusIsPublic,
   ReferralArrangementSchema,
@@ -30,6 +32,7 @@ import {
   type RecipeReach,
   type RecipeRuntimeNote,
   type RecipeStatus,
+  type RecipeDirection,
   type RecipeStep,
   type ReferralArrangement,
   WalkedRecipeSchema,
@@ -90,6 +93,8 @@ export function toRecipe(row: typeof providerRecipes.$inferSelect): ProviderReci
     operatorNeed: need.need,
     operatorNeedIsGuess: need.isGuess,
     refusal: row.refusal,
+    /** Parsed on the way out like `status`, and null on every row nobody scoped (`#976`). */
+    direction: row.direction === null ? null : RecipeDirectionSchema.parse(row.direction),
     retiredAt: row.retiredAt === null ? null : toTimestamp(row.retiredAt),
     retiredReason: row.retiredReason,
     /**
@@ -240,6 +245,16 @@ export async function writeProviderRecipe(
     readonly operatorGuess?: RecipeOperatorGuess | null
     readonly refusal?: string | null
     /**
+     * Which direction the status is a verdict about, on a kind with an axis
+     * (`#976`).
+     *
+     * **Absent resets to null, with the rest of this group**, because this is an
+     * upsert: an edit that does not mention the direction is not re-asserting
+     * it. The null is readable — `directionAnswers` treats it as covering both —
+     * so the reset is a widening rather than a silent loss of a warning.
+     */
+    readonly direction?: RecipeDirection | null
+    /**
      * Why the Colony withdrew this entry (`#604`).
      *
      * **The reason is the caller's and the date is not** — `retiredAt` is
@@ -306,6 +321,13 @@ export async function writeProviderRecipe(
     category: entry.category,
     operatorGuess: entry.operatorGuess ?? null,
     refusal: entry.refusal ?? null,
+    /**
+     * **Cleared on a kind with no axis**, for the reason `provesTask` is cleared
+     * off a non-rung proof: the constraint refuses a direction on a mailbox, and
+     * a caller that supplied one by mistake should get the write it asked for
+     * minus the meaningless field rather than a failed insert (`#976`).
+     */
+    direction: kindHasDirection(entry.kind) ? (entry.direction ?? null) : null,
     /**
      * **Stamped here, and cleared here** (`#604`). An entry moved out of
      * `retired` — a provider that came back — must lose both columns together,
@@ -558,6 +580,60 @@ export async function curateListedProvider(
         eq(providerRecipes.provider, AccountProviderSchema.parse(entry.provider)),
         /** The guard, and not a caller's responsibility: see above. */
         eq(providerRecipes.status, 'unwritten'),
+      ),
+    )
+    .returning({ id: providerRecipes.id })
+
+  return changed.length > 0
+}
+
+/**
+ * Say which capability an existing verdict was measured against (`#976`).
+ *
+ * **The one write that changes nothing about what a provider is judged to be.**
+ * Status, refusal, steps and figures are all left exactly as they were; what is
+ * added is the scope they were always true of and nobody had a field to record.
+ * `agentphone.ai` is still refused after this runs — it is refused *for sending*,
+ * which is what its refusal always said and what no reader could act on.
+ *
+ * **Guarded on `direction is null`, for the reason `curateListedProvider` states
+ * one function up.** A scope somebody recorded deliberately — through a report,
+ * through a walk — outranks a judgement made here about rows written before the
+ * axis existed. That guard is also what makes the pass idempotent: a second run
+ * finds every row scoped and writes nothing.
+ *
+ * Returns whether a row moved, so the seed can report what it scoped rather than
+ * printing the same line on every deploy.
+ */
+export async function scopeProviderDirection(
+  db: Database,
+  entry: {
+    readonly kind: AccountKind
+    readonly provider: string
+    readonly direction: RecipeDirection
+  },
+): Promise<boolean> {
+  /**
+   * The kind is checked here rather than left to the column's constraint,
+   * because a caller that names a kind with no axis has made a mistake worth
+   * reading in a stack trace rather than as a database error four frames down.
+   */
+  if (!kindHasDirection(entry.kind)) {
+    throw new Error(`scopeProviderDirection: ${entry.kind} has no direction to scope`)
+  }
+
+  const changed = await db
+    .update(providerRecipes)
+    .set({
+      direction: entry.direction,
+      updatedAt: sql`now()`,
+    })
+    .where(
+      and(
+        eq(providerRecipes.kind, entry.kind),
+        eq(providerRecipes.provider, AccountProviderSchema.parse(entry.provider)),
+        /** The guard, and not a caller's responsibility: see above. */
+        sql`${providerRecipes.direction} is null`,
       ),
     )
     .returning({ id: providerRecipes.id })

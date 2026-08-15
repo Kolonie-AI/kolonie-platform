@@ -47,6 +47,8 @@ const recipe = (input: {
     kind: AccountKindSchema.parse(input.kind),
     provider: AccountProviderSchema.parse(input.provider),
     title: input.provider,
+    /** Unscoped: this file is about provenance, not the axis (`#976`). */
+    direction: null,
     about: null,
     runtimes: [],
     paid: false,

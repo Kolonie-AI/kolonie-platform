@@ -735,6 +735,14 @@ export function measuredOnlyRecipes(
          */
         title: figure.provider,
         category,
+        /**
+         * Unscoped, and it stays that way (`#976`). The figures behind this row
+         * count attempts at a provider; nothing in them says which capability
+         * any of those attempts was after. A scope guessed here would be a claim
+         * about a walk nobody recorded, and `null` already means the true thing:
+         * nobody wrote down which way, so this answers whoever asks.
+         */
+        direction: null,
         operatorNeed: 'unknown',
         operatorNeedIsGuess: false,
         about: null,

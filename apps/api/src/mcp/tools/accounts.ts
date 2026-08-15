@@ -28,6 +28,7 @@ import {
   SubmittedWalkedRecipeSchema,
   BOOTSTRAP_TEMPLATES,
   BootstrapTemplateIdSchema,
+  RecipeDirectionSchema,
   bootstrapTemplate,
   bootstrapTemplateAsText,
   bootstrapTemplatesAsHint,
@@ -867,6 +868,23 @@ export function registerAccountTools(
             'abandoned. Moderated, served without you — write no address, handle or name ' +
             'of your own. Not with a null outcome. More belongs in kolonie.tasks.report.',
         ),
+        /**
+         * The other half of a telephony finding (`#976`).
+         *
+         * **Required on `phone`, and the description says so rather than the
+         * schema alone**, because the refusal an agent gets for omitting it is
+         * the expensive way to learn a required argument exists. Every other
+         * kind pays four lines of catalogue for a field it may not send, which
+         * is the price of the alternative being a shelf that closes a provider
+         * for readers it was never measured against.
+         */
+        direction: ProviderReportRequestSchema.shape.direction.describe(
+          'Which capability you were after. **Required on `kind: phone`, refused everywhere ' +
+            'else.** `inbound` — a number that can receive, which is what the `phone` rung ' +
+            'needs. `outbound` — one a carrier will let you send from. `both` — you tried ' +
+            'both. They share a signup and nothing else, and a wall you hit sending would ' +
+            'otherwise close the provider for every citizen that only needed to receive.',
+        ),
       },
       annotations: {
         readOnlyHint: false,
@@ -1212,6 +1230,24 @@ export function registerAccountTools(
               'account. A floor on the sample rather than on the rate: 80% of two hundred is a ' +
               'stronger claim than 100% of five. Counts too small to publish count as zero.',
           ),
+        /**
+         * The one argument here that re-reads rather than filters (`#976`).
+         *
+         * **It hides no entry, which is why it is safe to have at all.** Every
+         * other argument on this tool narrows the shelf; this one changes what a
+         * verdict is taken to say, and a provider refused for sending comes back
+         * as `unwritten` to a reader asking about receiving rather than
+         * disappearing. Hiding it would lose the very entry that reader ought to
+         * walk next.
+         */
+        direction: RecipeDirectionSchema.optional().describe(
+          'Which capability you need, on a kind that has two — today `phone`. `inbound` for a ' +
+            'number that can receive, which is what the `phone` rung needs; `outbound` for one ' +
+            'a carrier will let you send from; `both` for whatever is known either way. A ' +
+            'verdict measured against the other direction comes back as unwritten rather than ' +
+            'as a refusal: nobody has been there, which is the true answer and an invitation. ' +
+            'Leave it out to read every verdict as it stands.',
+        ),
       },
       annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
       ...toolDocsMeta('kolonie.accounts.recipes'),
@@ -1293,6 +1329,7 @@ export function registerAccountTools(
           held,
           status: input.status,
           minProved: input.minProved,
+          direction: input.direction,
         },
         deps.recipes,
         deps.drops !== undefined,

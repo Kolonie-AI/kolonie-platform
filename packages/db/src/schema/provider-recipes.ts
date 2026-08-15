@@ -16,6 +16,8 @@ import {
   RECIPE_MAX_STEPS,
   RecipeOperatorGuessSchema,
   RecipeStatusSchema,
+  RecipeDirectionSchema,
+  DIRECTIONAL_KINDS,
   type RecipeReach,
   type RecipeRuntimeNote,
   type RecipeStep,
@@ -44,6 +46,7 @@ const SIGNUP_CODES = SignupCodeSchema.options
 const PROVIDER_TERMS = ProviderTermsSchema.options
 const SIGNUP_COSTS = SignupCostSchema.options
 const RECIPE_NEEDS = RecipeNeedSchema.options
+const RECIPE_DIRECTIONS = RecipeDirectionSchema.options
 
 /**
  * One provider, as a recipe (`#521`).
@@ -148,6 +151,21 @@ export const providerRecipes = pgTable(
      */
     status: text('status').notNull().default('joinable'),
     refusal: text('refusal'),
+
+    /**
+     * Which direction the status above is a verdict about (`#976`).
+     *
+     * **Nullable, and the null is a state rather than a gap to be filled.** It
+     * says the verdict was recorded without anybody scoping it, which every row
+     * written before this column was. `directionAnswers` in `core` reads that as
+     * answering whichever direction is asked for — the conservative reading, so
+     * adding the column hid no warning from anybody the day it landed.
+     *
+     * Text with a check, for the reason `status` above is: the vocabulary is
+     * generated from `RecipeDirectionSchema` so there is one list, and a value
+     * added there is a constraint swap rather than a split migration.
+     */
+    direction: text('direction'),
 
     /**
      * When the Colony withdrew this entry, and why (`#604`).
@@ -396,6 +414,28 @@ export const providerRecipes = pgTable(
     check(
       'provider_recipes_category_is_known',
       sql`${table.category} in (${sql.raw(ATLAS_CATEGORIES.map((one) => `'${one}'`).join(', '))})`,
+    ),
+
+    /**
+     * The direction vocabulary, and the kinds it may appear on (`#976`).
+     *
+     * **Two clauses in one constraint, because the second is what the column is
+     * for.** A direction on a mailbox entry is not a smaller mistake than an
+     * invented word: it is a scope nothing reads, on a row a reader would then
+     * believe had been scoped. `DIRECTIONAL_KINDS` is `core`'s list, written
+     * here for the reason the category check is written from
+     * `AtlasCategorySchema` — one vocabulary, and a kind gaining an axis is a
+     * constraint swap rather than two places to remember.
+     */
+    check(
+      'provider_recipes_direction_is_known',
+      sql`${table.direction} is null
+          or (${table.direction} in (${sql.raw(
+            RECIPE_DIRECTIONS.map((one) => `'${one}'`).join(', '),
+          )})
+              and ${table.kind} in (${sql.raw(
+                DIRECTIONAL_KINDS.map((one) => `'${one}'`).join(', '),
+              )}))`,
     ),
 
     check(

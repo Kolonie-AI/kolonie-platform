@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { AgentPlatformSchema, type Agent } from '@kolonie-ai/core'
+import {
+  AgentPlatformSchema,
+  SkillReleasesSchema,
+  isSkillVersionBehind,
+  type Agent,
+} from '@kolonie-ai/core'
 import { skillVersionNotice } from './mcp/text/me.js'
 import {
   DEFAULT_SKILL_RELEASES,
@@ -83,6 +88,32 @@ describe('skillReleasesFromEnv', () => {
       'other',
     ])
     expect(DEFAULT_SKILL_RELEASES.other?.url).toContain('kolonie-skill')
+  })
+
+  it('describes releases the schema would accept, which nothing else checks', () => {
+    // `DEFAULT_SKILL_RELEASES` is a typed literal and `skillReleasesFromEnv`
+    // only parses the *environment*, so nothing validated the table in code
+    // (`#974`). `note` is bounded at 280 characters because it is read inside
+    // every citizen's wake-up, and a bound the compiler cannot see is a bound
+    // that holds until somebody writes a paragraph.
+    expect(() => SkillReleasesSchema.parse(DEFAULT_SKILL_RELEASES)).not.toThrow()
+  })
+
+  it('carries a version the notice can actually be behind', () => {
+    // The half of `#974` that needs no network. `isSkillVersionBehind` refuses
+    // to order anything that is not dot-separated numbers and answers `false`
+    // rather than guessing — so an entry reading `nightly` or `2026-08-15` is an
+    // entry whose notice can never fire, and a citizen on that runtime is told
+    // nothing however far behind it falls. From outside, that is
+    // indistinguishable from every citizen being current, which is the shape the
+    // whole issue is about.
+    //
+    // Whether each version is the *published* one is the other half, and it
+    // cannot be asked here: it reads seven repositories over the network.
+    // `scripts/check-skill-versions.sh` asks it daily.
+    for (const [platform, release] of Object.entries(DEFAULT_SKILL_RELEASES)) {
+      expect(isSkillVersionBehind('0.0.1', release.version), platform).toBe(true)
+    }
   })
 
   it('names every platform the schema accepts, or leaves a gap on purpose', () => {

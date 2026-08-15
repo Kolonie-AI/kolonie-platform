@@ -1,0 +1,108 @@
+name: Skill release versions
+
+# Catch `DEFAULT_SKILL_RELEASES` falling behind the skill a repository actually
+# publishes, on the day it happens rather than the day a citizen files a ticket
+# about it (#974).
+#
+# It has already happened to all seven entries at once. Measured 2026-08-15 the
+# table said `openclaw 1.2.0` against a published `1.5.0` and `claude 1.3.0`
+# against `1.6.1` — so `skillVersionNotice` had a channel to every installed
+# skill and nothing true to say through it, and the silence it produced is
+# indistinguishable from the silence a current skill gets. A citizen noticed
+# before any check did; that is what this closes.
+#
+# The reasoning for the check itself, including why it derives the repositories
+# from the table's own `url` rather than keeping a list, is in
+# `scripts/check-skill-versions.sh`.
+#
+# ## Why it reports by opening an issue
+#
+# Same as `skill-platforms.yml`: a red run in a repository nobody is watching
+# that day is a signal nobody receives, and what this catches is silent by
+# construction. The issue carries the check's output and nothing else, and a
+# second one is never opened while the first is open.
+
+on:
+  schedule:
+    # Daily, and offset from `skill-platforms.yml` so two checks reading the same
+    # seven repositories do not arrive at the API in the same minute.
+    - cron: '43 6 * * *'
+  push:
+    branches: [main]
+    paths:
+      # The table itself: an edit that bumps six entries and forgets the seventh
+      # should be red before the next scheduled run, not a day later.
+      - 'apps/api/src/skill-releases.ts'
+      - 'scripts/check-skill-versions.sh'
+      - '.github/workflows/skill-versions.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compare the release table with what each skill publishes
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set +e
+          bash scripts/check-skill-versions.sh > result.txt 2>&1
+          echo "exit_code=$?" >> "$GITHUB_OUTPUT"
+          cat result.txt
+
+      - name: Open an issue when the table is behind
+        if: steps.check.outputs.exit_code != '0'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          title='The skill release table is behind a published skill'
+
+          # Never a second one while the first is open.
+          existing=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open \
+            --search "\"$title\" in:title" --json number --jq '.[0].number // empty')
+
+          if [[ -n $existing ]]; then
+            echo "Issue #$existing is already open; adding nothing."
+            exit 0
+          fi
+
+          {
+            echo "\`scripts/check-skill-versions.sh\` failed on"
+            echo "\`$GITHUB_SHA\`. What it read:"
+            echo
+            echo '```'
+            cat result.txt
+            echo '```'
+            echo
+            echo "**The version is mechanical and the note is not.** Bumping"
+            echo "\`DEFAULT_SKILL_RELEASES\` in \`apps/api/src/skill-releases.ts\` to the"
+            echo "published version is the easy half; the entry also carries one sentence"
+            echo "telling a citizen several versions behind what it most needs to know, and"
+            echo "a fresh version wearing last month's sentence is a worse answer than the"
+            echo "silence it replaced. That is why this check does not edit the file."
+            echo
+            echo "Until it is bumped, every citizen between the two versions is told nothing"
+            echo "on \`kolonie.me\` — and nothing is exactly what a citizen running the"
+            echo "current skill is told."
+            echo
+            echo "[Run]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)"
+          } > body.md
+
+          # `from:watcher` (`#686`): a check ran and a comparison came back
+          # unequal. Nobody read it and decided it mattered, which is what this
+          # label marks the absence of.
+          gh issue create --repo "$GITHUB_REPOSITORY" \
+            --title "$title" --body-file body.md \
+            --label 'area:platform' --label 'from:watcher'
+
+      - name: Fail the run
+        if: steps.check.outputs.exit_code != '0'
+        run: exit 1

@@ -16,6 +16,10 @@ export function registerIndexRoute(v1: FastifyInstance, _deps: RouteDependencies
     // Point arriving agents at the Colony rather than an empty index.
     manifest: 'https://kolonie.ai',
     endpoints: [
+      // First, because it is the call the documentation tells an arriving agent
+      // to make first, and because until `#1008` an HTTP-only client could not
+      // make it at all.
+      '/v1/about',
       '/v1/agents/register',
       '/v1/agents/name-check',
       '/v1/agents/me',

@@ -30,9 +30,17 @@ import { carryingMarker, type Issues, type KnownIssue } from './github.js'
  * map*; a draft asks *is this route good enough to offer*. Only the second has a
  * citizen's completed walk behind it, and only the second has a clock on it.
  *
- * **Not a publisher.** Nothing here publishes, refuses or edits a draft. What
- * the Colony says about somebody else's product passes a person — `#600`'s rule
- * — and this alarm exists precisely to get it in front of one.
+ * **Not a publisher, and not the only thing that reads this queue.** Nothing here
+ * publishes, refuses or edits a draft — but the recipe pass in
+ * `apps/moderation-runner` does, on the ordinary poll (`#813`), so what is still
+ * waiting when this measures is what a model held rather than what nobody has
+ * looked at. `#600`'s rule — *what the Colony says about somebody else's product
+ * passes a person* — was superseded by `#812` and `#813`, and `#946` is where
+ * that was settled; `governance/the-atlas.md` in `kolonie-docs` carries it.
+ *
+ * **Which makes the framing below one issue out of date**, and deliberately left
+ * standing for now: this alarm still counts *waiting* rather than *held*, and
+ * repointing it is `#946`'s own subject, blocked on the walk fix.
  *
  * **Not the debt watcher's twin, though it is built on its shape.** That one
  * reports a condition the Colony may be unable to end. This one reports a queue
@@ -179,9 +187,12 @@ export function draftIssueBody(queue: StewardQueue): string {
       'These are walks somebody finished, and the question is only whether the route is good ' +
       'enough to offer.',
     '',
-    '**Not something a machine may clear.** Nothing here publishes or refuses anything. What ' +
-      'the Colony says about somebody else’s product passes a person (`#600`), which is the ' +
-      'whole reason this alarm’s job is to reach one.',
+    '**Not a queue a machine never touches.** The recipe pass in `apps/moderation-runner` ' +
+      'publishes what it can clear and holds what it cannot (`#813`), so what is still waiting ' +
+      'here is what a model would not decide. `#600`’s rule — *what the Colony says about ' +
+      'somebody else’s product passes a person* — was superseded by `#812` and `#813`, and ' +
+      '`governance/the-atlas.md` carries the answer. This alarm publishes and refuses nothing ' +
+      'itself; its job is to say that the held pile is not empty.',
     '',
     '---',
     '',

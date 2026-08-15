@@ -238,9 +238,13 @@ describe('what the alarm says', () => {
     expect(body).not.toMatch(/no console|nowhere to (see|read)/i)
   })
 
-  /** Nothing here publishes: what the Colony says about somebody else’s product passes a person. */
-  it('says plainly that no machine clears this queue', () => {
-    expect(draftIssueBody(theFourWalks)).toContain('Not something a machine may clear')
+  /** Nothing *here* publishes, and the body says who does (`#946`). */
+  it('says plainly that this alarm clears nothing and names what does', () => {
+    const body = draftIssueBody(theFourWalks)
+
+    expect(body).toContain('publishes what it can clear and holds what it cannot')
+    expect(body).toContain('`#813`')
+    expect(body).not.toContain('passes a person (`#600`)')
   })
 
   it('says how many it did not list when the queue is longer than the table', () => {

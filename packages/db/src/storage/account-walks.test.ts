@@ -214,6 +214,59 @@ describe('the record of one agent obtaining one account', () => {
       const entry = await providerRecipe(db, where.kind, where.provider)
       expect(entry?.walkedRecipe?.prerequisites).toEqual(['a GitHub account you already control'])
       expect(entry?.walkedRecipe?.walls?.[0]?.title).toBe('the OAuth redirect asks for a password')
+
+      /**
+       * **And they are reachable without knowing the blob is there** (`#982`).
+       * `walls` is the same array one level up, attached in `toRecipe`, which is
+       * the difference between a wall being stored and a wall being findable.
+       */
+      expect(entry?.walls).toEqual([{ title: 'the OAuth redirect asks for a password' }])
+    })
+
+    /**
+     * **A refusal's walls publish, because a refused entry is public** (`#982`).
+     * This is the case the Atlas most needed and least had: the entry that says
+     * *do not try* is worth its wall, and the wall was written into a blob no
+     * reader looked in.
+     */
+    it('publishes the walls of a refusal on the entry', async () => {
+      const walkId = await walkInProgress(db, agentId, where)
+      await recordWalkStep(db, walkId, { actor: 'agent' })
+
+      await finishWalk(db, walkId, {
+        outcome: 'refused',
+        wall: 'signup demands a phone number it will not take twice',
+        recipe: {
+          walls: [
+            {
+              title: 'the phone step',
+              symptom: 'the form rejects every number that has signed up before',
+            },
+          ],
+        },
+      })
+
+      const entry = await providerRecipe(db, where.kind, where.provider)
+      expect(entry?.status).toBe('refused')
+      expect(entry?.walls).toEqual([
+        {
+          title: 'the phone step',
+          symptom: 'the form rejects every number that has signed up before',
+        },
+      ])
+    })
+
+    /**
+     * **Empty and not absent, on an entry nobody walked** (`#982`). A reader that
+     * has to tell `undefined` from `[]` before it can count walls is one that
+     * will get it wrong once.
+     */
+    it('answers with no walls where the walk wrote none', async () => {
+      const walkId = await walkInProgress(db, agentId, where)
+      await recordWalkStep(db, walkId, { actor: 'agent' })
+      await finishWalk(db, walkId, { outcome: 'proved' })
+
+      expect((await providerRecipe(db, where.kind, where.provider))?.walls).toEqual([])
     })
 
     /**

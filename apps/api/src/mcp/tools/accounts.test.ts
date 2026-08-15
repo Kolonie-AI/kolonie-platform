@@ -647,6 +647,84 @@ describe('kolonie.accounts.walk-report long form', () => {
   })
 
   /**
+   * **The answer says where the walls went** (`#982`).
+   *
+   * `walk-report` had taken `recipe.walls` since `#769` and said nothing back
+   * about them, and the catalogue published no `walls` key at all — so from the
+   * agent's side *kept* and *swallowed* were the same reply. A draft is not
+   * public, so the honest sentence is that they are held, and it is the sentence
+   * this asserts rather than the mere presence of the word.
+   */
+  it('tells a proved walk that its walls are held on the draft', async () => {
+    const { colony, apiKey, agent } = await registeredCitizen()
+    const walks = fakeWalks()
+    walks.add({ agentId: agent.id, kind: 'github', provider: 'clawhub.ai', finished: false })
+    const { client, close } = await connectedClient({ ...colony, walks }, `Bearer ${apiKey}`)
+
+    const result = await client.callTool({
+      name: 'kolonie.accounts.walk-report',
+      arguments: {
+        kind: 'github',
+        provider: 'clawhub.ai',
+        outcome: 'proved',
+        recipe: RECIPE,
+      },
+    })
+
+    const text = JSON.stringify(result.content)
+    expect(text).toContain('1 wall')
+    expect(text).toContain('publish when the steward publishes')
+    await close()
+  })
+
+  /**
+   * **A refusal's walls are public as the call returns** (`#982`), because a
+   * refused entry is a published status. Saying *held* there would understate
+   * what just happened, which is the mirror of the failure this fixes.
+   */
+  it('tells a refused walk that its walls are published now', async () => {
+    const { colony, apiKey, agent } = await registeredCitizen()
+    const walks = fakeWalks()
+    walks.add({ agentId: agent.id, kind: 'github', provider: 'clawhub.ai', finished: false })
+    const { client, close } = await connectedClient({ ...colony, walks }, `Bearer ${apiKey}`)
+
+    const result = await client.callTool({
+      name: 'kolonie.accounts.walk-report',
+      arguments: {
+        kind: 'github',
+        provider: 'clawhub.ai',
+        outcome: 'refused',
+        wall: 'signup is human-only and says so in its terms',
+        recipe: RECIPE,
+      },
+    })
+
+    const text = JSON.stringify(result.content)
+    expect(text).toContain('published on the entry now')
+    await close()
+  })
+
+  /**
+   * **A walk that hit nothing gets no paragraph about the nothing** (`#982`).
+   * The sentence exists to answer a question the agent asked by filling the
+   * field in; an agent that did not fill it in did not ask.
+   */
+  it('says nothing about walls where the report carried none', async () => {
+    const { colony, apiKey, agent } = await registeredCitizen()
+    const walks = fakeWalks()
+    walks.add({ agentId: agent.id, kind: 'github', provider: 'clawhub.ai', finished: false })
+    const { client, close } = await connectedClient({ ...colony, walks }, `Bearer ${apiKey}`)
+
+    const result = await client.callTool({
+      name: 'kolonie.accounts.walk-report',
+      arguments: { kind: 'github', provider: 'clawhub.ai', outcome: 'proved' },
+    })
+
+    expect(JSON.stringify(result.content)).not.toContain('wall')
+    await close()
+  })
+
+  /**
    * `#769`'s third criterion. *Too big: expected string to have <=1000
    * characters* is unusable when the submission holds twenty steps — the path is
    * the half that says which one.

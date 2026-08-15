@@ -74,6 +74,43 @@ describe('reading the catalogue', () => {
     expect(result.error.message).toContain('kolonie.accounts.wishes')
   })
 
+  /**
+   * **The measurement `#982` opens with**: `walls` appeared nowhere in the served
+   * catalogue — 133 entries, 89 KB, zero occurrences — while `walk-report` had
+   * been collecting walls for weeks. They were on the entry the whole time,
+   * nested inside `walkedRecipe`, which a reader has to know to look inside.
+   */
+  it('serves the walls a walker wrote as a key of the entry', async () => {
+    recipes.write({
+      kind: 'trello',
+      provider: 'walled.example',
+      status: 'refused',
+      walkedRecipe: {
+        walls: [{ title: 'the signup form refuses a shared mailbox' }],
+      },
+    })
+
+    const result = await readRecipes({}, recipes)
+    if (result.outcome !== 'ok') throw new Error('expected the read to succeed')
+
+    expect(result.response.recipes[0]?.walls).toEqual([
+      { title: 'the signup form refuses a shared mailbox' },
+    ])
+  })
+
+  /**
+   * **Empty rather than absent**, on the entries nobody walked — which is most of
+   * them. A key that is sometimes missing is one every caller has to guard.
+   */
+  it('answers an unwalked entry with no walls rather than with no key', async () => {
+    recipes.write({ kind: 'trello', provider: 'trello.com', status: 'joinable' })
+
+    const result = await readRecipes({}, recipes)
+    if (result.outcome !== 'ok') throw new Error('expected the read to succeed')
+
+    expect(result.response.recipes[0]?.walls).toEqual([])
+  })
+
   it('puts what can be acted on above what cannot', async () => {
     recipes.write({ kind: 'social', provider: 'closed.example', status: 'refused' })
     recipes.write({ kind: 'trello', provider: 'trello.com', status: 'joinable' })
@@ -235,6 +272,7 @@ describe('what the recipe says to the agent walking it', () => {
         reaches: null,
         caution: 'Some domains are refused.',
         walkedRecipe: null,
+        walls: [],
         agentApi: 'unknown' as const,
         signupCode: 'unknown' as const,
         needs: [],
@@ -288,6 +326,7 @@ describe('what the recipe says to the agent walking it', () => {
         reaches: null,
         caution: null,
         walkedRecipe: null,
+        walls: [],
         agentApi: 'unknown' as const,
         signupCode: 'unknown' as const,
         needs: [],
@@ -348,6 +387,7 @@ describe('what the recipe says to the agent walking it', () => {
       reaches: null,
       caution: null,
       walkedRecipe: null,
+      walls: [],
       agentApi: 'unknown' as const,
       signupCode: 'unknown' as const,
       needs: [],
@@ -412,6 +452,7 @@ describe('what the recipe says to the agent walking it', () => {
         reaches: null,
         caution: null,
         walkedRecipe: null,
+        walls: [],
         agentApi: 'unknown' as const,
         signupCode: 'unknown' as const,
         needs: [],
@@ -464,6 +505,7 @@ describe('what the recipe says to the agent walking it', () => {
       reaches: null,
       caution: null,
       walkedRecipe: null,
+      walls: [],
       agentApi: 'unknown' as const,
       signupCode: 'unknown' as const,
       needs: [] as never[],
@@ -629,6 +671,7 @@ describe('the handoff a recipe names', () => {
     reaches: null,
     caution: null,
     walkedRecipe: null,
+    walls: [],
     agentApi: 'unknown' as const,
     signupCode: 'unknown' as const,
     needs: [],
@@ -802,6 +845,7 @@ describe('an ask whose missing values are already held (#594 wall 3)', () => {
     reaches: null,
     caution: null,
     walkedRecipe: null,
+    walls: [],
     agentApi: 'unknown' as const,
     signupCode: 'unknown' as const,
     needs: [],

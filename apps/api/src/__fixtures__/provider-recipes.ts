@@ -378,6 +378,13 @@ export function fakeProviderRecipes(): FakeProviderRecipes {
         reaches: entry.reaches ?? null,
         caution: entry.caution ?? null,
         walkedRecipe: entry.walkedRecipe ?? null,
+        /**
+         * **Derived, never taken from the caller** (`#982`), the way `toRecipe`
+         * derives it. A fixture that could set `walls` without a `walkedRecipe`
+         * would let a test assert on walls no real row can have, which is the one
+         * thing this fake exists to stop.
+         */
+        walls: entry.walkedRecipe?.walls ?? [],
         agentApi: entry.agentApi ?? 'unknown',
         signupCode: entry.signupCode ?? 'unknown',
         needs: entry.needs ?? [],

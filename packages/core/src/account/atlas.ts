@@ -890,6 +890,8 @@ export function measuredOnlyRecipes(
         reaches: null,
         caution: null,
         walkedRecipe: null,
+        /** Nobody walked this row, so nobody was stopped anywhere on it. */
+        walls: [],
         agentApi: 'unknown',
         signupCode: 'unknown',
         /**

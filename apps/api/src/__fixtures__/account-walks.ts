@@ -90,6 +90,14 @@ export function fakeWalks(): FakeWalkStore {
         changed: input.changed ?? null,
         discarded: input.discarded ?? null,
         takenStepPositions: input.takenStepPositions == null ? null : [...input.takenStepPositions],
+        /**
+         * **The long form lands on the walk here too** (`#982`), the way
+         * `finishWalk` writes it. Without it the fake answered a report carrying
+         * four walls with a walk carrying none, and the tool result — which now
+         * tells the agent where its walls went — would have been tested against a
+         * walk no real report produces.
+         */
+        recipe: input.recipe ?? null,
       }
       rows[at] = walk
       const verdict: WalkVerdict =

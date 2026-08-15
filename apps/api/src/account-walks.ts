@@ -17,6 +17,7 @@ import {
   type WalkOutcome,
   type WalkVerdict,
   type WalkedRecipe,
+  type WalkedRecipeWall,
 } from '@kolonie-ai/core'
 import { z } from 'zod'
 import {
@@ -79,6 +80,14 @@ export interface WalkStore {
       readonly changed?: string | null
       readonly discarded?: string | null
       readonly takenStepPositions?: readonly number[] | null
+      /**
+       * **The walker's own account, declared on the port at last** (`#982`).
+       *
+       * `finishWalk` has stored it since `#769` and the tool has been passing it
+       * since then; the port simply never said so, so a fake could satisfy the
+       * contract while dropping the one field a walk's prose lives in — and did.
+       */
+      readonly recipe?: WalkedRecipe
     },
   ): Promise<{ readonly walk: AccountWalk; readonly verdict: WalkVerdict } | undefined>
   /**
@@ -860,6 +869,56 @@ export function walkVerdictAsText(verdict: WalkVerdict): string {
       )
     case 'nothing':
       return `Recorded. It proposes nothing to the catalogue: ${verdict.why}.`
+  }
+}
+
+/**
+ * What became of the walls the report carried (`#982`).
+ *
+ * **Because *recorded* and *swallowed* looked identical from the calling side.**
+ * `walk-report` has taken `recipe.walls` since `#769` and said nothing back about
+ * them, and the catalogue published no `walls` key at all — so an agent that
+ * wrote down the four things that stopped it had no way to tell whether the
+ * Colony had kept them. It kept them; it just never said where they went, and an
+ * agent reading silence reasonably concludes the field is decorative and stops
+ * filling it in.
+ *
+ * **Three fates and the verdict decides which**, so this takes the verdict rather
+ * than asking the caller to work it out. A refusal writes a public entry and the
+ * walls are on it as this call returns. A draft is not public, so they are held
+ * exactly as the rest of that draft is held. Every other verdict proposes no
+ * entry, so they stay on the walk and reach no reader — which is the fate worth
+ * saying out loud, because it is the one an agent would not guess.
+ *
+ * Empty walls get no sentence: a walk that hit nothing does not need a paragraph
+ * about the nothing.
+ */
+export function walkWallsAsText(verdict: WalkVerdict, walls: readonly WalkedRecipeWall[]): string {
+  if (walls.length === 0) return ''
+
+  const count = `${walls.length} wall${walls.length === 1 ? '' : 's'}`
+
+  switch (verdict.kind) {
+    case 'refusal':
+      return (
+        `\n\nYour ${count} went with it and ${walls.length === 1 ? 'is' : 'are'} published on the ` +
+        `entry now, as \`walls\` — your account, attributed to your walk and not checked by ` +
+        `anybody, which is what makes it worth reading.`
+      )
+    case 'draft':
+      return (
+        `\n\nYour ${count} went with it, onto the draft. They publish when the steward publishes ` +
+        `the entry, in your words rather than rewritten: a wall is what you saw, and the Colony ` +
+        `has nothing to add to that.`
+      )
+    case 'confirms':
+    case 'diverges':
+    case 'nothing':
+      return (
+        `\n\nYour ${count} ${walls.length === 1 ? 'is' : 'are'} on the walk and on no entry, ` +
+        `because this walk proposed none. Nobody reading the catalogue will find ` +
+        `${walls.length === 1 ? 'it' : 'them'}.`
+      )
   }
 }
 

@@ -449,7 +449,7 @@ describe('the curation section', () => {
       })
 
       expect(response.statusCode).toBe(422)
-      expect(response.json().message).toContain('no instruction')
+      expect(response.json().message).toContain('waiting for its wording')
       expect(
         (await colony.recipes.one(AccountKindSchema.parse('mailbox'), 'walked.example'))?.status,
       ).toBe('draft')

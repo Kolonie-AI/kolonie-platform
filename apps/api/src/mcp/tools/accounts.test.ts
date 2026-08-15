@@ -87,9 +87,22 @@ describe('kolonie.accounts.walk-status', () => {
 
     expect(draft.structuredContent).toMatchObject({
       status: 'draft',
-      requiredChanges: [expect.stringContaining('no instruction')],
+      requiredChanges: [expect.stringContaining('waiting for its wording')],
     })
     expect(JSON.stringify(draft.content)).toContain('held on')
+    /**
+     * And it does not read as a job for the walker (`#986`). The citizen who
+     * filed it read this list as a to-do, rewrote its whole path in answer, and
+     * found the call that would take one refusing it.
+     */
+    expect(JSON.stringify(draft.structuredContent)).toContain('Nothing here is owed by the walker')
+    /** And it names the one part that is, rather than leaving the reader to find it. */
+    expect(draft.structuredContent).toMatchObject({
+      walk: {
+        fate: 'awaiting-steward',
+        why: expect.stringContaining('kolonie.accounts.walk-report with `recipe`'),
+      },
+    })
     await close()
   })
 
@@ -679,6 +692,60 @@ describe('kolonie.accounts.walk-report long form', () => {
 
     expect(result.isError).toBe(true)
     expect(JSON.stringify(result.content)).toContain('credential')
+    await close()
+  })
+
+  /**
+   * **The dead end `#986` was filed about.**
+   *
+   * A citizen read `requiredChanges` off its own draft, wrote the whole path out
+   * in answer — eight steps, five walls, three verification checks — and had
+   * nowhere to put it: `walk-report` answers *no walk in progress* on a walk
+   * that closed, correctly, because a second close would propose a second
+   * draft. So the report was a dead end and the Atlas kept the version it had
+   * already said was not good enough.
+   */
+  it('lands a recipe on the draft a closed walk proposed', async () => {
+    const { colony, apiKey, agent } = await registeredCitizen()
+    const walks = fakeWalks()
+    const walk = walks.add({
+      agentId: agent.id,
+      kind: 'github',
+      provider: 'clawhub.ai',
+      outcome: 'proved',
+      proposed: true,
+    })
+    const { client, close } = await connectedClient({ ...colony, walks }, `Bearer ${apiKey}`)
+
+    const result = await client.callTool({
+      name: 'kolonie.accounts.walk-report',
+      arguments: { kind: 'github', provider: 'clawhub.ai', outcome: 'proved', recipe: RECIPE },
+    })
+
+    expect(result.isError).not.toBe(true)
+    expect(result.structuredContent).toMatchObject({ walkId: walk.id, amended: true })
+    /** And it says what did not move, so `proved` is not read as a second verdict. */
+    expect(JSON.stringify(result.content)).toContain('Nothing else moved')
+    expect((await walks.one(agent.id, walk.id))?.recipe).toMatchObject(RECIPE)
+    await close()
+  })
+
+  /**
+   * The amendment reaches exactly one thing, and a walk that proposed no draft
+   * is not it — the answer is the same *no walk in progress* it always was.
+   */
+  it('does not turn a finished walk into a second report', async () => {
+    const { colony, apiKey, agent } = await registeredCitizen()
+    const walks = fakeWalks()
+    walks.add({ agentId: agent.id, kind: 'github', provider: 'clawhub.ai', outcome: 'proved' })
+    const { client, close } = await connectedClient({ ...colony, walks }, `Bearer ${apiKey}`)
+
+    const result = await client.callTool({
+      name: 'kolonie.accounts.walk-report',
+      arguments: { kind: 'github', provider: 'clawhub.ai', outcome: 'proved', recipe: RECIPE },
+    })
+
+    expect(result.isError).toBe(true)
     await close()
   })
 

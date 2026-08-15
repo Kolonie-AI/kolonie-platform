@@ -10,6 +10,7 @@ import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
 import { sql } from 'drizzle-orm'
 import {
   accountWalk,
+  amendProposedDraft,
   reportFinishedWalk,
   unreportedWalk,
   accountWalkList,
@@ -468,6 +469,91 @@ describe('the record of one agent obtaining one account', () => {
       await finishWalk(db, walkId, { outcome: 'proved' })
 
       expect(await openWalkId(db, agentId, where)).toBeUndefined()
+    })
+  })
+
+  /**
+   * **The one thing on a held draft that is the walker's** (`#986`).
+   *
+   * A citizen read `requiredChanges` off its draft, wrote the whole path out in
+   * answer and had nowhere to put it: the walk had closed, correctly, because a
+   * second close would propose a second draft. What moves here is the attributed
+   * account and nothing else — no outcome, no verdict, and none of the wording
+   * `#517` reserves for the Colony.
+   */
+  describe('amending the account on a draft this walk proposed', () => {
+    const RECIPE = {
+      steps: [{ title: 'Open the signup page', detail: 'It is OAuth-only.' }],
+      verification: ['the account page names the address'],
+    }
+
+    const proposedDraft = async () => {
+      const walkId = await walkInProgress(db, agentId, where)
+      await recordWalkStep(db, walkId, { actor: 'agent' })
+      await finishWalk(db, walkId, { outcome: 'proved' })
+      return walkId
+    }
+
+    it('replaces the account on the walk and on the entry carrying it', async () => {
+      const walkId = await proposedDraft()
+
+      const amended = await amendProposedDraft(db, agentId, where, RECIPE)
+
+      expect(amended?.id).toBe(walkId)
+      expect(amended?.recipe).toMatchObject(RECIPE)
+      expect((await providerRecipe(db, where.kind, where.provider))?.walkedRecipe).toMatchObject(
+        RECIPE,
+      )
+    })
+
+    /** The verdict was decided when the walk ended, and an amendment is not one. */
+    it('moves no outcome, no status and none of the entry’s own steps', async () => {
+      await proposedDraft()
+      const before = await providerRecipe(db, where.kind, where.provider)
+
+      const amended = await amendProposedDraft(db, agentId, where, RECIPE)
+
+      const after = await providerRecipe(db, where.kind, where.provider)
+      expect(amended?.outcome).toBe('proved')
+      expect(after?.status).toBe('draft')
+      expect(after?.steps).toEqual(before?.steps)
+    })
+
+    /**
+     * **Nothing published is reachable from here.** A steward taking the entry
+     * out of `draft` is what ends the walker's hold on its own paragraph, and
+     * the fields a steward filled in are not touched on the way past.
+     */
+    it('refuses once a steward has published the entry, and keeps what they wrote', async () => {
+      await proposedDraft()
+      await dressProviderRecipeDraft(db, {
+        ...where,
+        steps: [{ actor: 'agent', instruction: 'Open the signup form.' }],
+        proves: 'rung',
+        provesTask: 'email-inbox',
+      })
+      await publishProviderRecipe(db, { ...where, verdict: 'published' })
+
+      expect(await amendProposedDraft(db, agentId, where, RECIPE)).toBeUndefined()
+
+      const entry = await providerRecipe(db, where.kind, where.provider)
+      expect(entry?.status).toBe('joinable')
+      expect(entry?.proves).toBe('rung')
+      expect(entry?.steps).toHaveLength(1)
+    })
+
+    /** A citizen that proposed nothing here has nothing to amend. */
+    it('reaches no draft another walk proposed', async () => {
+      await proposedDraft()
+      const other = await registerAgent(db, {
+        name: 'second-walker',
+        platform: 'openclaw',
+        operator: null,
+      })
+      if (other.outcome !== 'registered') throw new Error('could not register the second walker')
+
+      expect(await amendProposedDraft(db, other.agent.id, where, RECIPE)).toBeUndefined()
+      expect((await providerRecipe(db, where.kind, where.provider))?.walkedRecipe).toBeNull()
     })
   })
 

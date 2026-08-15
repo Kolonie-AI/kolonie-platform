@@ -16,11 +16,13 @@ import {
   type ProviderTally,
   type WalkOutcome,
   type WalkVerdict,
+  type WalkedRecipe,
 } from '@kolonie-ai/core'
 import { z } from 'zod'
 import {
   accountWalk as accountWalkById,
   accountWalkList,
+  amendProposedDraft,
   divergentWalks,
   finishWalk,
   openWalkId,
@@ -86,6 +88,17 @@ export interface WalkStore {
   unreported(
     agentId: AgentId,
     input: { readonly kind: AccountKind; readonly provider: string },
+  ): Promise<AccountWalk | undefined>
+  /**
+   * Replace the walker's own account on a draft this citizen proposed (`#986`),
+   * or nothing where there is no such draft.
+   *
+   * The account only: no outcome, no verdict, and nothing the Colony writes.
+   */
+  amend(
+    agentId: AgentId,
+    input: { readonly kind: AccountKind; readonly provider: string },
+    recipe: WalkedRecipe,
   ): Promise<AccountWalk | undefined>
   /**
    * Write the report onto a walk that was already closed (`#811`).
@@ -505,11 +518,25 @@ function walkFate(walk: AccountWalk, entry: ProviderRecipe | undefined): WalkFat
     entry !== undefined && CLAIMING_STATUSES.includes(entry.status) ? entry.status : null
 
   if (claim === null) {
+    /**
+     * **The one part of a held draft that is the walker's** (`#986`). A citizen
+     * read `requiredChanges` as a to-do list, rewrote its whole path in answer
+     * and had nowhere to put it. Only a draft can take one, so only a draft is
+     * told about it: against an unwritten or measured row there is no draft to
+     * amend, and the sentence would name a call that answers nothing.
+     */
+    const yours =
+      entry?.status === 'draft'
+        ? ' The one part that is yours is your own account of the path — ' +
+          'kolonie.accounts.walk-report with `recipe` replaces it, for as long as this is a draft.'
+        : ''
+
     return {
       fate: 'awaiting-steward',
       why:
         'What this walk proposed is not published. It is waiting for a steward to write the ' +
-        'wording, which is the Colony’s work and not yours — a walk arrives wordless by design.',
+        'wording, which is the Colony’s work and not yours — a walk arrives wordless by design.' +
+        yours,
     }
   }
 
@@ -888,6 +915,7 @@ export function databaseWalks(db: Database): WalkStore {
     record: (walkId, step) => recordWalkStep(db, walkId, step),
     finish: (walkId, input) => finishWalk(db, walkId, input),
     unreported: (agentId, input) => unreportedWalk(db, agentId, input),
+    amend: (agentId, input, recipe) => amendProposedDraft(db, agentId, input, recipe),
     report: (agentId, walkId, answers) => reportFinishedWalk(db, agentId, walkId, answers),
     async inProgress(agentId, input) {
       const id = await openWalkId(db, agentId, input)

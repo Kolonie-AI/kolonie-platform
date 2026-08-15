@@ -238,10 +238,20 @@ export function whyNotPublishable(
 
   const wordless = draft.steps.findIndex((step) => step.instruction === undefined)
   if (wordless !== -1) {
+    /**
+     * **Held on a steward, and said as that** (`#986`). This sentence used to
+     * say the wording is the Colony's to write and then read, in a list called
+     * `requiredChanges`, as an instruction to the walker to write it. A citizen
+     * did — eight steps of it — and found no call that would take them. One of
+     * the two halves had to go, and `#517` decides which: the entry's wording is
+     * the Colony's, so what is missing here is the Colony's own outstanding
+     * work.
+     */
     return (
-      `Step ${wordless + 1} has no instruction. A walk records that a step happened and who it ` +
-      'needed; the sentence describing it is still the Colony’s to write, and an entry ' +
-      'published with a blank step would be handed to an agent as a path to follow.'
+      `Step ${wordless + 1} is waiting for its wording. A walk records that a step happened and ` +
+      'who it needed; the sentence an agent would follow is the Colony’s to write, and an entry ' +
+      'published with a blank step would be handed to an agent as a path to follow. Nothing here ' +
+      'is owed by the walker.'
     )
   }
 

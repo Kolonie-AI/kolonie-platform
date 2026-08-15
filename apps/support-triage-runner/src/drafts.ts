@@ -1,5 +1,5 @@
 import type { StewardQueue } from '@kolonie-ai/db'
-import type { Issues, KnownIssue } from './github.js'
+import { carryingMarker, type Issues, type KnownIssue } from './github.js'
 
 /**
  * The alarm for walks a citizen finished and nobody has read (`#917`).
@@ -121,9 +121,15 @@ export function decideDrafts(queue: StewardQueue, open: KnownIssue | undefined):
     : { kind: 'standing', issue: open }
 }
 
-/** The open issue carrying this alarm's marker, if there is one. */
+/**
+ * The open issue carrying this alarm's marker on its first line, if there is one.
+ *
+ * **First line rather than anywhere**, and this alarm is why: `#946` quotes
+ * `DRAFT_MARKER` while discussing this file, and was adopted and overwritten.
+ * {@link carryingMarker} carries the whole argument.
+ */
 export function openDraftIssue(issues: readonly KnownIssue[]): KnownIssue | undefined {
-  return issues.find((issue) => issue.body.includes(DRAFT_MARKER))
+  return carryingMarker(issues, DRAFT_MARKER)
 }
 
 /** The alarm, as the steward who has to act on it reads it. */

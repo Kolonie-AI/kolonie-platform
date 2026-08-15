@@ -1,6 +1,6 @@
 import type { PayoutRefusal } from '@kolonie-ai/core'
 import type { OutstandingDebt } from '@kolonie-ai/db'
-import type { Issues, KnownIssue } from './github.js'
+import { carryingMarker, type Issues, type KnownIssue } from './github.js'
 
 /**
  * The alarm for money the Colony owes and has not paid (`#720`).
@@ -215,9 +215,15 @@ export function decideDebt(debt: OutstandingDebt, open: KnownIssue | undefined):
     : { kind: 'standing', issue: open }
 }
 
-/** The open issue carrying this alarm's marker, if there is one. */
+/**
+ * The open issue carrying this alarm's marker on its first line, if there is one.
+ *
+ * **First line rather than anywhere**, for the reason {@link carryingMarker}
+ * gives: an issue written *about* this watcher quotes the marker, and matching
+ * anywhere in the body adopts it and overwrites what a person wrote.
+ */
 export function openDebtIssue(issues: readonly KnownIssue[]): KnownIssue | undefined {
-  return issues.find((issue) => issue.body.includes(DEBT_MARKER))
+  return carryingMarker(issues, DEBT_MARKER)
 }
 
 /**

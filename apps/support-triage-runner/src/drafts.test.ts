@@ -179,6 +179,33 @@ describe('deciding what to do about walks waiting for a steward', () => {
     expect(openDraftIssue([somebodyElse, mine])).toBe(mine)
     expect(openDraftIssue([somebodyElse])).toBeUndefined()
   })
+
+  /**
+   * The rejection case, and it is not hypothetical: `#946` was filed by hand to
+   * ask for this watcher's retirement, quoted `DRAFT_MARKER` in a code fence
+   * while doing so, and was adopted and overwritten twelve minutes later.
+   */
+  it('does not adopt an issue that merely quotes its marker', () => {
+    const aboutTheWatcher = anIssue(
+      [
+        "Retire the 'waiting for a steward' watcher",
+        '',
+        '```',
+        `DRAFT_MARKER = '${DRAFT_MARKER}'   (:64)`,
+        '```',
+      ].join('\n'),
+    )
+
+    expect(openDraftIssue([aboutTheWatcher])).toBeUndefined()
+    expect(decideDrafts(theFourWalks, openDraftIssue([aboutTheWatcher]))).toEqual({ kind: 'file' })
+  })
+
+  /** GitHub hands some bodies back with CRLF, and a marker is still a marker. */
+  it('finds its own alarm through a carriage return', () => {
+    const mine = anIssue(`${DRAFT_MARKER}\r\n<!-- waiting: count=4 -->`)
+
+    expect(openDraftIssue([mine])).toBe(mine)
+  })
 })
 
 describe('what the alarm says', () => {

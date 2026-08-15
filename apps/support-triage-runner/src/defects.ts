@@ -1,5 +1,5 @@
 import type { ModelCall } from '@kolonie-ai/core'
-import type { ClosedIssue, KnownIssue, NewIssue } from './github.js'
+import { carryingMarker, type ClosedIssue, type KnownIssue, type NewIssue } from './github.js'
 import type { DefectEvidence, LogCause, LogSignature } from './logs.js'
 import { MAX_CAUSE_DEPTH } from './logs.js'
 import { modelCallLine } from './triage.js'
@@ -436,13 +436,16 @@ export function defectIssue(report: DefectReport): NewIssue {
  * The marker is matched, never the title — a title can be edited by whoever
  * picks the issue up, and an issue that stopped matching would be filed a second
  * time the same afternoon.
+ *
+ * **On the first line rather than anywhere in the body**, which is the half that
+ * was missing: an issue quoting a signature while discussing it would otherwise
+ * be adopted as this detector's own. {@link carryingMarker} has the case.
  */
 export function openIssueFor(
   signature: string,
   issues: readonly KnownIssue[],
 ): KnownIssue | undefined {
-  const marker = bodyMarker(signature)
-  return issues.find((issue) => issue.body.includes(marker))
+  return carryingMarker(issues, bodyMarker(signature))
 }
 
 /**

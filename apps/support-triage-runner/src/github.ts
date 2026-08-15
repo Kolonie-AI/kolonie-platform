@@ -68,6 +68,35 @@ export interface KnownIssue {
   readonly url: string
 }
 
+/** The first line of a body, with the carriage return GitHub sometimes leaves on it. */
+function firstLine(body: string): string {
+  const end = body.indexOf('\n')
+  return (end === -1 ? body : body.slice(0, end)).trim()
+}
+
+/**
+ * The open issue a watcher filed, found by its marker **on the first line**.
+ *
+ * **Anywhere in the body is a different question, and the difference destroyed
+ * an issue.** `#946` was written by hand *about* the draft watcher and quotes
+ * `DRAFT_MARKER` inside a code fence; the watcher matched it, adopted it as its
+ * own alarm and rewrote the body twelve minutes after a person filed it. Every
+ * alarm here emits its marker as line one and nothing else does, so line one is
+ * the question worth asking — and an issue that merely mentions a marker, which
+ * is what any issue *about* a watcher does, is left alone.
+ *
+ * This is the same class of mistake as `#867`: a corpus read that quietly
+ * produces the wrong answer, where the wrong answer is acted on immediately.
+ *
+ * Safe against truncation, because {@link KnownIssue.body} is cut at the end.
+ */
+export function carryingMarker(
+  issues: readonly KnownIssue[],
+  marker: string,
+): KnownIssue | undefined {
+  return issues.find((issue) => firstLine(issue.body) === marker)
+}
+
 /**
  * An issue that has been closed, as much of it as a citizen is owed.
  *

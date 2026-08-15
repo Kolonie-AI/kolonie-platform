@@ -133,7 +133,18 @@ describe('deciding what to do about a debt', () => {
   /** The marker and never the title, which anybody may edit. */
   it('recognises its own issue by the marker rather than by the title', () => {
     expect(openDebtIssue([anIssue('some other alarm entirely')])).toBeUndefined()
-    expect(openDebtIssue([anIssue(`prose\n${DEBT_MARKER}\nmore prose`)])).toBeDefined()
+    expect(openDebtIssue([anIssue(`${DEBT_MARKER}\n<!-- ours: count=2 -->`)])).toBeDefined()
+  })
+
+  /**
+   * **The marker on the first line, not anywhere in the body**, and this
+   * assertion is the inverse of what it used to make. Matching anywhere adopts
+   * any issue that *discusses* this alarm — which is what happened to `#946`
+   * next door, where the draft watcher rewrote a person's issue twelve minutes
+   * after it was filed because it quoted a marker in a code fence.
+   */
+  it('does not adopt an issue that merely quotes its marker', () => {
+    expect(openDebtIssue([anIssue(`prose\n${DEBT_MARKER}\nmore prose`)])).toBeUndefined()
   })
 })
 

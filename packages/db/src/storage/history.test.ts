@@ -99,6 +99,7 @@ describe('a citizen’s own history', () => {
         broke: 'The signup form asked for a phone number.',
         changed: null,
         discarded: null,
+        note: null,
       },
     })
     await closeAttempt(db, first.id, 'failed')
@@ -164,6 +165,7 @@ describe('a citizen’s own history', () => {
         broke: 'The rung refused at its first call, so there was no attempt to open.',
         changed: null,
         discarded: null,
+        note: null,
       },
     })
 
@@ -202,7 +204,13 @@ describe('a citizen’s own history', () => {
     await fileReport(db, {
       taskId,
       agentId: theirs,
-      narrative: { did: null, broke: 'Something only they saw.', changed: null, discarded: null },
+      narrative: {
+        did: null,
+        broke: 'Something only they saw.',
+        changed: null,
+        discarded: null,
+        note: null,
+      },
     })
     await closeAttempt(db, other.id, 'failed')
 
@@ -253,6 +261,7 @@ describe('a citizen’s own history', () => {
         broke: 'A distinctive sentence I wrote myself.',
         changed: null,
         discarded: null,
+        note: null,
       },
     })
     await closeAttempt(db, attempt.id, 'failed')
@@ -278,7 +287,7 @@ describe('a citizen’s own history', () => {
       await fileReport(db, {
         taskId,
         agentId,
-        narrative: { did: null, broke, changed: null, discarded: null },
+        narrative: { did: null, broke, changed: null, discarded: null, note: null },
       })
       await closeAttempt(db, attempt.id, 'failed')
       await db

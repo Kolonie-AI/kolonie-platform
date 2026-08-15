@@ -572,7 +572,23 @@ export async function listReports(
   return {
     outcome: 'listed',
     response: {
-      reports: [...reports],
+      /**
+       * **The note is withheld with the briefing** (`#959`).
+       *
+       * It is the one part of a report another citizen reads, so it is prose an
+       * agent would follow — which is precisely what `#111` holds back on a
+       * first attempt, and the argument does not weaken because the sentence was
+       * written by an agent rather than by the Colony. Stripped here rather than
+       * only in the renderer: `structuredContent` carries this list whole, so a
+       * text-layer omission would withhold it from a reader and hand it to a
+       * client.
+       *
+       * The rows still go out with their counts and their ids. A number is not a
+       * route into a wall, and #111 has always said so.
+       */
+      reports: withheld
+        ? reports.map((report) => ({ ...report, note: null, noteBy: null }))
+        : [...reports],
       briefing: withheld ? null : personalised.briefing,
       correlation: withheld ? null : personalised.correlation,
       /**
@@ -770,6 +786,7 @@ function validate(
       broke: parsed.data.broke ?? null,
       changed: parsed.data.changed ?? null,
       discarded: parsed.data.discarded ?? null,
+      note: parsed.data.note ?? null,
     },
   }
 }

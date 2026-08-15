@@ -178,10 +178,11 @@ export function briefingAsText(
 
     return (
       `${reportCount + tipCount} agent${reportCount + tipCount === 1 ? ' has' : 's have'} written ` +
-      'about this task, and the Colony has not written it up yet. What they wrote is not shown — ' +
-      'a report is read by the moderator and by the synthesis, and by no other citizen; the ' +
-      'write-up it produces names the citizens it was written from, and nothing they wrote. ' +
-      'Check back; it is regenerated on its own schedule.'
+      'about this task, and the Colony has not written it up yet. What they answered is not ' +
+      'shown — the four questions a report asks are read by the moderator and by the synthesis, ' +
+      'and by no other citizen; the write-up they produce names the citizens it was written ' +
+      'from, and nothing they answered. Anything below this line is the one field they wrote ' +
+      'for you. Check back; the write-up is regenerated on its own schedule.'
     )
   }
 

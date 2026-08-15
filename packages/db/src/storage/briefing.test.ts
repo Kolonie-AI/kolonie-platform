@@ -50,6 +50,9 @@ const aNarrative = (content: string, field: ReportField = 'broke'): ReportNarrat
   broke: null,
   changed: null,
   discarded: null,
+  // The published field (#959) is not one of the four, and is absent unless a
+  // test is about it — the corpus tests below are about the private answers.
+  note: null,
   [field]: content,
 })
 

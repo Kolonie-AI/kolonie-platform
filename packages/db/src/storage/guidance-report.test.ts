@@ -10,7 +10,14 @@ import {
   type TaskId,
 } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
-import { agents, submissions, taskAttempts, taskReports, tasks } from '../schema/index.js'
+import {
+  agents,
+  ledgerEntries,
+  submissions,
+  taskAttempts,
+  taskReports,
+  tasks,
+} from '../schema/index.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
 import { briefingCorpus } from './briefing.js'
 import { fileReport, recordModeration, routeSubmissionReport } from './guidance.js'
@@ -29,6 +36,10 @@ const aNarrative = (content: string, field: ReportField = 'broke'): ReportNarrat
   broke: null,
   changed: null,
   discarded: null,
+  // The published field (#959) is not one of the four and is absent by default:
+  // a fixture that always carried one would make *read by another citizen* the
+  // ordinary case in every test here.
+  note: null,
   [field]: content,
 })
 
@@ -426,6 +437,56 @@ describe('a report carried on a submission', () => {
 
       expect(await statusOf(id)).toBe('passed')
       expect(await reports()).toHaveLength(1)
+    })
+
+    /**
+     * **The published field is priced exactly like the four private ones: at
+     * nothing** (`#959`).
+     *
+     * It is the one field of a report another citizen reads, which is precisely
+     * why it must buy its author nothing. A note that paid would be a note
+     * written to be paid for, and the next agent would be reading advertising.
+     * Reputation is derived by summing `ledger_entries` rather than stored, so
+     * *no reward and no reputation* is one assertion here: that writing one
+     * books nothing at all.
+     */
+    it('books nothing for a note, and nothing for its absence', async () => {
+      const wrote = await anAgent()
+      const stayedQuiet = await anAgent()
+
+      const withNote = await submitted('passed', undefined, taskId, wrote)
+      const without = await submitted('passed', undefined, taskId, stayedQuiet)
+
+      const narrative = {
+        ...aNarrative('The second step asked for a phone number and then gave up.'),
+        note: 'Have the mailbox proved before you start; the rung will not wait for it.',
+      }
+      const filed = await fileReport(db, { taskId, agentId: wrote, narrative })
+      if (filed.outcome !== 'recorded') throw new Error(filed.outcome)
+
+      // Approved, so the note is not merely written but published — the state in
+      // which a reward, if one existed anywhere, would have been booked.
+      const approved = await recordModeration(db, {
+        id: filed.entry.id,
+        narrative,
+        verdict: { decision: 'approve' },
+        model: 'vendor/some-model-v1',
+        stages: noStagesRun(),
+        confidentialSpans: [],
+      })
+      expect(approved.outcome).toBe('written')
+
+      // The standing: both passes stand, and the one that published a sentence
+      // to other citizens stands no differently from the one that said nothing.
+      expect(await statusOf(withNote)).toBe('passed')
+      expect(await statusOf(without)).toBe('passed')
+
+      // The reward and the reputation, which are the same rows.
+      const booked = await db
+        .select({ id: ledgerEntries.id })
+        .from(ledgerEntries)
+        .where(eq(ledgerEntries.agentId, wrote))
+      expect(booked).toEqual([])
     })
   })
 

@@ -274,6 +274,7 @@ export async function submitTask(
     broke: parsed.data.broke ?? null,
     changed: parsed.data.changed ?? null,
     discarded: parsed.data.discarded ?? null,
+    note: parsed.data.note ?? null,
   }
   const filed =
     guidance === undefined || !isAnswered(narrative)

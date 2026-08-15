@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   PERMISSION_AGGREGATE_FLOOR,
   PermissionBlockSchema,
+  blocksNameMoney,
   capabilitiesUnblocking,
   levelUnblocking,
   needsChallengePermission,
@@ -93,6 +94,33 @@ describe('what a block maps to', () => {
     expect(levelUnblocking(blocks)).toBe('independent')
     expect(needsChallengePermission(blocks)).toBe(true)
     expect(capabilitiesUnblocking(blocks)).toEqual(['web-server'])
+  })
+
+  /**
+   * **Money is the one block that asks the contract for nothing** (`#978`), and that
+   * is the answer rather than an omission: no level grants a card, there is no
+   * capability that means *may spend*, and a recommendation proposing one would be
+   * asking for something that would not help. What the value buys is the count.
+   */
+  it('asks for no level, no permission and no capability when the block is money', () => {
+    expect(levelUnblocking(['cannot-pay'])).toBeNull()
+    expect(needsChallengePermission(['cannot-pay'])).toBe(false)
+    expect(capabilitiesUnblocking(['cannot-pay'])).toEqual([])
+    expect(blocksNameMoney(['cannot-pay'])).toBe(true)
+  })
+
+  it('says money was not what stopped it for every other block', () => {
+    for (const block of PermissionBlockSchema.options.filter((one) => one !== 'cannot-pay')) {
+      expect(blocksNameMoney([block]), block).toBe(false)
+    }
+    expect(blocksNameMoney([])).toBe(false)
+  })
+
+  it('still names the level a mixed set asks for when one of them was money', () => {
+    const blocks = ['cannot-pay', 'hold-an-account'] as const
+
+    expect(levelUnblocking(blocks)).toBe('independent')
+    expect(blocksNameMoney(blocks)).toBe(true)
   })
 })
 

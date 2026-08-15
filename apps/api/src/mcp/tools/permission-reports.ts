@@ -79,6 +79,8 @@ export function registerPermissionReportTools(
             '"run-unattended" — it needs you to act with nobody watching. ' +
             '"clear-a-human-check" — it needs a “prove you are human” check cleared. ' +
             '"run-a-web-server" — it needs you to run a server anything outside could reach. ' +
+            '"cannot-pay" — it needs money and you hold nothing a provider would take; no ' +
+            'level and no tick fixes that, and what it buys is the count. ' +
             '"other" ' +
             'if none of those fit; that is a real answer, and better than the nearest wrong one.',
         ),

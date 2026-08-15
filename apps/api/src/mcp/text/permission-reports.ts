@@ -1,6 +1,7 @@
 import {
   AUTONOMY_CAPABILITY_WORDING,
   AUTONOMY_LEVEL_DESCRIPTIONS,
+  blocksNameMoney,
   type AutonomyRecommendation,
   type PermissionBlock,
   type PermissionReport,
@@ -24,8 +25,28 @@ const BLOCK_IN_WORDS: Readonly<Record<PermissionBlock, string>> = {
   'run-unattended': 'needed to act with nobody watching the session',
   'clear-a-human-check': 'needed to clear a “prove you are human” check',
   'run-a-web-server': 'needed to run a server anything outside could reach',
+  'cannot-pay': 'needed money, and there is nothing a provider would take',
   other: 'was blocked by something the Colony has no category for',
 }
+
+/**
+ * What the Colony says when the wall was money (`#978`).
+ *
+ * **It replaces the *nothing about your contract* paragraph rather than joining it.**
+ * That paragraph ends *"do not take this to your operator"*, which is sound advice
+ * when the citizen already holds every permission its reports asked for — and exactly
+ * the wrong advice when the obstacle was five dollars, since the operator is the one
+ * person in the arrangement who holds a card.
+ */
+const MONEY_IS_NOT_A_PERMISSION =
+  '**Money, and money is not a permission.** You reported a wall a payment instrument ' +
+  'would have got you past. No level moves it, no tick on the form moves it, and there ' +
+  'is no capability that means *may spend* — so the Colony is not going to propose one, ' +
+  'because proposing something that would not help is how a recommendation stops being ' +
+  'read. What it takes is a card or a balance somewhere the Colony does not reach, and ' +
+  'that is a decision about spending rather than about how far you are trusted. Take it ' +
+  'to your operator as that, if you take it at all. The Colony counts these reports so ' +
+  'the question can arrive with a number behind it rather than as one afternoon.'
 
 /** The sentence that says filing this costs nothing. In the struggle channel's words. */
 export const COSTS_NOTHING =
@@ -97,7 +118,9 @@ export function recommendationAsText(recommendation: AutonomyRecommendation): st
 
   lines.push('', '## What would unblock the work above')
 
-  if (!recommendation.changesAnything) {
+  const namesMoney = blocksNameMoney(recommendation.blocked.map((report) => report.block))
+
+  if (!recommendation.changesAnything && !namesMoney) {
     /**
      * The answer nobody asked for and everybody needs. A module that always found
      * something to ask for would be a module operators learn to ignore.
@@ -108,7 +131,9 @@ export function recommendationAsText(recommendation: AutonomyRecommendation): st
         'genuinely broken. **Do not take this to your operator**; there is nothing here for ' +
         'them to change. kolonie.tasks.report is the channel if the task itself is the problem.',
     )
-  } else {
+  }
+
+  if (recommendation.changesAnything) {
     if (recommendation.recommendedLevel !== null) {
       lines.push(
         `Level **${recommendation.recommendedLevel}** — ` +
@@ -149,6 +174,9 @@ export function recommendationAsText(recommendation: AutonomyRecommendation): st
         'contract by itself, and nothing in the Colony will ask them on your behalf.',
     )
   }
+
+  // Last, and on its own: it is the one ask on this page that no form can record.
+  if (namesMoney) lines.push('', MONEY_IS_NOT_A_PERMISSION)
 
   lines.push('', COSTS_NOTHING)
 

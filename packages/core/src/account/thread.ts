@@ -234,6 +234,15 @@ export const AccountEpisodeSchema = z.object({
   wall: z.string().max(EPISODE_WALL_MAX_LENGTH).nullable(),
   openedAt: TimestampSchema,
   closedAt: TimestampSchema.nullable(),
+  /**
+   * When closing it proposed an Atlas draft, and null where it proposed nothing
+   * (`#935`).
+   *
+   * The attribution rather than a status: `provider_recipes` carries no author
+   * column on purpose, so *whose episode this entry came from* lives here, on the
+   * row that knows it. `AccountWalk.proposedAt` is its twin.
+   */
+  proposedAt: TimestampSchema.nullable(),
 })
 export type AccountEpisode = z.infer<typeof AccountEpisodeSchema>
 

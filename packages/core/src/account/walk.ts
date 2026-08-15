@@ -512,6 +512,22 @@ export type WalkVerdict =
 export function walkVerdict(
   walk: AccountWalk,
   entry: (Pick<ProviderRecipe, 'status' | 'steps'> & Reaching) | undefined,
+  /**
+   * The shape the Colony already has on record for this account, from the
+   * acquisition episode that obtained it (`#935`).
+   *
+   * **Prefill, never override.** `#935` keeps `walk-report` and is explicit about
+   * why: an agent that obtains an account entirely alone has no episode and no
+   * operator, and that is a large share of all walks. Where an episode does
+   * exist, the walk is prefilled from it rather than asked again — so this is
+   * read only where the walk itself observed nothing, which is exactly the case
+   * the measurement found: a signup carried out through the episode machinery
+   * produces no walk steps at all, and the draft it proposed was `steps: []`.
+   *
+   * Omitted, this argument changes nothing, which is the other half of the same
+   * criterion.
+   */
+  observed?: readonly RecipeStep[],
 ): WalkVerdict {
   if (walk.outcome === null) {
     return { kind: 'nothing', why: 'the walk has not finished' }
@@ -532,7 +548,15 @@ export function walkVerdict(
       : { kind: 'refusal', wall: walk.wall }
   }
 
-  if (walk.steps.length === 0) {
+  /**
+   * What this walk has to show for itself: its own observed steps, or the
+   * episode's where it observed none. The published-entry branch below reads
+   * `walk` directly and is untouched by the prefill — a tick-list is an answer
+   * about *this* walk, and an episode has not given one.
+   */
+  const shape = walk.steps.length > 0 ? walkToSteps(walk) : (observed ?? [])
+
+  if (shape.length === 0) {
     return { kind: 'nothing', why: 'nothing was observed, so there is nothing to propose' }
   }
 
@@ -562,7 +586,7 @@ export function walkVerdict(
       : { kind: 'diverges', walked: reportedSteps(walk, entry), published: entry.steps }
   }
 
-  return { kind: 'draft', steps: walkToSteps(walk) }
+  return { kind: 'draft', steps: shape }
 }
 
 /**

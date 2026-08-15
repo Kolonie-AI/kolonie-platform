@@ -1,0 +1,1 @@
+ALTER TABLE "account_episodes" ADD COLUMN "proposed_at" timestamp with time zone;

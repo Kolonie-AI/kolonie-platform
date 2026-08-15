@@ -7,6 +7,7 @@ import {
   SLOT_LIFETIME_DAYS,
   SLOT_MAX_READS,
   VAULT_MAX_ENTRIES,
+  episodeVerdict,
   now as currentTime,
   outcomeNeedsWall,
   type AccountEntry,
@@ -15,6 +16,7 @@ import {
   type AccountSlot,
   type AccountThread,
   type AgentId,
+  type EpisodeVerdict,
 } from '@kolonie-ai/core'
 import type { AccountThreadStore } from '../account-threads.js'
 
@@ -202,6 +204,7 @@ export function fakeAccountThreads(
         wall: null,
         openedAt: currentTime(),
         closedAt: null,
+        proposedAt: null,
       }
       episodes.set(String(episode.id), episode)
       return { outcome: 'opened', episode }
@@ -364,7 +367,24 @@ export function fakeAccountThreads(
         slots.set(String(slot.id), { ...slot, value: null, destroyedAt: currentTime() })
       }
 
-      return { outcome: 'closed', episode: closed }
+      /**
+       * Closing an acquisition proposes the Atlas draft (`#935`), and the
+       * surface renders which of the three it was. The fake holds no catalogue,
+       * so nothing here can be published over — what it reproduces is the rule
+       * the surface leans on either way: an account naming no provider proposes
+       * nothing, because there is no shelf to put a draft on.
+       */
+      const account = accountOfThread(String(closed.threadId))
+      const proposed: EpisodeVerdict =
+        account === undefined || account.provider === null
+          ? { kind: 'nothing', why: 'the account names no provider' }
+          : episodeVerdict(
+              closed,
+              [...slots.values()].filter((slot) => String(slot.episodeId) === String(closed.id)),
+              undefined,
+            )
+
+      return { outcome: 'closed', episode: closed, proposed }
     },
 
     async vaultClaim(_vaultToken, agentId, key, value) {

@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
-import type { AgentId } from '@kolonie-ai/core'
+import { AccountKindSchema, type AgentId } from '@kolonie-ai/core'
 import { eq, sql } from 'drizzle-orm'
 import type { Database } from '../client.js'
 import { accountEntries, accountEpisodes, accounts, agents } from '../schema/index.js'
@@ -11,6 +11,7 @@ import {
   episode,
   episodesOf,
   fillSlot,
+  observedStepsFor,
   openEpisode,
   openSlot,
   passTurn,
@@ -19,6 +20,7 @@ import {
   threadOf,
   writeEntry,
 } from './account-threads.js'
+import { providerRecipe } from './provider-recipes.js'
 
 const target = databaseTestTarget()
 
@@ -463,6 +465,171 @@ describe('the account conversation', () => {
         .select({ count: sql<number>`count(*)::int` })
         .from(accountEntries)
       expect(remaining?.count).toBe(0)
+    })
+  })
+
+  /**
+   * The Atlas draft that falls out of closing the acquisition (`#935`).
+   *
+   * **What is worth a real database here** is the part a pure test cannot hold:
+   * that one close writes one entry and stamps the attribution, that a retried
+   * close does not write a second, and that the draft survives the secrets being
+   * destroyed in the same call — `destroyEpisodeSecrets` runs first, and the
+   * derivation reads labels and fill times, which it leaves alone.
+   */
+  describe('closing an acquisition proposes the draft', () => {
+    /** Every account below is a mailbox; the catalogue is keyed by the kind too. */
+    const mailbox = AccountKindSchema.parse('mailbox')
+
+    /** An account with a provider named — the plain `anAccount` leaves it null. */
+    const anAccountAt = async (provider: string): Promise<string> => {
+      const [row] = await db
+        .insert(accounts)
+        .values({ agentId, kind: 'mailbox', identifier: `joined-at@${provider}`, provider })
+        .returning({ id: accounts.id })
+      if (row === undefined) throw new Error('inserting an account returned no row')
+      return row.id
+    }
+
+    /** An open acquisition on a named provider, with the slots it filled. */
+    const anAcquisition = async (
+      provider: string,
+      slots: readonly { readonly label: string; readonly by: 'agent' | 'operator' }[],
+    ): Promise<thread.AccountEpisodeId> => {
+      const thisAccount = await anAccountAt(provider)
+      const existing = await threadOf(db, thisAccount)
+      if (existing === undefined) throw new Error('the account has no thread')
+      const opened = await openEpisode(db, {
+        threadId: existing.id,
+        openedBy: 'agent',
+        kind: 'acquisition',
+        title: `joining ${provider}`,
+      })
+      if (opened.outcome !== 'opened')
+        throw new Error(`expected an open episode, got ${opened.outcome}`)
+
+      for (const one of slots) {
+        const container = await openSlot(db, {
+          episodeId: opened.episode.id,
+          label: one.label,
+          secret: false,
+          awaits: one.by,
+        })
+        await fillSlot(db, { slotId: container.slot.id, filledBy: one.by, value: 'a value' })
+      }
+
+      return opened.episode.id
+    }
+
+    it('writes a draft nobody published, and stamps which episode proposed it', async () => {
+      const id = await anAcquisition('example.test', [
+        { label: 'the address you chose', by: 'agent' },
+        { label: 'the code from the confirmation mail', by: 'operator' },
+      ])
+
+      const closed = await closeEpisode(db, id, { outcome: 'created' })
+      expect(closed.outcome).toBe('closed')
+      expect(closed.outcome === 'closed' && closed.proposed.kind).toBe('draft')
+
+      const entry = await providerRecipe(db, mailbox, 'example.test')
+      expect(entry?.status).toBe('draft')
+      expect(entry?.steps.map((one) => one.actor)).toEqual(['agent', 'operator'])
+      expect(entry?.steps[1]?.ask).toBe('the code from the confirmation mail')
+
+      expect((await episode(db, id))?.proposedAt).not.toBeNull()
+    })
+
+    /**
+     * **The rejection case `#935` names.** A maintenance episode is a repair and
+     * must never become part of a recipe — asserted against the catalogue rather
+     * than against the verdict, because the thing that matters is that nothing
+     * was written.
+     */
+    it('writes nothing when a maintenance episode closes', async () => {
+      const thisAccount = await anAccountAt('repairs.test')
+      const existing = await threadOf(db, thisAccount)
+      if (existing === undefined) throw new Error('the account has no thread')
+      const opened = await openEpisode(db, {
+        threadId: existing.id,
+        openedBy: 'agent',
+        kind: 'maintenance',
+        title: 'the password stopped working',
+      })
+      if (opened.outcome !== 'opened') throw new Error('expected an open episode')
+      const container = await openSlot(db, {
+        episodeId: opened.episode.id,
+        label: 'the new password',
+        secret: false,
+      })
+      await fillSlot(db, { slotId: container.slot.id, filledBy: 'agent', value: 'a value' })
+
+      const closed = await closeEpisode(db, opened.episode.id, { outcome: 'repaired' })
+
+      expect(closed.outcome === 'closed' && closed.proposed.kind).toBe('nothing')
+      expect(await providerRecipe(db, mailbox, 'repairs.test')).toBeUndefined()
+      expect((await episode(db, opened.episode.id))?.proposedAt).toBeNull()
+    })
+
+    /** A wall is a refusal, which is the entry the next citizen most wants. */
+    it('writes the wall a failed acquisition ended at', async () => {
+      const id = await anAcquisition('refuses.test', [{ label: 'the handle', by: 'agent' }])
+
+      await closeEpisode(db, id, { outcome: 'failed', wall: 'it asked for a phone number' })
+
+      const entry = await providerRecipe(db, mailbox, 'refuses.test')
+      expect(entry?.status).toBe('refused')
+      expect(entry?.refusal).toBe('it asked for a phone number')
+    })
+
+    /**
+     * The `is null` on `outcome` is what makes the proposal happen once. A
+     * retried close after a dropped connection must not stamp a second date.
+     */
+    it('proposes nothing a second time when the close is retried', async () => {
+      const id = await anAcquisition('once.test', [{ label: 'the address', by: 'agent' }])
+
+      await closeEpisode(db, id, { outcome: 'created' })
+      const stamped = (await episode(db, id))?.proposedAt
+      const again = await closeEpisode(db, id, { outcome: 'created' })
+
+      expect(again.outcome).toBe('already-closed')
+      expect((await episode(db, id))?.proposedAt).toBe(stamped)
+    })
+
+    /**
+     * `accounts.provider` is nullable and says at length that null is never
+     * filled in by guessing at the identifier. An episode on an unnamed provider
+     * has no entry it could be about.
+     */
+    it('proposes nothing where the account names no provider', async () => {
+      const existing = await threadOf(db, accountId)
+      if (existing === undefined) throw new Error('the account has no thread')
+      const opened = await openEpisode(db, {
+        threadId: existing.id,
+        openedBy: 'agent',
+        kind: 'acquisition',
+        title: 'joining something unnamed',
+      })
+      if (opened.outcome !== 'opened') throw new Error('expected an open episode')
+
+      const closed = await closeEpisode(db, opened.episode.id, { outcome: 'created' })
+
+      expect(closed.outcome === 'closed' && closed.proposed.kind).toBe('nothing')
+      expect((await episode(db, opened.episode.id))?.proposedAt).toBeNull()
+    })
+
+    /**
+     * The prefill `walk-report` reads (`#935`): the same observation, offered to
+     * the walk that observed nothing of its own.
+     */
+    it('offers the episode’s shape to a walk at the same provider', async () => {
+      const id = await anAcquisition('prefill.test', [{ label: 'the address', by: 'agent' }])
+      await closeEpisode(db, id, { outcome: 'created' })
+
+      expect(await observedStepsFor(db, agentId, mailbox, 'prefill.test')).toEqual([
+        { actor: 'agent' },
+      ])
+      expect(await observedStepsFor(db, agentId, mailbox, 'nobody-walked.test')).toBeUndefined()
     })
   })
 })

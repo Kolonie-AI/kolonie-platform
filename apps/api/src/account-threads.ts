@@ -347,6 +347,17 @@ export type ThreadResponse = {
   readonly slots?: readonly SlotView[]
   readonly entries?: readonly AccountEntry[]
   readonly entry?: AccountEntry
+  /**
+   * What closing the episode proposed to the Atlas (`#935`), as the verdict kind
+   * — `draft`, `refusal` or `nothing`.
+   *
+   * **The agent is told what its work proposed**, which is the same courtesy
+   * `walk-report` already pays with its own `proposes`. A draft that appears
+   * somewhere the citizen never hears about is one it cannot correct, and the
+   * one who has just closed the episode is the only reader who knows whether the
+   * shape is right.
+   */
+  readonly proposes?: string
 }
 
 export type ThreadOutcome =
@@ -878,7 +889,19 @@ async function close(
     )
   }
 
-  return { outcome: 'ok', response: { op: 'close', episode: closed.episode } }
+  return {
+    outcome: 'ok',
+    response: {
+      op: 'close',
+      episode: closed.episode,
+      /**
+       * Only on the transition. An already-closed episode proposed whatever it
+       * proposed the first time, and saying it again would invite a citizen to
+       * believe a second draft appeared.
+       */
+      ...(closed.outcome === 'closed' ? { proposes: closed.proposed.kind } : {}),
+    },
+  }
 }
 
 export type TakeResponse = {

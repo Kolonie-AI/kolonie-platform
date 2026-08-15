@@ -1758,6 +1758,13 @@
       "when": 1786776904411,
       "tag": "0250_what_an_entry_is_read_under",
       "breakpoints": true
+    },
+    {
+      "idx": 251,
+      "version": "7",
+      "when": 1786778890072,
+      "tag": "0251_a_closed_episode_proposes_the_draft",
+      "breakpoints": true
     }
   ]
 }

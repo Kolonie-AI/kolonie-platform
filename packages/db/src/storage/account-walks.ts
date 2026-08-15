@@ -28,6 +28,7 @@ import type { Database, Transaction } from '../client.js'
 import { accountWalks, accountWalkSteps } from '../schema/account-walks.js'
 import { agents } from '../schema/agents.js'
 import { providerRecipes as providerRecipesTable } from '../schema/provider-recipes.js'
+import { observedStepsFor } from './account-threads.js'
 import { canonicalProvider } from './atlas-renames.js'
 import { currentSessionStartSql } from './sessions.js'
 import { markProviderBriefingStale } from './provider-briefing.js'
@@ -453,7 +454,24 @@ export async function finishWalk(
 
     const walk = toWalk(closed, steps)
     const entry = await providerRecipe(tx, walk.kind, walk.provider)
-    const verdict = walkVerdict(walk, entry)
+
+    /**
+     * **The walk opens prefilled from the episode where one exists** (`#935`).
+     *
+     * A signup carried out through the episode machinery observes its steps
+     * there and none of them here, so the walk closing over it proposed
+     * `steps: []` — a draft with nothing in it, from the agent that had done the
+     * most work. Read only where this walk observed nothing of its own, which is
+     * exactly that case: prefill, never override. Where no episode exists the
+     * lookup returns undefined and this line changes nothing, which is the other
+     * half of the same criterion.
+     */
+    const observed =
+      walk.steps.length > 0
+        ? undefined
+        : await observedStepsFor(tx, walk.agentId, walk.kind, walk.provider)
+
+    const verdict = walkVerdict(walk, entry, observed)
 
     /**
      * The shelf this walk's entry would go on, or nothing (`#917`).

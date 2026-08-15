@@ -2,9 +2,17 @@ import { and, asc, desc, eq, isNotNull, isNull, sql } from 'drizzle-orm'
 import {
   AccountEntryIdSchema,
   AccountEpisodeIdSchema,
+  AccountKindSchema,
+  AccountProviderSchema,
   AccountSlotIdSchema,
   AccountThreadIdSchema,
+  atlasCategoryForKind,
+  episodeToSteps,
+  episodeVerdict,
   type AccountEntry,
+  type AtlasCategory,
+  type EpisodeVerdict,
+  type RecipeStep,
   type AccountEntryId,
   type AccountEpisode,
   type AccountEpisodeId,
@@ -30,6 +38,7 @@ import {
   accounts,
   humanAgents,
 } from '../schema/index.js'
+import { providerRecipe, writeProviderRecipe } from './provider-recipes.js'
 
 /**
  * The account conversation, in storage (`#929`).
@@ -208,7 +217,17 @@ export type CloseEpisodeCommand = {
 }
 
 export type CloseEpisodeOutcome =
-  | { readonly outcome: 'closed'; readonly episode: AccountEpisode }
+  | {
+      readonly outcome: 'closed'
+      readonly episode: AccountEpisode
+      /**
+       * What closing it proposed to the Atlas (`#935`). Present only on the
+       * transition, because only the transition proposes anything — an
+       * already-closed episode proposed whatever it proposed the first time, and
+       * saying so again would invite a caller to believe it happened twice.
+       */
+      readonly proposed: EpisodeVerdict
+    }
   /**
    * It was already closed, and this is not an error.
    *
@@ -259,7 +278,8 @@ export async function closeEpisode(
 
   if (row !== undefined) {
     await destroyEpisodeSecrets(db, episodeId)
-    return { outcome: 'closed', episode: toEpisode(row) }
+    const proposed = await proposeFromEpisode(db, episodeId)
+    return { outcome: 'closed', episode: toEpisode(row), proposed }
   }
 
   const closed = await episode(db, episodeId)
@@ -267,6 +287,168 @@ export async function closeEpisode(
   return closed.outcome === command.outcome
     ? { outcome: 'already-closed', episode: closed }
     : { outcome: 'closed-differently', episode: closed }
+}
+
+/**
+ * What closing this episode proposed to the Atlas (`#935`).
+ *
+ * **Called from the transition branch above and nowhere else.** The `is null`
+ * on `outcome` is what makes it happen once: a retried close finds the row
+ * already closed, takes the `already-closed` path, and proposes nothing a second
+ * time. That is `finishWalk`'s argument for its own guarded close, and this is
+ * deliberately the same shape rather than a new one.
+ *
+ * **The draft is invisible until a steward publishes it**, because `draft` is
+ * what the public reads past — the acceptance criterion is a property of the
+ * status, not of anything written here, and that is why nothing here is
+ * conditional on who is looking.
+ *
+ * It returns the verdict rather than swallowing it, so the agent that closed the
+ * episode is told what its work proposed instead of finding out from the Atlas
+ * weeks later.
+ */
+export async function proposeFromEpisode(
+  db: Database | Transaction,
+  episodeId: AccountEpisodeId,
+): Promise<EpisodeVerdict> {
+  const [context] = await db
+    .select({
+      kind: accountEpisodes.kind,
+      outcome: accountEpisodes.outcome,
+      wall: accountEpisodes.wall,
+      accountKind: accounts.kind,
+      provider: accounts.provider,
+    })
+    .from(accountEpisodes)
+    .innerJoin(accountThreads, eq(accountThreads.id, accountEpisodes.threadId))
+    .innerJoin(accounts, eq(accounts.id, accountThreads.accountId))
+    .where(eq(accountEpisodes.id, episodeId))
+    .limit(1)
+
+  if (context === undefined) {
+    return { kind: 'nothing', why: 'there is no such episode' }
+  }
+
+  /**
+   * **A provider nobody named proposes nothing.** `accounts.provider` is
+   * nullable and says so at length: null is the ordinary state and is never
+   * filled in by guessing at the identifier. The Atlas is keyed by kind *and*
+   * provider, so an episode on an unnamed provider has no entry it could be
+   * about — and inventing one from the identifier is the guess that column
+   * exists to refuse.
+   */
+  if (context.provider === null) {
+    return {
+      kind: 'nothing',
+      why: 'the account names no provider, and an Atlas entry is about a provider',
+    }
+  }
+
+  const kind = AccountKindSchema.parse(context.accountKind)
+  const provider = AccountProviderSchema.parse(context.provider)
+
+  const slots = await slotsOf(db, episodeId)
+  const entry = await providerRecipe(db, kind, provider)
+  const verdict = episodeVerdict(
+    { kind: context.kind, outcome: context.outcome, wall: context.wall },
+    slots,
+    entry,
+  )
+
+  /**
+   * The shelf, on `finishWalk`'s rule and for its reason (`#917`): an existing
+   * entry's shelf wins, an unmappable kind writes no entry rather than
+   * defaulting to one, and the throw is caught here so that a kind with no shelf
+   * costs the episode its draft and not the close.
+   */
+  const shelf = ((): AtlasCategory | undefined => {
+    if (entry !== undefined) return entry.category
+    try {
+      return atlasCategoryForKind(kind)
+    } catch {
+      return undefined
+    }
+  })()
+
+  if (shelf === undefined) return verdict
+
+  if (verdict.kind === 'draft') {
+    await writeProviderRecipe(db, {
+      kind,
+      provider,
+      /** The provider's own name and nothing invented — `finishWalk`'s rule. */
+      title: entry?.title ?? provider,
+      category: shelf,
+      status: 'draft',
+      steps: verdict.steps,
+    })
+
+    /**
+     * **The attribution, written where it becomes true.** `provider_recipes`
+     * carries no author column on purpose, so *whose episode this draft came
+     * from* has nowhere else to live, and a sweep asked later would be guessing
+     * from timestamps. `account_walks.proposed_at` is the same column for the
+     * same reason.
+     */
+    await db
+      .update(accountEpisodes)
+      .set({ proposedAt: sql`now()` })
+      .where(eq(accountEpisodes.id, episodeId))
+  }
+
+  if (verdict.kind === 'refusal') {
+    await writeProviderRecipe(db, {
+      kind,
+      provider,
+      title: entry?.title ?? provider,
+      category: shelf,
+      status: 'refused',
+      refusal: verdict.wall,
+      steps: [],
+    })
+  }
+
+  return verdict
+}
+
+/**
+ * The shape this agent's acquisition episode observed at this provider, for a
+ * walk to open prefilled from rather than ask about again (`#935`).
+ *
+ * **Undefined where there is no episode**, which is a large share of all walks —
+ * an agent that obtained an account entirely alone has no operator and no
+ * episode, and `#935` keeps `walk-report` precisely for it. Undefined is what
+ * leaves `walkVerdict` unchanged.
+ *
+ * **It reads the account this agent holds**, not the provider globally: whose
+ * signup this was is the whole content of the prefill, and another citizen's
+ * episode is not an observation this walk made.
+ */
+export async function observedStepsFor(
+  db: Database | Transaction,
+  agentId: string,
+  kind: string,
+  provider: string,
+): Promise<readonly RecipeStep[] | undefined> {
+  const [found] = await db
+    .select({ episodeId: accountEpisodes.id })
+    .from(accountEpisodes)
+    .innerJoin(accountThreads, eq(accountThreads.id, accountEpisodes.threadId))
+    .innerJoin(accounts, eq(accounts.id, accountThreads.accountId))
+    .where(
+      and(
+        eq(accountEpisodes.kind, 'acquisition'),
+        eq(accounts.agentId, agentId),
+        eq(accounts.kind, kind),
+        eq(accounts.provider, provider),
+      ),
+    )
+    .limit(1)
+
+  if (found === undefined) return undefined
+
+  const steps = episodeToSteps(await slotsOf(db, AccountEpisodeIdSchema.parse(found.episodeId)))
+  return steps.length === 0 ? undefined : steps
 }
 
 export type OpenSlotCommand = {
@@ -1047,6 +1229,7 @@ const toEpisode = (row: EpisodeRow): AccountEpisode => ({
   wall: row.wall,
   openedAt: row.openedAt,
   closedAt: row.closedAt,
+  proposedAt: row.proposedAt,
 })
 
 const toSlot = (row: SlotRow): AccountSlot => ({

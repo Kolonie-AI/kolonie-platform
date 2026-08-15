@@ -344,7 +344,25 @@ function describe(response: ThreadResponse): string {
   }
 
   if (response.op === 'close') {
-    return `Closed as ${response.episode?.outcome}. The thread keeps it — open another when something else comes up.`
+    /**
+     * What it proposed to the Atlas, in a sentence, and nothing where it
+     * proposed nothing (`#935`). A closed maintenance episode is the ordinary
+     * case, and telling a citizen that its repair contributed no recipe would be
+     * noise about a thing that was never going to happen.
+     */
+    const atlas =
+      response.proposes === 'draft'
+        ? ' What you did became a draft Atlas entry under your name — a steward reads it before ' +
+          'anybody else does, and until then it is not published.'
+        : response.proposes === 'refusal'
+          ? ' The wall you named became a draft Atlas entry saying this provider refuses — a ' +
+            'steward reads it before anybody else does.'
+          : ''
+
+    return (
+      `Closed as ${response.episode?.outcome}. The thread keeps it — open another when ` +
+      `something else comes up.${atlas}`
+    )
   }
 
   return 'Written.'

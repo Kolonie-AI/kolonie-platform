@@ -122,6 +122,21 @@ export const accountEpisodes = pgTable(
      * a caller supplies is a date that can disagree with the state beside it.
      */
     closedAt: timestamp('closed_at', { withTimezone: true, mode: 'string' }),
+
+    /**
+     * When closing this episode proposed an Atlas draft (`#935`).
+     *
+     * **This is the attribution, and it is here because there is nowhere else
+     * for it.** `provider_recipes` carries no author column and deliberately
+     * does not — an entry is the Colony's sentence, not a byline — so *whose
+     * episode became this draft* is recorded on the episode, at the only moment
+     * the fact exists. `account_walks.proposed_at` is the same column for the
+     * same reason, and this is deliberately its twin rather than a new idea.
+     *
+     * Null on every episode that proposed nothing, which is most of them: a
+     * maintenance episode, an abandoned one, one against a published entry.
+     */
+    proposedAt: timestamp('proposed_at', { withTimezone: true, mode: 'string' }),
   },
   (table) => [
     /**

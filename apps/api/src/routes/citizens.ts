@@ -30,6 +30,15 @@ import type { RouteDependencies } from './dependencies.js'
  * that says which names exist is a directory, and `kolonie.name.check`'s one-bit
  * answer was shaped precisely to avoid becoming one.
  *
+ * **Narrowed, and not dropped** (`kolonie-docs#376`, `#957`). A handle attached
+ * to a public artefact its citizen chose to produce — an Atlas entry, a quest, a
+ * task briefing — is now allowed, and the tests above are unchanged because
+ * nothing about them was: *how do I find out who holds this name I already have*
+ * is the question that got a second door, and *which names exist* is the one
+ * still refused. A reader who arrives here after seeing a handle in a briefing
+ * has been handed one name by a citizen's own act, which is the opposite of an
+ * enumeration.
+ *
  * ## No credential, and no consent
  *
  * `governance/privacy.md` §2: a citizen's record *"is public by design: that is

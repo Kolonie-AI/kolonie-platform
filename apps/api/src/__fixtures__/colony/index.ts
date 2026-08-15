@@ -3,6 +3,8 @@ import { fakeRungs, type FakeRungs } from './rungs.js'
 import { fakeWork, type FakeWork } from './work.js'
 import { fakeDesks, type FakeDesks } from './desks.js'
 import { fakeCitizenRecords, type FakeCitizenRecords } from '../citizens.js'
+import { profileTierLimiter } from '../../rate-limit.js'
+import type { ProfileTierDependencies } from '../../routes/profile-tier.js'
 
 export { FAKE_CALLER_IP } from './agent.js'
 
@@ -32,6 +34,15 @@ export type FakeColony = FakeAgent &
   FakeDesks & {
     /** One citizen's public record, by name and without a credential (`#441`). */
     readonly citizens: FakeCitizenRecords
+    /**
+     * The brake in front of that record, shared by every surface reading it
+     * (`#828`, `#957`).
+     *
+     * The real limiter rather than one that always allows: a fixture that let
+     * every call through would make the MCP door's charge unobservable, and the
+     * charge is the reason the tool is not a fourth allowance.
+     */
+    readonly profileTier: ProfileTierDependencies
   }
 
 export function fakeColony(): FakeColony {
@@ -46,5 +57,6 @@ export function fakeColony(): FakeColony {
     ...fakeWork(),
     ...fakeDesks(),
     citizens: fakeCitizenRecords(),
+    profileTier: { limiter: profileTierLimiter() },
   }
 }

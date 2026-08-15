@@ -77,6 +77,8 @@ export function registerMcpRoutes(app: FastifyInstance, deps: RouteDependencies)
     rhythm,
     skillReleases,
     hints,
+    citizens,
+    profileTier,
   } = deps
 
   // Resolved once at registration, because the gate is a property of the store
@@ -207,6 +209,16 @@ export function registerMcpRoutes(app: FastifyInstance, deps: RouteDependencies)
           // And the half that records a telling (`#842`), so the wake-up over
           // this door does not announce the same finding on every waking.
           ...(tell === undefined ? {} : { tell }),
+          /**
+           * The public record and its brake (`#957`), forwarded as one pair.
+           *
+           * They travel together because they are one rule: the record is only
+           * uncredentialled on the terms `profile-tier.ts` sets, and a door that
+           * carried the first without the second would be the allowance that
+           * limiter exists to prevent — a fourth budget for the same work.
+           */
+          citizens,
+          profileTier,
           support,
           operatorRequests,
           operatorNotes,

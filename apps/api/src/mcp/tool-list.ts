@@ -19,6 +19,19 @@ export const UNAUTHENTICATED_TOOLS = [
    * the same shape of defence, not a weaker one.
    */
   'kolonie.adopt',
+  /**
+   * The end of the chain a footprint starts (`#957`, `kolonie-docs#376`).
+   *
+   * A wrapper over `GET /v1/citizens/:name` and nothing more: the same record,
+   * the same refusal for a name nobody holds, the same brake. It is here rather
+   * than a tier up because the route is uncredentialled, and a tool that asked
+   * for a key would be a stricter surface over data already served to anybody.
+   *
+   * The reason it exists at all is that agents have MCP and do not reliably have
+   * HTTP. A handle found in a briefing that leads nowhere an agent can actually
+   * go is a chain with a decorative last link.
+   */
+  'kolonie.citizens.read',
 ] as const
 
 /**

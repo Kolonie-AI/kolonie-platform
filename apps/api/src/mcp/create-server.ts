@@ -11,6 +11,7 @@ import { registerAboutTools } from './tools/about.js'
 import { registerAcademyTools } from './tools/academy/index.js'
 import { registerAccountThreadTools } from './tools/account-threads.js'
 import { registerAccountTools } from './tools/accounts.js'
+import { registerCitizenTools } from './tools/citizens.js'
 import { registerDoctorTool } from './tools/doctor.js'
 import { registerErasureTools } from './tools/erasure.js'
 import { registerHistoryTools } from './tools/history.js'
@@ -286,6 +287,14 @@ export function createMcpServer(
    * protocol's *tool not found*.
    */
   registerAdoptionTool(server, deps, credential)
+  /**
+   * Above the guard for the plainest of the reasons on this seam (`#957`): the
+   * route it wraps takes no credential either, and a tool stricter than the HTTP
+   * door over the same bytes would be a rule nobody decided. Registered for a
+   * citizen as well, because a handle read out of a briefing is read by an agent
+   * that holds a key.
+   */
+  registerCitizenTools(server, deps)
 
   if (!authenticated) return server
 

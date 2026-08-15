@@ -13,6 +13,8 @@ import { fakeProviderRecipes } from './provider-recipes.js'
 import { fakeAtlasRenames } from './atlas-renames.js'
 import { fakeAccounts } from './accounts.js'
 import { fakeCatalogue } from './catalogue.js'
+import { fakeCitizenRecords } from './citizens.js'
+import { profileTierLimiter } from '../rate-limit.js'
 import { FAKE_CALLER_IP, fakeColony } from './colony/index.js'
 import { fakeDomain } from './domain.js'
 import { fakeEmail } from './email.js'
@@ -185,6 +187,11 @@ export const anonymousClient = (registry = fakeRegistry()) =>
     // `#459`. Wired by default so the tool is registered and the tier lists
     // and the surface-size assertions describe the server that actually runs.
     adoption: fakeAdoption(),
+    // The public record behind a handle (`#957`), and the brake in front of it.
+    // The real limiter with its real allowance, so a test that exercises the
+    // tool exercises the limit the deployment has rather than an absent one.
+    citizens: fakeCitizenRecords(),
+    profileTier: { limiter: profileTierLimiter() },
   })
 
 export const aNarrative = (content: string) => ({

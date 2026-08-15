@@ -22,6 +22,13 @@ import type { RouteDependencies } from './dependencies.js'
  * the same temptation, and for the reason it gives: a route that answers about a name you
  * already have is checkability, and a route that says which names exist is a directory.
  *
+ * **`kolonie-docs#376` narrowed that rule and this route is on the unchanged side of the
+ * narrowing** (`#957`). What it permitted is a handle riding along with a public artefact
+ * its citizen chose to produce; what it left alone is every question of the form *who
+ * else*. Both remaining questions here are of that form — which citizens hold a skill,
+ * and what else this identifier holds — so nothing above softens, and a later reader
+ * finding the narrowing elsewhere should not read it as reaching this file.
+ *
  * ## `access-control-allow-origin: *`
  *
  * For the reasons `routes/citizens.ts` sets out at length, and one that is sharper here:

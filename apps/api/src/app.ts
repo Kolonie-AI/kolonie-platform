@@ -16,7 +16,7 @@ import {
   silentLog,
   type ApiError,
 } from '@kolonie-ai/core'
-import { MCP_ALIAS_PATH, MCP_PATH } from './mcp.js'
+import { MCP_ALIAS_PATH, MCP_PATH, MCP_PROBE_ALLOW, mcpProbe } from './mcp.js'
 import { registerIndexRoute } from './routes/index.js'
 import { registerToolDocsRoutes } from './routes/tool-docs.js'
 import { registerAcademyGraphRoute } from './routes/academy-graph.js'
@@ -743,6 +743,27 @@ export function buildApp({
     if (rollup !== undefined && request.headers.authorization !== undefined) {
       const authenticated = await authenticate(request.headers.authorization, store)
       if (authenticated.outcome === 'authenticated') attributeTo(request, authenticated.agent.id)
+    }
+
+    /**
+     * The MCP door, probed with the wrong method, is not a missing route
+     * (`#1005`).
+     *
+     * A citizen ran the ordinary check before wiring anything up — `GET` the
+     * address, see whether it answers — and read a 404 as *the service is
+     * down*, while `POST` to that same address was returning the tool list. The
+     * sentence below said so, and it never got read: a probe is judged by its
+     * status long before anybody opens the body. So the status changes.
+     *
+     * **Above the 404 rather than beside it**, because `/` and `/mcp` both
+     * arrive here — `/` by way of the console's own `callNotFound`, `/mcp`
+     * because nothing else claims it — and answering them in one place is what
+     * keeps the two paths from drifting apart. `mcpProbe` decides; anything it
+     * does not recognise falls through and is the 404 it always was.
+     */
+    const probe = mcpProbe(request.method, request.url)
+    if (probe !== undefined) {
+      return reply.status(405).header('allow', MCP_PROBE_ALLOW).send(probe)
     }
 
     const error: ApiError = {

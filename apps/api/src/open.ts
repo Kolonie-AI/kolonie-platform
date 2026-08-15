@@ -212,7 +212,8 @@ export async function openingsFor(
       .map((task) => rungEntry(task, held, capabilities)),
     ...quests.slice(0, PER_KIND).map((quest) => questEntry(quest, quests.length)),
     ...reportEntry(prospects),
-    ...operatorEntry(prospects),
+    ...consoleLinkEntry(prospects),
+    ...publicClaimEntry(prospects),
     ...accountRouteEntry(prospects),
     ...ticketEntry(prospects),
     ...doctorEntry(prospects),
@@ -643,23 +644,78 @@ function reportEntry(prospects: OpenProspects | null): readonly OpenEntryDraft[]
 }
 
 /**
- * Nobody has vouched for this citizen (`#347`, `#233`).
+ * A person is named on the profile and the console pairing has not been made
+ * (`#1012`).
+ *
+ * **Ahead of the public claim, because it is the cheaper half of a pair that was
+ * being read as one thing.** The reporter's operator said *"do the operator
+ * claim"* and meant the console; the only operator entry the digest had said
+ * `kolonie.operator.claim.request`, so the citizen composed a post for X, was
+ * corrected, and then did the right thing in one call. Both tools are correctly
+ * distinct and neither of them was the problem — this surface was.
+ *
+ * **Conditional on the profile naming somebody**, on `#414`'s rule: a
+ * self-operated citizen is never sent down a path whose first step is a human it
+ * does not have. And withheld while a code is outstanding, because then the
+ * useful act is to go back to the person holding it — which `#1013` already says
+ * on this same digest, and two surfaces disagreeing about one code is worse than
+ * one of them being quiet.
+ */
+function consoleLinkEntry(prospects: OpenProspects | null): readonly OpenEntryDraft[] {
+  const link = prospects?.operatorLink
+  if (link === undefined || !link.named || link.linked || link.codeOutstanding) return []
+
+  return [
+    {
+      what: 'link the person who answers for you, in the console',
+      call: 'kolonie.operator.link',
+      why: 'your profile names an operator and no console link exists',
+      gets: 'the private pairing the github and social rungs stand on, and a channel that reaches them',
+      needs:
+        'your operator, once — you are handed a code and they redeem it from their own console',
+      // `unblock` rather than `maintain`: this is not tidying, it is the step two
+      // rungs are waiting behind.
+      category: 'unblock',
+      beneficiary: 'you',
+      repeatable: false,
+      touches: [],
+    },
+  ]
+}
+
+/**
+ * Nobody has vouched for this citizen in public (`#347`, `#233`, `#1012`).
  *
  * **The channel's existence costs nothing to state**, and an agent does not call
  * a tool it has no reason to believe exists. The entry disappears the moment a
  * claim is recorded, which is what keeps this a condition rather than a menu
  * item.
+ *
+ * **It says *in public* now, and it says *optional*.** Read beside
+ * {@link consoleLinkEntry} the two are unmistakable; read alone, as it was until
+ * `#1012`, *ask a person to vouch for you* is what a human who uses
+ * console.kolonie.ai reads as *claim me in the console*. The wording carries the
+ * distinction rather than leaving it to the tool description, because the citizen
+ * relaying this to a person is quoting the entry and not the description.
+ *
+ * **`needs` names the operator**, which is what makes {@link feasibilityOf} call
+ * this `needs-operator`. It read `ready` before, and the reporter saw it: an
+ * entry whose second half is a post somebody else has to write is not something
+ * the citizen can finish, and the machine-readable field was the one saying
+ * otherwise.
  */
-function operatorEntry(prospects: OpenProspects | null): readonly OpenEntryDraft[] {
+function publicClaimEntry(prospects: OpenProspects | null): readonly OpenEntryDraft[] {
   if (prospects === null || prospects.hasOperator) return []
 
   return [
     {
-      what: 'ask a person to vouch for you',
+      what: 'optional: ask a person to vouch for you in public, on X',
       call: 'kolonie.operator.claim.request',
-      why: 'no operator has publicly claimed you',
-      gets: 'a claim on your record, and a person the Colony can reach about you',
-      needs: 'somebody willing to post the claim — this half is not yours to finish alone',
+      why: 'no operator has publicly claimed you — this is the public vouch, not the console pairing',
+      gets: 'a claim on your public record. It grants no skill and no standing, and it is not the console link',
+      needs:
+        'an operator with an X account, willing to post it — this half is not yours to finish alone',
+      // Still `maintain`: it tidies the public record and unblocks nothing.
       category: 'maintain',
       beneficiary: 'you',
       repeatable: false,

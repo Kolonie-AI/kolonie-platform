@@ -151,6 +151,8 @@ export const anonymousClient = (registry: AgentRegistry = fakeRegistry()) =>
      */
     prospects: async () => ({
       hasOperator: true,
+      // And nobody named on the profile to pair with in the console (`#1012`).
+      operatorLink: { named: false, linked: false, codeOutstanding: false },
       accountKinds: [],
       accountCapabilities: {},
       ticketsOpened: 0,

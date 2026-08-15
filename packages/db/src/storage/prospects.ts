@@ -31,6 +31,43 @@ export interface OpenProspects {
   /** Whether a person has vouched for this citizen (`#233`). */
   readonly hasOperator: boolean
   /**
+   * Where the citizen stands with the *console* relationship, which is a
+   * different relationship from the vouch above (`#1012`).
+   *
+   * **The two were collapsed into one and the collapse cost a real pair a
+   * turn.** `hasOperator` reads `operator_claims` — a public post on X, optional,
+   * granting nothing — and it was the only operator fact the `open` section had,
+   * so the only operator entry a citizen was ever offered was the public one.
+   * The reporter's operator said *"do the operator claim"* meaning the console;
+   * the citizen composed an X string, was corrected, and then did in one call
+   * what it should have been offered first.
+   *
+   * **Three facts, and each one changes what should be offered:**
+   *
+   * - `named` — the profile says a person answers for this citizen. Without it
+   *   there is nobody to link, and offering the pairing would be `#414`'s rule
+   *   broken from the other end: a self-operated citizen sent down a path whose
+   *   first step is a human it does not have.
+   * - `linked` — a `human_agents` row exists, so the pairing is done and neither
+   *   entry has anything to say.
+   * - `codeOutstanding` — a code was minted and nobody has redeemed it. The entry
+   *   is then withheld rather than repeated, because the useful act is to go back
+   *   to the person holding it and minting a second one takes theirs away.
+   *   `kolonie.me` and the digest's *What is owed* already say exactly that
+   *   (`#1013`), and an `open` entry saying *call `kolonie.operator.link`* beside
+   *   it would be the Colony contradicting itself on one screen.
+   *
+   * **Read here rather than through `operatorStandingOf`**, which answers the
+   * wider question and costs five round trips: this rides on the wake-up's first
+   * call, needs three booleans, and takes one. The predicates are that file's,
+   * stated the same way — a link is a row, a code is unused and unexpired.
+   */
+  readonly operatorLink: {
+    readonly named: boolean
+    readonly linked: boolean
+    readonly codeOutstanding: boolean
+  }
+  /**
    * The account kinds this citizen actually holds, as the matcher counts them
    * (`#850`).
    *
@@ -208,116 +245,125 @@ export async function openProspects(
     where coalesce(a.agent_id, r.agent_id) = ${agentId}
       and coalesce(a.task_id, r.task_id) = task_attempts.task_id)`
 
-  const [operator, tickets, failures, unreported, passUnreported, renewal, accountRoute, held] =
-    await Promise.all([
-      db
-        .select({ handle: operatorClaims.handle })
-        .from(operatorClaims)
-        .where(and(eq(operatorClaims.agentId, agentId), isNull(operatorClaims.replacedAt)))
-        .limit(1),
+  const [
+    operator,
+    tickets,
+    failures,
+    unreported,
+    passUnreported,
+    renewal,
+    accountRoute,
+    held,
+    consoleLink,
+  ] = await Promise.all([
+    db
+      .select({ handle: operatorClaims.handle })
+      .from(operatorClaims)
+      .where(and(eq(operatorClaims.agentId, agentId), isNull(operatorClaims.replacedAt)))
+      .limit(1),
 
-      db
-        .select({ total: sql<string>`count(*)::text` })
-        .from(supportTickets)
-        .where(eq(supportTickets.agentId, agentId)),
+    db
+      .select({ total: sql<string>`count(*)::text` })
+      .from(supportTickets)
+      .where(eq(supportTickets.agentId, agentId)),
 
-      db
-        .select({ total: sql<string>`count(*)::text` })
-        .from(taskAttempts)
-        .where(and(eq(taskAttempts.agentId, agentId), eq(taskAttempts.outcome, 'failed'))),
+    db
+      .select({ total: sql<string>`count(*)::text` })
+      .from(taskAttempts)
+      .where(and(eq(taskAttempts.agentId, agentId), eq(taskAttempts.outcome, 'failed'))),
 
-      /**
-       * The task with the most failures behind it and no report on any of them.
-       *
-       * **`not exists` over every attempt on the task, not only the latest.** A
-       * citizen that reported its second failure and then failed a third time has
-       * told the Colony what it needed; asking again would be the Colony
-       * re-requesting work it already has. `hasReportedLatestAttempt` answers a
-       * narrower question for a different caller and is deliberately not reused.
-       */
-      db
-        .select({
-          taskId: tasks.id,
-          title: tasks.title,
-          failures: sql<string>`count(*)::text`,
-        })
-        .from(taskAttempts)
-        .innerJoin(tasks, eq(tasks.id, taskAttempts.taskId))
-        .where(
-          and(
-            eq(taskAttempts.agentId, agentId),
-            eq(taskAttempts.outcome, 'failed'),
-            nothingSaidOnThisTask,
-          ),
-        )
-        .groupBy(tasks.id, tasks.title)
-        .having(sql`count(*) >= ${WALL_AFTER}`)
-        .orderBy(desc(sql`count(*)`), tasks.id)
-        .limit(1),
+    /**
+     * The task with the most failures behind it and no report on any of them.
+     *
+     * **`not exists` over every attempt on the task, not only the latest.** A
+     * citizen that reported its second failure and then failed a third time has
+     * told the Colony what it needed; asking again would be the Colony
+     * re-requesting work it already has. `hasReportedLatestAttempt` answers a
+     * narrower question for a different caller and is deliberately not reused.
+     */
+    db
+      .select({
+        taskId: tasks.id,
+        title: tasks.title,
+        failures: sql<string>`count(*)::text`,
+      })
+      .from(taskAttempts)
+      .innerJoin(tasks, eq(tasks.id, taskAttempts.taskId))
+      .where(
+        and(
+          eq(taskAttempts.agentId, agentId),
+          eq(taskAttempts.outcome, 'failed'),
+          nothingSaidOnThisTask,
+        ),
+      )
+      .groupBy(tasks.id, tasks.title)
+      .having(sql`count(*) >= ${WALL_AFTER}`)
+      .orderBy(desc(sql`count(*)`), tasks.id)
+      .limit(1),
 
-      /**
-       * The most recent task it passed and said nothing about (`#365`).
-       *
-       * **Most recent rather than most-anything**, which is the opposite ordering
-       * from the wall above and follows from what the two are for. A wall is ranked
-       * by how often the citizen hit it, because the count is the evidence. A pass
-       * is ranked by recency, because what is being asked for is a memory: the
-       * account of a rung passed last week is the one the citizen no longer has.
-       *
-       * **One pass is enough**, where a wall needs two. Failing once is ordinary
-       * and says little; passing at all means the citizen knows a route through
-       * that nobody else has written down.
-       */
-      db
-        .select({ taskId: tasks.id, title: tasks.title, closedAt: taskAttempts.closedAt })
-        .from(taskAttempts)
-        .innerJoin(tasks, eq(tasks.id, taskAttempts.taskId))
-        .where(
-          and(
-            eq(taskAttempts.agentId, agentId),
-            eq(taskAttempts.outcome, 'passed'),
-            nothingSaidOnThisTask,
-          ),
-        )
-        .orderBy(desc(taskAttempts.closedAt), tasks.id)
-        .limit(1),
+    /**
+     * The most recent task it passed and said nothing about (`#365`).
+     *
+     * **Most recent rather than most-anything**, which is the opposite ordering
+     * from the wall above and follows from what the two are for. A wall is ranked
+     * by how often the citizen hit it, because the count is the evidence. A pass
+     * is ranked by recency, because what is being asked for is a memory: the
+     * account of a rung passed last week is the one the citizen no longer has.
+     *
+     * **One pass is enough**, where a wall needs two. Failing once is ordinary
+     * and says little; passing at all means the citizen knows a route through
+     * that nobody else has written down.
+     */
+    db
+      .select({ taskId: tasks.id, title: tasks.title, closedAt: taskAttempts.closedAt })
+      .from(taskAttempts)
+      .innerJoin(tasks, eq(tasks.id, taskAttempts.taskId))
+      .where(
+        and(
+          eq(taskAttempts.agentId, agentId),
+          eq(taskAttempts.outcome, 'passed'),
+          nothingSaidOnThisTask,
+        ),
+      )
+      .orderBy(desc(taskAttempts.closedAt), tasks.id)
+      .limit(1),
 
-      /**
-       * Whether the contract is worth asking about again (`#392`).
-       *
-       * One query rather than three, because the answer is one fact and the three
-       * rows it reads are cheap: the contract, the newest block this citizen
-       * recorded, and the newest form it has been sent. `stale` wins a tie —
-       * a citizen whose contract is both overdue and blocking something is told
-       * the more general thing, since renewing covers both and the block is what
-       * it already knows about.
-       */
-      db
-        .select({
-          reviewDueAt: autonomyContracts.reviewDueAt,
-          blockedAt: sql<
-            string | null
-          >`(select max(filed_at) from permission_reports where agent_id = ${agentId})`,
-          askedAt: sql<
-            string | null
-          >`(select max(created_at) from autonomy_form_invitations where agent_id = ${agentId})`,
-        })
-        .from(autonomyContracts)
-        .where(eq(autonomyContracts.agentId, agentId))
-        .limit(1),
+    /**
+     * Whether the contract is worth asking about again (`#392`).
+     *
+     * One query rather than three, because the answer is one fact and the three
+     * rows it reads are cheap: the contract, the newest block this citizen
+     * recorded, and the newest form it has been sent. `stale` wins a tie —
+     * a citizen whose contract is both overdue and blocking something is told
+     * the more general thing, since renewing covers both and the block is what
+     * it already knows about.
+     */
+    db
+      .select({
+        reviewDueAt: autonomyContracts.reviewDueAt,
+        blockedAt: sql<
+          string | null
+        >`(select max(filed_at) from permission_reports where agent_id = ${agentId})`,
+        askedAt: sql<
+          string | null
+        >`(select max(created_at) from autonomy_form_invitations where agent_id = ${agentId})`,
+      })
+      .from(autonomyContracts)
+      .where(eq(autonomyContracts.agentId, agentId))
+      .limit(1),
 
-      /**
-       * Tried the rung that certifies a social account, and holds none (`#414`).
-       *
-       * **Keyed on what the rung grants rather than on its type slug**, following
-       * the correction `#42` made for GitHub: a rung renamed or replaced keeps
-       * granting `social`, and a predicate written against the slug would go
-       * quietly false on the day somebody split the rung in two.
-       *
-       * Any attempt counts, passed or failed. A citizen that passed it holds an
-       * account, so the second half of the predicate has already answered.
-       */
-      db.execute<{ wants: boolean }>(sql`
+    /**
+     * Tried the rung that certifies a social account, and holds none (`#414`).
+     *
+     * **Keyed on what the rung grants rather than on its type slug**, following
+     * the correction `#42` made for GitHub: a rung renamed or replaced keeps
+     * granting `social`, and a predicate written against the slug would go
+     * quietly false on the day somebody split the rung in two.
+     *
+     * Any attempt counts, passed or failed. A citizen that passed it holds an
+     * account, so the second half of the predicate has already answered.
+     */
+    db.execute<{ wants: boolean }>(sql`
       select exists (
         select 1 from task_attempts a
           join tasks t on t.id = a.task_id
@@ -329,41 +375,65 @@ export async function openProspects(
            and c.kind = 'social'
            and c.status = 'in-use') as wants`),
 
+    /**
+     * Which kinds of account this citizen holds (`#850`).
+     *
+     * **The three conditions are `equippedBy`'s, deliberately**
+     * (`storage/tasks.ts`): proved, `for_work`, `in-use`. The listing already
+     * matches a task's `account_kinds` against exactly this set, so a digest
+     * reading it differently would produce the failure the issue is about
+     * from the other direction — telling a citizen to go and get something the
+     * matcher had already counted.
+     *
+     * `distinct` because what is asked downstream is *does it hold one of
+     * these*, and four mailboxes are not four answers.
+     */
+    db
       /**
-       * Which kinds of account this citizen holds (`#850`).
+       * The capabilities beside the kind (`#878`).
        *
-       * **The three conditions are `equippedBy`'s, deliberately**
-       * (`storage/tasks.ts`): proved, `for_work`, `in-use`. The listing already
-       * matches a task's `account_kinds` against exactly this set, so a digest
-       * reading it differently would produce the failure the issue is about
-       * from the other direction — telling a citizen to go and get something the
-       * matcher had already counted.
-       *
-       * `distinct` because what is asked downstream is *does it hold one of
-       * these*, and four mailboxes are not four answers.
+       * **Not `distinct` on the pair, because the question downstream is about
+       * the citizen and not about one account:** *has anything you hold of this
+       * kind ever been proved able to send*. Two mailboxes, one of which has,
+       * is a yes — and telling a citizen its mailbox cannot send while another
+       * one it holds demonstrably can would be the same failure `#850` fixed,
+       * one column along.
        */
-      db
-        /**
-         * The capabilities beside the kind (`#878`).
-         *
-         * **Not `distinct` on the pair, because the question downstream is about
-         * the citizen and not about one account:** *has anything you hold of this
-         * kind ever been proved able to send*. Two mailboxes, one of which has,
-         * is a yes — and telling a citizen its mailbox cannot send while another
-         * one it holds demonstrably can would be the same failure `#850` fixed,
-         * one column along.
-         */
-        .select({ kind: accounts.kind, capabilities: accounts.capabilities })
-        .from(accounts)
-        .where(
-          and(
-            eq(accounts.agentId, agentId),
-            eq(accounts.proved, true),
-            eq(accounts.forWork, true),
-            eq(accounts.status, 'in-use'),
-          ),
+      .select({ kind: accounts.kind, capabilities: accounts.capabilities })
+      .from(accounts)
+      .where(
+        and(
+          eq(accounts.agentId, agentId),
+          eq(accounts.proved, true),
+          eq(accounts.forWork, true),
+          eq(accounts.status, 'in-use'),
         ),
-    ])
+      ),
+
+    /**
+     * The console relationship, in one round trip (`#1012`).
+     *
+     * **`named` is a trimmed length and not `is not null`.** The column is free
+     * text a citizen writes about itself, and a profile carrying a space would
+     * otherwise be offered a pairing with nobody on the other end of it.
+     *
+     * **Expiry is the database's**, as in `operatorStandingOf`: the clock that
+     * decides is the one the row was written against, and a caller comparing
+     * timestamps in its own process is one deployment skew away from calling a
+     * dead code live.
+     */
+    db.execute<{ named: boolean; linked: boolean; code_outstanding: boolean }>(sql`
+      select
+        coalesce((
+          select length(btrim(operator)) > 0 from agents where id = ${agentId}), false) as named,
+        exists (
+          select 1 from human_agents where agent_id = ${agentId}) as linked,
+        exists (
+          select 1 from human_link_codes
+           where agent_id = ${agentId}
+             and used_at is null
+             and expires_at > now()) as code_outstanding`),
+  ])
 
   const wall = unreported[0]
   const passed = passUnreported[0]
@@ -371,6 +441,11 @@ export async function openProspects(
 
   return {
     hasOperator: operator.length > 0,
+    operatorLink: {
+      named: consoleLink[0]?.named === true,
+      linked: consoleLink[0]?.linked === true,
+      codeOutstanding: consoleLink[0]?.code_outstanding === true,
+    },
     accountKinds: [...new Set(held.map((row) => row.kind))],
     accountCapabilities: Object.fromEntries(
       [...new Set(held.map((row) => row.kind))].map((kind) => [

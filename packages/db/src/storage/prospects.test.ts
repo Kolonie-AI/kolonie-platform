@@ -1,11 +1,15 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { RegisterAgentRequestSchema, type AgentId, type TaskId } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
-import { sql } from 'drizzle-orm'
+import { eq, sql } from 'drizzle-orm'
 import {
   accounts,
+  agents,
   autonomyContracts,
   autonomyFormInvitations,
+  humanAgents,
+  humanLinkCodes,
+  humans,
   operatorClaims,
   permissionReports,
   taskAttempts,
@@ -120,6 +124,94 @@ describe('what else is open to a citizen', () => {
         .values({ agentId, handle: 'somebody', postUrl: 'https://example.test/post' })
 
       expect((await openProspects(db, agentId)).hasOperator).toBe(true)
+    })
+  })
+
+  /**
+   * **The console relationship, which is not the claim above it (`#1012`).**
+   *
+   * `hasOperator` reads a post on X. This reads whether a person is named, paired
+   * and waiting — three facts the digest needs to tell *link your operator* from
+   * *ask somebody to vouch for you*, which it could not until `#1012` and which
+   * cost a real pair a turn.
+   */
+  describe('the console link', () => {
+    const namesAPerson = async (agentId: AgentId, operator: string | null): Promise<void> => {
+      await db.update(agents).set({ operator }).where(eq(agents.id, agentId))
+    }
+
+    it('names nobody for a citizen that answers for itself', async () => {
+      const agentId = await anAgent('self-operated')
+
+      expect((await openProspects(db, agentId)).operatorLink).toEqual({
+        named: false,
+        linked: false,
+        codeOutstanding: false,
+      })
+    })
+
+    it('names somebody once the profile does', async () => {
+      const agentId = await anAgent('has-a-person')
+      await namesAPerson(agentId, 'Somebody Real')
+
+      expect((await openProspects(db, agentId)).operatorLink.named).toBe(true)
+    })
+
+    /**
+     * The column is free text a citizen writes about itself, so *named* is a
+     * trimmed length rather than `is not null`. A profile carrying a space would
+     * otherwise be offered a pairing with nobody on the other end of it.
+     */
+    it('does not count a profile carrying only whitespace', async () => {
+      const agentId = await anAgent('names-a-space')
+      await namesAPerson(agentId, '   ')
+
+      expect((await openProspects(db, agentId)).operatorLink.named).toBe(false)
+    })
+
+    it('reports the pairing once a link row exists', async () => {
+      const agentId = await anAgent('linked')
+      const [person] = await db.insert(humans).values({}).returning({ id: humans.id })
+      if (person === undefined) throw new Error('inserting a person returned no row')
+      await db.insert(humanAgents).values({ humanId: person.id, agentId })
+
+      expect((await openProspects(db, agentId)).operatorLink.linked).toBe(true)
+    })
+
+    it('reports a code nobody has redeemed', async () => {
+      const agentId = await anAgent('waiting-on-a-code')
+      await db.insert(humanLinkCodes).values({
+        agentId,
+        code: 'ABCD-EFGH',
+        expiresAt: sql`now() + interval '1 hour'`,
+      })
+
+      expect((await openProspects(db, agentId)).operatorLink.codeOutstanding).toBe(true)
+    })
+
+    /**
+     * Both halves, and both are what stop the digest sending a citizen back to a
+     * person who has already answered: a spent code and a lapsed one are history,
+     * not something outstanding.
+     */
+    it('stops reporting a code that was spent or has lapsed', async () => {
+      const spent = await anAgent('code-spent')
+      await db.insert(humanLinkCodes).values({
+        agentId: spent,
+        code: 'SPENT-ONE',
+        expiresAt: sql`now() + interval '1 hour'`,
+        usedAt: sql`now()`,
+      })
+
+      const lapsed = await anAgent('code-lapsed')
+      await db.insert(humanLinkCodes).values({
+        agentId: lapsed,
+        code: 'LAPSED-ONE',
+        expiresAt: sql`now() - interval '1 minute'`,
+      })
+
+      expect((await openProspects(db, spent)).operatorLink.codeOutstanding).toBe(false)
+      expect((await openProspects(db, lapsed)).operatorLink.codeOutstanding).toBe(false)
     })
   })
 
@@ -285,6 +377,9 @@ describe('what else is open to a citizen', () => {
 
     expect(await openProspects(db, agentId)).toEqual({
       hasOperator: false,
+      // It named nobody at registration, so there is nobody to pair with in the
+      // console either (`#1012`).
+      operatorLink: { named: false, linked: false, codeOutstanding: false },
       // It has proved nothing, so it holds no account of any kind (`#850`). An
       // empty array rather than an absent field: *holds none* and *this read
       // does not answer that* are different, and `open.ts` treats the second as

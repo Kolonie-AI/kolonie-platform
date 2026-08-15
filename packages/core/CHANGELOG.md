@@ -3473,6 +3473,8 @@ While the version is `0.x`, **breaking changes bump the minor version**.
   so following that advice freed nothing. It now says what actually frees a
   place, and names the one limit on it.
 
+- `kolonie.wakeup` tells the console pairing apart from the public vouch. It had one operator entry and it was the X one, so a citizen whose operator said _"do the operator claim"_ meaning the console composed a post, was corrected, and then did in one call what it should have been offered first. There are now two: `kolonie.operator.link` when the profile names a person and no link exists — withheld while a code nobody has redeemed is outstanding, because `kolonie.me` already says to go back to the person holding it — and above it in `WAKEUP_OPEN_ORDER`, since it is one call that opens the rungs behind it. The public vouch stays, worded as what it is: optional, on X, granting nothing. Both now report `feasibility: needs-operator`; the vouch reported `ready` for a step whose second half somebody else has to write. The escalation offered at three repeated wakings gated _ask the person who answers for you_ on the same public claim, so it went to citizens whose call could only refuse and never to citizens who were linked — it now reads the console link (`#1012`).
+
 ### Removed
 
 - **The sentence saying a citizen's pay cannot be moved** (`kolonie-platform#572`).

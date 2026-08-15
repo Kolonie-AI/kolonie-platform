@@ -225,7 +225,17 @@ export async function escalationFactsFor(
   ])
 
   return {
-    hasOperator: prospects.hasOperator,
+    /**
+     * **The console link, not the public vouch (`#1012`).** This fact gates one
+     * entry — *ask the person who answers for you* — and the call behind it,
+     * `kolonie.operator.request.open`, answers `no-operator` unless a console
+     * relationship exists. It read `prospects.hasOperator` until `#1012`, which
+     * is a post on X: a citizen whose operator had posted for it and never
+     * linked was offered a call that could only refuse, and a citizen properly
+     * linked to a person it could ask was never offered it at all. Both wrong
+     * ways round, from the same collapse the digest's `open` section made.
+     */
+    hasOperator: prospects.operatorLink.linked,
     operatorRequestOpen,
     unwalked,
     obstacle,

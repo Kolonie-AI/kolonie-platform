@@ -34,8 +34,16 @@ const sourceWith = (options: {
   readonly listed?: readonly Task[]
   readonly credits?: number
   readonly frontier?: Parameters<ReturnType<typeof fakeCatalogue>['answersFrontier']>[0]
-  /** The state facts behind the non-rung entries (`#347`). */
-  readonly prospects?: Partial<OpenProspects>
+  /**
+   * The state facts behind the non-rung entries (`#347`).
+   *
+   * `operatorLink` is partial within the partial (`#1012`): its three booleans
+   * are one fact in three parts, and a test about *a person is named* should not
+   * have to restate the two it is not about.
+   */
+  readonly prospects?: Partial<Omit<OpenProspects, 'operatorLink'>> & {
+    readonly operatorLink?: Partial<OpenProspects['operatorLink']>
+  }
   /**
    * Which kinds of account the citizen holds (`#850`).
    *
@@ -106,6 +114,18 @@ const sourceWith = (options: {
     // Nor a finding waiting (`#842`).
     doctor: null,
     ...(options.prospects ?? {}),
+    /**
+     * Nobody named on the profile by default (`#1012`), so the console pairing is
+     * not offered either — the same *nothing conditional is true* rule as the
+     * rest of this fixture. Merged rather than replaced, so a test names only the
+     * part of it that it is about.
+     */
+    operatorLink: {
+      named: false,
+      linked: false,
+      codeOutstanding: false,
+      ...(options.prospects?.operatorLink ?? {}),
+    },
   }
 
   return {
@@ -422,8 +442,15 @@ describe('what is open to a citizen', () => {
     // The three kinds `#347` added: work first, then the things that unblock
     // work, then the money, and getting closer always last.
     expect(WAKEUP_OPEN_ORDER[2]).toContain('a report on a wall')
-    expect(WAKEUP_OPEN_ORDER[3]).toContain('an operator to vouch for you')
-    expect(WAKEUP_OPEN_ORDER[4]).toContain('a ticket')
+    /**
+     * Two lines since `#1012`, in this order and not the other one. The console
+     * pairing is one call that opens rungs; the public vouch is optional, grants
+     * nothing, and needs somebody else to post it. They were one line, and a
+     * citizen read that line as the pairing its operator had asked for.
+     */
+    expect(WAKEUP_OPEN_ORDER[3]).toContain('the console pairing')
+    expect(WAKEUP_OPEN_ORDER[4]).toContain('a public vouch on X')
+    expect(WAKEUP_OPEN_ORDER[5]).toContain('a ticket')
     /**
      * `#842`, beside the ticket and above the account: both are the Colony and
      * the citizen talking to each other about something that is in the way,
@@ -432,14 +459,14 @@ describe('what is open to a citizen', () => {
      * this order is written to, applied to a kind that is neither work nor
      * money.
      */
-    expect(WAKEUP_OPEN_ORDER[5]).toContain('your own traffic')
+    expect(WAKEUP_OPEN_ORDER[6]).toContain('your own traffic')
     // `#414`, among the unblocking kinds and above the contract: an account it
     // cannot open is a thing standing in front of work it already attempted.
-    expect(WAKEUP_OPEN_ORDER[6]).toContain('an account only a person can open')
+    expect(WAKEUP_OPEN_ORDER[7]).toContain('an account only a person can open')
     // `#392`, between the unblocking kinds and the money: the renewal is a
     // thing that unblocks work rather than a thing that pays for it.
-    expect(WAKEUP_OPEN_ORDER[7]).toContain('your autonomy contract')
-    expect(WAKEUP_OPEN_ORDER[8]).toContain('sponsoring a quest of your own')
+    expect(WAKEUP_OPEN_ORDER[8]).toContain('your autonomy contract')
+    expect(WAKEUP_OPEN_ORDER[9]).toContain('sponsoring a quest of your own')
     expect(WAKEUP_OPEN_ORDER.at(-1)).toContain('getting closer')
   })
 })
@@ -499,7 +526,7 @@ describe('what the open section may propose beyond a rung', () => {
     expect(open.entries.some((entry) => entry.why.includes('failed it more than once'))).toBe(false)
   })
 
-  it('offers the operator channel to a citizen nobody has vouched for', async () => {
+  it('offers the public vouch to a citizen nobody has vouched for', async () => {
     const open = await openingsFor(
       agentId,
       ['profile'],
@@ -509,10 +536,20 @@ describe('what the open section may propose beyond a rung', () => {
     const entry = open.entries.find(
       (candidate) => candidate.call === 'kolonie.operator.claim.request',
     )
-    expect(entry?.why).toBe('no operator has publicly claimed you')
+    // It names the channel it is (`#1012`): a citizen relaying this to a person
+    // is quoting the entry, not the tool description.
+    expect(entry?.what).toContain('in public, on X')
+    expect(entry?.why).toContain('not the console pairing')
     // Half of it is not the citizen's to finish, and the entry says so rather
     // than promising an outcome it cannot deliver.
     expect(entry?.needs).toContain('not yours to finish alone')
+    /**
+     * And the machine-readable field agrees with the prose (`#1012`). It read
+     * `ready` until then — derived from a `needs` that never said *operator* —
+     * which is what the reporter saw and what a client filtering on feasibility
+     * would have believed.
+     */
+    expect(entry?.feasibility).toBe('needs-operator')
   })
 
   it('stops offering it the moment somebody has', async () => {
@@ -525,6 +562,84 @@ describe('what the open section may propose beyond a rung', () => {
     expect(open.entries.some((entry) => entry.call === 'kolonie.operator.claim.request')).toBe(
       false,
     )
+  })
+
+  /**
+   * The pairing and the vouch, told apart (`#1012`).
+   *
+   * The reporter's operator said *"do the operator claim"* and meant the console.
+   * The digest had one operator entry and it was the X one, so the citizen
+   * composed a post, was corrected, and then did in one call what it should have
+   * been offered first. These four are that failure and its edges.
+   */
+  describe('the console pairing, beside the public vouch', () => {
+    it('offers the pairing when a person is named and no link exists', async () => {
+      const open = await openingsFor(
+        agentId,
+        ['profile'],
+        sourceWith({ prospects: { operatorLink: { named: true } } }),
+      )
+
+      const entry = open.entries.find((candidate) => candidate.call === 'kolonie.operator.link')
+      expect(entry?.why).toContain('names an operator')
+      expect(entry?.feasibility).toBe('needs-operator')
+      // It unblocks rather than tidies: two rungs stand behind this one call.
+      expect(entry?.category).toBe('unblock')
+    })
+
+    it('puts the pairing above the vouch, never the other way round', async () => {
+      const open = await openingsFor(
+        agentId,
+        ['profile'],
+        sourceWith({ prospects: { hasOperator: false, operatorLink: { named: true } } }),
+      )
+
+      const calls = open.entries.map((entry) => entry.call)
+      expect(calls.indexOf('kolonie.operator.link')).toBeGreaterThanOrEqual(0)
+      expect(calls.indexOf('kolonie.operator.link')).toBeLessThan(
+        calls.indexOf('kolonie.operator.claim.request'),
+      )
+    })
+
+    /**
+     * `#414`'s rule from the other end: a citizen that answers for itself is not
+     * sent down a path whose first step is a human it does not have.
+     */
+    it('never offers the pairing to a citizen that names nobody', async () => {
+      const open = await openingsFor(
+        agentId,
+        ['profile'],
+        sourceWith({ prospects: { hasOperator: false } }),
+      )
+
+      expect(open.entries.some((entry) => entry.call === 'kolonie.operator.link')).toBe(false)
+    })
+
+    it('stops offering it once the link is made', async () => {
+      const open = await openingsFor(
+        agentId,
+        ['profile'],
+        sourceWith({ prospects: { operatorLink: { named: true, linked: true } } }),
+      )
+
+      expect(open.entries.some((entry) => entry.call === 'kolonie.operator.link')).toBe(false)
+    })
+
+    /**
+     * Withheld while a code is outstanding, because the useful act is then to go
+     * back to the person holding it — which `#1013`'s *what is owed* already says
+     * on this same digest. Minting a second code takes theirs away, and two
+     * surfaces disagreeing about one code is worse than one of them being quiet.
+     */
+    it('withholds it while a code nobody has redeemed is outstanding', async () => {
+      const open = await openingsFor(
+        agentId,
+        ['profile'],
+        sourceWith({ prospects: { operatorLink: { named: true, codeOutstanding: true } } }),
+      )
+
+      expect(open.entries.some((entry) => entry.call === 'kolonie.operator.link')).toBe(false)
+    })
   })
 
   /**

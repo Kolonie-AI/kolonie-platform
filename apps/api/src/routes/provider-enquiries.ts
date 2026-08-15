@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 import {
   ATLAS_ADMISSION_QUESTIONS,
+  ATLAS_CONDITION_QUESTIONS,
   ERROR_STATUS,
   PROVIDER_ENQUIRY_CONFIRMATION,
   PROVIDER_ENQUIRY_WHAT_WE_ASK,
@@ -146,10 +147,23 @@ export function registerProviderEnquiryRoute(v1: FastifyInstance, deps: RouteDep
    * one within a month, and the one being read would be the wrong one — the
    * argument `#428` made about the operator page, applied to the other door.
    */
+  /**
+   * **Two lists and not one, because they do different things** (`#815`).
+   *
+   * `questions` can refuse an entry: each of the three carries the sentence a
+   * proposal failing it is turned away with. `conditions` cannot — they are
+   * facts recorded on an entry that is being accepted, and none of them removes,
+   * hides or gates anything. Serving them in one array would tell the form to
+   * render them identically, and a provider reading *where is money required*
+   * beside three questions that can refuse it will answer it as though it were
+   * one, which is the wrong incentive on the one field an agent most needs to be
+   * true.
+   */
   v1.get('/atlas/admission', async (_request, reply) =>
     reply.status(200).header(CORS, '*').send({
       intro: PROVIDER_ENQUIRY_WHAT_WE_ASK,
       questions: ATLAS_ADMISSION_QUESTIONS,
+      conditions: ATLAS_CONDITION_QUESTIONS,
     }),
   )
 

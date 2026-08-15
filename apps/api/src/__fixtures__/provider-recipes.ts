@@ -374,6 +374,9 @@ export function fakeProviderRecipes(): FakeProviderRecipes {
         walkedRecipe: entry.walkedRecipe ?? null,
         agentApi: entry.agentApi ?? 'unknown',
         signupCode: entry.signupCode ?? 'unknown',
+        needs: entry.needs ?? [],
+        terms: entry.terms ?? 'unknown',
+        cost: entry.cost ?? 'unknown',
         pacePerDay: entry.pacePerDay ?? null,
         updatedAt: currentTime(),
       })

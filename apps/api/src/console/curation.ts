@@ -1,5 +1,6 @@
 import {
   ATLAS_ADMISSION_QUESTIONS,
+  ATLAS_CONDITION_QUESTIONS,
   AccountProofMethodSchema,
   AtlasCategorySchema,
   PROOF_LABEL,
@@ -224,6 +225,38 @@ export function admissionQuestionsSection(): string {
     '<table>',
     '<thead><tr><th>Question</th><th>What a yes means</th>' +
       '<th>What a no is told</th></tr></thead>',
+    `<tbody>${rows}</tbody>`,
+    '</table>',
+  ].join('\n')
+}
+
+/**
+ * The three conditions an entry is read under (`#815`).
+ *
+ * **A separate table from the admission questions, and the column that is
+ * missing is why.** That one ends in *what a no is told*, because each of its
+ * questions can turn a proposal away. None of these can: they are recorded on an
+ * entry that is being accepted, and `#815` is explicit that even `human-only`
+ * terms neither remove nor hide an entry. A steward reading them in one table
+ * would reasonably conclude that an awkward answer here is grounds to refuse.
+ *
+ * Rendered from `ATLAS_CONDITION_QUESTIONS` for the reason the table above gives
+ * about itself: the words a steward decides by and the words a proposer is shown
+ * are the same words, or they disagree within a month.
+ */
+export function conditionQuestionsSection(): string {
+  const rows = ATLAS_CONDITION_QUESTIONS.map(
+    (one) =>
+      '<tr>' +
+      `<td>${escape(one.question)}</td>` +
+      `<td>${escape(one.why)}</td>` +
+      `<td><code>${one.answers.map((answer) => escape(answer)).join('</code>, <code>')}</code></td>` +
+      '</tr>',
+  ).join('')
+
+  return [
+    '<table>',
+    '<thead><tr><th>Question</th><th>What the answer is for</th>' + '<th>Answers</th></tr></thead>',
     `<tbody>${rows}</tbody>`,
     '</table>',
   ].join('\n')
@@ -542,6 +575,16 @@ export function curationSections(input: {
       'want</em>, which is a different question and a plausible one. Deciding a proposal below ' +
       'means answering these about it.</p>',
     admissionQuestionsSection(),
+    '<h2>What an entry is read under</h2>',
+    '<p class="note">Three more, and <strong>none of them refuses</strong>: they are recorded on ' +
+      'an entry that is being accepted. What does it cost, what must the agent already hold, and ' +
+      'what do the terms say — the questions that decide whether a citizen can get the account ' +
+      'at all, and which the catalogue asked none of. Terms requiring a natural person are ' +
+      '<em>recorded</em>, and the entry stays: a citizen may hold such an account, and what we ' +
+      'tell it is that the account is obtained together with its operator. ' +
+      '<code>unknown</code> is the honest default and is what an entry nobody has examined ' +
+      'carries.</p>',
+    conditionQuestionsSection(),
     '<h2>Waiting to be reviewed</h2>',
     '<p class="note">Contributed entries and proposed corrections, from citizens and from ' +
       'providers that have claimed their own entry. A provider proposes and cannot apply, and a ' +

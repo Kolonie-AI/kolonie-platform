@@ -65,6 +65,9 @@ const recipe = (input: {
     walkedRecipe: null,
     agentApi: 'unknown' as const,
     signupCode: 'unknown' as const,
+    needs: [],
+    terms: 'unknown' as const,
+    cost: 'unknown' as const,
     pacePerDay: null,
     updatedAt: (input.updatedAt ?? '2026-08-01T00:00:00.000Z') as ProviderRecipe['updatedAt'],
   }

@@ -22,6 +22,10 @@ import {
   type ReferralArrangement,
   AgentApiSchema,
   SignupCodeSchema,
+  ProviderTermsSchema,
+  RecipeNeedSchema,
+  SignupCostSchema,
+  type RecipeNeed,
   type WalkedRecipe,
 } from '@kolonie-ai/core'
 
@@ -37,6 +41,9 @@ const ATLAS_CATEGORIES = AtlasCategorySchema.options
 const OPERATOR_GUESSES = RecipeOperatorGuessSchema.options
 const AGENT_APIS = AgentApiSchema.options
 const SIGNUP_CODES = SignupCodeSchema.options
+const PROVIDER_TERMS = ProviderTermsSchema.options
+const SIGNUP_COSTS = SignupCostSchema.options
+const RECIPE_NEEDS = RecipeNeedSchema.options
 
 /**
  * One provider, as a recipe (`#521`).
@@ -275,6 +282,46 @@ export const providerRecipes = pgTable(
     signupCode: text('signup_code').notNull().default('unknown'),
 
     /**
+     * What an agent must already hold before the first step (`#815`).
+     *
+     * **`jsonb` beside `runtimes` rather than a join table**, and for the same
+     * reason: it is a short closed list read only with its own row, never
+     * queried across rows on its own. The check constraint below is what keeps a
+     * `jsonb` from becoming the place unvalidated words accumulate.
+     *
+     * **`not null` with `[]`, and the empty array is a real answer here** — the
+     * one place in this group where the default is not the honest *nobody
+     * looked*. It cannot be: there is no word for the empty set that is not also
+     * the empty set. So the pairing is what carries it. A row whose `terms` and
+     * `cost` are both `unknown` has not been asked; a row that has been asked
+     * says so in those two, and its empty `needs` means *nothing needed*.
+     */
+    needs: jsonb('needs').$type<RecipeNeed[]>().notNull().default([]),
+
+    /**
+     * What the provider's terms say about an agent holding this (`#815`).
+     *
+     * `not null` with an `unknown` default, as `agent_api` and `signup_code` are.
+     *
+     * **Nothing reads this to decide whether to serve the row.** `#815`: a
+     * `human-only` entry is not removed, hidden or refused — the value drives a
+     * sentence on the page. A future index on this column for filtering would be
+     * the first sign that decision has been quietly reversed.
+     */
+    terms: text('terms').notNull().default('unknown'),
+
+    /**
+     * Where in the walk money is required (`#815`).
+     *
+     * **Not `paid`, twenty lines up.** That column is paid *placement* — the
+     * disclosure that a provider paid to be listed — and it is invisible to
+     * ranking on purpose. This one is what the account costs the agent. They were
+     * proposed as one field and they are two, because collapsing them would have
+     * deleted the disclosure.
+     */
+    cost: text('cost').notNull().default('unknown'),
+
+    /**
      * How many accounts one operator may create here in a day (`#532`).
      *
      * Null means the configured default applies. **It can only lower the ceiling**,
@@ -369,6 +416,42 @@ export const providerRecipes = pgTable(
     check(
       'provider_recipes_signup_code_is_known',
       sql`${table.signupCode} in (${sql.raw(SIGNUP_CODES.map((one) => `'${one}'`).join(', '))})`,
+    ),
+
+    /** The same again, from `ProviderTermsSchema` (`#815`). */
+    check(
+      'provider_recipes_terms_is_known',
+      sql`${table.terms} in (${sql.raw(PROVIDER_TERMS.map((one) => `'${one}'`).join(', '))})`,
+    ),
+
+    /** And from `SignupCostSchema` (`#815`). */
+    check(
+      'provider_recipes_cost_is_known',
+      sql`${table.cost} in (${sql.raw(SIGNUP_COSTS.map((one) => `'${one}'`).join(', '))})`,
+    ),
+
+    /**
+     * Every entry in `needs` is a word `RecipeNeedSchema` knows (`#815`).
+     *
+     * **Containment rather than a loop**, because a check constraint may not hold
+     * a subquery: `<@` on two `jsonb` arrays is true exactly when every element on
+     * the left appears on the right, and `[]` is contained by everything, which is
+     * the default and has to pass.
+     *
+     * **What this does not enforce is uniqueness.** `["email", "email"]` is
+     * contained by the vocabulary and would survive here. `RecipeNeedsSchema`
+     * refuses it at the boundary, which is where it belongs — a repeat is a
+     * malformed request rather than a corrupt row, and the table's job is that no
+     * word outside the vocabulary ever lands. The length bound is what keeps a
+     * repeat from being unbounded.
+     */
+    check(
+      'provider_recipes_needs_are_known',
+      sql`jsonb_typeof(${table.needs}) = 'array'
+          and jsonb_array_length(${table.needs}) <= ${sql.raw(String(RECIPE_NEEDS.length))}
+          and ${table.needs} <@ ${sql.raw(
+            `'[${RECIPE_NEEDS.map((one) => `"${one}"`).join(', ')}]'::jsonb`,
+          )}`,
     ),
 
     /**

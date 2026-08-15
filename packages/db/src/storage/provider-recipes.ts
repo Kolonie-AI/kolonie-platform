@@ -6,6 +6,9 @@ import {
   AtlasCategorySchema,
   atlasCategoryForKind,
   SignupCodeSchema,
+  ProviderTermsSchema,
+  RecipeNeedsSchema,
+  SignupCostSchema,
   RecipeOperatorGuessSchema,
   RecipeRuntimeNoteSchema,
   RecipeReachSchema,
@@ -19,6 +22,9 @@ import {
   type AgentApi,
   type AtlasCategory,
   type SignupCode,
+  type ProviderTerms,
+  type RecipeNeed,
+  type SignupCost,
   type ProviderRecipe,
   type RecipeOperatorGuess,
   type RecipeReach,
@@ -103,6 +109,19 @@ export function toRecipe(row: typeof providerRecipes.$inferSelect): ProviderReci
     walkedRecipe: row.walkedRecipe === null ? null : WalkedRecipeSchema.parse(row.walkedRecipe),
     agentApi: AgentApiSchema.parse(row.agentApi),
     signupCode: SignupCodeSchema.parse(row.signupCode),
+    /**
+     * Parsed on the way out like the two above, and like `steps` (`#815`).
+     *
+     * **`needs` is parsed for the same reason `steps` is and a stronger one.**
+     * The column's check constraint bounds the vocabulary and the length, and
+     * it deliberately does not bound uniqueness — a check may not hold a
+     * subquery, so `["email", "email"]` is a row the table would accept and
+     * `RecipeNeedsSchema` is where it is refused. A row written before that
+     * boundary existed is exactly what a parse on the way out is for.
+     */
+    needs: RecipeNeedsSchema.parse(row.needs),
+    terms: ProviderTermsSchema.parse(row.terms),
+    cost: SignupCostSchema.parse(row.cost),
     pacePerDay: row.pacePerDay,
     updatedAt: toTimestamp(row.updatedAt),
   }
@@ -249,6 +268,20 @@ export async function writeProviderRecipe(
     readonly agentApi?: AgentApi
     /** Where the signup code arrives (`#597`). Absent means nobody looked. */
     readonly signupCode?: SignupCode
+    /**
+     * What an agent must already hold before the first step (`#815`).
+     *
+     * **Absent is *nobody was asked* and `[]` is *asked, and nothing*.** The two
+     * are opposite answers, and they land on the same column value — which is
+     * why the entry is read beside `terms` and `cost`, whose `unknown` is what
+     * says which of the two a row is in. An edit that omits all three is saying
+     * nothing about any of them.
+     */
+    readonly needs?: readonly RecipeNeed[]
+    /** What the terms say about an agent holding this (`#815`). Absent means nobody looked. */
+    readonly terms?: ProviderTerms
+    /** Where money is required (`#815`). Not `paid`, which is paid placement. */
+    readonly cost?: SignupCost
     readonly pacePerDay?: number | null
   },
 ): Promise<ProviderRecipe> {
@@ -308,6 +341,20 @@ export async function writeProviderRecipe(
      */
     agentApi: entry.agentApi ?? 'unknown',
     signupCode: entry.signupCode ?? 'unknown',
+    /**
+     * The same rule as `agentApi` above: an omitted answer resets rather than
+     * carries forward, because this is an upsert and an edit that does not
+     * mention the conditions is not re-confirming them (`#815`).
+     *
+     * **The empty array is what an unanswered `needs` resets to**, which is the
+     * one place in this group where the reset value is also a real answer. It is
+     * the same ambiguity the column carries and it is resolved the same way: an
+     * edit that omits `needs` omits `terms` and `cost` too, and those two go
+     * back to `unknown`, which is what marks the row as unexamined.
+     */
+    needs: [...(entry.needs ?? [])],
+    terms: entry.terms ?? 'unknown',
+    cost: entry.cost ?? 'unknown',
     pacePerDay: entry.pacePerDay ?? null,
   }
 

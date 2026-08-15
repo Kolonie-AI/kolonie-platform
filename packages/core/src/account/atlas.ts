@@ -763,6 +763,16 @@ export function measuredOnlyRecipes(
         walkedRecipe: null,
         agentApi: 'unknown',
         signupCode: 'unknown',
+        /**
+         * All three at *nobody has looked*, which is the whole of what this row
+         * knows. The empty `needs` is the one that could mislead — read alone it
+         * says *nothing needed* — and it is read beside a `terms` and a `cost`
+         * that both say `unknown`, which is what tells a reader the entry was
+         * synthesised from a count rather than answered by anybody.
+         */
+        needs: [],
+        terms: 'unknown',
+        cost: 'unknown',
         pacePerDay: null,
         updatedAt: at.toISOString(),
       }),

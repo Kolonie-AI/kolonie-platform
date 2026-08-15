@@ -70,6 +70,9 @@ const recipe = (input: {
     walkedRecipe: input.walked === true ? { steps: [] } : null,
     agentApi: 'unknown',
     signupCode: 'unknown',
+    needs: [],
+    terms: 'unknown',
+    cost: 'unknown',
     pacePerDay: null,
     updatedAt: daysAgo(1) as ProviderRecipe['updatedAt'],
   } as ProviderRecipe

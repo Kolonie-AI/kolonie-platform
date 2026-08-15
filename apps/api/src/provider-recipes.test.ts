@@ -127,6 +127,9 @@ describe('what the recipe says to the agent walking it', () => {
         walkedRecipe: null,
         agentApi: 'unknown' as const,
         signupCode: 'unknown' as const,
+        needs: [],
+        terms: 'unknown' as const,
+        cost: 'unknown' as const,
         pacePerDay: null,
         updatedAt: new Date().toISOString() as never,
       },
@@ -176,6 +179,9 @@ describe('what the recipe says to the agent walking it', () => {
         walkedRecipe: null,
         agentApi: 'unknown' as const,
         signupCode: 'unknown' as const,
+        needs: [],
+        terms: 'unknown' as const,
+        cost: 'unknown' as const,
         pacePerDay: null,
         updatedAt: new Date().toISOString() as never,
       },
@@ -232,6 +238,9 @@ describe('what the recipe says to the agent walking it', () => {
       walkedRecipe: null,
       agentApi: 'unknown' as const,
       signupCode: 'unknown' as const,
+      needs: [],
+      terms: 'unknown' as const,
+      cost: 'unknown' as const,
       pacePerDay: null,
       updatedAt: new Date().toISOString() as never,
     }
@@ -292,6 +301,9 @@ describe('what the recipe says to the agent walking it', () => {
         walkedRecipe: null,
         agentApi: 'unknown' as const,
         signupCode: 'unknown' as const,
+        needs: [],
+        terms: 'unknown' as const,
+        cost: 'unknown' as const,
         pacePerDay: null,
         updatedAt: new Date().toISOString() as never,
       },
@@ -303,6 +315,79 @@ describe('what the recipe says to the agent walking it', () => {
     expect(text).toContain('**Do not attempt this.**')
     expect(text).toContain('phone number')
     expect(text).toContain('provider-report')
+  })
+
+  /**
+   * The three conditions an entry is read under (`#815`).
+   *
+   * **Above the steps, and absent entirely where nobody has been asked.** An
+   * unexamined entry carries `needs: []`, which renders as *nothing has to be in
+   * hand* — a claim the catalogue would be inventing out of a column default. So
+   * the assertion is on both halves: silence where the row is unread, and the
+   * money sentence first the moment any of the three is answered.
+   */
+  describe('what an entry costs and what has to be in hand', () => {
+    const entry = {
+      kind: 'trello' as never,
+      provider: 'trello.com' as never,
+      title: 'A Trello account',
+      about: null,
+      runtimes: [],
+      paid: false,
+      referral: null,
+      contact: null,
+      lastConfirmedAt: '2026-08-01T00:00:00.000Z' as never,
+      status: 'joinable' as const,
+      category: 'project-tracking' as const,
+      operatorNeed: 'unaided' as const,
+      operatorNeedIsGuess: false,
+      refusal: null,
+      retiredAt: null,
+      retiredReason: null,
+      steps: [{ actor: 'agent' as const, instruction: 'Fill in the form.' }],
+      proves: null,
+      provesTask: null,
+      reaches: null,
+      caution: null,
+      walkedRecipe: null,
+      agentApi: 'unknown' as const,
+      signupCode: 'unknown' as const,
+      needs: [] as never[],
+      terms: 'unknown' as const,
+      cost: 'unknown' as const,
+      pacePerDay: null,
+      updatedAt: new Date().toISOString() as never,
+    }
+
+    it('says nothing at all about an entry nobody has examined', () => {
+      expect(recipeAsText(entry, true)).not.toContain('Before you start')
+    })
+
+    it('leads on money, and above step one', () => {
+      const text = recipeAsText(
+        { ...entry, needs: ['email'] as never[], terms: 'agent-allowed', cost: 'card-to-sign-up' },
+        true,
+      )
+
+      expect(text).toContain('Before you start')
+      expect(text.indexOf('Before you start')).toBeLessThan(text.indexOf('1. Fill in the form.'))
+      // The decision it changes is whether to start at all, so the sentence a
+      // citizen with no card needs is the first one rather than the third.
+      expect(text.indexOf('card')).toBeLessThan(text.indexOf('email'))
+    })
+
+    /**
+     * `#815`'s binding constraint: a `human-only` provider is not removed, not
+     * hidden and not refused. What a citizen is told is how the account is
+     * actually obtained — together with its operator.
+     */
+    it('tells a citizen how a human-only account is obtained, and keeps the entry', () => {
+      const text = recipeAsText({ ...entry, terms: 'human-only' }, true)
+
+      expect(text).toContain('operator')
+      expect(text).not.toContain('**Do not attempt this.**')
+      expect(text).toContain('1. Fill in the form.')
+    })
   })
 })
 
@@ -431,6 +516,9 @@ describe('the handoff a recipe names', () => {
     walkedRecipe: null,
     agentApi: 'unknown' as const,
     signupCode: 'unknown' as const,
+    needs: [],
+    terms: 'unknown' as const,
+    cost: 'unknown' as const,
     pacePerDay: null,
     updatedAt: new Date().toISOString() as never,
   }
@@ -600,6 +688,9 @@ describe('an ask whose missing values are already held (#594 wall 3)', () => {
     walkedRecipe: null,
     agentApi: 'unknown' as const,
     signupCode: 'unknown' as const,
+    needs: [],
+    terms: 'unknown' as const,
+    cost: 'unknown' as const,
     pacePerDay: null,
     updatedAt: new Date().toISOString(),
   })

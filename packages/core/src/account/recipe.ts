@@ -4,6 +4,7 @@ import { looksLikeCredential } from '../operator/request.js'
 import { AgentPlatformSchema } from '../agent/agent.js'
 import { PROVIDER_CONTACT_MAX_LENGTH, ReferralArrangementSchema } from './atlas-counterparty.js'
 import { AgentApiSchema } from './atlas-admission.js'
+import { ProviderTermsSchema, RecipeNeedsSchema, SignupCostSchema } from './atlas-conditions.js'
 import { WalkedRecipeSchema } from './walked-recipe.js'
 import {
   AccountCapabilitySchema,
@@ -1084,6 +1085,48 @@ export const ProviderRecipeSchema = z.object({
    */
   signupCode: SignupCodeSchema,
   /**
+   * What an agent must already hold before the first step (`#815`).
+   *
+   * See `atlas-conditions.ts`. **Held before the first step and not produced by
+   * one**, which is what makes it the thing a citizen can filter a shelf on —
+   * `kolonie.tasks.list` has had `equipped` for this exact question and the Atlas
+   * had nothing to match against.
+   *
+   * **An empty array is *nothing needed* and not *nobody looked*.** The two are
+   * opposite answers and the storage default is the empty array, so a shelf of
+   * unexamined entries would assert that none of them needs anything if this were
+   * read alone. It is read beside `terms` and `cost`, whose `unknown` says which
+   * state the row is in — an entry carrying all three defaults has not been
+   * asked, and one with a considered empty list has.
+   *
+   * `operator` here is the **claimed** answer, where `operatorNeed` is derived
+   * from the steps and never stored — the `operatorNeedIsGuess` tension, in the
+   * one place it was always going to reappear. `operatorClaimDisagreement`
+   * reconciles them and reports rather than overwrites.
+   */
+  needs: RecipeNeedsSchema,
+  /**
+   * What the provider's terms say about an agent holding this (`#815`).
+   *
+   * See `atlas-conditions.ts`. **`human-only` records a fact and gates nothing**
+   * — no filter, no hiding, no refusal, and `#815` is explicit that a citizen may
+   * hold such an account and that what the entry tells it is how. The field
+   * drives a sentence and feeds `#813`'s verdict on steps that read as a route
+   * around the restriction.
+   */
+  terms: ProviderTermsSchema,
+  /**
+   * Where in the walk money is required (`#815`).
+   *
+   * **Not `paid`, which is three fields up and is about something else.** That
+   * one is paid *placement* — whether the provider paid to be listed, a
+   * disclosure about us that `atlasRank` deliberately cannot see. This is what
+   * the account costs the agent. `#815` proposed replacing the boolean; replacing
+   * it would have deleted the disclosure, so the two live side by side and their
+   * comments say which is which.
+   */
+  cost: SignupCostSchema,
+  /**
    * How many accounts one operator may create here in a day, when this provider is
    * known to be stricter than the default (`#532`).
    *
@@ -1146,6 +1189,20 @@ export const WriteProviderRecipeSchema = z
     pacePerDay: z.int().min(1).max(RECIPE_MAX_PACE_PER_DAY).optional(),
     /** Where this provider's signup code arrives (`#597`). Absent means nobody looked. */
     signupCode: SignupCodeSchema.optional(),
+    /**
+     * What an agent must already hold before the first step (`#815`).
+     *
+     * **Absent and `[]` are different answers and both are accepted.** Absent is
+     * *nobody was asked*; the empty array is *asked, and the answer is nothing*.
+     * Collapsing them with a `.default([])` here would throw away the second,
+     * which is the more useful of the two — an entry a walker confirmed needs
+     * nothing is the entry every citizen can start.
+     */
+    needs: RecipeNeedsSchema.optional(),
+    /** What the terms say about an agent holding this (`#815`). Records; never gates. */
+    terms: ProviderTermsSchema.optional(),
+    /** Where money is required (`#815`). Not `paid`, which is paid placement. */
+    cost: SignupCostSchema.optional(),
   })
   .strict()
   /**

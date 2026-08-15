@@ -4,6 +4,7 @@ import {
   AtlasCategorySchema,
   BOOTSTRAP_TEMPLATES,
   atlasByOutcome,
+  atlasConditionsSentences,
   atlasEntries,
   atlasShelfHasEvidence,
   ATLAS_NOTHING_MEASURED,
@@ -763,10 +764,40 @@ export function recipeAsText(recipe: ProviderRecipe, secretHandoff: boolean): st
 
   return (
     `${recipe.title} · ${recipe.category}\n\n${operatorNeedAsText(recipe)}\n\n` +
-    `${unwalkable}${steps}\n\n${proved}${reach}` +
+    `${conditionsAsText(recipe)}${unwalkable}${steps}\n\n${proved}${reach}` +
     (recipe.caution === null ? '' : `\n\n**Known to go wrong:** ${recipe.caution}`) +
     walked
   )
+}
+
+/**
+ * What it costs, what you must already hold, what the terms say (`#815`).
+ *
+ * **Above the steps**, on the argument `unwalkable` makes two blocks down and
+ * for the same decision: whether to start this at all is taken before step one,
+ * and a citizen with no phone number should learn that here rather than at step
+ * four. `kolonie.tasks.list` has had `equipped` for exactly this question and
+ * the Atlas had nothing to answer it with.
+ *
+ * **Silent on an entry nobody has examined**, which `atlasConditionsSentences`
+ * decides — the empty `needs` an unread row carries would otherwise render as
+ * *nothing has to be in hand*, a claim the catalogue would be inventing out of a
+ * column default.
+ *
+ * **Nothing here is a warning and nothing here hides an entry.** Terms requiring
+ * a natural person get a sentence saying how the account is actually obtained,
+ * because that is the Colony's position on it (`#815`).
+ */
+function conditionsAsText(recipe: {
+  readonly needs: ProviderRecipe['needs']
+  readonly terms: ProviderRecipe['terms']
+  readonly cost: ProviderRecipe['cost']
+}): string {
+  const sentences = atlasConditionsSentences(recipe)
+
+  if (sentences.length === 0) return ''
+
+  return `**Before you start:** ${sentences.join(' ')}\n\n`
 }
 
 /**

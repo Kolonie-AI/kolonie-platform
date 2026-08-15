@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { connectedClient, registeredCitizen } from '../../__fixtures__/mcp.js'
 import { fakeAccountThreads } from '../../__fixtures__/account-threads.js'
+import type { FakeProviderRecipes } from '../../__fixtures__/provider-recipes.js'
 
 /**
  * The account conversation over MCP (`#930`).
@@ -598,6 +599,123 @@ describe('the account conversation', () => {
       const { closed, close } = await closedWith('taken-over')
 
       expect(closed.structuredContent).not.toHaveProperty('advice')
+
+      await close()
+    })
+  })
+
+  /**
+   * What the Atlas has on the provider, carried into the conversation (`#936`).
+   *
+   * **On the read as well as the open**, which is the half worth asserting: the
+   * acquisition an operator starts from the wish list is opened by the operator,
+   * so the agent's first sight of it is a `read`. A fragment that rode only on
+   * `open` would miss the exact case the issue is about.
+   *
+   * **It decides nothing.** A provider recorded as refused is reported as
+   * refused and the episode carries on, because a walk somebody made a year ago
+   * is evidence and not a verdict.
+   */
+  describe('what the Atlas has on the provider', () => {
+    const about = async (
+      seed: (recipes: FakeProviderRecipes) => void,
+      account: { readonly provider?: string | null } = {},
+    ) => {
+      const { colony, apiKey, agent } = await registeredCitizen()
+      const accountThreads = fakeAccountThreads()
+      seed(colony.recipes)
+      const held = accountThreads.addAccount({
+        agentId: agent.id,
+        kind: 'mailbox',
+        provider: account.provider === undefined ? 'mail.example' : account.provider,
+      })
+      const { client, close } = await connectedClient(
+        { ...colony, accountThreads },
+        `Bearer ${apiKey}`,
+      )
+
+      const opening = await client.callTool({
+        name: 'kolonie.accounts.thread',
+        arguments: {
+          op: 'open',
+          accountId: held.id,
+          kind: 'acquisition',
+          title: 'Getting you a mailbox at mail.example',
+        },
+      })
+      const episodeId = (opening.structuredContent as { episode: { id: string } }).episode.id
+      const read = await client.callTool({
+        name: 'kolonie.accounts.thread',
+        arguments: { op: 'read', episodeId },
+      })
+
+      return { opening, read, close }
+    }
+
+    it('hands the steps over on both the open and the read', async () => {
+      const { opening, read, close } = await about((recipes) => {
+        recipes.write({
+          kind: 'mailbox',
+          provider: 'mail.example',
+          status: 'joinable',
+          steps: [
+            { actor: 'agent', instruction: 'sign up with the address you already hold' },
+            { actor: 'operator', instruction: 'accept the terms' },
+          ],
+        })
+      })
+
+      for (const answered of [opening, read]) {
+        expect(answered.structuredContent).toMatchObject({
+          atlas: {
+            state: 'walked',
+            provider: 'mail.example',
+            kind: 'mailbox',
+            reviewed: true,
+            operatorSteps: 1,
+          },
+        })
+        expect(JSON.stringify(answered)).toContain('sign up with the address you already hold')
+      }
+
+      await close()
+    })
+
+    it('reports a refusal and opens the episode anyway', async () => {
+      const { opening, read, close } = await about(
+        (recipes) => {
+          recipes.write({ kind: 'mailbox', provider: 'shut.example', status: 'refused' })
+        },
+        { provider: 'shut.example' },
+      )
+
+      expect(opening.structuredContent).toHaveProperty('episode')
+      expect(read.structuredContent).toMatchObject({
+        atlas: { state: 'closed', withdrawn: false, reason: 'no honest route in' },
+      })
+
+      await close()
+    })
+
+    it('says the provider is unwalked when nobody has written one down', async () => {
+      const { read, close } = await about(() => {})
+
+      expect(read.structuredContent).toMatchObject({
+        atlas: { state: 'unwalked', provider: 'mail.example' },
+      })
+
+      await close()
+    })
+
+    /**
+     * An account naming no provider is nothing the Atlas can be asked about, and
+     * *unwalked* would be an answer to a question nobody put.
+     */
+    it('carries nothing where the account names no provider', async () => {
+      const { opening, read, close } = await about(() => {}, { provider: null })
+
+      expect(opening.structuredContent).not.toHaveProperty('atlas')
+      expect(read.structuredContent).not.toHaveProperty('atlas')
 
       await close()
     })

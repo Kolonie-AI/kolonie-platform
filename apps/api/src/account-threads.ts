@@ -15,6 +15,7 @@ import {
   type AccountSlot,
   type AgentId,
   type ApiError,
+  type AtlasState,
 } from '@kolonie-ai/core'
 import {
   accountOf,
@@ -46,6 +47,7 @@ import {
   type OpenEpisodeAccount,
 } from '@kolonie-ai/db'
 import { z } from 'zod'
+import { atlasStateAt, type ProviderRecipes } from './provider-recipes.js'
 import { fieldErrors } from './validation.js'
 
 /**
@@ -184,6 +186,15 @@ export interface AccountThreadStore {
 
 export interface AccountThreadDependencies {
   readonly accountThreads?: AccountThreadStore | undefined
+  /**
+   * The catalogue, so a read can say what has been walked here (`#936`).
+   *
+   * **Optional, and absent means the response carries no `atlas` field.** The
+   * Atlas never gates an acquisition — it is a hint on the way past — so a
+   * Colony wired without a catalogue behaves exactly as one whose catalogue is
+   * empty, and neither is an error the agent has to handle.
+   */
+  readonly recipes?: ProviderRecipes | undefined
 }
 
 export function databaseAccountThreads(
@@ -410,6 +421,20 @@ export type ThreadResponse = {
    * settled the other way.
    */
   readonly advice?: string
+  /**
+   * What the Atlas has on this account's provider (`#936`).
+   *
+   * **On the read as well as the open, and that is the whole of why it is
+   * here.** An acquisition an operator started from the wish list is opened by
+   * the operator, so the agent's first sight of it is a `read` — carrying this
+   * only on `open` would miss the exact case the issue is about.
+   *
+   * **Three states, and none of them decides anything.** The Colony does not
+   * refuse an acquisition because a walk a year ago was turned away; it says so
+   * and lets the citizen find out. Absent where the account names no provider,
+   * or where this Colony has no catalogue wired at all.
+   */
+  readonly atlas?: AtlasState
 }
 
 export type ThreadOutcome =
@@ -568,8 +593,8 @@ export async function accountThread(
   const op = command.op ?? undefined
   if (!isThreadOp(op)) return rejected(unknownThreadOp(op ?? undefined))
 
-  if (op === 'open') return await openOne(agentId, command, store)
-  if (op === 'read') return await readOne(agentId, command, store)
+  if (op === 'open') return await openOne(agentId, command, store, deps.recipes)
+  if (op === 'read') return await readOne(agentId, command, store, deps.recipes)
 
   /**
    * Everything else names an episode, and *does this exist* and *is it yours*
@@ -594,10 +619,34 @@ export async function accountThread(
   return await close(found, command, store)
 }
 
+/**
+ * The Atlas fragment a thread response carries, where there is one (`#936`).
+ *
+ * **Two absences answer as one, deliberately.** A Colony with no catalogue wired
+ * and an account that names no provider are different facts about the Colony and
+ * identical facts about this response: there is nothing the Atlas can be asked.
+ * Making the caller tell them apart would be asking it to handle a distinction
+ * it can do nothing with.
+ *
+ * The kind is passed because the account has one — a provider walked for a
+ * mailbox and a domain has two rows, and the row that answers is the row for
+ * what is being acquired here.
+ */
+async function atlasFor(
+  recipes: ProviderRecipes | undefined,
+  account: { readonly kind: string; readonly provider: string | null },
+): Promise<{ readonly atlas: AtlasState } | Record<string, never>> {
+  if (recipes === undefined) return {}
+  const provider = (account.provider ?? '').trim()
+  if (provider === '') return {}
+  return { atlas: await atlasStateAt(recipes, provider, account.kind) }
+}
+
 async function openOne(
   agentId: AgentId,
   command: ThreadCommand,
   store: AccountThreadStore,
+  recipes: ProviderRecipes | undefined,
 ): Promise<ThreadOutcome> {
   const accountId = command.accountId ?? undefined
   if (accountId === undefined || accountId === '') {
@@ -670,13 +719,22 @@ async function openOne(
    * restart, and the honest answer to *open the episode that brought this
    * account into being* when that episode exists is *here it is*.
    */
-  return { outcome: 'ok', response: { op: 'open', episode: opened.episode, account: view } }
+  return {
+    outcome: 'ok',
+    response: {
+      op: 'open',
+      episode: opened.episode,
+      account: view,
+      ...(await atlasFor(recipes, view)),
+    },
+  }
 }
 
 async function readOne(
   agentId: AgentId,
   command: ThreadCommand,
   store: AccountThreadStore,
+  recipes: ProviderRecipes | undefined,
 ): Promise<ThreadOutcome> {
   const episodeId = command.episodeId ?? undefined
 
@@ -707,6 +765,7 @@ async function readOne(
       account: found.account,
       slots: slots.map(toView),
       entries,
+      ...(await atlasFor(recipes, found.account)),
     },
   }
 }

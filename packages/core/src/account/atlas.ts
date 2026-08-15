@@ -15,9 +15,12 @@ import {
   RecipeOperatorNeedSchema,
   RecipeStatusSchema,
   isStale,
+  operatorStepCount,
+  recipeStatusIsOfferable,
   type ProviderRecipe,
 } from './recipe.js'
 import type { RecipeOperatorNeed, RecipeStatus } from './recipe.js'
+import { stepInstruction } from './walk.js'
 
 /**
  * The Atlas: the provider catalogue, as something a stranger can read (`#546`).
@@ -500,6 +503,105 @@ export function atlasEntries(
         .reduce((latest, at) => (at > latest ? at : latest)),
     }
   })
+}
+
+/**
+ * What the Atlas knows about a provider somebody is about to walk (`#936`).
+ *
+ * **Three states and not seven, because three is what a reader can act on.**
+ * `RecipeStatus` has seven values and they answer a curator's question — where
+ * is this entry in its life. Somebody opening an acquisition has one question
+ * instead: is there a path written down, is this provider known to be closed, or
+ * is nobody here before me. Every status folds into one of those three.
+ *
+ * **It never gates.** A `closed` answer is a warning shown before the hour is
+ * spent, not a refusal, and `#936` decided that outright — it matters most in
+ * exactly the case where the Atlas is most likely to be wrong, which is a
+ * provider that turned one citizen away a year ago.
+ */
+export type AtlasState =
+  | {
+      readonly state: 'walked'
+      readonly provider: string
+      readonly kind: string
+      readonly title: string
+      /**
+       * Whether a steward has stood behind these steps.
+       *
+       * False on a `draft`, which carries steps somebody walked and nobody
+       * reviewed. They are still worth showing — they are the only account of
+       * the path that exists — and the caveat is what stops them being read as
+       * the Colony's own instruction, which is `#604`'s rule on every surface.
+       */
+      readonly reviewed: boolean
+      readonly steps: readonly string[]
+      readonly operatorSteps: number
+    }
+  | {
+      readonly state: 'closed'
+      readonly provider: string
+      readonly kind: string
+      /** `retired` rather than `refused`: the Colony withdrew it, nobody was turned away. */
+      readonly withdrawn: boolean
+      readonly reason: string | null
+    }
+  | { readonly state: 'unwalked'; readonly provider: string }
+
+/**
+ * The three states, derived from a catalogue already in hand (`#936`).
+ *
+ * **One derivation, several renderings.** The console page and the thread tool
+ * both answer the same question about the same provider, and two mappings of
+ * seven statuses onto three states would be D-002 arriving as a pair of switch
+ * statements. It takes entries rather than reading them, so a caller holding the
+ * whole catalogue for another reason does not read it twice.
+ *
+ * The kind narrows an entry to one of its rows where the caller knows it — an
+ * account has a kind, a wish does not — and otherwise falls back to the row the
+ * entry is titled by, which is the one {@link atlasEntries} already chose to
+ * stand for it.
+ */
+export function atlasStateOf(
+  entries: readonly AtlasEntry[],
+  provider: string,
+  kind?: string,
+): AtlasState {
+  const at = provider.trim().toLowerCase()
+  const entry = entries.find((one) => one.provider === at)
+  if (entry === undefined) return { state: 'unwalked', provider: at }
+
+  const row =
+    (kind === undefined ? undefined : entry.recipes.find((one) => one.kind === kind)) ??
+    entry.recipes.find((one) => one.status === entry.status) ??
+    entry.recipes[0]
+  if (row === undefined) return { state: 'unwalked', provider: at }
+
+  if (row.status === 'refused' || row.status === 'retired') {
+    return {
+      state: 'closed',
+      provider: at,
+      kind: row.kind,
+      withdrawn: row.status === 'retired',
+      reason: (row.status === 'retired' ? row.retiredReason : row.refusal) ?? null,
+    }
+  }
+
+  /**
+   * **Steps and not status decide whether there is a crib sheet.** A `measured`
+   * row is a real entry with nothing written on it, and rendering it as *known
+   * and walked* over an empty list would promise a path and then show none.
+   */
+  if (row.steps.length === 0) return { state: 'unwalked', provider: at }
+
+  return {
+    state: 'walked',
+    provider: at,
+    kind: row.kind,
+    title: row.title,
+    reviewed: recipeStatusIsOfferable(row.status),
+    steps: row.steps.map((step) => stepInstruction(step)),
+    operatorSteps: operatorStepCount(row.steps).total,
+  }
 }
 
 /**

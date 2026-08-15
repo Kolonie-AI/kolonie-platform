@@ -37,7 +37,13 @@
  * read and shows it on the handover page. Both are forms.
  */
 
-import type { EpisodeOutcome, EpisodeTurn, SlotFiller, ThreadParty } from '@kolonie-ai/core'
+import type {
+  AtlasState,
+  EpisodeOutcome,
+  EpisodeTurn,
+  SlotFiller,
+  ThreadParty,
+} from '@kolonie-ai/core'
 import { heldRecheckCell, heldStateCell, type HeldAccountRow } from './agent-accounts.js'
 import { escape, page } from './html.js'
 import type { ConsoleNav } from './navigation.js'
@@ -104,6 +110,15 @@ export interface AccountThreadInput {
    * from anyone reading either half alone.
    */
   readonly conversations: readonly Conversation[]
+  /**
+   * What the Atlas has on this account's provider (`#936`).
+   *
+   * **Absent where there is no provider to look one up by**, which an account
+   * the agent declared without naming one is. Absent renders nothing at all
+   * rather than *unwalked*: the Colony has not failed to find an entry, it was
+   * never asked.
+   */
+  readonly atlas?: AtlasState | undefined
   /** Set after a form on this page, so the reader knows it landed. */
   readonly notice?: string | undefined
 }
@@ -301,6 +316,71 @@ function conversationBlock(
   ].join('')
 }
 
+/**
+ * What the Atlas has on this provider, on the page where somebody is about to
+ * act on it (`#936`).
+ *
+ * **Three states, three shapes, and the shapes are the point.** A reader
+ * skimming does not read the words before deciding whether this block matters —
+ * so a warning is a paragraph they cannot miss, a crib sheet is folded away
+ * until they want it, and *nobody has been here* is one quiet line. Rendering
+ * all three as the same box would put the refusal and the reassurance at the
+ * same weight.
+ *
+ * **The crib sheet is a hint and says so.** These are steps somebody else
+ * walked, at a provider that has had a year to change its signup since. The
+ * acceptance criteria for `#936` turn on that being visible rather than implied:
+ * an operator who follows a stale step and finds a different page should have
+ * been told what they were reading.
+ */
+function atlasBlock(atlas: AtlasState): readonly string[] {
+  if (atlas.state === 'unwalked') {
+    return [
+      `<p class="note">The Atlas has no written path for ${escape(atlas.provider)}. Nobody ` +
+        'has been through here, and what you two find on the way is how an entry gets ' +
+        'written.</p>',
+    ]
+  }
+
+  if (atlas.state === 'closed') {
+    return [
+      '<p class="notice"><strong>The Atlas records this one as ' +
+        `${atlas.withdrawn ? 'withdrawn' : 'not joinable'}.</strong> ` +
+        (atlas.reason === null ? 'No reason was recorded.' : escape(atlas.reason)) +
+        '</p>',
+      /**
+       * D-013's neighbour: the warning must not read as a closed door. A
+       * refusal in the Atlas is a finding from one walk, and the provider is
+       * free to have changed its mind since — which is exactly why nothing here
+       * stops the conversation.
+       */
+      '<p class="note">Nothing is stopped by this. It is one recorded finding and it may be ' +
+        'out of date — if it turns out to be, that is worth more to the Colony than the ' +
+        'account is.</p>',
+    ]
+  }
+
+  return [
+    '<details>',
+    `<summary>What somebody who walked ${escape(atlas.provider)} wrote down ` +
+      `(${String(atlas.steps.length)} step${atlas.steps.length === 1 ? '' : 's'})</summary>`,
+    `<p class="note"><strong>A hint, not an instruction.</strong> This is ${escape(
+      atlas.title,
+    )} as somebody else found it${
+      atlas.reviewed ? '' : ', and no steward has reviewed it yet'
+    }. The signup may have changed since. Where the page in front of you disagrees with the ` +
+      'list, the page is right.</p>',
+    `<ol>${atlas.steps.map((step) => `<li>${escape(step)}</li>`).join('')}</ol>`,
+    ...(atlas.operatorSteps === 0
+      ? []
+      : [
+          `<p class="note">${String(atlas.operatorSteps)} of these needed a person when it ` +
+            'was walked.</p>',
+        ]),
+    '</details>',
+  ]
+}
+
 export function accountThreadPage(input: AccountThreadInput): string {
   const action = `/agents/${escape(input.agentId)}/accounts/${escape(input.account.id)}`
   const nothingOpen = input.conversations.every((conversation) => conversation.outcome !== null)
@@ -319,6 +399,7 @@ export function accountThreadPage(input: AccountThreadInput): string {
     `<tbody><tr><td>${heldStateCell(input.account)}</td>` +
       `<td>${heldRecheckCell(input.account, input.zone)}</td></tr></tbody>`,
     '</table>',
+    ...(input.atlas === undefined ? [] : atlasBlock(input.atlas)),
     ...(input.conversations.length === 0
       ? [
           '<p>Nothing has ever happened to this account. That is the ordinary state of an ' +

@@ -76,6 +76,15 @@ export interface WishCatalogueEntry {
   readonly status: RecipeStatus
   readonly operatorNeed: 'unaided' | 'operator-needed' | 'unknown'
   readonly refusal: string | null
+  /**
+   * What sort of account the entry is for, where the catalogue names one (`#936`).
+   *
+   * **A prefill and never a constraint.** It saves the operator typing *mailbox*
+   * under a provider whose only recipe is a mailbox; the field it fills stays a
+   * `<datalist>`, because a provider the Colony has walked for one kind is a
+   * provider somebody may hold an entirely different sort of account at.
+   */
+  readonly kind?: string | undefined
 }
 
 /**
@@ -136,6 +145,51 @@ function wishCatalogueCell(entry: WishCatalogueEntry | undefined): string {
       ? 'a recipe exists and one of its steps will need you'
       : 'a recipe exists and your agent can walk it alone') +
     '</small>'
+  )
+}
+
+/**
+ * The one button between a wanted wish and a conversation (`#936`).
+ *
+ * **A wish that has been marked as wanted had nowhere to go.** The mark woke the
+ * agent and then both parties waited for the other to start something, on a row
+ * whose only remaining control was *Remove*. This is the missing move, and it is
+ * deliberately the same move `#933` made from the other direction: an
+ * `acquisition` episode, opened by the operator, with the turn on the agent.
+ *
+ * **It asks for the kind and the identifier because an episode cannot exist
+ * without an account, and an account cannot exist without both.** A placeholder
+ * would be a second record of a fact — the wrong identifier, permanently, with
+ * no rename path — which is D-002 arriving as a convenience. For nearly every
+ * provider the identifier is a choice somebody makes at signup, and the wish
+ * list is exactly where the two parties are planning that together.
+ *
+ * **A wish whose conversation is already open shows the way in and not the
+ * form.** Opening a second acquisition about the same account is refused
+ * downstream; offering the button anyway would be D-013.
+ */
+function wishStartCell(input: AgentAccountsInput, wish: Wish): string {
+  const open = input.conversations?.[wish.provider]
+  if (open !== undefined) {
+    return (
+      `<p><a href="/agents/${escape(input.agentId)}/accounts/${escape(open)}">` +
+      'Open the conversation</a></p>'
+    )
+  }
+
+  const kind = input.catalogue?.[wish.provider]?.kind ?? ''
+
+  return (
+    `<form method="post" action="/agents/${escape(input.agentId)}/wishes/start">` +
+    `<input type="hidden" name="provider" value="${escape(wish.provider)}">` +
+    '<p><label>What sort of account? ' +
+    `<input name="kind" list="account-kinds" required maxlength="32" value="${escape(kind)}">` +
+    '</label></p>' +
+    '<p><label>What will it be held under? ' +
+    '<input name="identifier" required maxlength="320">' +
+    '</label><br><small>The handle or address the account will have. Your agent cannot ' +
+    'invent this one for you — a name chosen at signup is chosen once.</small></p>' +
+    '<button type="submit">Start the conversation</button></form>'
   )
 }
 
@@ -363,6 +417,16 @@ export interface AgentAccountsInput {
   /** The shared list (`#527`). Absent is not the same as empty and cannot occur here. */
   readonly wishes: readonly Wish[]
   readonly catalogue?: Readonly<Record<string, WishCatalogueEntry>> | undefined
+  /**
+   * Which wishes already have a conversation, by provider (`#936`).
+   *
+   * **Derived through the provider the two rows share, and stored nowhere.** A
+   * wish is not deleted when its acquisition opens and carries no account
+   * column; adding one would be a second record of a link the join already
+   * makes. The value is the account id, because what a reader wants from this
+   * row is the way in.
+   */
+  readonly conversations?: Readonly<Record<string, string>> | undefined
   readonly bundles?: readonly BundleView[] | undefined
   /** The hand-over, when this identity can still be handed over at all (`#459`). */
   readonly adoption?: AdoptionSection | undefined
@@ -686,7 +750,7 @@ export function agentAccountsPage(input: AgentAccountsInput): string {
                     ? `<form method="post" action="/agents/${escape(input.agentId)}/wishes/want">` +
                       `<input type="hidden" name="provider" value="${escape(wish.provider)}">` +
                       '<button type="submit">Mark as wanted</button></form>'
-                    : ''
+                    : wishStartCell(input, wish)
                 }` +
                   `<form method="post" action="/agents/${escape(input.agentId)}/wishes/remove">` +
                   `<input type="hidden" name="provider" value="${escape(wish.provider)}">` +

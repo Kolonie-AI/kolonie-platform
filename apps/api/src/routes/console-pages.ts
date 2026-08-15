@@ -103,7 +103,7 @@ import {
   moderationTrend,
 } from '../console/backend.js'
 import { curationSections } from '../console/curation.js'
-import { atlasCatalogue, atlasCuration } from '../provider-recipes.js'
+import { atlasCatalogue, atlasCuration, atlasStateAt } from '../provider-recipes.js'
 import {
   operatedQuestsPage,
   questDraftPage,
@@ -2552,11 +2552,21 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
     for (const entry of entries) {
       if (!wanted.has(entry.provider)) continue
 
+      /**
+       * The kind the entry is titled by, which is the one `atlasEntries` already
+       * chose to stand for the provider (`#936`). It prefills the start form and
+       * constrains nothing: a provider walked for a mailbox is a provider
+       * somebody may want an entirely different sort of account at.
+       */
+      const lead =
+        entry.recipes.find((recipe) => recipe.status === entry.status) ?? entry.recipes[0]
+
       held[entry.provider] = {
         status: entry.status,
         operatorNeed: entry.operatorNeed,
         /** The reason a refusal records, from the row that carries it. */
         refusal: entry.recipes.find((recipe) => recipe.refusal !== null)?.refusal ?? null,
+        ...(lead === undefined ? {} : { kind: lead.kind }),
       }
     }
 
@@ -2880,6 +2890,26 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
          * three cannot disagree about one provider.
          */
         catalogue: await wishCatalogue(deps, operated.agentId),
+        /**
+         * Which wishes already have somewhere to go (`#936`).
+         *
+         * **Derived through the provider the two rows share, and stored
+         * nowhere.** An acquisition opened from a wish creates an account at
+         * that provider, and the account *is* the conversation since `#932` — so
+         * the link the wish row wants already exists as a join. Writing an
+         * account column onto the wish would be a second record of it, which is
+         * D-002.
+         *
+         * **The first account at the provider wins, and there is normally only
+         * one.** Where an agent holds two, either is a truthful way in: what the
+         * row is saying is *this is no longer a plan*, and both rows prove it.
+         */
+        conversations: Object.fromEntries(
+          accounts
+            .filter((account) => account.provider !== null)
+            .map((account) => [String(account.provider), account.id] as const)
+            .reverse(),
+        ),
         // The recommendation, beside the list it fills (`#531`).
         bundles: await deps.wishes.store.bundles(),
         // What stopped answering, if anything has (`#934`).
@@ -2910,6 +2940,23 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
     'handover-unsealed':
       'Nothing was handed over: this console cannot seal a secret right now, and a value ' +
       'marked secret is not written unsealed.',
+
+    /**
+     * The same shelf for the wish that could not become a conversation (`#936`).
+     * Four of the five ways it lands are word-for-word the handover's, because
+     * both make an account and an episode out of one form — they are two doors
+     * into one move, and telling a person the same thing twice in two voices
+     * would be the tell that somebody built it twice.
+     */
+    'start-incomplete':
+      'Nothing was started: an account needs both what sort it is and what it is held under.',
+    'start-taken':
+      'Nothing was started: another citizen has proved that account, and one account belongs ' +
+      'to one of them.',
+    'start-full': 'Nothing was started: your agent’s register is full.',
+    'start-open':
+      'Nothing was started: your agent already has an acquisition open about that account. The ' +
+      'conversation is on its list.',
   }
 
   app.get('/agents/:agentId/accounts', async (request, reply) => {
@@ -3040,6 +3087,19 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
         zone: zoneFrom(request.headers),
         account,
         conversations,
+        /**
+         * What the Atlas has on this provider, on the page where the work is
+         * being done (`#936`).
+         *
+         * **Read here and not in the renderer**, which is the rule every console
+         * page holds: a renderer is given facts and reaches for none. Absent
+         * where the account named no provider, because there is then nothing to
+         * look one up by and *unwalked* would be an answer to a question nobody
+         * asked.
+         */
+        ...(account.provider === null
+          ? {}
+          : { atlas: await atlasStateAt(deps.recipes, account.provider, account.kind) }),
         ...(notice === undefined ? {} : { notice }),
       }),
     )
@@ -3695,6 +3755,103 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
           .header('location', `/agents/${String(operated.agentId)}/accounts`)
           .send()
       : reply.status(200).send({ marked })
+  })
+
+  /**
+   * The move from *wanted* to a conversation (`#936`).
+   *
+   * **The mark used to be the end of the road.** An operator said yes, the agent
+   * was woken, and then both sides waited for the other to open something — on a
+   * row whose only remaining control was *Remove*. This is that missing move,
+   * and it is deliberately the same one `#933` makes from the other direction:
+   * an `acquisition`, opened by the operator, turn handed to the agent, arriving
+   * in the same waking read and answered by the same four calls.
+   *
+   * **The wish stays.** It is what somebody asked for, and the conversation is
+   * what is being done about it; deleting the first when the second opens would
+   * throw away the record of the ask, and adding a column to point at the
+   * episode would be a second record of a link the shared provider already
+   * makes. The list renders *Open the conversation* from the join instead.
+   *
+   * **The kind and the identifier are asked for, and there is no way around
+   * it.** An episode needs an account row and an account row needs both. A
+   * placeholder identifier would be permanently wrong with no rename path,
+   * which is D-002 arriving as a convenience — and at nearly every provider the
+   * identifier is chosen at signup, which is the very thing the two parties are
+   * on this page to plan.
+   *
+   * **The Atlas is not consulted here.** A provider it records as refused still
+   * opens: the entry is one walk's finding and the provider is free to have
+   * changed its mind, so the warning belongs on the page where the work happens
+   * rather than on the door.
+   */
+  app.post('/agents/:agentId/wishes/start', async (request, reply) => {
+    if (!(await guard(request, reply))) return reply
+
+    const operated = await operatedAgent(request, reply)
+    if (operated === null) return reply
+
+    const body = (request.body ?? {}) as Record<string, unknown>
+    const text = (name: string): string => {
+      const value = body[name]
+      return typeof value === 'string' ? value.trim() : ''
+    }
+
+    const store = deps.accountThreads
+    const provider = text('provider').toLowerCase()
+    const identifier = text('identifier')
+    const parsed = AccountKindSchema.safeParse(text('kind'))
+
+    const said = async (code: string) =>
+      wantsHtml(request)
+        ? reply
+            .status(303)
+            .header('location', `/agents/${String(operated.agentId)}/accounts?said=${code}`)
+            .send()
+        : reply.status(ERROR_STATUS.conflict).send({ code: 'conflict', message: code })
+
+    if (store === undefined || provider === '' || identifier === '' || !parsed.success) {
+      return await said('start-incomplete')
+    }
+
+    const declared = await deps.accounts.register.declare(operated.agentId, {
+      kind: parsed.data,
+      identifier,
+      provider,
+    })
+
+    if (declared.outcome === 'identifier_taken') return await said('start-taken')
+    if (declared.outcome === 'too_many') return await said('start-full')
+
+    const accountId = declared.account.id
+    const thread = await store.thread(accountId)
+    if (thread === undefined) return await said('start-incomplete')
+
+    /** `#582`: composed from the kind and the provider, and never the identifier. */
+    const opened = await store.openEpisode({
+      threadId: thread.id,
+      openedBy: 'operator',
+      kind: 'acquisition',
+      title: `Getting you a ${parsed.data} at ${provider}`.slice(0, EPISODE_TITLE_MAX_LENGTH),
+      turn: 'agent',
+    })
+
+    /**
+     * The account already had its acquisition, which is what a second submission
+     * of the same form reaches: `declare` is idempotent on the three fields, so
+     * nothing was duplicated and the honest answer is that the conversation is
+     * open and waiting on the agent.
+     */
+    if (opened.outcome !== 'opened') return await said('start-open')
+
+    if (!wantsHtml(request)) {
+      return reply.status(200).send({ started: true, accountId })
+    }
+
+    return reply
+      .status(303)
+      .header('location', `/agents/${String(operated.agentId)}/accounts/${accountId}`)
+      .send()
   })
 
   /**

@@ -241,3 +241,107 @@ describe('the account is the page', () => {
     expect(aPage({ conversations: [] })).toContain('Nothing has ever happened to this account')
   })
 })
+
+/**
+ * What the Atlas has on the provider, on the page where somebody is about to act
+ * on it (`#936`).
+ *
+ * **Three states, three shapes, and the shapes are the assertion.** A reader
+ * skimming decides whether a block matters before reading its words, so a
+ * warning must be a paragraph they cannot miss and a crib sheet must be folded
+ * away until they want it. Rendering all three alike would put the refusal and
+ * the reassurance at the same weight.
+ */
+describe('what the Atlas knows about this provider', () => {
+  it('says nothing at all when nobody asked the Atlas', () => {
+    const html = aPage()
+
+    expect(html).not.toContain('Atlas')
+  })
+
+  it('folds a walked path away and marks it as a hint rather than an instruction', () => {
+    const html = aPage({
+      atlas: {
+        state: 'walked',
+        provider: 'mail.example',
+        kind: 'mailbox',
+        title: 'A mailbox at mail.example',
+        reviewed: true,
+        steps: ['open the signup page', 'confirm the address'],
+        operatorSteps: 1,
+      },
+    })
+
+    expect(html).toContain('<details>')
+    expect(html).toContain('open the signup page')
+    expect(html).toContain('confirm the address')
+    expect(html).toContain('A hint, not an instruction')
+    expect(html).toContain('1 of these needed a person')
+  })
+
+  /** `#604`'s rule on every surface: steps nobody reviewed say so where they are read. */
+  it('says outright when no steward has stood behind the steps', () => {
+    const reviewed = {
+      state: 'walked' as const,
+      provider: 'mail.example',
+      kind: 'mailbox',
+      title: 'A mailbox at mail.example',
+      reviewed: true,
+      steps: ['open the signup page'],
+      operatorSteps: 0,
+    }
+
+    expect(aPage({ atlas: reviewed })).not.toContain('no steward has reviewed')
+    expect(aPage({ atlas: { ...reviewed, reviewed: false } })).toContain('no steward has reviewed')
+  })
+
+  /**
+   * D-013's neighbour: the warning must not read as a closed door. A refusal in
+   * the Atlas is one walk's finding and the provider is free to have changed its
+   * mind, so nothing on this page stops the conversation.
+   */
+  it('warns about a closed provider without stopping anything', () => {
+    const html = aPage({
+      atlas: {
+        state: 'closed',
+        provider: 'shut.example',
+        kind: 'mailbox',
+        withdrawn: false,
+        reason: 'no honest route in',
+      },
+    })
+
+    expect(html).toContain('not joinable')
+    expect(html).toContain('no honest route in')
+    expect(html).toContain('Nothing is stopped by this')
+    expect(html).not.toContain('What somebody who walked')
+  })
+
+  it('tells a withdrawal from a refusal, because nobody was turned away by one', () => {
+    const html = aPage({
+      atlas: {
+        state: 'closed',
+        provider: 'gone.example',
+        kind: 'mailbox',
+        withdrawn: true,
+        reason: null,
+      },
+    })
+
+    expect(html).toContain('withdrawn')
+    expect(html).toContain('No reason was recorded')
+  })
+
+  /**
+   * The rejection case `#936` names: a provider the Atlas has never heard of is
+   * the ordinary early state, and the page carries on as an invitation rather
+   * than as a gap.
+   */
+  it('renders a provider nobody has walked as one quiet line and no warning', () => {
+    const html = aPage({ atlas: { state: 'unwalked', provider: 'new.example' } })
+
+    expect(html).toContain('no written path for new.example')
+    expect(html).not.toContain('What somebody who walked')
+    expect(html).not.toContain('class="notice"')
+  })
+})

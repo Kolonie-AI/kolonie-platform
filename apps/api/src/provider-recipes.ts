@@ -10,6 +10,7 @@ import {
   atlasConditionsSentences,
   atlasEntries,
   atlasShelfHasEvidence,
+  atlasStateOf,
   ATLAS_NOTHING_MEASURED,
   measuredOnlyRecipes,
   RecipeStatusSchema,
@@ -35,6 +36,7 @@ import {
   type BootstrapTemplate,
   type AtlasEntry,
   type AtlasFigures,
+  type AtlasState,
   type EntryProposal,
   type ProposalAction,
   type ProposalWithDemand,
@@ -227,6 +229,21 @@ export async function atlasCatalogue(
   )
 
   return options.ordered === false ? entries : atlasByOutcome(entries)
+}
+
+/**
+ * {@link atlasStateOf} for a caller that has no catalogue of its own (`#936`).
+ *
+ * The console page holds the whole catalogue already, for its wish table, and
+ * calls the pure function directly. A thread read has nothing in hand and this
+ * is its way in.
+ */
+export async function atlasStateAt(
+  recipes: ProviderRecipes,
+  provider: string,
+  kind?: string,
+): Promise<AtlasState> {
+  return atlasStateOf(await atlasCatalogue(recipes, { ordered: false }), provider, kind)
 }
 
 export type RecipeOutcome<T> =

@@ -309,3 +309,88 @@ describe('handing your agent an account', () => {
     expect(aPage()).not.toContain('Nothing was handed over')
   })
 })
+
+/**
+ * The move from a wanted wish to a conversation (`#936`).
+ *
+ * **The mark was the end of the road.** An operator said yes, the agent was
+ * woken, and the row's only remaining control was *Remove* — so both parties sat
+ * waiting for the other to open something. These assert the button, the two
+ * fields it cannot do without, and that a wish whose conversation exists offers
+ * the way in rather than a second form.
+ */
+describe('a wanted wish becomes a conversation', () => {
+  const aWish = (overrides: Record<string, unknown> = {}) =>
+    ({
+      id: '33333333-3333-4333-8333-333333333333',
+      provider: 'mail.example',
+      author: 'operator',
+      noticedWhile: null,
+      wantedAt: '2026-08-10T00:00:00.000Z',
+      addedAt: '2026-08-01T00:00:00.000Z',
+      ...overrides,
+    }) as never
+
+  it('offers no start form until the operator has said yes', () => {
+    const html = aPage({ wishes: [aWish({ wantedAt: null })] })
+
+    expect(html).toContain('/wishes/want')
+    expect(html).not.toContain('/wishes/start')
+  })
+
+  /**
+   * An episode needs an account and an account needs both fields, so the form
+   * asks for both. A placeholder identifier would be permanently wrong with no
+   * rename path, which is D-002 arriving as a convenience.
+   */
+  it('asks for the kind and the identifier, because an account cannot exist without either', () => {
+    const html = aPage({ wishes: [aWish()] })
+
+    expect(html).toContain('/wishes/start')
+    expect(html).toContain('name="kind"')
+    expect(html).toContain('name="identifier"')
+    expect(html).toContain('Start the conversation')
+  })
+
+  /** A prefill and not a constraint: the field stays a datalist, never a select. */
+  it('prefills the kind the catalogue walked and leaves the field open', () => {
+    const html = aPage({
+      wishes: [aWish()],
+      catalogue: {
+        'mail.example': {
+          status: 'joinable',
+          operatorNeed: 'unaided',
+          refusal: null,
+          kind: 'mailbox',
+        },
+      },
+    })
+
+    expect(html).toContain('list="account-kinds"')
+    expect(html).toContain('value="mailbox"')
+    expect(html).not.toContain('<select name="kind"')
+  })
+
+  /**
+   * D-013: a second acquisition about one account is refused downstream, so
+   * offering the button anyway would be building one whose only answer is no.
+   */
+  it('shows the way in rather than a second form once the conversation exists', () => {
+    const html = aPage({
+      wishes: [aWish()],
+      conversations: { 'mail.example': '44444444-4444-4444-8444-444444444444' },
+    })
+
+    expect(html).toContain('Open the conversation')
+    expect(html).toContain(`/agents/${AGENT}/accounts/44444444-4444-4444-8444-444444444444`)
+    expect(html).not.toContain('/wishes/start')
+  })
+
+  /** Removing is still the way to withdraw a yes, conversation or not. */
+  it('keeps the removal on the row either way', () => {
+    expect(aPage({ wishes: [aWish()] })).toContain('/wishes/remove')
+    expect(aPage({ wishes: [aWish()], conversations: { 'mail.example': 'x' } })).toContain(
+      '/wishes/remove',
+    )
+  })
+})

@@ -8,6 +8,7 @@ import {
   atlasKindPhrase,
   atlasPath,
   atlasShelfTitle,
+  atlasStateOf,
 } from './atlas.js'
 import { AtlasCategorySchema, operatorNeed } from './recipe.js'
 import type {
@@ -400,5 +401,131 @@ describe('the words a heading is written in', () => {
     for (const category of AtlasCategorySchema.options) {
       expect(atlasShelfTitle(category), `${category} has no shelf title`).not.toBe(category)
     }
+  })
+})
+
+/**
+ * Seven statuses onto three states (`#936`).
+ *
+ * **The folding is the thing under test and not the rendering.** Two surfaces
+ * ask the Atlas the same question about a provider somebody is about to walk —
+ * the console page and the thread read — and two mappings of the same seven
+ * values would be D-002 arriving as a pair of switch statements. What each
+ * surface does with the answer is asserted where that surface is.
+ */
+describe('what the Atlas has on a provider somebody is about to walk', () => {
+  const entriesOf = (recipes: readonly ProviderRecipe[]) => atlasEntries(recipes)
+
+  it('reads a joinable entry as walked, with its steps and a steward behind it', () => {
+    const state = atlasStateOf(
+      entriesOf([recipe({ kind: 'mailbox', provider: 'mail.example', operatorSteps: true })]),
+      'mail.example',
+    )
+
+    expect(state.state).toBe('walked')
+    if (state.state !== 'walked') return
+    expect(state.reviewed).toBe(true)
+    expect(state.steps).toEqual(['sign up', 'accept the terms'])
+    expect(state.operatorSteps).toBe(1)
+  })
+
+  /** A refusal and a withdrawal are one warning with two reasons behind it. */
+  it('reads a refused entry as closed, carrying what the refusal said', () => {
+    const state = atlasStateOf(
+      entriesOf([recipe({ kind: 'mailbox', provider: 'shut.example', status: 'refused' })]),
+      'shut.example',
+    )
+
+    expect(state.state).toBe('closed')
+    if (state.state !== 'closed') return
+    expect(state.withdrawn).toBe(false)
+    expect(state.reason).toBe('no honest route in')
+  })
+
+  it('reads a retired entry as closed and withdrawn rather than refused', () => {
+    const state = atlasStateOf(
+      entriesOf([recipe({ kind: 'mailbox', provider: 'gone.example', status: 'retired' })]),
+      'gone.example',
+    )
+
+    expect(state.state).toBe('closed')
+    if (state.state !== 'closed') return
+    expect(state.withdrawn).toBe(true)
+    expect(state.reason).toBe('the provider stopped taking agents')
+  })
+
+  it('reads a provider nobody has filed at all as unwalked', () => {
+    expect(
+      atlasStateOf(
+        entriesOf([recipe({ kind: 'mailbox', provider: 'mail.example' })]),
+        'new.example',
+      ),
+    ).toEqual({ state: 'unwalked', provider: 'new.example' })
+  })
+
+  /**
+   * **Steps and not status decide whether there is a crib sheet.** A `measured`
+   * row is a real entry with nothing written on it, and calling that *walked*
+   * would promise a path and then render an empty list.
+   */
+  it('reads an entry with no steps as unwalked, whatever its status says', () => {
+    expect(
+      atlasStateOf(
+        entriesOf([recipe({ kind: 'mailbox', provider: 'empty.example', status: 'measured' })]),
+        'empty.example',
+      ).state,
+    ).toBe('unwalked')
+  })
+
+  /**
+   * A draft carries steps somebody walked and nobody reviewed. They are the only
+   * account of the path that exists, so they are shown — with the caveat that
+   * stops them reading as the Colony's own instruction, which is `#604`'s rule.
+   */
+  it('shows a draft’s steps and says no steward stood behind them', () => {
+    const draft = {
+      ...recipe({ kind: 'mailbox', provider: 'draft.example', status: 'draft' }),
+      steps: [{ actor: 'agent' as const, instruction: 'ask for an invitation' }],
+    }
+
+    const state = atlasStateOf(entriesOf([draft]), 'draft.example')
+
+    expect(state.state).toBe('walked')
+    if (state.state !== 'walked') return
+    expect(state.reviewed).toBe(false)
+    expect(state.steps).toEqual(['ask for an invitation'])
+  })
+
+  /** The kind narrows a provider walked for more than one sort of account. */
+  it('answers about the kind the caller names, where the caller knows one', () => {
+    const entries = entriesOf([
+      recipe({ kind: 'mailbox', provider: 'both.example' }),
+      recipe({ kind: 'domain', provider: 'both.example', status: 'refused' }),
+    ])
+
+    expect(atlasStateOf(entries, 'both.example', 'mailbox').state).toBe('walked')
+    expect(atlasStateOf(entries, 'both.example', 'domain').state).toBe('closed')
+  })
+
+  /** A kind the entry has no row for falls back to the row the entry is titled by. */
+  it('falls back to the row the entry stands for when the kind is not one of them', () => {
+    const state = atlasStateOf(
+      entriesOf([recipe({ kind: 'mailbox', provider: 'mail.example' })]),
+      'mail.example',
+      'weather-feed',
+    )
+
+    expect(state.state).toBe('walked')
+    if (state.state !== 'walked') return
+    expect(state.kind).toBe('mailbox')
+  })
+
+  it('finds the entry whatever case and spacing the provider arrives in', () => {
+    expect(
+      atlasStateOf(
+        entriesOf([recipe({ kind: 'mailbox', provider: 'mail.example' })]),
+        '  MAIL.example ',
+      ).state,
+    ).toBe('walked')
   })
 })

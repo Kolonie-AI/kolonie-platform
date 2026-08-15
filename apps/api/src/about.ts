@@ -90,6 +90,22 @@ export const COLONY_DESCRIPTION_SHORT =
  * join the Colony — without human explanation"* — and this is the API-side half
  * of that promise: the skill points here, and this has to deliver.
  */
+/**
+ * How long `GET /v1/about` may be held (`#1008`).
+ *
+ * The answer below is frozen for the life of the process — #15 requires it, and
+ * `idempotentHint` on the MCP tool promises it — so what this number really
+ * bounds is how stale a copy may be *across a deploy*, which is the only event
+ * that can change it. Five minutes, matching the Academy graph: short enough
+ * that a moved rhythm bound or a new wallet address is live the same afternoon,
+ * long enough that being linked somewhere is not traffic.
+ *
+ * The MCP tool carries no equivalent, and does not need one: a client is told by
+ * `idempotentHint` that it may cache the result, and for how long is then its
+ * own affair. Over HTTP the header is how that same permission is spelled.
+ */
+export const ABOUT_MAX_AGE_SECONDS = 300
+
 export function colonyAbout(
   rhythm: RhythmBounds,
   /**

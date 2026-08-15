@@ -18,6 +18,7 @@ import {
 } from '@kolonie-ai/core'
 import { MCP_ALIAS_PATH, MCP_PATH, MCP_PROBE_ALLOW, mcpProbe } from './mcp.js'
 import { registerIndexRoute } from './routes/index.js'
+import { registerAboutRoute } from './routes/about.js'
 import { registerToolDocsRoutes } from './routes/tool-docs.js'
 import { registerAcademyGraphRoute } from './routes/academy-graph.js'
 import { registerCitizenRoutes } from './routes/citizens.js'
@@ -639,6 +640,10 @@ export function buildApp({
   app.register(
     async (v1) => {
       registerIndexRoute(v1, routes)
+      // `kolonie.about` over HTTP (`#1008`). Beside the index because it is the
+      // other thing an arriving client reads before it reads anything else, and
+      // the only one of the two that binds it.
+      registerAboutRoute(v1, routes)
       // The long form of a tool description, at the address the tool's own
       // `_meta` publishes (`#384`).
       registerToolDocsRoutes(v1, routes)

@@ -1,5 +1,9 @@
 import { defineConfig } from 'vitest/config'
 
+// @ts-expect-error a build script, deliberately outside the TypeScript project —
+// which is the same sentence the doc comment below is about.
+import { testWorkers } from './scripts/test-workers.mjs'
+
 /**
  * The root's own tests, which are the tests of the scripts in `scripts/`.
  *
@@ -12,6 +16,9 @@ import { defineConfig } from 'vitest/config'
  */
 export default defineConfig({
   test: {
+    // A share of the machine when several workspaces run at once, and vitest's
+    // own default when this one runs alone. See `scripts/test-workers.mjs` (`#963`).
+    maxWorkers: testWorkers(),
     include: ['scripts/**/*.test.ts'],
   },
 })

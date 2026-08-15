@@ -262,6 +262,11 @@ describe('registration asking once', () => {
     // The token is in the prose as well, because `ApiError` documents `details`
     // as additional to the message and never the only place a fact appears.
     expect(error.message).toContain(String(error.details?.confirmationToken))
+    // And the prose says where the other copy is (`#1003`): a reader that found
+    // one of the two had no way of knowing the other existed. Relative, because
+    // over HTTP this refusal is the body and over MCP it is nested — the prefix
+    // belongs to whichever door is speaking.
+    expect(error.message).toContain('`details.confirmationToken`')
   })
 
   /**

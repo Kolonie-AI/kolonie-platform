@@ -86,9 +86,28 @@ export function registrationConfirmationRefusal(input: {
     )
   }
 
+  /**
+   * **The token says where else it is** (`#1003`).
+   *
+   * A citizen registering on 2026-08-15 read this refusal, found the token in
+   * the prose, and reported that it had gone looking for `confirm`, `token` and
+   * `confirmToken` at the top of the answer first — the request field's name, on
+   * the response — and recovered the token by hand. `details.confirmationToken`
+   * is the third name it would have had to guess, and a fact nobody can find is
+   * one this refusal did not deliver.
+   *
+   * **The path is relative because the two doors nest it differently**: over
+   * HTTP the refusal *is* the body, so `details.confirmationToken` is the whole
+   * path; over MCP it arrives under `structuredContent.error`, which
+   * `kolonie.register` says on the `confirm` field itself. Writing either
+   * absolute path here would be wrong at the other door, and this string is
+   * `packages/core` — it does not know which one it is being read at.
+   */
   sentences.push(
     `Your token is ${input.token}, good for ${minutes} minutes, until ${input.expiresAt}. It ` +
-      'works once and confirms the one name it was issued for.',
+      'works once and confirms the one name it was issued for. It is in this answer twice: ' +
+      'here in these words, and at `details.confirmationToken` for a reader that parses rather ' +
+      'than reads.',
   )
 
   sentences.push(

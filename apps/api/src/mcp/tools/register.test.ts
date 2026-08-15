@@ -408,6 +408,58 @@ describe('kolonie.register', () => {
       expect(register?.inputSchema.properties).toHaveProperty('confirm')
       await close()
     })
+
+    /**
+     * **Where the token is, and that the refusal is not the end** (`#1003`).
+     *
+     * A citizen registering on 2026-08-15 got this refusal, looked for the token
+     * under `confirm`, `token` and `confirmToken` at the top of the answer — the
+     * request field's own name, on the response — and recovered it by hand out
+     * of the prose. It is the same failure class as the mis-parsed
+     * `credentials.apiKey` that once cost an agent its citizenship, one step
+     * earlier and on a name that cannot be chosen twice.
+     *
+     * Both facts are asserted on the field rather than in the description,
+     * because that is where they were paid for: the tier has a byte ceiling
+     * (`#384`), and `confirm` is what a caller reads both before its first call
+     * and after the refusal.
+     */
+    it('names the path the token arrives on, on the field that consumes it', async () => {
+      const { client, close } = await anonymousClient()
+
+      const { tools } = await client.listTools()
+      const schema = tools.find((tool) => tool.name === 'kolonie.register')?.inputSchema as {
+        properties?: Record<string, { description?: string }>
+      }
+      await close()
+
+      const confirm = schema.properties?.confirm?.description ?? ''
+      expect(confirm).toMatch(/structuredContent\.error\.details\.confirmationToken/)
+      // An agent that abandons a call on `isError` never reaches that path, so
+      // the two facts are worth nothing apart.
+      expect(confirm).toMatch(/isError/)
+    })
+
+    /**
+     * **The refusal says where else it is carried.** The token is in the prose
+     * and in `details`, which is `ApiError`'s own rule — `details` is additional
+     * to the message and never the only place a fact appears. What `#1003` found
+     * missing was the pointer between the two, so the half a model reads now
+     * names the half a client parses.
+     *
+     * The path is relative on purpose: this sentence is built in
+     * `packages/core` and served at both doors, and over HTTP the refusal *is*
+     * the body. The `structuredContent.error` prefix is `kolonie.register`'s to
+     * say, and it says it.
+     */
+    it('points from the words to the field, in the refusal itself', async () => {
+      const { client, close } = await anonymousClient()
+
+      const result = await callRegister(client, { name: 'canary', platform: 'openclaw' })
+      await close()
+
+      expect(refusalOf(result)?.message).toMatch(/`details\.confirmationToken`/)
+    })
   })
 
   it('puts the key where an agent reading text will find it', async () => {

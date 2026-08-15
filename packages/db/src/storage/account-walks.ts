@@ -365,6 +365,93 @@ export async function reportFinishedWalk(
 }
 
 /**
+ * Replace the walker's own account on a draft it proposed (`#986`).
+ *
+ * **The one thing on a draft that is the walker's to write.** A citizen read
+ * `requiredChanges` off its draft, wrote the whole path out in answer — eight
+ * steps, five walls, three verification checks — and had nowhere to put it:
+ * `walk-report` answers `not_found` on a walk that closed, correctly, because a
+ * second close would propose a second draft. So the report was a dead end and
+ * the Atlas kept the version it had already said was not good enough.
+ *
+ * **It touches the account and nothing else.** No outcome, no verdict, no
+ * status, no steps: what a finished walk earned was decided when it finished,
+ * and the entry's own steps and wording are the Colony's (`#517`, `#601`). What
+ * moves is the walker's attributed account, on the walk row and on the entry
+ * carrying it — the same value `finishWalk` wrote there, from the same author.
+ *
+ * **Only the walk that proposed the draft, and only while it is a draft.**
+ * `proposed_at` is stamped on exactly the walk whose verdict wrote the row, so a
+ * second citizen walking the same provider cannot overwrite the first one's
+ * words, and nothing published is reachable from here at all.
+ */
+export async function amendProposedDraft(
+  db: Database,
+  agentId: AgentId,
+  where: { readonly kind: AccountKind; readonly provider: string },
+  recipe: WalkedRecipe,
+): Promise<AccountWalk | undefined> {
+  const provider = await canonicalProvider(db, where.provider)
+
+  return db.transaction(async (tx) => {
+    const entry = await providerRecipe(tx, where.kind, provider)
+    if (entry === undefined || entry.status !== 'draft') return undefined
+
+    const [row] = await tx
+      .select()
+      .from(accountWalks)
+      .where(
+        and(
+          eq(accountWalks.agentId, agentId),
+          eq(accountWalks.kind, where.kind),
+          eq(accountWalks.provider, provider),
+          isNotNull(accountWalks.finishedAt),
+          isNotNull(accountWalks.proposedAt),
+        ),
+      )
+      .orderBy(desc(accountWalks.proposedAt))
+      .limit(1)
+
+    if (row === undefined) return undefined
+
+    const [updated] = await tx
+      .update(accountWalks)
+      .set({ recipe })
+      .where(eq(accountWalks.id, row.id))
+      .returning()
+
+    if (updated === undefined) return undefined
+
+    /**
+     * **One column, written directly, rather than through
+     * `writeProviderRecipe`.** That function is an upsert and it is right to be
+     * one: a field it is not told about is reset, because a curation edit that
+     * omits `proves` is not re-asserting it. An amendment is the opposite shape
+     * — it is told about exactly one field and knows nothing about the rest —
+     * so putting it through the upsert would make a walker replacing its own
+     * paragraph silently clear whatever a steward had already filled in.
+     */
+    await tx
+      .update(providerRecipesTable)
+      .set({ walkedRecipe: recipe, updatedAt: sql`now()` })
+      .where(
+        and(
+          eq(providerRecipesTable.kind, entry.kind),
+          eq(providerRecipesTable.provider, entry.provider),
+        ),
+      )
+
+    const steps = await tx
+      .select()
+      .from(accountWalkSteps)
+      .where(eq(accountWalkSteps.walkId, row.id))
+      .orderBy(asc(accountWalkSteps.position))
+
+    return toWalk(updated, steps)
+  })
+}
+
+/**
  * Close a walk and do to the catalogue whatever the walk earns.
  *
  * **One function, in one transaction, because the two halves must not be able

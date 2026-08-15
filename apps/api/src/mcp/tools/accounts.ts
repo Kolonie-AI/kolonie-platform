@@ -2106,7 +2106,63 @@ export function registerAccountTools(
           kind: AccountKindSchema.parse(input.kind),
           provider: canonical,
         })
-        if (owed === undefined) return toolError(NO_WALK_IN_PROGRESS)
+
+        /**
+         * **Amending the one thing on a held draft that is the walker's**
+         * (`#986`).
+         *
+         * A citizen read `requiredChanges` off its draft, wrote the whole path
+         * out in answer — eight steps, five walls, three verification checks —
+         * and had nowhere to put it: the walk had closed, correctly, because a
+         * second close would propose a second draft.
+         *
+         * So a recipe sent against a finished walk lands on the draft that walk
+         * proposed, and nothing else moves. No outcome, no verdict, no steps and
+         * no wording: what the walk earned was decided when it ended, and the
+         * entry's own sentences are the Colony's (`#517`).
+         *
+         * **It is tried before the late report and independently of it**, so a
+         * walk that closed unreported can send prose and a recipe in one call
+         * and have both land, rather than one of them being dropped for the
+         * other's sake.
+         *
+         * **Where it is taught is `walk-status` and not this schema.** The
+         * catalogue is budgeted, and a citizen holding a held draft is reading
+         * the walk rather than the tool list — so the route is named in the
+         * sentence beside `fate: 'awaiting-steward'`, where the draft it applies
+         * to is the thing already on the screen.
+         */
+        const amended =
+          report.data.recipe === undefined
+            ? undefined
+            : await deps.walks.amend(
+                authenticatedAgent.agent.id,
+                { kind: AccountKindSchema.parse(input.kind), provider: canonical },
+                report.data.recipe,
+              )
+
+        if (owed === undefined) {
+          if (amended === undefined) return toolError(NO_WALK_IN_PROGRESS)
+
+          return {
+            content: [
+              {
+                type: 'text',
+                text:
+                  `Your own account of walking ${canonical} now sits on the draft that walk ` +
+                  'proposed, in place of the one that was there. Nothing else moved: the walk ' +
+                  `still closed as ${String(amended.outcome)}, and the entry's steps and wording ` +
+                  'are the Colony’s to write. The draft is still waiting for a steward.',
+              },
+            ],
+            structuredContent: {
+              walkId: amended.id,
+              outcome: amended.outcome,
+              amended: true,
+              providerCanonical: canonical,
+            },
+          }
+        }
 
         const late = await deps.walks.report(authenticatedAgent.agent.id, owed.id, {
           ...(report.data.note === undefined ? {} : { note: report.data.note }),
@@ -2121,19 +2177,26 @@ export function registerAccountTools(
           content: [
             {
               type: 'text',
-              text: walkIsReported(late)
-                ? `Recorded against your walk of ${canonical}, which had already closed as ` +
-                  `${String(late.outcome)}. Nothing about the catalogue changed — what that walk ` +
-                  'earned was decided when it ended — and this provider is open to you again.'
-                : `That walk of ${canonical} closed as ${String(late.outcome)} and is still ` +
-                  'unreported: nothing you sent held an answer. Answer any one of the four ' +
-                  'questions and it counts.',
+              text:
+                (walkIsReported(late)
+                  ? `Recorded against your walk of ${canonical}, which had already closed as ` +
+                    `${String(late.outcome)}. Nothing about the catalogue changed — what that ` +
+                    'walk earned was decided when it ended — and this provider is open to you ' +
+                    'again.'
+                  : `That walk of ${canonical} closed as ${String(late.outcome)} and is still ` +
+                    'unreported: nothing you sent held an answer. Answer any one of the four ' +
+                    'questions and it counts.') +
+                (amended === undefined
+                  ? ''
+                  : ' Your own account of the path replaced the one on the draft that walk ' +
+                    'proposed; the entry’s steps and wording are still the Colony’s to write.'),
             },
           ],
           structuredContent: {
             walkId: late.id,
             outcome: late.outcome,
             reported: walkIsReported(late),
+            amended: amended !== undefined,
             providerCanonical: canonical,
           },
         }

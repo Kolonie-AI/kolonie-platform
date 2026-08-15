@@ -17,12 +17,21 @@ export interface FakeWalkStore extends WalkStore {
     readonly provider: string
     readonly finished?: boolean
     readonly outcome?: AccountWalk['outcome']
+    /** Whether this walk's verdict wrote the draft, which is what `amend` reaches. */
+    readonly proposed?: boolean
   }) => AccountWalk
 }
 
 /** Walk storage for API tests; recipe publication remains in the recipe fixture. */
 export function fakeWalks(): FakeWalkStore {
   const rows: AccountWalk[] = []
+  /**
+   * `proposed_at` in miniature (`#986`): the walks whose verdict wrote a draft.
+   * The storage guards the amendment on this and on the entry still being a
+   * draft; the entry lives in the recipe fixture, so only the first half is
+   * modelled here and the other is covered where the two are in one database.
+   */
+  const proposed = new Set<string>()
 
   const add: FakeWalkStore['add'] = (input) => {
     const startedAt = currentTime()
@@ -46,6 +55,7 @@ export function fakeWalks(): FakeWalkStore {
       steps: [],
     }
     rows.unshift(walk)
+    if (input.proposed === true) proposed.add(walk.id)
     return walk
   }
 
@@ -89,7 +99,26 @@ export function fakeWalks(): FakeWalkStore {
             ? { kind: 'refusal', wall: input.wall ?? '' }
             : { kind: 'nothing', why: 'the walk was abandoned' }
 
+      if (verdict.kind === 'draft') proposed.add(walk.id)
+
       return { walk, verdict }
+    },
+    async amend(agentId, input, recipe) {
+      const at = rows.findIndex(
+        (walk) =>
+          walk.agentId === agentId &&
+          walk.kind === input.kind &&
+          walk.provider === input.provider &&
+          walk.finishedAt !== null &&
+          proposed.has(walk.id),
+      )
+      const previous = rows[at]
+      if (previous === undefined) return undefined
+
+      const walk: AccountWalk = { ...previous, recipe }
+      rows[at] = walk
+
+      return walk
     },
     /**
      * The last walk here that ended without a word (`#811`). Newest first is

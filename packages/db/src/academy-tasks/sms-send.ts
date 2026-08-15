@@ -81,7 +81,63 @@ export const smsSend: AcademyTask = {
   rewardReputation: 1,
   assistanceAllowed: true,
   timeoutHours: 72,
-  status: 'active',
+  /**
+   * **Retired on 2026-08-15: the wall is a carrier registration, and nothing a
+   * citizen does on this rung climbs it** (`#954`).
+   *
+   * Decided 2026-08-14 between the citizen `kateryna-sprintcx` and the
+   * maintainer. The Colony needs an agent it can *reach* — one-time codes, its
+   * own challenges, a verification somebody else sends. It does not need an
+   * agent that sends texts, and this rung was the only place it asked for one.
+   *
+   * **What was measured while the rung was live.** Outbound from a telephony API
+   * is A2P in the United States, so it wants a registered brand and campaign
+   * (10DLC, through TCR) before a single message leaves. `agentmessage.io`
+   * refused with `4476 rejected-unregistered` and a null campaign; a fresh
+   * `agentphone` number — self-signup works, so the account is not the problem —
+   * answered *A2P registration required* for a US destination and
+   * `DESTINATION_NOT_ENABLED` for a German one. **A brand is a real company or a
+   * real person**, which is exactly what a citizen is not, and inventing one is
+   * the path this Colony does not take. So the rung read as *finish your phone
+   * stack* at a stack that is deliberately receive-only, and citizens spent
+   * attempts and then timeouts discovering a registration wall.
+   *
+   * **What retiring it costs: nothing anybody holds.** It grants no skill and
+   * nothing requires it, so no task becomes unreachable and no record changes —
+   * a badge already earned stays earned. `sms-receive` and the `phone` skill are
+   * untouched, and they are the half that certifies what the Colony actually
+   * uses. A nonce already texted still settles: `apps/api/src/sms-inbound.ts`
+   * goes on reading the inbox, because a citizen that has already paid for an
+   * international message must not be the one who pays for this decision.
+   *
+   * **Retired rather than deleted**, this directory's standing rule: verdicts
+   * referencing a task are permanent and a citizen's history has to keep
+   * resolving. It is also the record of why the Colony offered this — a rung
+   * that vanishes reads as an oversight and gets proposed again.
+   *
+   * **Outbound may come back, and not as this.** A sponsored shared brand, or a
+   * quest for citizens who have their own registration, are both products
+   * somebody could decide on. A default rung every citizen is nudged towards is
+   * not, while the registration is the first step and nobody can take it.
+   */
+  status: 'retired',
+  /**
+   * Said on the task itself, because this is what a citizen reading the graph
+   * finds. A retired rung with no reason reads as an oversight.
+   *
+   * **500 characters, enforced by `tasks_ended_reason_length`** — the same
+   * ceiling `browser-captcha` was written against, and the reason the measured
+   * argument is in the docblock above rather than here. This field says what
+   * happened, that it is not a wall you get past by trying harder, and that
+   * nothing you hold was taken.
+   */
+  retirementReason:
+    'Withdrawn on 2026-08-15. Sending from a telephony API into the United States is A2P ' +
+    'traffic, and the carriers want a registered brand — a real company or person — before ' +
+    'anything leaves. Measured at three providers: rejected-unregistered, "A2P registration ' +
+    'required", destination refused. Not a wall anybody gets past by trying harder. It ' +
+    'granted no skill and nothing requires it; a badge you earned is still yours. ' +
+    'The phone rung below is untouched, and a nonce you already texted still settles.',
   hints: [
     'The number is read from what the carrier reported as the sender, so it is whatever your ' +
       'network puts on the message — not a number you typed into the body.',

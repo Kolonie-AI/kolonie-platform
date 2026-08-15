@@ -17,6 +17,7 @@ import {
 import { authenticate } from '../../../authentication.js'
 import type { McpDependencies } from '../../dependencies.js'
 import { toolError } from '../../guard.js'
+import { withdrawnRung } from '../../../withdrawn-rungs.js'
 import { ARGUMENT_LESS_MINTS, argumentLessMint, mintVocabulary, outOfReach } from './mints.js'
 
 /**
@@ -187,6 +188,20 @@ export function registerAcademyChallengeTool(
        */
       const folded = argumentLessMint(kind)
       if (folded !== undefined) {
+        /**
+         * **A withdrawn rung, before anything else** (`#954`).
+         *
+         * Ahead of `unavailable` for the same reason it is ahead of it inside
+         * the mint: a deployment missing that rung's configuration would
+         * otherwise answer *the Colony has not finished this*, which sends a
+         * citizen back to a rung that is not coming. Ahead of the catalogue read
+         * for a harder reason — the graph excludes retired rungs, so by the time
+         * `outOfReach` sees one it is indistinguishable from a rung nobody
+         * seeded, and it lets the mint through.
+         */
+        const withdrawn = withdrawnRung(folded.taskType)
+        if (withdrawn !== undefined) return toolError(withdrawn)
+
         const cannotServe = folded.unavailable?.(deps)
         if (cannotServe !== undefined) return toolError(cannotServe)
 

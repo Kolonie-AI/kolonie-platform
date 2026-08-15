@@ -53,9 +53,14 @@ export function registerSmsRoutes(v1: FastifyInstance, deps: RouteDependencies):
    * one below it.
    */
   v1.post('/academy/sms/send-challenges', async (request, reply) => {
-    const unavailable = down()
-    if (unavailable !== undefined) return reply.status(503).send(unavailable)
-
+    /**
+     * **No `down()` here, unlike its two neighbours** (`#954`). The badge is
+     * retired, and `openSmsSendChallenge` says so before it looks at the
+     * configuration — asking first whether a sender is configured would answer
+     * *come back later* on a deployment that has none, about a rung that is not
+     * coming back. Nothing is lost by dropping it: `rung_unavailable` is 503
+     * through `ERROR_STATUS`, so an unconfigured deployment answers as it did.
+     */
     const caller = await callerFor(request, reply, store)
     if (caller === null) return reply
 

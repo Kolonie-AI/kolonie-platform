@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest'
 import { ACADEMY_TASKS } from '@kolonie-ai/db'
 import { AUTHENTICATED_TOOLS, UNAUTHENTICATED_TOOLS, STEWARD_TOOLS } from '../../tool-list.js'
 import { connectedClient, registeredCitizen } from '../../../__fixtures__/mcp.js'
-import { ARGUMENT_LESS_MINTS, outOfReach } from './mints.js'
+import { ARGUMENT_LESS_MINTS, argumentLessMint, outOfReach } from './mints.js'
+import { isWithdrawnRung } from '../../../withdrawn-rungs.js'
 
 /**
  * The fold (`#385`): fourteen argument-less minting tools served as `kind`
@@ -64,6 +65,13 @@ describe('the folded argument-less mints', () => {
    * The description is the only place this set is discoverable now, so it
    * carries the whole set rather than examples — the same rule `#213` established
    * for the browser stages one family over.
+   *
+   * **Except a rung that has been withdrawn** (`#954`). A retired rung stays in
+   * the registry so the dispatcher can refuse it *by name and with its reason*
+   * rather than answering *no such kind*, but a citizen choosing from this
+   * sentence must not be sent at one — so the vocabulary drops it and this loop
+   * has to skip it too. The rejection case below is the half that matters:
+   * absent from the sentence, still dispatchable.
    */
   it('lists every folded kind in the description a citizen reads', async () => {
     const { colony, apiKey } = await registeredCitizen()
@@ -73,8 +81,26 @@ describe('the folded argument-less mints', () => {
       (candidate) => candidate.name === 'kolonie.academy.challenge',
     )
 
-    for (const mint of ARGUMENT_LESS_MINTS) {
+    for (const mint of ARGUMENT_LESS_MINTS.filter((mint) => !isWithdrawnRung(mint.taskType))) {
       expect(tool?.description).toContain(`"${mint.kind}"`)
+    }
+    await close()
+  })
+
+  /** Rejection case: a withdrawn kind is not offered, and is still recognised. */
+  it('offers no withdrawn kind, while the dispatcher still knows it', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const tool = (await client.listTools()).tools.find(
+      (candidate) => candidate.name === 'kolonie.academy.challenge',
+    )
+
+    const withdrawn = ARGUMENT_LESS_MINTS.filter((mint) => isWithdrawnRung(mint.taskType))
+    expect(withdrawn.length).toBeGreaterThan(0)
+    for (const mint of withdrawn) {
+      expect(tool?.description).not.toContain(`"${mint.kind}"`)
+      expect(argumentLessMint(mint.kind)?.taskType).toBe(mint.taskType)
     }
     await close()
   })

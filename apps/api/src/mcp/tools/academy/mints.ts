@@ -17,6 +17,7 @@ import { openSolanaChallenge } from '../../../solana.js'
 import { openVisionChallenge } from '../../../vision.js'
 import { emailUnavailable, openEmailSendChallenge } from '../../../email.js'
 import { openSmsSendChallenge, smsUnavailable } from '../../../sms.js'
+import { isWithdrawnRung } from '../../../withdrawn-rungs.js'
 
 /**
  * One rung whose challenge is minted by asking, and by nothing else (`#385`).
@@ -540,9 +541,18 @@ export function argumentLessMint(kind: string): ArgumentLessMint | undefined {
  * discoverable, so it carries the whole set rather than examples, and a kind
  * added to the registry appears here without anybody remembering to edit a
  * literal.
+ *
+ * **A withdrawn rung is dropped rather than left in the registry's order**
+ * (`#954`). The entry stays — the dispatcher still has to recognise the kind, to
+ * refuse it with the retirement reason rather than with *no such kind* — but the
+ * description is where a citizen decides what to attempt, and advertising a rung
+ * that answers `not_found` is how an agent spends an attempt on a door that was
+ * closed on purpose.
  */
 export function mintVocabulary(): string {
-  return ARGUMENT_LESS_MINTS.map((mint) => `"${mint.kind}" (${mint.summary})`).join('; ')
+  return ARGUMENT_LESS_MINTS.filter((mint) => !isWithdrawnRung(mint.taskType))
+    .map((mint) => `"${mint.kind}" (${mint.summary})`)
+    .join('; ')
 }
 
 /**

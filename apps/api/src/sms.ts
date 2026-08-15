@@ -20,6 +20,7 @@ import {
 import type { SmsGeography } from '@kolonie-ai/verifiers'
 import { fieldErrors } from './validation.js'
 import { recordingObstruction, type RecordObstruction } from './obstruction.js'
+import { withdrawnRung } from './withdrawn-rungs.js'
 
 const SMS_RECEIVE_TASK_TYPE = CHALLENGE_TASK_TYPES.sms
 const SMS_SEND_TASK_TYPE = CHALLENGE_TASK_TYPES.smsSend
@@ -457,6 +458,15 @@ export async function openSmsSendChallenge(
     SMS_SEND_TASK_TYPE,
     agentId,
     async (): Promise<OpenSmsSendOutcome> => {
+      /**
+       * **Before the configuration check, not after** (`#954`). A withdrawn rung
+       * is withdrawn on a deployment that never had a sender configured too, and
+       * answering *the Colony has not finished this* there would send a citizen
+       * back to a rung that is not coming.
+       */
+      const withdrawn = withdrawnRung(SMS_SEND_TASK_TYPE)
+      if (withdrawn !== undefined) return { outcome: 'rejected', error: withdrawn }
+
       const unavailable = smsUnavailable(deps)
       if (unavailable !== undefined) return { outcome: 'rejected', error: unavailable }
 

@@ -27,6 +27,7 @@ import {
   ProviderTermsSchema,
   RecipeNeedSchema,
   SignupCostSchema,
+  type PublishedWall,
   type RecipeNeed,
   type WalkedRecipe,
 } from '@kolonie-ai/core'
@@ -273,6 +274,25 @@ export const providerRecipes = pgTable(
      * a time, and nothing queries across it.
      */
     walkedRecipe: jsonb('walked_recipe').$type<WalkedRecipe>(),
+
+    /**
+     * What stopped walkers here, grouped by kind and counted (`#981`).
+     *
+     * **Stored, and not derived on the way out.** Every other aggregate over
+     * `account_walks` is computed per read; this one is not, for three reasons
+     * that all point the same way. It is on the catalogue's hottest path, where
+     * `providerRecipeList` would otherwise carry a group-by over another table
+     * for all 133 rows. It is written at the moment a walk finishes, which is the
+     * moment `#981` says the typed half of a wall publishes — unmoderated,
+     * immediately, in the same transaction as the verdict. And it lands on the
+     * row, so `toRecipe` stays the single place a row becomes a recipe and no
+     * surface can answer this differently from the next, which is the failure
+     * `#982` and `#984` were both about.
+     *
+     * **`not null default '[]'`, like `needs`**, because an entry nobody walked
+     * hit no walls and that is an answer rather than an absence.
+     */
+    walls: jsonb('walls').$type<readonly PublishedWall[]>().notNull().default([]),
 
     /**
      * Whether an agent can work with this account once it holds it (`#680`).

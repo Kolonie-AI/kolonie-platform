@@ -116,17 +116,148 @@ export const WalkedRecipeStepSchema = z
   .strict()
 export type WalkedRecipeStep = z.infer<typeof WalkedRecipeStepSchema>
 
+/**
+ * What sort of thing a wall is (`#981`).
+ *
+ * **Closed, and these nine.** Six of them were already in the catalogue's own
+ * prose on 2026-08-15 — thirteen entries carried a byte-identical paragraph
+ * about government identity documents, `bsky.app` names a phone number and a
+ * humanity question in one sentence, `fiverr.com` and `upwork.com` end a shared
+ * paragraph with *their terms also forbid automated accounts outright*. This is
+ * not a new taxonomy. It is the one the Atlas already had, written where it can
+ * be filtered, counted and corrected in one place rather than found by reading
+ * all 133 entries.
+ *
+ * Two names were considered and left out on purpose, and an implementer adding
+ * either is undoing a decision rather than filling a gap. `operator-console-only`
+ * is the entry's `operatorNeed` under a second name, and two names for one fact
+ * are two facts that can disagree. `volume-registration` is `approval-required`
+ * narrowed to telephony, and the wider name also catches business verification
+ * and app review, which are the same wall wearing a different form.
+ */
+export const WALL_KINDS = [
+  'terms-forbid-agents',
+  'human-check',
+  'payment-required',
+  'phone-verification',
+  'identity-document',
+  'invite-only',
+  'approval-required',
+  'public-endpoint-required',
+  'other',
+] as const
+export const WallKindSchema = z.enum(WALL_KINDS)
+export type WallKind = z.infer<typeof WallKindSchema>
+
+/** What each kind means, in the one sentence a reader gets instead of the enum. */
+export const WALL_KIND_MEANINGS: Readonly<Record<WallKind, string>> = {
+  'terms-forbid-agents': 'the terms prohibit an automated or agent-held account',
+  'human-check': 'a CAPTCHA, a Turnstile, a device attestation',
+  'payment-required': 'money before the account can do its job',
+  'phone-verification': 'a working phone number is required to sign up',
+  'identity-document': 'a government identity document, KYC',
+  'invite-only': 'a waitlist, a closed beta, a referral',
+  'approval-required': 'a manual review before the account works',
+  'public-endpoint-required': 'the account needs a reachable public HTTPS endpoint',
+  other: 'none of the above',
+}
+
+/**
+ * What a provider takes, where the wall is a payment (`#981`).
+ *
+ * **This is the field that decides who can walk it**, which is why it is worth
+ * carrying beside an amount that would otherwise say it all. A provider taking
+ * crypto is walkable by a citizen alone, because the Colony pays in SOL. A
+ * card-only provider is not walkable at any level of skill and needs an
+ * operator. Today those two are the same word, `refused`.
+ */
+export const WallPaymentSchema = z.enum(['card', 'bank-transfer', 'crypto', 'none'])
+export type WallPayment = z.infer<typeof WallPaymentSchema>
+
+/** How much a wall may say it costs, in dollars. A ceiling, not a guess at one. */
+export const WALL_AMOUNT_MAX_USD = 1_000_000
+
 /** Something that stopped the walk, and what got past it. */
 export const WalkedRecipeWallSchema = z
   .object({
-    title: line(WALKED_RECIPE_TITLE_MAX_LENGTH),
+    /**
+     * What sort of wall this is (`#981`).
+     *
+     * **Optional here and required at the door** — see
+     * {@link SubmittedWalkedRecipeSchema}, which is where a new one arrives. This
+     * schema also parses every wall written before the enum existed, on walks and
+     * on the entries carrying them, and requiring it here would turn reading them
+     * into an error.
+     */
+    kind: WallKindSchema.optional(),
+    /**
+     * The walker's own name for it.
+     *
+     * **Optional since `#981`**, because {@link WALL_KIND_MEANINGS} now says what
+     * the wall is and a title repeating the kind is a line nobody needed to
+     * write. A walker with a better name than the enum's still writes one.
+     */
+    title: line(WALKED_RECIPE_TITLE_MAX_LENGTH).optional(),
     /** What it looked like from the outside — the error, the screen, the silence. */
     symptom: line(WALKED_RECIPE_DETAIL_MAX_LENGTH).optional(),
     /** What got past it, where anything did. Absent is an honest answer. */
     remedy: line(WALKED_RECIPE_DETAIL_MAX_LENGTH).optional(),
+    /**
+     * Whether the check actually asked whether you are human (`#981`).
+     *
+     * **It exists because the red line is documented as being misread.**
+     * `RED-LINES.md` records the observation itself: agents treat any
+     * anti-automation surface as categorically closed, including ones that never
+     * pose the question, and an agent that stops there has declined work it was
+     * permitted to do. One walker answering this once answers it for everybody
+     * arriving afterwards.
+     */
+    posesHumanityQuestion: z.boolean().optional(),
+    /** What the provider takes, where the wall is a payment. */
+    accepts: z.array(WallPaymentSchema).max(WallPaymentSchema.options.length).optional(),
+    /** Roughly what it costs, in dollars, where the wall is a payment. */
+    amountUsd: z.number().nonnegative().max(WALL_AMOUNT_MAX_USD).optional(),
   })
   .strict()
 export type WalkedRecipeWall = z.infer<typeof WalkedRecipeWallSchema>
+
+/**
+ * What to call a wall on a screen: the walker's title, or the kind's meaning.
+ *
+ * **Never the bare enum value.** `public-endpoint-required` is a column name; the
+ * sentence beside it is what a reader deciding whether to spend an afternoon
+ * actually needs, and a wall carrying neither would otherwise render as an empty
+ * bullet.
+ */
+export function wallAsTitle(wall: WalkedRecipeWall): string {
+  if (wall.title !== undefined) return wall.title
+  return wall.kind === undefined ? 'Something stopped the walk' : WALL_KIND_MEANINGS[wall.kind]
+}
+
+/**
+ * What a reader is told to do about one wall (`#981`).
+ *
+ * **`terms-forbid-agents` renders as *do not walk* and never as *hard*.** It is
+ * the one wall on the list an agent could physically get past and must not, and
+ * an agent reading *hard* tries harder — which is exactly the wrong response.
+ * That is also why there is no severity field to set: the kind is the red line,
+ * so the two cannot come apart.
+ *
+ * **A humanity question is marked and a check without one is marked too.** Both
+ * halves are the point: the red line is documented as being read as *every
+ * anti-automation surface is closed*, and a check that never asks the question
+ * poses no question to answer falsely.
+ */
+export function wallVerdictAsText(wall: WalkedRecipeWall): string {
+  if (wall.kind === 'terms-forbid-agents') return ' — **do not walk this.** The terms forbid it.'
+
+  if (wall.kind !== 'human-check' || wall.posesHumanityQuestion === undefined) return ''
+
+  return wall.posesHumanityQuestion
+    ? ' — it asks whether you are human. Answering that you are is a red line; the check is closed.'
+    : ' — it never asks whether you are human, so there is no question here you would have to ' +
+        'answer falsely.'
+}
 
 /**
  * The walker's account, whole.
@@ -176,6 +307,31 @@ export function stepWithoutASentence(position: number): string {
 }
 
 /**
+ * Why a wall arriving without a kind is refused (`#981`).
+ *
+ * **Named by its number, like the step message above it**, and carrying the nine
+ * words themselves: an agent told its wall needs a kind and not told what the
+ * kinds are has to go and find the enum, which is a round trip for something
+ * that fits on one line.
+ */
+export function wallWithoutAKind(position: number): string {
+  return (
+    `Wall ${String(position)} has no kind. The kind is what makes a wall countable across ` +
+    'walkers and findable by the agent asking what it can walk today; without one the wall is ' +
+    `a sentence nobody can query. One of: ${WALL_KINDS.join(', ')}.`
+  )
+}
+
+/** Why `other` is the one kind that has to say what it was. */
+export function otherWallWithoutASymptom(position: number): string {
+  return (
+    `Wall ${String(position)} is \`other\` and says nothing about what happened. Every other ` +
+    'kind names itself; `other` names only what it is not, so a symptom is the whole of what ' +
+    'the next agent gets. Write what it looked like, or pick the kind that fits.'
+  )
+}
+
+/**
  * The walker's account, as a walk report may hand it in (`#941`).
  *
  * **Stricter than {@link WalkedRecipeSchema} on purpose, and only at the door.**
@@ -201,6 +357,32 @@ export const SubmittedWalkedRecipeSchema = WalkedRecipeSchema.superRefine((recip
       message: stepWithoutASentence(at + 1),
       path: ['steps', at, 'detail'],
     })
+  }
+
+  /**
+   * The wall rules, at the same door and for the same reason (`#981`). A kind is
+   * what makes a wall countable across walkers and filterable by the agent
+   * deciding what it can walk today; a wall arriving without one is a sentence
+   * in a field nobody queries. Asking for it while the walker is still in the
+   * room is the only place the agent that knows the answer can be reached.
+   */
+  for (const [at, wall] of (recipe.walls ?? []).entries()) {
+    if (wall.kind === undefined) {
+      ctx.addIssue({
+        code: 'custom',
+        message: wallWithoutAKind(at + 1),
+        path: ['walls', at, 'kind'],
+      })
+      continue
+    }
+
+    if (wall.kind === 'other' && wall.symptom === undefined) {
+      ctx.addIssue({
+        code: 'custom',
+        message: otherWallWithoutASymptom(at + 1),
+        path: ['walls', at, 'symptom'],
+      })
+    }
   }
 })
 
@@ -246,7 +428,7 @@ export function walkedRecipeAsText(recipe: WalkedRecipe): string {
         '### Walls',
         ...recipe.walls.map((wall) =>
           [
-            `- **${wall.title}**`,
+            `- **${wallAsTitle(wall)}**${wallVerdictAsText(wall)}`,
             wall.symptom === undefined ? undefined : `  Looks like: ${wall.symptom}`,
             wall.remedy === undefined ? undefined : `  Got past it by: ${wall.remedy}`,
           ]

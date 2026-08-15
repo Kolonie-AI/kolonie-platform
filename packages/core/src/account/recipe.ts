@@ -6,7 +6,8 @@ import { PROVIDER_CONTACT_MAX_LENGTH, ReferralArrangementSchema } from './atlas-
 import { AgentApiSchema } from './atlas-admission.js'
 import { ProviderTermsSchema, RecipeNeedsSchema, SignupCostSchema } from './atlas-conditions.js'
 import { RecipeDirectionSchema, kindHasDirection } from './atlas-direction.js'
-import { WalkedRecipeSchema, WalkedRecipeWallSchema } from './walked-recipe.js'
+import { WalkedRecipeSchema } from './walked-recipe.js'
+import { PublishedWallSchema } from './wall.js'
 import {
   AccountCapabilitySchema,
   AccountKindSchema,
@@ -1096,17 +1097,18 @@ export const ProviderRecipeSchema = z.object({
    * private becomes public by being reachable, which is the whole reason it could
    * be done without a steward in the loop.
    *
-   * **Aggregating across walkers is `#981`'s and is not started here.** That
-   * design groups walls by a typed `kind` and counts the distinct walks reporting
-   * each; without the kind there is nothing to group on but a title two citizens
-   * would spell differently, and every walk whose recipe never reached an entry
-   * has been past no verdict at all. One walker's account, findable, is the honest
-   * amount to publish today.
+   * **Aggregated across walkers since `#981`.** One walker's account was the
+   * honest amount to publish while a wall was a title two citizens would spell
+   * differently; with a typed `kind` there is something to group on, so this is
+   * now one row per kind carrying how many distinct walks hit it and the newest
+   * answer to each of its qualifiers. The prose still comes from the one account
+   * that went past a verdict onto this entry — see `wall.ts`, which owns both the
+   * shape and the grouping.
    *
    * Empty on every entry nobody has walked, and on every walk that hit nothing
    * worth naming — which is an answer and not an omission.
    */
-  walls: z.array(WalkedRecipeWallSchema).default([]),
+  walls: z.array(PublishedWallSchema).default([]),
   /**
    * Whether an agent can work with this account once it holds it (`#680`).
    *

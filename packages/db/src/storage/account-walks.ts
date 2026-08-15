@@ -4,8 +4,11 @@ import {
   AccountProviderSchema,
   AgentPlatformSchema,
   atlasCategoryForKind,
+  publishWalls,
   RecipeActorSchema,
+  TERMS_FORBID_AGENTS_REFUSAL,
   WalkOutcomeSchema,
+  wallsForbidWalking,
   WALK_PROSE_FIELDS,
   WALK_PUBLISHED_REPUTATION,
   WalkedRecipeSchema,
@@ -365,6 +368,98 @@ export async function reportFinishedWalk(
 }
 
 /**
+ * Recount what stopped walkers at one provider, and write it on the entry
+ * (`#981`).
+ *
+ * **Called where a walk changes, not where the catalogue is read.** The Atlas is
+ * read far more often than it is walked, and a group-by over every walk at every
+ * provider on a hot path would be paid for by every reader to serve the one write
+ * a week that moves it. So this runs inside the transaction that closes or amends
+ * a walk, and `toRecipe` reads a column.
+ *
+ * **The typed half is computed from every walk; the prose comes only from the
+ * account the entry already publishes.** That is `#981` section 4 — a kind, a
+ * count, a boolean and a number publish unmoderated because none of them can leak
+ * a credential or carry a grudge, and `title`, `symptom` and `remedy` wait for the
+ * same verdict every other sentence in the Atlas waits for.
+ *
+ * @param at the provider, already canonical. Callers here have resolved it.
+ */
+async function republishWalls(
+  tx: Transaction,
+  at: { readonly kind: AccountKind; readonly provider: string },
+): Promise<void> {
+  const [entry] = await tx
+    .select()
+    .from(providerRecipesTable)
+    .where(
+      and(eq(providerRecipesTable.kind, at.kind), eq(providerRecipesTable.provider, at.provider)),
+    )
+    .limit(1)
+
+  if (entry === undefined) return
+
+  const walked = await tx
+    .select({
+      id: accountWalks.id,
+      finishedAt: accountWalks.finishedAt,
+      recipe: accountWalks.recipe,
+    })
+    .from(accountWalks)
+    .where(
+      and(
+        eq(accountWalks.kind, at.kind),
+        eq(accountWalks.provider, at.provider),
+        isNotNull(accountWalks.finishedAt),
+        isNotNull(accountWalks.recipe),
+      ),
+    )
+
+  const walls = publishWalls(
+    walked.flatMap((walk) => {
+      /** Parsed on the way out, like everywhere else a `jsonb` becomes a shape. */
+      const recipe = walk.recipe === null ? null : WalkedRecipeSchema.parse(walk.recipe)
+      if (recipe?.walls === undefined || walk.finishedAt === null) return []
+      return [{ walkId: walk.id, at: toTimestamp(walk.finishedAt), walls: recipe.walls }]
+    }),
+    (entry.walkedRecipe === null ? null : WalkedRecipeSchema.parse(entry.walkedRecipe))?.walls ??
+      [],
+  )
+
+  /**
+   * **`terms-forbid-agents` is the verdict and not a note beside it** (`#981`
+   * section 3). An entry whose terms forbid an agent holding the account is
+   * `refused`, and computing that from the wall is what stops the two disagreeing.
+   *
+   * **It never deletes anything to get there.** A published entry with steps
+   * cannot legally become `refused` — `provider_recipes_unjoinable_is_empty`
+   * requires a refusal to carry no steps and prove nothing — so honouring the rule
+   * there would mean erasing a steward's recipe on one citizen's unmoderated
+   * report, which is a vandalism route and not a classification. So the status
+   * moves only where nothing is under it to lose, and an entry with steps keeps
+   * them and carries the wall. See the note on `#981`: which of the two the
+   * maintainer wants is the one thing that specification does not settle.
+   */
+  const forced =
+    wallsForbidWalking(walls) &&
+    entry.status !== 'refused' &&
+    entry.status !== 'retired' &&
+    entry.steps.length === 0 &&
+    entry.proves === null
+
+  await tx
+    .update(providerRecipesTable)
+    .set({
+      walls,
+      updatedAt: sql`now()`,
+      ...(forced ? { status: 'refused' as const, refusal: TERMS_FORBID_AGENTS_REFUSAL } : {}),
+    })
+    .where(
+      and(eq(providerRecipesTable.kind, at.kind), eq(providerRecipesTable.provider, at.provider)),
+    )
+}
+
+/**
  * Replace the walker's own account on a draft it proposed (`#986`).
  *
  * **The one thing on a draft that is the walker's to write.** A citizen read
@@ -440,6 +535,9 @@ export async function amendProposedDraft(
           eq(providerRecipesTable.provider, entry.provider),
         ),
       )
+
+    /** The amendment may have added, dropped or re-qualified a wall (`#981`). */
+    await republishWalls(tx, { kind: entry.kind, provider: entry.provider })
 
     const steps = await tx
       .select()
@@ -664,6 +762,15 @@ export async function finishWalk(
           ),
         )
     }
+
+    /**
+     * **Last, and whatever the verdict was** (`#981`). A walk that merely
+     * confirmed the published shape still hit walls on the way — the price, the
+     * check, the review — and those are the same fact whether or not the steps
+     * matched. Running this after the branches above is what lets it count the
+     * entry this walk has only just created.
+     */
+    await republishWalls(tx, { kind: walk.kind, provider: walk.provider })
 
     return { walk, verdict }
   })

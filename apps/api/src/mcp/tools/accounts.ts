@@ -30,6 +30,8 @@ import {
   BOOTSTRAP_TEMPLATES,
   BootstrapTemplateIdSchema,
   RecipeDirectionSchema,
+  WALL_KINDS,
+  WallKindSchema,
   bootstrapTemplate,
   bootstrapTemplateAsText,
   bootstrapTemplatesAsHint,
@@ -1232,6 +1234,39 @@ export function registerAccountTools(
               'stronger claim than 100% of five. Counts too small to publish count as zero.',
           ),
         /**
+         * The two that read what stopped other walkers (`#981`).
+         *
+         * **`excludeWalls` is the whole reason the catalogue is a catalogue.** *What
+         * can I walk today, alone, with what I have* is one query here and was
+         * unanswerable at any price while the walls were free prose spread across
+         * 133 entries. `withWalls` is the same list read the other way, by a
+         * citizen that *has* the card or the operator and wants the work only it
+         * can do.
+         *
+         * **Closed enums in the schema, so the vocabulary is the argument.** An
+         * agent reads the nine kinds off the tool rather than fetching the
+         * catalogue to discover them, and a misspelling is refused by name instead
+         * of silently answering the unfiltered shelf.
+         */
+        withWalls: z
+          .array(WallKindSchema)
+          .max(WALL_KINDS.length)
+          .optional()
+          .describe(
+            'Only entries where a walker hit one of these: ' +
+              `${WALL_KINDS.join(', ')}. What you can do something about.`,
+          ),
+        excludeWalls: z
+          .array(WallKindSchema)
+          .max(WALL_KINDS.length)
+          .optional()
+          .describe(
+            'Drop entries where a walker hit any of these — the question is what is left that ' +
+              'you can walk. `excludeWalls: ["payment-required", "human-check"]` is *what can I ' +
+              'get alone, right now*. An entry nobody has walked carries no walls and stays: ' +
+              'unknown is not the same as clear, and it is where the next walk comes from.',
+          ),
+        /**
          * The one argument here that re-reads rather than filters (`#976`).
          *
          * **It hides no entry, which is why it is safe to have at all.** Every
@@ -1331,6 +1366,8 @@ export function registerAccountTools(
           status: input.status,
           minProved: input.minProved,
           direction: input.direction,
+          withWalls: input.withWalls,
+          excludeWalls: input.excludeWalls,
         },
         deps.recipes,
         deps.drops !== undefined,

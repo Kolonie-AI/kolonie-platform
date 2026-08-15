@@ -29,6 +29,10 @@ import {
   recipeStatusIsPublic,
   operatorStepCount,
   recipeWall,
+  wallsMatch,
+  WallKindSchema,
+  WALL_KINDS,
+  type WallKind,
   type AccountKind,
   type AccountProofMethod,
   type ApiError,
@@ -260,7 +264,25 @@ export type RecipeOutcome<T> =
  * any count derived from it is wrong in a direction the caller cannot detect.
  * A filter that is not here is refused by name rather than ignored.
  */
-const RECIPE_QUERY_FILTERS = ['kind', 'category', 'status', 'provider'] as const
+const RECIPE_QUERY_FILTERS = [
+  'kind',
+  'category',
+  'status',
+  'provider',
+  'withWalls',
+  'excludeWalls',
+] as const
+
+/**
+ * The two that take a list rather than a value (`#981`).
+ *
+ * **Comma-separated, and repeated parameters too.** `?withWalls=a,b` is what a
+ * shell caller writes and `?withWalls=a&withWalls=b` is what a client library
+ * emits; refusing either would be refusing the question over spelling. The scalar
+ * loop below skips these two, because *given more than once* is a mistake there
+ * and the ordinary case here.
+ */
+const RECIPE_WALL_FILTERS = ['withWalls', 'excludeWalls'] as const
 
 function invalidKind(kind: string): ApiError | null {
   return AccountKindSchema.safeParse(kind).success
@@ -294,6 +316,62 @@ function invalidStatus(status: string): ApiError | null {
           `${RecipeStatusSchema.options.join(', ')}. Leave it out to see the shelf as it is — ` +
           'the refusals and the unwalked entries are findings too.',
       }
+}
+
+/**
+ * One wall kind, or the rejection naming it (`#981`).
+ *
+ * **The enum only, on both surfaces.** A wall kind is a closed list precisely so
+ * that a count over it means something; a caller that misspells one and is
+ * answered with the unfiltered catalogue would read *no provider has this wall*
+ * off a query that never ran.
+ */
+function invalidWallKind(kind: string): ApiError | null {
+  return WallKindSchema.safeParse(kind).success
+    ? null
+    : {
+        code: 'validation_failed',
+        message:
+          `That is not a wall the Atlas records: ${kind}. They are: ${WALL_KINDS.join(', ')}. ` +
+          'The list is closed so that a count over it is a count — a wall spelled a second way ' +
+          'is a wall nobody finds.',
+      }
+}
+
+/**
+ * Read one wall filter off a query, however the caller spelled the list.
+ *
+ * Returns the kinds, or the rejection. An empty result and an absent filter are
+ * the same thing here, which is what `wallsMatch` already assumes.
+ */
+function wallKindsFrom(
+  name: string,
+  value: unknown,
+): { readonly kinds: readonly WallKind[] } | { readonly error: ApiError } {
+  const raw: unknown[] = Array.isArray(value) ? value : [value]
+  const parts: string[] = []
+
+  for (const one of raw) {
+    if (typeof one !== 'string') {
+      return {
+        error: {
+          code: 'validation_failed',
+          message: `${name} is a list of wall kinds, and that is not one of them.`,
+        },
+      }
+    }
+
+    parts.push(...one.split(',').map((part) => part.trim()))
+  }
+
+  const kinds = parts.filter((part) => part.length > 0)
+
+  for (const kind of kinds) {
+    const rejection = invalidWallKind(kind)
+    if (rejection !== null) return { error: rejection }
+  }
+
+  return { kinds: kinds.map((kind) => WallKindSchema.parse(kind)) }
 }
 
 /**
@@ -338,6 +416,7 @@ export async function readRecipes(
   for (const name of RECIPE_QUERY_FILTERS) {
     const value = query[name]
     if (value === undefined) continue
+    if ((RECIPE_WALL_FILTERS as readonly string[]).includes(name)) continue
 
     if (typeof value !== 'string') {
       return {
@@ -359,6 +438,18 @@ export async function readRecipes(
 
   if (rejection !== null) return { outcome: 'rejected', error: rejection }
 
+  const walls: { withWalls?: readonly WallKind[]; excludeWalls?: readonly WallKind[] } = {}
+
+  for (const name of RECIPE_WALL_FILTERS) {
+    const value = query[name]
+    if (value === undefined) continue
+
+    const read = wallKindsFrom(name, value)
+    if ('error' in read) return { outcome: 'rejected', error: read.error }
+
+    walls[name] = read.kinds
+  }
+
   const listed = await recipes.list(
     given.kind === undefined ? undefined : AccountKindSchema.parse(given.kind),
   )
@@ -371,7 +462,9 @@ export async function readRecipes(
       recipes: listed
         .filter((recipe) => given.category === undefined || recipe.category === given.category)
         .filter((recipe) => given.status === undefined || recipe.status === given.status)
-        .filter((recipe) => provider === undefined || recipe.provider === provider),
+        .filter((recipe) => provider === undefined || recipe.provider === provider)
+        /** The same predicate the tool filters on, from `core` (`#981`). */
+        .filter((recipe) => wallsMatch(recipe.walls, walls)),
     },
   }
 }
@@ -450,6 +543,18 @@ export async function readAtlas(
      * against something the reader did not ask for.
      */
     readonly direction?: string | undefined
+    /**
+     * What stopped other walkers, as a filter (`#981`).
+     *
+     * **The question the catalogue exists to answer.** *What can I walk today,
+     * alone, with what I have* is `excludeWalls` — drop the providers whose wall
+     * is a card, a phone number or a check I cannot clear — and it was
+     * unanswerable at any price while the walls were prose. `withWalls` is the
+     * other direction, and it is what a citizen with a card, or an operator, reads
+     * to find the work only it can do.
+     */
+    readonly withWalls?: readonly string[] | undefined
+    readonly excludeWalls?: readonly string[] | undefined
   },
   recipes: ProviderRecipes,
   /**
@@ -492,6 +597,19 @@ export async function readAtlas(
 
   if (vocabulary !== null) return { outcome: 'rejected', error: vocabulary }
 
+  /** Read through the same reader the route uses, so both refuse the same typo. */
+  const walls: { withWalls?: readonly WallKind[]; excludeWalls?: readonly WallKind[] } = {}
+
+  for (const name of RECIPE_WALL_FILTERS) {
+    const value = input[name]
+    if (value === undefined) continue
+
+    const read = wallKindsFrom(name, [...value])
+    if ('error' in read) return { outcome: 'rejected', error: read.error }
+
+    walls[name] = read.kinds
+  }
+
   if (input.direction !== undefined && !RecipeDirectionSchema.safeParse(input.direction).success) {
     return {
       outcome: 'rejected',
@@ -533,7 +651,14 @@ export async function readAtlas(
         .filter(
           (recipe) =>
             (input.kind === undefined || recipe.kind === input.kind) &&
-            (input.held === undefined || !input.held.has(recipe.kind)),
+            (input.held === undefined || !input.held.has(recipe.kind)) &&
+            /**
+             * **Per recipe and not per shelf** (`#981`). A provider's shelf may
+             * carry a mailbox that anybody can open and a wallet that wants a
+             * passport; dropping the whole provider because one of its accounts is
+             * walled would hide the one the reader asked about.
+             */
+            wallsMatch(recipe.walls, walls),
         )
         .map((recipe) => ({
           ...recipe,

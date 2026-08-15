@@ -59,6 +59,8 @@ import { buildApp } from '../../../app.js'
 import { erasure } from '../../../erasure.js'
 import { support } from '../../../support.js'
 import { DEFAULT_SKILL_RELEASES } from '../../../skill-releases.js'
+import { arrivalReports } from '../../../arrival-reports.js'
+import { fakeArrivalDesk } from '../../../__fixtures__/arrivals.js'
 
 /**
  * The mailbox rung over MCP (#38).
@@ -83,6 +85,7 @@ describe('kolonie.academy.answer with kind "email.challenge" and .code', () => {
     const challenges = fakeEmailChallenges()
     const email = fakeEmail(challenges, mailer)
     const app = buildApp({
+      arrivals: arrivalReports({ desk: fakeArrivalDesk() }),
       humans: fakeHumans(),
       vault: { vault: fakeVault() },
       accounts: fakeAccounts(),
@@ -136,6 +139,7 @@ describe('kolonie.academy.answer with kind "email.challenge" and .code', () => {
     const { apiKey, agent } = store.issue({})
     const { client, close } = await connectedClient(
       {
+        arrivals: arrivalReports({ desk: fakeArrivalDesk() }),
         vault: { vault: fakeVault() },
         accounts: fakeAccounts(),
         recipes: fakeProviderRecipes(),

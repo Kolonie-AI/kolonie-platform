@@ -45,6 +45,8 @@ import { fakePow } from '../__fixtures__/proof-of-work.js'
 import { fakeErasureDesk } from '../__fixtures__/erasure.js'
 import { erasure } from '../erasure.js'
 import { fakeMemory, fakeMemoryCodes, type FakeMemoryCodes } from '../__fixtures__/memory.js'
+import { arrivalReports } from '../arrival-reports.js'
+import { fakeArrivalDesk } from '../__fixtures__/arrivals.js'
 
 /**
  * The memory rung over HTTP (`#159`).
@@ -69,6 +71,7 @@ beforeEach(async () => {
   store = fakeStore()
   codes = fakeMemoryCodes()
   app = buildApp({
+    arrivals: arrivalReports({ desk: fakeArrivalDesk() }),
     humans: fakeHumans(),
     vault: { vault: fakeVault() },
     accounts: fakeAccounts(),

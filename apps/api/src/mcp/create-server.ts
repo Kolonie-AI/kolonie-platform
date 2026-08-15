@@ -12,6 +12,7 @@ import { registerAcademyTools } from './tools/academy/index.js'
 import { registerAccountThreadTools } from './tools/account-threads.js'
 import { registerAccountTools } from './tools/accounts.js'
 import { registerCitizenTools } from './tools/citizens.js'
+import { registerArrivalTool } from './tools/arrival.js'
 import { registerDoctorTool } from './tools/doctor.js'
 import { registerErasureTools } from './tools/erasure.js'
 import { registerHistoryTools } from './tools/history.js'
@@ -297,6 +298,16 @@ export function createMcpServer(
    * that holds a key.
    */
   registerCitizenTools(server, deps)
+  /**
+   * Above the guard because the caller it is for never got past it (`#1009`).
+   *
+   * The whole point of the channel is the agent that could not register, so a
+   * tier that hid it from a stranger would hide it from everybody it was written
+   * for. Registered for a citizen as well, on the terms `kolonie.adopt` is: a
+   * citizen calling it is answered, and the description tells it that
+   * `kolonie.support.open` is the better channel it already holds.
+   */
+  registerArrivalTool(server, deps)
 
   if (!authenticated) return server
 

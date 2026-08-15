@@ -52,6 +52,8 @@ import { fakeConsole } from '../__fixtures__/console.js'
 import { fakeErasureDesk } from '../__fixtures__/erasure.js'
 import { erasure } from '../erasure.js'
 import { noObstruction } from '../__fixtures__/obstruction.js'
+import { arrivalReports } from '../arrival-reports.js'
+import { fakeArrivalDesk } from '../__fixtures__/arrivals.js'
 
 let app: FastifyInstance
 let store: FakeStore
@@ -71,6 +73,7 @@ beforeEach(async () => {
   // `src/mcp/tools/quests.test.ts`, which reaches the same handlers these do.
   quests.setPriceFloor(0)
   app = buildApp({
+    arrivals: arrivalReports({ desk: fakeArrivalDesk() }),
     humans: fakeHumans(),
     vault: { vault: fakeVault() },
     accounts: fakeAccounts(),

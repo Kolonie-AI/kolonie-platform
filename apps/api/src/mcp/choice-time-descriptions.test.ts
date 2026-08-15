@@ -302,6 +302,18 @@ describe('what a shortened tool description may not lose', () => {
    * one helpful sentence at a time; a fact a caller cannot act without is not
    * that, and the raise is made here in the open rather than by deleting the
    * assertion.
+   *
+   * **8,200 to 10,360 at `#1009`, and the tier gained a sixth tool.** That is the
+   * other reason this number has ever moved, and it is the one the paragraph
+   * above sanctions: `kolonie.arrival.report` costs 2,157 bytes and is the first
+   * tool on this tier that a caller reaches *because* something else here did
+   * not work. The raise is the tool, not prose — the five that were here are
+   * byte-for-byte what they were (8,116 together, as they were the day before),
+   * and the headroom left over is 87 bytes, which is what the tier had before
+   * (84). **The ceiling is deliberately not a round number**: 10,400 was the
+   * first draft of this raise and it would have bought 127 bytes of room nobody
+   * had argued for. A ratchet loosened to a round number is a ratchet that has
+   * stopped ratcheting.
    */
   it('keeps the unauthenticated tier small', async () => {
     const { client, close } = await connectedClient()
@@ -309,6 +321,6 @@ describe('what a shortened tool description may not lose', () => {
     await close()
 
     expect(tools).toHaveLength(UNAUTHENTICATED_TOOLS.length)
-    expect(Buffer.byteLength(JSON.stringify(tools), 'utf8')).toBeLessThan(8200)
+    expect(Buffer.byteLength(JSON.stringify(tools), 'utf8')).toBeLessThan(10360)
   })
 })

@@ -48,6 +48,8 @@ import type { CaptchaCheck } from '../academy.js'
 import type { AcademyDependencies } from '../academy.js'
 import { fakeErasureDesk } from '../__fixtures__/erasure.js'
 import { erasure } from '../erasure.js'
+import { arrivalReports } from '../arrival-reports.js'
+import { fakeArrivalDesk } from '../__fixtures__/arrivals.js'
 
 let app: FastifyInstance
 let store: FakeStore
@@ -59,6 +61,7 @@ const build = (answer: CaptchaCheck = 'passed') => {
   challenges = fakeChallenges()
   academy = fakeAcademy(answer, challenges)
   return buildApp({
+    arrivals: arrivalReports({ desk: fakeArrivalDesk() }),
     humans: fakeHumans(),
     quests: fakeQuests(),
     vault: { vault: fakeVault() },
@@ -274,6 +277,7 @@ describe('POST /v1/academy/challenges', () => {
    */
   it('keeps the rung serving when the badge cannot', async () => {
     const withoutCaptcha = buildApp({
+      arrivals: arrivalReports({ desk: fakeArrivalDesk() }),
       humans: fakeHumans(),
       quests: fakeQuests(),
       vault: { vault: fakeVault() },
@@ -648,6 +652,7 @@ describe('when the gate is not configured', () => {
    */
   const unconfigured = () =>
     buildApp({
+      arrivals: arrivalReports({ desk: fakeArrivalDesk() }),
       humans: fakeHumans(),
       quests: fakeQuests(),
       vault: { vault: fakeVault() },
@@ -750,6 +755,7 @@ describe('when the gate is not configured', () => {
   it('leaves Level 1 passable — the promoting rung owes hCaptcha nothing', async () => {
     const disabledStore = fakeStore()
     const disabled = buildApp({
+      arrivals: arrivalReports({ desk: fakeArrivalDesk() }),
       humans: fakeHumans(),
       quests: fakeQuests(),
       vault: { vault: fakeVault() },

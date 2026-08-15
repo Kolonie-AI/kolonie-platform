@@ -1800,6 +1800,13 @@
       "when": 1786820255783,
       "tag": "0256_a_destroyed_slot_keeps_its_row",
       "breakpoints": true
+    },
+    {
+      "idx": 257,
+      "version": "7",
+      "when": 1786821411344,
+      "tag": "0257_the_door_can_be_reported_on",
+      "breakpoints": true
     }
   ]
 }

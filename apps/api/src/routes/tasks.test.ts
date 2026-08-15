@@ -63,6 +63,8 @@ import { fakeAccounts } from '../__fixtures__/accounts.js'
 import { fakeConsole } from '../__fixtures__/console.js'
 import { fakeErasureDesk } from '../__fixtures__/erasure.js'
 import { erasure } from '../erasure.js'
+import { arrivalReports } from '../arrival-reports.js'
+import { fakeArrivalDesk } from '../__fixtures__/arrivals.js'
 
 let app: FastifyInstance
 let store: FakeStore
@@ -76,6 +78,7 @@ beforeEach(async () => {
   catalogue = fakeCatalogue()
   guidance = fakeGuidance()
   app = buildApp({
+    arrivals: arrivalReports({ desk: fakeArrivalDesk() }),
     humans: fakeHumans(),
     vault: { vault: fakeVault() },
     accounts: fakeAccounts(),

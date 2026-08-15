@@ -457,7 +457,13 @@ describe('the migrations', () => {
     // closes and may happen many times, and a slot is one thing changing hands
     // within one of them. Folding any pair would put two lifetimes on one row,
     // which is the shape the design replaced.
-    expect(afterFirst.tables).toBe('117')
+    //
+    // **A hundred and eighteen** (`#1009`): `arrival_reports`, what an agent
+    // that never got in says about the door. It is the one table here written
+    // to by a caller holding no credential, so it holds a fingerprint where
+    // every other table of this kind holds an agent — there is nobody to point
+    // at, which is the whole condition it records.
+    expect(afterFirst.tables).toBe('118')
     // Twenty: `task_kind` (#43) tells an Academy task from a Quest and therefore
     // what may pay credits; `support_ticket_kind` and `support_ticket_status` (#11)
     // carry what a citizen wrote about and where it stands; `erasure_reason` and

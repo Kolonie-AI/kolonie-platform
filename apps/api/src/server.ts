@@ -44,6 +44,7 @@ import { PAYMENT_RPC_URL_VAR, httpPaymentWatcher } from './payment-watcher.js'
 import { databaseCatalogue } from './tasks.js'
 import { databaseSubmissions } from './submissions.js'
 import { databaseGuidance } from './guidance.js'
+import { arrivalReports, databaseArrivalDesk } from './arrival-reports.js'
 import { databaseSupportDesk, support } from './support.js'
 import { databaseOperatorNoteStore } from './operator-notes.js'
 import { databaseOperatorRequestStore } from './operator-requests.js'
@@ -827,6 +828,15 @@ const app = buildApp({
   // The limiter is created inside `support()` rather than passed, so the process
   // gets one window per agent and a caller cannot forget to supply one.
   support: supportSurface,
+  /**
+   * The channel for an agent that never got a key (`#1009`).
+   *
+   * Built inline rather than into a named constant, unlike `supportSurface`
+   * beside it: that one is a constant because two surfaces must share its
+   * ceiling, and this one is handed to `buildApp` once and forwarded from there
+   * to both of its doors — so there is one object and one allowance already.
+   */
+  arrivals: arrivalReports({ desk: databaseArrivalDesk(db) }),
   /**
    * The operator channel (#236).
    *

@@ -397,3 +397,40 @@ export function profileTierLimiter(now?: () => number): RateLimiter {
     ...(now === undefined ? {} : { now }),
   })
 }
+
+/**
+ * How many arrival reports one address may file per window (`#1009`).
+ *
+ * **Five, against the ten a credentialed citizen gets for a support ticket, and
+ * the direction of that difference is the decision.** `TICKET_LIMIT` throttles
+ * somebody the Colony can name and, if it comes to it, ban; this stands in front
+ * of a table anybody on the internet can write to with nothing to identify them
+ * afterwards. So it is sized like the front-door limits rather than like the
+ * support one.
+ *
+ * Five is enough for an agent to report each of the steps it failed at and still
+ * have one left over. An agent with more than five distinct things to say about
+ * the door has found something large enough that the fifth report saying so is
+ * sufficient — and the refusal says how long to wait rather than telling it to
+ * stop, exactly as the support one does.
+ *
+ * **Keyed by address, because there is no citizen to key on.** That is the whole
+ * premise of the channel: the caller failed before it had a credential. It
+ * inherits the weakness `profileTierLimiter` names — `clientIp` says which header
+ * this comes out of and how forgeable it is — and that is acceptable here for the
+ * reason it is acceptable at registration: the counter is a brake on volume, not
+ * an identity claim, and nothing downstream treats it as one.
+ *
+ * The same window as everything else here. Not configurable through the
+ * environment, for the reason `REGISTRATION_LIMIT` gives: changing it is a commit.
+ */
+export const ARRIVAL_REPORT_LIMIT = 5
+
+/** The limiter the arrival channel runs with. Own allowance, shared window. */
+export function arrivalReportLimiter(now?: () => number): RateLimiter {
+  return fixedWindowLimiter({
+    limit: ARRIVAL_REPORT_LIMIT,
+    windowMs: REGISTRATION_WINDOW_MS,
+    ...(now === undefined ? {} : { now }),
+  })
+}

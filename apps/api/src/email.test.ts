@@ -54,6 +54,8 @@ import {
   type FakeMailer,
 } from './__fixtures__/email.js'
 import { fakeSms } from './__fixtures__/sms.js'
+import { arrivalReports } from './arrival-reports.js'
+import { fakeArrivalDesk } from './__fixtures__/arrivals.js'
 
 let app: FastifyInstance
 let store: FakeStore
@@ -75,6 +77,7 @@ const build = (inboundSecret: string | undefined) => {
   challenges = fakeEmailChallenges()
   mailer = fakeMailer()
   return buildApp({
+    arrivals: arrivalReports({ desk: fakeArrivalDesk() }),
     humans: fakeHumans(),
     quests: fakeQuests(),
     vault: { vault: fakeVault() },
@@ -632,6 +635,7 @@ describe('GET /v1/mailboxes', () => {
    */
   it('answers even when the Colony cannot send mail', async () => {
     const withoutMailer = buildApp({
+      arrivals: arrivalReports({ desk: fakeArrivalDesk() }),
       humans: fakeHumans(),
       quests: fakeQuests(),
       vault: { vault: fakeVault() },

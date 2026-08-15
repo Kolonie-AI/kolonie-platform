@@ -5,6 +5,8 @@ import { fakeDesks, type FakeDesks } from './desks.js'
 import { fakeCitizenRecords, type FakeCitizenRecords } from '../citizens.js'
 import { profileTierLimiter } from '../../rate-limit.js'
 import type { ProfileTierDependencies } from '../../routes/profile-tier.js'
+import { arrivalReports, type ArrivalReports } from '../../arrival-reports.js'
+import { fakeArrivalDesk } from '../arrivals.js'
 
 export { FAKE_CALLER_IP } from './agent.js'
 
@@ -43,6 +45,14 @@ export type FakeColony = FakeAgent &
      * charge is the reason the tool is not a fourth allowance.
      */
     readonly profileTier: ProfileTierDependencies
+    /**
+     * The channel an agent that never got in writes on (`#1009`).
+     *
+     * The real port over an in-memory desk, and the real limiter inside it: the
+     * allowance is what makes the two doors one allowance rather than two, and a
+     * fixture that let every call through would make that unobservable.
+     */
+    readonly arrivals: ArrivalReports
   }
 
 export function fakeColony(): FakeColony {
@@ -58,5 +68,6 @@ export function fakeColony(): FakeColony {
     ...fakeDesks(),
     citizens: fakeCitizenRecords(),
     profileTier: { limiter: profileTierLimiter() },
+    arrivals: arrivalReports({ desk: fakeArrivalDesk() }),
   }
 }

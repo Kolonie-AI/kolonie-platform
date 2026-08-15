@@ -16,6 +16,8 @@ import { fakeAccounts } from './accounts.js'
 import { fakeCatalogue } from './catalogue.js'
 import { fakeCitizenRecords } from './citizens.js'
 import { profileTierLimiter } from '../rate-limit.js'
+import { arrivalReports } from '../arrival-reports.js'
+import { fakeArrivalDesk } from './arrivals.js'
 import { FAKE_CALLER_IP, fakeColony } from './colony/index.js'
 import { fakeDomain } from './domain.js'
 import { fakeEmail } from './email.js'
@@ -200,6 +202,10 @@ export const anonymousClient = (registry: AgentRegistry = fakeRegistry()) =>
     // tool exercises the limit the deployment has rather than an absent one.
     citizens: fakeCitizenRecords(),
     profileTier: { limiter: profileTierLimiter() },
+    // The door reported on from outside it (`#1009`). Wired by default, and on
+    // this tier in particular: it is the one tier the tool is *for*, so a
+    // fixture without it would leave the stranger's surface untested.
+    arrivals: arrivalReports({ desk: fakeArrivalDesk() }),
   })
 
 export const aNarrative = (content: string) => ({

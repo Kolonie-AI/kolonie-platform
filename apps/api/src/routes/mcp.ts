@@ -79,6 +79,7 @@ export function registerMcpRoutes(app: FastifyInstance, deps: RouteDependencies)
     hints,
     citizens,
     profileTier,
+    arrivals,
   } = deps
 
   // Resolved once at registration, because the gate is a property of the store
@@ -219,6 +220,7 @@ export function registerMcpRoutes(app: FastifyInstance, deps: RouteDependencies)
            */
           citizens,
           profileTier,
+          arrivals,
           support,
           operatorRequests,
           operatorNotes,

@@ -51,6 +51,8 @@ import { fakeErasureDesk } from '../__fixtures__/erasure.js'
 import { erasure } from '../erasure.js'
 import { operatorConfirmed } from '../operators.js'
 import { noObstruction } from '../__fixtures__/obstruction.js'
+import { arrivalReports } from '../arrival-reports.js'
+import { fakeArrivalDesk } from '../__fixtures__/arrivals.js'
 
 let app: FastifyInstance
 let store: FakeStore
@@ -112,6 +114,7 @@ const baseDependencies = () => ({
   vetting: fakeVetting(),
   authenticator: fakeAuthenticator(),
   humans: fakeHumans(),
+  arrivals: arrivalReports({ desk: fakeArrivalDesk() }),
 })
 
 beforeEach(async () => {

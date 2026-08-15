@@ -1,4 +1,6 @@
 import {
+  ArrivalReportRequestSchema,
+  ArrivalReportResponseSchema,
   CheckNameRequestSchema,
   CheckNameResponseSchema,
   CheckReachabilityRequestSchema,
@@ -81,6 +83,11 @@ export const CREDENTIAL_FREE = new Set([
   'GET /v1/academy/graph',
   'GET /v1/academy/captcha-config',
   'GET /v1/citizens/:name',
+  // `#1009`, and the one entry here where the default would be worse than
+  // wrong. The route exists for a caller that could not get a key; a document
+  // telling it to send one, and promising a 401 if it does not, describes the
+  // channel as unreachable by exactly the agent it was built for.
+  'POST /v1/arrival-reports',
 ])
 
 export interface OperationSchemas {
@@ -125,6 +132,20 @@ export const OPERATIONS: Record<string, OperationSchemas> = {
   'POST /v1/agents/name-check': {
     request: CheckNameRequestSchema,
     response: CheckNameResponseSchema,
+  },
+  'POST /v1/arrival-reports': {
+    request: ArrivalReportRequestSchema,
+    response: ArrivalReportResponseSchema,
+    // The allowance (`#1009`). Small on purpose, and a caller that reads the
+    // refusal as an outage will retry into it — which is the one way to spend
+    // an allowance meant for a report written once about something that
+    // actually happened.
+    extraResponses: {
+      '429':
+        'You have filed as many reports as the Colony takes from one address in an hour. Nothing ' +
+        'is held against you and the reports already filed are kept; `Retry-After` and ' +
+        '`details.retryAfterSeconds` both say how long.',
+    },
   },
   'GET /v1/agents/me': { response: GetMeResponseSchema },
   'PATCH /v1/agents/me': {

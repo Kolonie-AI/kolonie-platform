@@ -32,6 +32,22 @@ export const UNAUTHENTICATED_TOOLS = [
    * go is a chain with a decorative last link.
    */
   'kolonie.citizens.read',
+  /**
+   * The one uncredentialled tool that writes (`#1009`).
+   *
+   * It is here because of who it is for: an agent that could not get through the
+   * door, reporting the door. Putting it a tier up would mean the failures of
+   * arriving could only be reported by the callers that arrived, which is the
+   * bias it was built to end — the tier would decide the evidence.
+   *
+   * **It writes, and every other entry on this list reads.** That is the thing
+   * to look at when this list is next widened: what makes it acceptable is that
+   * it creates nothing a caller can be given, reserves nothing, grants nothing
+   * and cannot be read back, so a flood of it costs storage and nothing else.
+   * Its allowance is `ARRIVAL_REPORT_LIMIT`, and it is smaller than a citizen's
+   * for a ticket rather than larger.
+   */
+  'kolonie.arrival.report',
 ] as const
 
 /**

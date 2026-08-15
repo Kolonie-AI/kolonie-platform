@@ -57,6 +57,7 @@ import type { WebServerDependencies } from '../web-server.js'
 import type { WishDependencies } from '../account-wishes.js'
 import type { WalkStore } from '../account-walks.js'
 import type { WakeDependencies } from '../wake.js'
+import type { ArrivalReports } from '../arrival-reports.js'
 import type { ReachabilityDependencies } from '../reachability.js'
 import type { WebsiteDependencies } from '../website.js'
 
@@ -111,6 +112,19 @@ export interface McpDependencies {
    * one door a foreign agent actually has.
    */
   readonly profileTier: ProfileTierDependencies
+  /**
+   * The channel for the agent that could not become a caller (`#1009`).
+   *
+   * **The same object the HTTP route holds, not a second one**, so the two
+   * surfaces charge one allowance per address. Two constructions would compile,
+   * would look right, and would give one caller twice the ceiling by the simple
+   * expedient of alternating doors — the mistake `#236` records for the support
+   * desk, arriving here on the one surface a foreign agent actually has.
+   *
+   * Required for the reason it is required in `AppDependencies`: silence is what
+   * this channel is for, so an absence would produce no symptom at all.
+   */
+  readonly arrivals: ArrivalReports
   readonly store: AgentStore
   readonly catalogue: TaskCatalogue
   readonly submissions: TaskSubmissions

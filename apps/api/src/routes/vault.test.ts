@@ -47,6 +47,8 @@ import { VAULT_FULL, VAULT_SEALED_WITH_ANOTHER_KEY } from '../vault.js'
 import { fakeErasureDesk } from '../__fixtures__/erasure.js'
 import { erasure } from '../erasure.js'
 import { noObstruction } from '../__fixtures__/obstruction.js'
+import { arrivalReports } from '../arrival-reports.js'
+import { fakeArrivalDesk } from '../__fixtures__/arrivals.js'
 
 let app: FastifyInstance
 let store: FakeStore
@@ -58,6 +60,7 @@ beforeEach(async () => {
   store = fakeStore()
   vault = fakeVault()
   app = buildApp({
+    arrivals: arrivalReports({ desk: fakeArrivalDesk() }),
     humans: fakeHumans(),
     email: fakeEmail(),
     sms: fakeSms(),

@@ -48,6 +48,8 @@ import { noObstruction } from '../__fixtures__/obstruction.js'
 
 import { fixedWindowLimiter } from '../rate-limit.js'
 import type { ReachabilityFetch } from '../reachability.js'
+import { arrivalReports } from '../arrival-reports.js'
+import { fakeArrivalDesk } from '../__fixtures__/arrivals.js'
 
 /**
  * The route half of `#394` — that the tool is authenticated, that the allowance
@@ -83,6 +85,7 @@ let limit = 5
 beforeEach(async () => {
   store = fakeStore()
   app = buildApp({
+    arrivals: arrivalReports({ desk: fakeArrivalDesk() }),
     humans: fakeHumans(),
     vault: { vault: fakeVault() },
     accounts: fakeAccounts(),

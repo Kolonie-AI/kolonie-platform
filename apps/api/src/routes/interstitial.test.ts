@@ -51,6 +51,8 @@ import { fakeConsole } from '../__fixtures__/console.js'
 import { fakeErasureDesk } from '../__fixtures__/erasure.js'
 import { erasure } from '../erasure.js'
 import type { AcademyDependencies } from '../academy.js'
+import { arrivalReports } from '../arrival-reports.js'
+import { fakeArrivalDesk } from '../__fixtures__/arrivals.js'
 
 /**
  * The graded interstitials' routes (`#164`).
@@ -71,6 +73,7 @@ const build = (overrides: Partial<AcademyDependencies> = {}) => {
   challenges = fakeChallenges()
   academy = { ...fakeAcademy('passed', challenges), ...overrides }
   return buildApp({
+    arrivals: arrivalReports({ desk: fakeArrivalDesk() }),
     humans: fakeHumans(),
     vault: { vault: fakeVault() },
     accounts: fakeAccounts(),

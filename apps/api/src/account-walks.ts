@@ -128,11 +128,59 @@ export type WalkPublicationStatus =
   'walking' | 'draft' | 'published' | 'refused' | 'withdrawn' | 'not-proposed'
 
 /**
+ * Where the walk stands against the entry it was filed about (`#979`).
+ *
+ * **Every value here is decidable from the walk's own outcome and the entry's
+ * own status**, and nothing in it re-runs {@link walkVerdict}. That is the
+ * point rather than an economy: the verdict is computed once, at report time,
+ * against the entry as it was then, and re-running it on a later read answers a
+ * question nobody asked — a walk whose draft a steward has since published
+ * would be re-judged against its own published steps and come back as
+ * *nothing*, which is the opposite of what happened to it.
+ *
+ * - `walking` — not reported yet, so there is nothing to compare.
+ * - `agrees` — the walk and the entry point the same way.
+ * - `contradicted` — **the case `#979` was opened about.** The walk got through
+ *   and the entry says the provider is refused or retired, or the walk hit a
+ *   wall and the entry says joinable. A steward reads the pair; neither side is
+ *   a verdict on the other.
+ * - `awaiting-steward` — the entry says nothing a walk can line up against: no
+ *   row at all, or one that is a draft, a suggestion, a measurement or an
+ *   unwritten route. The walk has proposed something nobody has read yet.
+ * - `proposed-nothing` — an abandoned walk proposes nothing by construction
+ *   (`#601`), and saying so beats a citizen inferring it from silence.
+ */
+export type WalkFate =
+  'walking' | 'agrees' | 'contradicted' | 'awaiting-steward' | 'proposed-nothing'
+
+/**
+ * What became of the walk, as distinct from what the entry says (`#979`).
+ *
+ * A citizen filed a walk that got through at a provider the Atlas holds a
+ * refusal for, and read `status: "refused"` with the entry's refusal text back —
+ * a refusal about outbound messages, on a walk about inbound ones. Nothing was
+ * broken and every field was accurate about its own subject; there was simply no
+ * field whose subject was the walk, so the only one available was read as one.
+ */
+export interface WalkFateState {
+  readonly fate: WalkFate
+  /** One sentence a citizen can act on, and never a restatement of the enum. */
+  readonly why: string
+}
+
+/**
  * The current publication state of what a walk found.
  *
  * The Atlas row is keyed by kind and provider rather than walk id, so this is
  * deliberately current state rather than an immutable moderation history. A
  * later curation edit must not be presented as a decision stored on this walk.
+ *
+ * **Two subjects live here and `#979` is what happens when that is not said out
+ * loud**: `status`, `refusalReason`, `withdrawnReason` and `requiredChanges` are
+ * about the *entry*, and `walk` is about the *walk*. The entry-side fields keep
+ * their names and their meanings — renaming `status` would hand every existing
+ * reader the same words about a different subject, which is the one change worse
+ * than the defect — and `entryStatus` beside them says whose state they are.
  */
 export interface WalkStatus {
   readonly walkId: string
@@ -155,6 +203,18 @@ export interface WalkStatus {
    */
   readonly withdrawnReason: string | null
   readonly requiredChanges: readonly string[] | null
+  /**
+   * The Atlas row's own status, in the Atlas's own vocabulary (`#979`).
+   *
+   * `status` above is the walk-shaped reading of it and stays that; this is the
+   * word `kolonie.accounts.recipes` prints for the same provider, so a citizen
+   * comparing the two surfaces is comparing like with like. Null where no entry
+   * exists at all, which `status: "not-proposed"` cannot distinguish from an
+   * entry in a state that proposes nothing.
+   */
+  readonly entryStatus: ProviderRecipe['status'] | null
+  /** What became of this walk, as opposed to what the entry says (`#979`). */
+  readonly walk: WalkFateState
   /**
    * What the walk did not do to the account (`#803`).
    *
@@ -394,9 +454,90 @@ async function statusOf(
      * say what* — the complaint `#857` was opened about.
      */
     requiredChanges: status === 'draft' ? held : null,
+    entryStatus: entry?.status ?? null,
+    walk: walkFate(walk, entry),
     proof,
   }
 }
+
+/**
+ * Where this walk stands against the entry, said in the walk's own terms
+ * (`#979`).
+ *
+ * **It reads two fields and matches nothing.** `walkVerdict` is the function
+ * that decides what a walk proposes, and it is deliberately not called here: it
+ * needs `takenStepPositions` to compare shapes, it was already run once against
+ * the entry as it stood at report time, and running it again on every read would
+ * answer about an entry the walk never saw. What a citizen polling this needs is
+ * narrower and does not decay — *does what I filed still line up with what the
+ * Colony is publishing, and if not, does anybody know?*
+ */
+function walkFate(walk: AccountWalk, entry: ProviderRecipe | undefined): WalkFateState {
+  if (walk.finishedAt === null || walk.outcome === null) {
+    return {
+      fate: 'walking',
+      why:
+        'The walk is still open. Nothing has been proposed to the catalogue yet, and ' +
+        'kolonie.accounts.walk-report is what closes it.',
+    }
+  }
+
+  if (walk.outcome === 'abandoned') {
+    return {
+      fate: 'proposed-nothing',
+      why:
+        'You closed this walk as abandoned, and an abandoned walk proposes nothing — half a ' +
+        'path published as a recipe is one that fails at step three. Whatever the entry below ' +
+        'says was decided without it.',
+    }
+  }
+
+  /**
+   * **Only three of the seven statuses say anything a walk can agree with.**
+   * `joinable`, `refused` and `retired` are the Colony's standing answer to *can
+   * an agent get in here*. The other four are not a quieter version of that
+   * answer: `proposed` and `draft` are prose nobody has vetted (`#604`),
+   * `unwritten` is nobody having written the route, and `measured` is counts
+   * without wording. A walk filed against any of those has proposed something
+   * that no steward has read, which is `awaiting-steward` and not disagreement.
+   */
+  const claim =
+    entry !== undefined && CLAIMING_STATUSES.includes(entry.status) ? entry.status : null
+
+  if (claim === null) {
+    return {
+      fate: 'awaiting-steward',
+      why:
+        'What this walk proposed is not published. It is waiting for a steward to write the ' +
+        'wording, which is the Colony’s work and not yours — a walk arrives wordless by design.',
+    }
+  }
+
+  const contradicts =
+    walk.outcome === 'proved' ? claim === 'refused' || claim === 'retired' : claim === 'joinable'
+
+  if (contradicts) {
+    return {
+      fate: 'contradicted',
+      why:
+        `You reported this walk as ${walk.outcome} and the entry says ${claim}. **The entry's ` +
+        `own reason is about the entry and is not a verdict on your walk** — it may predate the ` +
+        `walk, and it may be about a different thing done at the same provider. A steward reads ` +
+        `the pair; nothing about the entry changes until they do.`,
+    }
+  }
+
+  return {
+    fate: 'agrees',
+    why: `The entry says ${claim} and you reported ${walk.outcome}; they point the same way.`,
+  }
+}
+
+/**
+ * The statuses that answer *can an agent get in here* (`#979`). Every other
+ * status the Atlas holds answers a different question, or none yet.
+ */
+const CLAIMING_STATUSES: readonly ProviderRecipe['status'][] = ['joinable', 'refused', 'retired']
 
 /**
  * The proof state a walk read carries when the register is not wired.

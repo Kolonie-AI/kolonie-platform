@@ -57,6 +57,8 @@ describe('the inventory', () => {
       refusalReason: null,
       withdrawnReason: null,
       requiredChanges: null,
+      entryStatus: 'draft',
+      walk: { fate: 'awaiting-steward', why: 'Waiting for a steward to write the wording.' },
       proof: {
         accountId: null,
         accountProved: false,

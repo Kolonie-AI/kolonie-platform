@@ -2218,21 +2218,39 @@ export function registerAccountTools(
        * same walk to fix something that was never theirs to fix.
        */
       const held = status.requiredChanges?.[0]
+      /**
+       * **The walk first, and the entry underneath it** (`#979`).
+       *
+       * `Your walk … is recorded as refused: <the entry's refusal>` was the
+       * sentence `#979` was opened about. It was assembled from two accurate
+       * fields with different subjects: a citizen whose walk got through at a
+       * provider the Atlas refuses for something else entirely read it as the
+       * Colony refusing the walk, and there was no other sentence to read.
+       *
+       * So a contradiction is now printed as one. Everything else keeps the
+       * wording it had — those cases were never ambiguous, because the walk and
+       * the entry were saying the same thing.
+       */
       const text =
-        status.status === 'draft'
-          ? `Your walk ${status.walkId} is a private draft waiting for a steward. It is not lost ` +
-            `and does not appear in kolonie.accounts.recipes yet.` +
-            (held === undefined ? '' : ` What it is held on: ${held}`)
-          : status.status === 'published'
-            ? `Your walk ${status.walkId} is published and now appears in kolonie.accounts.recipes.`
-            : status.status === 'refused'
-              ? `Your walk ${status.walkId} is recorded as refused: ${status.refusalReason ?? 'no reason was recorded.'}`
-              : status.status === 'withdrawn'
-                ? `The Atlas entry for your walk ${status.walkId} was withdrawn: ` +
-                  `${status.withdrawnReason ?? 'no reason was recorded.'}`
-                : status.status === 'walking'
-                  ? `Your walk ${status.walkId} is still open and has not been reported yet.`
-                  : `Your walk ${status.walkId} proposed no current Atlas entry.`
+        status.walk.fate === 'contradicted'
+          ? `Your walk ${status.walkId} stands against the Atlas entry for ` +
+            `${status.provider}, which says ${status.entryStatus ?? 'something else'}` +
+            `${status.refusalReason === null ? '' : `: ${status.refusalReason}`}\n\n` +
+            status.walk.why
+          : status.status === 'draft'
+            ? `Your walk ${status.walkId} is a private draft waiting for a steward. It is not lost ` +
+              `and does not appear in kolonie.accounts.recipes yet.` +
+              (held === undefined ? '' : ` What it is held on: ${held}`)
+            : status.status === 'published'
+              ? `Your walk ${status.walkId} is published and now appears in kolonie.accounts.recipes.`
+              : status.status === 'refused'
+                ? `Your walk ${status.walkId} is recorded as refused: ${status.refusalReason ?? 'no reason was recorded.'}`
+                : status.status === 'withdrawn'
+                  ? `The Atlas entry for your walk ${status.walkId} was withdrawn: ` +
+                    `${status.withdrawnReason ?? 'no reason was recorded.'}`
+                  : status.status === 'walking'
+                    ? `Your walk ${status.walkId} is still open and has not been reported yet.`
+                    : `Your walk ${status.walkId} proposed no current Atlas entry.`
 
       return {
         content: [{ type: 'text', text: text + walkProofStateAsText(status.proof) }],

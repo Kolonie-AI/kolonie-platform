@@ -23,7 +23,7 @@ import { registerRegistrationTool } from './tools/register.js'
 import { registerSubmissionTools } from './tools/submissions.js'
 import { registerSkillTools } from './tools/skills.js'
 import { registerWakeupTool } from './tools/wakeup.js'
-import { registerSupportStewardTools, registerSupportTools } from './tools/support.js'
+import { registerSupportTools } from './tools/support.js'
 import { registerOperatorDropTools } from './tools/operator-drops.js'
 import { registerOperatorNoteTools } from './tools/operator-notes.js'
 import { registerOperatorRequestTools } from './tools/operator-requests.js'
@@ -324,9 +324,9 @@ export function createMcpServer(
   registerOperatorLinkTools(server, deps, credential)
   registerAutonomyTools(server, deps, credential)
   registerSupportTools(server, deps, credential)
-  // The other direction of the same channel (`#473`), and steward-only for the
-  // reason D-013 gives: a tier is built by registering fewer tools.
-  if (steward === true) registerSupportStewardTools(server, deps, credential)
+  // The other direction of the same channel (`#473`) stood here and is gone
+  // (`#945`): it is a person's action now, on `/backend/tickets` behind
+  // `maintainer()`, and no longer a tool a model holds.
   registerOperatorRequestTools(server, deps, credential)
   registerOperatorNoteTools(server, deps, credential)
   registerOperatorDropTools(server, deps, credential)

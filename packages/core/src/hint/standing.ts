@@ -223,18 +223,26 @@ export type StandingHintCode =
   /**
    * The Colony owes this citizen money it cannot yet send (`#654`).
    *
-   * **`payout-sent`'s twin, pointed at the money that has not moved.** `#651`
-   * cut a steward's review reward tenfold, which was right — at the old figure a
-   * decision paid exactly what the quest paid its answerer — and the consequence
-   * is that a new steward's first payout no longer clears Solana's
-   * rent-exemption on its own. `#505`'s accrual already handles that correctly:
-   * `payoutRefusal` answers `accruing-below-chain-minimum`, the obligation waits,
-   * and nothing is lost. **What was missing is that nobody is told.**
+   * **`payout-sent`'s twin, pointed at the money that has not moved.** A small
+   * obligation does not clear Solana's rent-exemption on its own, and a transfer
+   * below that figure would be spent opening the address with nothing arriving.
+   * `#505`'s accrual already handles that correctly: `payoutRefusal` answers
+   * `accruing-below-chain-minimum`, the obligation waits, and nothing is lost.
+   * **What was missing is that nobody is told.**
+   *
+   * **The reward this was written against is gone, and the hint is not** (`#945`).
+   * It was reached for first by a steward whose review reward `#651` had cut
+   * tenfold; `#723` and `#945` then removed that desk's payouts entirely, so the
+   * example no longer exists. What the entry serves is the refusal and not the
+   * desk: **every** obligation held below the chain minimum reaches it, whatever
+   * earned it, so deleting it would silence citizens owed money for reasons that
+   * never had anything to do with a steward. The sentence in `hints.ts` never
+   * named one, which is why nothing there had to change.
    *
    * **The difference between a delay and a broken promise**, and only one of them
-   * is true. A steward decides a quest, is owed the reward, sees nothing arrive,
-   * and has no way from the outside to tell *the Colony has not paid me* from
-   * *the Colony cannot pay me yet, and here is the number it is counting to*.
+   * is true. A citizen is owed something, sees nothing arrive, and has no way from
+   * the outside to tell *the Colony has not paid me* from *the Colony cannot pay me
+   * yet, and here is the number it is counting to*.
    *
    * **It names the figure, where `payout-sent` refuses to.** That entry's rule is
    * that a figure copied into a hint can be stale about somebody's money — which

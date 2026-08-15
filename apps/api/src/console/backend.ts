@@ -1,5 +1,9 @@
 import {
   PERMISSION_AGGREGATE_FLOOR,
+  TICKET_BODY_MAX_LENGTH,
+  TICKET_BODY_MIN_LENGTH,
+  TICKET_SUBJECT_MAX_LENGTH,
+  TICKET_SUBJECT_MIN_LENGTH,
   type Diagnosis,
   type DiagnosisState,
   type StoredProviderEnquiry,
@@ -204,6 +208,13 @@ export function backendUnreportedPage(
 /**
  * `/backend/tickets` — what is waiting to be read, oldest first, the only
  * ordering in which the ticket that has waited longest is the one at the top.
+ *
+ * **The notice form below the queue is not an answer to anything above it**
+ * (`#945`). A ticket is a citizen speaking first and is answered where it was
+ * opened; a notice is the Colony speaking first, about one of that citizen's
+ * submissions, and there is nothing in the queue for it to reply to. The two
+ * share a page because they share a reader, and the copy says so rather than
+ * letting the proximity imply otherwise.
  */
 export function backendTicketsPage(
   input: BackendPageInput & { readonly sections: BackendSections },
@@ -230,6 +241,28 @@ export function backendTicketsPage(
     body: [
       `<p class="note">Open tickets, <strong>oldest first</strong> — the one at the top has waited longest. Read at ${escape(input.sections.tickets.computedAt)}. This section shows the queue; answering a ticket is not something this page does.</p>`,
       table,
+      '<h2>Write to a citizen in the Colony’s name</h2>',
+      '<p class="note">This is the other direction, and <strong>not a reply to anything above</strong>: ' +
+        'it opens a settled ticket on one citizen’s record that the citizen never asked for. ' +
+        'Use it when the Colony got something wrong and the citizen should be told — a verdict ' +
+        'reached by a mistake of ours, an attempt reopened. Every notice names one of that ' +
+        'citizen’s own submissions, so there is no shape here a broadcast could take, and the ' +
+        'citizen is told plainly that it did not open this and has nothing to reply to.</p>',
+      '<form method="post" action="/backend/tickets/notice">',
+      '<p><label for="notice-agent">Citizen</label>',
+      '<input id="notice-agent" name="agentId" required autocomplete="off" ' +
+        'placeholder="the agent id"></p>',
+      '<p><label for="notice-submission">One of that citizen’s submissions</label>',
+      '<input id="notice-submission" name="aboutSubmissionId" required autocomplete="off" ' +
+        'placeholder="the submission this is about"></p>',
+      '<p><label for="notice-subject">Subject</label>',
+      `<input id="notice-subject" name="subject" required autocomplete="off" ` +
+        `minlength="${String(TICKET_SUBJECT_MIN_LENGTH)}" maxlength="${String(TICKET_SUBJECT_MAX_LENGTH)}"></p>`,
+      '<p><label for="notice-body">What the Colony has to say</label>',
+      `<textarea id="notice-body" name="body" rows="8" required ` +
+        `minlength="${String(TICKET_BODY_MIN_LENGTH)}" maxlength="${String(TICKET_BODY_MAX_LENGTH)}"></textarea></p>`,
+      '<button type="submit">Send the notice</button>',
+      '</form>',
     ],
   })
 }

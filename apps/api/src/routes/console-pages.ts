@@ -1606,6 +1606,48 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
   })
 
   /**
+   * The Colony addressing a citizen in its own name (`#473`), from the page a
+   * person is already reading rather than from a tool a model holds (`#945`).
+   *
+   * **The same write path, and the same rule.** `Support.notify` validates the
+   * notice and refuses one naming a submission that is not the addressed
+   * citizen's — so this handler decides nothing about the content and only
+   * turns the three outcomes into a sentence the person reading gets back.
+   *
+   * **It re-renders rather than redirecting**, the enquiries shape and not the
+   * settings one: what the maintainer needs is confirmation that the notice
+   * went, and a `303` to a page with no record of it is not that.
+   */
+  app.post('/backend/tickets/notice', async (request, reply) => {
+    if ((await maintainer(request, reply)) === null) return reply
+
+    const sent = await deps.support.notify(request.body)
+    const notice =
+      sent.outcome === 'sent'
+        ? 'Sent. The citizen has it on its own record, settled, with nothing to reply to.'
+        : sent.outcome === 'no-such-submission'
+          ? 'Nothing was sent: that submission is not that citizen’s, or is not there. One ' +
+            'answer for both, deliberately.'
+          : 'Nothing was sent: a notice needs the citizen, one of its own submissions, a ' +
+            'subject and a body.'
+
+    const sections = await deps.quests.backendSections()
+
+    return wantsHtml(request)
+      ? html(
+          reply,
+          backendTicketsPage({
+            // The queue's own path, not the POST's: this renders the tickets
+            // page, so that is the entry `aria-current` marks.
+            nav: { current: '/backend/tickets', maintains: true },
+            sections,
+            notice,
+          }),
+        )
+      : reply.send({ outcome: sent.outcome, notice })
+  })
+
+  /**
    * What the Doctor found (`#841`).
    *
    * **Every route under this path is a `GET`, and that is asserted rather than

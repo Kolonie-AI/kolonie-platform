@@ -6,7 +6,7 @@ import { agentSkills, submissions, taskAttempts, tasks } from '../schema/index.j
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
 import { countAudience } from './activity.js'
 import { registerAgent } from './agents.js'
-import { creditBalance } from './funding.js'
+import { sponsorAddressUnconfirmedSql } from './console-identity.js'
 import { redeemSignInLink, requestSignInLink } from './sign-in.js'
 import { insertWebIdentity } from './__fixtures__/web-identity.js'
 
@@ -134,44 +134,33 @@ describe('a console sponsor account', () => {
     })
   })
 
+  /**
+   * **Asserted against the predicate, not through a caller** (`#945`).
+   *
+   * These three read `creditBalance` until it was deleted for having no caller
+   * outside its tests. The rule they are about is not that function's — it is
+   * `sponsorAddressUnconfirmedSql`, which is what any funding path has to ask
+   * before it credits anybody, and which now outlives the one that happened to.
+   */
+  const addressUnconfirmed = async (agentId: AgentId): Promise<boolean> => {
+    const [row] = await db.execute<{ unconfirmed: boolean }>(
+      sql`select ${sponsorAddressUnconfirmedSql(agentId)} as unconfirmed`,
+    )
+    return row?.unconfirmed === true
+  }
+
   describe('funding, before the link is followed', () => {
-    it('refuses a hand credit and writes no ledger row', async () => {
-      const sponsor = await aSponsor('unconfirmed@example.org')
-
-      const result = await db.transaction((tx) =>
-        creditBalance(tx, {
-          agentId: sponsor,
-          amount: 500,
-          source: 'bootstrap',
-          actorId: null,
-          reference: 'test',
-        }),
-      )
-
-      expect(result.outcome).toBe('address-unconfirmed')
-      const rows = await db.execute<{ count: string }>(
-        sql`select count(*)::text as count from ledger_entries`,
-      )
-      expect(rows[0]?.count).toBe('0')
+    it('is refused: the address is a string somebody typed', async () => {
+      expect(await addressUnconfirmed(await aSponsor('unconfirmed@example.org'))).toBe(true)
     })
   })
 
   describe('funding, once the link has been followed', () => {
-    it('credits the balance', async () => {
+    it('is allowed: the mail arrived, so the address is theirs', async () => {
       const sponsor = await aSponsor('reader@example.org')
       await confirm(sponsor, 'reader@example.org')
 
-      const result = await db.transaction((tx) =>
-        creditBalance(tx, {
-          agentId: sponsor,
-          amount: 500,
-          source: 'bootstrap',
-          actorId: null,
-          reference: 'test',
-        }),
-      )
-
-      expect(result.outcome).toBe('credited')
+      expect(await addressUnconfirmed(sponsor)).toBe(false)
     })
   })
 
@@ -182,20 +171,8 @@ describe('a console sponsor account', () => {
    * is precisely the population the console's copy invites.
    */
   describe('an agent that registered over MCP', () => {
-    it('is funded without confirming anything', async () => {
-      const agent = await anAgent('an-agent')
-
-      const result = await db.transaction((tx) =>
-        creditBalance(tx, {
-          agentId: agent,
-          amount: 500,
-          source: 'bootstrap',
-          actorId: null,
-          reference: 'test',
-        }),
-      )
-
-      expect(result.outcome).toBe('credited')
+    it('is fundable without confirming anything', async () => {
+      expect(await addressUnconfirmed(await anAgent('an-agent'))).toBe(false)
     })
   })
 })

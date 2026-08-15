@@ -1,8 +1,7 @@
 import { and, eq, sql } from 'drizzle-orm'
-import { LedgerTransactionIdSchema, type AgentId, type FundingSource } from '@kolonie-ai/core'
+import type { AgentId, FundingSource } from '@kolonie-ai/core'
 import type { Database, Transaction } from '../client.js'
 import { agents, authorityEvents, ledgerEntries } from '../schema/index.js'
-import { sponsorAddressUnconfirmedSql } from './console-identity.js'
 
 /**
  * Whose money it was, recorded at the moment of the credit (`#220`).
@@ -17,79 +16,30 @@ import { sponsorAddressUnconfirmedSql } from './console-identity.js'
  * and it stops being a judgement call.
  */
 
-/** What a steward is told when it tries to credit a balance without saying whose money it is. */
-export const FUNDING_SOURCE_REQUIRED =
-  'a balance credit must record whose money it was: bootstrap, external, or unclassified'
-
-/** Whether the money went in, or why it did not. */
-export type CreditOutcome =
-  | { readonly outcome: 'credited' }
-  /** The account was opened from the console and nobody has followed the link yet (`#266`). */
-  | { readonly outcome: 'address-unconfirmed' }
-
 /**
- * Credit a sponsor's balance by hand, which is the only way in that exists today.
+ * **`creditBalance` stood here and is gone** (`#945`), with `CreditOutcome` and
+ * `FUNDING_SOURCE_REQUIRED`, which were its return type and its refusal text.
  *
- * **The source is required and has no default.** A default is how a field like
- * this ends up wrong at scale — whichever value is the default becomes the value
- * nobody thought about. `#219` will pass the account's declared default here;
- * a steward doing it by hand has to say.
+ * It credited a sponsor's balance by hand and was described as *"the only way in
+ * that exists today"*. That stopped being true and then stopped being reachable:
+ * by the time this was read it had **no caller outside its own tests** — no
+ * console form, no tool, no runner — so what the tests proved was that a function
+ * nobody could invoke still worked.
  *
- * Audited, because it is the single most abusable action in the system while
- * there is no payment rail behind it, and it should look like it.
+ * **Nothing about the rules it carried is lost, because none of them were its.**
+ * *A credit says whose money it was* is a database constraint,
+ * `ledger_entries_funding_source_iff_credit`, and `funding.test.ts` still asserts
+ * it in both directions. *A console-opened account is not funded before its
+ * address is confirmed* is `sponsorAddressUnconfirmedSql` (`#266`), which stays
+ * exported and is now tested against directly in `console-identity.test.ts`
+ * rather than through this — the rule outlives the one caller that happened to
+ * apply it, and the rail `fundingSourceForDeposit` (`#219`) is written for will
+ * have to apply it too.
  *
- * **It refuses an account whose address is not confirmed yet** (`#266`). Since
- * the console opens an account from an address alone, the address on a fresh
- * sponsor account is a string somebody typed and may be a stranger's. A refusal
- * rather than a throw, because this is a fact about the account and not a fault:
- * a steward can read it, and the remedy — follow the link — belongs to the
- * person who holds the mailbox.
+ * The readers below — `overrideCreditFundingSource`, `externalVolume` — are not
+ * dead with it. They read `balance_credit` rows, which is what an automated
+ * deposit writes; what has gone is the hand that wrote them one at a time.
  */
-export async function creditBalance(
-  tx: Transaction,
-  command: {
-    readonly agentId: AgentId
-    readonly amount: number
-    readonly source: FundingSource
-    readonly actorId: AgentId | null
-    readonly reference: string
-    readonly memo?: string | null
-  },
-): Promise<CreditOutcome> {
-  if (command.amount <= 0) {
-    throw new Error(
-      `a balance credit moves money in, so it must be positive: got ${command.amount}`,
-    )
-  }
-
-  const [unconfirmed] = await tx.execute<{ unconfirmed: boolean }>(
-    sql`select ${sponsorAddressUnconfirmedSql(command.agentId)} as unconfirmed`,
-  )
-  if (unconfirmed?.unconfirmed === true) return { outcome: 'address-unconfirmed' }
-
-  const transactionId = LedgerTransactionIdSchema.parse(crypto.randomUUID())
-  const shared = {
-    transactionId,
-    type: 'balance_credit' as const,
-    // On both rows, because the booking is the event and either row read alone
-    // should be able to say where the money came from.
-    fundingSource: command.source,
-    memo: command.memo ?? null,
-    reference: command.reference,
-  }
-
-  await tx.insert(ledgerEntries).values([
-    {
-      ...shared,
-      accountKind: 'system' as const,
-      systemAccount: 'treasury' as const,
-      amount: -command.amount,
-    },
-    { ...shared, accountKind: 'agent' as const, agentId: command.agentId, amount: command.amount },
-  ])
-
-  return { outcome: 'credited' }
-}
 
 /**
  * Set what an account's deposits are classified as, and record who decided.

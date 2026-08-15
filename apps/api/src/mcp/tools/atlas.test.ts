@@ -135,10 +135,10 @@ describe('the Atlas over MCP', () => {
       // because `kolonie.accounts.set` is idempotent and applies field by
       // field, which is not a shape a destructive delete belongs in.
       expect(AUTHENTICATED_TOOLS.length).toBe(94)
-      // 9 since `#695` added `kolonie.quests.end` — the Colony's escape hatch
-      // from an automatic publication. Steward-only because sponsor withdrawal
-      // while citizens may be working is a separate fairness decision.
-      expect(STEWARD_TOOLS.length).toBe(6)
+      // 5 since `#945` took `kolonie.support.notice` out — the one tool here
+      // that was not about a quest, now a person's action on `/backend/tickets`
+      // rather than a tool a model holds. What is left is quests, entirely.
+      expect(STEWARD_TOOLS.length).toBe(5)
     })
 
     it('still carries the catalogue read under the name it already had', () => {

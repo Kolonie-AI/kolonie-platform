@@ -673,7 +673,7 @@ async function untoldAccrual(db: Database | Transaction, agentId: AgentId): Prom
  * minimum (`#654`).
  *
  * Every accruing and untold row, on {@link claimPayoutHint}'s argument: the
- * sentence names no amount and no quest, so a steward owed three unpayable
+ * sentence names no amount and no quest, so a citizen owed three unpayable
  * rewards has heard it once and correctly.
  */
 async function claimAccrualHint(db: Database | Transaction, agentId: AgentId): Promise<boolean> {

@@ -4,7 +4,6 @@ import { RegisterAgentRequestSchema, type AgentId, type HumanId } from '@kolonie
 import type { Database } from '../client.js'
 import { connectForTests, databaseTestTarget, personOf, truncateAll } from '../testing.js'
 import { agentSkills, submissions, taskAttempts, tasks } from '../schema/index.js'
-import { creditBalance } from './funding.js'
 import { registerAgent } from './agents.js'
 import { connectIdentity, findOrCreateHuman, openHumanSession } from './humans.js'
 import { insertUnreachableIdentity } from './__fixtures__/web-identity.js'
@@ -144,26 +143,26 @@ describe('deleting a person', () => {
   /**
    * Give an agent something to lose, so *unchanged* is a claim with content.
    *
-   * **Through `creditBalance` rather than by writing ledger rows**, which is both
-   * more honest and the only thing that passes: `ledger_entries` carries a check
-   * constraint requiring a funding source on exactly a `balance_credit`, and
-   * `funding.test.ts` separately forbids any file outside accounting from naming
-   * that column. Between them there is no hand-written credit that is both valid
-   * and allowed — which is the pair of rules working, not fighting.
+   * **An `adjustment` rather than a `balance_credit`** — the same choice
+   * `colony-numbers.test.ts` makes one file along, and since `#945` the only one
+   * left. `ledger_entries` requires a funding source on exactly a
+   * `balance_credit`, and `funding.test.ts` forbids any file outside accounting
+   * from naming that column; this reached for `creditBalance` to get between
+   * those two, and `creditBalance` had no caller and is gone. What the money is
+   * *for* was never what this test is about: it needs a balance that is not zero.
    */
   const giveItStanding = async (agentId: AgentId): Promise<void> => {
     await grantSkill(agentId, 'mailbox')
-    await db.transaction(async (tx) => {
-      const credited = await creditBalance(tx, {
-        agentId,
-        amount: 500,
-        source: 'external',
-        actorId: null,
-        reference: `human-erasure-${agentId}`,
-        memo: 'so there is something to be unchanged',
-      })
-      if (credited.outcome !== 'credited') throw new Error(credited.outcome)
-    })
+    const transactionId = crypto.randomUUID()
+    await db.execute(sql`
+      insert into ledger_entries
+        (transaction_id, type, account_kind, system_account, agent_id, amount, reference)
+      values
+        (${transactionId}, 'adjustment', 'system', 'treasury', null, -500,
+         ${`human-erasure-${agentId}`}),
+        (${transactionId}, 'adjustment', 'agent', null, ${agentId}, 500,
+         ${`human-erasure-${agentId}`})
+    `)
   }
 
   const standingOf = async (agentId: AgentId) => {

@@ -8,7 +8,6 @@ import { agents, authorityEvents, ledgerEntries } from '../schema/index.js'
 import { connectForTests, databaseTestTarget, expectRejection, truncateAll } from '../testing.js'
 import {
   accountFundingSource,
-  creditBalance,
   externalVolume,
   fundingSourceForDeposit,
   overrideCreditFundingSource,
@@ -43,29 +42,40 @@ describe('whose money it was', () => {
   const creditsOf = (agentId: AgentId) =>
     db.select().from(ledgerEntries).where(eq(ledgerEntries.agentId, agentId))
 
+  /**
+   * One booking, written the way the ledger requires it (`#945`).
+   *
+   * **`creditBalance` used to be this**, and these tests reached for it because it
+   * was the only writer of a `balance_credit` row. It had no caller outside them
+   * and is gone; what the tests below are actually about — the constraint, the
+   * override, the external figure — is the *rows*, so they write the rows.
+   *
+   * Both entries carry the source, because the booking is the event and either row
+   * read alone should be able to say where the money came from.
+   */
+  const aCredit = async (
+    agentId: AgentId,
+    amount: number,
+    source: 'bootstrap' | 'external' | 'unclassified',
+  ): Promise<void> => {
+    const shared = {
+      transactionId: crypto.randomUUID(),
+      type: 'balance_credit' as const,
+      fundingSource: source,
+      reference: `deposit:${agentId}`,
+    }
+    await db.insert(ledgerEntries).values([
+      {
+        ...shared,
+        accountKind: 'system' as const,
+        systemAccount: 'treasury' as const,
+        amount: -amount,
+      },
+      { ...shared, accountKind: 'agent' as const, agentId, amount },
+    ])
+  }
+
   describe('the credit', () => {
-    it('records the source on every entry of the booking', async () => {
-      const sponsor = await anAgent('sponsor')
-      const steward = await anAgent('steward')
-
-      await db.transaction((tx) =>
-        creditBalance(tx, {
-          agentId: sponsor,
-          amount: 50_000,
-          source: 'external',
-          actorId: steward,
-          reference: `deposit:${sponsor}`,
-        }),
-      )
-
-      const rows = await db.select().from(ledgerEntries)
-      expect(rows).toHaveLength(2)
-      for (const row of rows) {
-        expect(row.fundingSource).toBe('external')
-        expect(row.type).toBe('balance_credit')
-      }
-    })
-
     /**
      * The constraint, both directions. A credit without a source is money whose
      * origin nobody can reconstruct; a source on anything else is an accounting
@@ -109,22 +119,6 @@ describe('whose money it was', () => {
         /ledger_entries_funding_source_iff_credit/,
       )
     })
-
-    it('refuses a credit that moves money the wrong way', async () => {
-      const sponsor = await anAgent('sponsor')
-
-      await expect(
-        db.transaction((tx) =>
-          creditBalance(tx, {
-            agentId: sponsor,
-            amount: -1,
-            source: 'bootstrap',
-            actorId: null,
-            reference: 'backwards',
-          }),
-        ),
-      ).rejects.toThrow(/must be positive/)
-    })
   })
 
   describe('the account default', () => {
@@ -166,15 +160,7 @@ describe('whose money it was', () => {
     it('moves every entry of the booking together', async () => {
       const sponsor = await anAgent('sponsor')
       const steward = await anAgent('steward')
-      await db.transaction((tx) =>
-        creditBalance(tx, {
-          agentId: sponsor,
-          amount: 500,
-          source: 'bootstrap',
-          actorId: steward,
-          reference: `deposit:${sponsor}`,
-        }),
-      )
+      await aCredit(sponsor, 500, 'bootstrap')
       const [entry] = await creditsOf(sponsor)
 
       const moved = await db.transaction((tx) =>
@@ -194,15 +180,7 @@ describe('whose money it was', () => {
     it('writes an audit row', async () => {
       const sponsor = await anAgent('sponsor')
       const steward = await anAgent('steward')
-      await db.transaction((tx) =>
-        creditBalance(tx, {
-          agentId: sponsor,
-          amount: 500,
-          source: 'bootstrap',
-          actorId: steward,
-          reference: `deposit:${sponsor}`,
-        }),
-      )
+      await aCredit(sponsor, 500, 'bootstrap')
       const [entry] = await creditsOf(sponsor)
 
       await db.transaction((tx) =>
@@ -224,16 +202,7 @@ describe('whose money it was', () => {
 
   describe('the external figure', () => {
     const creditAs = async (source: 'bootstrap' | 'external' | 'unclassified', amount: number) => {
-      const sponsor = await anAgent(`sponsor-${source}-${amount}`)
-      await db.transaction((tx) =>
-        creditBalance(tx, {
-          agentId: sponsor,
-          amount,
-          source,
-          actorId: null,
-          reference: `deposit:${sponsor}`,
-        }),
-      )
+      await aCredit(await anAgent(`sponsor-${source}-${amount}`), amount, source)
     }
 
     it('sums only what somebody else paid for', async () => {
@@ -291,23 +260,16 @@ describe('whose money it was', () => {
       // than by loosening the pattern, so a real reader still fails this.
       'migrate.test.ts',
       /**
-       * The deposit path **writes** it, and writing is what this rule is for
-       * (`#219`): a credit that reaches the ledger from outside the Colony is
-       * exactly the entry whose origin nobody could reconstruct afterwards.
-       * Nothing here branches on the value — the write is a constant,
-       * `external`, and the test beside it asserts that constant rather than
-       * reading the column back to decide anything.
+       * **Three names stood here and are gone** (`#945`). `deposits.ts` and
+       * `deposits.test.ts` were exempted as writers of the column and no longer
+       * exist at all; `admin.ts` was exempted for an operator command that
+       * passed its own `--source` to `creditBalance`, and neither the command
+       * nor `creditBalance` is there to write anything.
+       *
+       * An allowance for a file that is not there reads as *somebody is allowed
+       * to do this*, which is the opposite of what this test is for. A writer
+       * that returns is exempted again, on its own argument, when it does.
        */
-      'deposits.ts',
-      'deposits.test.ts',
-      /**
-       * The operator's CLI **writes** it and nothing more (`#316`), which is the
-       * same exemption `deposits.ts` holds one door along. The value is the
-       * operator's own `--source`, passed straight to `creditBalance`: nothing
-       * here branches on it, and the command refuses to run without one rather
-       * than choosing a value of its own.
-       */
-      'admin.ts',
     ])
     const found: string[] = []
 

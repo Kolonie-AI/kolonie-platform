@@ -43,10 +43,20 @@ import { tasks } from './tasks.js'
  * citizen's own wallet and to nowhere else"* — and the second half is the
  * load-bearing one, true of both kinds.
  *
- * A steward review has no submission: it is work on a quest, by somebody who
- * answered nothing. That is the whole reason a kind exists rather than a second
- * table — one payout runner, one set of refusal and forfeiture rules, one place
- * where an erasure has to be got right.
+ * A review had no submission: it was work on a quest, by somebody who answered
+ * nothing. That is the whole reason a kind exists rather than a second table —
+ * one payout runner, one set of refusal and forfeiture rules, one place where an
+ * erasure has to be got right.
+ *
+ * **`review` is retired and nothing can write it** (`#945`). `#693` made a quest
+ * publish on the moderation verdict that cleared it, `#723` took the per-quest
+ * review payout with it, and `#724` deleted `oweForReview` — the only function
+ * that ever produced one — leaving a tombstone in `storage/payouts.ts` where it
+ * stood. **It stays in the enum on purpose, and on two counts.** Postgres has no
+ * `ALTER TYPE … DROP VALUE`, so removing it means recreating the type under a
+ * live table; and a payout row is a financial record, so a historical `review`
+ * row is not rewritten to make a migration tidier. The reachability that matters
+ * is the writing path, and there is none.
  *
  * `report` is the default because every row that existed before this did.
  *
@@ -87,7 +97,11 @@ export const payoutObligations = pgTable(
      */
     agentId: uuid('agent_id').references(() => agents.id, { onDelete: 'set null' }),
 
-    /** What this is owed for: an accepted report, or a review of a quest. */
+    /**
+     * What this is owed for: an accepted report, an obstacle bonus, or — on a
+     * historical row only — a review of a quest, which nothing writes any more
+     * (`#945`).
+     */
     kind: payoutObligationKind('kind').notNull().default('report'),
 
     /** The quest — the one the report was for, or the one that was reviewed. */
@@ -269,11 +283,12 @@ export const payoutObligations = pgTable(
      * no submission to carry their idempotency.
      *
      * A report is bounded by its submission — one accepted report, one
-     * obligation, which is the index above. A **review** and an
-     * **obstacle-bonus** have no submission: a review is work on a quest by
-     * somebody who answered nothing, and a bonus hangs off a `quest_reports` row
-     * that is itself already unique per citizen per quest. Without this a
-     * retried `publishQuest` pays a steward twice.
+     * obligation, which is the index above. An **obstacle-bonus** has none: it
+     * hangs off a `quest_reports` row that is itself already unique per citizen
+     * per quest, and without this index a retried write would pay the bonus
+     * twice. A **review** had none either, on the same terms, and that kind is
+     * retired (`#945`) — the index still keys on it because it still bounds the
+     * rows that exist.
      *
      * **`kind` is in the key rather than in the predicate, and that is not a
      * style choice.** A predicate naming an enum *value* — `where kind =
@@ -289,9 +304,9 @@ export const payoutObligations = pgTable(
       .on(table.taskId, table.agentId, table.kind)
       .where(sql`${table.submissionId} is null`),
     /**
-     * A report names its submission and a review does not.
+     * A report names its submission and the other kinds do not.
      *
-     * Enforced rather than trusted: the two kinds differ in exactly one column,
+     * Enforced rather than trusted: the kinds differ in exactly one column,
      * which is the sort of thing a later writer fills in *"to be safe"* and
      * thereby makes the partial indexes above disagree with each other.
      */

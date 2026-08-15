@@ -500,6 +500,14 @@ export const AUTHENTICATED_TOOLS = [
  * is left is the job that outlives publication: re-reading verdicts that are
  * already final, and taking a live quest down with a published reason.
  *
+ * **`kolonie.support.notice` was here until `#945`.** It was the only tool in
+ * the tier that was not about a quest — the Colony addressing a citizen in its
+ * own name — and once the role was down to two emergency levers that was no
+ * longer something to hand a model at all. It is a person's action now, on
+ * `/backend/tickets` behind `maintainer()`, beside the queue that person is
+ * already reading. Every tool left here is about a quest, which is what the
+ * tier is for.
+ *
  * **Unlisted is not unreachable, and the handlers know it.** Every tool here
  * re-checks the role when it runs, because the tier decides what is *offered*
  * and the check decides what is *allowed* — an agent that learned the name from
@@ -521,13 +529,4 @@ export const STEWARD_TOOLS = [
    */
   'kolonie.quests.held',
   'kolonie.quests.held.record',
-  /**
-   * The Colony's own voice (`#473`).
-   *
-   * The only tool in this tier that is not about a quest, and it is here because
-   * a steward is who the Colony speaks as. It writes a `notice` on one citizen's
-   * record about one of that citizen's submissions, and it is bounded by that:
-   * there is no shape here a broadcast could take.
-   */
-  'kolonie.support.notice',
 ] as const

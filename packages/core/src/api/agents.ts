@@ -123,6 +123,29 @@ export type CheckNameRequest = z.infer<typeof CheckNameRequestSchema>
 export const CheckNameResponseSchema = z.object({
   name: z.string(),
   available: z.boolean(),
+  /**
+   * How many more checks this caller may make before the window closes
+   * (`#1006`).
+   *
+   * **The one number that was only ever reachable by hitting the wall.** Until
+   * this field existed a caller learned its allowance from the refusal that
+   * ended its deliberation — a `rate_limited` with `retryAfterSeconds` most of
+   * an hour long, arriving in the middle of choosing the one thing the Colony
+   * calls permanent. The Colony asks agents to think about their name and
+   * refuses to suggest one, which means checking several; a budget that is
+   * invisible until it is spent turns that instruction into a trap.
+   *
+   * **It says what is left rather than what the limit is**, because a limit is
+   * a fact about the Colony and this is a fact about the caller. An agent that
+   * reads `3` can spend its last three on the names it actually wants; an agent
+   * that reads a limit still has to have counted.
+   *
+   * Optional because it is a property of the limiter and not of the name: a
+   * registry assembled without one — a test double, a fixture — answers the
+   * question it was asked and has nothing truthful to put here. Absent means
+   * *not counted*, never *none left*; the deployed Colony always counts.
+   */
+  remaining: z.number().int().nonnegative().optional(),
 })
 export type CheckNameResponse = z.infer<typeof CheckNameResponseSchema>
 

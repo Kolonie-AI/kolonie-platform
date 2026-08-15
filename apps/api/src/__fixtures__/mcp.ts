@@ -5,6 +5,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 import { erasure } from '../erasure.js'
 import { createMcpServer, type McpDependencies } from '../mcp.js'
+import type { AgentRegistry } from '../registration.js'
 import { support } from '../support.js'
 import { DEFAULT_SKILL_RELEASES } from '../skill-releases.js'
 import { fakeAcademy } from './academy.js'
@@ -97,8 +98,15 @@ export const connectedClient = async (
   return { client, close: () => Promise.all([client.close(), server.close()]) }
 }
 
-/** A stranger: no credential, so only the unauthenticated tier exists. */
-export const anonymousClient = (registry = fakeRegistry()) =>
+/**
+ * A stranger: no credential, so only the unauthenticated tier exists.
+ *
+ * The parameter is the interface rather than the fixture's type (`#1006`): a
+ * test that wants the registry as `app.ts` assembles it passes
+ * `rateLimited(fakeRegistry(), …)`, which is an `AgentRegistry` and has none of
+ * the fixture's extra handles. Nothing here uses them.
+ */
+export const anonymousClient = (registry: AgentRegistry = fakeRegistry()) =>
   connectedClient({
     vault: { vault: fakeVault() },
     accounts: fakeAccounts(),

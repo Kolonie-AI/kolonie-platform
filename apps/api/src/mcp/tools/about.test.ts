@@ -2,7 +2,10 @@ import { API_BASE_PATH, API_VERSION } from '@kolonie-ai/core'
 import { describe, expect, it } from 'vitest'
 import { FAKE_CALLER_IP, fakeColony } from '../../__fixtures__/colony/index.js'
 import { anonymousClient, connectedClient } from '../../__fixtures__/mcp.js'
+import { fakeRegistry } from '../../__fixtures__/registry.js'
 import { AUTHENTICATED_TOOLS } from '../../mcp.js'
+import { NAME_CHECK_LIMIT, registrationLimiter } from '../../rate-limit.js'
+import { rateLimited } from '../../registration.js'
 
 describe('kolonie.about', () => {
   it('is offered to an agent that presents no credential', async () => {
@@ -427,6 +430,9 @@ describe('kolonie.name.check', () => {
     })
 
     expect(result.isError).toBeFalsy()
+    // No `remaining` here, and that is the fixture rather than the tool: the
+    // count comes from the limiter `app.ts` wraps the registry in, and this
+    // registry has none (`#1006`). The tests below put one in front of it.
     expect(result.structuredContent).toEqual({ name: 'nobody-has-this', available: true })
     await close()
   })
@@ -522,6 +528,68 @@ describe('kolonie.name.check', () => {
 
     expect(JSON.stringify(result.content)).toMatch(/nothing is reserved/i)
     await close()
+  })
+
+  /**
+   * What `#1006` asks for, reported by the citizen it happened to: the allowance
+   * was invisible until it ran out, and it ran out in the middle of choosing the
+   * one thing the Colony calls permanent. A count on every answer is what turns
+   * a wall into a budget.
+   */
+  describe('the allowance it says is left', () => {
+    /** The registry as `app.ts` assembles it: a limiter in front of the check. */
+    const counted = () => anonymousClient(rateLimited(fakeRegistry(), registrationLimiter()))
+
+    it('counts down as the caller spends it', async () => {
+      const { client, close } = await counted()
+
+      const spend = async (name: string) =>
+        (
+          (await client.callTool({ name: 'kolonie.name.check', arguments: { name } }))
+            .structuredContent as { remaining?: number }
+        ).remaining
+
+      expect(await spend('first-candidate')).toBe(NAME_CHECK_LIMIT - 1)
+      expect(await spend('second-candidate')).toBe(NAME_CHECK_LIMIT - 2)
+      // Asking twice about one name costs what asking about two does. The
+      // allowance is on the calling, not on the names.
+      expect(await spend('second-candidate')).toBe(NAME_CHECK_LIMIT - 3)
+      await close()
+    })
+
+    /**
+     * The prose carries it only as it runs out. An agent that reads text rather
+     * than `structuredContent` is the one this is for, and it is worth telling
+     * while it still has calls left to finish choosing with.
+     */
+    it('says so in the text once there is little left, and not before', async () => {
+      const { client, close } = await counted()
+      const check = async (name: string) =>
+        JSON.stringify(
+          (await client.callTool({ name: 'kolonie.name.check', arguments: { name } })).content,
+        )
+
+      expect(await check('candidate-0')).not.toMatch(/left this hour/i)
+
+      let last = ''
+      for (let spent = 1; spent < NAME_CHECK_LIMIT; spent += 1) {
+        last = await check(`candidate-${spent}`)
+      }
+
+      expect(last).toMatch(/0 checks left this hour/i)
+      await close()
+    })
+
+    /** Where an agent learns the field exists at all, before it has spent one. */
+    it('is announced in the description a stranger reads', async () => {
+      const { client, close } = await anonymousClient()
+
+      const { tools } = await client.listTools()
+      const check = tools.find((tool) => tool.name === 'kolonie.name.check')
+
+      expect(check?.description).toMatch(/remaining/)
+      await close()
+    })
   })
 })
 

@@ -17,6 +17,7 @@ import {
   recipeModerationsFor,
   recordRecipeModeration,
   unjudgedRecipeDrafts,
+  withdrawnRecipeDrafts,
 } from './recipe-moderations.js'
 
 const target = databaseTestTarget()
@@ -364,5 +365,110 @@ describe('a draft the fortnight ran out on', () => {
     const expired = await expireStalledRecipeDrafts(db)
 
     expect(expired[0]?.reason).toContain('No verdict recorded')
+  })
+
+  /**
+   * What the alarm in `apps/support-triage-runner` reads (`#946`).
+   *
+   * It used to count drafts waiting for a steward; `#813` gave the pass the
+   * decision and `#941` gave it a deadline, so nothing waits and the watcher had
+   * to be repointed at the outcome that is actually worth knowing about. What is
+   * asserted here is the fingerprint it identifies one by — `retired` **and** a
+   * latest verdict of `held`, since expiry writes no moderation row — and that a
+   * hand-retired entry is not swept up by it.
+   */
+  describe('the walks the Colony threw away', () => {
+    /** The whole of what the watcher measures: hold it, age it, let the pass withdraw it. */
+    const withdrawn = async (provider: string, reason: string): Promise<void> => {
+      const id = await drafted(provider)
+      await held(id, reason)
+      await aged(provider, RECIPE_DRAFT_EXPIRY_DAYS + 1)
+      await expireStalledRecipeDrafts(db)
+    }
+
+    /** Move the withdrawal itself back in time, which is what the window reads. */
+    const withdrawnAgo = async (provider: string, days: number): Promise<void> => {
+      await db
+        .update(providerRecipes)
+        .set({ retiredAt: sql`now() - (${sql.raw(String(days))} * interval '1 day')` })
+        .where(eq(providerRecipes.provider, provider))
+    }
+
+    /**
+     * **`heldOn` is the diagnostic and not decoration.** A run of identical
+     * reasons is what tells a rewrite rule refusing usable material apart from
+     * walkers recording nothing, and neither fix helps against the other.
+     */
+    it('counts them oldest first and carries what each was held on', async () => {
+      await withdrawn('clawmail.com', 'Step 2 has no sentence.')
+      await withdrawnAgo('clawmail.com', 3)
+      await withdrawn('agentmail.com', 'Step 3 recorded no instruction.')
+      await withdrawnAgo('agentmail.com', 1)
+
+      const queue = await withdrawnRecipeDrafts(db, 7)
+
+      expect(queue.count).toBe(2)
+      expect(queue.drafts.map((row) => row.provider)).toEqual(['clawmail.com', 'agentmail.com'])
+      expect(queue.drafts[0]?.heldOn).toContain('Step 2 has no sentence.')
+      expect(queue.drafts[0]?.category).toBe('data-apis')
+      expect(queue.oldestSince).not.toBeNull()
+    })
+
+    /**
+     * The window is what lets the alarm fall silent again: a withdrawal is an
+     * event, and one counted forever would keep an issue open for a fortnight
+     * after there was anything to say.
+     */
+    it('leaves a withdrawal that has aged out of the window', async () => {
+      await withdrawn('clawmail.com', 'Step 2 has no sentence.')
+      await withdrawnAgo('clawmail.com', 9)
+
+      expect(await withdrawnRecipeDrafts(db, 7)).toEqual({
+        count: 0,
+        drafts: [],
+        oldestSince: null,
+      })
+    })
+
+    /**
+     * **The fingerprint is what keeps this honest.** An entry a steward retired by
+     * hand was published first or never judged at all — nothing gave up on it —
+     * and counting it would report the Colony throwing away material it did not.
+     */
+    it('leaves an entry retired with no hold behind it', async () => {
+      await drafted('clawmail.com')
+      await db
+        .update(providerRecipes)
+        .set({ status: 'retired', retiredAt: sql`now()`, retiredReason: 'The provider shut down.' })
+        .where(eq(providerRecipes.provider, 'clawmail.com'))
+
+      expect((await withdrawnRecipeDrafts(db, 7)).count).toBe(0)
+    })
+
+    /** A draft still being re-judged has not been thrown away, whatever it is held on. */
+    it('leaves a held draft that is still a draft', async () => {
+      const id = await drafted('clawmail.com')
+      await held(id, 'Step 2 has no sentence.')
+
+      expect((await withdrawnRecipeDrafts(db, 7)).count).toBe(0)
+    })
+
+    /** A verdict that recorded no reason reads as one, rather than as a gap. */
+    it('says plainly where nothing recorded a reason', async () => {
+      const id = await drafted('clawmail.com')
+      await recordRecipeModeration(db, {
+        recipeId: id,
+        decision: 'held',
+        model: 'a/model',
+        stages: noRecipeStagesRun(),
+      })
+      await aged('clawmail.com', RECIPE_DRAFT_EXPIRY_DAYS + 1)
+      await expireStalledRecipeDrafts(db)
+
+      const queue = await withdrawnRecipeDrafts(db, 7)
+
+      expect(queue.count).toBe(1)
+      expect(queue.drafts[0]?.heldOn).toBeNull()
+    })
   })
 })

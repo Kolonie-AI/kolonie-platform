@@ -16,7 +16,7 @@ import {
   recordSeenDefects,
   escalatableDiagnoses,
   outstandingDebt,
-  stewardQueue,
+  withdrawnRecipeDrafts,
   recordEscalation,
 } from '@kolonie-ai/db'
 import { startRunner, type Log, type TriageStore } from './loop.js'
@@ -26,7 +26,7 @@ import { APP_ID_VAR, APP_KEY_PATH_VAR, githubIssues, noIssues } from './github.j
 import { LOKI_TOKEN_VAR, LOKI_URL_VAR, LOKI_USER_VAR, lokiLogs, noLogs } from './logs.js'
 import type { DefectStore } from './watch.js'
 import { DEBT_THRESHOLD_HOURS } from './debt.js'
-import { DRAFT_THRESHOLD_HOURS } from './drafts.js'
+import { DRAFT_WINDOW_DAYS } from './drafts.js'
 import { createHealthServer, STALE_POLLS } from './health.js'
 
 /**
@@ -234,15 +234,16 @@ const runner = startRunner(
       record: (diagnosisId, issueUrl) => recordEscalation(db, diagnosisId, issueUrl),
     },
     /**
-     * The steward-queue alarm (`#917`). Unconditional for `debt`'s reason: one
-     * query on the connection the queue already holds and the same App.
+     * The withdrawal alarm (`#917`, repointed by `#946`). Unconditional for
+     * `debt`'s reason: one query on the connection the queue already holds and
+     * the same App.
      *
-     * A deployment where nobody has walked anything measures an empty queue and
-     * says nothing, which is what makes the read cheaper than a flag.
+     * A deployment where nothing has been withdrawn measures zero and says
+     * nothing, which is what makes the read cheaper than a flag.
      */
     drafts: {
       issues,
-      measure: () => stewardQueue(db, DRAFT_THRESHOLD_HOURS),
+      measure: () => withdrawnRecipeDrafts(db, DRAFT_WINDOW_DAYS),
     },
   },
   { pollIntervalMs: POLL_INTERVAL_MS },

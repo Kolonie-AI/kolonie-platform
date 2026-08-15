@@ -475,18 +475,18 @@ export async function tick(deps: LoopDependencies, batchSize: number): Promise<T
   }
 
   /**
-   * The steward-queue pass (`#917`), in its own `try` on the argument the three
-   * above give: four jobs in one process are four jobs.
+   * The withdrawal pass (`#917`, repointed by `#946`), in its own `try` on the
+   * argument the three above give: four jobs in one process are four jobs.
    *
-   * **Silent while the queue is empty**, which is the ordinary state and the one
-   * this alarm wants to be in. A line every half hour saying nothing is waiting
-   * is the wallpaper `#231` refuses.
+   * **Silent while nothing has been withdrawn**, which is the ordinary state and
+   * the one this alarm wants to be in. A line every half hour saying no walk was
+   * thrown away is the wallpaper `#231` refuses.
    */
   if (deps.drafts !== undefined) {
     try {
       const found = await watchDrafts(deps.drafts)
       if (found.skipped === undefined && found.action !== 'quiet') {
-        log.info(`draft pass: ${found.action}, ${found.waiting} waiting for a steward`, {
+        log.info(`draft pass: ${found.action}, ${found.withdrawn} withdrawn unpublished`, {
           event: 'drafts.pass.done',
           ...found,
         })

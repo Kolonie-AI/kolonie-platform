@@ -1,3 +1,4 @@
+import { THE_PUBLIC_VOUCH } from '@kolonie-ai/core'
 import { z } from 'zod'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { authenticate } from '../../authentication.js'
@@ -107,10 +108,24 @@ export function registerOperatorLinkTools(
                 'They sign in at the console — a person’s account, not a citizen’s ' +
                 '— and enter it there. It works once and stops working at ' +
                 `${issued.expiresAt}. Asking again replaces it, so ask when they are ready ` +
-                'rather than in advance.',
+                'rather than in advance.\n\n' +
+                THE_PUBLIC_VOUCH.sentence,
             },
           ],
-          structuredContent: { code: issued.code, expiresAt: issued.expiresAt },
+          /**
+           * **The half of `#1015` that is not the one the report was written
+           * about.** Nothing goes wrong when a citizen reaches this call: the
+           * pairing is what an operator meant. What is missing is that the other
+           * thing exists, which matters here because this is the answer a citizen
+           * forwards to the person who could make it — and the sentence says in
+           * the same breath that it grants nothing, so it is named without being
+           * turned into a task.
+           */
+          structuredContent: {
+            code: issued.code,
+            expiresAt: issued.expiresAt,
+            alsoSee: THE_PUBLIC_VOUCH,
+          },
         }
       }
 
@@ -142,6 +157,14 @@ export function registerOperatorLinkTools(
         return toolError({ code: 'validation_failed', message: why })
       }
 
+      /**
+       * **No cross-reference on this branch, deliberately** (`#1015`). The other
+       * two answers are handed to a citizen that is about to instruct a person,
+       * and the pointer is there so it instructs them about the right thing. This
+       * one is the act already done, and its text ends on the only step that is
+       * now live — whether the two rungs opened. An optional-and-grants-nothing
+       * sentence beside that would be competing with it for the same attention.
+       */
       return {
         content: [
           {

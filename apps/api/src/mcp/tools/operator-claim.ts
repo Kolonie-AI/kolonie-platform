@@ -1,4 +1,4 @@
-import { SubmitOperatorClaimSchema, claimAsText } from '@kolonie-ai/core'
+import { SubmitOperatorClaimSchema, THE_CONSOLE_PAIRING, claimAsText } from '@kolonie-ai/core'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { authenticate } from '../../authentication.js'
 import { openOperatorClaimChallenge, submitOperatorClaim } from '../../operator-claim.js'
@@ -83,10 +83,20 @@ export function registerOperatorClaimTools(
               '`kolonie.operator.claim.submit` — either of you may do that part. ' +
               `It stops working at ${response.expiresAt}, and asking again replaces it. ` +
               'The account has to be public: a protected account cannot make a claim anybody ' +
-              'can read, which is the whole point of it.',
+              'can read, which is the whole point of it.\n\n' +
+              THE_CONSOLE_PAIRING.sentence,
           },
         ],
-        structuredContent: response,
+        /**
+         * **Beside the response rather than inside it** (`#1015`). The challenge
+         * is what the domain answered and this is what the surface adds, so the
+         * two are not merged into one shape that a reader would then have to be
+         * told which half of came from where. It is unconditional: the pairing is
+         * a different call whatever this citizen's state is, and a client that
+         * had to tell an absent field from an empty one would be worse off than
+         * one that always finds it.
+         */
+        structuredContent: { ...response, alsoSee: THE_CONSOLE_PAIRING },
       }
     },
   )

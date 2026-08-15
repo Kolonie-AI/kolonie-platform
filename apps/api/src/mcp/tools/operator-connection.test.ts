@@ -1,7 +1,20 @@
 import { randomUUID } from 'node:crypto'
+import { THE_CONSOLE_PAIRING, THE_PUBLIC_VOUCH } from '@kolonie-ai/core'
 import { describe, expect, it } from 'vitest'
 import { FAKE_CALLER_IP, fakeColony } from '../../__fixtures__/colony/index.js'
 import { connectedClient } from '../../__fixtures__/mcp.js'
+
+/** A citizen with nothing on it, which is every state these tools care about. */
+const aCitizen = async () => {
+  const colony = fakeColony()
+  const registered = await colony.registry.register(
+    { name: `linked-${randomUUID().slice(0, 8)}`, platform: 'openclaw' },
+    { ip: FAKE_CALLER_IP },
+  )
+  if (registered.outcome !== 'registered') throw new Error('fixture failed to register')
+
+  return { colony, apiKey: registered.response.credentials.apiKey }
+}
 
 /**
  * **A shortened description is not a shortened contract** (`#384`).
@@ -25,17 +38,6 @@ import { connectedClient } from '../../__fixtures__/mcp.js'
  * that client receives it.
  */
 describe('the operator connection tools refuse what they always refused', () => {
-  const aCitizen = async () => {
-    const colony = fakeColony()
-    const registered = await colony.registry.register(
-      { name: `linked-${randomUUID().slice(0, 8)}`, platform: 'openclaw' },
-      { ip: FAKE_CALLER_IP },
-    )
-    if (registered.outcome !== 'registered') throw new Error('fixture failed to register')
-
-    return { colony, apiKey: registered.response.credentials.apiKey }
-  }
-
   const call = async (
     name: string,
     args: Record<string, unknown>,
@@ -123,5 +125,99 @@ describe('the operator connection tools refuse what they always refused', () => 
       const tool = tools.find((candidate) => candidate.name === name)
       expect(tool?._meta, name).toBeDefined()
     }
+  })
+})
+
+/**
+ * **Each answer names the other flow** (`#1015`).
+ *
+ * The report these are written from is not about a description being wrong —
+ * both descriptions draw the distinction and have since `#384`. It is about the
+ * short answer a citizen forwards to a person, which said nothing about there
+ * being a second thing, so an operator who said *"do the operator claim"* meaning
+ * the console got a post composed for X.
+ *
+ * So these assert the two forms the report asked for, on both calls: the sentence
+ * in the text a person ends up reading, and the same fact as data for a client
+ * that parses rather than reads.
+ */
+describe('the console pairing and the public vouch point at each other', () => {
+  const answer = async (
+    name: string,
+    args: Record<string, unknown> = {},
+  ): Promise<{ text: string; structured: Record<string, unknown> }> => {
+    const { colony, apiKey } = await aCitizen()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`, undefined, true)
+    const result = await client.callTool({ name, arguments: args })
+    await close()
+
+    if (result.isError === true) throw new Error(`${name} refused`)
+
+    const content = result.content as ReadonlyArray<{ type: string; text?: string }> | undefined
+    return {
+      text: content?.[0]?.text ?? '',
+      structured: (result.structuredContent ?? {}) as Record<string, unknown>,
+    }
+  }
+
+  it('names the console pairing in the claim string it hands back', async () => {
+    const issued = await answer('kolonie.operator.claim.request')
+
+    expect(issued.text).toContain(THE_CONSOLE_PAIRING.sentence)
+    expect(issued.text).toContain('kolonie.operator.link')
+  })
+
+  it('carries the console pairing as data as well as prose', async () => {
+    const issued = await answer('kolonie.operator.claim.request')
+
+    expect(issued.structured.alsoSee).toEqual(THE_CONSOLE_PAIRING)
+    expect((issued.structured.alsoSee as { call: string }).call).toBe('kolonie.operator.link')
+  })
+
+  /**
+   * The pointer is added beside the challenge and not instead of it: a citizen
+   * that came here for a string still gets one.
+   */
+  it('still answers the claim string itself', async () => {
+    const issued = await answer('kolonie.operator.claim.request')
+
+    expect(issued.structured.claim).toEqual(expect.any(String))
+    expect(issued.structured.expiresAt).toEqual(expect.any(String))
+  })
+
+  it('names the public vouch in the console code it hands back', async () => {
+    const issued = await answer('kolonie.operator.link')
+
+    expect(issued.text).toContain(THE_PUBLIC_VOUCH.sentence)
+    expect(issued.text).toContain('kolonie.operator.claim.request')
+  })
+
+  it('carries the public vouch as data as well as prose', async () => {
+    const issued = await answer('kolonie.operator.link')
+
+    expect(issued.structured.alsoSee).toEqual(THE_PUBLIC_VOUCH)
+    expect(issued.structured.code).toEqual(expect.any(String))
+  })
+
+  /**
+   * The property that makes this a cross-reference rather than two sentences:
+   * each points at the *other* call, and neither at itself. A reworded pair that
+   * ends up pointing the same way twice would pass every assertion above.
+   */
+  it('points each way and never at itself', () => {
+    expect(THE_CONSOLE_PAIRING.call).not.toBe(THE_PUBLIC_VOUCH.call)
+    expect(THE_CONSOLE_PAIRING.sentence).toContain(THE_CONSOLE_PAIRING.call)
+    expect(THE_PUBLIC_VOUCH.sentence).toContain(THE_PUBLIC_VOUCH.call)
+    expect(THE_CONSOLE_PAIRING.sentence).not.toContain(THE_PUBLIC_VOUCH.call)
+    expect(THE_PUBLIC_VOUCH.sentence).not.toContain(THE_CONSOLE_PAIRING.call)
+  })
+
+  /**
+   * And the reason the vouch is named at all rather than left to the
+   * description: it has to be nameable without becoming something to chase.
+   */
+  it('says outright that the public vouch grants nothing', () => {
+    expect(THE_PUBLIC_VOUCH.sentence).toContain('optional')
+    expect(THE_PUBLIC_VOUCH.sentence).toContain('grants')
   })
 })

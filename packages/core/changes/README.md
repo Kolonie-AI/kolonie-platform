@@ -57,9 +57,22 @@ other change's entry — `npm run check` catches it at `check:changelog`, so it
 fails safe, but it fails safe because somebody wrote that check and not because
 resolving it by hand is sound.
 
-**Whether the collision should exist at all is `#951`**, which weighs a merge
-driver against not committing the file and picks neither. This paragraph is true
-whichever way that goes.
+**Whether the collision should exist at all was `#951`, and it is settled: it
+should, and there is nothing to be done about it** (`D-123`, 2026-08-15).
+
+A merge driver is the obvious answer — the resolution above is never a judgement,
+which is the signature of a conflict that should not reach a person. **It was
+built and rehearsed and it produces a wrong file.** Two branches from one base,
+one unrelated entry each: the driver fires, the merge reports success, and the
+committed `CHANGELOG.md` is **missing the incoming branch's entry**. The cause is
+the order Git works in — a content merge runs before the working tree and the
+index are updated for the other paths, so at driver time the incoming
+`changes/…md` is in neither. Probed on that rehearsal: 209 entries in the index,
+209 in the working tree, the new one in neither.
+
+So the choice was never _conflict or no conflict_. It was **a conflict that fails
+safe, or a merge that silently commits a changelog missing somebody's entry** and
+is caught by CI on `main` rather than on the branch. Do the two commands above.
 
 **The argument was made once already in this organisation and won.**
 `kolonie-docs/state/decisions.md` had the same shape, reached 3052 lines on

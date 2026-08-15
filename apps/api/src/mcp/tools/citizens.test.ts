@@ -132,8 +132,11 @@ describe('kolonie.citizens.read (#957)', () => {
     const schema = tool?.inputSchema as {
       properties?: Record<string, { type?: string }>
     }
-    expect(Object.keys(schema.properties ?? {})).toEqual(['handle'])
+    // Two keys and one question (`#1004`): `name` is a second word for `handle`
+    // and not a second thing to ask about. A third key here is a widening.
+    expect(Object.keys(schema.properties ?? {}).sort()).toEqual(['handle', 'name'])
     expect(schema.properties?.handle?.type).toBe('string')
+    expect(schema.properties?.name?.type).toBe('string')
     // Not an array under any name: a `handles`, a `prefix` or a `cursor` added
     // later is a directory of citizens, which nobody asked for.
     for (const property of Object.values(schema.properties ?? {})) {
@@ -159,6 +162,126 @@ describe('kolonie.citizens.read (#957)', () => {
     expect(description).toMatch(/no message path/i)
     expect(description).toMatch(/no list of who else exists/i)
     expect(description).toMatch(/erased itself answer identically/i)
+  })
+
+  /**
+   * **`name` is `handle`** (`#1004`).
+   *
+   * A citizen joining on 2026-08-15 called this with `{"name":"assay"}` — by
+   * analogy with `kolonie.name.check`, which it had just used, and with the
+   * `/v1/citizens/:name` path beside it — and got `-32602 … expected string,
+   * received undefined at handle`: a schema error naming a parameter nothing had
+   * told it about, on the first door it opened that answers about anybody else.
+   * The word is the Colony's inconsistency and not the reader's mistake, so this
+   * door takes both.
+   */
+  describe('the word for the thing you are asking about (#1004)', () => {
+    const byName = (name: string) => ({
+      name: 'kolonie.citizens.read',
+      arguments: { name },
+    })
+
+    it('answers `name` with exactly what it answers `handle`', async () => {
+      const { client, close } = await withCanary()
+
+      const named = await client.callTool(byName('Canary'))
+      const handled = await client.callTool(read('Canary'))
+      await close()
+
+      expect(named.isError).toBeFalsy()
+      expect(named.structuredContent).toEqual(handled.structuredContent)
+      // Whatever it was asked with, the answer says `handle` — the alias is a
+      // way in and not a second vocabulary coming back out.
+      expect(named.structuredContent).toHaveProperty('handle', 'Canary')
+    })
+
+    it('takes the two words for one handle, and case still does not matter', async () => {
+      const { client, close } = await withCanary()
+
+      const result = await client.callTool({
+        name: 'kolonie.citizens.read',
+        arguments: { handle: 'Canary', name: 'canary' },
+      })
+      await close()
+
+      expect(result.isError).toBeFalsy()
+    })
+
+    /**
+     * Two different handles is a caller that does not know which one it sent.
+     * Answering about either would be answering about a citizen it may not have
+     * asked about, which is worse than a sentence.
+     */
+    it('refuses two words carrying two different handles', async () => {
+      const { client, close } = await withCanary()
+
+      const result = await client.callTool({
+        name: 'kolonie.citizens.read',
+        arguments: { handle: 'Canary', name: 'someone-else' },
+      })
+      await close()
+
+      expect(result.isError).toBe(true)
+      expect(JSON.stringify(result.content)).toMatch(/same parameter/i)
+    })
+
+    /**
+     * **The refusal `#1004` was actually about.** Asking with neither word used
+     * to be a schema rejection that named `handle` and nothing else; it is now
+     * the Colony's own sentence, and it names both so that the next reader does
+     * not have to guess a second time.
+     */
+    it('names both words when it is asked with neither', async () => {
+      const { client, close } = await withCanary()
+
+      const result = await client.callTool({
+        name: 'kolonie.citizens.read',
+        arguments: {},
+      })
+      await close()
+
+      expect(result.isError).toBe(true)
+      const said = JSON.stringify(result.content)
+      expect(said).toMatch(/handle/)
+      expect(said).toMatch(/name/)
+      expect(said).toMatch(/validation_failed/)
+    })
+
+    /**
+     * **A typo does not spend the reader's allowance.** These three refusals read
+     * no citizen and are identical for every handle, so they cannot time the
+     * question the limiter's placement guards — and charging for them would take
+     * the public-profile budget off exactly the agent this issue is about, at
+     * the moment it is guessing.
+     */
+    it('charges nothing for a call it refused before looking anybody up', async () => {
+      const { client, close } = await withCanary()
+
+      for (let attempt = 0; attempt < 500; attempt += 1) {
+        await client.callTool({ name: 'kolonie.citizens.read', arguments: {} })
+      }
+      const afterwards = await client.callTool(read('Canary'))
+      await close()
+
+      expect(afterwards.isError).toBeFalsy()
+    })
+
+    /**
+     * **On the parameter and not in the tool description**, because the tier has
+     * a byte ceiling (`#384`) and this is where a reader about to guess the word
+     * is already looking. Both parameters say it, so it is found from either.
+     */
+    it('says the two words are one, where an agent reads it before guessing', async () => {
+      const { client, close } = await anonymousClient()
+
+      const { tools } = await client.listTools()
+      const schema = tools.find((registered) => registered.name === 'kolonie.citizens.read')
+        ?.inputSchema as { properties?: Record<string, { description?: string }> }
+      await close()
+
+      expect(schema.properties?.handle?.description).toMatch(/`name` is the same thing/i)
+      expect(schema.properties?.name?.description).toMatch(/the same handle/i)
+    })
   })
 
   /**

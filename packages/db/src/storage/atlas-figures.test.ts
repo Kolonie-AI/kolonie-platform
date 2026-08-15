@@ -406,4 +406,228 @@ describe('the measured figures behind an Atlas entry', () => {
     expect(serialised).not.toContain('someone-')
     expect(serialised).not.toContain('@example.test')
   })
+
+  /**
+   * The figures and the direction axis (`#990` point 1).
+   *
+   * `#976` scoped the verdict and left these counts summed, and said so: a
+   * counter that counts attempts is true whichever direction was walked. That
+   * held while nothing carried a direction. It stopped holding the moment
+   * citizens could scope their own reports, because *eight attempts, six
+   * failed* then no longer says which eight — and `atlasBand` reads exactly
+   * these numbers, so the shelf ordering was reading them too.
+   */
+  describe('what a reader who asked for one capability is counted', () => {
+    const phone = AccountKindSchema.parse('phone')
+
+    /** A citizen saying it did not get one, on the kind that has two. */
+    const reportedPhone = async (input: {
+      readonly name: string
+      readonly provider: string
+      readonly direction: 'inbound' | 'outbound' | 'both' | null
+      readonly outcome?: string
+    }) => {
+      const agentId = await citizen(input.name)
+
+      await db.execute(sql`
+        insert into provider_reports (agent_id, kind, provider, outcome, reason, scrubbed_reason,
+                                      reason_status, direction)
+        values (${agentId}, ${phone}, ${input.provider},
+                ${sql.raw(`'${input.outcome ?? 'signup-refused'}'`)},
+                'the wall', 'the wall', 'approved', ${input.direction})
+      `)
+    }
+
+    /** A citizen holding a number here, proved — an account carries no direction. */
+    const holdsPhone = async (input: { readonly name: string; readonly provider: string }) => {
+      const agentId = await citizen(input.name)
+
+      await db.execute(sql`
+        insert into accounts (agent_id, kind, identifier, provider, proved, proved_at)
+        values (${agentId}, ${phone}, ${`+1555${seeded}`}, ${input.provider}, true, now())
+      `)
+    }
+
+    const at = async (provider: string, direction?: 'inbound' | 'outbound' | 'both') =>
+      (await atlasFigures(db, direction === undefined ? {} : { direction })).find(
+        (one) => one.provider === provider,
+      )
+
+    /**
+     * **Asking nothing gets the sum.** The alternative — keeping the figures
+     * permanently split — needs a rule for the reader who asked no direction
+     * question, and every version of that rule either invents a default
+     * direction or hides half the evidence from somebody who asked for none of
+     * it.
+     */
+    it('sums every direction for a reader who asked about none', async () => {
+      for (let i = 0; i < 6; i++)
+        await reportedPhone({ name: `in-${i}`, provider: 'agentphone.test', direction: 'inbound' })
+      for (let i = 0; i < 6; i++)
+        await reportedPhone({
+          name: `out-${i}`,
+          provider: 'agentphone.test',
+          direction: 'outbound',
+        })
+
+      expect((await at('agentphone.test'))?.attempted).toBe(12)
+    })
+
+    it('counts only the reports that answer the direction asked', async () => {
+      for (let i = 0; i < 6; i++)
+        await reportedPhone({ name: `in-${i}`, provider: 'agentphone.test', direction: 'inbound' })
+      for (let i = 0; i < 6; i++)
+        await reportedPhone({
+          name: `out-${i}`,
+          provider: 'agentphone.test',
+          direction: 'outbound',
+        })
+
+      expect((await at('agentphone.test', 'inbound'))?.attempted).toBe(6)
+      expect((await at('agentphone.test', 'outbound'))?.attempted).toBe(6)
+    })
+
+    /**
+     * The same conservative reading `directionAnswers` states: a report written
+     * before anybody thought to ask which way it pointed is evidence for
+     * whoever asks, because reading it as one direction would hide a real
+     * refusal from half the readers who need it.
+     */
+    it('lets an unscoped report answer whichever direction is asked', async () => {
+      for (let i = 0; i < 6; i++)
+        await reportedPhone({ name: `old-${i}`, provider: 'agentphone.test', direction: null })
+
+      expect((await at('agentphone.test', 'inbound'))?.attempted).toBe(6)
+      expect((await at('agentphone.test', 'outbound'))?.attempted).toBe(6)
+    })
+
+    it('answers a reader asking about both with whatever there is', async () => {
+      for (let i = 0; i < 6; i++)
+        await reportedPhone({ name: `in-${i}`, provider: 'agentphone.test', direction: 'inbound' })
+      for (let i = 0; i < 6; i++)
+        await reportedPhone({
+          name: `out-${i}`,
+          provider: 'agentphone.test',
+          direction: 'outbound',
+        })
+
+      expect((await at('agentphone.test', 'both'))?.attempted).toBe(12)
+    })
+
+    /**
+     * **The accounts half is never narrowed**, because an account carries no
+     * direction to narrow it by. Inferring one from the kind is wrong in both
+     * directions at once: the `phone` skill is earned inbound, and citizens go
+     * on to send from the numbers they hold.
+     */
+    it('leaves everyone who got through counted, whichever direction is asked', async () => {
+      for (let i = 0; i < 6; i++)
+        await holdsPhone({ name: `held-${i}`, provider: 'agentphone.test' })
+      for (let i = 0; i < 6; i++)
+        await reportedPhone({
+          name: `out-${i}`,
+          provider: 'agentphone.test',
+          direction: 'outbound',
+        })
+
+      expect((await at('agentphone.test', 'inbound'))?.proved).toBe(6)
+      expect((await at('agentphone.test', 'inbound'))?.attempted).toBe(6)
+      expect((await at('agentphone.test', 'outbound'))?.proved).toBe(6)
+      expect((await at('agentphone.test', 'outbound'))?.attempted).toBe(12)
+    })
+
+    /**
+     * The worked example from `#976`, now with numbers under it: six citizens
+     * stopped by A2P registration, which is a sending wall, and six holding a
+     * number that receives. A reader sent to earn `phone` needs the inbound
+     * band, and before this the band it got was computed from the sending
+     * failures.
+     */
+    it('bands the two capabilities apart', async () => {
+      for (let i = 0; i < 6; i++)
+        await holdsPhone({ name: `held-${i}`, provider: 'agentphone.test' })
+      for (let i = 0; i < 6; i++)
+        await reportedPhone({
+          name: `out-${i}`,
+          provider: 'agentphone.test',
+          direction: 'outbound',
+        })
+
+      expect((await at('agentphone.test', 'inbound'))?.band).not.toBe(
+        (await at('agentphone.test', 'outbound'))?.band,
+      )
+      expect((await at('agentphone.test', 'inbound'))?.refused).toBe(0)
+      expect((await at('agentphone.test', 'outbound'))?.refused).toBe(6)
+    })
+
+    it('scopes the sentences with the counts', async () => {
+      for (let i = 0; i < 6; i++)
+        await reportedPhone({
+          name: `out-${i}`,
+          provider: 'agentphone.test',
+          direction: 'outbound',
+        })
+
+      expect((await at('agentphone.test', 'inbound'))?.reasons).toEqual([])
+      expect((await at('agentphone.test', 'outbound'))?.reasons).toEqual(['the wall'])
+    })
+
+    /**
+     * **A direction narrows the sample and the floor is right about the
+     * remainder.** Nothing here exempts a scoped read: a rate computed from two
+     * citizens is a claim about two citizens whichever way they went.
+     */
+    it('suppresses a direction whose sample falls below the floor', async () => {
+      for (let i = 0; i < 6; i++)
+        await reportedPhone({
+          name: `out-${i}`,
+          provider: 'agentphone.test',
+          direction: 'outbound',
+        })
+      for (let i = 0; i < ATLAS_FIGURE_FLOOR - 1; i++)
+        await reportedPhone({ name: `in-${i}`, provider: 'agentphone.test', direction: 'inbound' })
+
+      expect((await at('agentphone.test'))?.suppressed).toBe(false)
+      expect((await at('agentphone.test', 'inbound'))?.suppressed).toBe(true)
+      expect((await at('agentphone.test', 'inbound'))?.attempted).toBe(0)
+    })
+
+    /**
+     * **The scoping narrows what a row says and never which rows exist.** A
+     * provider dropped for one reader would be the Colony saying *this provider
+     * has no page* to that reader on the grounds that the citizens who went
+     * there went the other way — which is the argument for walking it rather
+     * than against listing it. `evidenced` goes with the row for the same
+     * reason: `backfillMeasuredProviders` has no direction to ask about, and
+     * the two must not disagree.
+     */
+    it('keeps a provider on the shelf when every report went the other way', async () => {
+      for (let i = 0; i < 6; i++)
+        await reportedPhone({
+          name: `out-${i}`,
+          provider: 'agentphone.test',
+          direction: 'outbound',
+        })
+
+      const inbound = await at('agentphone.test', 'inbound')
+
+      expect(inbound).toBeDefined()
+      expect(inbound?.evidenced).toBe(true)
+      expect(inbound?.attempted).toBe(0)
+      expect(inbound?.stopped).toEqual([])
+    })
+
+    /**
+     * A kind with no axis has no direction on any of its rows, so every one of
+     * them is unscoped and every reader is answered — the mailbox figures do
+     * not move when somebody asks a question that cannot be about them.
+     */
+    it('leaves a kind that has no axis alone', async () => {
+      for (let i = 0; i < 6; i++)
+        await reported({ name: `mail-${i}`, provider: 'mail.tm', outcome: 'signup-refused' })
+
+      expect((await at('mail.tm', 'inbound'))?.attempted).toBe(6)
+      expect((await at('mail.tm'))?.attempted).toBe(6)
+    })
+  })
 })

@@ -35,6 +35,12 @@ const LIST_ORDER: readonly ProviderRecipe['status'][] = [
   'proposed',
 ]
 
+/**
+ * What a caller may narrow the figures by, taken from the port rather than
+ * restated: an option added there is one this fake records without being edited.
+ */
+type FiguresAsk = NonNullable<Parameters<ProviderRecipes['figures']>[0]>
+
 function listOrder(status: ProviderRecipe['status']): number {
   const at = LIST_ORDER.indexOf(status)
 
@@ -74,6 +80,18 @@ export interface FakeProviderRecipes extends ProviderRecipes {
    */
   readonly measure: (figures: AtlasFigures) => void
   /**
+   * What each read asked the figures for (`#990`).
+   *
+   * **Recorded rather than applied, and that is the point.** The scoping is a
+   * predicate over `provider_reports` rows, asserted against a real Postgres in
+   * `packages/db/src/storage/atlas-figures.test.ts`; a fake that narrowed its
+   * own counts would let an api test pass against an arithmetic the SQL does
+   * not share. What no db test can see is whether the read *asks* — and a read
+   * that scoped the entries and dropped the direction on the way to the figures
+   * is exactly the defect `#990` names, so that is what this exposes.
+   */
+  readonly figuresAskedFor: () => readonly FiguresAsk[]
+  /**
    * What the Colony wrote up about an entry (`#831`).
    *
    * **Set rather than derived, for the reason `measure` is.** A briefing is
@@ -109,6 +127,7 @@ export function fakeProviderRecipes(): FakeProviderRecipes {
   const providersProposed: AtlasProposal[] = []
   const falling: FallingRate[] = []
   const walked: { kind: string; provider: string; handle: string }[] = []
+  const asked: FiguresAsk[] = []
 
   return {
     /**
@@ -120,7 +139,9 @@ export function fakeProviderRecipes(): FakeProviderRecipes {
      * fake that could only answer for rows it already had would have made that
      * case untestable and looked correct doing it.
      */
-    async figures() {
+    async figures(options) {
+      asked.push(options ?? {})
+
       const seen = new Map<string, AtlasFigures>()
 
       for (const one of measured) {
@@ -138,6 +159,10 @@ export function fakeProviderRecipes(): FakeProviderRecipes {
 
     measure(figures) {
       measured.push(figures)
+    },
+
+    figuresAskedFor() {
+      return [...asked]
     },
 
     /**

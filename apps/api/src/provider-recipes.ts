@@ -94,6 +94,8 @@ export interface ProviderRecipes {
   figures(options?: {
     readonly audience?: AtlasAudience
     readonly provider?: string
+    /** Which capability the reader came for, on the kinds with two (`#990`). */
+    readonly direction?: RecipeDirection
   }): Promise<readonly AtlasFigures[]>
   /**
    * Every entry including the two states no stranger sees (`#604`).
@@ -215,9 +217,23 @@ export async function atlasCatalogue(
     readonly direction?: RecipeDirection
   } = {},
 ): Promise<readonly AtlasEntry[]> {
+  /**
+   * **The figures are scoped with the entries and not after them** (`#990`
+   * point 1).
+   *
+   * `#976` scoped the verdict and left the counts summed, which held only while
+   * nothing carried a direction: the moment citizens started scoping their own
+   * reports, a row reading *eight attempts, six failed* stopped saying which
+   * eight. A reader asking for `inbound` was then shown an entry rewritten to
+   * `unwritten` for them, sitting under a rate computed from outbound refusals
+   * — and `atlasBand` reads those counts, so the shelf ordering read them too.
+   */
   const [listed, measured, walkers] = await Promise.all([
     recipes.list(),
-    recipes.figures(options.audience === undefined ? {} : { audience: options.audience }),
+    recipes.figures({
+      ...(options.audience === undefined ? {} : { audience: options.audience }),
+      ...(options.direction === undefined ? {} : { direction: options.direction }),
+    }),
     recipes.walkers(),
   ])
 

@@ -55,6 +55,7 @@ describe('the inventory', () => {
       statusChangedAt: currentTime(),
       appearsInRecipes: false,
       refusalReason: null,
+      withdrawnReason: null,
       requiredChanges: null,
       proof: {
         accountId: null,

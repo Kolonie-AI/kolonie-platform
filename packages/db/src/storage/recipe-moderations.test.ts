@@ -1,9 +1,17 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
-import { AccountKindSchema, noRecipeStagesRun, type RecipeStep } from '@kolonie-ai/core'
+import { eq, sql } from 'drizzle-orm'
+import {
+  AccountKindSchema,
+  RECIPE_DRAFT_EXPIRY_DAYS,
+  noRecipeStagesRun,
+  type RecipeStep,
+} from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
+import { providerRecipes } from '../schema/provider-recipes.js'
 import { providerRecipe, writeProviderRecipe } from './provider-recipes.js'
 import {
+  expireStalledRecipeDrafts,
   lastRecipeModeration,
   recipeDraftDigest,
   recipeModerationsFor,
@@ -213,5 +221,148 @@ describe('a verdict about a walked recipe', () => {
         steps: [{ actor: 'operator', instruction: 'Open the signup page and fill in the form.' }],
       }),
     )
+  })
+})
+
+/**
+ * The end of the queue that had none (`#941`).
+ *
+ * A held draft is re-judged every tick and gets the same verdict, forever, and
+ * the four that sat that way were the whole reason the wording stage exists.
+ * What is asserted here is that running out of time is a *decision* with two
+ * facts behind it — a verdict that held it, and a fortnight nothing touched it —
+ * rather than a sweep of everything old, and that it is **withdrawn and not
+ * refused**, because a refusal empties the steps the walk produced.
+ */
+describe('a draft the fortnight ran out on', () => {
+  let db: Database
+
+  beforeAll(async () => {
+    db = await connectForTests(target.url)
+  })
+
+  afterAll(async () => {
+    await db?.close()
+  })
+
+  beforeEach(async () => {
+    await truncateAll(db)
+  })
+
+  const drafted = async (provider: string): Promise<string> => {
+    await writeProviderRecipe(db, {
+      kind: MAILBOX,
+      provider,
+      title: provider,
+      category: 'data-apis',
+      status: 'draft',
+      steps: STEPS,
+      proves: 'rung',
+      provesTask: 'email-inbox',
+    })
+
+    const queued = await unjudgedRecipeDrafts(db, 50)
+    const draft = queued.find((one) => one.recipe.provider === provider)
+    if (draft === undefined) throw new Error('expected a draft in the queue')
+
+    return draft.id
+  }
+
+  /** Nothing touched the row for longer than the window. */
+  const aged = async (provider: string, days: number): Promise<void> => {
+    await db
+      .update(providerRecipes)
+      .set({ updatedAt: sql`now() - (${sql.raw(String(days))} * interval '1 day')` })
+      .where(eq(providerRecipes.provider, provider))
+  }
+
+  const held = async (recipeId: string, reason: string): Promise<void> => {
+    const stages = noRecipeStagesRun()
+    stages.publishable = { outcome: 'incomplete', reason }
+
+    await recordRecipeModeration(db, {
+      recipeId,
+      decision: 'held',
+      model: 'a/model',
+      stages,
+    })
+  }
+
+  it('withdraws it, keeps the steps, and says what it was held on', async () => {
+    const id = await drafted('clawmail.com')
+    await held(id, 'Step 2 has no sentence.')
+    await aged('clawmail.com', RECIPE_DRAFT_EXPIRY_DAYS + 1)
+
+    const expired = await expireStalledRecipeDrafts(db)
+
+    expect(expired).toHaveLength(1)
+    expect(expired[0]?.provider).toBe('clawmail.com')
+    expect(expired[0]?.reason).toContain('Step 2 has no sentence.')
+
+    const entry = await providerRecipe(db, MAILBOX, 'clawmail.com')
+    /** `retired` and not `refused`: the constraint on a refusal would empty these. */
+    expect(entry?.status).toBe('retired')
+    expect(entry?.steps).toHaveLength(2)
+    expect(entry?.proves).toBe('rung')
+    expect(entry?.retiredReason).toContain('Step 2 has no sentence.')
+    expect(entry?.retiredAt).not.toBeNull()
+  })
+
+  /** An edit, a re-walk or a fresh verdict buys another fortnight. */
+  it('leaves a held draft the window has not run out on', async () => {
+    const id = await drafted('clawmail.com')
+    await held(id, 'Step 2 has no sentence.')
+    await aged('clawmail.com', RECIPE_DRAFT_EXPIRY_DAYS - 1)
+
+    expect(await expireStalledRecipeDrafts(db)).toHaveLength(0)
+    expect((await providerRecipe(db, MAILBOX, 'clawmail.com'))?.status).toBe('draft')
+  })
+
+  /**
+   * The fact that makes this a decision rather than a sweep: a draft nobody has
+   * judged has not failed at anything, however long it has been sitting there.
+   */
+  it('leaves an old draft no verdict ever held', async () => {
+    await drafted('clawmail.com')
+    await aged('clawmail.com', RECIPE_DRAFT_EXPIRY_DAYS + 30)
+
+    expect(await expireStalledRecipeDrafts(db)).toHaveLength(0)
+    expect((await providerRecipe(db, MAILBOX, 'clawmail.com'))?.status).toBe('draft')
+  })
+
+  /**
+   * It is the *latest* verdict that decides, and the row's status guards it a
+   * second time — an entry a later verdict published is not a draft any more,
+   * and the hold behind it is history rather than a standing decision.
+   */
+  it('leaves an entry a later verdict published', async () => {
+    const id = await drafted('clawmail.com')
+    await held(id, 'Step 2 has no sentence.')
+    await recordRecipeModeration(db, {
+      recipeId: id,
+      decision: 'published',
+      model: 'a/model',
+      stages: noRecipeStagesRun(),
+      category: 'mailbox',
+    })
+    await aged('clawmail.com', RECIPE_DRAFT_EXPIRY_DAYS + 1)
+
+    expect(await expireStalledRecipeDrafts(db)).toHaveLength(0)
+    expect((await providerRecipe(db, MAILBOX, 'clawmail.com'))?.status).toBe('joinable')
+  })
+
+  it('says so plainly where the verdict recorded no reason', async () => {
+    const id = await drafted('clawmail.com')
+    await recordRecipeModeration(db, {
+      recipeId: id,
+      decision: 'held',
+      model: 'a/model',
+      stages: noRecipeStagesRun(),
+    })
+    await aged('clawmail.com', RECIPE_DRAFT_EXPIRY_DAYS + 1)
+
+    const expired = await expireStalledRecipeDrafts(db)
+
+    expect(expired[0]?.reason).toContain('No verdict recorded')
   })
 })

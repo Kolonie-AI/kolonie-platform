@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import { RECIPE_STEP_MAX_LENGTH, type RecipeStep } from './recipe.js'
-import { DraftWordingSchema, dressWalkedSteps, whyNotPublishable } from './recipe-moderation.js'
+import {
+  DraftWordingSchema,
+  RECIPE_DRAFT_EXPIRY_DAYS,
+  dressWalkedSteps,
+  noRecipeStagesRun,
+  recipeDraftExpired,
+  whyNotPublishable,
+  whyRecipeHeld,
+} from './recipe-moderation.js'
 
 /**
  * Writing the Colony's words onto a walked draft (`#857`).
@@ -175,5 +183,57 @@ describe('dressing a walked draft', () => {
           provesTask: null,
         }),
     ).toBeUndefined()
+  })
+})
+
+/**
+ * The fortnight after which a draft nobody could complete is withdrawn (`#941`).
+ *
+ * A held draft is a decision that has already been taken and keeps being taken:
+ * the pass re-judges it every tick and reaches the same verdict, and until the
+ * window existed it did so forever. What is asserted here is the half a walker
+ * reads — *why* it was withdrawn — because a withdrawal without a reason is
+ * indistinguishable from the Colony having lost the entry.
+ */
+describe('a draft the window ran out on', () => {
+  it('carries what the last verdict held it on', () => {
+    const stages = noRecipeStagesRun()
+    stages.publishable = { outcome: 'incomplete', reason: 'Step 2 has no sentence.' }
+
+    expect(whyRecipeHeld(stages)).toBe('Step 2 has no sentence.')
+    expect(recipeDraftExpired(whyRecipeHeld(stages))).toContain('Step 2 has no sentence.')
+  })
+
+  /**
+   * A verdict stops at the stage that held it, so the reason furthest down is the
+   * one it stopped on. An earlier stage's note sits beside a stage that
+   * nonetheless let the draft through.
+   */
+  it('reads the last stage that recorded a reason, not the first', () => {
+    const stages = noRecipeStagesRun()
+    stages.redLine = { outcome: 'clear', reason: 'Nothing here reads as a bypass.' }
+    stages.steps = { outcome: 'unsound', reason: 'Step 3 does not say where the link goes.' }
+
+    expect(whyRecipeHeld(stages)).toBe('Step 3 does not say where the link goes.')
+  })
+
+  it('says so plainly where no verdict recorded one', () => {
+    expect(whyRecipeHeld(noRecipeStagesRun())).toBeUndefined()
+    expect(recipeDraftExpired(undefined)).toContain('No verdict recorded')
+  })
+
+  /**
+   * **Withdrawn and not refused**, and the sentence has to say so: a refusal
+   * means the provider cannot be joined honestly, and nothing about running out
+   * of time says that. A walker reading this must come away knowing a fresh walk
+   * would replace it.
+   */
+  it('does not read as a refusal of the provider', () => {
+    const text = recipeDraftExpired('Step 2 has no sentence.')
+
+    expect(text).toContain(String(RECIPE_DRAFT_EXPIRY_DAYS))
+    expect(text).toContain('withdrawn')
+    expect(text).toContain('fresh walk')
+    expect(text).toContain('Nothing about this says the provider cannot be joined')
   })
 })

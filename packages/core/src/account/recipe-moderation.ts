@@ -91,6 +91,23 @@ export const RecipeModerationStagesSchema = z.object({
    */
   credentials: ModerationStageSchema,
   /**
+   * `not-needed`, `formed`, or why the sentences could not be formed (`#941`).
+   *
+   * **The stage that unsticks the wordless draft.** A walk records that a step
+   * happened and never a sentence for it (`#517`), so `publishable` below held
+   * every walked draft on wording that only a steward could supply — and four of
+   * them sat that way. This stage may form the missing sentence, but only out of
+   * what the walk itself recorded: the walker's own account of that step, and the
+   * `did` / `broke` / `changed` narrative on the same walk. A sentence that cites
+   * nothing recorded is dropped rather than published, and the step stays
+   * wordless.
+   *
+   * **Defaulted rather than required**, so that a verdict written before this
+   * stage existed still parses. Six stages became seven and the older rows say
+   * nothing about the seventh, which is the honest reading of them.
+   */
+  wording: ModerationStageSchema.default({ outcome: MODERATION_STAGE_NOT_RUN }),
+  /**
    * `named`, or what is missing before this can be published at all.
    *
    * Arithmetic, and it is the table's own constraints read forwards rather than
@@ -119,7 +136,32 @@ export const RecipeModerationStagesSchema = z.object({
 })
 export type RecipeModerationStages = z.infer<typeof RecipeModerationStagesSchema>
 
-/** Six stages, none of them run yet. What a draft's judgement starts from. */
+/**
+ * What a held verdict was held on, in one sentence (`#941`).
+ *
+ * **The last stage carrying a reason, and not the first.** A verdict runs its
+ * stages in order and stops at the one that held it, so the reason furthest down
+ * is the one it stopped on; an earlier stage's reason, where one exists, is a
+ * note beside a stage that nonetheless let the draft through.
+ *
+ * Absent where nothing recorded one — an older verdict, a stage that held without
+ * saying why — which the caller prints as such rather than inventing a cause.
+ */
+export function whyRecipeHeld(stages: RecipeModerationStages): string | undefined {
+  const inOrder = [
+    stages.dedup,
+    stages.redLine,
+    stages.credentials,
+    stages.wording,
+    stages.publishable,
+    stages.steps,
+    stages.shelf,
+  ]
+
+  return inOrder.reduce<string | undefined>((held, stage) => stage.reason ?? held, undefined)
+}
+
+/** Seven stages, none of them run yet. What a draft's judgement starts from. */
 export function noRecipeStagesRun(): RecipeModerationStages {
   const notRun = { outcome: MODERATION_STAGE_NOT_RUN } as const
 
@@ -127,6 +169,7 @@ export function noRecipeStagesRun(): RecipeModerationStages {
     dedup: notRun,
     redLine: notRun,
     credentials: notRun,
+    wording: notRun,
     publishable: notRun,
     steps: notRun,
     shelf: notRun,
@@ -242,6 +285,41 @@ export const RECIPE_RED_LINE_REFUSAL =
   'such an account, obtained together with its operator. This is not about the quality of the ' +
   'walk, and there is nothing here to reword: see governance/red-lines.md for the register ' +
   'this refusal comes from.'
+
+/**
+ * How long a draft the pass could not complete stays a draft (`#941`).
+ *
+ * **A fortnight, measured from the last time anything touched the row.** A
+ * steward's edit, a second walk, a re-judged verdict — each restarts it, because
+ * each is somebody working on the entry and the window exists for the drafts
+ * nobody is. What it ends is not a backlog but a silence: `#812` found the Atlas
+ * queue unattended rather than slow, and an unattended draft and an abandoned one
+ * are indistinguishable from outside until one of them expires.
+ */
+export const RECIPE_DRAFT_EXPIRY_DAYS = 14
+
+/**
+ * Why a draft expired, written for the walker who will read it (`#941`).
+ *
+ * **It carries the reason the pass last gave**, because *the window ran out* is
+ * not why the entry failed — it is only when the Colony stopped waiting. The
+ * walker needs the first to know whether walking it again would help.
+ *
+ * **Withdrawn and not refused**, which is the difference the text makes plain:
+ * the steps are kept, the provider is not condemned, and walking it again is the
+ * ordinary next move rather than an appeal.
+ */
+export function recipeDraftExpired(lastHeldOn: string | undefined): string {
+  return (
+    `The Colony waited ${String(RECIPE_DRAFT_EXPIRY_DAYS)} days for this draft to become ` +
+    'publishable and it did not, so the entry has been withdrawn rather than published. ' +
+    (lastHeldOn === undefined
+      ? 'No verdict recorded what it was waiting on.'
+      : `What it was held on: ${lastHeldOn}`) +
+    ' Nothing about this says the provider cannot be joined — the steps are kept and the ' +
+    'entry is readable, and a fresh walk that describes each step it took would replace it.'
+  )
+}
 
 /**
  * The wording a steward supplies so a walked draft can be published (`#857`).

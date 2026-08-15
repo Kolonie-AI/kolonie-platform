@@ -554,7 +554,12 @@ describe('kolonie.accounts.walk-report long form', () => {
     prerequisites: ['A GitHub account you already control.'],
     steps: [
       { title: 'Open the signup page', detail: 'It is OAuth-only; there is no email signup.' },
-      { title: 'Authorise the app', needsOperator: true },
+      {
+        title: 'Authorise the app',
+        /** `#941`: a step arrives with the sentence the next agent follows, or not at all. */
+        detail: 'The operator approves the OAuth request in the GitHub dialog.',
+        needsOperator: true,
+      },
     ],
     walls: [
       {

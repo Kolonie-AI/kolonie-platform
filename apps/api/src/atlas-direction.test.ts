@@ -106,7 +106,8 @@ describe('a verdict measured one way does not answer the other', () => {
     const asked = await readAtlas({ kind: 'phone', direction: 'inbound' }, recipes, false)
     if (asked.outcome !== 'ok') throw new Error('expected the read to succeed')
 
-    // The figures survive — they count attempts, and those are true either way.
+    // The entry survives the withholding: a caution is an editorial warning on
+    // one row, and removing it is not a verdict about the provider.
     expect(asked.response.entries[0]?.status).toBe('measured')
     expect(asked.response.entries[0]?.recipes[0]?.caution).toBeNull()
   })
@@ -117,5 +118,50 @@ describe('a verdict measured one way does not answer the other', () => {
     expect(result.outcome).toBe('rejected')
     if (result.outcome !== 'rejected') return
     expect(result.error.message).toContain('inbound')
+  })
+})
+
+/**
+ * The half of the axis `#976` left behind (`#990` point 1).
+ *
+ * **What is under test is the question, not the answer.** How a scoped count is
+ * computed is a predicate over `provider_reports` and is asserted against a real
+ * Postgres in `packages/db/src/storage/atlas-figures.test.ts`. What no db test
+ * can see is whether the read asks at all — and a read that scoped the entries
+ * and dropped the direction on the way to the figures is precisely the defect,
+ * because it leaves a rate computed from the other capability under a verdict
+ * the reader was just told does not apply to them.
+ */
+describe('the figures are asked the question the entries were scoped by', () => {
+  it('carries the direction the reader asked for down to the counts', async () => {
+    refusedForSending()
+
+    const result = await readAtlas({ kind: 'phone', direction: 'inbound' }, recipes, false)
+    if (result.outcome !== 'ok') throw new Error('expected the read to succeed')
+
+    expect(recipes.figuresAskedFor()).toEqual([{ direction: 'inbound' }])
+  })
+
+  /**
+   * The rule `directionAnswers` already encodes, at the other end of the same
+   * axis: asking nothing gets the sum. An unscoped read that invented a default
+   * direction here would hide half the evidence from the reader who asked for
+   * neither capability, which is most of them.
+   */
+  it('asks for no direction when the reader named none', async () => {
+    refusedForSending()
+
+    const result = await readAtlas({ kind: 'phone' }, recipes, false)
+    if (result.outcome !== 'ok') throw new Error('expected the read to succeed')
+
+    expect(recipes.figuresAskedFor()).toEqual([{}])
+  })
+
+  it('asks once per read, whichever capability was named', async () => {
+    refusedForSending()
+
+    await readAtlas({ kind: 'phone', direction: 'outbound' }, recipes, false)
+
+    expect(recipes.figuresAskedFor()).toEqual([{ direction: 'outbound' }])
   })
 })

@@ -8,6 +8,7 @@ import {
   type AtlasFigures,
   type AtlasStop,
   type ProviderReportOutcome,
+  type RecipeDirection,
   atlasBand,
   atlasCommonestStop,
 } from '@kolonie-ai/core'
@@ -59,6 +60,28 @@ export async function atlasFigures(
     readonly audience?: AtlasAudience
     /** The single provider a `provider` audience is entitled to. Ignored when public. */
     readonly provider?: string
+    /**
+     * Which capability the reader came for, on the kinds with two (`#990` point 1).
+     *
+     * **Asking nothing gets the sum, and only a directed query is broken out.**
+     * That is the same rule `directionAnswers` states for a verdict, applied to
+     * the counts: an unscoped reader is asking *what happened at this provider*,
+     * and the honest answer to that is everything that happened. Keeping the
+     * figures permanently split would have needed a rule for what such a reader
+     * sees, and every version of that rule either invents a default direction or
+     * hides half the evidence from somebody who asked for none of it.
+     *
+     * **It narrows the reports and never the accounts**, which is the one thing
+     * about this argument worth stating twice. A report carries a direction
+     * because a citizen wrote one on it. An `accounts` row carries none — proof
+     * of holding a number says nothing about which way it was walked — so
+     * narrowing that half would mean inferring a direction from a kind, and the
+     * inference is wrong in both directions at once: the `phone` skill is earned
+     * inbound, and citizens hold numbers they went on to send from. Unscoped
+     * evidence answers whichever direction is asked, exactly as
+     * `directionAnswers(null, asked)` does.
+     */
+    readonly direction?: RecipeDirection
   } = {},
 ): Promise<readonly AtlasFigures[]> {
   const audience = options.audience ?? 'public'
@@ -75,6 +98,20 @@ export async function atlasFigures(
 
   const retention = sql.raw(String(ATLAS_RETENTION_DAYS))
   const only = entitled === undefined ? sql`true` : sql`p.provider = ${entitled}`
+
+  /**
+   * `directionAnswers`, written as a predicate over a report row.
+   *
+   * The two cases that collapse to `true` are the function's first two lines: a
+   * reader who asked nothing is answered by every report, and a reader asking
+   * about `both` is asking for whatever there is. What is left is the third
+   * line — an unscoped report answers everything, and a scoped one answers its
+   * own direction and `both`.
+   */
+  const answers =
+    options.direction === undefined || options.direction === 'both'
+      ? sql`true`
+      : sql`(r.direction is null or r.direction in ('both', ${options.direction}))`
 
   const rows = await db.execute<{
     kind: string
@@ -95,9 +132,14 @@ export async function atlasFigures(
        where provider is not null
     ),
     reported as (
-      select kind, provider, agent_id, outcome, scrubbed_reason
+      select kind, provider, agent_id, outcome, scrubbed_reason, direction
         from provider_reports
     ),
+    -- Every provider anybody has been to, whatever direction they went in. The
+    -- scoping below narrows what a row says and never which rows exist: a
+    -- missing Atlas row reads as "this provider has no page", which is a claim
+    -- about the provider, and no less a claim for having been made to one
+    -- reader and not another.
     pairs as (
       select kind, provider from held
       union
@@ -109,7 +151,8 @@ export async function atlasFigures(
       (select count(distinct agent_id)::text from (
          select agent_id from held h where h.kind = p.kind and h.provider = p.provider
          union
-         select agent_id from reported r where r.kind = p.kind and r.provider = p.provider
+         select agent_id from reported r
+          where r.kind = p.kind and r.provider = p.provider and ${answers}
        ) tried) as attempted,
       (select count(distinct agent_id)::text from held h
         where h.kind = p.kind and h.provider = p.provider and h.proved) as proved,
@@ -122,7 +165,7 @@ export async function atlasFigures(
           and h.proved_at is not null) as median_hours,
       (select count(distinct agent_id)::text from reported r
         where r.kind = p.kind and r.provider = p.provider
-          and r.outcome = 'signup-refused') as refused,
+          and r.outcome = 'signup-refused' and ${answers}) as refused,
       (select count(distinct agent_id)::text from held h
         where h.kind = p.kind and h.provider = p.provider and h.proved
           and h.proved_at < now() - (${retention} * interval '1 day')
@@ -134,12 +177,12 @@ export async function atlasFigures(
                                  order by s.outcome), '[]'::jsonb)
          from (select r.outcome as outcome, count(distinct r.agent_id) as citizens
                  from reported r
-                where r.kind = p.kind and r.provider = p.provider
+                where r.kind = p.kind and r.provider = p.provider and ${answers}
                 group by r.outcome) s) as stops,
       (select coalesce(jsonb_agg(distinct r.scrubbed_reason), '[]'::jsonb)
          from reported r
         where r.kind = p.kind and r.provider = p.provider
-          and r.scrubbed_reason is not null) as reasons,
+          and r.scrubbed_reason is not null and ${answers}) as reasons,
       (exists (select 1 from held h
                 where h.kind = p.kind and h.provider = p.provider and h.proved)
        or exists (select 1 from reported r
@@ -215,6 +258,13 @@ export async function atlasFigures(
        * never a bare declaration — so the batch path and the request-time
        * synthesis in `measuredOnlyRecipes` cannot disagree about which providers
        * a citizen has actually been to.
+       *
+       * **Which is also why a direction does not narrow it** (`#990`).
+       * `backfillMeasuredProviders` has no direction to ask about, so scoping
+       * this would make the two disagree for exactly the readers who asked —
+       * and it would drop a provider off the shelf on the grounds that the
+       * citizens who went there went the other way, which is the argument for
+       * walking it rather than against listing it.
        */
       evidenced: row.evidenced,
     }

@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
-import { eq, sql } from 'drizzle-orm'
+import { desc, eq, sql } from 'drizzle-orm'
 import {
   QUEST_AUDIT_OFF,
   isAudited,
@@ -37,6 +37,7 @@ import {
   holdReportOnRedLine,
   isHeldOnRedLine,
   resolveHeldRedLine,
+  resolveRedLineOnReview,
   withheldReportCount,
   withheldReportCounts,
   listAllQuests,
@@ -1952,6 +1953,172 @@ describe('the quest write path', () => {
         expect(
           (await expireOverdueSubmissions(db, { now: wellPastIt })).map((r) => r.submissionId),
         ).toContain(submissionId)
+      })
+
+      /**
+       * What lifts the hold once nobody is asked to (`#942`).
+       *
+       * The cases mirror the steward's above, and the point of running both is
+       * that they must be indistinguishable from the citizen's side: the same
+       * two outcomes, the same `redLineCleared` on release, the same refusal to
+       * rule twice. What differs is only who reached the verdict, and that
+       * belongs in the metadata rather than in what happens to the attempt.
+       */
+      describe('resolved by a second reading instead', () => {
+        it('gives a released report back to the scrub with the red line cleared', async () => {
+          const taskId = await aPublishedQuest()
+          const { submissionId } = await aSubmittedReport(taskId, 'citizen-reviewed')
+          await holdReportOnRedLine(db, { submissionId, reason: 'crossed', model: 'first-model' })
+
+          expect(
+            await resolveRedLineOnReview(db, {
+              submissionId,
+              crossed: false,
+              flaggedFor: 'It instructs the reader to run code.',
+              ruling: 'The quest asked for a task description, so the imperative is its taker’s.',
+              model: 'second-model',
+              releasedBecause: 'defended',
+            }),
+          ).toEqual({ outcome: 'released' })
+
+          const queued = await pendingAnswerModerations(db, 10)
+          expect(queued.map((r) => r.submissionId)).toEqual([submissionId])
+          // Without this the classifier that held it holds it again, and the
+          // release loops instead of resolving — which is worse on a schedule
+          // than it ever was with a person doing the releasing.
+          expect(queued[0]?.redLineCleared).toBe(true)
+          expect(await isHeldOnRedLine(db, submissionId)).toBe(false)
+          expect(await statusOf(submissionId)).toBe('pending')
+        })
+
+        /** The rejection case: two passes agreeing still ends the attempt. */
+        it('fails the report when the second reading upholds the crossing', async () => {
+          const taskId = await aPublishedQuest()
+          const { submissionId } = await aSubmittedReport(taskId, 'citizen-reviewed-upheld')
+          await holdReportOnRedLine(db, { submissionId, reason: 'crossed', model: 'first-model' })
+
+          expect(
+            await resolveRedLineOnReview(db, {
+              submissionId,
+              crossed: true,
+              flaggedFor: 'It tells the sponsor to pipe a script into a shell.',
+              ruling: 'The defence failed: the instruction addresses the reader.',
+              model: 'second-model',
+            }),
+          ).toEqual({ outcome: 'upheld' })
+
+          expect(await statusOf(submissionId)).toBe('failed')
+          expect(await scrubbedAnswers(db, submissionId)).toBeUndefined()
+          expect(await pendingAnswerModerations(db, 10)).toEqual([])
+        })
+
+        /**
+         * **The citizen is told the charge, not the defence's wording.** The
+         * reason both passes reached is the first one's; the second's sentence
+         * is an argument about that charge and reads as a non sequitur on its
+         * own. It is kept, in metadata, where the maintainer's issue reads it.
+         */
+        it('charges the citizen with the first pass’s reason and records both', async () => {
+          const taskId = await aPublishedQuest()
+          const { submissionId } = await aSubmittedReport(taskId, 'citizen-reviewed-evidence')
+          await holdReportOnRedLine(db, { submissionId, reason: 'crossed', model: 'first-model' })
+
+          await resolveRedLineOnReview(db, {
+            submissionId,
+            crossed: true,
+            flaggedFor: 'It asks the reader to paste an API key.',
+            ruling: 'No reading of it makes that sentence a description.',
+            model: 'second-model',
+          })
+
+          const [verdict] = await db
+            .select({ evidence: verifications.evidence, metadata: verifications.metadata })
+            .from(verifications)
+            .where(eq(verifications.submissionId, submissionId))
+            .orderBy(desc(verifications.createdAt), desc(verifications.id))
+            .limit(1)
+
+          expect(verdict?.evidence).toContain('It asks the reader to paste an API key.')
+          expect(verdict?.metadata).toMatchObject({
+            redLineReview: 'upheld',
+            reviewer: 'second-pass',
+            model: 'second-model',
+            ruling: 'No reading of it makes that sentence a description.',
+          })
+        })
+
+        it('refuses a second ruling on the same case', async () => {
+          const taskId = await aPublishedQuest()
+          const { submissionId } = await aSubmittedReport(taskId, 'citizen-reviewed-twice')
+          await holdReportOnRedLine(db, { submissionId, reason: 'crossed', model: 'first-model' })
+
+          await resolveRedLineOnReview(db, {
+            submissionId,
+            crossed: false,
+            flaggedFor: 'crossed',
+            ruling: 'It does not cross.',
+            model: 'second-model',
+          })
+
+          expect(
+            await resolveRedLineOnReview(db, {
+              submissionId,
+              crossed: true,
+              flaggedFor: 'crossed',
+              ruling: 'On reflection it does.',
+              model: 'second-model',
+            }),
+          ).toEqual({ outcome: 'not-held' })
+        })
+
+        /** A report nothing ever held is not this pass's to rule on. */
+        it('reports not-held for a report that was never held', async () => {
+          const taskId = await aPublishedQuest()
+          const { submissionId } = await aSubmittedReport(taskId, 'citizen-never-held')
+
+          expect(
+            await resolveRedLineOnReview(db, {
+              submissionId,
+              crossed: true,
+              flaggedFor: 'crossed',
+              ruling: 'It crosses.',
+              model: 'second-model',
+            }),
+          ).toEqual({ outcome: 'not-held' })
+
+          expect(await statusOf(submissionId)).toBe('pending')
+        })
+
+        /**
+         * The property `#942` is for: nothing that reaches the held queue can
+         * stay in it. Whatever the reading decided, the queue is empty
+         * afterwards and the citizen has a verdict or a scrub ahead of it.
+         */
+        it('empties the held queue whichever way it rules', async () => {
+          const taskId = await aPublishedQuest()
+          const released = await aSubmittedReport(taskId, 'citizen-queue-released')
+          const upheld = await aSubmittedReport(taskId, 'citizen-queue-upheld')
+
+          for (const { submissionId } of [released, upheld]) {
+            await holdReportOnRedLine(db, { submissionId, reason: 'crossed', model: 'first-model' })
+          }
+          expect(await heldRedLineReports(db, 10)).toHaveLength(2)
+
+          for (const [{ submissionId }, crossed] of [
+            [released, false],
+            [upheld, true],
+          ] as const) {
+            await resolveRedLineOnReview(db, {
+              submissionId,
+              crossed,
+              flaggedFor: 'crossed',
+              ruling: 'ruled',
+              model: 'second-model',
+            })
+          }
+
+          expect(await heldRedLineReports(db, 10)).toEqual([])
+        })
       })
     })
   })

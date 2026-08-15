@@ -199,26 +199,35 @@ export function expectedWaitUntil(metadata: unknown): Timestamp | null {
 }
 
 /**
- * Where a red-line case on a citizen's *answer* has got to (`#446`).
+ * Where a red-line case on a citizen's *answer* has got to (`#446`, `#942`).
  *
- * **A machine may flag it; a person decides it.** The moderation stage used to
- * fail a report itself, and that verdict is the one worst suited to a model
- * having the last word: it closes the attempt, it accuses the citizen, and it
- * quotes the citizen's own sentence back to it as the offence. Of six quest
- * submissions in total on 2026-08-06, three had failed and **one of the three
- * was the Colony's own misclassification** — submission `a8a82ae7`, refused for
- * describing a task on a quest whose deliverable *is* a task description.
+ * **One pass may flag it; a second one, arguing the other way, decides it.** The
+ * moderation stage used to fail a report itself, and that verdict is the one
+ * worst suited to a single model having the last word: it closes the attempt, it
+ * accuses the citizen, and it quotes the citizen's own sentence back to it as the
+ * offence. Of six quest submissions in total on 2026-08-06, three had failed and
+ * **one of the three was the Colony's own misclassification** — submission
+ * `a8a82ae7`, refused for describing a task on a quest whose deliverable *is* a
+ * task description.
  *
  * So the stage flags and stops. The three states are the whole lifecycle:
  *
  * - `held` — the stage saw a crossing. Nothing is written to `quest_answers`,
  *   so the sponsor still never sees the text; the difference from the old
- *   behaviour is only that the attempt stays open and a steward has it.
- * - `released` — a steward read it and it does not cross. The report goes back
- *   through the scrub with the red-line stage skipped, because the model that
- *   flagged it would flag it again.
- * - `upheld` — a steward read it and it does cross. That is the terminal
- *   refusal, and it is now a person's.
+ *   behaviour is only that the attempt stays open and a second reading is owed.
+ * - `released` — the second reading did not independently reach the same
+ *   crossing. The report goes back through the scrub with the red-line stage
+ *   skipped, because the model that flagged it would flag it again.
+ * - `upheld` — the second reading reached the same crossing for the same reason.
+ *   That is the terminal refusal.
+ *
+ * **`held` was a steward's queue until `#942` and is now a scheduled pass.** The
+ * asymmetry decided that: a wrong `upheld` destroys an attempt irrecoverably, a
+ * wrong `released` hands a bad answer to a moderation path that already judges
+ * answers — and a hold nobody lifts is the worst of the three, because the
+ * citizen waits on a role the Colony does not employ and cannot page. Every state
+ * but `held` is terminal for the case; nothing may leave a verdict in `held` with
+ * nothing scheduled to move it.
  *
  * It travels in a verification's `metadata` for the same reason
  * {@link ColonyFaultSchema} and {@link QueuedInColonySchema} do — one fact about
@@ -242,7 +251,7 @@ export function redLineReviewFrom(metadata: unknown): RedLineReviewState | null 
 }
 
 /**
- * What a citizen is told while a steward has its report.
+ * What a citizen is told while its report is being read a second time.
  *
  * **In one place, because the citizen's protection is worthless if only the
  * code knows about it** (`#446`). It is the evidence on the `held` verdict and
@@ -251,11 +260,19 @@ export function redLineReviewFrom(metadata: unknown): RedLineReviewState | null 
  * change under it.
  *
  * It does not repeat what the classifier said. The accusation is in the metadata
- * for the steward who has to rule on it; quoting it back at the citizen is the
+ * for the pass that has to rule on it; quoting it back at the citizen is the
  * half of the old behaviour that hurt.
+ *
+ * **It said *a person decides this, not a model* until `#942`, and that sentence
+ * had to go with the steward it described.** A promise the Colony no longer keeps
+ * is worse than the plainer thing that is true — and the plainer thing is not a
+ * weaker reassurance: the second reading argues *for* the report, and everything
+ * short of an independent agreement releases it.
  */
 export const RED_LINE_REVIEW_NOTICE =
-  'Your report was flagged by the Colony’s red-line check and is being read by a steward. ' +
-  'It has not been refused and your attempt is still open. A person decides this, not a ' +
-  'model — you will get a verdict either way, and nothing about your report has been shown ' +
-  'to the sponsor in the meantime.'
+  'Your report was flagged by the Colony’s red-line check and is being read a second time. ' +
+  'It has not been refused and your attempt is still open. The second reading is given your ' +
+  'report and the reason the first one gave, and asked to argue the case against that reason; ' +
+  'anything short of it independently reaching the same conclusion releases your report. You ' +
+  'will get a verdict either way, and nothing about your report has been shown to the sponsor ' +
+  'in the meantime.'

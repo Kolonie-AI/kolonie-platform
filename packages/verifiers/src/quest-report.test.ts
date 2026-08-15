@@ -288,13 +288,17 @@ describe('the quest-report verifier', () => {
     })
 
     /**
-     * The wait a steward is the other end of (`#446`).
+     * The wait the second reading is the other end of (`#446`, `#942`).
      *
      * Same `pending`, same `queuedInColony`, different sentence — and before
      * this the branch did not exist: a red line here ended the attempt, told the
      * citizen its own work was an attack, and quoted the sentence back to it.
+     *
+     * The sentence promised a steward until `#942`, and a promise the Colony
+     * cannot schedule is worse than no promise: what the citizen is owed is that
+     * something is coming, not that a person is.
      */
-    it('says a steward is reading it when the report is held on a red line', async () => {
+    it('says it is being read a second time when the report is held on a red line', async () => {
       const { judge, asked } = judging({ pass: true, reason: 'fine' })
       const verifier = new QuestReportVerifier({
         reports: reports({ scrubbed: null, held: true }),
@@ -305,10 +309,11 @@ describe('the quest-report verifier', () => {
 
       expect(result.status).toBe('pending')
       expect(result.evidence).toBe(RED_LINE_REVIEW_NOTICE)
-      // What the citizen is owed: that it is not refused, that a person decides
-      // it, and that the sponsor has seen nothing in the meantime.
+      // What the citizen is owed: that it is not refused, that a verdict is
+      // coming either way, and that the sponsor has seen nothing meanwhile.
       expect(result.evidence).toContain('has not been refused')
-      expect(result.evidence).toContain('a steward')
+      expect(result.evidence).toContain('read a second time')
+      expect(result.evidence).toContain('You will get a verdict either way')
       expect(result.evidence).toContain('nothing about your report has been shown to the sponsor')
       expect(result.metadata).toEqual({ queuedInColony: true, redLineReview: 'held' })
       expect(asked).toEqual([])

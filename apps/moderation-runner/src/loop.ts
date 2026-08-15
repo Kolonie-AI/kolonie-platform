@@ -31,6 +31,7 @@ import { atlasTick, type AtlasLoopDependencies } from './atlas.js'
 import { recipeTick, type RecipeLoopDependencies } from './recipes.js'
 import { walkProseTick, type WalkProseLoopDependencies } from './walk-prose.js'
 import { answerTick, type AnswerLoopDependencies } from './answers.js'
+import { redLineReviewTick, type RedLineReviewLoopDependencies } from './redline-review.js'
 import { providerReasonTick, type ProviderReasonLoopDependencies } from './provider-reasons.js'
 import { questReportTick, type QuestReportLoopDependencies } from './quest-reports.js'
 import { directionTick, type DirectionLoopDependencies } from './directions.js'
@@ -102,6 +103,19 @@ export interface LoopDependencies {
    * (`#177`), or nothing. Optional for the reason the other two are.
    */
   readonly answers?: AnswerLoopDependencies
+  /**
+   * The second reading of the reports that scrub held on a red line (`#942`).
+   *
+   * **Optional like every other pass here, and the one whose absence is worst.**
+   * The others degrade to *nothing happens yet*: an unjudged Atlas proposal stays
+   * `pending`, an unread walk stays where it was. This one degrades to a citizen
+   * whose attempt never resolves, because {@link answers} writes `held` whether
+   * or not anything is wired to lift it. So it is optional for the shape and not
+   * for the deployment: `main.ts` wires it wherever it wires {@link answers}, and
+   * a runner with one and not the other is a misconfiguration rather than a
+   * smaller installation.
+   */
+  readonly redLineReview?: RedLineReviewLoopDependencies
   /**
    * What citizens said about the quests themselves (`#240`).
    *
@@ -459,6 +473,7 @@ export async function tick(deps: LoopDependencies, batchSize: number): Promise<T
 
   await checkTripwire(touched, deps, log)
   await scrubAnswers(deps, batchSize, log)
+  await reviewRedLines(deps, batchSize, log)
   await scrubQuestReports(deps, batchSize, log)
   await scrubProviderReasons(deps, batchSize, log)
   await readDirections(deps, batchSize, log)
@@ -644,7 +659,7 @@ async function scrubAnswers(deps: LoopDependencies, batchSize: number, log: Log)
     if (outcome.judged > 0) {
       log.info(
         `quest reports: ${outcome.judged} read, ${outcome.scrubbed} scrubbed, ` +
-          `${outcome.held} held for a steward, ${outcome.failed} deferred`,
+          `${outcome.held} held for a second reading, ${outcome.failed} deferred`,
         {
           event: 'answers.pass.done',
           judged: outcome.judged,
@@ -656,6 +671,47 @@ async function scrubAnswers(deps: LoopDependencies, batchSize: number, log: Log)
     }
   } catch (error) {
     log.error('the quest report scrub failed', error, { event: 'answers.pass.failed' })
+  }
+}
+
+/**
+ * Read the reports held on a red line a second time, on the same poll (`#942`).
+ *
+ * **Immediately after {@link scrubAnswers}, and that ordering is deliberate.**
+ * The scrub is what puts reports into `held`; running the reading behind it on
+ * the same poll means a report flagged at 12:00 has its verdict at 12:00 rather
+ * than a poll later. Nothing depends on the order — the reading queries the held
+ * rows itself — so a poll that got them the other way round is slower and not
+ * wrong.
+ *
+ * Its failure is swallowed like every other pass', with one asymmetry worth
+ * stating: a throw here leaves reports held, which is the state `#942` exists to
+ * make unreachable. It is survivable only because the next poll finds them again
+ * — the queue is oldest-first and nothing removes a row from it but a verdict.
+ */
+async function reviewRedLines(deps: LoopDependencies, batchSize: number, log: Log): Promise<void> {
+  const { redLineReview } = deps
+  if (redLineReview === undefined) return
+
+  try {
+    const outcome = await redLineReviewTick({ log, ...redLineReview }, batchSize)
+    if (outcome.read > 0) {
+      log.info(
+        `red-line holds: ${outcome.read} read a second time, ${outcome.released} released, ` +
+          `${outcome.upheld} upheld, ${outcome.stale} already ruled on`,
+        {
+          event: 'redline.review.pass.done',
+          read: outcome.read,
+          released: outcome.released,
+          upheld: outcome.upheld,
+          stale: outcome.stale,
+        },
+      )
+    }
+  } catch (error) {
+    log.error('the red-line second reading failed', error, {
+      event: 'redline.review.pass.failed',
+    })
   }
 }
 

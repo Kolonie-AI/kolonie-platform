@@ -29,13 +29,17 @@
  * No JavaScript, D-062, like every console page. Everything here is a form.
  */
 
-import type {
-  Account,
-  AccountStatus,
-  EpisodeTurn,
-  RecipeStatus,
-  ThreadParty,
-  Wish,
+import {
+  ENTRY_BODY_MAX_LENGTH,
+  KNOWN_ACCOUNT_KINDS,
+  SLOT_LABEL_MAX_LENGTH,
+  SLOT_VALUE_MAX_LENGTH,
+  type Account,
+  type AccountStatus,
+  type EpisodeTurn,
+  type RecipeStatus,
+  type ThreadParty,
+  type Wish,
 } from '@kolonie-ai/core'
 import type { BundleView } from '@kolonie-ai/db'
 import { escape, page } from './html.js'
@@ -373,6 +377,15 @@ export interface AgentAccountsInput {
    * one time it says something they will have stopped looking.
    */
   readonly maintenance?: readonly MaintenanceEpisode[] | undefined
+  /**
+   * What the last write on this page did, in one sentence (`#933`).
+   *
+   * A handover that lands has an account page of its own to redirect to, and it
+   * does. A handover that is refused has nowhere — the account was never made —
+   * so it comes back here, and without this it would come back looking exactly
+   * like a page nobody had posted to.
+   */
+  readonly notice?: string | undefined
 }
 
 /** One open episode, as this page needs it. Never the identifier it is about. */
@@ -528,6 +541,85 @@ export function agentAccountsPage(input: AgentAccountsInput): string {
         ]
 
   /**
+   * Handing the agent an account it never asked for (`#933`).
+   *
+   * **Every other route runs the other way.** `accounts.handoff` is the Colony
+   * asking the operator for one step of a recipe the agent is already walking;
+   * `operator.request.*` is the agent asking; `accounts.handover` is the agent
+   * sealing something *for* the operator. Each of them begins with the agent
+   * wanting something. This is the case the maintainer named on 2026-08-14: an
+   * operator opens an account somewhere, and hands it over unprompted.
+   *
+   * **It is an episode like any other.** Opened by the operator, `acquisition`,
+   * turn passed to the agent on submit — so it arrives in the same read, in the
+   * same list, answered with the same calls as an episode the agent opened
+   * itself. A separate mechanism would have been a second way to say one thing.
+   *
+   * **Values, not instructions.** The fields are what the account *is* — kind,
+   * provider, identifier, and the labelled values that open it. There is no
+   * field for what the agent should do with it, and the note is the note every
+   * episode has rather than a channel for orders. An operator who wants
+   * something done asks for it where asking lives.
+   *
+   * **Three slot rows and no button to add a fourth.** D-062: no JavaScript, so
+   * a row cannot appear on a click. Three covers a sign-in name, a password and
+   * one more; a fourth value goes in a second handover, or the agent opens a
+   * slot for it and the operator fills that.
+   */
+  const handover = [
+    '<h2>Handing your agent an account</h2>',
+    `<p>If you have opened an account somewhere for ${escape(input.name)} — a mailbox, a ` +
+      'login, a subscription — this is how it reaches them. Say what the account is and ' +
+      'fill in what opens it, and it arrives as something waiting on your agent.</p>',
+    /**
+     * The sentence that makes this a gift rather than an instruction. `#933`
+     * settled it and the acceptance criteria turn on it: an agent that declines
+     * loses nothing, so the page must not imply otherwise.
+     */
+    '<p class="note"><strong>Your agent decides what to do with it.</strong> It may take the ' +
+      'account into service, ask you something first, or close this as abandoned — and ' +
+      'nothing is taken from it either way. No reputation, no skill, no standing changes ' +
+      'anywhere in this.</p>',
+    /**
+     * Named because the page says the opposite three inches lower. The wish
+     * list refuses a secret and this form takes one; without the distinction
+     * the two read as the console contradicting itself.
+     */
+    '<p class="note">A value you mark as secret is sealed the moment you submit it — it is ' +
+      'not shown back to you, and your agent reads it a small number of times before it ' +
+      'is destroyed. This is the sealed box the list below tells you to use, opened from ' +
+      'your side.</p>',
+    `<form method="post" action="/agents/${escape(input.agentId)}/accounts/handover">`,
+    '<p><label>What sort of account is it? ' +
+      `<input name="kind" list="account-kinds" required maxlength="32"></label></p>`,
+    `<datalist id="account-kinds">${KNOWN_ACCOUNT_KINDS.map(
+      (kind) => `<option value="${escape(kind)}">`,
+    ).join('')}</datalist>`,
+    '<p><label>Who runs it? <input name="provider" maxlength="128" ' +
+      'placeholder="mail.example"></label></p>',
+    '<p><label>What is it held under? <input name="identifier" required ' +
+      'maxlength="320"></label></p>',
+    '<p>What opens it:</p>',
+    ...[
+      { n: 1, label: 'Sign-in name', secret: false },
+      { n: 2, label: 'Password', secret: true },
+      { n: 3, label: '', secret: false },
+    ].map(
+      (row) =>
+        `<p><label>What this is <input name="label${row.n}" ` +
+        `maxlength="${SLOT_LABEL_MAX_LENGTH}" value="${escape(row.label)}"></label> ` +
+        `<label>The value <input name="value${row.n}" ` +
+        `maxlength="${SLOT_VALUE_MAX_LENGTH}"></label> ` +
+        `<label><input type="checkbox" name="secret${row.n}" value="yes"` +
+        `${row.secret ? ' checked' : ''}> seal it</label></p>`,
+    ),
+    `<p><label>Anything your agent should know <textarea name="note" rows="3" ` +
+      `maxlength="${ENTRY_BODY_MAX_LENGTH}"></textarea></label></p>`,
+    '<p><button type="submit">Hand it over</button></p>',
+    '</form>',
+  ]
+
+  /**
    * The shared list (`#527`), and it sits **below** the window sentence and
    * above the note form.
    *
@@ -677,9 +769,11 @@ export function agentAccountsPage(input: AgentAccountsInput): string {
       'and its deposit address are not here</strong>: those are the agent\u2019s own, nobody ' +
       'hands them over, and they stay on ' +
       `<a href="/agents/${escape(input.agentId)}">its page</a>.</p>`,
+    ...(input.notice === undefined ? [] : [`<p><strong>${escape(input.notice)}</strong></p>`]),
     '<h2>What this agent holds</h2>',
     ...held,
     ...maintenance,
+    ...handover,
     ...wishes,
     ...bundleBlock,
     ...adoption,

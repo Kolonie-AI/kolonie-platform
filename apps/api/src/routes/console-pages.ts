@@ -7,7 +7,9 @@ import {
   AccountSlotIdSchema,
   ENTRY_BODY_MAX_LENGTH,
   EPISODE_TITLE_MAX_LENGTH,
+  SLOT_LABEL_MAX_LENGTH,
   SLOT_MAX_READS,
+  SLOT_VALUE_MAX_LENGTH,
   AccountProviderSchema,
   RECIPE_REFUSAL_MAX_LENGTH,
   RECIPE_STEP_MAX_LENGTH,
@@ -2782,6 +2784,7 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
       readonly roles: readonly string[]
     },
     issued?: { readonly code: string; readonly expiresAt: string },
+    notice?: string,
   ) => {
     const held = await deps.autonomy.pages.factsOf(operated.agentId)
     if (held === null) return consoleNotFound(reply, request)
@@ -2882,8 +2885,31 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
         // What stopped answering, if anything has (`#934`).
         maintenance,
         ...(adoption === undefined ? {} : { adoption }),
+        ...(notice === undefined ? {} : { notice }),
       }),
     )
+  }
+
+  /**
+   * What a handover that could not land says on the way back (`#933`).
+   *
+   * A handover that lands has an account page to redirect to. One that does not
+   * has no account at all, so it comes back here — and a page that came back
+   * looking untouched would read as a form that quietly did nothing.
+   */
+  const HANDOVER_NOTICES: Readonly<Record<string, string>> = {
+    'handed-over': 'Handed over. Your agent has the next move.',
+    'handover-incomplete':
+      'Nothing was handed over: an account needs both what sort it is and what it is held under.',
+    'handover-taken':
+      'Nothing was handed over: another citizen has proved that account, and one account ' +
+      'belongs to one of them.',
+    'handover-full': 'Nothing was handed over: your agent’s register is full.',
+    'handover-open':
+      'Nothing was handed over: your agent already has an acquisition open about that account.',
+    'handover-unsealed':
+      'Nothing was handed over: this console cannot seal a secret right now, and a value ' +
+      'marked secret is not written unsealed.',
   }
 
   app.get('/agents/:agentId/accounts', async (request, reply) => {
@@ -2892,7 +2918,10 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
     const operated = await operatedAgent(request, reply)
     if (operated === null) return reply
 
-    return renderAgentAccounts(request, reply, operated)
+    const { said } = request.query as { said?: string }
+    const notice = said === undefined ? undefined : HANDOVER_NOTICES[said]
+
+    return renderAgentAccounts(request, reply, operated, undefined, notice)
   })
 
   /**
@@ -3236,6 +3265,172 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
         'location',
         `/agents/${String(operated.agentId)}/accounts/${accountId}${opened ? '?said=opened' : ''}`,
       )
+      .send()
+  })
+
+  /**
+   * An operator hands the agent an account it never asked for (`#933`).
+   *
+   * **The only route in the Colony that runs this way.** Every other one begins
+   * with the agent wanting something — `accounts.handoff` asks the operator for
+   * one step of a recipe the agent is walking, `operator.request.*` is the agent
+   * asking, `accounts.handover` is the agent sealing something *for* the
+   * operator. This is the one where a person opens an account somewhere and
+   * gives it away unprompted.
+   *
+   * **It makes the account, and it has to.** `account_threads.account_id`
+   * references `accounts` and a trigger makes the two together, so there is no
+   * such thing as an episode about an account that does not exist. The row
+   * lands unproved and belongs to the agent from the first statement — the
+   * close then offers `accounts.declare` prefilled so the note, the vault key
+   * and the provider on it end up being the citizen's own words rather than
+   * this form's.
+   *
+   * **One episode, one entry, and the slots the operator filled in.** No
+   * separate mechanism, no new kind: it is an `acquisition` opened by the
+   * operator with the turn handed to the agent, so it arrives in the same read
+   * and is answered by the same four calls as one the agent opened itself.
+   *
+   * **The agent is never penalised for what it does with it.** Nothing here
+   * writes reputation, grants a skill or touches standing, and closing this as
+   * `abandoned` costs exactly what closing any other episode costs, which is
+   * nothing. That is `#933`'s rejection case and it is held by there being no
+   * code to hold it.
+   */
+  app.post('/agents/:agentId/accounts/handover', async (request, reply) => {
+    if (!(await guard(request, reply))) return reply
+
+    const operated = await operatedAgent(request, reply)
+    if (operated === null) return reply
+
+    const body = (request.body ?? {}) as Record<string, unknown>
+    const text = (name: string): string => {
+      const value = body[name]
+      return typeof value === 'string' ? value.trim() : ''
+    }
+
+    const store = deps.accountThreads
+    const kind = text('kind')
+    const identifier = text('identifier')
+    const provider = text('provider')
+    const note = text('note')
+
+    /**
+     * The three rows the form renders, read positionally. A row with no value
+     * is a row the person left blank, which is the ordinary case for the third.
+     */
+    const wanted = [1, 2, 3]
+      .map((n) => ({
+        label: text(`label${n}`),
+        value: text(`value${n}`),
+        secret: body[`secret${n}`] === 'yes',
+      }))
+      .filter((slot) => slot.value !== '')
+      .map((slot) => ({ ...slot, label: slot.label === '' ? 'Value' : slot.label }))
+
+    const said = async (code: string) =>
+      wantsHtml(request)
+        ? reply
+            .status(303)
+            .header('location', `/agents/${String(operated.agentId)}/accounts?said=${code}`)
+            .send()
+        : reply.status(ERROR_STATUS.conflict).send({ code: 'conflict', message: code })
+
+    const parsed = AccountKindSchema.safeParse(kind)
+    if (store === undefined || !parsed.success || identifier === '') {
+      return await said('handover-incomplete')
+    }
+
+    /**
+     * **Asked before the account is made**, rather than discovered halfway
+     * through: a handover that opened the episode and then found it could not
+     * seal the password would leave the agent an account it has been told
+     * nothing about, and a person with no way to tell that had happened.
+     */
+    if (wanted.some((slot) => slot.secret) && !store.carriesSecrets) {
+      return await said('handover-unsealed')
+    }
+
+    const declared = await deps.accounts.register.declare(operated.agentId, {
+      kind: parsed.data,
+      identifier,
+      ...(provider === '' ? {} : { provider }),
+    })
+
+    if (declared.outcome === 'identifier_taken') return await said('handover-taken')
+    if (declared.outcome === 'too_many') return await said('handover-full')
+
+    const accountId = declared.account.id
+    const thread = await store.thread(accountId)
+    if (thread === undefined) return await said('handover-incomplete')
+
+    /** `#582`: the kind and the provider, and never the identifier. */
+    const at = provider === '' ? `a ${kind}` : `a ${kind} at ${provider}`
+    const opened = await store.openEpisode({
+      threadId: thread.id,
+      openedBy: 'operator',
+      kind: 'acquisition',
+      title: `Your operator has opened ${at} for you`.slice(0, EPISODE_TITLE_MAX_LENGTH),
+      turn: 'agent',
+    })
+
+    /**
+     * An acquisition this thread already has. `declare` is idempotent on the
+     * same three fields, so a person who submits the form twice lands here
+     * rather than making a second account — and the honest answer is that the
+     * first one is still open and waiting on the agent.
+     */
+    if (opened.outcome !== 'opened') return await said('handover-open')
+
+    if (note !== '') {
+      await store.writeEntry({
+        episodeId: opened.episode.id,
+        author: 'operator',
+        body: note.slice(0, ENTRY_BODY_MAX_LENGTH),
+      })
+    }
+
+    for (const slot of wanted) {
+      /**
+       * **Opened awaiting the operator and filled by the operator**, both
+       * halves, in the one request. `awaits` is what decides which mechanism
+       * seals the value — `account_slots_filled_by_the_awaited` refuses a row
+       * where the wrong side filled it — so a slot the operator supplies is an
+       * operator slot even though nobody was waiting for it.
+       */
+      const empty = await store.openSlot({
+        episodeId: opened.episode.id,
+        label: slot.label.slice(0, SLOT_LABEL_MAX_LENGTH),
+        secret: slot.secret,
+        awaits: 'operator',
+      })
+
+      const value = slot.value.slice(0, SLOT_VALUE_MAX_LENGTH)
+
+      /**
+       * A secret goes through `fillAsOperator`, which is the only path that
+       * seals with the scope the read expects; a plain value goes through
+       * `fillSlot`, because sealing something the page would print back is
+       * ceremony without a secret in it.
+       */
+      if (slot.secret) {
+        await store.fillAsOperator({
+          slotId: empty.slot.id,
+          humanId: String(operated.humanId),
+          value,
+        })
+      } else {
+        await store.fillSlot({ slotId: empty.slot.id, filledBy: 'operator', value })
+      }
+    }
+
+    if (!wantsHtml(request)) {
+      return reply.status(200).send({ handedOver: true, accountId })
+    }
+
+    return reply
+      .status(303)
+      .header('location', `/agents/${String(operated.agentId)}/accounts/${accountId}`)
       .send()
   })
 

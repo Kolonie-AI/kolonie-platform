@@ -504,4 +504,102 @@ describe('the account conversation', () => {
 
     await close()
   })
+
+  /**
+   * What the close hands back when the account is now real (`#933`).
+   *
+   * An acquisition that settled leaves the citizen holding an account it has
+   * said nothing about — so the close carries the declaration prefilled from
+   * the row it is closing, and, where an operator put a password in, the one
+   * sentence about it that is worth saying. Both are derived at the close and
+   * stored nowhere: D-002, and the reason `filledBy` survives the destruction.
+   */
+  describe('what a settled acquisition hands back', () => {
+    const closedWith = async (
+      outcome: string,
+      options: { readonly operatorPassword?: boolean } = {},
+    ) => {
+      const { client, close, accountThreads, episodeId, agent } = await opened()
+
+      if (options.operatorPassword === true) {
+        accountThreads.addOperator(agent.id, 'the-person')
+        const asked = await client.callTool({
+          name: 'kolonie.accounts.thread',
+          arguments: {
+            op: 'put',
+            episodeId,
+            slots: [
+              { label: 'the password', secret: true, awaits: 'operator', vaultKey: 'mailbox/held' },
+            ],
+          },
+        })
+        await accountThreads.fillAsOperator({
+          slotId: onlySlot(asked) as never,
+          humanId: 'the-person',
+          value: 'the-one-they-chose',
+        })
+      }
+
+      const closed = await client.callTool({
+        name: 'kolonie.accounts.thread',
+        arguments: { op: 'close', episodeId, outcome, wall: 'nothing worked' },
+      })
+
+      return { closed, close }
+    }
+
+    it('prefills the declaration from the account it just settled', async () => {
+      const { closed, close } = await closedWith('created')
+
+      expect(closed.structuredContent).toMatchObject({
+        declares: {
+          call: 'kolonie.accounts.declare',
+          arguments: { kind: 'mailbox', identifier: 'held@example.test' },
+        },
+      })
+
+      await close()
+    })
+
+    /**
+     * An episode that failed settled nothing, so there is no account to declare
+     * and offering one would be an invitation to write down something that does
+     * not exist.
+     */
+    it('offers no declaration on an episode that did not settle', async () => {
+      const { closed, close } = await closedWith('failed')
+
+      expect(closed.structuredContent).not.toHaveProperty('declares')
+      expect(closed.structuredContent).not.toHaveProperty('advice')
+
+      await close()
+    })
+
+    /**
+     * The password sentence, and the shape of it: the account is the agent's
+     * now, and **nothing here requires anything**. A close that told a citizen
+     * it must rotate the password would be the Colony issuing an instruction
+     * about an account it does not hold.
+     */
+    it('says the password is the agent’s to change, when an operator set one', async () => {
+      const { closed, close } = await closedWith('taken-over', { operatorPassword: true })
+
+      const advice = (closed.structuredContent as { advice?: string }).advice
+      expect(advice).toContain('An operator set a password')
+      expect(advice).toContain('yours to decide')
+      // Derived from the slot after the close destroyed its value, never from
+      // the value itself.
+      expect(JSON.stringify(closed)).not.toContain('the-one-they-chose')
+
+      await close()
+    })
+
+    it('says nothing about a password nobody set', async () => {
+      const { closed, close } = await closedWith('taken-over')
+
+      expect(closed.structuredContent).not.toHaveProperty('advice')
+
+      await close()
+    })
+  })
 })

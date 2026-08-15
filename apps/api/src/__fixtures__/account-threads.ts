@@ -63,7 +63,30 @@ export interface FakeAccountThreads extends AccountThreadStore {
 const SEALED = 'sealed:'
 
 export function fakeAccountThreads(
-  options: { readonly carriesSecrets?: boolean } = {},
+  options: {
+    readonly carriesSecrets?: boolean
+    /**
+     * The trigger, as a function (`#933`).
+     *
+     * In production `account_threads.account_id` references `accounts` and a
+     * trigger makes the thread in the same statement that makes the account —
+     * so a route that *creates* an account and then asks for its thread finds
+     * one. {@link FakeAccountThreads.addAccount} covers the case where a test
+     * puts the account there itself; it cannot cover the case where the route
+     * under test is what puts it there, because the test never learns the id.
+     *
+     * Wire this to the register the route writes to and the fake adopts an
+     * account the moment it is asked about one, which is what the trigger does.
+     */
+    readonly trigger?: (accountId: string) =>
+      | {
+          readonly agentId: AgentId
+          readonly kind: string
+          readonly identifier: string
+          readonly provider: string | null
+        }
+      | undefined
+  } = {},
 ): FakeAccountThreads {
   const carriesSecrets = options.carriesSecrets ?? true
 
@@ -131,21 +154,33 @@ export function fakeAccountThreads(
   const byTurn = (turn: AccountEpisode['turn']) =>
     turn === 'agent' ? 0 : turn === 'operator' ? 1 : 2
 
+  /**
+   * The account and its thread, together, because in production one statement
+   * makes both. Every way into this fake goes through here.
+   */
+  const adopt = (account: {
+    readonly agentId: AgentId
+    readonly id?: string
+    readonly kind?: string
+    readonly identifier?: string
+    readonly provider?: string | null
+  }): { readonly id: string } => {
+    const id = account.id ?? randomUUID()
+    accounts.set(id, {
+      agentId: account.agentId,
+      kind: account.kind ?? 'mailbox',
+      identifier: account.identifier ?? 'held@example.test',
+      provider: account.provider ?? null,
+    })
+    // A trigger makes the thread with the account in production, so there is
+    // no way here either to have an account without one.
+    const threadId = AccountThreadIdSchema.parse(randomUUID())
+    threads.set(String(threadId), { id: threadId, accountId: id, createdAt: currentTime() })
+    return { id }
+  }
+
   return {
-    addAccount(account) {
-      const id = account.id ?? randomUUID()
-      accounts.set(id, {
-        agentId: account.agentId,
-        kind: account.kind ?? 'mailbox',
-        identifier: account.identifier ?? 'held@example.test',
-        provider: account.provider ?? null,
-      })
-      // A trigger makes the thread with the account in production, so there is
-      // no way here either to have an account without one.
-      const threadId = AccountThreadIdSchema.parse(randomUUID())
-      threads.set(String(threadId), { id: threadId, accountId: id, createdAt: currentTime() })
-      return { id }
-    },
+    addAccount: adopt,
 
     vaultContents: () => new Map(vault),
 
@@ -189,6 +224,11 @@ export function fakeAccountThreads(
     },
 
     async thread(accountId) {
+      const held = [...threads.values()].find((row) => row.accountId === accountId)
+      if (held !== undefined) return held
+      const made = options.trigger?.(accountId)
+      if (made === undefined) return undefined
+      adopt({ ...made, id: accountId })
       return [...threads.values()].find((row) => row.accountId === accountId)
     },
 

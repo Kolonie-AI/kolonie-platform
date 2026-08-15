@@ -371,6 +371,45 @@ export type ThreadResponse = {
    * shape is right.
    */
   readonly proposes?: string
+  /**
+   * The `kolonie.accounts.declare` call this episode has earned, filled in
+   * (`#933`).
+   *
+   * **The row already exists, and that is not what this offers.** An episode
+   * cannot be opened without an account to hang it off — `account_threads`
+   * references `accounts` and a trigger makes the two together — so by the time
+   * anything is closed the register holds a row. Where an operator opened the
+   * account on the agent's behalf, that row is *theirs*: kind, identifier,
+   * provider and nothing else. What this hands over is the declaration the
+   * citizen would have written itself, so that the note, the vault key and the
+   * provider are its own. `declare` is idempotent on the same three fields, so
+   * making the call twice costs nothing and changes no standing.
+   *
+   * **Only where the account now exists**, which is what `taken-over` and
+   * `created` mean. An episode that failed or was abandoned has nothing to
+   * declare, and prefilling one would be the Colony pressing.
+   */
+  readonly declares?: {
+    readonly call: 'kolonie.accounts.declare'
+    readonly arguments: {
+      readonly kind: string
+      readonly identifier: string
+      readonly provider?: string
+    }
+  }
+  /**
+   * What the close suggests doing next, in one sentence, and never more than
+   * that (`#933`).
+   *
+   * **Suggested and not forced.** The Colony decided on 2026-08-08 that the
+   * credentials of an account somebody opens for an agent are the agent's; what
+   * the operator keeps is the ability to end the arrangement. A password the
+   * operator chose is one two parties know, and the citizen is the party that
+   * can change it — but a Colony that *required* the change would be deciding
+   * for a citizen about its own account, which is the thing that decision
+   * settled the other way.
+   */
+  readonly advice?: string
 }
 
 export type ThreadOutcome =
@@ -549,7 +588,10 @@ export async function accountThread(
   if (op === 'put') return await putSlots(agentId, found.episode, command, store)
   if (op === 'note') return await note(found.episode, command, store)
   if (op === 'pass') return await pass(found.episode, command, store)
-  return await close(found.episode, command, store)
+  // The account travels with the episode because the close speaks about it:
+  // `#933`'s prefilled declaration is composed from the row, and `found` is the
+  // read that already scoped it to this agent.
+  return await close(found, command, store)
 }
 
 async function openOne(
@@ -859,11 +901,26 @@ async function pass(
   return { outcome: 'ok', response: { op: 'pass', episode: passed.episode, entry } }
 }
 
+/**
+ * What a closed episode hands the citizen on the way out (`#933`).
+ *
+ * **Derived at the close, stored nowhere.** *Did an operator set a password
+ * here* is answerable from the slots the episode already carries — a secret one
+ * that the operator filled — so a column recording it would be a second record
+ * of one fact, which is D-002. Closing destroys the value and leaves `filledBy`
+ * standing, so this reads correctly on an episode whose secrets are already
+ * gone.
+ */
+const PASSWORD_ADVICE =
+  'An operator set a password on this account. It is yours now, and changing it is ' +
+  'yours to decide — nothing here requires it and nothing is withheld if you do not.'
+
 async function close(
-  episode: AccountEpisode,
+  found: { readonly episode: AccountEpisode; readonly account: OpenEpisodeAccount },
   command: ThreadCommand,
   store: AccountThreadStore,
 ): Promise<ThreadOutcome> {
+  const { episode, account } = found
   const outcome = EpisodeOutcomeSchema.safeParse(command.outcome ?? undefined)
   if (!outcome.success) {
     return rejected(
@@ -902,6 +959,23 @@ async function close(
     )
   }
 
+  /**
+   * The declaration and the suggestion, and both only on the transition
+   * (`#933`), for the same reason `proposes` is: an already-closed episode said
+   * whatever it said the first time, and repeating it would invite a citizen to
+   * believe something new had happened.
+   *
+   * **The slots are read only where there is something to advise about.** An
+   * episode that failed offers no declaration, so it needs no answer to *did an
+   * operator set a password* either.
+   */
+  const settled =
+    closed.outcome === 'closed' && (outcome.data === 'taken-over' || outcome.data === 'created')
+
+  const operatorSetASecret =
+    settled &&
+    (await store.slots(episode.id)).some((slot) => slot.secret && slot.filledBy === 'operator')
+
   return {
     outcome: 'ok',
     response: {
@@ -913,6 +987,19 @@ async function close(
        * believe a second draft appeared.
        */
       ...(closed.outcome === 'closed' ? { proposes: closed.proposed.kind } : {}),
+      ...(settled
+        ? {
+            declares: {
+              call: 'kolonie.accounts.declare' as const,
+              arguments: {
+                kind: account.kind,
+                identifier: account.identifier,
+                ...(account.provider === null ? {} : { provider: account.provider }),
+              },
+            },
+          }
+        : {}),
+      ...(operatorSetASecret ? { advice: PASSWORD_ADVICE } : {}),
     },
   }
 }

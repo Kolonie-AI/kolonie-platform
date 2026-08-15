@@ -232,3 +232,80 @@ describe('the accounts that stopped answering', () => {
     expect(html).not.toContain('<td>ariadne’s</td>')
   })
 })
+
+/**
+ * The form that hands an agent an account it never asked for (`#933`).
+ *
+ * Every other channel on this page runs the other way — the agent asks and the
+ * operator answers. These assert the three things that make this one safe to
+ * put in front of a person: that it takes the values rather than instructions,
+ * that it says plainly the agent may decline, and that a form which could not
+ * land says so on the way back.
+ */
+describe('handing your agent an account', () => {
+  it('asks what the account is and what opens it', () => {
+    const html = aPage()
+
+    expect(html).toContain('Handing your agent an account')
+    expect(html).toContain(`action="/agents/${AGENT}/accounts/handover"`)
+    expect(html).toContain('name="kind"')
+    expect(html).toContain('name="identifier"')
+    expect(html).toContain('name="provider"')
+    // Three rows of label/value/seal, so a sign-in name, a password and one more.
+    for (const n of [1, 2, 3]) {
+      expect(html).toContain(`name="label${n}"`)
+      expect(html).toContain(`name="value${n}"`)
+      expect(html).toContain(`name="secret${n}"`)
+    }
+  })
+
+  /**
+   * The kinds the Colony knows are offered and none of them is imposed:
+   * `AccountKindSchema` takes any well-formed slug, so a closed `<select>`
+   * would refuse an account the Colony simply has no rung for yet.
+   */
+  it('suggests the known kinds without closing the list', () => {
+    const html = aPage()
+
+    expect(html).toContain('<datalist id="account-kinds">')
+    expect(html).toContain('<option value="mailbox">')
+    expect(html).not.toContain('<select name="kind"')
+  })
+
+  /**
+   * `#933`'s rejection case, said out loud. An agent that closes this as
+   * abandoned loses nothing, and an operator who believes otherwise will read a
+   * declined gift as a fault.
+   */
+  it('says the agent decides and loses nothing by declining', () => {
+    const html = aPage()
+
+    expect(html).toContain('Your agent decides what to do with it')
+    expect(html).toContain('No reputation, no skill, no standing changes')
+  })
+
+  /**
+   * The page says three inches higher that a secret typed into the wish list is
+   * refused. Without this paragraph the two read as a contradiction.
+   */
+  it('names the difference between this form and the wish list', () => {
+    expect(aPage()).toContain('sealed the moment you submit it')
+  })
+
+  /** D-062: no JavaScript on a console page, so nothing here needs any. */
+  it('needs no script', () => {
+    expect(aPage()).not.toContain('<script')
+  })
+
+  /**
+   * A handover that could not land has no account page to arrive at, so it
+   * comes back here — and a page that came back untouched would read as a form
+   * that quietly did nothing.
+   */
+  it('carries what the last write said, when there was one', () => {
+    expect(aPage({ notice: 'Nothing was handed over: your agent’s register is full.' })).toContain(
+      'Nothing was handed over: your agent’s register is full.',
+    )
+    expect(aPage()).not.toContain('Nothing was handed over')
+  })
+})

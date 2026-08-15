@@ -42,6 +42,24 @@ export interface FakeAccountRegister extends AccountRegister {
    * which accounts are taken.
    */
   readonly claimedElsewhere: (kind: string, identifier: string) => boolean
+  /**
+   * Who holds one account, by id, whoever they are (`#933`).
+   *
+   * `list` answers *this agent's accounts* and is the right shape for every
+   * route, which is exactly why it cannot serve here: the thread fake needs to
+   * adopt an account the moment the register makes one, and at that point it
+   * knows the id and not the agent. In production the two are one row and a
+   * trigger joins them; this is the reader that lets the fake do the same
+   * rather than requiring every test to register the account twice.
+   */
+  readonly holder: (accountId: string) =>
+    | {
+        readonly agentId: AgentId
+        readonly kind: string
+        readonly identifier: string
+        readonly provider: string | null
+      }
+    | undefined
 }
 
 /** An in-memory account register. Reproduces what the routes depend on and nothing more. */
@@ -379,6 +397,17 @@ export function fakeAccountRegister(): FakeAccountRegister {
 
     claimedElsewhere(kind, identifier) {
       return elsewhere.has(key(kind, identifier))
+    },
+
+    holder(accountId) {
+      const row = rows.find((one) => one.id === accountId)
+      if (row === undefined) return undefined
+      return {
+        agentId: row.agentId,
+        kind: String(row.kind),
+        identifier: row.identifier,
+        provider: row.provider,
+      }
     },
   }
 }

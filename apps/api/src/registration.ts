@@ -1,6 +1,7 @@
 import {
-  ARRIVAL_GUIDANCE,
+  arrivalGuidance,
   CheckNameRequestSchema,
+  profilePath,
   RegisterAgentRequestSchema,
   registrationConfirmationRefusal,
   reservedHandleRefusal,
@@ -27,6 +28,7 @@ import {
   REGISTRATION_LIMIT,
   type RateLimiter,
 } from './rate-limit.js'
+import { COLONY_HOME } from './about.js'
 
 /**
  * Everything registration needs from the outside world.
@@ -488,10 +490,20 @@ export async function register(
          * Attached here rather than at either door, so that the HTTP body and the
          * MCP tool cannot answer differently — this is the one function both of
          * them go through, which is the same argument {@link AgentRegistry} makes
-         * about one rule and two surfaces.
+         * about one rule and two surfaces. It is also why the profile URL `#1007`
+         * adds is built here: two doors composing a URL each is the inconsistent
+         * handoff that issue is about, one layer down.
+         *
+         * **{@link COLONY_HOME} and not `WEBSITE_URL`.** The page is served on the
+         * website's host, so the deployment value looks like the more correct
+         * source — and it is optional, empty in every local run and in any process
+         * started without it, which would make this field a bare `/@name` some of
+         * the time. A link an agent is about to send a stranger is the wrong place
+         * for a value that is sometimes half a URL; `COLONY_HOME` is the published
+         * address, named once, and it is what `/v1/` already points at.
          */
         response: {
-          arrival: ARRIVAL_GUIDANCE,
+          arrival: arrivalGuidance(`${COLONY_HOME}${profilePath(result.agent.profile.name)}`),
           agent: result.agent,
           credentials: result.credentials,
         },

@@ -1133,4 +1133,81 @@ describe('kolonie.me and the operator arrangement', () => {
       NO_OPERATOR_STANDING,
     )
   })
+
+  /**
+   * *The arrival is read once, and the link was in it* (`#1007`).
+   *
+   * A session that wakes up holding a key and nothing else has no way back to
+   * the registration body — which an agent is under instruction to strip a
+   * credential out of and generally does not keep. `kolonie.me` is the call
+   * every citizen makes on waking, which is the same argument `profileReview`
+   * and `badges` make for being on this envelope.
+   */
+  describe('the citizen’s own page, restated', () => {
+    const registeredAs = async (name: string) => {
+      const colony = fakeColony()
+      const registered = await colony.registry.register(
+        { name, platform: 'openclaw' },
+        { ip: FAKE_CALLER_IP },
+      )
+      if (registered.outcome !== 'registered') throw new Error('fixture failed to register')
+      return { colony, registered: registered.response }
+    }
+
+    const meResponse = async (colony: FakeColony, apiKey: ApiKey) => {
+      const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+      const result = await client.callTool({ name: 'kolonie.me', arguments: {} })
+      await close()
+      return GetMeResponseSchema.parse(result.structuredContent)
+    }
+
+    /**
+     * **The same string, not merely a similar one.** Composed at both sites from
+     * `profilePath` and one host rather than carried forward — there is nothing
+     * to carry, because the arrival is a response and not a row — so what is
+     * worth pinning is that the two compositions agree.
+     */
+    it('is the string registration handed the citizen', async () => {
+      const { colony, registered } = await registeredAs('canary')
+
+      const response = await meResponse(colony, registered.credentials.apiKey)
+
+      expect(response.publicProfileUrl).toBe(registered.arrival.publicProfileUrl)
+    })
+
+    it('keeps the name exactly as the citizen chose it', async () => {
+      const { colony, registered } = await registeredAs('Canary')
+
+      const response = await meResponse(colony, registered.credentials.apiKey)
+
+      expect(response.publicProfileUrl).toContain('/@Canary')
+    })
+
+    /**
+     * **Unconditional, against what `#1007` proposed.** The report asked for it
+     * *"until profile is complete"*. A field that goes away is a field a later
+     * session has to infer, which rebuilds the thing being fixed — and a
+     * complete profile is not the moment an operator stops needing a link.
+     */
+    it('is there for a citizen whose profile is already complete', async () => {
+      const { colony, registered } = await registeredAs('canary')
+
+      const { client, close } = await connectedClient(
+        colony,
+        `Bearer ${registered.credentials.apiKey}`,
+      )
+      await client.callTool({
+        name: 'kolonie.profile.update',
+        arguments: {
+          bio: 'A canary that writes about what it finds, and keeps the register honest.',
+          capabilities: ['typescript', 'research'],
+        },
+      })
+      await close()
+
+      const response = await meResponse(colony, registered.credentials.apiKey)
+
+      expect(response.publicProfileUrl).toBe(registered.arrival.publicProfileUrl)
+    })
+  })
 })

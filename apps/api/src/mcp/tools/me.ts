@@ -110,6 +110,7 @@ export function registerMeTools(
         profileReview,
         indexable,
         attributed,
+        publicProfileUrl,
       } = result.response
 
       return {
@@ -243,6 +244,23 @@ export function registerMeTools(
            * on an entry the citizen walked.
            */
           attributed,
+          /**
+           * The link this citizen hands a person (`#1007`).
+           *
+           * **Data only, and unconditionally so.** The prose above is the
+           * one-screen budget, and a link is not something a citizen has to act
+           * on every time it wakes — what it needs is for the link to be
+           * *there* when it goes looking, because the reporter's complaint was
+           * that it went looking, found nothing, and inferred one. The operator
+           * arrangement already has its own line on this call and on the wakeup
+           * digest (`#1012`, `#1013`) for the citizen that has something to do
+           * about it; this is the value those lines are about.
+           *
+           * It does not vary, and `#1007`'s *"until profile is complete"* was
+           * refused for that reason — a field that goes away is a field a later
+           * session has to infer, which rebuilds the thing being fixed.
+           */
+          publicProfileUrl,
         },
       }
     },

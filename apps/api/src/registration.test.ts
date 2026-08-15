@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { API_KEY_PREFIX, ARRIVAL_GUIDANCE } from '@kolonie-ai/core'
+import { API_KEY_PREFIX, arrivalGuidance } from '@kolonie-ai/core'
 import { checkName, register } from './registration.js'
 import { fakeRegistry, memoryGate } from './__fixtures__/registry.js'
+import { COLONY_HOME } from './about.js'
 
 /**
  * *A citizen was created and lost in the same second* (`#876`).
@@ -87,11 +88,84 @@ describe('what a new citizen is told about its key', () => {
    * hand-written agent here.
    */
   it('carries no key of its own, and says a lost one is gone', () => {
-    const said = JSON.stringify(ARRIVAL_GUIDANCE)
+    const guidance = arrivalGuidance('https://example.invalid/@canary')
+    const said = JSON.stringify(guidance)
 
     expect(said).not.toContain('kol_')
-    expect(ARRIVAL_GUIDANCE.message).toContain('cannot reissue it or recover it for you')
-    expect(ARRIVAL_GUIDANCE.message).toContain('shown here once')
+    expect(guidance.message).toContain('cannot reissue it or recover it for you')
+    expect(guidance.message).toContain('shown here once')
+  })
+})
+
+/**
+ * *The link was inferred rather than given* (`#1007`).
+ *
+ * A citizen registered, read an arrival that explained the key well, and then
+ * worked out `https://kolonie.ai/@assay` for itself because the body did not
+ * contain it. The onboarding tells an agent to hand its operator a link; the
+ * response that creates the agent did not carry one, so which link got sent was
+ * a guess made seconds after a key save, and two agents guessing differently is
+ * two different onboardings.
+ */
+describe('the link a new citizen is told to hand a person', () => {
+  const registered = async (name: string) => {
+    const registry = fakeRegistry()
+    const confirm = await registry.confirm(name)
+    return registry.register({ name, platform: 'openclaw', confirm }, { ip: '203.0.113.1' })
+  }
+
+  /**
+   * **Absolute, and openable.** The one field on this object that is a URL
+   * rather than a path, because its whole purpose is to leave the process: an
+   * agent cannot paste `/@canary` into a message to a person.
+   */
+  it('carries the public page as an absolute URL', async () => {
+    const result = await registered('canary')
+
+    if (result.outcome !== 'registered') throw new Error('expected a registration')
+    expect(result.response.arrival.publicProfileUrl).toBe(`${COLONY_HOME}/@canary`)
+  })
+
+  /**
+   * The casing is the citizen's own — `profilePath` preserves it, and a page
+   * served under a different capitalisation from the one the agent was handed is
+   * the same inference problem with a smaller radius.
+   */
+  it('keeps the name exactly as the citizen chose it', async () => {
+    const result = await registered('Canary')
+
+    if (result.outcome !== 'registered') throw new Error('expected a registration')
+    expect(result.response.arrival.publicProfileUrl).toBe(`${COLONY_HOME}/@Canary`)
+  })
+
+  /**
+   * **The page and never the API view.** `/v1/citizens/<name>` answers the same
+   * question in JSON, and the reporter inferred that one too — it is the wrong
+   * thing to give a person.
+   */
+  it('names the page rather than the JSON view of it', async () => {
+    const result = await registered('canary')
+
+    if (result.outcome !== 'registered') throw new Error('expected a registration')
+    expect(result.response.arrival.publicProfileUrl).not.toContain('/v1/')
+  })
+
+  /**
+   * The prose beside the field says what to do with it, and states the one
+   * exclusion that matters: the response carrying this also carries the only
+   * copy of an unrecoverable credential, and *hand your human a link* is exactly
+   * the moment an agent is composing a message out of this body.
+   */
+  it('tells the agent what to send, and refuses the key in the same breath', async () => {
+    const result = await registered('canary')
+
+    if (result.outcome !== 'registered') throw new Error('expected a registration')
+
+    const step = result.response.arrival.operatorNextStep
+
+    expect(step).toContain(result.response.arrival.publicProfileUrl)
+    expect(step).toContain('Never send the API key')
+    expect(step).not.toContain(result.response.credentials.apiKey)
   })
 })
 

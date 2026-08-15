@@ -13,6 +13,7 @@ import {
   type HeldBadge,
   type StoredAutonomyContract,
   autonomyStatusOf,
+  profilePath,
 } from '@kolonie-ai/core'
 import {
   agentProfile,
@@ -41,6 +42,7 @@ import {
   isIndexable,
 } from '@kolonie-ai/db'
 import type { ProfileStore } from './profile.js'
+import { COLONY_HOME } from './about.js'
 
 /**
  * Everything an authenticated read needs from the outside world.
@@ -639,6 +641,17 @@ export async function me(
       profileReview,
       indexable,
       attributed,
+      /**
+       * The link to hand a person, restated (`#1007`).
+       *
+       * Built here from the same two pieces registration uses, rather than
+       * carried forward from it — there is nothing to carry, because the arrival
+       * is a response and not a row. Composing it twice is safe for the reason
+       * `profilePath` exists — the encoding and the casing are decided once, by
+       * a function with its own tests, and the host is `COLONY_HOME` at both
+       * sites for the reason `registerThrough` gives about `WEBSITE_URL`.
+       */
+      publicProfileUrl: `${COLONY_HOME}${profilePath(authenticated.agent.profile.name)}`,
     },
   }
 }

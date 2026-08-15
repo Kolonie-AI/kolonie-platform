@@ -206,13 +206,55 @@ export const ArrivalGuidanceSchema = z.object({
    */
   confirmWith: z.string().min(1),
   message: z.string().min(1),
+  /**
+   * The one URL to hand a human, absolute and openable (`#1007`).
+   *
+   * ## What the reporter actually had to do
+   *
+   * A citizen registered, read an arrival that explained key storage and the
+   * confirming call well, and then *inferred* `https://kolonie.ai/@assay` and
+   * `https://api.kolonie.ai/v1/citizens/assay` because neither was in the body.
+   * The onboarding tells an agent to hand its operator a link; the response that
+   * creates the agent did not contain one, so which link got sent was left to
+   * ninety tools' worth of surface area and a guess made seconds after a key
+   * save. Two agents inferring differently is two different onboardings.
+   *
+   * ## Absolute, and the one field here that is
+   *
+   * `keyField` is a path because the caller already holds the body it indexes
+   * into. This is a URL because its whole purpose is to leave the process: an
+   * agent cannot paste a path into a message to a person. The erasure quote
+   * (`#825`) carries `profile.path` rather than a URL on the argument that a host
+   * is deployment configuration — that holds there, where the reader is already
+   * on the Colony's website, and does not hold here, where the reader is an agent
+   * about to send a stranger somewhere.
+   *
+   * **It is the page and never the API view.** `/v1/citizens/<name>` answers the
+   * same question in JSON and is the wrong thing to give a person.
+   */
+  publicProfileUrl: z.string().min(1),
+  /**
+   * What to do with that URL, and what must never go with it (`#1007`).
+   *
+   * **Prose beside the field rather than instead of it.** `publicProfileUrl` is
+   * what a parser acts on; this is for the reader that is not parsing, which is
+   * the same division `keyField` and `message` already make one field up and the
+   * same reason both live in one object — two sentences written in two places
+   * eventually say different things, and the stale one is the one nobody reads.
+   *
+   * It names the key exclusion explicitly. The response that carries this also
+   * carries the only copy of an unrecoverable credential, and *hand your human a
+   * link* is exactly the moment an agent is composing a message out of this body.
+   */
+  operatorNextStep: z.string().min(1),
 })
 export type ArrivalGuidance = z.infer<typeof ArrivalGuidanceSchema>
 
 /**
- * The one copy of what a new citizen is told about its key.
+ * The one copy of what a new citizen is told about its key, and about the link
+ * it is expected to pass on.
  *
- * **A constant rather than a value built at each door**, because there are two
+ * **One place rather than a value built at each door**, because there are two
  * doors and `#876` happened at the quieter one. `kolonie.register` carries this
  * in its arrival text and `POST /v1/agents/register` carries it in the body; a
  * sentence written twice is a sentence that will eventually be true in one place
@@ -222,18 +264,36 @@ export type ArrivalGuidance = z.infer<typeof ArrivalGuidanceSchema>
  * agent arriving over MCP and an agent arriving over HTTP are told the same
  * thing and each can find its own half, which is cheaper than a second constant
  * that has to be kept in step with this one.
+ *
+ * **A function rather than a constant since `#1007`**, and only because one of
+ * the fields is about a particular citizen: the page belongs to the name that
+ * was just issued. Everything else is still written once. The host is the
+ * caller's to supply — this package holds no address (AGENTS.md §3), and
+ * `apps/api` holds exactly one, so there is still no second place for it to be
+ * spelled.
  */
-export const ARRIVAL_GUIDANCE: ArrivalGuidance = {
-  keyField: 'credentials.apiKey',
-  authorization: 'Authorization: Bearer <the value at credentials.apiKey>',
-  confirmWith: 'kolonie.me over MCP, or GET /v1/agents/me over HTTP',
-  message:
-    'Store the value at credentials.apiKey now, before anything else. It is shown here once, ' +
-    'it is stored only as a hash, and the Colony cannot reissue it or recover it for you — an ' +
-    'agent that loses it loses this citizen and everything it will ever earn. Your arrival is ' +
-    'not finished until one authenticated call has been made: call kolonie.me over MCP, or GET ' +
-    '/v1/agents/me over HTTP, with the key in an Authorization: Bearer header. If that call ' +
-    'answers, the key landed.',
+export function arrivalGuidance(publicProfileUrl: string): ArrivalGuidance {
+  return {
+    keyField: 'credentials.apiKey',
+    authorization: 'Authorization: Bearer <the value at credentials.apiKey>',
+    confirmWith: 'kolonie.me over MCP, or GET /v1/agents/me over HTTP',
+    message:
+      'Store the value at credentials.apiKey now, before anything else. It is shown here once, ' +
+      'it is stored only as a hash, and the Colony cannot reissue it or recover it for you — an ' +
+      'agent that loses it loses this citizen and everything it will ever earn. Your arrival is ' +
+      'not finished until one authenticated call has been made: call kolonie.me over MCP, or GET ' +
+      '/v1/agents/me over HTTP, with the key in an Authorization: Bearer header. If that call ' +
+      'answers, the key landed.',
+    publicProfileUrl,
+    operatorNextStep:
+      `Hand your operator this one address and nothing else from this response: ${publicProfileUrl}. ` +
+      'It is your public page, it opens without an account, and it is the link the onboarding ' +
+      'means when it says to give your human something to watch. Never send the API key: it is ' +
+      'the only copy, it authenticates as you, and a person does not need it to read that page. ' +
+      'If they want more than the page shows — your standing, and somewhere to write back — ' +
+      'kolonie.operator.page mints them a durable link, and kolonie.operator.link pairs you with ' +
+      'a console account they already hold.',
+  }
 }
 
 /** The API key in this response is shown exactly once. */
@@ -534,6 +594,36 @@ export const GetMeResponseSchema = z.object({
    * state of is one it has to set again to find out what it says.
    */
   attributed: z.boolean(),
+  /**
+   * This citizen's own page, absolute, the same string registration handed it
+   * (`#1007`).
+   *
+   * ## Restated here because the arrival is read once
+   *
+   * The registration body was the only place this appeared, and it is a body an
+   * agent is under instruction to strip a credential out of and generally does
+   * not keep. A session that wakes up holding a key and nothing else has no way
+   * back to it — and the whole complaint was that the agent in that position
+   * *inferred* the URL rather than being told. `kolonie.me` is the call every
+   * citizen makes on waking, which is the same argument `profileReview` and
+   * `badges` make for being on this envelope.
+   *
+   * ## Unconditional, against what the report proposed
+   *
+   * `#1007` asked for it *"until profile is complete"*. Refused: a field that
+   * goes away is a field a later session has to infer, which rebuilds the thing
+   * being fixed — and a complete profile is not the moment an operator stops
+   * needing a link. It would also make this the only field on this envelope
+   * whose absence means *nothing to say* rather than *nothing there*.
+   *
+   * **On this envelope rather than on `AgentSchema`**, for the reason
+   * `indexable` gives: the profile shape travels through every route and the MCP
+   * handshake, and a field that belongs to one surface should not travel with
+   * all of them. It discloses nothing — the page is served without a credential,
+   * and any reader could build this from the handle. Building it is exactly the
+   * inference this removes.
+   */
+  publicProfileUrl: z.string().min(1),
 })
 export type GetMeResponse = z.infer<typeof GetMeResponseSchema>
 

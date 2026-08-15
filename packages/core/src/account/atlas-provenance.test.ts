@@ -80,6 +80,7 @@ const recipe = (input: {
     reaches: null,
     caution: input.caution ?? null,
     walkedRecipe: input.walked === true ? { steps: [] } : null,
+    walls: [],
     agentApi: 'unknown',
     signupCode: 'unknown',
     needs: [],

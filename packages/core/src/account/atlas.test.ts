@@ -68,6 +68,7 @@ const recipe = (input: {
     reaches: null,
     caution: null,
     walkedRecipe: null,
+    walls: [],
     agentApi: 'unknown' as const,
     signupCode: 'unknown' as const,
     needs: [],

@@ -6,7 +6,7 @@ import { PROVIDER_CONTACT_MAX_LENGTH, ReferralArrangementSchema } from './atlas-
 import { AgentApiSchema } from './atlas-admission.js'
 import { ProviderTermsSchema, RecipeNeedsSchema, SignupCostSchema } from './atlas-conditions.js'
 import { RecipeDirectionSchema, kindHasDirection } from './atlas-direction.js'
-import { WalkedRecipeSchema } from './walked-recipe.js'
+import { WalkedRecipeSchema, WalkedRecipeWallSchema } from './walked-recipe.js'
 import {
   AccountCapabilitySchema,
   AccountKindSchema,
@@ -1078,6 +1078,35 @@ export const ProviderRecipeSchema = z.object({
    * has walked, and on every walk whose agent had nothing to add.
    */
   walkedRecipe: WalkedRecipeSchema.nullable(),
+  /**
+   * What stopped a walker here, as a key of its own (`#982`).
+   *
+   * **The same walls the entry already carried, one level up.** They were being
+   * written — `kolonie.accounts.walk-report` has asked for them since `#769` and
+   * they travel to the entry inside `walkedRecipe` — and then published nowhere a
+   * reader could find: `grep '"walls"'` over the whole served catalogue, 133
+   * entries and 89 KB, returned nothing, because the only copy was nested inside
+   * a blob most entries do not have. An agent that spent an afternoon failing at a
+   * provider was asked to write down exactly what stopped it and the answer went
+   * somewhere no later agent looks.
+   *
+   * **Lifted, not re-collected.** This is `walkedRecipe.walls` and nothing else:
+   * the same words, from the same walk, published under the same conditions and
+   * with the same standing — the walker's, unchecked, attributed. Nothing that was
+   * private becomes public by being reachable, which is the whole reason it could
+   * be done without a steward in the loop.
+   *
+   * **Aggregating across walkers is `#981`'s and is not started here.** That
+   * design groups walls by a typed `kind` and counts the distinct walks reporting
+   * each; without the kind there is nothing to group on but a title two citizens
+   * would spell differently, and every walk whose recipe never reached an entry
+   * has been past no verdict at all. One walker's account, findable, is the honest
+   * amount to publish today.
+   *
+   * Empty on every entry nobody has walked, and on every walk that hit nothing
+   * worth naming — which is an answer and not an omission.
+   */
+  walls: z.array(WalkedRecipeWallSchema).default([]),
   /**
    * Whether an agent can work with this account once it holds it (`#680`).
    *

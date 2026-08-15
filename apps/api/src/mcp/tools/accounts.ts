@@ -11,6 +11,7 @@ import {
   walkProofState,
   walkProofStateAsText,
   walkVerdictAsText,
+  walkWallsAsText,
 } from '../../account-walks.js'
 import {
   KNOWN_ACCOUNT_KINDS,
@@ -2229,6 +2230,7 @@ export function registerAccountTools(
             type: 'text',
             text:
               walkVerdictAsText(finished.verdict) +
+              walkWallsAsText(finished.verdict, finished.walk.recipe?.walls ?? []) +
               (proof === undefined ? '' : walkProofStateAsText(proof)),
           },
         ],

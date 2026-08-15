@@ -62,6 +62,9 @@ import { toTimestamp } from './rows.js'
 export function toRecipe(row: typeof providerRecipes.$inferSelect): ProviderRecipe {
   const steps = (row.steps ?? []).map((step: RecipeStep) => RecipeStepSchema.parse(step))
 
+  /** Parsed on the way out, like `steps` and `reaches`: `jsonb` is not a shape. */
+  const walkedRecipe = row.walkedRecipe === null ? null : WalkedRecipeSchema.parse(row.walkedRecipe)
+
   /**
    * **Derived here and stored nowhere** (`#589`). One implementation, called on
    * the way out of the only place rows come from, so no surface can answer this
@@ -110,8 +113,18 @@ export function toRecipe(row: typeof providerRecipes.$inferSelect): ProviderReci
     /** Parsed on the way out, like `steps`: `jsonb` accepts whatever was written. */
     reaches: row.reaches === null ? null : RecipeReachSchema.parse(row.reaches),
     caution: row.caution,
-    /** Parsed on the way out, like `steps` and `reaches`: `jsonb` is not a shape. */
-    walkedRecipe: row.walkedRecipe === null ? null : WalkedRecipeSchema.parse(row.walkedRecipe),
+    walkedRecipe,
+    /**
+     * **Lifted here, from the blob it was already in** (`#982`). The walls a walker
+     * wrote reach the entry inside `walkedRecipe` and were published nowhere a
+     * reader could find them; attaching them one level up in the single place rows
+     * become recipes is what makes every surface answer the same — the failure
+     * `#984` was about, where a filter existed on one route and not the next.
+     *
+     * Nothing new is disclosed and nothing new is stored: same words, same walk,
+     * same statuses, and the column is untouched.
+     */
+    walls: walkedRecipe?.walls ?? [],
     agentApi: AgentApiSchema.parse(row.agentApi),
     signupCode: SignupCodeSchema.parse(row.signupCode),
     /**

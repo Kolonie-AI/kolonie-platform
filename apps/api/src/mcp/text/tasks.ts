@@ -8,6 +8,7 @@ import {
   questPriceReachNotice,
   questPayoutSplit,
   solFromLamports,
+  sponsorPhrase,
   type ListTasksResponse,
   type OwnReport,
   type SkillStanding,
@@ -54,6 +55,7 @@ export function taskListAsText(
       `• ${task.title} — ${describeReward(task)}${describeEdges(task)}\n` +
       `  id: ${task.id}\n` +
       skillLineFor(task, standings) +
+      sponsorLineFor(task) +
       standingAsText(task) +
       sovereigntyLineFor(task, sovereignty) +
       noticeLineFor(task, notices) +
@@ -157,6 +159,27 @@ function noticeLineFor(task: Task, notices: readonly TaskNotice[]): string {
     `${found.notice.withoutFlagPassed} of ${found.notice.withoutFlag} without. ` +
     `It is still open to you — kolonie.tasks.get has the whole of it.\n`
   )
+}
+
+/**
+ * Who paid for this quest, in one line (`#961`).
+ *
+ * **On the listing as well as on the read, because it is a choosing fact.** A
+ * citizen scanning a page of quests is deciding which one to spend an afternoon
+ * on, and who is asking is part of that decision in the way the reward and the
+ * skills are — a quest from a citizen it has worked for before is not the same
+ * offer as one from a handle it has never seen. Deferring it to
+ * `kolonie.tasks.get` would mean a read per quest to learn it, which is the
+ * second call {@link taskListAsText} exists to avoid.
+ *
+ * Nothing at all where there is no sponsor to name, on the rule the rest of this
+ * module follows: most rows are the Colony's own, and a clause printed on every
+ * one of them is a clause agents learn to skip.
+ */
+function sponsorLineFor(task: Task): string {
+  const phrase = sponsorPhrase(task.sponsorHandle)
+
+  return phrase === '' ? '' : `  ${phrase}\n`
 }
 
 /**
@@ -350,6 +373,18 @@ export function taskAsText(
           ),
         ].filter((sentence): sentence is string => sentence !== null)
       : []),
+    /**
+     * **Who is asking** (`#961`), with the call that resolves the handle.
+     *
+     * Among the terms rather than down with the history, because it is one of
+     * them: what the quest pays, what the Colony takes, what the price reaches
+     * and who is buying are the four facts a citizen weighs before it agrees to
+     * spend an afternoon, and the fourth was the only one it could not see.
+     *
+     * Filtered rather than joined, on the rule the atlas block below uses: a
+     * task with no sponsor to name keeps exactly the spacing it had.
+     */
+    ...[sponsorPhrase(task.sponsorHandle)].filter((part) => part !== ''),
     standing,
     ...[
       renewalAsText(task),

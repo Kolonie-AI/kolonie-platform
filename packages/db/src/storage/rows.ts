@@ -88,7 +88,21 @@ export function toAgent(
  * agent a task whose reward it assembled slightly differently.
  */
 export function toTask(
-  row: typeof tasks.$inferSelect,
+  /**
+   * The task row, optionally carrying the sponsor's handle beside it (`#961`).
+   *
+   * **Widened here rather than appended as an eighth positional parameter**, for
+   * the reason `landscape` sets out below: every parameter in this list is
+   * positional, the ordering is history rather than logic, and a list that grows
+   * every time a surface learns one more fact about a task is a list that will
+   * eventually be shifted by one without anything failing to compile. A value
+   * the query already selected alongside the row belongs beside the row.
+   *
+   * Absent is a read that did not ask; `null` is a quest with no sponsor to
+   * name, and {@link Task.sponsorHandle} says why the three ways of arriving
+   * there are not distinguished.
+   */
+  row: typeof tasks.$inferSelect & { readonly sponsorHandle?: string | null },
   /**
    * The task's hints, when the caller asked for them.
    *
@@ -187,6 +201,7 @@ export function toTask(
     proofVerifier: row.proofVerifier,
     deliverable: QuestDeliverableSchema.parse(row.deliverable),
     createdBy: row.createdBy,
+    ...(row.sponsorHandle === undefined ? {} : { sponsorHandle: row.sponsorHandle }),
     createdAt: toTimestamp(row.createdAt),
     updatedAt: toTimestamp(row.updatedAt),
   })

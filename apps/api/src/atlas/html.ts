@@ -1059,6 +1059,15 @@ export interface SponsoringQuest {
   readonly id: string
   readonly title: string
   readonly walksAsked: number | null
+  /**
+   * The handle of the citizen who paid, or `null` (`#961`).
+   *
+   * **This section asked *who* in its own heading and answered *what*.** A
+   * reader told that somebody bought twenty walks and not told who bought them
+   * has been given the half of the sentence that invites the suspicion and
+   * withheld the half that would settle it.
+   */
+  readonly sponsorHandle: string | null
 }
 
 /**
@@ -1079,13 +1088,35 @@ export interface SponsoringQuest {
  * Only quests that bought walks appear. A `report` quest naming this provider is
  * somebody asking a question about it, which is not a claim on these numbers.
  */
+/**
+ * The sponsor, on the end of the line that says what it bought (`#961`).
+ *
+ * **A link and not a bare handle**, because this page is read by people and the
+ * whole reason to name a sponsor is that the profile is where contact begins.
+ * `/@{handle}` is the citizen's page and it answers without a credential, which
+ * is what makes it the right destination from a page that has no reader.
+ *
+ * Empty where there is no sponsor to name — the line then reads exactly as it
+ * did before `#961`, which is the correct rendering for a quest the Colony
+ * funded itself.
+ */
+function sponsorClause(handle: string | null): string {
+  if (handle === null || handle === '') return ''
+
+  return `, by <a href="/@${escape(handle)}">${escape(handle)}</a>`
+}
+
 function sponsorSection(quests: readonly SponsoringQuest[]): string {
   const bought = quests.filter((quest) => quest.walksAsked !== null)
 
   if (bought.length === 0) return ''
 
   const lines = bought
-    .map((quest) => `<li>${escape(quest.title)} — ${String(quest.walksAsked)} walks bought.</li>`)
+    .map(
+      (quest) =>
+        `<li>${escape(quest.title)} — ${String(quest.walksAsked)} walks bought` +
+        `${sponsorClause(quest.sponsorHandle)}.</li>`,
+    )
     .join('')
 
   return (

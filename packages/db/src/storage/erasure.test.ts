@@ -37,6 +37,7 @@ import {
 } from '../schema/index.js'
 import { eraseAgent, partitionArtefacts } from './erasure.js'
 import { atlasWalkers } from './atlas-walkers.js'
+import { readTask } from './tasks.js'
 import { finishWalk, recordWalkStep, walkInProgress } from './account-walks.js'
 import { providerRecipe } from './provider-recipes.js'
 import { wasHandleEverHeld } from './handle-marks.js'
@@ -240,6 +241,51 @@ describe('erasing a citizen', () => {
 
       expect((await atlasWalkers(db)).get(figureKey(where.kind, where.provider))).toBeUndefined()
       expect(await providerRecipe(db, where.kind, where.provider)).toBeDefined()
+    })
+
+    /**
+     * **The same rule as the Atlas entry above, on the surface where it costs
+     * money to get wrong** (`#961`).
+     *
+     * A quest is not an entry: citizens may be mid-attempt on it and the
+     * sponsor's SOL is already committed against it. So erasure must take the
+     * handle and leave everything else exactly where it was — the quest stays
+     * `active`, keeps its places, and reverts to unattributed. Withdrawing it
+     * would burn work that citizens had already started and hand back nothing.
+     *
+     * Both halves in one assertion, because either alone passes against the
+     * wrong design. What makes both true at once is `tasks.created_by`, which is
+     * `on delete set null` rather than `cascade` — the quest outlives its
+     * author by construction, and no code in `eraseAgent` has to remember to
+     * spare it.
+     */
+    it('takes the sponsor’s name off a quest and leaves the quest running', async () => {
+      const sponsor = await anAgent({ name: 'paid-and-left' })
+      const [quest] = await db
+        .insert(tasks)
+        .values({
+          type: 'quest-sponsored-then-erased',
+          kind: 'quest',
+          title: 'Walk a provider nobody has walked',
+          description: 'What this quest asks for.',
+          instructions: 'Walk it and report what you found.',
+          rewardReputation: 5,
+          timeoutHours: 24,
+          status: 'active',
+          slots: 3,
+          createdBy: sponsor.id,
+        })
+        .returning({ id: tasks.id })
+      const taskId = TaskIdSchema.parse(quest!.id)
+
+      expect((await readTask(db, { taskId }))?.sponsorHandle).toBe('paid-and-left')
+
+      await eraseAgent(db, { agentId: sponsor.id, banSalt: SALT })
+
+      const after = await readTask(db, { taskId })
+      expect(after?.sponsorHandle).toBeNull()
+      expect(after?.status).toBe('active')
+      expect(after?.slots).toBe(3)
     })
 
     it('names the artefacts it could not reach, before they stop being knowable', async () => {

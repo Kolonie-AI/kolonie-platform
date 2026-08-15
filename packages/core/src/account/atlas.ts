@@ -686,7 +686,8 @@ export function atlasEntryHealth(
  * measurement is what decides it: **the largest provider sample in the Colony
  * was 3 on 2026-08-14**, against a floor of 5. None of the 23 pairs citizens
  * hold reached it, so the skip did not delay this feature — it meant no row was
- * ever synthesised at all, which is the feature not existing.
+ * ever synthesised at all, which is the feature not existing. It went on not
+ * existing until `#977`, for the reason the guard below now carries.
  *
  * The two claims are also not the same claim. *Three citizens hold a mailbox at
  * `mail.tm`* is a number about three citizens; *`mail.tm` is a place a citizen
@@ -710,11 +711,29 @@ export function measuredOnlyRecipes(
 
   for (const figure of figures) {
     /**
-     * **`suppressed` is not read here, deliberately** (`#909`). It governs the
-     * counts inside the row and not whether the row exists — see the paragraph
-     * above, and `kolonie-docs#352` for the argument it comes from.
+     * **The question is *did anybody go here*, and until `#977` this asked the
+     * counts, which are exactly what the floor takes away.**
+     *
+     * `#909` decided this function must not skip a suppressed pair and held that
+     * rule by not reading `suppressed` at all. The rule was right and the way of
+     * holding it was not: suppression does not mark the counts, it *zeroes*
+     * them, so a pair with one citizen arrived here as `attempted: 0,
+     * proved: 0` and this guard dropped it — the skip `#909` removed,
+     * reinstated a few lines earlier by the floor. Measured 2026-08-15: no
+     * provider sample in the Colony reaches the floor of 5, so every measured
+     * pair was suppressed and nothing was ever synthesised. `#909` shipped a
+     * function that could not fire, and its tests passed because they fed it
+     * suppressed rows whose counts were still filled in — a shape the Colony
+     * does not serve.
+     *
+     * So the guard asks {@link AtlasFigures.evidenced}, which answers that
+     * question and no other: it is not a count, the floor does not govern it,
+     * and it is false for an account a citizen merely declared. **It changes
+     * nothing about the counts** — they stay zeroed, and `suppressed` goes on
+     * telling the reader they are withheld exactly as it does on the curated
+     * entry beside this one.
      */
-    if (figure.attempted === 0 && figure.proved === 0) continue
+    if (!figure.evidenced) continue
     if (known.has(figureKey(figure.kind, figure.provider))) continue
 
     let category

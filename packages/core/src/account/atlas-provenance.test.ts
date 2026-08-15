@@ -25,11 +25,21 @@ const figures = (input: {
   attempted?: number
   proved?: number
   suppressed?: boolean
+  evidenced?: boolean
 }): AtlasFigures => ({
   ...noFigures(input.kind, input.provider),
   attempted: input.attempted ?? 0,
   proved: input.proved ?? 0,
   suppressed: input.suppressed ?? false,
+  /**
+   * **Defaulted from the counts so that a fake row cannot be a shape the Colony
+   * never serves** (`#977`). A suppressed row arrives from the database with its
+   * counts zeroed, so a test writing `attempted: 2, suppressed: true` is
+   * describing a row that does not exist — which is how `#909` shipped a
+   * function that could not fire. Pass `evidenced` explicitly to build the real
+   * suppressed shape: zeroed counts, and a citizen behind them.
+   */
+  evidenced: input.evidenced ?? ((input.attempted ?? 0) > 0 || (input.proved ?? 0) > 0),
 })
 
 const recipe = (input: {
@@ -336,13 +346,22 @@ describe('the rows the figures imply', () => {
   it('stands a row in for a pair whose counts are below the floor', () => {
     const synthesized = measuredOnlyRecipes(
       [],
+      /**
+       * **The shape a suppressed row actually has** (`#977`): the counts are
+       * zeroed on the way out of {@link atlasFigures}, not merely flagged, and
+       * `evidenced` is what is left knowing a citizen was here. This test asked
+       * for `attempted: 2, proved: 1, suppressed: true` until then — a row the
+       * Colony never serves — and passed on it while the real one was being
+       * dropped.
+       */
       [
         figures({
           kind: 'mailbox',
           provider: 'somewhere.test',
-          attempted: 2,
-          proved: 1,
+          attempted: 0,
+          proved: 0,
           suppressed: true,
+          evidenced: true,
         }),
       ],
     )
@@ -367,18 +386,35 @@ describe('the rows the figures imply', () => {
     const suppressed = figures({
       kind: 'mailbox',
       provider: 'somewhere.test',
-      attempted: 2,
-      proved: 1,
+      attempted: 0,
+      proved: 0,
       suppressed: true,
+      evidenced: true,
     })
 
-    expect(measuredOnlyRecipes([], [suppressed])).toHaveLength(1)
+    const synthesized = measuredOnlyRecipes([], [suppressed])
+
+    expect(synthesized).toHaveLength(1)
     expect(suppressed.suppressed).toBe(true)
+    expect(suppressed.attempted).toBe(0)
+    /**
+     * The row carries nothing of the count either — it is a `ProviderRecipe`,
+     * and the figures ride beside it where the floor can go on governing them.
+     */
+    expect(Object.keys(synthesized[0] ?? {})).not.toContain('proved')
   })
 
   /**
    * The rejection case that survives: a pair nobody has attempted is not
    * evidence, and no floor is involved in saying so.
+   *
+   * **It used to be written with `suppressed: true`, and that was the shape that
+   * hid `#977` for a week.** No such row exists: {@link atlasFigures} sets
+   * `suppressed` only where `attempted > 0`, so *nothing measured* and
+   * *suppressed* never occur together. Asserting on the impossible pair made the
+   * test green while the real suppressed row — zeroed counts, `suppressed: true`
+   * — fell through the same guard, and the function `#909` shipped could not
+   * fire once.
    */
   it('still skips a pair with nothing measured at all', () => {
     const synthesized = measuredOnlyRecipes(
@@ -389,7 +425,33 @@ describe('the rows the figures imply', () => {
           provider: 'untouched.test',
           attempted: 0,
           proved: 0,
-          suppressed: true,
+          suppressed: false,
+        }),
+      ],
+    )
+
+    expect(synthesized).toEqual([])
+  })
+
+  /**
+   * **A declaration is not a walk** (`#977`). `kolonie.accounts.declare` records
+   * an account a citizen says it holds, and nothing has read it — so a pair with
+   * one declared account and no proof and no report puts a citizen in
+   * `attempted` while nobody has demonstrably been anywhere. Standing a
+   * `measured` entry on that would report an intention as an outcome, which is
+   * `#906`'s rule for the backfill; `evidenced` is the same predicate, so the
+   * shelf and the backfill agree.
+   */
+  it('stands nothing in for a provider a citizen only declared', () => {
+    const synthesized = measuredOnlyRecipes(
+      [],
+      [
+        figures({
+          kind: 'mailbox',
+          provider: 'declared-only.test',
+          attempted: 1,
+          proved: 0,
+          evidenced: false,
         }),
       ],
     )

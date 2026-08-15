@@ -376,13 +376,32 @@ export function rateLimited(
             message:
               `Too many name checks from this address. The Colony answers ${NAME_CHECK_LIMIT} ` +
               'per hour, which is far more than choosing one name takes. Nothing is held against ' +
-              'you — wait, and the allowance returns.',
+              'you — wait, and the allowance returns. Every answer that got through carried ' +
+              '`remaining`, so this wall can be seen coming next time.',
             details: { retryAfterSeconds: String(verdict.retryAfterSeconds) },
           },
         }
       }
 
-      return registry.checkName(request, caller)
+      const result = await registry.checkName(request, caller)
+
+      /**
+       * The allowance the caller has left, attached where the caller will see
+       * it (`#1006`).
+       *
+       * **Here rather than in `checkName`, because this is the only layer that
+       * knows.** The registry underneath answers *free or taken* and has no
+       * limiter; the surfaces above have a response and no verdict. The
+       * decorator holds both for one call, which is exactly why the limit was
+       * put here in the first place.
+       *
+       * Only on an answer. A rejected name — malformed, or one the Colony would
+       * refuse — still spent a check, and saying so beside a refusal would read
+       * as a second complaint; the refusal is the thing that call is about.
+       */
+      return result.outcome === 'checked'
+        ? { ...result, response: { ...result.response, remaining: verdict.remaining } }
+        : result
     },
 
     async register(request, caller) {

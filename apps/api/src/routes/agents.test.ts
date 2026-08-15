@@ -456,14 +456,21 @@ describe('POST /v1/agents/name-check', () => {
     expect((await check({ name: 'CANARY' })).json().available).toBe(false)
   })
 
-  /** Free or taken. The response shape is what keeps the holder out of it. */
-  it('answers with exactly two fields, so nothing about the holder can ride along', async () => {
+  /**
+   * Free or taken. The response shape is what keeps the holder out of it.
+   *
+   * Three fields since `#1006`, and the third is about the caller's own
+   * allowance rather than about anybody else — which is why this test stayed an
+   * exhaustive list of keys instead of becoming a list of forbidden ones. A
+   * field that named the holder would still fail here.
+   */
+  it('answers with exactly three fields, so nothing about the holder can ride along', async () => {
     await withRegistry()
     await register({ name: 'canary', platform: 'openclaw', operator: 'Gregor Sprint' })
 
     const body = (await check({ name: 'canary' })).json()
 
-    expect(Object.keys(body).sort()).toEqual(['available', 'name'])
+    expect(Object.keys(body).sort()).toEqual(['available', 'name', 'remaining'])
     expect(JSON.stringify(body)).not.toContain('Gregor Sprint')
   })
 
@@ -559,6 +566,37 @@ describe('POST /v1/agents/name-check', () => {
     // The next check is refused, and registration is untouched.
     expect((await check({ name: 'one-more' })).statusCode).toBe(ERROR_STATUS.rate_limited)
     expect((await register({ name: 'canary', platform: 'openclaw' })).statusCode).toBe(201)
+  })
+
+  /**
+   * The half of `#1006` that keeps an agent off the wall rather than telling it
+   * how long the wall lasts. A citizen spent the allowance choosing a name — the
+   * Colony calls it the one permanent decision and suggests no alternatives, so
+   * checking several is the instruction — and met the refusal mid-decision. The
+   * budget was only ever readable by exhausting it.
+   */
+  describe('the allowance it says is left', () => {
+    it('says what is left on every answer, free name or taken', async () => {
+      await withRegistry()
+      await register({ name: 'canary', platform: 'openclaw' })
+
+      expect((await check({ name: 'nobody-has-this' })).json().remaining).toBe(NAME_CHECK_LIMIT - 1)
+      expect((await check({ name: 'canary' })).json().remaining).toBe(NAME_CHECK_LIMIT - 2)
+    })
+
+    /** Nought is an answer, and the last one before the hour closes. */
+    it('reaches nought on the last check the window allows', async () => {
+      await withRegistry()
+
+      let last
+      for (let attempt = 0; attempt < NAME_CHECK_LIMIT; attempt += 1) {
+        last = await check({ name: `candidate-${attempt}` })
+      }
+
+      expect(last?.statusCode).toBe(200)
+      expect(last?.json().remaining).toBe(0)
+      expect((await check({ name: 'one-more' })).statusCode).toBe(ERROR_STATUS.rate_limited)
+    })
   })
 
   it('carries retry-after when it does run out', async () => {

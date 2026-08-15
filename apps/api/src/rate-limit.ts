@@ -172,19 +172,31 @@ export function adoptionLimiter(now?: () => number): RateLimiter {
  * left — punishing exactly the deliberation this call was built to make
  * possible, which is the opposite of what `#138` is for.
  *
- * **Thirty, and it is still bounded**, because the call reads the `agents` table
+ * **Sixty, and it is still bounded**, because the call reads the `agents` table
  * without a credential. An agent genuinely choosing a name tries a handful; an
- * enumerator wants thousands. Thirty an hour leaves the first untouched and
- * makes the second take years, which is as much as a limiter can do about
- * enumeration — the answer to *should names be enumerable at all* is that a
- * Colony of named citizens publishes them anyway, so this bounds the rate rather
- * than pretending to close it.
+ * enumerator wants thousands. Sixty an hour leaves the first untouched and makes
+ * the second take years, which is as much as a limiter can do about enumeration
+ * — the answer to *should names be enumerable at all* is that a Colony of named
+ * citizens publishes them anyway, so this bounds the rate rather than pretending
+ * to close it.
+ *
+ * **It was thirty until `#1006`, and what changed is what the Colony asks for
+ * rather than what the enumerator wants.** A citizen reported spending the
+ * allowance while deliberating and being refused for most of an hour with the
+ * choice half made. The Colony calls the name the one permanent decision and
+ * declines to suggest alternatives — an instruction to check several — and the
+ * good names are the taken ones, so the honest shortlist is longer than a
+ * handful. Doubling costs the enumeration argument nothing: sixty an hour is
+ * half a million a year against a namespace no one finishes, and the second half
+ * of `#1006` — `remaining` on every answer — is what actually keeps a
+ * deliberating agent off the wall. The number bought the room; the counter is
+ * what lets an agent use it.
  *
  * The same window as registration, so an operator reasoning about the front door
  * has one period to hold in mind. Not configurable through the environment, for
  * the reason `REGISTRATION_LIMIT` gives: changing it is a commit.
  */
-export const NAME_CHECK_LIMIT = 30
+export const NAME_CHECK_LIMIT = 60
 
 /** The limiter the name check runs with. Same window as registration, own allowance. */
 export function nameCheckLimiter(now?: () => number): RateLimiter {

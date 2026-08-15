@@ -2,6 +2,10 @@ import { z } from 'zod'
 import { AccountKindSchema } from '../account/account.js'
 import { RecipeOperatorNeedSchema, RecipeStatusSchema } from '../account/recipe.js'
 import { WalkAskSchema } from '../account/walk-ask.js'
+import {
+  OperatorStandingSchema,
+  operatorStandingNeedsAttention,
+} from '../agent/operator-standing.js'
 import { SkillSchema } from '../common/skill.js'
 import { SubmissionIdSchema, SupportTicketIdSchema, TaskIdSchema } from '../common/ids.js'
 import { TimestampSchema } from '../common/time.js'
@@ -992,6 +996,24 @@ export const WakeupResponseSchema = z.object({
    * **The secret is not in it**, here as in `kolonie.me`.
    */
   wakeChannel: WakeupWakeChannelSchema.nullable(),
+  /**
+   * Where the citizen stands with the person behind it (`#1013`).
+   *
+   * **The same field `kolonie.me` carries, on the call a citizen is actually
+   * told to make.** The reporter's failure was that a console link succeeded and
+   * no surface said so, so the citizen went back to an operator who had already
+   * answered and asked for a second code. A digest that lists
+   * `kolonie.operator.claim.request` under `open` while saying nothing about the
+   * link that already exists is that failure being manufactured every waking.
+   *
+   * **Not windowed by `since`**, for the reason `wakeChannel` and
+   * `operatorNotesUnread` are not: this is standing rather than news, and a
+   * citizen that asked for a narrow window must still be told an unredeemed code
+   * is outstanding.
+   *
+   * **No address and no code, here as in `kolonie.me`.**
+   */
+  operatorStanding: OperatorStandingSchema,
 })
 export type WakeupResponse = z.infer<typeof WakeupResponseSchema>
 
@@ -1040,6 +1062,12 @@ export function wakeupIsQuiet(digest: WakeupResponse): boolean {
     // (`#737`). The channel is withdrawn (`#913`), so a waking is quiet where
     // that field was the only thing on it — which is the honest answer now that
     // there is nothing to be found.
-    (digest.wakeChannel === null || digest.wakeChannel.consecutiveFailures === 0)
+    (digest.wakeChannel === null || digest.wakeChannel.consecutiveFailures === 0) &&
+    // The same rule one relationship along (`#1013`): a linked, reachable
+    // operator is not news, and an unredeemed code, a link with no address or an
+    // unposted claim string is. `operatorStandingNeedsAttention` is the one
+    // predicate, shared with the prose `kolonie.me` prints, so the digest cannot
+    // call itself quiet over a line the other surface is showing.
+    !operatorStandingNeedsAttention(digest.operatorStanding)
   )
 }

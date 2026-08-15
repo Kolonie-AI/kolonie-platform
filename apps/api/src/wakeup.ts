@@ -10,6 +10,7 @@ import {
   type SkillNoteEntry,
   type WalkAsk,
   type WakeupNoteInvitation,
+  type OperatorStanding,
   type WakeupStanding,
   type WakeupWakeChannel,
   type WakeupWantedAccount,
@@ -21,6 +22,7 @@ import {
   walksToAskAbout,
   previousSessionStart,
   recordWakeupAnswer,
+  operatorStandingOf,
   wakeChannelOf,
   wakeTargetFor,
   wakeupChanges,
@@ -84,6 +86,17 @@ export interface WakeupSource {
    * one that woke on a poll rather than on a knock.
    */
   wakeChannel(agentId: AgentId): Promise<WakeupWakeChannel | null>
+  /**
+   * Where the citizen stands with the person behind it (`#1013`).
+   *
+   * **Its own call and not part of `changes`, for the reason `wakeChannel` is
+   * one.** A link nobody redeemed, a linked person the Colony holds no address
+   * for and a claim string nobody posted are standing conditions rather than
+   * events: there is no moment inside a window that any of them happened at, and
+   * a citizen that asked for a narrow window would be told its operator
+   * arrangement was fine because nothing moved in the last hour.
+   */
+  operatorStanding(agentId: AgentId): Promise<OperatorStanding>
   /**
    * What the operator has marked and the citizen has not got (`#581`).
    *
@@ -163,6 +176,7 @@ export interface WakeupSource {
       | 'operatorNotesUnread'
       | 'operatorRepliesWaiting'
       | 'wakeChannel'
+      | 'operatorStanding'
       | 'accountsWanted'
       | 'open'
       | 'standing'
@@ -233,6 +247,7 @@ export function databaseWakeup(db: Database, rechecks?: RecheckDependencies): Wa
         activatedBy: [...CITIZEN_RAISED_WAKE_EVENTS],
       }
     },
+    operatorStanding: (agentId) => operatorStandingOf(db, agentId),
     wantedAccounts: async (agentId) => {
       const rows = await wantedAccountsFor(db, agentId)
 
@@ -523,6 +538,7 @@ export async function wakeup(
     operatorNotesUnread,
     operatorRepliesWaiting,
     wakeChannel,
+    operatorStanding,
     accountsWanted,
     standing,
     open,
@@ -533,6 +549,7 @@ export async function wakeup(
     source.unreadOperatorNotes(agentId),
     source.waitingOperatorReplies(agentId),
     source.wakeChannel(agentId),
+    source.operatorStanding(agentId),
     source.wantedAccounts(agentId),
     source.standing(agentId),
     openings === undefined
@@ -680,6 +697,11 @@ export async function wakeup(
       operatorNotesUnread,
       operatorRepliesWaiting,
       wakeChannel,
+      // Beside the channel and read the same way (`#1013`): both answer whether
+      // the Colony can still reach somebody on this citizen's behalf, and both
+      // are conditions rather than events. `NO_OPERATOR_STANDING` for the many
+      // citizens nobody stands behind, which is an answer and not an absence.
+      operatorStanding,
       accountsWanted: [...accountsWanted],
     },
   }

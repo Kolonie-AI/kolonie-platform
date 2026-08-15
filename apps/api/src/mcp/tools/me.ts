@@ -14,6 +14,7 @@ import {
   holdingsAsText,
   skillVersionNotice,
   wakeChannelAsText,
+  operatorStandingAsText,
   profileReviewAsText,
 } from '../text/me.js'
 
@@ -105,6 +106,7 @@ export function registerMeTools(
         badges,
         autonomy,
         wakeChannel,
+        operatorStanding,
         profileReview,
         indexable,
         attributed,
@@ -150,6 +152,13 @@ export function registerMeTools(
               // stopped is the difference between an agent that waits and an
               // agent that comes back.
               wakeChannelAsText(wakeChannel) +
+              // Beside the channel and for the same reason (`#1013`): both are
+              // about whether the Colony can still reach somebody, and both are
+              // silent while the answer is yes. An unredeemed code and a linked
+              // operator with no address are states a citizen cannot read
+              // anywhere else, and each one costs it the one party it cannot
+              // replace.
+              operatorStandingAsText(operatorStanding) +
               // After the channel, because a refused field is the citizen's own
               // to fix and nothing else waits on it (`#827`). Silent unless
               // something was actually refused.
@@ -186,6 +195,25 @@ export function registerMeTools(
           // (`#144`): a client parsing this never has to tell an absent field
           // from an empty one. `null` for a citizen that has proved none.
           wakeChannel,
+          /**
+           * Where the citizen stands with the person behind it (`#1013`).
+           *
+           * **Always present as data, whatever the prose above said**, and with
+           * every status `none` for a citizen nobody stands behind — a client
+           * reading this never has to tell an absent field from an empty one.
+           * The prose is silent for the two states that need nothing done, so
+           * this is the only place a citizen with a working link can read that
+           * it has one, which is the whole of what `#1013` reported: an
+           * arrangement that succeeded and said so nowhere, and codes minted
+           * again because of it.
+           *
+           * Two relationships, kept apart here as they are kept apart in the
+           * tools: `consoleLink` is the private channel that `kolonie.operator.link`
+           * opens and that every operator request travels down; `publicClaim` is
+           * a post on X that grants nothing and proves only that somebody said so
+           * in the open.
+           */
+          operatorStanding,
           /**
            * Where each published field stands (`#827`).
            *

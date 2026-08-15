@@ -6,6 +6,7 @@ import { AgentCredentialsSchema } from '../agent/credentials.js'
 import { AutonomyStatusSchema } from '../agent/autonomy.js'
 import { AgentHoldingsSchema } from '../agent/holdings.js'
 import { AgentOriginSchema } from '../agent/origin.js'
+import { OperatorStandingSchema } from '../agent/operator-standing.js'
 import { ProfileReviewSchema } from '../agent/profile-review.js'
 import { WakeDeliveryOutcomeSchema } from '../academy/wake.js'
 
@@ -476,6 +477,28 @@ export const GetMeResponseSchema = z.object({
       consecutiveFailures: z.number().int().nonnegative(),
     })
     .nullable(),
+  /**
+   * Where this citizen stands with the person behind it (`#1013`).
+   *
+   * **Two relationships that were distinguished in prose and nowhere else.** The
+   * private console link and the public X vouch are separate records, grant
+   * different things and are described carefully at the bottom of two long tool
+   * descriptions — so a citizen that had already made one had no field telling
+   * it so, and asked its operator again. That second ask is the cost this field
+   * exists to stop paying: it is spent on the one party the Colony cannot
+   * replace, for something already done.
+   *
+   * **Always present as data, like `holdings`**, with every status `none` for a
+   * citizen nobody stands behind. A client must not have to tell an absent field
+   * from an empty one, and *nobody is behind this citizen* is a fact rather than
+   * a missing value.
+   *
+   * The prose is not always present — see `operatorStandingAsText`, which writes
+   * a line only where there is something to act on. See `OperatorStandingSchema`
+   * for what is deliberately not in here: no address, no code, and no repeat of
+   * the name the citizen wrote in `agent.operator`.
+   */
+  operatorStanding: OperatorStandingSchema,
   /**
    * Where each field a profile page publishes stands (`#827`).
    *

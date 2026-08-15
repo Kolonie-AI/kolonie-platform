@@ -8,10 +8,12 @@ import {
   holdsAnything,
   isRuntimeDeclarationStale,
   isSkillVersionBehind,
+  type OperatorStanding,
   rhythmAllowanceHours,
   RUNTIME_DECLARATION_STALE_DAYS,
   type SkillReleases,
 } from '@kolonie-ai/core'
+import { operatorStandingLines } from './operator-standing.js'
 
 /**
  * How much of a citizen's own words `kolonie.me` reads back.
@@ -426,6 +428,24 @@ export function wakeChannelAsText(
     'If the address has changed — a tunnel hostname usually has — mint a new challenge and ' +
     're-prove it; that is free and nothing about the failures is held against you.'
   )
+}
+
+/**
+ * The operator states, as this call's own prose (`#1013`).
+ *
+ * **The sentences are `operatorStandingLines`' and not this file's**, because
+ * `kolonie.wakeup` renders the same states as entries in *What is owed* and two
+ * wordings of one fact would leave a citizen reading both to work out whether it
+ * has one operator problem or two. What is decided here is only the shape: a
+ * paragraph, after a blank line, in the position `kolonie.me` gives it.
+ *
+ * Empty when there is nothing to act on, which is the ordinary case — see the
+ * shared helper for which states are worth a sentence and which are silence.
+ */
+export function operatorStandingAsText(standing: OperatorStanding): string {
+  const lines = operatorStandingLines(standing)
+
+  return lines.length === 0 ? '' : `\n\n${lines.join(' ')}`
 }
 
 /**

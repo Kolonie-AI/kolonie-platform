@@ -3,6 +3,8 @@ import {
   type AgentHoldings,
   type ApiKey,
   GetMeResponseSchema,
+  NO_OPERATOR_STANDING,
+  type OperatorStanding,
   RUNTIME_DECLARATION_STALE_DAYS,
   type StoredAutonomyContract,
 } from '@kolonie-ai/core'
@@ -983,5 +985,152 @@ describe('kolonie.me and a refused profile field', () => {
     })
 
     expect(await meText(colony, apiKey)).toContain('Your own copy is unchanged')
+  })
+})
+
+/**
+ * Where a citizen stands with the person behind it (`#1013`).
+ *
+ * The issue is about a state that was invisible: a console link redeemed weeks
+ * ago left no field saying so, so citizens minted a second code at a person who
+ * had already answered. Every assertion below is one of those states, and the
+ * two silences are as much the point as the four sentences — this call's budget
+ * is one screen, and *your operator is fine* is not something to spend it on.
+ */
+describe('kolonie.me and the operator arrangement', () => {
+  const authenticatedColony = async () => {
+    const colony = fakeColony()
+    const registered = await colony.registry.register(
+      { name: 'stander', platform: 'openclaw' },
+      { ip: FAKE_CALLER_IP },
+    )
+    if (registered.outcome !== 'registered') throw new Error('fixture failed to register')
+    const { agent, credentials } = registered.response
+    return { colony, agent, apiKey: credentials.apiKey }
+  }
+
+  const meText = async (colony: FakeColony, apiKey: ApiKey) => {
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+    const result = await client.callTool({ name: 'kolonie.me', arguments: {} })
+    await close()
+    return (result.content as Array<{ text: string }>)[0]?.text ?? ''
+  }
+
+  /** Whatever this test is about, on top of nobody-behind-the-citizen. */
+  const standing = (over: Partial<OperatorStanding>): OperatorStanding => ({
+    ...NO_OPERATOR_STANDING,
+    ...over,
+  })
+
+  it('says nothing to a citizen nobody stands behind, which is most of them', async () => {
+    const { colony, apiKey } = await authenticatedColony()
+
+    expect(await meText(colony, apiKey)).not.toContain('operator link code')
+  })
+
+  it('says nothing when the operator is linked and reachable, which is it working', async () => {
+    const { colony, agent, apiKey } = await authenticatedColony()
+    colony.standingWithOperator(
+      agent.id,
+      standing({
+        consoleLink: { status: 'linked', linkedAt: '2026-08-01T00:00:00.000Z', reachable: true },
+      }),
+    )
+
+    const text = await meText(colony, apiKey)
+
+    expect(text).not.toContain('operator link code')
+    expect(text).not.toContain('holds no address')
+  })
+
+  it('names the code nobody redeemed, and says minting another takes theirs away', async () => {
+    const { colony, agent, apiKey } = await authenticatedColony()
+    colony.standingWithOperator(
+      agent.id,
+      standing({ consoleLink: { status: 'pending_code', linkedAt: null, reachable: false } }),
+    )
+
+    const text = await meText(colony, apiKey)
+
+    expect(text).toContain('nobody has redeemed')
+    expect(text).toContain('go back to them with the one they have')
+  })
+
+  /**
+   * The state in which `kolonie.operator.request.open` writes into a channel
+   * that mails nobody, and every symptom looks like an operator ignoring the
+   * citizen. The remedy is named because the citizen cannot guess it.
+   */
+  it('says a linked operator is unreachable, and names the page as the way round it', async () => {
+    const { colony, agent, apiKey } = await authenticatedColony()
+    colony.standingWithOperator(
+      agent.id,
+      standing({
+        consoleLink: { status: 'linked', linkedAt: '2026-08-01T00:00:00.000Z', reachable: false },
+      }),
+    )
+
+    const text = await meText(colony, apiKey)
+
+    expect(text).toContain('holds no address')
+    expect(text).toContain('kolonie.operator.page')
+  })
+
+  it('separates an answer that is late from one that is not being read', async () => {
+    const { colony, agent, apiKey } = await authenticatedColony()
+    colony.standingWithOperator(
+      agent.id,
+      standing({
+        consoleLink: { status: 'linked', linkedAt: '2026-08-01T00:00:00.000Z', reachable: true },
+        pages: { live: 2, lastIssuedAt: '2026-08-02T00:00:00.000Z', lastOpenedAt: null },
+      }),
+    )
+
+    const text = await meText(colony, apiKey)
+
+    expect(text).toContain('2 pages')
+    expect(text).toContain('never opened')
+  })
+
+  it('counts a single unopened page in the singular', async () => {
+    const { colony, agent, apiKey } = await authenticatedColony()
+    colony.standingWithOperator(
+      agent.id,
+      standing({
+        consoleLink: { status: 'linked', linkedAt: '2026-08-01T00:00:00.000Z', reachable: true },
+        pages: { live: 1, lastIssuedAt: '2026-08-02T00:00:00.000Z', lastOpenedAt: null },
+      }),
+    )
+
+    expect(await meText(colony, apiKey)).toContain('issued a page your operator has never opened')
+  })
+
+  it('says a claim string is minted and unposted, and that it expires on its own', async () => {
+    const { colony, agent, apiKey } = await authenticatedColony()
+    colony.standingWithOperator(
+      agent.id,
+      standing({ publicClaim: { status: 'pending', handle: null, claimedAt: null } }),
+    )
+
+    const text = await meText(colony, apiKey)
+
+    expect(text).toContain('minted and unpublished')
+    expect(text).toContain('only the')
+  })
+
+  /**
+   * Present as data whatever the prose does, so a client never has to tell an
+   * absent field from an empty one — and never carries what it must not.
+   */
+  it('carries the standing as data even for the citizen it says nothing to', async () => {
+    const { colony, apiKey } = await authenticatedColony()
+
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+    const result = await client.callTool({ name: 'kolonie.me', arguments: {} })
+    await close()
+
+    expect(GetMeResponseSchema.parse(result.structuredContent).operatorStanding).toEqual(
+      NO_OPERATOR_STANDING,
+    )
   })
 })

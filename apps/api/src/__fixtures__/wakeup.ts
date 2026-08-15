@@ -1,6 +1,7 @@
-import { CITIZEN_RAISED_WAKE_EVENTS } from '@kolonie-ai/core'
+import { CITIZEN_RAISED_WAKE_EVENTS, NO_OPERATOR_STANDING } from '@kolonie-ai/core'
 import type {
   AgentId,
+  OperatorStanding,
   WakeupResponse,
   WakeupStanding,
   WakeupWakeChannel,
@@ -20,6 +21,10 @@ type Changes = Omit<
   // Its own call, and not news at all: a dead endpoint is a standing condition
   // with no moment a window could contain (`#683`).
   | 'wakeChannel'
+  // Its own call, and not news either: an unredeemed link code and an unposted
+  // claim string are conditions the citizen is standing in rather than things
+  // that happened inside the window (`#1013`).
+  | 'operatorStanding'
   // Its own call on the source, for the reason `operatorNotesUnread` is: a mark
   // is an open request rather than news, and windowing it would hide it from a
   // citizen that asked for a narrow window (`#581`).
@@ -76,6 +81,16 @@ export interface FakeWakeup extends WakeupSource {
    * where the Colony wires nothing a citizen can trigger.
    */
   readonly answersWakeChannel: (channel: FakeWakeChannel | null) => void
+  /**
+   * Where the citizen stands with the person behind it (`#1013`).
+   *
+   * Whole rather than partial, unlike `answersChanges`: the three groups say
+   * different things and a test that set one of them would be leaving the other
+   * two to a default it never looked at. The default without this is
+   * `NO_OPERATOR_STANDING` — nobody behind the citizen, which is what most
+   * citizens are and the state every other test wants.
+   */
+  readonly answersOperatorStanding: (standing: OperatorStanding) => void
   /** What the operator has marked and the citizen has not got (`#581`). */
   readonly answersWantedAccounts: (wanted: readonly WakeupWantedAccount[]) => void
   /** What the previous session's start should answer. `null` is "first session". */
@@ -107,6 +122,8 @@ export function fakeWakeup(): FakeWakeup {
   let waitingReplies = 0
   // `null` is the ordinary state: most citizens have not cleared the `wake` rung.
   let channel: WakeupWakeChannel | null = null
+  // Nobody behind the citizen, which is the ordinary state (`#1013`).
+  let operatorStanding: OperatorStanding = NO_OPERATOR_STANDING
   let wanted: readonly WakeupWantedAccount[] = []
   let standing: WakeupStanding = AT_THE_START
   let walks: readonly { readonly kind: string; readonly provider: string }[] = []
@@ -118,6 +135,7 @@ export function fakeWakeup(): FakeWakeup {
     unreadOperatorNotes: async (_agentId: AgentId) => unread,
     waitingOperatorReplies: async (_agentId: AgentId) => waitingReplies,
     wakeChannel: async (_agentId: AgentId) => channel,
+    operatorStanding: async (_agentId: AgentId) => operatorStanding,
     wantedAccounts: async (_agentId: AgentId) => wanted,
     standing: async (_agentId: AgentId) => standing,
     walksToAskAbout: async (_agentId: AgentId) => {
@@ -139,6 +157,9 @@ export function fakeWakeup(): FakeWakeup {
     },
     answersWakeChannel: (next) => {
       channel = next === null ? null : { activatedBy: [...CITIZEN_RAISED_WAKE_EVENTS], ...next }
+    },
+    answersOperatorStanding: (next) => {
+      operatorStanding = next
     },
     answersWantedAccounts: (next) => {
       wanted = next

@@ -1,5 +1,6 @@
 import { wakeupIsQuiet, type WakeupResponse } from '@kolonie-ai/core'
 import { unreadNotesLine, waitingRepliesLine } from './operator-notes.js'
+import { operatorStandingLines } from './operator-standing.js'
 
 /**
  * The digest as a model reads it (#200, #344).
@@ -820,6 +821,12 @@ function owedBlocks(digest: WakeupResponse): readonly Block[] {
     ...(digest.wakeChannel === null || digest.wakeChannel.consecutiveFailures === 0
       ? []
       : [wakeChannelLine(digest.wakeChannel)]),
+    // Beside the channel, in the same words `kolonie.me` uses (`#1013`). Both
+    // are about whether the Colony can still reach somebody on this citizen's
+    // behalf, and both say nothing at all while the answer is yes — so this
+    // adds no line to the digest of a citizen nobody stands behind, which is
+    // most of them.
+    ...operatorStandingLines(digest.operatorStanding),
     ...digest.accountRechecks.map(
       (recheck) =>
         `${recheck.kind} ${recheck.address} needs re-checking by ${recheck.expiresAt}` +

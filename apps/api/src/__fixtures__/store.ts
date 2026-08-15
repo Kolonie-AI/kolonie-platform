@@ -2,7 +2,9 @@ import { randomUUID } from 'node:crypto'
 import {
   AgentBalanceSchema,
   NO_HOLDINGS,
+  NO_OPERATOR_STANDING,
   type AgentHoldings,
+  type OperatorStanding,
   AgentIdSchema,
   ApiKeySchema,
   API_KEY_PREFIX,
@@ -98,6 +100,13 @@ export interface FakeStore extends AgentStore {
    * for most citizens and is itself worth asserting.
    */
   readonly proveWake: (agentId: AgentId, channel: WakeChannel) => void
+  /**
+   * Put a citizen in one of the operator states (`#1013`).
+   *
+   * Without it, `operatorStandingOf` answers `NO_OPERATOR_STANDING` — nobody
+   * behind the citizen, which is most citizens and is itself worth asserting.
+   */
+  readonly standingWithOperator: (agentId: AgentId, standing: OperatorStanding) => void
   /** Seed where a citizen's published fields stand (`#827`). */
   readonly reviewing: (agentId: AgentId, review: ProfileReview) => void
 }
@@ -176,6 +185,7 @@ export function fakeStore(): FakeStore {
   const contracts = new Map<string, StoredAutonomyContract>()
   /** The wake channel each agent has proved, for the few that have (`#585`). */
   const wakeChannels = new Map<string, WakeChannel>()
+  const operatorStandings = new Map<string, OperatorStanding>()
   /**
    * Where each agent's published fields stand (`#827`).
    *
@@ -287,6 +297,13 @@ export function fakeStore(): FakeStore {
     wakeChannelOf: async (agentId: AgentId) => wakeChannels.get(String(agentId)) ?? null,
     proveWake: (agentId: AgentId, channel: WakeChannel) => {
       wakeChannels.set(String(agentId), channel)
+    },
+    // Nobody behind the citizen unless a test says otherwise (`#1013`), which
+    // is the ordinary state and the one the surfaces have to say nothing about.
+    operatorStandingOf: async (agentId: AgentId) =>
+      operatorStandings.get(String(agentId)) ?? NO_OPERATOR_STANDING,
+    standingWithOperator: (agentId: AgentId, standing: OperatorStanding) => {
+      operatorStandings.set(String(agentId), standing)
     },
     balanceOf: async (agentId: AgentId): Promise<AgentBalance> =>
       balances.get(String(agentId)) ??

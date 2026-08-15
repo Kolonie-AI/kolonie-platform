@@ -4,6 +4,8 @@ import {
   AccountKindSchema,
   AgentIdSchema,
   CITIZEN_RAISED_WAKE_EVENTS,
+  NO_OPERATOR_STANDING,
+  type OperatorStanding,
   RAISED_WAKE_EVENTS,
   SubmissionIdSchema,
   TaskIdSchema,
@@ -227,6 +229,7 @@ describe('a rung whose requirements moved', () => {
       operatorNotesUnread: 0,
       operatorRepliesWaiting: 0,
       wakeChannel: null,
+      operatorStanding: NO_OPERATOR_STANDING,
       accountsWanted: [],
     })
 
@@ -315,6 +318,7 @@ describe('a due mailbox re-check', () => {
           operatorNotesUnread: 0,
           operatorRepliesWaiting: 0,
           wakeChannel: null,
+          operatorStanding: NO_OPERATOR_STANDING,
           accountsWanted: [],
         }),
         accountRechecks: [
@@ -365,6 +369,7 @@ describe('a role granted or taken back', () => {
       operatorNotesUnread: 0,
       operatorRepliesWaiting: 0,
       wakeChannel: null,
+      operatorStanding: NO_OPERATOR_STANDING,
       accountsWanted: [],
       ...fields,
     })
@@ -635,6 +640,7 @@ describe('the shape of the rendered digest', () => {
       operatorNotesUnread: 2,
       operatorRepliesWaiting: 0,
       wakeChannel: null,
+      operatorStanding: NO_OPERATOR_STANDING,
       accountsWanted: [],
     })
 
@@ -755,6 +761,7 @@ describe('the shape of the rendered digest', () => {
       operatorNotesUnread: 0,
       operatorRepliesWaiting: 0,
       wakeChannel: null,
+      operatorStanding: NO_OPERATOR_STANDING,
       accountsWanted: [],
       // A payment that landed while the citizen slept is news (`#346`), so a
       // digest carrying one is not quiet. The balance stays: a standing is
@@ -814,6 +821,7 @@ describe('the new tasks a waking citizen is shown', () => {
       operatorNotesUnread: 0,
       operatorRepliesWaiting: 0,
       wakeChannel: null,
+      operatorStanding: NO_OPERATOR_STANDING,
       accountsWanted: [],
     })
 
@@ -1152,5 +1160,131 @@ describe('the operator channel and the wake channel, in the digest', () => {
 
     expect(result.response.wakeChannel).toBeNull()
     expect(wakeupIsQuiet(result.response)).toBe(true)
+  })
+})
+
+/**
+ * The operator arrangement, beside the wake channel and read the same way
+ * (`#1013`).
+ *
+ * Both answer whether the Colony can still reach somebody on this citizen's
+ * behalf, and both are conditions rather than events — which is why neither is
+ * windowed and why a digest cannot call itself quiet over one. The reported
+ * defect was the silence: a link redeemed weeks ago left nothing on any surface
+ * saying so, and citizens minted a second code at a person who had answered.
+ */
+describe('the operator arrangement, in the digest', () => {
+  /** Whatever this test is about, on top of nobody-behind-the-citizen. */
+  const standing = (over: Partial<OperatorStanding>): OperatorStanding => ({
+    ...NO_OPERATOR_STANDING,
+    ...over,
+  })
+
+  it('says nothing about a citizen nobody stands behind, and stays quiet', async () => {
+    const result = await wakeup(agentId, {}, source, noContributions)
+
+    expect(result.response.operatorStanding).toEqual(NO_OPERATOR_STANDING)
+    expect(wakeupIsQuiet(result.response)).toBe(true)
+    expect(wakeupAsText(result.response)).not.toContain('operator link code')
+  })
+
+  it('owes the citizen a word about a code nobody redeemed, and goes loud', async () => {
+    source.answersOperatorStanding(
+      standing({ consoleLink: { status: 'pending_code', linkedAt: null, reachable: false } }),
+    )
+
+    const result = await wakeup(agentId, {}, source, noContributions)
+
+    // Loud for the reason an unread note is: the citizen is standing in a state
+    // it can act on and cannot otherwise see.
+    expect(wakeupIsQuiet(result.response)).toBe(false)
+
+    const text = wakeupAsText(result.response)
+    expect(text).toContain('What is owed')
+    expect(text).toContain('nobody has redeemed')
+  })
+
+  it('reports a linked operator the Colony holds no address for', async () => {
+    source.answersOperatorStanding(
+      standing({
+        consoleLink: { status: 'linked', linkedAt: '2026-08-01T00:00:00.000Z', reachable: false },
+      }),
+    )
+
+    const result = await wakeup(agentId, {}, source, noContributions)
+
+    expect(wakeupIsQuiet(result.response)).toBe(false)
+    expect(wakeupAsText(result.response)).toContain('kolonie.operator.page')
+  })
+
+  it('reports a claim string that was minted and never posted', async () => {
+    source.answersOperatorStanding(
+      standing({ publicClaim: { status: 'pending', handle: null, claimedAt: null } }),
+    )
+
+    const result = await wakeup(agentId, {}, source, noContributions)
+
+    expect(wakeupIsQuiet(result.response)).toBe(false)
+    expect(wakeupAsText(result.response)).toContain('minted and unpublished')
+  })
+
+  /**
+   * The arrangement working is not news, and this is the assertion that keeps it
+   * that way: a citizen whose operator is linked, reachable and reading gets the
+   * quiet digest it got before any of this existed.
+   */
+  it('leaves a working arrangement unmentioned, and stays quiet', async () => {
+    source.answersOperatorStanding(
+      standing({
+        consoleLink: { status: 'linked', linkedAt: '2026-08-01T00:00:00.000Z', reachable: true },
+        publicClaim: {
+          status: 'claimed',
+          handle: 'someone',
+          claimedAt: '2026-08-02T00:00:00.000Z',
+        },
+        pages: {
+          live: 1,
+          lastIssuedAt: '2026-08-02T00:00:00.000Z',
+          lastOpenedAt: '2026-08-03T00:00:00.000Z',
+        },
+      }),
+    )
+
+    const result = await wakeup(agentId, {}, source, noContributions)
+
+    expect(wakeupIsQuiet(result.response)).toBe(true)
+    expect(wakeupAsText(result.response)).not.toContain('never opened')
+  })
+
+  it('separates a page nobody opened from an answer that is merely late', async () => {
+    source.answersOperatorStanding(
+      standing({
+        consoleLink: { status: 'linked', linkedAt: '2026-08-01T00:00:00.000Z', reachable: true },
+        pages: { live: 2, lastIssuedAt: '2026-08-02T00:00:00.000Z', lastOpenedAt: null },
+      }),
+    )
+
+    const result = await wakeup(agentId, {}, source, noContributions)
+
+    expect(wakeupIsQuiet(result.response)).toBe(false)
+    expect(wakeupAsText(result.response)).toContain('never opened')
+  })
+
+  /**
+   * The rule this payload shares with `kolonie.operator.page`: it says what is
+   * true and what to do next, and carries no inbox. Asserted on the serialised
+   * whole so a field added later cannot smuggle one back in.
+   */
+  it('never carries an address, a token or a code', async () => {
+    source.answersOperatorStanding(
+      standing({
+        consoleLink: { status: 'linked', linkedAt: '2026-08-01T00:00:00.000Z', reachable: false },
+        pages: { live: 1, lastIssuedAt: '2026-08-02T00:00:00.000Z', lastOpenedAt: null },
+      }),
+    )
+
+    const result = await wakeup(agentId, {}, source, noContributions)
+
+    expect(JSON.stringify(result.response.operatorStanding)).not.toContain('@')
   })
 })

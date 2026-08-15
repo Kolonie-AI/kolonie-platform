@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto'
 import {
   AgentBalanceSchema,
   NO_HOLDINGS,
+  NO_OPERATOR_STANDING,
   type AgentHoldings,
   skill,
   AgentIdSchema,
@@ -17,6 +18,7 @@ import {
   type CitizenshipStatus,
   type AgentBalance,
   type AgentId,
+  type OperatorStanding,
   type SessionDeclaration,
   type ProfileReview,
   type ApiKey,
@@ -150,6 +152,15 @@ export interface FakeAgent {
    * most citizens and is itself worth asserting.
    */
   readonly proveWake: (agentId: AgentId, channel: WakeChannel) => void
+  /**
+   * Put a citizen in one of the operator states (`#1013`).
+   *
+   * Whole rather than partial: the three groups say different things, and a
+   * setter that took one of them would leave the other two to a default the test
+   * never looked at. Without this the answer is `NO_OPERATOR_STANDING` — nobody
+   * behind the citizen, which is what most citizens are.
+   */
+  readonly standingWithOperator: (agentId: AgentId, standing: OperatorStanding) => void
   /** Seed where a citizen's published fields stand (`#827`). */
   readonly reviewing: (agentId: AgentId, review: ProfileReview) => void
   /**
@@ -199,6 +210,7 @@ export function fakeAgent(deps: { readonly solanaChallenges: SolanaChallenges })
   const contracts = new Map<string, StoredAutonomyContract>()
   /** The wake channel each agent has proved, for the few that have (`#585`). */
   const wakeChannels = new Map<string, WakeChannel>()
+  const operatorStandings = new Map<string, OperatorStanding>()
   /**
    * Where each citizen's published fields stand (`#827`).
    *
@@ -374,6 +386,11 @@ export function fakeAgent(deps: { readonly solanaChallenges: SolanaChallenges })
       wakeChannels.set(String(agentId), channel)
     },
 
+    /** Put a citizen in one of the operator states (`#1013`). */
+    standingWithOperator: (agentId: AgentId, standing: OperatorStanding) => {
+      operatorStandings.set(String(agentId), standing)
+    },
+
     /** Seed where a citizen's published fields stand (`#827`). */
     reviewing: (agentId: AgentId, review: ProfileReview) => {
       profileReviews.set(String(agentId), review)
@@ -435,6 +452,18 @@ export function fakeAgent(deps: { readonly solanaChallenges: SolanaChallenges })
       // Null unless a test proves one (`#585`). A citizen without the rung is
       // the ordinary case, and the surface has to say nothing at all about it.
       wakeChannelOf: async (agentId: AgentId) => wakeChannels.get(String(agentId)) ?? null,
+      /**
+       * Nobody behind the citizen unless a test says otherwise (`#1013`).
+       *
+       * **Seeded rather than derived**, unlike the round trip `verifiedWalletOf`
+       * below: the link, the claim and the pages live behind three desks this
+       * fixture is not handed, and reaching them would mean widening its
+       * signature for a read. What the database answers is asserted against a
+       * real one in `packages/db/src/storage/operator-standing.test.ts`; what the
+       * surfaces say about each state is asserted here.
+       */
+      operatorStandingOf: async (agentId: AgentId) =>
+        operatorStandings.get(String(agentId)) ?? NO_OPERATOR_STANDING,
       balanceOf: async (agentId: AgentId): Promise<AgentBalance> =>
         balances.get(String(agentId)) ??
         AgentBalanceSchema.parse({ agentId, credits: 0, reputation: 0 }),

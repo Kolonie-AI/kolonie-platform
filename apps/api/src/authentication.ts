@@ -7,6 +7,7 @@ import {
   type AgentOrigin,
   type ApiError,
   type GetMeResponse,
+  type OperatorStanding,
   type ProfileReview,
   type SessionDeclaration,
   type HeldBadge,
@@ -24,6 +25,7 @@ import {
   holdingsOf,
   lastRuntimeDeclarationAt,
   nameSession,
+  operatorStandingOf,
   recentOrigins,
   recordOrigin,
   updateAgentProfile,
@@ -212,6 +214,19 @@ export interface AgentStore extends ProfileStore {
    * somebody else, which is the same shape `badgesOf` and `originsOf` have.
    */
   wakeChannelOf(agentId: AgentId): Promise<WakeChannel | null>
+  /**
+   * Where this citizen stands with the person behind it (`#1013`).
+   *
+   * On this interface for `autonomyOf`'s reason exactly: it is state the citizen
+   * needs *before* it acts, and reaching it took knowing which of three tools to
+   * call. The reporter that filed `#1013` held a console link, could find no
+   * field saying so, and re-issued a code to an operator who had already
+   * answered — a second ask is not free, and it is spent on the one party the
+   * Colony cannot replace.
+   *
+   * Only ever the caller's own, like `badgesOf` and `wakeChannelOf` above.
+   */
+  operatorStandingOf(agentId: AgentId): Promise<OperatorStanding>
   /**
    * One citizen's own editable record, by id (`#829`).
    *
@@ -448,6 +463,7 @@ export function databaseStore(db: Database): AgentStore {
     // the response schema distinguishes absent from empty and `undefined` would
     // vanish from the JSON entirely (`#144`).
     wakeChannelOf: async (agentId) => (await wakeChannelOf(db, agentId)) ?? null,
+    operatorStandingOf: (agentId) => operatorStandingOf(db, agentId),
     updateProfile: (agentId, request, avatar) => updateAgentProfile(db, agentId, request, avatar),
     // `undefined` becomes `null` for the reason `wakeChannelOf` gives.
     profileOf: async (agentId) => (await agentProfile(db, agentId)) ?? null,
@@ -581,6 +597,16 @@ export async function me(
   // the six-hour delay the rung was built to remove.
   const wakeChannel = await store.wakeChannelOf(authenticated.agent.id)
   /**
+   * Where the two operator relationships and the pages stand (`#1013`).
+   *
+   * Read here for the reason `autonomy` gives four lines up, with one addition:
+   * the cost of not knowing falls on somebody else. A citizen that cannot see it
+   * is already linked asks its operator a second time, and an operator asked
+   * twice for something they have done is an operator who reads the next request
+   * more slowly.
+   */
+  const operatorStanding = await store.operatorStandingOf(authenticated.agent.id)
+  /**
    * Where each published field stands (`#827`).
    *
    * Read here rather than through a route of its own for the reason `badges`
@@ -609,6 +635,7 @@ export async function me(
       badges: [...badges],
       autonomy,
       wakeChannel,
+      operatorStanding,
       profileReview,
       indexable,
       attributed,

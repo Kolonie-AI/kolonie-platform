@@ -1,5 +1,10 @@
 import { defineConfig } from 'vitest/config'
 
+// @ts-expect-error the runner's helpers are build scripts, deliberately outside
+// the TypeScript project. This file is not typechecked either — the app's
+// tsconfig includes `src/**/*.ts` and nothing else.
+import { testWorkers } from '../../scripts/test-workers.mjs'
+
 /**
  * The files that keep per-file isolation.
  *
@@ -49,6 +54,19 @@ const EVERY_TEST = ['src/**/*.test.ts']
  */
 export default defineConfig({
   test: {
+    /**
+     * **This workspace has never had an opinion about its pool, and that was the
+     * problem** (`#963`). Vitest's default is roughly one worker a core, which is
+     * correct for a workspace running alone and wrong for one of two running at
+     * once: on CLAUDE002 this app and `packages/db` together asked for thirteen
+     * workers on eight cores, the machine swapped, and both went red on timeouts
+     * — reproducibly, on a diff of two Markdown files.
+     *
+     * `undefined` when nothing is running beside it, so `npx vitest run --root
+     * apps/api` still gets the default and the 29.90 s → 10.73 s measurement
+     * below still describes it.
+     */
+    maxWorkers: testWorkers(),
     coverage: {
       include: ['src/**/*.ts'],
       exclude: ['src/**/*.test.ts', 'src/**/index.ts'],

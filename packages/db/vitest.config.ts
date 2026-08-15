@@ -1,6 +1,12 @@
 import { cpus } from 'node:os'
 import { defineConfig } from 'vitest/config'
 
+// @ts-expect-error the runner's helpers are build scripts, deliberately outside
+// the TypeScript project — the same reason `scripts/run-workspace-script.test.ts`
+// says this over its own import. This file is not typechecked either: the
+// package's tsconfig includes `src/**/*.ts` and nothing else.
+import { testWorkers } from '../../scripts/test-workers.mjs'
+
 /**
  * How many test files run at once.
  *
@@ -14,8 +20,15 @@ import { defineConfig } from 'vitest/config'
  * a Postgres backend of its own, and in the same session running this package six
  * ways *while* the other six workspaces ran took the machine to 5.5 GiB of
  * 7.2 GiB and touched swap for the first time.
+ *
+ * **`testWorkers` can only lower this** (`#963`). When `npm run check` runs
+ * several workspaces at once it publishes a share of the machine, and this
+ * package takes the smaller of the two. It is a ceiling in both directions
+ * rather than an assignment: the six above is about memory, so a thirty-two-core
+ * machine must not be allowed to raise it. Run on its own — `npx vitest run
+ * --root packages/db` — there is no budget and the six stands.
  */
-const WORKERS = Math.max(1, Math.min(6, cpus().length - 2))
+const WORKERS = testWorkers(Math.max(1, Math.min(6, cpus().length - 2)))
 
 /**
  * The files that keep per-file isolation.

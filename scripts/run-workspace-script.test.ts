@@ -5,7 +5,14 @@ import { describe, expect, it } from 'vitest'
 // @ts-expect-error — the runner is a build script, deliberately outside the
 // TypeScript project. Imported here because the sentence it uses to decide the
 // exit code is the one thing about it that must never be wrong.
-import { scriptFrom, verdictFrom, workspacesWithScript } from './run-workspace-script.mjs'
+import {
+  environmentFor,
+  scriptFrom,
+  verdictFrom,
+  workspacesWithScript,
+} from './run-workspace-script.mjs'
+// @ts-expect-error — outside the TypeScript project, as above.
+import { WORKER_BUDGET_VAR } from './test-workers.mjs'
 
 /**
  * `#285`. Running the workspaces concurrently buys back most of the suite's wall
@@ -191,5 +198,41 @@ describe('reading the script name', () => {
 
   it('refuses a flag, which is what a mistyped invocation looks like', () => {
     expect(scriptFrom(['--workspaces'])).toBeUndefined()
+  })
+})
+
+/**
+ * `#963`. This runner sizes itself from the core count and so does each vitest it
+ * starts, and until the budget below nothing multiplied the two together: on
+ * CLAUDE002 that was thirteen Node processes and six Postgres backends on eight
+ * cores, the machine swapped, and `packages/db` and `apps/api` both went red on
+ * timeouts. The arithmetic lives in `test-workers.mjs`; what is asserted here is
+ * that the number reaches the children, and that nothing else about their
+ * environment moved.
+ */
+describe('what the children are told', () => {
+  const environment = { DATABASE_URL: 'postgres://localhost/kolonie_test', PATH: '/usr/bin' }
+
+  it('publishes a share of the machine to a test run', () => {
+    expect(environmentFor('test', 2, environment)[WORKER_BUDGET_VAR]).toBeDefined()
+  })
+
+  /**
+   * A `tsc` is one process and divides into nothing, so a budget published to it
+   * would be a number nobody reads — and a number nobody reads is one the next
+   * reader has to work out is inert.
+   */
+  it('says nothing to a script that has no workers', () => {
+    expect(environmentFor('typecheck', 4, environment)[WORKER_BUDGET_VAR]).toBeUndefined()
+  })
+
+  /**
+   * The whole reason the children inherited the environment in the first place:
+   * without `DATABASE_URL`, `packages/db` fails every file with the message
+   * D-009 requires instead of skipping silently.
+   */
+  it('leaves the rest of the environment exactly as it was', () => {
+    expect(environmentFor('test', 2, environment)).toMatchObject(environment)
+    expect(environmentFor('typecheck', 2, environment)).toEqual(environment)
   })
 })

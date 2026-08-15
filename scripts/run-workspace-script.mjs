@@ -54,6 +54,8 @@ import process from 'node:process'
 // generator does the same, for the same reason.
 import { fileURLToPath, URL } from 'node:url'
 
+import { shareOfMachine, WORKER_BUDGET_VAR } from './test-workers.mjs'
+
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
 
 /**
@@ -159,14 +161,30 @@ export const workspacesWithScript = async (script, root = ROOT) => {
   return found
 }
 
+/**
+ * What each child gets on top of this process's environment.
+ *
+ * **Only `test` gets a worker budget, and only because only `test` has workers.**
+ * A `tsc` is one process and divides into nothing; publishing a budget to it
+ * would be a number nobody reads. See `scripts/test-workers.mjs` for what the
+ * workspaces do with it and for the measurements that made it necessary — in
+ * short, this runner sizes itself from the core count and so does each vitest
+ * below it, and before `#963` nothing multiplied the two together.
+ */
+export const environmentFor = (script, concurrency, env = process.env) =>
+  script === 'test'
+    ? { ...env, [WORKER_BUDGET_VAR]: String(shareOfMachine(concurrency)) }
+    : { ...env }
+
 /** Run one workspace to completion, keeping its output to itself until it is done. */
-const runWorkspace = ({ name, directory, script }) =>
+const runWorkspace = ({ name, directory, script }, env = process.env) =>
   new Promise((resolve) => {
     const started = Date.now()
     const child = spawn('npm', ['run', script], {
       cwd: path.join(ROOT, directory),
-      // Inherited, so DATABASE_URL and the rest reach the workspace unchanged.
-      env: process.env,
+      // This process's environment plus the budget, so DATABASE_URL and the rest
+      // reach the workspace unchanged.
+      env,
       stdio: ['ignore', 'pipe', 'pipe'],
     })
 
@@ -248,10 +266,19 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   }
 
   const concurrency = concurrencyFor(script)
-  console.log(`running ${script} in ${workspaces.length} workspaces, ${concurrency} at a time\n`)
+  const environment = environmentFor(script, concurrency)
+  const budget = environment[WORKER_BUDGET_VAR]
+
+  console.log(
+    `running ${script} in ${workspaces.length} workspaces, ${concurrency} at a time` +
+      // Printed rather than kept to itself: when a workspace times out, the first
+      // question is how much of the machine it actually had.
+      (budget === undefined ? '' : `, up to ${budget} test workers each`) +
+      '\n',
+  )
 
   const results = await inBatches(workspaces, concurrency, async (workspace) => {
-    const result = await runWorkspace(workspace)
+    const result = await runWorkspace(workspace, environment)
     const verdict = result.ok ? 'passed' : 'FAILED'
     console.log(`${'─'.repeat(72)}\n${result.name} — ${verdict} in ${result.seconds.toFixed(1)}s`)
     console.log(`${'─'.repeat(72)}`)

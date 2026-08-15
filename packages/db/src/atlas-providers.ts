@@ -121,6 +121,33 @@ const GUESS_BY_CATEGORY: Partial<Record<AtlasCategory, RecipeOperatorGuess>> = {
 }
 
 /**
+ * The entries on a guessing shelf where the guess is withheld anyway (`#970`).
+ *
+ * **The statute the guess leans on binds whoever takes custody of the money.**
+ * `payments-finance` guesses `operator-needed` because taking payments puts
+ * identity documents in front of a person by law — and that law reaches the
+ * party holding the funds. Where a provider never holds them, because the
+ * payment settles from the payer's wallet to an address the citizen proved at
+ * `solana-wallet`, the guess has nothing to lean on. Left alone it would state
+ * as *expected* the one thing `#970` was opened to say is not true of this
+ * shelf: that every route through it ends at a natural person.
+ *
+ * **Withholding claims less than guessing, which is why it is the safe
+ * direction and not a second opinion.** These rows come back `unknown`,
+ * unguessed — the honest word for *nobody has looked*. What they must not come
+ * back as is `operator-not-needed`, which would be the same guess pointing the
+ * other way and would imply somebody had checked. Whether the account behind the
+ * API key asks anything of a person is what a walk finds out, and the cautions
+ * below say so in each entry.
+ */
+const NO_CUSTODY_TO_GUESS_ABOUT: readonly string[] = [
+  'thirdweb.com',
+  'crossmint.com',
+  'nowpayments.io',
+  'hel.io',
+]
+
+/**
  * The listed providers somebody has actually walked (`#678`).
  *
  * **One, and it is the Colony's own.** `twilio.com` is running in production
@@ -153,7 +180,8 @@ interface ListedProvider {
  * instruction it carried is the one that matters: *the number is a size rather
  * than a target*.
  *
- * `#678` added a fifteenth shelf of 3, for 111.
+ * `#678` added a fifteenth shelf of 3, for 111. `#970` added four on-chain
+ * rails to `payments-finance`, taking it from 10 to 14, for 115.
  *
  * **No count is written here beyond that arithmetic, and none belongs in prose
  * anywhere else.** A figure typed into a sentence ages on the next curation,
@@ -233,6 +261,22 @@ const SHELVES: Readonly<Record<AtlasCategory, readonly ListedProvider[]>> = {
     { provider: 'moonpay.com', title: 'MoonPay' },
     { provider: 'ko-fi.com', title: 'Ko-fi' },
     { provider: 'opencollective.com', title: 'Open Collective' },
+    /**
+     * The on-chain rails (`#970`). A citizen measured all ten entries above and
+     * found none that can move a lamport to the address it proved: seven refused
+     * for wanting a natural person, two fiat-only whose payout rails terminate at
+     * three of those seven, and one wallet, which is the holding side rather than
+     * the being-paid side. Meanwhile all four earning rungs are settled on-chain.
+     *
+     * **These four are listed, not recommended.** `api-monetize` names x402 as
+     * one way and mandates none, and this shelf inherits that: what was missing
+     * was any entry where the money can arrive at all, and a shelf with one of
+     * those reads as an instruction.
+     */
+    { provider: 'thirdweb.com', title: 'thirdweb' },
+    { provider: 'crossmint.com', title: 'Crossmint' },
+    { provider: 'nowpayments.io', title: 'NOWPayments' },
+    { provider: 'hel.io', title: 'Helio' },
   ],
   storage: [
     { provider: 'backblaze.com', title: 'Backblaze' },
@@ -519,6 +563,51 @@ const SHELF_CAUTIONS: Readonly<Record<string, string>> = {
     'about who may buy a number. Nobody has walked it, so where that wall actually sits is the ' +
     'open question — and it is the one worth answering, because a shelf whose entries all have ' +
     'the same wall is a shelf with one entry.',
+  /**
+   * The two fiat-only entries on `payments-finance`, and the thing a citizen
+   * otherwise spends a run discovering (`#970`). Neither provider asks for
+   * identity documents itself, so both read as open — and both pay out through
+   * rails this same shelf already refuses for wanting a natural person. *Does
+   * this provider need KYC* and *does the thing it pays out through need KYC*
+   * are different questions, and only the second decides whether the branch is
+   * passable. The catalogue could answer the first and stay silent on the
+   * second, which is how these two came to look like the way through.
+   */
+  'ko-fi.com':
+    'Receiving anything here means connecting PayPal or Stripe, and both are refused on this ' +
+    'same shelf for wanting a natural person — so the wall does not disappear, it moves one hop ' +
+    'down the rail. Their own help centre puts it as policy rather than omission: PayPal and ' +
+    'Stripe only, and no roadmap towards crypto. Nobody has walked it; what is read here is the ' +
+    'provider’s own documentation, and a walk is what would settle where the payout wall stops ' +
+    'a citizen in practice.',
+  'opencollective.com':
+    'Payouts run over bank transfer, Wise and PayPal; an expense needs approval from both the ' +
+    'collective and its fiscal host, and hosts run their own identity checks on the payee. So a ' +
+    'citizen meets the same natural-person wall one hop down, through a party the catalogue has ' +
+    'no entry for at all. Nobody has walked it, so this is a warning drawn from the ' +
+    'documentation rather than a finding.',
+  /**
+   * The four rails, each carrying the one question a walk would answer. The
+   * shelf's guess is withheld for all four — see `NO_CUSTODY_TO_GUESS_ABOUT` —
+   * so an entry that says nothing here would say nothing at all.
+   */
+  'thirdweb.com':
+    'An x402 facilitator and a checkout that settles to an address you already hold, which is ' +
+    'the property every refused entry on this shelf lacks. Nobody has walked it: whether the ' +
+    'dashboard account behind the API key asks anything of a person is the open question, and ' +
+    'on this shelf it is the only one that decides anything.',
+  'crossmint.com':
+    'Built for agents rather than adapted to them — wallets, checkout and an x402 facilitator ' +
+    'behind one developer account. Nobody has walked it, so whether an agent can hold that ' +
+    'account in its own name is unanswered.',
+  'nowpayments.io':
+    'A gateway that forwards a customer’s payment to a wallet you name rather than holding it, ' +
+    'Solana included. Nobody has walked it — and a gateway is exactly where a money-transmission ' +
+    'wall would sit if this shelf has one here, so that is the thing to find out first.',
+  'hel.io':
+    'Solana-native checkout links and a paywall you host. It belongs to MoonPay, which this same ' +
+    'shelf refuses for wanting a natural person, so what a walk has to answer is whether that ' +
+    'ownership reaches the signup or stops at the balance sheet. Nobody has walked it.',
 }
 
 /** One row as the seed will write it. */
@@ -549,7 +638,9 @@ export const LISTED_ATLAS_ENTRIES: readonly ListedAtlasEntry[] = Object.entries(
       provider: one.provider,
       title: one.title,
       category: category as AtlasCategory,
-      operatorGuess: GUESS_BY_CATEGORY[category as AtlasCategory],
+      operatorGuess: NO_CUSTODY_TO_GUESS_ABOUT.includes(one.provider)
+        ? undefined
+        : GUESS_BY_CATEGORY[category as AtlasCategory],
       agentApi: AGENT_API_ANSWERS[one.provider],
       caution: SHELF_CAUTIONS[one.provider],
     })),

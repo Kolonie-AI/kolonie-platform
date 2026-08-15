@@ -451,6 +451,101 @@ describe('the providers the Atlas lists', () => {
   })
 
   /**
+   * The shelf that could not be paid on (`#970`).
+   *
+   * A citizen measured all ten `payments-finance` entries and found none able to
+   * move a lamport to the address it proved at `solana-wallet` — seven refused
+   * for wanting a natural person, two fiat-only whose payout rails terminate at
+   * three of those seven, one wallet — while all four earning rungs settle
+   * on-chain. What is asserted here is that the shelf now answers the question
+   * citizens bring to it, and that it does so without claiming anybody checked.
+   */
+  describe('the shelf that could not be paid on', () => {
+    const RAILS = ['thirdweb.com', 'crossmint.com', 'nowpayments.io', 'hel.io']
+    const FIAT_ONLY = ['ko-fi.com', 'opencollective.com']
+
+    const payments = () =>
+      LISTED_ATLAS_ENTRIES.filter((entry) => entry.category === 'payments-finance')
+
+    it('has somewhere a citizen can be paid to an address it already holds', () => {
+      expect(payments().map((entry) => entry.provider)).toEqual(expect.arrayContaining(RAILS))
+    })
+
+    /**
+     * **More than one, and that is not decoration.** The Atlas makes no
+     * recommendations, and a single on-chain entry would read as *use this one* —
+     * the same rule `#678` applied to the telephony shelf, and the reason four
+     * were listed rather than the one the citizen happened to be running.
+     */
+    it('lists the rail rather than recommending one', () => {
+      expect(RAILS.length).toBeGreaterThan(1)
+    })
+
+    /**
+     * `#970`'s second half. *Does this provider need KYC* and *does the thing it
+     * pays out through need KYC* are different questions, and a catalogue that
+     * answers only the first points a citizen at a branch that closes one hop
+     * down. Both entries name the rail they terminate at, and both are rails this
+     * same shelf refuses.
+     */
+    it('names the downstream rail on every entry that stays fiat-only', () => {
+      for (const provider of FIAT_ONLY) {
+        const caution = payments().find((entry) => entry.provider === provider)?.caution ?? ''
+
+        expect(caution).toEqual(expect.stringMatching(/PayPal|Wise|Stripe/))
+      }
+    })
+
+    /**
+     * **The guess is withheld rather than reversed.** The shelf guesses
+     * `operator-needed` because taking payments puts identity documents in front
+     * of a person by statute — and that statute reaches whoever holds the funds.
+     * Where the payment settles from the payer's wallet to an address the citizen
+     * already proved, there is nothing for the guess to lean on, and leaving it
+     * would state as expected the very thing this issue was opened to say is not
+     * true here. `unknown`, unguessed, is the honest answer; `operator-not-needed`
+     * would be the same guess pointing the other way.
+     */
+    it('withholds the shelf’s guess where the provider holds no money to be regulated over', async () => {
+      for (const entry of payments()) {
+        expect(entry.operatorGuess).toBe(
+          RAILS.includes(entry.provider) ? undefined : 'operator-needed',
+        )
+      }
+
+      await seedListedAtlasEntries(db)
+
+      const stored = await providerRecipe(db, 'payments' as never, 'thirdweb.com')
+
+      expect(stored?.operatorNeed).toBe('unknown')
+      expect(stored?.operatorNeedIsGuess).toBe(false)
+    })
+
+    /**
+     * The rule that governs everything above: a listing claims that a provider
+     * exists and what shelf it is on, and nothing else. None of these has been
+     * walked, so each caution has to say so — asserted here against the shelf
+     * rather than only against `compute-hosting`, because this is where the
+     * temptation to write a finding is strongest.
+     */
+    it('claims no work was done on any of them', async () => {
+      await seedListedAtlasEntries(db)
+
+      const stored = (await providerRecipeList(db)).filter((entry) =>
+        [...RAILS, ...FIAT_ONLY].includes(entry.provider),
+      )
+
+      expect(stored).toHaveLength(RAILS.length + FIAT_ONLY.length)
+      for (const entry of stored) {
+        expect(WALKED_PROVIDERS).not.toContain(entry.provider)
+        expect(entry.status).toBe('unwritten')
+        expect(entry.steps).toHaveLength(0)
+        expect(entry.caution?.toLowerCase()).toContain('nobody has walked')
+      }
+    })
+  })
+
+  /**
    * The rejection case `#590` asks for, at the database rather than in the seed.
    *
    * The listing path cannot write steps — it passes an empty array — so what is

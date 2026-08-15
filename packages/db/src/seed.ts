@@ -3,6 +3,7 @@ import { seedProviderCatalogue } from './provider-catalogue.js'
 import { curateListedAtlasEntries, seedListedAtlasEntries } from './atlas-providers.js'
 import { seedBundles } from './storage/provider-bundles.js'
 import { backfillMeasuredProviders } from './atlas-backfill.js'
+import { scopeTelephonyDirections } from './atlas-directions.js'
 import { repairAtlasShelves } from './atlas-shelf.js'
 import { createDatabase, databaseUrlFromEnv } from './client.js'
 
@@ -99,6 +100,21 @@ async function main(): Promise<void> {
       `atlas backfill: ${measured} providers the Colony has evidence about newly on a shelf, ` +
         `${alreadyShelved} already in the catalogue and left untouched, ` +
         `${unshelved} skipped for want of a shelf`,
+    )
+
+    /**
+     * The telephony verdicts, scoped to the capability they were measured
+     * against (`#976`).
+     *
+     * **After the backfill, because the rows it scopes are ones the backfill
+     * created.** A pass that ran first would find nothing on its first deploy
+     * and leave `agentphone.ai` globally refused until the next one — which is
+     * the state this issue exists to end.
+     */
+    const { scoped, untouched: alreadyScoped } = await scopeTelephonyDirections(db)
+    console.log(
+      `atlas directions: ${scoped} telephony verdicts scoped to the direction they measured, ` +
+        `${alreadyScoped} already scoped or not yet on a shelf`,
     )
 
     /**

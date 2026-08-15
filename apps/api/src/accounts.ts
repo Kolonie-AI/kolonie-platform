@@ -13,6 +13,7 @@ import {
   type ProviderTally,
   type ProviderReportOutcome,
   type ProviderReportTally,
+  type RecipeDirection,
   ProviderReportRequestSchema,
 } from '@kolonie-ai/core'
 import type { AccountDeclaration, AccountEdit, AccountForgotten, Database } from '@kolonie-ai/db'
@@ -97,6 +98,11 @@ export interface AccountRegister {
        * standing beside a different verdict.
        */
       readonly reason?: string
+      /**
+       * Which capability the verdict is about, where the kind has two (`#976`).
+       * Absent clears it, with the reason beside it and for the same reason.
+       */
+      readonly direction?: RecipeDirection
     },
   ): Promise<{ readonly outcome: 'recorded' | 'withdrawn' }>
   setVaultKey(agentId: AgentId, accountId: string, vaultKey: string | null): Promise<AccountEdit>
@@ -1119,7 +1125,12 @@ export async function reportProvider(
           'kolonie.accounts.declare, which is the same claim with a proof behind it. ' +
           '`reason` is optional and is one short sentence about *where* it stopped you; it is ' +
           'moderated before anyone sees it, and it may not be sent with a `null` outcome, ' +
-          'because withdrawing a report removes its reason with it.',
+          'because withdrawing a report removes its reason with it. ' +
+          '`direction` is required on `kind: phone` and refused everywhere else: `inbound` for a ' +
+          'number that can receive, `outbound` for one a carrier will let you send from, `both` ' +
+          'if you tried both. A number that can receive and one you can send from share a signup ' +
+          'and nothing else, and without it a wall you hit sending closes the provider for every ' +
+          'citizen that only needed to receive.',
         details: fieldErrors(parsed.error),
       },
     }
@@ -1133,6 +1144,10 @@ export async function reportProvider(
     // way to the write — where it means *clear the reason that was there*, which
     // is what stops one verdict's explanation standing beside a different one.
     ...(parsed.data.reason === undefined ? {} : { reason: parsed.data.reason }),
+    // Absent means *clear the scope* for the same reason (`#976`): a direction
+    // left over from a previous verdict would say this one was measured a way
+    // nobody said it was.
+    ...(parsed.data.direction === undefined ? {} : { direction: parsed.data.direction }),
   })
 
   return { outcome: 'reported', withdrawn: written.outcome === 'withdrawn' }

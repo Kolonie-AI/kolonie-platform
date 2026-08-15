@@ -1765,6 +1765,13 @@
       "when": 1786778890072,
       "tag": "0251_a_closed_episode_proposes_the_draft",
       "breakpoints": true
+    },
+    {
+      "idx": 252,
+      "version": "7",
+      "when": 1786791886887,
+      "tag": "0252_a_phone_verdict_says_which_way",
+      "breakpoints": true
     }
   ]
 }

@@ -17,6 +17,7 @@ import type {
   RecipeStatus,
   RecipeStep,
 } from './recipe.js'
+import type { RecipeDirection } from './atlas-direction.js'
 
 const recipe = (input: {
   kind: string
@@ -27,6 +28,7 @@ const recipe = (input: {
   operatorSteps?: boolean
   operatorGuess?: RecipeOperatorGuess
   updatedAt?: string
+  direction?: RecipeDirection
 }): ProviderRecipe => {
   const status = input.status ?? 'joinable'
   const joinable = status === 'joinable'
@@ -51,6 +53,8 @@ const recipe = (input: {
     contact: null,
     lastConfirmedAt: '2026-08-01T00:00:00.000Z' as never,
     status,
+    /** Unscoped unless a test about the axis says otherwise (`#976`). */
+    direction: input.direction ?? null,
     retiredAt: status === 'retired' ? ('2026-08-09T00:00:00.000Z' as never) : null,
     retiredReason: status === 'retired' ? 'the provider stopped taking agents' : null,
     category: input.category ?? 'code-hosting',

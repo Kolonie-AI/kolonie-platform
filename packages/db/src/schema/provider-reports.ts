@@ -1,6 +1,10 @@
 import { check, index, pgTable, primaryKey, text, timestamp, uuid } from 'drizzle-orm/pg-core'
 import { sql } from 'drizzle-orm'
-import { PROVIDER_REASON_MAX_LENGTH } from '@kolonie-ai/core'
+import {
+  DIRECTIONAL_KINDS,
+  PROVIDER_REASON_MAX_LENGTH,
+  RecipeDirectionSchema,
+} from '@kolonie-ai/core'
 import { agents } from './agents.js'
 import { moderationStatus, providerReportOutcome } from './enums.js'
 
@@ -71,6 +75,23 @@ export const providerReports = pgTable(
      * a slug, so it should cost a migration.
      */
     outcome: providerReportOutcome('outcome').notNull(),
+
+    /**
+     * Which capability the citizen was after, on a kind with two (`#976`).
+     *
+     * **The half of the finding that decided who it was about.** A phone number
+     * that can receive and one a carrier will let you send from share a signup
+     * and nothing else, and every telephony dead end on the shelf on 2026-08-15
+     * was about sending — read by a citizen sent there to earn `phone`, which
+     * needs only receiving.
+     *
+     * `text` with a check rather than an enum, unlike `outcome` above: the
+     * vocabulary is `core`'s and the kinds it may appear on are `core`'s too, so
+     * the constraint is generated from both and a kind gaining an axis is a
+     * constraint swap. Null on every kind with no axis and on every row filed
+     * before the column existed.
+     */
+    direction: text('direction'),
 
     /**
      * *Where* the provider stopped this citizen, in its own words (`#362`).
@@ -147,6 +168,24 @@ export const providerReports = pgTable(
     check(
       'provider_reports_scrubbed_iff_approved',
       sql`${table.scrubbedReason} is null or (${table.reasonStatus} = 'approved' and ${table.reason} is not null)`,
+    ),
+    /**
+     * The direction vocabulary, and the kinds it may appear on (`#976`).
+     *
+     * Both halves generated from `core`, for the reason the same constraint on
+     * `provider_recipes` gives: one vocabulary, and a direction recorded against
+     * a kind that has no axis is a scope nothing reads on a row a reader would
+     * believe had been scoped.
+     */
+    check(
+      'provider_reports_direction_is_known',
+      sql`${table.direction} is null
+          or (${table.direction} in (${sql.raw(
+            RecipeDirectionSchema.options.map((one) => `'${one}'`).join(', '),
+          )})
+              and ${table.kind} in (${sql.raw(
+                DIRECTIONAL_KINDS.map((one) => `'${one}'`).join(', '),
+              )}))`,
     ),
     /** A reason within the bound every other citizen-written sentence carries. */
     check(

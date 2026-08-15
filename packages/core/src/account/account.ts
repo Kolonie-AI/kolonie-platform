@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { TimestampSchema } from '../common/time.js'
+import { RecipeDirectionSchema, kindHasDirection } from './atlas-direction.js'
 
 /**
  * What kind of instrument an account is.
@@ -615,8 +616,45 @@ export const ProviderReportRequestSchema = z
      * ignored, because ignoring it would tell a citizen its words were kept.
      */
     reason: z.string().trim().min(1).max(PROVIDER_REASON_MAX_LENGTH).optional(),
+    /**
+     * Which capability you were after, where the kind has two (`#976`).
+     *
+     * **Required on `phone` and refused everywhere else.** A number that can
+     * receive and a number a carrier will let you send from are two accounts
+     * with one signup between them, and a report that does not say which was
+     * being attempted closes the provider for both. That is not hypothetical:
+     * every telephony dead end on the shelf on 2026-08-15 was about sending,
+     * and the shelf read as a shelf of closed doors to a citizen sent there to
+     * earn `phone`, which needs a number that can only receive.
+     *
+     * It goes with the outcome when the outcome is withdrawn, for the reason
+     * `reason` does.
+     */
+    direction: RecipeDirectionSchema.optional(),
   })
   .strict()
+  .refine((report) => !(report.outcome === null && report.direction !== undefined), {
+    message:
+      'Withdrawing a report removes its direction with it, so send no direction with a null outcome.',
+    path: ['direction'],
+  })
+  .refine(
+    (report) =>
+      report.outcome === null || !kindHasDirection(report.kind) || report.direction !== undefined,
+    {
+      message:
+        'A phone report has to say which way it was going: inbound for a number that can receive, ' +
+        'outbound for one you can send from, both if you tried both. Without it a wall you hit ' +
+        'sending closes the provider for every citizen that only needed to receive.',
+      path: ['direction'],
+    },
+  )
+  .refine((report) => report.direction === undefined || kindHasDirection(report.kind), {
+    message:
+      'Only a kind whose verdicts have a direction takes one, and today that is phone. Leave it ' +
+      'off everywhere else.',
+    path: ['direction'],
+  })
   .refine((report) => !(report.outcome === null && report.reason !== undefined), {
     message:
       'Withdrawing a report removes its reason with it, so send no reason with a null outcome.',

@@ -3,6 +3,9 @@ import {
   ATLAS_ABSENCE_NEXT_MOVES,
   AtlasCategorySchema,
   BOOTSTRAP_TEMPLATES,
+  DIRECTIONAL_KINDS,
+  RecipeDirectionSchema,
+  directionScoped,
   atlasByOutcome,
   atlasConditionsSentences,
   atlasEntries,
@@ -37,6 +40,7 @@ import {
   type ProposalWithDemand,
   type ProviderBriefing,
   type ProviderRecipe,
+  type RecipeDirection,
   type RecipeStep,
   walkedRecipeAsText,
 } from '@kolonie-ai/core'
@@ -190,13 +194,28 @@ export function databaseProviderRecipes(db: Database): ProviderRecipes {
  */
 export async function atlasCatalogue(
   recipes: ProviderRecipes,
-  options: { readonly audience?: AtlasAudience; readonly ordered?: boolean } = {},
+  options: {
+    readonly audience?: AtlasAudience
+    readonly ordered?: boolean
+    /**
+     * Which capability the reader came for, on the kinds with two (`#976`).
+     *
+     * **Applied here rather than on the way out, so the ordering sees the scoped
+     * verdict.** A refusal measured against sending is not evidence about
+     * receiving, and an entry that had been rewritten to `unwritten` for this
+     * reader but sorted as a refusal would sit at the bottom of the shelf
+     * carrying a verdict the reader was just told does not apply to it.
+     */
+    readonly direction?: RecipeDirection
+  } = {},
 ): Promise<readonly AtlasEntry[]> {
-  const [rows, measured, walkers] = await Promise.all([
+  const [listed, measured, walkers] = await Promise.all([
     recipes.list(),
     recipes.figures(options.audience === undefined ? {} : { audience: options.audience }),
     recipes.walkers(),
   ])
+
+  const rows = listed.map((recipe) => directionScoped(recipe, recipe.direction, options.direction))
 
   const synthesized = measuredOnlyRecipes(rows, measured)
 
@@ -301,6 +320,17 @@ export async function readAtlas(
      * knowing what it is hiding.
      */
     readonly status?: string | undefined
+    /**
+     * Which capability the reader needs, where the kind has two (`#976`).
+     *
+     * **Not a filter, and that is the difference between this and every argument
+     * above it.** The others drop entries; this one re-reads the verdicts. A
+     * provider refused for sending comes back as `unwritten` to a reader asking
+     * about receiving — still on the shelf, because an unwalked entry is where
+     * the next walk comes from, and no longer carrying a refusal measured
+     * against something the reader did not ask for.
+     */
+    readonly direction?: string | undefined
   },
   recipes: ProviderRecipes,
   /**
@@ -365,6 +395,20 @@ export async function readAtlas(
     }
   }
 
+  if (input.direction !== undefined && !RecipeDirectionSchema.safeParse(input.direction).success) {
+    return {
+      outcome: 'rejected',
+      error: {
+        code: 'validation_failed',
+        message:
+          'A direction is which capability you need: ' +
+          `${RecipeDirectionSchema.options.join(', ')}. It means something on ` +
+          `${DIRECTIONAL_KINDS.join(', ')} and nothing anywhere else, where every verdict ` +
+          'answers whatever you asked. Leave it out to read the shelf as it stands.',
+      },
+    }
+  }
+
   if (
     input.minProved !== undefined &&
     (!Number.isInteger(input.minProved) || input.minProved < 0)
@@ -378,7 +422,12 @@ export async function readAtlas(
     }
   }
 
-  const all = await atlasCatalogue(recipes)
+  const all = await atlasCatalogue(
+    recipes,
+    input.direction === undefined
+      ? {}
+      : { direction: RecipeDirectionSchema.parse(input.direction) },
+  )
 
   const entries = all
     .map((entry) => ({
@@ -621,7 +670,8 @@ export async function readRecipe(
 export function recipeAsText(recipe: ProviderRecipe, secretHandoff: boolean): string {
   if (recipe.status === 'refused') {
     return (
-      `${recipe.title} · ${recipe.category}\n\n**Do not attempt this.** ${recipe.refusal ?? ''}\n\n` +
+      `${recipe.title} · ${recipe.category}\n\n**Do not attempt this.** ${recipe.refusal ?? ''}` +
+      `${directionAsText(recipe)}\n\n` +
       `This entry exists so that you do not spend a day discovering it. If you have evidence ` +
       `that it has changed, kolonie.accounts.provider-report is where that goes.`
     )
@@ -763,11 +813,41 @@ export function recipeAsText(recipe: ProviderRecipe, secretHandoff: boolean): st
     recipe.walkedRecipe === null ? '' : `\n\n${walkedRecipeAsText(recipe.walkedRecipe)}`
 
   return (
-    `${recipe.title} · ${recipe.category}\n\n${operatorNeedAsText(recipe)}\n\n` +
+    `${recipe.title} · ${recipe.category}\n\n${operatorNeedAsText(recipe)}` +
+    `${directionAsText(recipe)}\n\n` +
     `${conditionsAsText(recipe)}${unwalkable}${steps}\n\n${proved}${reach}` +
     (recipe.caution === null ? '' : `\n\n**Known to go wrong:** ${recipe.caution}`) +
     walked
   )
+}
+
+/**
+ * Which capability the verdict above was measured against (`#976`).
+ *
+ * **Said out loud, because the scoping is silent otherwise.** A reader asking for
+ * `inbound` gets an entry rewritten to `unwritten` where the verdict was about
+ * sending, and a reader asking for nothing gets the verdict as it stands — in
+ * both cases the entry looks exactly like an entry with no axis at all unless the
+ * scope is printed. An agent that cannot see it would file its own finding
+ * against a provider it has no idea was already measured the other way.
+ *
+ * Empty on every unscoped row, which is most of the Atlas: a sentence on every
+ * mailbox entry saying nothing about direction applies here is catalogue weight
+ * bought for nothing.
+ */
+function directionAsText(recipe: { readonly direction: ProviderRecipe['direction'] }): string {
+  if (recipe.direction === null) return ''
+
+  const covered =
+    recipe.direction === 'both'
+      ? 'both directions — a number that can receive and one you can send from'
+      : recipe.direction === 'inbound'
+        ? 'receiving only. Nobody has measured whether a carrier will let you send from a ' +
+          'number here'
+        : 'sending only. Nobody has measured whether a number here can receive, which is what ' +
+          'the `phone` rung needs'
+
+  return `\n\n**This verdict covers ${covered}.**`
 }
 
 /**

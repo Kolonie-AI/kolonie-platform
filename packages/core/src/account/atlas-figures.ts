@@ -214,8 +214,36 @@ export const AtlasFiguresSchema = z.object({
    * **Said out loud rather than served as zeroes.** A suppressed row and a row
    * nobody attempted look identical otherwise, and the difference matters to a
    * reader deciding whether the silence is about the provider or about us.
+   *
+   * **What it does not answer is *did anybody go here*** (`#977`). It is true of
+   * a pair with one citizen and false of a pair with none and of a pair with
+   * fifty, so a reader cannot invert it — which is why {@link
+   * AtlasFigures.evidenced} exists rather than this field being read for the
+   * question.
    */
   suppressed: z.boolean(),
+
+  /**
+   * Whether a citizen proved an account here or filed a report about it (`#977`).
+   *
+   * **The one fact in this row the floor does not govern, because it is not a
+   * count.** *A citizen got into `mail.tm`* names no agent, no address and no
+   * contract; *three citizens did* is a number about three citizens. `#909`
+   * settled that distinction — on `kolonie-docs#352` — and this field is what
+   * makes it usable: `attempted` and `proved` are zeroed under the floor, so
+   * before this there was nothing left in a suppressed row that still knew the
+   * provider had been visited at all, and `measuredOnlyRecipes` dropped every
+   * one of them.
+   *
+   * **A declaration is not evidence**, which is why this is not simply
+   * `attempted > 0`. An account a citizen wrote down and never proved says the
+   * citizen meant to, and a shelf entry standing on one would report an
+   * intention as an outcome. That is `#906`'s rule for the backfill, and this
+   * field is the same predicate — a proof or a report — so the two paths that
+   * put a measured provider on the shelf cannot disagree about which providers
+   * exist.
+   */
+  evidenced: z.boolean(),
 })
 export type AtlasFigures = z.infer<typeof AtlasFiguresSchema>
 
@@ -235,6 +263,8 @@ export function noFigures(kind: string, provider: string): AtlasFigures {
     band: null,
     commonestStop: null,
     suppressed: false,
+    /** Nobody has been here, which is the whole of what this row says. */
+    evidenced: false,
   }
 }
 

@@ -87,6 +87,7 @@ export async function atlasFigures(
     held_long_enough: string
     stops: { outcome: string; citizens: number }[] | null
     reasons: string[] | null
+    evidenced: boolean
   }>(sql`
     with held as (
       select kind, provider, agent_id, proved, proved_at, created_at, status
@@ -138,7 +139,11 @@ export async function atlasFigures(
       (select coalesce(jsonb_agg(distinct r.scrubbed_reason), '[]'::jsonb)
          from reported r
         where r.kind = p.kind and r.provider = p.provider
-          and r.scrubbed_reason is not null) as reasons
+          and r.scrubbed_reason is not null) as reasons,
+      (exists (select 1 from held h
+                where h.kind = p.kind and h.provider = p.provider and h.proved)
+       or exists (select 1 from reported r
+                where r.kind = p.kind and r.provider = p.provider)) as evidenced
       from pairs p
      where ${only}
      order by p.kind, p.provider
@@ -204,6 +209,14 @@ export async function atlasFigures(
       band: atlasBand({ attempted, proved: Number(row.proved) }),
       commonestStop: atlasCommonestStop(stopped),
       suppressed,
+      /**
+       * **Not floored, because it is not a count** (`#977`). It is the same
+       * predicate `backfillMeasuredProviders` selects on — a proof or a report,
+       * never a bare declaration — so the batch path and the request-time
+       * synthesis in `measuredOnlyRecipes` cannot disagree about which providers
+       * a citizen has actually been to.
+       */
+      evidenced: row.evidenced,
     }
   })
 }

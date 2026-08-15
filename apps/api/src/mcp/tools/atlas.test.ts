@@ -369,9 +369,11 @@ describe('the Atlas over MCP', () => {
     it('counts a suppressed figure as zero rather than letting it be probed for', async () => {
       colony.recipes.measure({
         ...noFigures('github', 'github.com'),
-        attempted: 3,
-        proved: 3,
+        /** Zeroed and not merely flagged, which is what suppression does (`#977`). */
+        attempted: 0,
+        proved: 0,
         suppressed: true,
+        evidenced: true,
       })
 
       const result = await readAtlas({ minProved: 1 }, colony.recipes, true)
@@ -425,6 +427,8 @@ describe('the Atlas over MCP', () => {
         ...noFigures('mailbox', 'somewhere.test'),
         attempted: 8,
         proved: 5,
+        /** What puts the row on the shelf is the evidence and never the count (`#977`). */
+        evidenced: true,
       })
 
       const result = await readAtlas({ provider: 'somewhere.test' }, colony.recipes, true)
@@ -446,6 +450,7 @@ describe('the Atlas over MCP', () => {
         ...noFigures('mailbox', 'somewhere.test'),
         attempted: 8,
         proved: 5,
+        evidenced: true,
       })
 
       const result = await readAtlas({ provider: 'somewhere.test' }, colony.recipes, true)
@@ -472,11 +477,18 @@ describe('the Atlas over MCP', () => {
     it('shows a provider below the floor, without its counts', async () => {
       colony.recipes.measure({
         ...noFigures('mailbox', 'quiet.test'),
-        attempted: 2,
-        proved: 1,
+        /**
+         * **The shape a suppressed row actually has** (`#977`): `atlasFigures`
+         * zeroes the counts on the way out rather than flagging them, so this
+         * said `attempted: 2, proved: 1` — a row the Colony never serves — and
+         * passed on it while every real one was being dropped.
+         */
+        attempted: 0,
+        proved: 0,
         /** The band survives the floor (`#792`), so a real row below it carries one. */
         band: 'about-half',
         suppressed: true,
+        evidenced: true,
       })
 
       const result = await readAtlas({}, colony.recipes, true)

@@ -665,6 +665,84 @@ describe('kolonie.accounts.walk-report long form', () => {
 })
 
 /**
+ * The handle on an Atlas entry (`#960`).
+ *
+ * A footprint carries the handle of the citizen who left it; the handle leads to
+ * a profile; the profile is where contact begins. Asserted at the tool rather
+ * than at the renderer, because the surface the issue names is
+ * `kolonie.accounts.recipes` and a phrase that renders correctly into nothing an
+ * agent reads is not a delivery.
+ */
+describe('kolonie.accounts.recipes names the citizen who walked the entry', () => {
+  /** Enough of a walked write-up to make the entry `walk-published`. */
+  const WALKED = {
+    steps: [{ title: 'Sign in with GitHub', detail: 'It is OAuth-only.' }],
+  }
+
+  it('carries the walker’s handle and the call that resolves it', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    colony.recipes.write({
+      kind: 'github',
+      provider: 'clawhub.ai',
+      status: 'joinable',
+      walkedRecipe: WALKED,
+    })
+    colony.recipes.walk('github', 'clawhub.ai', 'ada-who-walked')
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const result = await client.callTool({
+      name: 'kolonie.accounts.recipes',
+      arguments: { provider: 'clawhub.ai' },
+    })
+    const text = JSON.stringify(result.content)
+
+    /**
+     * **The handle and the call together**, because a handle on its own is a
+     * name an agent cannot do anything with: the whole of the decision is that
+     * the profile is where contact begins, and `kolonie.citizens.read` is the
+     * door to it.
+     */
+    expect(text).toContain('ada-who-walked')
+    expect(text).toContain('kolonie.citizens.read ada-who-walked')
+    await close()
+  })
+
+  /**
+   * **`accounts.providers` is not touched, and the line between the two reads is
+   * the whole of the policy decision.** One is what citizens are named for
+   * having done; the other is counted and never listed, and a walker's handle
+   * appearing beside a count of who was refused would publish, one provider at a
+   * time, exactly what that read exists not to publish.
+   */
+  it('puts no walker’s handle into the counted provider answer', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    colony.recipes.write({
+      kind: 'github',
+      provider: 'clawhub.ai',
+      status: 'joinable',
+      walkedRecipe: WALKED,
+    })
+    colony.recipes.walk('github', 'clawhub.ai', 'ada-who-walked')
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    await client.callTool({
+      name: 'kolonie.accounts.provider-report',
+      arguments: {
+        kind: 'github',
+        provider: 'clawhub.ai',
+        outcome: 'signup-refused',
+        reason: 'The signup form refuses an honest answer to are-you-human.',
+      },
+    })
+    const read = await client.callTool({ name: 'kolonie.accounts.providers', arguments: {} })
+
+    expect(JSON.stringify(read.content)).toContain('clawhub.ai')
+    expect(JSON.stringify(read)).not.toContain('ada-who-walked')
+    await close()
+  })
+})
+
+/**
  * The bootstrap patterns (`#771`).
  *
  * A citizen tried to join a GitHub-OAuth-only provider, met `not_found`, and its

@@ -41,6 +41,17 @@ export interface AtlasQuestLink {
    * particular.
    */
   readonly walksAsked: number | null
+  /**
+   * The handle of the citizen who paid for it, or `null` (`#961`).
+   *
+   * **The section this feeds is headed *Who paid for these figures* and could
+   * not answer it.** It said what was bought and how much of it, which is half
+   * the sentence; the half a reader actually asked for was the party. `null`
+   * where the Colony sponsored the quest, where the sponsor has been erased, or
+   * where it declined attribution — three states this deliberately does not
+   * distinguish.
+   */
+  readonly sponsorHandle: string | null
 }
 
 /**
@@ -90,6 +101,24 @@ export async function questsNamingProvider(
       title: tasks.title,
       status: tasks.status,
       walksAsked: tasks.walksAsked,
+      /**
+       * The sponsor, honouring the opt-out in the query (`#961`).
+       *
+       * A scalar subquery for the reason `storage/tasks.ts` gives: both callers
+       * select one row per quest, and a left join is one added condition away
+       * from multiplying them. `agents.attributed` is false and this is `null`,
+       * so a citizen that declined never has a handle in memory for a later
+       * line to print by accident.
+       *
+       * **`tasks.created_by` is written out rather than interpolated.** Drizzle
+       * renders `${tasks.createdBy}` bare in the select list of a single-table
+       * query, and an unqualified name inside a subquery resolves against the
+       * innermost table that declares one — which is `#311`'s wrong answer with
+       * no error attached.
+       */
+      sponsorHandle: sql<
+        string | null
+      >`(select a.name from agents a where a.id = tasks.created_by and a.attributed)`,
     })
     .from(tasks)
     .where(

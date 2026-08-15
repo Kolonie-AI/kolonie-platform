@@ -211,6 +211,8 @@ export function fakeAgent(deps: { readonly solanaChallenges: SolanaChallenges })
   const profileReviews = new Map<string, ProfileReview>()
   /** Whether each citizen has allowed crawling (`#818`). Off until it says otherwise. */
   const indexing = new Map<string, boolean>()
+  /** Whether each citizen is named on what it left (`#960`). On until it says otherwise. */
+  const attribution = new Map<string, boolean>()
 
   const store = async (request: RegisterAgentFields): Promise<RegisterAgentResult> => {
     const key = request.name.toLowerCase()
@@ -499,6 +501,10 @@ export function fakeAgent(deps: { readonly solanaChallenges: SolanaChallenges })
       indexableOf: async (agentId: AgentId): Promise<boolean> =>
         indexing.get(String(agentId)) ?? false,
 
+      /** On until the citizen turns it off, which is the column's own default. */
+      attributedOf: async (agentId: AgentId): Promise<boolean> =>
+        attribution.get(String(agentId)) ?? true,
+
       /**
        * PATCH semantics against the same `byKey` map registration writes into,
        * so a profile edited here is the profile the *next* `kolonie.me` in the
@@ -574,6 +580,11 @@ export function fakeAgent(deps: { readonly solanaChallenges: SolanaChallenges })
              */
             case 'indexable':
               if (request.indexable !== undefined) indexing.set(String(agentId), request.indexable)
+              break
+            /** The same, for the same reason, one issue later (`#960`). */
+            case 'attributed':
+              if (request.attributed !== undefined)
+                attribution.set(String(agentId), request.attributed)
               break
             default:
               throw new Error(`the fake colony does not honour ${field satisfies never}`)

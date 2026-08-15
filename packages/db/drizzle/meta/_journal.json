@@ -1730,6 +1730,13 @@
       "when": 1786747338137,
       "tag": "0246_a_recheck_opens_one_episode",
       "breakpoints": true
+    },
+    {
+      "idx": 247,
+      "version": "7",
+      "when": 1786760406854,
+      "tag": "0247_a_walker_is_named",
+      "breakpoints": true
     }
   ]
 }

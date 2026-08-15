@@ -307,6 +307,32 @@ const freeSlots = (): SQL =>
             else greatest(tasks.slots - ${slotsTaken()}, 0) end)`
 
 /**
+ * The handle of the citizen who sponsored the task, or `null` (`#961`).
+ *
+ * **A scalar subquery rather than a join, and the cardinality is the reason.**
+ * Both reads that carry this are already selecting the task row alone; a left
+ * join to `agents` would be correct today and would silently multiply rows the
+ * first time somebody adds a second condition to it. A subquery that can only
+ * ever return one value cannot do that.
+ *
+ * **The opt-out is applied in the query rather than after it**, which is what
+ * makes it impossible to forget on a surface: `attributed` is false and the
+ * `where` matches nothing, so the read gets `null` and there is no handle in
+ * memory for a later line to print by accident. `#960` put the same reasoning in
+ * the Atlas walker query, and the default is the same — `agents.attributed`
+ * defaults to true, so a citizen is named until it declines.
+ *
+ * Backfill is nothing: `tasks.created_by` has held the sponsor since quests
+ * existed, so a quest published before `#961` is attributed the moment this
+ * expression is added to the read. Erasure is nothing either — the column is
+ * `on delete set null`, so an erased sponsor's quest keeps running and stops
+ * being attributed in the same transaction.
+ */
+const sponsorHandle = (): SQL =>
+  sql`(select a.name from agents a
+        where a.id = tasks.created_by and a.attributed)`
+
+/**
  * Whether this agent is holding a live attempt on the task, as a `where` clause.
  *
  * **The exemption {@link isFull} needs and nothing else** (`#618`). A citizen
@@ -563,6 +589,7 @@ export async function listTasks(db: Database, query: ListTasksQuery): Promise<Li
       dueForRenewal: dueForRenewal(query.agentId).mapWith(Boolean),
       full: isFull().mapWith(Boolean),
       freeSlots: freeSlots().mapWith((value) => (value === null ? null : Number(value))),
+      sponsorHandle: sponsorHandle().mapWith((value) => (value === null ? null : String(value))),
     })
     .from(tasks)
     .where(and(...conditions))
@@ -580,7 +607,7 @@ export async function listTasks(db: Database, query: ListTasksQuery): Promise<Li
     page: {
       items: page.map((row) =>
         toTask(
-          row.task,
+          { ...row.task, sponsorHandle: row.sponsorHandle },
           hintsOn(hints, row.task.id),
           submitted.get(row.task.id) ?? null,
           row.dueForRenewal,
@@ -635,6 +662,7 @@ export async function readTask(
       task: tasks,
       full: isFull().mapWith(Boolean),
       freeSlots: freeSlots().mapWith((value) => (value === null ? null : Number(value))),
+      sponsorHandle: sponsorHandle().mapWith((value) => (value === null ? null : String(value))),
     })
     .from(tasks)
     .where(and(eq(tasks.id, query.taskId), inArray(tasks.status, [...VISIBLE_STATUSES.all])))
@@ -657,7 +685,7 @@ export async function readTask(
   const landscape = await landscapeFor(db, [row.task.id])
 
   return toTask(
-    row.task,
+    { ...row.task, sponsorHandle: row.sponsorHandle },
     hintsOn(hints, row.task.id),
     // The two in between belong to a read made on somebody's behalf, and this
     // read has no subject. Named rather than trailing, because the reason they

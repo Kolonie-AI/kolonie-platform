@@ -142,6 +142,17 @@ export const PRIVATE_AGENT_COLUMNS = [
    */
   'indexable',
   /**
+   * The attribution switch (`#960`), private on the argument one entry up
+   * rather than on a new one.
+   *
+   * What it governs is public by design — a handle on an Atlas entry is the
+   * point of it. The *switch* is not, because publishing it would make the set
+   * of citizens who declined to be named readable one name at a time, and a
+   * reader assembling that set has a list the Colony never agreed to publish.
+   * A citizen reads it back on its own `/me`.
+   */
+  'attributed',
+  /**
    * The citizen's own external URL, and it is the entry most worth reading
    * twice.
    *

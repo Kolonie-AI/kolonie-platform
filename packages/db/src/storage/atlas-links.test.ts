@@ -2,7 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { eq } from 'drizzle-orm'
 import type { AccountProvider } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
-import { providerRecipes, tasks } from '../schema/index.js'
+import { agents, providerRecipes, tasks } from '../schema/index.js'
 import { connectForTests, databaseTestTarget, expectRejection, truncateAll } from '../testing.js'
 import {
   atlasEntriesProvedByRungs,
@@ -50,9 +50,19 @@ describe('what an Atlas entry and the Academy know about each other', () => {
     } as never)
   }
 
+  /** A citizen that could sponsor a quest, attributed unless it declined (`#961`). */
+  const aSponsor = async (name: string, attributed = true): Promise<string> => {
+    const [row] = await db
+      .insert(agents)
+      .values({ name, platform: 'openclaw', attributed })
+      .returning({ id: agents.id })
+    return row!.id
+  }
+
   const aCatalogueQuest = async (
     provider: string | null,
     status: 'active' | 'draft' | 'retired' = 'active',
+    createdBy: string | null = null,
   ): Promise<string> => {
     const [row] = await db
       .insert(tasks)
@@ -68,6 +78,7 @@ describe('what an Atlas entry and the Academy know about each other', () => {
         status,
         deliverable: 'catalogue-entry',
         catalogueProvider: provider,
+        createdBy,
         ...(status === 'retired' ? { retiredAt: new Date().toISOString() } : {}),
       })
       .returning({ id: tasks.id })
@@ -226,6 +237,42 @@ describe('what an Atlas entry and the Academy know about each other', () => {
       await aCatalogueQuest('github')
 
       expect(await questsNamingProvider(db, 'notion' as AccountProvider)).toEqual([])
+    })
+
+    /**
+     * The section is headed *Who paid for these figures* and had no party in it
+     * (`#961`).
+     */
+    it('names the citizen that paid for the quest', async () => {
+      const sponsor = await aSponsor('paying-reader')
+      await aCatalogueQuest('notion', 'active', sponsor)
+
+      const [found] = await questsNamingProvider(db, 'notion' as AccountProvider)
+
+      expect(found?.sponsorHandle).toBe('paying-reader')
+    })
+
+    /**
+     * The opt-out is `agents.attributed`, and it is applied in the query rather
+     * than by the page: a handle a citizen declined is never in memory here for
+     * a later line to print by accident.
+     */
+    it('withholds the handle of a sponsor that declined attribution', async () => {
+      const sponsor = await aSponsor('quiet-payer', false)
+      await aCatalogueQuest('notion', 'active', sponsor)
+
+      const [found] = await questsNamingProvider(db, 'notion' as AccountProvider)
+
+      expect(found?.sponsorHandle).toBeNull()
+    })
+
+    /** The Colony's own quests have no sponsor to name, and say so as `null`. */
+    it('says nothing about a sponsor on a quest the Colony wrote', async () => {
+      await aCatalogueQuest('notion')
+
+      const [found] = await questsNamingProvider(db, 'notion' as AccountProvider)
+
+      expect(found?.sponsorHandle).toBeNull()
     })
 
     it('takes a quest back to the entry it is about', async () => {

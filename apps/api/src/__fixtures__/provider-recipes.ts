@@ -83,6 +83,15 @@ export interface FakeProviderRecipes extends ProviderRecipes {
    * asserted, against a real Postgres.
    */
   readonly brief: (briefing: ProviderBriefing) => void
+  /**
+   * A citizen who walked this pair and is named for it (`#960`).
+   *
+   * **Only the ones a test wants named.** The real read already applies both
+   * filters — the walk was proposed as an entry, and the citizen has not opted
+   * out — so a fake carrying walks that are not attributions would have to
+   * reimplement that decision and could reimplement it differently.
+   */
+  readonly walk: (kind: string, provider: string, handle: string) => void
   /** A proposal waiting on `#549`'s queue. */
   readonly propose: (proposal: EntryProposal) => void
   /** Put a provider on the one queue three doors feed (`#600`). */
@@ -98,6 +107,7 @@ export function fakeProviderRecipes(): FakeProviderRecipes {
   const proposed: EntryProposal[] = []
   const providersProposed: AtlasProposal[] = []
   const falling: FallingRate[] = []
+  const walked: { kind: string; provider: string; handle: string }[] = []
 
   return {
     /**
@@ -145,6 +155,29 @@ export function fakeProviderRecipes(): FakeProviderRecipes {
 
     brief(briefing) {
       briefed.push(briefing)
+    },
+
+    /**
+     * **The whole catalogue, unlike the briefings above** (`#960`). The real
+     * read is one query over `account_walks` for every entry a page might
+     * render, because an Atlas listing renders many; answering per provider
+     * here would let a test pass over a query the listing never makes.
+     */
+    async walkers() {
+      const named = new Map<string, string[]>()
+
+      for (const one of walked) {
+        const key = figureKey(one.kind, one.provider)
+        const held = named.get(key)
+        if (held === undefined) named.set(key, [one.handle])
+        else if (!held.includes(one.handle)) held.push(one.handle)
+      }
+
+      return named
+    },
+
+    walk(kind, provider, handle) {
+      walked.push({ kind, provider, handle })
     },
 
     async proposals() {

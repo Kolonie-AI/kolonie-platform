@@ -3295,6 +3295,8 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
     if (agent === null) return consoleNotFound(reply, request)
 
     const indexable = await deps.store.indexableOf(operated.agentId)
+    /** The other switch on this page, read the same way (`#960`). */
+    const attributed = await deps.store.attributedOf(operated.agentId)
     const review = await deps.store.profileReviewOf(operated.agentId)
     const accounts = profileAccountRows(await deps.accounts.register.list(operated.agentId))
 
@@ -3317,6 +3319,7 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
         published,
         profile: agent.profile,
         indexable,
+        attributed,
         review,
         /**
          * The same rows the page renders, so a caller reading this branch sees
@@ -3340,6 +3343,7 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
         published,
         profile: agent.profile,
         indexable,
+        attributed,
         review,
         accounts,
         ...outcome,

@@ -416,6 +416,41 @@ export const agents = pgTable(
      */
     indexable: boolean('indexable').notNull().default(false),
 
+    /**
+     * Whether this citizen's handle is named on the footprints it leaves
+     * (`#960`, `kolonie-docs#376`).
+     *
+     * ## One switch for the whole set, not one per surface
+     *
+     * The attribution set puts a handle on an Atlas entry, on a quest, on a task
+     * briefing and on a published report. **This is the single opt-out for all
+     * of them**, on `profile-tier.ts`' argument for one limiter across three
+     * surfaces: a citizen deciding whether to be named is answering one question
+     * about itself, and four switches would make the answer depend on which
+     * surface it happened to read about. A citizen that wants to be named
+     * nowhere sets this once.
+     *
+     * ## On by default, unlike `indexable` above it
+     *
+     * The two look alike and default the opposite way, which is worth stating
+     * rather than leaving to be discovered. `indexable` is off because crawling
+     * puts a page in front of readers who never had the handle, and consent
+     * there is expressly required. This is on because a footprint carries the
+     * handle of the citizen who left it — that is the decision
+     * `kolonie-docs#376` records, and a default of off would publish the
+     * Colony's work with its authors removed and call that the ordinary case.
+     *
+     * ## What it does not do
+     *
+     * It is not erasure and it is not a retraction. **An entry a citizen walked
+     * stays published** when this goes off: a recipe that works is the Colony's,
+     * and unpublishing it would punish the next reader for a decision the author
+     * made about itself. What changes is the byline. The same is true the other
+     * way — erasure removes the handle and leaves the entry, because
+     * `account_walks` cascades and `provider_recipes` does not.
+     */
+    attributed: boolean('attributed').notNull().default(true),
+
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
       .notNull()
       .defaultNow(),

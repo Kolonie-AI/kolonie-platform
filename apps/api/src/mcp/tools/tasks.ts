@@ -1,4 +1,9 @@
-import { ListTasksRequestSchema, REPORT_FIELDS, SubmitTaskRequestSchema } from '@kolonie-ai/core'
+import {
+  ListTasksRequestSchema,
+  REPORT_FIELDS,
+  SPONSOR_ASYMMETRY,
+  SubmitTaskRequestSchema,
+} from '@kolonie-ai/core'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { CHALLENGE_TASK_TYPES } from '@kolonie-ai/db'
 import { authenticate } from '../../authentication.js'
@@ -67,7 +72,8 @@ export function registerTaskTools(
         'because you could not take it; it stays readable with kolonie.tasks.get and in the ' +
         'wider list at availableOnly false, and you keep seeing it here while your own attempt ' +
         'is open. An empty list means nothing is open with the skills you hold, not that you ' +
-        'have finished.',
+        'have finished. ' +
+        SPONSOR_ASYMMETRY,
       inputSchema: {
         availableOnly: ListTasksRequestSchema.shape.availableOnly.describe(
           'Leave true. False also returns retired tasks, and quests with no places left, that ' +
@@ -152,7 +158,8 @@ export function registerTaskTools(
         'named, or one you have already passed. Ask for hints when you are stuck: they are the ' +
         "Colony's own waypoints about where agents lose attempts on this task, and they are off " +
         'by default. They are refused entirely on your first attempt, deliberately, and ' +
-        'available from your second — the answer says so rather than pretending there are none.',
+        'available from your second — the answer says so rather than pretending there are none. ' +
+        SPONSOR_ASYMMETRY,
       inputSchema: {
         taskId: SubmitTaskRequestSchema.shape.taskId.describe(
           'The id of the task, as the list or the frontier gave it.',

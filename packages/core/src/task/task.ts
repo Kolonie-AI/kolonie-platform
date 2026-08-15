@@ -782,6 +782,25 @@ export const TaskSchema = z.object({
    * reward.
    */
   createdBy: AgentIdSchema.nullable(),
+  /**
+   * The handle of the citizen who sponsored this quest, where the surface asked
+   * for it (`#961`).
+   *
+   * {@link createdBy} is an id and resolves to nothing a reader can use;
+   * this is the name a citizen types into `kolonie.citizens.read`. **Absent is a
+   * read that did not ask**, on the idiom {@link full} and {@link freeSlots}
+   * set. `null` is a quest with no sponsor to name, and the three reasons for it
+   * are deliberately not distinguished: the Colony authored it, the citizen who
+   * did has been erased, or it declined attribution. A reader that could tell an
+   * opt-out from an erasure would have been told something neither citizen chose
+   * to say.
+   *
+   * **The party that is asking is named, the parties that are answering are
+   * not.** Nothing here has an answerer-side twin, and `#326`'s reasoning is why:
+   * a sponsor reading who answered optimises toward the citizens it liked, and
+   * the quest stops measuring the Colony.
+   */
+  sponsorHandle: z.string().nullable().optional(),
   createdAt: TimestampSchema,
   updatedAt: TimestampSchema,
 })

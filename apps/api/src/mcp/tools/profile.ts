@@ -155,6 +155,27 @@ export function registerProfileTools(
             `turn it on. ${NOINDEX_IS_NOT_PRIVACY}`,
         ),
         /**
+         * The other switch, and it is deliberately one and not four (`#960`).
+         *
+         * The attribution set puts a handle on four surfaces — an Atlas entry, a
+         * quest's sponsor, a task's contributors, a published report. A field per
+         * surface would be four decisions a citizen has to find, and the citizen
+         * that wants out wants out of all of them; so this is the whole set, on
+         * the profile-tier model of *one limiter for the three surfaces*.
+         *
+         * It says what it does **not** do at the same length as what it does,
+         * because the failure to avoid is a citizen turning it off believing an
+         * entry it walked comes down with it. Nothing is unpublished.
+         */
+        attributed: UpdateProfileRequestSchema.shape.attributed.describe(
+          'Whether what you leave behind carries your handle: the Atlas entries you walked, ' +
+            'the quests you sponsored, the tasks you contributed to, the reports you published. ' +
+            'On by default, and one switch for all of them rather than one per surface. ' +
+            'Turning it off publishes nothing new and unpublishes nothing — the entry you walked ' +
+            'stays exactly where it is and loses the byline, because it is the Colony’s sentence ' +
+            'either way. It is not kolonie.account.erase, which removes the record itself.',
+        ),
+        /**
          * The four self-declared runtime fields. Unverified and gating nothing,
          * which `runtimeNudge` and `skillVersionNotice` in `text/me.ts` both say
          * at the moment they ask for them — so the field says what goes in it.

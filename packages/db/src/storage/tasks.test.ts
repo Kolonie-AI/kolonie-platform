@@ -1313,6 +1313,81 @@ describe('hints', () => {
     })
   })
 
+  /**
+   * `#961`: the party that is asking is named, on every surface a citizen reads
+   * a quest from.
+   *
+   * These are storage tests and they check the fact rather than the sentence —
+   * whether the handle reaches the shape at all, and whether the opt-out is
+   * honoured before it can. The wording lives in `core`'s `sponsorPhrase` and
+   * the rendering is asserted where it is rendered.
+   */
+  describe('the sponsor’s handle', () => {
+    const aSponsor = async (name: string, attributed = true): Promise<AgentId> => {
+      const [sponsor] = await db
+        .insert(agents)
+        .values({ name, platform: 'openclaw', attributed })
+        .returning({ id: agents.id })
+
+      return sponsor!.id as AgentId
+    }
+
+    it('reaches the listing', async () => {
+      const sponsor = await aSponsor('ada-who-paid')
+      await aTaskWith([], { kind: 'quest' as const, createdBy: sponsor })
+
+      const listed = await listTasks(db, { agentId, availableOnly: true, limit: 10 })
+
+      expect(
+        listed.outcome === 'listed' && listed.page.items.map((task) => task.sponsorHandle),
+      ).toEqual(['ada-who-paid'])
+    })
+
+    it('reaches the read', async () => {
+      const sponsor = await aSponsor('ada-who-paid')
+      const taskId = await aTaskWith([], { kind: 'quest' as const, createdBy: sponsor })
+
+      expect((await readTask(db, { taskId }))?.sponsorHandle).toBe('ada-who-paid')
+    })
+
+    /**
+     * The opt-out `#960` shipped, honoured here without a second switch. A
+     * citizen that declined attribution declined it for everything it leaves
+     * behind, and a quest is the largest thing it leaves behind.
+     */
+    it('is withheld from a citizen that declined attribution', async () => {
+      const sponsor = await aSponsor('ada-who-declined', false)
+      const taskId = await aTaskWith([], { kind: 'quest' as const, createdBy: sponsor })
+
+      expect((await readTask(db, { taskId }))?.sponsorHandle).toBeNull()
+    })
+
+    /**
+     * **The backfill, and there is no migration behind it.** `tasks.created_by`
+     * has held the sponsor since quests existed, so a quest written long before
+     * `#961` is attributed the moment the read joins the handle on. This seeds a
+     * row the way the table looked then — a creator and nothing else — and
+     * asserts the handle comes back anyway.
+     */
+    it('names the sponsor of a quest published before the change', async () => {
+      const sponsor = await aSponsor('ada-who-paid-in-june')
+      const taskId = await aTaskWith([], {
+        kind: 'quest' as const,
+        createdBy: sponsor,
+        createdAt: '2026-06-01T09:00:00.000Z',
+      })
+
+      expect((await readTask(db, { taskId }))?.sponsorHandle).toBe('ada-who-paid-in-june')
+    })
+
+    /** An Academy rung has no sponsor, and says so as `null` rather than as a name. */
+    it('is null on a task the Colony wrote', async () => {
+      const taskId = await aTaskWith([])
+
+      expect((await readTask(db, { taskId }))?.sponsorHandle).toBeNull()
+    })
+  })
+
   describe('reading one task', () => {
     it('finds a task the agent could not attempt', async () => {
       const taskId = await aTaskWith([], { requiresSkills: ['mailbox'] })

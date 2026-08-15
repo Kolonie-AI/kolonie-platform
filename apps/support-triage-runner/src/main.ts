@@ -18,6 +18,9 @@ import {
   outstandingDebt,
   withdrawnRecipeDrafts,
   recordEscalation,
+  unactedArrivalReports,
+  markArrivalReportsActedOn,
+  letGoArrivalReports,
 } from '@kolonie-ai/db'
 import { startRunner, type Log, type TriageStore } from './loop.js'
 import { OPENROUTER_API_KEY_VAR } from './llm.js'
@@ -27,6 +30,7 @@ import { LOKI_TOKEN_VAR, LOKI_URL_VAR, LOKI_USER_VAR, lokiLogs, noLogs } from '.
 import type { DefectStore } from './watch.js'
 import { DEBT_THRESHOLD_HOURS } from './debt.js'
 import { DRAFT_WINDOW_DAYS } from './drafts.js'
+import { ARRIVAL_READ_LIMIT } from './arrivals.js'
 import { createHealthServer, STALE_POLLS } from './health.js'
 
 /**
@@ -244,6 +248,17 @@ const runner = startRunner(
     drafts: {
       issues,
       measure: () => withdrawnRecipeDrafts(db, DRAFT_WINDOW_DAYS),
+    },
+    /**
+     * The arrival watcher (`#1026`). Unconditional on the same terms: one query
+     * on the same connection and the same App, and a door nobody has failed to
+     * reach reads an empty queue and says nothing.
+     */
+    arrivals: {
+      issues,
+      unread: () => unactedArrivalReports(db, { limit: ARRIVAL_READ_LIMIT }),
+      actedOn: (input) => markArrivalReportsActedOn(db, input),
+      letGo: (ids) => letGoArrivalReports(db, { ids }),
     },
   },
   { pollIntervalMs: POLL_INTERVAL_MS },

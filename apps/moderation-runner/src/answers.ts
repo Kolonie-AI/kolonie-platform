@@ -45,12 +45,19 @@ export interface AnswerModerationStore {
     readonly answers: readonly ScrubbedAnswer[]
   }): Promise<{ readonly written: number }>
   /**
-   * Hold a report a red line was raised against, for a steward (`#446`).
+   * Hold a report a red line was raised against, for a second reading (`#446`,
+   * `#942`).
    *
    * **It was `fail` until 2026-08-06 and the rename is the change.** This stage
-   * no longer ends an attempt: it says a person should look. What is protected
-   * is unchanged — a held report reaches the sponsor exactly as often as a
-   * failed one did, which is never.
+   * no longer ends an attempt: it says the charge has to be argued against
+   * before it counts. What is protected is unchanged — a held report reaches the
+   * sponsor exactly as often as a failed one did, which is never.
+   *
+   * **What lifts the hold moved in `#942`, and this stage did not have to
+   * change.** It was a steward reading a queue; it is now `redLineReviewTick` in
+   * `redline-review.ts`, briefed to argue *for* the report and releasing on
+   * anything short of independent agreement. This stage only ever flagged, which
+   * is why it survived the tier being removed intact.
    */
   hold(input: {
     readonly submissionId: UnmoderatedReport['submissionId']
@@ -70,7 +77,7 @@ const silentLog: Log = { info: () => {}, warn: () => {}, error: () => {} }
 /** What one report's pass came to. */
 export type AnswerJudgement =
   | { readonly kind: 'scrubbed'; readonly redacted: number }
-  /** A red line was raised and a steward has it (`#446`). Not a verdict. */
+  /** A red line was raised and the second reading has it (`#446`). Not a verdict. */
   | { readonly kind: 'held'; readonly reason: string }
   | { readonly kind: 'stale' }
   | { readonly kind: 'failed'; readonly error: unknown }
@@ -94,14 +101,17 @@ export async function moderateAnswers(
 
   try {
     /**
-     * A steward has already ruled that this one does not cross (`#446`).
+     * A second reading has already ruled that this one does not cross (`#446`).
      *
      * The check is skipped rather than re-run because the model would raise the
      * same line against the same text, and a release that put the report back in
-     * front of the classifier that held it would be a loop with a person in it.
-     * Only the red line is skipped: the scrub below still runs, because what the
-     * steward ruled on is whether the sponsor may be served this text at all,
-     * not whether it carries a mailbox address.
+     * front of the classifier that held it would be a loop. That was true when a
+     * steward did the releasing and it is the load-bearing property now that
+     * `#942` does it on a schedule: without this flag a released report would be
+     * held again on the next poll, read again, released again, forever. Only the
+     * red line is skipped — the scrub below still runs, because what was ruled on
+     * is whether the sponsor may be served this text at all, not whether it
+     * carries a mailbox address.
      */
     const verdict = report.redLineCleared
       ? ({ decision: 'clear', reason: '' } as const)
@@ -197,7 +207,7 @@ export function redact(text: string, spans: readonly string[]): string {
 export interface AnswerTickOutcome {
   readonly judged: number
   readonly scrubbed: number
-  /** Flagged on a red line and handed to a steward (`#446`). Was `refused`. */
+  /** Flagged on a red line and handed to the second reading (`#446`). Was `refused`. */
   readonly held: number
   readonly failed: number
 }
@@ -231,7 +241,7 @@ export async function answerTick(
       case 'held':
         outcome.held++
         log.info(
-          `report ${report.submissionId} held for a steward on a red line: ${judgement.reason}`,
+          `report ${report.submissionId} held for a second reading on a red line: ${judgement.reason}`,
           {
             event: 'answers.judged',
             submissionId: report.submissionId,

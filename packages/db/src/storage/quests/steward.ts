@@ -913,15 +913,15 @@ export async function writeScrubbedAnswers(
 }
 
 /**
- * Hold a report whose answers a model says cross a red line, for a steward
- * (`#446`).
+ * Hold a report whose answers a model says cross a red line, for a second
+ * reading (`#446`, `#942`).
  *
  * **This replaced the stage's own `fail` as its move, and the change is who
  * ends the case rather than what is protected.** Nothing
  * is written to `quest_answers`, so the sponsor sees no more of a held report
  * than it saw of a failed one — the text is withheld exactly as before. What
- * changed is that the attempt stays open, the citizen is told a person is
- * reading it, and the accusation is not quoted back at the citizen as a verdict.
+ * changed is that the attempt stays open, the citizen is told it is being read
+ * again, and the accusation is not quoted back at the citizen as a verdict.
  *
  * The submission's own status is deliberately **not** touched. `pending` is
  * already what it is, the verifier already answers `pending` while
@@ -956,9 +956,9 @@ export async function holdReportOnRedLine(
       status: 'pending',
       /**
        * The notice, and not the classifier's sentence. The reason the model
-       * gave is what the steward has to rule on and is in the metadata for it;
-       * the citizen reads that a person is looking, which is the whole of what
-       * `#446` found wrong with the old verdict.
+       * gave is what the second reading has to rule on and is in the metadata
+       * for it; the citizen reads that it is being looked at again, which is the
+       * whole of what `#446` found wrong with the old verdict.
        */
       evidence: RED_LINE_REVIEW_NOTICE,
       metadata: {
@@ -973,7 +973,7 @@ export async function holdReportOnRedLine(
   })
 }
 
-/** One held report, as the steward ruling on it reads it. */
+/** One held report, as the pass ruling on it reads it. */
 export interface HeldReport {
   readonly submissionId: SubmissionId
   readonly taskId: TaskId
@@ -988,16 +988,16 @@ export interface HeldReport {
   /**
    * The report, unscrubbed.
    *
-   * **A steward reads the raw text here, and it is the one place that is
+   * **The ruling reads the raw text here, and it is the one place that is
    * right.** The scrub protects the *sponsor's* view; this reader is the Colony
-   * deciding whether the text may be served at all, and a steward ruling on a
-   * redacted copy of the sentence in question would be ruling on the redaction.
+   * deciding whether the text may be served at all, and a ruling on a redacted
+   * copy of the sentence in question would be a ruling on the redaction.
    */
   readonly answers: readonly ScrubbedAnswer[]
 }
 
 /**
- * Reports a model held on a red line and no steward has ruled on (`#446`).
+ * Reports a model held on a red line and nothing has ruled on yet (`#446`).
  *
  * Oldest first: a citizen whose attempt is open is waiting on this queue, which
  * is not true of the audit queue beside it.
@@ -1045,7 +1045,7 @@ export async function heldRedLineReports(db: Database, limit = 50): Promise<read
 }
 
 /**
- * Whether a steward is holding this report right now (`#446`).
+ * Whether this report is held on a red line right now (`#446`).
  *
  * The verifier's read, and the reason it is a separate call rather than a field
  * on the scrubbed answers: it is only ever asked when there are none, so making
@@ -1145,6 +1145,121 @@ export async function resolveHeldRedLine(
         stage: 'moderation',
         redLineReview: 'upheld',
         stewardId: input.stewardId,
+      },
+    })
+
+    await tx
+      .update(submissions)
+      .set({ status: 'failed', verifiedAt: sql`now()` })
+      .where(eq(submissions.id, input.submissionId))
+
+    return { outcome: 'upheld' as const }
+  })
+}
+
+/** What the second reading concluded, in the terms it is allowed to conclude. */
+export type RedLineReviewOutcome =
+  | { readonly outcome: 'upheld' }
+  | { readonly outcome: 'released' }
+  /** Nothing is held on that submission — ruled on since it was read, or never held. */
+  | { readonly outcome: 'not-held' }
+
+/**
+ * The second reading ends a held red-line case, in either direction (`#942`).
+ *
+ * **The same two writes {@link resolveHeldRedLine} makes, with no role in
+ * them.** It is a separate function rather than a nullable `stewardId` on that
+ * one, because the two differ in more than the signer: this path has no
+ * authorship guard — a model has no interest in the quest the report is about —
+ * and it records what both passes said, which a steward's ruling has no second
+ * sentence to record.
+ *
+ * **`flaggedFor` is the charge and `ruling` is the confirmation.** The citizen is
+ * told the reason the first pass gave, because that is the one both passes
+ * reached; the second pass's own wording goes to the metadata, where the audit
+ * trail and the maintainer issue read it. Handing the citizen the second wording
+ * would make the refusal read as a fresh accusation nobody had checked.
+ *
+ * The guard is `resolveHeldRedLine`'s, and for the reason that one gives: a
+ * report a steward released while this pass was thinking is `not-held`, and the
+ * pass writes nothing over that verdict.
+ */
+export async function resolveRedLineOnReview(
+  db: Database,
+  input: {
+    readonly submissionId: SubmissionId
+    /** `true` upholds the crossing and fails the report; `false` releases it. */
+    readonly crossed: boolean
+    /** What the first pass said was crossed. The citizen's charge, if upheld. */
+    readonly flaggedFor: string
+    /** What the second pass concluded, in its own words. */
+    readonly ruling: string
+    /** Which model read it the second time. */
+    readonly model: string
+    /**
+     * Why it was released, for the row that is not a verdict about the text.
+     *
+     * A release for *the gateway did not answer* and a release for *this does
+     * not cross* are the same outcome for the citizen and very different facts
+     * about the Colony, and a queue that cannot tell them apart cannot report
+     * that its second pass has been unreachable for a day.
+     */
+    readonly releasedBecause?: string
+  },
+): Promise<RedLineReviewOutcome> {
+  return await db.transaction(async (tx) => {
+    const [row] = await tx
+      .select({
+        status: submissions.status,
+        taskType: tasks.type,
+        state: latestRedLineReview,
+      })
+      .from(submissions)
+      .innerJoin(tasks, eq(tasks.id, submissions.taskId))
+      .where(eq(submissions.id, input.submissionId))
+      .for('update', { of: submissions })
+      .limit(1)
+
+    if (row === undefined || row.state !== 'held') return { outcome: 'not-held' as const }
+    if (row.status !== 'pending' && row.status !== 'verifying') {
+      return { outcome: 'not-held' as const }
+    }
+
+    if (!input.crossed) {
+      await tx.insert(verifications).values({
+        submissionId: input.submissionId,
+        taskType: row.taskType,
+        status: 'pending',
+        evidence:
+          'The Colony read your report a second time and it does not cross a red line. It has ' +
+          'gone back to the Colony’s moderator and will be judged normally.',
+        metadata: {
+          stage: 'moderation',
+          redLineReview: 'released',
+          reviewer: 'second-pass',
+          model: input.model,
+          flaggedFor: input.flaggedFor,
+          ruling: input.ruling,
+          ...(input.releasedBecause === undefined
+            ? {}
+            : { releasedBecause: input.releasedBecause }),
+        },
+      })
+      return { outcome: 'released' as const }
+    }
+
+    await tx.insert(verifications).values({
+      submissionId: input.submissionId,
+      taskType: row.taskType,
+      status: 'fail',
+      evidence: `This report crosses one of the Colony’s red lines: ${input.flaggedFor.trim()}`,
+      metadata: {
+        stage: 'moderation',
+        redLineReview: 'upheld',
+        reviewer: 'second-pass',
+        model: input.model,
+        flaggedFor: input.flaggedFor,
+        ruling: input.ruling,
       },
     })
 

@@ -4,7 +4,9 @@ import {
   createDatabase,
   databaseUrlFromEnv,
   detectProviderChange,
+  heldRedLineReports,
   holdReportOnRedLine,
+  resolveRedLineOnReview,
   unclassifiedDirections,
   writeDirectionClassification,
   waitingProfileReviews,
@@ -57,6 +59,7 @@ import {
 } from './loop.js'
 import type { QuestModerationStore } from './quests.js'
 import type { AnswerModerationStore } from './answers.js'
+import type { RedLineReviewStore } from './redline-review.js'
 import type { ProviderReasonModerationStore } from './provider-reasons.js'
 import type { WalkProseModerationStore } from './walk-prose.js'
 import type { AtlasModerationStore } from './atlas.js'
@@ -350,6 +353,24 @@ const answerStore: AnswerModerationStore = {
 }
 
 /**
+ * What lifts the hold the scrub above writes (`#942`).
+ *
+ * **Wired here rather than beside the other optional passes, because it is not
+ * optional in the same way.** Every other pass absent means a queue nobody reads
+ * yet; this one absent means citizens holding open attempts that nothing will
+ * ever resolve, since `answerStore.hold` writes `held` whether or not anything
+ * is scheduled to move it. The two go in together or the runner is broken.
+ *
+ * It reuses `tripwire.issues` rather than opening its own client: same token,
+ * same repository, same labels, and one place where a missing token turns into
+ * *file nothing and carry on* instead of two that could disagree about it.
+ */
+const redLineReviewStore: RedLineReviewStore = {
+  held: (limit) => heldRedLineReports(db, limit),
+  resolve: (input) => resolveRedLineOnReview(db, input),
+}
+
+/**
  * The scrub between what a citizen said about a quest and the sponsor that
  * wrote it (`#240`).
  *
@@ -511,6 +532,7 @@ const runner = startRunner(
     log,
     tripwire,
     answers: { store: answerStore, model, log },
+    redLineReview: { store: redLineReviewStore, model, issues: tripwire.issues, log },
     questReports: { store: questReportStore, model, log },
     providerReasons: { store: providerReasonStore, model, log },
     atlas: { store: atlasStore, model, log },

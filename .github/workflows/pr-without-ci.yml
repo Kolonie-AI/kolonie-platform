@@ -1,0 +1,156 @@
+name: A pull request with no CI at all
+
+# **Zero check-runs on a head commit is always a fault and never a wait**
+# (`#971`). The pull request page renders both the same way — `BLOCKED`, with the
+# required check greyed out — and a reader takes that for *a build is still
+# going*. On 2026-08-14 that misreading cost most of an afternoon on `#968` and
+# `#969`, and the cause was in a single field of a single API response.
+#
+# `stacked-pr-base.yml` beside this file fixes the one cause we have actually
+# seen. This says the state out loud whatever caused it, because the next cause
+# will not be that one: a workflow file with a syntax error, a `paths:` filter
+# that excludes everything a branch touched, a run cancelled by a concurrency
+# group, Actions being down for the minute the push landed. None of those are
+# stacked pull requests and all of them look identical from the page.
+#
+# ## Why it comments, rather than only annotating
+#
+# An annotation lives in a run nobody opens; this whole issue is about a state
+# that is invisible in the place people are looking. The place they are looking
+# is the pull request.
+#
+# It comments **once per head commit**. A new push is a new commit, so a branch
+# that is pushed and still gets nothing is worth saying again — and a branch
+# sitting untouched is not. The marker below is what makes that true, so it is
+# matched rather than read, exactly like the sentence `previous-failures` counts
+# in `kolonie-docs`: **append to it, never reword it.**
+
+on:
+  schedule:
+    # Hourly, at a minute that is not the top of it: every scheduled workflow in
+    # the world asks for `0`, and GitHub delays the ones that pile up there.
+    - cron: '23 * * * *'
+  workflow_dispatch:
+
+permissions:
+  pull-requests: write
+  checks: read
+  contents: read
+
+jobs:
+  scan:
+    name: find pull requests with no checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      # A push and the check-run it creates are not simultaneous. Below this, an
+      # empty answer means *not yet* rather than *never*, and saying so would be
+      # the same false alarm this workflow exists to remove, pointed the other
+      # way.
+      GRACE_MINUTES: 20
+
+    steps:
+      - name: Say which ones have none
+        run: |
+          set -uo pipefail
+
+          open=$(gh pr list --repo "$REPO" --state open --limit 100 \
+            --json number,headRefOid,isDraft,baseRefName) || {
+            echo "::error::the open pull requests could not be listed, so this says nothing about whether any of them have CI: $RUN_URL"
+            exit 1
+          }
+
+          now=$(date +%s)
+          found=0
+          # Counted apart from `found`, because *nothing is wrong* and *nothing
+          # was looked at* are the two states this whole workflow exists to stop
+          # anybody confusing. A run where every pull request was too new, or
+          # every read failed, must not close by announcing that they all have
+          # CI — that is the same false reassurance one level up.
+          looked=0
+          skipped=0
+
+          # Drafts are excluded. A draft is a pull request that is deliberately
+          # not finished, and *no CI has run* is not news about one.
+          while IFS=$'\t' read -r number head base; do
+            [ -n "${number:-}" ] || continue
+
+            pushed=$(gh api "repos/$REPO/commits/$head" \
+              --jq '.commit.committer.date' 2>/dev/null) || pushed=""
+            if [ -n "$pushed" ] && at=$(date -d "$pushed" +%s 2>/dev/null); then
+              age=$(( (now - at) / 60 ))
+              if [ "$age" -lt "$GRACE_MINUTES" ]; then
+                echo "#$number: ${head:0:7} is ${age}m old, inside the grace window"
+                skipped=$((skipped + 1))
+                continue
+              fi
+            fi
+
+            runs=$(gh api "repos/$REPO/commits/$head/check-runs" --jq '.total_count' 2>/dev/null) || {
+              echo "::warning::#$number: the check-runs on ${head:0:7} could not be read; saying nothing about it rather than guessing"
+              skipped=$((skipped + 1))
+              continue
+            }
+            looked=$((looked + 1))
+            [ "$runs" = "0" ] || continue
+
+            found=$((found + 1))
+            echo "::error::#$number has no check-runs at all on ${head:0:7} (base \`$base\`). It is not waiting for a check, there is no check."
+
+            # **The marker.** Matched, not read — see the header. It carries the
+            # short SHA, which is what makes *once per head commit* true: a
+            # branch that is pushed and still gets nothing says so again, and a
+            # branch nobody has touched does not.
+            marker="No CI has run on this pull request at \`${head:0:7}\`"
+            if gh pr view "$number" --repo "$REPO" --json comments \
+                 --jq '.comments[].body' 2>/dev/null | grep -qF "$marker"; then
+              echo "#$number: already said so about ${head:0:7}"
+              continue
+            fi
+
+            # The body is written flush against the block scalar's own
+            # indentation rather than the loop's. Anything further left ends the
+            # scalar and anything further right reaches the comment as leading
+            # spaces, which markdown reads as a code block.
+            gh pr comment "$number" --repo "$REPO" --body "$marker — **not a check that is still running, no check at all.** The page reports \`BLOCKED\` for both states and they are not the same one (\`kolonie-platform#971\`).
+
+          Base is \`$base\`. What to look at, cheapest first:
+
+          - **Is that base a branch that still exists?** If a stacked pull request under this one merged, its branch went with it. \`stacked-pr-base.yml\` repoints these automatically; if it did not, move the base to \`main\` by hand.
+          - **Did the last push produce a run at all?** Push again, or close and reopen this pull request. Retargeting the base alone does not do it — it is not a \`synchronize\` event.
+          - **Is \`ci.yml\` itself reachable?** A workflow file that fails to parse produces no runs and no error on the pull request.
+
+          Found by $RUN_URL." || echo "::warning::#$number could not be commented on"
+          done < <(jq -r '.[] | select(.isDraft | not)
+            | "\(.number)\t\(.headRefOid)\t\(.baseRefName)"' <<<"$open")
+
+          # **Both lines below say what was looked at, never *everything*.** A run
+          # in which every pull request was too new, or every read failed, has
+          # checked nothing — and closing it with *they all have CI* would be the
+          # same false reassurance this workflow exists to remove, one level up.
+          if [ "$found" -eq 0 ] && [ "$looked" -gt 0 ]; then
+            echo "all $looked pull request(s) this run could check have at least one check-run on the head commit"
+          elif [ "$found" -eq 0 ]; then
+            echo "no open pull request was in a state to be checked; this run says nothing about any of them"
+          fi
+          [ "$skipped" -eq 0 ] || echo "$skipped skipped: too new, or the check-runs could not be read"
+
+          {
+            echo "### Pull requests with no CI"
+            echo
+            if [ "$found" -gt 0 ]; then
+              echo "**$found of $looked checked** — see the annotations above. Zero check-runs is a fault, not a wait (\`#971\`)."
+            elif [ "$looked" -gt 0 ]; then
+              echo "None. All **$looked** pull request(s) this run could check have at least one check-run on the head commit."
+            else
+              echo "**Nothing was checked.** Every open pull request was inside the grace window, was a draft, or its check-runs could not be read — so this run says nothing about any of them."
+            fi
+            if [ "$skipped" -gt 0 ]; then
+              echo
+              echo "**$skipped** skipped: pushed within the last $GRACE_MINUTES minutes, or the check-runs could not be read. Not covered by the line above."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

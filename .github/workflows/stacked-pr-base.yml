@@ -1,0 +1,137 @@
+name: Repoint a pull request whose base was merged away
+
+# A package of dependent issues is landed as a stack: `B` is opened against `A`,
+# `C` against `B`. The sweep merges **on green rather than in order**, so `A` can
+# land — and its branch be deleted in the same squash-merge — while `B` is still
+# open and pointing at it.
+#
+# GitHub normally repoints a dependent pull request itself when a base branch is
+# deleted. It did not on 2026-08-14 (`#971`), and the state it left behind is the
+# expensive kind of quiet:
+#
+#   - the pull request diffs against a branch that no longer exists, so GitHub
+#     reports `CONFLICTING` on a branch that is cleanly rebased on `main`;
+#   - no workflow runs, so the required check is not red, it is *absent*;
+#   - the page says `BLOCKED`, which reads as *a check is still running*.
+#
+# Two different faults, one symptom, and the cause was visible in a single field
+# of a single API response — `baseRefName`, still naming the deleted branch.
+#
+# This repoints them at the base the merged pull request itself had. **Not at
+# `main` unconditionally**, which is what `#971` proposed: in a stack of three,
+# `C` is stacked on `B` and `B` on `A`, so when `B` merges the right answer for
+# `C` is whatever `B` was targeting by then. Following the chain link by link
+# gets `main` in the ordinary case and stays correct in the case that is not.
+#
+# ## Why this does not restart CI, and why it does not need to
+#
+# It cannot: an event caused by `GITHUB_TOKEN` does not start a workflow run, and
+# this repository holds no app token or PAT that could. That is why the manual
+# remedy on 2026-08-14 was closing and reopening the pull request by hand.
+#
+# It does not need to, because the repoint happens within seconds of the merge —
+# before the branch underneath has been rebased and force-pushed. By the time
+# that push lands the base is `main` again, the push is an ordinary
+# `synchronize`, and `ci.yml` no longer filters on the base at all. The two
+# halves of this fix are one fix: this file makes the base right, and the filter
+# removal in `ci.yml` makes CI run whether or not it is.
+#
+# If the push got there first, the comment below says so and names the remedy,
+# because a workflow that cannot fix something should say what would.
+
+on:
+  pull_request:
+    types: [closed]
+
+# `pull_request` rather than `pull_request_target`, deliberately. This job checks
+# out nothing and runs no code from the branch, so the only thing the choice
+# decides is whether the token can write — and it can, because every stack this
+# exists for is branches in this repository. A pull request from a fork gets a
+# read-only token, finds nothing stacked on it, and exits.
+permissions:
+  pull-requests: write
+  contents: read
+
+jobs:
+  repoint:
+    name: repoint anything stacked on the merged branch
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      MERGED_NUMBER: ${{ github.event.pull_request.number }}
+      MERGED_HEAD: ${{ github.event.pull_request.head.ref }}
+      MERGED_BASE: ${{ github.event.pull_request.base.ref }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+    steps:
+      - name: Repoint them
+        run: |
+          set -uo pipefail
+
+          # A pull request merged into its own head is not a thing, but a base
+          # and head that read the same would make the query below ask which
+          # pull requests are stacked on the branch we are about to point them
+          # at. Cheaper to stop than to reason about.
+          if [ "$MERGED_HEAD" = "$MERGED_BASE" ]; then
+            echo "$MERGED_HEAD and $MERGED_BASE are the same branch; nothing to do"
+            exit 0
+          fi
+
+          stacked=$(gh pr list --repo "$REPO" --state open --base "$MERGED_HEAD" \
+            --json number --jq '.[].number') || {
+            echo "::error::could not ask which pull requests are stacked on $MERGED_HEAD. If a package is landing, check the base of every open pull request in it by hand: $RUN_URL"
+            exit 1
+          }
+
+          if [ -z "$stacked" ]; then
+            echo "nothing was stacked on $MERGED_HEAD"
+            exit 0
+          fi
+
+          failed=0
+          for number in $stacked; do
+            if ! gh pr edit "$number" --repo "$REPO" --base "$MERGED_BASE"; then
+              echo "::error::#$number is stacked on $MERGED_HEAD, which #$MERGED_NUMBER has just merged and deleted, and the base could not be moved to $MERGED_BASE. It will read as CONFLICTING against a branch that is gone: $RUN_URL"
+              failed=1
+              continue
+            fi
+            echo "::notice::#$number was stacked on $MERGED_HEAD and now targets $MERGED_BASE"
+
+            # **What the checks say now decides what the comment says.** A pull
+            # request with zero check-runs on its head commit is always a fault
+            # and never a wait (`#971`), and it is the one state this workflow
+            # cannot repair for itself.
+            head=$(gh pr view "$number" --repo "$REPO" --json headRefOid --jq '.headRefOid' 2>/dev/null) || head=""
+            runs=""
+            if [ -n "$head" ]; then
+              runs=$(gh api "repos/$REPO/commits/$head/check-runs" \
+                --jq '.total_count' 2>/dev/null) || runs=""
+            fi
+
+            # Every continued line below sits at the block scalar's own
+            # indentation rather than the loop's: further left ends the scalar,
+            # further right reaches the comment as leading spaces and markdown
+            # renders the paragraph as code.
+            body="**The base of this pull request was \`$MERGED_HEAD\`, which \`#$MERGED_NUMBER\` has just merged and deleted.** It now targets \`$MERGED_BASE\`."
+            if [ "${runs:-}" = "0" ]; then
+              body="$body
+
+          **There are no check-runs on \`${head:0:7}\` at all** — not a failing check, no check. That is always a fault and never a wait, and this workflow cannot start one: an event caused by \`GITHUB_TOKEN\` does not trigger a workflow run. Push to the branch, or close and reopen this pull request, and CI will run — \`ci.yml\` no longer filters on the base, so it will run whatever this is stacked on (\`#971\`)."
+            elif [ -z "${runs:-}" ]; then
+              body="$body
+
+          The check-runs on this head commit could not be read, so this says nothing about whether CI has run. If the page reports \`BLOCKED\` with nothing pending, that is the state \`#971\` is about: push to the branch, or close and reopen."
+            fi
+            body="$body
+
+          Repointed by $RUN_URL (\`kolonie-platform#971\`)."
+
+            gh pr comment "$number" --repo "$REPO" --body "$body" ||
+              echo "::warning::#$number was repointed but could not be commented on"
+          done
+
+          exit "$failed"

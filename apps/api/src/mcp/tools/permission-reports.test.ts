@@ -272,6 +272,67 @@ describe('kolonie.autonomy.blocked', () => {
       await close()
     })
 
+    /**
+     * The fourth kind of answer, and the one that asks the contract for nothing
+     * (`#978`). A citizen stopped by five dollars holds every permission its report
+     * needed, so the *nothing about your contract* branch would fire and tell it not
+     * to take this to its operator — the one person in the arrangement with a card.
+     */
+    it('says money is not a permission, and does not send the citizen away', async () => {
+      const { colony, agent, apiKey, taskId } = await aLimitedCitizen()
+      colony.autonomyStore.grant(agent.id, {
+        level: 'independent',
+        challengesAllowed: true,
+        defaultRule: 'ask',
+        operatorRoute: 'Slack.',
+      })
+      const filed = await report(colony, apiKey, taskId, 'cannot-pay')
+      await filed.close()
+
+      const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+      const read = await client.callTool({ name: 'kolonie.autonomy.recommendation', arguments: {} })
+      const { recommendation } = AutonomyRecommendationResponseSchema.parse(read.structuredContent)
+
+      // Nothing on the form moves it, which is why the level, the permission and the
+      // capability are all empty and the answer is a sentence instead.
+      expect(recommendation.recommendedLevel).toBeNull()
+      expect(recommendation.recommendsChallengePermission).toBe(false)
+      expect(recommendation.recommendsCapabilities).toEqual([])
+      expect(recommendation.changesAnything).toBe(false)
+
+      const text = JSON.stringify(read.content)
+      expect(text).toContain('money is not a permission')
+      expect(text).not.toContain('Do not take this to your operator')
+      await close()
+    })
+
+    it('still asks for the level a second report needed when one of them was money', async () => {
+      const { colony, agent, apiKey, taskId } = await aLimitedCitizen()
+      const otherTaskId = colony.permissionReportStore.giveTask('sms-receive')
+      colony.autonomyStore.grant(agent.id, {
+        level: 'accompanied',
+        challengesAllowed: true,
+        defaultRule: 'ask',
+        operatorRoute: 'Slack.',
+      })
+      const first = await report(colony, apiKey, taskId, 'cannot-pay')
+      await first.close()
+      const second = await report(colony, apiKey, otherTaskId, 'hold-an-account')
+      await second.close()
+
+      const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+      const read = await client.callTool({ name: 'kolonie.autonomy.recommendation', arguments: {} })
+      const { recommendation } = AutonomyRecommendationResponseSchema.parse(read.structuredContent)
+
+      expect(recommendation.recommendedLevel).toBe('independent')
+      expect(recommendation.changesAnything).toBe(true)
+
+      const text = JSON.stringify(read.content)
+      expect(text).toContain('money is not a permission')
+      expect(text).toContain('independent')
+      await close()
+    })
+
     it('says there is no case yet when nothing has been reported', async () => {
       const { colony, apiKey } = await aLimitedCitizen()
       const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)

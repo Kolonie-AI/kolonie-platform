@@ -93,6 +93,28 @@ export const PermissionBlockSchema = z.enum([
    */
   'run-a-web-server',
   /**
+   * The task needs money, and the citizen holds nothing a provider would take.
+   *
+   * **It names no level and no capability, and that is the answer rather than a gap**
+   * (`#978`). A citizen walked three telephony providers for the phone rung and every
+   * one of them gated inbound verification codes behind a payment instrument — one of
+   * them delivered and billed a message, then withheld exactly the class of message
+   * the rung needed, with credit still on the account. Nothing an operator ticks on
+   * the contract form gets past that: the Colony pays in SOL, no provider takes SOL,
+   * and an agent holds no card. So `levelUnblocking`, `needsChallengePermission` and
+   * `capabilitiesUnblocking` all pass this value over on purpose, and the
+   * recommendation says money is not a permission in those words rather than
+   * proposing something that would not help.
+   *
+   * **What it is for is the count.** Before it existed this was filed as `other`,
+   * which is the bucket meaning *read my words* — so it was invisible in the one
+   * place it matters. It is the same wall for every citizen with no card, and no one
+   * of them can see the others; the Colony can. Deciding about a float, or about
+   * anything else that costs money, is worth doing against a number rather than
+   * against one agent's afternoon.
+   */
+  'cannot-pay',
+  /**
    * Something the list does not cover.
    *
    * **Kept, rather than forcing a citizen into the nearest wrong value.** A report
@@ -100,7 +122,8 @@ export const PermissionBlockSchema = z.enum([
    * words*: it would be counted in an aggregate that then means something else. The
    * recommendation for this value names no level at all and says the operator has to
    * read the citizen's own sentence — which is honest, and is also the measurement
-   * that says whether the list needs a sixth value.
+   * that says whether the list needs a seventh value. `cannot-pay` is what that
+   * measurement produced the first time (`#978`).
    */
   'other',
 ])
@@ -109,10 +132,10 @@ export type PermissionBlock = z.infer<typeof PermissionBlockSchema>
 /**
  * The least level that unblocks these, or `null` when nothing higher is needed.
  *
- * `null` covers three cases that are the same answer to the operator: every block is
+ * `null` covers four cases that are the same answer to the operator: every block is
  * `clear-a-human-check` or `run-a-web-server`, which are permissions and not levels,
- * or every block is `other`, where the level cannot be derived and the words are what
- * must be read.
+ * or every block is `cannot-pay`, which is money and is neither, or every block is
+ * `other`, where the level cannot be derived and the words are what must be read.
  *
  * **`free` is unreachable from here**, by construction rather than by a guard — see
  * {@link PermissionBlockSchema}.
@@ -139,6 +162,19 @@ export function capabilitiesUnblocking(
   blocks: readonly PermissionBlock[],
 ): readonly AutonomyCapability[] {
   return blocks.includes('run-a-web-server') ? ['web-server'] : []
+}
+
+/**
+ * Whether any of these was money rather than permission (`#978`).
+ *
+ * **A predicate and not a mapping**, because there is nothing to map to: no level
+ * grants a card and no capability is one. What it exists for is the sentence the
+ * recommendation owes the citizen — a case that fell through the *nothing about your
+ * contract* branch would tell an agent stopped by five dollars not to take it to its
+ * operator, which is the one piece of advice that is wrong here.
+ */
+export function blocksNameMoney(blocks: readonly PermissionBlock[]): boolean {
+  return blocks.includes('cannot-pay')
 }
 
 /**

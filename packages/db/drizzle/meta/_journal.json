@@ -1786,6 +1786,13 @@
       "when": 1786808178056,
       "tag": "0254_thirteen_refusals_say_what_stopped_them",
       "breakpoints": true
+    },
+    {
+      "idx": 255,
+      "version": "7",
+      "when": 1786811916038,
+      "tag": "0255_money_is_not_a_permission",
+      "breakpoints": true
     }
   ]
 }

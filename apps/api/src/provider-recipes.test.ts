@@ -34,7 +34,7 @@ beforeEach(() => {
 
 describe('reading the catalogue', () => {
   it('says plainly when nothing is known, rather than answering an empty list', async () => {
-    const result = await readRecipes(undefined, recipes)
+    const result = await readRecipes({}, recipes)
 
     expect(result.outcome).toBe('ok')
     if (result.outcome !== 'ok') return
@@ -78,16 +78,125 @@ describe('reading the catalogue', () => {
     recipes.write({ kind: 'social', provider: 'closed.example', status: 'refused' })
     recipes.write({ kind: 'trello', provider: 'trello.com', status: 'joinable' })
 
-    const result = await readRecipes(undefined, recipes)
+    const result = await readRecipes({}, recipes)
     if (result.outcome !== 'ok') throw new Error('expected the read to succeed')
 
     expect(result.response.recipes[0]?.provider).toBe('trello.com')
   })
 
   it('refuses a kind that is not a slug', async () => {
-    const result = await readRecipes('Not A Kind', recipes)
+    const result = await readRecipes({ kind: 'Not A Kind' }, recipes)
 
     expect(result.outcome).toBe('rejected')
+  })
+})
+
+/**
+ * *The data route filtered on one of its four parameters and dropped the other
+ * three without a word* (`#984`).
+ *
+ * The asserted property is not that the filters work — it is that **a caller
+ * cannot be told a wrong number quietly**. A dropped `?status=refused` answers
+ * with the whole catalogue, which reads exactly like a catalogue in which every
+ * provider is refused; there is no signal in that answer for the caller to
+ * check. So the rejection is tested as hard as the filtering, and the two
+ * surfaces are tested against the same vocabulary.
+ */
+describe('filtering the catalogue over HTTP', () => {
+  const shelf = async () => {
+    recipes.write({
+      kind: 'github',
+      provider: 'github.com',
+      category: 'code-hosting',
+      status: 'joinable',
+    })
+    recipes.write({
+      kind: 'phone',
+      provider: 'telnyx.com',
+      category: 'telephony',
+      status: 'refused',
+    })
+    recipes.write({
+      kind: 'phone',
+      provider: 'twilio.com',
+      category: 'telephony',
+      status: 'joinable',
+    })
+  }
+
+  const listed = async (query: Record<string, unknown>) => {
+    const result = await readRecipes(query, recipes)
+    if (result.outcome !== 'ok') throw new Error(`expected the read to succeed: ${query}`)
+
+    return result.response.recipes.map((recipe) => recipe.provider)
+  }
+
+  it('filters on category', async () => {
+    await shelf()
+
+    expect(await listed({ category: 'telephony' })).toEqual(['twilio.com', 'telnyx.com'])
+  })
+
+  it('filters on status', async () => {
+    await shelf()
+
+    expect(await listed({ status: 'refused' })).toEqual(['telnyx.com'])
+  })
+
+  it('filters on provider, whatever case it is asked in', async () => {
+    await shelf()
+
+    expect(await listed({ provider: 'Telnyx.com' })).toEqual(['telnyx.com'])
+  })
+
+  it('reads the filters together rather than taking the first', async () => {
+    await shelf()
+
+    expect(await listed({ category: 'telephony', status: 'joinable' })).toEqual(['twilio.com'])
+  })
+
+  /**
+   * **A provider is not a closed list**, so an unknown one is a question with
+   * an empty answer rather than a caller mistake — the opposite of the three
+   * above, where the vocabulary is fixed and a typo is worth a second of the
+   * caller's time.
+   */
+  it('answers empty for a provider nobody has written up', async () => {
+    await shelf()
+
+    expect(await listed({ provider: 'nobody.example' })).toEqual([])
+  })
+
+  /**
+   * **The rejection `#984` asks for by name.** `?kind=phonee` returned the
+   * whole catalogue, and so did every parameter the route had never heard of.
+   */
+  it('refuses a parameter it does not understand, and names it', async () => {
+    const result = await readRecipes({ minproved: '3' }, recipes)
+
+    expect(result.outcome).toBe('rejected')
+    if (result.outcome !== 'rejected') return
+    expect(result.error.code).toBe('validation_failed')
+    expect(result.error.message).toContain('minproved')
+    expect(result.error.message).toContain('kind, category, status, provider')
+  })
+
+  it('refuses a closed-list value outside the list', async () => {
+    for (const query of [{ category: 'telephony-ish' }, { status: 'refused-ish' }]) {
+      expect((await readRecipes(query, recipes)).outcome).toBe('rejected')
+    }
+  })
+
+  /**
+   * A repeated parameter arrives as an array, and answering it as though the
+   * last one won would be a quieter version of the same defect.
+   */
+  it('refuses a filter given more than once', async () => {
+    const result = await readRecipes({ status: ['refused', 'joinable'] }, recipes)
+
+    expect(result.outcome).toBe('rejected')
+    if (result.outcome !== 'rejected') return
+    expect(result.error.message).toContain('more than once')
   })
 })
 

@@ -2,7 +2,12 @@ import { randomUUID } from 'node:crypto'
 import { fakeHumans } from '../__fixtures__/humans.js'
 import { fakeArtefactChallenges } from '../__fixtures__/artefact.js'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { DEFAULT_PLATFORM_FEE_PERCENT, ERROR_STATUS, noStagesRun } from '@kolonie-ai/core'
+import {
+  AccountKindSchema,
+  DEFAULT_PLATFORM_FEE_PERCENT,
+  ERROR_STATUS,
+  noStagesRun,
+} from '@kolonie-ai/core'
 import type { FastifyInstance } from 'fastify'
 import { buildApp } from '../app.js'
 import { noProviderEnquiries, type ProviderEnquiryDesk } from '../provider-enquiries.js'
@@ -25,7 +30,11 @@ import { fakeKeyChallenges } from '../__fixtures__/keys.js'
 import { fakeGithub, fakeContributions } from '../__fixtures__/github.js'
 import { fakeStandingHints } from '../__fixtures__/hints.js'
 import { fakeWakeup } from '../__fixtures__/wakeup.js'
-import { fakeAutonomy } from '../__fixtures__/autonomy.js'
+import {
+  fakeAutonomy,
+  fakeOperatorPages,
+  type FakeOperatorPages,
+} from '../__fixtures__/autonomy.js'
 import { fakeOperatorClaim } from '../__fixtures__/operator-claim.js'
 import { fakeSocial } from '../__fixtures__/social.js'
 import { fakeDomain } from '../__fixtures__/domain.js'
@@ -43,7 +52,11 @@ import { fakePow } from '../__fixtures__/proof-of-work.js'
 import { fakeMemory } from '../__fixtures__/memory.js'
 import { fakeSolana } from '../__fixtures__/solana.js'
 import { fakeVault } from '../__fixtures__/vault.js'
-import { fakeAccounts } from '../__fixtures__/accounts.js'
+import {
+  fakeAccounts,
+  fakeAccountRegister,
+  type FakeAccountRegister,
+} from '../__fixtures__/accounts.js'
 import { fakeConsole, recordingLog, type RecordingLog } from '../__fixtures__/console.js'
 import { fakeSettings } from '../__fixtures__/settings.js'
 import { fakeErasureDesk } from '../__fixtures__/erasure.js'
@@ -74,6 +87,16 @@ let console_: ReturnType<typeof fakeConsole>
 let humans_: ReturnType<typeof fakeHumans>
 let enquiries_: ProviderEnquiryDesk
 let settings_: ReturnType<typeof fakeSettings>
+/**
+ * Held rather than inlined, so `#928`'s page can be given accounts to render.
+ *
+ * The register itself and not the bundle: `fakeAccounts` widens what it is handed
+ * to the production interface, which is right for what `buildApp` receives and
+ * leaves a test with no way to put a proved row in place.
+ */
+let register_: FakeAccountRegister
+/** The same, for the agent an operator page has to know about (`#452`). */
+let pages_: FakeOperatorPages
 
 beforeEach(async () => {
   store = fakeStore()
@@ -87,12 +110,14 @@ beforeEach(async () => {
   // Providers writing in about the Atlas (`#544`). An in-memory desk, so the
   // section can be exercised without a database.
   enquiries_ = noProviderEnquiries()
+  register_ = fakeAccountRegister()
+  pages_ = fakeOperatorPages()
   app = buildApp({
     humans: humans_,
     settings: settings_,
     providerEnquiries: enquiries_,
     vault: { vault: fakeVault() },
-    accounts: fakeAccounts(),
+    accounts: fakeAccounts(register_),
     console: console_,
     email: fakeEmail(),
     sms: fakeSms(),
@@ -123,7 +148,7 @@ beforeEach(async () => {
     hints: fakeStandingHints(),
     social: fakeSocial(),
     operatorClaim: fakeOperatorClaim(),
-    autonomy: fakeAutonomy(),
+    autonomy: fakeAutonomy(pages_),
     domain: fakeDomain(),
     artefact: fakeArtefactChallenges(),
     website: fakeWebsite(),
@@ -2199,5 +2224,74 @@ describe('the settings a maintainer turns', () => {
       expect(response.statusCode).toBe(404)
       expect(settings_.written()).toEqual([])
     })
+  })
+})
+
+/**
+ * `#928`: what the operator's own accounts page reads, and whose (`#452`).
+ *
+ * The renderer's tests assert what a row looks like. This one asserts the thing
+ * a renderer cannot: that the rows are the operated agent's and nobody else's.
+ * The guarantee lives in the `where` clause of the read, so it is asked here,
+ * through the route, against a register holding two agents' accounts.
+ */
+describe('the accounts page an operator reads', () => {
+  const anOperator = async () => {
+    const human = humans_.store.holdsIdentity({
+      provider: 'github',
+      subject: `subject-${randomUUID()}`,
+      email: 'someone@example.test',
+    })
+    const issued = store.issue({})
+    humans_.store.operatesAgent(human.id, issued.agent)
+    pages_.exists(issued.agent.id)
+    const { session: cookie } = await humans_.store.openSession(human.id, {})
+
+    return { cookie, agent: issued.agent }
+  }
+
+  const accountsPage = (cookie: string, id: string) =>
+    app.inject({
+      method: 'GET',
+      url: `/agents/${id}/accounts`,
+      headers: {
+        host: CONSOLE_HOST,
+        accept: 'text/html',
+        cookie: `__Host-kolonie_session=${cookie}`,
+      },
+    })
+
+  it('shows the accounts of the agent whose page it is', async () => {
+    const { cookie, agent } = await anOperator()
+    register_.proveDirectly(agent.id, {
+      kind: AccountKindSchema.parse('mailbox'),
+      identifier: 'ariadne@mail.example',
+      provider: 'mail.example',
+    })
+
+    const body = (await accountsPage(cookie, String(agent.id))).body
+
+    expect(body).toContain('ariadne@mail.example')
+    expect(body).toContain('proved — the Colony read it')
+  })
+
+  /**
+   * The rejection case the issue names, and the reason the read is scoped rather
+   * than the markup: another citizen's address on this page would be the Colony
+   * publishing something that was never its to publish.
+   */
+  it('shows no identifier belonging to another agent', async () => {
+    const { cookie, agent } = await anOperator()
+    const stranger = store.issue({})
+    register_.proveDirectly(stranger.agent.id, {
+      kind: AccountKindSchema.parse('mailbox'),
+      identifier: 'somebody-else@mail.example',
+      provider: 'mail.example',
+    })
+
+    const body = (await accountsPage(cookie, String(agent.id))).body
+
+    expect(body).not.toContain('somebody-else@mail.example')
+    expect(body).toContain('Nothing here yet')
   })
 })

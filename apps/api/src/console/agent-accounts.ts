@@ -29,7 +29,14 @@
  * No JavaScript, D-062, like every console page. Everything here is a form.
  */
 
-import type { EpisodeTurn, RecipeStatus, ThreadParty, Wish } from '@kolonie-ai/core'
+import type {
+  Account,
+  AccountStatus,
+  EpisodeTurn,
+  RecipeStatus,
+  ThreadParty,
+  Wish,
+} from '@kolonie-ai/core'
 import type { BundleView } from '@kolonie-ai/db'
 import { escape, page } from './html.js'
 import type { ConsoleNav } from './navigation.js'
@@ -178,6 +185,141 @@ function turnCell(turn: EpisodeTurn, name: string): string {
   return 'nobody’s'
 }
 
+/**
+ * One held account, as this page renders it (`#928`).
+ *
+ * **The identifier is here, and this is the only operator surface it reaches.**
+ * Every other rule on this page says the opposite — `#582` kept addresses off
+ * it, `#934` composes an episode title from the kind and the provider precisely
+ * so that none appears. The difference is who is reading. Those two are also
+ * reachable from the *mailed* operator page, which is opened by whoever holds a
+ * link; this page is behind the session of the person the join table says
+ * operates the agent, which is the line `agentFacts` already draws in its own
+ * words. *How are my agent's accounts doing* cannot be answered by a count.
+ *
+ * **Never another agent's.** The read is scoped by `agentId` in its `where`
+ * clause; this type carries no agent and the projection below cannot filter by
+ * one, which is deliberate — a renderer that could would be a second place the
+ * rule lives, and the wrong one.
+ */
+export interface HeldAccountRow {
+  readonly kind: string
+  /** Null where the citizen never named one. Rendered as a sentence, not a blank. */
+  readonly provider: string | null
+  readonly identifier: string
+  /** The agent's own word on it: `in-use`, `retired`, `lost`. */
+  readonly status: AccountStatus
+  /** Whether something read it, as against the citizen having written it down. */
+  readonly proved: boolean
+  /** When a re-check last found it. Null if one never has. */
+  readonly confirmedAt: string | null
+  /** Set when the last re-check could not reach it, and cleared when one can. */
+  readonly unconfirmedSince: string | null
+}
+
+/**
+ * The register, narrowed to what this page prints (`#928`).
+ *
+ * Mirrors `profileAccountRows`: the narrowing is a function a reader can check
+ * rather than an omission in a template. What is dropped is what belongs to the
+ * citizen and not to its operator — the note it wrote itself, the vault key that
+ * opens the account, the row id an operator has no form to spend it on.
+ *
+ * **Retired and lost rows stay.** `listAccounts` returns them for the citizen's
+ * own view on the argument that they are excluded from *offering* and not from
+ * the record; an operator asking how the accounts are doing is asking that same
+ * question, and an account the agent marked `lost` in June is the single most
+ * useful row on the page.
+ */
+export function heldAccountRows(accounts: readonly Account[]): readonly HeldAccountRow[] {
+  return accounts.map(
+    (account) =>
+      ({
+        kind: account.kind,
+        provider: account.provider,
+        identifier: account.identifier,
+        status: account.status,
+        proved: account.proved,
+        confirmedAt: account.confirmedAt,
+        unconfirmedSince: account.unconfirmedSince,
+      }) satisfies HeldAccountRow,
+  )
+}
+
+/**
+ * What the agent says about one of its own accounts (`#928`).
+ *
+ * **Two facts in one cell, and they are not the same fact.** `proved` is
+ * something the Colony read; `status` is something the agent asserted. A cell
+ * that printed only one of them would let a declared-only account the agent
+ * calls `in-use` read exactly like a proved one.
+ */
+function heldStateCell(account: HeldAccountRow): string {
+  const standing =
+    account.status === 'in-use'
+      ? 'in use'
+      : account.status === 'retired'
+        ? '<strong>retired</strong>'
+        : '<strong>lost</strong>'
+
+  return (
+    standing +
+    '<br>' +
+    (account.proved
+      ? '<small>proved — the Colony read it</small>'
+      : '<small>declared only — your agent wrote it down and nothing has read it</small>')
+  )
+}
+
+/**
+ * When a re-check last reached the account (`#928`).
+ *
+ * **Never checked and last check failed must not read alike**, which the
+ * acceptance criteria say outright, so they are the two ends of this function
+ * rather than two shades of one sentence. `<strong>` for the failure and
+ * `<small>` for the silence is the idiom this file already uses for a hard fact
+ * against a soft one — the console has no warning class, and D-062 leaves no
+ * script to add one.
+ *
+ * **A never-checked account says so in a sentence**, again as the criteria
+ * require: an empty cell is indistinguishable from a page that forgot to render
+ * one, and this column exists to be believed.
+ *
+ * `unconfirmedSince` is asked first because it is the current state whatever
+ * else is set. `recordAccountRecheck` leaves an old `confirmedAt` in place when
+ * a check fails, so an account confirmed in March and unreachable since May
+ * carries both — and it is May that the operator needs.
+ */
+function heldRecheckCell(account: HeldAccountRow, zone: string): string {
+  if (account.unconfirmedSince !== null) {
+    return (
+      '<strong>did not answer</strong><br>' +
+      `<small>last tried ${escape(relative(account.unconfirmedSince))}, at ` +
+      `${escape(absolute(account.unconfirmedSince, zone))}` +
+      (account.confirmedAt === null
+        ? ''
+        : `; it last answered ${escape(relative(account.confirmedAt))}`) +
+      '</small>'
+    )
+  }
+
+  if (account.confirmedAt !== null) {
+    return (
+      `answered ${escape(relative(account.confirmedAt))}<br>` +
+      `<small>at ${escape(absolute(account.confirmedAt, zone))}</small>`
+    )
+  }
+
+  /**
+   * The distinction the citizen can act on: nothing is re-checked until
+   * something has read it once, so *never checked* means different things for a
+   * proved account and a declared one.
+   */
+  return account.proved
+    ? '<small>never re-checked since it was proved</small>'
+    : '<small>not re-checked — the Colony re-checks an account once it has been proved</small>'
+}
+
 /** What one agent's accounts page is rendered from. */
 export interface AgentAccountsInput {
   /** Who is reading and where they are, for the navigation (`#608`). */
@@ -187,12 +329,15 @@ export interface AgentAccountsInput {
   /** The zone every absolute time on this page is rendered in (`#461`). */
   readonly zone: string
   /**
-   * Counts by kind, exactly as `operatorPageFacts` resolves them.
+   * The accounts themselves, one row each (`#928`).
    *
-   * **Never an address.** That is the citizen's to publish, and this page does
-   * not widen what the agent page already refused to.
+   * **Rows here, counts everywhere else.** `operatorPageFacts` keeps its
+   * counts-by-kind because the *mailed* operator page is opened by whoever holds
+   * a link, and `agent-page.ts` keeps its summary because it is a summary. This
+   * page renders one or the other and not both: two records of one fact drift
+   * apart without anybody editing either, which is D-002.
    */
-  readonly held: readonly { readonly kind: string; readonly count: number }[]
+  readonly held: readonly HeldAccountRow[]
   /** The shared list (`#527`). Absent is not the same as empty and cannot occur here. */
   readonly wishes: readonly Wish[]
   readonly catalogue?: Readonly<Record<string, WishCatalogueEntry>> | undefined
@@ -221,18 +366,56 @@ export interface MaintenanceEpisode {
 }
 
 export function agentAccountsPage(input: AgentAccountsInput): string {
+  /**
+   * What the agent holds, per account (`#928`).
+   *
+   * **Four columns, because the question has four parts.** *What is it*, *whose
+   * service*, *what does the agent say about it*, *when did the Colony last
+   * manage to reach it*. The last two are the ones that did not exist here: the
+   * agent could mark an account `lost` in June and the operator's screen would
+   * carry on showing it beside one re-verified this morning.
+   */
   const held =
     input.held.length === 0
       ? [
-          '<p>Nothing proved yet. An account appears here once your agent has proved it holds ' +
-            'it — declaring one is not the same as proving it.</p>',
+          '<p>Nothing here yet. An account appears once your agent declares it — and says ' +
+            'whether anything has read it, which is not the same thing.</p>',
         ]
       : [
-          '<ul>',
-          ...input.held.map(
-            (account) => `<li>${escape(account.kind)}: ${String(account.count)}</li>`,
-          ),
-          '</ul>',
+          '<table>',
+          '<thead><tr><th>Account</th><th>Provider</th><th>Your agent says</th>' +
+            '<th>The Colony last checked</th></tr></thead>',
+          `<tbody>${input.held
+            .map((account) =>
+              [
+                '<tr>',
+                `<td>${escape(account.identifier)}<br><small>${escape(account.kind)}</small></td>`,
+                `<td>${
+                  account.provider === null
+                    ? '<small>not recorded</small>'
+                    : escape(account.provider)
+                }</td>`,
+                `<td>${heldStateCell(account)}</td>`,
+                `<td>${heldRecheckCell(account, input.zone)}</td>`,
+                '</tr>',
+              ].join(''),
+            )
+            .join('')}</tbody>`,
+          '</table>',
+          /**
+           * The reassurance `#934` wrote, repeated here on a condition of its
+           * own. That section renders only while an episode is open, and closing
+           * one leaves `unconfirmedSince` set — so without this an operator can
+           * read *did not answer* with nothing beside it saying what it costs.
+           */
+          ...(input.held.some((account) => account.unconfirmedSince !== null)
+            ? [
+                '<p class="note"><strong>An account that did not answer has had nothing ' +
+                  'taken away.</strong> The skill it earned and the reputation that came ' +
+                  'with it are permanent. What lapses is the account counting as current, ' +
+                  'and re-proving it puts that back.</p>',
+              ]
+            : []),
         ]
 
   const adoption =

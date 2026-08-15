@@ -72,7 +72,7 @@ import {
 } from '../console/agent-page.js'
 import { AGENT_PAGES } from '../console/navigation.js'
 import { answerAutonomyFormForAgent } from '../autonomy.js'
-import { agentAccountsPage } from '../console/agent-accounts.js'
+import { agentAccountsPage, heldAccountRows } from '../console/agent-accounts.js'
 import { curationPage, numbersPage } from '../console/steward.js'
 import {
   backendArrivalsPage,
@@ -2786,6 +2786,22 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
     const wishes = await deps.wishes.store.list(operated.agentId)
 
     /**
+     * The accounts themselves, rather than the counts by kind (`#928`).
+     *
+     * **`register.list` and not `factsOf`.** The facts read is the *mailed*
+     * page's, which counts because it is opened by whoever holds a link; this
+     * one is behind the session of the person who operates the agent, and *how
+     * are my agent's accounts doing* has no answer in a count. `factsOf` is
+     * still what gives us the name and the 404 above, so nothing about who may
+     * read this page has moved.
+     *
+     * **Scoped by `agentId` in the query.** That is the rejection case the issue
+     * names — no other agent's identifier on this page — and it is held here, at
+     * the read, rather than by anything the renderer does or does not print.
+     */
+    const accounts = heldAccountRows(await deps.accounts.register.list(operated.agentId))
+
+    /**
      * The accounts a re-check could not reach (`#934`).
      *
      * **Filtered to `maintenance` here rather than read separately**, because
@@ -2811,7 +2827,7 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
       return reply.send({
         agentId: String(operated.agentId),
         name: held.name,
-        held: held.facts.accounts,
+        held: accounts,
         wishes,
         maintenance,
         ...(adoption === undefined ? {} : { adoption }),
@@ -2826,7 +2842,7 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
         agentId: String(operated.agentId),
         name: held.name,
         zone: zoneFrom(request.headers),
-        held: held.facts.accounts,
+        held: accounts,
         wishes,
         /**
          * What the catalogue holds for each provider on that list (`#581`).

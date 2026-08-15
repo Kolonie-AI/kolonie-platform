@@ -1,4 +1,4 @@
-import { and, asc, eq, isNull, sql } from 'drizzle-orm'
+import { and, asc, eq, isNotNull, isNull, sql } from 'drizzle-orm'
 import { MAX_UNREAD_OPERATOR_NOTES, type AgentId, type OperatorNote } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import { operatorNotes, operatorPages } from '../schema/index.js'
@@ -115,6 +115,21 @@ export async function countUnreadOperatorNotes(db: Database, agentId: AgentId): 
  * cannot both be handed the same note, because only one `update` can move a row out
  * of `read_at is null`.
  *
+ * **Marking is not deleting, and `includeDelivered` is what makes that reachable**
+ * (`#927`). The marking pass runs either way and is unchanged; what the flag
+ * changes is only which rows are handed back afterwards. So a citizen whose run
+ * ended between the read and acting on it has lost a call rather than the note,
+ * and a citizen that asks for nothing sees exactly what it always saw.
+ *
+ * The history is a second statement rather than a widened `returning`, because
+ * the two want opposite predicates: the update must match `read_at is null` or it
+ * would re-stamp every note the citizen was told months ago, and the answer wants
+ * the rows on the other side of that line. Reading it after the update has
+ * committed is also what makes the just-marked rows appear in it exactly once.
+ * `is not null` rather than every row: a note written in the window between the
+ * two statements is not one this call marked, and handing it over unmarked would
+ * deliver it twice.
+ *
  * Oldest first. An operator that wrote *"the account is made"* and then *"actually
  * use the other handle"* has said two things in an order that matters, and reading
  * them newest-first would invert an instruction.
@@ -122,8 +137,9 @@ export async function countUnreadOperatorNotes(db: Database, agentId: AgentId): 
 export async function readOperatorNotes(
   db: Database,
   agentId: AgentId,
+  options: { readonly includeDelivered?: boolean } = {},
 ): Promise<readonly OperatorNote[]> {
-  const rows = await db
+  const marked = await db
     .update(operatorNotes)
     .set({ readAt: sql`now()` })
     .where(and(eq(operatorNotes.agentId, agentId), isNull(operatorNotes.readAt)))
@@ -131,13 +147,28 @@ export async function readOperatorNotes(
       id: operatorNotes.id,
       body: operatorNotes.body,
       writtenAt: operatorNotes.writtenAt,
+      readAt: operatorNotes.readAt,
     })
+
+  const rows =
+    options.includeDelivered === true
+      ? await db
+          .select({
+            id: operatorNotes.id,
+            body: operatorNotes.body,
+            writtenAt: operatorNotes.writtenAt,
+            readAt: operatorNotes.readAt,
+          })
+          .from(operatorNotes)
+          .where(and(eq(operatorNotes.agentId, agentId), isNotNull(operatorNotes.readAt)))
+      : marked
 
   return rows
     .map((row) => ({
       id: row.id as OperatorNote['id'],
       body: row.body,
       writtenAt: toTimestamp(row.writtenAt),
+      deliveredAt: row.readAt === null ? null : toTimestamp(row.readAt),
     }))
     .sort((left, right) => (left.writtenAt < right.writtenAt ? -1 : 1))
 }

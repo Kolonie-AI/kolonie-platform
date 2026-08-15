@@ -1772,6 +1772,13 @@
       "when": 1786791886887,
       "tag": "0252_a_phone_verdict_says_which_way",
       "breakpoints": true
+    },
+    {
+      "idx": 253,
+      "version": "7",
+      "when": 1786797607623,
+      "tag": "0253_a_read_note_is_still_there",
+      "breakpoints": true
     }
   ]
 }

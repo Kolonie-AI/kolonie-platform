@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest'
 import { FAKE_CALLER_IP, fakeColony, type FakeColony } from '../../__fixtures__/colony/index.js'
 import { connectedClient } from '../../__fixtures__/mcp.js'
 import { OPERATOR_ADVISORY_NOTE, OPERATOR_LABEL } from '../text/operator-requests.js'
-import { NO_NOTES } from '../text/operator-notes.js'
+import { DELIVERED_NOTES_PREAMBLE, NO_NOTES, NOTES_PREAMBLE } from '../text/operator-notes.js'
 import { writeOperatorNote } from '../../operator-notes.js'
 import { OPERATOR_NOTE_LIMIT } from '../../rate-limit.js'
 
@@ -13,10 +13,10 @@ import { OPERATOR_NOTE_LIMIT } from '../../rate-limit.js'
  *
  * The invariants here are the ones a reviewer cannot see by reading the diff:
  * that the words really arrive labelled as the operator's on every surface they
- * appear on, that reading really empties the inbox, that the ceiling is the
- * page's own rather than the citizen's support budget, and — the one the whole
- * issue turns on — that **nothing on this path can change what the citizen is
- * permitted to do**.
+ * appear on, that reading really empties the *unread set* without destroying
+ * anything (`#927`), that the ceiling is the page's own rather than the citizen's
+ * support budget, and — the one the whole issue turns on — that **nothing on this
+ * path can change what the citizen is permitted to do**.
  */
 describe('kolonie.operator.notes', () => {
   const aCitizenWithAnOperator = async () => {
@@ -33,9 +33,13 @@ describe('kolonie.operator.notes', () => {
     return { colony, agent, apiKey: credentials.apiKey, pageToken }
   }
 
-  const readNotes = async (colony: FakeColony, apiKey: string) => {
+  const readNotes = async (
+    colony: FakeColony,
+    apiKey: string,
+    args: { readonly includeDelivered?: boolean } = {},
+  ) => {
     const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
-    const result = await client.callTool({ name: 'kolonie.operator.notes', arguments: {} })
+    const result = await client.callTool({ name: 'kolonie.operator.notes', arguments: args })
     await close()
     return result
   }
@@ -108,6 +112,133 @@ describe('kolonie.operator.notes', () => {
     const kept = colony.operatorNoteStore.allFor(agent.id)
     expect(kept).toHaveLength(1)
     expect(kept[0]?.readAt).not.toBeNull()
+  })
+
+  /**
+   * What `#927` overturned: reading marked the notes and nothing could ask for a
+   * marked row, so from the citizen's side the read destroyed what it handed
+   * over. A citizen is stateless between sessions and its run can end at any
+   * point after the read — so the note was gone from the agent and unreachable in
+   * the Colony while the operator believed it had been told.
+   *
+   * The three cases below are the acceptance criteria and the rejection case,
+   * asserted in that order.
+   */
+  describe('reading marks, and marking is not deleting', () => {
+    it('hands back what was already delivered when asked, so a crashed session costs a call', async () => {
+      const { colony, apiKey, pageToken } = await aCitizenWithAnOperator()
+
+      await writeOperatorNote(
+        { token: pageToken, body: 'Use the handle @foo.' },
+        colony.operatorNotes,
+      )
+      await writeOperatorNote(
+        { token: pageToken, body: 'Correction — @foo was taken, use @foo2.' },
+        colony.operatorNotes,
+      )
+
+      // The session that read them and then ended before it acted.
+      const delivered = ReadOperatorNotesResponseSchema.parse(
+        (await readNotes(colony, apiKey)).structuredContent,
+      )
+      expect(delivered.notes).toHaveLength(2)
+
+      // The next one, waking with nothing written down.
+      const nothingNew = ReadOperatorNotesResponseSchema.parse(
+        (await readNotes(colony, apiKey)).structuredContent,
+      )
+      expect(nothingNew.notes).toEqual([])
+
+      const history = ReadOperatorNotesResponseSchema.parse(
+        (await readNotes(colony, apiKey, { includeDelivered: true })).structuredContent,
+      )
+      expect(history.notes.map((note) => note.body)).toEqual([
+        'Use the handle @foo.',
+        'Correction — @foo was taken, use @foo2.',
+      ])
+      // Delivered rather than merely present: a citizen reading the sequence
+      // needs to know which of these it has already been handed.
+      for (const note of history.notes) expect(note.deliveredAt).not.toBeNull()
+    })
+
+    it('still marks what was unread when the history is what was asked for', async () => {
+      const { colony, agent, apiKey, pageToken } = await aCitizenWithAnOperator()
+
+      await writeOperatorNote(
+        { token: pageToken, body: 'The key was changed this morning.' },
+        colony.operatorNotes,
+      )
+
+      const asked = ReadOperatorNotesResponseSchema.parse(
+        (await readNotes(colony, apiKey, { includeDelivered: true })).structuredContent,
+      )
+      expect(asked.notes).toHaveLength(1)
+
+      // Asking for the history is not a way to read without clearing the count
+      // kolonie.wakeup carries — a store that never empties is the inbox-full
+      // wall arriving on the operator's side instead.
+      expect(await colony.operatorNoteStore.countUnread(agent.id)).toBe(0)
+    })
+
+    it('does not put a delivered note back into the default read', async () => {
+      const { colony, apiKey, pageToken } = await aCitizenWithAnOperator()
+
+      await writeOperatorNote(
+        { token: pageToken, body: 'Something said in a previous session.' },
+        colony.operatorNotes,
+      )
+      await readNotes(colony, apiKey)
+      await readNotes(colony, apiKey, { includeDelivered: true })
+
+      // The rejection case: keeping the delivered rows reachable must not put
+      // them back in front of a citizen that asked what is new. Acting on the
+      // same instruction twice is the failure the read-once design was avoiding,
+      // and the fix does not get to reintroduce it.
+      const waking = ReadOperatorNotesResponseSchema.parse(
+        (await readNotes(colony, apiKey)).structuredContent,
+      )
+      expect(waking.notes).toEqual([])
+
+      await writeOperatorNote(
+        { token: pageToken, body: 'Something said since.' },
+        colony.operatorNotes,
+      )
+      const next = ReadOperatorNotesResponseSchema.parse(
+        (await readNotes(colony, apiKey)).structuredContent,
+      )
+      expect(next.notes.map((note) => note.body)).toEqual(['Something said since.'])
+    })
+
+    it('tells the citizen which question it asked, on the surface it reads', async () => {
+      const { colony, apiKey, pageToken } = await aCitizenWithAnOperator()
+
+      await writeOperatorNote(
+        { token: pageToken, body: 'Do not publish this week.' },
+        colony.operatorNotes,
+      )
+      await readNotes(colony, apiKey)
+
+      const history = await readNotes(colony, apiKey, { includeDelivered: true })
+      const text = (history.content as { text: string }[])[0]?.text ?? ''
+
+      // A history read of a citizen whose notes were all just marked is
+      // indistinguishable from a default read, so the preamble is the only thing
+      // that can say which one this is.
+      expect(text).toContain(DELIVERED_NOTES_PREAMBLE)
+      expect(text).not.toContain(NOTES_PREAMBLE)
+      expect(text).toContain('delivered to you')
+      expect(text).toContain(OPERATOR_ADVISORY_NOTE)
+    })
+
+    it('points a citizen with an empty inbox at the history it cannot see', async () => {
+      const { colony, apiKey } = await aCitizenWithAnOperator()
+
+      const result = await readNotes(colony, apiKey)
+
+      // The commonest path there is, and the one the old wording got wrong: an
+      // empty answer does not mean the operator never wrote.
+      expect((result.content as { text: string }[])[0]?.text).toContain('includeDelivered')
+    })
   })
 
   it('reads oldest first, so a correction does not arrive before the thing it corrects', async () => {

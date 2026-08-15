@@ -1,17 +1,24 @@
 import { randomUUID } from 'node:crypto'
-import {
-  MAX_UNREAD_OPERATOR_NOTES,
-  type AgentId,
-  type OperatorNote,
-  type OperatorNoteId,
-} from '@kolonie-ai/core'
+import { MAX_UNREAD_OPERATOR_NOTES, type AgentId, type OperatorNoteId } from '@kolonie-ai/core'
 import type { OperatorNoteDependencies, OperatorNoteStore } from '../operator-notes.js'
 import { operatorNoteLimiter, type RateLimiter } from '../rate-limit.js'
 import { fakeOperatorPages, type FakeOperatorPages } from './autonomy.js'
 
 export interface FakeOperatorNoteStore extends OperatorNoteStore {
-  /** Every note this citizen has, read or not — for asserting nothing was lost. */
-  readonly allFor: (agentId: AgentId) => readonly (OperatorNote & { readAt: string | null })[]
+  /**
+   * Every note this citizen has, read or not — for asserting nothing was lost.
+   *
+   * Still here after `#927`, and still worth having: `includeDelivered` answers
+   * *what may the citizen see*, and this answers *what is in the store*. A test
+   * that checked the first would no longer be able to tell a row that was kept
+   * from a row that was handed back.
+   */
+  readonly allFor: (agentId: AgentId) => readonly {
+    readonly id: OperatorNoteId
+    readonly body: string
+    readonly writtenAt: string
+    readonly readAt: string | null
+  }[]
   /** Fill the inbox to the wall without writing through the page, for one test. */
   readonly fill: (agentId: AgentId, count?: number) => void
 }
@@ -79,15 +86,29 @@ export function fakeOperatorNoteStore(
       return Promise.resolve({ outcome: 'written' as const, unread: unread + 1, agentId })
     },
 
-    read: (agentId) => {
+    read: (agentId, options) => {
       const waiting = unreadFor(agentId)
       const readAt = new Date().toISOString()
+      for (const row of waiting) row.readAt = readAt
+
+      // The same two predicates the real store uses, and in the same order:
+      // marking first and unconditionally, then either what was just marked or
+      // every delivered row. A fake that answered `includeDelivered` without
+      // marking would let a test pass against a store that never empties.
+      const answered =
+        options?.includeDelivered === true
+          ? [...rows.values()]
+              .filter((row) => row.agentId === agentId && row.readAt !== null)
+              .sort((left, right) => (left.writtenAt < right.writtenAt ? -1 : 1))
+          : waiting
 
       return Promise.resolve(
-        waiting.map((row) => {
-          row.readAt = readAt
-          return { id: row.id, body: row.body, writtenAt: row.writtenAt }
-        }),
+        answered.map((row) => ({
+          id: row.id,
+          body: row.body,
+          writtenAt: row.writtenAt,
+          deliveredAt: row.readAt,
+        })),
       )
     },
 

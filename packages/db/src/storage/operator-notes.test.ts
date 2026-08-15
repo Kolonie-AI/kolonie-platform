@@ -21,9 +21,11 @@ const NOTE = 'The X account is made. The handle is @foo2, not @foo.'
  *
  * What is asserted here rather than in `apps/api` is everything that is a
  * property of the *queries*: that a token cannot reach another citizen's inbox,
- * that reading and marking read are one statement, that the check constraint
- * refuses a body the schema forbids, and that the cascade takes the notes with
- * the citizen. A fake can be made to agree with all four and prove none of them.
+ * that reading and marking read are one statement, that a marked row stays
+ * reachable without ever returning to the unread answer (`#927`), that the check
+ * constraint refuses a body the schema forbids, and that the cascade takes the
+ * notes with the citizen. A fake can be made to agree with all five and prove
+ * none of them.
  */
 describe('the operator note (#239)', () => {
   let db: Database
@@ -97,6 +99,76 @@ describe('the operator note (#239)', () => {
     // exactly one did is the invariant, and it is `update ... returning` that
     // holds it rather than anything in the caller.
     expect(first.length + second.length).toBe(1)
+  })
+
+  /**
+   * `#927`, against the two statements that implement it. The mark has always
+   * been a mark rather than a tombstone — what was missing was any query that
+   * could ask for a marked row, which is why this reads as *the row was already
+   * there* and not as a change to what is stored.
+   */
+  describe('a delivered note is still there (#927)', () => {
+    it('hands back what was already delivered, oldest first and stamped with when', async () => {
+      const token = await aPage()
+      await writeOperatorNote(db, { token, body: 'Use the handle @foo.' })
+      await writeOperatorNote(db, { token, body: 'Correction — @foo was taken, use @foo2.' })
+
+      await readOperatorNotes(db, agentId)
+      expect(await readOperatorNotes(db, agentId)).toEqual([])
+
+      const history = await readOperatorNotes(db, agentId, { includeDelivered: true })
+
+      expect(history.map((note) => note.body)).toEqual([
+        'Use the handle @foo.',
+        'Correction — @foo was taken, use @foo2.',
+      ])
+      for (const note of history) expect(note.deliveredAt).not.toBeNull()
+    })
+
+    it('marks the unread ones whichever way it is asked', async () => {
+      const token = await aPage()
+      await writeOperatorNote(db, { token, body: NOTE })
+
+      const asked = await readOperatorNotes(db, agentId, { includeDelivered: true })
+
+      expect(asked).toHaveLength(1)
+      expect(asked[0]?.deliveredAt).not.toBeNull()
+      // Asking for the history is not a way to read without clearing the count,
+      // which is what bounds the inbox on the operator's side.
+      expect(await countUnreadOperatorNotes(db, agentId)).toBe(0)
+    })
+
+    it('never puts a delivered note back in front of a citizen asking what is new', async () => {
+      const token = await aPage()
+      await writeOperatorNote(db, { token, body: 'Something said in a previous session.' })
+
+      await readOperatorNotes(db, agentId)
+      await readOperatorNotes(db, agentId, { includeDelivered: true })
+
+      expect(await readOperatorNotes(db, agentId)).toEqual([])
+
+      // And a note written afterwards is the only thing the next default read
+      // answers — the history read did not re-stamp the old ones, which is why
+      // the update has to keep matching `read_at is null`.
+      await writeOperatorNote(db, { token, body: 'Something said since.' })
+      expect((await readOperatorNotes(db, agentId)).map((note) => note.body)).toEqual([
+        'Something said since.',
+      ])
+    })
+
+    it('does not deliver a note it has not marked', async () => {
+      const token = await aPage()
+      await writeOperatorNote(db, { token, body: 'Written before anybody read anything.' })
+
+      const history = await readOperatorNotes(db, agentId, { includeDelivered: true })
+
+      // The history select asks for `read_at is not null` rather than for every
+      // row, so a note that arrives between the two statements is left unread
+      // and delivered once, later — instead of being handed over now and again
+      // on the next default read.
+      expect(history).toHaveLength(1)
+      expect(await countUnreadOperatorNotes(db, agentId)).toBe(0)
+    })
   })
 
   it('cannot be aimed at another citizen', async () => {

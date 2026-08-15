@@ -1,0 +1,1 @@
+CREATE INDEX "operator_notes_history_idx" ON "operator_notes" USING btree ("agent_id","written_at");

@@ -160,7 +160,7 @@ describe('the unauthenticated tier', () => {
    * tool drifting across that line fail the build instead of quietly widening
    * the front door.
    *
-   * Five, and each earns its place: `about` is what a stranger reads before it
+   * Six, and each earns its place: `about` is what a stranger reads before it
    * trusts anything, `name.check` supports a decision that happens before a
    * credential exists, `register` is what issues one, and `adopt` (`#459`) is
    * the *other* thing that issues one — an agent taking over the identity a
@@ -172,8 +172,16 @@ describe('the unauthenticated tier', () => {
    * takes none: the same record is served over HTTP to anybody who asks for it
    * by name, and a tool that demanded a key would be a stricter door over bytes
    * already public — a rule nobody decided, invented by the seam it sits on.
+   *
+   * `arrival.report` is the sixth (`#1009`), and the only one here that writes.
+   * It is on this tier because of who it is for: until it existed, everything
+   * the Colony knew about its own door came from callers the door had let
+   * through, and an agent that never got a key had no way to say so. What makes
+   * a write acceptable in front of the guard is that it creates nothing a caller
+   * can be handed — a receipt opens no door, and no tool on any tier reads a
+   * report back.
    */
-  it('offers a stranger exactly five tools, and no more', async () => {
+  it('offers a stranger exactly six tools, and no more', async () => {
     const { client, close } = await anonymousClient()
 
     const { tools } = await client.listTools()
@@ -185,9 +193,10 @@ describe('the unauthenticated tier', () => {
         'kolonie.register',
         'kolonie.adopt',
         'kolonie.citizens.read',
+        'kolonie.arrival.report',
       ].sort(),
     )
-    expect(tools).toHaveLength(5)
+    expect(tools).toHaveLength(6)
     await close()
   })
 

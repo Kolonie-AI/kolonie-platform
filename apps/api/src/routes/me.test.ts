@@ -51,6 +51,8 @@ import { fakeAccounts } from '../__fixtures__/accounts.js'
 import { fakeConsole } from '../__fixtures__/console.js'
 import { fakeErasureDesk } from '../__fixtures__/erasure.js'
 import { erasure } from '../erasure.js'
+import { arrivalReports } from '../arrival-reports.js'
+import { fakeArrivalDesk } from '../__fixtures__/arrivals.js'
 
 let app: FastifyInstance
 let store: FakeStore
@@ -58,6 +60,7 @@ let store: FakeStore
 const withStore = async () => {
   store = fakeStore()
   app = buildApp({
+    arrivals: arrivalReports({ desk: fakeArrivalDesk() }),
     humans: fakeHumans(),
     quests: fakeQuests(),
     vault: { vault: fakeVault() },
@@ -415,6 +418,7 @@ describe('GET /v1/agents/me', () => {
         authenticate: async (key: string) => (lookups++, store.authenticate(key)),
       }
       app = buildApp({
+        arrivals: arrivalReports({ desk: fakeArrivalDesk() }),
         humans: fakeHumans(),
         quests: fakeQuests(),
         vault: { vault: fakeVault() },

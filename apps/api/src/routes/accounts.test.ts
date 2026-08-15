@@ -58,6 +58,8 @@ import {
 } from '../__fixtures__/accounts.js'
 import { fakeWalks, type FakeWalkStore } from '../__fixtures__/account-walks.js'
 import { fakeProviderRecipes, type FakeProviderRecipes } from '../__fixtures__/provider-recipes.js'
+import { arrivalReports } from '../arrival-reports.js'
+import { fakeArrivalDesk } from '../__fixtures__/arrivals.js'
 
 let app: FastifyInstance
 let store: FakeStore
@@ -75,6 +77,7 @@ beforeEach(async () => {
   walks = fakeWalks()
   recipes = fakeProviderRecipes()
   app = buildApp({
+    arrivals: arrivalReports({ desk: fakeArrivalDesk() }),
     humans: fakeHumans(),
     vault: { vault: fakeVault() },
     accounts: fakeAccounts(register),

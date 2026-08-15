@@ -48,6 +48,8 @@ import { support } from '../support.js'
 
 import { isPublicPath, openApiPath, buildOpenApiDocument } from './document.js'
 import { CREDENTIAL_FREE, OPERATIONS, PRIVATE_PREFIXES } from './operations.js'
+import { arrivalReports } from '../arrival-reports.js'
+import { fakeArrivalDesk } from '../__fixtures__/arrivals.js'
 
 /**
  * `GET /openapi.json` (`#442`), driven through the real server rather than
@@ -72,6 +74,7 @@ describe('the OpenAPI document', () => {
 
   beforeEach(async () => {
     app = buildApp({
+      arrivals: arrivalReports({ desk: fakeArrivalDesk() }),
       humans: fakeHumans(),
       quests: fakeQuests(),
       vault: { vault: fakeVault() },
@@ -182,6 +185,14 @@ describe('the OpenAPI document', () => {
     const me = document.paths['/v1/agents/me']?.['get']
     expect(me?.security).toEqual([{ apiKey: [] }])
     expect(me?.responses['401']).toBeDefined()
+
+    // `#1009`, asserted rather than left to the default because here the
+    // default is not merely wrong: this route is the one channel for a caller
+    // that could not get a key, and a document promising it a 401 describes it
+    // as shut to exactly the agent it was built for.
+    const arrival = document.paths['/v1/arrival-reports']?.['post']
+    expect(arrival?.security).toEqual([])
+    expect(arrival?.responses['401']).toBeUndefined()
   })
 
   it('carries the request body schema the route already validates against', () => {

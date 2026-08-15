@@ -46,6 +46,8 @@ import { fakeAutonomy } from '../__fixtures__/autonomy.js'
 import { fakeOperatorClaim } from '../__fixtures__/operator-claim.js'
 import { operatorConfirmed } from '../operators.js'
 import { noObstruction } from '../__fixtures__/obstruction.js'
+import { arrivalReports } from '../arrival-reports.js'
+import { fakeArrivalDesk } from '../__fixtures__/arrivals.js'
 
 let app: FastifyInstance
 let store: FakeStore
@@ -57,6 +59,7 @@ beforeEach(async () => {
   store = fakeStore()
   challenges = fakeSocialChallenges()
   app = buildApp({
+    arrivals: arrivalReports({ desk: fakeArrivalDesk() }),
     humans: fakeHumans(),
     vault: { vault: fakeVault() },
     accounts: fakeAccounts(),

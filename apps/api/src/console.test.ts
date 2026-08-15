@@ -46,6 +46,8 @@ import { fakeWebsite } from './__fixtures__/website.js'
 import { erasure } from './erasure.js'
 import { support } from './support.js'
 import { signInAddressLimiter, signInClientLimiter, SIGN_IN_ADDRESS_LIMIT } from './rate-limit.js'
+import { arrivalReports } from './arrival-reports.js'
+import { fakeArrivalDesk } from './__fixtures__/arrivals.js'
 
 /**
  * Browser sign-in, from the API's side (`#172`).
@@ -65,6 +67,7 @@ describe('the console front door', () => {
     store = fakeStore()
 
     return buildApp({
+      arrivals: arrivalReports({ desk: fakeArrivalDesk() }),
       humans: fakeHumans(),
       registry: fakeRegistry(),
       store,

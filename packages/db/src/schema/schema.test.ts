@@ -276,6 +276,13 @@ describe('schema', () => {
         'agent_wakeup_state',
         'agents',
         /**
+         * `#1009`: what an agent that never got through the door says about it.
+         * The only table here a caller with no credential writes to, so it holds
+         * a registration fingerprint where the rest hold an agent — there is no
+         * citizen to point at, which is the condition it exists to record.
+         */
+        'arrival_reports',
+        /**
          * `#389`: the code a citizen has to render *inside* what it publishes,
          * which is what separates an artefact it made from a URL it found. Its
          * own table beside the two web rungs' because none of the three implies

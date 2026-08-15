@@ -61,6 +61,7 @@ import { registerWebsiteRoute } from './routes/website.js'
 import { registerWebServerRoute } from './routes/web-server.js'
 import { registerWakeRoute } from './routes/wake.js'
 import { registerSwarmRoute } from './routes/swarm.js'
+import { registerArrivalReportRoutes } from './routes/arrival-reports.js'
 import { registerReachabilityRoute } from './routes/reachability.js'
 import { registerImageRoute } from './routes/image.js'
 import { registerSceneRoute } from './routes/scene.js'
@@ -186,6 +187,7 @@ export function buildApp({
   walks,
   attestations,
   profileTier,
+  arrivals,
   rollup,
   throttles,
   doctor,
@@ -546,6 +548,7 @@ export function buildApp({
      * wants to reach the ceiling in three requests passes its own.
      */
     profileTier: profileTier ?? { limiter: profileTierLimiter() },
+    arrivals,
     image,
     scene,
     injection,
@@ -685,6 +688,7 @@ export function buildApp({
       registerWakeRoute(v1, routes)
       registerSwarmRoute(v1, routes)
       registerReachabilityRoute(v1, routes)
+      registerArrivalReportRoutes(v1, routes)
       registerImageRoute(v1, routes)
       registerSceneRoute(v1, routes)
       registerInjectionRoute(v1, routes)

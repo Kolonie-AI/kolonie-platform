@@ -45,6 +45,8 @@ import { fakeWakeup } from '../../__fixtures__/wakeup.js'
 import { buildApp } from '../../app.js'
 import { erasure } from '../../erasure.js'
 import { support } from '../../support.js'
+import { arrivalReports } from '../../arrival-reports.js'
+import { fakeArrivalDesk } from '../../__fixtures__/arrivals.js'
 
 type Client = Awaited<ReturnType<typeof anonymousClient>>['client']
 
@@ -448,6 +450,7 @@ describe('kolonie.register', () => {
     // but that they cannot disagree. One registry, two doors.
     const registry = fakeRegistry()
     const app = buildApp({
+      arrivals: arrivalReports({ desk: fakeArrivalDesk() }),
       humans: fakeHumans(),
       vault: { vault: fakeVault() },
       accounts: fakeAccounts(),

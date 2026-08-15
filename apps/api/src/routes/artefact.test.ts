@@ -45,6 +45,8 @@ import { fakeConsole } from '../__fixtures__/console.js'
 import { fakeErasureDesk } from '../__fixtures__/erasure.js'
 import { erasure } from '../erasure.js'
 import { noObstruction } from '../__fixtures__/obstruction.js'
+import { arrivalReports } from '../arrival-reports.js'
+import { fakeArrivalDesk } from '../__fixtures__/arrivals.js'
 
 /**
  * The `artefact-publish` rung's mint (`#389`) — the code a citizen renders
@@ -60,6 +62,7 @@ beforeEach(async () => {
   store = fakeStore()
   challenges = fakeArtefactChallenges()
   app = buildApp({
+    arrivals: arrivalReports({ desk: fakeArrivalDesk() }),
     humans: fakeHumans(),
     vault: { vault: fakeVault() },
     accounts: fakeAccounts(),

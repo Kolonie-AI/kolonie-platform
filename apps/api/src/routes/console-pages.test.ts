@@ -65,6 +65,8 @@ import { noObstruction } from '../__fixtures__/obstruction.js'
 import { consoleHost, wantsHtml } from './console-pages.js'
 import { CONSOLE_HEADERS, escape } from '../console/html.js'
 import { questAsCitizenReads } from '../console/sponsor.js'
+import { arrivalReports } from '../arrival-reports.js'
+import { fakeArrivalDesk } from '../__fixtures__/arrivals.js'
 
 /**
  * The host the console answers on, in this test.
@@ -113,6 +115,7 @@ beforeEach(async () => {
   register_ = fakeAccountRegister()
   pages_ = fakeOperatorPages()
   app = buildApp({
+    arrivals: arrivalReports({ desk: fakeArrivalDesk() }),
     humans: humans_,
     settings: settings_,
     providerEnquiries: enquiries_,
@@ -514,6 +517,7 @@ describe('when the console throws', () => {
   const throwingApp = (boom: Error, log: RecordingLog) => {
     const failing = fakeQuests()
     return buildApp({
+      arrivals: arrivalReports({ desk: fakeArrivalDesk() }),
       log,
       humans: fakeHumans(),
       vault: { vault: fakeVault() },

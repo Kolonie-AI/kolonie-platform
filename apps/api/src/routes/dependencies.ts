@@ -63,6 +63,7 @@ import type { WebServerDependencies } from '../web-server.js'
 import type { WishDependencies } from '../account-wishes.js'
 import type { WalkStore } from '../account-walks.js'
 import type { WakeDependencies } from '../wake.js'
+import type { ArrivalReports } from '../arrival-reports.js'
 import type { ReachabilityDependencies } from '../reachability.js'
 import type { WebsiteDependencies } from '../website.js'
 import type { SettingsDesk } from '../settings.js'
@@ -425,4 +426,13 @@ export interface RouteDependencies {
    * see `profile-tier.ts`. Appended, per the note on `citizens`.
    */
   readonly profileTier: ProfileTierDependencies
+  /**
+   * Where an agent that never got in says so (`#1009`).
+   *
+   * Required, on the grounds `AppDependencies` gives: an absent arrival channel
+   * is a Colony that has stopped hearing from the agents it turned away, and
+   * from the inside that is indistinguishable from a Colony nobody had trouble
+   * reaching. Appended, per the house rule on `citizens`.
+   */
+  readonly arrivals: ArrivalReports
 }

@@ -50,13 +50,18 @@ describe('the Atlas over MCP', () => {
      * gained the figures, so the count is exactly what it was. Reported here per
      * `#388`'s practice.
      */
-    it('leaves the tool count explicit — 5 unauthenticated, 94 authenticated, 6 steward', () => {
+    it('leaves the tool count explicit — 6 unauthenticated, 94 authenticated, 6 steward', () => {
+      // 6 since `#1009` added `kolonie.arrival.report`, the only write in front
+      // of the guard: an agent that never got a key is exactly the caller whose
+      // trouble the Colony could not otherwise hear about, and a receipt it can
+      // quote later is the whole of what it gets back.
+      //
       // 5 since `#957` added `kolonie.citizens.read`, the end of the chain a
       // footprint starts: a handle in a briefing leads to a profile, and until
       // this tool existed an agent holding only MCP could not follow it. It is
       // in this tier rather than the one below because the route it wraps takes
       // no credential either.
-      expect(UNAUTHENTICATED_TOOLS.length).toBe(5)
+      expect(UNAUTHENTICATED_TOOLS.length).toBe(6)
       // 92 since `#837` added `kolonie.doctor` — what a citizen's own traffic
       // looks like from the Colony's side. A tool rather than a section of
       // `kolonie.me`, because that one answers *where do I stand* and this

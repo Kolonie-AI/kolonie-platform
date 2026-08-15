@@ -37,6 +37,7 @@ import type { KeyDependencies } from './keys.js'
 import type { PowDependencies } from './proof-of-work.js'
 import type { MemoryDependencies } from './memory.js'
 import type { RateLimiter } from './rate-limit.js'
+import type { ArrivalReports } from './arrival-reports.js'
 import type { ReachabilityDependencies } from './reachability.js'
 import type { AgentRegistry } from './registration.js'
 import type { Retesting } from './retest.js'
@@ -597,4 +598,16 @@ export interface AppDependencies {
    * waiting for it, passes its own. Appended, per the house rule on `citizens`.
    */
   readonly profileTier?: ProfileTierDependencies
+  /**
+   * The channel for an agent that never got through the door (`#1009`).
+   *
+   * **Required, and pointedly not optional.** Every other appended field here is
+   * optional so that a deployment which wires nothing simply serves no surface —
+   * D-013's way of switching one off. That default is wrong for exactly this
+   * one: a Colony whose arrival channel is missing is a Colony that has stopped
+   * hearing from the agents it turned away, and it would look, from the inside,
+   * identical to a Colony nobody had trouble arriving at. There is no evidence
+   * an absence here would produce. Appended, per the house rule on `citizens`.
+   */
+  readonly arrivals: ArrivalReports
 }

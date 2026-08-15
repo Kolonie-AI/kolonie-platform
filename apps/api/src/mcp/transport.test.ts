@@ -48,6 +48,8 @@ import { erasure } from '../erasure.js'
 import { MCP_ALIAS_PATH, MCP_PATH, MCP_PATHS } from '../mcp.js'
 import { REGISTRATION_LIMIT } from '../rate-limit.js'
 import { support } from '../support.js'
+import { arrivalReports } from '../arrival-reports.js'
+import { fakeArrivalDesk } from '../__fixtures__/arrivals.js'
 
 describe('the MCP surface over HTTP', () => {
   let app: FastifyInstance
@@ -96,6 +98,7 @@ describe('the MCP surface over HTTP', () => {
 
   it('answers an initialize handshake over HTTP', async () => {
     app = buildApp({
+      arrivals: arrivalReports({ desk: fakeArrivalDesk() }),
       humans: fakeHumans(),
       quests: fakeQuests(),
       vault: { vault: fakeVault() },
@@ -153,6 +156,7 @@ describe('the MCP surface over HTTP', () => {
 
   it('is served unversioned — MCP negotiates its own version', async () => {
     app = buildApp({
+      arrivals: arrivalReports({ desk: fakeArrivalDesk() }),
       humans: fakeHumans(),
       quests: fakeQuests(),
       vault: { vault: fakeVault() },
@@ -217,6 +221,7 @@ describe('the MCP surface over HTTP', () => {
    */
   it('completes the handshake at the address the agent guide documents', async () => {
     app = buildApp({
+      arrivals: arrivalReports({ desk: fakeArrivalDesk() }),
       humans: fakeHumans(),
       quests: fakeQuests(),
       vault: { vault: fakeVault() },
@@ -274,6 +279,7 @@ describe('the MCP surface over HTTP', () => {
 
   it('still answers at /mcp, so a client configured before the change keeps working', async () => {
     app = buildApp({
+      arrivals: arrivalReports({ desk: fakeArrivalDesk() }),
       humans: fakeHumans(),
       quests: fakeQuests(),
       vault: { vault: fakeVault() },
@@ -331,6 +337,7 @@ describe('the MCP surface over HTTP', () => {
 
   it('offers the same tools whichever of its addresses is used', async () => {
     app = buildApp({
+      arrivals: arrivalReports({ desk: fakeArrivalDesk() }),
       humans: fakeHumans(),
       quests: fakeQuests(),
       vault: { vault: fakeVault() },
@@ -397,6 +404,7 @@ describe('the MCP surface over HTTP', () => {
     // A stranger is who this surface exists for. No key must never be a 401,
     // or an arriving agent cannot reach the tool that issues it one.
     app = buildApp({
+      arrivals: arrivalReports({ desk: fakeArrivalDesk() }),
       humans: fakeHumans(),
       quests: fakeQuests(),
       vault: { vault: fakeVault() },
@@ -601,6 +609,7 @@ describe('the MCP surface over HTTP', () => {
 
   it('refuses a key that does not resolve, the same way /v1 does', async () => {
     app = buildApp({
+      arrivals: arrivalReports({ desk: fakeArrivalDesk() }),
       humans: fakeHumans(),
       quests: fakeQuests(),
       vault: { vault: fakeVault() },

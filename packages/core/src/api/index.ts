@@ -1,6 +1,7 @@
 export * from './version.js'
 export * from './academy.js'
 export * from './agents.js'
+export * from './arrival-reports.js'
 export * from './registration-confirmation.js'
 export * from './skills.js'
 export * from './tasks.js'

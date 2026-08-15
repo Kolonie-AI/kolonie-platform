@@ -11,10 +11,12 @@ import {
   taskAttempts,
   taskHints,
   taskLandscapeNotes,
+  taskSetAsides,
   tasks,
 } from '../schema/index.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
 import {
+  accountFrontier,
   frontier,
   instructionsByTaskType,
   listTasks,
@@ -763,6 +765,106 @@ describe('listTasks', () => {
       await seed({ title: 'Open now' })
 
       expect((await frontier(db, { agentId })).entries).toEqual([])
+    })
+  })
+
+  /**
+   * The same question asked of the register rather than of the skill graph
+   * (`#1038`): which kinds of account would bring work within reach.
+   */
+  describe('the account frontier', () => {
+    /** One account in the register, in whatever state the case is about. */
+    const anAccount = async (
+      kind: string,
+      state: { proved?: boolean; forWork?: boolean; status?: 'in-use' | 'retired' | 'lost' } = {},
+    ): Promise<void> => {
+      const proved = state.proved ?? true
+      await db.insert(accounts).values({
+        agentId,
+        kind,
+        identifier: `${kind}-${crypto.randomUUID()}`,
+        proved,
+        ...(proved ? { provedAt: new Date().toISOString() } : {}),
+        capabilities: proved ? ['control'] : [],
+        forWork: state.forWork ?? true,
+        status: state.status ?? ('in-use' as const),
+        provenance: 'self-acquired' as const,
+      })
+    }
+
+    it('names the kinds that open the most work first, each with its count', async () => {
+      await seed(
+        { title: 'Mail one', accountKinds: ['mailbox'] },
+        { title: 'Mail two', accountKinds: ['mailbox'] },
+        { title: 'A domain', accountKinds: ['domain'] },
+      )
+
+      expect(await accountFrontier(db, { agentId })).toEqual([
+        { kind: 'mailbox', unlocks: 2 },
+        { kind: 'domain', unlocks: 1 },
+      ])
+    })
+
+    it('answers with nothing at all when every gating kind is held', async () => {
+      await seed({ title: 'Mail', accountKinds: ['mailbox'] }, { title: 'Names nothing' })
+      await anAccount('mailbox')
+
+      expect(await accountFrontier(db, { agentId })).toEqual([])
+    })
+
+    it('leaves out a kind that gates no open work, though the citizen lacks it', async () => {
+      /**
+       * The rejection case, and the whole reason the count is taken over
+       * {@link claimableNow} rather than over the catalogue. A retired task and
+       * an expired quest are both work nobody can start, so an account bought on
+       * the strength of them would open nothing — and `trello` here is a kind the
+       * citizen genuinely does not hold.
+       */
+      await seed(
+        { title: 'Retired', accountKinds: ['trello'], status: 'retired' },
+        { title: 'Expired', accountKinds: ['phone'] },
+        { title: 'Open', accountKinds: ['mailbox'] },
+      )
+      await db.execute(
+        sql`update ${tasks} set expires_at = now() - interval '1 day' where title = 'Expired'`,
+      )
+
+      expect(await accountFrontier(db, { agentId })).toEqual([{ kind: 'mailbox', unlocks: 1 }])
+    })
+
+    it('counts a task missing two kinds for neither of them', async () => {
+      // One kind, following the skill frontier exactly: holding `mailbox` alone
+      // would not bring this row within reach, and a count that said otherwise
+      // would be wrong in the one direction a planning call cannot afford.
+      await seed({ title: 'Both kinds', accountKinds: ['mailbox', 'github'] })
+
+      expect(await accountFrontier(db, { agentId })).toEqual([])
+    })
+
+    it('proposes a kind the citizen took out of matching, or retired', async () => {
+      // *Held* is the register's own reading — proved, for work, in use — and an
+      // account withdrawn from matching is one the citizen said not to count.
+      await seed({ title: 'Needs trello', accountKinds: ['trello'] })
+      await anAccount('trello', { forWork: false })
+      await anAccount('trello', { status: 'retired' })
+      await anAccount('trello', { proved: false })
+
+      expect(await accountFrontier(db, { agentId })).toEqual([{ kind: 'trello', unlocks: 1 }])
+
+      // And one that is all three settles it, because the others were withdrawn.
+      await anAccount('trello')
+      expect(await accountFrontier(db, { agentId })).toEqual([])
+    })
+
+    it('leaves out work the listing would not show, so the count is not a promise', async () => {
+      // A task this citizen has put down is not an answer to *what can I start
+      // now*, so an account bought for it opens nothing the listing will show.
+      await seed({ title: 'Needs a domain', accountKinds: ['domain'] })
+      const [row] = await db.select({ id: tasks.id }).from(tasks).limit(1)
+      if (row === undefined) throw new Error('seeding a task returned no row')
+      await db.insert(taskSetAsides).values({ agentId, taskId: row.id, reason: 'not-now' as const })
+
+      expect(await accountFrontier(db, { agentId })).toEqual([])
     })
   })
 

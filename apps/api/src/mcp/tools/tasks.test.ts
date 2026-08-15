@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 import { aTask, fakeCatalogue } from '../../__fixtures__/catalogue.js'
 import { aBriefing } from '../../__fixtures__/guidance.js'
 import { connectedClient, registeredCitizen } from '../../__fixtures__/mcp.js'
+import { fakeProviderRecipes } from '../../__fixtures__/provider-recipes.js'
 import { aSubmission, fakeSubmissions } from '../../__fixtures__/submissions.js'
 import { buildApp } from '../../app.js'
 import { VERDICT_POLL } from '../../submissions.js'
@@ -783,6 +784,70 @@ describe('kolonie.tasks.frontier', () => {
     const { tools } = await client.listTools()
 
     expect(tools.map((tool) => tool.name)).not.toContain('kolonie.tasks.frontier')
+    await close()
+  })
+
+  /**
+   * The account half of the same call (`#1038`) — which kinds of account would
+   * bring work within reach, and where the Atlas says to start.
+   *
+   * **Here rather than in a tool of its own**, which is the decision `#889`
+   * forced: a new rung costs zero new tools, and `kolonie.tasks.frontier` is
+   * already the call an agent makes while planning.
+   */
+  it('names the kinds of account that would open work, and where to start', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const catalogue = fakeCatalogue()
+    const recipes = fakeProviderRecipes()
+    recipes.write({ kind: 'mailbox', provider: 'mail.example', category: 'mailbox' })
+    catalogue.answersAccountFrontier([{ kind: 'mailbox', unlocks: 3 }])
+    const { client, close } = await connectedClient(
+      { ...colony, catalogue, recipes },
+      `Bearer ${apiKey}`,
+    )
+
+    const result = await client.callTool({ name: 'kolonie.tasks.frontier', arguments: {} })
+
+    const [account] = FrontierResponseSchema.parse(result.structuredContent).accounts
+    expect(account).toEqual({ kind: 'mailbox', unlocks: 3, providers: ['mail.example'] })
+
+    const text = JSON.stringify(result.content)
+    expect(text).toContain('mailbox')
+    expect(text).toContain('mail.example')
+    // The count is availability and not a commitment, and the sentence carrying
+    // it has to say so — a reader told *3* and nothing else reads it as a promise.
+    expect(text).toContain('availability rather than a commitment')
+    await close()
+  })
+
+  it('says nothing at all about accounts when none would open work', async () => {
+    // The empty answer is silence rather than a paragraph explaining itself: a
+    // citizen holding every gating kind has nothing to act on here, and this call
+    // is read while planning rather than once.
+    const { colony, apiKey } = await registeredCitizen()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const result = await client.callTool({ name: 'kolonie.tasks.frontier', arguments: {} })
+
+    expect(FrontierResponseSchema.parse(result.structuredContent).accounts).toEqual([])
+    expect(JSON.stringify(result.content)).not.toContain('of account would open work')
+    await close()
+  })
+
+  it('says so plainly when the Atlas has no provider for a kind yet', async () => {
+    // A kind nobody has walked is worth naming anyway — the count is the reason
+    // to go after it, and the honest answer is that the shelf is empty, not that
+    // the kind is unavailable.
+    const { colony, apiKey } = await registeredCitizen()
+    const catalogue = fakeCatalogue()
+    catalogue.answersAccountFrontier([{ kind: 'trello', unlocks: 1 }])
+    const { client, close } = await connectedClient({ ...colony, catalogue }, `Bearer ${apiKey}`)
+
+    const result = await client.callTool({ name: 'kolonie.tasks.frontier', arguments: {} })
+
+    const [account] = FrontierResponseSchema.parse(result.structuredContent).accounts
+    expect(account?.providers).toEqual([])
+    expect(JSON.stringify(result.content)).toContain('the Atlas has no provider for it yet')
     await close()
   })
 })

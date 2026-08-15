@@ -401,15 +401,143 @@ const passedBy = (agentId: AgentId): SQL =>
 const equippedBy = (agentId: AgentId): SQL =>
   sql`not exists (
     select 1 from unnest(${tasks.accountKinds}) as required(kind)
-    where not exists (
-      select 1 from ${accounts}
-      where ${accounts.agentId} = ${agentId}
-        and ${accounts.kind} = required.kind
-        and ${accounts.proved}
-        and ${accounts.forWork}
-        and ${accounts.status} = 'in-use'
-    )
+    where not ${holdsAccountKind(agentId, sql`required.kind`)}
   )`
+
+/**
+ * Whether this agent holds an account of one kind, in the register's own reading.
+ *
+ * **The three conditions written once** (`#1038`). {@link equippedBy} asks it of
+ * every kind a task names and {@link accountFrontier} asks it of one kind at a
+ * time; a second copy of *proved, `for_work`, `in-use`* would be a second answer
+ * to *does this citizen hold one*, and the frontier's whole promise is that the
+ * kinds it proposes are the ones the listing counts as missing.
+ *
+ * The kind is an expression rather than a value because both callers name a
+ * column of a `lateral unnest` rather than a string they have in hand.
+ */
+const holdsAccountKind = (agentId: AgentId, kind: SQL): SQL =>
+  sql`exists (
+    select 1 from ${accounts}
+    where ${accounts.agentId} = ${agentId}
+      and ${accounts.kind} = ${kind}
+      and ${accounts.proved}
+      and ${accounts.forWork}
+      and ${accounts.status} = 'in-use'
+  )`
+
+/**
+ * The conditions that turn the whole catalogue into *what can be claimed now*.
+ *
+ * **One expression of *open*, read by two calls** (`#1038`). {@link listTasks}
+ * applies these under `availableOnly`, and {@link accountFrontier} counts the
+ * rows an account would bring within reach — a count taken over anything wider
+ * would promise work the listing then refuses to show, which is the disagreement
+ * {@link equippedBy} was moved into SQL to prevent.
+ *
+ * **The status filter and {@link attemptableBy} are not here**, and that is the
+ * seam: both callers apply them, `listTasks` picks its statuses from the flag,
+ * and folding them in would make this function two decisions instead of one.
+ */
+const claimableNow = (agentId: AgentId): SQL[] => [
+  // `availableOnly` already means *only what can be claimed now*, and a task
+  // this agent has passed cannot be — so it goes, on the same switch rather
+  // than on a new one. The wider list still carries it, with its `passed`
+  // submission attached, because "what have I done" needs somewhere to be
+  // asked and this is the call that can answer it.
+  /**
+   * A task the agent has passed is not startable — **unless the skill it
+   * granted has fallen due for renewal** (#145), in which case it is startable
+   * again and the whole point is that the citizen finds it here.
+   *
+   * Nothing was taken away to make that true: the skill is still held, the
+   * reward is still booked, and what changed is a timestamp getting older.
+   */
+  sql`(not ${passedBy(agentId)} or ${dueForRenewal(agentId)})`,
+  /**
+   * An expired task cannot be claimed, so it does not belong in the list whose
+   * only question is what can be claimed now (`#175`).
+   *
+   * It stays in the wider list and stays readable by id, exactly as a retired
+   * task does and for the same reason: a citizen holding a submission against
+   * it has to be able to resolve what it submitted to.
+   */
+  notExpired(),
+  /**
+   * A quest with no places left (`#618`).
+   *
+   * **Here and not in {@link attemptableBy}, and the distinction is the whole
+   * issue.** That predicate answers *do you qualify*, it deliberately does not
+   * read `slots`, and `#175`'s reasoning for that stands: a citizen excluded
+   * by it has been told something about itself, and telling a citizen it does
+   * not qualify when it merely arrived late is the refusal that loses citizens
+   * permanently. This condition says nothing about the citizen. It says the
+   * list promised *what you may take right now* and a quest with nowhere to
+   * stand cannot be taken right now — measured on 2026-08-09, when the list
+   * returned a quest whose only place had been filled two days earlier and had
+   * five more days to run.
+   *
+   * **`createSubmission`'s `task-full` refusal stays**, for the reason the
+   * audience floor keeps both halves: a quest that fills between the listing
+   * and the hand-in must still be refused by the writer. Two predicates, one
+   * rule, two moments.
+   *
+   * **A citizen holding a live attempt keeps the row.** Its own claim is what
+   * consumed the last place, so without {@link attemptOpenBy} the quest would
+   * disappear from the list of exactly the citizen that is working it — the
+   * burnt work this change exists to prevent, arriving through a third door.
+   *
+   * Only *no places left* is excluded. A quest about to expire is takeable, a
+   * quest with one place and no takers is takeable, and a quest with unlimited
+   * places has `slots is null` and is never full.
+   */
+  sql`(not ${isFull()} or ${attemptOpenBy(agentId)})`,
+  /**
+   * A task this citizen has put down (#234).
+   *
+   * **On `availableOnly` and not on both lists**, following `passedBy`
+   * exactly: the narrow list answers *what can I start now*, and a task the
+   * citizen has said it cannot start is not an answer to that. The wider list
+   * still carries it, because *what have I put down and why* has to be
+   * askable — {@link listSetAsides} is the direct way and this is the one that
+   * survives a citizen paging through everything.
+   *
+   * **This citizen's rows and no others.** The predicate is correlated on
+   * `agentId`, so nobody else's listing moves. Whether one agent set a task
+   * aside is not evidence about the task and never reaches another reader.
+   */
+  sql`not ${setAsideBy(agentId, sql`${tasks.id}`)}`,
+  /**
+   * A quest narrowed to citizens who have been here recently (`#227`).
+   *
+   * **On `availableOnly`, following `passedBy` and the set-asides exactly.** A
+   * quest this citizen is outside the window for is not an answer to *what can
+   * I start now*; the wider list still carries it, so nothing becomes
+   * unresolvable and no submission of the citizen's stops making sense.
+   *
+   * **It is not a refusal and nothing tells the citizen it was applied.** A
+   * quest requiring a skill it does not hold is absent from this list in
+   * exactly the same way, and `#227` is explicit that this feature makes
+   * activity legible without acting on it: no notification, no warning, no
+   * mark. `createSubmission` correspondingly has no activity refusal — a
+   * citizen submitting is here by definition, and refusing it for a window it
+   * is inside at that moment would be the Colony arguing with its own clock.
+   */
+  seenBeforeThisRun(agentId),
+  /**
+   * A quest this citizen wrote (`#337`).
+   *
+   * **On `availableOnly`, following the set-asides exactly**, and for a
+   * stronger reason than any of them: the others are about a task the citizen
+   * *may* start and has chosen not to, while this is one it can never start at
+   * all. `createSubmission` refuses it with `own-quest`, and this is the same
+   * predicate one moment earlier so that the advertisement and the refusal
+   * cannot disagree — which is exactly how the defect arrived. The wider list
+   * still carries it: a sponsor reading everything must be able to find its
+   * own quest, and `quests.list` is where it is supposed to look.
+   */
+  notAuthoredBy(agentId),
+]
 
 /**
  * The list an agent walks, one page at a time.
@@ -457,104 +585,8 @@ export async function listTasks(db: Database, query: ListTasksQuery): Promise<Li
     attemptableBy(query.agentId),
   ]
 
-  // `availableOnly` already means *only what can be claimed now*, and a task
-  // this agent has passed cannot be — so it goes, on the same switch rather
-  // than on a new one. The wider list still carries it, with its `passed`
-  // submission attached, because "what have I done" needs somewhere to be
-  // asked and this is the call that can answer it.
-  /**
-   * A task the agent has passed is not startable — **unless the skill it
-   * granted has fallen due for renewal** (#145), in which case it is startable
-   * again and the whole point is that the citizen finds it here.
-   *
-   * Nothing was taken away to make that true: the skill is still held, the
-   * reward is still booked, and what changed is a timestamp getting older.
-   */
   if (query.availableOnly) {
-    conditions.push(sql`(not ${passedBy(query.agentId)} or ${dueForRenewal(query.agentId)})`)
-    /**
-     * An expired task cannot be claimed, so it does not belong in the list whose
-     * only question is what can be claimed now (`#175`).
-     *
-     * It stays in the wider list and stays readable by id, exactly as a retired
-     * task does and for the same reason: a citizen holding a submission against
-     * it has to be able to resolve what it submitted to.
-     */
-    conditions.push(notExpired())
-    /**
-     * A quest with no places left (`#618`).
-     *
-     * **Here and not in {@link attemptableBy}, and the distinction is the whole
-     * issue.** That predicate answers *do you qualify*, it deliberately does not
-     * read `slots`, and `#175`'s reasoning for that stands: a citizen excluded
-     * by it has been told something about itself, and telling a citizen it does
-     * not qualify when it merely arrived late is the refusal that loses citizens
-     * permanently. This condition says nothing about the citizen. It says the
-     * list promised *what you may take right now* and a quest with nowhere to
-     * stand cannot be taken right now — measured on 2026-08-09, when the list
-     * returned a quest whose only place had been filled two days earlier and had
-     * five more days to run.
-     *
-     * **`createSubmission`'s `task-full` refusal stays**, for the reason the
-     * audience floor keeps both halves: a quest that fills between the listing
-     * and the hand-in must still be refused by the writer. Two predicates, one
-     * rule, two moments.
-     *
-     * **A citizen holding a live attempt keeps the row.** Its own claim is what
-     * consumed the last place, so without {@link attemptOpenBy} the quest would
-     * disappear from the list of exactly the citizen that is working it — the
-     * burnt work this change exists to prevent, arriving through a third door.
-     *
-     * Only *no places left* is excluded. A quest about to expire is takeable, a
-     * quest with one place and no takers is takeable, and a quest with unlimited
-     * places has `slots is null` and is never full.
-     */
-    conditions.push(sql`(not ${isFull()} or ${attemptOpenBy(query.agentId)})`)
-    /**
-     * A task this citizen has put down (#234).
-     *
-     * **On `availableOnly` and not on both lists**, following `passedBy`
-     * exactly: the narrow list answers *what can I start now*, and a task the
-     * citizen has said it cannot start is not an answer to that. The wider list
-     * still carries it, because *what have I put down and why* has to be
-     * askable — {@link listSetAsides} is the direct way and this is the one that
-     * survives a citizen paging through everything.
-     *
-     * **This citizen's rows and no others.** The predicate is correlated on
-     * `agentId`, so nobody else's listing moves. Whether one agent set a task
-     * aside is not evidence about the task and never reaches another reader.
-     */
-    conditions.push(sql`not ${setAsideBy(query.agentId, sql`${tasks.id}`)}`)
-    /**
-     * A quest narrowed to citizens who have been here recently (`#227`).
-     *
-     * **On `availableOnly`, following `passedBy` and the set-asides exactly.** A
-     * quest this citizen is outside the window for is not an answer to *what can
-     * I start now*; the wider list still carries it, so nothing becomes
-     * unresolvable and no submission of the citizen's stops making sense.
-     *
-     * **It is not a refusal and nothing tells the citizen it was applied.** A
-     * quest requiring a skill it does not hold is absent from this list in
-     * exactly the same way, and `#227` is explicit that this feature makes
-     * activity legible without acting on it: no notification, no warning, no
-     * mark. `createSubmission` correspondingly has no activity refusal — a
-     * citizen submitting is here by definition, and refusing it for a window it
-     * is inside at that moment would be the Colony arguing with its own clock.
-     */
-    conditions.push(seenBeforeThisRun(query.agentId))
-    /**
-     * A quest this citizen wrote (`#337`).
-     *
-     * **On `availableOnly`, following the set-asides exactly**, and for a
-     * stronger reason than any of them: the others are about a task the citizen
-     * *may* start and has chosen not to, while this is one it can never start at
-     * all. `createSubmission` refuses it with `own-quest`, and this is the same
-     * predicate one moment earlier so that the advertisement and the refusal
-     * cannot disagree — which is exactly how the defect arrived. The wider list
-     * still carries it: a sponsor reading everything must be able to find its
-     * own quest, and `quests.list` is where it is supposed to look.
-     */
-    conditions.push(notAuthoredBy(query.agentId))
+    conditions.push(...claimableNow(query.agentId))
   }
 
   // Keyed on `created_at`, matching the digest's own `tasksAdded` read: *new*
@@ -1086,6 +1118,91 @@ export async function frontier(
       }
     }),
   }
+}
+
+/**
+ * The account kinds one task names that this agent does not hold, as an array.
+ *
+ * The account half of {@link missingSkillsSql}, and written the same way for the
+ * same reason: the register is read inside the statement that reads the tasks,
+ * so an account proved between assembling the caller and running the query
+ * cannot leave the answer describing a citizen that no longer exists.
+ */
+const missingAccountKindsSql = (agentId: AgentId): SQL =>
+  sql`array(
+    select need.kind from unnest(${tasks.accountKinds}) as need(kind)
+    where not ${holdsAccountKind(agentId, sql`need.kind`)}
+  )`
+
+/** One kind of account this agent does not hold, and how much holding it would open. */
+export interface AccountFrontierRow {
+  readonly kind: string
+  readonly unlocks: number
+}
+
+/**
+ * The account kinds that are one step out of reach, and how much work each opens.
+ *
+ * The same question {@link frontier} asks of skills, asked of the register
+ * (`#1038`). It is a **separate call and not a widening of {@link Frontier}**:
+ * the wake-up digest reads the skill frontier on every waking and has no use for
+ * this, so the account read is one the caller asks for rather than one it pays
+ * for by default.
+ *
+ * **What *unlocks* means, exactly.** `tasks.account_kinds` gates nothing — the
+ * skills decide who may attempt a task, and the kinds are resolved against the
+ * register and shown. What holding one changes is whether the row survives
+ * `tasks.list` with `equipped: true`, so the count is taken over precisely the
+ * rows that listing would show: {@link claimableNow} is applied unchanged, and a
+ * count taken over anything wider would advertise work the listing then refuses
+ * to show.
+ *
+ * **One kind, not two**, following the skill frontier's own rule. A task missing
+ * two kinds is counted for neither: holding one of them would not bring it
+ * within reach, and a count that promised otherwise would be wrong in the one
+ * direction a planning call cannot afford.
+ *
+ * **A kind that opens nothing is absent rather than zero.** The whole shelf is
+ * `kolonie.accounts.recipes`; a frontier is what is worth going after, and a row
+ * reading nought is an invitation to spend an afternoon on an account no open
+ * work names.
+ */
+export async function accountFrontier(
+  db: Database,
+  query: { readonly agentId: AgentId },
+): Promise<readonly AccountFrontierRow[]> {
+  const missing = missingAccountKindsSql(query.agentId)
+
+  /**
+   * The rows first, the counting second, and the nesting is not decoration.
+   *
+   * The missing kind is a subscript of a correlated subquery over
+   * `tasks.account_kinds`, and Postgres will not group on such an expression:
+   * grouping is matched syntactically, a sublink is not matched, and the column
+   * it reads is then ungrouped — `42803`, which is what the first version of
+   * this query got. Naming the kind in a derived table makes it an ordinary
+   * column by the time anything aggregates it.
+   */
+  const rows = await db.execute<{ kind: string; unlocks: number }>(sql`
+    select kind, count(*)::int as unlocks
+      from (
+        select (${missing})[1] as kind
+          from ${tasks}
+         where ${and(
+           inArray(tasks.status, [...VISIBLE_STATUSES.available]),
+           attemptableBy(query.agentId),
+           ...claimableNow(query.agentId),
+           sql`cardinality(${missing}) = 1`,
+         )}
+      ) reachable
+     group by kind
+     -- Most first, because the row is an answer to *where would I start*. Ties
+     -- break on the kind so the ordering is total: two kinds opening the same
+     -- amount of work must not swap places between two reads of the same state.
+     order by count(*) desc, kind asc
+  `)
+
+  return [...rows].map((row) => ({ kind: row.kind, unlocks: row.unlocks }))
 }
 
 /**

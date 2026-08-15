@@ -1,6 +1,11 @@
 import { randomUUID } from 'node:crypto'
 import { TaskSchema, type AgentId, type Task, type TaskId } from '@kolonie-ai/core'
-import type { AcademyGraphEntry, Frontier, ListTasksResult } from '@kolonie-ai/db'
+import type {
+  AcademyGraphEntry,
+  AccountFrontierRow,
+  Frontier,
+  ListTasksResult,
+} from '@kolonie-ai/db'
 import type { CatalogueQuery, TaskCatalogue } from '../tasks.js'
 
 /**
@@ -26,6 +31,14 @@ export interface FakeCatalogue extends TaskCatalogue {
   readonly frontierQueries: () => AgentId[]
   /** What the next frontier call answers with. */
   readonly answersFrontier: (result: Frontier) => void
+  /**
+   * What the next account frontier answers with (`#1038`).
+   *
+   * Defaults to nothing, which is what a citizen holding every gating kind sees
+   * — and what a test that never mentions accounts should get, so that the
+   * section stays absent unless a test put something there on purpose.
+   */
+  readonly answersAccountFrontier: (rows: readonly AccountFrontierRow[]) => void
   /** Every single-task read the route has sent, in order. */
   readonly reads: () => { taskId: TaskId; hints: boolean }[]
   /** The last one, which is what a single-call test is asking about. */
@@ -69,6 +82,7 @@ export function fakeCatalogue(): FakeCatalogue {
   const reads: { taskId: TaskId; hints: boolean }[] = []
   let answer: ListTasksResult = { outcome: 'listed', page: { items: [], nextCursor: null } }
   let frontierAnswer: Frontier = { skills: [], entries: [] }
+  let accountFrontierAnswer: readonly AccountFrontierRow[] = []
   let readAnswer: Task | undefined = undefined
   let graphAnswer: readonly AcademyGraphEntry[] = []
   let graphReads = 0
@@ -98,6 +112,10 @@ export function fakeCatalogue(): FakeCatalogue {
       frontierQueries.push(agentId)
       return frontierAnswer
     },
+    // Not recorded in `frontierQueries`: the two reads happen together, and a
+    // fixture counting both under one name would make a test asserting *the
+    // frontier was asked once* pass or fail on which of them it meant.
+    accountFrontier: async () => accountFrontierAnswer,
     read: async (query) => {
       reads.push({ taskId: query.taskId, hints: query.hints })
       return readAnswer
@@ -110,6 +128,9 @@ export function fakeCatalogue(): FakeCatalogue {
     frontierQueries: () => [...frontierQueries],
     answersFrontier: (result) => {
       frontierAnswer = result
+    },
+    answersAccountFrontier: (rows) => {
+      accountFrontierAnswer = rows
     },
     reads: () => [...reads],
     lastRead: () => reads.at(-1),

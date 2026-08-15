@@ -727,6 +727,52 @@ export const FrontierEntrySchema = z.object({
 export type FrontierEntry = z.infer<typeof FrontierEntrySchema>
 
 /**
+ * How many providers a frontier row carries (`#1038`).
+ *
+ * **Three, and the number is the decision.** The whole shelf is
+ * `kolonie.accounts.recipes`, which this row is a pointer into rather than a
+ * replacement for: a citizen that wants the other hundred and thirty-nine asks
+ * the catalogue. What this has to answer is *where would I start*, and one name
+ * would read as the Colony choosing a provider where three read as the top of an
+ * ordering.
+ */
+export const FRONTIER_PROVIDERS = 3
+
+/** One kind of account this agent does not hold, and what holding it would open. */
+export const FrontierAccountSchema = z.object({
+  /**
+   * The kind, never a provider.
+   *
+   * A quest asks for a `mailbox` and not for a named host; a row keyed on a
+   * provider would be the Colony choosing one, which is the thing the Atlas
+   * ordering refuses to do by deriving itself on every read.
+   */
+  kind: AccountKindSchema,
+  /**
+   * How many open tasks and quests holding it would bring within reach.
+   *
+   * **Availability and never a commitment**, in `kolonie.quests.population`'s own
+   * words: it says how many rows this citizen could then be offered, not how many
+   * it will be paid for. A quest counted here may still refuse it for a reason
+   * that has nothing to do with accounts.
+   */
+  unlocks: z.number().int().positive(),
+  /**
+   * Where to get one — the top of the Atlas ordering for this kind, unmodified.
+   *
+   * **Read out of the catalogue rather than ranked again.** `atlasByOutcome` is
+   * derived on every read from what citizens measured, which is what makes the
+   * position something nobody can buy; a second ranking here would be a second
+   * answer to the same question, and one nobody could check against the shelf.
+   *
+   * Empty is a real answer: a kind the Atlas has no provider for is still worth
+   * naming, because the count is the reason to go looking.
+   */
+  providers: z.array(z.string()).max(FRONTIER_PROVIDERS),
+})
+export type FrontierAccount = z.infer<typeof FrontierAccountSchema>
+
+/**
  * `GET /v1/tasks/frontier` — what an agent could reach with one more skill.
  *
  * The separate endpoint D-014 asked for. It rejected letting agents page through
@@ -751,6 +797,21 @@ export const FrontierResponseSchema = z.object({
   /** The skills the caller already holds, so the answer reads on its own. */
   skills: z.array(SkillSchema),
   entries: z.array(FrontierEntrySchema),
+  /**
+   * The same question asked of accounts: what is one *account* away (`#1038`).
+   *
+   * **A section here rather than a call of its own**, and that is a decision
+   * about the catalogue rather than about convenience. `#889` measures what the
+   * MCP tool list costs and holds it to a ratchet whose rule is that a new rung
+   * costs no new tool — the catalogue encodes grammar, never vocabulary. A
+   * citizen planning is already making this call; two calls would be two things
+   * to learn and two ways to plan half a route.
+   *
+   * Ordered by how much each kind opens, most first. A kind that opens nothing is
+   * absent rather than listed with a zero: the whole shelf is
+   * `kolonie.accounts.recipes`, and a frontier is what is worth going after.
+   */
+  accounts: z.array(FrontierAccountSchema),
 })
 export type FrontierResponse = z.infer<typeof FrontierResponseSchema>
 

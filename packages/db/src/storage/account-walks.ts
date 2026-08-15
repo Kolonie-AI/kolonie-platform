@@ -6,6 +6,7 @@ import {
   atlasCategoryForKind,
   publishWalls,
   RecipeActorSchema,
+  RecipeDirectionSchema,
   TERMS_FORBID_AGENTS_REFUSAL,
   WalkOutcomeSchema,
   wallsForbidWalking,
@@ -23,6 +24,7 @@ import {
   type AtlasCategory,
   type ProviderRecipe,
   type ProviderTerms,
+  type RecipeDirection,
   type SignupCost,
   type WalkOutcome,
   type WalkProse,
@@ -71,6 +73,7 @@ function toWalk(walk: WalkRow, steps: readonly StepRow[]): AccountWalk {
     takenStepPositions: walk.takenStepPositions,
     /** Parsed on the way out, like every other `jsonb` here: the column is not a shape. */
     recipe: walk.recipe === null ? null : WalkedRecipeSchema.parse(walk.recipe),
+    direction: walk.direction === null ? null : RecipeDirectionSchema.parse(walk.direction),
     steps: steps
       .map((step) => ({
         position: step.position,
@@ -630,6 +633,14 @@ export async function finishWalk(
     readonly takenStepPositions?: readonly number[] | null
     /** The walker's own long-form account of the path (`#769`), where it gave one. */
     readonly recipe?: WalkedRecipe | null
+    /**
+     * Which capability the walk measured (`#1023`), on a kind that has two.
+     *
+     * Required at the door for a directional kind and refused elsewhere — the
+     * refinement is one layer up, where `kind` is, exactly as
+     * `ProviderReportRequestSchema` does it. Absent here is the unscoped null.
+     */
+    readonly direction?: RecipeDirection | null
   },
 ): Promise<{ readonly walk: AccountWalk; readonly verdict: WalkVerdict } | undefined> {
   return db.transaction(async (tx) => {
@@ -646,6 +657,7 @@ export async function finishWalk(
         discarded: input.discarded ?? null,
         takenStepPositions: input.takenStepPositions == null ? null : [...input.takenStepPositions],
         recipe: input.recipe ?? null,
+        direction: input.direction ?? null,
         /**
          * **A walk that wrote something enters the queue as it closes** (`#810`).
          *
@@ -737,6 +749,17 @@ export async function finishWalk(
         title: entry?.title ?? walk.provider,
         category: shelf,
         status: 'draft',
+        /**
+         * **The entry is a verdict about whatever the walk measured** (`#1023`).
+         *
+         * A draft derived from a walk that says it went for `inbound` is an
+         * entry about inbound, and saying so is the whole of what the axis
+         * buys: it is what stops the next citizen sent to earn `phone` reading
+         * a sending refusal as *this provider is closed*. A walk with no
+         * direction writes `null`, which `directionAnswers` reads as covering
+         * both — the conservative reading, and never a guess.
+         */
+        direction: walk.direction,
         steps: verdict.steps,
         /**
          * **The walker's account travels with the entry it proposed** (`#769`).
@@ -780,6 +803,8 @@ export async function finishWalk(
         category: shelf,
         status: 'refused',
         refusal: verdict.wall,
+        /** The direction the draft branch carries, and for the same reason (`#1023`). */
+        direction: walk.direction,
         steps: [],
         /** A refusal's walls are the most useful account there is — see the draft above. */
         ...(walk.recipe === null ? {} : { walkedRecipe: walk.recipe }),

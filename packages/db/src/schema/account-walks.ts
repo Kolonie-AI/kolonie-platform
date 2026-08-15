@@ -12,9 +12,11 @@ import {
   uuid,
 } from 'drizzle-orm/pg-core'
 import {
+  DIRECTIONAL_KINDS,
   RECIPE_MAX_STEPS,
   RECIPE_STEP_MAX_LENGTH,
   RecipeActorSchema,
+  RecipeDirectionSchema,
   WALK_NOTE_MAX_LENGTH,
   WalkOutcomeSchema,
   type WalkProse,
@@ -29,6 +31,7 @@ import { moderationStatus } from './enums.js'
  */
 const WALK_OUTCOMES = WalkOutcomeSchema.options
 const WALK_ACTORS = RecipeActorSchema.options
+const RECIPE_DIRECTIONS = RecipeDirectionSchema.options
 
 /**
  * One agent obtaining one account, as a record (`#601`).
@@ -66,6 +69,22 @@ export const accountWalks = pgTable(
      */
     kind: text('kind').notNull(),
     provider: text('provider').notNull(),
+
+    /**
+     * Which of the kind's two capabilities this walk measured (`#1023`).
+     *
+     * **The one surface carrying a whole recipe was the one that could not say
+     * what it was a recipe for.** `provider_reports` has taken a direction since
+     * `#976` and so has the entry it feeds; a walk did not, so `agentphone.ai`
+     * was walked for a number that can *receive* and filed against a published
+     * refusal every clause of which is about registering to *send*. Both records
+     * were correct and `walk-status` could only call them a contradiction.
+     *
+     * Nullable, and the null is a state: nobody scoped this walk. Every row
+     * written before this column is one, and none of them is backfilled — see
+     * {@link AccountWalkSchema}.
+     */
+    direction: text('direction'),
 
     startedAt: timestamp('started_at', { withTimezone: true, mode: 'string' })
       .notNull()
@@ -234,6 +253,27 @@ export const accountWalks = pgTable(
       'account_walks_reward_follows_a_proposal',
       sql`(${table.rewardedAt} is null or ${table.proposedAt} is not null)
           and (${table.rewardToldAt} is null or ${table.rewardedAt} is not null)`,
+    ),
+
+    /**
+     * The direction vocabulary, and the kinds it may appear on (`#1023`).
+     *
+     * Both clauses and the same wording as `provider_recipes_direction_is_known`
+     * one table over, for the reason that constraint gives: a direction on a
+     * mailbox walk is not a smaller mistake than an invented word — it is a
+     * scope nothing reads, on a row a reader would then believe had been scoped.
+     * `DIRECTIONAL_KINDS` is `core`'s list, so a kind gaining an axis is a
+     * constraint swap here rather than a place to remember.
+     */
+    check(
+      'account_walks_direction_is_known',
+      sql`${table.direction} is null
+          or (${table.direction} in (${sql.raw(
+            RECIPE_DIRECTIONS.map((one) => `'${one}'`).join(', '),
+          )})
+              and ${table.kind} in (${sql.raw(
+                DIRECTIONAL_KINDS.map((one) => `'${one}'`).join(', '),
+              )}))`,
     ),
 
     check(

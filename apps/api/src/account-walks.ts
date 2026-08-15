@@ -1,6 +1,8 @@
 import {
   WalkNoteSchema,
+  RecipeDirectionSchema,
   SubmittedWalkedRecipeSchema,
+  directionAnswers,
   WalkOutcomeSchema,
   WalkTakenStepPositionsSchema,
   RECIPE_REFUSAL_MAX_LENGTH,
@@ -14,6 +16,7 @@ import {
   type ApiError,
   type ProviderRecipe,
   type ProviderTally,
+  type RecipeDirection,
   type WalkOutcome,
   type WalkVerdict,
   type WalkedRecipe,
@@ -72,6 +75,14 @@ export interface WalkStore {
     walkId: string,
     input: {
       readonly outcome: WalkOutcome
+      /**
+       * Which capability the walk measured (`#1023`), on a kind that has two.
+       *
+       * On the port for the reason `#982` put `recipe` here: the tool has been
+       * checking this since it existed, and a port that does not say so is one a
+       * fake can satisfy while dropping the field the whole axis rests on.
+       */
+      readonly direction?: RecipeDirection | null
       readonly wall?: string | null
       readonly note?: string | null
       /** The four questions (`#809`), each optional and each already checked. */
@@ -515,6 +526,34 @@ function walkFate(walk: AccountWalk, entry: ProviderRecipe | undefined): WalkFat
   }
 
   /**
+   * **Two correct records about two different capabilities are not a
+   * disagreement** (`#1023`).
+   *
+   * `#979` gave this read a subject of its own, so that a walk would stop being
+   * judged by a sentence whose subject is the entry. This is the half that
+   * needed a field before it could be written: where the entry is a verdict
+   * about the direction the walk did not go, there is nothing here to agree or
+   * disagree with. `agentphone.ai` was walked for a number that can *receive*
+   * and read back `contradicted` against a published refusal every clause of
+   * which is about registering to *send* — both records accurate, and the only
+   * comparison available between them wrong.
+   *
+   * It is `awaiting-steward` and not a fate of its own, because that is what has
+   * actually happened: what this walk found at its own direction is not
+   * published, and no new state is needed to say so.
+   */
+  if (entry !== undefined && !directionAnswers(entry.direction, walk.direction ?? undefined)) {
+    return {
+      fate: 'awaiting-steward',
+      why:
+        `You scoped this walk to ${walk.direction} and the entry is a verdict about ` +
+        `${entry.direction}. Those are two capabilities at one provider, not two answers to ` +
+        `one question — so nothing published here contradicts what you found, and what your ` +
+        `walk proposed for ${walk.direction} is waiting for a steward.`,
+    }
+  }
+
+  /**
    * **Only three of the seven statuses say anything a walk can agree with.**
    * `joinable`, `refused` and `retired` are the Colony's standing answer to *can
    * an agent get in here*. The other four are not a quieter version of that
@@ -781,6 +820,12 @@ export const WalkReportSchema = z
      * is the last moment the agent that knows what happened at it is still there.
      */
     recipe: SubmittedWalkedRecipeSchema.optional(),
+    /**
+     * Which capability this walk measured (`#976`). Optional here and required at
+     * the door for a directional kind — the refinement lives where `kind` is, one
+     * layer up, exactly as {@link ProviderReportRequestSchema} does it.
+     */
+    direction: RecipeDirectionSchema.optional(),
   })
   .strict()
   .refine((report) => report.outcome !== 'refused' || report.wall !== undefined, {

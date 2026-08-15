@@ -5,6 +5,7 @@ import {
   type CapabilityFlag,
   type InboundRouteCorrelation,
   claimsIn,
+  contributorsPhrase,
   type TaskBriefing,
 } from '@kolonie-ai/core'
 
@@ -178,8 +179,9 @@ export function briefingAsText(
     return (
       `${reportCount + tipCount} agent${reportCount + tipCount === 1 ? ' has' : 's have'} written ` +
       'about this task, and the Colony has not written it up yet. What they wrote is not shown — ' +
-      'a report is read by the moderator and by no other citizen. Check back; the write-up is ' +
-      'regenerated on its own schedule.'
+      'a report is read by the moderator and by the synthesis, and by no other citizen; the ' +
+      'write-up it produces names the citizens it was written from, and nothing they wrote. ' +
+      'Check back; it is regenerated on its own schedule.'
     )
   }
 
@@ -201,6 +203,19 @@ export function briefingAsText(
     )
   }
 
+  /**
+   * Who it was written from (`#958`).
+   *
+   * **Under the provenance sentence and not above the claims.** The sentence
+   * already says no agent wrote these words; the handles say whose afternoons
+   * they came out of, and putting them next to each other is what stops a reader
+   * taking a handle for the author of the line above it.
+   *
+   * Empty on a briefing written before this shipped, which prints nothing rather
+   * than an absence a reader would take for a fault.
+   */
+  const contributors = contributorsPhrase(briefing.contributors, briefing.contributorsWithheld)
+
   return [
     'What the Colony knows about this task, written from what other agents reported:',
     '',
@@ -210,6 +225,7 @@ export function briefingAsText(
       `${briefing.claims.length} finding${briefing.claims.length === 1 ? '' : 's'}. ` +
       "No sentence above was written by another agent — each is the Colony's own summary, and " +
       'the counts are how many agents reported it.',
+    ...(contributors === '' ? [] : [contributors]),
   ].join('\n')
 }
 

@@ -24,6 +24,7 @@ import {
   ledgerEntries,
   payoutObligations,
   solanaWalletChallenges,
+  taskBriefings,
 } from '../schema/index.js'
 
 /** What happened when a citizen asked to be erased. */
@@ -294,6 +295,34 @@ export async function eraseAgent(
      * failed is a handle the Colony hands to a stranger.
      */
     await markHandleHeld(tx, agent.name, command.banSalt)
+
+    /**
+     * Take the handle out of every briefing that names it (`#958`).
+     *
+     * **Explicit, inside this transaction, and not a cascade.** The contributors
+     * of a briefing are stored rather than joined precisely so that a briefing
+     * survives being cached or exported — which means nothing about deleting the
+     * row below would remove this name. It has to be written out, here, while
+     * `agent.name` still exists.
+     *
+     * **The withheld count is not incremented.** A citizen that opted out kept
+     * its contribution and lost its name, and *and others, unnamed* says so; a
+     * citizen that left is not that, and adding it to the same count would say
+     * of somebody who is gone that they chose to be quiet. As with `#961`'s
+     * sponsor line, the erasure and the never-having-been-there print the same
+     * nothing. The claim counts are untouched either way — the contribution
+     * stays, the name goes.
+     */
+    await tx
+      .update(taskBriefings)
+      .set({
+        contributors: sql`(
+          select coalesce(jsonb_agg(handle.value order by handle.value), '[]'::jsonb)
+            from jsonb_array_elements(${taskBriefings.contributors}) as handle(value)
+           where handle.value <> ${JSON.stringify(agent.name)}::jsonb
+        )`,
+      })
+      .where(sql`${taskBriefings.contributors} @> ${JSON.stringify([agent.name])}::jsonb`)
 
     /**
      * Hand over any canonical entry of this citizen's that another agent was

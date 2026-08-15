@@ -1,4 +1,5 @@
-import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, or, sql } from 'drizzle-orm'
+import { alias } from 'drizzle-orm/pg-core'
 import {
   CURRENT_CLAIM_ATTEMPTS,
   RECENT_REPORTS_IN_CONTEXT,
@@ -281,6 +282,47 @@ export async function staleBriefings(db: Database, limit: number): Promise<reado
  * reports it names, and it never is, because the counts come from the entries it
  * was written from.
  */
+/**
+ * Who a set of entries was written by, split by whether they may be named
+ * (`#958`).
+ *
+ * **Merged children count, exactly as they do in {@link reportPlatforms}.** A
+ * claim's report count includes the duplicates folded into its sources, so the
+ * citizens behind those duplicates contributed to the sentence a reader sees;
+ * naming only the survivors would credit whoever happened to file first.
+ *
+ * **The author is `coalesce(attempt, report)`**, which is this file's rule
+ * everywhere: a report filed against an attempt belongs to that attempt's agent,
+ * and one filed without an attempt carries its author itself.
+ *
+ * The split is `agents.attributed` and it is applied here rather than by the
+ * caller, so a handle a citizen declined is never in memory for a later line to
+ * print by accident — the same argument `#961` makes in `atlas-links.ts`.
+ */
+async function contributorsOf(
+  db: Database,
+  entryIds: readonly string[],
+): Promise<{ readonly named: readonly string[]; readonly withheld: number }> {
+  if (entryIds.length === 0) return { named: [], withheld: 0 }
+
+  const reported = alias(taskReports, 'reported')
+  const tried = alias(taskAttempts, 'tried')
+  const author = alias(agents, 'author')
+  const ids = [...entryIds]
+
+  const rows = await db
+    .selectDistinct({ name: author.name, attributed: author.attributed })
+    .from(reported)
+    .leftJoin(tried, eq(tried.id, reported.attemptId))
+    .innerJoin(author, eq(author.id, sql`coalesce(${tried.agentId}, ${reported.agentId})`))
+    .where(or(inArray(reported.id, ids), inArray(reported.duplicateOf, ids)))
+
+  return {
+    named: rows.filter((row) => row.attributed).map((row) => row.name),
+    withheld: rows.filter((row) => !row.attributed).length,
+  }
+}
+
 export async function writeBriefing(
   db: Database,
   input: {
@@ -318,19 +360,32 @@ export async function writeBriefing(
 
   const at = new Date().toISOString()
 
+  /**
+   * The contributors, resolved once at write time (`#958`).
+   *
+   * **Stored rather than joined on read**, which the issue decides for us: a
+   * read-time join would make erasure work by accident — the join breaks, the
+   * name vanishes — and it would stop working the first time a briefing is
+   * cached or exported. `eraseAgent` edits this array explicitly instead.
+   *
+   * Derived from the claims' own sources, so what is named is exactly what the
+   * briefing was written from and cannot drift from the counts beside it.
+   */
+  const sources = [...new Set(input.claims.flatMap((claim) => claim.sources))]
+  const contributors = await contributorsOf(db, sources)
+  const written = {
+    claims: [...input.claims],
+    contributors: [...contributors.named].sort((left, right) => left.localeCompare(right)),
+    contributorsWithheld: contributors.withheld,
+    model: input.model,
+    writtenAt: at,
+    dirty: false,
+  }
+
   await db
     .insert(taskBriefings)
-    .values({
-      taskId: input.taskId,
-      claims: [...input.claims],
-      model: input.model,
-      writtenAt: at,
-      dirty: false,
-    })
-    .onConflictDoUpdate({
-      target: taskBriefings.taskId,
-      set: { claims: [...input.claims], model: input.model, writtenAt: at, dirty: false },
-    })
+    .values({ taskId: input.taskId, ...written })
+    .onConflictDoUpdate({ target: taskBriefings.taskId, set: written })
 }
 
 /**
@@ -383,6 +438,8 @@ export async function readBriefing(
     .select({
       taskId: taskBriefings.taskId,
       claims: taskBriefings.claims,
+      contributors: taskBriefings.contributors,
+      contributorsWithheld: taskBriefings.contributorsWithheld,
       model: taskBriefings.model,
       writtenAt: taskBriefings.writtenAt,
       changeDetectedAt: taskBriefings.changeDetectedAt,
@@ -493,6 +550,14 @@ export async function readBriefing(
   return TaskBriefingSchema.parse({
     taskId: row.taskId,
     claims,
+    /**
+     * Served as stored (`#958`). The opt-out was applied when the briefing was
+     * written and an erasure edits the array in place, so there is nothing to
+     * filter here — and nothing that could resolve a handle a citizen has
+     * since withdrawn.
+     */
+    contributors: row.contributors,
+    contributorsWithheld: row.contributorsWithheld,
     model: row.model,
     writtenAt: toTimestamp(row.writtenAt),
   })

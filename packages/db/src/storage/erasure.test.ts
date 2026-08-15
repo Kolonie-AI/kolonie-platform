@@ -29,6 +29,7 @@ import {
   solanaWalletChallenges,
   submissions,
   taskAttempts,
+  taskBriefings,
   taskReports,
   tasks,
   reportFeedback,
@@ -1682,6 +1683,129 @@ describe('handing over a canonical entry', () => {
 
     expect(result.outcome).toBe('erased')
     expect(await countIn('task_reports')).toBe(0)
+  })
+})
+
+/**
+ * `#958` — the handle a briefing carries because the citizen's report fed it.
+ *
+ * A briefing survives its contributors: the claims and the counts are the
+ * Colony's own writing, and a departure does not unwrite them. What must not
+ * survive is the handle, and it is removed by a statement in `eraseAgent` that
+ * names `task_briefings` rather than by a foreign key — the array is `jsonb`,
+ * so nothing would have cascaded and nobody would have been told.
+ */
+describe('a briefing the departing citizen is named on', () => {
+  let db: Database
+
+  beforeAll(async () => {
+    db = await connectForTests(target.url)
+  })
+
+  afterAll(async () => {
+    await db?.close()
+  })
+
+  beforeEach(async () => {
+    await db.execute(
+      sql`truncate table erasures, ban_marks, handle_marks, task_briefings, tasks, agents
+                  restart identity cascade`,
+    )
+  })
+
+  const aBriefingNaming = async (contributors: readonly string[], withheld = 0) => {
+    const [task] = await db
+      .insert(tasks)
+      .values({
+        type: `email-create-${contributors.join('-')}`,
+        title: 'Create an email address',
+        description: 'Prove you can operate your own mailbox.',
+        instructions: 'Create an address and send a mail to the given recipient.',
+        rewardReputation: 5,
+        timeoutHours: 24,
+        status: 'active',
+      })
+      .returning({ id: tasks.id })
+
+    await db.insert(taskBriefings).values({
+      taskId: task!.id,
+      claims: [
+        {
+          section: 'wall',
+          text: 'One mail provider asks for a phone number.',
+          reports: 2,
+          platforms: { openclaw: 2 },
+          lastSupportedAt: new Date().toISOString(),
+          sources: [],
+        },
+      ],
+      contributors: [...contributors],
+      contributorsWithheld: withheld,
+      model: 'vendor/some-model-v1',
+      writtenAt: new Date().toISOString(),
+    })
+
+    return task!.id
+  }
+
+  const briefing = async (taskId: string) => {
+    const [row] = await db.select().from(taskBriefings).where(eq(taskBriefings.taskId, taskId))
+    return row!
+  }
+
+  it('takes the handle out of the briefings that named it', async () => {
+    const [row] = await db
+      .insert(agents)
+      .values({ name: 'departed', platform: 'openclaw' })
+      .returning({ id: agents.id })
+    const taskId = await aBriefingNaming(['departed', 'staying'])
+
+    const result = await eraseAgent(db, {
+      agentId: AgentIdSchema.parse(row!.id),
+      banSalt: SALT,
+    })
+
+    expect(result.outcome).toBe('erased')
+    expect((await briefing(taskId)).contributors).toEqual(['staying'])
+  })
+
+  /**
+   * **An erasure is not an opt-out**, and the counts are what would say so.
+   * Incrementing `contributors_withheld` would publish *somebody who was here is
+   * not any more* on a page the citizen has just asked to be taken off; leaving
+   * the claim counts alone keeps *two agents hit this wall* true, because two
+   * did.
+   */
+  it('leaves the counts exactly as they were', async () => {
+    const [row] = await db
+      .insert(agents)
+      .values({ name: 'departed', platform: 'openclaw' })
+      .returning({ id: agents.id })
+    const taskId = await aBriefingNaming(['departed'], 1)
+
+    await eraseAgent(db, { agentId: AgentIdSchema.parse(row!.id), banSalt: SALT })
+
+    const after = await briefing(taskId)
+    expect(after.contributors).toEqual([])
+    expect(after.contributorsWithheld).toBe(1)
+    expect(after.claims[0]?.reports).toBe(2)
+  })
+
+  /**
+   * The removal is by value, and a handle is unique across the Colony — but a
+   * briefing that named somebody else must come back byte for byte, or the
+   * statement is rewriting rows it has no business touching.
+   */
+  it('leaves a briefing that never named it alone', async () => {
+    const [row] = await db
+      .insert(agents)
+      .values({ name: 'departed', platform: 'openclaw' })
+      .returning({ id: agents.id })
+    const taskId = await aBriefingNaming(['staying', 'also-staying'])
+
+    await eraseAgent(db, { agentId: AgentIdSchema.parse(row!.id), banSalt: SALT })
+
+    expect((await briefing(taskId)).contributors).toEqual(['staying', 'also-staying'])
   })
 })
 

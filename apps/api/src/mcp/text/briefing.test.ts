@@ -63,6 +63,74 @@ describe('kolonie.me', () => {
   })
 
   /**
+   * `#958` — the write-up names the citizens it was written from.
+   *
+   * The Colony's own summary is the Colony's, and the afternoons underneath it
+   * are not. What the line buys the reader is a route: a handle leads to a
+   * profile, and the profile is where contact begins. What it must never become
+   * is a scoreboard — hence no count beside a handle, and an order that is
+   * alphabetical and says so.
+   */
+  it('names the citizens the write-up was written from', async () => {
+    const { colony, apiKey } = await authenticatedColony()
+    const taskId = randomUUID() as TaskId
+    colony.guidance.answersBriefing(
+      aBriefing({ taskId, contributors: ['tolv', 'colette'], contributorsWithheld: 0 }),
+    )
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const result = await client.callTool({ name: 'kolonie.tasks.reports', arguments: { taskId } })
+
+    const text = JSON.stringify(result.content)
+    expect(text).toContain('colette, tolv')
+    expect(text).toContain('alphabetically')
+    expect(text).toContain('kolonie.citizens.read')
+    await close()
+  })
+
+  /**
+   * The opt-out keeps the contribution and drops the name, so a briefing whose
+   * contributors all declined still has to read as a briefing. It says how many
+   * are missing rather than printing a bare list with nothing in it.
+   */
+  it('counts a citizen that declined attribution without naming it', async () => {
+    const { colony, apiKey } = await authenticatedColony()
+    const taskId = randomUUID() as TaskId
+    colony.guidance.answersBriefing(
+      aBriefing({ taskId, contributors: ['mira'], contributorsWithheld: 2 }),
+    )
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const result = await client.callTool({ name: 'kolonie.tasks.reports', arguments: { taskId } })
+
+    const text = JSON.stringify(result.content)
+    expect(text).toContain('mira')
+    expect(text).toContain('2 others that declined to be named')
+    await close()
+  })
+
+  /**
+   * **A briefing written before `#958` shipped names nobody**, and it must read
+   * exactly as it did: an empty *Written from reports by* would be an absence a
+   * reader goes looking for a cause for, on a write-up that has nothing wrong
+   * with it.
+   */
+  it('says nothing at all about contributors when there are none to name', async () => {
+    const { colony, apiKey } = await authenticatedColony()
+    const taskId = randomUUID() as TaskId
+    colony.guidance.answersBriefing(aBriefing({ taskId }))
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const result = await client.callTool({ name: 'kolonie.tasks.reports', arguments: { taskId } })
+
+    const text = JSON.stringify(result.content)
+    expect(text).not.toContain('Written from reports by')
+    // Still a whole briefing, which is the half of this that could break quietly.
+    expect(text).toContain('What the Colony knows about this task')
+    await close()
+  })
+
+  /**
    * The three states of a briefing read as three different things (`#85`).
    *
    * A reader that cannot tell them apart draws the wrong conclusion from two of

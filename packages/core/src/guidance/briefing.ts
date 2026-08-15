@@ -260,6 +260,17 @@ export function isCurrentClaim(
 export const TaskBriefingSchema = z.object({
   taskId: TaskIdSchema,
   claims: z.array(ServedBriefingClaimSchema),
+  /**
+   * The handles of the citizens this was written from (`#958`).
+   *
+   * Handles only — no count per citizen, no fragment of what any of them wrote.
+   * Defaulted rather than required because a briefing written before `#958`
+   * shipped names nobody, and that has to read as *nobody named* rather than as
+   * a parse failure that empties the whole write-up.
+   */
+  contributors: z.array(z.string().min(1)).default([]),
+  /** How many contributed and declined attribution (`#958`). Never who. */
+  contributorsWithheld: z.number().int().min(0).default(0),
   /** The model that wrote it, as configured then. Copied, never resolved later. */
   model: z.string().min(1),
   writtenAt: TimestampSchema,

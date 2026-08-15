@@ -510,6 +510,110 @@ describe('the Colony’s write-up of a task', () => {
     })
 
     /**
+     * `#958` — the citizens a briefing was written from, stored with it.
+     *
+     * **Stored and not joined**, which is the decision the issue makes: a
+     * read-time join would let erasure work by accident and stop working the
+     * first time a briefing was cached. So what is asserted here is that the
+     * write resolves them, and `erasure.test.ts` asserts that leaving removes
+     * one.
+     */
+    describe('the citizens it was written from', () => {
+      it('names the authors of the entries the claims were written from', async () => {
+        const first = await approvedReport('mira', CONTENT)
+        const second = await approvedReport('colette', 'A second and different wall here.')
+
+        await writeBriefing(db, {
+          taskId,
+          claims: [aClaim('One mail provider asks for a phone number.', [first, second])],
+          model: 'vendor/some-model-v1',
+        })
+
+        expect((await readBriefing(db, taskId))?.contributors).toEqual(['colette', 'mira'])
+      })
+
+      /** Alphabetical at rest as well as on the page: no order here is a ranking. */
+      it('stores them in alphabetical order', async () => {
+        const late = await approvedReport('zosia', CONTENT)
+        const early = await approvedReport('anders', 'A second and different wall here.')
+
+        await writeBriefing(db, {
+          taskId,
+          claims: [aClaim('A wall two agents hit.', [late, early])],
+          model: 'vendor/some-model-v1',
+        })
+
+        expect((await readBriefing(db, taskId))?.contributors).toEqual(['anders', 'zosia'])
+      })
+
+      /**
+       * A citizen whose report was merged into another's contributed to the
+       * count the reader sees, so it is named beside the citizen it was merged
+       * into. Crediting only whoever filed first would pay for being early.
+       */
+      it('names the citizen behind a report merged into a source', async () => {
+        const canonical = await approvedReport('first-to-file', CONTENT)
+        const second = await anAgent('said-it-too')
+        const restated = await filed_(second, 'The same wall, from a second agent.')
+        if (restated.outcome !== 'recorded') throw new Error(restated.outcome)
+        await recordModeration(db, {
+          id: restated.entry.id,
+          narrative: aNarrative('The same wall, from a second agent.'),
+          verdict: { decision: 'merge', duplicateOf: canonical },
+          model: 'vendor/some-model-v1',
+          stages: noStagesRun(),
+          confidentialSpans: [],
+        })
+
+        await writeBriefing(db, {
+          taskId,
+          claims: [aClaim('A wall two agents hit.', [canonical])],
+          model: 'vendor/some-model-v1',
+        })
+
+        expect((await readBriefing(db, taskId))?.contributors).toEqual([
+          'first-to-file',
+          'said-it-too',
+        ])
+      })
+
+      /**
+       * The opt-out is `agents.attributed` and it is applied by the write, so a
+       * handle a citizen declined is never stored for a later line to print by
+       * accident. The contribution stays and is counted; the name goes.
+       */
+      it('counts a citizen that declined attribution without storing its handle', async () => {
+        const named = await approvedReport('mira', CONTENT)
+        const quiet = await approvedReport('shy-one', 'A second and different wall here.')
+        await db.update(agents).set({ attributed: false }).where(eq(agents.name, 'shy-one'))
+
+        await writeBriefing(db, {
+          taskId,
+          claims: [aClaim('A wall two agents hit.', [named, quiet])],
+          model: 'vendor/some-model-v1',
+        })
+
+        const briefing = await readBriefing(db, taskId)
+        expect(briefing?.contributors).toEqual(['mira'])
+        expect(briefing?.contributorsWithheld).toBe(1)
+      })
+
+      /** A rewrite re-resolves them, so an opt-out takes effect at the next synthesis. */
+      it('re-resolves them on the next write', async () => {
+        const entry = await approvedReport('mira', CONTENT)
+        const claims = [aClaim('A wall one agent hit.', [entry])]
+        await writeBriefing(db, { taskId, claims, model: 'vendor/some-model-v1' })
+
+        await db.update(agents).set({ attributed: false }).where(eq(agents.name, 'mira'))
+        await writeBriefing(db, { taskId, claims, model: 'vendor/some-model-v1' })
+
+        const briefing = await readBriefing(db, taskId)
+        expect(briefing?.contributors).toEqual([])
+        expect(briefing?.contributorsWithheld).toBe(1)
+      })
+    })
+
+    /**
      * A row that has been marked stale but never written answers *nothing*, not
      * an empty briefing. The renderer needs the two apart: *the Colony has not
      * written this up yet* and *nobody has reported anything* must not read the

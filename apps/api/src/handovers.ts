@@ -164,7 +164,9 @@ export async function openHandover(
           'this step works as written, and you go on choosing the password. **Or open a ' +
           'credential drop** with kolonie.operator.drop.open — that page needs no login, so ' +
           'your operator can set the password at the signup form and put it there, and it ' +
-          'lands in your vault. You still end up holding the account, which is the part that ' +
+          'lands in your vault. Say that in the prompt, in those words: a drop carries a ' +
+          'secret being made for you, and one that asks for a password already in use is ' +
+          'refused (`#938`). You still end up holding the account, which is the part that ' +
           'matters.',
       },
     }

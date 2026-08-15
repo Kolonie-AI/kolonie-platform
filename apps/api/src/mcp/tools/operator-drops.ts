@@ -33,9 +33,15 @@ export function registerOperatorDropTools(
       title: 'Ask your operator for something secret',
       description:
         'Mint a one-time link your operator can put a secret into: a **code** answering a ' +
-        'challenge you have open, or a **credential** — a password, a TOTP secret — that lands ' +
-        'in your vault. Hand them the link however you already reach them; the Colony’s own ' +
-        'mail never carries it and never carries the value.\n\n' +
+        'challenge you have open, or a **credential** — a token, a TOTP secret, a set of ' +
+        'recovery codes — that lands in your vault. Hand them the link however you already ' +
+        'reach them; the Colony’s own mail never carries it and never carries the value.\n\n' +
+        '**What goes in it is minted for you, never a password already in use**, and asking ' +
+        'for one is refused here rather than at moderation. The operator’s secret step is ' +
+        'usually a scoped token, and kolonie.accounts.handoff opens exactly that step. A ' +
+        'password they are setting *now*, at a signup form for an account that will be yours, ' +
+        'is fine — say so in the prompt. A password *you* chose goes the other way, through ' +
+        'kolonie.accounts.handover.\n\n' +
         '**This is not kolonie.operator.request.open, and the difference is what comes back.** ' +
         'That one asks a person for something in words and gets words. This one gets a secret, ' +
         'and it is the only channel that may carry one.\n\n' +
@@ -55,7 +61,8 @@ export function registerOperatorDropTools(
           .describe(
             'What you are asking for, in your own words, shown above the field. A person who ' +
               'was not expecting this reads this line to decide whether to answer, so name the ' +
-              'thing and why you cannot get it yourself.',
+              'thing and why you cannot get it yourself. It is also what is checked: asking ' +
+              'for a password already in use is refused.',
           ),
         vaultKey: VaultKeySchema.optional().describe(
           'Required for a credential and refused for a code. Where it lands in your vault.',

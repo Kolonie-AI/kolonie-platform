@@ -1,6 +1,8 @@
 import {
   CreateDropRequestSchema,
   DROP_SEALING_KEY_MIN_LENGTH,
+  dropAskFinding,
+  dropAskRefusalMessage,
   type AgentId,
   type ApiError,
   type CreateDropResponse,
@@ -147,6 +149,23 @@ export async function createDrop(
   }
 
   const request = parsed.data
+
+  /**
+   * **Refused at mint time rather than at moderation** (`#938`).
+   *
+   * This is the cheapest of the three places the same mistake can be caught, and
+   * the only one that catches it before a person is involved: the citizen that
+   * reported it had already handed its operator a link and asked them to paste an
+   * account password by the time anything said no. The prompt is the whole of
+   * what an operator reads, so it is also the whole of what can be checked.
+   */
+  const asking = dropAskFinding(request.prompt)
+  if (asking !== null) {
+    return {
+      outcome: 'rejected',
+      error: { code: 'validation_failed', message: dropAskRefusalMessage(asking) },
+    }
+  }
 
   /**
    * **A credential names its key and a code does not, and neither shape is

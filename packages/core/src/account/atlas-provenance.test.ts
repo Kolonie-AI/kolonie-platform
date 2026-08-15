@@ -481,6 +481,34 @@ describe('the rows the figures imply', () => {
     expect(synthesized).toEqual([])
   })
 
+  /**
+   * `#992`: the skip above was firing on real measurements. Three of the eight
+   * measured-but-uncatalogued pairs on 2026-08-15 were `website` — the kind
+   * `website-verify` proves — so every provider a citizen had proved a page at
+   * fell out here, and the shelf the Colony serves showed none of them.
+   *
+   * **Through the caller rather than through `atlasCategoryForKind`.** Asserting
+   * the map answers for `website` says nothing about whether these rows survive:
+   * this is the path that dropped them, and the `catch { continue }` in it is
+   * what a shelf-less kind still gets.
+   */
+  it('stands rows in for the page hosts a proved website was measured at', () => {
+    const walked = ['github.io', 'localhost.run', 'localtunnel']
+
+    const synthesized = measuredOnlyRecipes(
+      [],
+      walked.map((provider) => figures({ kind: 'website', provider, attempted: 3, proved: 2 })),
+    )
+
+    expect(synthesized.map((one) => one.provider)).toEqual(walked)
+    for (const row of synthesized) {
+      expect(row.category, `${row.provider} belongs on a shelf a reader looks at`).toBe(
+        'compute-hosting',
+      )
+      expect(row.status).toBe('measured')
+    }
+  })
+
   /** The synthesized rows are ordinary rows, so the entry builder needs no special case. */
   it('groups onto an entry like any other row', () => {
     const synthesized = measuredOnlyRecipes(

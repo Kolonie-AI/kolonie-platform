@@ -124,6 +124,26 @@ describe('the Atlas shelf for an account kind', () => {
     expect(atlasCategoryForKind(AccountKindSchema.parse('github'))).toBe('code-hosting')
   })
 
+  /**
+   * `#992`: three of the eight measured-but-uncatalogued pairs on 2026-08-15
+   * reached no shelf, and all three were `website` — so every citizen that had
+   * passed `website-verify` had proved it somewhere the Atlas could not file.
+   */
+  it('files a proved website on the shelf that already carries the page hosts', () => {
+    expect(atlasCategoryForKind(AccountKindSchema.parse('website'))).toBe('compute-hosting')
+  })
+
+  /**
+   * The direction that is deliberately not symmetric. A `website` holding files
+   * onto `compute-hosting`, but publishing a proposed provider onto that shelf
+   * still produces the `hosting` it is paired with — the same asymmetry
+   * `github` has had on `code-hosting` since `#807`.
+   */
+  it('leaves the shelf producing its own paired kind', () => {
+    expect(KIND_BY_ATLAS_CATEGORY['compute-hosting']).toBe('hosting')
+    expect(KIND_BY_ATLAS_CATEGORY['code-hosting']).toBe('code-host')
+  })
+
   it('refuses to invent a shelf for an unmapped kind', () => {
     expect(() => atlasCategoryForKind(AccountKindSchema.parse('unmapped-kind'))).toThrow(
       'No Atlas category maps to account kind unmapped-kind',

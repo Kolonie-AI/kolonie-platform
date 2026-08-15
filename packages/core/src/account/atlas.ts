@@ -344,6 +344,12 @@ export const ATLAS_KIND_PHRASES: Readonly<Record<string, string>> = {
   storage: 'A storage account',
   storefront: 'A storefront',
   trello: 'A Trello account',
+  /**
+   * Not *a website account*: what `website-verify` proves is the page, and the
+   * account behind it may be a Pages repository or a tunnel with no account at
+   * all (`#992`).
+   */
+  website: 'A website',
 }
 
 /**

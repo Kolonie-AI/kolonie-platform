@@ -395,12 +395,61 @@ const ATLAS_CATEGORY_BY_KIND: ReadonlyMap<string, AtlasCategory> = (() => {
   }
 
   /**
+   * The kinds the Academy grants that are not the kind a shelf is paired with
+   * (`#807`, `#992`).
+   *
+   * **A bounded list and not a fallback**, on the same argument as everything
+   * else here: a kind that is on neither this list nor the two rules around it
+   * still throws, because a shelf is a claim the Colony would be making on
+   * nobody's behalf.
+   *
    * `github` predates the generic `code-host` kind and remains the holding the
    * Academy grants and the original catalogue row uses. A walk at another
    * GitHub-backed provider therefore carries `github`, but it belongs on the
    * same code-hosting shelf rather than becoming an API by default.
+   *
+   * `website` is the same shape and was found the same way. Measured on live
+   * data 2026-08-15 (`#992`), three of the eight measured-but-uncatalogued pairs
+   * reached no shelf at all and all three were `website` — `github.io`,
+   * `localhost.run` and `localtunnel`, one proved citizen each. So every citizen
+   * that has ever passed `website-verify` had proved it somewhere the Atlas
+   * could not file.
+   *
+   * **`compute-hosting` rather than a sixteenth shelf**, of the three readings
+   * `#992` set out. The shelf already carries `netlify.com`, `vercel.com`,
+   * `workers.cloudflare.com`, `render.com`, `fly.io` and `railway.app` — every
+   * provider a citizen looking for a page it controls would reach for — so a
+   * separate *websites* shelf would split those six from `github.io` and make
+   * one question two places to look. The boundary it would draw, *a page I
+   * control* against *a machine I rent*, is not one the providers respect.
+   *
+   * **And not the third reading, that the kind is wrong.** `localtunnel` and
+   * `localhost.run` host no code and store no repository; what the rung proves
+   * at all three is a page carrying a meta tag, which is what `website` says. A
+   * fix in what `website-verify` records would have to call a tunnel a code
+   * host, which is false about two of the three pairs that prompted this.
+   *
+   * The pairing is untouched: `compute-hosting` still *produces* `hosting` when
+   * a steward publishes a proposed provider onto it, exactly as `code-hosting`
+   * still produces `code-host`. This direction is many-to-one and only this one.
    */
-  categories.set('github', 'code-hosting')
+  const SHELF_BY_GRANTED_KIND: Readonly<Record<string, AtlasCategory>> = {
+    github: 'code-hosting',
+    website: 'compute-hosting',
+  }
+
+  for (const [kind, shelf] of Object.entries(SHELF_BY_GRANTED_KIND)) {
+    /**
+     * **It cannot mask a pairing either.** A kind that is already some shelf's
+     * paired kind would be re-shelved silently by an entry here, which is the
+     * same false catalogue claim the guard above refuses.
+     */
+    const existing = categories.get(kind)
+    if (existing !== undefined && existing !== shelf) {
+      throw new Error(`Account kind ${kind} is paired with shelf ${existing}, not ${shelf}`)
+    }
+    categories.set(kind, shelf)
+  }
 
   /**
    * **A kind spelled as a shelf belongs on that shelf** (`#917`).

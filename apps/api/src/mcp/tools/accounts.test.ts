@@ -1418,3 +1418,107 @@ describe('kolonie.accounts.forget', () => {
     await another.close()
   })
 })
+
+/**
+ * **A retired account leaves the list, and the row stays** (`#980`).
+ *
+ * The ask behind the ticket was a soft delete of a proved account, and the
+ * deletion half of it is refused for the reason `kolonie.accounts.forget`
+ * states. What is answerable is the rest: a register a citizen cannot tidy stops
+ * being a register and becomes a log. So the filter is on `status`, the row is
+ * untouched, and the count of what was withheld is in the same answer — which is
+ * the only thing that keeps a shortened list from being a wrong one.
+ */
+describe('kolonie.accounts.list leaves out what the citizen no longer holds', () => {
+  /** Two proved mailboxes, one of them retired, and a connected client. */
+  const aRegisterWithOneRetired = async () => {
+    const { colony, apiKey, agent } = await registeredCitizen()
+    const register = fakeAccountRegister()
+    const held = register.proveDirectly(agent.id, {
+      kind: 'mailbox' as never,
+      identifier: 'held@mail.example',
+    })
+    const retired = register.proveDirectly(agent.id, {
+      kind: 'mailbox' as never,
+      identifier: 'gone@mail.example',
+    })
+    const { client, close } = await connectedClient(
+      { ...colony, accounts: fakeAccounts(register) },
+      `Bearer ${apiKey}`,
+    )
+    await client.callTool({
+      name: 'kolonie.accounts.set',
+      arguments: { accountId: retired.id, status: 'retired' },
+    })
+
+    return { client, close, register, agent, held, retired }
+  }
+
+  it('omits a retired account by default and counts what it left out', async () => {
+    const { client, close, held, retired } = await aRegisterWithOneRetired()
+
+    const result = await client.callTool({ name: 'kolonie.accounts.list', arguments: {} })
+    const text = JSON.stringify(result.content)
+
+    expect(result.structuredContent).toMatchObject({ notShown: 1 })
+    expect(text).toContain(held.identifier)
+    expect(text).not.toContain(retired.identifier)
+    // Withheld, and said so in the same breath — a row that vanishes without a
+    // word is indistinguishable from one that was never there.
+    expect(text).toContain('includeRetired')
+    await close()
+  })
+
+  it('returns it on request, and the row was never touched', async () => {
+    const { client, close, register, agent, retired } = await aRegisterWithOneRetired()
+
+    const result = await client.callTool({
+      name: 'kolonie.accounts.list',
+      arguments: { includeRetired: true },
+    })
+
+    expect(result.structuredContent).toMatchObject({ notShown: 0 })
+    expect(JSON.stringify(result.content)).toContain(retired.identifier)
+    // Nothing was deleted: the register still holds both, and the retired one is
+    // still proved, so re-proving the same identifier finds it.
+    const rows = await register.list(agent.id)
+    expect(rows).toHaveLength(2)
+    expect(rows.find((row) => row.id === retired.id)).toMatchObject({
+      status: 'retired',
+      proved: true,
+    })
+    await close()
+  })
+
+  it('says where the row went, in the answer that put it there', async () => {
+    const { colony, apiKey, agent } = await registeredCitizen()
+    const register = fakeAccountRegister()
+    const account = register.proveDirectly(agent.id, {
+      kind: 'mailbox' as never,
+      identifier: 'gone@mail.example',
+    })
+    const { client, close } = await connectedClient(
+      { ...colony, accounts: fakeAccounts(register) },
+      `Bearer ${apiKey}`,
+    )
+
+    const retiring = await client.callTool({
+      name: 'kolonie.accounts.set',
+      arguments: { accountId: account.id, status: 'retired' },
+    })
+    const noting = await client.callTool({
+      name: 'kolonie.accounts.set',
+      arguments: { accountId: account.id, note: 'the old one' },
+    })
+
+    /**
+     * `set` is the offered way to retire an account, so it is where a citizen
+     * finds out that the list will stop showing it. A write that does not move
+     * the status says nothing — the sentence is news about this write, not a
+     * standing footnote.
+     */
+    expect(JSON.stringify(retiring.content)).toContain('left kolonie.accounts.list')
+    expect(JSON.stringify(noting.content)).not.toContain('left kolonie.accounts.list')
+    await close()
+  })
+})

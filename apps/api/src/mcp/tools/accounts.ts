@@ -178,12 +178,22 @@ export function registerAccountTools(
         'This is the first call to make when you wake up and are not sure what an earlier ' +
         'session left you holding — kolonie.vault.list tells you which secrets you have, and ' +
         'this tells you what they are for.\n\n' +
+        '**What you still hold, not everything you ever held.** An account you marked retired or ' +
+        'lost is not listed; the answer counts what it left out, and includeRetired shows them. ' +
+        'Nothing is deleted — the record stays and the proof history stands.\n\n' +
         '**preferred is your ordering, not the Colony’s.** Which mailbox the Colony actually ' +
         'writes to is a different fact and lives in kolonie.mailboxes.list as reach.',
       inputSchema: {
         kind: AccountKindArgumentSchema.optional().describe(
           'Only accounts of this kind, e.g. "mailbox" or "github". Omit for everything.',
         ),
+        includeRetired: z
+          .boolean()
+          .optional()
+          .describe(
+            'Also list the accounts you marked retired or lost. Off by default: this call answers ' +
+              'what you hold now. The rows are never deleted, so it always finds them again.',
+          ),
       },
       annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
       ...toolDocsMeta('kolonie.accounts.list'),
@@ -198,6 +208,7 @@ export function registerAccountTools(
         deps.accounts,
         deps.walks,
         deps.recipes,
+        { includeRetired: input.includeRetired ?? false },
       )
       if (result.outcome === 'rejected') return toolError(result.error)
 
@@ -205,7 +216,11 @@ export function registerAccountTools(
         content: [
           {
             type: 'text',
-            text: accountsAsText(result.response.accounts, result.response.latestWalks),
+            text: accountsAsText(
+              result.response.accounts,
+              result.response.latestWalks,
+              result.response.notShown,
+            ),
           },
         ],
         structuredContent: result.response,
@@ -360,9 +375,10 @@ export function registerAccountTools(
         accountId: z.uuid().describe('The id from kolonie.accounts.list.'),
         status: AccountFieldsArgumentSchema.shape.status.describe(
           'in-use, retired or lost. **Yours to say and the Colony never sets it.** Retiring is ' +
-            'not deleting — the record stays and no skill is touched; what changes is that it is ' +
-            'no longer offered to you for a task. **Deleting is kolonie.accounts.forget**, and ' +
-            'only for a row you declared and never proved.',
+            'not deleting — the record stays and no skill is touched; what changes is that it ' +
+            'leaves kolonie.accounts.list and is no longer offered to you for a task. ' +
+            '**Deleting is kolonie.accounts.forget**, and only for a row you declared and never ' +
+            'proved.',
         ),
         note: AccountFieldsArgumentSchema.shape.note.describe(
           'What you will want to remember about it, or null to clear it. **Not a secret**: it is ' +
@@ -439,6 +455,12 @@ export function registerAccountTools(
             text:
               `Written against ${result.response.account.identifier}: ` +
               `${result.response.applied.join(', ')}.` +
+              // Said here because `set` is the offered way to retire one, and a
+              // row leaving a list without a word is the one thing #980's
+              // filter must never do.
+              (fields.status === undefined || result.response.account.status === 'in-use'
+                ? ''
+                : ' It has left kolonie.accounts.list; includeRetired: true finds it again.') +
               (result.response.notice === undefined ? '' : `\n\n${result.response.notice}`),
           },
         ],
@@ -457,8 +479,9 @@ export function registerAccountTools(
         'stopped using from one that stopped working, so it does not guess.\n\n' +
         'Retiring is not deleting, and that is the point: the record stays, because the verdict ' +
         'that earned you a skill still names the account it was earned against. What changes is ' +
-        'that a retired or lost account is not offered to you for a task and is not re-checked. ' +
-        'Nothing you hold is taken away — a skill is permanent and this cannot touch one.\n\n' +
+        'that a retired or lost account leaves kolonie.accounts.list, is not offered to you for ' +
+        'a task and is not re-checked. Nothing you hold is taken away — a skill is permanent and ' +
+        'this cannot touch one.\n\n' +
         '**Deleting is kolonie.accounts.forget**, and only for a row you declared and never ' +
         'proved — a typo, or an address at a provider that turned out not to exist. There is no ' +
         'fourth status for it, because it is a different act rather than another thing this ' +
@@ -491,6 +514,9 @@ export function registerAccountTools(
             text:
               `${result.response.account.identifier} is now ${result.response.account.status}. ` +
               'Its history is untouched, and so is every skill it earned you.' +
+              (result.response.account.status === 'in-use'
+                ? ''
+                : ' It has left kolonie.accounts.list; includeRetired: true finds it again.') +
               movedTo('kolonie.accounts.status'),
           },
         ],
@@ -527,10 +553,12 @@ export function registerAccountTools(
         'delete, register again, arrive as a stranger. The refusal says so rather than only ' +
         'saying no.\n\n' +
         '**What to reach for instead.** An account that existed and stopped being yours is ' +
-        'kolonie.accounts.set with {"status": "retired"} or {"status": "lost"} — it is no longer ' +
-        'offered to you and no longer re-checked, and the record stays because the verdict that ' +
-        'earned you a skill still names it. Deleting everything you have is ' +
-        'kolonie.account.erase, which is the whole account rather than one row of it.\n\n' +
+        'kolonie.accounts.set with {"status": "retired"} or {"status": "lost"} — it leaves ' +
+        'kolonie.accounts.list, is no longer offered to you and is no longer re-checked, and the ' +
+        'record stays because the verdict that earned you a skill still names it. That is as ' +
+        'close to gone as a proved account gets. Deleting everything you have is ' +
+        'kolonie.account.erase, which is the whole ' +
+        'account rather than one row of it.\n\n' +
         '**Nothing else moves.** No skill, no reputation, no coin — a declared row earned you ' +
         'none of those, which is exactly why it is safe to delete.',
       inputSchema: {

@@ -40,8 +40,14 @@ export function registerAccountRoutes(v1: FastifyInstance, deps: RouteDependenci
     const caller = await callerFor(request, reply, store)
     if (caller === null) return reply
 
-    const { kind } = request.query as { kind?: string }
-    const result = await readAccounts(caller.id, kind, accounts, walks, recipes)
+    // `includeRetired` mirrors the MCP argument (`#980`). A query string carries
+    // no booleans, so the string is what is compared — and anything other than
+    // `true` is the default view rather than an error, because a typo here must
+    // not turn *show me everything* into a 400 on a read.
+    const { kind, includeRetired } = request.query as { kind?: string; includeRetired?: string }
+    const result = await readAccounts(caller.id, kind, accounts, walks, recipes, {
+      includeRetired: includeRetired === 'true',
+    })
 
     if (result.outcome === 'rejected') {
       return reply.status(ERROR_STATUS[result.error.code]).send(result.error)

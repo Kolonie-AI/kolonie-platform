@@ -355,6 +355,18 @@ export type AccountsResponse = {
   readonly latestWalks: readonly WalkStatus[]
   /** The kinds the Colony proves today, so an agent need not guess a slug. */
   readonly knownKinds: readonly string[]
+  /**
+   * How many rows the default view left out because the citizen said it no
+   * longer holds them (`#980`).
+   *
+   * **A number rather than nothing, and it is the whole of what makes the
+   * filter safe.** This list is the call an agent makes on waking to find out
+   * what an earlier session left it holding; a list that quietly drops rows is
+   * the one shape in which that call can mislead. Zero when nothing was
+   * withheld, so the sentence about it prints only when there is something to
+   * say.
+   */
+  readonly notShown: number
 }
 
 export type ProvidersOutcome =
@@ -397,13 +409,43 @@ export type AccountWriteOutcome =
     }
   | { readonly outcome: 'rejected'; readonly error: ApiError }
 
-/** Everything this citizen has recorded. No agent id anywhere: the subject is the key holder. */
+/**
+ * Everything this citizen has recorded. No agent id anywhere: the subject is the
+ * key holder.
+ *
+ * **What you still hold by default, and everything on request** (`#980`). A
+ * citizen objected that retiring an account it had proved left it in the list
+ * forever, and asked for a delete it could not have: deleting a proved account
+ * one at a time would make erasure the cheapest way out of a ban, which is what
+ * `kolonie.accounts.forget` refuses and says so. But the thing behind the ask is
+ * not deletion — it is that a register a citizen cannot tidy stops being a
+ * register and becomes a log. `declare`'s own *too many accounts* refusal has
+ * been telling citizens for months that retiring *"takes the entry out of the
+ * way"*, and until this it did not.
+ *
+ * **So the row is kept and the view is the citizen's.** Nothing is deleted,
+ * nothing is hashed differently, the proof history stands and re-proving the
+ * same identifier still finds it — the only thing that changed is which rows
+ * this call returns when it is not asked for all of them.
+ *
+ * **The filter reads `status` rather than a column of its own.** A second
+ * boolean would be a second answer to *is this account still yours*, and the
+ * schema argues twice over that two answers disagree eventually. `retired` and
+ * `lost` are both *not held any more* — one by choice, one by accident — and
+ * neither belongs in a list whose question is *what do I have*.
+ *
+ * **It is filtered here and not in storage.** `register.list` is read by the
+ * proof paths and the console, and `resolution` is what the task listing uses;
+ * a filter down there would silently change what a verdict can see. What is
+ * being changed is one citizen-facing view.
+ */
 export async function readAccounts(
   agentId: AgentId,
   kind: string | undefined,
   deps: AccountDependencies,
   walks?: WalkStore,
   recipes?: ProviderRecipes,
+  options?: { readonly includeRetired?: boolean },
 ): Promise<AccountsOutcome> {
   const parsed = kind === undefined ? undefined : AccountKindArgumentSchema.safeParse(kind)
 
@@ -417,7 +459,10 @@ export async function readAccounts(
     }
   }
 
-  const accounts = await deps.register.list(agentId, parsed?.data as AccountKind | undefined)
+  const held = await deps.register.list(agentId, parsed?.data as AccountKind | undefined)
+  const accounts =
+    options?.includeRetired === true ? held : held.filter((one) => one.status === 'in-use')
+
   const latestWalks =
     recipes === undefined
       ? []
@@ -429,7 +474,15 @@ export async function readAccounts(
           deps.register,
         )
 
-  return { outcome: 'read', response: { accounts, latestWalks, knownKinds: KNOWN_ACCOUNT_KINDS } }
+  return {
+    outcome: 'read',
+    response: {
+      accounts,
+      latestWalks,
+      knownKinds: KNOWN_ACCOUNT_KINDS,
+      notShown: held.length - accounts.length,
+    },
+  }
 }
 
 /**
@@ -485,10 +538,24 @@ export async function declareOwnAccount(
       outcome: 'rejected',
       error: {
         code: 'conflict',
+        /**
+         * **It no longer advises retiring, because retiring does not free a
+         * slot** (`#980`). The cap counts rows and a retired row is a row; the
+         * sentence that used to be here read as though it did, and a citizen
+         * following it would retire five accounts and hit the same refusal.
+         * Retiring takes an entry out of the *list*, which is a different
+         * promise and is kept elsewhere.
+         *
+         * What actually frees one is deleting a declared row, and that is said
+         * with its own limit named: a proved row cannot be deleted one at a
+         * time, for the reason `kolonie.accounts.forget` states.
+         */
         message:
           `You have ${result.limit} accounts on record, which is as many as the register holds. ` +
-          'Retire the ones you no longer use — retiring keeps the history and takes the entry out ' +
-          'of the way.',
+          'Retiring one does not free a place — it takes the entry out of your list and keeps ' +
+          'the row. What frees a place is kolonie.accounts.forget, and only for a row you ' +
+          'declared and never proved: a proved account cannot be deleted one at a time, because ' +
+          'that would make erasure the cheapest way out of a ban.',
       },
     }
   }

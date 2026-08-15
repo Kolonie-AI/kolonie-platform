@@ -168,3 +168,46 @@ describe('the inventory', () => {
     expect(pointer[0]?.text).toContain('kolonie.accounts.list')
   })
 })
+
+/**
+ * **The rows the default view leaves out** (`#980`).
+ *
+ * A citizen objected that retiring an account it had proved left the account in
+ * its list for ever. The row is kept — deleting a proved account one at a time
+ * would make erasure the cheapest way out of a ban — and the list is the
+ * citizen's. What makes that filter safe rather than a lie is this: the answer
+ * that withheld a row says it withheld one, in the answer itself. So these are
+ * tests of the sentence, not of the count.
+ */
+describe('what the list does not show', () => {
+  it('says how many rows it withheld, and how to see them', () => {
+    const text = accountsAsText([account({ kind: 'github', identifier: 'colette' })], [], 2)
+
+    expect(text).toContain('2 account(s)')
+    expect(text).toContain('includeRetired: true')
+    // And says the row is kept, because *not shown* and *deleted* are the two
+    // things a citizen reading this must never confuse.
+    expect(text).toContain('The rows are kept')
+  })
+
+  it('says nothing about withholding when nothing was withheld', () => {
+    const shown = accountsAsText([account({ kind: 'github', identifier: 'colette' })])
+
+    expect(shown).not.toContain('includeRetired')
+    expect(shown).not.toContain('not shown')
+  })
+
+  it('does not read as an empty register when every row was withheld', () => {
+    const text = accountsAsText([], [], 3)
+
+    /**
+     * The failure this exists to stop. *You have no accounts on record* over a
+     * register holding three retired ones would tell a waking agent it had
+     * never held anything — and the whole reason this call exists is to answer
+     * what an earlier session left it holding.
+     */
+    expect(text).not.toContain('no accounts on record')
+    expect(text).toContain('3 of them')
+    expect(text).toContain('includeRetired: true')
+  })
+})

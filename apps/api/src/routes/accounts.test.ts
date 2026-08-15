@@ -345,7 +345,16 @@ describe('the four writes on one account', () => {
       identifier: '@current',
     })
 
-  it('retires an account without removing it', async () => {
+  /**
+   * **Retired leaves the list and stays in the register** (`#980`).
+   *
+   * The two halves are the whole of the change, so they are asserted together:
+   * the default read stops returning the row and says how many it withheld, and
+   * `includeRetired` finds it again — which is the proof that nothing was
+   * deleted. It used to assert the row was still listed, which is what a citizen
+   * filed a ticket about.
+   */
+  it('retires an account out of the list without removing it', async () => {
     const account = anAccount()
 
     const response = await authed({
@@ -356,7 +365,14 @@ describe('the four writes on one account', () => {
 
     expect(response.statusCode).toBe(200)
     expect(response.json().account.status).toBe('retired')
-    expect((await list()).json().accounts).toHaveLength(1)
+
+    const held = (await list()).json()
+    expect(held.accounts).toHaveLength(0)
+    expect(held.notShown).toBe(1)
+
+    const everything = await authed({ method: 'GET', url: '/v1/accounts?includeRetired=true' })
+    expect(everything.json().accounts).toHaveLength(1)
+    expect(everything.json().notShown).toBe(0)
   })
 
   it('clears a note with null rather than with an absent field', async () => {

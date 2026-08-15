@@ -14,8 +14,38 @@ import type { WalkStatus } from '../../account-walks.js'
 export function accountsAsText(
   accounts: readonly Account[],
   latestWalks: readonly WalkStatus[] = [],
+  notShown = 0,
 ): string {
+  /**
+   * **What the default view left out, said in the answer that left it out**
+   * (`#980`).
+   *
+   * The filter is only defensible while this sentence exists. An agent reads
+   * this list on waking to find out what an earlier session left it holding, and
+   * a row that vanishes without a word is indistinguishable from a row that was
+   * never there — which is the failure `declare`'s silent no-op was corrected
+   * for in `#289`, in this same register.
+   */
+  const withheld =
+    notShown === 0
+      ? []
+      : [
+          '',
+          `${notShown} account(s) you have marked retired or lost are not shown. The rows are ` +
+            'kept — the proof history stands, and re-proving the same identifier still finds ' +
+            'them — they are simply not what you hold any more. Pass includeRetired: true to ' +
+            'see them.',
+        ]
+
   if (accounts.length === 0 && latestWalks.length === 0) {
+    if (notShown > 0) {
+      return (
+        'You hold no accounts. Every account on your register is one you have marked retired or ' +
+        `lost — ${notShown} of them, kept but not shown. Pass includeRetired: true to read them, ` +
+        'or record what you hold now with kolonie.accounts.declare.'
+      )
+    }
+
     return (
       'You have no accounts on record. The Colony records one for you whenever you pass a rung ' +
       'that proves one — a mailbox, a GitHub account, a handle, a name — and you can write down ' +
@@ -137,6 +167,7 @@ export function accountsAsText(
     '',
     'Which mailbox the Colony writes to is a separate question — kolonie.mailboxes.list answers ' +
       'that one.',
+    ...withheld,
   ].join('\n')
 }
 

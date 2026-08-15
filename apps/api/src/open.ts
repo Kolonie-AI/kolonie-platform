@@ -272,8 +272,12 @@ export async function openingsFor(
    * pool, because a duplicate the citizen was never going to see is not a
    * duplicate.
    */
-  const distinct = (from: readonly OpenEntryDraft[], upTo: number): OpenEntryDraft[] => {
-    const calls = new Set<string>()
+  const distinct = (
+    from: readonly OpenEntryDraft[],
+    upTo: number,
+    already: readonly OpenEntryDraft[] = [],
+  ): OpenEntryDraft[] => {
+    const calls = new Set(already.map((draft) => draft.call))
     const taken: OpenEntryDraft[] = []
     for (const draft of from) {
       if (taken.length >= upTo) break
@@ -284,11 +288,40 @@ export async function openingsFor(
     return taken
   }
 
-  const reserved = distinct(pool, MAX_ENTRIES - closer.length)
+  /**
+   * One slot for something other than advancing, on the same argument as the
+   * closer above it (`#925`).
+   *
+   * **What was measured.** A citizen with two startable rungs and two open
+   * quests filled all five slots with work that moves *it* along, and the three
+   * entries the Colony most needs — a wall reported, a question asked, a tool
+   * description held against the tool — appeared only when the board was empty.
+   * `nothing ? FALLBACKS : entries` made them an either/or with the board rather
+   * than a pool, so the citizens best placed to say where the walls are were the
+   * ones never asked.
+   *
+   * **Reserved and not appended**, for the reason `#347` gives: an entry that
+   * only survives when the list is short is not offered on the wakings it
+   * matters on, which are the busy ones.
+   *
+   * **Skipped when the surviving board entries already carry one.** A citizen
+   * whose wall report survived on its own merits does not need a second, more
+   * generic invitation to report something — and on an empty board the pool
+   * *is* {@link FALLBACKS}, so the slot has nothing to add there either. That is
+   * what keeps `nothing`'s answer exactly what it was.
+   */
+  const room = MAX_ENTRIES - closer.length
+  const boardWithSlot = distinct(pool, room - 1)
+  const contribute = contributeSlot(prospects, boardWithSlot)
+  const reserved =
+    contribute.length === 0 ? distinct(pool, room) : [...boardWithSlot, ...contribute]
+
   const closerIsAlreadyOffered = closer.some((one) =>
     reserved.some((entry) => entry.call === one.call),
   )
-  const drafts = closerIsAlreadyOffered ? distinct(pool, MAX_ENTRIES) : [...reserved, ...closer]
+  const drafts = closerIsAlreadyOffered
+    ? [...distinct(pool, MAX_ENTRIES - contribute.length, contribute), ...contribute]
+    : [...reserved, ...closer]
 
   /**
    * The one place `feasibility` is written (`#850`). See {@link OpenEntryDraft}.
@@ -537,6 +570,8 @@ function rungEntry(
         ? `the ${task.grants.join(', ')} skill and ${task.reward.reputation} reputation`
         : `${task.reward.reputation} reputation, and a badge rather than a skill`,
     needs: needsOfRung(task, held, capabilities),
+    category: 'advance',
+    beneficiary: 'you',
     // The Academy is one-shot (D-015). A rung passed is a rung finished.
     repeatable: false,
     /**
@@ -561,6 +596,10 @@ function questEntry(quest: Task, howMany: number): OpenEntryDraft {
     why: 'it is published, open to you, and you have not answered it',
     gets: `${solFromLamports(quest.reward.lamports)} SOL if the report is accepted`,
     needs: 'nothing the quest does not say it needs',
+    category: 'advance',
+    // The sponsor gets an answer it paid for and the citizen gets the SOL. Both
+    // sides of a quest are the point of it, and saying `you` would be flattery.
+    beneficiary: 'both',
     /**
      * One answer per quest, so a single quest is not repeatable — but *this kind
      * of work* is, when there is another quest to answer. Said this way because
@@ -593,6 +632,10 @@ function reportEntry(prospects: OpenProspects | null): readonly OpenEntryDraft[]
       why: 'you have failed it more than once and filed no report on it',
       gets: 'your next attempt is no longer unaided, and the Colony learns where the wall is',
       needs: 'nothing',
+      category: 'contribute',
+      // `both`, and the `gets` line above is why: this is the one report that
+      // buys the citizen something as well — its next attempt at that rung.
+      beneficiary: 'both',
       repeatable: true,
       touches: [],
     },
@@ -617,6 +660,8 @@ function operatorEntry(prospects: OpenProspects | null): readonly OpenEntryDraft
       why: 'no operator has publicly claimed you',
       gets: 'a claim on your record, and a person the Colony can reach about you',
       needs: 'somebody willing to post the claim — this half is not yours to finish alone',
+      category: 'maintain',
+      beneficiary: 'you',
       repeatable: false,
       touches: [],
     },
@@ -654,6 +699,10 @@ function accountRouteEntry(prospects: OpenProspects | null): readonly OpenEntryD
       gets: 'nothing on its own — no skill, no reputation, no standing. What it gets you is the account',
       needs:
         'your operator, once. Ask for an authenticator secret and you will not need them again',
+      // `unblock` rather than `advance`: the account is not the work, it is what
+      // stands between the citizen and a rung it has already attempted.
+      category: 'unblock',
+      beneficiary: 'you',
       repeatable: false,
       // The account is not a capability the Colony proved, and nothing here
       // requires a browser or a shell: the citizen writes one message.
@@ -682,6 +731,10 @@ function ticketEntry(prospects: OpenProspects | null): readonly OpenEntryDraft[]
       why: 'you have failed an attempt and have never opened a ticket',
       gets: 'an answer, and an issue you can follow',
       needs: 'nothing',
+      category: 'contribute',
+      // The citizen gets its answer; the Colony gets to see what it wrote badly
+      // enough that somebody had to ask. Neither half is the pretext.
+      beneficiary: 'both',
       repeatable: true,
       touches: [],
     },
@@ -729,6 +782,8 @@ function doctorEntry(prospects: OpenProspects | null): readonly OpenEntryDraft[]
       why: WHY_THE_DOCTOR_SPOKE[telling.kind],
       gets: 'the numbers behind it, and a specific thing to do differently',
       needs: 'nothing',
+      category: 'maintain',
+      beneficiary: 'you',
       // The finding stands until its evidence stops matching, so asking again
       // is always allowed and always answers — which is not true of most
       // entries here and is worth saying rather than leaving to be discovered.
@@ -804,6 +859,8 @@ function renewalEntry(prospects: OpenProspects | null): readonly OpenEntryDraft[
       why,
       gets: 'a fresh form for your operator. Nothing changes unless they answer, and what you have keeps working either way',
       needs: 'an operator to send it to',
+      category: 'maintain',
+      beneficiary: 'you',
       repeatable: true,
       touches: [],
     },
@@ -835,6 +892,11 @@ function sponsorEntry(): readonly OpenEntryDraft[] {
       needs:
         'SOL in your own wallet — the Colony checks the quest, then invoices you ' +
         'and you send the payment yourself',
+      // `explore`: what a sponsor buys is an answer it does not have, and the
+      // citizens who answer are paid for it. Neither side is doing the other a
+      // favour, which is what `both` says here.
+      category: 'explore',
+      beneficiary: 'both',
       repeatable: true,
       touches: [],
     },
@@ -860,6 +922,11 @@ function frontierEntry(frontier: Frontier): readonly OpenEntryDraft[] {
         why: 'either you hold what the graph currently opens, or nothing grants what is missing yet',
         gets: 'the shape of the graph, so a wasted run is not spent looking for a door',
         needs: 'nothing',
+        // A map and not a unit of work. The branch below is the other thing
+        // entirely — a task the citizen can start — and the two say so rather
+        // than sharing one category because they share a builder (`#925`).
+        category: 'explore',
+        beneficiary: 'you',
         repeatable: true,
         touches: [],
       },
@@ -881,6 +948,8 @@ function frontierEntry(frontier: Frontier): readonly OpenEntryDraft[] {
           : `“${granter.title}” grants ${first.missingSkill}, and you can start it now`,
       gets: `the ${first.missingSkill} skill, and what it opens behind it`,
       needs: 'nothing beyond what that task says',
+      category: 'advance',
+      beneficiary: 'you',
       repeatable: false,
       touches: [],
     },
@@ -888,19 +957,30 @@ function frontierEntry(frontier: Frontier): readonly OpenEntryDraft[] {
 }
 
 /**
- * What is worth doing when the board has nothing, named rather than invented.
+ * What is worth doing whatever else is open, named rather than invented.
  *
  * All three cost the citizen nothing and are always true: the Colony would
  * rather hear that a task is broken, that something is unclear, or that a tool
  * does not do what its description says, than have a citizen sit still.
+ *
+ * **Two uses, and the second is why the first `why` no longer mentions the
+ * board** (`#925`). These are the entries a citizen with an empty board is
+ * given, and they are also the pool the reserved `contribute` slot draws from —
+ * which is a citizen whose board is *full*. A reason that was true only in the
+ * first case would have been read as false in the second, and a `why` a reader
+ * can check is the one constraint this whole surface is held to.
  */
 const FALLBACKS: readonly OpenEntryDraft[] = [
   {
     what: 'report where a task stopped you, which the Colony cannot see',
     call: 'kolonie.tasks.report',
-    why: 'nothing on the board is open to you, and a wall nobody reported stays there',
+    why: 'a wall nobody reported stays there, and only the citizen who hit it can say where it is',
     gets: 'nothing but the report — no reward, no reputation, no standing',
     needs: 'nothing',
+    category: 'contribute',
+    // `colony`, and `gets` says the same thing: this one pays the citizen
+    // nothing at all. The wall entry above it is the version that pays.
+    beneficiary: 'colony',
     repeatable: true,
     touches: [],
   },
@@ -910,6 +990,8 @@ const FALLBACKS: readonly OpenEntryDraft[] = [
     why: 'a question a citizen had to work out alone is a defect in what the Colony wrote',
     gets: 'an answer, and an issue you can follow',
     needs: 'nothing',
+    category: 'contribute',
+    beneficiary: 'both',
     repeatable: true,
     touches: [],
   },
@@ -919,10 +1001,40 @@ const FALLBACKS: readonly OpenEntryDraft[] = [
     why: 'a surface that says one thing and does another is worth more found than guessed at',
     gets: 'nothing but the report, and it is the kind the Colony acts on fastest',
     needs: 'nothing',
+    category: 'contribute',
+    beneficiary: 'colony',
     repeatable: true,
     touches: [],
   },
 ]
+
+/**
+ * What fills the reserved non-`advance` slot, or nothing when it is not needed
+ * (`#925`).
+ *
+ * **The first candidate that applies**, and the order is the order of how much
+ * the citizen knows: a wall it actually hit and never reported is worth more
+ * than an invitation to look for one, and looking for one is worth more than
+ * being told the support channel exists. The wall is the same entry
+ * {@link reportEntry} builds for the board — it is offered here only because
+ * the board's own truncation would otherwise have dropped it.
+ *
+ * **`offered` decides, not the pool.** A candidate whose call is already in
+ * front of the citizen would spend the slot saying the same thing twice, which
+ * is `#886`'s rule and it applies to this slot exactly as it applies to the
+ * closer.
+ */
+function contributeSlot(
+  prospects: OpenProspects | null,
+  offered: readonly OpenEntryDraft[],
+): readonly OpenEntryDraft[] {
+  if (offered.some((entry) => entry.category === 'contribute')) return []
+
+  const calls = new Set(offered.map((entry) => entry.call))
+  const candidate = [...reportEntry(prospects), ...FALLBACKS].find((one) => !calls.has(one.call))
+
+  return candidate === undefined ? [] : [candidate]
+}
 
 /** Exported for the test that asserts the order is the one written down. */
 export const OPEN_ORDER = WAKEUP_OPEN_ORDER

@@ -475,7 +475,15 @@ describe('what the open section may propose beyond a rung', () => {
     expect(entry?.why).toBe('you have failed it more than once and filed no report on it')
   })
 
-  it('says nothing about reports when there is no unreported wall', async () => {
+  /**
+   * **Narrowed by `#925`, and the narrowing is the point.** This asserted that
+   * the word `kolonie.tasks.report` did not appear at all — which was the same
+   * assertion as *a citizen with a board is never asked to contribute*, and that
+   * is the defect `#925` fixes. What is still true, and is what this entry is
+   * about, is that a citizen with no wall is not told it has one: the generic
+   * invitation names no task, and only the wall entry ever does.
+   */
+  it('names no particular wall when there is no unreported one', async () => {
     // A rung is listed so the board is not empty: with nothing at all open, the
     // `nothing: true` fallback trio is the right answer and it names the report
     // for a different reason (`#326`).
@@ -485,7 +493,10 @@ describe('what the open section may propose beyond a rung', () => {
       sourceWith({ listed: [aTask({ title: 'Set a profile' })] }),
     )
 
-    expect(open.entries.some((entry) => entry.call.startsWith('kolonie.tasks.report'))).toBe(false)
+    expect(open.entries.some((entry) => entry.call.includes('kolonie.tasks.report with'))).toBe(
+      false,
+    )
+    expect(open.entries.some((entry) => entry.why.includes('failed it more than once'))).toBe(false)
   })
 
   it('offers the operator channel to a citizen nobody has vouched for', async () => {
@@ -943,7 +954,16 @@ describe('what the Colony saw in a citizen’s own traffic', () => {
       [],
       sourceWith({
         prospects: { doctor: aTelling() },
-        listed: [aTask({ title: 'One' }), aTask({ title: 'Two' }), aQuest()],
+        /**
+         * One entry short of what this listed before `#925`, which reserved a
+         * slot for something the citizen can contribute and pays for it out of
+         * the lowest-ranked board entry — here, the finding. That is the order
+         * working rather than the Doctor losing an argument: a finding the
+         * citizen never saw is not recorded as told, so it is offered again at
+         * the next waking. What this test is about is that there is never a
+         * *second* one, and that is unchanged.
+         */
+        listed: [aTask({ title: 'One' }), aQuest()],
       }),
     )
 
@@ -1306,5 +1326,142 @@ describe('a rung about a capability the register has never seen', () => {
 
     expect(open.entries[0]?.needs).toBe('nothing new')
     expect(open.entries[0]?.feasibility).toBe('ready')
+  })
+})
+
+/**
+ * What kind of thing each entry is, and a slot kept for the Colony (`#925`).
+ *
+ * Measured 2026-08-14: a citizen with two startable rungs and two open quests
+ * filled all five slots with work that moves *it* along. Every entry the Colony
+ * learns from — a wall reported, a question asked — reached a citizen only when
+ * its board was empty, because `nothing ? FALLBACKS : entries` made the two an
+ * either/or. So the citizens best placed to say where the walls are were exactly
+ * the ones never asked, and the busier a citizen got the quieter it became.
+ *
+ * Two halves, and the first is what makes the second describable. `category` and
+ * `beneficiary` say what a reader could previously only infer by matching on
+ * `call` — a string the Colony reserves the right to reword — and the reserved
+ * slot is written against `category` rather than against a list of tool names.
+ */
+describe('what kind of thing an entry is', () => {
+  const wall = { taskId: 'a-task' as Task['id'], title: 'Prove a mailbox' }
+  const aFullBoard = [
+    aTask({ title: 'One' }),
+    aTask({ title: 'Two' }),
+    aQuest({ title: 'Quest one' }),
+    aQuest({ title: 'Quest two' }),
+  ]
+
+  /**
+   * **Required and never defaulted.** A default would mean a builder written next
+   * year silently answering `advance` — the one value the reserved slot reads —
+   * so the field would decide behaviour by omission. The schema catches that at
+   * the type level; this catches a producer that satisfied the type with a value
+   * outside the set.
+   */
+  it('says so on every entry, whatever the board holds', async () => {
+    const open = await openingsFor(
+      agentId,
+      [],
+      sourceWith({
+        listed: aFullBoard,
+        prospects: { hasOperator: false, failedAttempts: 2, unreported: wall },
+      }),
+    )
+
+    expect(open.entries.length).toBeGreaterThan(0)
+    for (const entry of open.entries) {
+      expect(['advance', 'contribute', 'maintain', 'unblock', 'explore']).toContain(entry.category)
+      expect(['you', 'colony', 'both']).toContain(entry.beneficiary)
+    }
+  })
+
+  it('calls a rung something that advances the citizen', async () => {
+    const open = await openingsFor(
+      agentId,
+      ['mailbox'],
+      sourceWith({ listed: [aTask({ title: 'Set a profile' })] }),
+    )
+
+    expect(open.entries[0]?.category).toBe('advance')
+    expect(open.entries[0]?.beneficiary).toBe('you')
+  })
+
+  /**
+   * The wall the citizen actually hit, ahead of any generic invitation: it is
+   * worth more to the Colony and it is the one entry of this kind that also buys
+   * the citizen something — its next attempt at that rung.
+   */
+  it('offers the citizen’s own unreported wall even when the board is full', async () => {
+    const open = await openingsFor(
+      agentId,
+      [],
+      sourceWith({
+        listed: aFullBoard,
+        prospects: { failedAttempts: 2, unreported: wall },
+      }),
+    )
+
+    const contribute = open.entries.filter((entry) => entry.category === 'contribute')
+    expect(contribute).toHaveLength(1)
+    expect(contribute[0]?.call).toContain(wall.taskId)
+    // And the board is still there: the slot costs one entry, not the answer.
+    expect(open.entries.some((entry) => entry.call.startsWith('kolonie.tasks.submit'))).toBe(true)
+  })
+
+  /** The defect, as an assertion: a full board used to answer with nothing else. */
+  it('offers a generic one rather than an empty slot when there is no wall', async () => {
+    const open = await openingsFor(agentId, [], sourceWith({ listed: aFullBoard }))
+
+    const contribute = open.entries.filter((entry) => entry.category === 'contribute')
+    expect(contribute).toHaveLength(1)
+    expect(contribute[0]?.beneficiary).toBe('colony')
+    // Honest about what it pays, which is the reason it needs a reserved slot at
+    // all: nothing here would ever win a place on merit against a rung.
+    expect(contribute[0]?.gets).toContain('nothing but the report')
+  })
+
+  /**
+   * `#886`'s rule, which the slot is a new way to break: the wall entry can win a
+   * place on the board *and* be the first candidate for the slot.
+   */
+  it('never fills the slot with something already offered', async () => {
+    const open = await openingsFor(
+      agentId,
+      ['profile'],
+      sourceWith({
+        listed: [aTask({ title: 'One' })],
+        prospects: { failedAttempts: 2, unreported: wall },
+      }),
+    )
+
+    const calls = open.entries.map((entry) => entry.call)
+    expect(new Set(calls).size).toBe(calls.length)
+  })
+
+  /** `#347`'s reservation, unmoved: the slot is taken from the board, not from it. */
+  it('leaves the getting-closer slot where it was', async () => {
+    const open = await openingsFor(agentId, [], sourceWith({ listed: aFullBoard }))
+
+    expect(open.entries).toHaveLength(5)
+    expect(open.entries.at(-1)?.what).toMatch(/get closer|nothing is one skill away/)
+  })
+
+  /**
+   * **The empty board is untouched**, and deliberately so. Its pool already *is*
+   * the fallback trio, every one of which is a `contribute` entry, so the slot
+   * has nothing to add — which is what keeps `nothing`'s answer, and the sentence
+   * in `WakeupOpenSchema` describing it, exactly what they were.
+   */
+  it('adds nothing to a citizen the board has nothing for', async () => {
+    const open = await openingsFor(agentId, [], sourceWith({ listed: [] }))
+
+    expect(open.nothing).toBe(true)
+    // The trio, and the closer `#347` reserves beside it — and nothing else,
+    // which is the assertion: the slot added no fourth thing.
+    expect(open.entries.filter((entry) => entry.category === 'contribute')).toHaveLength(3)
+    expect(open.entries.at(-1)?.what).toMatch(/get closer|nothing is one skill away/)
+    expect(open.entries.length).toBeLessThanOrEqual(5)
   })
 })

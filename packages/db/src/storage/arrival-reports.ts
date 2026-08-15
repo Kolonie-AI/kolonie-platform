@@ -1,10 +1,31 @@
-import { desc, sql } from 'drizzle-orm'
+import { and, asc, desc, inArray, isNull, sql } from 'drizzle-orm'
 import type { ArrivalReportRequest } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import { arrivalReports } from '../schema/arrival-reports.js'
 
 // Not `arrivals.ts`, which is the console's read of who *did* arrive. This
 // module is the other population: the ones that tried and did not.
+
+/** One report the runner has not counted into anything yet. */
+export interface UnactedArrivalReport {
+  readonly id: string
+  readonly createdAt: string
+  readonly runtime: string
+  readonly step: string
+  readonly expected: string
+  readonly actual: string
+  /**
+   * Whether somebody later registered from the same egress.
+   *
+   * **A boolean and not the name**, which the maintainer's read beside this one
+   * does return. The difference is who reads them: that one answers a person
+   * looking at one report and deciding what to do about it, this one is summed
+   * into a sentence in an issue, and *three of eleven eventually got in* is a
+   * measurement of the door where three names would be three citizens named in
+   * public for having had a bad afternoon before they were citizens.
+   */
+  readonly arrivedLater: boolean
+}
 
 /** One report as it was written, with whoever later registered from the same egress. */
 export interface ArrivalReportRow {
@@ -114,4 +135,97 @@ export async function recentArrivalReports(
     .limit(options.limit ?? 50)
 
   return rows
+}
+
+/**
+ * The reports the runner has not acted on, oldest first (`#1026`).
+ *
+ * **Oldest first and not newest**, which is the opposite of the maintainer's
+ * read above and for the opposite reason. A person opening a list wants what
+ * came in this morning; a runner draining a queue wants the report that has been
+ * waiting longest, because anything it does not reach on this pass it reaches on
+ * the next one — and a newest-first drain under a limit starves the oldest
+ * report forever, which is the one that has been unanswered longest.
+ *
+ * No fingerprint is selected. The runner has no use for one and there is no
+ * route by which a value that is never read can reach an issue body.
+ */
+export async function unactedArrivalReports(
+  db: Database,
+  options: { readonly limit?: number } = {},
+): Promise<readonly UnactedArrivalReport[]> {
+  const rows = await db
+    .select({
+      id: arrivalReports.id,
+      createdAt: arrivalReports.createdAt,
+      runtime: arrivalReports.runtime,
+      step: arrivalReports.step,
+      expected: arrivalReports.expected,
+      actual: arrivalReports.actual,
+      /** Both sides written out with their table names, on the `#311` reasoning above. */
+      arrivedLater: sql<boolean>`exists (
+        select 1
+        from "agents"
+        where "agents"."registration_fingerprint" = "arrival_reports"."fingerprint"
+      )`,
+    })
+    .from(arrivalReports)
+    .where(isNull(arrivalReports.actedOnAt))
+    .orderBy(asc(arrivalReports.createdAt))
+    .limit(options.limit ?? 200)
+
+  return rows
+}
+
+/**
+ * Mark reports as counted, and say into what.
+ *
+ * **The ids the runner actually acted on and never a whole query**, which is why
+ * this takes a list rather than a predicate. The runner reads, decides, files,
+ * and only then marks; a `where acted_on_at is null` update at the end would
+ * also swallow every report that arrived while the issue was being filed, and
+ * those have been read by nobody.
+ *
+ * Marking is idempotent by construction — a row already carrying a mark keeps
+ * the one it has, so a runner that files an issue and then dies before marking
+ * re-files rather than double-marks, and re-filing is what the body marker in
+ * `apps/support-triage-runner` catches.
+ */
+export async function markArrivalReportsActedOn(
+  db: Database,
+  input: { readonly ids: readonly string[]; readonly issueUrl: string },
+): Promise<number> {
+  return await mark(db, input.ids, input.issueUrl)
+}
+
+/**
+ * Mark reports as finished with, having never become a finding.
+ *
+ * A report that waited out the whole window without two others joining it is one
+ * agent's afternoon, and the runner stops carrying it — see `ARRIVAL_WINDOW_DAYS`
+ * in `apps/support-triage-runner`. **Nothing is deleted and nothing is hidden**:
+ * the row is untouched apart from the mark, and the maintainer's read above still
+ * answers with it. What ends is only the runner's interest.
+ */
+export async function letGoArrivalReports(
+  db: Database,
+  input: { readonly ids: readonly string[] },
+): Promise<number> {
+  return await mark(db, input.ids, null)
+}
+
+async function mark(
+  db: Database,
+  ids: readonly string[],
+  issueUrl: string | null,
+): Promise<number> {
+  if (ids.length === 0) return 0
+
+  const marked = await db
+    .update(arrivalReports)
+    .set({ actedOnAt: sql`now()`, issueUrl })
+    .where(and(inArray(arrivalReports.id, [...ids]), isNull(arrivalReports.actedOnAt)))
+    .returning({ id: arrivalReports.id })
+
+  return marked.length
 }

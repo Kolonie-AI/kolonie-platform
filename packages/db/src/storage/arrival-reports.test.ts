@@ -3,7 +3,13 @@ import { ArrivalReportRequestSchema, RegisterAgentRequestSchema } from '@kolonie
 import type { Database } from '../client.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
 import { registerAgent } from './agents.js'
-import { recentArrivalReports, recordArrivalReport } from './arrival-reports.js'
+import {
+  letGoArrivalReports,
+  markArrivalReportsActedOn,
+  recentArrivalReports,
+  recordArrivalReport,
+  unactedArrivalReports,
+} from './arrival-reports.js'
 
 const target = databaseTestTarget()
 
@@ -122,5 +128,85 @@ describe('reports from outside the door', () => {
     const reports = await recentArrivalReports(db)
 
     expect(reports.map((report) => report.actual)).toEqual(['newer', 'older'])
+  })
+
+  /**
+   * The runner's half of the same table (`#1026`).
+   *
+   * A different read from the one above and asserted separately, because the two
+   * disagree deliberately on both axes: this one runs oldest first, and it answers
+   * with a boolean where the maintainer's read answers with a name.
+   */
+  describe('the queue the runner drains', () => {
+    it('answers oldest first, so nothing is starved by a limit', async () => {
+      await recordArrivalReport(db, { fingerprint: anEgress, report: aReport({ actual: 'older' }) })
+      await recordArrivalReport(db, { fingerprint: anEgress, report: aReport({ actual: 'newer' }) })
+
+      const queued = await unactedArrivalReports(db)
+
+      expect(queued.map((report) => report.actual)).toEqual(['older', 'newer'])
+    })
+
+    /**
+     * **A count and never a name.** The maintainer's read answers with the citizen
+     * because a person is looking at one report; this one is summed into a
+     * sentence in a public issue, and a name there would name a citizen for
+     * having had a bad afternoon before they were one.
+     */
+    it('says only that somebody later got in from the same address', async () => {
+      await recordArrivalReport(db, { fingerprint: anEgress, report: aReport() })
+      await recordArrivalReport(db, { fingerprint: anotherEgress, report: aReport() })
+
+      const registered = await registerAgent(
+        db,
+        RegisterAgentRequestSchema.parse({ name: 'eventually', platform: 'hermes' }),
+        anEgress,
+      )
+      if (registered.outcome !== 'registered') throw new Error(registered.outcome)
+
+      const queued = await unactedArrivalReports(db)
+
+      expect(queued.map((report) => report.arrivedLater)).toEqual([true, false])
+      expect(JSON.stringify(queued)).not.toContain('eventually')
+    })
+
+    it('drops a report once it has been counted into an issue', async () => {
+      const { id } = await recordArrivalReport(db, { fingerprint: anEgress, report: aReport() })
+
+      const marked = await markArrivalReportsActedOn(db, {
+        ids: [id],
+        issueUrl: 'https://github.com/Kolonie-AI/kolonie-platform/issues/1026',
+      })
+
+      expect(marked).toBe(1)
+      expect(await unactedArrivalReports(db)).toEqual([])
+    })
+
+    /**
+     * The double-count the mark exists to prevent, asserted from the other side: a
+     * second pass over the same ids changes nothing and says so, so a runner that
+     * marks twice does not turn one door failure into two.
+     */
+    it('marks a report once, however many times it is asked', async () => {
+      const { id } = await recordArrivalReport(db, { fingerprint: anEgress, report: aReport() })
+      const issueUrl = 'https://github.com/Kolonie-AI/kolonie-platform/issues/1026'
+
+      await markArrivalReportsActedOn(db, { ids: [id], issueUrl })
+
+      expect(await markArrivalReportsActedOn(db, { ids: [id], issueUrl })).toBe(0)
+    })
+
+    /** Marked, pointing at nothing — the state the check constraint allows. */
+    it('lets a report go without filing anything, and keeps the row', async () => {
+      const { id } = await recordArrivalReport(db, { fingerprint: anEgress, report: aReport() })
+
+      expect(await letGoArrivalReports(db, { ids: [id] })).toBe(1)
+      expect(await unactedArrivalReports(db)).toEqual([])
+      expect(await recentArrivalReports(db)).toHaveLength(1)
+    })
+
+    it('asks the database nothing when it has nothing to mark', async () => {
+      expect(await letGoArrivalReports(db, { ids: [] })).toBe(0)
+    })
   })
 })

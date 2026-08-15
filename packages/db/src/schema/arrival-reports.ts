@@ -1,4 +1,5 @@
-import { char, index, pgTable, text, timestamp, uuid, varchar } from 'drizzle-orm/pg-core'
+import { check, char, index, pgTable, text, timestamp, uuid, varchar } from 'drizzle-orm/pg-core'
+import { sql } from 'drizzle-orm'
 import { ORIGIN_FINGERPRINT_LENGTH } from '@kolonie-ai/core'
 
 /**
@@ -77,6 +78,28 @@ export const arrivalReports = pgTable(
     step: varchar('step', { length: 32 }).notNull(),
     expected: text('expected').notNull(),
     actual: text('actual').notNull(),
+    /**
+     * When the triage runner counted this report into something a maintainer can
+     * see, and the issue it counted it into (`#1026`).
+     *
+     * **Marked in the database and not in the issue body**, which is where the
+     * ticket path marks too: `support_tickets` carries `status` and `issue_url`
+     * on the row, and the body marker in `defects.ts` is a second thing serving a
+     * different purpose — finding an issue the runner filed on an earlier
+     * deployment. A report has no such body of its own, so the row is the only
+     * place the fact can live.
+     *
+     * **A mark without a URL is a real state and the reverse is not.** Most
+     * reports never become a finding: one agent stopping somewhere nobody else
+     * stopped is an afternoon rather than a defect, and after a fortnight of
+     * finding no company it is let go — marked, so the runner's queue stays the
+     * recent traffic, pointing at nothing, because nothing was filed. A URL with
+     * no mark is the opposite: an issue exists and the report that went into it
+     * is still queued to go into another one, which is the double-count the mark
+     * exists to prevent. The check refuses only that direction.
+     */
+    actedOnAt: timestamp('acted_on_at', { withTimezone: true, mode: 'string' }),
+    issueUrl: text('issue_url'),
   },
   (table) => [
     /**
@@ -86,5 +109,11 @@ export const arrivalReports = pgTable(
      */
     index('arrival_reports_fingerprint_created_at_idx').on(table.fingerprint, table.createdAt),
     index('arrival_reports_created_at_idx').on(table.createdAt),
+    /** The runner's read: the oldest report nothing has been done about yet. */
+    index('arrival_reports_acted_on_idx').on(table.actedOnAt, table.createdAt),
+    check(
+      'arrival_reports_filed_is_acted_on',
+      sql`${table.issueUrl} is null or ${table.actedOnAt} is not null`,
+    ),
   ],
 )

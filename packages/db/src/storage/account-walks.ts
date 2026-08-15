@@ -22,6 +22,8 @@ import {
   type AgentPlatform,
   type AtlasCategory,
   type ProviderRecipe,
+  type ProviderTerms,
+  type SignupCost,
   type WalkOutcome,
   type WalkProse,
   type WalkVerdict,
@@ -460,6 +462,34 @@ async function republishWalls(
 }
 
 /**
+ * What a walk says about the money and the terms, for the entry it writes (`#983`).
+ *
+ * **The walker answers, and where it did not the entry keeps what it had.**
+ * `writeProviderRecipe` is an upsert whose rule is that an omitted field resets:
+ * a curation edit that does not mention `cost` is not re-asserting it. That rule
+ * is right for a curator editing a whole entry and wrong for a walk, which is
+ * told about two fields and nothing else — and the draft branch passed neither,
+ * so a walk against an entry somebody had already answered blanked both back to
+ * `unknown` on its way past.
+ *
+ * **`unknown` is never written from here.** The walk schema does not accept it,
+ * so a walker that did not look leaves the field out and this returns nothing
+ * for it, which is what leaves the previous answer standing.
+ */
+function conditionsFromWalk(
+  recipe: WalkedRecipe | null,
+  entry: ProviderRecipe | undefined,
+): { terms?: ProviderTerms; cost?: SignupCost } {
+  const terms = recipe?.terms ?? entry?.terms
+  const cost = recipe?.cost ?? entry?.cost
+
+  return {
+    ...(terms === undefined ? {} : { terms }),
+    ...(cost === undefined ? {} : { cost }),
+  }
+}
+
+/**
  * Replace the walker's own account on a draft it proposed (`#986`).
  *
  * **The one thing on a draft that is the walker's to write.** A citizen read
@@ -528,7 +558,18 @@ export async function amendProposedDraft(
      */
     await tx
       .update(providerRecipesTable)
-      .set({ walkedRecipe: recipe, updatedAt: sql`now()` })
+      .set({
+        walkedRecipe: recipe,
+        updatedAt: sql`now()`,
+        /**
+         * **Written only where the amendment names them** (`#983`), which is the
+         * same argument the paragraph above makes about the upsert, one field
+         * narrower: a walker correcting its steps has said nothing about the
+         * price, and nothing is what its silence should change.
+         */
+        ...(recipe.terms === undefined ? {} : { terms: recipe.terms }),
+        ...(recipe.cost === undefined ? {} : { cost: recipe.cost }),
+      })
       .where(
         and(
           eq(providerRecipesTable.kind, entry.kind),
@@ -707,6 +748,7 @@ export async function finishWalk(
          * added nothing must not delete the last walker's account.
          */
         ...(walk.recipe === null ? {} : { walkedRecipe: walk.recipe }),
+        ...conditionsFromWalk(walk.recipe, entry),
       })
 
       /**
@@ -741,6 +783,7 @@ export async function finishWalk(
         steps: [],
         /** A refusal's walls are the most useful account there is — see the draft above. */
         ...(walk.recipe === null ? {} : { walkedRecipe: walk.recipe }),
+        ...conditionsFromWalk(walk.recipe, entry),
       })
     }
 

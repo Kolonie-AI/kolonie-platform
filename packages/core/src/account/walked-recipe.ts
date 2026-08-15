@@ -1,5 +1,11 @@
 import { z } from 'zod'
 import { looksLikeCredential } from '../operator/request.js'
+import {
+  ProviderTermsSchema,
+  SignupCostSchema,
+  providerTermsSentence,
+  signupCostSentence,
+} from './atlas-conditions.js'
 
 /**
  * The walker's own long-form account of a path (`#769`).
@@ -177,6 +183,28 @@ export type WallPayment = z.infer<typeof WallPaymentSchema>
 /** How much a wall may say it costs, in dollars. A ceiling, not a guess at one. */
 export const WALL_AMOUNT_MAX_USD = 1_000_000
 
+/**
+ * What the walk cost, as the walker may report it (`#983`).
+ *
+ * **`unknown` is not on the door.** The enum carries it because an entry nobody
+ * examined has to say so, and that is the column's default — but a walker
+ * reporting *nobody looked* is a walker leaving the field out, and two ways to
+ * say one thing is the ambiguity `needs: []` already suffers from. So the value
+ * that means silence is spelled by silence.
+ *
+ * **Imported rather than restated**, unlike {@link WALKED_RECIPE_MAX_STEPS} one
+ * screen up. That constant is duplicated to keep this module free of anything
+ * that depends on it, and `atlas-conditions.ts` does not: its only reference to
+ * `recipe.ts` is a type, which is erased. Restating the four values here would
+ * make a fifth one addable in one place and not the other.
+ */
+export const WalkedSignupCostSchema = SignupCostSchema.exclude(['unknown'])
+export type WalkedSignupCost = z.infer<typeof WalkedSignupCostSchema>
+
+/** What the terms said, as the walker may report it. Same rule as the cost. */
+export const WalkedProviderTermsSchema = ProviderTermsSchema.exclude(['unknown'])
+export type WalkedProviderTerms = z.infer<typeof WalkedProviderTermsSchema>
+
 /** Something that stopped the walk, and what got past it. */
 export const WalkedRecipeWallSchema = z
   .object({
@@ -278,6 +306,21 @@ export const WalkedRecipeSchema = z
       .array(line(WALKED_RECIPE_LINE_MAX_LENGTH))
       .max(WALKED_RECIPE_MAX_ENTRIES)
       .optional(),
+    /**
+     * Where in the walk money was required (`#983`).
+     *
+     * **The one field on this list the walker does not have to write prose for**,
+     * and the reason it is here rather than in the steps: `cost` was
+     * curator-only, `cost: "unknown"` stood on 133 of 133 entries, and the agent
+     * that had just been quoted a price had nowhere to put it. The steps and the
+     * walls are the walker's words; these two are the walker's *answers*, and
+     * they land on the entry's own typed columns rather than on its prose.
+     *
+     * @see WalkedSignupCostSchema for why `unknown` is not accepted.
+     */
+    cost: WalkedSignupCostSchema.optional(),
+    /** What the terms said about an agent holding this (`#983`). Records; never gates. */
+    terms: WalkedProviderTermsSchema.optional(),
   })
   .strict()
   .refine(
@@ -286,7 +329,9 @@ export const WalkedRecipeSchema = z
         (recipe.steps?.length ?? 0) +
         (recipe.walls?.length ?? 0) +
         (recipe.verification?.length ?? 0) >
-      0,
+        0 ||
+      recipe.cost !== undefined ||
+      recipe.terms !== undefined,
     { message: 'a walked recipe with nothing in it is not an answer — leave it out instead.' },
   )
 export type WalkedRecipe = z.infer<typeof WalkedRecipeSchema>
@@ -328,6 +373,29 @@ export function otherWallWithoutASymptom(position: number): string {
     `Wall ${String(position)} is \`other\` and says nothing about what happened. Every other ` +
     'kind names itself; `other` names only what it is not, so a symptom is the whole of what ' +
     'the next agent gets. Write what it looked like, or pick the kind that fits.'
+  )
+}
+
+/**
+ * Why a walk saying *free* and *payment-required* in one breath is refused (`#983`).
+ *
+ * **The two are the same fact from two directions and `#983` says so.** A wall
+ * of kind `payment-required` is money standing between the agent and a working
+ * account; `cost: "free"` is the claim that money is never named. One of them is
+ * wrong, the walker is the only one who knows which, and it is still in the room
+ * — which is the whole argument for catching it at the door rather than storing
+ * a contradiction and leaving a steward to guess.
+ *
+ * **`card-to-sign-up` is not caught**, and that is the case the pair exists for:
+ * a card demanded before the account exists is a payment wall and is free of
+ * charge, and an agent with no card is stopped by it either way.
+ */
+export function costContradictsPaymentWall(): string {
+  return (
+    'This walk reports a `payment-required` wall and `cost: "free"`. Those are the same fact ' +
+    'from two directions and they disagree: a wall means money stood between you and a working ' +
+    'account, and `free` means money was never named. If a card had to be on file before the ' +
+    'account existed, that is `card-to-sign-up` — free of charge, and impossible without a card.'
   )
 }
 
@@ -384,6 +452,13 @@ export const SubmittedWalkedRecipeSchema = WalkedRecipeSchema.superRefine((recip
       })
     }
   }
+
+  /** The one place the two new answers can contradict the walls beside them. */
+  if (
+    recipe.cost === 'free' &&
+    (recipe.walls ?? []).some((wall) => wall.kind === 'payment-required')
+  )
+    ctx.addIssue({ code: 'custom', message: costContradictsPaymentWall(), path: ['cost'] })
 })
 
 /**
@@ -442,6 +517,28 @@ export function walkedRecipeAsText(recipe: WalkedRecipe): string {
   if (recipe.verification !== undefined && recipe.verification.length > 0) {
     parts.push(
       ['### How to tell it worked', ...recipe.verification.map((one) => `- ${one}`)].join('\n'),
+    )
+  }
+
+  /**
+   * **Rendered here as well as on the entry, and the two are not a duplicate**
+   * (`#983`). The entry's `cost` and `terms` are the Colony's answer, which a
+   * steward may have overwritten or never taken; this is what the walker said it
+   * measured. Where they agree the reader loses nothing by seeing it twice, and
+   * where they disagree the disagreement is the useful part.
+   */
+  const money = recipe.cost === undefined ? undefined : signupCostSentence(recipe.cost)
+  const terms = recipe.terms === undefined ? undefined : providerTermsSentence(recipe.terms)
+
+  if (money !== undefined || terms !== undefined) {
+    parts.push(
+      [
+        '### What it took',
+        money === undefined ? undefined : `- Money: ${money}`,
+        terms === undefined ? undefined : `- Terms: ${terms}`,
+      ]
+        .filter((one) => one !== undefined)
+        .join('\n'),
     )
   }
 

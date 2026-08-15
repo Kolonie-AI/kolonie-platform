@@ -1,7 +1,9 @@
+import { randomUUID } from 'node:crypto'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { FastifyInstance } from 'fastify'
 import { buildApp } from '../app.js'
 import { fakeColony, type FakeColony } from '../__fixtures__/colony/index.js'
+import { fakeHumans } from '../__fixtures__/humans.js'
 import { fakeStore, type FakeStore } from '../__fixtures__/store.js'
 import {
   AccountKindSchema,
@@ -28,21 +30,40 @@ const proposal = (overrides: Partial<EntryProposal> = {}): EntryProposal => ({
 /**
  * Curating the Atlas (`#549`).
  *
- * A section on pages that already exist, not a new tool — and reachable by a
- * steward as well as by the maintainer, because a catalogue only one person can
- * maintain is a catalogue that stops when that person is busy.
+ * A section on a page that already exists, not a new tool — drawn on
+ * `/backend/atlas` and decided from there.
+ *
+ * **`#549` put it behind the steward's gate as well, so that a catalogue would
+ * not stop when one person was busy.** The model pass in `#812` is what answers
+ * that now, and `#943` deleted the steward console: the section renders and
+ * decides behind one gate, on the maintainer's own page, so the forms below post
+ * where they are drawn.
  */
 describe('the curation section', () => {
   let app: FastifyInstance
   let colony: FakeColony
   let store: FakeStore
+  let humans: ReturnType<typeof fakeHumans>
   let consoleHost: string
 
   const build = () => {
     colony = fakeColony()
     store = fakeStore()
+    humans = fakeHumans()
     consoleHost = new URL(colony.console.consoleUrl).host
-    return buildApp({ ...colony, store })
+    return buildApp({ ...colony, store, humans })
+  }
+
+  /** A signed-in person holding `maintainer`, which is the whole gate now. */
+  const aMaintainer = async () => {
+    const human = humans.store.holdsIdentity({
+      provider: 'github',
+      subject: `subject-${randomUUID()}`,
+      email: 'someone@example.test',
+    })
+    humans.store.maintains(human.id)
+    const { session } = await humans.store.openSession(human.id, {})
+    return session
   }
 
   beforeEach(async () => {
@@ -86,7 +107,7 @@ describe('the curation section', () => {
     ).toContain('an empty one is the good answer')
   })
 
-  it('shows a complete 2000-character walk note to the steward', async () => {
+  it('shows a complete 2000-character walk note to the curator', async () => {
     const { curationSections } = await import('../console/curation.js')
     const note = 'a'.repeat(2000)
     const walk = {
@@ -152,7 +173,7 @@ describe('the curation section', () => {
     expect(rendered).toContain('citizen')
   })
 
-  it('shows a walked draft and gives a steward both decisions', async () => {
+  it('shows a walked draft and gives the curator both decisions', async () => {
     const { curationSections } = await import('../console/curation.js')
     colony.recipes.write({
       kind: 'mailbox',
@@ -180,8 +201,8 @@ describe('the curation section', () => {
     expect(rendered).toContain('Open the signup form.')
     expect(rendered).toContain('Please pass the check.')
     expect(rendered).toContain('email-inbox')
-    expect(rendered).toContain('/recipe-drafts/mailbox/walked.example/publish')
-    expect(rendered).toContain('/recipe-drafts/mailbox/walked.example/refuse')
+    expect(rendered).toContain('/backend/atlas/drafts/mailbox/walked.example/publish')
+    expect(rendered).toContain('/backend/atlas/drafts/mailbox/walked.example/refuse')
   })
 
   /**
@@ -262,14 +283,14 @@ describe('the curation section', () => {
       decidedAt: null,
     })
 
-    /** The rejection case `#600` names: a non-steward attempting any action. */
+    /** The rejection case `#600` names: a caller with no session attempting any action. */
     it('refuses every action to a caller with no credential', async () => {
       colony.recipes.proposeProvider(proposedProvider())
 
       for (const action of ['accept', 'refuse', 'merge']) {
         const response = await app.inject({
           method: 'POST',
-          url: `/atlas-proposals/${proposedProvider().id}/${action}`,
+          url: `/backend/atlas/providers/${proposedProvider().id}/${action}`,
           payload: { category: 'knowledge-docs', reason: 'no', into: 'cloudflare.com' },
         })
 
@@ -319,10 +340,10 @@ describe('the curation section', () => {
 
   describe('who may reach it', () => {
     /**
-     * Behind the **steward** gate rather than the maintainer's, because `#549`
-     * requires that stewards curate. A caller with no credential gets the same
-     * 401 every other privileged route answers with — `stewardFor`'s convention,
-     * not a new one.
+     * Behind the maintainer's gate since `#943`, which is the gate the page
+     * these forms are drawn on has always been behind. An API key reaches none
+     * of it: `#485` asks that no console page be reachable by holding an agent
+     * role, and a decision route is a console page with a button on it.
      */
     it('refuses the decision routes to a caller with no credential', async () => {
       colony.recipes.propose(proposal())
@@ -330,21 +351,43 @@ describe('the curation section', () => {
       for (const decision of ['accept', 'refuse']) {
         const response = await app.inject({
           method: 'POST',
-          url: `/curation/${proposal().id}/${decision}`,
+          url: `/backend/atlas/entries/${proposal().id}/${decision}`,
         })
 
         /**
-         * **401 or 404 depending on the host**, which is the console's existing
-         * shape rather than something this issue introduced: on the console's
-         * own host an unauthorised caller is told the route is not there, and
-         * elsewhere `stewardFor` answers 401. Both are refusals and neither is
-         * a success — asserting the pair rather than one of them is what keeps
-         * this test about the gate instead of about the hostname.
+         * **404 rather than 401**, on the console's host and off it: the whole
+         * `/backend` tree answers an unauthorised caller by saying the route is
+         * not there. Asserting the pair keeps this test about the gate rather
+         * than about which refusal the console happens to use.
          */
         expect([401, 404]).toContain(response.statusCode)
       }
 
       // The property that actually matters: nothing was decided.
+      expect(await colony.recipes.proposals()).toHaveLength(1)
+    })
+
+    /**
+     * The rejection case `#943` adds: **an agent role opens none of it.** A
+     * steward key was the credential these routes took, and the issue's own
+     * sentence is that no console page may be reached by holding one.
+     */
+    it('refuses a decision route to an agent holding a role', async () => {
+      colony.recipes.propose(proposal())
+      const issued = store.issue({})
+      store.setRoles(issued.agent.id, ['steward'])
+
+      const response = await app.inject({
+        method: 'POST',
+        url: `/backend/atlas/entries/${proposal().id}/accept`,
+        headers: {
+          host: consoleHost,
+          accept: 'application/json',
+          authorization: `Bearer ${String(issued.apiKey)}`,
+        },
+      })
+
+      expect(response.statusCode).toBe(404)
       expect(await colony.recipes.proposals()).toHaveLength(1)
     })
   })
@@ -361,22 +404,16 @@ describe('the curation section', () => {
         provesTask: 'email-inbox',
       })
 
-    const steward = () => {
-      const issued = store.issue({})
-      store.setRoles(issued.agent.id, ['steward'])
-      return String(issued.apiKey)
-    }
-
-    it('publishes the walked steps in one steward action', async () => {
+    it('publishes the walked steps in one press', async () => {
       seedDraft()
 
       const response = await app.inject({
         method: 'POST',
-        url: '/recipe-drafts/mailbox/walked.example/publish',
+        url: '/backend/atlas/drafts/mailbox/walked.example/publish',
         headers: {
           host: consoleHost,
           accept: 'application/json',
-          authorization: `Bearer ${steward()}`,
+          cookie: `__Host-kolonie_session=${await aMaintainer()}`,
         },
       })
 
@@ -391,11 +428,11 @@ describe('the curation section', () => {
 
       const response = await app.inject({
         method: 'POST',
-        url: '/recipe-drafts/mailbox/walked.example/refuse',
+        url: '/backend/atlas/drafts/mailbox/walked.example/refuse',
         headers: {
           host: consoleHost,
           accept: 'application/json',
-          authorization: `Bearer ${steward()}`,
+          cookie: `__Host-kolonie_session=${await aMaintainer()}`,
         },
         payload: { reason: 'The route asks the operator to perform the whole signup.' },
       })
@@ -412,11 +449,11 @@ describe('the curation section', () => {
 
       const response = await app.inject({
         method: 'POST',
-        url: '/recipe-drafts/mailbox/walked.example/refuse',
+        url: '/backend/atlas/drafts/mailbox/walked.example/refuse',
         headers: {
           host: consoleHost,
           accept: 'application/json',
-          authorization: `Bearer ${steward()}`,
+          cookie: `__Host-kolonie_session=${await aMaintainer()}`,
         },
         payload: { reason: '   ' },
       })
@@ -440,11 +477,11 @@ describe('the curation section', () => {
 
       const response = await app.inject({
         method: 'POST',
-        url: '/recipe-drafts/mailbox/walked.example/publish',
+        url: '/backend/atlas/drafts/mailbox/walked.example/publish',
         headers: {
           host: consoleHost,
           accept: 'application/json',
-          authorization: `Bearer ${steward()}`,
+          cookie: `__Host-kolonie_session=${await aMaintainer()}`,
         },
       })
 
@@ -460,7 +497,7 @@ describe('the curation section', () => {
      *
      * A walk writes its steps wordless on purpose, so **every** draft a walk
      * produced was refused by the test above and the only other button emptied
-     * the row. What is asserted here is the third option: the steward writes the
+     * the row. What is asserted here is the third option: the curator writes the
      * Colony's sentences and the draft publishes in the same press, because two
      * presses is where a half-dressed draft would live.
      */
@@ -479,11 +516,11 @@ describe('the curation section', () => {
       const publish = async (payload: Record<string, string>) =>
         app.inject({
           method: 'POST',
-          url: '/recipe-drafts/mailbox/walked.example/publish',
+          url: '/backend/atlas/drafts/mailbox/walked.example/publish',
           headers: {
             host: consoleHost,
             accept: 'application/json',
-            authorization: `Bearer ${steward()}`,
+            cookie: `__Host-kolonie_session=${await aMaintainer()}`,
           },
           payload,
         })
@@ -509,7 +546,7 @@ describe('the curation section', () => {
       })
 
       /**
-       * **Nothing lands when the wording does not fit.** A steward who described
+       * **Nothing lands when the wording does not fit.** A curator who described
        * one step of two gets the form back with the sentence saying so, rather
        * than a draft carrying half a rewrite.
        */
@@ -554,11 +591,11 @@ describe('the curation section', () => {
 
         const response = await app.inject({
           method: 'POST',
-          url: '/recipe-drafts/mailbox/walked.example/publish',
+          url: '/backend/atlas/drafts/mailbox/walked.example/publish',
           headers: {
             host: consoleHost,
             accept: 'application/json',
-            authorization: `Bearer ${steward()}`,
+            cookie: `__Host-kolonie_session=${await aMaintainer()}`,
           },
         })
 
@@ -568,7 +605,7 @@ describe('the curation section', () => {
         ).toBe('joinable')
       })
 
-      /** The steward needs the walker's account beside the boxes, or there is nothing to write from. */
+      /** The curator needs the walker's account beside the boxes, or there is nothing to write from. */
       it('offers the form and the walker’s own account on a held draft', async () => {
         const { curationSections } = await import('../console/curation.js')
         colony.recipes.write({

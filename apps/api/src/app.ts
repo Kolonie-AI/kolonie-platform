@@ -36,7 +36,6 @@ import {
   consoleNotFound,
   isConsoleRequest,
   registerConsolePages,
-  registerStewardPages,
 } from './routes/console-pages.js'
 import { registerAcademyRoutes } from './routes/academy.js'
 import { registerProviderEnquiryRoute } from './routes/provider-enquiries.js'
@@ -614,7 +613,6 @@ export function buildApp({
   // outside `/v1` for the same reason: a URL a stranger's feed has cached
   // outlives an API version.
   registerShareImageRoutes(app, routes)
-  registerStewardPages(app, routes)
   // Host routes rather than `/v1/`: these are pages a person clicks out of a
   // mail, and an API version in the URL would break them for reasons that have
   // nothing to do with the form. Same call the console made (#146).

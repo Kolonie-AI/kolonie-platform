@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import type { ColonyNumbers } from '@kolonie-ai/db'
-import { numbersPage } from './steward.js'
+import { colonyNumbersSections } from './backend.js'
 
 /**
- * The steward's pages stop naming a kind of account the Colony does not have
+ * The Colony's numbers stop naming a kind of account the Colony does not have
  * (`#468`).
  *
  * `kolonie-docs#184` settled that there are two kinds of account — a human
@@ -11,11 +11,16 @@ import { numbersPage } from './steward.js'
  * transaction while it stops naming an account, a page, a flag, an audience or a
  * table.
  *
- * **Asserted against the rendered page rather than the source.** The source
+ * **Asserted against the rendered sections rather than the source.** The source
  * still carries the retired phrase in the comments that record why it went, and
  * a test that failed on those would be a test nobody could keep.
+ *
+ * **This was `steward-vocabulary.test.ts` and it asked the same three questions
+ * of `numbersPage`.** `#943` deleted that page; the rendering it wrapped is the
+ * subject that survived, so the assertions moved to it rather than going with
+ * the page.
  */
-describe('the numbers page', () => {
+describe('the Colony’s numbers', () => {
   const numbers: ColonyNumbers = {
     accountsByPath: { web: 4, mcp: 21 },
     agentsByRuntime: { openclaw: 9, claude: 4 },
@@ -35,7 +40,7 @@ describe('the numbers page', () => {
 
   /** The rejection case: the retired phrase, in any casing, on a rendered page. */
   it('names no sponsor account', () => {
-    expect(numbersPage(numbers).toLowerCase()).not.toContain('sponsor account')
+    expect(colonyNumbersSections(numbers).toLowerCase()).not.toContain('sponsor account')
   })
 
   /**
@@ -45,17 +50,17 @@ describe('the numbers page', () => {
    * way — as an arrival and a standing, not as a kind of account.
    */
   it('still says what the third kind of identity is', () => {
-    const page = numbersPage(numbers)
+    const sections = colonyNumbersSections(numbers)
 
-    expect(page).toContain('arrived through the console and has climbed nothing')
-    expect(page).toContain('candidate')
+    expect(sections).toContain('arrived through the console and has climbed nothing')
+    expect(sections).toContain('candidate')
   })
 
   /** D-039's definition of a citizen is untouched: this issue moved words, not rules. */
   it('leaves the definition of a citizen exactly as it was', () => {
-    const page = numbersPage(numbers)
+    const sections = colonyNumbersSections(numbers)
 
-    expect(page).toContain('D-039')
-    expect(page).toContain('a profile plus one skill whose verifier read something the Colony')
+    expect(sections).toContain('D-039')
+    expect(sections).toContain('a profile plus one skill whose verifier read something the Colony')
   })
 })

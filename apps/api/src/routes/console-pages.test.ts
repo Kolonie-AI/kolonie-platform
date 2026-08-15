@@ -1182,12 +1182,13 @@ describe('a browser sponsor taking an API key (#400)', () => {
 
 /**
  * `#486`. There was no page that answered *how is the Colony doing* to the
- * person running it. `/numbers` is the nearest thing and is neither reachable by
- * a person — it gates on the **agent** role `steward` — nor the whole picture,
- * being one table of aggregates.
+ * person running it. The nearest thing was `/numbers`, which was neither
+ * reachable by a person — it gated on the **agent** role `steward` — nor the
+ * whole picture, being one table of aggregates. `#943` deleted it once this page
+ * carried the same figures behind a gate a person can pass.
  *
- * What is asserted here is the gate, in all four of its states, and that the
- * figures are the steward page's figures rather than a second query.
+ * What is asserted here is the gate, in all four of its states, and the figures
+ * that page used to hold.
  */
 describe('the maintainer’s page', () => {
   /** Sign a person in, optionally holding the role. */
@@ -1228,7 +1229,7 @@ describe('the maintainer’s page', () => {
 
     expect(response.statusCode).toBe(200)
     expect(response.body).toContain('The Colony, from the inside')
-    // The numbers section, which is the steward page's own rendering.
+    // The numbers section, which is the only rendering of these figures.
     expect(response.body).toContain('Accounts, by the way they arrived')
     expect(response.body).toContain('Computed at')
   })
@@ -1566,21 +1567,16 @@ describe('who arrived and what is waiting', () => {
   /**
    * **The rejection case `#607` asks for: nothing here reaches a published
    * figure.** `kolonie-docs#216` decides what may be shown outside, and this
-   * section changes none of it — so the steward's `/numbers`, which is the
-   * nearest published surface, must carry none of the new fields.
+   * section changes none of it — so the Colony's own aggregates, the nearest
+   * thing to a published surface, must carry none of the new fields.
+   *
+   * **Read off `/backend` since `#943`**, which deleted the `/numbers` page this
+   * used to ask. Same figures, same query, one gate fewer.
    */
   it('reaches no published figure', async () => {
-    const numbers = await app.inject({
-      method: 'GET',
-      url: '/numbers',
-      headers: {
-        host: CONSOLE_HOST,
-        accept: 'application/json',
-        authorization: `Bearer ${apiKey}`,
-      },
-    })
+    const numbers = await backend(await aMaintainer(), '/backend', 'application/json')
 
-    const serialised = JSON.stringify(numbers.json())
+    const serialised = JSON.stringify(numbers.json().numbers)
     for (const field of ['originKey', 'operatorKey', 'mailboxDomain', 'emailDomain', 'arrivals']) {
       expect(serialised).not.toContain(field)
     }

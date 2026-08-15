@@ -84,7 +84,6 @@ import {
   type Conversation,
   type ConversationSlot,
 } from '../console/account-thread.js'
-import { curationPage, numbersPage } from '../console/steward.js'
 import {
   backendArrivalsPage,
   backendAtlasPage,
@@ -129,7 +128,6 @@ import {
   endQuest,
   writeQuestDraft,
 } from '../quests.js'
-import { stewardFor } from './privileged.js'
 import { clientIp } from '../client-ip.js'
 import { routeKeyOf } from '../call-rollup.js'
 import { cookieValue, sessionCookie } from './authenticated.js'
@@ -1250,18 +1248,21 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
   /**
    * The maintainer's gate (`#486`).
    *
-   * **Registered here, in the human-facing registration, and not beside
-   * `steward` in `registerStewardPages`.** That is the separation the issue
-   * asks for made structural: this function is the one that can resolve a
-   * person, and `registerStewardPages` is the one that can resolve an agent.
-   * Neither can reach the other's resolver, so *shares no code path that
-   * resolves an identity* is a fact about the scopes rather than a discipline.
+   * **The separation the issue asked for is now the absence of the other
+   * side.** It used to be structural: this registration resolved a person and a
+   * second one, `registerStewardPages`, resolved an agent, and neither could
+   * reach the other's resolver. `#943` deleted that second registration, so no
+   * console page resolves an agent at all and *shares no code path that resolves
+   * an identity* is trivially true — `#485`'s sentence, *"no console page is
+   * reachable by holding an agent role"*, is a fact about the file rather than
+   * about a boundary inside it.
    *
-   * **That separation is a security property rather than tidiness.** The two
-   * roles open pages on the same host and authenticate through different tables:
-   * `credentials` for an agent, `human_sessions` for a person. `humans.ts`
-   * states what is at stake — *"A bug there does not render a wrong page; it
-   * hands somebody a citizen's authority."*
+   * **That separation was a security property rather than tidiness**, which is
+   * why it is worth recording what it was guarding. Two roles opened pages on
+   * the same host and authenticated through different tables: `credentials` for
+   * an agent, `human_sessions` for a person. `humans.ts` states what was at
+   * stake — *"A bug there does not render a wrong page; it hands somebody a
+   * citizen's authority."*
    *
    * So this reaches for {@link person} and never for {@link caller}, and the
    * compile is what stops the substitution: `person` resolves to a `Human`,
@@ -1269,8 +1270,8 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
    * `Agent` could be mistaken for — `HumanId` is branded apart from `AgentId` in
    * core precisely so this is a type error rather than a review comment.
    *
-   * A caller without the role gets `callNotFound()`, exactly as the steward gate
-   * does: the page does not announce itself to somebody who cannot have it.
+   * A caller without the role gets `callNotFound()`: the page does not announce
+   * itself to somebody who cannot have it.
    * That covers all three refusals in one branch — no session at all, a person's
    * session without the role, and an agent's session, which `person` cannot
    * resolve in the first place.
@@ -1305,8 +1306,10 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
    * Colony* is a route with its own read and its own JSON body, and the reads
    * that were sequential are simply not made.
    *
-   * The landing page reads the same `colonyNumbers()` the steward's page reads —
-   * one function, two pages, so the two cannot disagree about the same figure.
+   * The landing page reads `colonyNumbers()` and is the only page that does.
+   * `/numbers` read it too until `#943` deleted that page, and the reason it
+   * could be deleted is that the two never disagreed: one function, and now one
+   * caller.
    *
    * ## One guard, applied nine times
    *
@@ -1766,7 +1769,16 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
       : reply.send({ wanted })
   })
 
-  /** Curating the Atlas (`#549`) — the same queue a steward reads on `/review`. */
+  /**
+   * Curating the Atlas (`#549`) — the queue, and every decision on it.
+   *
+   * **The page rendered here and the routes its buttons post to are one gate**
+   * (`#943`). The section has been drawn on this page since `#549`, but its
+   * forms posted to the steward's `/review` tree, so a maintainer who was not
+   * also a steward pressed a button and got a 404 from a page that had just
+   * shown them the row. `/review` is gone and the writes moved under this path,
+   * which is the one that says who owns them.
+   */
   app.get('/backend/atlas', async (request, reply) => {
     if ((await backendGuard(request, reply)) === null) return reply
 
@@ -1782,6 +1794,215 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
         )
       : reply.send({ curation: read })
   })
+
+  /**
+   * Publish or refuse the walked steps in a draft (`#808`), writing the wording
+   * first where the maintainer supplied it (`#857`).
+   */
+  for (const verdict of ['publish', 'refuse'] as const) {
+    app.post(`/backend/atlas/drafts/:kind/:provider/${verdict}`, async (request, reply) => {
+      if ((await backendGuard(request, reply)) === null) return reply
+
+      const params = z
+        .object({ kind: AccountKindSchema, provider: AccountProviderSchema })
+        .safeParse(request.params)
+      const body =
+        verdict === 'refuse'
+          ? z
+              .object({ reason: z.string().trim().min(1).max(RECIPE_REFUSAL_MAX_LENGTH) })
+              .safeParse(request.body ?? {})
+          : undefined
+
+      if (!params.success || (body !== undefined && !body.success)) {
+        return reply.status(ERROR_STATUS['validation_failed']).send({
+          code: 'validation_failed',
+          message:
+            verdict === 'refuse'
+              ? 'Refusing a walked recipe needs a sentence the walker can read.'
+              : 'That draft does not name a valid account kind and provider.',
+        })
+      }
+
+      const draft = await deps.recipes.one(params.data.kind, params.data.provider)
+      if (draft === undefined || draft.status !== 'draft') return consoleNotFound(reply, request)
+
+      /**
+       * **The wording is optional and the press is the same press** (`#857`).
+       * A draft that already reads as a recipe publishes exactly as it did
+       * before; one that arrived wordless from a walk is dressed and published
+       * in one action, because two presses is where a half-dressed draft would
+       * live.
+       */
+      const wording =
+        verdict === 'publish' ? wordingIn(request.body, draft.steps.length) : undefined
+      if (wording?.ok === false) {
+        return reply.status(ERROR_STATUS['validation_failed']).send({
+          code: 'validation_failed',
+          message: wording.why,
+        })
+      }
+
+      const dressed =
+        wording === undefined ? undefined : dressWalkedSteps(draft.steps, wording.wording.steps)
+      if (dressed?.ok === false) {
+        return reply.status(ERROR_STATUS['validation_failed']).send({
+          code: 'validation_failed',
+          message: dressed.why,
+        })
+      }
+
+      /**
+       * Judged on what publishing would leave behind, so a draft that would
+       * still be unpublishable is refused **before** anything is written and the
+       * form comes back rather than half-landing.
+       */
+      const effective: ProviderRecipe =
+        dressed === undefined || wording === undefined
+          ? draft
+          : {
+              ...draft,
+              steps: [...dressed.steps],
+              proves: wording.wording.proves,
+              provesTask: wording.wording.provesTask ?? null,
+            }
+
+      const missing = verdict === 'publish' ? whyNotPublishable(effective) : undefined
+      if (missing !== undefined) {
+        return reply.status(ERROR_STATUS['validation_failed']).send({
+          code: 'validation_failed',
+          message: missing,
+        })
+      }
+
+      if (dressed !== undefined && wording !== undefined) {
+        const written = await deps.recipes.dressDraft(params.data.kind, params.data.provider, {
+          steps: dressed.steps,
+          proves: wording.wording.proves,
+          ...(wording.wording.provesTask === undefined
+            ? {}
+            : { provesTask: wording.wording.provesTask }),
+        })
+
+        if (!written) return consoleNotFound(reply, request)
+      }
+
+      const moved = await deps.recipes.decideDraft(
+        params.data.kind,
+        params.data.provider,
+        verdict === 'publish'
+          ? { verdict: 'published' }
+          : { verdict: 'refused', refusal: body?.success === true ? body.data.reason : '' },
+      )
+
+      if (!moved) return consoleNotFound(reply, request)
+
+      return wantsHtml(request)
+        ? reply.redirect('/backend/atlas', 303)
+        : reply.send({
+            kind: params.data.kind,
+            provider: params.data.provider,
+            status: verdict === 'publish' ? 'joinable' : 'refused',
+          })
+    })
+  }
+
+  /**
+   * Accepting or refusing a proposed entry (`#549`).
+   *
+   * **One press, and it is recorded against its author** — the row keeps who
+   * proposed it and gains when it was decided.
+   *
+   * **Behind the maintainer gate** (`#943`). `#549` put it behind the steward's
+   * as well, so that a catalogue would not stop when one person was busy; the
+   * model pass in `#812` is what answers that now, and every proposal it decides
+   * is decided before anybody opens this page. What is left is the correction
+   * path for a decision the model got wrong, and a correction belongs where the
+   * other overrides are.
+   *
+   * **Accepting records the decision; it does not write the entry.** Applying a
+   * reviewed change is a curation edit made deliberately, and a button that both
+   * approved and published would be the one press that puts a stranger's text
+   * into the catalogue.
+   */
+  for (const decision of ['accept', 'refuse'] as const) {
+    app.post(`/backend/atlas/entries/:proposalId/${decision}`, async (request, reply) => {
+      if ((await backendGuard(request, reply)) === null) return reply
+
+      const { proposalId } = request.params as { proposalId?: string }
+      const decided = await deps.recipes.decide(
+        proposalId ?? '',
+        decision === 'accept' ? 'accepted' : 'refused',
+      )
+
+      if (decided === undefined) return consoleNotFound(reply, request)
+
+      return wantsHtml(request) ? reply.redirect('/backend/atlas', 303) : reply.send(decided)
+    })
+  }
+
+  /**
+   * Deciding a proposed provider (`#600`).
+   *
+   * **Three actions and one of them needs words.** Accepting writes the listing;
+   * merging records that the provider was already on the map under another
+   * hostname; refusing needs a sentence, because the proposer is told the
+   * outcome and *no* with no reason teaches nothing and invites the same
+   * proposal next month.
+   *
+   * **Accepting produces a listing and nothing more.** The entry says the
+   * provider, its shelf and *nobody has looked* — no steps are invented, because
+   * what the Colony says about somebody else's product passes a person who
+   * walked it, and a button that wrote a recipe would be that rule dying
+   * quietly.
+   */
+  for (const action of ['accept', 'refuse', 'merge'] as const) {
+    app.post(`/backend/atlas/providers/:proposalId/${action}`, async (request, reply) => {
+      if ((await backendGuard(request, reply)) === null) return reply
+
+      const { proposalId } = request.params as { proposalId?: string }
+      const body = (request.body ?? {}) as Record<string, unknown>
+
+      const parsed = ProposalActionSchema.safeParse(
+        action === 'accept'
+          ? { action, category: body['category'] }
+          : action === 'refuse'
+            ? { action, reason: body['reason'] }
+            : { action, into: body['into'] },
+      )
+
+      if (!parsed.success) {
+        return reply.status(ERROR_STATUS['validation_failed']).send({
+          code: 'validation_failed',
+          message:
+            action === 'refuse'
+              ? 'A refusal needs a sentence the proposer can read. They are told the outcome, ' +
+                'and “no” with no reason teaches nothing.'
+              : action === 'merge'
+                ? 'A merge names the entry this provider turned out to be, as the Atlas prints it.'
+                : 'Listing one needs the shelf it goes on, from the Atlas’s own categories. That ' +
+                  'is the one thing a listing claims, so it is yours to answer rather than the ' +
+                  'proposer’s.',
+        })
+      }
+
+      const decided = await deps.recipes.decideProvider(proposalId ?? '', parsed.data)
+
+      if (decided.outcome === 'not-pending') return consoleNotFound(reply, request)
+
+      if (decided.outcome === 'no-such-entry') {
+        return reply.status(ERROR_STATUS['validation_failed']).send({
+          code: 'validation_failed',
+          message:
+            'Nothing in the catalogue holds that provider, so there is nothing to merge into. ' +
+            'Listing it is the other answer.',
+        })
+      }
+
+      return wantsHtml(request)
+        ? reply.redirect('/backend/atlas', 303)
+        : reply.send(decided.proposal)
+    })
+  }
 
   /** Everything a maintainer may turn without a deploy (`#489`, D-104). */
   const renderSettings = async (request: FastifyRequest, reply: FastifyReply, notice?: string) => {
@@ -5238,301 +5459,14 @@ function wordingIn(
 }
 
 /**
- * Everything else on the console host is the sign-in page.
+ * The console's 404, and it stopped being the sign-in page in `#396`.
  *
  * A 404 listing the API's routes would be an oracle for which console pages
- * exist, and there is nothing here to find while signed out — so an unknown
- * path answers exactly as the front door does.
- *
- * Called from `app.ts`'s single not-found handler rather than registered as a
- * second one: Fastify allows one per context, and the API's own answer names
- * the REST prefix and the MCP path, which is the wrong thing to say to a
+ * exist, so an unknown path on the console host answers with this and nothing
+ * else. Called from `app.ts`'s single not-found handler rather than registered
+ * as a second one: Fastify allows one per context, and the API's own answer
+ * names the REST prefix and the MCP path, which is the wrong thing to say to a
  * browser.
- */
-/**
- * The steward's two pages (`#181`).
- *
- * **Behind `stewardFor`, which is the same guard the `/v1/quests/review` route
- * uses** — one definition of *who may do this*, and `#173` is explicit that the
- * role is the only permission axis. A second check written here would be a
- * second answer.
- *
- * **A browser that is not a steward gets the not-found handler**, exactly as a
- * signed-out browser does on a sponsor's page and for the reason that file
- * argues: answering `403` to a browser would tell a stranger which console paths
- * are real. An agent, which holds a credential and can act on the answer, gets
- * the ordinary `403` from `stewardFor`.
- */
-export function registerStewardPages(app: FastifyInstance, deps: RouteDependencies): void {
-  const host = consoleHost(deps.console.consoleUrl)
-  if (host === undefined) return
-
-  const onConsoleHost = (request: FastifyRequest): boolean =>
-    (request.headers.host ?? '').split(':')[0]?.toLowerCase() === host
-
-  /** The steward reading this, or nothing — without sending a refusal to a browser. */
-  const steward = async (request: FastifyRequest, reply: FastifyReply) => {
-    if (!onConsoleHost(request)) {
-      reply.callNotFound()
-      return null
-    }
-
-    for (const [header, value] of Object.entries(CONSOLE_HEADERS)) reply.header(header, value)
-
-    if (wantsHtml(request)) {
-      const authenticated = await authenticate(
-        request.headers.authorization,
-        deps.store,
-        sessionCookie(request.headers.cookie),
-      )
-      if (authenticated.outcome === 'rejected' || !authenticated.agent.roles.includes('steward')) {
-        reply.callNotFound()
-        return null
-      }
-      return authenticated.agent
-    }
-
-    return await stewardFor(request, reply, deps.store)
-  }
-
-  app.get('/review', async (request, reply) => {
-    const caller = await steward(request, reply)
-    if (caller === null) return reply
-
-    const curation = await atlasCuration(deps.recipes)
-
-    return wantsHtml(request)
-      ? html(
-          reply,
-          curationPage({
-            steward: caller.profile.name,
-            curation: curationSections(curation),
-          }),
-        )
-      : reply.send(curation)
-  })
-
-  /**
-   * Publish or refuse the walked steps in a draft (`#808`), writing the wording
-   * first where the steward supplied it (`#857`).
-   */
-  for (const verdict of ['publish', 'refuse'] as const) {
-    app.post(`/recipe-drafts/:kind/:provider/${verdict}`, async (request, reply) => {
-      const caller = await steward(request, reply)
-      if (caller === null) return reply
-
-      const params = z
-        .object({ kind: AccountKindSchema, provider: AccountProviderSchema })
-        .safeParse(request.params)
-      const body =
-        verdict === 'refuse'
-          ? z
-              .object({ reason: z.string().trim().min(1).max(RECIPE_REFUSAL_MAX_LENGTH) })
-              .safeParse(request.body ?? {})
-          : undefined
-
-      if (!params.success || (body !== undefined && !body.success)) {
-        return reply.status(ERROR_STATUS['validation_failed']).send({
-          code: 'validation_failed',
-          message:
-            verdict === 'refuse'
-              ? 'Refusing a walked recipe needs a sentence the walker can read.'
-              : 'That draft does not name a valid account kind and provider.',
-        })
-      }
-
-      const draft = await deps.recipes.one(params.data.kind, params.data.provider)
-      if (draft === undefined || draft.status !== 'draft') return consoleNotFound(reply, request)
-
-      /**
-       * **The wording is optional and the press is the same press** (`#857`).
-       * A draft that already reads as a recipe publishes exactly as it did
-       * before; one that arrived wordless from a walk is dressed and published
-       * in one steward action, because two presses is where a half-dressed
-       * draft would live.
-       */
-      const wording =
-        verdict === 'publish' ? wordingIn(request.body, draft.steps.length) : undefined
-      if (wording?.ok === false) {
-        return reply.status(ERROR_STATUS['validation_failed']).send({
-          code: 'validation_failed',
-          message: wording.why,
-        })
-      }
-
-      const dressed =
-        wording === undefined ? undefined : dressWalkedSteps(draft.steps, wording.wording.steps)
-      if (dressed?.ok === false) {
-        return reply.status(ERROR_STATUS['validation_failed']).send({
-          code: 'validation_failed',
-          message: dressed.why,
-        })
-      }
-
-      /**
-       * Judged on what publishing would leave behind, so a draft that would
-       * still be unpublishable is refused **before** anything is written and the
-       * steward's form comes back rather than half-landing.
-       */
-      const effective: ProviderRecipe =
-        dressed === undefined || wording === undefined
-          ? draft
-          : {
-              ...draft,
-              steps: [...dressed.steps],
-              proves: wording.wording.proves,
-              provesTask: wording.wording.provesTask ?? null,
-            }
-
-      const missing = verdict === 'publish' ? whyNotPublishable(effective) : undefined
-      if (missing !== undefined) {
-        return reply.status(ERROR_STATUS['validation_failed']).send({
-          code: 'validation_failed',
-          message: missing,
-        })
-      }
-
-      if (dressed !== undefined && wording !== undefined) {
-        const written = await deps.recipes.dressDraft(params.data.kind, params.data.provider, {
-          steps: dressed.steps,
-          proves: wording.wording.proves,
-          ...(wording.wording.provesTask === undefined
-            ? {}
-            : { provesTask: wording.wording.provesTask }),
-        })
-
-        if (!written) return consoleNotFound(reply, request)
-      }
-
-      const moved = await deps.recipes.decideDraft(
-        params.data.kind,
-        params.data.provider,
-        verdict === 'publish'
-          ? { verdict: 'published' }
-          : { verdict: 'refused', refusal: body?.success === true ? body.data.reason : '' },
-      )
-
-      if (!moved) return consoleNotFound(reply, request)
-
-      return wantsHtml(request)
-        ? reply.redirect('/review', 303)
-        : reply.send({
-            kind: params.data.kind,
-            provider: params.data.provider,
-            status: verdict === 'publish' ? 'joinable' : 'refused',
-          })
-    })
-  }
-
-  /**
-   * Accepting or refusing a proposed entry (`#549`).
-   *
-   * **One press, and it is recorded against its author** — the row keeps who
-   * proposed it and gains when it was decided. Behind the steward gate rather
-   * than the maintainer's, because `#549` requires that stewards curate: a
-   * catalogue only one person can maintain stops when that person is busy.
-   *
-   * **Accepting records the decision; it does not write the entry.** Applying a
-   * reviewed change is a curation edit made deliberately, and a button that both
-   * approved and published would be the one press that puts a stranger's text
-   * into the catalogue.
-   */
-  for (const decision of ['accept', 'refuse'] as const) {
-    app.post(`/curation/:proposalId/${decision}`, async (request, reply) => {
-      const caller = await steward(request, reply)
-      if (caller === null) return reply
-
-      const { proposalId } = request.params as { proposalId?: string }
-      const decided = await deps.recipes.decide(
-        proposalId ?? '',
-        decision === 'accept' ? 'accepted' : 'refused',
-      )
-
-      if (decided === undefined) return consoleNotFound(reply, request)
-
-      return wantsHtml(request) ? reply.redirect('/review', 303) : reply.send(decided)
-    })
-  }
-
-  /**
-   * A steward decides a proposed provider (`#600`).
-   *
-   * **Behind the steward gate, not the maintainer's**, for the reason `#549`
-   * gives one route up: a catalogue only one person can maintain stops when that
-   * person is busy. Every action on this queue is a steward's.
-   *
-   * **Three actions and one of them needs words.** Accepting writes the listing;
-   * merging records that the provider was already on the map under another
-   * hostname; refusing needs a sentence, because the proposer is told the
-   * outcome and *no* with no reason teaches nothing and invites the same
-   * proposal next month.
-   *
-   * **Accepting produces a listing and nothing more.** The entry says the
-   * provider, its shelf and *nobody has looked* — no steps are invented, because
-   * what the Colony says about somebody else's product passes a person who
-   * walked it, and a button that wrote a recipe would be that rule dying
-   * quietly.
-   */
-  for (const action of ['accept', 'refuse', 'merge'] as const) {
-    app.post(`/atlas-proposals/:proposalId/${action}`, async (request, reply) => {
-      const caller = await steward(request, reply)
-      if (caller === null) return reply
-
-      const { proposalId } = request.params as { proposalId?: string }
-      const body = (request.body ?? {}) as Record<string, unknown>
-
-      const parsed = ProposalActionSchema.safeParse(
-        action === 'accept'
-          ? { action, category: body['category'] }
-          : action === 'refuse'
-            ? { action, reason: body['reason'] }
-            : { action, into: body['into'] },
-      )
-
-      if (!parsed.success) {
-        return reply.status(ERROR_STATUS['validation_failed']).send({
-          code: 'validation_failed',
-          message:
-            action === 'refuse'
-              ? 'A refusal needs a sentence the proposer can read. They are told the outcome, ' +
-                'and “no” with no reason teaches nothing.'
-              : action === 'merge'
-                ? 'A merge names the entry this provider turned out to be, as the Atlas prints it.'
-                : 'Listing one needs the shelf it goes on, from the Atlas’s own categories. That ' +
-                  'is the one thing a listing claims, so it is yours to answer rather than the ' +
-                  'proposer’s.',
-        })
-      }
-
-      const decided = await deps.recipes.decideProvider(proposalId ?? '', parsed.data)
-
-      if (decided.outcome === 'not-pending') return consoleNotFound(reply, request)
-
-      if (decided.outcome === 'no-such-entry') {
-        return reply.status(ERROR_STATUS['validation_failed']).send({
-          code: 'validation_failed',
-          message:
-            'Nothing in the catalogue holds that provider, so there is nothing to merge into. ' +
-            'Listing it is the other answer.',
-        })
-      }
-
-      return wantsHtml(request) ? reply.redirect('/review', 303) : reply.send(decided.proposal)
-    })
-  }
-
-  app.get('/numbers', async (request, reply) => {
-    const caller = await steward(request, reply)
-    if (caller === null) return reply
-
-    const numbers = await deps.quests.numbers()
-
-    return wantsHtml(request) ? html(reply, numbersPage(numbers)) : reply.send(numbers)
-  })
-}
-
-/**
- * The console's 404, and it stopped being the sign-in page in `#396`.
  *
  * **Rendering the front door for a wrong URL is what hid that defect for the
  * whole of its life.** The mailed link pointed at a route nobody had registered;

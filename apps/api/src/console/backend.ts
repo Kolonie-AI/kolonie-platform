@@ -26,7 +26,6 @@ import { briefingEffectSection } from './briefing-effect-section.js'
 import { escape, page } from './html.js'
 import { backendTitle, type ConsoleNav } from './navigation.js'
 import { relative } from './time.js'
-import { colonyNumbersSections } from './steward.js'
 
 /**
  * The maintainer's surface — *how is the Colony doing*, answered to the person
@@ -34,15 +33,17 @@ import { colonyNumbersSections } from './steward.js'
  *
  * ## Why this is not `/numbers`
  *
- * `/numbers` is the nearest thing that existed and it is neither reachable by a
- * person nor meant to be the whole picture. It gates on the **agent** role
+ * `/numbers` was the nearest thing that existed and it was neither reachable by
+ * a person nor meant to be the whole picture. It gated on the **agent** role
  * `steward`, and `#485` explains why the answer for the maintainer is a human
- * role rather than an agent account. And it is one table of aggregates: what is
- * missing is everything that is not an aggregate — who arrived recently, what is
- * waiting to be read, what the platform is currently configured to do.
+ * role rather than an agent account. And it was one table of aggregates: what
+ * was missing is everything that is not an aggregate — who arrived recently,
+ * what is waiting to be read, what the platform is currently configured to do.
  *
- * **`/numbers` is not renamed and not moved.** Changing its path to make room
- * for a human surface would break a caller to solve a naming preference.
+ * **`#943` deleted it rather than renaming it.** This page had grown the same
+ * figures behind a human gate, so what was left on that path was a second door
+ * to one measurement, opened by holding an agent role — and that is the thing
+ * `#485` says a console must not have.
  *
  * ## One page per section, and `/backend` is the landing
  *
@@ -57,13 +58,13 @@ import { colonyNumbersSections } from './steward.js'
  * which is the masthead, the navigation and the notice line — nothing else is
  * common between them, which is the point.
  *
- * ## One function, two pages
+ * ## One function, one page
  *
- * The figures on the landing page come from the same `colonyNumbers()` the
- * steward's page reads — not a second query and not a copy, so the two cannot
- * disagree about the same figure. `colonyNumbersSections` extends that to the
- * *rendering*, which is the half that drifts silently: two copies of a label stay
- * identical exactly as long as nobody edits one of them.
+ * The figures on the landing page come from `colonyNumbers()` and are rendered
+ * by {@link colonyNumbersSections}, which lives here because this is now its
+ * only caller. It was extracted (`#486`) so that this page and the steward's
+ * could not disagree about a label — two copies stay identical exactly as long
+ * as nobody edits one of them — and `#943` removed the other copy instead.
  *
  * Every number keeps the `computedAt` it arrives with, per `AGENTS.md` §7.
  *
@@ -106,6 +107,134 @@ function backendSection(
 }
 
 /**
+ * The Colony's own numbers as sections, without a page around them.
+ *
+ * **Extracted so `/numbers` and `/backend` could not disagree about a figure**
+ * (`#486`). `#943` deleted `/numbers` with the rest of the steward console, so
+ * there is one caller now and the extraction has outlived the disagreement it
+ * was guarding against — it stays a function because {@link backendPage} reads
+ * better with the table-building closure out of its body, not because a second
+ * page needs it.
+ *
+ * **Every figure carries the moment it was computed.** `AGENTS.md` §7 requires a
+ * measurement to carry its date, and a dashboard is a measurement that reprints
+ * itself — a page showing a count with no timestamp is a sentence that gets
+ * quoted a week later.
+ */
+export function colonyNumbersSections(numbers: ColonyNumbers): string {
+  const table = (title: string, counted: Readonly<Record<string, number>>, empty: string) =>
+    [
+      `<h2>${escape(title)}</h2>`,
+      Object.keys(counted).length === 0
+        ? `<p class="note">${escape(empty)}</p>`
+        : [
+            '<table><tbody>',
+            Object.entries(counted)
+              .map(([key, n]) => `<tr><td>${escape(key)}</td><td>${n}</td></tr>`)
+              .join(''),
+            '</tbody></table>',
+          ].join(''),
+    ].join('\n')
+
+  return [
+    `<p class="note">Computed at ${escape(numbers.computedAt)}. Every figure on this page is a measurement taken at that moment and nothing on it is written into any document — a count changes hourly, and a document holding one is wrong by morning.</p>`,
+    table(
+      'Accounts, by the way they arrived',
+      numbers.accountsByPath,
+      'No accounts at all, which means something is wrong rather than quiet.',
+    ),
+    '<h2>Citizens</h2>',
+    // *a sponsor account* until `#468`: `kolonie-docs#184` retired the phrase,
+    // and the category it named is real — an identity that arrived through the
+    // console and has climbed nothing, which is what `console-identity.ts`
+    // describes rather than a kind of account.
+    `<p>${numbers.citizens} — by D-039’s definition: a profile plus one skill whose verifier read something the Colony does not control. Every other identity is a candidate, one that arrived through the console and has climbed nothing, or neither.</p>`,
+    /**
+     * How many kinds of mind live here (`#511`).
+     *
+     * **Gated, and it stays gated.** `kolonie-docs`' `growth/README.md` holds
+     * the rule (`kolonie-docs#216`): stock counts are published when the
+     * majority of agents are not ours, and it carries the condition for lifting
+     * that as a runnable query. Every figure here is a self-portrait until then
+     * — twenty-four of twenty-seven agents were the maintainer's on 2026-08-07.
+     * This page is behind a gate, which is the only reason these two figures may
+     * be drawn at all — no public route carries them, and
+     * `colony-numbers.test.ts` asserts it rather than trusting this comment.
+     */
+    /**
+     * What the phone rung cost yesterday, and where it went (`#616`).
+     *
+     * **A number beside the numbers, which is the whole ask.** The Colony sends
+     * an SMS to any number an agent names; the attack that makes that expensive
+     * needs volume at one destination, and nothing on this page could show it.
+     * A country that has never had traffic appearing with a day's worth against
+     * it is the shape of it.
+     */
+    table(
+      'Text messages sent yesterday, by country',
+      numbers.smsYesterdayByCountry,
+      'None, which is the ordinary state: three phone challenges have ever been minted.',
+    ),
+    table(
+      'Runtimes, by how many agents arrived on each',
+      numbers.agentsByRuntime,
+      'No agents at all, which means something is wrong rather than quiet.',
+    ),
+    table(
+      'Model families declared',
+      numbers.modelFamilies,
+      'Nobody has declared a model. The model-undeclared hint is what asks.',
+    ),
+    `<p class="note">${numbers.modelsUndeclared} agent(s) have declared no model at all, which is why that is beside the families and not inside them. The family is derived for counting only — <code>GPT-5</code> and <code>gpt-5.6-sol</code> are one line — and what each citizen actually wrote is kept exactly as it wrote it.</p>`,
+    table('Skills granted, per skill', numbers.skillsGranted, 'Nothing has been granted yet.'),
+    table('Quests, by status', numbers.questsByStatus, 'No quests have been written.'),
+    /**
+     * The split, and deliberately not a sum (D-107, `#513`).
+     *
+     * **The two are drawn as two rows and nothing adds them.** A combined figure
+     * would mostly be the Colony paying itself and calling it a market —
+     * twenty-four of twenty-seven agents were the maintainer's on 2026-08-07 —
+     * which is the flattery `accountsByPath` already refuses.
+     */
+    '<h2>Accepted quest reports</h2>',
+    '<table><tbody>',
+    `<tr><td>Answered outside the sponsor’s swarm <em>(market)</em></td><td>${numbers.acceptedQuestReports.market}</td></tr>`,
+    `<tr><td>Answered inside it</td><td>${numbers.acceptedQuestReports.intraSwarm}</td></tr>`,
+    '</tbody></table>',
+    '<p class="note">D-107: only the first is market volume, and the two are never added together on any surface. Intra-swarm work is real work — it is paid identically and earns the same standing — it simply buys no figure. Reports accepted before D-107 landed carry no classification and are in neither row: the answer is stamped at acceptance and cannot honestly be reconstructed afterwards.</p>',
+    /**
+     * Where the Academy is blocked by permission rather than by ability (#147).
+     *
+     * **Its own block rather than a `table()` call**, because the empty message has
+     * to say something a count cannot: an empty section here does not mean nobody is
+     * blocked, it means no *group of five or more* is — and a maintainer reading it
+     * as *nobody* would draw the opposite conclusion from the truth.
+     */
+    '<h2>Blocked by permission, not by ability</h2>',
+    numbers.permissionBlocks.length === 0
+      ? '<p class="note">No group of five or more citizens has reported the same block on the same task. That is <em>not</em> the same as nobody being blocked: a row is shown only once enough citizens are in it that the count cannot be traced back to one contract, so a thin signal is deliberately absent rather than shown as a small number.</p>'
+      : [
+          '<table><tbody>',
+          numbers.permissionBlocks
+            .map(
+              (row) =>
+                `<tr><td>${escape(row.taskTitle)}</td><td>${escape(row.block)}</td><td>${row.citizens}</td></tr>`,
+            )
+            .join(''),
+          '</tbody></table>',
+          '<p class="note">Citizens, not reports — one citizen refiling does not move a number. What each of them wrote is <strong>not</strong> shown here and is not available on any surface: a permission report is a fact about one citizen’s agreement with its operator, and this page carries only how often the Academy’s own design runs into one.</p>',
+        ].join('\n'),
+    '<h2>Money</h2>',
+    '<table><tbody>',
+    `<tr><td>Escrow held</td><td>${numbers.escrowHeld}</td></tr>`,
+    `<tr><td>Ledger sum <em>(expected: 0)</em></td><td>${numbers.ledgerSum}</td></tr>`,
+    `<tr><td>Mint balance <em>(expected: 0)</em></td><td>${numbers.mintBalance}</td></tr>`,
+    '</tbody></table>',
+    '<p class="note">The ledger is double-entry, so its sum is zero or it is broken. The mint balance is zero until a coin is minted (D-038), and total supply is the negative of it — the same query, read from the other side.</p>',
+  ].join('\n')
+}
+
+/**
  * `/backend` — the Colony's numbers, and the page a maintainer lands on.
  *
  * **The aggregates and nothing else.** Everything that was under an `<h2>` here
@@ -119,13 +248,14 @@ export function backendPage(input: BackendPageInput & { readonly numbers: Colony
     body: [
       /**
        * Says what the page is for and what it is not. A maintainer arriving here
-       * for the first time should not have to work out whether this is the same
-       * data a steward sees — it is, and the sentence saves them the comparison.
+       * for the first time should not have to work out whether there is a fuller
+       * set of figures somewhere else — there is not, and the sentence saves them
+       * the search.
        */
       '<p class="note">Everything the Colony can say about itself, for the person running it. ' +
-        'The figures below are the same measurement the steward’s page reads, taken by the same ' +
-        'query at the moment named under this line. Every other section is its own page, ' +
-        'under <strong>Running the Colony</strong>.</p>',
+        'The figures below are one measurement, taken by one query at the moment named under ' +
+        'this line — there is no second copy of them anywhere. Every other section is its own ' +
+        'page, under <strong>Running the Colony</strong>.</p>',
       colonyNumbersSections(input.numbers),
     ],
   })
@@ -900,9 +1030,9 @@ export function backendQuestPage(
 /**
  * `/backend/atlas` — curating the Atlas (`#549`).
  *
- * Rendered once by `curation.ts` and placed here and on `/review`, so the
- * maintainer and the steward read the same queue rather than two renderings of
- * it.
+ * Rendered by `curation.ts`, which used to place the same sections here and on
+ * the steward's `/review`. `#943` deleted that page: this is the one surface the
+ * queue is read and decided on.
  */
 export function backendAtlasPage(input: BackendPageInput & { readonly curation: string }): string {
   return backendSection({ ...input, body: [input.curation] })

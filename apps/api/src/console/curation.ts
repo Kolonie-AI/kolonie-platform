@@ -26,17 +26,20 @@ import { relative } from './time.js'
  * Curating the Atlas (`#549`).
  *
  * **A section, not a new tool.** `/backend` exists (`#486`) and is the
- * maintainer's page; the steward's `/review` exists and is the steward's. This
- * renders once and is placed on both, which is the arrangement
- * `colonyNumbersSections` already uses for the figures — two copies of a label
- * stay identical exactly as long as nobody edits one of them.
+ * maintainer's page; this is drawn on `/backend/atlas` and nowhere else.
  *
  * ## Who may curate
  *
- * The maintainer **and stewards**. `#549` is explicit, and the reason is
+ * The maintainer. `#549` said the maintainer *and stewards*, and the reason was
  * operational rather than generous: a catalogue only one person can maintain is
- * a catalogue that stops when that person is busy. Curation is review work of
- * exactly the kind `#522` gives stewards a written basis for.
+ * a catalogue that stops when that person is busy. The model pass in `#812` is
+ * what answers that now — every proposal is decided before anybody opens this
+ * page — so what is left here is the correction path, and `#943` moved it behind
+ * the maintainer gate with every other override.
+ *
+ * **Every form below posts under `/backend/atlas/`.** The section used to render
+ * on two pages and post to one of them, which is how a maintainer could press a
+ * button on their own page and be answered with a 404.
  *
  * ## Three queues and one signal
  *
@@ -109,9 +112,9 @@ export function proposalsSection(proposals: readonly EntryProposal[]): string {
         '<td>' +
         // One action, and it is one press: `#549` asks that approving a
         // contribution be a single action recorded against its author.
-        `<form method="post" action="/curation/${escape(proposal.id)}/accept">` +
+        `<form method="post" action="/backend/atlas/entries/${escape(proposal.id)}/accept">` +
         '<button type="submit">Accept</button></form>' +
-        `<form method="post" action="/curation/${escape(proposal.id)}/refuse">` +
+        `<form method="post" action="/backend/atlas/entries/${escape(proposal.id)}/refuse">` +
         '<button type="submit">Refuse</button></form>' +
         '</td>' +
         '</tr>',
@@ -170,7 +173,7 @@ export function providerProposalsSection(rows: readonly ProposalWithDemand[]): s
         `<td>${escape(relative(proposal.proposedAt))}</td>` +
         `<td>${escape(proposal.why ?? '')}</td>` +
         '<td>' +
-        `<form method="post" action="/atlas-proposals/${escape(proposal.id)}/accept">` +
+        `<form method="post" action="/backend/atlas/providers/${escape(proposal.id)}/accept">` +
         '<select name="category" required>' +
         '<option value="">shelf…</option>' +
         AtlasCategorySchema.options
@@ -178,10 +181,10 @@ export function providerProposalsSection(rows: readonly ProposalWithDemand[]): s
           .join('') +
         '</select>' +
         '<button type="submit">List it</button></form>' +
-        `<form method="post" action="/atlas-proposals/${escape(proposal.id)}/refuse">` +
+        `<form method="post" action="/backend/atlas/providers/${escape(proposal.id)}/refuse">` +
         '<input type="text" name="reason" placeholder="why not" required />' +
         '<button type="submit">Refuse</button></form>' +
-        `<form method="post" action="/atlas-proposals/${escape(proposal.id)}/merge">` +
+        `<form method="post" action="/backend/atlas/providers/${escape(proposal.id)}/merge">` +
         '<input type="text" name="into" placeholder="existing provider" required />' +
         '<button type="submit">Merge</button></form>' +
         '</td>' +
@@ -377,7 +380,7 @@ function wordingForm(entry: ProviderRecipe, route: string): string {
 
   return (
     `<details><summary>Write the wording</summary>` +
-    `<form method="post" action="/recipe-drafts/${route}/publish">` +
+    `<form method="post" action="/backend/atlas/drafts/${route}/publish">` +
     fields +
     `<label><small>Proof</small><select name="proves">${proves}</select></label>` +
     '<label><small>Rung, for a proof the Colony checks itself</small>' +
@@ -433,10 +436,10 @@ function unpublishedSection(entries: readonly ProviderRecipe[]): string {
         `<td>${escape(relative(entry.updatedAt))}</td>` +
         '<td>' +
         (missing === undefined
-          ? `<form method="post" action="/recipe-drafts/${route}/publish">` +
+          ? `<form method="post" action="/backend/atlas/drafts/${route}/publish">` +
             '<button type="submit">Publish</button></form>'
           : `<small>Cannot publish yet: ${escape(missing)}</small>` + wordingForm(entry, route)) +
-        `<form method="post" action="/recipe-drafts/${route}/refuse">` +
+        `<form method="post" action="/backend/atlas/drafts/${route}/refuse">` +
         `<input type="text" name="reason" maxlength="${String(RECIPE_REFUSAL_MAX_LENGTH)}" ` +
         'placeholder="why this route cannot be published" required />' +
         '<button type="submit">Refuse</button></form>' +

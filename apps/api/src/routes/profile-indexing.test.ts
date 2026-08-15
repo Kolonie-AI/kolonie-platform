@@ -231,7 +231,7 @@ describe('what a crawler is asked to do with a citizen', () => {
      * Fastify's own route tree, read back as full paths.
      *
      * `printRoutes` is the only enumeration Fastify offers after `ready`, and
-     * `steward-pages.test.ts` already parses it for the same reason. With
+     * `console-write-surface.test.ts` already parses it for the same reason. With
      * `commonPrefix: false` every node sits on its own line, its depth is the
      * indent, and a line carrying `(METHODS)` is a registered route — so the
      * path is the segments down the stack, concatenated.

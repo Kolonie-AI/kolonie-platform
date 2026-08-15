@@ -39,19 +39,18 @@
  * ## Where the role question is asked
  *
  * **Once, in {@link ConsoleNav}, and the route asks the identical question.**
- * `#606`: *"the page and the navigation must ask the same question, or a steward
+ * `#606`: *"the page and the navigation must ask the same question, or a reader
  * gets a link to a page that refuses them."* `/backend` is behind
  * `roles.includes('maintainer')` on the **signed-in human**, and so is the
  * section below.
  *
- * **Stewards are explicitly not in this navigation, which `#606` asks to be
- * decided rather than left open.** `/review` and `/numbers` are behind
- * `steward`, and that guard authenticates an **agent** — an API key or an
- * agent's session — not a person holding a role in this console. So a steward is
- * not a reader of this navigation at all, and an entry for those pages would be
- * an entry no reader of it can use. If a human ever holds `steward`, this is the
- * one place that changes, and the guard is the one place that has to change with
- * it.
+ * **There is one role in this navigation because there is one role on this
+ * host.** `#606` asked whether stewards belonged here and the answer was no:
+ * their two pages were behind a guard that authenticated an *agent*, so no
+ * reader of this navigation could have used an entry for them. `#943` deleted
+ * those pages instead of teaching that guard about people — every console page
+ * now resolves a person, and a role that cannot be held by one has nothing to
+ * link to.
  */
 
 import { escape } from './escape.js'

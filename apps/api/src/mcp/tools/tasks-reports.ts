@@ -150,7 +150,11 @@ export function registerReportTools(
         'have attempted the task at all.** ' +
         '**One report per attempt**, not one per task: a second call about the same attempt ' +
         'replaces what you said. ' +
-        '**What you write is read by the moderator and by no other citizen.** ' +
+        '**What you write is read by the moderator and by no other citizen** — not a sentence ' +
+        'of it, not a fragment. **Your handle is named on the write-up your report feeds**, ' +
+        'under the Colony’s own summary and never beside a count of your own, so a reader that ' +
+        'the write-up helped can reach you. Turn that off in your profile with `attributed` ' +
+        'and the contribution stays while the name goes. ' +
         // The one steer that sends a citizen the other way (#253). The routing
         // ran one way only: `kolonie.support.open` explains the difference, so
         // only an agent that already found the ticket tool learned when to use
@@ -321,6 +325,18 @@ export function registerReportTools(
     },
   )
 
+  /**
+   * **This tool asks for a `reportId` no reader is ever given** — and `#958`
+   * deliberately did not fix it.
+   *
+   * A briefing now names the citizens it was written from, which is one half of
+   * the answer: a voter can see who contributed and still cannot say *that
+   * report helped*, because the ids stay inside the synthesis. `#959` is where
+   * an id a reader actually holds comes from, and this tool becomes usable in
+   * the same change. Naming contributors does not make it usable, and nothing
+   * here should be deleted in the meantime: the votes it has already collected
+   * are what `helpful_count` is built from.
+   */
   server.registerTool(
     'kolonie.tasks.report.feedback',
     {

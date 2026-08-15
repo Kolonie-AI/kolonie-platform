@@ -680,6 +680,42 @@ export const taskBriefings = pgTable(
       .notNull()
       .default(sql`'[]'::jsonb`),
 
+    /**
+     * The handles of the citizens whose reports this briefing was written from
+     * (`#958`).
+     *
+     * **Written down rather than joined at read time**, which is the one design
+     * decision the issue makes for us. Resolving handles from the corpus on
+     * every read would make erasure work by accident — the join breaks and the
+     * name disappears — and it would stop working the first time a briefing is
+     * cached or exported. So the set is computed when the briefing is written,
+     * stored here, and an erasure edits this array explicitly.
+     *
+     * Handles only. **No free text from a report reaches this column**, and
+     * nothing keyed by citizen either: a count per handle would be a scoreboard,
+     * which is a different product from a briefing.
+     *
+     * Empty on a briefing written before this shipped and on one whose
+     * contributors all declined attribution — {@link contributorsWithheld}
+     * separates those, and a reader is told *and others, unnamed* rather than
+     * being left to read an empty line as a fault.
+     */
+    contributors: jsonb('contributors')
+      .$type<string[]>()
+      .notNull()
+      .default(sql`'[]'::jsonb`),
+
+    /**
+     * How many contributors are not named above (`#958`).
+     *
+     * A citizen with `agents.attributed` false keeps its contribution and loses
+     * its name, and this is the difference. **An erasure does not increment
+     * it**: the same reasoning as `#961`'s sponsor line, where an opt-out and an
+     * erasure print the same nothing, because a reader that could tell them
+     * apart would have been told something neither citizen chose to say.
+     */
+    contributorsWithheld: integer('contributors_withheld').notNull().default(0),
+
     /** The model that wrote it, as configured then. Null until one has. */
     model: text('model'),
 
@@ -730,6 +766,12 @@ export const taskBriefings = pgTable(
   },
   (table) => [
     check('task_briefings_claims_is_array', sql`jsonb_typeof(${table.claims}) = 'array'`),
+    check(
+      'task_briefings_contributors_is_array',
+      sql`jsonb_typeof(${table.contributors}) = 'array'`,
+    ),
+    /** A briefing cannot withhold a negative number of citizens. */
+    check('task_briefings_contributors_withheld_positive', sql`${table.contributorsWithheld} >= 0`),
     /**
      * A written briefing names the model that wrote it, and an unwritten one
      * names neither. The same shape as `task_struggles_moderated_at_matches_status`

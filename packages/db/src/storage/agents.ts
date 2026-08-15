@@ -241,6 +241,11 @@ export async function updateAgentProfile(
   // what the Colony holds (`#818`). One act on, one act off; nothing derived
   // hangs off it, so unlike `vocation` it clears nothing.
   if (Object.hasOwn(request, 'indexable')) changes.indexable = request.indexable
+  // The other one that changes what somebody else reads rather than what the
+  // Colony holds (`#960`), and the only switch in the attribution set. Nothing
+  // is deleted when it goes off: the entries a citizen walked stay published
+  // and lose the byline, which is the whole of what it promises.
+  if (Object.hasOwn(request, 'attributed')) changes.attributed = request.attributed
 
   /**
    * The two that carry a derived half (`#140`).

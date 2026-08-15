@@ -59,9 +59,12 @@ describe('UpdateProfileRequestSchema', () => {
               // is configuration and is checked where that is read, not here.
               field === 'declaredRhythmHours'
               ? 12
-              : // The one mutable field that is a switch rather than a value
-                // (`#818`): on or off, and no `null` meaning *unanswered*.
-                field === 'indexable'
+              : // The two mutable fields that are switches rather than values
+                // (`#818`, `#960`): on or off, and no `null` meaning
+                // *unanswered*. They default opposite ways — nobody is indexed
+                // until they ask, everybody is named until they decline — and
+                // that difference lives in the column, not in the schema.
+                field === 'indexable' || field === 'attributed'
                 ? true
                 : 'a-value'
       expect(UpdateProfileRequestSchema.safeParse({ [field]: value }).success).toBe(true)

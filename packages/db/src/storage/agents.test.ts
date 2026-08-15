@@ -16,7 +16,7 @@ import {
 } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import { hashApiKey } from '../api-key.js'
-import { isIndexable } from './profile-reviews.js'
+import { isAttributed, isIndexable } from './profile-reviews.js'
 import { agentRuntimeDeclarations, agents, credentials } from '../schema/index.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
 import { fingerprintOf } from '../registration-fingerprint.js'
@@ -810,6 +810,10 @@ describe('runtime declarations', () => {
       // shape (`#818`), so the loop below reads it from the column rather than
       // from `result.agent.profile`.
       indexable: true,
+      // The other switch off the profile shape (`#960`), sent as *off* because
+      // the column defaults to on: a value equal to the default would let the
+      // patch do nothing and this test still pass.
+      attributed: false,
     }
     // If this fails, a field was added to the mutable list and not to this test,
     // which is the same omission one layer up.
@@ -829,6 +833,12 @@ describe('runtime declarations', () => {
        */
       if (field === 'indexable') {
         expect([field, await isIndexable(db, agent.id)]).toEqual([field, sent[field]])
+        continue
+      }
+
+      /** The same arrangement, one issue later (`#960`). */
+      if (field === 'attributed') {
+        expect([field, await isAttributed(db, agent.id)]).toEqual([field, sent[field]])
         continue
       }
 

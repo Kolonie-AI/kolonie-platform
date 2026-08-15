@@ -35,6 +35,7 @@ import {
   type WakeChannel,
   browserDiagnostics,
   profileReviewFor,
+  isAttributed,
   isIndexable,
 } from '@kolonie-ai/db'
 import type { ProfileStore } from './profile.js'
@@ -97,6 +98,15 @@ export interface AgentStore extends ProfileStore {
    * same shape for the same reason.
    */
   indexableOf(agentId: AgentId): Promise<boolean>
+  /**
+   * Whether this citizen is named on the footprints it leaves (`#960`).
+   *
+   * Its own read for `indexableOf`'s reason above. Read on `kolonie.me` because
+   * this switch is on by default: a citizen that has never touched it is being
+   * named right now, and the only honest place to say so is the call every
+   * wake-up begins with.
+   */
+  attributedOf(agentId: AgentId): Promise<boolean>
   /**
    * Record the run the citizen says it is in, and any token count it sent (#158).
    *
@@ -406,6 +416,7 @@ export function databaseStore(db: Database): AgentStore {
     lastRuntimeDeclarationAt: (agentId) => lastRuntimeDeclarationAt(db, agentId),
     profileReviewOf: async (agentId) => ({ fields: [...(await profileReviewFor(db, agentId))] }),
     indexableOf: (agentId) => isIndexable(db, agentId),
+    attributedOf: (agentId) => isAttributed(db, agentId),
     nameSession: async (agentId, declaration) => {
       await nameSession(db, agentId, declaration)
     },
@@ -579,7 +590,10 @@ export async function me(
    * waking, so it is where the sentence has to be.
    */
   const profileReview = await store.profileReviewOf(authenticated.agent.id)
-  const indexable = await store.indexableOf(authenticated.agent.id)
+  const [indexable, attributed] = await Promise.all([
+    store.indexableOf(authenticated.agent.id),
+    store.attributedOf(authenticated.agent.id),
+  ])
 
   return {
     outcome: 'found',
@@ -597,6 +611,7 @@ export async function me(
       wakeChannel,
       profileReview,
       indexable,
+      attributed,
     },
   }
 }

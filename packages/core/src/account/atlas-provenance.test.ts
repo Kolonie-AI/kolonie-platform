@@ -5,6 +5,7 @@ import {
   atlasEntryHealth,
   atlasEntryStatus,
   atlasEntrySource,
+  atlasEntryWalkers,
   atlasHealthPhrase,
   atlasSourcePhrase,
   figureKey,
@@ -102,6 +103,65 @@ describe('who put a provider on the shelf', () => {
     expect(atlasEntrySource([walked, stub], new Set([figureKey(stub.kind, stub.provider)]))).toBe(
       'walk-published',
     )
+  })
+
+  /**
+   * An entry is a provider and its rows are kinds (`#960`). The citizen who
+   * walked the mailbox and the one who walked the website are both walkers of
+   * the provider — naming only the row a reader scrolled to would make the
+   * attribution depend on where they stopped.
+   */
+  it('unions the walkers of every row into the entry', () => {
+    const mailbox = recipe({ kind: 'mailbox', provider: 'somewhere.test', walked: true })
+    const website = recipe({ kind: 'website', provider: 'somewhere.test', walked: true })
+
+    const named = atlasEntryWalkers(
+      [mailbox, website],
+      new Map([
+        [figureKey(mailbox.kind, mailbox.provider), ['grace']],
+        [figureKey(website.kind, website.provider), ['ada']],
+      ]),
+    )
+
+    // Sorted, so two readers of the same entry read the same sentence.
+    expect(named).toEqual(['ada', 'grace'])
+  })
+
+  /** One citizen who walked two kinds at a provider is one walker of it, not two. */
+  it('names a citizen once however many rows it walked', () => {
+    const mailbox = recipe({ kind: 'mailbox', provider: 'somewhere.test', walked: true })
+    const website = recipe({ kind: 'website', provider: 'somewhere.test', walked: true })
+
+    expect(
+      atlasEntryWalkers(
+        [mailbox, website],
+        new Map([
+          [figureKey(mailbox.kind, mailbox.provider), ['ada']],
+          [figureKey(website.kind, website.provider), ['ada']],
+        ]),
+      ),
+    ).toEqual(['ada'])
+  })
+
+  /** Absent means unattributed rather than unwalked, and renders without them. */
+  it('carries an empty list for an entry nobody is named on', () => {
+    const rows = [recipe({ kind: 'github', provider: 'github.com', walked: true })]
+
+    expect(atlasEntries(rows, new Map(), new Set())[0]?.walkers).toEqual([])
+  })
+
+  it('carries the walkers through onto the entry', () => {
+    const row = recipe({ kind: 'github', provider: 'github.com', walked: true })
+
+    const [entry] = atlasEntries(
+      [row],
+      new Map(),
+      new Set(),
+      new Map([[figureKey(row.kind, row.provider), ['ada']]]),
+    )
+
+    expect(entry?.walkers).toEqual(['ada'])
+    expect(entry?.source).toBe('walk-published')
   })
 
   it('calls an entry nobody wrote measured', () => {
@@ -392,6 +452,41 @@ describe('what the two labels say out loud', () => {
   it('says who wrote the other two kinds', () => {
     expect(atlasSourcePhrase('walk-published')).toContain('citizen who walked it')
     expect(atlasSourcePhrase('measured')).toContain('Nobody has written this entry')
+  })
+
+  /**
+   * The provenance line goes from *somebody* to *this one, and here is how to
+   * reach them* (`#960`). Naming the handle without the call that resolves it
+   * would be the half of it a reader cannot act on.
+   */
+  it('names the walker and the call that resolves the handle', () => {
+    const said = atlasSourcePhrase('walk-published', ['ada'])
+
+    expect(said).toContain('`ada`')
+    expect(said).toContain('kolonie.citizens.read ada')
+  })
+
+  it('names every walker where several put an entry on the shelf', () => {
+    const said = atlasSourcePhrase('walk-published', ['ada', 'grace'])
+
+    expect(said).toContain('`ada`, `grace`')
+    expect(said).toContain('kolonie.citizens.read grace')
+  })
+
+  /**
+   * **The old sentence is the fallback and not an error.** An entry whose
+   * walkers have all opted out is still an entry a citizen walked, and saying
+   * so unattributed is the true thing to say about it.
+   */
+  it('keeps the unattributed sentence when nobody is named', () => {
+    expect(atlasSourcePhrase('walk-published', [])).toContain('citizen who walked it')
+    expect(atlasSourcePhrase('walk-published', [])).not.toContain('kolonie.citizens.read')
+  })
+
+  /** The line belongs to walked entries. A measured stub has no walker to name. */
+  it('says nothing about walkers on an entry nobody walked', () => {
+    expect(atlasSourcePhrase('measured', ['ada'])).not.toContain('ada')
+    expect(atlasSourcePhrase('curated', ['ada'])).toBe('')
   })
 
   /** Each of the three names what to do about it, which is the point of saying it at all. */

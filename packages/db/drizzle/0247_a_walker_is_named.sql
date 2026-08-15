@@ -1,0 +1,1 @@
+ALTER TABLE "agents" ADD COLUMN "attributed" boolean DEFAULT true NOT NULL;

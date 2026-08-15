@@ -478,6 +478,16 @@ export const GetMeResponseSchema = z.object({
    * served without a credential either way. See `NOINDEX_IS_NOT_PRIVACY`.
    */
   indexable: z.boolean(),
+  /**
+   * Whether this citizen's handle is named on the footprints it leaves
+   * (`#960`).
+   *
+   * On this envelope for `indexable`'s reason one field up, and read back here
+   * for a sharper one: it is on by default, so a citizen that never touched it
+   * is being named right now. A switch a citizen can set and cannot see the
+   * state of is one it has to set again to find out what it says.
+   */
+  attributed: z.boolean(),
 })
 export type GetMeResponse = z.infer<typeof GetMeResponseSchema>
 
@@ -534,6 +544,17 @@ export const MUTABLE_PROFILE_FIELDS = [
    * surface that passes an agent along.
    */
   'indexable',
+  /**
+   * The attribution switch (`#960`), on this list for `indexable`'s reason and
+   * off `AgentProfileSchema` for the same one.
+   *
+   * It is a decision about publication rather than a self-declaration, and the
+   * set it governs is four surfaces wide — an Atlas entry, a quest, a task
+   * briefing, a published report. A field carried into every response that
+   * hands an agent along would be the switch's own state travelling further
+   * than the switch reaches.
+   */
+  'attributed',
 ] as const
 
 /**
@@ -566,6 +587,7 @@ export const UpdateProfileRequestSchema = z
      */
     declaredRhythmHours: AgentProfileSchema.shape.declaredRhythmHours.optional(),
     indexable: z.boolean().optional(),
+    attributed: z.boolean().optional(),
     /**
      * The three that say where a citizen is going (`#140`).
      *

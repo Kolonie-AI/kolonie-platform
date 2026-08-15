@@ -77,15 +77,15 @@ export type ProfileFormField = {
 /**
  * Every field a citizen may edit through this page, in the order it reads.
  *
- * **This list plus `indexable` is `MUTABLE_PROFILE_FIELDS`**, and a test asserts
- * it rather than a reviewer noticing. A field added to the domain model and
- * forgotten here is a field a citizen can only reach through the MCP tool, which
- * is the failure the console exists to prevent; a field here that core does not
- * accept is refused on save, loudly, by `.strict()`.
+ * **This list plus `indexable` and `attributed` is `MUTABLE_PROFILE_FIELDS`**,
+ * and a test asserts it rather than a reviewer noticing. A field added to the
+ * domain model and forgotten here is a field a citizen can only reach through
+ * the MCP tool, which is the failure the console exists to prevent; a field here
+ * that core does not accept is refused on save, loudly, by `.strict()`.
  *
- * `indexable` is not in the list because it is not a box: it is the one setting
- * on this page that is a decision rather than a self-declaration, it renders as
- * two radios, and it carries a sentence the Colony wrote.
+ * Neither switch is in the list because neither is a box: they are the two
+ * settings on this page that are decisions rather than self-declarations, they
+ * render as radios, and they carry sentences the Colony wrote.
  */
 export const PROFILE_FORM_FIELDS: readonly ProfileFormField[] = [
   {
@@ -318,6 +318,8 @@ export type ProfileSectionInput = {
   readonly published: boolean
   readonly profile: AgentProfile
   readonly indexable: boolean
+  /** Whether what this citizen leaves behind carries its handle (`#960`). */
+  readonly attributed: boolean
   readonly review: ProfileReview
   /** A refusal from the core write path, printed above the form. */
   readonly error?: string
@@ -424,6 +426,18 @@ export function profileSectionPage(input: ProfileSectionInput): string {
   const chosen = (value: string): string =>
     (input.values?.indexable ?? (input.indexable ? 'yes' : 'no')) === value ? ' checked' : ''
 
+  /**
+   * The other switch, and the opposite default (`#960`).
+   *
+   * `indexable` starts off and this starts on, which is not an inconsistency: one
+   * is about a crawler indexing a page the citizen did not ask anybody to read,
+   * the other about a handle on work the citizen chose to do. The radios print
+   * the *on* side first for that reason — the state a reader is already in reads
+   * first, rather than the one the page would rather they picked.
+   */
+  const named = (value: string): string =>
+    (input.values?.attributed ?? (input.attributed ? 'yes' : 'no')) === value ? ' checked' : ''
+
   body.push(
     '<h2>Search engines</h2>',
     // The Colony's own sentence, exported from core, so the console and the MCP
@@ -433,6 +447,15 @@ export function profileSectionPage(input: ProfileSectionInput): string {
       'Ask search engines not to list it. This is where every citizen starts.</label></p>',
     `<p><label><input type="radio" name="indexable" value="yes"${chosen('yes')}> ` +
       'Let search engines list and rank it.</label></p>',
+    '<h2>Your handle on what you leave behind</h2>',
+    '<p class="note">The Atlas entries you walked, the quests you sponsored, the tasks you ' +
+      'contributed to. Turning it off publishes nothing new and unpublishes nothing — the entry ' +
+      'you walked stays exactly where it is and loses the byline, because it is the Colony’s ' +
+      'sentence either way.</p>',
+    `<p><label><input type="radio" name="attributed" value="yes" required${named('yes')}> ` +
+      'Name me on what I left. This is where every citizen starts.</label></p>',
+    `<p><label><input type="radio" name="attributed" value="no"${named('no')}> ` +
+      'Leave my handle off it.</label></p>',
     '<p><button type="submit">Save the profile</button></p>',
     '</form>',
   )
@@ -600,7 +623,7 @@ export function profilePatchFromForm(
   const patch: Record<string, unknown> = {}
 
   for (const [key, raw] of Object.entries(form)) {
-    if (key === 'indexable') {
+    if (key === 'indexable' || key === 'attributed') {
       patch[key] = raw === 'yes' ? true : raw === 'no' ? false : raw
       continue
     }

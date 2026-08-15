@@ -171,6 +171,7 @@ const save = (cookie: string, id: AgentId, form: Record<string, string>) =>
 const asSubmitted = (over: Record<string, string> = {}): Record<string, string> => ({
   ...Object.fromEntries(PROFILE_FORM_FIELDS.map((field) => [field.name, ''])),
   indexable: 'no',
+  attributed: 'yes',
   ...over,
 })
 
@@ -192,12 +193,13 @@ describe('the profile section in the console', () => {
     })
 
     it('offers a box for every field a citizen may edit, and for no other', async () => {
-      // The form's list plus the one switch is `MUTABLE_PROFILE_FIELDS`. A field
-      // added to the domain model and forgotten in the console is a field only
-      // the MCP tool can reach, which is the gap this section exists to close.
-      expect([...PROFILE_FORM_FIELDS.map((field) => field.name), 'indexable'].sort()).toEqual(
-        [...MUTABLE_PROFILE_FIELDS].sort(),
-      )
+      // The form's list plus the two switches is `MUTABLE_PROFILE_FIELDS`. A
+      // field added to the domain model and forgotten in the console is a field
+      // only the MCP tool can reach, which is the gap this section exists to
+      // close.
+      expect(
+        [...PROFILE_FORM_FIELDS.map((field) => field.name), 'indexable', 'attributed'].sort(),
+      ).toEqual([...MUTABLE_PROFILE_FIELDS].sort())
     })
 
     it('says where each moderated field stands, and why one was refused', async () => {
@@ -337,6 +339,25 @@ describe('the profile section in the console', () => {
 
       await save(cookie, agentId, asSubmitted({ indexable: 'no' }))
       expect(await agents.indexableOf(agentId)).toBe(false)
+    })
+
+    /**
+     * The attribution switch, on the same patch and with the opposite default
+     * (`#960`). A citizen that never touches this page is named on what it left;
+     * turning it off has to be one act on one screen, because the citizen that
+     * wants out wants out of every surface at once.
+     */
+    it('turns the attribution switch off and on through the same patch', async () => {
+      const cookie = await signedInCookie()
+      await link(agentId)
+
+      expect(await agents.attributedOf(agentId)).toBe(true)
+
+      await save(cookie, agentId, asSubmitted({ attributed: 'no' }))
+      expect(await agents.attributedOf(agentId)).toBe(false)
+
+      await save(cookie, agentId, asSubmitted({ attributed: 'yes' }))
+      expect(await agents.attributedOf(agentId)).toBe(true)
     })
 
     it('refuses a write to a field the citizen cannot edit, and says why', async () => {

@@ -189,6 +189,8 @@ export function fakeStore(): FakeStore {
   const profileReviews = new Map<string, ProfileReview>()
   /** Whether each citizen has allowed crawling (`#818`). Off until it says otherwise. */
   const indexing = new Map<string, boolean>()
+  /** Whether each citizen is named on what it left (`#960`). On until it says otherwise. */
+  const attribution = new Map<string, boolean>()
 
   return {
     issue,
@@ -349,6 +351,10 @@ export function fakeStore(): FakeStore {
     indexableOf: async (agentId: AgentId): Promise<boolean> =>
       indexing.get(String(agentId)) ?? false,
 
+    /** On until the citizen turns it off, which is the column's own default. */
+    attributedOf: async (agentId: AgentId): Promise<boolean> =>
+      attribution.get(String(agentId)) ?? true,
+
     /**
      * Reproduces one thing: PATCH semantics. An absent key leaves the field
      * alone, an explicit `null` clears it — which is the rule `apps/api` has to
@@ -425,6 +431,11 @@ export function fakeStore(): FakeStore {
            */
           case 'indexable':
             if (request.indexable !== undefined) indexing.set(String(agentId), request.indexable)
+            break
+          /** The same, for the same reason, one issue later (`#960`). */
+          case 'attributed':
+            if (request.attributed !== undefined)
+              attribution.set(String(agentId), request.attributed)
             break
           default:
             throw new Error(`the fake store does not honour ${field satisfies never}`)

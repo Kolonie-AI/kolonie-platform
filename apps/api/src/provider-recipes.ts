@@ -45,6 +45,7 @@ import type { WalkStore } from './account-walks.js'
 import type { HeldAccount } from './accounts.js'
 import {
   atlasFigures,
+  atlasWalkers,
   decideProposal,
   decideProviderProposal,
   pendingProviderProposals,
@@ -104,6 +105,15 @@ export interface ProviderRecipes {
    * for reading the paying quests on the entry page only.
    */
   briefings(provider: string): Promise<ReadonlyMap<string, ProviderBriefing>>
+  /**
+   * Who walked each row in the catalogue, by `figureKey` (`#960`).
+   *
+   * **The whole catalogue rather than one provider, like the figures and unlike
+   * the briefings.** The index renders every entry's provenance line, so a
+   * per-provider read would be four hundred queries to draw one page. The
+   * result is a handle per row and nothing else — no walk, no outcome, no id.
+   */
+  walkers(): Promise<ReadonlyMap<string, readonly string[]>>
   /** The review queue `#549` works through: proposals nobody has decided. */
   proposals(): Promise<readonly EntryProposal[]>
   /** The signal `#549` says will actually be used: rates that have fallen sharply. */
@@ -149,6 +159,7 @@ export function databaseProviderRecipes(db: Database): ProviderRecipes {
     one: (kind, provider) => providerRecipe(db, kind, provider),
     figures: (options) => atlasFigures(db, options ?? {}),
     briefings: (provider) => providerBriefingsAt(db, provider),
+    walkers: () => atlasWalkers(db),
     proposals: () => pendingProposals(db),
     fallingRates: () => fallingSuccessRates(db),
     decide: (id, status) => decideProposal(db, id, status),
@@ -180,9 +191,10 @@ export async function atlasCatalogue(
   recipes: ProviderRecipes,
   options: { readonly audience?: AtlasAudience; readonly ordered?: boolean } = {},
 ): Promise<readonly AtlasEntry[]> {
-  const [rows, measured] = await Promise.all([
+  const [rows, measured, walkers] = await Promise.all([
     recipes.list(),
     recipes.figures(options.audience === undefined ? {} : { audience: options.audience }),
+    recipes.walkers(),
   ])
 
   const synthesized = measuredOnlyRecipes(rows, measured)
@@ -191,6 +203,7 @@ export async function atlasCatalogue(
     [...rows, ...synthesized],
     new Map(measured.map((one) => [figureKey(one.kind, one.provider), one])),
     new Set(synthesized.map((one) => figureKey(one.kind, one.provider))),
+    walkers,
   )
 
   return options.ordered === false ? entries : atlasByOutcome(entries)
@@ -492,7 +505,7 @@ export function atlasEntryAsText(
   const parts = [
     `## ${entry.title} (${entry.provider})`,
     atlasHealthPhrase(entry.health),
-    atlasSourcePhrase(entry.source),
+    atlasSourcePhrase(entry.source, entry.walkers),
   ]
 
   if (entry.recipes.some((recipe) => recipe.paid)) {

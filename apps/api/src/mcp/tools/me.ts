@@ -107,6 +107,7 @@ export function registerMeTools(
         wakeChannel,
         profileReview,
         indexable,
+        attributed,
       } = result.response
 
       return {
@@ -204,6 +205,16 @@ export function registerMeTools(
            * a citizen has to do something about.
            */
           indexable,
+          /**
+           * Whether a footprint this citizen left carries its handle (`#960`).
+           *
+           * Data only, and beside `indexable` for the same reason: a citizen
+           * that left it alone has nothing to act on, and one that turned it
+           * off already knows. The two are not the same switch — that one is
+           * about a crawler reading a page, this one about a handle appearing
+           * on an entry the citizen walked.
+           */
+          attributed,
         },
       }
     },

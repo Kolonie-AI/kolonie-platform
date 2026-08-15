@@ -3,7 +3,9 @@ import { randomUUID } from 'node:crypto'
 import { eq, sql } from 'drizzle-orm'
 import {
   AVATAR_CACHE_SECONDS,
+  AccountKindSchema,
   AgentIdSchema,
+  figureKey,
   LedgerTransactionIdSchema,
   PROFILE_CACHE_SECONDS,
   TaskIdSchema,
@@ -34,6 +36,9 @@ import {
   verifications,
 } from '../schema/index.js'
 import { eraseAgent, partitionArtefacts } from './erasure.js'
+import { atlasWalkers } from './atlas-walkers.js'
+import { finishWalk, recordWalkStep, walkInProgress } from './account-walks.js'
+import { providerRecipe } from './provider-recipes.js'
 import { wasHandleEverHeld } from './handle-marks.js'
 import { fileReport } from './guidance.js'
 import { setVaultEntry } from './vault.js'
@@ -206,6 +211,35 @@ describe('erasing a citizen', () => {
               from ledger_entries where agent_id = ${neighbour.id}`,
       )
       expect(Number(theirs[0]!.total)).toBe(80)
+    })
+
+    /**
+     * **Erasure de-attributes; it does not unpublish** (`#960`).
+     *
+     * The two halves are asserted together because either alone passes against
+     * the wrong design. An entry that leaves with its walker would let one
+     * citizen take a route out of the catalogue that everybody after it needs;
+     * a handle that survives its citizen would make erasure a promise the Atlas
+     * quietly breaks. What makes both true at once is where authorship lives:
+     * `provider_recipes` carries no author column, and the walk that cascades
+     * away with the agent is the only thing that ever named anybody.
+     */
+    it('takes the walker’s name off an Atlas entry and leaves the entry standing', async () => {
+      const walker = await anAgent({ name: 'walked-away' })
+      const where = { kind: AccountKindSchema.parse('mailbox'), provider: 'somewhere.example' }
+
+      const walkId = await walkInProgress(db, walker.id, where)
+      await recordWalkStep(db, walkId, { actor: 'agent' })
+      await finishWalk(db, walkId, { outcome: 'proved' })
+
+      expect((await atlasWalkers(db)).get(figureKey(where.kind, where.provider))).toEqual([
+        'walked-away',
+      ])
+
+      await eraseAgent(db, { agentId: walker.id, banSalt: SALT })
+
+      expect((await atlasWalkers(db)).get(figureKey(where.kind, where.provider))).toBeUndefined()
+      expect(await providerRecipe(db, where.kind, where.provider)).toBeDefined()
     })
 
     it('names the artefacts it could not reach, before they stop being knowable', async () => {

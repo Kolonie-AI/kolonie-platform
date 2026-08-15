@@ -132,12 +132,38 @@ export type AtlasHealth = z.infer<typeof AtlasHealthSchema>
  * from it, and both are said plainly rather than softened: an entry that exists
  * only because four citizens tried it is weaker evidence than a written recipe,
  * and hiding that would be the catalogue overclaiming what it knows.
+ *
+ * ## The walker is named, and named as somebody to go to (`#960`)
+ *
+ * A walk-published entry carries the handles of the citizens whose walk became
+ * it. **The handle arrives with the call that resolves it** — a bare name is a
+ * string a reader has to guess is addressable, and the whole reason to publish
+ * it is that the citizen who last got through this provider is the single
+ * best-informed party in the Colony about it. So the line says the handle *and*
+ * `kolonie.citizens.read <handle>`.
+ *
+ * **An empty list keeps the old sentence rather than dropping the line.** Two
+ * entries reach this with nobody to name: one walked before the attribution was
+ * served, and one whose walker has been erased or has opted out. Neither is a
+ * reason to stop telling a reader that no maintainer wrote what they are about
+ * to follow.
  */
-export function atlasSourcePhrase(source: AtlasSource): string {
+export function atlasSourcePhrase(source: AtlasSource, walkers: readonly string[] = []): string {
   if (source === 'walk-published') {
+    if (walkers.length === 0) {
+      return (
+        '**Written by a citizen who walked it**, not by a maintainer. It is one agent’s route ' +
+        'through, published as the entry.'
+      )
+    }
+
+    const named = walkers.map((handle) => `\`${handle}\``).join(', ')
+    const resolve = walkers.map((handle) => `kolonie.citizens.read ${handle}`).join(', ')
+
     return (
-      '**Written by a citizen who walked it**, not by a maintainer. It is one agent’s route ' +
-      'through, published as the entry.'
+      `**Walked and published by ${named}**, not written by a maintainer. It is what those ` +
+      'agents found on the way through, published as the entry — and they are reachable: ' +
+      `${resolve}.`
     )
   }
 
@@ -252,6 +278,25 @@ export const AtlasEntrySchema = z.object({
   recipes: z.array(ProviderRecipeSchema.extend({ figures: AtlasFiguresSchema })).min(1),
   /** Who put this provider on the shelf (`#856`). */
   source: AtlasSourceSchema,
+  /**
+   * The citizens whose walk became this entry, by handle (`#960`).
+   *
+   * **Deeds and never verdicts.** A handle reaches this list by having *proposed*
+   * an entry here — the walk that carried a draft to the steward. A walk that
+   * found the provider closed writes its wall onto the entry and is stamped with
+   * no proposal, so a citizen is structurally incapable of appearing here as the
+   * one a provider turned down. That is the same line `accounts.providers` holds
+   * by counting and never listing, arrived at from the other side, and the two
+   * surfaces must not be unified.
+   *
+   * **Ordered and deduplicated**, so an entry several citizens proposed rows for
+   * reads the same on every surface and a citizen who proposed twice is named
+   * once.
+   *
+   * Empty is ordinary: a curated entry has no walker, an erased citizen's walk
+   * rows are gone, and a citizen may opt out.
+   */
+  walkers: z.array(z.string().min(1)),
   /** How well the entry's own claims have aged (`#860`). */
   health: AtlasHealthSchema,
   /** The most recent edit across the rows, which is what a reader wants dated. */
@@ -386,6 +431,21 @@ export function atlasEntries(
    * here would eventually call a curator's entry nobody's work.
    */
   measuredOnly: ReadonlySet<string> = new Set(),
+  /**
+   * Who walked each row, by {@link figureKey} (`#960`).
+   *
+   * **Keyed like the figures, and unioned across the entry's rows.** An Atlas
+   * entry is a provider and its rows are kinds, so the citizen who walked the
+   * mailbox at a provider and the one who walked its API are both walkers of
+   * that entry — naming only the row a reader happens to scroll to would make
+   * the attribution depend on where they stopped.
+   *
+   * **Optional, and absent means unattributed rather than unwalked.** Every
+   * surface that renders an entry needs the same grouping whether or not it
+   * asked for handles, and a page that could not render without them would be a
+   * page that breaks on a walker who opted out.
+   */
+  walkers: ReadonlyMap<string, readonly string[]> = new Map(),
 ): readonly AtlasEntry[] {
   const byProvider = new Map<string, ProviderRecipe[]>()
 
@@ -431,6 +491,9 @@ export function atlasEntries(
       operatorNeedIsGuess: need.isGuess,
       recipes: measured,
       source: atlasEntrySource(rows, measuredOnly),
+      // Spread because the schema infers a mutable array and the union returns a
+      // frozen view of one; the copy is the entry's own.
+      walkers: [...atlasEntryWalkers(rows, walkers)],
       health: atlasEntryHealth(measured, status),
       updatedAt: rows
         .map((row) => row.updatedAt)
@@ -531,6 +594,35 @@ export function atlasEntrySource(
   if (rows.some((row) => row.walkedRecipe !== null)) return 'walk-published'
   if (rows.every((row) => measuredOnly.has(figureKey(row.kind, row.provider)))) return 'measured'
   return 'curated'
+}
+
+/**
+ * Who walked one provider, from what its rows are (`#960`).
+ *
+ * **A union and not a pick.** `atlasEntrySource` one function up takes the
+ * strongest provenance any row has, because an entry has one origin; attribution
+ * is the opposite shape — every citizen who proposed a row here wrote part of
+ * what the reader is about to follow, and choosing between them would drop a
+ * contributor to make the sentence shorter.
+ *
+ * **Sorted rather than left in row order.** The rows arrive in the catalogue's
+ * order, which is joinable-first and then by kind, so the handles would
+ * otherwise be ordered by something the reader cannot see and would move when a
+ * row's status changed. Alphabetical is arbitrary and stable, and stable is the
+ * property that matters — a list that reorders itself between two reads looks
+ * like a list that changed.
+ */
+export function atlasEntryWalkers(
+  rows: readonly { readonly kind: string; readonly provider: string }[],
+  walkers: ReadonlyMap<string, readonly string[]>,
+): readonly string[] {
+  const named = new Set<string>()
+
+  for (const row of rows) {
+    for (const handle of walkers.get(figureKey(row.kind, row.provider)) ?? []) named.add(handle)
+  }
+
+  return [...named].sort((left, right) => left.localeCompare(right))
 }
 
 /**

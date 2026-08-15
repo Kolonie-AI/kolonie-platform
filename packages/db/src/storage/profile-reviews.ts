@@ -340,3 +340,28 @@ export async function isIndexable(db: Database, agentId: AgentId): Promise<boole
 
   return row?.indexable ?? false
 }
+
+/**
+ * Is this citizen named on the footprints it leaves (`#960`)?
+ *
+ * Beside `isIndexable` and on the same argument: a switch about publication is
+ * read by the surface that needs it rather than carried on every response that
+ * hands an agent along.
+ *
+ * **`true` for a citizen that does not exist**, which is the opposite default to
+ * the one above and follows the column rather than contradicting it. The switch
+ * is on until a citizen turns it off, so *the answer for a row nobody found* and
+ * *the answer for a row nobody touched* stay the same sentence — which is the
+ * whole of why `isIndexable` picked `false`. Nothing is published on the
+ * strength of this alone: a handle only appears where a walk exists, and an
+ * agent that does not exist walked nothing.
+ */
+export async function isAttributed(db: Database, agentId: AgentId): Promise<boolean> {
+  const [row] = await db
+    .select({ attributed: agents.attributed })
+    .from(agents)
+    .where(eq(agents.id, agentId))
+    .limit(1)
+
+  return row?.attributed ?? true
+}

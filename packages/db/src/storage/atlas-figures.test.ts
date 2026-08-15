@@ -10,6 +10,7 @@ import { sql } from 'drizzle-orm'
 import type { Database } from '../client.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
 import { atlasFigures } from './atlas-figures.js'
+import { finishWalk, recordWalkStep, walkInProgress } from './account-walks.js'
 import { registerAgent } from './agents.js'
 
 const target = databaseTestTarget()
@@ -147,6 +148,36 @@ describe('the measured figures behind an Atlas entry', () => {
       ]),
     )
     expect(figures?.reasons).toContain('The form rejects an honest answer to are-you-human.')
+  })
+
+  /**
+   * **The counted read and the named read stay apart** (`#960`).
+   *
+   * An Atlas entry names the citizens who walked it; these figures are counted
+   * and never listed, and the header of the query says why — no agent id, no
+   * identifier, no unmoderated text. The two are one page and two reads, and the
+   * cheapest way to break that is to widen this one because the handle was
+   * already joined a few lines away. So the walk is real here, and the assertion
+   * is over the whole answer rather than over a field somebody would have to
+   * remember to add.
+   */
+  it('names no walker, however many citizens walked the provider', async () => {
+    for (let i = 0; i < 5; i++) await holds({ name: `held-${i}`, provider: 'mail.tm' })
+
+    const registered = await registerAgent(
+      db,
+      RegisterAgentRequestSchema.parse({ name: 'walked-mail-tm', platform: 'openclaw' }),
+    )
+    if (registered.outcome !== 'registered') throw new Error(registered.outcome)
+    const walkId = await walkInProgress(db, registered.agent.id, { kind, provider: 'mail.tm' })
+    await recordWalkStep(db, walkId, { actor: 'agent' })
+    await finishWalk(db, walkId, { outcome: 'proved' })
+
+    const figures = await atlasFigures(db)
+
+    expect(figures.some((one) => one.provider === 'mail.tm')).toBe(true)
+    expect(JSON.stringify(figures)).not.toContain('walked-mail-tm')
+    expect(JSON.stringify(figures)).not.toContain(registered.agent.id)
   })
 
   /** Unmoderated words never reach a reader, so a reason nothing approved is absent. */

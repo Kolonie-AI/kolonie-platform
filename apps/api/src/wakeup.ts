@@ -562,6 +562,14 @@ export async function wakeup(
           : `, and it returns to draft at ${quest.invoiceExpiresAt}`),
       gets: 'the quest goes live when the payment arrives',
       needs: `${quest.invoiceLamports ?? 0} lamports from your verified wallet`,
+      /**
+       * `unblock`, not `advance` (`#925`). The quest is written, checked and
+       * cleared; nothing about it moves the sponsor along a rung. What is left
+       * is one thing standing in front of something already finished, and the
+       * sponsor is the only party that can take it away.
+       */
+      category: 'unblock' as const,
+      beneficiary: 'you' as const,
       repeatable: false,
       touches: [],
     }))

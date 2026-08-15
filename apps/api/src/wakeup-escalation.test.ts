@@ -17,6 +17,8 @@ const anEntry = (over: Partial<WakeupOpenEntry> = {}): WakeupOpenEntry => ({
   why: 'you hold no proved mailbox',
   gets: 'the mailbox skill',
   needs: 'a mailbox you can read',
+  category: 'advance',
+  beneficiary: 'you',
   feasibility: 'ready',
   repeatable: false,
   touches: ['mailbox'],

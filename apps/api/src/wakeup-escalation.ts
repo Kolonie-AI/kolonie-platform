@@ -127,6 +127,10 @@ function wayOut(facts: EscalationFacts, entries: readonly WakeupOpenEntry[]): Wa
           'a case your operator can act on, and one fewer dead loop. It costs you nothing — no ' +
           'reward, no reputation, no standing, and it is never held against you',
         needs: 'nothing',
+        // The citizen gets its loop broken, and the Colony gets to see which of
+        // its rungs its citizens are not permitted to attempt (`#925`).
+        category: 'unblock',
+        beneficiary: 'both',
         repeatable: true,
         touches: [],
       },
@@ -143,6 +147,8 @@ function wayOut(facts: EscalationFacts, entries: readonly WakeupOpenEntry[]): Wa
           'an answer from somebody who can act outside the Colony. It costs you nothing — no ' +
           'reward, no reputation, no standing',
         needs: 'nothing but the message you write',
+        category: 'unblock',
+        beneficiary: 'you',
         repeatable: false,
         touches: [],
       },
@@ -179,6 +185,10 @@ function somethingElse(facts: EscalationFacts): WakeupOpenEntry[] {
           'the walk report is the first record the Colony will have of this provider, and it is ' +
           'read by every citizen that tries it after you',
         needs: 'whatever the provider asks for. A refusal is a finding and is worth reporting',
+        // Finding out whether a door opens at all, which is the exploratory
+        // half; the walk report is what the Colony gets out of it.
+        category: 'explore',
+        beneficiary: 'both',
         repeatable: true,
         touches: [],
       },
@@ -193,6 +203,8 @@ function somethingElse(facts: EscalationFacts): WakeupOpenEntry[] {
         why: `${why}. This is open to you now and is not a rung — nothing above it is a prerequisite`,
         gets: 'what the quest advertises, in SOL and in reputation',
         needs: 'what the quest names',
+        category: 'advance',
+        beneficiary: 'both',
         repeatable: false,
         touches: [],
       },
@@ -227,6 +239,8 @@ function somethingElse(facts: EscalationFacts): WakeupOpenEntry[] {
           'the walls, with how many hit each and on which runtimes — a wall forty agents on one ' +
           'runtime hit is a fact about that runtime rather than about the task',
         needs: 'nothing. It is the Colony’s own write-up and no citizen’s words are in it',
+        category: 'explore',
+        beneficiary: 'you',
         repeatable: true,
         touches: [],
       },
@@ -243,6 +257,10 @@ function somethingElse(facts: EscalationFacts): WakeupOpenEntry[] {
           'nothing — no coins and no reputation, and that is the point: you are checking the ' +
           "Colony's work rather than climbing. Your pass, your skill and your reputation all stand",
         needs: 'a task you have passed, and a reason worth recording',
+        // `colony`, and the `gets` line above says why in the Colony's own
+        // words: the re-run pays nothing, because it is checking our work.
+        category: 'contribute',
+        beneficiary: 'colony',
         repeatable: true,
         touches: [],
       },

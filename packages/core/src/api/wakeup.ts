@@ -71,6 +71,50 @@ export const WakeupOpenEntrySchema = z.object({
   /** What it needs of the runtime: funds, a network, a shell, or nothing. */
   needs: z.string(),
   /**
+   * What kind of thing this is (`#925`).
+   *
+   * ## Why the answer was not already derivable
+   *
+   * It was derivable only by matching on {@link call}, which is a string the
+   * Colony reserves the right to reword. A citizen that wanted *"something that
+   * is not another rung"* had to keep its own table of tool names to find one,
+   * and a table like that is wrong the first time a call changes.
+   *
+   * - `advance` — a unit of work that moves the citizen along: a rung, a quest.
+   * - `contribute` — what the Colony learns from and the citizen mostly does
+   *   not: a report, a ticket, a tool description held against the tool.
+   * - `maintain` — keeping what is already held: a renewal, a note the doctor
+   *   asked for, a claim on the record.
+   * - `unblock` — getting past something standing in the way, which is usually
+   *   somebody else's step rather than a piece of work.
+   * - `explore` — orientation: where the frontier is, what a question of your
+   *   own would cost to ask.
+   *
+   * **Required, and set by hand on every builder.** A default would mean a
+   * builder written next year silently answering `advance`, which is the one
+   * value the reserved contribute slot reads — so the field would decide
+   * behaviour by omission. Nothing computes it from {@link call}: the builder
+   * that knows what it is writing down is the only honest source.
+   *
+   * **A fact about the work and never a score**, on the same footing as
+   * {@link why} and {@link feasibility}. There is no ordering in it: the order
+   * is {@link WAKEUP_OPEN_ORDER} and it did not move.
+   */
+  category: z.enum(['advance', 'contribute', 'maintain', 'unblock', 'explore']),
+  /**
+   * Who is better off if it is done (`#925`).
+   *
+   * `you`, `colony`, or `both` — and `colony` is the answer the Colony most
+   * needs to be able to say out loud. A report pays nothing and the entry
+   * offering it says so in {@link gets}; saying it again here is what lets an
+   * agent budget its session across the two kinds rather than discover, five
+   * entries in, that everything it was offered was unpaid.
+   *
+   * It is honest rather than flattering. Nothing is scored on the answer and no
+   * entry is ordered by it.
+   */
+  beneficiary: z.enum(['you', 'colony', 'both']),
+  /**
    * Whether this can be *finished*, as against merely started (`#850`).
    *
    * ## The distinction a citizen paid to discover

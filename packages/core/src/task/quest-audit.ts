@@ -32,9 +32,9 @@ export const QUEST_AUDIT_DEFAULT_RATE = 0.1
  * the Colony's ability to sell work, and the correct response is to stop selling
  * it** rather than to argue with the citizens who were already paid.
  *
- * A fifth rather than a tenth because a steward's second reading is itself a
- * judgement: two readers disagreeing occasionally is what two readers do, and a
- * threshold at the noise floor would stop the programme on a quiet week.
+ * A fifth rather than a tenth because the second reading is itself a judgement:
+ * two readers disagreeing occasionally is what two readers do, and a threshold
+ * at the noise floor would stop the programme on a quiet week.
  */
 export const QUEST_AUDIT_DISAGREEMENT_THRESHOLD = 0.2
 
@@ -44,14 +44,14 @@ export const QUEST_AUDIT_DISAGREEMENT_THRESHOLD = 0.2
  *
  * **Ten, and the number is a judgement rather than a finding.** What is not a
  * judgement is that a floor has to exist: without one the brake is live from the
- * first audited verdict, and one steward disagreement out of three is 33 % —
- * enough to refuse every paid quest for the rest of a thirty-day window, on the
- * strength of a single reading.
+ * first audited verdict, and one disagreement out of three is 33 % — enough to
+ * refuse every paid quest for the rest of a thirty-day window, on the strength
+ * of a single reading.
  *
  * The argument is {@link QUEST_AUDIT_DISAGREEMENT_THRESHOLD}'s own, applied to
- * the other axis. That constant is a fifth rather than a tenth *"because a
- * steward's second reading is itself a judgement: two readers disagreeing
- * occasionally is what two readers do"*. That reasoning is about the **rate**,
+ * the other axis. That constant is a fifth rather than a tenth *"because the
+ * second reading is itself a judgement: two readers disagreeing occasionally is
+ * what two readers do"*. That reasoning is about the **rate**,
  * and a rate over three samples is entirely noise floor whatever the threshold
  * is set to.
  *
@@ -94,7 +94,7 @@ export function isAuditable(tier: QuestTier): boolean {
  * Where this submission falls in the draw: a number in `[0, 1)`.
  *
  * **Deterministic from the submission id, and from nothing else.** So it cannot
- * be influenced by the citizen, the sponsor or the steward, and re-running the
+ * be influenced by the citizen, the sponsor or the reader, and re-running the
  * selection gives the same answer — *a sample selected afterwards is a sample
  * somebody chose*.
  *
@@ -119,13 +119,19 @@ export function isAudited(submissionId: string, rate = QUEST_AUDIT_DEFAULT_RATE)
   return questAuditDraw(submissionId) < rate
 }
 
-/** What a steward decided about a verdict it re-read. */
+/**
+ * What the second reading decided about a verdict it re-read.
+ *
+ * **Written by `apps/moderation-runner` since `#944`**, and by a steward calling
+ * a tool before that. The schema did not change with the reader: what a reading
+ * has to say is `agrees` and why, whoever reached it.
+ */
 export const AuditDecisionSchema = z.object({
   agrees: z.boolean(),
   /**
    * Why, and it is required in both directions.
    *
-   * A steward asked for a reason only when it disagrees learns that the field
+   * A reader asked for a reason only when it disagrees learns that the field
    * means disagreement — the same argument `bio-judge`'s schema makes about
    * `reason` on a pass.
    */
@@ -164,10 +170,10 @@ export const QUEST_AUDIT_OFF: QuestAuditPolicy = {
 /**
  * Why this quest may not be published for money, or `undefined` if it may.
  *
- * Both refusals name what is missing rather than saying no: a steward reading
- * *"sampling is not enabled"* knows what to do, and one reading *"the judge and
- * a steward have disagreed on 34% of the sample"* knows why the Colony has
- * stopped selling work and what would change it.
+ * Both refusals name what is missing rather than saying no: a sponsor reading
+ * *"sampling is not enabled"* knows what to do, and one reading *"the judge has
+ * been overruled on 34% of the sample"* knows why the Colony has stopped selling
+ * work and what would change it.
  *
  * A zero-reward quest passes both unchanged. The pilot is entirely zero-reward,
  * so this guard is invisible until the day it matters, which is the day it must
@@ -215,7 +221,7 @@ export function paidQuestRejection(
    * **The brake needs a sample before it may stop anything** (`#317`).
    *
    * Under {@link QUEST_AUDIT_MINIMUM_SAMPLE} verdicts the rate is not a
-   * measurement of the judge, it is a measurement of one steward's afternoon —
+   * measurement of the judge, it is a measurement of one afternoon's readings —
    * one disagreement out of three reads as 33 % and would refuse every paid
    * quest until that single verdict aged out of a thirty-day window.
    *
@@ -224,7 +230,7 @@ export function paidQuestRejection(
    */
   if (input.audited >= policy.minimumSample && input.disagreement > policy.disagreementThreshold) {
     return (
-      `A steward has disagreed with ${percent(input.disagreement)} of the judge's audited ` +
+      `A second reading has disagreed with ${percent(input.disagreement)} of the judge's audited ` +
       `verdicts over the last ${policy.windowDays} days — ${input.audited} verdicts were ` +
       `re-read — against a threshold of ${percent(policy.disagreementThreshold)}. While the ` +
       'judge is being overruled that often the Colony does not sell more work; a zero-reward ' +

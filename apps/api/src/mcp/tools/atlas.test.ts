@@ -138,7 +138,13 @@ describe('the Atlas over MCP', () => {
       // 5 since `#945` took `kolonie.support.notice` out — the one tool here
       // that was not about a quest, now a person's action on `/backend/tickets`
       // rather than a tool a model holds. What is left is quests, entirely.
-      expect(STEWARD_TOOLS.length).toBe(5)
+      // 1 since `#944`: the sampling audit and the red-line queue were queues,
+      // drawn one item at a time on a cadence, and a queue that only advances
+      // when somebody calls a tool is a queue that stops. Both run in
+      // `apps/moderation-runner` now. `kolonie.quests.end` stays, because it is
+      // a lever rather than a queue — a live quest spends money and stopping it
+      // has to be immediate rather than next-poll.
+      expect(STEWARD_TOOLS.length).toBe(1)
     })
 
     it('still carries the catalogue read under the name it already had', () => {

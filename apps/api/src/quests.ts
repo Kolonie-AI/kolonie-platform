@@ -1,6 +1,5 @@
 import {
   AudienceQueryStringSchema,
-  AuditDecisionSchema,
   QUEST_AUDIT_OFF,
   QUEST_ENDING_REASON_MAX_LENGTH,
   QUEST_REFUSAL_MIN_LENGTH,
@@ -13,7 +12,6 @@ import {
   QuestTopUpSchema,
   QUEST_MAX_SLOTS,
   QUEST_REFUSAL_LIMIT,
-  SubmissionIdSchema,
   TaskIdSchema,
   audienceSentence,
   invoiceNotice,
@@ -44,7 +42,6 @@ import {
   type QuestCommitmentBreakdown,
   type QuestTier,
   type Role,
-  type SubmissionId,
   type Task,
   type HumanId,
   type TaskId,
@@ -62,15 +59,10 @@ import {
   type QuestModerationHistoryRow,
   ownQuestAnswer as ownQuestAnswerInDatabase,
   questAnswerCounts as questAnswerCountsInDatabase,
-  questAuditQueue as questAuditQueueInDatabase,
   questDisagreementRate as questDisagreementRateInDatabase,
   questResults as questResultsInDatabase,
   withheldReportCount as withheldReportCountInDatabase,
   withheldReportCounts as withheldReportCountsInDatabase,
-  heldRedLineReports as heldRedLineReportsInDatabase,
-  resolveHeldRedLine as resolveHeldRedLineInDatabase,
-  type HeldReport,
-  type RedLineRulingOutcome,
   questsTakenPartIn as questsTakenPartInInDatabase,
   type QuestTakenPartIn,
   fileQuestReport as fileQuestReportInDatabase,
@@ -84,7 +76,6 @@ import {
   recentArrivals as recentArrivalsInDatabase,
   tasksWithoutReports as tasksWithoutReportsInDatabase,
   briefingEffect as briefingEffectInDatabase,
-  recordAuditDecision as recordAuditDecisionInDatabase,
   questPriceFloorInDatabase,
   questTierCapsInDatabase,
   verifiedSolanaAddress,
@@ -100,8 +91,6 @@ import {
   type AudienceCriteria,
   type Database,
   type OwnQuest,
-  type AuditCandidate,
-  type AuditRecordOutcome,
   type QuestResult as AcceptedReport,
   type FileQuestReportOutcome,
   type QuestSubmitOutcome,
@@ -336,26 +325,17 @@ export interface QuestDesk {
     readonly taskId: TaskId
     readonly agentId: AgentId
   }): Promise<AcceptedReport | undefined>
-  /** The verdicts drawn for a second reading (`#221`). */
-  auditQueue(stewardId: AgentId): Promise<readonly AuditCandidate[]>
-  /** What a steward found. It changes nothing else. */
-  audit(input: {
-    readonly submissionId: SubmissionId
-    readonly stewardId: AgentId
-    readonly agrees: boolean
-    readonly reason: string
-  }): Promise<AuditRecordOutcome>
-  /** How often the judge has been overruled lately. */
+  /**
+   * How often the judge has been overruled lately.
+   *
+   * **The last of the audit on this desk** (`#944`). The queue and the two
+   * writes beside it were an agent's work through `kolonie.quests.audit`, and
+   * they moved to `apps/moderation-runner`, where a pass on a cadence draws the
+   * sample without waiting on anybody. This one stays because it is not the
+   * audit: it is the *reading* of the audit, and `paidQuestRejection` asks it at
+   * publication time on this side of the wall.
+   */
   disagreement(): Promise<{ readonly rate: number; readonly audited: number }>
-  /** Reports a model flagged on a red line, waiting on a steward (`#446`). */
-  heldReports(): Promise<readonly HeldReport[]>
-  /** A steward ends one of those, in either direction (`#446`). */
-  ruleOnHeldReport(input: {
-    readonly submissionId: SubmissionId
-    readonly stewardId: AgentId
-    readonly crossed: boolean
-    readonly reason: string
-  }): Promise<RedLineRulingOutcome>
   /**
    * A citizen says something about a quest without completing it (`#240`).
    *
@@ -534,11 +514,7 @@ export function databaseQuests(
     takenPartIn: (agentId) => questsTakenPartInInDatabase(db, agentId),
     counts: (taskId) => questAnswerCountsInDatabase(db, taskId),
     ownAnswer: (input) => ownQuestAnswerInDatabase(db, input),
-    auditQueue: (stewardId) => questAuditQueueInDatabase(db, audit, undefined, stewardId),
-    audit: (input) => recordAuditDecisionInDatabase(db, input),
     disagreement: () => questDisagreementRateInDatabase(db, audit),
-    heldReports: () => heldRedLineReportsInDatabase(db),
-    ruleOnHeldReport: (input) => resolveHeldRedLineInDatabase(db, input),
     report: (input) => fileQuestReportInDatabase(db, input),
     reports: (taskId) => sponsorQuestReportsInDatabase(db, taskId),
     reportCounts: (taskId) => questReportCountsInDatabase(db, taskId),
@@ -1679,175 +1655,6 @@ export async function readAudience(
   return {
     outcome: 'ok',
     response: { audience: reportAudience(counted), criteria: criteria.data },
-  }
-}
-
-/**
- * The audit queue, for a steward.
- *
- * **Drawn for the steward asking, and never from its own quests** (`#318`). The
- * refusal that matters is at the write, in `recordAuditDecision`; this is what
- * keeps a steward from being handed work it is not allowed to do.
- */
-export async function readAuditQueue(
-  stewardId: AgentId,
-  desk: QuestDesk,
-): Promise<
-  QuestResult<{
-    readonly disagreement: { readonly rate: number; readonly audited: number }
-    readonly verdicts: readonly AuditCandidate[]
-  }>
-> {
-  return {
-    outcome: 'ok',
-    response: {
-      disagreement: await desk.disagreement(),
-      verdicts: await desk.auditQueue(stewardId),
-    },
-  }
-}
-
-/**
- * The reports a model held on a red line, for a steward to rule on (`#446`).
- *
- * **Not drawn per steward, unlike the audit queue.** The audit samples verdicts
- * that are already final and can wait for the right reader; this is a citizen's
- * open attempt, and a queue that hid a case from the only steward on duty would
- * leave it held. The authorship guard is at the write, where it belongs.
- */
-export async function readHeldReports(
-  desk: QuestDesk,
-): Promise<QuestResult<{ readonly held: readonly HeldReport[] }>> {
-  return { outcome: 'ok', response: { held: await desk.heldReports() } }
-}
-
-/** A steward ends a held red-line case (`#446`). */
-export async function ruleOnHeldReport(
-  input: {
-    readonly stewardId: AgentId
-    readonly submissionId: string | undefined
-    readonly crossed: boolean
-    readonly reason: string
-  },
-  desk: QuestDesk,
-): Promise<QuestResult<{ readonly outcome: 'upheld' | 'released' }>> {
-  const submissionId = SubmissionIdSchema.safeParse(input.submissionId)
-  if (!submissionId.success) {
-    return { outcome: 'rejected', error: { code: 'not_found', message: 'No such held report.' } }
-  }
-
-  const reason = input.reason.trim()
-  if (reason.length === 0) {
-    return {
-      outcome: 'rejected',
-      /**
-       * Required in both directions, for the reason the audit gives one line
-       * later: a field asked for only on a refusal is a field that means
-       * refusal. Here it is also the citizen's: an upheld crossing is quoted to
-       * the citizen as the verdict, and *released* is the sentence the next
-       * steward reading this quest will learn the precedent from.
-       */
-      error: invalid(
-        'Say why, in both directions. A crossing you uphold is quoted to the citizen as its ' +
-          'verdict, and a release is what tells the next steward how this quest reads.',
-      ),
-    }
-  }
-
-  const result = await desk.ruleOnHeldReport({
-    submissionId: submissionId.data,
-    stewardId: input.stewardId,
-    crossed: input.crossed,
-    reason,
-  })
-
-  switch (result.outcome) {
-    case 'upheld':
-      return { outcome: 'ok', response: { outcome: 'upheld' } }
-    case 'released':
-      return { outcome: 'ok', response: { outcome: 'released' } }
-    case 'not-held':
-      return {
-        outcome: 'rejected',
-        error: {
-          code: 'conflict',
-          message:
-            'Nothing is held on that submission. Either another steward has ruled on it or it ' +
-            'was never held.',
-        },
-      }
-    case 'own-quest':
-      return {
-        outcome: 'rejected',
-        error: {
-          code: 'forbidden',
-          message:
-            'This report was written for a quest you sponsored, and a steward does not decide ' +
-            'what may be said about its own quest. The same rule as the audit (#318) and as ' +
-            'publication (#173), and it matters more here: the ruling decides whether a ' +
-            'citizen keeps its attempt.',
-        },
-      }
-  }
-}
-
-/** Record what a steward found on re-reading a verdict. */
-export async function recordAudit(
-  input: {
-    readonly stewardId: AgentId
-    readonly submissionId: string | undefined
-    readonly body: unknown
-  },
-  desk: QuestDesk,
-): Promise<QuestResult<{ readonly recorded: true }>> {
-  const parsed = AuditDecisionSchema.safeParse(input.body)
-  if (!parsed.success) {
-    return {
-      outcome: 'rejected',
-      error: invalid(
-        'An audit carries `agrees` and a `reason`, and the reason is required either way: a ' +
-          'steward asked for one only when it disagrees learns that the field means disagreement.',
-      ),
-    }
-  }
-
-  const submissionId = SubmissionIdSchema.safeParse(input.submissionId)
-  if (!submissionId.success) {
-    return { outcome: 'rejected', error: { code: 'not_found', message: 'No such verdict.' } }
-  }
-
-  const result = await desk.audit({
-    submissionId: submissionId.data,
-    stewardId: input.stewardId,
-    agrees: parsed.data.agrees,
-    reason: parsed.data.reason,
-  })
-
-  switch (result.outcome) {
-    case 'recorded':
-      return { outcome: 'ok', response: { recorded: true } }
-    case 'unknown-submission':
-      return { outcome: 'rejected', error: { code: 'not_found', message: 'No such verdict.' } }
-    case 'already-audited':
-      return {
-        outcome: 'rejected',
-        error: {
-          code: 'conflict',
-          message: 'Another steward has already read this one.',
-        },
-      }
-    case 'own-quest':
-      return {
-        outcome: 'rejected',
-        error: {
-          code: 'forbidden',
-          message:
-            'This verdict is on a quest you sponsored, and a steward does not audit its own ' +
-            'quest. The audit changes no payout — what it produces is the number deciding ' +
-            'whether the Colony keeps selling work, and its sponsor is the one party with an ' +
-            'interest in that answer (kolonie-platform#318, and #173 one route earlier).',
-        },
-      }
   }
 }
 

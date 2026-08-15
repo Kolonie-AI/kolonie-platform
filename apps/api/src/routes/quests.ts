@@ -5,10 +5,8 @@ import {
   endQuest,
   exportQuestResults,
   readAudience,
-  readAuditQueue,
   readOwnAnswer,
   readQuestResults,
-  recordAudit,
   listQuests,
   readQuest,
   submitQuest,
@@ -19,17 +17,17 @@ import {
   type QuestResult,
 } from '../quests.js'
 import { callerFor } from './authenticated.js'
-import { stewardFor } from './privileged.js'
 import type { RouteDependencies } from './dependencies.js'
 
 /**
  * The quest write path (`#176`).
  *
- * **Two audiences on one prefix, separated by the guard and not by the path.**
- * The audit and the held-report routes are a steward's; everything else belongs
- * to whoever wrote the quest. Splitting them onto different prefixes would
- * suggest a second surface exists, and there is only one — `stewardFor` is the
- * whole difference.
+ * **One audience: whoever wrote the quest.** It was two until `#944`, which
+ * moved the sampling audit into `apps/moderation-runner` and took the held-report
+ * queue with it — so `/v1/quests/audit` and its record route are gone, and with
+ * them the only routes here that a steward and not an author could call. The one
+ * privileged act left is `/quests/:questId/end`, and that shares the sponsor's
+ * path on purpose (see below).
  *
  * **Nothing here publishes or refuses a quest any more** (`#723`). A quest that
  * clears moderation is published by that verdict (`#693`), so
@@ -48,10 +46,10 @@ export function registerQuestRoutes(v1: FastifyInstance, deps: RouteDependencies
   /**
    * The caller, by key or by session (`#430`).
    *
-   * Every author-facing route here takes it, because a quest is written, priced,
-   * previewed, submitted and funded in one sitting: a form a browser can open
-   * and a submit it cannot is not a form. The steward's routes below keep
-   * `stewardFor`, which is a different question and unchanged.
+   * Every route here takes it, because a quest is written, priced, previewed,
+   * submitted and funded in one sitting: a form a browser can open and a submit
+   * it cannot is not a form. `stewardFor` is a different question, and since
+   * `#944` no route on this prefix asks it.
    *
    * **It was `sponsorFor` until `#578`**, which additionally resolved a browser
    * session to the person's minted `sponsor-*` identity. Nothing mints one, so
@@ -293,32 +291,6 @@ export function registerQuestRoutes(v1: FastifyInstance, deps: RouteDependencies
 
     const { questId } = request.params as { questId?: string }
     return send(reply, await readOwnAnswer({ agentId: caller.id, questId }, quests))
-  })
-
-  /**
-   * The verdicts drawn for a second reading (`#221`).
-   *
-   * A steward's surface, and it shows the questions, the answers and the
-   * verdict — never the citizen. `#177` keeps the judge blind for a reason, and
-   * a human auditor with more context than the judge is not auditing the judge.
-   */
-  v1.get('/quests/audit', async (request, reply) => {
-    const steward = await stewardFor(request, reply, store)
-    if (steward === null) return reply
-
-    return send(reply, await readAuditQueue(steward.id, quests))
-  })
-
-  /** What the steward found. It is counted; it is never applied. */
-  v1.post('/quests/audit/:submissionId', async (request, reply) => {
-    const steward = await stewardFor(request, reply, store)
-    if (steward === null) return reply
-
-    const { submissionId } = request.params as { submissionId?: string }
-    return send(
-      reply,
-      await recordAudit({ stewardId: steward.id, submissionId, body: request.body }, quests),
-    )
   })
 }
 

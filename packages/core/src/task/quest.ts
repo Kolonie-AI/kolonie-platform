@@ -105,8 +105,9 @@ export const QUEST_MAX_DURATION_DAYS = 365
  * **Removed rather than repriced, and that is not a reversal of D-105.** That
  * decision's argument was *refusing is the decision the Colony most needs done
  * well, and an unpaid role prices the careful no at zero* — which is an argument
- * about a role that decides. No role decides. What survives of D-105 is
- * `kolonie.quests.audit`, which is the post-publication job and pays separately.
+ * about a role that decides. No role decides. What survived of D-105 was the
+ * post-publication audit, which paid separately — and `#944` moved that to a
+ * pass in `apps/moderation-runner`, so it now has nobody to pay either.
  *
  * **The debts already incurred are untouched.** `payout_obligations` keeps its
  * `review` kind and every row written under the old rule; a debt the Colony

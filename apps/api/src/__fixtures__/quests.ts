@@ -194,6 +194,17 @@ export interface FakeQuestDesk extends QuestDesk {
     readonly authorId?: AgentId
     readonly flaggedFor?: string
   }) => void
+  /**
+   * Record a second reading of an accepted answer, which since `#944` only the
+   * moderation runner can do.
+   *
+   * It was a tool a steward called, and the fake wrote the row on the way
+   * through it. The pass moved to `apps/moderation-runner`, so what is left on
+   * this desk is the *reading* — `disagreement`, which decides whether the
+   * Colony keeps publishing paid quests — and a test of that needs some way to
+   * put rows behind it.
+   */
+  readonly auditedAs: (submissionId: string, agrees: boolean) => void
 }
 
 /**
@@ -359,6 +370,7 @@ export function fakeQuests(): FakeQuestDesk {
   /** Participation that was not accepted — refused, or still waiting (`#454`). */
   const tookPart = new Map<AgentId, QuestTakenPartIn[]>()
 
+  /** Second readings of accepted answers, seeded rather than written (`#944`). */
   const audits = new Map<string, { agrees: boolean }>()
 
   /** Reports a red line was raised against, waiting on a steward (`#446`). */
@@ -564,32 +576,15 @@ export function fakeQuests(): FakeQuestDesk {
       } as never
     },
 
-    async auditQueue() {
-      return []
-    },
-
     /**
      * The red-line hold, in memory (`#446`).
      *
-     * The queue and the SQL that decides *which state is current* are
-     * `packages/db`'s and are asserted there against a real Postgres. What this
-     * reproduces is what the routes rely on: a case is held until somebody rules
-     * on it, one ruling ends it, and a steward does not rule on its own quest.
+     * **Held and never resolved here, since `#944`.** The queue a steward read
+     * and the ruling it recorded both left this desk with the tools; what is
+     * left of the hold on the API side is the *count* a sponsor reads, so the
+     * map is a seeder and a length. Resolving one is the moderation runner's,
+     * asserted in `packages/db` against a real Postgres.
      */
-    async heldReports() {
-      return [...heldRedLine.values()]
-    },
-
-    async ruleOnHeldReport({ submissionId, stewardId, crossed }) {
-      const held = heldRedLine.get(submissionId)
-      if (held === undefined) return { outcome: 'not-held' }
-      if (held.authorId !== undefined && held.authorId === stewardId) {
-        return { outcome: 'own-quest' }
-      }
-      heldRedLine.delete(submissionId)
-      return { outcome: crossed ? 'upheld' : 'released' }
-    },
-
     async withheld(taskId) {
       return [...heldRedLine.values()].filter((report) => report.taskId === taskId).length
     },
@@ -621,11 +616,8 @@ export function fakeQuests(): FakeQuestDesk {
       return new Map(rows)
     },
 
-    async audit({ submissionId, agrees, reason }) {
-      if (reason.trim().length < 10) return { outcome: 'unknown-submission' }
-      if (audits.has(submissionId)) return { outcome: 'already-audited' }
+    auditedAs(submissionId, agrees) {
       audits.set(submissionId, { agrees })
-      return { outcome: 'recorded' }
     },
 
     async disagreement() {

@@ -94,9 +94,11 @@ export function createMcpServer(
    *
    * **A third tier, built the way D-013 builds the first two** — by registering
    * fewer tools rather than by refusing more. A sponsor shown
-   * `kolonie.quests.audit` spends context on a tool whose only possible answer
-   * is a refusal, which is the same argument that keeps `kolonie.me` out of a
-   * stranger's list.
+   * `kolonie.quests.end` spends context on a tool whose only possible answer is
+   * a refusal, which is the same argument that keeps `kolonie.me` out of a
+   * stranger's list. Since `#944` that one tool is the whole tier, and the
+   * argument does not weaken with the count: one unusable tool in a list is
+   * still context spent on a refusal.
    *
    * Resolved by the route, like `agentId` and for the same reason: the
    * credential lookup has already happened there and the roles came back with

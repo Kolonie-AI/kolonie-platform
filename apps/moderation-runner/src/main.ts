@@ -17,8 +17,11 @@ import {
   unmoderatedWalkProse,
   recordWalkProseModeration,
   markBriefingStale,
+  questAuditQueue,
   questObstacleCorpus,
   readTaskKind,
+  recordAuditDecision,
+  stewardEndedQuests,
   unmoderatedQuestReports,
   recordProviderReasonModeration,
   recordQuestReportModeration,
@@ -63,6 +66,8 @@ import {
 import type { QuestModerationStore } from './quests.js'
 import type { AnswerModerationStore } from './answers.js'
 import type { RedLineReviewStore } from './redline-review.js'
+import type { QuestAuditStore } from './quest-audit.js'
+import type { QuestEndingsStore } from './quest-endings.js'
 import type { ProviderReasonModerationStore } from './provider-reasons.js'
 import type { WalkProseModerationStore } from './walk-prose.js'
 import type { AtlasModerationStore } from './atlas.js'
@@ -374,6 +379,40 @@ const redLineReviewStore: RedLineReviewStore = {
 }
 
 /**
+ * The second reading of quest verdicts the judge passed (`#221`, `#944`).
+ *
+ * **`stewardId: null` is the runner's pass, and it is not an exemption.**
+ * `recordAuditDecision` refuses a steward auditing its own quest; this pass
+ * sponsors nothing, so the guard has nothing to protect against and is skipped
+ * rather than worked around. The column has always been nullable — it was
+ * written that way for the departing steward whose decisions outlive it — so a
+ * reading with no agent behind it is the same fact recorded by nobody in
+ * particular, and needed no migration.
+ *
+ * The queue is drawn without a steward id for the same reason: there is no
+ * sponsor to exclude.
+ */
+const questAuditStore: QuestAuditStore = {
+  queue: (limit) => questAuditQueue(db, { rate: questAudit.rate }, limit),
+  record: (input) => recordAuditDecision(db, { ...input, stewardId: null }),
+}
+
+/**
+ * The trace behind the one tool the steward tier still holds (`#944`).
+ *
+ * **Here rather than at the call.** `apps/api` opens no issues and holds no
+ * GitHub token, and giving it one would put a write credential for the Colony's
+ * own repository behind every request the API serves — to record an act that
+ * happens a handful of times a year. This process already holds that token for
+ * the tripwire, and reuses `tripwire.issues` for the same reason
+ * `redLineReviewStore` does: one place where a missing token means *file nothing
+ * and carry on*.
+ */
+const questEndingsStore: QuestEndingsStore = {
+  endedByLever: (withinDays, limit) => stewardEndedQuests(db, { withinDays }, limit),
+}
+
+/**
  * The scrub between what a citizen said about a quest and the sponsor that
  * wrote it (`#240`).
  *
@@ -546,6 +585,16 @@ const runner = startRunner(
     tripwire,
     answers: { store: answerStore, model, log },
     redLineReview: { store: redLineReviewStore, model, issues: tripwire.issues, log },
+    /**
+     * **Wired exactly when the audit is enabled**, which is the one deployment
+     * question `QuestAuditPolicy.enabled` answers: *does the Colony currently
+     * re-read verdicts?* With it off nothing paid may be published at all, so
+     * there is no money resting on a number nobody is producing; with it on, the
+     * reading now starts itself instead of waiting on a steward the Colony does
+     * not employ.
+     */
+    questAudit: questAudit.enabled ? { store: questAuditStore, model, log } : undefined,
+    questEndings: { store: questEndingsStore, issues: tripwire.issues, log },
     questReports: { store: questReportStore, model, log },
     providerReasons: { store: providerReasonStore, model, log },
     atlas: { store: atlasStore, model, log },

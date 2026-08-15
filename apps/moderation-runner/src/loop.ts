@@ -32,6 +32,8 @@ import { recipeTick, type RecipeLoopDependencies } from './recipes.js'
 import { walkProseTick, type WalkProseLoopDependencies } from './walk-prose.js'
 import { answerTick, type AnswerLoopDependencies } from './answers.js'
 import { redLineReviewTick, type RedLineReviewLoopDependencies } from './redline-review.js'
+import { questAuditTick, type QuestAuditLoopDependencies } from './quest-audit.js'
+import { questEndingsTick, type QuestEndingsLoopDependencies } from './quest-endings.js'
 import { providerReasonTick, type ProviderReasonLoopDependencies } from './provider-reasons.js'
 import { questReportTick, type QuestReportLoopDependencies } from './quest-reports.js'
 import { directionTick, type DirectionLoopDependencies } from './directions.js'
@@ -116,6 +118,27 @@ export interface LoopDependencies {
    * smaller installation.
    */
   readonly redLineReview?: RedLineReviewLoopDependencies
+  /**
+   * The second reading of quest verdicts the judge passed (`#221`, `#944`).
+   *
+   * **Optional like the rest, and its absence is a number rather than a queue.**
+   * An unwired audit does not leave anybody waiting — the citizen was paid at the
+   * verdict — but the disagreement rate it feeds stays at zero, and a rate of
+   * zero is indistinguishable from a judge that is never wrong. That is the
+   * brake on paid quests reading *all clear* because nothing ever tested it,
+   * which is exactly the state `#944` found the Colony in when the reading
+   * waited on a steward calling a tool.
+   */
+  readonly questAudit?: QuestAuditLoopDependencies
+  /**
+   * The trace behind `kolonie.quests.end` (`#944`).
+   *
+   * Optional in the shape and, like {@link redLineReview}, not really optional
+   * in a deployment: the tier was shrunk to that one lever on the understanding
+   * that every use of it lands in front of a person, and this is the half that
+   * does the landing.
+   */
+  readonly questEndings?: QuestEndingsLoopDependencies
   /**
    * What citizens said about the quests themselves (`#240`).
    *
@@ -474,6 +497,8 @@ export async function tick(deps: LoopDependencies, batchSize: number): Promise<T
   await checkTripwire(touched, deps, log)
   await scrubAnswers(deps, batchSize, log)
   await reviewRedLines(deps, batchSize, log)
+  await auditQuestVerdicts(deps, batchSize, log)
+  await fileQuestEndings(deps, batchSize, log)
   await scrubQuestReports(deps, batchSize, log)
   await scrubProviderReasons(deps, batchSize, log)
   await readDirections(deps, batchSize, log)
@@ -711,6 +736,88 @@ async function reviewRedLines(deps: LoopDependencies, batchSize: number, log: Lo
   } catch (error) {
     log.error('the red-line second reading failed', error, {
       event: 'redline.review.pass.failed',
+    })
+  }
+}
+
+/**
+ * Read a sample of passed quest verdicts a second time, on the same poll
+ * (`#221`, `#944`).
+ *
+ * **The reason it is here at all is that a queue is not a programme.** `#221`
+ * built the sample, the rate and the brake, and then made every one of them wait
+ * on a steward calling `kolonie.quests.audit` — so the Colony's measurement of
+ * its own judge was a number nobody was scheduled to produce. Beside the other
+ * passes it runs whether or not anyone is watching, which is the whole of what
+ * `#944` asked for.
+ *
+ * Its failure is swallowed like every other pass', and here that costs the least
+ * of any of them: the candidates are drawn again next poll and nothing partial
+ * was written, because a reading that did not finish records no row.
+ */
+async function auditQuestVerdicts(
+  deps: LoopDependencies,
+  batchSize: number,
+  log: Log,
+): Promise<void> {
+  const { questAudit } = deps
+  if (questAudit === undefined) return
+
+  try {
+    const outcome = await questAuditTick({ log, ...questAudit }, batchSize)
+    if (outcome.read > 0) {
+      log.info(
+        `quest audit: ${outcome.read} verdicts read a second time, ${outcome.agreed} upheld, ` +
+          `${outcome.disagreed} disagreed with, ${outcome.unread} left unrecorded, ` +
+          `${outcome.stale} already audited`,
+        {
+          event: 'quest.audit.pass.done',
+          read: outcome.read,
+          agreed: outcome.agreed,
+          disagreed: outcome.disagreed,
+          unread: outcome.unread,
+          stale: outcome.stale,
+        },
+      )
+    }
+  } catch (error) {
+    log.error('the quest audit failed', error, { event: 'quest.audit.pass.failed' })
+  }
+}
+
+/**
+ * File the trace behind every use of the steward lever, on the same poll
+ * (`#944`).
+ *
+ * The only pass here that calls no model: it reads rows and writes issues, and
+ * what it costs on a poll where nothing was stopped by hand — which is nearly
+ * every poll — is one bounded query.
+ */
+async function fileQuestEndings(
+  deps: LoopDependencies,
+  batchSize: number,
+  log: Log,
+): Promise<void> {
+  const { questEndings } = deps
+  if (questEndings === undefined) return
+
+  try {
+    const outcome = await questEndingsTick({ log, ...questEndings }, batchSize)
+    if (outcome.filed > 0) {
+      log.info(
+        `steward lever: ${outcome.filed} endings filed, ${outcome.skipped} already filed or ` +
+          'unfileable',
+        {
+          event: 'quest.ending.pass.done',
+          read: outcome.read,
+          filed: outcome.filed,
+          skipped: outcome.skipped,
+        },
+      )
+    }
+  } catch (error) {
+    log.error('filing the steward lever’s endings failed', error, {
+      event: 'quest.ending.pass.failed',
     })
   }
 }

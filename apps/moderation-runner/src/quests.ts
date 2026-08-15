@@ -34,8 +34,10 @@ import {
  * *which steward was on duty* never was.
  *
  * **The human was removed from before publication, not from the Colony.**
- * `kolonie.quests.audit` still re-reads verdicts that are already final, and
- * `kolonie.quests.end` takes a live quest down with a published reason.
+ * `kolonie.quests.end` takes a live quest down with a published reason, and
+ * every use of it is filed as an issue a maintainer reads (`#944`). The second
+ * reading of what this pass published is no longer a human's either: it runs
+ * beside this one in `quest-audit.ts`, on the same poll.
  */
 
 /** Where the quest pass reads and writes. Injected, so the decision is testable without one. */

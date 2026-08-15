@@ -1207,45 +1207,30 @@ describe('GET /v1/quests/:questId/answer', () => {
 })
 
 /**
- * The audit surface, and the notice that goes with it (`#221`).
+ * The audit surface, gone from this prefix (`#944`).
  *
- * The queue itself is asserted in `packages/db` against a real Postgres — the
- * draw is SQL. What is asserted here is who may reach it, and that a verdict is
- * read once.
+ * It was two routes a steward called to draw a sample and record what it found.
+ * A sample drawn only when somebody calls a tool is a sample that stops being
+ * drawn, and the number it produces is what decides whether the Colony keeps
+ * publishing paid quests — so the pass moved to `apps/moderation-runner`, where
+ * a poll advances it and no call is required.
+ *
+ * Asserted as an absence rather than deleted silently: a route that answered 200
+ * to a steward and 403 to everyone else would look like a working permission
+ * long after the queue behind it stopped being read.
  */
 describe('the sampling audit', () => {
-  it('is a steward’s queue and nobody else’s', async () => {
-    expect((await get('/v1/quests/audit', stewardKey)).statusCode).toBe(200)
-    expect((await get('/v1/quests/audit', sponsorKey)).statusCode).toBe(403)
-  })
-
-  it('records a decision, and tells the second steward it was read', async () => {
-    const submissionId = crypto.randomUUID()
-    const decision = { agrees: false, reason: 'The answer is about a different service.' }
-
-    const first = await post(`/v1/quests/audit/${submissionId}`, stewardKey, decision)
-    const second = await post(`/v1/quests/audit/${submissionId}`, stewardKey, decision)
-
-    expect(first.statusCode).toBe(200)
-    expect(second.statusCode).toBe(409)
-  })
-
-  it('refuses a decision with no reason, in either direction', async () => {
-    const submissionId = crypto.randomUUID()
-
+  it('is not on the quest prefix any more, for anybody', async () => {
+    expect((await get('/v1/quests/audit', stewardKey)).statusCode).toBe(404)
+    expect((await get('/v1/quests/audit', sponsorKey)).statusCode).toBe(404)
     expect(
-      (await post(`/v1/quests/audit/${submissionId}`, stewardKey, { agrees: true })).statusCode,
-    ).toBe(422)
-    expect(
-      (await post(`/v1/quests/audit/${submissionId}`, stewardKey, { agrees: false, reason: 'no' }))
-        .statusCode,
-    ).toBe(422)
-  })
-
-  it('carries the rate a steward is being asked to act on', async () => {
-    const response = await get('/v1/quests/audit', stewardKey)
-
-    expect(response.json().disagreement).toEqual({ rate: 0, audited: 0 })
+      (
+        await post(`/v1/quests/audit/${crypto.randomUUID()}`, stewardKey, {
+          agrees: false,
+          reason: 'The answer is about a different service.',
+        })
+      ).statusCode,
+    ).toBe(404)
   })
 })
 

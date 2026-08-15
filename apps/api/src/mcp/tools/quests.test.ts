@@ -1050,7 +1050,12 @@ describe('the steward tier', () => {
   it('refuses a caller without the role even when the tools were registered', async () => {
     const sponsor = anAgent()
 
-    const result = await call(sponsor.key, 'kolonie.quests.audit', {}, true)
+    const result = await call(
+      sponsor.key,
+      'kolonie.quests.end',
+      { questId: crypto.randomUUID(), reason: 'A sponsor may not end a quest it did not write.' },
+      true,
+    )
 
     expect(result.isError).toBe(true)
     expect(JSON.stringify(result.content)).toContain('forbidden')

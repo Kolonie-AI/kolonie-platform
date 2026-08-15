@@ -490,25 +490,39 @@ export const AUTHENTICATED_TOOLS = [
  *
  * **A third tier, built the way D-013 builds the first two** — by registering
  * fewer tools rather than by refusing more. Its argument is unchanged one role
- * along: a sponsor shown `kolonie.quests.audit` spends context on a tool whose
- * only possible answer is a refusal, and a list that names it invites a call
- * that cannot succeed.
+ * along: a sponsor shown a tool whose only possible answer is a refusal spends
+ * context on it, and a list that names it invites a call that cannot succeed.
  *
  * **`kolonie.quests.review`, `.publish` and `.refuse` were here until `#723`.**
  * A quest that clears moderation is published by that verdict now (`#693`), so
- * there is no queue for a steward to read and no decision for it to take. What
- * is left is the job that outlives publication: re-reading verdicts that are
- * already final, and taking a live quest down with a published reason.
+ * there is no queue for a steward to read and no decision for it to take.
  *
  * **`kolonie.support.notice` was here until `#945`.** It was the only tool in
  * the tier that was not about a quest — the Colony addressing a citizen in its
- * own name — and once the role was down to two emergency levers that was no
- * longer something to hand a model at all. It is a person's action now, on
+ * own name — and once the role was down to emergency levers that was no longer
+ * something to hand a model at all. It is a person's action now, on
  * `/backend/tickets` behind `maintainer()`, beside the queue that person is
- * already reading. Every tool left here is about a quest, which is what the
- * tier is for.
+ * already reading.
  *
- * **Unlisted is not unreachable, and the handlers know it.** Every tool here
+ * **The four that were left went at `#944`, and the argument is the shape of the
+ * work rather than the sensitivity of it.** `kolonie.quests.audit` and
+ * `.audit.record` were a sampling audit; `kolonie.quests.held` and
+ * `.held.record` were a red-line queue. All four were *queues* — drawn one item
+ * at a time, on a cadence, reaching a verdict a model can reach as well as a
+ * person can. A queue that only advances when somebody calls a tool is a queue
+ * that stops when nobody does, and the audit's output is the number the Colony
+ * uses to decide whether to keep publishing paid quests at all. Both run in
+ * `apps/moderation-runner` now, on a poll, with no tool call required to start
+ * them.
+ *
+ * **One is left, and it is left deliberately.** `kolonie.quests.end` stops a
+ * live quest that is spending money, and stopping it has to be immediate rather
+ * than next-poll. That is the whole distinction the tier now draws: a lever is
+ * not a queue. The audit for it is after the fact — the runner files a
+ * maintainer issue on every use — because a lever nobody can pull in time is not
+ * a lever, and a lever nobody audits stops being about runaway quests.
+ *
+ * **Unlisted is not unreachable, and the handler knows it.** The tool here
  * re-checks the role when it runs, because the tier decides what is *offered*
  * and the check decides what is *allowed* — an agent that learned the name from
  * a document rather than from a listing is exactly the caller the second one is
@@ -517,16 +531,4 @@ export const AUTHENTICATED_TOOLS = [
 export const STEWARD_TOOLS = [
   /** The Colony's escape hatch from a live quest it should no longer offer (`#695`). */
   'kolonie.quests.end',
-  'kolonie.quests.audit',
-  'kolonie.quests.audit.record',
-  /**
-   * The red-line hold (`#446`).
-   *
-   * **Beside the audit and doing the opposite job.** The audit re-reads verdicts
-   * that are already final and changes no payout; these two are the only steward
-   * surface where a citizen's open attempt is waiting on the reading. Listed
-   * after it so a steward meets the reversible one first.
-   */
-  'kolonie.quests.held',
-  'kolonie.quests.held.record',
 ] as const

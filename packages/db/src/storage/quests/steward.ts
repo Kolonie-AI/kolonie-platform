@@ -1062,101 +1062,6 @@ export async function isHeldOnRedLine(db: Database, submissionId: SubmissionId):
   return row?.state === 'held'
 }
 
-export type RedLineRulingOutcome =
-  | { readonly outcome: 'upheld' }
-  | { readonly outcome: 'released' }
-  /** Nothing is held on that submission — already ruled on, or never held. */
-  | { readonly outcome: 'not-held' }
-  /** A steward does not rule on a red line raised against its own quest. */
-  | { readonly outcome: 'own-quest' }
-
-/**
- * A steward ends a held red-line case, in either direction (`#446`).
- *
- * **Both directions in one function, because they are one decision.** Two
- * entry points would be two places to forget the authorship guard, and the
- * guard is the same one `recordAuditDecision` carries for the same reason
- * (`#318`): a steward that wrote the quest has an interest in what its citizens
- * are allowed to say about it.
- *
- * A genuine crossing still never reaches the sponsor — `upheld` fails the
- * submission and writes nothing to `quest_answers`, which is exactly what the
- * old machine verdict did. What the citizen gets that it did not get before is
- * a refusal a person signed.
- */
-export async function resolveHeldRedLine(
-  db: Database,
-  input: {
-    readonly submissionId: SubmissionId
-    readonly stewardId: AgentId
-    /** `true` upholds the crossing and fails the report; `false` releases it. */
-    readonly crossed: boolean
-    readonly reason: string
-  },
-): Promise<RedLineRulingOutcome> {
-  return await db.transaction(async (tx) => {
-    const [row] = await tx
-      .select({
-        status: submissions.status,
-        taskType: tasks.type,
-        authorId: tasks.createdBy,
-        state: latestRedLineReview,
-      })
-      .from(submissions)
-      .innerJoin(tasks, eq(tasks.id, submissions.taskId))
-      .where(eq(submissions.id, input.submissionId))
-      .for('update', { of: submissions })
-      .limit(1)
-
-    if (row === undefined || row.state !== 'held') return { outcome: 'not-held' as const }
-    if (row.status !== 'pending' && row.status !== 'verifying') {
-      return { outcome: 'not-held' as const }
-    }
-    // `is distinct from` rather than `===`: the ownerless quest has a null
-    // author, and null does not make every steward its owner.
-    if (row.authorId !== null && row.authorId === input.stewardId) {
-      return { outcome: 'own-quest' as const }
-    }
-
-    if (!input.crossed) {
-      await tx.insert(verifications).values({
-        submissionId: input.submissionId,
-        taskType: row.taskType,
-        status: 'pending',
-        evidence:
-          'A steward read your report and it does not cross a red line. It has gone back ' +
-          'to the Colony’s moderator and will be judged normally.',
-        metadata: {
-          stage: 'moderation',
-          redLineReview: 'released',
-          stewardId: input.stewardId,
-          ruling: input.reason,
-        },
-      })
-      return { outcome: 'released' as const }
-    }
-
-    await tx.insert(verifications).values({
-      submissionId: input.submissionId,
-      taskType: row.taskType,
-      status: 'fail',
-      evidence: `This report crosses one of the Colony’s red lines: ${input.reason.trim()}`,
-      metadata: {
-        stage: 'moderation',
-        redLineReview: 'upheld',
-        stewardId: input.stewardId,
-      },
-    })
-
-    await tx
-      .update(submissions)
-      .set({ status: 'failed', verifiedAt: sql`now()` })
-      .where(eq(submissions.id, input.submissionId))
-
-    return { outcome: 'upheld' as const }
-  })
-}
-
 /** What the second reading concluded, in the terms it is allowed to conclude. */
 export type RedLineReviewOutcome =
   | { readonly outcome: 'upheld' }
@@ -1167,12 +1072,12 @@ export type RedLineReviewOutcome =
 /**
  * The second reading ends a held red-line case, in either direction (`#942`).
  *
- * **The same two writes {@link resolveHeldRedLine} makes, with no role in
- * them.** It is a separate function rather than a nullable `stewardId` on that
- * one, because the two differ in more than the signer: this path has no
- * authorship guard — a model has no interest in the quest the report is about —
- * and it records what both passes said, which a steward's ruling has no second
- * sentence to record.
+ * **The only way a hold ends.** It was written beside a `resolveHeldRedLine`
+ * that a steward called by hand, and `#944` deleted that one: the queue this
+ * clears is drained by a pass in `apps/moderation-runner`, on a cadence, with
+ * nobody to wait for. So there is no authorship guard here — a model has no
+ * interest in the quest the report is about — and it records what both passes
+ * said, which a ruling signed by one reader had no second sentence to record.
  *
  * **`flaggedFor` is the charge and `ruling` is the confirmation.** The citizen is
  * told the reason the first pass gave, because that is the one both passes
@@ -1180,9 +1085,10 @@ export type RedLineReviewOutcome =
  * trail and the maintainer issue read it. Handing the citizen the second wording
  * would make the refusal read as a fresh accusation nobody had checked.
  *
- * The guard is `resolveHeldRedLine`'s, and for the reason that one gives: a
- * report a steward released while this pass was thinking is `not-held`, and the
- * pass writes nothing over that verdict.
+ * **`not-held` is a real outcome and not an error.** A report whose hold ended
+ * while this pass was thinking — a verdict written by another worker, a
+ * submission the citizen withdrew — is left exactly as it is, and the pass
+ * writes nothing over it.
  */
 export async function resolveRedLineOnReview(
   db: Database,
@@ -1432,13 +1338,13 @@ export async function questAuditQueue(
 export type AuditRecordOutcome =
   | { readonly outcome: 'recorded' }
   | { readonly outcome: 'unknown-submission' }
-  /** Somebody read it first. Two stewards opening the queue at once is ordinary. */
+  /** Somebody read it first. Two readers opening the queue at once is ordinary. */
   | { readonly outcome: 'already-audited' }
   /** The verdict is on a quest this steward sponsored (`#318`). */
   | { readonly outcome: 'own-quest' }
 
 /**
- * Record what a steward found. It changes nothing else, by construction.
+ * Record what the second reading found. It changes nothing else, by construction.
  *
  * There is no update to the submission, the verification or the ledger anywhere
  * in this function, and there is a test asserting the citizen's balance is
@@ -1453,12 +1359,20 @@ export type AuditRecordOutcome =
  * can be trusted with money, and a sponsor is the one party with an interest in
  * the answer. Agreeing keeps its quests publishable; disagreeing stops the
  * programme it is buying from. Both directions are an interested reading.
+ *
+ * **A null `stewardId` is the runner's pass** (`#944`), and it skips that guard
+ * rather than being exempted from it: the guard protects against a *sponsor*
+ * grading its own work, and the pass in `apps/moderation-runner` sponsors
+ * nothing. The column is nullable already, for the departing steward whose
+ * decisions outlive it, so a reading with no agent behind it needs no migration
+ * and no second table — it is the same fact, recorded by nobody in particular.
  */
 export async function recordAuditDecision(
   db: Database,
   command: {
     readonly submissionId: SubmissionId
-    readonly stewardId: AgentId
+    /** The steward that read it, or `null` when the Colony's own pass did. */
+    readonly stewardId: AgentId | null
     readonly agrees: boolean
     readonly reason: string
   },
@@ -1475,7 +1389,9 @@ export async function recordAuditDecision(
   // The guard, at the write. The queue above already hides these, and hiding is
   // not refusing: a submission id is guessable, the queue is a suggestion, and
   // `#173` put its ban here for the same reason.
-  if (submission.sponsorId === command.stewardId) return { outcome: 'own-quest' }
+  if (command.stewardId !== null && submission.sponsorId === command.stewardId) {
+    return { outcome: 'own-quest' }
+  }
 
   const rows = await db
     .insert(questAudits)
@@ -1515,4 +1431,73 @@ export async function questDisagreementRate(
   const disagreed = Number(row?.disagreed ?? 0)
 
   return { rate: audited === 0 ? 0 : disagreed / audited, audited, disagreed }
+}
+
+/** A quest somebody other than its sponsor stopped, with nobody's id in it. */
+export interface EndedByLever {
+  readonly taskId: TaskId
+  readonly title: string
+  /** Why, in the words the steward gave. Never shown to the sponsor by this path. */
+  readonly reason: string
+  readonly endedAt: Timestamp
+}
+
+/**
+ * Quests the steward lever stopped, recently enough to still be worth filing
+ * (`#944`).
+ *
+ * **The lever is the one privileged thing an API key can still do**, so `#944`
+ * asks that every use leave a trace a person sees. This is the read half of
+ * that: the runner turns each row into a maintainer issue, and
+ * `githubIssues.isOpen(taskId)` is what stops it filing the same one twice.
+ *
+ * **`ended_by is distinct from created_by` is the whole test for *the lever*.**
+ * A sponsor stopping its own quest is an ordinary act with its own refund path
+ * and nothing for a maintainer to read; `endQuest` lets a steward stop anybody's
+ * and a sponsor stop only its own, so the two callers are told apart by whose
+ * quest it was rather than by a column recording which door was used. The
+ * ownerless quest — `created_by` null after an erasure — is caught by `is
+ * distinct from` and not by `<>`, which would answer null and drop the row.
+ *
+ * **The window is what makes this stateless.** Dedup is a GitHub search for the
+ * task id, and a search for *open* issues stops matching the moment a
+ * maintainer closes one — so an unbounded query would refile every ending
+ * forever. Bounded, the pass files within the window or not at all, and no
+ * column has to remember that it did.
+ */
+export async function stewardEndedQuests(
+  db: Database,
+  policy: { readonly withinDays: number },
+  limit = 50,
+): Promise<readonly EndedByLever[]> {
+  const rows = await db
+    .select({
+      taskId: tasks.id,
+      title: tasks.title,
+      reason: tasks.endedReason,
+      // There is no `ended_at`: `endQuest` stamps `updated_at` in the same
+      // write, and a retired quest is not updated again. It is the ending's
+      // time for every row this query can return.
+      endedAt: tasks.updatedAt,
+    })
+    .from(tasks)
+    .where(
+      and(
+        eq(tasks.kind, 'quest'),
+        eq(tasks.status, 'retired'),
+        isNotNull(tasks.endedBy),
+        isNotNull(tasks.endedReason),
+        sql`${tasks.endedBy} is distinct from ${tasks.createdBy}`,
+        sql`${tasks.updatedAt} > now() - make_interval(days => ${policy.withinDays})`,
+      ),
+    )
+    .orderBy(asc(tasks.updatedAt))
+    .limit(limit)
+
+  return rows.map((row) => ({
+    taskId: row.taskId as TaskId,
+    title: row.title,
+    reason: row.reason ?? '',
+    endedAt: toTimestamp(row.endedAt as unknown as string),
+  }))
 }

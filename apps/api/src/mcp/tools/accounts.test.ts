@@ -93,6 +93,47 @@ describe('kolonie.accounts.walk-status', () => {
     await close()
   })
 
+  /**
+   * **The sentence `#979` was opened about** — `Your walk … is recorded as
+   * refused: <the entry's refusal>`, assembled from two accurate fields with
+   * different subjects. A citizen whose walk got through at a provider the Atlas
+   * refuses for something else entirely read it as the Colony refusing the walk,
+   * and there was no other sentence available to read.
+   */
+  it('does not read as a refusal of a walk that got through', async () => {
+    const { colony, apiKey, agent } = await registeredCitizen()
+    const walks = fakeWalks()
+    const walk = walks.add({
+      agentId: agent.id,
+      kind: 'mailbox',
+      provider: 'provider',
+      outcome: 'proved',
+    })
+    colony.recipes.write({
+      kind: 'mailbox',
+      provider: 'provider',
+      status: 'refused',
+      refusal: 'the provider does not send outbound mail',
+    })
+    const { client, close } = await connectedClient({ ...colony, walks }, `Bearer ${apiKey}`)
+
+    const result = await client.callTool({
+      name: 'kolonie.accounts.walk-status',
+      arguments: { walkId: walk.id },
+    })
+
+    expect(result.structuredContent).toMatchObject({
+      status: 'refused',
+      entryStatus: 'refused',
+      walk: { fate: 'contradicted' },
+    })
+    const text = JSON.stringify(result.content)
+    expect(text).toContain('stands against the Atlas entry')
+    expect(text).toContain('not a verdict on your walk')
+    expect(text).not.toContain(`walk ${walk.id} is recorded as refused`)
+    await close()
+  })
+
   it("does not reveal an unknown or another citizen's walk", async () => {
     const { colony, apiKey } = await registeredCitizen()
     const walks = fakeWalks()

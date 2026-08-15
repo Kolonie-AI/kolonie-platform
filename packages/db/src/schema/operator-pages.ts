@@ -115,9 +115,17 @@ export const operatorPages = pgTable(
      * rows pile up behind the live one and reissuing is an insert rather than a
      * resurrection — a reissued link is a *new* token, which is the whole point
      * of revoking the old one.
+     *
+     * **Over the folded address rather than the exact one** (`#1014`). The
+     * address is a label the citizen chose, and `Gregor Sprint` against
+     * `gregor sprint ` is one label written twice — two live rows for it would
+     * make *one link per operator address* a thing the tool says and the table
+     * does not enforce, with a revoke naming one of them and missing the other.
+     * `issueOperatorPage` folds the same two things when it looks; this is what
+     * makes that true under a race rather than only in sequence.
      */
     uniqueIndex('operator_pages_live_idx')
-      .on(table.agentId, table.operatorAddress)
+      .on(table.agentId, sql`lower(btrim(${table.operatorAddress}))`)
       .where(sql`${table.revokedAt} is null`),
 
     index('operator_pages_agent_idx').on(table.agentId),

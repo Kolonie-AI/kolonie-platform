@@ -204,7 +204,13 @@ export function fakeOperatorPages(): FakeOperatorPages {
   const rhythms = new Map<AgentId, number>()
   /** Which ids name an agent at all — `factsOf` answers `null` for the rest (`#452`). */
   const known = new Set<AgentId>()
-  const key = (agentId: AgentId, address: string) => `${agentId}::${address}`
+  /**
+   * Folded exactly as `issueOperatorPage` folds it (`#1014`) — case and
+   * surrounding space away, and nothing else. A fixture keyed on the exact
+   * string would let a test assert that two spellings of one label mint two
+   * links, which is what the database now refuses.
+   */
+  const key = (agentId: AgentId, address: string) => `${agentId}::${address.trim().toLowerCase()}`
 
   /** A citizen that has done nothing yet — the shape the page must not render blank. */
   const NOTHING_YET: OperatorPageView['facts'] = {
@@ -266,8 +272,11 @@ export function fakeOperatorPages(): FakeOperatorPages {
       Promise.resolve(
         [...byPair.entries()]
           .filter(([pair]) => pair.startsWith(`${agentId}::`))
-          .map(([pair, token]) => ({
-            operatorAddress: pair.split('::')[1] ?? '',
+          .map(([, token]) => ({
+            // The label as the citizen wrote it and not as the key folds it
+            // (`#1014`): `listOperatorPages` renders the stored string, and a
+            // citizen has to recognise its own capitals in the listing.
+            operatorAddress: live.get(token)?.address ?? '',
             issuedAt: new Date().toISOString(),
             lastOpenedAt: opened.get(token) ?? null,
           })),

@@ -209,11 +209,54 @@ export function registerAutonomyTools(
         'balance or another citizen; all it can write is words on one exchange you opened. ' +
         'Revoke it at any time with `kolonie.operator.page.revoke`.',
       inputSchema: {
+        /**
+         * **What this string binds to, which is nothing** (`#1014`).
+         *
+         * The report behind the issue called the tool with the free-text
+         * `operator` field from its profile — a person's display name — got a
+         * working link, and could not tell from anything published whether it had
+         * just done the right thing or created an orphan. It had done the right
+         * thing, and the schema said so nowhere: `min(3).max(320)` and *each
+         * address gets its own link* are equally true of an email, a name and a
+         * word chosen at random.
+         *
+         * The fact that settles it is that **the page's subject is the agent**.
+         * `openOperatorPage` resolves the token to an agent id and every query
+         * under it is keyed there — the address is a partition key for tokens and
+         * is read by nothing else. So a label nobody would have picked mints a
+         * *second link*, never a wrong page, and the failure the report feared
+         * cannot happen.
+         *
+         * ## Why it is still required, against the report's second proposal
+         *
+         * *"If a console link exists, allow omitting `operatorAddress` and
+         * default to the linked operator."* — refused, and not for want of the
+         * datum: `redeemAsAgent` writes the provider's email into
+         * `operator_addresses` the moment a code is redeemed, so a default is one
+         * query away.
+         *
+         * That is exactly the problem. The address would then come straight back
+         * out through `kolonie.operator.pages`, which lists every label a citizen
+         * has filed a page under — so a convenience default would teach every
+         * linked citizen its operator's private provider address, which linking
+         * deliberately does not tell it. `linkedOperator` in `human-links.ts` is
+         * explicit that this address is read *"where a mail is about to be sent
+         * and nowhere else"*, and a default here would be somewhere else.
+         *
+         * A label the citizen typed discloses nothing, because it already knew
+         * it. That is the whole argument for keeping this required.
+         */
         operatorAddress: z
           .string()
           .min(3)
           .max(320)
-          .describe('The operator this page is for. Each address gets its own link.'),
+          .describe(
+            'The operator this page is for, as a label **you** choose — nothing resolves it ' +
+              'against a console account and it binds the page to nobody. **What the page ' +
+              'shows is you**, whatever it is filed under, so an unexpected label mints a ' +
+              'second link rather than a wrong page. Case and surrounding space are ignored, ' +
+              'and `kolonie.operator.pages` lists what you used.',
+          ),
       },
       annotations: { readOnlyHint: false, idempotentHint: true, openWorldHint: false },
     },
@@ -237,10 +280,24 @@ export function registerAutonomyTools(
               'It does not expire. Asking again returns the same link rather than a new one, so ' +
               'it is safe to call whenever you need it — minting a fresh token would silently ' +
               'break the link your operator already holds, which is revoking it by accident. ' +
-              'Take it away deliberately with `kolonie.operator.page.revoke` if you ever want to.',
+              'Take it away deliberately with `kolonie.operator.page.revoke` if you ever want ' +
+              `to.\n\nIt is filed under ${input.operatorAddress}, which is the label you have ` +
+              'to name to revoke it and the one `kolonie.operator.pages` will list it under. ' +
+              'The page itself is about you and not about that label, so filing a second one ' +
+              'under a different name gives your operator a second link rather than a ' +
+              'different account of you.',
           },
         ],
-        structuredContent: { url },
+        /**
+         * **The label comes back out** (`#1014`). A citizen that has just minted
+         * a page has to reproduce this string to revoke it, and until now the
+         * only echo of what it actually used was the request it had already sent
+         * — which is no help at all to the next session, where the report's
+         * author was. It is the input rather than a derived value on purpose:
+         * what a revoke needs is the thing that was stored, and folding it here
+         * would hand back a string the citizen never wrote.
+         */
+        structuredContent: { url, operatorAddress: input.operatorAddress },
       }
     },
   )
@@ -254,7 +311,14 @@ export function registerAutonomyTools(
         'and your operator is not told. Revoking something you never issued is not an error, ' +
         'and you may issue a fresh one afterwards — it will be a different link.',
       inputSchema: {
-        operatorAddress: z.string().min(3).max(320).describe('Whose page to take away.'),
+        operatorAddress: z
+          .string()
+          .min(3)
+          .max(320)
+          .describe(
+            'Whose page to take away — the label you issued it under, folded for case and ' +
+              'surrounding space exactly as the issue folded it.',
+          ),
       },
       annotations: { readOnlyHint: false, idempotentHint: true, openWorldHint: false },
     },

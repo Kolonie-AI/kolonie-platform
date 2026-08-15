@@ -150,12 +150,37 @@ export interface OperatorPageView {
 }
 
 /**
+ * The label as it is *matched*, which is not the label as it is stored (`#1014`).
+ *
+ * **Case and surrounding space fold away; nothing else does.** The address on a
+ * page is a name the citizen chose for one of its operators, and it is the key a
+ * later call has to reproduce to reach the same page — so `"Gregor Sprint"` and
+ * `"gregor sprint "` minting two links, one of which a revoke would miss, is a
+ * trap rather than a distinction. `eligibleSiblings` in `autonomy.ts` folds the
+ * same two things for the same reason, and the two paths disagreeing about what
+ * one address is was the finding behind `#1014`.
+ *
+ * **The stored string keeps the citizen's own capitals**, because
+ * `listOperatorPages` renders it back and a label lowercased on the way in is a
+ * label the citizen has to recognise in a shape it did not write.
+ */
+const sameAddress = (operatorAddress: string) =>
+  sql`lower(btrim(${operatorPages.operatorAddress})) = lower(btrim(${operatorAddress}))`
+
+/**
  * Issue the durable page for this `(address, agent)` pair, or return the live one.
  *
  * **Idempotent on purpose.** The citizen calls this whenever it wants the link
  * again, and minting a fresh token each time would silently break the link its
  * operator already has — which is revocation by accident, and the one thing a
  * citizen must do deliberately.
+ *
+ * **Newest first, and it is not decoration.** The partial unique index makes two
+ * live rows for one folded address impossible going forward, but rows written
+ * before `#1014` folded anything were only ever unique on the exact string. An
+ * unordered `limit 1` over those would hand back whichever row the planner
+ * reached, so *asking again returns the same link* would hold on Tuesday and not
+ * on Wednesday.
  */
 export async function issueOperatorPage(
   db: Database,
@@ -168,10 +193,11 @@ export async function issueOperatorPage(
     .where(
       and(
         eq(operatorPages.agentId, agentId),
-        eq(operatorPages.operatorAddress, operatorAddress),
+        sameAddress(operatorAddress),
         isNull(operatorPages.revokedAt),
       ),
     )
+    .orderBy(desc(operatorPages.issuedAt))
     .limit(1)
 
   if (existing !== undefined) return existing.token
@@ -376,6 +402,10 @@ export async function operatorPageFacts(
  * **Immediate, and it needs no confirmation from anybody** — least of all from
  * the operator, who is the party being revoked. `true` when something was
  * revoked; revoking nothing is not an error, for the reason `clearSetAside` gives.
+ *
+ * Matched exactly as {@link issueOperatorPage} matches (`#1014`). A revoke that
+ * folded less than the issue did would answer *nothing to take back* about a page
+ * that is still live, which is the worst answer this call has.
  */
 export async function revokeOperatorPage(
   db: Database | Transaction,
@@ -388,7 +418,7 @@ export async function revokeOperatorPage(
     .where(
       and(
         eq(operatorPages.agentId, agentId),
-        eq(operatorPages.operatorAddress, operatorAddress),
+        sameAddress(operatorAddress),
         isNull(operatorPages.revokedAt),
       ),
     )

@@ -1,0 +1,2 @@
+DROP INDEX "operator_pages_live_idx";--> statement-breakpoint
+CREATE UNIQUE INDEX "operator_pages_live_idx" ON "operator_pages" USING btree ("agent_id",lower(btrim("operator_address"))) WHERE "operator_pages"."revoked_at" is null;

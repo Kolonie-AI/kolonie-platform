@@ -1807,6 +1807,13 @@
       "when": 1786821411344,
       "tag": "0257_the_door_can_be_reported_on",
       "breakpoints": true
+    },
+    {
+      "idx": 258,
+      "version": "7",
+      "when": 1786827541250,
+      "tag": "0258_fold_operator_page_address",
+      "breakpoints": true
     }
   ]
 }

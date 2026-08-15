@@ -103,6 +103,34 @@ describe('the operator’s durable page', () => {
       )
     })
 
+    /**
+     * `#1014`. The label is one the citizen typed from memory in a later
+     * session, so `Ada Lovelace` and `ada lovelace ` are one label written
+     * twice — and two live links for it would leave a revoke naming one of them
+     * and missing the other. `eligibleSiblings` in `autonomy.ts` folded these
+     * two things already; the page path did not, and the disagreement was the
+     * finding.
+     */
+    it('folds case and surrounding space, so one label is one link', async () => {
+      const first = await issueOperatorPage(db, agentId, 'Ada Lovelace')
+      const second = await issueOperatorPage(db, agentId, '  ada LOVELACE ')
+
+      expect(second).toBe(first)
+      expect(await db.select().from(operatorPages)).toHaveLength(1)
+    })
+
+    it('refuses two live pages differing only in case, whatever order they race in', async () => {
+      await issueOperatorPage(db, agentId, 'Ada Lovelace')
+
+      await expectRejection(
+        () =>
+          db
+            .insert(operatorPages)
+            .values({ agentId, operatorAddress: 'ada lovelace', token: 'b'.repeat(64) }),
+        /operator_pages_live_idx/,
+      )
+    })
+
     it('refuses two pages carrying the same token', async () => {
       const token = await issueOperatorPage(db, agentId, OPERATOR)
       const sibling = await anAgent('sibling')
@@ -444,6 +472,18 @@ describe('the operator’s durable page', () => {
       ).toHaveLength(2)
     })
 
+    /**
+     * `#1014`. A revoke that folded less than the issue did would answer
+     * *nothing to take back* about a page that is still live, which is the
+     * worst answer this call has.
+     */
+    it('takes back a page issued under a differently-cased label', async () => {
+      const token = await issueOperatorPage(db, agentId, 'Ada Lovelace')
+
+      expect(await revokeOperatorPage(db, agentId, ' ADA lovelace ')).toBe(true)
+      expect(await openOperatorPage(db, token)).toBeNull()
+    })
+
     it('revokes one operator’s page and leaves another’s alone', async () => {
       await issueOperatorPage(db, agentId, OPERATOR)
       const other = await issueOperatorPage(db, agentId, 'second@example.org')
@@ -477,6 +517,20 @@ describe('the operator’s durable page', () => {
      * fact about the schema rather than about one caller, because the risk is a
      * *future* caller joining on it.
      */
+    /**
+     * The label is rendered back exactly as the citizen wrote it (`#1014`).
+     *
+     * Folding is a matching rule and not a storage one: this list is what the
+     * citizen reads to work out which label to name in a revoke, and a label
+     * lowercased on the way in is one it has to recognise in a shape it never
+     * typed.
+     */
+    it('lists the label with the capitals the citizen gave it', async () => {
+      await issueOperatorPage(db, agentId, 'Ada Lovelace')
+
+      expect((await listOperatorPages(db, agentId))[0]?.operatorAddress).toBe('Ada Lovelace')
+    })
+
     it('is read by nothing in the reward, reputation or eligibility tables', async () => {
       const referencing = await db.execute<{ table_name: string; column_name: string }>(
         // Anything that stored a copy of, or a foreign key to, this column would

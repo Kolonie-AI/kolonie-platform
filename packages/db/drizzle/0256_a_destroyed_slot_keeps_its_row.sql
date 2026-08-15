@@ -1,0 +1,4 @@
+ALTER TABLE "account_slots" DROP CONSTRAINT "account_slots_filled_together";--> statement-breakpoint
+ALTER TABLE "account_slots" ADD CONSTRAINT "account_slots_filled_together" CHECK (("account_slots"."filled_by" is null and "account_slots"."filled_at" is null and "account_slots"."value" is null)
+          or ("account_slots"."filled_by" is not null and "account_slots"."filled_at" is not null and "account_slots"."value" is not null)
+          or ("account_slots"."filled_by" is not null and "account_slots"."filled_at" is not null and "account_slots"."value" is null and "account_slots"."destroyed_at" is not null));

@@ -14,6 +14,7 @@ import {
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
 import { openVaultValue } from '../vault-crypto.js'
 import {
+  destroyExpiredDrops,
   fillDropAsOperator,
   listDrops,
   openDropsForPageToken,
@@ -352,6 +353,65 @@ describe('the operator drop', () => {
       ])
 
       expect(results.filter((result) => result.outcome === 'taken')).toHaveLength(1)
+    })
+  })
+
+  describe('the sweep', () => {
+    /**
+     * `kolonie.operator.drop.open` says the secret is gone on the timer whether
+     * or not anybody read it, and until `#955` nothing ran on that timer — the
+     * only thing that cleared `sealed_value` was an agent coming back for it.
+     * Found by counting production: two drops answered on 2026-08-08 still held
+     * their ciphertext a week after expiry.
+     */
+    it('destroys the value of a drop whose window has passed, and keeps the row', async () => {
+      const drop = await aCredentialDrop()
+      await submitDrop(db, drop.token, SECRET, SEALING_KEY)
+      await db
+        .update(operatorDrops)
+        .set({ expiresAt: sql`now() - interval '1 minute'` })
+        .where(eq(operatorDrops.id, drop.id))
+
+      expect(await destroyExpiredDrops(db)).toBe(1)
+
+      const [row] = await db.select().from(operatorDrops).where(eq(operatorDrops.id, drop.id))
+      expect(row?.sealedValue).toBeNull()
+      // The record of what happened survives the value: *my operator answered
+      // and I never came back* is a thing a citizen can only learn from here.
+      expect(row?.submittedAt).not.toBeNull()
+      expect(row?.readAt).toBeNull()
+      // Idempotent, like the handover sweep it copies.
+      expect(await destroyExpiredDrops(db)).toBe(0)
+    })
+
+    /**
+     * The sweep is the whole of the expiry rule on this side. `takeDrop` has no
+     * expiry clause of its own on purpose — two answers to *is this drop still
+     * live* disagree the first time the sweep is late — so the destroyed value
+     * is what closes the read.
+     */
+    it('leaves the taking with nothing to hand back', async () => {
+      const drop = await aCredentialDrop()
+      await submitDrop(db, drop.token, SECRET, SEALING_KEY)
+      await db
+        .update(operatorDrops)
+        .set({ expiresAt: sql`now() - interval '1 minute'` })
+        .where(eq(operatorDrops.id, drop.id))
+      await destroyExpiredDrops(db)
+
+      expect(await takeDrop(db, agentId, drop.id, SEALING_KEY, AGENT_KEY)).toEqual({
+        outcome: 'nothing',
+      })
+    })
+
+    it('leaves a drop inside its window alone', async () => {
+      const drop = await aCredentialDrop()
+      await submitDrop(db, drop.token, SECRET, SEALING_KEY)
+
+      expect(await destroyExpiredDrops(db)).toBe(0)
+      expect(await takeDrop(db, agentId, drop.id, SEALING_KEY, AGENT_KEY)).toMatchObject({
+        outcome: 'taken',
+      })
     })
   })
 

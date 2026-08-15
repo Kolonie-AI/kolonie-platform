@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto'
-import { and, asc, eq, isNull, sql } from 'drizzle-orm'
+import { and, asc, eq, isNotNull, isNull, lte, sql } from 'drizzle-orm'
 import {
   now as currentTime,
   DROP_EXPIRY_DAYS,
@@ -500,6 +500,39 @@ export async function takeDrop(
     vaultKey: row.vaultKey,
     submittedAt: toTimestamp(row.submittedAt),
   }
+}
+
+/**
+ * Destroy the value of every drop whose window has passed.
+ *
+ * `destroyExpiredHandovers` in shape, and the promise it keeps is the one
+ * `kolonie.operator.drop.open` already makes out loud: *it is gone on the timer
+ * whether or not anybody read it*. Until this existed nothing ran on that timer.
+ * The only thing that cleared `sealed_value` was {@link takeDrop}, so a drop the
+ * operator answered and the agent never came back for kept its ciphertext for
+ * ever — measured on 2026-08-15 as two rows sealed on 2026-08-08, seven days
+ * past their expiry and still holding a value.
+ *
+ * **Here it is about access as well as about storage**, which is where it
+ * differs from the handover sweep beside it. A handover that has expired is
+ * already unreadable by the read's own `where`; {@link takeDrop} has no such
+ * clause, and gating it there would have been a second answer to *is this drop
+ * still live* — one in the sweep and one in the read, disagreeing the first time
+ * the sweep is late. So there is one answer: the value is gone, and `takeDrop`
+ * already reads an absent value as `nothing`.
+ *
+ * The row survives without its value, so *my operator answered and I never came*
+ * stays answerable — `submitted_at` is the half of that a citizen would
+ * otherwise have no way to learn.
+ */
+export async function destroyExpiredDrops(db: Database): Promise<number> {
+  const destroyed = await db
+    .update(operatorDrops)
+    .set({ sealedValue: null })
+    .where(and(isNotNull(operatorDrops.sealedValue), lte(operatorDrops.expiresAt, sql`now()`)))
+    .returning({ id: operatorDrops.id })
+
+  return destroyed.length
 }
 
 /** SHA-256, hex. The same shape `credentials` uses for an API key. */

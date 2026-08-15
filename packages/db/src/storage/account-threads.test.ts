@@ -1,12 +1,21 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
-import { AccountKindSchema, type AgentId } from '@kolonie-ai/core'
+import { AccountKindSchema, SLOT_MAX_READS, type AgentId } from '@kolonie-ai/core'
 import { eq, sql } from 'drizzle-orm'
 import type { Database } from '../client.js'
-import { accountEntries, accountEpisodes, accounts, agents } from '../schema/index.js'
+import {
+  accountEntries,
+  accountEpisodes,
+  accountSlots,
+  accounts,
+  agents,
+  humanAgents,
+  humans,
+} from '../schema/index.js'
 import { connectForTests, databaseTestTarget, expectRejection, truncateAll } from '../testing.js'
 import * as thread from './account-threads.js'
 import {
   closeEpisode,
+  destroyExpiredSlots,
   entriesOf,
   episode,
   episodesOf,
@@ -15,6 +24,7 @@ import {
   openEpisode,
   openSlot,
   passTurn,
+  readSlotAsOperator,
   slot,
   slotsOf,
   threadOf,
@@ -390,6 +400,104 @@ describe('the account conversation', () => {
 
       expect(again.outcome).toBe('already-open')
       expect(await slotsOf(db, id)).toHaveLength(1)
+    })
+
+    /**
+     * The sweep, which `#955` found had been written and called by nothing.
+     *
+     * A destruction rule with no test and no caller fails silently in the one
+     * direction that matters: the ciphertext stays and nothing anywhere says so.
+     */
+    it('destroys the value of a secret slot whose window has passed, and keeps the row', async () => {
+      const id = await anEpisode()
+      const secret = await openSlot(db, { episodeId: id, label: 'password', secret: true })
+      const plain = await openSlot(db, { episodeId: id, label: 'handle', secret: false })
+      await fillSlot(db, { slotId: secret.slot.id, filledBy: 'agent', value: 'sealed' })
+      await fillSlot(db, { slotId: plain.slot.id, filledBy: 'agent', value: 'citizen' })
+      // Only the secret one: `account_slots_secrets_expire` refuses an expiry on
+      // an ordinary slot outright, which is the same rule as the sweep's own
+      // `secret = true` said by the table rather than by the query.
+      await db
+        .update(accountSlots)
+        .set({ expiresAt: sql`now() - interval '1 minute'` })
+        .where(eq(accountSlots.id, secret.slot.id))
+
+      expect(await destroyExpiredSlots(db)).toBe(1)
+
+      const swept = await slot(db, secret.slot.id)
+      expect(swept?.value).toBeNull()
+      expect(swept?.destroyedAt).not.toBeNull()
+      // The handle is part of the record of what was used, and an expiry that
+      // is only about secrets must not take it.
+      expect((await slot(db, plain.slot.id))?.value).toBe('citizen')
+      // Idempotent, like the two sweeps it stands beside.
+      expect(await destroyExpiredSlots(db)).toBe(0)
+    })
+
+    /**
+     * The same destruction by the other route, because the constraint that
+     * forbade it forbade all three (`#955`).
+     *
+     * `closing an acquisition proposes the draft` below already closes episodes
+     * with slots in them, and every one of those slots is `secret: false` — so
+     * `destroyEpisodeSecrets` runs there with nothing to destroy, and the write
+     * that would have thrown was never made.
+     */
+    it('destroys a filled secret when the episode closes, and keeps the row', async () => {
+      const id = await anEpisode()
+      const opened = await openSlot(db, { episodeId: id, label: 'password', secret: true })
+      await fillSlot(db, { slotId: opened.slot.id, filledBy: 'agent', value: 'sealed' })
+
+      const closed = await closeEpisode(db, id, { outcome: 'created' })
+
+      expect(closed.outcome).toBe('closed')
+      const after = await slot(db, opened.slot.id)
+      expect(after?.value).toBeNull()
+      expect(after?.destroyedAt).not.toBeNull()
+      // *There was a password here and it is gone* is the fact the row keeps.
+      expect(after?.filledBy).toBe('agent')
+    })
+
+    /**
+     * The third destroyer, and the one a person actually drives (`#931`).
+     *
+     * `SLOT_MAX_READS` exists because operators double-click; the read that
+     * hands over the last copy is the read that stops the row holding anything,
+     * *in the same statement*. That write is the one the old constraint refused,
+     * so the console would have thrown on the third read of the first secret any
+     * agent ever sealed for its operator.
+     */
+    it('destroys the value on the operator’s last read', async () => {
+      const [person] = await db.insert(humans).values({}).returning({ id: humans.id })
+      if (person === undefined) throw new Error('inserting a person returned no row')
+      await db.insert(humanAgents).values({ humanId: person.id, agentId })
+
+      const id = await anEpisode()
+      const opened = await openSlot(db, {
+        episodeId: id,
+        label: 'password',
+        secret: true,
+        awaits: 'agent',
+      })
+      await fillSlot(db, {
+        slotId: opened.slot.id,
+        filledBy: 'agent',
+        value: 'not-a-real-password-0000',
+      })
+
+      const reads = []
+      for (let i = 0; i < SLOT_MAX_READS; i++) {
+        reads.push(await readSlotAsOperator(db, opened.slot.id, person.id))
+      }
+
+      expect(reads.map((one) => one.outcome)).toEqual(['read', 'read', 'read'])
+      // The last read still hands the value over; what it does not do is leave
+      // it behind.
+      expect(reads.at(-1)).toMatchObject({ outcome: 'read', readsLeft: 0 })
+      const after = await slot(db, opened.slot.id)
+      expect(after?.value).toBeNull()
+      expect(after?.destroyedAt).not.toBeNull()
+      expect((await readSlotAsOperator(db, opened.slot.id, person.id)).outcome).toBe('closed')
     })
   })
 

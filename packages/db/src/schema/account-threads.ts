@@ -372,11 +372,22 @@ export const accountSlots = pgTable(
      * Filled is one fact with three columns, and a row where they disagree is a
      * slot that is half handed over — which reads, from either side, as the other
      * side not having done it yet.
+     *
+     * **Destroyed is the third state, and leaving it out made every destruction
+     * path throw** (`#955`). `destroyed_at` is documented one screen up as *the
+     * row survives what it held*, and a row that has survived what it held is a
+     * row whose `filled_by` and `filled_at` stand over an absent value — exactly
+     * what the two branches above forbid. Nothing reported it because no test
+     * ever filled a *secret* slot and then destroyed one, and production has
+     * never carried a slot secret at all: measured on 2026-08-15 as 0 of 0. All
+     * three destroyers wrote the same forbidden row — the last read in
+     * {@link readSlotAsOperator}, closing the episode, and the sweep.
      */
     check(
       'account_slots_filled_together',
       sql`(${table.filledBy} is null and ${table.filledAt} is null and ${table.value} is null)
-          or (${table.filledBy} is not null and ${table.filledAt} is not null and ${table.value} is not null)`,
+          or (${table.filledBy} is not null and ${table.filledAt} is not null and ${table.value} is not null)
+          or (${table.filledBy} is not null and ${table.filledAt} is not null and ${table.value} is null and ${table.destroyedAt} is not null)`,
     ),
 
     check(

@@ -1793,6 +1793,13 @@
       "when": 1786811916038,
       "tag": "0255_money_is_not_a_permission",
       "breakpoints": true
+    },
+    {
+      "idx": 256,
+      "version": "7",
+      "when": 1786820255783,
+      "tag": "0256_a_destroyed_slot_keeps_its_row",
+      "breakpoints": true
     }
   ]
 }

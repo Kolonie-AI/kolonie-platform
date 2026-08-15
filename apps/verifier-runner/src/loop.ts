@@ -569,6 +569,24 @@ export function startRunner(deps: LoopDependencies, options: RunnerOptions = {})
               destroyed,
             })
 
+          // The other direction of the same channel, and the newer channel that
+          // will one day carry both (`#955`). One rule about when a secret is
+          // destroyed is worth more than three that agree today, and a sweep
+          // that covers two of the three is not a rule.
+          const drops = await deps.queue.destroyExpiredDrops()
+          if (drops > 0)
+            log.info(`destroyed ${drops} expired drop(s)`, {
+              event: 'drops.expired.destroyed',
+              destroyed: drops,
+            })
+
+          const slots = await deps.queue.destroyExpiredSlots()
+          if (slots > 0)
+            log.info(`destroyed ${slots} expired slot(s)`, {
+              event: 'slots.expired.destroyed',
+              destroyed: slots,
+            })
+
           // Same tick, same reason as the line above: nobody is present to do
           // it, and a count that stays at zero is how a broken pruner hides.
           const pruned = await deps.queue.pruneContacts()

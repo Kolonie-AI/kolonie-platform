@@ -7,6 +7,8 @@ import {
   pruneContactHistory,
   sweepAbandonedAttempts,
   destroyExpiredHandovers,
+  destroyExpiredDrops,
+  destroyExpiredSlots,
   recordVerdict,
   releaseSubmission,
   reportFailedRerun,
@@ -130,6 +132,25 @@ export interface SubmissionQueue {
    */
   destroyExpiredHandovers(): Promise<number>
   /**
+   * Destroy the value of every drop whose window has passed (`#410`, `#955`).
+   *
+   * The same sweep and the same reason as the line above, for the other
+   * direction of the same channel. `kolonie.operator.drop.open` promises the
+   * secret is *gone on the timer whether or not anybody read it*, and until this
+   * ran nothing was on that timer: the only thing that cleared a drop's
+   * ciphertext was an agent coming back to take it.
+   */
+  destroyExpiredDrops(): Promise<number>
+  /**
+   * Destroy the value of every slot whose window has passed (`#931`, `#955`).
+   *
+   * The third of the three, and it is here because a destruction rule that
+   * covers two of the three channels is not a rule. `destroyExpiredSlots` was
+   * written with the slot itself and called by nothing, which is the failure a
+   * sweep is worst at showing: no error, no red test, just ciphertext that stays.
+   */
+  destroyExpiredSlots(): Promise<number>
+  /**
    * Delete contact history past its retention bound (#141).
    *
    * On this sweep because it is the same kind of housekeeping as the two above
@@ -157,6 +178,8 @@ export function databaseQueue(db: Database): SubmissionQueue {
     expireOverdue: () => expireOverdueSubmissions(db),
     sweepAbandoned: () => sweepAbandonedAttempts(db),
     destroyExpiredHandovers: () => destroyExpiredHandovers(db),
+    destroyExpiredDrops: () => destroyExpiredDrops(db),
+    destroyExpiredSlots: () => destroyExpiredSlots(db),
     pruneContacts: () => pruneContactHistory(db),
   }
 }

@@ -236,6 +236,22 @@ class FakeQueue implements SubmissionQueue {
     return 0
   }
 
+  /** Counted for the same reason as `abandonedSweeps` above (`#955`). */
+  dropSweeps = 0
+
+  async destroyExpiredDrops(): Promise<number> {
+    this.dropSweeps++
+    return 0
+  }
+
+  /** Counted for the same reason as `abandonedSweeps` above (`#955`). */
+  slotSweeps = 0
+
+  async destroyExpiredSlots(): Promise<number> {
+    this.slotSweeps++
+    return 0
+  }
+
   /** Counted for the same reason as `abandonedSweeps` above (#141). */
   contactPrunes = 0
 
@@ -382,6 +398,29 @@ describe('startRunner', () => {
     await runner.stop()
 
     expect(queue.sweeps).toBeGreaterThan(0)
+  })
+
+  /**
+   * The housekeeping that rides the same tick, asserted together.
+   *
+   * The counters above have said since `#108` that "a sweep that stops running
+   * is visible here", and until this test nothing read them: `destroyExpiredSlots`
+   * was written with the slot channel and wired to nothing at all, which no red
+   * test anywhere reported. A sweep is the one kind of work whose absence looks
+   * exactly like its success, so the assertion has to be that it was called.
+   */
+  it('runs every housekeeping sweep on the same tick', async () => {
+    const queue = new FakeQueue()
+    const runner = startRunner({ queue, verifiers, log: quiet }, immediately)
+
+    await until(() => queue.contactPrunes > 0)
+    await runner.stop()
+
+    expect(queue.abandonedSweeps).toBeGreaterThan(0)
+    expect(queue.handoverSweeps).toBeGreaterThan(0)
+    expect(queue.dropSweeps).toBeGreaterThan(0)
+    expect(queue.slotSweeps).toBeGreaterThan(0)
+    expect(queue.contactPrunes).toBeGreaterThan(0)
   })
 
   /**

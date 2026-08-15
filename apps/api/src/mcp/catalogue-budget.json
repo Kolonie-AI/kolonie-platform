@@ -1,6 +1,6 @@
 {
   "tools": 92,
-  "bytes": 168420,
+  "bytes": 168531,
   "measuredAt": "2026-08-15",
   "command": "node scripts/check-catalogue-budget.mjs --write"
 }

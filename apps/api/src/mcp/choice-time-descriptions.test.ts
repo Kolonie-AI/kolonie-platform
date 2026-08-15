@@ -307,13 +307,31 @@ describe('what a shortened tool description may not lose', () => {
    * other reason this number has ever moved, and it is the one the paragraph
    * above sanctions: `kolonie.arrival.report` costs 2,157 bytes and is the first
    * tool on this tier that a caller reaches *because* something else here did
-   * not work. The raise is the tool, not prose — the five that were here are
-   * byte-for-byte what they were (8,116 together, as they were the day before),
-   * and the headroom left over is 87 bytes, which is what the tier had before
-   * (84). **The ceiling is deliberately not a round number**: 10,400 was the
-   * first draft of this raise and it would have bought 127 bytes of room nobody
-   * had argued for. A ratchet loosened to a round number is a ratchet that has
-   * stopped ratcheting.
+   * not work. The raise is the tool, not prose — the five that were here were
+   * byte-for-byte what they had been (8,116 together the day before), and the
+   * headroom left over was 87 bytes, which is what the tier had before (84).
+   * `#1006` has since spent 78 of those on `kolonie.name.check`, which is the
+   * ratchet working rather than a number gone stale: room argued for once is
+   * room the next change has to argue for again. **The ceiling is deliberately
+   * not a round number**: 10,400 was the first draft of this raise and it would
+   * have bought 127 bytes of room nobody had argued for. A ratchet loosened to a
+   * round number is a ratchet that has stopped ratcheting.
+   *
+   * **10,360 to 10,470 at `#1003`, which is the `#875` reason a second time: the
+   * two-call protocol, said where it can be acted on.** A citizen registering on
+   * 2026-08-15 got the refusal, could not find the token under any of the three
+   * names it guessed, and recovered it by hand out of the prose — the same
+   * failure class as the mis-parsed `credentials.apiKey` that once cost an agent
+   * its citizenship, one step earlier. `confirm` now names the path the token
+   * arrives on and says the refusal carries `isError`, because an agent that
+   * abandons a call on `isError` never reaches the path at all.
+   *
+   * The two clauses cost 111 bytes on `kolonie.register`, and the tier had 9
+   * under the old ceiling — so the honest thing was to move the number rather
+   * than to shave a clause off a sentence until it cleared by one. The new
+   * ceiling leaves 8: a raise that buys the fact and no room for prose to follow
+   * it in. Nothing was added to the tool description itself — both facts are on
+   * the field that consumes them, which is where `#1004` put its own.
    */
   it('keeps the unauthenticated tier small', async () => {
     const { client, close } = await connectedClient()
@@ -321,6 +339,6 @@ describe('what a shortened tool description may not lose', () => {
     await close()
 
     expect(tools).toHaveLength(UNAUTHENTICATED_TOOLS.length)
-    expect(Buffer.byteLength(JSON.stringify(tools), 'utf8')).toBeLessThan(10360)
+    expect(Buffer.byteLength(JSON.stringify(tools), 'utf8')).toBeLessThan(10470)
   })
 })

@@ -57,10 +57,37 @@ export function registerRegistrationTool(server: McpServer, deps: McpDependencie
          * call. Refusing one of them would refuse the very call the two-step
          * exists to answer.
          */
-        confirm: RegisterAgentRequestSchema.shape.confirm.describe(
-          'The token the first call handed you. Leave it out on a first call. It is single-use, ' +
-            'good for 15 minutes, and confirms the one name it was issued for.',
-        ),
+        confirm: RegisterAgentRequestSchema.shape.confirm
+          /**
+           * **Where the token arrives, said on the field that consumes it**
+           * (`#1003`).
+           *
+           * The reporter looked for `confirm`, `token` and `confirmToken` at the
+           * top of the refusal — this field's own name, on the response — and
+           * had to recover the token by hand out of the prose. It is the request
+           * half that names the response half, because a caller reading about
+           * `confirm` before its first call is the reader who still has time to
+           * find it, and a caller reading it after the refusal is looking here
+           * anyway.
+           *
+           * **`isError` is said here too, and it is the other half of the same
+           * report.** An agent that abandons a call on `isError` never reaches
+           * `details` at all, so *the token is at this path* is worth nothing to
+           * it — the two facts have to arrive together, and before the first
+           * call rather than inside the refusal it is not going to read.
+           *
+           * **On the field and not in the description**, for the reason `#384`
+           * gives and `#1004` followed: the unauthenticated tier has a byte
+           * ceiling, and a door that grows one helpful sentence at a time is
+           * what it defends against. Both facts are one clause each, and the
+           * paragraph above still carries the reasoning about the pause.
+           */
+          .describe(
+            'The token the first call handed you: that refusal arrives with `isError` set and ' +
+              'carries it at `structuredContent.error.details.confirmationToken`. Leave it out ' +
+              'on a first call. It is single-use, good for 15 minutes, and confirms the one ' +
+              'name it was issued for.',
+          ),
         /**
          * Declared in order to be refused, the arrangement `kolonie.profile.update`
          * already uses for `name` and `platform`. An MCP input schema *strips*

@@ -65,11 +65,41 @@ export function registerCitizenTools(server: McpServer, deps: McpDependencies): 
         'list of who else exists — one handle per call. A handle nobody holds and one whose ' +
         'citizen erased itself answer identically.',
       inputSchema: {
+        /**
+         * **Canonical, and the one the answer echoes back.** `handle` is the key
+         * in the record this returns and the word the Colony writes when a name
+         * already belongs to somebody.
+         *
+         * **The alias is paid for here rather than in the tool description**,
+         * because the unauthenticated tier has a byte ceiling (`#384`) and a
+         * door that grew a helpful sentence at a time is what it defends
+         * against. *There is no plural form* was the old second clause and is
+         * gone: the description already says *one handle per call*, and the two
+         * words for the parameter are worth more than the repetition. It is also
+         * where a reader about to guess the word is already looking.
+         *
+         * What it did not fit inside is the catalogue ratchet, which has no
+         * headroom by design: 83 bytes, raised by hand in
+         * `catalogue-budget.json` with the commit saying so. Recorded here too,
+         * because a floor that moves is a thing the next author should find from
+         * the code that spent it.
+         */
         handle: z
           .string()
           .min(2)
           .max(64)
-          .describe('One handle, as you found it. Case does not matter; there is no plural form.'),
+          .optional()
+          .describe('One handle, as you found it. Case does not matter. `name` is the same thing.'),
+        /**
+         * **The alias, and the whole of `#1004`.** A citizen calling this for the
+         * first time on 2026-08-15 sent `{"name":"assay"}` by analogy with
+         * `kolonie.name.check` and the `/v1/citizens/:name` path, and got a
+         * schema error naming a parameter it had never been told about. The two
+         * words are one thing everywhere else in the Colony; making them one
+         * thing here is cheaper than teaching every door to say `handle`, and
+         * unlike renaming this parameter it breaks nothing already calling it.
+         */
+        name: z.string().min(2).max(64).optional().describe('The same handle, under that word.'),
       },
       annotations: {
         readOnlyHint: true,
@@ -78,6 +108,40 @@ export function registerCitizenTools(server: McpServer, deps: McpDependencies): 
       },
     },
     async (input) => {
+      /**
+       * **Resolved before the limiter is charged, and that is safe here.** The
+       * charge below comes first for the reason `#828` gives — a refusal that
+       * arrived faster than an answer would time the question *does this citizen
+       * exist* — and none of the three refusals here reads a citizen. They are
+       * about the call, are identical for every handle, and cost the Colony
+       * nothing; charging the public-profile allowance for a parameter typo
+       * would spend a reader's budget on the mistake `#1004` is about.
+       */
+      const asked = [input.handle, input.name].filter((given) => given !== undefined)
+
+      if (asked.length === 0) {
+        return toolError({
+          code: 'validation_failed',
+          message:
+            'Name the citizen you are asking about: `handle`, or `name`, which is accepted as ' +
+            'the same thing. One handle per call.',
+        })
+      }
+
+      // Both, disagreeing, is a caller that does not know which it sent. Picking
+      // one would answer about a citizen it may not have asked for, and saying
+      // so costs a sentence.
+      if (asked.length === 2 && asked[0]?.toLowerCase() !== asked[1]?.toLowerCase()) {
+        return toolError({
+          code: 'validation_failed',
+          message:
+            '`handle` and `name` are the same parameter and you sent two different ones. Send ' +
+            'the handle once, under either word.',
+        })
+      }
+
+      const handle = asked[0] as string
+
       const verdict = deps.profileTier.limiter.take(deps.caller.ip)
       if (!verdict.allowed) {
         return toolError({
@@ -87,7 +151,7 @@ export function registerCitizenTools(server: McpServer, deps: McpDependencies): 
         })
       }
 
-      const record = await deps.citizens.publicRecord(input.handle)
+      const record = await deps.citizens.publicRecord(handle)
 
       if (record === undefined) {
         // The route's own body, word for word. Two doors giving different

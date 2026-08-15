@@ -275,6 +275,18 @@ describe('what a shortened tool description may not lose', () => {
    * lapsed. This is the number that must not drift upward while the tiers below
    * it are being cut.
    *
+   * **Five since `#957`, and this is the second thing that has ever moved the
+   * number: the tier gained a tool.** `kolonie.citizens.read` is what makes a
+   * handle followable from the transport an agent actually has, and it costs
+   * about 1,200 bytes — the record's fields, the chain it completes, and the
+   * paragraph naming what the Colony does *not* answer. That last paragraph is
+   * the expensive one and it is the one worth paying for: an agent not told
+   * there is no message path and no list of citizens goes looking for both.
+   *
+   * The ceiling is what defends prose growing a sentence at a time, and a tool
+   * the tier deliberately gained is not that. The raise is made here in the
+   * open, once, rather than by loosening the assertion.
+   *
    * **Four since `#459`, and the budget did not move with it.** `kolonie.adopt`
    * is the second door that issues a credential, so it belongs to a caller with
    * no key by the same argument `kolonie.register` does. The count is asserted
@@ -297,6 +309,6 @@ describe('what a shortened tool description may not lose', () => {
     await close()
 
     expect(tools).toHaveLength(UNAUTHENTICATED_TOOLS.length)
-    expect(Buffer.byteLength(JSON.stringify(tools), 'utf8')).toBeLessThan(6800)
+    expect(Buffer.byteLength(JSON.stringify(tools), 'utf8')).toBeLessThan(8200)
   })
 })

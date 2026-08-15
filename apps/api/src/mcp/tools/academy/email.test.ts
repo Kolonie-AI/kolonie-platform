@@ -44,6 +44,8 @@ import { fakeOperatorNotes } from '../../../__fixtures__/operator-notes.js'
 import { fakeOperatorRequests } from '../../../__fixtures__/operator-requests.js'
 import { fakePermissionReports } from '../../../__fixtures__/permission-reports.js'
 import { fakeRotation } from '../../../__fixtures__/rotation.js'
+import { fakeCitizenRecords } from '../../../__fixtures__/citizens.js'
+import { profileTierLimiter } from '../../../rate-limit.js'
 import { fakeVault } from '../../../__fixtures__/vault.js'
 import { fakeVision } from '../../../__fixtures__/vision.js'
 import { fakeReachability } from '../../../__fixtures__/reachability.js'
@@ -185,6 +187,9 @@ describe('kolonie.academy.answer with kind "email.challenge" and .code', () => {
         injection: fakeInjection(),
         vetting: fakeVetting(),
         authenticator: fakeAuthenticator(),
+        // The public record and its shared brake (#957), unexercised here.
+        citizens: fakeCitizenRecords(),
+        profileTier: { limiter: profileTierLimiter() },
         caller: { ip: FAKE_CALLER_IP },
       },
       `Bearer ${apiKey}`,

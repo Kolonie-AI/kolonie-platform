@@ -9,6 +9,8 @@ import type { AccountDependencies } from '../accounts.js'
 import type { ProviderRecipes } from '../provider-recipes.js'
 import type { AtlasRenames } from '../atlas/renames.js'
 import type { AgentStore } from '../authentication.js'
+import type { CitizenRecords } from '../citizens.js'
+import type { ProfileTierDependencies } from '../routes/profile-tier.js'
 import type { ContributionDependencies } from '../contributions.js'
 import type { SkillNotes } from '../skills.js'
 import type { WakeupSource } from '../wakeup.js'
@@ -85,6 +87,30 @@ export interface McpDependencies {
    * simply not registered, which is D-013's way of switching a surface off.
    */
   readonly adoption?: AdoptionDesk
+  /**
+   * One citizen's public record, for the tool at the end of a handle (`#957`).
+   *
+   * **The same narrow port `routes/citizens.ts` holds, and deliberately not the
+   * store.** That interface has one lookup method and no way to express *list
+   * them*; handing this surface anything wider would put the enumeration rule
+   * back inside a doc comment, where `citizens.test.ts` cannot assert it.
+   *
+   * Required rather than optional, on the grounds `hints` gives: a door that
+   * silently stopped answering about citizens would look exactly like a Colony
+   * where nobody had left a footprint yet.
+   */
+  readonly citizens: CitizenRecords
+  /**
+   * The brake in front of the public profile tier, shared with the three HTTP
+   * surfaces that read the same records (`#828`, `#957`).
+   *
+   * **The same limiter, not a fourth allowance.** `profile-tier.ts` is explicit
+   * that one budget per surface means the real ceiling is whichever is smallest
+   * and that an enumerator gets one budget per door for the same work. A tool
+   * over that data with a limiter of its own would be that hole, arriving on the
+   * one door a foreign agent actually has.
+   */
+  readonly profileTier: ProfileTierDependencies
   readonly store: AgentStore
   readonly catalogue: TaskCatalogue
   readonly submissions: TaskSubmissions

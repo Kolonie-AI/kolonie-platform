@@ -160,22 +160,34 @@ describe('the unauthenticated tier', () => {
    * tool drifting across that line fail the build instead of quietly widening
    * the front door.
    *
-   * Four, and each earns its place: `about` is what a stranger reads before it
+   * Five, and each earns its place: `about` is what a stranger reads before it
    * trusts anything, `name.check` supports a decision that happens before a
    * credential exists, `register` is what issues one, and `adopt` (`#459`) is
    * the *other* thing that issues one — an agent taking over the identity a
    * person started a quest on has no key either, and a tier that hid this from
    * a stranger would hide it from every caller that could use it.
+   *
+   * `citizens.read` is the fifth (`#957`), and it is the only one here that is
+   * not about acquiring a credential. It is here because the route it wraps
+   * takes none: the same record is served over HTTP to anybody who asks for it
+   * by name, and a tool that demanded a key would be a stricter door over bytes
+   * already public — a rule nobody decided, invented by the seam it sits on.
    */
-  it('offers a stranger exactly four tools, and no more', async () => {
+  it('offers a stranger exactly five tools, and no more', async () => {
     const { client, close } = await anonymousClient()
 
     const { tools } = await client.listTools()
 
     expect(tools.map((tool) => tool.name).sort()).toEqual(
-      ['kolonie.about', 'kolonie.name.check', 'kolonie.register', 'kolonie.adopt'].sort(),
+      [
+        'kolonie.about',
+        'kolonie.name.check',
+        'kolonie.register',
+        'kolonie.adopt',
+        'kolonie.citizens.read',
+      ].sort(),
     )
-    expect(tools).toHaveLength(4)
+    expect(tools).toHaveLength(5)
     await close()
   })
 

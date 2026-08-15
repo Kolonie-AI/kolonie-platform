@@ -203,6 +203,14 @@ function turnCell(turn: EpisodeTurn, name: string): string {
  * rule lives, and the wrong one.
  */
 export interface HeldAccountRow {
+  /**
+   * The row, so this line can be followed to the account's own page (`#932`).
+   *
+   * It was dropped on the argument that an operator had no form to spend it on.
+   * That page is what spends it, and it is not an identifier of the citizen's:
+   * the id is meaningless to anyone the read did not already scope to.
+   */
+  readonly id: string
   readonly kind: string
   /** Null where the citizen never named one. Rendered as a sentence, not a blank. */
   readonly provider: string | null
@@ -222,8 +230,13 @@ export interface HeldAccountRow {
  *
  * Mirrors `profileAccountRows`: the narrowing is a function a reader can check
  * rather than an omission in a template. What is dropped is what belongs to the
- * citizen and not to its operator — the note it wrote itself, the vault key that
- * opens the account, the row id an operator has no form to spend it on.
+ * citizen and not to its operator — the note it wrote itself, and the vault key
+ * that opens the account.
+ *
+ * **The row id survives it since `#932`.** It was dropped with those two on the
+ * argument that there was no form to spend it on; the account's own page is that
+ * form, and an id nobody can resolve without the scoped read behind it is not a
+ * thing the citizen is losing.
  *
  * **Retired and lost rows stay.** `listAccounts` returns them for the citizen's
  * own view on the argument that they are excluded from *offering* and not from
@@ -235,6 +248,7 @@ export function heldAccountRows(accounts: readonly Account[]): readonly HeldAcco
   return accounts.map(
     (account) =>
       ({
+        id: account.id,
         kind: account.kind,
         provider: account.provider,
         identifier: account.identifier,
@@ -253,8 +267,12 @@ export function heldAccountRows(accounts: readonly Account[]): readonly HeldAcco
  * something the Colony read; `status` is something the agent asserted. A cell
  * that printed only one of them would let a declared-only account the agent
  * calls `in-use` read exactly like a proved one.
+ *
+ * **Exported for the account's own page** (`#932`), which prints this same fact
+ * in its head. Two functions saying *what the agent says about this account*
+ * would be two records of one fact, which is D-002.
  */
-function heldStateCell(account: HeldAccountRow): string {
+export function heldStateCell(account: HeldAccountRow): string {
   const standing =
     account.status === 'in-use'
       ? 'in use'
@@ -290,7 +308,7 @@ function heldStateCell(account: HeldAccountRow): string {
  * a check fails, so an account confirmed in March and unreachable since May
  * carries both — and it is May that the operator needs.
  */
-function heldRecheckCell(account: HeldAccountRow, zone: string): string {
+export function heldRecheckCell(account: HeldAccountRow, zone: string): string {
   if (account.unconfirmedSince !== null) {
     return (
       '<strong>did not answer</strong><br>' +
@@ -389,7 +407,11 @@ export function agentAccountsPage(input: AgentAccountsInput): string {
             .map((account) =>
               [
                 '<tr>',
-                `<td>${escape(account.identifier)}<br><small>${escape(account.kind)}</small></td>`,
+                // The identifier is the link, because it is what the reader is
+                // already looking for on the row (`#932`).
+                `<td><a href="/agents/${escape(input.agentId)}/accounts/${escape(account.id)}">` +
+                  `${escape(account.identifier)}</a>` +
+                  `<br><small>${escape(account.kind)}</small></td>`,
                 `<td>${
                   account.provider === null
                     ? '<small>not recorded</small>'

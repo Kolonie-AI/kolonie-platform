@@ -28,6 +28,7 @@ const aPage = (overrides: Partial<Parameters<typeof agentAccountsPage>[0]> = {})
 describe('what the agent holds', () => {
   /** RFC 2606 throughout: `AGENTS.md` §3 keeps real hostnames out of the repo. */
   const aRow = (overrides: Partial<HeldAccountRow> = {}): HeldAccountRow => ({
+    id: '22222222-2222-4222-8222-222222222222',
     kind: 'mailbox',
     provider: 'mail.example',
     identifier: 'ariadne@mail.example',
@@ -152,13 +153,15 @@ describe('what the agent holds', () => {
 
     /**
      * What belongs to the citizen and not to its operator: the note it wrote
-     * itself, and the vault key that opens the account.
+     * itself, and the vault key that opens the account. The row id is kept since
+     * `#932`, because the account's own page is the form that spends it.
      */
     it('drops the note and the vault key', () => {
       const [row] = heldAccountRows([anAccount()])
 
       expect(Object.keys(row ?? {}).sort()).toEqual([
         'confirmedAt',
+        'id',
         'identifier',
         'kind',
         'proved',
@@ -166,6 +169,14 @@ describe('what the agent holds', () => {
         'status',
         'unconfirmedSince',
       ])
+    })
+
+    /** The line is followable, which is the whole of what the id buys (`#932`). */
+    it('makes the identifier a link to the account', () => {
+      expect(aPage({ held: [aRow({ id: '33333333-3333-4333-8333-333333333333' })] })).toContain(
+        'href="/agents/11111111-1111-4111-8111-111111111111/accounts/' +
+          '33333333-3333-4333-8333-333333333333"',
+      )
     })
   })
 })

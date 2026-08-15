@@ -35,9 +35,18 @@ import type { AccountThreadStore } from '../account-threads.js'
  * one wrote** — which is why {@link FakeAccountThreads.vaultContents} exists.
  */
 export interface FakeAccountThreads extends AccountThreadStore {
-  /** Put an account on a citizen's record, with the thread its trigger would make. */
+  /**
+   * Put an account on a citizen's record, with the thread its trigger would make.
+   *
+   * `id` is offered because a console test holds two fakes for one account — the
+   * register the page's head is read from, and this one the thread hangs off —
+   * and in production they are one row. A fixture that always minted its own id
+   * would make that single row impossible to reproduce, and the page would be
+   * testable only against halves that never meet (`#932`).
+   */
   readonly addAccount: (account: {
     readonly agentId: AgentId
+    readonly id?: string
     readonly kind?: string
     readonly identifier?: string
     readonly provider?: string | null
@@ -124,7 +133,7 @@ export function fakeAccountThreads(
 
   return {
     addAccount(account) {
-      const id = randomUUID()
+      const id = account.id ?? randomUUID()
       accounts.set(id, {
         agentId: account.agentId,
         kind: account.kind ?? 'mailbox',
@@ -217,6 +226,15 @@ export function fakeAccountThreads(
         .filter((row): row is NonNullable<typeof row> => row !== undefined)
         .filter((row) => accounts.get(row.account.id)?.agentId === agentId)
         .sort((left, right) => byTurn(left.episode.turn) - byTurn(right.episode.turn))
+    },
+
+    async episodes(threadId) {
+      // Newest first, as the storage read is: the caller that wants a history
+      // reverses it, and a fake that handed back the other order would let a
+      // page pass here and render backwards against a database.
+      return [...episodes.values()]
+        .filter((episode) => String(episode.threadId) === String(threadId))
+        .sort((left, right) => right.openedAt.localeCompare(left.openedAt))
     },
 
     async episode(agentId, episodeId) {

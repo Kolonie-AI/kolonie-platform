@@ -2,8 +2,12 @@ import { randomUUID } from 'node:crypto'
 import { capabilitiesFromForm, handoverNotice } from '@kolonie-ai/core'
 import {
   ERROR_STATUS,
+  AccountEpisodeIdSchema,
   AccountKindSchema,
   AccountSlotIdSchema,
+  ENTRY_BODY_MAX_LENGTH,
+  EPISODE_TITLE_MAX_LENGTH,
+  SLOT_MAX_READS,
   AccountProviderSchema,
   RECIPE_REFUSAL_MAX_LENGTH,
   RECIPE_STEP_MAX_LENGTH,
@@ -73,6 +77,11 @@ import {
 import { AGENT_PAGES } from '../console/navigation.js'
 import { answerAutonomyFormForAgent } from '../autonomy.js'
 import { agentAccountsPage, heldAccountRows } from '../console/agent-accounts.js'
+import {
+  accountThreadPage,
+  type Conversation,
+  type ConversationSlot,
+} from '../console/account-thread.js'
 import { curationPage, numbersPage } from '../console/steward.js'
 import {
   backendArrivalsPage,
@@ -238,6 +247,20 @@ const SLOT_CLOSED_NOTICE =
   'allows, closed with its episode, or it was never yours \u2014 the Colony answers the same way ' +
   'to all of them on purpose. Nothing was sent and nothing is held against the agent. Ask your ' +
   'agent to open another; it costs it nothing.'
+
+/**
+ * What a form on the account's page is told when the conversation will not take
+ * it (`#932`).
+ *
+ * **One sentence for four states**, on `SLOT_CLOSED_NOTICE`'s reasoning: closed
+ * since the page was drawn, never this account's, never this agent's, or a
+ * Colony wired without the conversation at all. The HTML path never sees it — a
+ * form that will not land redirects to the page, which now says what is true.
+ */
+const THREAD_CLOSED_NOTICE =
+  'That conversation is not open to you. It may have been closed since this page was drawn, or ' +
+  'it belongs to another account — the Colony answers the same way to both on purpose. ' +
+  'Nothing was written.'
 
 /** The two ends of the slot round trip, carried across a redirect like `filled`. */
 const SLOT_NOTICE: Record<string, string | undefined> = {
@@ -2870,6 +2893,350 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
     if (operated === null) return reply
 
     return renderAgentAccounts(request, reply, operated)
+  })
+
+  /**
+   * One account, and everything either side has ever said about it (`#932`).
+   *
+   * **The account row comes from the same read the list uses.** `register.list`
+   * is scoped by `agentId` in its own `where`, so finding the row in that list is
+   * the authorisation as well as the lookup — an account belonging to another
+   * agent is simply not in it, and is answered by the console's 404 rather than
+   * by a sentence saying it exists somewhere else. That is the rejection case the
+   * issue names, and it is held at the read.
+   *
+   * **The reversal is here rather than in the renderer.** `episodes` is
+   * newest-first because the reads it was written for ask *what is the latest*; a
+   * history reads the other way. Sorting inside the page would hide the storage's
+   * order from anyone reading either half alone, and would put a decision in a
+   * function whose job is to print.
+   */
+  const renderAccountThread = async (
+    request: FastifyRequest,
+    reply: FastifyReply,
+    operated: {
+      readonly agentId: AgentId
+      readonly humanId: HumanId
+      readonly roles: readonly string[]
+    },
+    accountId: string,
+    notice?: string,
+  ) => {
+    const held = await deps.autonomy.pages.factsOf(operated.agentId)
+    if (held === null) return consoleNotFound(reply, request)
+
+    const account = heldAccountRows(await deps.accounts.register.list(operated.agentId)).find(
+      (row) => row.id === accountId,
+    )
+    if (account === undefined) return consoleNotFound(reply, request)
+
+    /**
+     * A Colony wired without the conversation renders the account and an empty
+     * history, rather than a 404 for a page that exists.
+     *
+     * The same choice `renderAgentAccounts` makes one screen up: what is missing
+     * is a dependency of the deployment's, and telling an operator their account
+     * does not exist because of it would be a lie about their own data.
+     */
+    const store = deps.accountThreads
+    const thread = store === undefined ? undefined : await store.thread(accountId)
+
+    const conversations: Conversation[] = []
+    if (store !== undefined && thread !== undefined) {
+      for (const episode of [...(await store.episodes(thread.id))].reverse()) {
+        const [entries, slots] = await Promise.all([
+          store.entries(episode.id),
+          store.slots(episode.id),
+        ])
+
+        conversations.push({
+          id: String(episode.id),
+          title: episode.title,
+          openedBy: episode.openedBy,
+          turn: episode.turn,
+          outcome: episode.outcome,
+          wall: episode.wall,
+          openedAt: episode.openedAt,
+          closedAt: episode.closedAt,
+          entries: entries.map((entry) => ({
+            author: entry.author,
+            body: entry.body,
+            createdAt: entry.createdAt,
+          })),
+          slots: slots.map(
+            (slot) =>
+              ({
+                id: String(slot.id),
+                label: slot.label,
+                secret: slot.secret,
+                awaits: slot.awaits,
+                filled: slot.filledAt !== null,
+                /**
+                 * Null on every secret, which the storage has already done —
+                 * asserted a second time here because the cost of the rule
+                 * failing is a credential in a page a browser has cached.
+                 */
+                value: slot.secret ? null : slot.value,
+                readsLeft: Math.max(SLOT_MAX_READS - slot.reads, 0),
+                /**
+                 * Taken, destroyed, or read to its last. Three ways to arrive at
+                 * one sentence — *there was a value here and it is gone* — and
+                 * an operator has nothing to do differently about which.
+                 */
+                gone:
+                  slot.destroyedAt !== null ||
+                  slot.takenAt !== null ||
+                  (slot.secret && slot.filledAt !== null && slot.reads >= SLOT_MAX_READS),
+              }) satisfies ConversationSlot,
+          ),
+        })
+      }
+    }
+
+    if (!wantsHtml(request)) {
+      return reply.send({
+        agentId: String(operated.agentId),
+        name: held.name,
+        account,
+        conversations,
+      })
+    }
+
+    return html(
+      reply,
+      accountThreadPage({
+        nav: navFor(request, operated.roles, await agentNavFor(operated.agentId)),
+        agentId: String(operated.agentId),
+        name: held.name,
+        zone: zoneFrom(request.headers),
+        account,
+        conversations,
+        ...(notice === undefined ? {} : { notice }),
+      }),
+    )
+  }
+
+  /**
+   * The conversation this form names, if it is one this operator may write into.
+   *
+   * **Two conditions and both are checked here**: the episode belongs to an
+   * account of this agent — `episode` scopes by `agentId` in the same statement —
+   * and that account is the one in the path. The second matters because the id is
+   * in a hidden field: without it, a form from one account's page would write
+   * into another account's conversation and the page would never show it again.
+   */
+  const conversationOf = async (
+    operated: { readonly agentId: AgentId },
+    accountId: string,
+    named: unknown,
+  ) => {
+    const store = deps.accountThreads
+    if (store === undefined || typeof named !== 'string') return undefined
+
+    const episodeId = AccountEpisodeIdSchema.safeParse(named)
+    if (!episodeId.success) return undefined
+
+    const found = await store.episode(operated.agentId, episodeId.data)
+    if (found === undefined || found.account.id !== accountId) return undefined
+    // A closed conversation takes neither a note nor a turn; the page offers
+    // neither form on one, so arriving here means the page was stale.
+    if (found.episode.outcome !== null) return undefined
+
+    return { store, episode: found.episode }
+  }
+
+  app.get('/agents/:agentId/accounts/:accountId', async (request, reply) => {
+    if (!(await guard(request, reply))) return reply
+
+    const operated = await operatedAgent(request, reply)
+    if (operated === null) return reply
+
+    const { accountId } = request.params as { accountId: string }
+    const { said } = request.query as { said?: string }
+
+    return renderAccountThread(
+      request,
+      reply,
+      operated,
+      accountId,
+      said === 'note'
+        ? 'Written down.'
+        : said === 'turn'
+          ? 'Noted whose move it is.'
+          : said === 'opened'
+            ? 'Opened, and your agent has been handed the next move.'
+            : undefined,
+    )
+  })
+
+  /**
+   * Write into a conversation, without taking the next move (`#932`).
+   *
+   * Separate from the turn deliberately: an operator has to be able to say *I
+   * have asked our provider and I am waiting* without also claiming the move.
+   * `EpisodeTurnSchema` says the same thing in its own words — the turn is not
+   * permission to speak.
+   */
+  app.post('/agents/:agentId/accounts/:accountId/note', async (request, reply) => {
+    if (!(await guard(request, reply))) return reply
+
+    const operated = await operatedAgent(request, reply)
+    if (operated === null) return reply
+
+    const { accountId } = request.params as { accountId: string }
+    const { conversation, body } = (request.body ?? {}) as {
+      conversation?: unknown
+      body?: unknown
+    }
+
+    const target = await conversationOf(operated, accountId, conversation)
+    const written =
+      target !== undefined &&
+      typeof body === 'string' &&
+      body.trim() !== '' &&
+      body.length <= ENTRY_BODY_MAX_LENGTH
+
+    if (written && target !== undefined) {
+      await target.store.writeEntry({
+        episodeId: target.episode.id,
+        author: 'operator',
+        body: body as string,
+      })
+    }
+
+    if (!wantsHtml(request)) {
+      return written
+        ? reply.status(200).send({ written: true })
+        : reply.status(ERROR_STATUS.conflict).send({
+            code: 'conflict',
+            message: THREAD_CLOSED_NOTICE,
+          })
+    }
+
+    return reply
+      .status(303)
+      .header(
+        'location',
+        `/agents/${String(operated.agentId)}/accounts/${accountId}${written ? '?said=note' : ''}`,
+      )
+      .send()
+  })
+
+  /**
+   * Hand the next move over, or take it (`#932`).
+   *
+   * The page omits the button for the side that already holds it, so this route
+   * is reached with a side that is a change — but it does not depend on that:
+   * `passTurn` writing the turn it already holds is the same row.
+   */
+  app.post('/agents/:agentId/accounts/:accountId/turn', async (request, reply) => {
+    if (!(await guard(request, reply))) return reply
+
+    const operated = await operatedAgent(request, reply)
+    if (operated === null) return reply
+
+    const { accountId } = request.params as { accountId: string }
+    const { conversation, to } = (request.body ?? {}) as { conversation?: unknown; to?: unknown }
+
+    const target = await conversationOf(operated, accountId, conversation)
+    // `nobody` is a real turn and is not offered here: an operator saying *over
+    // to neither of us* about a conversation they opened is a way to lose it.
+    const side = to === 'operator' || to === 'agent' ? to : undefined
+    const passed = target !== undefined && side !== undefined
+
+    if (passed && target !== undefined && side !== undefined) {
+      await target.store.passTurn(target.episode.id, side)
+    }
+
+    if (!wantsHtml(request)) {
+      return passed
+        ? reply.status(200).send({ turn: side })
+        : reply.status(ERROR_STATUS.conflict).send({
+            code: 'conflict',
+            message: THREAD_CLOSED_NOTICE,
+          })
+    }
+
+    return reply
+      .status(303)
+      .header(
+        'location',
+        `/agents/${String(operated.agentId)}/accounts/${accountId}${passed ? '?said=turn' : ''}`,
+      )
+      .send()
+  })
+
+  /**
+   * Start a conversation about an account that is already held (`#932`).
+   *
+   * **`maintenance`, always.** The acquisition is the one episode a thread has at
+   * most one of, and it belongs to how the account came to exist; an operator
+   * saying *something is wrong* months later is not that, and the unique index
+   * would refuse it anyway.
+   *
+   * **The title is composed from the kind and the provider, never the
+   * identifier** — the rule the console has held since `#582`. The two buttons
+   * are the two things an operator arrives wanting to say, and both hand the
+   * agent the move, because the point of saying either is that it acts.
+   */
+  app.post('/agents/:agentId/accounts/:accountId/open', async (request, reply) => {
+    if (!(await guard(request, reply))) return reply
+
+    const operated = await operatedAgent(request, reply)
+    if (operated === null) return reply
+
+    const { accountId } = request.params as { accountId: string }
+    const { reason } = (request.body ?? {}) as { reason?: unknown }
+
+    const store = deps.accountThreads
+    const account =
+      store === undefined
+        ? undefined
+        : (await deps.accounts.register.list(operated.agentId)).find((row) => row.id === accountId)
+
+    const thread =
+      store === undefined || account === undefined ? undefined : await store.thread(accountId)
+
+    const opened =
+      store !== undefined &&
+      account !== undefined &&
+      thread !== undefined &&
+      (reason === 'wrong' || reason === 'help')
+
+    if (opened && store !== undefined && account !== undefined && thread !== undefined) {
+      const at =
+        account.provider === null
+          ? `the ${String(account.kind)} your agent holds`
+          : `the ${String(account.kind)} at ${account.provider}`
+
+      await store.openEpisode({
+        threadId: thread.id,
+        openedBy: 'operator',
+        kind: 'maintenance',
+        title:
+          reason === 'wrong'
+            ? `Something is wrong with ${at}`.slice(0, EPISODE_TITLE_MAX_LENGTH)
+            : `Your operator needs you about ${at}`.slice(0, EPISODE_TITLE_MAX_LENGTH),
+        turn: 'agent',
+      })
+    }
+
+    if (!wantsHtml(request)) {
+      return opened
+        ? reply.status(200).send({ opened: true })
+        : reply.status(ERROR_STATUS.conflict).send({
+            code: 'conflict',
+            message: THREAD_CLOSED_NOTICE,
+          })
+    }
+
+    return reply
+      .status(303)
+      .header(
+        'location',
+        `/agents/${String(operated.agentId)}/accounts/${accountId}${opened ? '?said=opened' : ''}`,
+      )
+      .send()
   })
 
   /**

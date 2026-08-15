@@ -22,6 +22,7 @@ import {
   closeEpisode,
   entriesOf,
   episodeForAgent,
+  episodesOf,
   fillSlot,
   fillSlotAsOperator,
   openEpisode,
@@ -40,6 +41,7 @@ import {
   sealVaultValue,
   type AccountEpisodeId,
   type AccountSlotId,
+  type AccountThreadId,
   type Database,
   type OpenEpisodeAccount,
 } from '@kolonie-ai/db'
@@ -99,6 +101,16 @@ export interface AccountThreadStore {
   openEpisode(command: Parameters<typeof openEpisode>[1]): ReturnType<typeof openEpisode>
   /** The waking read: open episodes across every account, turn-first. */
   openEpisodes(agentId: AgentId): ReturnType<typeof openEpisodesFor>
+  /**
+   * Everything that ever happened about one account, closed episodes included.
+   *
+   * Not `openEpisodes` narrowed to a thread. That one answers *what is owed*
+   * across every account and drops anything settled; this one answers *what has
+   * this account been through*, which is the whole of it or nothing — a history
+   * that silently omits the closed episodes is the kind of record that reads as
+   * complete and is not (`#932`).
+   */
+  episodes(threadId: AccountThreadId): ReturnType<typeof episodesOf>
   episode(agentId: AgentId, episodeId: AccountEpisodeId): ReturnType<typeof episodeForAgent>
   slots(episodeId: AccountEpisodeId): ReturnType<typeof slotsOf>
   slot(agentId: AgentId, slotId: AccountSlotId): ReturnType<typeof slotForAgent>
@@ -183,6 +195,7 @@ export function databaseAccountThreads(
     thread: (accountId) => threadOf(db, accountId),
     openEpisode: (command) => openEpisode(db, command),
     openEpisodes: (agentId) => openEpisodesFor(db, agentId),
+    episodes: (threadId) => episodesOf(db, threadId),
     episode: (agentId, episodeId) => episodeForAgent(db, agentId, episodeId),
     slots: (episodeId) => slotsOf(db, episodeId),
     slot: (agentId, slotId) => slotForAgent(db, agentId, slotId),

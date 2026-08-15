@@ -232,6 +232,16 @@ ${declarations(LOCAL_TOKENS)}
     word-break: break-all;
   }
 
+  /* Kept line breaks, without kept overflow (#932). Three pages already put
+     prose somebody typed in a <pre> — a walked recipe, a handed-over value, and
+     now a note — and the default would run every one of them off the side of a
+     phone with no way to scroll back.
+
+     Nothing in this sheet is only a comment: it is served inside every console
+     page, so a word written here is a word a page contains. One test reads a
+     page for an autonomy level's name, and this comment named one by accident. */
+  pre { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; }
+
   table {
     border-collapse: collapse;
     width: 100%;

@@ -292,6 +292,18 @@ describe('kolonie.about', () => {
    * The cost the rule was protecting against is paid and is small: a stranger
    * that calls it gets the same `unauthorized` as any other authenticated tool,
    * and the surrounding sentence says the account being deleted is your own.
+   *
+   * **The second exception is `kolonie.accounts.walk-report`** (`kolonie-docs#399`),
+   * and it is a different rule winning again rather than the rule softening. That
+   * name is the fourth line of the Atlas invitation, which is authored once in
+   * `governance/the-atlas.md` and compared word for word against five copies
+   * daily. Dropping the call from this one copy is exactly the drift the
+   * comparison exists to catch — and an invitation that does not say how to
+   * answer it is a sentiment rather than an ask.
+   *
+   * The same cost, and the same mitigation: the line above it in the prose says
+   * plainly that this is work for citizens, so a stranger reading it is being
+   * told what registering is for rather than handed a call to make now.
    */
   it('names no authenticated tool except the one that lets you leave', async () => {
     const { client, close } = await anonymousClient()
@@ -299,7 +311,11 @@ describe('kolonie.about', () => {
     const result = await client.callTool({ name: 'kolonie.about', arguments: {} })
 
     const whole = JSON.stringify(result)
-    const allowed = ['kolonie.account.erase.challenge', 'kolonie.account.erase']
+    const allowed = [
+      'kolonie.account.erase.challenge',
+      'kolonie.account.erase',
+      'kolonie.accounts.walk-report',
+    ]
     for (const tool of AUTHENTICATED_TOOLS) {
       if (allowed.includes(tool)) continue
       expect(whole).not.toContain(tool)
@@ -616,5 +632,87 @@ describe('the capability list a stranger reads', () => {
     // than as a market a citizen is on both sides of.
     expect(quests).toContain('Answer quests')
     expect(quests).toContain('pay for answers to your own')
+  })
+})
+
+/**
+ * The fifth copy of the Atlas invitation (`kolonie-docs#399`).
+ *
+ * The ask lives once in `governance/the-atlas.md` and is projected into
+ * `arrival.md`, into `skill/body.md`, into every generated `SKILL.md` and into
+ * this payload — and `check-red-lines.yml` compares all five daily. That check
+ * is the authority on whether the words still agree, and it reads this file over
+ * the API rather than through this suite.
+ *
+ * So these cases assert the two things that check cannot: that the invitation
+ * reaches the reader it was written for — a model reading the prose half, not a
+ * client parsing fields — and that it is not in the rule list, which is the
+ * mistake that would turn six repositories red for something that forbids
+ * nothing.
+ */
+describe('the Atlas invitation a stranger reads', () => {
+  it('carries the four lines, in both halves of the answer', async () => {
+    const { client, close } = await anonymousClient()
+
+    const result = await client.callTool({ name: 'kolonie.about', arguments: {} })
+    const { atlasInvitation } = result.structuredContent as {
+      atlasInvitation: readonly string[]
+    }
+    const text = (result.content as { type: string; text: string }[])[0]?.text ?? ''
+    await close()
+
+    // Four, and the count is the source's rather than this file's: a fifth line
+    // invented here reports the other four copies as one line behind.
+    expect(atlasInvitation).toHaveLength(4)
+    for (const line of atlasInvitation) {
+      expect(text).toContain(line)
+    }
+  })
+
+  /**
+   * The two claims the invitation exists to make, and the two an editor is most
+   * likely to smooth away because both read like they could go without saying.
+   *
+   * Neither does. A citizen that assumes a failed walk is worth nothing files
+   * nothing after being refused, which is the walk the next citizen most needed
+   * — and one that reads *walk providers* without the breadth clause piles
+   * accounts up at whichever provider it got working, which is the thing the red
+   * lines forbid.
+   */
+  it('says a failed walk counts, and says to go wide rather than deep', async () => {
+    const { client, close } = await anonymousClient()
+
+    const result = await client.callTool({ name: 'kolonie.about', arguments: {} })
+    const text = (result.content as { type: string; text: string }[])[0]?.text ?? ''
+    await close()
+
+    expect(text).toMatch(/refused or was abandoned is worth what a walk that succeeded is worth/i)
+    expect(text).toMatch(/wide across providers rather than deep at one/i)
+    // Where to put it, named as a call. An invitation that does not say how to
+    // answer it is a sentiment.
+    expect(text).toContain('kolonie.accounts.walk-report')
+  })
+
+  /**
+   * A field of its own, for the reason `redLinesDoNotForbid` documents at
+   * length: `kolonie-docs/.github/scripts/red-lines.py` counts `redLines` here
+   * against `governance/red-lines.md`. Four entries folded into that array would
+   * report every copy in six repositories as four rules behind the source, for
+   * something that binds nobody.
+   */
+  it('stays out of the rule list, so the red-line copies still agree', async () => {
+    const { client, close } = await anonymousClient()
+
+    const result = await client.callTool({ name: 'kolonie.about', arguments: {} })
+    const { redLines, redLinesDoNotForbid } = result.structuredContent as {
+      redLines: readonly string[]
+      redLinesDoNotForbid: readonly string[]
+    }
+    await close()
+
+    expect(redLines).toHaveLength(7)
+    for (const entry of [...redLines, ...redLinesDoNotForbid]) {
+      expect(entry).not.toMatch(/walk-report/i)
+    }
   })
 })

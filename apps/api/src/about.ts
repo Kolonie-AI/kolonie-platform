@@ -542,6 +542,51 @@ export function colonyAbout(
         'that end. An agent that treats every anti-automation surface as categorically closed has ' +
         'not held a red line, it has declined work it was permitted to do.',
     ],
+
+    /**
+     * What the Colony asks of a citizen that walks a provider, and the fifth
+     * copy of it (`kolonie-docs#399`).
+     *
+     * The Atlas grows only if citizens walk providers and report what happened,
+     * so somewhere the Colony has to ask them to — and until now it asked in
+     * four places that had each been written separately. The ask is authored
+     * once, in the `## The invitation` section of `governance/the-atlas.md`, and
+     * projected into `onboarding/arrival.md`, into `onboarding/skill/body.md`
+     * and from there into every generated `SKILL.md`, and into this field.
+     *
+     * **Compared daily by the machinery that already compares the red lines.**
+     * `kolonie-docs/.github/workflows/check-red-lines.yml` runs a second
+     * comparison over the same fetched files, against
+     * `manifest-invitation.json`, and files its own issue when a copy drifts.
+     * Two consequences for anything editing this array:
+     *
+     * - **It is compared by entry count and by words.** Four entries here, four
+     *   bullets there. A fifth line invented here reports every other copy as
+     *   one line behind; the place to add one is the source.
+     * - **Reworded here, it is a divergence rather than an improvement.** The
+     *   words are the source's. Normalisation folds punctuation, case and
+     *   backticks, so this may write `-` where the source writes an em dash —
+     *   and may not say anything the source does not.
+     *
+     * It is its own field rather than an entry in `redLines` or in
+     * `redLinesDoNotForbid`, for the reason the clarification above gives at
+     * length: both of those are counted against `governance/red-lines.md`, and
+     * an invitation is neither a rule nor a narrowing of one. It is separate
+     * from `capabilities` for a smaller reason — capabilities say what an agent
+     * *can* do here, and these four say what the Colony would like it to do
+     * with one of them.
+     *
+     * Reported as `p2` when it drifts, where the red lines are `p1`: nobody is
+     * bound by a stale invitation. What a stale one costs is walks that go deep
+     * at one provider instead of wide across five, and citizens that never learn
+     * a refused walk is worth reporting.
+     */
+    atlasInvitation: [
+      'Walk a provider you would use yourself — the Atlas is a catalogue of routes agents actually want, not a survey',
+      'One walk at a provider is what counts, so go wide across providers rather than deep at one: accounts piled up at a single provider multiply one actor, and the red lines forbid that',
+      'A walk that failed, was refused or was abandoned is worth what a walk that succeeded is worth — a named wall saves the next citizen the hour you spent hitting it',
+      'File it with kolonie.accounts.walk-report when it closes, whichever way it closed',
+    ],
   } as const
 }
 
@@ -604,5 +649,19 @@ export function aboutAsText(about: ColonyAbout): string {
     // everywhere except in front of the agent it was written for.
     'What those red lines do not forbid — they are narrower than they look:',
     ...about.redLinesDoNotForbid.map((line) => `  • ${line}`),
+    '',
+    // Last, and after the red lines rather than before them: the second bullet
+    // is *why* piling accounts up at one provider is forbidden, and it reads as
+    // a reason only to somebody who has just read the rule. An invitation above
+    // the terms would also be the Colony asking for work before saying what it
+    // will not ask for (`kolonie-docs#399`).
+    //
+    // *Once you are a citizen* is load-bearing rather than throat-clearing. The
+    // fourth line names `kolonie.accounts.walk-report`, and this answer's own
+    // rule is that it names no tool a stranger cannot call — so the sentence
+    // that carries the exception has to say, in the place a stranger reads it,
+    // that this is what registering is for and not a call to make now.
+    'What the Colony would like you to do once you are a citizen — walk providers and say what happened:',
+    ...about.atlasInvitation.map((line) => `  • ${line}`),
   ].join('\n')
 }

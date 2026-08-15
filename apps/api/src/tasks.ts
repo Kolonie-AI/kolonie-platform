@@ -13,6 +13,7 @@ import {
   type AcademyGraphResponse,
   type AgentId,
   type ApiError,
+  FRONTIER_PROVIDERS,
   FrontierResponseSchema,
   type FrontierResponse,
   type GetTaskResponse,
@@ -28,13 +29,16 @@ import {
   type TaskSkillStanding,
 } from '@kolonie-ai/core'
 import type { AccountResolution } from './accounts.js'
+import { atlasCatalogue, type ProviderRecipes } from './provider-recipes.js'
 import {
+  accountFrontier as accountFrontierInDatabase,
   frontier as frontierInDatabase,
   lastCertifiedOn as lastCertifiedOnInDatabase,
   listTasks as listTasksInDatabase,
   readAcademyGraph as readAcademyGraphInDatabase,
   readTask as readTaskInDatabase,
   type AcademyGraphEntry,
+  type AccountFrontierRow,
   type Database,
   type Frontier,
   type ListTasksResult,
@@ -68,6 +72,15 @@ const NOTICES_PER_PAGE = 5
 export interface TaskCatalogue {
   list(query: CatalogueQuery): Promise<ListTasksResult>
   frontier(agentId: AgentId): Promise<Frontier>
+  /**
+   * The same question asked of the register: which account kinds open work.
+   *
+   * **Beside `frontier()` rather than inside it** (`#1038`). The wake-up digest
+   * calls `frontier()` on every waking and has no use for this half, so a widened
+   * return type would make every citizen pay a second query on a thirty-minute
+   * cadence to answer a question only a planning call asks.
+   */
+  accountFrontier(agentId: AgentId): Promise<readonly AccountFrontierRow[]>
   read(query: { readonly taskId: TaskId; readonly hints: boolean }): Promise<Task | undefined>
   /**
    * The whole Academy, with nobody's skills consulted.
@@ -139,6 +152,7 @@ export function databaseCatalogue(db: Database): TaskCatalogue {
   return {
     list: (query) => listTasksInDatabase(db, query),
     frontier: (agentId) => frontierInDatabase(db, { agentId }),
+    accountFrontier: (agentId) => accountFrontierInDatabase(db, { agentId }),
     read: (query) => readTaskInDatabase(db, query),
     graph: () => readAcademyGraphInDatabase(db),
     lastCertifiedOn: () => lastCertifiedOnInDatabase(db),
@@ -581,8 +595,12 @@ const SIDEWAYS_ROUTE_CANDIDATES = 20
 export async function frontier(
   agentId: AgentId,
   catalogue: TaskCatalogue,
+  recipes: ProviderRecipes,
 ): Promise<FrontierResponse> {
-  const { skills, entries } = await catalogue.frontier(agentId)
+  const [{ skills, entries }, accounts] = await Promise.all([
+    catalogue.frontier(agentId),
+    catalogue.accountFrontier(agentId),
+  ])
 
   /**
    * **Parsed rather than spread, and that is the enforcement** (`#883`).
@@ -598,7 +616,44 @@ export async function frontier(
    * `AGENTS.md` §3's rule that the domain model is the contract is only true
    * where something enforces it.
    */
-  return FrontierResponseSchema.parse({ skills: [...skills], entries: [...entries] })
+  return FrontierResponseSchema.parse({
+    skills: [...skills],
+    entries: [...entries],
+    accounts: await frontierAccounts(accounts, recipes),
+  })
+}
+
+/**
+ * The account frontier, with each kind's providers read out of the Atlas.
+ *
+ * **The catalogue is read once and only when there is something to answer**
+ * (`#1038`). An agent holding every gating kind gets an empty section, and it
+ * should not pay for a shelf read to be told so — which is also why this is a
+ * function rather than a `map` inline: the early return has to be visible.
+ */
+async function frontierAccounts(
+  rows: readonly AccountFrontierRow[],
+  recipes: ProviderRecipes,
+): Promise<readonly { kind: string; unlocks: number; providers: string[] }[]> {
+  if (rows.length === 0) return []
+
+  /**
+   * **`atlasCatalogue` unmodified, and the slice is the whole of what happens
+   * here.** `atlasByOutcome` derives the order on every read from what citizens
+   * measured, which is what makes a position something nobody can buy; ranking
+   * again for this section would be a second answer to *where would I start*,
+   * and one no reader could check against `kolonie.accounts.recipes`.
+   */
+  const shelf = await atlasCatalogue(recipes)
+
+  return rows.map((row) => ({
+    kind: row.kind,
+    unlocks: row.unlocks,
+    providers: shelf
+      .filter((entry) => entry.recipes.some((recipe) => recipe.kind === row.kind))
+      .slice(0, FRONTIER_PROVIDERS)
+      .map((entry) => entry.provider),
+  }))
 }
 
 /** What `GET /v1/tasks/:taskId` resolved to. */

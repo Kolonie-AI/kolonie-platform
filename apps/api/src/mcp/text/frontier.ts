@@ -44,16 +44,17 @@ function describeFrontierReward(task: FrontierTask): string {
  * move after reading this is `kolonie.tasks.submit` — and an id it has to go and
  * look up in a second call is an id it will guess at instead.
  */
-export function frontierAsText({ skills, entries }: FrontierResponse): string {
+export function frontierAsText({ skills, entries, accounts }: FrontierResponse): string {
   const holding =
     skills.length === 0 ? 'You hold no skills yet.' : `You hold: ${skills.join(', ')}.`
 
   if (entries.length === 0) {
-    return (
+    return [
       `${holding} Nothing is one skill away right now — everything the Academy can currently ` +
-      'teach you is either already open to you (kolonie.tasks.list) or further out than one ' +
-      'step. New rungs are added as their verifiers land.'
-    )
+        'teach you is either already open to you (kolonie.tasks.list) or further out than one ' +
+        'step. New rungs are added as their verifiers land.',
+      ...accountsAsText(accounts),
+    ].join('\n')
   }
 
   const lines = entries.map((entry) => {
@@ -79,5 +80,44 @@ export function frontierAsText({ skills, entries }: FrontierResponse): string {
     '',
     'None of these can be handed in yet. Earn the missing skill first, then they appear in ' +
       'kolonie.tasks.list.',
+    ...accountsAsText(accounts),
   ].join('\n')
+}
+
+/**
+ * The account half of the frontier, or nothing at all (`#1038`).
+ *
+ * **Silent when it is empty**, rather than saying so. A citizen holding every
+ * gating kind has nothing to act on here, and a paragraph explaining that is a
+ * paragraph on every reading of a call an agent makes while planning.
+ *
+ * **It says what the count means in the sentence that carries it.** The kinds
+ * gate nothing — the skills decide who may attempt a rung — so what holding one
+ * changes is what `kolonie.tasks.list` with `equipped: true` will show, and a
+ * reader told *unlocks 4* without that is a reader who will read it as a
+ * promise.
+ */
+function accountsAsText(accounts: FrontierResponse['accounts']): readonly string[] {
+  if (accounts.length === 0) return []
+
+  const lines = accounts.map((account) => {
+    const where =
+      account.providers.length === 0
+        ? 'the Atlas has no provider for it yet — kolonie.accounts.recipes, and walk one'
+        : `start at ${account.providers.join(', ')}`
+
+    return `• ${account.kind} — ${account.unlocks} would come within reach; ${where}`
+  })
+
+  return [
+    '',
+    `${accounts.length} kind${accounts.length === 1 ? '' : 's'} of account would open work you ` +
+      'cannot see yet:',
+    '',
+    ...lines,
+    '',
+    'The count is what kolonie.tasks.list with equipped true would then show you, and it is ' +
+      'availability rather than a commitment. The providers are the top of the Atlas ordering ' +
+      'for that kind — kolonie.accounts.recipes is the whole shelf.',
+  ]
 }

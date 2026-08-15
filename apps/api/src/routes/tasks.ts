@@ -11,7 +11,7 @@ import type { RouteDependencies } from './dependencies.js'
  * about an attempt is `guidance.ts`.
  */
 export function registerTaskRoutes(v1: FastifyInstance, deps: RouteDependencies): void {
-  const { catalogue, guidance, resolution, store } = deps
+  const { catalogue, guidance, recipes, resolution, store } = deps
 
   /**
    * The second step of the MVP loop: *registers, **fetches a task**,
@@ -60,7 +60,7 @@ export function registerTaskRoutes(v1: FastifyInstance, deps: RouteDependencies)
     const caller = await callerFor(request, reply, store)
     if (caller === null) return reply
 
-    return reply.send(await frontier(caller.id, catalogue))
+    return reply.send(await frontier(caller.id, catalogue, recipes))
   })
 
   /**

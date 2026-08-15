@@ -271,7 +271,7 @@ export function registerTaskTools(
       const authenticatedAgent = await authenticate(credential, deps.store)
       if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
 
-      const response = await frontier(authenticatedAgent.agent.id, deps.catalogue)
+      const response = await frontier(authenticatedAgent.agent.id, deps.catalogue, deps.recipes)
 
       return {
         content: [{ type: 'text', text: frontierAsText(response) }],

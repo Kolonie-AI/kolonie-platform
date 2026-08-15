@@ -202,6 +202,17 @@ describe('a subquery never interpolates columns of two tables', () => {
    * own making, written out and aliased, so it cannot be resolved outward
    * whatever the query around it does.
    *
+   * **`#1038` takes it away again**, and the count for `tasks.ts` goes back to
+   * one. The account frontier needed the same *does this citizen hold this kind*
+   * test over a different array, so the inner half was lifted into
+   * `holdsAccountKind` and both callers interpolate it. Neither fragment names
+   * two tables any more: `equippedBy` names `tasks.account_kinds` and the
+   * helper names `accounts`, and the correlation between them is now a
+   * parameter — `required.kind` passed in as SQL — rather than a column
+   * resolved across a boundary. The rendering above is unchanged, because
+   * composing the two halves produces exactly the text it quotes; what changed
+   * is that no single template can be read wrongly on its own.
+   *
    * **`#263` split `quests.ts` into `storage/quests/`** and the five moved with
    * their fragments unchanged — four to `steward.ts` (the moderation clearance,
    * the moderation queue, the scrub queue and the audit queue) and one to
@@ -322,7 +333,7 @@ describe('a subquery never interpolates columns of two tables', () => {
    * when the SQL is valid-looking and wrong.
    */
   const MEASURED_SAFE: Readonly<Record<string, number>> = {
-    'tasks.ts': 2,
+    'tasks.ts': 1,
     'arrivals.ts': 1,
     'exploration.ts': 1,
     'briefing.ts': 1,

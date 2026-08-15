@@ -233,28 +233,130 @@ export type RecipeOutcome<T> =
   | { readonly outcome: 'ok'; readonly response: T }
   | { readonly outcome: 'rejected'; readonly error: ApiError }
 
+/**
+ * The filters `GET /v1/accounts/recipes` understands (`#984`).
+ *
+ * **A closed list, because the rejection below is what makes the other three
+ * trustworthy.** Until `#984` the route read `kind` and dropped everything else
+ * without a word, so `?status=refused` came back as the whole catalogue — which
+ * is indistinguishable from a catalogue in which every provider is refused, and
+ * any count derived from it is wrong in a direction the caller cannot detect.
+ * A filter that is not here is refused by name rather than ignored.
+ */
+const RECIPE_QUERY_FILTERS = ['kind', 'category', 'status', 'provider'] as const
+
+function invalidKind(kind: string): ApiError | null {
+  return AccountKindSchema.safeParse(kind).success
+    ? null
+    : {
+        code: 'validation_failed',
+        message:
+          'A kind is a lowercase kebab-case slug — "mailbox", "github", "trello". Leave it out ' +
+          'to read the whole catalogue.',
+      }
+}
+
+function invalidCategory(category: string): ApiError | null {
+  return AtlasCategorySchema.safeParse(category).success
+    ? null
+    : {
+        code: 'validation_failed',
+        message:
+          'That is not a category the Atlas uses. The list is closed on purpose — a shelf ' +
+          `nobody can find things on is not a shelf — and it is: ${AtlasCategorySchema.options.join(', ')}.`,
+      }
+}
+
+function invalidStatus(status: string): ApiError | null {
+  return RecipeStatusSchema.safeParse(status).success
+    ? null
+    : {
+        code: 'validation_failed',
+        message:
+          'That is not a state a catalogue entry is in. They are: ' +
+          `${RecipeStatusSchema.options.join(', ')}. Leave it out to see the shelf as it is — ` +
+          'the refusals and the unwalked entries are findings too.',
+      }
+}
+
+/**
+ * The catalogue over HTTP, filtered on the same vocabulary the tool uses
+ * (`#521`, `#984`).
+ *
+ * **The whole query is read here rather than four named arguments**, because
+ * what the route was getting wrong was not any one filter — it was that a
+ * parameter nobody implemented looked exactly like one that worked. Handing the
+ * raw query in is what lets a name outside the closed list be answered rather
+ * than dropped.
+ *
+ * **`provider` is matched and never validated.** A provider is not a closed
+ * list, so an unknown one is a legitimate question with an empty answer; the
+ * three above are closed lists, where a typo is a caller mistake and saying so
+ * costs it one second instead of a wrong count.
+ */
 export async function readRecipes(
-  kind: string | undefined,
+  query: Readonly<Record<string, unknown>>,
   recipes: ProviderRecipes,
 ): Promise<RecipeOutcome<{ readonly recipes: readonly ProviderRecipe[] }>> {
-  if (kind === undefined) {
-    return { outcome: 'ok', response: { recipes: await recipes.list() } }
-  }
+  const unknown = Object.keys(query).filter(
+    (name) => !(RECIPE_QUERY_FILTERS as readonly string[]).includes(name),
+  )
 
-  const parsed = AccountKindSchema.safeParse(kind)
-  if (!parsed.success) {
+  if (unknown.length > 0) {
     return {
       outcome: 'rejected',
       error: {
         code: 'validation_failed',
         message:
-          'A kind is a lowercase kebab-case slug — "mailbox", "github", "trello". Leave it out ' +
-          'to read the whole catalogue.',
+          `This route does not understand ${unknown.join(', ')}. It filters on ` +
+          `${RECIPE_QUERY_FILTERS.join(', ')}, and it says so rather than answering the whole ` +
+          'catalogue — a filter that is silently dropped is a count that is wrong in a ' +
+          'direction you cannot see.',
       },
     }
   }
 
-  return { outcome: 'ok', response: { recipes: await recipes.list(parsed.data) } }
+  const given: Partial<Record<(typeof RECIPE_QUERY_FILTERS)[number], string>> = {}
+
+  for (const name of RECIPE_QUERY_FILTERS) {
+    const value = query[name]
+    if (value === undefined) continue
+
+    if (typeof value !== 'string') {
+      return {
+        outcome: 'rejected',
+        error: {
+          code: 'validation_failed',
+          message: `${name} is one value, and it was given more than once.`,
+        },
+      }
+    }
+
+    given[name] = value
+  }
+
+  const rejection =
+    (given.kind === undefined ? null : invalidKind(given.kind)) ??
+    (given.category === undefined ? null : invalidCategory(given.category)) ??
+    (given.status === undefined ? null : invalidStatus(given.status))
+
+  if (rejection !== null) return { outcome: 'rejected', error: rejection }
+
+  const listed = await recipes.list(
+    given.kind === undefined ? undefined : AccountKindSchema.parse(given.kind),
+  )
+
+  const provider = given.provider?.toLowerCase()
+
+  return {
+    outcome: 'ok',
+    response: {
+      recipes: listed
+        .filter((recipe) => given.category === undefined || recipe.category === given.category)
+        .filter((recipe) => given.status === undefined || recipe.status === given.status)
+        .filter((recipe) => provider === undefined || recipe.provider === provider),
+    },
+  }
 }
 
 /**
@@ -360,40 +462,18 @@ export async function readAtlas(
     readonly nothingMeasured: string | null
   }>
 > {
-  if (input.kind !== undefined && !AccountKindSchema.safeParse(input.kind).success) {
-    return {
-      outcome: 'rejected',
-      error: {
-        code: 'validation_failed',
-        message: 'A kind is a lowercase kebab-case slug — "mailbox", "github", "trello".',
-      },
-    }
-  }
+  /**
+   * The same three rejections the data route gives, from the same functions
+   * (`#984`). Two surfaces onto one catalogue that disagreed about which
+   * vocabulary is valid would be the disagreement `#984` was filed about,
+   * arriving from the other side.
+   */
+  const vocabulary =
+    (input.kind === undefined ? null : invalidKind(input.kind)) ??
+    (input.category === undefined ? null : invalidCategory(input.category)) ??
+    (input.status === undefined ? null : invalidStatus(input.status))
 
-  if (input.category !== undefined && !AtlasCategorySchema.safeParse(input.category).success) {
-    return {
-      outcome: 'rejected',
-      error: {
-        code: 'validation_failed',
-        message:
-          'That is not a category the Atlas uses. The list is closed on purpose — a shelf ' +
-          `nobody can find things on is not a shelf — and it is: ${AtlasCategorySchema.options.join(', ')}.`,
-      },
-    }
-  }
-
-  if (input.status !== undefined && !RecipeStatusSchema.safeParse(input.status).success) {
-    return {
-      outcome: 'rejected',
-      error: {
-        code: 'validation_failed',
-        message:
-          'That is not a state a catalogue entry is in. They are: ' +
-          `${RecipeStatusSchema.options.join(', ')}. Leave it out to see the shelf as it is — ` +
-          'the refusals and the unwalked entries are findings too.',
-      },
-    }
-  }
+  if (vocabulary !== null) return { outcome: 'rejected', error: vocabulary }
 
   if (input.direction !== undefined && !RecipeDirectionSchema.safeParse(input.direction).success) {
     return {

@@ -186,13 +186,18 @@ export function registerAccountRoutes(v1: FastifyInstance, deps: RouteDependenci
    *
    * **Above the `:accountId` routes** for the reason the proofs are, and read-only:
    * writing an entry is curation and is `#549`'s.
+   *
+   * **It filters on `kind`, `category`, `status` and `provider`, and refuses
+   * anything else by name** (`#984`). The whole query goes to `readRecipes`
+   * rather than one destructured field, because reading one name and dropping
+   * the rest is exactly how three documented filters came to be silently
+   * ignored while the tool honoured them.
    */
   v1.get('/accounts/recipes', async (request, reply) => {
     const caller = await callerFor(request, reply, store)
     if (caller === null) return reply
 
-    const { kind } = request.query as { kind?: string }
-    const result = await readRecipes(kind, recipes)
+    const result = await readRecipes(request.query as Record<string, unknown>, recipes)
 
     if (result.outcome === 'rejected') {
       return reply.status(ERROR_STATUS[result.error.code]).send(result.error)

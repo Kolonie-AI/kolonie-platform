@@ -1,24 +1,29 @@
 import { describe, expect, it } from 'vitest'
-import type { StewardQueue } from '@kolonie-ai/db'
+import type { WithdrawnDraftQueue } from '@kolonie-ai/db'
 import { noIssues, type Issues, type KnownIssue } from './github.js'
 import {
   DRAFT_MARKER,
   DRAFT_REPOSITORY,
-  DRAFT_THRESHOLD_HOURS,
+  DRAFT_WINDOW_DAYS,
   decideDrafts,
   draftClosingComment,
   draftEscalationComment,
   draftIssueBody,
   openDraftIssue,
-  recordedWaiting,
+  recordedWithdrawn,
   watchDrafts,
 } from './drafts.js'
 
 /**
- * The state measured in production on 2026-08-14, which is what `#917` is about:
- * four completed walks, the oldest from 2026-08-12, and nothing saying so.
+ * A week in which the Colony threw four walks away — the condition `#946`
+ * repointed this watcher at, on the four entries `#917` measured waiting.
+ *
+ * **Two of the four are held on the same thing**, and that is the shape the alarm
+ * exists to make visible: a rewrite rule refusing material looks like a run of
+ * identical reasons, and a walker recording nothing looks like a run of a
+ * different identical reason.
  */
-const theFourWalks: StewardQueue = {
+const theFourWithdrawals: WithdrawnDraftQueue = {
   count: 4,
   drafts: [
     {
@@ -26,41 +31,46 @@ const theFourWalks: StewardQueue = {
       provider: 'clawhub.example',
       category: 'code-hosting',
       since: '2026-08-12T07:26:52.000Z',
+      heldOn: 'The sentence on step 2 is still the Colony’s to write.',
     },
     {
       kind: 'phone',
       provider: 'agentmessage.example',
       category: 'telephony',
       since: '2026-08-13T01:42:21.000Z',
+      heldOn: 'The sentence on step 2 is still the Colony’s to write.',
     },
     {
       kind: 'code-hosting',
       provider: 'flow.example',
       category: 'code-hosting',
       since: '2026-08-13T01:44:38.000Z',
+      heldOn: 'Step 3 recorded no instruction.',
     },
     {
       kind: 'social',
       provider: 'ieji.example',
       category: 'social-publishing',
       since: '2026-08-13T01:44:52.000Z',
+      heldOn: null,
     },
   ],
   oldestSince: '2026-08-12T07:26:52.000Z',
 }
 
-const emptyQueue: StewardQueue = { count: 0, drafts: [], oldestSince: null }
+const quietWeek: WithdrawnDraftQueue = { count: 0, drafts: [], oldestSince: null }
 
-const aFifthWalk: StewardQueue = {
-  ...theFourWalks,
+const aFifthWithdrawal: WithdrawnDraftQueue = {
+  ...theFourWithdrawals,
   count: 5,
   drafts: [
-    ...theFourWalks.drafts,
+    ...theFourWithdrawals.drafts,
     {
       kind: 'mailbox',
       provider: 'later.example',
       category: 'mailbox',
       since: '2026-08-14T09:00:00.000Z',
+      heldOn: 'The sentence on step 2 is still the Colony’s to write.',
     },
   ],
 }
@@ -68,7 +78,7 @@ const aFifthWalk: StewardQueue = {
 const anIssue = (body: string): KnownIssue => ({
   repository: DRAFT_REPOSITORY,
   number: 920,
-  title: 'Completed walks are waiting for a steward',
+  title: 'Walked recipes are being withdrawn without publishing',
   body,
   url: 'https://github.com/Kolonie-AI/kolonie-platform/issues/920',
 })
@@ -119,47 +129,56 @@ function spyIssues(
   }
 }
 
-describe('deciding what to do about walks waiting for a steward', () => {
-  it('files when walks are waiting and nothing open says so', () => {
-    expect(decideDrafts(theFourWalks, undefined)).toEqual({ kind: 'file' })
+describe('deciding what to do about walks the Colony threw away', () => {
+  it('files when walks have been withdrawn and nothing open says so', () => {
+    expect(decideDrafts(theFourWithdrawals, undefined)).toEqual({ kind: 'file' })
   })
 
   /**
-   * One issue for the condition, not one per draft. Four walks produced one
-   * finding, and this is what stops the next pass producing a second.
+   * One issue for the condition, not one per withdrawal. Four withdrawals are one
+   * reading, and this is what stops the next pass producing a second issue.
    */
   it('stands rather than filing again while the same issue is open', () => {
-    const open = anIssue(`${DRAFT_MARKER}\n<!-- waiting: count=4 -->`)
+    const open = anIssue(`${DRAFT_MARKER}\n<!-- withdrawn: count=4 -->`)
 
-    expect(decideDrafts(theFourWalks, open)).toEqual({ kind: 'standing', issue: open })
+    expect(decideDrafts(theFourWithdrawals, open)).toEqual({ kind: 'standing', issue: open })
   })
 
   /**
-   * **The queue growing is an event where the queue standing still is a state.**
-   * A fifth walk arriving behind four nobody has read means drafts are
-   * accumulating faster than they are cleared, which is a different problem.
+   * **The run growing is an event where the run standing still is a state.** A
+   * fifth withdrawal after somebody was told about four means the Colony is still
+   * throwing walks away, which is a different fact from four having been thrown.
    */
-  it('escalates once when the queue has grown under an open alarm', () => {
-    const open = anIssue(`${DRAFT_MARKER}\n<!-- waiting: count=4 -->`)
+  it('escalates once when more have been withdrawn under an open alarm', () => {
+    const open = anIssue(`${DRAFT_MARKER}\n<!-- withdrawn: count=4 -->`)
 
-    expect(decideDrafts(aFifthWalk, open)).toEqual({ kind: 'escalate', issue: open })
+    expect(decideDrafts(aFifthWithdrawal, open)).toEqual({ kind: 'escalate', issue: open })
   })
 
-  /** The rejection case for the escalation: a queue that shrinks says nothing. */
-  it('stays silent when the queue has shrunk', () => {
-    const open = anIssue(`${DRAFT_MARKER}\n<!-- waiting: count=5 -->`)
+  /**
+   * The rejection case for the escalation, and the window is what makes it
+   * reachable: withdrawals ageing out of the week is the ordinary way this number
+   * falls, and it is not news.
+   */
+  it('stays silent when the week behind it has got quieter', () => {
+    const open = anIssue(`${DRAFT_MARKER}\n<!-- withdrawn: count=5 -->`)
 
-    expect(decideDrafts(theFourWalks, open)).toEqual({ kind: 'standing', issue: open })
+    expect(decideDrafts(theFourWithdrawals, open)).toEqual({ kind: 'standing', issue: open })
   })
 
-  it('closes itself once the queue is clear', () => {
+  /**
+   * **Closing is by a quiet week and not by anybody clearing anything.** The rows
+   * this alarm listed are withdrawn and stay withdrawn; the condition it reports
+   * is a rate, so it ends on its own or not at all.
+   */
+  it('closes itself once nothing has been withdrawn inside the window', () => {
     const open = anIssue(DRAFT_MARKER)
 
-    expect(decideDrafts(emptyQueue, open)).toEqual({ kind: 'close', issue: open })
+    expect(decideDrafts(quietWeek, open)).toEqual({ kind: 'close', issue: open })
   })
 
-  it('is quiet when there is nothing waiting and nothing open', () => {
-    expect(decideDrafts(emptyQueue, undefined)).toEqual({ kind: 'quiet' })
+  it('is quiet when nothing was withdrawn and nothing is open', () => {
+    expect(decideDrafts(quietWeek, undefined)).toEqual({ kind: 'quiet' })
   })
 
   /**
@@ -167,9 +186,9 @@ describe('deciding what to do about walks waiting for a steward', () => {
    * direction: the first pass after this ships says it once rather than treating
    * its own deploy as a reason to stay quiet.
    */
-  it('reads a body with no marker as an empty queue', () => {
-    expect(recordedWaiting('nothing here')).toBe(0)
-    expect(recordedWaiting('<!-- waiting: count=7 -->')).toBe(7)
+  it('reads a body with no marker as no run at all', () => {
+    expect(recordedWithdrawn('nothing here')).toBe(0)
+    expect(recordedWithdrawn('<!-- withdrawn: count=7 -->')).toBe(7)
   })
 
   it('finds its own alarm by marker rather than by title', () => {
@@ -181,14 +200,30 @@ describe('deciding what to do about walks waiting for a steward', () => {
   })
 
   /**
+   * **The alarm this replaced is not adopted, and that is deliberate.** An issue
+   * carrying the steward-queue marker reports a condition that no longer exists —
+   * `#813` and `#941` between them removed the queue — so rewriting its body with
+   * a withdrawal table would leave one issue claiming to be two findings. The old
+   * one is closed by hand, once.
+   */
+  it('leaves the steward-queue alarm it replaced alone', () => {
+    const theOldAlarm = anIssue('<!-- watch-finding: steward-drafts-waiting -->')
+
+    expect(openDraftIssue([theOldAlarm])).toBeUndefined()
+    expect(decideDrafts(theFourWithdrawals, openDraftIssue([theOldAlarm]))).toEqual({
+      kind: 'file',
+    })
+  })
+
+  /**
    * The rejection case, and it is not hypothetical: `#946` was filed by hand to
-   * ask for this watcher's retirement, quoted `DRAFT_MARKER` in a code fence
-   * while doing so, and was adopted and overwritten twelve minutes later.
+   * ask for this watcher's repointing, quoted the marker in a code fence while
+   * doing so, and was adopted and overwritten twelve minutes later.
    */
   it('does not adopt an issue that merely quotes its marker', () => {
     const aboutTheWatcher = anIssue(
       [
-        "Retire the 'waiting for a steward' watcher",
+        'Repoint the withdrawal watcher',
         '',
         '```',
         `DRAFT_MARKER = '${DRAFT_MARKER}'   (:64)`,
@@ -197,82 +232,114 @@ describe('deciding what to do about walks waiting for a steward', () => {
     )
 
     expect(openDraftIssue([aboutTheWatcher])).toBeUndefined()
-    expect(decideDrafts(theFourWalks, openDraftIssue([aboutTheWatcher]))).toEqual({ kind: 'file' })
+    expect(decideDrafts(theFourWithdrawals, openDraftIssue([aboutTheWatcher]))).toEqual({
+      kind: 'file',
+    })
   })
 
   /** GitHub hands some bodies back with CRLF, and a marker is still a marker. */
   it('finds its own alarm through a carriage return', () => {
-    const mine = anIssue(`${DRAFT_MARKER}\r\n<!-- waiting: count=4 -->`)
+    const mine = anIssue(`${DRAFT_MARKER}\r\n<!-- withdrawn: count=4 -->`)
 
     expect(openDraftIssue([mine])).toBe(mine)
   })
 })
 
 describe('what the alarm says', () => {
-  it('names every waiting walk, its shelf and how long it has waited', () => {
-    const body = draftIssueBody(theFourWalks)
+  it('names every withdrawal, its shelf, when it went and what held it', () => {
+    const body = draftIssueBody(theFourWithdrawals)
 
     expect(body).toContain(DRAFT_MARKER)
-    expect(body).toContain('<!-- waiting: count=4 -->')
-    expect(body).toContain(`more than ${DRAFT_THRESHOLD_HOURS} hours`)
-    for (const draft of theFourWalks.drafts) expect(body).toContain(draft.provider)
+    expect(body).toContain('<!-- withdrawn: count=4 -->')
+    expect(body).toContain(`last ${DRAFT_WINDOW_DAYS} days`)
+    for (const draft of theFourWithdrawals.drafts) expect(body).toContain(draft.provider)
     expect(body).toContain('telephony')
     expect(body).toContain('2026-08-12T07:26:52.000Z')
+    expect(body).toContain('Step 3 recorded no instruction.')
   })
 
-  /** The alarm is only worth anything if it says where to act, so it names the page. */
-  it('names the page the queue is on', () => {
-    expect(draftIssueBody(theFourWalks)).toContain('/review')
-    expect(draftIssueBody(theFourWalks)).toContain('/backend')
+  /** A row whose verdict recorded no reason says so rather than showing a gap. */
+  it('says plainly where no verdict recorded a reason', () => {
+    expect(draftIssueBody(theFourWithdrawals)).toContain('*no verdict recorded a reason*')
   })
 
   /**
-   * **The page was never missing and the body must not claim it was.** `#604`
-   * built it; what was missing was anything saying it had something on it, and
-   * an alarm that misdescribes the defect it reports teaches the wrong fix.
+   * **The whole diagnostic value is telling the two causes apart**, so the body
+   * has to name both. A run of identical reasons about the Colony's own wording
+   * is a rewrite rule refusing usable material; a run about what the walk recorded
+   * is the walkers, and the fix for one is no help against the other.
    */
-  it('does not claim the queue had no page', () => {
-    const body = draftIssueBody(theFourWalks)
+  it('names both readings of a run of identical reasons', () => {
+    const body = draftIssueBody(theFourWithdrawals)
 
-    expect(body).toContain('Not a claim that the page was missing')
-    expect(body).not.toMatch(/no console|nowhere to (see|read)/i)
+    expect(body).toContain('Held on')
+    expect(body).toContain('the rewrite rule is too tight')
+    expect(body).toContain('the walkers are the place to fix it')
+  })
+
+  /**
+   * **The queue this used to watch is gone and the body must not imply otherwise.**
+   * An alarm that tells a reader to go and read a page nobody is behind on teaches
+   * a fix for a condition that has not existed since `#813`.
+   */
+  it('does not send anybody to a steward queue', () => {
+    const body = draftIssueBody(theFourWithdrawals)
+
+    expect(body).toContain('there is no longer one to be behind on')
+    expect(body).not.toMatch(/waiting for a steward|\/review/)
   })
 
   /** Nothing *here* publishes, and the body says who does (`#946`). */
   it('says plainly that this alarm clears nothing and names what does', () => {
-    const body = draftIssueBody(theFourWalks)
+    const body = draftIssueBody(theFourWithdrawals)
 
-    expect(body).toContain('publishes what it can clear and holds what it cannot')
+    expect(body).toContain('apps/moderation-runner')
     expect(body).toContain('`#813`')
-    expect(body).not.toContain('passes a person (`#600`)')
+    expect(body).toContain('a fresh walk replaces one')
   })
 
-  it('says how many it did not list when the queue is longer than the table', () => {
-    const long: StewardQueue = { ...theFourWalks, count: 30 }
+  /**
+   * The `#600` question, settled: the rule that a person passes what the Colony
+   * says about somebody else's product was superseded, and the body says so
+   * rather than leaving a reader to find two live rules that contradict.
+   */
+  it('says which of the two rules about stewardship is stale', () => {
+    const body = draftIssueBody(theFourWithdrawals)
+
+    expect(body).toContain('`#600`')
+    expect(body).toContain('superseded by')
+    expect(body).toContain('governance/the-atlas.md')
+  })
+
+  it('says how many it did not list when the run is longer than the table', () => {
+    const long: WithdrawnDraftQueue = { ...theFourWithdrawals, count: 30 }
 
     expect(draftIssueBody(long)).toContain('and 26 more not listed here')
   })
 
   it('repeats the numbers in an escalation rather than pointing at the body', () => {
-    const comment = draftEscalationComment(aFifthWalk, 4)
+    const comment = draftEscalationComment(aFifthWithdrawal, 4)
 
-    expect(comment).toContain('5 completed walks are now waiting')
+    expect(comment).toContain('5 walked recipes have now been withdrawn')
     expect(comment).toContain('up from 4')
     expect(comment).toContain('later.example')
   })
 
   it('says on the way out that it will come back', () => {
-    expect(draftClosingComment()).toContain(String(DRAFT_THRESHOLD_HOURS))
+    const closing = draftClosingComment()
+
+    expect(closing).toContain(String(DRAFT_WINDOW_DAYS))
+    expect(closing).toContain('stay withdrawn')
   })
 })
 
-describe('one pass of the draft watcher', () => {
+describe('one pass of the withdrawal watcher', () => {
   it('files the alarm with the labels a watcher’s finding carries', async () => {
     const issues = spyIssues()
 
-    const outcome = await watchDrafts({ issues, measure: async () => theFourWalks })
+    const outcome = await watchDrafts({ issues, measure: async () => theFourWithdrawals })
 
-    expect(outcome).toEqual({ action: 'file', waiting: 4 })
+    expect(outcome).toEqual({ action: 'file', withdrawn: 4 })
     expect(issues.created).toHaveLength(1)
     expect(issues.created[0]?.repository).toBe(DRAFT_REPOSITORY)
     expect(issues.created[0]?.labels).toEqual(['from:watcher', 'area:platform', 'p2'])
@@ -283,31 +350,31 @@ describe('one pass of the draft watcher', () => {
    * comment notifies everybody watching; a body edit notifies nobody, so the
    * table stays true for free and the marker the next pass reads stays true too.
    */
-  it('keeps the body current without commenting while the queue stands', async () => {
-    const issues = spyIssues([anIssue(`${DRAFT_MARKER}\n<!-- waiting: count=4 -->`)])
+  it('keeps the body current without commenting while the run stands', async () => {
+    const issues = spyIssues([anIssue(`${DRAFT_MARKER}\n<!-- withdrawn: count=4 -->`)])
 
-    const outcome = await watchDrafts({ issues, measure: async () => theFourWalks })
+    const outcome = await watchDrafts({ issues, measure: async () => theFourWithdrawals })
 
     expect(outcome.action).toBe('standing')
     expect(issues.commented).toHaveLength(0)
     expect(issues.revised).toHaveLength(1)
   })
 
-  it('comments once and rewrites the body when the queue grows', async () => {
-    const issues = spyIssues([anIssue(`${DRAFT_MARKER}\n<!-- waiting: count=4 -->`)])
+  it('comments once and rewrites the body when more are withdrawn', async () => {
+    const issues = spyIssues([anIssue(`${DRAFT_MARKER}\n<!-- withdrawn: count=4 -->`)])
 
-    const outcome = await watchDrafts({ issues, measure: async () => aFifthWalk })
+    const outcome = await watchDrafts({ issues, measure: async () => aFifthWithdrawal })
 
     expect(outcome.action).toBe('escalate')
     expect(issues.commented).toHaveLength(1)
     expect(issues.commented[0]?.body).toContain('up from 4')
-    expect(issues.revised[0]?.body).toContain('<!-- waiting: count=5 -->')
+    expect(issues.revised[0]?.body).toContain('<!-- withdrawn: count=5 -->')
   })
 
-  it('closes the alarm when a steward has cleared the queue', async () => {
+  it('closes the alarm once the week behind it is quiet', async () => {
     const issues = spyIssues([anIssue(DRAFT_MARKER)])
 
-    const outcome = await watchDrafts({ issues, measure: async () => emptyQueue })
+    const outcome = await watchDrafts({ issues, measure: async () => quietWeek })
 
     expect(outcome.action).toBe('close')
     expect(issues.closed_).toHaveLength(1)
@@ -322,15 +389,15 @@ describe('one pass of the draft watcher', () => {
   it('does nothing when the repository it files into could not be read', async () => {
     const issues = spyIssues([], [DRAFT_REPOSITORY])
 
-    const outcome = await watchDrafts({ issues, measure: async () => theFourWalks })
+    const outcome = await watchDrafts({ issues, measure: async () => theFourWithdrawals })
 
-    expect(outcome).toEqual({ action: 'quiet', waiting: 4, skipped: 'unreadable' })
+    expect(outcome).toEqual({ action: 'quiet', withdrawn: 4, skipped: 'unreadable' })
     expect(issues.created).toHaveLength(0)
   })
 
   it('does nothing when there is no App at all', async () => {
-    const outcome = await watchDrafts({ issues: noIssues, measure: async () => theFourWalks })
+    const outcome = await watchDrafts({ issues: noIssues, measure: async () => theFourWithdrawals })
 
-    expect(outcome).toEqual({ action: 'quiet', waiting: 4, skipped: 'no-app' })
+    expect(outcome).toEqual({ action: 'quiet', withdrawn: 4, skipped: 'no-app' })
   })
 })

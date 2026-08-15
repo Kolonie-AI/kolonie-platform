@@ -338,6 +338,132 @@ export async function expireStalledRecipeDrafts(
 }
 
 /**
+ * What has been withdrawn unpublished lately, and what each one was held on
+ * (`#946`).
+ *
+ * ## Why this is the thing worth watching, and the steward queue was not
+ *
+ * The alarm this feeds used to count **drafts waiting for a steward**. Once
+ * `#813` gave the pass the decision and `#941` gave it a fortnight, a draft does
+ * not wait: it publishes, or the window runs out and it is withdrawn with the
+ * reason it was last held on. A watcher on the old condition would fire on a
+ * queue that no longer exists, and the issue it filed would name nobody who could
+ * act.
+ *
+ * **What replaces it is a rate rather than a backlog.** One withdrawal is an
+ * ordinary outcome — a walk that recorded nothing usable, a provider that turned
+ * out to have no honest route. Several in a week is the Colony refusing its own
+ * incoming material, and the two causes worth telling apart are both readable in
+ * {@link WithdrawnDraftQueue.drafts}: a rewrite rule too tight to clear anything,
+ * or walkers recording steps with nothing in them.
+ *
+ * ## What identifies one, without a column for it
+ *
+ * `retired` **and** a latest verdict of `held`. Expiry writes no moderation row,
+ * so the hold it gave up on is still the last thing said about the entry — while
+ * anything a steward retired by hand was either published first or never judged
+ * at all. That is a fingerprint rather than a flag, and it costs no migration.
+ *
+ * `withinDays` is what makes it close itself: a withdrawal is an event, and an
+ * alarm counting every one ever recorded would never fall silent again.
+ */
+export interface WithdrawnDraftQueue {
+  /** How many were withdrawn inside the window. Zero means there is no condition. */
+  readonly count: number
+  /**
+   * The withdrawals themselves, oldest first, capped at a readable number for the
+   * reason the alarm renders them into a table a person reads. `count` is the
+   * honest total either way.
+   */
+  readonly drafts: readonly {
+    readonly kind: string
+    readonly provider: string
+    readonly category: string
+    /** When the window ran out on it. */
+    readonly since: string
+    /**
+     * What the last verdict held it on, or `null` where none recorded a reason.
+     *
+     * **This is the diagnostic and not decoration.** Four withdrawals reading
+     * *the sentence is still the Colony's to write* is a rewrite rule that clears
+     * nothing; four reading *step 3 recorded no instruction* is a walker problem,
+     * and the fix for one is no help against the other.
+     */
+    readonly heldOn: string | null
+  }[]
+  /** The earliest withdrawal still inside the window, or `null` when there were none. */
+  readonly oldestSince: string | null
+}
+
+/** How many rows the alarm prints. The count is what says how many there are. */
+const WITHDRAWN_DRAFT_ROWS = 20
+
+export async function withdrawnRecipeDrafts(
+  db: Database,
+  withinDays: number,
+): Promise<WithdrawnDraftQueue> {
+  const held = db
+    .select({
+      recipeId: recipeModerations.recipeId,
+      stages: recipeModerations.stages,
+      rank: sql<number>`row_number() over (
+        partition by ${recipeModerations.recipeId}
+        order by ${recipeModerations.createdAt} desc
+      )`.as('rank'),
+      decision: recipeModerations.decision,
+    })
+    .from(recipeModerations)
+    .as('held')
+
+  const withdrawn = and(
+    eq(providerRecipes.status, 'retired'),
+    eq(held.rank, 1),
+    eq(held.decision, 'held'),
+    sql`${providerRecipes.retiredAt} >= now() - make_interval(days => ${withinDays})`,
+  )
+
+  const [totals] = await db
+    .select({
+      count: sql<number>`count(*)::int`,
+      oldest: sql<string>`min(${providerRecipes.retiredAt})`,
+    })
+    .from(providerRecipes)
+    .innerJoin(held, eq(held.recipeId, providerRecipes.id))
+    .where(withdrawn)
+
+  const rows = await db
+    .select({
+      kind: providerRecipes.kind,
+      provider: providerRecipes.provider,
+      category: providerRecipes.category,
+      since: providerRecipes.retiredAt,
+      stages: held.stages,
+    })
+    .from(providerRecipes)
+    .innerJoin(held, eq(held.recipeId, providerRecipes.id))
+    .where(withdrawn)
+    .orderBy(asc(providerRecipes.retiredAt))
+    .limit(WITHDRAWN_DRAFT_ROWS)
+
+  return {
+    count: totals?.count ?? 0,
+    drafts: rows.map((row) => {
+      const parsed = RecipeModerationStagesSchema.safeParse(row.stages)
+
+      return {
+        kind: row.kind,
+        provider: row.provider,
+        category: row.category,
+        since: String(row.since),
+        heldOn: (parsed.success ? whyRecipeHeld(parsed.data) : undefined) ?? null,
+      }
+    }),
+    /** `min()` over an empty set is null, which is the no-condition answer rather than a gap. */
+    oldestSince: totals?.oldest == null ? null : String(totals.oldest),
+  }
+}
+
+/**
  * The digest of what was judged: the steps, and what the entry claims they
  * produce.
  *

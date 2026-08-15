@@ -79,6 +79,9 @@ describe('reading the catalogue', () => {
    * catalogue — 133 entries, 89 KB, zero occurrences — while `walk-report` had
    * been collecting walls for weeks. They were on the entry the whole time,
    * nested inside `walkedRecipe`, which a reader has to know to look inside.
+   *
+   * **Carrying its kind since `#981`**, which is what makes it countable across
+   * walkers and answerable to a filter rather than a paragraph a reader parses.
    */
   it('serves the walls a walker wrote as a key of the entry', async () => {
     recipes.write({
@@ -86,7 +89,7 @@ describe('reading the catalogue', () => {
       provider: 'walled.example',
       status: 'refused',
       walkedRecipe: {
-        walls: [{ title: 'the signup form refuses a shared mailbox' }],
+        walls: [{ kind: 'identity-document', title: 'the signup form refuses a shared mailbox' }],
       },
     })
 
@@ -94,7 +97,12 @@ describe('reading the catalogue', () => {
     if (result.outcome !== 'ok') throw new Error('expected the read to succeed')
 
     expect(result.response.recipes[0]?.walls).toEqual([
-      { title: 'the signup form refuses a shared mailbox' },
+      {
+        kind: 'identity-document',
+        reportedBy: 0,
+        lastReportedAt: null,
+        title: 'the signup form refuses a shared mailbox',
+      },
     ])
   })
 
@@ -234,6 +242,83 @@ describe('filtering the catalogue over HTTP', () => {
     expect(result.outcome).toBe('rejected')
     if (result.outcome !== 'rejected') return
     expect(result.error.message).toContain('more than once')
+  })
+
+  /**
+   * `#981`, on the route as well as the tool. `#984` was filed because a filter
+   * lived on one surface and not the other, and the route answered the whole
+   * catalogue rather than saying it could not — so these are the same assertions
+   * `accounts.test.ts` makes about the tool, deliberately.
+   */
+  describe('filtering on what stopped the walkers', () => {
+    const walled = async () => {
+      recipes.write({
+        kind: 'github',
+        provider: 'github.com',
+        status: 'joinable',
+        walls: [{ kind: 'human-check', reportedBy: 2, lastReportedAt: null }],
+      })
+      recipes.write({
+        kind: 'phone',
+        provider: 'twilio.com',
+        status: 'joinable',
+        walls: [
+          { kind: 'payment-required', reportedBy: 1, lastReportedAt: null },
+          { kind: 'identity-document', reportedBy: 1, lastReportedAt: null },
+        ],
+      })
+      recipes.write({ kind: 'trello', provider: 'trello.com', status: 'joinable' })
+    }
+
+    it('keeps the entries carrying any of the kinds asked for', async () => {
+      await walled()
+
+      expect(await listed({ withWalls: 'payment-required,human-check' })).toEqual([
+        'github.com',
+        'twilio.com',
+      ])
+    })
+
+    it('reads the same list given as a repeated parameter', async () => {
+      await walled()
+
+      expect(await listed({ withWalls: ['payment-required', 'human-check'] })).toEqual([
+        'github.com',
+        'twilio.com',
+      ])
+    })
+
+    /**
+     * The question the exclusion answers is *what is left that I can walk*, and
+     * an entry nobody has walked is where the next walk comes from — so unknown
+     * stays, and is not read as clear.
+     */
+    it('drops what a walker hit and keeps what nobody has walked', async () => {
+      await walled()
+
+      expect(await listed({ excludeWalls: 'payment-required' })).toEqual([
+        'github.com',
+        'trello.com',
+      ])
+    })
+
+    it('lets the exclusion win where a caller asks for both', async () => {
+      await walled()
+
+      expect(
+        await listed({ withWalls: 'identity-document', excludeWalls: 'payment-required' }),
+      ).toEqual([])
+    })
+
+    it('refuses a kind outside the enum, and names it', async () => {
+      const result = await readRecipes({ withWalls: 'payment-requiredd' }, recipes)
+
+      expect(result.outcome).toBe('rejected')
+      if (result.outcome !== 'rejected') return
+      expect(result.error.code).toBe('validation_failed')
+      expect(result.error.message).toContain('payment-requiredd')
+      expect(result.error.message).toContain('terms-forbid-agents')
+    })
   })
 })
 

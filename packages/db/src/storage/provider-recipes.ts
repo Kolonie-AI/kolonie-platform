@@ -15,6 +15,8 @@ import {
   RecipeStatusSchema,
   RecipeDirectionSchema,
   RecipeStepSchema,
+  PublishedWallSchema,
+  type PublishedWall,
   kindHasDirection,
   operatorNeed,
   recipeStatusIsPublic,
@@ -115,16 +117,17 @@ export function toRecipe(row: typeof providerRecipes.$inferSelect): ProviderReci
     caution: row.caution,
     walkedRecipe,
     /**
-     * **Lifted here, from the blob it was already in** (`#982`). The walls a walker
-     * wrote reach the entry inside `walkedRecipe` and were published nowhere a
-     * reader could find them; attaching them one level up in the single place rows
-     * become recipes is what makes every surface answer the same — the failure
-     * `#984` was about, where a filter existed on one route and not the next.
+     * **Its own column since `#981`, and lifted out of `walkedRecipe` before that**
+     * (`#982`). One walker's walls could be read off the blob; a count across
+     * walkers cannot, and neither can the newest answer to *what does it cost* when
+     * four walks measured it and only two said. So the aggregate is computed where
+     * a walk finishes and stored, and read back here.
      *
-     * Nothing new is disclosed and nothing new is stored: same words, same walk,
-     * same statuses, and the column is untouched.
+     * Here, still, and nowhere else: `toRecipe` is the single place a row becomes a
+     * recipe, so no two surfaces can answer this differently — the failure `#982`
+     * and `#984` were both about. Parsed on the way out like every other `jsonb`.
      */
-    walls: walkedRecipe?.walls ?? [],
+    walls: (row.walls ?? []).map((wall: PublishedWall) => PublishedWallSchema.parse(wall)),
     agentApi: AgentApiSchema.parse(row.agentApi),
     signupCode: SignupCodeSchema.parse(row.signupCode),
     /**
@@ -391,6 +394,14 @@ export async function writeProviderRecipe(
     terms: entry.terms ?? 'unknown',
     cost: entry.cost ?? 'unknown',
     pacePerDay: entry.pacePerDay ?? null,
+    /**
+     * **`walls` is absent from this object on purpose** (`#981`), and it is the one
+     * column that must be. Every field here resets when the caller omits it, which
+     * is right for an answer a curator gives; the walls are not an answer anybody
+     * gives, they are counted from the walks. Listing them would mean a typo fixed
+     * in `about` deletes what nine walkers reported. `republishWalls` owns the
+     * column, and this upsert leaves it exactly as it found it.
+     */
   }
 
   const [row] = await db

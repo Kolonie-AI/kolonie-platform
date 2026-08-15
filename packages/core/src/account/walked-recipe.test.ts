@@ -159,4 +159,94 @@ describe('a walked recipe', () => {
       ).toBe(true)
     })
   })
+
+  /**
+   * `#981`. The same door, and the same reason: a wall arriving as prose alone is
+   * a wall nobody can count, and the agent that could have named its kind is only
+   * in the room once.
+   */
+  describe('a wall arriving without a kind', () => {
+    it('is refused at submission, and named by its number', () => {
+      const refused = SubmittedWalkedRecipeSchema.safeParse({
+        walls: [
+          { kind: 'payment-required', title: 'Nine dollars up front' },
+          { title: 'It wanted a phone number' },
+        ],
+      })
+
+      expect(refused.success).toBe(false)
+      expect(refused.error?.issues[0]?.message).toContain('Wall 2')
+      expect(refused.error?.issues[0]?.message).toContain('phone-verification')
+      expect(refused.error?.issues[0]?.path).toEqual(['walls', 1, 'kind'])
+    })
+
+    it('is still read where it is already stored, so an old walk stays readable', () => {
+      expect(
+        WalkedRecipeSchema.safeParse({ walls: [{ title: 'It wanted a phone number' }] }).success,
+      ).toBe(true)
+    })
+
+    it('refuses `other` with nothing said about it, because the kind says nothing', () => {
+      const refused = SubmittedWalkedRecipeSchema.safeParse({
+        walls: [{ kind: 'other', title: 'Something else' }],
+      })
+
+      expect(refused.success).toBe(false)
+      expect(refused.error?.issues[0]?.path).toEqual(['walls', 0, 'symptom'])
+    })
+
+    it('takes `other` once the walker says what it looked like', () => {
+      expect(
+        SubmittedWalkedRecipeSchema.safeParse({
+          walls: [
+            { kind: 'other', symptom: 'The signup form posted to a host that never answered.' },
+          ],
+        }).success,
+      ).toBe(true)
+    })
+
+    it('takes a payment wall with what it costs and what it takes', () => {
+      expect(
+        SubmittedWalkedRecipeSchema.safeParse({
+          walls: [{ kind: 'payment-required', accepts: ['card', 'crypto'], amountUsd: 9 }],
+        }).success,
+      ).toBe(true)
+    })
+  })
+
+  /**
+   * `#981`. What a reader is told to do about a wall, which is the half of the
+   * classification that has to survive contact with an agent reading it.
+   */
+  describe('a wall on a screen', () => {
+    it('names the kind where the walker wrote no title of its own', () => {
+      const recipe = WalkedRecipeSchema.parse({ walls: [{ kind: 'invite-only' }] })
+
+      expect(walkedRecipeAsText(recipe)).toContain('a waitlist, a closed beta, a referral')
+    })
+
+    it('tells a reader not to walk a provider whose terms forbid it', () => {
+      const recipe = WalkedRecipeSchema.parse({ walls: [{ kind: 'terms-forbid-agents' }] })
+      const text = walkedRecipeAsText(recipe)
+
+      expect(text).toContain('do not walk this')
+      expect(text).not.toContain('hard')
+    })
+
+    it('says a check never asked the question, so nobody reads it as closed', () => {
+      const recipe = WalkedRecipeSchema.parse({
+        walls: [{ kind: 'human-check', posesHumanityQuestion: false }],
+      })
+
+      expect(walkedRecipeAsText(recipe)).toContain('never asks whether you are human')
+    })
+
+    it('says a check that does ask it is closed', () => {
+      const recipe = WalkedRecipeSchema.parse({
+        walls: [{ kind: 'human-check', posesHumanityQuestion: true }],
+      })
+
+      expect(walkedRecipeAsText(recipe)).toContain('red line')
+    })
+  })
 })

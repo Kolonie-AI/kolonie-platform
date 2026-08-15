@@ -53,6 +53,7 @@ const kind = (value: string) => AccountKindSchema.parse(value)
 describe('the record of one agent obtaining one account', () => {
   let db: Database
   let agentId: AgentId
+  let otherAgentId: AgentId
 
   beforeAll(async () => {
     db = await connectForTests(target.url)
@@ -67,6 +68,15 @@ describe('the record of one agent obtaining one account', () => {
     const agent = await registerAgent(db, { name: 'walker', platform: 'openclaw', operator: null })
     if (agent.outcome !== 'registered') throw new Error('could not register the walking agent')
     agentId = agent.agent.id
+
+    /** A second walker, for the counts that only mean anything across two (`#981`). */
+    const other = await registerAgent(db, {
+      name: 'counting-walker',
+      platform: 'openclaw',
+      operator: null,
+    })
+    if (other.outcome !== 'registered') throw new Error('could not register the counting walker')
+    otherAgentId = other.agent.id
   })
 
   const where = { kind: kind('mailbox'), provider: 'somewhere.example' }
@@ -207,7 +217,7 @@ describe('the record of one agent obtaining one account', () => {
         outcome: 'proved',
         recipe: {
           prerequisites: ['a GitHub account you already control'],
-          walls: [{ title: 'the OAuth redirect asks for a password' }],
+          walls: [{ kind: 'other', title: 'the OAuth redirect asks for a password' }],
         },
       })
 
@@ -216,11 +226,20 @@ describe('the record of one agent obtaining one account', () => {
       expect(entry?.walkedRecipe?.walls?.[0]?.title).toBe('the OAuth redirect asks for a password')
 
       /**
-       * **And they are reachable without knowing the blob is there** (`#982`).
-       * `walls` is the same array one level up, attached in `toRecipe`, which is
-       * the difference between a wall being stored and a wall being findable.
+       * **And they are reachable without knowing the blob is there** (`#982`),
+       * counted across the walkers that hit them (`#981`). `walls` is the
+       * aggregate one level up, computed where the walk finished and attached in
+       * `toRecipe` — the difference between a wall being stored and a wall being
+       * findable, and then between findable and countable.
        */
-      expect(entry?.walls).toEqual([{ title: 'the OAuth redirect asks for a password' }])
+      expect(entry?.walls).toEqual([
+        {
+          kind: 'other',
+          reportedBy: 1,
+          lastReportedAt: expect.any(String),
+          title: 'the OAuth redirect asks for a password',
+        },
+      ])
     })
 
     /**
@@ -239,6 +258,7 @@ describe('the record of one agent obtaining one account', () => {
         recipe: {
           walls: [
             {
+              kind: 'phone-verification',
               title: 'the phone step',
               symptom: 'the form rejects every number that has signed up before',
             },
@@ -250,6 +270,9 @@ describe('the record of one agent obtaining one account', () => {
       expect(entry?.status).toBe('refused')
       expect(entry?.walls).toEqual([
         {
+          kind: 'phone-verification',
+          reportedBy: 1,
+          lastReportedAt: expect.any(String),
           title: 'the phone step',
           symptom: 'the form rejects every number that has signed up before',
         },
@@ -267,6 +290,108 @@ describe('the record of one agent obtaining one account', () => {
       await finishWalk(db, walkId, { outcome: 'proved' })
 
       expect((await providerRecipe(db, where.kind, where.provider))?.walls).toEqual([])
+    })
+
+    /**
+     * **Counted across walkers, and recomputed where a walk finishes** (`#981`).
+     * Two walkers hitting the same wall is a fact about the provider; the same
+     * two paragraphs are two anecdotes a reader has to reconcile. Storing the
+     * aggregate rather than deriving it on the read path is what keeps every
+     * surface answering it the same way — the failure `#982` and `#984` shared.
+     */
+    it('counts a wall across the walks that hit it', async () => {
+      const first = await walkInProgress(db, agentId, where)
+      await recordWalkStep(db, first, { actor: 'agent' })
+      await finishWalk(db, first, {
+        outcome: 'refused',
+        wall: 'it wants a card',
+        recipe: { walls: [{ kind: 'payment-required', amountUsd: 3 }] },
+      })
+
+      const second = await walkInProgress(db, otherAgentId, where)
+      await recordWalkStep(db, second, { actor: 'agent' })
+      await finishWalk(db, second, {
+        outcome: 'refused',
+        wall: 'it wants a card',
+        recipe: { walls: [{ kind: 'payment-required', accepts: ['card'] }] },
+      })
+
+      const entry = await providerRecipe(db, where.kind, where.provider)
+      expect(entry?.walls).toHaveLength(1)
+      expect(entry?.walls[0]).toMatchObject({
+        kind: 'payment-required',
+        reportedBy: 2,
+        /** The newest answer to each question, one question at a time. */
+        amountUsd: 3,
+        accepts: ['card'],
+      })
+    })
+
+    /**
+     * **The kind is the red line, so nobody has to keep two fields in step**
+     * (`#981`). An entry whose terms forbid an agent holding the account is a
+     * refusal, computed from the wall rather than typed twice — and the refusal
+     * says why signing up is closed *and* why handing it to an operator is not
+     * the way round.
+     */
+    it('makes an entry a refusal where a walker reported its terms', async () => {
+      await writeProviderRecipe(db, {
+        kind: where.kind,
+        provider: where.provider,
+        title: 'Somewhere',
+        category: 'mailbox',
+        status: 'unwritten',
+        steps: [],
+      })
+
+      const walkId = await walkInProgress(db, agentId, where)
+      await recordWalkStep(db, walkId, { actor: 'agent' })
+      await finishWalk(db, walkId, {
+        outcome: 'abandoned',
+        recipe: {
+          walls: [{ kind: 'terms-forbid-agents' }],
+          verification: ['the terms page names automated accounts'],
+        },
+      })
+
+      const entry = await providerRecipe(db, where.kind, where.provider)
+      expect(entry?.status).toBe('refused')
+      expect(entry?.refusal).toContain('who-owns-an-agents-account-credentials')
+    })
+
+    /**
+     * **The other half of the same rule, and the one the implementation had to
+     * decide** (`#981`). A published entry with steps cannot legally be a
+     * refusal — `provider_recipes_unjoinable_is_empty` requires one to carry no
+     * steps and prove nothing — so honouring the status there would mean
+     * deleting a steward's recipe on one unmoderated report. The wall is carried
+     * and the steps are kept. See the note on `#981`.
+     */
+    it('keeps the steps of a published entry rather than emptying it to refuse it', async () => {
+      await writeProviderRecipe(db, {
+        kind: where.kind,
+        provider: where.provider,
+        title: 'Somewhere',
+        category: 'mailbox',
+        status: 'joinable',
+        proves: 'rung',
+        steps: [{ actor: 'agent', instruction: 'Open the signup form.' }],
+      })
+
+      const walkId = await walkInProgress(db, agentId, where)
+      await recordWalkStep(db, walkId, { actor: 'agent' })
+      await finishWalk(db, walkId, {
+        outcome: 'proved',
+        recipe: {
+          walls: [{ kind: 'terms-forbid-agents' }],
+          verification: ['the terms page names automated accounts'],
+        },
+      })
+
+      const entry = await providerRecipe(db, where.kind, where.provider)
+      expect(entry?.status).toBe('joinable')
+      expect(entry?.steps).toHaveLength(1)
+      expect(entry?.walls[0]).toMatchObject({ kind: 'terms-forbid-agents', reportedBy: 1 })
     })
 
     /**

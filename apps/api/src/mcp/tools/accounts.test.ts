@@ -4,6 +4,7 @@ import {
   WALK_REPORT_FIELDS,
   WALK_REPORT_FIELD_ORDER,
   type AgentId,
+  type WalkedRecipe,
 } from '@kolonie-ai/core'
 import { WalkReportSchema } from '../../account-walks.js'
 import { connectedClient, registeredCitizen } from '../../__fixtures__/mcp.js'
@@ -604,7 +605,7 @@ describe('provider aliases', () => {
  * too long rather than only what the limit was.
  */
 describe('kolonie.accounts.walk-report long form', () => {
-  const RECIPE = {
+  const RECIPE: WalkedRecipe = {
     prerequisites: ['A GitHub account you already control.'],
     steps: [
       { title: 'Open the signup page', detail: 'It is OAuth-only; there is no email signup.' },
@@ -617,6 +618,8 @@ describe('kolonie.accounts.walk-report long form', () => {
     ],
     walls: [
       {
+        /** `#981`: a wall arrives classified, or not at all. */
+        kind: 'other',
         title: 'GitHub asks for a password',
         symptom: 'the OAuth redirect lands on the login page',
         remedy: 'the operator signs in — an API token is not enough',
@@ -990,6 +993,81 @@ describe('kolonie.accounts.recipes bootstrap patterns', () => {
     const result = await client.callTool({ name: 'kolonie.accounts.recipes', arguments: {} })
 
     expect(JSON.stringify(result.content)).not.toContain('oauth-via-github')
+    await close()
+  })
+})
+
+/**
+ * The question a citizen standing in front of the Atlas actually asks (`#981`):
+ * what is left that I can walk today, alone, with what I have.
+ *
+ * The same assertions the route makes in `provider-recipes.test.ts`, on purpose.
+ * `#984` was filed because a filter lived on one surface and not the other.
+ */
+describe('kolonie.accounts.recipes filters on what stopped the walkers', () => {
+  const walled = async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    colony.recipes.write({
+      kind: 'github',
+      provider: 'paywalled.example',
+      status: 'joinable',
+      walls: [{ kind: 'payment-required', reportedBy: 3, lastReportedAt: null, amountUsd: 9 }],
+    })
+    colony.recipes.write({
+      kind: 'trello',
+      provider: 'unwalked.example',
+      status: 'joinable',
+    })
+
+    return { colony, apiKey }
+  }
+
+  it('keeps only the entries carrying a kind asked for', async () => {
+    const { colony, apiKey } = await walled()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const result = await client.callTool({
+      name: 'kolonie.accounts.recipes',
+      arguments: { withWalls: ['payment-required'] },
+    })
+    const text = JSON.stringify(result.content)
+
+    expect(result.isError).not.toBe(true)
+    expect(text).toContain('paywalled.example')
+    expect(text).not.toContain('unwalked.example')
+    await close()
+  })
+
+  /**
+   * An entry nobody has walked carries no walls and stays: unknown is not the
+   * same as clear, and it is where the next walk comes from.
+   */
+  it('drops what a walker hit and keeps what nobody has walked', async () => {
+    const { colony, apiKey } = await walled()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const result = await client.callTool({
+      name: 'kolonie.accounts.recipes',
+      arguments: { excludeWalls: ['payment-required'] },
+    })
+    const text = JSON.stringify(result.content)
+
+    expect(text).toContain('unwalked.example')
+    expect(text).not.toContain('paywalled.example')
+    await close()
+  })
+
+  it('refuses a kind outside the enum rather than answering the whole catalogue', async () => {
+    const { colony, apiKey } = await walled()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const result = await client.callTool({
+      name: 'kolonie.accounts.recipes',
+      arguments: { withWalls: ['payment-requiredd'] },
+    })
+
+    expect(result.isError).toBe(true)
+    expect(JSON.stringify(result.content)).not.toContain('paywalled.example')
     await close()
   })
 })

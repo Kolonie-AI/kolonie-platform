@@ -3,6 +3,7 @@ import {
   figureKey,
   noFigures,
   operatorNeed,
+  publishWalls,
   recipeStatusAllowsSteps,
   recipeStatusIsPublic,
   now as currentTime,
@@ -379,12 +380,17 @@ export function fakeProviderRecipes(): FakeProviderRecipes {
         caution: entry.caution ?? null,
         walkedRecipe: entry.walkedRecipe ?? null,
         /**
-         * **Derived, never taken from the caller** (`#982`), the way `toRecipe`
-         * derives it. A fixture that could set `walls` without a `walkedRecipe`
-         * would let a test assert on walls no real row can have, which is the one
-         * thing this fake exists to stop.
+         * **Derived from the walk unless the caller says otherwise** (`#981`).
+         *
+         * `#982` derived it and nothing else, because the entry's walls *were* one
+         * walker's walls and a fixture that set them without a walk could assert on
+         * a row no database can hold. They are an aggregate now, computed where a
+         * walk finishes and stored — and the thirteen backfilled entries carry one
+         * with no walk under it at all, so a fake that refuses that refuses a row
+         * production has. The derivation stays as the default, which is what keeps
+         * a test that only means *this entry was walked* honest.
          */
-        walls: entry.walkedRecipe?.walls ?? [],
+        walls: entry.walls ?? [...publishWalls([], entry.walkedRecipe?.walls ?? [])],
         agentApi: entry.agentApi ?? 'unknown',
         signupCode: entry.signupCode ?? 'unknown',
         needs: entry.needs ?? [],

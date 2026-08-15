@@ -3,6 +3,7 @@ import { MODERATION_STAGE_NOT_RUN, type ProviderRecipe, type RecipeStep } from '
 import type { Model } from './llm.js'
 import { judgeDraft, recipeTick, type RecipeModerationStore } from './recipes.js'
 import { RECIPE_RED_LINE_PROMPT, RECIPE_STEPS_PROMPT } from './recipe-prompts.js'
+import type { WalkNarrative } from './recipe-wording.js'
 
 const aStep = (over: Partial<RecipeStep> = {}): RecipeStep =>
   ({
@@ -92,20 +93,33 @@ const recording = (
     readonly digest?: string
     readonly stale?: boolean
     readonly pending?: readonly { readonly id: string; readonly recipe: ProviderRecipe }[]
+    readonly narrative?: WalkNarrative
+    readonly expired?: readonly {
+      readonly kind: string
+      readonly provider: string
+      readonly reason: string
+    }[]
   } = {},
 ) => {
   const written: Parameters<RecipeModerationStore['record']>[0][] = []
+  const dressed: Parameters<RecipeModerationStore['dress']>[0][] = []
   const store: RecipeModerationStore = {
     pending: async () => over.pending ?? [aDraft()],
     lastVerdict: async () => over.last,
     digest: () => over.digest ?? 'a-digest',
+    narrative: async () => over.narrative,
+    dress: async (input) => {
+      dressed.push(input)
+      return over.stale !== true
+    },
+    expire: async () => over.expired ?? [],
     record: async (input) => {
       written.push(input)
       return { outcome: over.stale === true ? 'stale' : 'written' }
     },
   }
 
-  return { store, written }
+  return { store, written, dressed }
 }
 
 describe('the Colony judging a walked recipe', () => {
@@ -251,6 +265,8 @@ describe('the Colony judging a walked recipe', () => {
       published: 1,
       refused: 0,
       held: 0,
+      reworded: 0,
+      expired: 0,
       failed: 0,
     })
   })
@@ -268,7 +284,115 @@ describe('the Colony judging a walked recipe', () => {
       published: 0,
       refused: 0,
       held: 0,
+      reworded: 0,
+      expired: 0,
       failed: 0,
     })
+  })
+
+  /**
+   * The rule `#941` is arranged around, stated as a test: a step the walker
+   * recorded nothing about stays wordless. The model here answers, and answers
+   * with a sentence that reads plausibly — what disqualifies it is that it cites
+   * nothing, which is what a sentence drawn from nothing looks like from here.
+   */
+  it('does not word a step the walk recorded nothing for, and holds the draft', async () => {
+    const wordless = aDraft({
+      steps: [aStep(), { actor: 'agent' } as RecipeStep],
+      walkedRecipe: {
+        steps: [{ title: 'Open the signup page', needsOperator: false }],
+        prerequisites: [],
+        walls: [],
+        verification: [],
+      } as ProviderRecipe['walkedRecipe'],
+    })
+    const { model } = answering()
+    const composing: Model = {
+      ...model,
+      compose: async () => [
+        {
+          section: 'step-2',
+          text: 'Confirm the mailbox from the link you were sent.',
+          sources: [],
+        },
+      ],
+    }
+    const { store, written, dressed } = recording({ pending: [wordless] })
+
+    const judgement = await judgeDraft(wordless, { store, model: composing })
+
+    expect(judgement.kind).toBe('held')
+    expect(judgement.kind === 'held' && judgement.reason).toContain('Step 2')
+    expect(dressed).toHaveLength(0)
+    expect(written[0]?.stages.wording.outcome).toBe('nothing-recorded')
+  })
+
+  /** A citation outside the corpus is a citation of something the stage was not given. */
+  it('drops a claim citing a source it was never shown', async () => {
+    const wordless = aDraft({
+      steps: [aStep(), { actor: 'agent' } as RecipeStep],
+      walkedRecipe: {
+        steps: [{ title: 'Open the signup page', needsOperator: false }],
+        prerequisites: [],
+        walls: [],
+        verification: [],
+      } as ProviderRecipe['walkedRecipe'],
+    })
+    const { model } = answering()
+    const composing: Model = {
+      ...model,
+      compose: async () => [
+        { section: 'step-2', text: 'Confirm the mailbox.', sources: ['walked-step-9'] },
+      ],
+    }
+    const { store, dressed } = recording({ pending: [wordless] })
+
+    expect((await judgeDraft(wordless, { store, model: composing })).kind).toBe('held')
+    expect(dressed).toHaveLength(0)
+  })
+
+  /** What the stage is *for*: a sentence the walker did record, written onto the draft. */
+  it('words a step out of what the walk recorded, and writes it to the row', async () => {
+    const wordless = aDraft({
+      steps: [aStep(), { actor: 'agent' } as RecipeStep],
+      walkedRecipe: {
+        steps: [{ title: 'Open the confirmation mail', detail: 'and follow its link' }],
+        prerequisites: [],
+        walls: [],
+        verification: [],
+      } as ProviderRecipe['walkedRecipe'],
+    })
+    const { model } = answering()
+    const composing: Model = {
+      ...model,
+      compose: async () => [
+        {
+          section: 'step-2',
+          text: 'Open the confirmation mail and follow its link.',
+          sources: ['walked-step-1'],
+        },
+      ],
+    }
+    const { store, dressed } = recording({ pending: [wordless] })
+
+    expect(await judgeDraft(wordless, { store, model: composing })).toEqual({
+      kind: 'reworded',
+      steps: 1,
+    })
+    expect(dressed[0]?.steps[1]?.instruction).toBe(
+      'Open the confirmation mail and follow its link.',
+    )
+    /** The verdict comes on the next tick, about a row the runner can read. */
+    expect(dressed[0]?.provider).toBe('clawmail.com')
+  })
+
+  /** Expiry runs before the queue, and is counted separately from anything judged. */
+  it('counts the drafts the window ran out on', async () => {
+    const { model } = answering()
+    const { store } = recording({
+      expired: [{ kind: 'mailbox', provider: 'gone.example', reason: 'the window ran out' }],
+    })
+
+    expect(await recipeTick({ store, model }, 10)).toMatchObject({ expired: 1, published: 1 })
   })
 })

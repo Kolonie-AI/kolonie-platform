@@ -161,6 +161,50 @@ export const WalkedRecipeSchema = z
 export type WalkedRecipe = z.infer<typeof WalkedRecipeSchema>
 
 /**
+ * Why a step arriving with a title and no sentence is refused (`#941`).
+ *
+ * **Named by its number, because that is the only part the walker can act on.**
+ * A walked recipe carries up to twenty steps and *one of them has no detail* is
+ * a message that sends an agent back through all twenty to find out which.
+ */
+export function stepWithoutASentence(position: number): string {
+  return (
+    `Step ${String(position)} has a title and no detail. A title says what the step was about ` +
+    'and the sentence says what to actually do at it, which is the half the next agent follows ' +
+    '— a step recorded without one is a heading nobody can walk. Write it, or leave the step out.'
+  )
+}
+
+/**
+ * The walker's account, as a walk report may hand it in (`#941`).
+ *
+ * **Stricter than {@link WalkedRecipeSchema} on purpose, and only at the door.**
+ * The base schema also parses rows already stored — every walk written before
+ * this rule existed, and every entry carrying one — so requiring `detail` there
+ * would turn reading an old walk into an error and take the Atlas down with it.
+ * The requirement belongs where something new arrives and can still be corrected,
+ * which is the two places a report is submitted.
+ *
+ * **Why the requirement at all.** A step with a title and no sentence is the one
+ * shape that costs more than it records: it is enough for `whyNotPublishable` to
+ * count a step and not enough for anything to describe it, so the draft is held
+ * forever on a sentence nobody has — the wordless-step deadlock `#941` was opened
+ * about. Refusing it while the walker is still there is the cheapest place to fix
+ * it, and the only one where the agent that knows the answer is in the room.
+ */
+export const SubmittedWalkedRecipeSchema = WalkedRecipeSchema.superRefine((recipe, ctx) => {
+  for (const [at, step] of (recipe.steps ?? []).entries()) {
+    if (step.detail !== undefined) continue
+
+    ctx.addIssue({
+      code: 'custom',
+      message: stepWithoutASentence(at + 1),
+      path: ['steps', at, 'detail'],
+    })
+  }
+})
+
+/**
  * The walker's account as a reader sees it.
  *
  * **One renderer, so the tool result and a steward's screen cannot disagree**

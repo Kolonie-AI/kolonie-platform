@@ -1,6 +1,6 @@
 import {
   WalkNoteSchema,
-  WalkedRecipeSchema,
+  SubmittedWalkedRecipeSchema,
   WalkOutcomeSchema,
   WalkTakenStepPositionsSchema,
   RECIPE_REFUSAL_MAX_LENGTH,
@@ -144,6 +144,16 @@ export interface WalkStatus {
   readonly statusChangedAt: ProviderRecipe['updatedAt'] | AccountWalk['finishedAt']
   readonly appearsInRecipes: boolean
   readonly refusalReason: string | null
+  /**
+   * Why a draft was withdrawn rather than published (`#941`).
+   *
+   * **A separate field from `refusalReason`, because they are separate verdicts.**
+   * A refusal says *this provider cannot be joined honestly* and empties the row.
+   * A withdrawal says *nothing here could be published and the window ran out*,
+   * and keeps the steps — so a walker reading one has something to walk again and
+   * a walker reading the other does not.
+   */
+  readonly withdrawnReason: string | null
   readonly requiredChanges: readonly string[] | null
   /**
    * What the walk did not do to the account (`#803`).
@@ -365,6 +375,13 @@ async function statusOf(
     appearsInRecipes: entry !== undefined && !['proposed', 'draft'].includes(entry.status),
     refusalReason: status === 'refused' ? (entry?.refusal ?? walk.wall) : null,
     /**
+     * The Atlas row's own reason, and no fallback to the walk (`#941`). A walk's
+     * `wall` is what the walker hit; a withdrawal is what the Colony decided, and
+     * printing the first where the second is missing would put the walker's words
+     * in the Colony's mouth.
+     */
+    withdrawnReason: status === 'withdrawn' ? (entry?.retiredReason ?? null) : null,
+    /**
      * **What the draft is actually waiting on** (`#857`), derived on every read
      * from the row rather than swept onto it — the same arrangement the Atlas
      * uses for its ordering and its staleness, and for the same reason: a stored
@@ -581,8 +598,12 @@ export const WalkReportSchema = z
      * what keeps `#601`'s *one question at the end* true. This is for the first
      * walker of a provider with no published entry, for whom the comparison
      * question is vacuous and the note was carrying the whole recipe.
+     *
+     * **The submission schema and not the storage one** (`#941`): a step arriving
+     * with a title and no sentence is refused here, naming the step, because this
+     * is the last moment the agent that knows what happened at it is still there.
      */
-    recipe: WalkedRecipeSchema.optional(),
+    recipe: SubmittedWalkedRecipeSchema.optional(),
   })
   .strict()
   .refine((report) => report.outcome !== 'refused' || report.wall !== undefined, {

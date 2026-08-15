@@ -25,7 +25,7 @@ import {
   SHOWING_AN_ACCOUNT_IS_PUBLICATION,
   WISH_ALSO_PROPOSED,
   WALK_REPORT_FIELDS,
-  WalkedRecipeSchema,
+  SubmittedWalkedRecipeSchema,
   BOOTSTRAP_TEMPLATES,
   BootstrapTemplateIdSchema,
   bootstrapTemplate,
@@ -1988,7 +1988,7 @@ export function registerAccountTools(
          * with no entry at all: for them the comparison question is vacuous, and
          * the note was carrying the entire recipe until it hit 2000 characters.
          */
-        recipe: WalkedRecipeSchema.optional().describe(
+        recipe: SubmittedWalkedRecipeSchema.optional().describe(
           'Only if you walked a provider the Atlas had nothing on, and only if you have more ' +
             'than the note holds: what had to be true before you started, the ordered steps in ' +
             'your own words, the walls and what got past them, and how to tell the account ' +
@@ -2188,7 +2188,8 @@ export function registerAccountTools(
             : status.status === 'refused'
               ? `Your walk ${status.walkId} is recorded as refused: ${status.refusalReason ?? 'no reason was recorded.'}`
               : status.status === 'withdrawn'
-                ? `The Atlas entry for your walk ${status.walkId} was withdrawn.`
+                ? `The Atlas entry for your walk ${status.walkId} was withdrawn: ` +
+                  `${status.withdrawnReason ?? 'no reason was recorded.'}`
                 : status.status === 'walking'
                   ? `Your walk ${status.walkId} is still open and has not been reported yet.`
                   : `Your walk ${status.walkId} proposed no current Atlas entry.`

@@ -1,12 +1,17 @@
 import { createHash } from 'node:crypto'
-import { and, asc, desc, eq } from 'drizzle-orm'
-import type {
-  AtlasCategory,
-  ProviderRecipe,
-  RecipeModerationStages,
-  RecipeVerdict,
+import { and, asc, desc, eq, isNotNull, sql } from 'drizzle-orm'
+import {
+  RECIPE_DRAFT_EXPIRY_DAYS,
+  RecipeModerationStagesSchema,
+  recipeDraftExpired,
+  whyRecipeHeld,
+  type AtlasCategory,
+  type ProviderRecipe,
+  type RecipeModerationStages,
+  type RecipeVerdict,
 } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
+import { accountWalks } from '../schema/account-walks.js'
 import { providerRecipes } from '../schema/provider-recipes.js'
 import { recipeModerations } from '../schema/recipe-moderations.js'
 import { publishProviderRecipe, toRecipe } from './provider-recipes.js'
@@ -49,6 +54,59 @@ export async function unjudgedRecipeDrafts(
     .limit(limit)
 
   return rows.map((row) => ({ id: row.id, recipe: toRecipe(row) }))
+}
+
+/**
+ * What the walk that proposed this draft wrote about the path (`#941`).
+ *
+ * **Read through `proposed_at` and not through kind and provider.** The walk that
+ * proposed the entry is the one whose material describes these steps; the latest
+ * walk at the same provider may be somebody else's, months later, against a
+ * different form. Getting that wrong would attach one agent's narrative to
+ * another agent's steps, which is the precise failure the citation guard in the
+ * wording stage exists to make impossible.
+ *
+ * Absent where the entry did not come from a walk — a seeded listing, a curated
+ * row — which is the ordinary answer for most of the catalogue.
+ */
+export async function proposingWalkNarrative(
+  db: Database,
+  recipeId: string,
+): Promise<
+  | {
+      readonly did: string | null
+      readonly broke: string | null
+      readonly changed: string | null
+    }
+  | undefined
+> {
+  const [entry] = await db
+    .select({ kind: providerRecipes.kind, provider: providerRecipes.provider })
+    .from(providerRecipes)
+    .where(eq(providerRecipes.id, recipeId))
+    .limit(1)
+
+  if (entry === undefined) return undefined
+
+  const [walk] = await db
+    .select({
+      did: accountWalks.did,
+      broke: accountWalks.broke,
+      changed: accountWalks.changed,
+    })
+    .from(accountWalks)
+    .where(
+      and(
+        eq(accountWalks.kind, entry.kind),
+        eq(accountWalks.provider, entry.provider),
+        isNotNull(accountWalks.proposedAt),
+      ),
+    )
+    /** The most recent proposal, which is the one whose steps are on the row. */
+    .orderBy(desc(accountWalks.proposedAt))
+    .limit(1)
+
+  return walk
 }
 
 /**
@@ -185,6 +243,98 @@ export async function recipeModerationsFor(
     .from(recipeModerations)
     .where(eq(recipeModerations.recipeId, recipeId))
     .orderBy(desc(recipeModerations.createdAt))
+}
+
+/** One draft the window ran out on, with what it was last held on. */
+export interface ExpiredRecipeDraft {
+  readonly kind: string
+  readonly provider: string
+  readonly reason: string
+}
+
+/**
+ * Withdraw the drafts nobody could complete, and say why (`#941`).
+ *
+ * ## What it selects, and what it deliberately does not
+ *
+ * A draft qualifies on two facts together: **the pass has judged it and held it**,
+ * and **nothing has touched the row for {@link RECIPE_DRAFT_EXPIRY_DAYS} days**.
+ * The first is what makes this a decision rather than a sweep — a draft written an
+ * hour ago and never judged has not failed at anything, and one no verdict exists
+ * for is one the runner has not reached. The second is measured on `updated_at`,
+ * so a steward's edit, a re-walk or a fresh verdict each buy another fortnight.
+ *
+ * **`retired` and not `refused`.** Refusing empties the row — `steps`, `proves`,
+ * `reaches` and `provesTask` all go, by the table's own constraint — and says the
+ * provider has no honest route. Neither is true here: what ran out is the
+ * Colony's patience with one draft, and the steps are what a later walk starts
+ * from. `retired` keeps them and reads through `kolonie.accounts.walk-status` as
+ * `withdrawn`, with the reason beside it.
+ *
+ * **One statement per row rather than one for all of them**, because each carries
+ * its own reason. The batch is small by construction: it is the drafts that went
+ * a fortnight without anybody, and if it is ever large that is the finding.
+ */
+export async function expireStalledRecipeDrafts(
+  db: Database,
+  options: { readonly limit?: number } = {},
+): Promise<readonly ExpiredRecipeDraft[]> {
+  const held = db
+    .select({
+      recipeId: recipeModerations.recipeId,
+      stages: recipeModerations.stages,
+      rank: sql<number>`row_number() over (
+        partition by ${recipeModerations.recipeId}
+        order by ${recipeModerations.createdAt} desc
+      )`.as('rank'),
+      decision: recipeModerations.decision,
+    })
+    .from(recipeModerations)
+    .as('held')
+
+  const candidates = await db
+    .select({
+      id: providerRecipes.id,
+      kind: providerRecipes.kind,
+      provider: providerRecipes.provider,
+      stages: held.stages,
+    })
+    .from(providerRecipes)
+    .innerJoin(held, eq(held.recipeId, providerRecipes.id))
+    .where(
+      and(
+        eq(providerRecipes.status, 'draft'),
+        eq(held.rank, 1),
+        eq(held.decision, 'held'),
+        sql`${providerRecipes.updatedAt} < now() - ${sql.raw(`interval '${String(RECIPE_DRAFT_EXPIRY_DAYS)} days'`)}`,
+      ),
+    )
+    .limit(options.limit ?? 50)
+
+  const expired: ExpiredRecipeDraft[] = []
+
+  for (const candidate of candidates) {
+    const parsed = RecipeModerationStagesSchema.safeParse(candidate.stages)
+    const reason = recipeDraftExpired(parsed.success ? whyRecipeHeld(parsed.data) : undefined)
+
+    const moved = await db
+      .update(providerRecipes)
+      .set({
+        status: 'retired',
+        retiredAt: sql`now()`,
+        retiredReason: reason,
+        updatedAt: sql`now()`,
+      })
+      /** Still a draft, for the reason every other verdict here guards on it. */
+      .where(and(eq(providerRecipes.id, candidate.id), eq(providerRecipes.status, 'draft')))
+      .returning({ id: providerRecipes.id })
+
+    if (moved.length > 0) {
+      expired.push({ kind: candidate.kind, provider: candidate.provider, reason })
+    }
+  }
+
+  return expired
 }
 
 /**

@@ -5,6 +5,7 @@ import {
   WALKED_RECIPE_LINE_MAX_LENGTH,
   WALKED_RECIPE_MAX_ENTRIES,
   WALKED_RECIPE_MAX_STEPS,
+  SubmittedWalkedRecipeSchema,
   WalkedRecipeSchema,
   walkedRecipeAsText,
 } from './walked-recipe.js'
@@ -123,5 +124,39 @@ describe('a walked recipe', () => {
     expect(text).toContain('not its recipe')
     expect(text).toContain('needs your operator')
     expect(text).toContain('gh auth status')
+  })
+
+  /**
+   * `#941`, at the only door where the agent that knows the answer is still in
+   * the room. A step with a heading and no sentence is the shape that produces a
+   * draft nobody can publish and nobody can refuse.
+   */
+  describe('a step arriving without its sentence', () => {
+    it('is refused at submission, and named by its number', () => {
+      const refused = SubmittedWalkedRecipeSchema.safeParse({
+        steps: [
+          { title: 'Open the signup page', detail: 'and fill in the form' },
+          { title: 'Confirm the mailbox' },
+        ],
+      })
+
+      expect(refused.success).toBe(false)
+      expect(refused.error?.issues[0]?.message).toContain('Step 2')
+      expect(refused.error?.issues[0]?.path).toEqual(['steps', 1, 'detail'])
+    })
+
+    it('is still read where it is already stored, so an old walk stays readable', () => {
+      expect(
+        WalkedRecipeSchema.safeParse({ steps: [{ title: 'Confirm the mailbox' }] }).success,
+      ).toBe(true)
+    })
+
+    it('lets a complete account through unchanged', () => {
+      expect(
+        SubmittedWalkedRecipeSchema.safeParse({
+          steps: [{ title: 'Open the signup page', detail: 'and fill in the form' }],
+        }).success,
+      ).toBe(true)
+    })
   })
 })

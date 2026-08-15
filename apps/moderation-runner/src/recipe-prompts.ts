@@ -74,6 +74,43 @@ is not.
 "sound" or "unsound". Where unsound, say in one sentence which step and what is
 missing — that sentence is shown to whoever fixes it.`
 
+/**
+ * The one prompt here that writes rather than judges (`#941`).
+ *
+ * **Why it is allowed to write at all.** `#517` reserves the sentence a recipe
+ * publishes to the Colony, and the Colony is what is asking here — the rule was
+ * never *a model may not form it*, it was *the walker's words are not silently
+ * promoted to the Colony's*. What this stage may draw on is closed to what the
+ * walk actually recorded, and every sentence it forms has to say which recorded
+ * thing it came from. A sentence citing nothing is dropped by the pass before
+ * anybody reads it, so the model cannot buy a step by writing confidently.
+ *
+ * **The instruction is to refuse rather than to guess**, stated twice and in
+ * both directions, because this is the one prompt in the runner whose output is
+ * handed to an agent as a path to follow. A missing step costs a draft another
+ * fortnight; an invented one costs whoever follows it an afternoon.
+ */
+export const RECIPE_WORDING_PROMPT = `${FRAME}
+
+Some steps of this recipe were observed without a sentence. The Colony recorded
+that the step happened and who performed it, and never what to do at it.
+
+Write the missing sentence for each step you are asked about, using ONLY the
+recorded material you are given. Each sentence is what the performer of that step
+is shown, so write it as an instruction: what to do, where, and with what.
+
+Cite, for every sentence, the recorded material it came from. A sentence you
+cannot cite is one the Colony did not record, and you must not write it — leave
+that step out of your answer entirely. Leaving a step out is a correct and
+expected answer. It is far better than a plausible sentence: the step you leave
+out is fixed by asking the walker, and the step you invent is followed.
+
+Do not carry a value into a sentence — no password, token, code or address a
+walker happened to record. Name what to type, never what was typed.
+
+Do not describe a step the material only mentions in passing. "The signup form
+asked for a phone number" is not a step; it is context for one.`
+
 export const RECIPE_SHELF_PROMPT = `${FRAME}
 
 This recipe is going to be published. Answer which shelf its entry belongs on,

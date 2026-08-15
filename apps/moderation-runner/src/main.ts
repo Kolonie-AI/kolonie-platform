@@ -41,7 +41,10 @@ import {
   atlasEntryFor,
   recordAtlasModeration,
   unjudgedAtlasProposals,
+  dressProviderRecipeDraft,
+  expireStalledRecipeDrafts,
   lastRecipeModeration,
+  proposingWalkNarrative,
   recipeDraftDigest,
   recordRecipeModeration,
   unjudgedRecipeDrafts,
@@ -425,15 +428,25 @@ const atlasStore: AtlasModerationStore = {
 /**
  * Whether a walked recipe is fit to publish (`#813`).
  *
- * Seventh pass in the same process, and the store is four functions rather than
- * three because one of them is arithmetic: the digest is computed where the
- * steps are stored, so the pass can ask *have I judged this text before* without
- * knowing what goes into the answer.
+ * Seventh pass in the same process, and the store is seven functions rather than
+ * one because the pass does six separable things. One of them is arithmetic: the
+ * digest is computed where the steps are stored, so the pass can ask *have I
+ * judged this text before* without knowing what goes into the answer. Two of them
+ * are `#941`'s wording stage — the material a sentence may be drawn from, and the
+ * write that puts the formed sentences on the row.
  */
 const recipeStore: RecipeModerationStore = {
   pending: (limit) => unjudgedRecipeDrafts(db, limit),
   lastVerdict: (recipeId) => lastRecipeModeration(db, recipeId),
   digest: (recipe) => recipeDraftDigest(recipe),
+  narrative: (recipeId) => proposingWalkNarrative(db, recipeId),
+  /**
+   * The same write the curation screen makes (`#857`), and deliberately the same
+   * one: a sentence the pass formed and a sentence a steward typed land on the
+   * row through one guarded update, so neither can overwrite a published entry.
+   */
+  dress: (entry) => dressProviderRecipeDraft(db, entry),
+  expire: () => expireStalledRecipeDrafts(db),
   record: async (input) => {
     const written = await recordRecipeModeration(db, input)
 

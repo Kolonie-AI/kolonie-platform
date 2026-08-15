@@ -1,12 +1,15 @@
 import {
   RECIPE_RED_LINE_REFUSAL,
   RECIPE_SHELF_CHOICES,
+  dressWalkedSteps,
   noRecipeStagesRun,
   stepNamingACredential,
   whyNotPublishable,
+  type AccountProofMethod,
   type AtlasCategory,
   type ProviderRecipe,
   type RecipeModerationStages,
+  type RecipeStep,
 } from '@kolonie-ai/core'
 import type { Log } from './loop.js'
 import type { Model } from './llm.js'
@@ -15,6 +18,7 @@ import {
   RECIPE_SHELF_PROMPT,
   RECIPE_STEPS_PROMPT,
 } from './recipe-prompts.js'
+import { formStepSentences, nothingRecordedFor, type WalkNarrative } from './recipe-wording.js'
 
 /**
  * The stage that decides whether a walked recipe is published (`#813`).
@@ -54,6 +58,43 @@ export interface RecipeModerationStore {
   ): Promise<{ readonly decision: string; readonly contentSha256: string } | undefined>
   /** The digest of the text as it stands, so the pass can compare without knowing how it is computed. */
   digest(recipe: ProviderRecipe): string
+  /**
+   * What the walk that proposed this draft wrote about the path (`#941`).
+   *
+   * The walker's own account already travels on the entry as `walkedRecipe`;
+   * this is the other half of what was recorded — the `did` / `broke` / `changed`
+   * narrative, which lives on the walk row. Absent where the entry came from
+   * somewhere other than a walk, which is an ordinary answer and not a failure.
+   */
+  narrative(recipeId: string): Promise<WalkNarrative | undefined>
+  /**
+   * Write the formed sentences onto the draft, and move nothing (`#941`).
+   *
+   * The same write `#857` gave a steward, reached from the pass. It moves no
+   * status deliberately: the verdict that follows is then a verdict about a row
+   * the runner can actually read, rather than about one it is holding in memory.
+   */
+  dress(input: {
+    readonly kind: ProviderRecipe['kind']
+    readonly provider: string
+    readonly steps: readonly RecipeStep[]
+    readonly proves: AccountProofMethod
+    readonly provesTask?: string | undefined
+  }): Promise<boolean>
+  /**
+   * Withdraw the drafts the window ran out on, and say which (`#941`).
+   *
+   * Not part of judging any one draft, so it is its own call: what it decides is
+   * that the Colony has stopped waiting, which is a decision about the queue
+   * rather than about a recipe.
+   */
+  expire(): Promise<
+    readonly {
+      readonly kind: string
+      readonly provider: string
+      readonly reason: string
+    }[]
+  >
   record(input: {
     readonly recipeId: string
     readonly decision: 'published' | 'refused' | 'held'
@@ -77,6 +118,16 @@ export type RecipeJudgement =
   | { readonly kind: 'published'; readonly category: string }
   | { readonly kind: 'refused'; readonly refusal: string }
   | { readonly kind: 'held'; readonly reason: string }
+  /**
+   * Sentences were formed onto the draft, and it will be judged next tick (`#941`).
+   *
+   * **Not a verdict, and deliberately not folded into one.** The wording stage
+   * changes the text the other stages read; judging the row it just rewrote would
+   * mean the red line, the soundness question and the shelf were all answered
+   * about sentences held in memory rather than about what is stored. A tick costs
+   * a poll interval, and the draft had been sitting for weeks.
+   */
+  | { readonly kind: 'reworded'; readonly steps: number }
   | { readonly kind: 'unchanged' }
   | { readonly kind: 'stale' }
   | { readonly kind: 'failed'; readonly error: unknown }
@@ -185,6 +236,59 @@ export async function judgeDraft(
     }
     stages.credentials = { outcome: 'clear' }
 
+    /**
+     * **The wordless step, answered instead of held** (`#941`).
+     *
+     * Runs before `whyNotPublishable` because that check is what holds a wordless
+     * draft, and holding it was the whole complaint: a walk arrives wordless by
+     * design and nothing downstream could ever supply the sentence. It runs
+     * *after* the red line and the credential check so that nothing is written
+     * onto a draft that was never going to be published.
+     *
+     * **A draft with no `proves` is left alone.** How the account is proved is a
+     * fact about the provider, not a sentence to be formed out of a narrative,
+     * and `whyNotPublishable` below says so in its own words.
+     */
+    const proves = recipe.proves
+    const wording =
+      proves === null
+        ? { kind: 'not-needed' as const }
+        : await formStepSentences(recipe, await store.narrative(draft.id), model)
+
+    if (wording.kind === 'nothing-recorded') {
+      const reason = nothingRecordedFor(wording.positions)
+      stages.wording = { outcome: 'nothing-recorded', reason }
+
+      return await decide(draft, deps, stages, answeredBy, { kind: 'held', reason })
+    }
+
+    if (wording.kind === 'formed' && proves !== null) {
+      const dressed = dressWalkedSteps(recipe.steps, wording.wording)
+
+      if (!dressed.ok) {
+        stages.wording = { outcome: 'unusable', reason: dressed.why }
+
+        return await decide(draft, deps, stages, answeredBy, { kind: 'held', reason: dressed.why })
+      }
+
+      const written = await store.dress({
+        kind: recipe.kind,
+        provider: recipe.provider,
+        steps: dressed.steps,
+        proves,
+        ...(recipe.provesTask === null ? {} : { provesTask: recipe.provesTask }),
+      })
+
+      /**
+       * A draft that stopped being a draft while this was being formed. Nothing
+       * was written, nothing is recorded, and the row is somebody else's now.
+       */
+      if (!written) return { kind: 'stale' }
+
+      return { kind: 'reworded', steps: wording.cited.length }
+    }
+    stages.wording = { outcome: 'not-needed' }
+
     const missing = whyNotPublishable(recipe)
     if (missing !== undefined) {
       stages.publishable = { outcome: 'incomplete', reason: missing }
@@ -258,6 +362,10 @@ export interface RecipeTickOutcome {
   readonly published: number
   readonly refused: number
   readonly held: number
+  /** Drafts that had their missing sentences written and will be judged next tick (`#941`). */
+  readonly reworded: number
+  /** Drafts the window ran out on, withdrawn with the reason they were held on (`#941`). */
+  readonly expired: number
   readonly failed: number
 }
 
@@ -273,17 +381,57 @@ export async function recipeTick(
   batchSize: number,
 ): Promise<RecipeTickOutcome> {
   const { store, log = silentLog } = deps
+
+  /**
+   * **Before the queue and not after it** (`#941`). A draft the window ran out on
+   * is one this tick would otherwise re-judge to the same held verdict it has been
+   * getting for a fortnight — expiring first spends nothing on it and keeps the
+   * batch for drafts a verdict could still move.
+   */
+  const expired = await store.expire()
+
+  for (const one of expired) {
+    log.info(`${one.provider} withdrawn: the draft window ran out`, {
+      event: 'recipe.draft.expired',
+      provider: one.provider,
+      kind: one.kind,
+      reason: one.reason,
+    })
+  }
+
   const drafts = await store.pending(batchSize)
 
-  const outcome = { judged: 0, published: 0, refused: 0, held: 0, failed: 0 }
+  const outcome = {
+    judged: 0,
+    published: 0,
+    refused: 0,
+    held: 0,
+    reworded: 0,
+    expired: expired.length,
+    failed: 0,
+  }
 
   for (const draft of drafts) {
     const judgement = await judgeDraft(draft, deps)
     const { provider } = draft.recipe
 
-    if (judgement.kind !== 'unchanged') outcome.judged++
+    /**
+     * `reworded` is work and not a verdict, so it is counted on its own line
+     * rather than as one of the drafts this tick judged — a tick that reworded
+     * four drafts and judged none did something, and `judged: 4` would say it
+     * decided four things it has not read yet.
+     */
+    if (judgement.kind !== 'unchanged' && judgement.kind !== 'reworded') outcome.judged++
 
     switch (judgement.kind) {
+      case 'reworded':
+        outcome.reworded++
+        log.info(`${provider}: ${String(judgement.steps)} step sentences formed from the walk`, {
+          event: 'recipe.draft.reworded',
+          provider,
+          steps: judgement.steps,
+        })
+        break
       case 'published':
         outcome.published++
         log.info(`${provider} published on the ${judgement.category} shelf`, {

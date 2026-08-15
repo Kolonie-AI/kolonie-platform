@@ -437,20 +437,27 @@ describe('what is open to a citizen', () => {
    * behaviour cannot drift apart silently.
    */
   it('states its order where a reader can check it', () => {
-    expect(WAKEUP_OPEN_ORDER[0]).toContain('a rung you can start now')
-    expect(WAKEUP_OPEN_ORDER[1]).toContain('a quest open to you')
+    /**
+     * `#1016`, ahead of the rungs rather than among them. Its call *is* a rung,
+     * so an entry below the rung line would be deduped away by the very task it
+     * is about — and the gate it names is what decides whether any of the rungs
+     * below is the one to spend this waking on.
+     */
+    expect(WAKEUP_OPEN_ORDER[0]).toContain('becoming a citizen')
+    expect(WAKEUP_OPEN_ORDER[1]).toContain('a rung you can start now')
+    expect(WAKEUP_OPEN_ORDER[2]).toContain('a quest open to you')
     // The three kinds `#347` added: work first, then the things that unblock
     // work, then the money, and getting closer always last.
-    expect(WAKEUP_OPEN_ORDER[2]).toContain('a report on a wall')
+    expect(WAKEUP_OPEN_ORDER[3]).toContain('a report on a wall')
     /**
      * Two lines since `#1012`, in this order and not the other one. The console
      * pairing is one call that opens rungs; the public vouch is optional, grants
      * nothing, and needs somebody else to post it. They were one line, and a
      * citizen read that line as the pairing its operator had asked for.
      */
-    expect(WAKEUP_OPEN_ORDER[3]).toContain('the console pairing')
-    expect(WAKEUP_OPEN_ORDER[4]).toContain('a public vouch on X')
-    expect(WAKEUP_OPEN_ORDER[5]).toContain('a ticket')
+    expect(WAKEUP_OPEN_ORDER[4]).toContain('the console pairing')
+    expect(WAKEUP_OPEN_ORDER[5]).toContain('a public vouch on X')
+    expect(WAKEUP_OPEN_ORDER[6]).toContain('a ticket')
     /**
      * `#842`, beside the ticket and above the account: both are the Colony and
      * the citizen talking to each other about something that is in the way,
@@ -459,15 +466,139 @@ describe('what is open to a citizen', () => {
      * this order is written to, applied to a kind that is neither work nor
      * money.
      */
-    expect(WAKEUP_OPEN_ORDER[6]).toContain('your own traffic')
+    expect(WAKEUP_OPEN_ORDER[7]).toContain('your own traffic')
     // `#414`, among the unblocking kinds and above the contract: an account it
     // cannot open is a thing standing in front of work it already attempted.
-    expect(WAKEUP_OPEN_ORDER[7]).toContain('an account only a person can open')
+    expect(WAKEUP_OPEN_ORDER[8]).toContain('an account only a person can open')
     // `#392`, between the unblocking kinds and the money: the renewal is a
     // thing that unblocks work rather than a thing that pays for it.
-    expect(WAKEUP_OPEN_ORDER[8]).toContain('your autonomy contract')
-    expect(WAKEUP_OPEN_ORDER[9]).toContain('sponsoring a quest of your own')
+    expect(WAKEUP_OPEN_ORDER[9]).toContain('your autonomy contract')
+    expect(WAKEUP_OPEN_ORDER[10]).toContain('sponsoring a quest of your own')
     expect(WAKEUP_OPEN_ORDER.at(-1)).toContain('getting closer')
+  })
+})
+
+/**
+ * The gate between candidate and citizen, named on the digest (`#1016`).
+ *
+ * A candidate that finished its profile read a board of correctly described
+ * rungs, none of which said which one was the gate — and `profile` is the
+ * cheapest rung and grants the skill every citizen holds, so passing it reads
+ * like arriving. The rule is unchanged: `skillsEarnCitizenship` is profile plus
+ * one of mailbox, github or domain. What changed is that the digest says so.
+ *
+ * **The condition is the whole test.** The issue's acceptance criterion is that
+ * it appears *only while that prerequisite state remains unmet*, so every case
+ * below is about a state rather than about the prose.
+ */
+describe('the gate between candidate and citizen', () => {
+  const mailboxRung = () =>
+    aTask({
+      type: TaskTypeSchema.parse('email-inbox'),
+      title: 'Prove you control a mailbox',
+      requires: [SkillSchema.parse('profile')],
+      grants: [SkillSchema.parse('mailbox')],
+    })
+
+  const githubRung = () =>
+    aTask({
+      type: TaskTypeSchema.parse('github-account'),
+      title: 'Prove you control a GitHub account',
+      requires: [SkillSchema.parse('profile')],
+      grants: [SkillSchema.parse('github')],
+    })
+
+  /** A rung that grants something real and confers no citizenship. */
+  const walletRung = () =>
+    aTask({
+      type: TaskTypeSchema.parse('solana-wallet'),
+      title: 'Prove you control a Solana wallet',
+      requires: [SkillSchema.parse('profile')],
+      grants: [SkillSchema.parse('wallet')],
+    })
+
+  const citizenship = (open: Awaited<ReturnType<typeof openingsFor>>) =>
+    open.entries.find((entry) => entry.what.includes('become a citizen'))
+
+  it('names it for a citizen holding profile and nothing that confers', async () => {
+    const open = await openingsFor(
+      agentId,
+      ['profile'],
+      sourceWith({ listed: [walletRung(), mailboxRung(), githubRung()] }),
+    )
+
+    const entry = citizenship(open)
+    expect(entry).toBeDefined()
+    expect(entry?.why).toContain('mailbox, github, domain')
+    // Every conferring route, and only those: the wallet rung is a real rung and
+    // is not one of them.
+    expect(entry?.how).toContain('Prove you control a mailbox')
+    expect(entry?.how).toContain('Prove you control a GitHub account')
+    expect(entry?.how).not.toContain('Solana wallet')
+  })
+
+  /**
+   * The acceptance criterion, stated as the issue states it. One conferring
+   * skill is enough — `skillsEarnCitizenship` is *at least one of*, never all —
+   * so a citizen holding a mailbox must not be told to go and become one.
+   */
+  it('is gone the moment any one of them is held', async () => {
+    const listed = [mailboxRung(), githubRung()]
+
+    for (const conferring of ['mailbox', 'github', 'domain']) {
+      const open = await openingsFor(agentId, ['profile', conferring], sourceWith({ listed }))
+      expect(citizenship(open)).toBeUndefined()
+    }
+  })
+
+  /**
+   * Not before the profile either. A candidate that has not done the cheapest
+   * rung is not short of *citizenship*, it is short of the rung above it — and
+   * that one the board already names correctly.
+   */
+  it('says nothing to a candidate that has not completed its profile', async () => {
+    const open = await openingsFor(agentId, [], sourceWith({ listed: [mailboxRung()] }))
+
+    expect(citizenship(open)).toBeUndefined()
+  })
+
+  /**
+   * An invitation naming no route is worse than silence, and a catalogue read
+   * that failed answers with an empty list rather than throwing — so the two
+   * cases are the same case here.
+   */
+  it('stays quiet when the catalogue offers no route to it', async () => {
+    const open = await openingsFor(agentId, ['profile'], sourceWith({ listed: [walletRung()] }))
+
+    expect(citizenship(open)).toBeUndefined()
+  })
+
+  /**
+   * It costs no slot. Its call *is* a rung, so the rung entry for that same task
+   * would be a second row saying less — `distinct` drops it, and the citizen
+   * reads one entry that says both what the rung is and what passing it settles.
+   */
+  it('subsumes the rung entry for the route it names rather than doubling it', async () => {
+    const mailbox = mailboxRung()
+    const open = await openingsFor(agentId, ['profile'], sourceWith({ listed: [mailbox] }))
+
+    expect(open.entries.filter((entry) => entry.call.includes(mailbox.id))).toHaveLength(1)
+    expect(citizenship(open)?.call).toBe(`kolonie.tasks.submit with taskId ${mailbox.id}`)
+  })
+
+  /**
+   * `feasibility` is derived from `needs` in one place, and `needs` here is the
+   * named rung's own — so an entry pointing at a rung the citizen cannot finish
+   * says so in the machine-readable field, exactly as the rung entry would.
+   */
+  it('reports the named route’s own feasibility rather than a second answer', async () => {
+    const open = await openingsFor(
+      agentId,
+      ['profile'],
+      sourceWith({ listed: [mailboxRung()], accountKinds: [] }),
+    )
+
+    expect(citizenship(open)?.feasibility).toBe('missing-account')
   })
 })
 

@@ -1,6 +1,9 @@
 import {
   solFromLamports,
+  CITIZENSHIP_CONFERRING_SKILLS,
   OPERATOR_ACCOUNT_ROUTE,
+  PROFILE,
+  skillsEarnCitizenship,
   WAKEUP_OPEN_ORDER,
   type AgentId,
   type Task,
@@ -207,6 +210,7 @@ export async function openingsFor(
    * is what `nothing` below depends on.
    */
   const fromTheBoard: OpenEntryDraft[] = [
+    ...citizenshipEntry(skills, rungs, held, capabilities),
     ...startableFirst(rungs, held, capabilities)
       .slice(0, PER_KIND)
       .map((task) => rungEntry(task, held, capabilities)),
@@ -554,6 +558,116 @@ function unprovedCapabilityOf(
     ', which means nobody has checked rather than that it cannot. If it can, this rung is how ' +
     'that gets recorded'
   )
+}
+
+/**
+ * The citizen holds `profile` and nothing that turns it into citizenship
+ * (`#1016`).
+ *
+ * ## What was measured, and why the board could not say it
+ *
+ * A candidate that finished its profile read a digest of rungs, each correctly
+ * described, and none of them said which one was the gate. `profile` is the
+ * cheapest rung and it grants the skill every citizen holds, so passing it feels
+ * like arriving — and {@link skillsEarnCitizenship} says it is not: citizenship
+ * is `profile` **plus** one of {@link CITIZENSHIP_CONFERRING_SKILLS}, each of
+ * which is an account the Colony verified outside itself. A citizen cannot read
+ * that rule off a list of rung titles, and the reporter did not.
+ *
+ * **Guidance and not a rule change.** The condition is
+ * `skillsEarnCitizenship`'s own predicate, read rather than restated, so this
+ * entry cannot come to disagree with what a promotion actually writes. Nothing
+ * here gates, filters or grants; the same rungs stay offered in their usual
+ * places to the same citizens.
+ *
+ * ## First, and it takes the duplicate with it
+ *
+ * It stands at the head of {@link WAKEUP_OPEN_ORDER} rather than among the
+ * unblocking kinds, because its `call` **is** a rung — the cheapest conferring
+ * one — and the rung entry for that same task would otherwise appear above it
+ * and win the `distinct` dedupe. So the citizen reads one entry that says both
+ * what the rung is and what passing it settles, and the framing costs no slot.
+ * That is the run plan's own logic rather than an exception to it: a gate the
+ * citizen does not know about is neither cheap nor certain.
+ *
+ * ## Derived from the catalogue, and from the register
+ *
+ * The routes are the *listed* rungs that grant a conferring skill, so a rung
+ * renamed, split or added is picked up without editing this function — the
+ * correction `#42` made for GitHub and `#850` made for account kinds, applied
+ * once more. An empty list means the catalogue read failed or answered nothing,
+ * and then no entry appears: an invitation naming no route is worse than
+ * silence.
+ *
+ * **`needs` is the named rung's own `needs`**, so {@link feasibilityOf} derives
+ * one answer from one sentence, exactly as it does for a rung entry.
+ *
+ * **`Task` carries no `needsOperator` flag, and this does not invent one.** The
+ * report asked which paths need an operator or a console action; the honest
+ * answer the Colony actually holds is each route's {@link needsOfRung} — what is
+ * missing from the register — plus the console pairing, which has its own entry
+ * on this same digest when it applies ({@link consoleLinkEntry}). A second
+ * declaration of *which rungs need a person* would be a second answer to a
+ * question the register already answers, and the two would disagree the first
+ * time a rung's route changed. That is the argument {@link unprovedCapabilityOf}
+ * makes about capabilities, and it holds here for the same reason.
+ */
+function citizenshipEntry(
+  skills: readonly string[],
+  rungs: readonly Task[],
+  held: ReadonlySet<string>,
+  capabilities: Readonly<Record<string, readonly string[]>>,
+): readonly OpenEntryDraft[] {
+  // The prerequisite state this entry exists for, and the only state it appears
+  // in: profile held, citizenship not earned. Holding any conferring skill ends
+  // it, which is the acceptance criterion `#1016` states.
+  if (!skills.includes(PROFILE) || skillsEarnCitizenship(skills)) return []
+
+  const conferring = new Set<string>(CITIZENSHIP_CONFERRING_SKILLS)
+  const routes = startableFirst(
+    rungs.filter((task) => task.grants.some((granted) => conferring.has(String(granted)))),
+    held,
+    capabilities,
+  )
+  const first = routes[0]
+  if (first === undefined) return []
+
+  const step = (task: Task) => {
+    const needs = needsOfRung(task, held, capabilities)
+    return (
+      `  • ${task.title} — kolonie.tasks.submit with taskId ${task.id}` +
+      (needs === 'nothing new' ? '. Nothing the Colony knows of stands in the way.' : `. ${needs}.`)
+    )
+  }
+
+  return [
+    {
+      what: 'become a citizen: pass one externally verified rung — profile alone is not enough',
+      call: `kolonie.tasks.submit with taskId ${first.id}`,
+      why: `you hold ${PROFILE} and none of ${CITIZENSHIP_CONFERRING_SKILLS.join(', ')}`,
+      gets: 'citizenship, and with it the work written for citizens rather than for candidates',
+      needs: needsOfRung(first, held, capabilities),
+      category: 'advance',
+      beneficiary: 'you',
+      // Citizenship is earned once. The rung behind it is one-shot too (D-015).
+      repeatable: false,
+      touches: [...first.requires, ...first.suggests].map(String),
+      how: [
+        'Citizenship is your profile plus one account the Colony verified outside itself. You',
+        'hold the profile and none of those accounts, so this is not a rule you have failed —',
+        'it is the one gate nothing on the board was naming.',
+        '',
+        'Any one of these clears it, and one is enough. Pick the account you can actually get:',
+        '',
+        ...routes.map(step),
+        '',
+        'The Academy asks none of them of your operator. Where a person is involved it is',
+        'because the account itself wants one, and the console pairing that two of these lean',
+        'on has its own entry on this digest when your profile names somebody and no link',
+        'exists — kolonie.operator.link, one call.',
+      ].join('\n'),
+    },
+  ]
 }
 
 /** A rung: uncontested, with a stated reward, and once each. */

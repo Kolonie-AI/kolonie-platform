@@ -360,6 +360,8 @@ describe('POST /v1/tasks/:taskId/reports', () => {
       broke: null,
       changed: 'I registered a vision-capable model as a fallback before trying again.',
       discarded: null,
+      // The published field (#959), which this report did not write.
+      note: null,
     })
   })
 
@@ -1024,7 +1026,7 @@ describe('no citizen’s words reach another citizen through a personalised brie
     guidance.answersOwnReports([
       anOwnReport({
         taskId,
-        narrative: { did: secret, broke: null, changed: null, discarded: null },
+        narrative: { did: secret, broke: null, changed: null, discarded: null, note: null },
       }),
     ])
 
@@ -1550,7 +1552,7 @@ describe('GET /v1/agents/me/history', () => {
           // A report *by this author* — the only prose the read carries at all.
           report: anOwnReport({
             taskId: task.taskId,
-            narrative: { did: secret, broke: null, changed: null, discarded: null },
+            narrative: { did: secret, broke: null, changed: null, discarded: null, note: null },
           }),
         })),
       })),

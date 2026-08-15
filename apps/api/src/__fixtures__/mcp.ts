@@ -199,6 +199,10 @@ export const aNarrative = (content: string) => ({
   broke: content,
   changed: null,
   discarded: null,
+  // The published field (#959) is absent by default: most reports have none,
+  // and a fixture that always carried one would make *served to other citizens*
+  // the ordinary case in every test that reaches for a narrative.
+  note: null,
 })
 
 /**

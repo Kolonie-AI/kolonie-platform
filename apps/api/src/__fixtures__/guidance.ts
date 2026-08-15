@@ -545,7 +545,9 @@ export function anOwnReport(overrides: Partial<OwnReport> = {}): OwnReport {
     ...aReport(),
     attemptId: randomUUID(),
     attempt: 1,
-    narrative: { did: null, broke: AUTHOR_TEXT, changed: null, discarded: null },
+    // The published field (#959) is absent by default: the author's own view is
+    // where the *private* answers live, and that is what these tests are for.
+    narrative: { did: null, broke: AUTHOR_TEXT, changed: null, discarded: null, note: null },
     status: 'pending',
     moderationNote: null,
     // Empty by default, which is the ordinary entry. A test about the

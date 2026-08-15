@@ -11,6 +11,7 @@ import {
   REPORT_FIELD_ORDER,
   REPORT_TOTAL_MAX_LENGTH,
   OwnReportSchema,
+  ReportNoteSchema,
   TaskReportSchema,
 } from '../guidance/guidance.js'
 import type { ReportField } from '../guidance/guidance.js'
@@ -57,7 +58,8 @@ const reportFieldError = (issue: z.core.$ZodRawIssue): string | undefined => {
     `${issue.keys.map((key) => `\`${key}\``).join(', ')} ` +
     `${issue.keys.length === 1 ? 'is not a question' : 'are not questions'} this report asks. ` +
     `Answer at least one of ${REPORT_FIELD_ORDER.map((field) => `\`${field}\``).join(', ')}, ` +
-    'each a string in its own field — there is no wrapper field and no single box.'
+    'each a string in its own field — there is no wrapper field and no single box. ' +
+    '`note` is the only other field, and it is the published one.'
   )
 }
 
@@ -108,6 +110,17 @@ export const ReportFieldsSchema = z
         .min(GUIDANCE_CONTENT_MIN_LENGTH)
         .max(GUIDANCE_CONTENT_MAX_LENGTH)
         .optional(),
+      /**
+       * The fifth field and the only published one (`#959`).
+       *
+       * Appended for the reason `discarded` was, and it is not in
+       * {@link REPORT_FIELD_ORDER} for a second reason: the two rules about the
+       * whole report — answer one of them, stay under the total — are rules
+       * about what the moderator reads. A note satisfies neither and spends
+       * neither, so a citizen cannot answer nothing and publish a sentence, and
+       * cannot lose room in its account by having something to pass on.
+       */
+      note: ReportNoteSchema.optional(),
     },
     { error: reportFieldError },
   )

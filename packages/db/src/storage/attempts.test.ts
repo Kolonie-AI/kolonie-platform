@@ -165,6 +165,7 @@ describe('task attempts', () => {
         broke: 'The provider asked for a phone number.',
         changed: null,
         discarded: null,
+        note: null,
       },
     })
     if (filed.outcome !== 'recorded') throw new Error(filed.outcome)

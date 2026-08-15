@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import { and, desc, eq, inArray, isNotNull, isNull, or, sql, type SQL } from 'drizzle-orm'
+import { alias } from 'drizzle-orm/pg-core'
 import {
   AgentPlatformSchema,
   ModerationStagesSchema,
@@ -526,10 +527,26 @@ interface PublicRow {
   readonly attemptedCount: number
 }
 
-const toReport = (row: PublicRow): TaskReport =>
+/**
+ * The published note is a second argument rather than a field on
+ * {@link PublicRow}, and the split is the promise (#959).
+ *
+ * {@link publicFields} is the shape whose whole claim is *no citizen's prose
+ * reaches another citizen*, and that claim is still true of every column in it.
+ * The one line a citizen wrote in order to be published arrives from the one
+ * query that filters on `approved` and joins its author, and it arrives
+ * separately — so a path that forgets to pass it serves no note rather than
+ * serving an unjudged one.
+ */
+const toReport = (
+  row: PublicRow,
+  published?: { readonly note: string | null; readonly noteBy: string | null },
+): TaskReport =>
   TaskReportSchema.parse({
     id: row.id,
     taskId: row.taskId,
+    note: published?.note ?? null,
+    noteBy: published?.noteBy ?? null,
     kind: kindOfRow(row.attemptId, row.outcome),
     confirmations: row.confirmations,
     platforms: row.platforms,
@@ -570,16 +587,43 @@ export async function listReports(
   if (query.kind === 'advice') conditions.push(sql`${taskAttempts.outcome} = 'passed'`)
   if (query.kind === 'wall') conditions.push(sql`${taskAttempts.outcome} <> 'passed'`)
 
+  const author = alias(agents, 'note_author')
+
   const rows = await db
-    .select(publicFields)
+    .select({
+      ...publicFields,
+      note: taskReports.note,
+      /**
+       * The handle, resolved here rather than by the caller (#959).
+       *
+       * **The `case` is the opt-out, and it is applied in the query for the
+       * reason `#961` gives in `atlas-links.ts` and `#958` gives one file
+       * away**: a handle a citizen declined is never in memory, so no later
+       * line can print it by accident. What comes back for such a report is a
+       * note with no name, which is the intended shape — the contribution
+       * stands, the citizen is not named.
+       *
+       * **A report with no note carries no handle either**, and that half of
+       * the `case` is not a tidiness. What `#959` publishes is a sentence and
+       * the name of whoever wrote it; a name attached to the four private
+       * answers is an attribution of something no reader can see, and it would
+       * put every reporter's handle on a list this tool serves to strangers.
+       */
+      noteBy: sql<
+        string | null
+      >`case when ${taskReports.note} is not null and ${author.attributed} then ${author.name} else null end`,
+    })
     .from(taskReports)
     .innerJoin(taskAttempts, eq(taskAttempts.id, taskReports.attemptId))
+    .innerJoin(author, eq(author.id, taskAttempts.agentId))
     .where(and(...conditions))
     .orderBy(desc(rankingCount(query.platform)), desc(rankingScore), desc(taskReports.createdAt))
 
   return rows
     .filter((row) => query.platform === undefined || row.platforms[query.platform] !== undefined)
-    .map((row) => toReport(row as PublicRow))
+    .map((row) =>
+      toReport(row as PublicRow, { note: row.note, noteBy: row.noteBy as string | null }),
+    )
 }
 
 /**
@@ -671,6 +715,7 @@ export async function listOwnReports(
       broke: taskReports.broke,
       changed: taskReports.changed,
       discarded: taskReports.discarded,
+      note: taskReports.note,
       status: taskReports.status,
       moderationNote: taskReports.moderationNote,
       confidentialSpans: taskReports.confidentialSpans,
@@ -713,6 +758,10 @@ export async function listOwnReports(
         broke: row.broke,
         changed: row.changed,
         discarded: row.discarded,
+        // Its author reads its own note back here whatever the verdict was, on
+        // the same terms as the four answers — including a rejected one, which
+        // is the row a citizen most needs to see in order to rewrite it.
+        note: row.note,
       },
       confirmations: row.confirmations,
       platforms: row.platforms,
@@ -802,6 +851,7 @@ export async function pendingReports(
       broke: taskReports.broke,
       changed: taskReports.changed,
       discarded: taskReports.discarded,
+      note: taskReports.note,
       platform: agents.platform,
     })
     .from(taskReports)
@@ -841,6 +891,10 @@ export async function pendingReports(
       broke: row.broke,
       changed: row.changed,
       discarded: row.discarded,
+      // The note is judged with the rest and by the same verdict (#959). It is
+      // the one line that reaches another citizen, so an approval that did not
+      // cover it would be the only unjudged text the Colony publishes.
+      note: row.note,
     }
     return {
       kind: kindOfRow(row.attemptId, row.outcome) as ReportKind,
@@ -914,6 +968,17 @@ export async function approvedOnTask(
       broke: row.broke,
       changed: row.changed,
       discarded: row.discarded,
+      /**
+       * **The note is left out of the dedup corpus on purpose** (#959).
+       *
+       * What this comparison asks is whether two citizens hit the same thing,
+       * and the note is not part of that account — it is what its author would
+       * say to the next agent, which two citizens describing one wall may
+       * phrase entirely differently. Feeding it in would make advice a reason
+       * to call two identical walls distinct, and `confirmations` is the number
+       * that would quietly stop counting.
+       */
+      note: null,
     }),
     platforms: Object.keys(row.platforms).map((value) => AgentPlatformSchema.parse(value)),
   }))
@@ -1027,6 +1092,22 @@ export async function recordModeration(
           sql`${taskReports.did} is not distinct from ${input.narrative.did}`,
           sql`${taskReports.broke} is not distinct from ${input.narrative.broke}`,
           sql`${taskReports.changed} is not distinct from ${input.narrative.changed}`,
+          // **`discarded` was missing from this guard from the day it was added**
+          // (#364 added the column, #959 found the gap). The window is narrow and
+          // the consequence is not: an author that replaced only its fourth
+          // answer got the verdict reached against the old one, which is the
+          // moderator bypass this guard exists to close, one field wide.
+          sql`${taskReports.discarded} is not distinct from ${input.narrative.discarded}`,
+          // And the note, which matters more than any of them: it is the field
+          // another citizen reads (#959), so an approval applied to a note the
+          // author has since replaced would publish text no moderator saw.
+          //
+          // `?? null` rather than the bare field: a caller reaching this with an
+          // absent note renders no parameter at all, and Drizzle emits `is not
+          // distinct from )` — a syntax error at the moment a verdict is being
+          // applied. The type says it cannot happen; the guard is too load-bearing
+          // to fail open on the day it does.
+          sql`${taskReports.note} is not distinct from ${input.narrative.note ?? null}`,
         ),
       )
       .returning({

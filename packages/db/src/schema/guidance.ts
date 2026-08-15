@@ -19,6 +19,7 @@ import {
   GUIDANCE_CONTENT_MIN_LENGTH,
   MODERATED_STATUSES,
   MODERATION_NOTE_MAX_LENGTH,
+  REPORT_NOTE_MAX_LENGTH,
   REPORT_TOTAL_MAX_LENGTH,
   type BriefingClaim,
   type ConfidentialSpan,
@@ -32,6 +33,7 @@ const moderatedStatusList = sql.raw(MODERATED_STATUSES.map((s) => `'${s}'`).join
 const minLength = sql.raw(String(GUIDANCE_CONTENT_MIN_LENGTH))
 const maxLength = sql.raw(String(GUIDANCE_CONTENT_MAX_LENGTH))
 const totalMax = sql.raw(String(REPORT_TOTAL_MAX_LENGTH))
+const noteMax = sql.raw(String(REPORT_NOTE_MAX_LENGTH))
 
 /**
  * What the Colony itself says about a task, beyond its instructions.
@@ -301,6 +303,29 @@ export const taskReports = pgTable(
      */
     discarded: text('discarded'),
 
+    /**
+     * The one column here that another citizen ever reads (#959).
+     *
+     * **Separate from the four above because its audience is**. Those are
+     * written for the moderator, and the candour that makes them worth having is
+     * bought with the promise that nobody else will read them — a promise that
+     * cannot be withdrawn retroactively for text already written under it. This
+     * one is written knowing it will be published, with its author's handle
+     * beside it, and that is the whole of what makes serving it legitimate.
+     *
+     * Nullable, and absent is the ordinary case. Nothing about a report, a
+     * verdict, a reward or a citizen's standing reads whether this is filled —
+     * `#959` has a test that says so, because a published field that quietly
+     * paid would turn every report into an advertisement.
+     *
+     * Its own ceiling rather than the shared one: a note is a sentence or two,
+     * and the check below is what keeps it from growing into a second account of
+     * the task. It is not counted by the total-length check either, so having
+     * something to pass on never costs a citizen room in what it tells the
+     * moderator.
+     */
+    note: text('note'),
+
     status: moderationStatus('status').notNull().default('pending'),
 
     /**
@@ -423,6 +448,22 @@ export const taskReports = pgTable(
           and (${table.broke} is null or char_length(${table.broke}) between ${minLength} and ${maxLength})
           and (${table.changed} is null or char_length(${table.changed}) between ${minLength} and ${maxLength})
           and (${table.discarded} is null or char_length(${table.discarded}) between ${minLength} and ${maxLength})`,
+    ),
+    /**
+     * The published note, on its own much shorter bound (#959).
+     *
+     * A separate check rather than a fifth clause above, because it is a
+     * separate rule: the four share a ceiling because they share a reader, and
+     * this one is short precisely so it cannot become a second account of the
+     * task competing with the briefing.
+     *
+     * `published` is in the name because `task_reports_note_length` was already
+     * taken — by the bound on `moderationNote`, which no citizen ever reads.
+     */
+    check(
+      'task_reports_published_note_length',
+      sql`${table.note} is null
+          or char_length(${table.note}) between ${minLength} and ${noteMax}`,
     ),
     check(
       'task_reports_total_length',

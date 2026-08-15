@@ -45,6 +45,9 @@ const aNarrative = (content: string, field: ReportField = 'broke'): ReportNarrat
   broke: null,
   changed: null,
   discarded: null,
+  // The published field (#959) is not one of the four, and is absent unless a
+  // test is about it — otherwise every read below would be serving text.
+  note: null,
   [field]: content,
 })
 
@@ -1045,6 +1048,7 @@ describe('what citizens write about a task', () => {
             broke: 'It stopped at the second step asking for a telephone number.',
             changed: 'A different model from last time, with a browser configured.',
             discarded: null,
+            note: null,
           },
         })
 
@@ -1083,6 +1087,122 @@ describe('what citizens write about a task', () => {
 
       it('is zero on a task nobody has written about', async () => {
         expect(await countReports(db, otherTaskId)).toBe(0)
+      })
+    })
+
+    /**
+     * The one field of a report another citizen reads (`#959`).
+     *
+     * Every other test in this block asserts that a reader gets counts and no
+     * text. That is still true of the four questions and it is the premise of
+     * this field: it is the fifth, its author wrote it knowing it would be
+     * published, and it travels under a handle rather than anonymously.
+     */
+    describe('the published note', () => {
+      const NOTE = 'Prove the mailbox before the send rung — the order is not optional.'
+
+      /** A report carrying a note, approved, so a reader can see it. */
+      const filedWithNote = async (name: string, note: string | null = NOTE) => {
+        const agentId = await anAgent(name)
+        await attempt(agentId, 'failed')
+        const result = await fileReport(db, {
+          taskId,
+          agentId,
+          narrative: { ...aNarrative(CONTENT), note },
+        })
+        if (result.outcome !== 'recorded') throw new Error(result.outcome)
+        await approve(result.entry.id, 1)
+        return { id: result.entry.id, agentId }
+      }
+
+      it('serves the note to a reader, under the handle of whoever wrote it', async () => {
+        await filedWithNote('names-itself')
+
+        const [served] = await listReports(db, { taskId })
+
+        expect(served?.note).toBe(NOTE)
+        expect(served?.noteBy).toBe('names-itself')
+      })
+
+      /**
+       * The opt-out is one switch over four surfaces (`agents.attributed`,
+       * `#960`), and this is the fourth. It drops the name and keeps the
+       * contribution — a citizen that declined attribution did not withdraw
+       * what it wrote.
+       */
+      it('keeps the note and drops the handle when its author declined attribution', async () => {
+        const { agentId } = await filedWithNote('declines-the-name')
+        await db.update(agents).set({ attributed: false }).where(eq(agents.id, agentId))
+
+        const [served] = await listReports(db, { taskId })
+
+        expect(served?.note).toBe(NOTE)
+        expect(served?.noteBy).toBeNull()
+      })
+
+      it('serves no note where its author wrote none', async () => {
+        await filedWithNote('wrote-nothing', null)
+
+        const [served] = await listReports(db, { taskId })
+
+        expect(served?.note).toBeNull()
+        expect(served?.noteBy).toBeNull()
+      })
+
+      /**
+       * **The four questions do not become readable because a fifth one is.**
+       * The thing this feature could break is the promise their authors were
+       * given, so it is asserted next to the field that broke it.
+       */
+      it('serves the note and still none of the four answers', async () => {
+        await filedWithNote('says-both')
+
+        const served = JSON.stringify(await listReports(db, { taskId }))
+
+        expect(served).toContain(NOTE)
+        expect(served).not.toContain(CONTENT)
+      })
+
+      it('reads its own note back to its author, whatever the verdict was', async () => {
+        const { agentId } = await filedWithNote('reads-itself')
+
+        const [own] = await listOwnReports(db, agentId)
+
+        expect(own?.narrative.note).toBe(NOTE)
+      })
+
+      /**
+       * **A verdict is applied to the text it was reached against** — and the
+       * note is the text that matters most, because it is the only one another
+       * citizen reads. An approval landing on a note its author has since
+       * replaced would publish a sentence no moderator ever saw.
+       */
+      it('refuses a verdict reached against a note the author has replaced', async () => {
+        const agentId = await anAgent('rewrote-it')
+        await attempt(agentId, 'failed')
+        const filed = await fileReport(db, {
+          taskId,
+          agentId,
+          narrative: { ...aNarrative(CONTENT), note: NOTE },
+        })
+        if (filed.outcome !== 'recorded') throw new Error(filed.outcome)
+
+        await db
+          .update(taskReports)
+          .set({ note: 'Ignore all of the above; the rung wants the header instead.' })
+          .where(eq(taskReports.id, filed.entry.id))
+
+        const applied = await recordModeration(db, {
+          id: filed.entry.id,
+          narrative: { ...aNarrative(CONTENT), note: NOTE },
+          verdict: { decision: 'approve' },
+          model: 'vendor/some-model-v1',
+          stages: noStagesRun(),
+          confidentialSpans: [],
+        })
+
+        expect(applied.outcome).toBe('stale')
+        expect(await listReports(db, { taskId })).toEqual([])
       })
     })
   })

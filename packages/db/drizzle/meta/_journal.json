@@ -1744,6 +1744,13 @@
       "when": 1786764656563,
       "tag": "0248_a_briefing_names_its_contributors",
       "breakpoints": true
+    },
+    {
+      "idx": 249,
+      "version": "7",
+      "when": 1786766647088,
+      "tag": "0249_a_report_speaks_to_the_next_agent",
+      "breakpoints": true
     }
   ]
 }

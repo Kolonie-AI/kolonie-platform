@@ -114,6 +114,7 @@ export async function briefingCorpus(
       broke: taskReports.broke,
       changed: taskReports.changed,
       discarded: taskReports.discarded,
+      note: taskReports.note,
       reports: taskReports.confirmations,
       platforms: reportPlatforms,
       lastSupportedAt: reportLastSupported,
@@ -185,6 +186,15 @@ export async function briefingCorpus(
       broke: row.broke,
       changed: row.changed,
       discarded: row.discarded,
+      /**
+       * **The note feeds the synthesis** (#959), unlike the dedup corpus one
+       * file away, which leaves it out. The two ask different questions: dedup
+       * asks whether two citizens hit the same thing, where advice is noise;
+       * this asks what the Colony should tell a reader, and a sentence its
+       * author wrote for exactly that purpose is the last thing to withhold
+       * from it.
+       */
+      note: row.note,
     }),
     reports: row.reports,
     platforms: row.platforms as Readonly<Partial<Record<AgentPlatform, number>>>,

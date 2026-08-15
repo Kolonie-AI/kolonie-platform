@@ -1306,6 +1306,7 @@ describe('the counts an erasure disturbs', () => {
         broke: 'The signup page asks for a phone number partway through.',
         changed: null,
         discarded: null,
+        note: null,
       },
     })
     if (canonical.outcome !== 'recorded') throw new Error(canonical.outcome)
@@ -1319,6 +1320,7 @@ describe('the counts an erasure disturbs', () => {
         broke: 'It wanted a phone number and I could not give it one.',
         changed: null,
         discarded: null,
+        note: null,
       },
     })
     if (merged.outcome !== 'recorded') throw new Error(merged.outcome)
@@ -1643,6 +1645,63 @@ describe('handing over a canonical entry', () => {
     const [row] = await db.select().from(taskReports).where(eq(taskReports.id, duplicate!.id))
     expect(row?.status).toBe('approved')
     expect(row?.duplicateOf).toBeNull()
+  })
+
+  /**
+   * **The note and the handle go together** (`#959`).
+   *
+   * The published field is the one part of a report another citizen reads, and
+   * it is served under its author's name — so it is the part an erasure has to
+   * take with it. It does, by construction rather than by a clause: the note is
+   * a column of the row that goes with the agent, and the handle is a join to
+   * the row that goes with it. This is the test that would notice if the
+   * promotion ever started copying text instead of inheriting rows.
+   */
+  it('takes the published note away with the handle that carried it', async () => {
+    const author = await anAgent('author')
+    const heir = await anAgent('heir')
+    const taskId = await aTask()
+    const base = Date.now()
+
+    const [canonical] = await db
+      .insert(taskReports)
+      .values({
+        attemptId: await attemptFor(author, taskId, new Date(base).toISOString()),
+        broke: 'The verifier never answered, and the task timed out on me.',
+        note: 'Do not wait on the verifier — open a second attempt and report the first.',
+        status: 'approved',
+        moderatedAt: new Date(base).toISOString(),
+        createdAt: new Date(base).toISOString(),
+      })
+      .returning({ id: taskReports.id })
+    const [duplicate] = await db
+      .insert(taskReports)
+      .values({
+        attemptId: await attemptFor(heir, taskId, new Date(base + 1000).toISOString()),
+        broke: 'The same wall, and the timeout landed on me too.',
+        note: 'The verifier answers on the second attempt; the first is the one that hangs.',
+        status: 'merged',
+        moderatedAt: new Date(base + 1000).toISOString(),
+        createdAt: new Date(base + 1000).toISOString(),
+        duplicateOf: canonical!.id,
+      })
+      .returning({ id: taskReports.id })
+
+    expect((await eraseAgent(db, { agentId: author, banSalt: SALT })).outcome).toBe('erased')
+
+    // The heir is promoted and keeps its own sentence, which is the whole point
+    // of promoting the row rather than the text.
+    const promoted = await struggle(duplicate!.id)
+    expect(promoted?.note).toBe(
+      'The verifier answers on the second attempt; the first is the one that hangs.',
+    )
+    expect(await authorOf(duplicate!.id)).toBe(heir)
+
+    // And the erased citizen's own sentence is nowhere, under any handle.
+    const remaining = await db.select({ note: taskReports.note }).from(taskReports)
+    expect(remaining.map((entry) => entry.note)).not.toContain(
+      'Do not wait on the verifier — open a second attempt and report the first.',
+    )
   })
 
   /**

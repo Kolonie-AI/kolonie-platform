@@ -735,18 +735,22 @@ describe('the floor a sponsor meets', () => {
 
   /**
    * The floor measures lamports and says nothing about reputation, so a quest
-   * paying none is past it before it is read. Written by a steward because `#744`
-   * is what decides who may pay nothing — this test is about the floor, and the
-   * role keeps the other rule out of it.
+   * paying none is past it before it is read — `#744`'s separate rule is what
+   * catches it. Read off the sentence rather than a role: `#947` deleted the
+   * bypass this used to be written through, and which of the two rules answered
+   * is the only thing left that tells them apart.
    */
-  it('lets a quest that pays reputation alone straight through', async () => {
-    const written = await call(
-      anAgent(['steward']).key,
+  it('is not the rule that catches a quest paying reputation alone', async () => {
+    const refused = await call(
+      anAgent().key,
       'kolonie.quests.write',
       aDraft({ reward: { reputation: 5, lamports: 0 } }),
     )
 
-    expect(written.isError).toBeFalsy()
+    expect(refused.isError).toBe(true)
+    const said = JSON.stringify(refused.content)
+    expect(said).toContain('kolonie.support.open')
+    expect(said).not.toContain('an accepted answer is paid')
   })
 
   /**
@@ -804,6 +808,9 @@ describe('the floor a sponsor meets', () => {
  * The floor above says what a paying quest must reach. This says that zero is not
  * a way underneath it: a quest promising nothing is the Colony's own to ask, and a
  * citizen is offered both ways forward rather than told it lacks a role.
+ *
+ * Since `#947` no citizen holds a way through, whatever it holds — the sentence
+ * about the two routes is now the only answer this gate ever gives.
  */
 describe('the quest that pays nothing', () => {
   const unpaid = (overrides: Record<string, unknown> = {}) =>
@@ -827,10 +834,18 @@ describe('the quest that pays nothing', () => {
     expect((await call(sponsor.key, 'kolonie.quests.write', aDraft())).isError).toBeFalsy()
   })
 
-  it('takes it from a steward, which is whose quest an unpaid one is', async () => {
-    expect(
-      (await call(anAgent(['steward']).key, 'kolonie.quests.write', unpaid())).isError,
-    ).toBeFalsy()
+  /**
+   * **No role buys the way past it** (`#947`). `steward` did, and that was the
+   * one thing the shrink to a lever deleted rather than renamed: a role kept for
+   * emergencies must not also be a discount, or the next holder learns it from
+   * what it can do. The Colony's own zero is a row with no author and never
+   * reaches this function, so nothing it needs was lost with the bypass.
+   */
+  it('refuses the holder of the one privileged role exactly as it refuses anyone', async () => {
+    const refused = await call(anAgent(['steward']).key, 'kolonie.quests.write', unpaid())
+
+    expect(refused.isError).toBe(true)
+    expect(JSON.stringify(refused.content)).toContain('kolonie.support.open')
   })
 
   /** Priced at write and edited down to nothing is the way round a gate that only reads the write. */
@@ -1214,18 +1229,26 @@ describe('whether the sponsor can pay, asked before a steward reads it', () => {
     expect((await submit(sponsor.key, id)).isError).toBeFalsy()
   })
 
-  /** `questNeedsInvoice(0)` is false, so an empty wallet buys a free quest fine. */
+  /**
+   * `questNeedsInvoice(0)` is false, so an empty wallet buys a free quest fine.
+   *
+   * At a floor of zero because that is the only state a zero-lamport quest exists
+   * in now — `#947` deleted the role that used to be written through here, and a
+   * floor of zero is the deployment saying it is not policing what a quest
+   * promises. The invoice rule is what is under test either way.
+   */
   it('asks nothing of a quest that pays reputation only', async () => {
-    const steward = anAgent(['steward'])
+    quests.setPriceFloor(0)
+    const sponsor = anAgent()
     const written = await call(
-      steward.key,
+      sponsor.key,
       'kolonie.quests.write',
       aDraft({ reward: { reputation: 5, lamports: 0 } }),
     )
     const id = (structured(written).quest as unknown as { id: TaskId }).id
     quests.setSponsorFunding({ outcome: 'no-wallet' })
 
-    expect((await submit(steward.key, id)).isError).toBeFalsy()
+    expect((await submit(sponsor.key, id)).isError).toBeFalsy()
   })
 
   /**

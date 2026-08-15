@@ -41,7 +41,6 @@ import {
   type QuestReportKind,
   type QuestCommitmentBreakdown,
   type QuestTier,
-  type Role,
   type Task,
   type HumanId,
   type TaskId,
@@ -973,19 +972,25 @@ const floorOf = async (desk: QuestDesk, feePercent?: number): Promise<QuestFloor
  * and inventing one to answer this would be a much larger change than the rule
  * warrants.
  *
- * **`steward`, and that was decided rather than weighed here.** It is already the
- * quest-domain role, it is granted only by another steward — held to that in the
- * database by `tasks_only_colony_grants_roles`, so nothing an ordinary citizen
- * can do opens this gate — and the conflict-of-interest bans that travel with it
- * (D-052) mean the *steward publishes its own quest* case is already answered.
- * `governor` was the alternative and was rejected: it would hold a quest power it
- * has no other reason to exercise, while a steward would lack one it obviously
- * should.
+ * **No role opens it, and that is the change `#947` made.** `steward` used to:
+ * the holder published for nothing, on the argument that it was already the
+ * quest-domain role and carried the conflict-of-interest bans. The shrink kept
+ * two acts — end a quest, grant or revoke a role — and this was neither. **It is
+ * a privilege rather than an emergency**, and a privilege is exactly the kind of
+ * thing a role that survives only for emergencies must not still carry, or the
+ * next reader learns the role from what it can do rather than from why it
+ * exists.
+ *
+ * **The Colony's own zero still publishes**, because a Colony quest is a row with
+ * no author — `tasks.created_by is null` — and this function only ever sees a
+ * draft somebody wrote. The sentence below routes a citizen with a good question
+ * and no price to `kolonie.support.open`, and that route ends in a seeded row
+ * rather than in a role somebody has to be granted first.
  *
  * **Here rather than in `packages/core`.** `questRewardRejection` takes a quest
- * and knows nothing about who is asking, and giving it a caller would put an
- * authorisation question inside the domain model. It reads the roles beside that
- * call instead, so a sponsor still gets one sentence about its reward.
+ * and knows nothing about who is asking. Nothing about the caller is read any
+ * more, so this could move — it stays because this is where the sentence a
+ * sponsor reads about its reward is written, beside the other two rules.
  *
  * **Off when the floor is off.** `questPriceFloor` reads `0` as *this rule is not
  * in force*, and gating zero while a one-lamport quest is waved through would be
@@ -997,11 +1002,9 @@ const unpaidQuestRejection = (
     readonly publishObstacles?: boolean | undefined
     readonly reward: { readonly lamports: number }
   },
-  roles: readonly Role[],
   floor: QuestFloorTerms,
 ): string | undefined => {
   if (quest.reward.lamports > 0 || floor.lamports <= 0) return undefined
-  if (roles.includes('steward')) return undefined
 
   const smallest = questFloorReach(floor)
 
@@ -1026,8 +1029,6 @@ const unpaidQuestRejection = (
 export async function writeQuestDraft(
   input: {
     readonly authorId: AgentId
-    /** What the caller holds, for the zero-reward gate (`#744`). */
-    readonly roles: readonly Role[]
     readonly body: unknown
   },
   desk: QuestDesk,
@@ -1068,7 +1069,7 @@ export async function writeQuestDraft(
   const floor = await floorOf(desk)
   const priced =
     questRewardRejection(parsed.data, await capsOf(desk), floor) ??
-    unpaidQuestRejection(parsed.data, input.roles, floor)
+    unpaidQuestRejection(parsed.data, floor)
   if (priced !== undefined) {
     return { outcome: 'rejected', error: invalid(capitalised(priced)) }
   }
@@ -1115,8 +1116,6 @@ function skillsTheAcademyDoesNotGrant(requires: readonly string[]): ApiError | u
 export async function editQuestDraft(
   input: {
     readonly authorId: AgentId
-    /** What the caller holds, for the zero-reward gate (`#744`). */
-    readonly roles: readonly Role[]
     readonly questId: string | undefined
     readonly body: unknown
     readonly at: Timestamp
@@ -1165,8 +1164,7 @@ export async function editQuestDraft(
    * that only reads the write path, and it is the fourth case the issue names.
    */
   const priced =
-    questRewardRejection(merged, await capsOf(desk), floor) ??
-    unpaidQuestRejection(merged, input.roles, floor)
+    questRewardRejection(merged, await capsOf(desk), floor) ?? unpaidQuestRejection(merged, floor)
   if (priced !== undefined) {
     return { outcome: 'rejected', error: invalid(capitalised(priced)) }
   }
@@ -1265,8 +1263,6 @@ export async function discardQuestDraft(
 export async function submitQuest(
   input: {
     readonly authorId: AgentId
-    /** What the caller holds, for the zero-reward gate (`#744`). */
-    readonly roles: readonly Role[]
     readonly questId: string | undefined
     readonly at: Timestamp
     /** Injected so the expiry boundary is testable without waiting for one. */
@@ -1332,7 +1328,7 @@ export async function submitQuest(
    */
   const priced =
     questRewardRejection(own.task, await capsOf(desk), floor) ??
-    unpaidQuestRejection(own.task, input.roles, floor)
+    unpaidQuestRejection(own.task, floor)
   if (priced !== undefined) {
     return { outcome: 'rejected', error: invalid(capitalised(priced)) }
   }
@@ -1888,8 +1884,6 @@ export interface QuestToppedUpResponse {
 export async function topUpQuest(
   input: {
     readonly sponsorId: AgentId
-    /** What the caller holds, for the zero-reward gate (`#744`). */
-    readonly roles: readonly Role[]
     readonly questId: string | undefined
     readonly body: unknown
     readonly now?: Date | undefined
@@ -1943,7 +1937,7 @@ export async function topUpQuest(
    */
   const belowFloor =
     questPriceFloorRejection(own.task, floor, await capsOf(desk)) ??
-    unpaidQuestRejection(own.task, input.roles, floor)
+    unpaidQuestRejection(own.task, floor)
   if (belowFloor !== undefined) {
     return {
       outcome: 'rejected',

@@ -196,12 +196,20 @@ export const PROFILE_CHECK_VALUE_MAX_LENGTH = 2000
  * Deliberately short. Every entry here is a name no citizen may ever hold, and
  * a long list of ordinary words would be the Colony quietly reserving the
  * vocabulary its citizens describe themselves in.
+ *
+ * **A retired office keeps its word** (`#947`). `steward` and `warden` are both
+ * here and only one of them is a live role: the desk was shrunk to a lever and
+ * renamed, and a privileged word that becomes claimable the moment the Colony
+ * stops using it is a phishing surface rather than a freed name. Nobody reading
+ * `steward-of-kolonie` in a citizen list would check which year the role ended.
+ * So the list only ever grows, and a rename adds to it rather than swapping.
  */
 export const RESERVED_HANDLE_FRAGMENTS = [
   'kolonie',
   'moderator',
   'maintainer',
   'steward',
+  'warden',
   'official',
   'admin',
   'support',

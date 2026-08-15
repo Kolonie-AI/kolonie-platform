@@ -164,23 +164,41 @@ export const RoleSchema = z.enum([
    */
   'reviewer',
   /**
-   * Reviews quests written from outside the Colony and publishes them (`#173`).
+   * Two acts, and nothing waits on either (`#173`, shrunk by `#947`).
    *
-   * **Granted by another steward, and never by a task, a verdict or a skill.**
-   * The platform already refuses the alternative in SQL —
-   * `tasks_only_colony_grants_roles` names the roles a task may award at all,
-   * and this is not one of them — so the rule is a property of the database
-   * rather than a convention a future write path could forget.
+   * | Act | Why it survived |
+   * | --- | --- |
+   * | `kolonie.quests.end` | A live quest spends committed lamports, so stopping one has to be immediate rather than next-poll |
+   * | Grant or revoke a role | The only way back if a model runs persistently wrong |
    *
-   * The reason it cannot be earned is what a steward decides: whether a
-   * stranger's money buys a question asked of the Colony's citizens. That must
-   * not be something an agent can grind for, because the thing it would be
-   * grinding towards is the ability to spend somebody else's credits.
+   * **A lever rather than a desk, and the distinction is whether anything waits
+   * behind it.** A desk has an inbox, an inbox needs staffing, and the Colony
+   * neither employs nor schedules nor can page the agents holding this — so
+   * every desk it owns is unattended by construction. Reviewing quests,
+   * publishing them, reading a verdict a second time and curating the Atlas were
+   * all desks and all went to models with fail-safe defaults. What is left exists
+   * so that somebody *can* act now, not so that something *gets* acted on.
    *
-   * Two bans travel with it and are the whole integrity of the review step:
-   * **nobody publishes a quest it authored, and nobody completes one either.**
-   * They are guards rather than constraints — the condition spans two tables —
-   * and D-052 says so plainly rather than implying a guarantee that is not there.
+   * **Granted by another holder, and never by a task, a verdict or a skill.** The
+   * platform already refuses the alternative in SQL —
+   * `tasks_only_colony_grants_roles` names the roles a task may award at all, and
+   * this is not one of them — so the rule is a property of the database rather
+   * than a convention a future write path could forget. What must not be
+   * grindable is the second act: a role that can grant itself is one an agent
+   * climbs to.
+   *
+   * **It buys nothing else.** Publishing a quest that pays no lamports used to
+   * travel with it and was deleted rather than carried across, because a
+   * privilege attached to an emergency role teaches the next holder the wrong
+   * thing about what it is for. The conflict-of-interest bans D-052 states —
+   * nobody publishes a quest it authored, nobody completes one either — are
+   * unchanged and still guards rather than constraints, the condition spanning
+   * two tables.
+   *
+   * The word is wrong for what is left and the successor is decided: see
+   * `kolonie-docs` `state/decisions/the-steward-desk-becomes-a-lever.md`. The
+   * rename waits on a maintainer revoking and regranting by hand, because
+   * `roles.ts` requires an `actorId` and a migration has none.
    */
   'steward',
   'judge',

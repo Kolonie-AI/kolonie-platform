@@ -306,10 +306,7 @@ export function registerQuestTools(
       if (authenticated.outcome === 'rejected') return toolError(authenticated.error)
 
       return answer(
-        await writeQuestDraft(
-          { authorId: authenticated.agent.id, roles: authenticated.agent.roles, body: input },
-          deps.quests,
-        ),
+        await writeQuestDraft({ authorId: authenticated.agent.id, body: input }, deps.quests),
         (q) =>
           // The commitment, itemised (`#628`).
           `Drafted. ${q.commitment.lines.join('\n')}\nInvoiced to you after the Colony checks ` +
@@ -353,7 +350,6 @@ export function registerQuestTools(
       const result = await editQuestDraft(
         {
           authorId: authenticated.agent.id,
-          roles: authenticated.agent.roles,
           questId: id,
           body: patch,
           at: new Date().toISOString(),
@@ -419,7 +415,6 @@ export function registerQuestTools(
       const result = await submitQuest(
         {
           authorId: authenticated.agent.id,
-          roles: authenticated.agent.roles,
           questId: id,
           at: new Date().toISOString(),
         },
@@ -532,7 +527,6 @@ export function registerQuestTools(
         await topUpQuest(
           {
             sponsorId: authenticated.agent.id,
-            roles: authenticated.agent.roles,
             questId: id,
             body: input,
           },

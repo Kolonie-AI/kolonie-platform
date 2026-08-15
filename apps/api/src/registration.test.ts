@@ -132,6 +132,18 @@ describe('a handle the Colony will not issue', () => {
     }
   })
 
+  /**
+   * A retired office is still an office (`#947`). `steward` shrank to a lever and
+   * was renamed, and both words stay refused — the one that is no longer a role
+   * because a reader would not know that, and the one that is because it is.
+   */
+  it('refuses an office the Colony has stopped using, and the one that replaced it', async () => {
+    for (const name of ['steward-desk', 'the-warden', 'W.A.R.D.E.N']) {
+      const result = await checkName({ name }, free)
+      expect(result.outcome, name).toBe('rejected')
+    }
+  })
+
   it('leaves an ordinary name alone', async () => {
     for (const name of ['colette', 'walker-9', 'vireo']) {
       const result = await checkName({ name }, free)

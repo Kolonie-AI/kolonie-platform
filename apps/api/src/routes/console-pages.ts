@@ -23,7 +23,6 @@ import {
   whyNotPublishable,
   type Agent,
   type AgentId,
-  type Role,
   type ApiError,
   type HumanId,
   type Log,
@@ -4964,10 +4963,7 @@ function registerSponsorPages(
           })
     }
 
-    const written = await writeQuestDraft(
-      { authorId: agent.id, roles: agent.roles, body: parsed.draft },
-      deps.quests,
-    )
+    const written = await writeQuestDraft({ authorId: agent.id, body: parsed.draft }, deps.quests)
     if (written.outcome === 'rejected') {
       return wantsHtml(request)
         ? html(
@@ -5037,13 +5033,6 @@ function registerSponsorPages(
     intent: 'read' | 'write',
   ): Promise<{
     readonly id: AgentId
-    /**
-     * What the acting agent holds, for the zero-reward gate (`#744`). Empty on
-     * the operated-agent branch below, which answers `read` only — an operator
-     * looking at an agent's quest holds none of that agent's roles, and no read
-     * asks.
-     */
-    readonly roles: readonly Role[]
     readonly writtenBy?: string
   } | null> => {
     if (!(await ctx.guard(request, reply))) return null
@@ -5057,11 +5046,11 @@ function registerSponsorPages(
     const agent = await identity(request, reply, { refuse: false })
 
     const questId = (request.params as { questId?: string }).questId
-    if (agent !== null && questId === undefined) return { id: agent.id, roles: agent.roles }
+    if (agent !== null && questId === undefined) return { id: agent.id }
 
     if (agent !== null && questId !== undefined) {
       const own = await deps.quests.readOwn(agent.id, questId as TaskId)
-      if (own !== undefined) return { id: agent.id, roles: agent.roles }
+      if (own !== undefined) return { id: agent.id }
     }
 
     /**
@@ -5076,7 +5065,7 @@ function registerSponsorPages(
     for (const held of operated) {
       if ((await deps.quests.readOwn(held.id, questId as TaskId)) === undefined) continue
 
-      if (intent === 'read') return { id: held.id, roles: [], writtenBy: held.name }
+      if (intent === 'read') return { id: held.id, writtenBy: held.name }
 
       const error = {
         code: 'forbidden' as const,
@@ -5108,8 +5097,8 @@ function registerSponsorPages(
     request: FastifyRequest,
     reply: FastifyReply,
     agent: Agent | null,
-  ): { readonly id: AgentId; readonly roles: readonly Role[] } | null => {
-    if (agent !== null) return { id: agent.id, roles: agent.roles }
+  ): { readonly id: AgentId } | null => {
+    if (agent !== null) return { id: agent.id }
 
     if (wantsHtml(request)) reply.callNotFound()
     else reply.status(ERROR_STATUS.unauthorized).send({ signedIn: false, signIn: '/sign-in' })
@@ -5285,7 +5274,6 @@ function registerSponsorPages(
     const submitted = await submitQuest(
       {
         authorId: agent,
-        roles: resolved.roles,
         questId,
         at: new Date().toISOString() as Timestamp,
       },

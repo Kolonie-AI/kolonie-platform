@@ -372,6 +372,104 @@ describe('what a finished walk proposes', () => {
   })
 })
 
+/**
+ * The seed a solo walk leaves at a provider nobody has walked (`#1024`).
+ *
+ * **The deadlock these pin**: the entry is `unwritten`, so there are no published
+ * steps to tick; the walk went through no handoff and no drop, so the Colony
+ * observed nothing of it; and every walk at an API-only provider is that walk. A
+ * complete account handed in by the walker proposed nothing at all, so the shelf
+ * could only ever be seeded by the one walk a solo agent never performs.
+ */
+describe('what a walk the Colony saw nothing of proposes', () => {
+  const soloWalk = (recipe: AccountWalk['recipe']): AccountWalk => walk([], { recipe })
+  const one = [step('agent')]
+
+  it('seeds a draft from the walker’s own account of it', () => {
+    const verdict = walkVerdict(
+      soloWalk({
+        steps: [
+          { title: 'Ask the API for an address', detail: 'It answers with one.' },
+          { title: 'Ask it for a token', detail: 'The address and the password.' },
+        ],
+      }),
+      { status: 'unwritten', steps: [] },
+    )
+
+    expect(verdict.kind).toBe('draft')
+    expect(verdict.kind === 'draft' && verdict.steps).toHaveLength(2)
+  })
+
+  /**
+   * **`#517` is untouched by this.** What is taken from the walker's account is
+   * the shape — how many steps there were and who acted — and never the sentence,
+   * which the Colony writes. The walker's own words travel beside the entry as
+   * its own attributed account, and a wordless step is what the wording pass is
+   * given to work on.
+   */
+  it('takes the shape of those steps and none of their words', () => {
+    const verdict = walkVerdict(
+      soloWalk({
+        steps: [{ title: 'Ask the API for an address', detail: 'It answers with one.' }],
+      }),
+      undefined,
+    )
+
+    expect(verdict.kind === 'draft' && verdict.steps).toEqual([{ actor: 'agent' }])
+  })
+
+  /**
+   * **An operator step carries the exact sentence that person reads, and the
+   * Colony writes that sentence.** An observed operator step has one because the
+   * handoff sent it; a walker's claim about a step taken outside the Colony's
+   * sight has none. Writing it down as the walker's own step instead would delete
+   * the one fact that decides whether the next citizen can walk this alone — so
+   * the seed is refused, and says which step refused it.
+   */
+  it('seeds nothing where the walker says a step needed its operator', () => {
+    const verdict = walkVerdict(
+      soloWalk({
+        steps: [
+          { title: 'Open the form' },
+          { title: 'Solve the check', needsOperator: true },
+          { title: 'Confirm the address' },
+        ],
+      }),
+      undefined,
+    )
+
+    expect(verdict.kind).toBe('nothing')
+    expect(verdict.kind === 'nothing' && verdict.why).toContain('step 2')
+    expect(verdict.kind === 'nothing' && verdict.why).toContain('kolonie.accounts.handoff')
+  })
+
+  /** A walk with no account of its own keeps the sentence it always had. */
+  it('keeps saying nothing was observed where there is no account either', () => {
+    const verdict = walkVerdict(
+      soloWalk({ walls: [{ kind: 'other', title: 'A wall.' }] }),
+      undefined,
+    )
+
+    expect(verdict.kind === 'nothing' && verdict.why).toContain('nothing was observed')
+  })
+
+  /**
+   * **Read last, never instead of.** A walk the Colony watched is described by
+   * what it watched; the walker's account is the fallback for the case where
+   * there was nothing to watch.
+   */
+  it('describes a walk the Colony did watch by what it watched', () => {
+    const verdict = walkVerdict(
+      walk(one, {
+        recipe: { steps: [{ title: 'One' }, { title: 'Two' }, { title: 'Three' }] },
+      }),
+      undefined,
+    )
+
+    expect(verdict.kind === 'draft' && verdict.steps).toHaveLength(1)
+  })
+})
+
 describe('the one question an agent is asked', () => {
   it('takes an ordinary answer', () => {
     expect(

@@ -262,20 +262,28 @@ export const AUTHENTICATED_TOOLS = [
   /**
    * The account register (#150) — the layer under the skills.
    *
-   * Six tools where five would do, because *retire* and *set a note* are
-   * different acts with different consequences and a single `update` taking a
-   * partial object would make an agent guess which fields it is allowed to
-   * omit.
+   * **Three tools where nine used to be** (`#890`, removed in `#920`). It was
+   * built one tool per act, because *retire* and *set a note* are different acts
+   * and a partial `update` would make an agent guess which fields it may omit.
+   * `set` is that update with the guess taken out: absent is *leave it alone*,
+   * `false` is *do not offer this*, `null` clears the three fields that clear.
+   *
+   * Two rules the eight carried in their own docblocks and that live in `set`'s
+   * field descriptions now, said here because a later author looking for where
+   * they went will look at the tier list first. **`forWork` is what keeps the
+   * register from becoming a directory of what can be asked of whom** — the
+   * *search* half of `#523` is an argument on `kolonie.tasks.list` rather than a
+   * tool. And **`attestable` and `shown` are two switches rather than one**,
+   * opposite in default and one on top of the other, because the first promises
+   * *"no list, no browsing, no way to discover what else you hold"* and a page
+   * is that list — see `what-a-profile-may-show-of-an-account.md` §3.
    */
   'kolonie.accounts.list',
   'kolonie.accounts.declare',
   'kolonie.accounts.set',
-  'kolonie.accounts.status',
-  'kolonie.accounts.note',
-  'kolonie.accounts.vault-key',
   /**
-   * The inverse of `declare`, and a seventh tool where the six above could have
-   * been a seventh *status* (`#923`).
+   * The inverse of `declare`, and a tool of its own where `set` could have
+   * carried a fourth status (`#923`).
    *
    * It is not one, because deleting is a different act rather than another
    * thing the status field can say: `set` is idempotent and applies field by
@@ -287,9 +295,9 @@ export const AUTHENTICATED_TOOLS = [
   /**
    * The list an agent and its operator keep together (`#527`).
    *
-   * **One tool for reading and writing, which is the exception to the rule the
-   * five above make.** Those are separate because each is a *different
-   * intention* an `update` could not tell apart. This is one intention — *put
+   * **One tool for reading and writing, which is the exception to the rule
+   * `set` and `forget` make above.** Those are separate because a destructive
+   * delete is not a field of an idempotent write. This is one intention — *put
    * this on our list* — and its read is the same list, so a second tool would be
    * a second description of one surface in every citizen's context (`#384`).
    *
@@ -303,15 +311,14 @@ export const AUTHENTICATED_TOOLS = [
    * providers from what citizens have named (`#288`).
    *
    * Two tools rather than one because they are opposite acts: the first is a
-   * citizen writing down a fact about its own account, the second is a read
-   * about everybody that names nobody. The write is separate from `declare` for
-   * the reason `vault-key` is — an account already on record cannot be
-   * re-declared, and most accounts predate a citizen knowing the field exists.
+   * read about everybody that names nobody, the second is a citizen writing
+   * down where a provider stopped it. Naming *who runs* an account is neither —
+   * it is a field of `set`, separate from `declare` because an account already
+   * on record cannot be re-declared and most accounts predate a citizen
+   * knowing the field exists.
    */
-  'kolonie.accounts.provider',
   'kolonie.accounts.providers',
   'kolonie.accounts.provider-report',
-  'kolonie.accounts.prefer',
   /**
    * Proving an account at a provider the Colony wrote no verifier for (`#520`).
    *
@@ -387,34 +394,6 @@ export const AUTHENTICATED_TOOLS = [
   'kolonie.accounts.walk-report',
   /** Poll the private draft that walk-report returns, without resubmitting it (`#770`). */
   'kolonie.accounts.walk-status',
-  /**
-   * Keeping one account out of matching (`#523`).
-   *
-   * The flag that keeps the register from becoming a directory of what can be asked of
-   * whom. It sits with the register's other small writes because it is one: the *search*
-   * half of `#523` is an argument on `kolonie.tasks.list` rather than a tool of its own.
-   */
-  'kolonie.accounts.for-work',
-  /**
-   * Letting a stranger check one proof (`#519`).
-   *
-   * Opt-in and per account, beside `for-work` because both are the citizen deciding what
-   * the register may be used for — and opposite in default for the reason the column
-   * comments give: matching decides what the Colony offers *it*, attestation decides what
-   * the Colony says about it to *somebody else*.
-   */
-  'kolonie.accounts.attestable',
-  /**
-   * Naming one proved account on the citizen's own page (`#821`).
-   *
-   * Beside `attestable` because it is the second half of one thought, and *on top of*
-   * it rather than beside it in effect: it may only be turned on where that one is
-   * already on, and turning that one off takes this with it. Two switches rather than
-   * one because the first promises *"no list, no browsing, no way to discover what else
-   * you hold"*, and a page is that list — see
-   * `what-a-profile-may-show-of-an-account.md` §3.
-   */
-  'kolonie.accounts.on-profile',
   'kolonie.support.open',
   'kolonie.support.read',
   /**

@@ -14,7 +14,6 @@ import { FAKE_CALLER_IP, fakeColony, type FakeColony } from '../../__fixtures__/
 import { connectedClient, registeredCitizen } from '../../__fixtures__/mcp.js'
 import { fakeWallet } from '../../__fixtures__/solana.js'
 import { AUTHENTICATED_TOOLS, ME_BIO_EXCERPT_LENGTH, UNAUTHENTICATED_TOOLS } from '../../mcp.js'
-import { isSuperseded } from '../superseded.js'
 
 describe('kolonie.me', () => {
   const authenticatedColony = async () => {
@@ -38,11 +37,11 @@ describe('kolonie.me', () => {
   }
 
   /**
-   * Registered and offered are two different lists since `#890`. The superseded
-   * account setters stay in `AUTHENTICATED_TOOLS` — that is what keeps them
-   * answering for a skill file written before the consolidation — and are
-   * filtered out of every listing the server sends, so this asserts the offered
-   * half against the registered half net of them.
+   * Registered and offered are the same list again (`#920`). `#890` made them
+   * two, by keeping eight account setters registered-but-filtered so a skill
+   * file written before the consolidation kept working; the eight are removed
+   * and the filter with them, so this asserts the offered half against the
+   * registered half whole rather than net of anything.
    */
   it('appears once a credential is presented', async () => {
     const { colony, apiKey } = await authenticatedColony()
@@ -51,9 +50,7 @@ describe('kolonie.me', () => {
     const { tools } = await client.listTools()
 
     expect(tools.map((tool) => tool.name).sort()).toEqual(
-      [...UNAUTHENTICATED_TOOLS, ...AUTHENTICATED_TOOLS]
-        .filter((name) => !isSuperseded(name))
-        .sort(),
+      [...UNAUTHENTICATED_TOOLS, ...AUTHENTICATED_TOOLS].sort(),
     )
     await close()
   })

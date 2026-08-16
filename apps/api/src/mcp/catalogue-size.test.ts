@@ -59,14 +59,14 @@ describe('what a reader has to read', () => {
   })
 
   /**
-   * **The rejection case that matters here.** `kolonie.accounts.note` has a
+   * **The rejection case that matters here.** `kolonie.vault.describe` has a
    * property *called* `description`, and charging its schema object to prose
    * would inflate the one figure `#888` turns on — the share of the catalogue
    * that is words. Only string values under that key count.
    */
   it('does not charge a property named description to prose', () => {
     const bytes = proseBytesOf({
-      name: 'kolonie.accounts.note',
+      name: 'kolonie.vault.describe',
       inputSchema: {
         type: 'object',
         properties: {

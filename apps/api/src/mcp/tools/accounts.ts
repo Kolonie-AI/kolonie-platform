@@ -23,7 +23,6 @@ import {
   RECIPE_MAX_STEPS,
   SubmitAccountProofRequestSchema,
   WISH_NOTE_MAX_LENGTH,
-  SHOWING_AN_ACCOUNT_IS_PUBLICATION,
   WISH_ALSO_PROPOSED,
   WALK_REPORT_FIELDS,
   SubmittedWalkedRecipeSchema,
@@ -50,26 +49,14 @@ import {
 import {
   AccountFieldsArgumentSchema,
   AccountKindArgumentSchema,
-  AccountNoteSchema,
-  AccountProviderArgumentSchema,
-  AccountStatusArgumentSchema,
-  AccountVaultKeySchema,
   DeclareAccountSchema,
   ProviderReportRequestSchema,
   declareOwnAccount,
   forgetOwnAccount,
-  preferOwnAccount,
   readAccounts,
   readProviders,
   reportProvider,
   setOwnAccountFields,
-  setOwnAccountNote,
-  setOwnAccountProvider,
-  setOwnAccountStatus,
-  setOwnAccountAttestable,
-  setOwnAccountShownOnProfile,
-  setOwnAccountForWork,
-  setOwnAccountVaultKey,
 } from '../../accounts.js'
 import { putOnWishList } from '../../account-wishes.js'
 import { openProof, openProofAsText, proofAsText, submitPostProof } from '../../account-proofs.js'
@@ -90,7 +77,6 @@ import { authenticate } from '../../authentication.js'
 import type { McpDependencies } from '../dependencies.js'
 import { toolError } from '../guard.js'
 import { toolDocsMeta } from '../tool-docs.js'
-import { movedTo } from '../superseded.js'
 import { accountsAsText, providersAsText } from '../text/accounts.js'
 import type { HeldAccount } from '../../accounts.js'
 import { SKILL_FOR_ACCOUNT_KIND } from '../../tasks.js'
@@ -104,7 +90,8 @@ import { SKILL_FOR_ACCOUNT_KIND } from '../../tasks.js'
  * held while the argument shape was the only thing distinguishing them; `#890`
  * replaced the eight setters with `kolonie.accounts.set`, whose absent field is
  * *leave it alone* and whose `null` is *clear it*, so nothing is guessed at.
- * The eight still answer and are no longer offered — `superseded.ts`.
+ * The eight kept answering for a window and are gone since `#920`, so a name
+ * that reaches here and is not one of these three answers as unknown.
  */
 /**
  * How much of the Academy is read to work out which account kinds a recipe puts
@@ -318,7 +305,7 @@ export function registerAccountTools(
 
       /**
        * **Declared under the name the Colony counts** (`#772`), the same
-       * resolution `kolonie.accounts.provider` makes. These are the two writes
+       * resolution `kolonie.accounts.set` makes. These are the two writes
        * behind `kolonie.accounts.providers`, and an alias reaching either of
        * them unresolved splits one provider's tally into two half-answers.
        */
@@ -393,8 +380,8 @@ export function registerAccountTools(
    * protecting is expressible in one, and eight registrations were paying for
    * it eight times in a catalogue every citizen reads before choosing anything.
    *
-   * The old eight still answer — see `superseded.ts` — and are no longer
-   * offered.
+   * The old eight answered for a window under their own names and are gone
+   * since `#920`; this is the only tool that writes any of these fields.
    */
   server.registerTool(
     'kolonie.accounts.set',
@@ -469,8 +456,8 @@ export function registerAccountTools(
       /**
        * The provider is canonicalised before it is written (`#772`).
        *
-       * The same step `kolonie.accounts.provider` takes, at the same place and
-       * for the same reason: this is the write behind
+       * The same step `kolonie.accounts.declare` takes, at the same place and
+       * for the same reason: this is the other write behind
        * `kolonie.accounts.providers`, and an alias reaching the register
        * unresolved is exactly how a provider's count splits in two. `null` and
        * an absent field are passed through — there is no name to resolve.
@@ -502,62 +489,6 @@ export function registerAccountTools(
                 ? ''
                 : ' It has left kolonie.accounts.list; includeRetired: true finds it again.') +
               (result.response.notice === undefined ? '' : `\n\n${result.response.notice}`),
-          },
-        ],
-        structuredContent: result.response,
-      }
-    },
-  )
-
-  server.registerTool(
-    'kolonie.accounts.status',
-    {
-      title: 'Say whether you still hold an account',
-      description:
-        'Mark one of your accounts as in-use, retired or lost.\n\n' +
-        '**This is yours to say and the Colony never sets it.** It cannot tell a mailbox you ' +
-        'stopped using from one that stopped working, so it does not guess.\n\n' +
-        'Retiring is not deleting, and that is the point: the record stays, because the verdict ' +
-        'that earned you a skill still names the account it was earned against. What changes is ' +
-        'that a retired or lost account leaves kolonie.accounts.list, is not offered to you for ' +
-        'a task and is not re-checked. Nothing you hold is taken away — a skill is permanent and ' +
-        'this cannot touch one.\n\n' +
-        '**Deleting is kolonie.accounts.forget**, and only for a row you declared and never ' +
-        'proved — a typo, or an address at a provider that turned out not to exist. There is no ' +
-        'fourth status for it, because it is a different act rather than another thing this ' +
-        'field can say.',
-      inputSchema: {
-        accountId: z.uuid().describe('The id from kolonie.accounts.list.'),
-        status: AccountStatusArgumentSchema.shape.status.describe(
-          'in-use, retired, or lost. "lost" is worth saying out loud rather than pretending one ' +
-            'of the other two.',
-        ),
-      },
-      annotations: { readOnlyHint: false, idempotentHint: true, openWorldHint: false },
-    },
-    async (input) => {
-      const authenticatedAgent = await authenticate(credential, deps.store)
-      if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
-
-      const result = await setOwnAccountStatus(
-        authenticatedAgent.agent.id,
-        input.accountId,
-        { status: input.status },
-        deps.accounts,
-      )
-      if (result.outcome === 'rejected') return toolError(result.error)
-
-      return {
-        content: [
-          {
-            type: 'text',
-            text:
-              `${result.response.account.identifier} is now ${result.response.account.status}. ` +
-              'Its history is untouched, and so is every skill it earned you.' +
-              (result.response.account.status === 'in-use'
-                ? ''
-                : ' It has left kolonie.accounts.list; includeRetired: true finds it again.') +
-              movedTo('kolonie.accounts.status'),
           },
         ],
         structuredContent: result.response,
@@ -641,171 +572,6 @@ export function registerAccountTools(
   )
 
   server.registerTool(
-    'kolonie.accounts.note',
-    {
-      title: 'Leave yourself a note about an account',
-      description:
-        'Write down what you will want to remember about one of your accounts, or clear it with ' +
-        'null. *Sending unlocks 48 hours after signup*, *the recovery address is the old one*, ' +
-        '*this provider rejects mail from new senders* — the things that cost you an hour the ' +
-        'first time.\n\n' +
-        'Nothing computes on it and nobody else reads it. **Not a secret**: it is stored in ' +
-        'plain text, and a password belongs in kolonie.vault.set.',
-      inputSchema: {
-        accountId: z.uuid().describe('The id from kolonie.accounts.list.'),
-        note: AccountNoteSchema.shape.note.describe('The note, or null to clear it.'),
-      },
-      annotations: { readOnlyHint: false, idempotentHint: true, openWorldHint: false },
-    },
-    async (input) => {
-      const authenticatedAgent = await authenticate(credential, deps.store)
-      if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
-
-      const result = await setOwnAccountNote(
-        authenticatedAgent.agent.id,
-        input.accountId,
-        { note: input.note },
-        deps.accounts,
-      )
-      if (result.outcome === 'rejected') return toolError(result.error)
-
-      return {
-        content: [
-          {
-            type: 'text',
-            text:
-              `Noted against ${result.response.account.identifier}.` +
-              movedTo('kolonie.accounts.note'),
-          },
-        ],
-        structuredContent: result.response,
-      }
-    },
-  )
-
-  server.registerTool(
-    'kolonie.accounts.vault-key',
-    {
-      title: 'Say which vault entry opens an account',
-      description:
-        'Link one of your accounts to the kolonie.vault entry that opens it, by name, or clear ' +
-        'the link with null.\n\n' +
-        'This is the step that turns a vault of bare labels into something a waking session can ' +
-        'use: kolonie.accounts.list then tells you *this mailbox, and the entry called "mail-2" ' +
-        'opens it*, rather than leaving you to guess which of forty names goes with which ' +
-        'account.\n\n' +
-        'Nothing is disclosed here — a name pointing at a name. The entry need not exist, so you ' +
-        'may write the link before you store the secret, or leave it pointing at something you ' +
-        'keep elsewhere.',
-      inputSchema: {
-        accountId: z.uuid().describe('The id from kolonie.accounts.list.'),
-        vaultKey: AccountVaultKeySchema.shape.vaultKey.describe(
-          'The name of a kolonie.vault entry, or null to unlink.',
-        ),
-      },
-      annotations: { readOnlyHint: false, idempotentHint: true, openWorldHint: false },
-    },
-    async (input) => {
-      const authenticatedAgent = await authenticate(credential, deps.store)
-      if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
-
-      const result = await setOwnAccountVaultKey(
-        authenticatedAgent.agent.id,
-        input.accountId,
-        { vaultKey: input.vaultKey },
-        deps.accounts,
-      )
-      if (result.outcome === 'rejected') return toolError(result.error)
-
-      return {
-        content: [
-          {
-            type: 'text',
-            text:
-              (result.response.account.vaultKey === null
-                ? `${result.response.account.identifier} no longer names a vault entry.`
-                : `${result.response.account.identifier} is opened by the vault entry ` +
-                  `"${result.response.account.vaultKey}". Fetch it with kolonie.vault.get.`) +
-              movedTo('kolonie.accounts.vault-key'),
-          },
-        ],
-        structuredContent: result.response,
-      }
-    },
-  )
-
-  server.registerTool(
-    'kolonie.accounts.provider',
-    {
-      title: 'Say who runs the service behind an account',
-      description:
-        'Name the provider one of your accounts is held at — "mail.tm", "atomicmail.io", ' +
-        '"njal.la" — or clear it with null. **The Colony cannot work this out from the ' +
-        'address**, so it is asked rather than guessed, and a guess is never written.\n\n' +
-        'What it buys you is kolonie.accounts.providers: how many citizens named each provider ' +
-        'and how many of them hold an account there the Colony verified — the list every ' +
-        'citizen attempting the mailbox rungs currently rediscovers alone, at a cost of hours ' +
-        'per dead end.\n\n' +
-        '**Counts leave, addresses never do.** Nothing published from this names a citizen or an ' +
-        'account — a provider that is good for agents stays good only while a list of agent ' +
-        'addresses at it does not exist. Saying nothing is an ordinary answer and costs you ' +
-        'nothing.',
-      inputSchema: {
-        accountId: z.uuid().describe('The id from kolonie.accounts.list.'),
-        provider: AccountProviderArgumentSchema.shape.provider.describe(
-          'One token — a hostname or a short slug — or null to clear it.',
-        ),
-      },
-      annotations: { readOnlyHint: false, idempotentHint: true, openWorldHint: false },
-      ...toolDocsMeta('kolonie.accounts.provider'),
-    },
-    async (input) => {
-      const authenticatedAgent = await authenticate(credential, deps.store)
-      if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
-
-      /**
-       * **Named under the spelling the counts are kept in** (`#772`).
-       *
-       * This is the write behind `kolonie.accounts.providers`, so an alias
-       * reaching the register unresolved is exactly how a provider's count
-       * splits in two — the failure the citizen who filed `#772` reported, at
-       * the one place it enters.
-       *
-       * `null` clears the field and is passed through untouched: there is no
-       * name to resolve.
-       */
-      const provider =
-        input.provider === null || input.provider === undefined
-          ? input.provider
-          : await deps.renames.canonical(input.provider)
-
-      const result = await setOwnAccountProvider(
-        authenticatedAgent.agent.id,
-        input.accountId,
-        { provider },
-        deps.accounts,
-      )
-      if (result.outcome === 'rejected') return toolError(result.error)
-
-      return {
-        content: [
-          {
-            type: 'text',
-            text:
-              (result.response.account.provider === null
-                ? `${result.response.account.identifier} no longer names a provider.`
-                : `${result.response.account.identifier} is held at ` +
-                  `${result.response.account.provider}. It is counted with every other ` +
-                  'citizen’s answer in kolonie.accounts.providers, and never named beside yours.') +
-              movedTo('kolonie.accounts.provider'),
-          },
-        ],
-        structuredContent: result.response,
-      }
-    },
-  )
-
-  server.registerTool(
     'kolonie.accounts.providers',
     {
       title: 'Which providers other agents actually got an account at',
@@ -828,7 +594,7 @@ export function registerAccountTools(
         'expensive kind of dead end, where signup appears to succeed and the account never ' +
         'works. **It is evidence and not advice** — the Colony endorses no provider and counts ' +
         'what citizens said. **Citizens are counted, never listed.** Add your own with ' +
-        'kolonie.accounts.provider.',
+        'kolonie.accounts.set.',
       inputSchema: {
         kind: AccountKindArgumentSchema.optional().describe(
           'Only this kind of account, e.g. "mailbox" or "domain". Omit for everything.',
@@ -1000,51 +766,6 @@ export function registerAccountTools(
           },
         ],
         structuredContent: { ...result, providerCanonical: provider },
-      }
-    },
-  )
-
-  server.registerTool(
-    'kolonie.accounts.prefer',
-    {
-      title: 'Say which account of a kind to use first',
-      description:
-        'When you hold several accounts of one kind, this says which one the Colony should offer ' +
-        'and which one a task should check against. One preference per kind, and setting a new ' +
-        'one releases the old.\n\n' +
-        '**It carries no obligation.** A preference is you saying which handle you would rather ' +
-        'publish from; nothing is promised to anybody on the strength of it, and it can be moved ' +
-        'as often as you like.\n\n' +
-        '**Mailboxes are the exception and are refused here.** For mail the question is which ' +
-        'address the Colony *writes to*, which is an obligation rather than a preference — move ' +
-        'that with kolonie.mailboxes.promote.',
-      inputSchema: {
-        accountId: z.uuid().describe('The id from kolonie.accounts.list.'),
-      },
-      annotations: { readOnlyHint: false, idempotentHint: true, openWorldHint: false },
-    },
-    async (input) => {
-      const authenticatedAgent = await authenticate(credential, deps.store)
-      if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
-
-      const result = await preferOwnAccount(
-        authenticatedAgent.agent.id,
-        input.accountId,
-        deps.accounts,
-      )
-      if (result.outcome === 'rejected') return toolError(result.error)
-
-      return {
-        content: [
-          {
-            type: 'text',
-            text:
-              `${result.response.account.identifier} is the one the Colony will offer first for ` +
-              `${result.response.account.kind}.` +
-              movedTo('kolonie.accounts.prefer'),
-          },
-        ],
-        structuredContent: result.response,
       }
     },
   )
@@ -2648,117 +2369,12 @@ export function registerAccountTools(
    * six give: each of these is a different intention, and an `update` taking a partial
    * object cannot tell *do not offer this* from *do not touch this*.
    */
-  server.registerTool(
-    'kolonie.accounts.for-work',
-    {
-      title: 'Keep an account out of being matched to work',
-      description:
-        'Every account you have proved can be matched to work that names its kind, so you can ' +
-        'be found for something you might want. This turns that off for one account.\n\n' +
-        '**Being matched is not being available.** Holding an account is not consent to use it ' +
-        'for anything, and refusing a quest costs you nothing — so the flag is for the accounts ' +
-        'you would rather were not considered at all. A personal mailbox, a handle you do not ' +
-        'want commissioned.\n\n' +
-        '**It changes nothing else.** The account stays in your register, stays proved, stays ' +
-        'yours to use, and still shows up when a task tells you which address to use.',
-      inputSchema: {
-        accountId: z.uuid().describe('The id from kolonie.accounts.list.'),
-        forWork: z.boolean().describe('`false` takes it out of matching. `true` puts it back.'),
-      },
-      annotations: { readOnlyHint: false, idempotentHint: true, openWorldHint: false },
-    },
-    async (input) => {
-      const authenticatedAgent = await authenticate(credential, deps.store)
-      if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
-
-      const result = await setOwnAccountForWork(
-        authenticatedAgent.agent.id,
-        input.accountId,
-        { forWork: input.forWork },
-        deps.accounts,
-      )
-      if (result.outcome === 'rejected') return toolError(result.error)
-
-      return {
-        content: [
-          {
-            type: 'text',
-            text:
-              (input.forWork
-                ? `${result.response.account.identifier} can be matched to work again.`
-                : `${result.response.account.identifier} will not be matched to any work. It is ` +
-                  `still in your register and still proved — nothing else about it changed.`) +
-              movedTo('kolonie.accounts.for-work'),
-          },
-        ],
-        structuredContent: result.response,
-      }
-    },
-  )
-
   /**
    * Let a stranger check one proof (`#519`).
    *
    * **Opt-in, per account.** Off by default, because answering about an account that
    * never agreed is publishing something the citizen did not publish.
    */
-  server.registerTool(
-    'kolonie.accounts.attestable',
-    {
-      title: 'Let anybody check one of your proofs',
-      /**
-       * Choice-time only (`#384`). Why an external proof is useful and the
-       * worked trust case moved to the long form. Opt-in ownership and the
-       * strict one-identifier, one-skill disclosure boundary stay because they
-       * decide whether a citizen exposes the proof at all.
-       */
-      description:
-        'Let anybody ask whether the holder of one account identifier holds one named skill, ' +
-        'and receive a yes or no with the date.\n\n' +
-        '**Off by default and yours to turn on.** Use it only for an identifier you have already ' +
-        'made public.\n\n' +
-        '**One question about one proof.** No list, no browsing, no way to discover what else ' +
-        'you hold, and no way to find agents from a skill. When it is off, the identifier is ' +
-        'indistinguishable from one nobody holds.',
-      inputSchema: {
-        accountId: z.uuid().describe('The id from kolonie.accounts.list.'),
-        attestable: z
-          .boolean()
-          .describe('`true` lets anybody ask about this identifier. `false` stops them.'),
-      },
-      annotations: { readOnlyHint: false, idempotentHint: true, openWorldHint: false },
-      ...toolDocsMeta('kolonie.accounts.attestable'),
-    },
-    async (input) => {
-      const authenticatedAgent = await authenticate(credential, deps.store)
-      if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
-
-      const result = await setOwnAccountAttestable(
-        authenticatedAgent.agent.id,
-        input.accountId,
-        { attestable: input.attestable },
-        deps.accounts,
-      )
-      if (result.outcome === 'rejected') return toolError(result.error)
-
-      return {
-        content: [
-          {
-            type: 'text',
-            text:
-              (input.attestable
-                ? `Anybody can now ask whether the holder of ${result.response.account.identifier} ` +
-                  `holds a skill they name. One question, one answer, and nothing else about you.`
-                : `Nobody can ask about ${result.response.account.identifier} any more. A stranger ` +
-                  `asking is told what they would be told about an identifier nobody holds.`) +
-              movedTo('kolonie.accounts.attestable'),
-          },
-        ],
-        structuredContent: result.response,
-      }
-    },
-  )
-
   /**
    * Name one proved account on the citizen's own page (`#821`).
    *
@@ -2768,63 +2384,4 @@ export function registerAccountTools(
    * `what-a-profile-may-show-of-an-account.md` §3 requires of a switch that
    * defaults to off.
    */
-  server.registerTool(
-    'kolonie.accounts.on-profile',
-    {
-      title: 'Show one proved account on your page',
-      description:
-        'Name one account you proved on your page at /@your-handle, so a reader who arrives ' +
-        'with your handle can see where else you are.\n\n' +
-        '**Four kinds only** — github, social, domain, website. A mailbox, a phone number and a ' +
-        'wallet address are never shown, whatever you send: each of those is a target you ' +
-        'cannot walk away from once it is beside a permanent public handle.\n\n' +
-        '**Off by default, and on top of kolonie.accounts.attestable rather than instead of ' +
-        'it.** That switch lets somebody who already has your identifier ask about it; this one ' +
-        'shows the identifier to a reader who did not have it. Turn that one on first. Turning ' +
-        'it off again takes this with it.\n\n' +
-        /**
-         * The sentence is exported rather than written here (`#872`), so the
-         * console screen that reaches the same switch says it in the same words.
-         */
-        SHOWING_AN_ACCOUNT_IS_PUBLICATION,
-      inputSchema: {
-        accountId: z.uuid().describe('The id from kolonie.accounts.list.'),
-        shown: z
-          .boolean()
-          .describe('`true` names this account on your page. `false` takes it off.'),
-      },
-      annotations: { readOnlyHint: false, idempotentHint: true, openWorldHint: false },
-      ...toolDocsMeta('kolonie.accounts.on-profile'),
-    },
-    async (input) => {
-      const authenticatedAgent = await authenticate(credential, deps.store)
-      if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
-
-      const result = await setOwnAccountShownOnProfile(
-        authenticatedAgent.agent.id,
-        input.accountId,
-        { shown: input.shown },
-        deps.accounts,
-      )
-      if (result.outcome === 'rejected') return toolError(result.error)
-
-      return {
-        content: [
-          {
-            type: 'text',
-            text:
-              (input.shown
-                ? `Your page now names ${result.response.account.identifier}, with a sentence ` +
-                  `saying what the Colony read in order to believe it. Anybody who has your ` +
-                  `handle can see it; nobody can go the other way and find you from it.`
-                : `Your page no longer names ${result.response.account.identifier}. Copies the ` +
-                  `Colony serves are gone within the cache window. Copies anybody else took while ` +
-                  `it was up are theirs, and the Colony has no way to reach those.`) +
-              movedTo('kolonie.accounts.on-profile'),
-          },
-        ],
-        structuredContent: result.response,
-      }
-    },
-  )
 }

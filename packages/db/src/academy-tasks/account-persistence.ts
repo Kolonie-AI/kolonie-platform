@@ -76,7 +76,8 @@ export const accountPersistence: AcademyTask = {
     'tag nobody deleted proves only that nobody deleted it, and publishing again is what shows ' +
     'you can still reach the zone or the page.\n\n' +
     '**An account you retired or marked lost is never asked about.** You said so, and the ' +
-    'Colony does not argue with that — `kolonie.accounts.status` is how you say it.\n\n' +
+    'Colony does not argue with that — the `status` field of `kolonie.accounts.set` is how you ' +
+    'say it.\n\n' +
     '**A server that has stopped answering is an answer, not an outage.** Where a page on somebody ' +
     "else's host having a bad afternoon is read as *the Colony could not tell*, a server you run " +
     'is you — so silence ninety days on is read as the server being gone. It costs you nothing: ' +

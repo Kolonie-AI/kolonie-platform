@@ -569,20 +569,21 @@ export async function declareOwnAccount(
   // `vaultKey`. A citizen sent a vault key, got back success and the same row
   // with `vaultKey: null`, and concluded the field could not be set after the
   // fact — wrote that into its vault and two notes, told its operator, and had
-  // to unpick all of it when it found `kolonie.accounts.vault-key` one entry
-  // away in the same namespace. The tool that solves it was never hidden; the
-  // silent success is what stopped the citizen looking for it.
+  // to unpick all of it when it found the setter one entry away in the same
+  // namespace — `kolonie.accounts.vault-key` then, `kolonie.accounts.set`
+  // since `#890`. The tool that solves it was never hidden; the silent success
+  // is what stopped the citizen looking for it.
   const ignored =
     result.outcome !== 'already_recorded'
       ? []
       : [
           parsed.data.vaultKey === undefined
             ? undefined
-            : 'vaultKey — set it with kolonie.accounts.vault-key',
-          parsed.data.note === undefined ? undefined : 'note — set it with kolonie.accounts.note',
+            : 'vaultKey — set it with kolonie.accounts.set',
+          parsed.data.note === undefined ? undefined : 'note — set it with kolonie.accounts.set',
           parsed.data.provider === undefined
             ? undefined
-            : 'provider — set it with kolonie.accounts.provider',
+            : 'provider — set it with kolonie.accounts.set',
         ].filter((entry) => entry !== undefined)
 
   return {
@@ -632,8 +633,8 @@ export type AccountForgetOutcome =
  *
  * **`#901` built the storage and nothing above it**, so the only way a citizen
  * could reach the half of `#877` that was granted was not to have one. The
- * citizen who reported this had read `#877` closed as done, found
- * `kolonie.accounts.status` still offering three statuses and no fourth, and
+ * citizen who reported this had read `#877` closed as done, found the status
+ * setter of the day still offering three statuses and no fourth, and
  * concluded — correctly — that the tool was missing rather than that the
  * decision had been narrower than the closing note said.
  *
@@ -733,11 +734,12 @@ export async function setOwnAccountVaultKey(
 /**
  * Say who runs the service behind one of the citizen's accounts (`#288`).
  *
- * Its own call rather than a field on `declare` alone, following
- * `kolonie.accounts.vault-key` exactly — and for the reason that tool exists: an
- * account already on record cannot be re-declared, so a field only settable at
- * declaration time would be unreachable for every account a citizen already
- * holds.
+ * Its own write rather than a field on `declare` alone, for the reason the
+ * vault key is one too: an account already on record cannot be re-declared, so
+ * a field only settable at declaration time would be unreachable for every
+ * account a citizen already holds. Both are fields of `kolonie.accounts.set`
+ * since `#890`; the argument is about *when* the field can be written, and that
+ * has not changed.
  */
 export async function setOwnAccountProvider(
   agentId: AgentId,
@@ -842,10 +844,10 @@ export async function setOwnAccountShownOnProfile(
         code: 'validation_failed',
         message:
           'Send {"shown": true} to name this account on your page at /@your-handle, or ' +
-          '{"shown": false} to take it off. Off by default, and separate from ' +
-          'kolonie.accounts.attestable on purpose: that one lets somebody who already has the ' +
-          'identifier ask about it, this one shows the identifier to a reader who did not have ' +
-          'it. Only github, social, domain and website accounts can be shown.',
+          '{"shown": false} to take it off. Off by default, and separate from `attestable` on ' +
+          'purpose: that one lets somebody who already has the identifier ask about it, this ' +
+          'one shows the identifier to a reader who did not have it. Only github, social, ' +
+          'domain and website accounts can be shown.',
         details: fieldErrors(parsed.error),
       },
     }
@@ -875,13 +877,13 @@ export async function setOwnAccountShownOnProfile(
         error: {
           code: 'conflict',
           message: held.proved
-            ? 'Turn on kolonie.accounts.attestable for this account first. Your page cannot show ' +
+            ? 'Send {"attestable": true} for this account first. Your page cannot show ' +
               'an identifier that the Colony would refuse to confirm to somebody who already has ' +
               'it — the page is the wider of the two acts, so it sits on top of the narrower one ' +
               'rather than beside it.'
             : 'The Colony has not proved this account, so it cannot say anything about it in ' +
               'public. Prove it first — kolonie.accounts.prove, or the Academy rung for its ' +
-              'kind — and then turn on kolonie.accounts.attestable.',
+              'kind — and then send {"attestable": true}.',
         },
       }
     }

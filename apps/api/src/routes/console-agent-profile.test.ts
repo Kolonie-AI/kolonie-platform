@@ -519,7 +519,7 @@ describe('the profile section in the console', () => {
       expect(response.body).toContain('not-yet-attestable')
       // The narrower act, named. What is refused is a control with no answer
       // beside it, so the test is that the answer is there and the button is not.
-      expect(response.body).toContain('kolonie.accounts.attestable')
+      expect(response.body).toContain('kolonie.accounts.set')
       expect(response.body).not.toContain('Name it on the page')
     })
 

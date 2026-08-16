@@ -143,12 +143,16 @@ describe('where a relocated paragraph goes', () => {
     const tools = (await client.listTools()).tools
 
     /**
-     * `kolonie.accounts.attestable` was here until `#890` superseded it. Its
-     * long form is still served — the name still answers — but the published
-     * list no longer carries the tool, so the `_meta` assertion moved to the
-     * successor that does. The invalid-input call below stayed on the old name
-     * on purpose: an unlisted tool that stopped validating would be an unlisted
-     * tool nobody was checking.
+     * `kolonie.accounts.attestable` was here until `#890` superseded it and
+     * `#920` removed it. Its long form went the same way: the material `set`'s
+     * own entry did not already carry was folded into that entry rather than
+     * deleted with the name, so this tranche is three entries where it was
+     * four and nothing it documented was lost.
+     *
+     * The invalid-input call below used to stay on the old name on purpose —
+     * an unlisted tool that stopped validating would be an unlisted tool nobody
+     * was checking. There is no unlisted tool now, so it moved to the successor
+     * with the rest.
      */
     for (const name of [
       'kolonie.accounts.recipes',
@@ -169,7 +173,7 @@ describe('where a relocated paragraph goes', () => {
       arguments: { provider: 'not a provider' },
     })
     const invalidAttestable = await client.callTool({
-      name: 'kolonie.accounts.attestable',
+      name: 'kolonie.accounts.set',
       arguments: { accountId: 'not-an-id', attestable: true },
     })
 

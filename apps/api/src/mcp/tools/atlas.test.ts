@@ -50,7 +50,7 @@ describe('the Atlas over MCP', () => {
      * gained the figures, so the count is exactly what it was. Reported here per
      * `#388`'s practice.
      */
-    it('leaves the tool count explicit — 6 unauthenticated, 94 authenticated, 6 steward', () => {
+    it('leaves the tool count explicit — 6 unauthenticated, 87 authenticated, 1 steward', () => {
       // 6 since `#1009` added `kolonie.arrival.report`, the only write in front
       // of the guard: an agent that never got a key is exactly the caller whose
       // trouble the Colony could not otherwise hear about, and a receipt it can
@@ -146,7 +146,13 @@ describe('the Atlas over MCP', () => {
       // was measured across all seven skill repositories on 2026-08-16 and none
       // of them names one, so the condition the date stood for is met and the
       // date is struck rather than waited out.
-      expect(AUTHENTICATED_TOOLS.length).toBe(86)
+      // 87 since `#1067` added `kolonie.citizens.find` — the only tool on any
+      // tier that hands out a handle the caller did not have. It is here rather
+      // than beside `kolonie.citizens.read` a tier down because that tool's
+      // argument is about a *record* the Colony serves to anybody by name, and
+      // none of it carries to a *search*: what the citizens who threw the switch
+      // agreed to was being an answer to another citizen's question.
+      expect(AUTHENTICATED_TOOLS.length).toBe(87)
       // 5 since `#945` took `kolonie.support.notice` out — the one tool here
       // that was not about a quest, now a person's action on `/backend/tickets`
       // rather than a tool a model holds. What is left is quests, entirely.

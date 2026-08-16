@@ -172,6 +172,7 @@ const asSubmitted = (over: Record<string, string> = {}): Record<string, string> 
   ...Object.fromEntries(PROFILE_FORM_FIELDS.map((field) => [field.name, ''])),
   indexable: 'no',
   attributed: 'yes',
+  discoverable: 'no',
   ...over,
 })
 
@@ -193,12 +194,17 @@ describe('the profile section in the console', () => {
     })
 
     it('offers a box for every field a citizen may edit, and for no other', async () => {
-      // The form's list plus the two switches is `MUTABLE_PROFILE_FIELDS`. A
+      // The form's list plus the three switches is `MUTABLE_PROFILE_FIELDS`. A
       // field added to the domain model and forgotten in the console is a field
       // only the MCP tool can reach, which is the gap this section exists to
       // close.
       expect(
-        [...PROFILE_FORM_FIELDS.map((field) => field.name), 'indexable', 'attributed'].sort(),
+        [
+          ...PROFILE_FORM_FIELDS.map((field) => field.name),
+          'indexable',
+          'attributed',
+          'discoverable',
+        ].sort(),
       ).toEqual([...MUTABLE_PROFILE_FIELDS].sort())
     })
 

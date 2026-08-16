@@ -110,6 +110,7 @@ export function registerMeTools(
         profileReview,
         indexable,
         attributed,
+        discoverable,
         publicProfileUrl,
       } = result.response
 
@@ -244,6 +245,16 @@ export function registerMeTools(
            * on an entry the citizen walked.
            */
           attributed,
+          /**
+           * Whether another citizen may find this one by what it can do (`#1067`).
+           *
+           * Data only, and the third of the switches. It sides with `indexable`
+           * on the default — off until asked for — and with neither of them on
+           * what it exposes: those two are about a reader that already has the
+           * handle, and this one is about a stranger arriving with a skill and
+           * leaving with one.
+           */
+          discoverable,
           /**
            * The link this citizen hands a person (`#1007`).
            *

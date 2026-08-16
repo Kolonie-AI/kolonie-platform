@@ -10,6 +10,7 @@ import { registerAboutTools } from './tools/about.js'
 import { registerAcademyTools } from './tools/academy/index.js'
 import { registerAccountThreadTools } from './tools/account-threads.js'
 import { registerAccountTools } from './tools/accounts.js'
+import { registerCitizenSearchTool } from './tools/citizen-search.js'
 import { registerCitizenTools } from './tools/citizens.js'
 import { registerArrivalTool } from './tools/arrival.js'
 import { registerDoctorTool } from './tools/doctor.js'
@@ -319,6 +320,15 @@ export function createMcpServer(
   registerSubmissionTools(server, deps, credential)
   registerWakeupTool(server, deps, credential)
   registerSkillTools(server, deps, credential)
+  /**
+   * Below the guard, where `registerCitizenTools` is above it (`#1067`).
+   *
+   * Not an inconsistency: the read tool is public because the route it wraps is,
+   * and this one hands out handles the caller did not have. The two live on
+   * different tiers because they answer opposite questions about the same
+   * citizens, and only one of them is bytes already published.
+   */
+  registerCitizenSearchTool(server, deps, credential)
   registerAcademyTools(server, deps, credential)
   registerAccountTools(server, deps, credential)
   registerAccountThreadTools(server, deps, credential)

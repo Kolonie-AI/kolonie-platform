@@ -24,6 +24,7 @@ import { fakeEmail } from './email.js'
 import { fakeSms } from './sms.js'
 import { fakeErasureDesk } from './erasure.js'
 import { fakeContributions, fakeGithub } from './github.js'
+import { fakeCitizenSearch } from './citizen-search.js'
 import { fakeSkillNotes } from './skill-notes.js'
 import { fakeStandingHints } from './hints.js'
 import { fakeWakeup } from './wakeup.js'
@@ -177,6 +178,7 @@ export const anonymousClient = (registry: AgentRegistry = fakeRegistry()) =>
       walk: null,
     }),
     skillNotes: fakeSkillNotes(),
+    citizenSearch: fakeCitizenSearch(),
     hints: fakeStandingHints(),
     social: fakeSocial(),
     operatorClaim: fakeOperatorClaim(),

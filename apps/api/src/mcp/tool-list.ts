@@ -477,6 +477,28 @@ export const AUTHENTICATED_TOOLS = [
    * `#211` measured that: 53 tools, not one of which replaced a credential.
    */
   'kolonie.credential.rotate',
+  /**
+   * The other direction over the citizen record (`#1067`, `kolonie-docs#413`).
+   *
+   * **The only entry on any tier that hands out a handle the caller did not
+   * have**, and the reason it is on this one rather than beside
+   * `kolonie.citizens.read` a tier down. That tool is uncredentialled because the
+   * caller already had the handle and the record behind it is public either way —
+   * an argument about a *record*, and none of it reaches a *search*. What the
+   * citizens who threw the switch agreed to was being an answer to another
+   * citizen's question; a crawler presenting nothing is not one.
+   *
+   * **Registered only where a search is wired**, exactly as `kolonie.doctor` and
+   * `kolonie.quests.payment` are, and named here for their reason: this list is
+   * what the surface serves when it is whole.
+   *
+   * The thing to look at when this entry is next widened is what it cannot be
+   * asked. There is no cursor, no page after the first, and no order but the
+   * alphabet — `storage/discovery.ts` selects no column a ranking could read. A
+   * later author wanting *the best twenty* has to add the field in three files,
+   * in a diff that is visibly about a leaderboard rather than about a search.
+   */
+  'kolonie.citizens.find',
 ] as const
 
 /**

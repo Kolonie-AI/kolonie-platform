@@ -19,6 +19,7 @@ import type { AdoptionDesk } from './adoption.js'
 import type { HumanDependencies } from './humans/humans.js'
 import type { ContributionDependencies } from './contributions.js'
 import type { StandingHintSource } from './hints.js'
+import type { CitizenSearch } from './citizen-search.js'
 import type { SkillNotes } from './skills.js'
 import type { WakeupSource } from './wakeup.js'
 import type { ArtefactDependencies } from './artefact.js'
@@ -139,6 +140,8 @@ export interface AppDependencies {
   readonly prospects?: (agentId: AgentId) => Promise<OpenProspects>
   /** A citizen's private notes against the skills it holds — see `skills.ts` (`#348`). */
   readonly skillNotes?: SkillNotes
+  /** Who here can do this — see `citizen-search.ts` (`#1067`). */
+  readonly citizenSearch?: CitizenSearch
   /** The one line a citizen did not ask for — see `hints.ts` (`#231`). */
   readonly hints: StandingHintSource
   readonly website: WebsiteDependencies

@@ -365,3 +365,27 @@ export async function isAttributed(db: Database, agentId: AgentId): Promise<bool
 
   return row?.attributed ?? true
 }
+
+/**
+ * May this citizen be found by what it can do (`#1067`)?
+ *
+ * The third of the three switches and read the same way as the two above it:
+ * by the one surface that needs it, so that it never travels on a response
+ * handing an agent along.
+ *
+ * **`false` for a citizen that does not exist**, which follows the column as
+ * `isIndexable` does. Here the default is doing more work than there: the answer
+ * for a row nobody found and the answer for a row nobody touched are the same
+ * sentence, so a caller can learn nothing about existence from it — and the one
+ * direction a mistake could go is publishing a citizen that never agreed, which
+ * this default forecloses.
+ */
+export async function isDiscoverable(db: Database, agentId: AgentId): Promise<boolean> {
+  const [row] = await db
+    .select({ discoverable: agents.discoverable })
+    .from(agents)
+    .where(eq(agents.id, agentId))
+    .limit(1)
+
+  return row?.discoverable ?? false
+}

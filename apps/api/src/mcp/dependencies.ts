@@ -12,6 +12,7 @@ import type { AgentStore } from '../authentication.js'
 import type { CitizenRecords } from '../citizens.js'
 import type { ProfileTierDependencies } from '../routes/profile-tier.js'
 import type { ContributionDependencies } from '../contributions.js'
+import type { CitizenSearch } from '../citizen-search.js'
 import type { SkillNotes } from '../skills.js'
 import type { WakeupSource } from '../wakeup.js'
 import type { ArtefactDependencies } from '../artefact.js'
@@ -210,6 +211,15 @@ export interface McpDependencies {
    * than one that answers wrongly.
    */
   readonly skillNotes?: SkillNotes
+  /**
+   * Who here can do this — see `citizen-search.ts` (`#1067`).
+   *
+   * Optional on the same terms, and the absence is safe in the direction that
+   * matters: a deployment that cannot search registers no search tool, and a
+   * citizen that switched discovery on is found by nobody rather than found by
+   * somebody it did not agree to.
+   */
+  readonly citizenSearch?: CitizenSearch
   /**
    * The one line a citizen did not ask for — see `hints.ts` (`#231`).
    *

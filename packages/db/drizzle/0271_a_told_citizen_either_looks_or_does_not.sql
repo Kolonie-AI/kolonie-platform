@@ -1,0 +1,1 @@
+ALTER TABLE "diagnoses" ADD COLUMN "consulted_at" timestamp with time zone;

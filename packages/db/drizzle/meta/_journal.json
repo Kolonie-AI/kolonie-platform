@@ -1898,6 +1898,13 @@
       "when": 1786899448614,
       "tag": "0270_nothing_answered_is_its_own_wall",
       "breakpoints": true
+    },
+    {
+      "idx": 271,
+      "version": "7",
+      "when": 1786903119563,
+      "tag": "0271_a_told_citizen_either_looks_or_does_not",
+      "breakpoints": true
     }
   ]
 }

@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify'
-import { doctorAnswerFor } from '../doctor.js'
+import { doctorAnswerFor, recordConsultation } from '../doctor.js'
 import { callerFor } from './authenticated.js'
 import type { RouteDependencies } from './dependencies.js'
 
@@ -33,6 +33,19 @@ export function registerDoctorRoute(v1: FastifyInstance, deps: RouteDependencies
     const caller = await callerFor(request, reply, store)
     if (caller === null) return reply
 
-    return reply.status(200).send(await doctorAnswerFor(caller.id, doctor, new Date()))
+    const now = new Date()
+    const answer = await doctorAnswerFor(caller.id, doctor, now)
+
+    /**
+     * Recorded here as well as at the MCP tool (`#1081`), and asserted
+     * separately rather than assumed from the shared function: the two doors
+     * have come apart before, and *which client the citizen runs* is the one
+     * thing the funnel must not be a measurement of.
+     */
+    await recordConsultation(caller.id, doctor, now, (message, detail) =>
+      request.log.error({ detail }, message),
+    )
+
+    return reply.status(200).send(answer)
   })
 }

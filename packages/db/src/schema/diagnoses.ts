@@ -132,6 +132,26 @@ export const diagnoses = pgTable(
     /** @see announcedAt */
     announcedSeverity: diagnosisSeverity('announced_severity'),
     /**
+     * When this citizen first consulted the Doctor after being told (`#1081`).
+     *
+     * **The second leg of the funnel `announcedAt` starts.** Telling a citizen
+     * something and the citizen looking are different events, and until this
+     * column existed the Colony recorded the first and could not see the second
+     * — so *nothing is happening* and *nothing is being read* were the same
+     * reading of the console.
+     *
+     * **Never reset and never overwritten.** `markConsulted` matches on
+     * `consulted_at is null`, so a citizen re-announced at a worse severity does
+     * not get a second funnel: the question is whether telling produces looking,
+     * and a citizen that looked once has answered it. Clearing it on a
+     * re-announcement would make *median hours to consult* a mixture of two
+     * different measurements.
+     *
+     * Null on a colony-scoped row for the same reason {@link announcedAt} is:
+     * there is nobody to tell and nobody to come back.
+     */
+    consultedAt: timestamp('consulted_at', { withTimezone: true, mode: 'string' }),
+    /**
      * The issue this diagnosis was escalated as, or null (`#869`).
      *
      * ## Why an issue and not the support ticket `#839` proposed

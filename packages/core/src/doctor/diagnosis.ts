@@ -168,6 +168,26 @@ export const DiagnosisSchema = z
      * or about none.
      */
     announcedSeverity: FindingSeveritySchema.nullable(),
+    /**
+     * When this citizen first consulted the Doctor after being told, or `null`
+     * (`#1081`).
+     *
+     * **The second leg of the funnel {@link announcedAt} starts**, and the only
+     * one that says the channel works: everything above records what the Colony
+     * did, and this records what the citizen did about it. Published beside the
+     * announcement rather than kept to the aggregate, because the pair is the
+     * measurement — a stamp whose partner a reader cannot see is a date with
+     * nothing to subtract it from.
+     *
+     * **Never reset and never overwritten.** The first consultation after being
+     * told is the one that answers *did telling it work*; a stamp that moved
+     * would answer *when did it last call*, which is a different question
+     * wearing the same number.
+     *
+     * `null` on a colony-scoped diagnosis for the same reason
+     * {@link announcedAt} is: nobody was told, so nobody came back.
+     */
+    consultedAt: TimestampSchema.nullable(),
   })
   .strict()
 

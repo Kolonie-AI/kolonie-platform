@@ -28,6 +28,8 @@ import {
   listDiagnoses,
   diagnosisById,
   diagnosisCounts,
+  consultationFunnel,
+  markConsulted,
   checkThrottle,
 } from '@kolonie-ai/db'
 import { buildApp } from './app.js'
@@ -711,7 +713,7 @@ const app = buildApp({
   /**
    * What the console's diagnoses pages read (`#841`).
    *
-   * Three reads and no writes. There is no `close` here and there is not going
+   * Four reads and no writes. There is no `close` here and there is not going
    * to be one: a diagnosis resolves when its evidence stops matching, and a
    * person closing one would put an opinion into a state machine defined by
    * evidence.
@@ -720,6 +722,7 @@ const app = buildApp({
     list: (query) => listDiagnoses(db, query),
     byId: (id) => diagnosisById(db, id),
     counts: () => diagnosisCounts(db),
+    funnel: (since) => consultationFunnel(db, since),
   },
   // A citizen's private notes against the skills it holds (`#348`).
   skillNotes: {
@@ -1069,9 +1072,11 @@ const app = buildApp({
   /**
    * What `kolonie.doctor` and `GET /v1/doctor` read (`#837`).
    *
-   * **Three reads and no writes**, which is the whole of what the surface is
-   * permitted to do: the card's ordering is *understand, inform, then limit*,
-   * and this is the inform.
+   * **Three reads and one write, and the write records only that the citizen
+   * looked** (`#1081`). Nothing here decides anything about a citizen: the
+   * card's ordering is *understand, inform, then limit*, and this is still the
+   * inform — recording a consultation limits nothing, and no rule reads the
+   * stamp back at the citizen it is about.
    */
   doctor: {
     callHoursSince: (agentId, since) => callHoursSince(db, agentId, since),
@@ -1092,6 +1097,17 @@ const app = buildApp({
      * third party being up.
      */
     proseFor: (agentId) => proseForOpenDiagnoses(db, agentId),
+    /**
+     * That the citizen looked, on every finding it had been told about
+     * (`#1081`).
+     *
+     * The one write, and it is bounded by the same conditions the storage
+     * function carries: announced, open, agent-scoped, and not already stamped.
+     * A citizen with nothing announced calls this and nothing at all is written.
+     */
+    noteConsultation: async (agentId, at) => {
+      await markConsulted(db, agentId, at)
+    },
   },
   website: { challenges: databaseWebsiteChallenges(db), obstruction },
   /**

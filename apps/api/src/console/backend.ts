@@ -12,6 +12,7 @@ import type { EffectiveSetting } from '@kolonie-ai/db'
 import type {
   Arrivals,
   BackendSections,
+  ConsultationFunnel,
   DiagnosisPage,
   BriefingEffect,
   ColonyNumbers,
@@ -415,6 +416,7 @@ export function backendDiagnosesPage(
     readonly colony: DiagnosisPage
     readonly agents: DiagnosisPage
     readonly counts: Readonly<Record<string, number>>
+    readonly funnel: ConsultationFunnel
     readonly showing: 'colony' | 'agent'
     readonly states: readonly DiagnosisState[]
     readonly page: number
@@ -429,7 +431,7 @@ export function backendDiagnosesPage(
       `<p class="note">What the Doctor found, <strong>most serious first</strong>. ` +
         `This page reads; it does not decide. A finding stops being open when its evidence stops ` +
         `matching, which is the rules' judgement and not a button's.</p>`,
-      `<p>${escape(summaryOf(input.counts))}</p>`,
+      `<p>${escape(summaryOf(input.counts, input.funnel))}</p>`,
       '<p>' +
         [
           link('/backend/diagnoses', 'The Colony’s own', input.showing === 'colony' && !historic),
@@ -495,13 +497,40 @@ function link(href: string, label: string, current: boolean): string {
  * A page shows fifty; *two hundred and eleven are open* is a different fact and
  * the one that says whether something has gone wrong at scale.
  */
-function summaryOf(counts: Readonly<Record<string, number>>): string {
+function summaryOf(counts: Readonly<Record<string, number>>, funnel: ConsultationFunnel): string {
   const open = (counts['colony.open'] ?? 0) + (counts['agent.open'] ?? 0)
   const resolved = (counts['colony.resolved'] ?? 0) + (counts['agent.resolved'] ?? 0)
 
-  return open === 0 && resolved === 0
-    ? 'Nothing has been diagnosed yet.'
-    : `${open} open — ${counts['colony.open'] ?? 0} about the Colony, ${counts['agent.open'] ?? 0} about citizens. ${resolved} have resolved themselves.`
+  const standing =
+    open === 0 && resolved === 0
+      ? 'Nothing has been diagnosed yet.'
+      : `${open} open — ${counts['colony.open'] ?? 0} about the Colony, ${counts['agent.open'] ?? 0} about citizens. ${resolved} have resolved themselves.`
+
+  const uptake = uptakeSentence(funnel)
+
+  return uptake === null ? standing : `${standing} ${uptake}`
+}
+
+/**
+ * Whether telling citizens anything achieves anything (`#1081`).
+ *
+ * **Omitted entirely when nothing was announced**, rather than printed with
+ * zeroes: *nobody was told* and *everybody was told and nobody looked* are
+ * different findings, and a line reading `Told 0 citizens; none has consulted`
+ * would read as the second while meaning the first.
+ */
+function uptakeSentence(funnel: ConsultationFunnel): string | null {
+  if (funnel.announced === 0) return null
+
+  const told = `Told ${funnel.announced} citizens in the last 30 days`
+
+  if (funnel.consulted === 0) return `${told}; none has consulted the Doctor afterwards.`
+
+  const hours = funnel.medianHoursToConsult
+  const typically =
+    hours === null ? '' : `, typically within ${Math.max(1, Math.round(hours))} hours`
+
+  return `${told}; ${funnel.consulted} consulted the Doctor afterwards${typically}.`
 }
 
 /**

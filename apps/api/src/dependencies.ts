@@ -514,7 +514,7 @@ export interface AppDependencies {
    * What the console's diagnoses pages read (`#841`).
    *
    * Optional: a deployment that wires none serves no page rather than an empty
-   * one. Three reads and no writes — see `DiagnosesDesk` for why the absence of a
+   * one. Four reads and no writes — see `DiagnosesDesk` for why the absence of a
    * `close` is the design rather than an omission.
    */
   readonly diagnoses?: DiagnosesDesk

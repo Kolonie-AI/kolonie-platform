@@ -50,16 +50,30 @@ import { walkedRecipeAsText } from './walked-recipe.js'
  * is compared its own way. Splitting the constants makes that exclusion
  * structural rather than a filter the next reader of the guard can drop.
  */
-export const WALK_PROSE_COLUMNS = [...REPORT_FIELD_ORDER, 'note', 'wall'] as const
+const PROSE_COLUMNS_BEFORE_ABOUT = [...REPORT_FIELD_ORDER, 'note', 'wall'] as const
+
+/**
+ * The columns, with the seventh question last (`#1120`).
+ *
+ * Written as `[...base, 'about']` rather than as one literal because
+ * {@link WALK_PROSE_FIELDS} needs the same base with `route` between: a field
+ * that has to be last in both arrays cannot be appended to one and inherited by
+ * the other.
+ */
+export const WALK_PROSE_COLUMNS = [...PROSE_COLUMNS_BEFORE_ABOUT, 'about'] as const
 
 /**
  * Every field of a walk that holds words a citizen wrote.
  *
  * `route` is appended rather than slotted beside the wall for the reason the
  * order is stable at all: a field that moved would make every verdict recorded
- * before it look like it was recorded against an edit.
+ * before it look like it was recorded against an edit. `about` is appended after
+ * it for the same reason, and is the reason {@link WALK_PROSE_COLUMNS} is no
+ * longer this array minus its tail: a field added to both has to land last in
+ * each, and deriving one from the other would have put `about` in front of
+ * `route` here.
  */
-export const WALK_PROSE_FIELDS = [...WALK_PROSE_COLUMNS, 'route'] as const
+export const WALK_PROSE_FIELDS = [...PROSE_COLUMNS_BEFORE_ABOUT, 'route', 'about'] as const
 
 export const WalkProseFieldSchema = z.enum(WALK_PROSE_FIELDS)
 export type WalkProseField = z.infer<typeof WalkProseFieldSchema>
@@ -118,12 +132,33 @@ export const WALK_WALL_QUESTION = 'Where did the provider stop you?'
  */
 export const WALK_ROUTE_QUESTION = 'What route did you write for the next citizen?'
 
+/**
+ * What the provider *is*, asked of the one citizen who has just found out
+ * (`#1120`).
+ *
+ * **The other six questions are about the attempt and this one is about the
+ * place.** A walker finishes knowing what a provider is for, what it sells and
+ * who it is aimed at — and until this question existed there was nowhere to put
+ * any of it, so the Colony held a hundred pages on how to get an account at
+ * providers it could not describe in a sentence.
+ *
+ * **Answering it is optional and costs nothing to skip** (`#1120`, 3). It is
+ * asked at the end of a walk the citizen has already done the work of, and a
+ * walk that leaves it blank is accepted, published and paid exactly as one that
+ * fills it in. The synthesis reads the whole corpus and treats an answer here as
+ * its strongest source rather than as its only one, so the description exists
+ * either way.
+ */
+export const WALK_ABOUT_QUESTION =
+  'What is this provider, in one sentence, to somebody who has never heard of it?'
+
 /** What each field was asked, in one place, so no surface paraphrases one. */
 export const WALK_PROSE_QUESTIONS: Readonly<Record<WalkProseField, string>> = {
   ...REPORT_FIELDS,
   note: WALK_QUESTION,
   wall: WALK_WALL_QUESTION,
   route: WALK_ROUTE_QUESTION,
+  about: WALK_ABOUT_QUESTION,
 }
 
 /**
@@ -154,7 +189,7 @@ export type WalkProse = z.infer<typeof WalkProseSchema>
  * pass reading this is about to make untrue.
  */
 export function walkProse(
-  walk: Partial<Pick<AccountWalk, 'note' | 'wall' | 'recipe' | ReportField>>,
+  walk: Partial<Pick<AccountWalk, 'note' | 'wall' | 'about' | 'recipe' | ReportField>>,
 ): WalkProse {
   const prose: Record<string, string> = {}
 

@@ -260,6 +260,16 @@ export const AccountWalkSchema = z.object({
   broke: z.string().max(WALK_NOTE_MAX_LENGTH).nullable(),
   changed: z.string().max(WALK_NOTE_MAX_LENGTH).nullable(),
   discarded: z.string().max(WALK_NOTE_MAX_LENGTH).nullable(),
+  /**
+   * What the provider is, in the walker's own sentence (`#1120`).
+   *
+   * The seventh prose field, and the only one that is not about the attempt:
+   * *what is this provider, to somebody who has never heard of it?* Null on
+   * every walk that skipped it, which costs the walker nothing — the description
+   * is synthesised from the whole corpus and an answer here is its strongest
+   * source, not its only one.
+   */
+  about: z.string().max(WALK_NOTE_MAX_LENGTH).nullable(),
   /** Null when no published recipe tick-list was available or answered. */
   takenStepPositions: WalkTakenStepPositionsSchema.nullable(),
   /**

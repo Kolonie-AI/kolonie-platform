@@ -60,6 +60,7 @@ const walk = (steps: readonly WalkStep[], over: Partial<AccountWalk> = {}): Acco
   broke: null,
   changed: null,
   discarded: null,
+  about: null,
   takenStepPositions: null,
   recipe: null,
   steps: [...steps],
@@ -549,6 +550,22 @@ describe('whether a walk that ended said what happened', () => {
   it('takes any one answer, including the deprecated note', () => {
     expect(walkIsReported(ended({ discarded: 'I tried two others first.' }))).toBe(true)
     expect(walkIsReported(ended({ note: 'It matched until the last step.' }))).toBe(true)
+  })
+
+  /**
+   * **What the provider *is* is not an account of the attempt** (`#1120`, 5). It
+   * is prose, it is scrubbed like the rest and it is published — but it says
+   * nothing about what happened, so a walk that answered only it has not reported
+   * and the gate still holds. Asserted rather than left to the field list, because
+   * the diff that would move it is a one-word one: adding `about` to
+   * `REPORT_FIELD_ORDER` would quietly turn a sentence about somebody else's
+   * product into what buys a retry and pays the reputation `#1033` prices.
+   */
+  it('does not take a sentence about the provider as one about the attempt', () => {
+    expect(walkIsReported(ended({ about: 'A disposable mailbox with a web inbox.' }))).toBe(false)
+    expect(walkReportAnswers(ended({ about: 'A disposable mailbox with a web inbox.' }))).toEqual(
+      [],
+    )
   })
 
   /**

@@ -476,8 +476,20 @@ const scrubberInputs = () =>
     )
     .digest('hex')
 
-/** What {@link scrubberInputs} came to when `WALK_PROSE_SCRUBBER_VERSION` was last decided. */
-const SCRUBBER_INPUTS_DIGEST = 'aba59904ce5711f81bc9438d3fdb090012721a00fce1a3c712eb60a0bcf919b5'
+/**
+ * What {@link scrubberInputs} came to when `WALK_PROSE_SCRUBBER_VERSION` was last
+ * decided.
+ *
+ * **Moved by `#1120` without the version moving, deliberately.** The seventh prose
+ * field `about` was appended to `WALK_PROSE_FIELDS`, which is one of the inputs
+ * digested here, so this had to be recomputed. It cannot change a verdict already
+ * reached: every walk judged before that field existed answers nothing in it, so
+ * `walkProseText` renders byte-identical prose for all of them and a re-read would
+ * arrive at exactly the same page. Bumping the version would have put every
+ * refusal the Colony holds back in front of the model to be told the same thing
+ * twice, at cost.
+ */
+const SCRUBBER_INPUTS_DIGEST = 'e1a1426598f42139d191c99a64b4334b0c18b6d7f52cd034bebe6bb06b06df95'
 
 /**
  * **What stops the version being forgotten is this test and not a mechanism**

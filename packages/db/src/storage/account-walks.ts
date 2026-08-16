@@ -89,6 +89,7 @@ function toWalk(walk: WalkRow, steps: readonly StepRow[]): AccountWalk {
     broke: walk.broke,
     changed: walk.changed,
     discarded: walk.discarded,
+    about: walk.about,
     takenStepPositions: walk.takenStepPositions,
     /** Parsed on the way out, like every other `jsonb` here: the column is not a shape. */
     recipe: walk.recipe === null ? null : WalkedRecipeSchema.parse(walk.recipe),
@@ -350,6 +351,7 @@ export async function reportFinishedWalk(
     readonly broke?: string | null
     readonly changed?: string | null
     readonly discarded?: string | null
+    readonly about?: string | null
   },
 ): Promise<AccountWalk | undefined> {
   const [updated] = await db
@@ -360,11 +362,12 @@ export async function reportFinishedWalk(
       broke: answers.broke ?? null,
       changed: answers.changed ?? null,
       discarded: answers.discarded ?? null,
+      about: answers.about ?? null,
       /**
        * **Re-queued, including a wall something already read** (`#810`). This
-       * writes four answers onto a walk that may have been closed with a wall and
+       * writes the answers onto a walk that may have been closed with a wall and
        * approved on the strength of it; approving the page again from the verdict
-       * that covered one sixth of it would serve four sentences nothing looked
+       * that covered one field of it would serve sentences nothing looked
        * at. The scrub is thrown away with it, because a scrub of a shorter page
        * is not a scrub of this one.
        */
@@ -382,6 +385,7 @@ export async function reportFinishedWalk(
         isNull(accountWalks.broke),
         isNull(accountWalks.changed),
         isNull(accountWalks.discarded),
+        isNull(accountWalks.about),
       ),
     )
     .returning()
@@ -751,6 +755,8 @@ type WalkFinishInput = {
   readonly broke?: string | null
   readonly changed?: string | null
   readonly discarded?: string | null
+  /** What the provider is, in one sentence (`#1120`), where the walk said. */
+  readonly about?: string | null
   /** Published recipe positions checked by the agent, in order. */
   readonly takenStepPositions?: readonly number[] | null
   /** The walker's own long-form account of the path (`#769`), where it gave one. */
@@ -918,6 +924,7 @@ export async function finishWalk(
         broke: input.broke ?? null,
         changed: input.changed ?? null,
         discarded: input.discarded ?? null,
+        about: input.about ?? null,
         takenStepPositions: input.takenStepPositions == null ? null : [...input.takenStepPositions],
         recipe: input.recipe ?? null,
         direction: input.direction ?? null,
@@ -1319,6 +1326,7 @@ export async function submitWalkReport(
             broke: null,
             changed: null,
             discarded: null,
+            about: null,
             takenStepPositions: null,
             recipe: null,
             direction: null,

@@ -157,6 +157,21 @@ export const accountWalks = pgTable(
     changed: text('changed'),
     discarded: text('discarded'),
 
+    /**
+     * What the provider is, in one sentence (`#1120`).
+     *
+     * **The seventh prose field and the only one not about the attempt.** The
+     * other six ask what happened to this walker; this one asks what the place
+     * *is*, of the citizen that has just spent an afternoon finding out. It is
+     * scrubbed and published on exactly the terms they are — one verdict over
+     * the whole page — and it feeds the synthesised provider description rather
+     * than being served as anybody's sentence.
+     *
+     * Nullable and optional like the rest: a walk that leaves it blank is
+     * accepted, published and paid identically.
+     */
+    about: text('about'),
+
     /** The one tick-list answer, as 1-based positions in the published recipe. */
     takenStepPositions: integer('taken_step_positions').array(),
 
@@ -425,6 +440,13 @@ export const accountWalks = pgTable(
       'account_walks_discarded_is_short',
       sql`${table.discarded} is null
           or length(${table.discarded}) <= ${sql.raw(String(WALK_NOTE_MAX_LENGTH))}`,
+    ),
+
+    /** The same bound again on the seventh (`#1120`), for the same reason. */
+    check(
+      'account_walks_about_is_short',
+      sql`${table.about} is null
+          or length(${table.about}) <= ${sql.raw(String(WALK_NOTE_MAX_LENGTH))}`,
     ),
 
     /**

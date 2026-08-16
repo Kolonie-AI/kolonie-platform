@@ -23,7 +23,7 @@ import type {
 } from '@kolonie-ai/db'
 import { markConfidential } from './confidentiality.js'
 import { synthesise } from './synthesis.js'
-import { synthesiseProvider } from './provider-synthesis.js'
+import { describeProvider, synthesiseProvider } from './provider-synthesis.js'
 import { respondToChange, type Tripwire } from './tripwire.js'
 import { findDuplicate } from './dedup.js'
 import { heldQuestTick, questTick, type QuestLoopDependencies } from './quests.js'
@@ -1215,6 +1215,15 @@ export interface ProviderBriefingStore {
       readonly model: string
     },
   ): Promise<void>
+  /**
+   * Put the one sentence saying what the provider is onto its entry (`#1120`).
+   *
+   * **A second write and not a field of the first**, because the briefing write
+   * deletes its row when there are no claims (`#611`) and the description must
+   * not be deleted with it. Answers whether an entry was there to write on: a
+   * provider with walks but no Atlas entry gets nothing, which is not a failure.
+   */
+  describe(input: ProviderKey & { readonly description: string }): Promise<boolean>
 }
 
 export interface BriefingDependencies {
@@ -1694,6 +1703,8 @@ export async function synthesiseProviderNow(
       })
     }
 
+    await describeProviderNow(store, model, where, corpus, log)
+
     return 'written'
   } catch (error) {
     // A warning with its own event name, never `error`: the triage runner files
@@ -1714,5 +1725,75 @@ export async function synthesiseProviderNow(
       provider,
     })
     return 'failed'
+  }
+}
+
+/**
+ * Write the one sentence saying what a provider is (`#1120`).
+ *
+ * **On the pass that already rebuilt the briefing** (`#1120`, 11), so nothing
+ * schedules this: what makes a description stale is a corpus that moved, which is
+ * the same thing that makes a briefing stale, and a second cadence would be a
+ * second thing to get wrong about the same evidence.
+ *
+ * **It swallows its own failures, and that is the point of it being a function.**
+ * The briefing is written by the time this runs. A description is the smaller
+ * artefact of the two, and losing a briefing that was already synthesised — paid
+ * for, correct, and about to be served — because a second model call timed out
+ * would be the wrong trade in every direction. So this never throws and never
+ * changes the outcome the caller reports; it logs and the next pass tries again.
+ *
+ * **Nothing is written where there is nothing to say.** An empty corpus, a
+ * sentence naming no walk, a blank one and one past the bound all leave the column
+ * exactly as it was — an old description written from evidence that has not gone
+ * anywhere beats no description, and it certainly beats a truncated one.
+ */
+async function describeProviderNow(
+  store: ProviderBriefingStore,
+  model: Model,
+  where: ProviderKey,
+  corpus: readonly ProviderBriefingSource[],
+  log: Log,
+): Promise<void> {
+  const provider = `${where.kind}/${where.provider}`
+
+  try {
+    const { description, proposed, unsourced, blank, overlong } = await describeProvider(
+      { provider: where, corpus },
+      model,
+    )
+
+    if (description === null) {
+      if (corpus.length > 0) {
+        log.warn(`no description for ${provider} over ${corpus.length} walks`, {
+          event: 'provider.description.none',
+          provider,
+          walks: corpus.length,
+          proposed,
+          unsourced,
+          blank,
+          overlong,
+        })
+      }
+      return
+    }
+
+    const written = await store.describe({ ...where, description })
+
+    log.info(
+      written
+        ? `description for ${provider} written from ${corpus.length} walks`
+        : `description for ${provider} dropped — the provider has no Atlas entry`,
+      {
+        event: written ? 'provider.description.written' : 'provider.description.unentered',
+        provider,
+        walks: corpus.length,
+      },
+    )
+  } catch (error) {
+    log.warn(
+      `could not describe ${provider} — ${error instanceof Error ? error.message : String(error)}`,
+      { event: 'provider.description.failed', provider },
+    )
   }
 }

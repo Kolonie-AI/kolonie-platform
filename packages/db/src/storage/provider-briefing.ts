@@ -17,7 +17,7 @@ import {
   type WalkOutcome,
 } from '@kolonie-ai/core'
 import type { Database, Transaction } from '../client.js'
-import { accountWalks, providerBriefings } from '../schema/index.js'
+import { accountWalks, providerBriefings, providerRecipes } from '../schema/index.js'
 import { moderatedWalkProse } from './account-walks.js'
 import { canonicalProvider } from './atlas-renames.js'
 import { toTimestamp } from './rows.js'
@@ -361,6 +361,58 @@ async function oldestCurrentWalk(db: Database, where: ProviderKey): Promise<stri
     .limit(1)
 
   return row?.finishedAt == null ? null : toTimestamp(row.finishedAt)
+}
+
+/**
+ * Write the Colony's one sentence about a provider onto its entry (`#1120`).
+ *
+ * **A separate call from {@link writeProviderBriefing}, and that is the whole
+ * design.** A synthesis that produces no claims deletes the briefing row
+ * (`#611`); a description folded into that write would be deleted with it, and a
+ * provider whose walls happen to be unquotable this week would lose the sentence
+ * saying what it *is* — which has nothing to do with its walls. The two writes
+ * are independent because the two facts are.
+ *
+ * **An update and never an insert.** The key is `(kind, provider)` on
+ * `provider_recipes`, so a provider with no entry row gets nothing rather than a
+ * row with a description and no recipe in it: the description describes an entry,
+ * and an entry nobody has written is not one to describe.
+ *
+ * **`null` clears it**, which is what an empty corpus asks for.
+ */
+export async function writeProviderDescription(
+  db: Database,
+  input: {
+    readonly kind: AccountKind
+    readonly provider: string
+    readonly description: string | null
+  },
+): Promise<boolean> {
+  const provider = await canonicalProvider(db, input.provider)
+
+  const updated = await db
+    .update(providerRecipes)
+    .set({ description: input.description })
+    .where(and(eq(providerRecipes.kind, input.kind), eq(providerRecipes.provider, provider)))
+    .returning({ id: providerRecipes.id })
+
+  return updated.length > 0
+}
+
+/** What the Colony last wrote about a provider, or nothing where it never has. */
+export async function readProviderDescription(
+  db: Database,
+  where: ProviderKey,
+): Promise<string | null> {
+  const provider = await canonicalProvider(db, where.provider)
+
+  const [row] = await db
+    .select({ description: providerRecipes.description })
+    .from(providerRecipes)
+    .where(and(eq(providerRecipes.kind, where.kind), eq(providerRecipes.provider, provider)))
+    .limit(1)
+
+  return row?.description ?? null
 }
 
 /**

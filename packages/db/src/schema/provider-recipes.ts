@@ -82,6 +82,26 @@ export const providerRecipes = pgTable(
     about: text('about'),
 
     /**
+     * One sentence saying what the provider is, written by the Colony (`#1120`).
+     *
+     * **Not {@link about} with a different source, and the difference is who
+     * wrote it.** `about` is a curator's paragraph and is served as one; this is
+     * synthesised from the published walks behind the provider on the pass that
+     * already rebuilds its briefing, and it exists for the two hundred providers
+     * nobody will ever hand-write a paragraph for.
+     *
+     * **It lives here rather than on `provider_briefings`** (`#1120`, 7). A
+     * briefing row is deleted the moment a synthesis produces no claims
+     * (`#611`), and a description that vanished with it would flicker off a page
+     * whose entry never changed. The entry is the thing a reader asks for by
+     * name, so the sentence describing the entry belongs on it.
+     *
+     * Nullable, and null is the ordinary state: no walks behind a provider means
+     * no corpus, which means nothing to write.
+     */
+    description: text('description'),
+
+    /**
      * Where a named runtime's walk genuinely differs (`#547`).
      *
      * **`jsonb` on the row rather than a `recipe_runtimes` table**, for the

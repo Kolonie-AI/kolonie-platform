@@ -405,12 +405,18 @@ export async function writeProviderRecipe(
     cost: entry.cost ?? 'unknown',
     pacePerDay: entry.pacePerDay ?? null,
     /**
-     * **`walls` is absent from this object on purpose** (`#981`), and it is the one
-     * column that must be. Every field here resets when the caller omits it, which
-     * is right for an answer a curator gives; the walls are not an answer anybody
-     * gives, they are counted from the walks. Listing them would mean a typo fixed
-     * in `about` deletes what nine walkers reported. `republishWalls` owns the
-     * column, and this upsert leaves it exactly as it found it.
+     * **`walls` is absent from this object on purpose** (`#981`), and it is one of
+     * two columns that must be. Every field here resets when the caller omits it,
+     * which is right for an answer a curator gives; the walls are not an answer
+     * anybody gives, they are counted from the walks. Listing them would mean a
+     * typo fixed in `about` deletes what nine walkers reported. `republishWalls`
+     * owns the column, and this upsert leaves it exactly as it found it.
+     *
+     * **`description` is the other, for the same reason** (`#1120`). It is the one
+     * sentence saying what the provider is, written by the moderation runner from
+     * the walks and never by a curator — `writeProviderDescription` owns it. It is
+     * not `about`, which is the curator's own paragraph and is listed above like
+     * every other answer they give.
      */
   }
 

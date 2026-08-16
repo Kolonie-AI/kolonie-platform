@@ -1,8 +1,17 @@
 import { describe, expect, it, beforeEach } from 'vitest'
 import { randomUUID } from 'node:crypto'
-import { BRIEFING_CLAIM_MAX_LENGTH, ProviderBriefingClaimSchema } from '@kolonie-ai/core'
+import {
+  BRIEFING_CLAIM_MAX_LENGTH,
+  PROVIDER_DESCRIPTION_MAX_LENGTH,
+  ProviderBriefingClaimSchema,
+} from '@kolonie-ai/core'
 import type { ProviderBriefingSource } from '@kolonie-ai/db'
-import { PROVIDER_SYNTHESIS_PROMPT, synthesiseProvider } from './provider-synthesis.js'
+import {
+  PROVIDER_DESCRIPTION_PROMPT,
+  PROVIDER_SYNTHESIS_PROMPT,
+  describeProvider,
+  synthesiseProvider,
+} from './provider-synthesis.js'
 import { fakeModel, type FakeModel } from './__fixtures__/model.js'
 
 let model: FakeModel
@@ -319,5 +328,168 @@ describe('what the provider synthesis prompt says', () => {
   it('reserves the unsolved section for walls no walk got past', () => {
     expect(PROVIDER_SYNTHESIS_PROMPT).toContain('Use "unsolved" only when')
     expect(PROVIDER_SYNTHESIS_PROMPT).toContain('before it spends the hour')
+  })
+})
+
+describe('describing a provider', () => {
+  it('asks nothing of the model when nobody has walked the provider', async () => {
+    const { description } = await describeProvider(atProvider([]), model)
+
+    expect(description).toBeNull()
+    expect(model.calls()).toHaveLength(0)
+  })
+
+  /**
+   * **The decision an implementation is most likely to get wrong** (`#1120`, 6).
+   * The seventh question exists because a walker writes the best version of this
+   * sentence, and it would have been easy to make the description depend on one —
+   * which would leave every provider walked before the question existed with no
+   * description at all, permanently, since nobody goes back and re-walks a signup
+   * to answer a question that was added afterwards. The synthesis reads the
+   * corpus, so a walk that answered nothing about the provider still describes it.
+   */
+  it('describes a provider whose walks never answered the question about it', async () => {
+    const walk = aWalk({ content: 'The signup form asked for a phone number on the last step.' })
+    model.composes({
+      section: 'description',
+      text: 'A mailbox host with a web inbox and its own domains.',
+      sources: [walk.id],
+    })
+
+    const { description } = await describeProvider(atProvider([walk]), model)
+
+    expect(description).toBe('A mailbox host with a web inbox and its own domains.')
+  })
+
+  it('builds the sentence from a walk that did answer it', async () => {
+    const walk = aWalk({
+      content:
+        'What is this provider, in one sentence, to somebody who has never heard of it?\n' +
+        'A throwaway mailbox service that needs no signup.',
+    })
+    model.composes({ section: 'description', text: 'A throwaway mailbox.', sources: [walk.id] })
+
+    const { description } = await describeProvider(atProvider([walk]), model)
+
+    expect(description).toBe('A throwaway mailbox.')
+    // The walker's answer reaches the model as part of the corpus, and nothing
+    // else — the column is never read here.
+    expect(model.lastCall()?.user ?? '').toContain('needs no signup')
+  })
+
+  /** The corpus is the whole evidence, so a sentence citing none of it is invented. */
+  it('drops a sentence naming no walk in the corpus', async () => {
+    const walk = aWalk()
+    model.composes({ section: 'description', text: 'A mailbox host.', sources: [randomUUID()] })
+
+    const { description, unsourced } = await describeProvider(atProvider([walk]), model)
+
+    expect(description).toBeNull()
+    expect(unsourced).toBe(1)
+  })
+
+  it('drops a sentence with nothing in it', async () => {
+    const walk = aWalk()
+    model.composes({ section: 'description', text: '   ', sources: [walk.id] })
+
+    const { description, blank } = await describeProvider(atProvider([walk]), model)
+
+    expect(description).toBeNull()
+    expect(blank).toBe(1)
+  })
+
+  /**
+   * **Dropped and never truncated** (`#1120`, 10). This sentence is a whole
+   * thought in one line at the top of a page; cut at three hundred characters it
+   * becomes a fragment that reads as the Colony's own writing, which is worse than
+   * the blank the reader would otherwise get.
+   *
+   * The boundary is asserted against the exported constant rather than a literal,
+   * so moving the bound moves the test with it.
+   */
+  it('drops a sentence past the length bound rather than cutting it', async () => {
+    const walk = aWalk()
+    model.composes({
+      section: 'description',
+      text: 'a'.repeat(PROVIDER_DESCRIPTION_MAX_LENGTH + 1),
+      sources: [walk.id],
+    })
+
+    const { description, overlong } = await describeProvider(atProvider([walk]), model)
+
+    expect(description).toBeNull()
+    expect(overlong).toBe(1)
+  })
+
+  it('keeps a sentence exactly at the bound', async () => {
+    const walk = aWalk()
+    const text = 'a'.repeat(PROVIDER_DESCRIPTION_MAX_LENGTH)
+    model.composes({ section: 'description', text, sources: [walk.id] })
+
+    const { description } = await describeProvider(atProvider([walk]), model)
+
+    expect(description).toBe(text)
+  })
+
+  /** The bound is asked for as well as checked, so the model is not left to guess it. */
+  it('asks the model for one section and for a sentence within the bound', async () => {
+    const walk = aWalk()
+    model.composes({ section: 'description', text: 'A mailbox host.', sources: [walk.id] })
+
+    await describeProvider(atProvider([walk]), model)
+
+    expect(model.lastCall()?.sections).toEqual(['description'])
+    expect(model.lastCall()?.sourceIds).toEqual([walk.id])
+  })
+
+  /** One description, so the first of them: a model that hedged wrote one sentence twice. */
+  it('takes the first sentence when the model writes several', async () => {
+    const walk = aWalk()
+    model.composes(
+      { section: 'description', text: 'A mailbox host.', sources: [walk.id] },
+      { section: 'description', text: 'Or possibly a domain registrar.', sources: [walk.id] },
+    )
+
+    const { description, proposed } = await describeProvider(atProvider([walk]), model)
+
+    expect(description).toBe('A mailbox host.')
+    expect(proposed).toBe(2)
+  })
+})
+
+/**
+ * The description prompt is a deliverable in its own right, and nearly the
+ * opposite of the briefing one: what the place *is*, never how the walk went.
+ */
+describe('what the provider description prompt says', () => {
+  it('forbids quoting, and names what must never be written', () => {
+    expect(PROVIDER_DESCRIPTION_PROMPT).toContain('WRITE, DO NOT QUOTE')
+    for (const forbidden of ['mailbox address', 'hostname', 'operator name', 'wallet address']) {
+      expect(PROVIDER_DESCRIPTION_PROMPT).toContain(forbidden)
+    }
+    expect(PROVIDER_DESCRIPTION_PROMPT).toContain('registered AT this provider')
+  })
+
+  /**
+   * The failure this prompt exists to avoid: a corpus of walls invites a verdict,
+   * and a verdict at the top of a page colours everything under it — including the
+   * briefing that is allowed to make one, with its evidence attached.
+   */
+  it('tells the model to describe the service rather than judge it', () => {
+    expect(PROVIDER_DESCRIPTION_PROMPT).toContain('WHAT IT IS, NOT HOW IT WENT')
+    expect(PROVIDER_DESCRIPTION_PROMPT).toContain('is a verdict')
+    expect(PROVIDER_DESCRIPTION_PROMPT).toContain('YOU ARE WRITING ABOUT SOMEBODY ELSE')
+  })
+
+  /** Decision 6 said in the prompt, since the prompt is where it can be got wrong. */
+  it('tells the model to write the sentence with no answer to the question in front of it', () => {
+    expect(PROVIDER_DESCRIPTION_PROMPT).toContain('Where none does — which is')
+    expect(PROVIDER_DESCRIPTION_PROMPT).toContain('is not a reason to return nothing')
+  })
+
+  it('asks for one sentence and no claim at all rather than a guess', () => {
+    expect(PROVIDER_DESCRIPTION_PROMPT).toContain('ONE SENTENCE')
+    expect(PROVIDER_DESCRIPTION_PROMPT).toContain('return no claim rather')
+    expect(PROVIDER_DESCRIPTION_PROMPT).toContain('DO NOT write counts')
   })
 })

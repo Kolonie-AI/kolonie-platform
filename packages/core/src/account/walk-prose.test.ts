@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  WALK_PROSE_COLUMNS,
   WALK_PROSE_FIELDS,
   WALK_PROSE_QUESTIONS,
   walkHasProse,
@@ -89,6 +90,56 @@ describe('the words a walk leaves behind', () => {
 
     it('reaches the text the moderator is shown, under its question', () => {
       expect(walkProseText(walkProse({ recipe }))).toContain(WALK_PROSE_QUESTIONS.route)
+    })
+  })
+
+  /**
+   * The seventh question, and the only one about the provider rather than the
+   * attempt (`#1120`).
+   */
+  describe('what the provider is', () => {
+    /**
+     * **Appended, never inserted** (`#1120`, 2). Every verdict already recorded
+     * names the fields it judged in this order, so a field slotted into the middle
+     * would make each of them look like it was reached against an edited page.
+     * Asserted rather than left to review, because the diff that gets this wrong
+     * is a one-word one.
+     */
+    it('is the last field, after the route', () => {
+      expect(WALK_PROSE_FIELDS.at(-1)).toBe('about')
+      expect(WALK_PROSE_FIELDS.at(-2)).toBe('route')
+      expect([...WALK_PROSE_COLUMNS].at(-1)).toBe('about')
+      // The columns are the fields minus the one that has none.
+      expect([...WALK_PROSE_COLUMNS]).toEqual(
+        [...WALK_PROSE_FIELDS].filter((field) => field !== 'route'),
+      )
+    })
+
+    it('is picked off a walk like any other answer, and skipped when blank', () => {
+      expect(walkProse({ about: 'A throwaway mailbox that needs no signup.' })).toEqual({
+        about: 'A throwaway mailbox that needs no signup.',
+      })
+      expect(walkProse({ about: '   ' })).toEqual({})
+      expect(walkProse({ about: null })).toEqual({})
+    })
+
+    it('reaches the moderator under the question it answers, last', () => {
+      const text = walkProseText(walkProse({ did: 'I signed up.', about: 'A mailbox host.' }))
+
+      expect(text).toBe(
+        `${WALK_PROSE_QUESTIONS.did}\nI signed up.\n\n` +
+          `${WALK_PROSE_QUESTIONS.about}\nA mailbox host.`,
+      )
+    })
+
+    /**
+     * **A walk that answers only this has still written something.** It is not a
+     * report answer — it earns nothing and settles nothing — but it is a citizen's
+     * words about a provider going to a reader who is not their author, which is
+     * the whole of what puts a walk in the scrubbing queue.
+     */
+    it('puts a walk in the queue on its own', () => {
+      expect(walkHasProse(walkProse({ about: 'A mailbox host.' }))).toBe(true)
     })
   })
 })

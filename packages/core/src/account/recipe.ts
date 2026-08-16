@@ -544,6 +544,21 @@ export function cautionsAreDistinct(cautions: readonly RecipeCaution[]): boolean
  */
 export const RECIPE_ABOUT_MAX_LENGTH = 800
 
+/**
+ * How long the *synthesised* description may be (`#1120`).
+ *
+ * **Not {@link RECIPE_ABOUT_MAX_LENGTH}, and the two are not the same field.**
+ * `about` is a paragraph a curator wrote by hand for a provider page; this is one
+ * sentence the Colony wrote from what walkers said, and it appears in a head tag,
+ * an index row and a list entry, where a paragraph would be a wall of text.
+ *
+ * **A description over this is dropped and never truncated** (`#1120`, 10). A
+ * sentence cut mid-clause is worse than no sentence: it reads as the Colony's own
+ * claim about a provider, and half a claim is a claim. Dropping it leaves the
+ * column exactly as the last good pass left it, and the next pass tries again.
+ */
+export const PROVIDER_DESCRIPTION_MAX_LENGTH = 300
+
 /** How long one runtime's difference may be. Two sentences, like a step. */
 export const RECIPE_RUNTIME_NOTE_MAX_LENGTH = 300
 

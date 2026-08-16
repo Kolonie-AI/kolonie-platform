@@ -499,9 +499,10 @@ export async function tick(deps: LoopDependencies, batchSize: number): Promise<T
  * Scrub what walkers wrote, on the same poll (`#810`).
  *
  * Its failure is swallowed like every other pass's. What a failed poll costs
- * here is a page staying unread for one more tick: the row is left `pending`,
- * nothing partial is served, and the next poll picks it up — the shape every
- * scrub in this file settled on, for the same reason they all settled on it.
+ * here is a page staying unread for one more tick: the row stays in whichever
+ * queue state selected it, nothing partial is served, and the next poll picks it
+ * up — the shape every scrub in this file settled on, for the same reason they
+ * all settled on it.
  */
 async function scrubWalkProse(deps: LoopDependencies, batchSize: number, log: Log): Promise<void> {
   const { walkProse } = deps

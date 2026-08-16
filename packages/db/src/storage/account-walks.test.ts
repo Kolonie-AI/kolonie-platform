@@ -12,6 +12,7 @@ import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
 import { sql } from 'drizzle-orm'
 import {
   accountWalk,
+  approvedWalkProseWithoutScrub,
   amendMeasuredEntry,
   reportFinishedWalk,
   unreportedWalk,
@@ -23,6 +24,7 @@ import {
   openWalkId,
   ownAccountWalk,
   recordWalkProseModeration,
+  recordApprovedWalkProseRescrub,
   recordWalkStep,
   submitWalkReport,
   rewardPublishedWalks,
@@ -1219,6 +1221,24 @@ describe('the record of one agent obtaining one account', () => {
       expect(await unmoderatedWalkProse(db, 10)).toHaveLength(0)
     })
 
+    it('cannot approve a page without the scrub that makes it publishable', async () => {
+      const walkId = await walkInProgress(db, agentId, where)
+      await finishWalk(db, walkId, { outcome: 'abandoned', did: PROSE })
+
+      await expect(
+        recordWalkProseModeration(db, {
+          walkId,
+          judged: { did: PROSE },
+          decision: 'approved',
+          // @ts-expect-error -- this malformed internal call is the historical hole being refused.
+          scrubbed: undefined,
+        }),
+      ).rejects.toThrow()
+
+      expect((await unmoderatedWalkProse(db, 10)).map(({ walkId: id }) => id)).toContain(walkId)
+      expect(await moderatedWalkProse(db, where)).toHaveLength(0)
+    })
+
     /**
      * The half worth asserting on its own: a refusal takes the words and leaves
      * everything else — the outcome still counts and the walk still stands.
@@ -1279,6 +1299,137 @@ describe('the record of one agent obtaining one account', () => {
       expect((await unmoderatedWalkProse(db, 10))[0]?.prose).toEqual({
         did: PROSE,
         wall: 'A phone check.',
+      })
+    })
+
+    describe('repairing an approval left without a scrub', () => {
+      const strand = async (
+        at: { readonly kind: AccountKind; readonly provider: string },
+        prose: { readonly did: string },
+      ): Promise<string> => {
+        const walkId = await walkInProgress(db, agentId, at)
+        await finishWalk(db, walkId, { outcome: 'abandoned', ...prose })
+        await db.execute(
+          sql`update account_walks set prose_status = 'approved' where id = ${walkId}`,
+        )
+        return walkId
+      }
+
+      it('selects only finished approvals without a scrub and honours the limit', async () => {
+        const first = await strand(where, { did: 'The first finished account of the signup.' })
+        const second = await strand(
+          { ...where, provider: 'second-provider' },
+          { did: 'The second finished account of the signup.' },
+        )
+
+        const pending = await walkInProgress(db, otherAgentId, {
+          ...where,
+          provider: 'pending-provider',
+        })
+        await finishWalk(db, pending, { outcome: 'abandoned', did: 'Still awaiting moderation.' })
+
+        const rejected = await walkInProgress(db, otherAgentId, {
+          ...where,
+          provider: 'rejected-provider',
+        })
+        await finishWalk(db, rejected, { outcome: 'abandoned', did: 'Already rejected.' })
+        await recordWalkProseModeration(db, {
+          walkId: rejected,
+          judged: { did: 'Already rejected.' },
+          decision: 'rejected',
+        })
+
+        const published = await walkInProgress(db, otherAgentId, {
+          ...where,
+          provider: 'published-provider',
+        })
+        await finishWalk(db, published, { outcome: 'abandoned', did: 'Already scrubbed.' })
+        await recordWalkProseModeration(db, {
+          walkId: published,
+          judged: { did: 'Already scrubbed.' },
+          decision: 'approved',
+          scrubbed: { did: 'Already scrubbed.' },
+        })
+
+        const unfinished = await walkInProgress(db, otherAgentId, {
+          ...where,
+          provider: 'unfinished-provider',
+        })
+        await db.execute(
+          sql`update account_walks set did = 'Not finished.', prose_status = 'approved' where id = ${unfinished}`,
+        )
+
+        const firstBatch = await approvedWalkProseWithoutScrub(db, 1)
+        const all = await approvedWalkProseWithoutScrub(db, 10)
+
+        expect(firstBatch).toHaveLength(1)
+        expect(new Set(all.map(({ walkId }) => walkId))).toEqual(new Set([first, second]))
+      })
+
+      it('writes a re-scrubbed approval and makes it readable and payable', async () => {
+        const walkId = await strand(where, { did: PROSE })
+        const [queued] = await approvedWalkProseWithoutScrub(db, 10)
+        if (queued === undefined) throw new Error('the stranded walk was not queued')
+
+        const written = await recordApprovedWalkProseRescrub(
+          db,
+          {
+            walkId,
+            judged: queued.prose,
+            decision: 'approved',
+            scrubbed: { did: 'The form was completed with identifying detail removed.' },
+          },
+          true,
+        )
+
+        expect(written.outcome).toBe('written')
+        expect(await approvedWalkProseWithoutScrub(db, 10)).toHaveLength(0)
+        expect((await moderatedWalkProse(db, where))[0]?.prose).toEqual({
+          did: 'The form was completed with identifying detail removed.',
+        })
+        expect((await rewardPublishedWalks(db)).map(({ walkId: paid }) => paid)).toContain(walkId)
+      })
+
+      it('moves a crossed re-scrub to rejected and never publishes it', async () => {
+        const walkId = await strand(where, { did: PROSE })
+
+        const written = await recordApprovedWalkProseRescrub(
+          db,
+          {
+            walkId,
+            judged: { did: PROSE },
+            decision: 'rejected',
+          },
+          true,
+        )
+
+        const [row] = await db.execute<{ prose_status: string; scrubbed_prose: unknown }>(
+          sql`select prose_status, scrubbed_prose from account_walks where id = ${walkId}`,
+        )
+        expect(written.outcome).toBe('written')
+        expect(row).toEqual({ prose_status: 'rejected', scrubbed_prose: null })
+        expect(await moderatedWalkProse(db, where)).toHaveLength(0)
+      })
+
+      it('refuses a repair verdict once the exact stranded state has changed', async () => {
+        const walkId = await strand(where, { did: PROSE })
+        await db.execute(
+          sql`update account_walks set did = 'Different words.' where id = ${walkId}`,
+        )
+
+        const stale = await recordApprovedWalkProseRescrub(
+          db,
+          {
+            walkId,
+            judged: { did: PROSE },
+            decision: 'approved',
+            scrubbed: { did: PROSE },
+          },
+          true,
+        )
+
+        expect(stale.outcome).toBe('stale')
+        expect(await moderatedWalkProse(db, where)).toHaveLength(0)
       })
     })
   })

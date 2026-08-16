@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, isNotNull, isNull, ne, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, isNotNull, isNull, ne, sql, type SQL } from 'drizzle-orm'
 import {
   AccountKindSchema,
   AccountProviderSchema,
@@ -10,6 +10,7 @@ import {
   RecipeDirectionSchema,
   TERMS_FORBID_AGENTS_REFUSAL,
   WalkOutcomeSchema,
+  WalkProseSchema,
   wallsForbidWalking,
   WALK_PROSE_COLUMNS,
   WALK_PUBLISHED_REPUTATION,
@@ -1452,6 +1453,59 @@ export async function unmoderatedWalkProse(
   })
 }
 
+/** Approved words left without the scrub that makes a finished walk publishable (`#1095`). */
+export interface ApprovedWalkProseWithoutScrub {
+  readonly walkId: string
+  readonly kind: string
+  readonly provider: string
+  /** May be empty: the state predicate, not a second prose predicate, defines this repair queue. */
+  readonly prose: WalkProse
+}
+
+/**
+ * Finished approvals missing their scrub, oldest first (`#1095`).
+ *
+ * The state is the whole predicate. In particular, there is no date cut-off:
+ * any later write that recreates the gap belongs on the same permanent sweep.
+ */
+export async function approvedWalkProseWithoutScrub(
+  db: Database,
+  limit: number,
+): Promise<readonly ApprovedWalkProseWithoutScrub[]> {
+  const rows = await db
+    .select()
+    .from(accountWalks)
+    .where(
+      and(
+        eq(accountWalks.proseStatus, 'approved'),
+        isNotNull(accountWalks.finishedAt),
+        isNull(accountWalks.scrubbedProse),
+      ),
+    )
+    .orderBy(asc(accountWalks.finishedAt))
+    .limit(limit)
+
+  return rows.map((row) => ({
+    walkId: row.id,
+    kind: row.kind,
+    provider: row.provider,
+    prose: walkProse(row),
+  }))
+}
+
+type WalkProseModerationDecision =
+  | { readonly decision: 'approved'; readonly scrubbed: WalkProse }
+  | { readonly decision: 'rejected' }
+
+type WalkProseModerationCommand = {
+  readonly walkId: string
+  /** What the moderator was shown. The verdict is refused if it has changed. */
+  readonly judged: WalkProse
+} & WalkProseModerationDecision
+
+const moderatedWalkProseValue = (command: WalkProseModerationCommand): WalkProse | null =>
+  command.decision === 'approved' ? WalkProseSchema.parse(command.scrubbed) : null
+
 /**
  * Write what the scrub produced, or refuse the words.
  *
@@ -1478,26 +1532,28 @@ export async function unmoderatedWalkProse(
  */
 export async function recordWalkProseModeration(
   db: Database,
-  command: {
-    readonly walkId: string
-    /** What the moderator was shown. The verdict is refused if it has changed. */
-    readonly judged: WalkProse
-    readonly decision: 'approved' | 'rejected'
-    readonly scrubbed?: WalkProse
-  },
+  command: WalkProseModerationCommand,
 ): Promise<{ readonly outcome: 'written' | 'stale' }> {
   return db.transaction(async (tx) => await writeWalkProseVerdict(tx, command))
 }
 
-async function writeWalkProseVerdict(
+/**
+ * Lock the row and say whether the words a verdict names are still on it.
+ *
+ * `undefined` is *the subject moved*, and the caller's answer to that is always
+ * `stale`. Shared by both verdict paths so that **what was judged** keeps the
+ * one definition the comment above {@link recordWalkProseModeration} describes:
+ * a repair that compared its own way would be a second answer to the same
+ * question, free to drift from the first (`#1095`).
+ *
+ * The columns come back as conditions rather than as a verdict of their own,
+ * because the caller adds its state predicate to the same `where` — the guard
+ * and the state it guards have to be one write.
+ */
+async function walkProseUnchanged(
   db: Database | Transaction,
-  command: {
-    readonly walkId: string
-    readonly judged: WalkProse
-    readonly decision: 'approved' | 'rejected'
-    readonly scrubbed?: WalkProse
-  },
-): Promise<{ readonly outcome: 'written' | 'stale' }> {
+  command: { readonly walkId: string; readonly judged: WalkProse },
+): Promise<readonly SQL[] | undefined> {
   const [locked] = await db
     .select({ recipe: accountWalks.recipe })
     .from(accountWalks)
@@ -1505,14 +1561,21 @@ async function writeWalkProseVerdict(
     .for('update')
     .limit(1)
 
-  if (locked === undefined) return { outcome: 'stale' }
-  if (walkProse({ recipe: locked.recipe }).route !== command.judged.route)
-    return { outcome: 'stale' }
+  if (locked === undefined) return undefined
+  if (walkProse({ recipe: locked.recipe }).route !== command.judged.route) return undefined
 
-  const unchanged = WALK_PROSE_COLUMNS.map((field) => {
+  return WALK_PROSE_COLUMNS.map((field) => {
     const judged = command.judged[field]
     return judged === undefined ? isNull(accountWalks[field]) : eq(accountWalks[field], judged)
   })
+}
+
+async function writeWalkProseVerdict(
+  db: Database | Transaction,
+  command: WalkProseModerationCommand,
+): Promise<{ readonly outcome: 'written' | 'stale' }> {
+  const unchanged = await walkProseUnchanged(db, command)
+  if (unchanged === undefined) return { outcome: 'stale' }
 
   const written = await db
     .update(accountWalks)
@@ -1524,7 +1587,7 @@ async function writeWalkProseVerdict(
        * outcome, the steps, the entry it wrote — stands untouched. There is no
        * attempt to fail here and no standing to move.
        */
-      scrubbedProse: command.decision === 'approved' ? (command.scrubbed ?? null) : null,
+      scrubbedProse: moderatedWalkProseValue(command),
     })
     .where(
       and(
@@ -1560,6 +1623,64 @@ async function writeWalkProseVerdict(
   }
 
   return { outcome: 'written' }
+}
+
+/**
+ * Fill the scrub missing from a finished approval, or reverse an approval whose
+ * second reading crosses a red line (`#1095`).
+ *
+ * The same {@link walkProseUnchanged} guard as {@link recordWalkProseModeration}
+ * keeps a verdict on the words it read. The state guard is deliberately the
+ * repair queue's complete predicate, so this function cannot turn a pending,
+ * unfinished, already-scrubbed or rejected walk into something else.
+ *
+ * Briefing invalidation is in the same transaction as the first successful
+ * repair for a provider in one bounded runner pass. That removes the window
+ * where synthesis could clear the flag before the repaired prose became
+ * readable, while still collapsing several walks at one provider into one call.
+ */
+export async function recordApprovedWalkProseRescrub(
+  db: Database,
+  command: WalkProseModerationCommand,
+  markBriefingStale: boolean,
+): Promise<{ readonly outcome: 'written' | 'stale' }> {
+  return db.transaction(async (tx) => {
+    const unchanged = await walkProseUnchanged(tx, command)
+    if (unchanged === undefined) return { outcome: 'stale' as const }
+
+    const written = await tx
+      .update(accountWalks)
+      .set({
+        proseStatus: command.decision,
+        scrubbedProse: moderatedWalkProseValue(command),
+      })
+      .where(
+        and(
+          eq(accountWalks.id, command.walkId),
+          eq(accountWalks.proseStatus, 'approved'),
+          isNotNull(accountWalks.finishedAt),
+          isNull(accountWalks.scrubbedProse),
+          ...unchanged,
+        ),
+      )
+      .returning({
+        id: accountWalks.id,
+        kind: accountWalks.kind,
+        provider: accountWalks.provider,
+      })
+
+    const row = written[0]
+    if (row === undefined) return { outcome: 'stale' as const }
+
+    if (markBriefingStale) {
+      await markProviderBriefingStale(tx, {
+        kind: AccountKindSchema.parse(row.kind),
+        provider: row.provider,
+      })
+    }
+
+    return { outcome: 'written' as const }
+  })
 }
 
 /** One walk's words as anybody but their author may read them. */

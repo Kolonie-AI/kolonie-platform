@@ -1,4 +1,5 @@
-import type { Diagnosis } from '@kolonie-ai/core'
+import { DIAGNOSIS_RETENTION_DAYS, type Diagnosis } from '@kolonie-ai/core'
+import type { RuleHealthRow } from '@kolonie-ai/db'
 import { escape } from './escape.js'
 import { relative } from './time.js'
 
@@ -103,6 +104,81 @@ export function diagnosesTable(rows: readonly Diagnosis[], nothing: string): rea
     ...rows.map(row),
     '</tbody>',
     '</table>',
+  ]
+}
+
+/**
+ * The two sentences that stand between the numbers and a reader misreading them
+ * (`#1083`).
+ *
+ * **The retention line is computed from {@link DIAGNOSIS_RETENTION_DAYS} and not
+ * written out**, because the whole thing it says is *these two columns count
+ * different amounts of history* — a hard-coded ninety would go on saying so
+ * after somebody changed the constant, and a page that lies confidently about
+ * its own window is worse than a page that says nothing.
+ *
+ * **The second line is there because `Resolved after` reads as a success rate
+ * and is not one.** A diagnosis resolves when its evidence stops matching, which
+ * may be the citizen acting on what it was told and may be the citizen stopping
+ * for reasons of its own. There is deliberately no percentage anywhere on this
+ * page: a ratio would be read as *the rule worked this often*, and nothing here
+ * measures that.
+ */
+export function ruleHealthNotes(): readonly string[] {
+  return [
+    `<p class="note">Diagnoses are kept ${DIAGNOSIS_RETENTION_DAYS} days; verdicts are kept ` +
+      `indefinitely, so a rule may show more verdicts than findings.</p>`,
+  ]
+}
+
+/** One rule at one policy version. */
+function ruleRow(rule: RuleHealthRow): string {
+  return [
+    '<tr>',
+    `<td>${escape(rule.kind)}<br><small>${escape(rule.policyVersion ?? 'no rules on file')}</small></td>`,
+    `<td>${rule.opened}</td>`,
+    `<td>${rule.announced}</td>`,
+    `<td>${rule.consulted}</td>`,
+    `<td>${rule.resolvedAfterAnnouncement}</td>`,
+    // Nobody consulted is a dash and never a nought: a zero here would read as
+    // *they all came back instantly*, which is the opposite of what happened.
+    `<td>${rule.medianHoursToConsult === null ? '—' : escape(String(Math.max(1, Math.round(rule.medianHoursToConsult))))}</td>`,
+    `<td>${rule.helpful}</td>`,
+    `<td>${rule.notApplicable}</td>`,
+    `<td>${rule.wrong}</td>`,
+    '</tr>',
+  ].join('')
+}
+
+/**
+ * Which rules are any good (`#1083`).
+ *
+ * One row per rule per policy version, and **the two halves of it come from
+ * sources that do not agree about time**: the left is what the rule did, swept
+ * with the findings, and the right is what the citizens made of it, kept. A row
+ * of zeros with verdicts beside it is therefore a real row and the most
+ * interesting one on the page — the rule that was disputed and then stopped
+ * firing — rather than something to filter out.
+ */
+export function ruleHealthTable(rules: readonly RuleHealthRow[]): readonly string[] {
+  if (rules.length === 0) {
+    return [
+      '<p>No rule has produced a finding and no citizen has said anything about one. ' +
+        'That is an answer rather than an empty panel.</p>',
+    ]
+  }
+
+  return [
+    '<table>',
+    '<thead><tr><th>Rule</th><th>Opened</th><th>Announced</th><th>Consulted</th>' +
+      '<th>Resolved after</th><th>Median hours to consult</th>' +
+      '<th>Helpful</th><th>N/A</th><th>Wrong</th></tr></thead>',
+    '<tbody>',
+    ...rules.map(ruleRow),
+    '</tbody>',
+    '</table>',
+    `<p class="note">A diagnosis resolves when its evidence stops matching. That a citizen was ` +
+      `told first does not establish that being told is why.</p>`,
   ]
 }
 

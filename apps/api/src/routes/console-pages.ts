@@ -97,6 +97,7 @@ import {
   backendTicketsPage,
   backendDiagnosesPage,
   backendDiagnosisPage,
+  backendDiagnosisRulesPage,
   backendUnreportedPage,
   backendWantedPage,
   moderationTrend,
@@ -1738,6 +1739,26 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
           : reply.send({ colony, agents, counts, funnel, showing, states, page })
       },
     )
+
+    /**
+     * Which rules are any good (`#1083`).
+     *
+     * **Registered before the detail route below, deliberately rather than by
+     * accident.** `rules` is not a uuid and the detail handler would refuse it
+     * with a 404 either way, but that is a property of the id format and not a
+     * decision anybody wrote down — a later id shape that admitted a word would
+     * silently swallow this path. The order here is the decision, and
+     * `console-diagnoses.test.ts` asserts both routes still answer.
+     */
+    app.get('/backend/diagnoses/rules', async (request, reply) => {
+      if ((await backendGuard(request, reply)) === null) return reply
+
+      const rules = await diagnoses.ruleHealth()
+
+      return wantsHtml(request)
+        ? html(reply, backendDiagnosisRulesPage({ nav: navFor(request, ['maintainer']), rules }))
+        : reply.send({ rules })
+    })
 
     /**
      * One diagnosis, read to the end.

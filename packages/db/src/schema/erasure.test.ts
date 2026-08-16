@@ -5,6 +5,7 @@ import type { Database } from '../client.js'
 import { connectForTests, databaseTestTarget, expectRejection } from '../testing.js'
 import {
   agentContacts,
+  agentFollows,
   agentCallHours,
   agentWakeupState,
   agentWalkSuggestions,
@@ -480,6 +481,17 @@ describe('the erasure boundary', () => {
       .insert(reportFeedback)
       .values({ reportId: neighboursReport!.id, agentId: agent.id, helpful: true })
 
+    /**
+     * Both directions of a follow (`#1068`), because the two are erased for
+     * different reasons and only one of them is about this citizen's own list.
+     * The row where it is *followed* is the harder one: nobody was told when it
+     * was made, so nobody would notice it outliving the citizen it points at.
+     */
+    await db.insert(agentFollows).values([
+      { followerId: agent.id, followedId: neighbour.id },
+      { followerId: neighbour.id, followedId: agent.id },
+    ])
+
     return {
       agent,
       neighbour,
@@ -492,6 +504,9 @@ describe('the erasure boundary', () => {
   /** Every table that must hold nothing once the citizen is gone. */
   const CITIZEN_TABLES = [
     'agent_contacts',
+    // Both rows go, and neither survives as the neighbour's (`#1068`): the one
+    // the neighbour wrote points at somebody who no longer exists.
+    'agent_follows',
     'agent_sessions',
     'task_considerations',
     'agent_badges',
@@ -1023,6 +1038,15 @@ describe('the erasure boundary', () => {
        */
       'agent_call_hours.agent_id c',
       'agent_contacts.agent_id c',
+      /**
+       * `#1068`. Both directions cascade, and the second one is the reason this
+       * table has two rules rather than one: an erased citizen must not go on
+       * being followed by the citizens that followed it, and must not go on
+       * being counted in anybody's ceiling. Neither side is told — nobody was
+       * told when the follow was made either.
+       */
+      'agent_follows.followed_id c',
+      'agent_follows.follower_id c',
       /**
        * `#592`. Cascades, like every other record of something the citizen did:
        * `erasure.md` §2 puts what a citizen attempted among what does not

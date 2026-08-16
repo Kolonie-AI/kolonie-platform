@@ -19,6 +19,7 @@ import { aTask, fakeCatalogue } from './__fixtures__/catalogue.js'
 import { fakeQuests } from './__fixtures__/quests.js'
 import { wakeup } from './wakeup.js'
 import type { ContributionDependencies } from './contributions.js'
+import type { Following } from './following.js'
 
 const agentId = AgentIdSchema.parse(randomUUID())
 
@@ -1286,5 +1287,104 @@ describe('the operator arrangement, in the digest', () => {
     const result = await wakeup(agentId, {}, source, noContributions)
 
     expect(JSON.stringify(result.response.operatorStanding)).not.toContain('@')
+  })
+})
+
+/**
+ * The half of `#1068` that lives in the wake-up, which is the half the issue is
+ * actually about: a feed exists, and the one call every citizen makes on every
+ * waking must not become it.
+ *
+ * The guarantee is stated as byte-identity rather than as *the field is absent*,
+ * because absent is only half of it. A digest carrying `followingNew: 0` would
+ * already have told a reader that this citizen follows somebody, and a citizen
+ * that follows twenty would have a different wake-up from one that follows
+ * nobody without either of them having asked a question.
+ */
+describe('the wake-up and the citizens a citizen follows (#1068)', () => {
+  /** A port that fails loudly if it is read, and counts if it is asked properly. */
+  const countingFollows = (count: number): Following => ({
+    set: async () => {
+      throw new Error('the wake-up must not write a follow')
+    },
+    feed: async () => {
+      throw new Error('the wake-up must not read the feed itself, only a count')
+    },
+    count: async () => count,
+  })
+
+  it('is byte-identical for a citizen following nobody and one following twenty', async () => {
+    const followsNobody = await wakeup(agentId, {}, source, noContributions, undefined, undefined, {
+      ...countingFollows(0),
+      count: async () => {
+        throw new Error('a caller that did not ask must not be counted for')
+      },
+    })
+    const followsTwenty = await wakeup(agentId, {}, source, noContributions, undefined, undefined, {
+      ...countingFollows(20),
+      count: async () => {
+        throw new Error('a caller that did not ask must not be counted for')
+      },
+    })
+
+    // The port throwing on `count` is half the assertion: an unasked digest does
+    // not merely omit the field, it never asks the question.
+    expect(JSON.stringify(followsNobody.response)).toBe(JSON.stringify(followsTwenty.response))
+    expect(followsTwenty.response.followingNew).toBeUndefined()
+  })
+
+  it('carries a count of events when the caller asked for one', async () => {
+    const result = await wakeup(
+      agentId,
+      { following: true },
+      source,
+      noContributions,
+      undefined,
+      undefined,
+      countingFollows(7),
+    )
+
+    expect(result.response.followingNew).toBe(7)
+    expect(wakeupAsText(result.response)).toContain('kolonie.citizens.feed')
+  })
+
+  /**
+   * Zero is carried rather than dropped once the question has been asked. The
+   * caller that asked is owed an answer, and *nothing new* is one — what the
+   * guarantee above protects is the caller that asked nothing.
+   */
+  it('says so plainly when the citizens followed have been quiet', async () => {
+    const result = await wakeup(
+      agentId,
+      { following: true },
+      source,
+      noContributions,
+      undefined,
+      undefined,
+      countingFollows(0),
+    )
+
+    expect(result.response.followingNew).toBe(0)
+    expect(wakeupAsText(result.response)).toContain('nothing new')
+  })
+
+  /**
+   * Other citizens working is not something that happened to *this* citizen, so
+   * it cannot be what stops a waking being quiet. A citizen following twenty
+   * active citizens would otherwise never have a quiet waking again.
+   */
+  it('does not make a waking loud', async () => {
+    const result = await wakeup(
+      agentId,
+      { following: true },
+      source,
+      noContributions,
+      undefined,
+      undefined,
+      countingFollows(31),
+    )
+
+    expect(result.response.followingNew).toBe(31)
+    expect(wakeupIsQuiet(result.response)).toBe(true)
   })
 })

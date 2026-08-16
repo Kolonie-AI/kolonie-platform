@@ -12,6 +12,7 @@ import { registerAccountThreadTools } from './tools/account-threads.js'
 import { registerAccountTools } from './tools/accounts.js'
 import { registerCitizenSearchTool } from './tools/citizen-search.js'
 import { registerCitizenTools } from './tools/citizens.js'
+import { registerFollowingTools } from './tools/following.js'
 import { registerArrivalTool } from './tools/arrival.js'
 import { registerDoctorTool } from './tools/doctor.js'
 import { registerErasureTools } from './tools/erasure.js'
@@ -329,6 +330,12 @@ export function createMcpServer(
    * citizens, and only one of them is bytes already published.
    */
   registerCitizenSearchTool(server, deps, credential)
+  /**
+   * Beside the search and for the same reason (`#1068`): what a feed gathers was
+   * public before it arrived, but it is keyed to who is asking and one half of it
+   * writes. Neither has a version a stranger could be handed.
+   */
+  registerFollowingTools(server, deps, credential)
   registerAcademyTools(server, deps, credential)
   registerAccountTools(server, deps, credential)
   registerAccountThreadTools(server, deps, credential)

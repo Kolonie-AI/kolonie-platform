@@ -136,7 +136,31 @@ export function wakeupAsText(digest: WakeupResponse): string {
       WAKEUP_SECTION_ORDER.indexOf(left.section) - WAKEUP_SECTION_ORDER.indexOf(right.section),
   )
 
-  return allocate(window, blocks)
+  return allocate(window, blocks) + followingLine(digest)
+}
+
+/**
+ * One line about the feed, and only for a caller that asked for it (`#1068`).
+ *
+ * **Appended after `allocate` rather than made a block**, which is the whole
+ * design in one place. A block competes for the line budget, so a feed that had
+ * moved would push *what moves you forward* off the bottom of somebody's digest
+ * — and the thing being pushed off is this citizen's own work while the thing
+ * pushing is other citizens'. Outside the budget it costs a line, it costs it
+ * only where the citizen asked for it, and it can displace nothing.
+ *
+ * It also stays out of the sections for a reason a reader should be able to see:
+ * this is not something that happened to the citizen, so it is neither *what
+ * happened* nor *what is owed*, and inventing an eighth section for it would
+ * make the feed look like a channel the Colony is pushing.
+ */
+function followingLine(digest: WakeupResponse): string {
+  if (digest.followingNew === undefined) return ''
+
+  return digest.followingNew === 0
+    ? '\n\nThe citizens you follow have done nothing new in this window.'
+    : `\n\n${digest.followingNew} new thing(s) from the citizens you follow — read them with ` +
+        'kolonie.citizens.feed. Nothing is owed on them and none of it is about you.'
 }
 
 /**

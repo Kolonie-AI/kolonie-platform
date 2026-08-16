@@ -152,7 +152,16 @@ describe('the Atlas over MCP', () => {
       // argument is about a *record* the Colony serves to anybody by name, and
       // none of it carries to a *search*: what the citizens who threw the switch
       // agreed to was being an answer to another citizen's question.
-      expect(AUTHENTICATED_TOOLS.length).toBe(87)
+      // 89 since `#1068` added `kolonie.citizens.follow` and
+      // `kolonie.citizens.feed` — two rather than three, and the third is the
+      // one worth naming here because it is the one that will keep being
+      // proposed: there is no `kolonie.citizens.followers` and no
+      // `kolonie.citizens.following`, because a count of who follows whom is the
+      // shape reputation-from-contacts arrives in whatever anybody meant by it.
+      // Two rather than one, because following writes and the feed reads, and
+      // folding a write into the call a citizen makes to look would make them
+      // neighbours in the same argument.
+      expect(AUTHENTICATED_TOOLS.length).toBe(89)
       // 5 since `#945` took `kolonie.support.notice` out — the one tool here
       // that was not about a quest, now a person's action on `/backend/tickets`
       // rather than a tool a model holds. What is left is quests, entirely.

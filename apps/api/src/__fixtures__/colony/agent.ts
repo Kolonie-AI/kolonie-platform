@@ -44,6 +44,7 @@ import { checkName, register, type AgentRegistry, type Caller } from '../../regi
 import { memoryGate } from '../registry.js'
 import { fakeSkillNotes, type FakeSkillNotes } from '../skill-notes.js'
 import { fakeCitizenSearch, type FakeCitizenSearch } from '../citizen-search.js'
+import { fakeFollowing, type FakeFollowing } from '../following.js'
 import { fakeStandingHints } from '../hints.js'
 import { fakeWakeup } from '../wakeup.js'
 
@@ -143,6 +144,15 @@ export interface FakeAgent {
    * is findable is the Colony as it stands the day this ships.
    */
   readonly citizenSearch: FakeCitizenSearch
+  /**
+   * Keeping what a findable citizen does in view (`#1068`).
+   *
+   * Wired by default and empty for the search's reason, one field above: two
+   * more tools are named in `AUTHENTICATED_TOOLS`, and a colony without the
+   * port would register two fewer than production does. Empty is the honest
+   * default here too — nobody follows anybody until somebody asks to.
+   */
+  readonly following: FakeFollowing
   /** The one line a citizen did not ask for (`#231`). */
   readonly hints: StandingHintSource
   /** The range a declared rhythm has to fall inside (#142). */
@@ -384,6 +394,7 @@ export function fakeAgent(deps: { readonly solanaChallenges: SolanaChallenges })
     }),
     skillNotes: fakeSkillNotes(),
     citizenSearch: fakeCitizenSearch(),
+    following: fakeFollowing(),
     hints: fakeStandingHints(),
     /**
      * The default range (#142). A test that cares about the bounds passes its

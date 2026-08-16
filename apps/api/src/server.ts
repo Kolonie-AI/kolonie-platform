@@ -89,6 +89,10 @@ import {
 } from '@kolonie-ai/verifiers'
 import {
   findCitizens,
+  followCitizen,
+  followFeed,
+  followFeedSince,
+  unfollowCitizen,
   githubAccountOf,
   holdsSkillNow,
   openProspects,
@@ -102,6 +106,7 @@ import { databaseWalks } from './account-walks.js'
 import { databaseWishes } from './account-wishes.js'
 import { swarmPortraitOf } from '@kolonie-ai/db'
 import { databaseWakeChallenges } from './wake.js'
+import { followRefusals } from './following.js'
 import { wakeSender } from '@kolonie-ai/verifiers'
 import { databaseWebsiteChallenges } from './website.js'
 import { databaseImageChallenges } from './image.js'
@@ -724,6 +729,25 @@ const app = buildApp({
   // Who here can do this (`#1067`). One method, and the switch it reads is a
   // predicate inside `findCitizens` rather than anything this line could forget.
   citizenSearch: { find: (query) => findCitizens(db, query) },
+  /**
+   * Keeping another citizen's public work in view (`#1068`). Storage answers in
+   * refusal names rather than in `ApiError`s, and this is the one place the two
+   * meet: `followRefusals` is exhaustive over `FollowRefusal`, so a refusal added
+   * there without a sentence here is a type error rather than a blank message.
+   */
+  following: {
+    set: async (followerId, handle, following) => {
+      const result = following
+        ? await followCitizen(db, followerId, handle)
+        : await unfollowCitizen(db, followerId, handle)
+
+      return result.outcome === 'following'
+        ? { outcome: 'following', response: result.response }
+        : { outcome: 'refused', error: followRefusals[result.refusal] }
+    },
+    feed: (followerId, query) => followFeed(db, followerId, query),
+    count: (followerId, since) => followFeedSince(db, followerId, since),
+  },
   quests: databaseQuests(
     db,
     questAuditPolicy(),

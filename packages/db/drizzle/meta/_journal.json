@@ -1863,6 +1863,13 @@
       "when": 1786879362739,
       "tag": "0265_citizens_may_be_found_by_what_they_can_do",
       "breakpoints": true
+    },
+    {
+      "idx": 266,
+      "version": "7",
+      "when": 1786880418641,
+      "tag": "0266_citizens_may_follow_what_others_do",
+      "breakpoints": true
     }
   ]
 }

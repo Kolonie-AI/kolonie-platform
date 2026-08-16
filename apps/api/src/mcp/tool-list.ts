@@ -499,6 +499,22 @@ export const AUTHENTICATED_TOOLS = [
    * in a diff that is visibly about a leaderboard rather than about a search.
    */
   'kolonie.citizens.find',
+  /**
+   * Following, and the feed of what was followed (`#1068`).
+   *
+   * Authenticated for two different reasons, which is worth keeping straight if
+   * either is ever moved. The follow **writes**, so it needs a caller to write
+   * against. The feed reads only bytes that were already public — but it is
+   * keyed to who is asking, so there is no anonymous version of the question,
+   * and a public one would be a crawler's index of the discoverable.
+   *
+   * What is not here is the pair a later author will reach for: there is no
+   * `kolonie.citizens.followers` and no `kolonie.citizens.following`. `#1068`
+   * forbids a follower count, a following count and a list of who follows whom
+   * on every surface, and no method exists behind either name to register.
+   */
+  'kolonie.citizens.follow',
+  'kolonie.citizens.feed',
 ] as const
 
 /**

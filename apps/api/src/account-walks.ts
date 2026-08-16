@@ -35,6 +35,7 @@ import {
   ownAccountWalk,
   recordWalkStep,
   reportFinishedWalk,
+  submitWalkReport,
   unreportedWalk,
   walkInProgress,
   type Database,
@@ -102,6 +103,12 @@ export interface WalkStore {
        */
       readonly recipe?: WalkedRecipe
     },
+  ): Promise<{ readonly walk: AccountWalk; readonly verdict: WalkVerdict } | undefined>
+  /** File and close a walk, opening or replacing a direct one where necessary. */
+  submit(
+    agentId: AgentId,
+    input: { readonly kind: AccountKind; readonly provider: string },
+    report: Parameters<WalkStore['finish']>[1],
   ): Promise<{ readonly walk: AccountWalk; readonly verdict: WalkVerdict } | undefined>
   /**
    * The last walk here that did not get through and never said why (`#811`), or
@@ -1050,15 +1057,6 @@ export async function unreportedWalkRefusalError(
   return { code: 'report_first', message: unreportedWalkRefusal(owed) }
 }
 
-export const NO_WALK_IN_PROGRESS: ApiError = {
-  code: 'not_found',
-  message:
-    'There is no walk of that provider open for you. A walk opens by itself the first time ' +
-    'something happens — a handoff, or declaring the account — so this either finished already ' +
-    'or never started. Nothing is wrong: if you hold the account, kolonie.accounts.declare is ' +
-    'what records it.',
-}
-
 /**
  * The database behind the port (`#601`).
  *
@@ -1072,6 +1070,7 @@ export function databaseWalks(db: Database): WalkStore {
     open: (agentId, input) => walkInProgress(db, agentId, input),
     record: (walkId, step) => recordWalkStep(db, walkId, step),
     finish: (walkId, input) => finishWalk(db, walkId, input),
+    submit: (agentId, input, report) => submitWalkReport(db, agentId, input, report),
     unreported: (agentId, input) => unreportedWalk(db, agentId, input),
     amend: (agentId, input, recipe) => amendProposedDraft(db, agentId, input, recipe),
     report: (agentId, walkId, answers) => reportFinishedWalk(db, agentId, walkId, answers),

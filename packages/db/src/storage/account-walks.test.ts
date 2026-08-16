@@ -22,6 +22,7 @@ import {
   ownAccountWalk,
   recordWalkProseModeration,
   recordWalkStep,
+  submitWalkReport,
   rewardPublishedWalks,
   unmoderatedWalkProse,
   untoldWalkReward,
@@ -96,6 +97,46 @@ describe('the record of one agent obtaining one account', () => {
   it('answers that no walk is open, without opening one', async () => {
     expect(await openWalkId(db, agentId, where)).toBeUndefined()
     expect(await openWalkId(db, agentId, where)).toBeUndefined()
+  })
+
+  it('files and replaces a walk without any account row', async () => {
+    const first = await submitWalkReport(db, agentId, where, {
+      outcome: 'proved',
+      recipe: {
+        steps: [{ title: 'Open the signup form', detail: 'Fill in the requested fields.' }],
+      },
+    })
+    const second = await submitWalkReport(db, agentId, where, {
+      outcome: 'refused',
+      wall: 'The signup form never advances past its final check.',
+    })
+
+    expect(first?.walk.id).toBe(second?.walk.id)
+    expect(second?.walk).toMatchObject({
+      outcome: 'refused',
+      wall: 'The signup form never advances past its final check.',
+    })
+    expect(await accountWalkList(db, agentId)).toHaveLength(1)
+    expect(await unreportedWalk(db, agentId, where)).toBeUndefined()
+    const accounts = await db.execute<{ count: number }>(
+      sql`select cast(count(*) as integer) as count from accounts where agent_id = ${agentId}`,
+    )
+    expect(accounts[0]?.count).toBe(0)
+    const walks = await db.execute<{ proposed_at: string | null }>(
+      sql`select proposed_at from account_walks where id = ${second?.walk.id ?? ''}`,
+    )
+    expect(walks[0]?.proposed_at).toBeNull()
+  })
+
+  it('submits against an already-open walk instead of creating another', async () => {
+    const opened = await walkInProgress(db, agentId, where)
+    await recordWalkStep(db, opened, { actor: 'agent' })
+
+    const reported = await submitWalkReport(db, agentId, where, { outcome: 'proved' })
+
+    expect(reported?.walk.id).toBe(opened)
+    expect(reported?.walk.steps).toHaveLength(1)
+    expect(await accountWalkList(db, agentId)).toHaveLength(1)
   })
 
   it('numbers steps in the order they happened, and never from the caller', async () => {

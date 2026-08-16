@@ -30,6 +30,138 @@ describe('kolonie.accounts.walk-report', () => {
       WalkReportSchema.safeParse({ outcome: 'proved', takenStepPositions: [2, 1] }).success,
     ).toBe(false)
   })
+
+  it('opens and closes a refused walk without an account, declaration or handoff', async () => {
+    const { colony, apiKey, agent } = await registeredCitizen()
+    const register = fakeAccountRegister()
+    const walks = fakeWalks()
+    const { client, close } = await connectedClient(
+      { ...colony, accounts: fakeAccounts(register), walks },
+      `Bearer ${apiKey}`,
+    )
+
+    const result = await client.callTool({
+      name: 'kolonie.accounts.walk-report',
+      arguments: {
+        kind: 'mailbox',
+        provider: 'blocked-provider',
+        outcome: 'refused',
+        wall: 'The signup form never advances past its final check.',
+      },
+    })
+
+    expect(result.isError).not.toBe(true)
+    expect(result.structuredContent).toMatchObject({
+      walkId: expect.any(String),
+      outcome: 'refused',
+    })
+    expect(await register.list(agent.id)).toEqual([])
+    expect(await walks.list(agent.id)).toMatchObject([
+      {
+        kind: 'mailbox',
+        provider: 'blocked-provider',
+        outcome: 'refused',
+        wall: 'The signup form never advances past its final check.',
+      },
+    ])
+    await close()
+  })
+
+  it('replaces a direct report at the same provider instead of adding a row', async () => {
+    const { colony, apiKey, agent } = await registeredCitizen()
+    const walks = fakeWalks()
+    const { client, close } = await connectedClient({ ...colony, walks }, `Bearer ${apiKey}`)
+
+    const first = await client.callTool({
+      name: 'kolonie.accounts.walk-report',
+      arguments: { kind: 'mailbox', provider: 'blocked-provider', outcome: 'abandoned' },
+    })
+    const [original] = await walks.list(agent.id)
+    const second = await client.callTool({
+      name: 'kolonie.accounts.walk-report',
+      arguments: {
+        kind: 'mailbox',
+        provider: 'blocked-provider',
+        outcome: 'refused',
+        wall: 'The signup form never advances past its final check.',
+      },
+    })
+
+    expect(first.isError).not.toBe(true)
+    expect(second.isError).not.toBe(true)
+    expect(second.structuredContent).toMatchObject({
+      walkId: original?.id,
+      outcome: 'refused',
+    })
+    const stored = await walks.list(agent.id)
+    expect(stored).toHaveLength(1)
+    expect(stored[0]).toMatchObject({
+      outcome: 'refused',
+      wall: 'The signup form never advances past its final check.',
+    })
+    await close()
+  })
+
+  it('closes the walk a declaration or handoff already opened instead of adding one', async () => {
+    const { colony, apiKey, agent } = await registeredCitizen()
+    const walks = fakeWalks()
+    const opened = walks.add({
+      agentId: agent.id,
+      kind: 'mailbox',
+      provider: 'blocked-provider',
+      finished: false,
+    })
+    const { client, close } = await connectedClient({ ...colony, walks }, `Bearer ${apiKey}`)
+
+    const result = await client.callTool({
+      name: 'kolonie.accounts.walk-report',
+      arguments: {
+        kind: 'mailbox',
+        provider: 'blocked-provider',
+        outcome: 'refused',
+        wall: 'The signup form never advances past its final check.',
+      },
+    })
+
+    expect(result.isError).not.toBe(true)
+    expect(result.structuredContent).toMatchObject({ walkId: opened.id })
+    expect(await walks.list(agent.id)).toHaveLength(1)
+    await close()
+  })
+
+  it('still refuses an unknown kind and a refusal without its wall', async () => {
+    const { colony, apiKey, agent } = await registeredCitizen()
+    const walks = fakeWalks()
+    const { client, close } = await connectedClient({ ...colony, walks }, `Bearer ${apiKey}`)
+
+    const unknownKind = await client.callTool({
+      name: 'kolonie.accounts.walk-report',
+      arguments: { kind: 'not a kind', provider: 'blocked-provider', outcome: 'abandoned' },
+    })
+    const missingWall = await client.callTool({
+      name: 'kolonie.accounts.walk-report',
+      arguments: { kind: 'mailbox', provider: 'blocked-provider', outcome: 'refused' },
+    })
+
+    expect(unknownKind.isError).toBe(true)
+    expect(JSON.stringify(unknownKind.content)).toContain('lowercase kebab-case')
+    expect(missingWall.isError).toBe(true)
+    expect(JSON.stringify(missingWall.content)).toContain('wall')
+    expect(await walks.list(agent.id)).toEqual([])
+    await close()
+  })
+
+  it('says that reporting needs no account and that failed walks are wanted', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+
+    const { tools } = await client.listTools()
+    const report = tools.find((tool) => tool.name === 'kolonie.accounts.walk-report')
+
+    expect(report?.description).toContain('No account, declaration or handoff is required')
+    expect(report?.description).toContain('A walk that failed is wanted')
+    await close()
+  })
 })
 
 describe('kolonie.accounts.walk-status', () => {
@@ -812,13 +944,18 @@ describe('kolonie.accounts.walk-report long form', () => {
   })
 
   /**
-   * The amendment reaches exactly one thing, and a walk that proposed no draft
-   * is not it — the answer is the same *no walk in progress* it always was.
+   * A finished observed walk remains history. The report now opens an attempt of
+   * its own rather than overwriting the row whose earlier outcome already stands.
    */
-  it('does not turn a finished walk into a second report', async () => {
+  it('does not overwrite a finished walk when the report opens its own attempt', async () => {
     const { colony, apiKey, agent } = await registeredCitizen()
     const walks = fakeWalks()
-    walks.add({ agentId: agent.id, kind: 'github', provider: 'clawhub.ai', outcome: 'proved' })
+    const earlier = walks.add({
+      agentId: agent.id,
+      kind: 'github',
+      provider: 'clawhub.ai',
+      outcome: 'proved',
+    })
     const { client, close } = await connectedClient({ ...colony, walks }, `Bearer ${apiKey}`)
 
     const result = await client.callTool({
@@ -826,7 +963,10 @@ describe('kolonie.accounts.walk-report long form', () => {
       arguments: { kind: 'github', provider: 'clawhub.ai', outcome: 'proved', recipe: RECIPE },
     })
 
-    expect(result.isError).toBe(true)
+    expect(result.isError).not.toBe(true)
+    expect(result.structuredContent).not.toMatchObject({ walkId: earlier.id })
+    expect((await walks.one(agent.id, earlier.id))?.recipe).toBeNull()
+    expect(await walks.list(agent.id)).toHaveLength(2)
     await close()
   })
 

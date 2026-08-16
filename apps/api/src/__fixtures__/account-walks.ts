@@ -34,6 +34,8 @@ export function fakeWalks(): FakeWalkStore {
    * modelled here and the other is covered where the two are in one database.
    */
   const proposed = new Set<string>()
+  /** Rows created by a report itself, rather than by an observed account event. */
+  const direct = new Set<string>()
 
   const add: FakeWalkStore['add'] = (input) => {
     const startedAt = currentTime()
@@ -62,6 +64,46 @@ export function fakeWalks(): FakeWalkStore {
     return walk
   }
 
+  const finish: WalkStore['finish'] = async (walkId, input) => {
+    const at = rows.findIndex((walk) => walk.id === walkId && walk.finishedAt === null)
+    if (at === -1) return undefined
+    const previous = rows[at]
+    if (previous === undefined) return undefined
+
+    const walk: AccountWalk = {
+      ...previous,
+      finishedAt: currentTime(),
+      outcome: input.outcome,
+      direction: input.direction ?? null,
+      wall: input.wall ?? null,
+      note: input.note ?? null,
+      did: input.did ?? null,
+      broke: input.broke ?? null,
+      changed: input.changed ?? null,
+      discarded: input.discarded ?? null,
+      takenStepPositions: input.takenStepPositions == null ? null : [...input.takenStepPositions],
+      /**
+       * **The long form lands on the walk here too** (`#982`), the way
+       * `finishWalk` writes it. Without it the fake answered a report carrying
+       * four walls with a walk carrying none, and the tool result — which now
+       * tells the agent where its walls went — would have been tested against a
+       * walk no real report produces.
+       */
+      recipe: input.recipe ?? null,
+    }
+    rows[at] = walk
+    const verdict: WalkVerdict =
+      input.outcome === 'proved'
+        ? { kind: 'draft', steps: [] }
+        : input.outcome === 'refused'
+          ? { kind: 'refusal', wall: input.wall ?? '' }
+          : { kind: 'nothing', why: 'the walk was abandoned' }
+
+    if (verdict.kind === 'draft') proposed.add(walk.id)
+
+    return { walk, verdict }
+  }
+
   return {
     add,
     async open(agentId, input) {
@@ -76,44 +118,55 @@ export function fakeWalks(): FakeWalkStore {
       ).id
     },
     async record() {},
-    async finish(walkId, input) {
-      const at = rows.findIndex((walk) => walk.id === walkId && walk.finishedAt === null)
-      if (at === -1) return undefined
-      const previous = rows[at]
-      if (previous === undefined) return undefined
+    finish,
+    // @mirrors packages/db/src/storage/account-walks.ts submitWalkReport a4e4e153
+    async submit(agentId, input, report) {
+      const open = rows.find(
+        (walk) =>
+          walk.agentId === agentId &&
+          walk.kind === input.kind &&
+          walk.provider === input.provider &&
+          walk.finishedAt === null,
+      )
+      let walkId = open?.id
 
-      const walk: AccountWalk = {
-        ...previous,
-        finishedAt: currentTime(),
-        outcome: input.outcome,
-        direction: input.direction ?? null,
-        wall: input.wall ?? null,
-        note: input.note ?? null,
-        did: input.did ?? null,
-        broke: input.broke ?? null,
-        changed: input.changed ?? null,
-        discarded: input.discarded ?? null,
-        takenStepPositions: input.takenStepPositions == null ? null : [...input.takenStepPositions],
-        /**
-         * **The long form lands on the walk here too** (`#982`), the way
-         * `finishWalk` writes it. Without it the fake answered a report carrying
-         * four walls with a walk carrying none, and the tool result — which now
-         * tells the agent where its walls went — would have been tested against a
-         * walk no real report produces.
-         */
-        recipe: input.recipe ?? null,
+      if (walkId === undefined) {
+        const replacement = rows.find(
+          (walk) =>
+            direct.has(walk.id) &&
+            walk.agentId === agentId &&
+            walk.kind === input.kind &&
+            walk.provider === input.provider,
+        )
+
+        if (replacement === undefined) {
+          const created = add({ agentId, ...input, finished: false })
+          direct.add(created.id)
+          walkId = created.id
+        } else {
+          const at = rows.findIndex((walk) => walk.id === replacement.id)
+          rows[at] = {
+            ...replacement,
+            startedAt: currentTime(),
+            finishedAt: null,
+            outcome: null,
+            direction: null,
+            wall: null,
+            note: null,
+            did: null,
+            broke: null,
+            changed: null,
+            discarded: null,
+            takenStepPositions: null,
+            recipe: null,
+            steps: [],
+          }
+          proposed.delete(replacement.id)
+          walkId = replacement.id
+        }
       }
-      rows[at] = walk
-      const verdict: WalkVerdict =
-        input.outcome === 'proved'
-          ? { kind: 'draft', steps: [] }
-          : input.outcome === 'refused'
-            ? { kind: 'refusal', wall: input.wall ?? '' }
-            : { kind: 'nothing', why: 'the walk was abandoned' }
 
-      if (verdict.kind === 'draft') proposed.add(walk.id)
-
-      return { walk, verdict }
+      return finish(walkId, report)
     },
     async amend(agentId, input, recipe) {
       const at = rows.findIndex(
@@ -143,6 +196,7 @@ export function fakeWalks(): FakeWalkStore {
           walk.kind === input.kind &&
           walk.provider === input.provider &&
           walk.finishedAt !== null &&
+          !direct.has(walk.id) &&
           walk.outcome !== 'proved',
       )
 

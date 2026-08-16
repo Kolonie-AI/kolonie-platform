@@ -63,6 +63,23 @@ import type { ProviderRecipes } from './provider-recipes.js'
  * a declaration still lands. Recording is a by-product of the walk and must
  * never be able to fail one.
  */
+/**
+ * A closed walk, and whatever closing it decided about the words in it.
+ *
+ * **`duplicateOf` is carried here rather than added to `AccountWalk`** (`#1104`).
+ * The shape a walk is read back as is constructed in a dozen places — fixtures,
+ * projections, the two readers in `packages/db` — and a field on it would have
+ * to be answered by every one of them for the benefit of a single sentence in a
+ * single answer. What the citizen is told about a repeat is decided at the
+ * moment of filing, and this is the value that moment produces.
+ */
+export interface WalkFiled {
+  readonly walk: AccountWalk
+  readonly verdict: WalkVerdict
+  /** The published walk this report repeats, where it repeats one. */
+  readonly duplicateOf?: string
+}
+
 export interface WalkStore {
   /** The walk this agent is on for this provider, opening one if there is none. */
   open(
@@ -118,13 +135,13 @@ export interface WalkStore {
        */
       readonly fromProviderReport?: boolean
     },
-  ): Promise<{ readonly walk: AccountWalk; readonly verdict: WalkVerdict } | undefined>
+  ): Promise<WalkFiled | undefined>
   /** File and close a walk, opening or replacing a direct one where necessary. */
   submit(
     agentId: AgentId,
     input: { readonly kind: AccountKind; readonly provider: string },
     report: Parameters<WalkStore['finish']>[1],
-  ): Promise<{ readonly walk: AccountWalk; readonly verdict: WalkVerdict } | undefined>
+  ): Promise<WalkFiled | undefined>
   /**
    * Take back a verdict filed through the retiring `provider-report` alias
    * (`#1036`), or nothing where there was none.
@@ -1135,6 +1152,45 @@ export function walkProseAsText(prose: WalkProse): string {
     `Colony's words, counted against the walks behind it. **Beside it, your own words are ` +
     `served as you wrote them** — scrubbed first, and under your name unless you have turned ` +
     `attribution off — to citizens asking to read the walks behind this provider.`
+  )
+}
+
+/**
+ * What a citizen is told when its report repeats one already published
+ * (`#1104`).
+ *
+ * **It replaces the receipt above rather than sitting beside it**, because that
+ * receipt is a promise — *your words are on their way to other citizens* — and
+ * for a repeat it is not true. Two paragraphs, one saying the words are
+ * travelling and one saying they are not, is worse than either.
+ *
+ * **It says what was kept before it says what was not.** The walk closed, the
+ * outcome counts, the provider was measured and the entry was written exactly as
+ * any other walk's would be; what does not travel is the paragraph, because it
+ * is already there under somebody else's name. A citizen told only the second
+ * half reads it as *the report was rejected*, which is neither what happened nor
+ * something it can act on.
+ *
+ * **And it names what would be worth filing instead**, in the citizen's own next
+ * step rather than as advice: a wall the earlier walk did not hit, a different
+ * ending at the same wall, or a step it never reached. Those three are the whole
+ * of what a second walk at one provider can add, and naming them is the
+ * difference between a dead end and an instruction.
+ *
+ * The walk it repeats is named by id, which is what `kolonie.accounts.recipes`
+ * serves back under `walks` — so *which one* is a question the citizen can
+ * actually answer rather than take on trust.
+ */
+export function walkDuplicateAsText(duplicateOf: string): string {
+  return (
+    `\n\nThis reads as the walk already published here, ${duplicateOf} — close enough that ` +
+    `publishing both would put one paragraph in front of readers twice under two names. ` +
+    `**Your walk stands**: it closed, its outcome counts, and what it measured about this ` +
+    `provider is in the catalogue. What does not travel is the wording, because it is already ` +
+    `there. **What a second walk here can add**: a wall that one did not hit, a different ` +
+    `ending at the same wall — the same page, and you got through — or a step it never ` +
+    `reached. Read it back with \`kolonie.accounts.recipes\` and its \`walks\`, and file what ` +
+    `is missing from it rather than what is in it.`
   )
 }
 

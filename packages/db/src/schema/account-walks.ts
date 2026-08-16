@@ -11,6 +11,7 @@ import {
   timestamp,
   uniqueIndex,
   uuid,
+  type AnyPgColumn,
 } from 'drizzle-orm/pg-core'
 import {
   DIRECTIONAL_KINDS,
@@ -209,6 +210,31 @@ export const accountWalks = pgTable(
     proseStatus: moderationStatus('prose_status').notNull().default('approved'),
 
     /**
+     * The published walk this one repeats, where it repeats one (`#1104`).
+     *
+     * **Stored and answered, never refused.** A citizen that walked a provider
+     * and wrote up what it found has done the work whether or not somebody got
+     * there first; what the Colony declines to do is count the same finding
+     * twice. So the row is written, the author is told which walk it duplicates,
+     * and the one consequence is that `scrubbed_prose` stays null forever.
+     *
+     * **That single fact carries every other rule**, which is why there is no
+     * second column and no status of its own: a walk with no scrubbed prose is
+     * invisible to `moderatedWalkProse`, absent from `providerBriefingCorpus()`,
+     * absent from `publishedWalksAt` and unpayable under `#1033`, whose paying
+     * event is publication. A duplicate is emphatically **not** `rejected` —
+     * repeating a report is not crossing a line, and the refusal tally must
+     * never drift a citizen toward suspension for it.
+     *
+     * Self-referential, because the duplicated walk is a walk. `set null` on
+     * delete: the pointer is evidence about this row and losing it is better
+     * than losing the row.
+     */
+    duplicateOf: uuid('duplicate_of').references((): AnyPgColumn => accountWalks.id, {
+      onDelete: 'set null',
+    }),
+
+    /**
      * When this walk proposed the entry for its provider (`#858`).
      *
      * **Stamped by `finishWalk` at the moment the draft is written**, on
@@ -386,6 +412,20 @@ export const accountWalks = pgTable(
     check(
       'account_walks_scrubbed_prose_iff_approved',
       sql`${table.scrubbedProse} is null or ${table.proseStatus} = 'approved'`,
+    ),
+
+    /**
+     * **A duplicate is never published, in the database** (`#1104`).
+     *
+     * The detection writes `prose_status = 'approved'` with nothing scrubbed, so
+     * a duplicate is already out of the queue and out of every read. This is the
+     * defence that holds against a write path nobody has built yet — the same
+     * argument `account_walks_scrubbed_prose_iff_approved` makes one constraint
+     * up, and the reason a future scrubber cannot publish a repeat by accident.
+     */
+    check(
+      'account_walks_a_duplicate_is_not_published',
+      sql`${table.duplicateOf} is null or ${table.scrubbedProse} is null`,
     ),
 
     /** The pass's queue: walks whose words nobody has read, oldest first. */

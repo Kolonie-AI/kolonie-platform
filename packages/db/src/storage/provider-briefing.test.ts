@@ -76,6 +76,11 @@ describe('the briefing the Colony writes about a provider', () => {
    * a refusal, so a helper that used it would silently produce a wordless walk the
    * moment a test asked for a walk that got through. A refusal still names one,
    * because the column check refuses a refusal that does not.
+   *
+   * **Each walk says something of its own** (`#1104`). A report that repeats a
+   * published one is stored as the repeat it is and never published again, so a
+   * helper handing every walk the same sentence would have produced one walk with
+   * prose and a queue of copies — which is not what these counts are about.
    */
   const aWalk = async (
     options: {
@@ -84,7 +89,9 @@ describe('the briefing the Colony writes about a provider', () => {
       readonly moderated?: boolean
     } = {},
   ): Promise<string> => {
-    const did = options.said ?? 'I filled in the signup form and it wanted a number to text.'
+    const did =
+      options.said ??
+      `I filled in the signup form and it wanted a number to text, ticket ${crypto.randomUUID()}.`
     const outcome = options.outcome ?? 'abandoned'
     const wall = outcome === 'refused' ? 'it wanted a phone number' : undefined
     const prose = wall === undefined ? { did } : { did, wall }

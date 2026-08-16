@@ -2074,3 +2074,102 @@ describe('kolonie.accounts.recipes serves the walks behind an entry', () => {
     await close()
   })
 })
+
+/**
+ * What a walk report is told when it repeats one already published (`#1104`).
+ *
+ * The detection itself is the storage's and is tested against a real database in
+ * `packages/db`; what is asserted here is the half only the tool decides — that
+ * the citizen is told *which* walk, that it is told what it kept, and that it is
+ * not simultaneously promised its words are travelling when they are not.
+ */
+describe('kolonie.accounts.walk-report answering a repeat', () => {
+  const REPEATED = '5f0e6d1a-0c2f-4a6b-9d3e-1b2c3d4e5f60'
+
+  /** The store, with the storage's duplicate answer put back on top of the fake's. */
+  const repeating = (
+    walks: ReturnType<typeof fakeWalks>,
+    duplicateOf: string,
+  ): ReturnType<typeof fakeWalks> => ({
+    ...walks,
+    async finish(...args: Parameters<typeof walks.finish>) {
+      const filed = await walks.finish(...args)
+      return filed === undefined ? undefined : { ...filed, duplicateOf }
+    },
+    async submit(...args: Parameters<typeof walks.submit>) {
+      const filed = await walks.submit(...args)
+      return filed === undefined ? undefined : { ...filed, duplicateOf }
+    },
+  })
+
+  const filed = async (
+    walks: ReturnType<typeof fakeWalks>,
+    apiKey: string,
+    colony: Awaited<ReturnType<typeof registeredCitizen>>['colony'],
+  ) => {
+    const { client, close } = await connectedClient({ ...colony, walks }, `Bearer ${apiKey}`)
+    const result = await client.callTool({
+      name: 'kolonie.accounts.walk-report',
+      arguments: {
+        kind: 'github',
+        provider: 'clawhub.ai',
+        outcome: 'proved',
+        did: 'Signed in with GitHub and it took the handle.',
+      },
+    })
+    await close()
+    return result
+  }
+
+  it('names the walk it repeats, and says what the report kept', async () => {
+    const { colony, apiKey, agent } = await registeredCitizen()
+    const walks = fakeWalks()
+    walks.add({ agentId: agent.id, kind: 'github', provider: 'clawhub.ai', finished: false })
+
+    const result = await filed(repeating(walks, REPEATED), apiKey, colony)
+
+    const text = JSON.stringify(result.content)
+    expect(result.isError).not.toBe(true)
+    expect(text).toContain(REPEATED)
+    expect(text).toContain('Your walk stands')
+    expect((result.structuredContent as { duplicateOf?: string }).duplicateOf).toBe(REPEATED)
+  })
+
+  /**
+   * The receipt promises the words are on their way to other citizens. For a
+   * repeat that promise is false, and a citizen handed both paragraphs is being
+   * told two incompatible things about the same paragraph.
+   */
+  it('does not also promise the words are on their way', async () => {
+    const { colony, apiKey, agent } = await registeredCitizen()
+    const walks = fakeWalks()
+    walks.add({ agentId: agent.id, kind: 'github', provider: 'clawhub.ai', finished: false })
+
+    const result = await filed(repeating(walks, REPEATED), apiKey, colony)
+
+    expect(JSON.stringify(result.content)).not.toContain('already on its way to other citizens')
+  })
+
+  /** The ordinary walk is untouched: the receipt, and no pointer at anything. */
+  it('leaves a report that repeats nothing exactly as it was', async () => {
+    const { colony, apiKey, agent } = await registeredCitizen()
+    const walks = fakeWalks()
+    walks.add({ agentId: agent.id, kind: 'github', provider: 'clawhub.ai', finished: false })
+
+    const result = await filed(walks, apiKey, colony)
+
+    expect(JSON.stringify(result.content)).toContain('already on its way to other citizens')
+    expect(result.structuredContent).not.toHaveProperty('duplicateOf')
+  })
+
+  /** Nothing on this path is an agent id, on either answer (`#1101`'s rule). */
+  it('names no agent id', async () => {
+    const { colony, apiKey, agent } = await registeredCitizen()
+    const walks = fakeWalks()
+    walks.add({ agentId: agent.id, kind: 'github', provider: 'clawhub.ai', finished: false })
+
+    const result = await filed(repeating(walks, REPEATED), apiKey, colony)
+
+    expect(JSON.stringify(result)).not.toContain(agent.id)
+  })
+})

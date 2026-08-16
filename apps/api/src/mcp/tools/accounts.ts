@@ -8,11 +8,13 @@ import {
   noteWalkStep,
   readWalkStatus,
   unreportedWalkRefusalError,
+  walkDuplicateAsText,
   walkProofState,
   walkProofStateAsText,
   walkProseAsText,
   walkVerdictAsText,
   walkWallsAsText,
+  type WalkFiled,
 } from '../../account-walks.js'
 import {
   KNOWN_ACCOUNT_KINDS,
@@ -44,12 +46,10 @@ import {
   walkIsReported,
   walkProse,
   wishAtlasSentence,
-  type AccountWalk,
   type AgentId,
   type ApiError,
   type ProviderRecipe,
   type RecipeStep,
-  type WalkVerdict,
 } from '@kolonie-ai/core'
 import {
   AccountFieldsArgumentSchema,
@@ -246,7 +246,7 @@ function publishedWalksAsText(page: PublishedWalkPage): string {
 async function walkReportResult(
   agentId: AgentId,
   provider: string,
-  finished: { readonly walk: AccountWalk; readonly verdict: WalkVerdict },
+  finished: WalkFiled,
   accounts: McpDependencies['accounts']['register'],
 ) {
   /**
@@ -263,7 +263,15 @@ async function walkReportResult(
         text:
           walkVerdictAsText(finished.verdict) +
           walkWallsAsText(finished.verdict, finished.walk.recipe?.walls ?? []) +
-          walkProseAsText(walkProse(finished.walk)) +
+          /**
+           * **One of the two, never both** (`#1104`). The prose receipt promises
+           * the words are on their way to other citizens; for a repeat that
+           * promise is false, and the duplicate paragraph is what is true
+           * instead.
+           */
+          (finished.duplicateOf === undefined
+            ? walkProseAsText(walkProse(finished.walk))
+            : walkDuplicateAsText(finished.duplicateOf)) +
           (proof === undefined ? '' : walkProofStateAsText(proof)),
       },
     ],
@@ -272,6 +280,7 @@ async function walkReportResult(
       outcome: finished.walk.outcome,
       proposes: finished.verdict.kind,
       providerCanonical: provider,
+      ...(finished.duplicateOf === undefined ? {} : { duplicateOf: finished.duplicateOf }),
       ...(proof === undefined ? {} : { proof }),
     },
   }

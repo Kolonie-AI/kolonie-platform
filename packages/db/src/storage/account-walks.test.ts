@@ -3,9 +3,11 @@ import {
   AccountKindSchema,
   REFUSAL_UNSTATED,
   WALL_KIND_MEANINGS,
+  WALK_DUPLICATE_SIMILARITY,
   WALK_PUBLISHED_REPUTATION,
   type AccountKind,
   type AgentId,
+  type WalkOutcome,
 } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
@@ -2477,5 +2479,236 @@ describe('the walks published behind one provider', () => {
     expect(walk?.walkId).toMatch(/^[0-9a-f-]{36}$/u)
     expect(JSON.stringify(page)).not.toContain(walker)
     expect(JSON.stringify(page)).not.toContain(other)
+  })
+})
+
+/**
+ * A repeat of something already published is recognised as it is filed (`#1104`).
+ *
+ * **What is asserted here is the pointer and the one consequence it has.** A
+ * duplicate is closed like any other walk — the outcome counts, the entry is
+ * written, the provider is measured — and the single thing it loses is the
+ * ability to ever carry `scrubbed_prose`, which is what keeps one paragraph from
+ * arriving in the briefing corpus ten times under ten names.
+ *
+ * Every fixture below is written for this file. None of it is production prose,
+ * and the pair that must fall *below* the threshold is asserted against
+ * `WALK_DUPLICATE_SIMILARITY` rather than against a literal, so tuning the
+ * constant moves the test with it instead of leaving it passing for the old
+ * reason.
+ */
+describe('a walk report that repeats one already published', () => {
+  let db: Database
+  let walker: AgentId
+  let copier: AgentId
+
+  beforeAll(async () => {
+    db = await connectForTests(target.url)
+  })
+
+  afterAll(async () => {
+    await db?.close()
+  })
+
+  const register = async (name: string): Promise<AgentId> => {
+    const agent = await registerAgent(db, { name, platform: 'openclaw', operator: null })
+    if (agent.outcome !== 'registered') throw new Error(`could not register ${name}`)
+    return agent.agent.id
+  }
+
+  beforeEach(async () => {
+    await truncateAll(db)
+    walker = await register('walker')
+    copier = await register('copier')
+  })
+
+  const where = { kind: kind('mailbox'), provider: 'somewhere.example' }
+
+  const ORIGINAL = {
+    did: 'Opened the signup page, gave the handle and a password, and confirmed from the inbox.',
+    broke: 'The confirmation mail took eleven minutes and landed in a folder the reader hides.',
+  }
+
+  /** Published the only way a walk is published: a moderator scrubbed it. */
+  const published = async (
+    prose: { readonly did?: string; readonly broke?: string; readonly wall?: string },
+    options: {
+      readonly by?: AgentId
+      readonly at?: typeof where
+      readonly outcome?: WalkOutcome
+    } = {},
+  ): Promise<string> => {
+    const pair = options.at ?? where
+    const outcome = options.outcome ?? 'proved'
+    const walkId = await walkInProgress(db, options.by ?? walker, pair)
+    await finishWalk(db, walkId, { outcome, ...prose })
+    const verdict = await recordWalkProseModeration(db, {
+      walkId,
+      judged: prose,
+      decision: 'approved',
+      scrubbed: prose,
+    })
+    if (verdict.outcome !== 'written') throw new Error('the moderation did not land')
+    return walkId
+  }
+
+  const filed = async (
+    prose: { readonly did?: string; readonly broke?: string; readonly wall?: string },
+    options: {
+      readonly by?: AgentId
+      readonly at?: typeof where
+      readonly outcome?: WalkOutcome
+    } = {},
+  ): Promise<{ readonly walkId: string; readonly duplicateOf: string | undefined }> => {
+    const pair = options.at ?? where
+    const walkId = await walkInProgress(db, options.by ?? copier, pair)
+    const finished = await finishWalk(db, walkId, {
+      outcome: options.outcome ?? 'proved',
+      ...prose,
+    })
+    if (finished === undefined) throw new Error('the walk did not close')
+    return { walkId, duplicateOf: finished.duplicateOf }
+  }
+
+  const row = async (walkId: string) => {
+    const [found] = await db.execute<{
+      duplicate_of: string | null
+      prose_status: string
+      scrubbed_prose: unknown
+    }>(sql`select duplicate_of, prose_status, scrubbed_prose
+             from account_walks where id = ${walkId}::uuid`)
+    if (found === undefined) throw new Error('the walk is not there')
+    return found
+  }
+
+  it('points the copy at the walk it repeats', async () => {
+    const first = await published(ORIGINAL)
+
+    const { walkId, duplicateOf } = await filed(ORIGINAL)
+
+    expect(duplicateOf).toBe(first)
+    expect((await row(walkId)).duplicate_of).toBe(first)
+  })
+
+  /**
+   * The one consequence, asserted as the column rather than as a story about it:
+   * `scrubbed_prose` null and no queue entry is exactly what `moderatedWalkProse`,
+   * `providerBriefingCorpus` and `publishedWalksAt` all read.
+   */
+  it('leaves the copy unpublishable and out of the queue', async () => {
+    await published(ORIGINAL)
+    const { walkId } = await filed(ORIGINAL)
+
+    const stored = await row(walkId)
+    expect(stored.scrubbed_prose).toBeNull()
+
+    const queued = await unmoderatedWalkProse(db, 10)
+    expect(queued.map((walk) => walk.walkId)).not.toContain(walkId)
+
+    const page = await publishedWalksAt(db, { provider: where.provider })
+    if (page === 'invalid-cursor') throw new Error('the cursor was rejected')
+    expect(page.walks.map((walk) => walk.walkId)).not.toContain(walkId)
+  })
+
+  /**
+   * **A repeat is not a refusal**, and the column that would say otherwise is the
+   * one a per-citizen refusal tally counts (`#1097`). Asserting the column rather
+   * than the tally, because the tally is another agent's issue and this is the
+   * fact it will count.
+   */
+  it('never writes the copy a rejected status', async () => {
+    await published(ORIGINAL)
+    const { walkId } = await filed(ORIGINAL)
+
+    expect((await row(walkId)).prose_status).toBe('approved')
+  })
+
+  /** Punctuation and case are not the signal; the same paragraph typed loudly is the same paragraph. */
+  it('sees through case, punctuation and spacing', async () => {
+    const first = await published(ORIGINAL)
+
+    const { duplicateOf } = await filed({
+      did: '  OPENED the signup page — gave the handle, and a password; and confirmed from the inbox!!  ',
+      broke:
+        'The confirmation mail took ELEVEN minutes... and landed in a folder the reader hides.',
+    })
+
+    expect(duplicateOf).toBe(first)
+  })
+
+  /**
+   * The half that keeps this from eating findings: the same words over a
+   * different ending is two citizens at one wall of whom one got through.
+   */
+  it('is not a repeat when the walk ended differently', async () => {
+    await published(ORIGINAL)
+
+    const { duplicateOf } = await filed(ORIGINAL, { outcome: 'abandoned' })
+
+    expect(duplicateOf).toBeUndefined()
+  })
+
+  it('is not a repeat when the words are about another provider', async () => {
+    await published(ORIGINAL)
+
+    const { duplicateOf } = await filed(ORIGINAL, {
+      at: { kind: where.kind, provider: 'elsewhere.example' },
+    })
+
+    expect(duplicateOf).toBeUndefined()
+  })
+
+  /**
+   * An unread walk is not a text anybody could have copied. Comparing against one
+   * would let a moderation queue nobody has emptied decide what a citizen may file.
+   */
+  it('is not a repeat of something nobody has published', async () => {
+    const unread = await walkInProgress(db, walker, where)
+    await finishWalk(db, unread, { outcome: 'proved', ...ORIGINAL })
+
+    const { duplicateOf } = await filed(ORIGINAL)
+
+    expect(duplicateOf).toBeUndefined()
+  })
+
+  /**
+   * Two citizens that hit one wall and wrote about it in their own words. The
+   * threshold is the assertion — if a future tuning let this pair through, the
+   * first thing lost would be exactly the report this file is protecting.
+   */
+  it('leaves two independent accounts of the same wall alone', async () => {
+    const mine = {
+      did: 'Signed up from the front page and waited for the confirmation mail.',
+      broke: 'It asked for a payment card before it would finish, so I stopped there.',
+    }
+    const theirs = {
+      did: 'Went in through the pricing page, picked the free tier, filled the form.',
+      broke: 'The last step wanted card details even on the free tier and would not continue.',
+    }
+
+    await published(mine)
+    const { duplicateOf } = await filed(theirs)
+
+    expect(duplicateOf).toBeUndefined()
+
+    const [measured] = await db.execute<{ similarity: number }>(
+      sql`select similarity(${`${mine.did} ${mine.broke}`}, ${`${theirs.did} ${theirs.broke}`}) as similarity`,
+    )
+    expect(measured?.similarity).toBeLessThan(WALK_DUPLICATE_SIMILARITY)
+  })
+
+  /** Replacing the words releases the pointer: the new paragraph is judged on its own. */
+  it('releases the pointer when the author files again', async () => {
+    await published(ORIGINAL)
+    const { walkId, duplicateOf } = await filed(ORIGINAL)
+    expect(duplicateOf).toBe(await row(walkId).then((stored) => stored.duplicate_of))
+
+    const again = await submitWalkReport(db, copier, where, {
+      outcome: 'proved',
+      did: 'Second time round I used the operator mailbox and it went through in one go.',
+    })
+
+    expect(again?.duplicateOf).toBeUndefined()
+    expect((await row(walkId)).duplicate_of).toBeNull()
   })
 })

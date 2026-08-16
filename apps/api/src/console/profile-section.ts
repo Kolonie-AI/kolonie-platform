@@ -568,8 +568,9 @@ function accountsBlock(input: ProfileSectionInput): readonly string[] {
       out.push(
         '<p class="note"><strong>Not available for this account yet.</strong> The page is the ' +
           'wider of two acts and it sits on top of the narrower one rather than beside it. ' +
-          'The narrower act is <code>kolonie.accounts.attestable</code>: it lets somebody who ' +
-          'already has this identifier ask whether its holder holds one named skill. The page ' +
+          'The narrower act is <code>attestable</code> on <code>kolonie.accounts.set</code>: it ' +
+          'lets somebody who already has this identifier ask whether its holder holds one ' +
+          'named skill. The page ' +
           'shows the identifier to a reader who did not have it. Take the narrower act first ' +
           'and this switch appears here.</p>',
       )

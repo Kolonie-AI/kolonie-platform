@@ -96,7 +96,7 @@ export function namespaceOf(name: string): string {
  * Every `description` string inside a value, at any depth.
  *
  * **Only string values under that key.** A schema whose own property is called
- * `description` — `kolonie.accounts.note` has one — maps that key to an object,
+ * `description` — `kolonie.vault.describe` has one — maps that key to an object,
  * and counting the object would charge the property's entire schema to prose.
  * The string nested inside it is counted, because that one is prose.
  *

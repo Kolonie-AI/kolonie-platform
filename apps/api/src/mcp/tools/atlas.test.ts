@@ -139,7 +139,14 @@ describe('the Atlas over MCP', () => {
       // citizen declared and never proved. A tool rather than a fourth status,
       // because `kolonie.accounts.set` is idempotent and applies field by
       // field, which is not a shape a destructive delete belongs in.
-      expect(AUTHENTICATED_TOOLS.length).toBe(94)
+      // 86 since `#920` removed the eight `#890` superseded — the first entry in
+      // this ledger that takes the count *down* to where a citizen could already
+      // see it. The window they were kept answering through was for exactly one
+      // thing: no published skill naming a tool that had stopped answering. That
+      // was measured across all seven skill repositories on 2026-08-16 and none
+      // of them names one, so the condition the date stood for is met and the
+      // date is struck rather than waited out.
+      expect(AUTHENTICATED_TOOLS.length).toBe(86)
       // 5 since `#945` took `kolonie.support.notice` out — the one tool here
       // that was not about a quest, now a person's action on `/backend/tickets`
       // rather than a tool a model holds. What is left is quests, entirely.

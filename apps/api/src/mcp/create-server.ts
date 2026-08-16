@@ -6,7 +6,6 @@ import { guardTools } from './guard.js'
 import { toolResultBytes, toolResultStatus } from '../call-rollup.js'
 import { advertiseOnlyWhatIsSent } from './handshake.js'
 import { publishLeanSchemas } from './published-schema.js'
-import { hideSupersededTools } from './superseded.js'
 import { registerAboutTools } from './tools/about.js'
 import { registerAcademyTools } from './tools/academy/index.js'
 import { registerAccountThreadTools } from './tools/account-threads.js'
@@ -260,15 +259,6 @@ export function createMcpServer(
    * nothing to be covered.
    */
   publishLeanSchemas(server)
-
-  /**
-   * A name that still answers is not a name still offered (`#890`).
-   *
-   * The third rule on the same seam. The eight `accounts` setters stay
-   * registered so a skill file written before the consolidation keeps working;
-   * this is what stops them being counted, read or chosen from.
-   */
-  hideSupersededTools(server)
 
   /**
    * The handshake promises only what this transport can deliver (`#386`).

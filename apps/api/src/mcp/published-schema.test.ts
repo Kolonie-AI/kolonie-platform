@@ -87,7 +87,7 @@ describe('the schemas the Colony publishes', () => {
     const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
 
     const refused = await client.callTool({
-      name: 'kolonie.accounts.note',
+      name: 'kolonie.accounts.set',
       arguments: { accountId: 'not-a-uuid', note: null },
     })
 

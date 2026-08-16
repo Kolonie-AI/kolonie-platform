@@ -7,7 +7,6 @@ import { fakePaymentDesk, type FakePaymentDesk } from '../../__fixtures__/paymen
 import { FAKE_AUDIENCE, fakeQuests, type FakeQuestDesk } from '../../__fixtures__/quests.js'
 import { fakeStore, type FakeStore } from '../../__fixtures__/store.js'
 import { AUTHENTICATED_TOOLS, STEWARD_TOOLS, UNAUTHENTICATED_TOOLS } from '../../mcp.js'
-import { isSuperseded } from '../superseded.js'
 
 /**
  * The quest surface over MCP (`#320`).
@@ -1025,13 +1024,7 @@ describe('the steward tier', () => {
     const listing = await client.listTools()
     const names = listing.tools.map((tool) => tool.name)
 
-    // Net of the superseded account setters (`#890`): still registered, so they
-    // answer, and filtered out of every listing, so they are not offered.
-    expect(names.sort()).toEqual(
-      [...UNAUTHENTICATED_TOOLS, ...AUTHENTICATED_TOOLS]
-        .filter((name) => !isSuperseded(name))
-        .sort(),
-    )
+    expect(names.sort()).toEqual([...UNAUTHENTICATED_TOOLS, ...AUTHENTICATED_TOOLS].sort())
     // Not merely absent from the names — absent from the listing altogether, so
     // no description names a tool this caller cannot reach.
     for (const tool of STEWARD_TOOLS) expect(JSON.stringify(listing)).not.toContain(tool)
@@ -1050,9 +1043,7 @@ describe('the steward tier', () => {
     const { tools } = await client.listTools()
 
     expect(tools.map((tool) => tool.name).sort()).toEqual(
-      [...UNAUTHENTICATED_TOOLS, ...AUTHENTICATED_TOOLS, ...STEWARD_TOOLS]
-        .filter((name) => !isSuperseded(name))
-        .sort(),
+      [...UNAUTHENTICATED_TOOLS, ...AUTHENTICATED_TOOLS, ...STEWARD_TOOLS].sort(),
     )
     await close()
   })

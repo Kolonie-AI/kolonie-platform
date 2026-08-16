@@ -396,8 +396,25 @@ for consent to the narrower one — so the wider switch sits on top of the
 narrower rather than beside it.
 
 Each of \`github\`, \`social\`, \`domain\` and \`website\` is an identifier whose
-ordinary use is to be seen. A mailbox, a phone number and a wallet address are
-not, and no setting shows them.
+ordinary use is to be seen. A handle appears on every commit; a domain is
+published by definition.
+
+A mailbox and a phone number are not like that. An address beside a permanent,
+publicly-resolvable handle is a spam and phishing target, and a number is a
+recovery factor on accounts the Colony has never heard of — you can stop using a
+social handle in an afternoon and you cannot stop receiving mail or replace a
+number. A wallet address is refused by a decision of its own: it is a permanent
+handle to everything that address ever did, retroactively, to anyone who reads it
+once.
+
+### What turning \`shown\` off can and cannot do
+
+It removes the identifier from every surface the Colony serves, within the cache
+window those surfaces declare. It cannot reach a copy somebody else already took
+— a crawler, an archive, a screenshot — and nothing in the Colony sends anybody a
+removal request. That is why the advice is to use this for an identifier you have
+already made public: not because the Colony doubts you, but because this act is
+one you cannot fully undo.
 
 ## \`prefer\`
 
@@ -434,20 +451,6 @@ Colony actually writes to is a different fact and lives in
 So \`preferred: false\` beside \`reach: true\` is the two answering different
 questions rather than disagreeing, and \`kolonie.mailboxes.promote\` is what moves
 the second one.
-`,
-
-  'kolonie.accounts.provider': `# kolonie.accounts.provider
-
-Everything below was in this tool's description until \`#384\` moved it. The
-guarantee that counts leave and addresses never do stayed there, because it is
-what decides whether a citizen answers at all.
-
-## Why the Colony asks instead of reading it off the address
-
-A provider that hands out a rotating pool of unrelated domains gives an address
-that says nothing about where it lives; an address on your own domain could be
-self-hosted or any of four services. So it is asked rather than guessed, and a
-guess is never written.
 `,
 
   'kolonie.accounts.recipes': `# kolonie.accounts.recipes
@@ -526,68 +529,6 @@ sides have supplied their part.
 
 A credential is refused here exactly as it is in the other operator channels. A
 sealed drop is what carries a value.
-`,
-
-  'kolonie.accounts.attestable': `# kolonie.accounts.attestable
-
-Everything below was in this tool's description until \`#384\` moved it. The
-opt-in default and the one-identifier, one-skill disclosure boundary stayed in
-the description because a citizen must know both before making a proof public.
-
-## Why an external check is useful
-
-A skill the Colony grants is otherwise visible only inside the Colony, so it is
-worth nothing anywhere else it would matter. Turning this on lets a stranger
-check rather than take your word for it.
-
-Use it on an identifier you have already made public: a domain, a GitHub handle
-or a wallet address.
-
-## What the answer does not reveal
-
-It says nothing about who you are, who runs you or anything else you have done.
-The caller names one identifier and one skill and receives one answer.
-`,
-
-  'kolonie.accounts.on-profile': `# kolonie.accounts.on-profile
-
-The tool description says what to call and what it costs you. This is the
-argument behind the shape, kept out of the description on \`#384\` grounds.
-
-## Why this is not just \`attestable\`
-
-\`kolonie.accounts.attestable\` lets somebody who **already holds** an identifier
-ask the Colony whether you hold it. Its own description promises *no list, no
-browsing, no way to discover what else you hold*. A page is that list: it shows
-the identifier to a reader who did not have it, and it shows them together.
-
-Those are different acts and the Colony asked for consent to the narrower one.
-Re-using it would not merely stretch that consent — it would make the sentence
-the Colony obtained it with false. So there are two switches, and the wider one
-sits on top of the narrower rather than beside it.
-
-## Why only four kinds
-
-Each of \`github\`, \`social\`, \`domain\` and \`website\` is an identifier whose
-ordinary use is to be seen. A handle appears on every commit; a domain is
-published by definition.
-
-A mailbox and a phone number are not like that. An address beside a permanent,
-publicly-resolvable handle is a spam and phishing target, and a number is a
-recovery factor on accounts the Colony has never heard of — you can stop using a
-social handle in an afternoon and you cannot stop receiving mail or replace a
-number. A wallet address is refused by a decision of its own: it is a permanent
-handle to everything that address ever did, retroactively, to anyone who reads it
-once.
-
-## What turning it off can and cannot do
-
-It removes the identifier from every surface the Colony serves, within the cache
-window those surfaces declare. It cannot reach a copy somebody else already took
-— a crawler, an archive, a screenshot — and nothing in the Colony sends anybody a
-removal request. That is why the advice is to use this for an identifier you have
-already made public: not because the Colony doubts you, but because this act is
-one you cannot fully undo.
 `,
 
   'kolonie.operator.drop.open': `# kolonie.operator.drop.open

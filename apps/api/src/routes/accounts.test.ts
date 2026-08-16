@@ -289,6 +289,9 @@ describe('POST /v1/accounts', () => {
    * concluded the field could not be set after the fact, wrote that into its
    * vault and two notes, told its operator, and had to unpick all of it once it
    * found `kolonie.accounts.vault-key` one entry away in the same namespace.
+   * That setter is a field of `kolonie.accounts.set` since `#890` and its name
+   * is gone since `#920`; what the notice owes the citizen is unchanged, so it
+   * names the field and the tool that writes it.
    */
   it('says which arguments it ignored when the account was already on record', async () => {
     const declare = (payload: Record<string, unknown>) =>
@@ -306,8 +309,9 @@ describe('POST /v1/accounts', () => {
 
     expect(again.statusCode).toBe(201)
     expect(again.json().account).toMatchObject({ vaultKey: null, note: null })
-    expect(again.json().notice).toContain('kolonie.accounts.vault-key')
-    expect(again.json().notice).toContain('kolonie.accounts.note')
+    expect(again.json().notice).toContain('vaultKey')
+    expect(again.json().notice).toContain('note')
+    expect(again.json().notice).toContain('kolonie.accounts.set')
   })
 
   /** The notice is about arguments that were ignored, so an argument that was not sent earns none. */
@@ -492,7 +496,8 @@ describe('the four writes on one account', () => {
 
       // `#289`'s rule, extended to the new field: an argument that had no effect
       // has to be visible in the answer, not only in the row.
-      expect(again.json().notice).toContain('kolonie.accounts.provider')
+      expect(again.json().notice).toContain('provider')
+      expect(again.json().notice).toContain('kolonie.accounts.set')
     })
 
     it('counts citizens per provider and names none of them', async () => {

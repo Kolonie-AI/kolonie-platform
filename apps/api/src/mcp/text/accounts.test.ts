@@ -115,11 +115,17 @@ describe('the inventory', () => {
   })
 
   /**
-   * **The id, which seven tools ask for and name this list as the source of**
-   * (`#799`). A citizen wanting to retire a GitHub account it holds could read
-   * the account here, read the tool that retires it, and get across no gap
-   * between them — `kolonie.accounts.status` takes a UUID and this text printed
-   * identifiers. It filed a ticket asking whether the id was fetchable at all.
+   * **The id, which the tools that change an account ask for and name this list
+   * as the source of** (`#799`). A citizen wanting to retire a GitHub account it
+   * holds could read the account here, read the tool that retires it, and get
+   * across no gap between them — `kolonie.accounts.status` took a UUID and this
+   * text printed identifiers. It filed a ticket asking whether the id was
+   * fetchable at all.
+   *
+   * The eight setters are one tool now (`#890`) and the eight names are gone
+   * (`#920`), which changes nothing about the gap: `kolonie.accounts.set` takes
+   * the same UUID, so what is asserted is that the id is printed *and* that the
+   * sentence beside it names something a citizen can actually call.
    */
   it('prints the id each account tool takes, and says what takes it', () => {
     const held = account({ kind: 'github', identifier: 'colette' })
@@ -127,8 +133,8 @@ describe('the inventory', () => {
     const text = accountsAsText([held])
 
     expect(text).toContain(held.id)
-    expect(text).toContain('kolonie.accounts.status')
-    expect(text).toContain('kolonie.accounts.for-work')
+    expect(text).toContain('kolonie.accounts.set')
+    expect(text).toContain('kolonie.accounts.forget')
   })
 
   /** One id per account, so two accounts of one kind can be told apart. */

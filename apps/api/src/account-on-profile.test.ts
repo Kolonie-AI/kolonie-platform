@@ -72,7 +72,10 @@ describe('naming one account on a profile', () => {
     expect(result.outcome).toBe('rejected')
     if (result.outcome !== 'rejected') return
     expect(result.error.code).toBe('conflict')
-    expect(result.error.message).toContain('kolonie.accounts.attestable')
+    // The field rather than a tool name (`#920`): both callers are already
+    // inside something — `kolonie.accounts.set` or the route of the same name —
+    // and what a citizen has to reach for is the switch, not the door.
+    expect(result.error.message).toContain('{"attestable": true}')
   })
 
   /** **Rejection case.** The Colony cannot say anything in public about a proof it has not read. */
@@ -145,7 +148,7 @@ describe('naming one account on a profile', () => {
     expect(result.outcome).toBe('rejected')
     if (result.outcome !== 'rejected') return
     expect(result.error.code).toBe('validation_failed')
-    expect(result.error.message).toContain('kolonie.accounts.attestable')
+    expect(result.error.message).toContain('attestable')
     expect(result.error.message).toMatch(/github, social, domain and website/)
   })
 })

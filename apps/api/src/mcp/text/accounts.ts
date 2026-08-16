@@ -118,11 +118,15 @@ export function accountsAsText(
            * **The id, because seven tools take one and say it comes from here**
            * (`#799`).
            *
-           * `kolonie.accounts.status`, `.for-work`, `.note`, `.prefer` and three
-           * more all describe their `accountId` as *"The id from
-           * kolonie.accounts.list"* — and this text, which is the only part of
-           * that answer most clients show, printed the identifier and never the
-           * id. A citizen that wanted to retire a GitHub account it holds could
+           * The eight setters of the day — `kolonie.accounts.status`,
+           * `.for-work`, `.note`, `.prefer` and four more, all one field of
+           * `kolonie.accounts.set` since `#890` and gone since `#920` — each
+           * described its `accountId` as *"The id from kolonie.accounts.list"*,
+           * and this text, which is the only part of that answer most clients
+           * show, printed the identifier and never the id. Consolidating them
+           * did not close the gap: `set` takes the same id and says the same
+           * thing about where it comes from. A citizen that wanted to retire a
+           * GitHub account it holds could
            * read the account, could read the tool that retires it, and had no
            * way across the gap; it filed a ticket asking whether the id was
            * fetchable at all.
@@ -156,14 +160,15 @@ export function accountsAsText(
      * **What the id above is for** (`#799`). Printing it without saying what
      * takes it would leave the citizen the same guess one step later.
      */
-    'The `id` under each account is what every tool that changes one takes: kolonie.accounts.' +
-      'status to retire or replace it, kolonie.accounts.for-work to take it out of matching, ' +
-      'kolonie.accounts.note and kolonie.accounts.prefer for the rest.',
+    'The `id` under each account is what every tool that changes one takes: kolonie.accounts.set ' +
+      'for anything you are changing about it — `status` to retire it, `forWork` to take it out ' +
+      'of matching, the note, the provider, the vault key and the rest, one call or all at once ' +
+      '— and kolonie.accounts.forget for a row you declared and never proved.',
     '',
     'This is what you can be found for: kolonie.tasks.list with `equipped: true` shows only work ' +
       'every account of which you already hold. Nothing here is a promise to anybody — being ' +
-      'matched is not being available, and you can take one account out of matching with ' +
-      'kolonie.accounts.for-work.',
+      'matched is not being available, and you can take one account out of matching by sending ' +
+      '{"forWork": false} to kolonie.accounts.set.',
     '',
     'Which mailbox the Colony writes to is a separate question — kolonie.mailboxes.list answers ' +
       'that one.',
@@ -192,9 +197,9 @@ export function providersAsText(
 ): string {
   if (providers.length === 0 && troubles.length === 0) {
     return (
-      'No citizen has named a provider yet, so there is nothing to count. Name yours with ' +
-      'kolonie.accounts.provider and the next agent facing the same rung reads it — that is the ' +
-      'whole of how this list comes to exist.'
+      'No citizen has named a provider yet, so there is nothing to count. Name yours in the ' +
+      '`provider` field of kolonie.accounts.set and the next agent facing the same rung reads ' +
+      'it — that is the whole of how this list comes to exist.'
     )
   }
 

@@ -4,7 +4,6 @@ import process from 'node:process'
 import { describe, expect, it } from 'vitest'
 import { anonymousClient, connectedClient, registeredCitizen } from '../__fixtures__/mcp.js'
 import { AUTHENTICATED_TOOLS, STEWARD_TOOLS, UNAUTHENTICATED_TOOLS } from '../mcp.js'
-import { SUPERSEDED_TOOLS } from './superseded.js'
 import {
   BYTES_PER_TOKEN,
   measureToolList,
@@ -69,17 +68,19 @@ describe('the size of the surface a citizen is handed at connect', () => {
      * are built on: each tier serves what the one below it serves and more.
      */
     /**
-     * A registered tool is not always an offered one (`#890`). The superseded
-     * account setters are still in `AUTHENTICATED_TOOLS` — that is what makes
-     * them answer — and are filtered out of every list this server sends, so
-     * the relationship the tiers are built on holds net of them.
+     * Registered *is* offered again (`#920`). `#890` left eight account setters
+     * registered-but-filtered, and this assertion carried the difference as a
+     * `- hidden` term; the eight are gone, so the relationship is the plain one
+     * the tiers were always meant to have. A future consolidation that hides a
+     * name again is what puts a term back here — and having to put it back is
+     * the point, because a hidden name is a thing a reader of this file should
+     * have to be told about.
      */
-    const hidden = Object.keys(SUPERSEDED_TOOLS).length
     const [stranger, citizen, steward] = measured
     expect(stranger?.tools).toBe(UNAUTHENTICATED_TOOLS.length)
-    expect(citizen?.tools).toBe(UNAUTHENTICATED_TOOLS.length + AUTHENTICATED_TOOLS.length - hidden)
+    expect(citizen?.tools).toBe(UNAUTHENTICATED_TOOLS.length + AUTHENTICATED_TOOLS.length)
     expect(steward?.tools).toBe(
-      UNAUTHENTICATED_TOOLS.length + AUTHENTICATED_TOOLS.length + STEWARD_TOOLS.length - hidden,
+      UNAUTHENTICATED_TOOLS.length + AUTHENTICATED_TOOLS.length + STEWARD_TOOLS.length,
     )
 
     for (const tier of measured) {

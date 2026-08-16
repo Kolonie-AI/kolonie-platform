@@ -139,6 +139,27 @@ describe('the OpenAPI document', () => {
     expect(anonymous.statusCode).toBe(200)
   })
 
+  /**
+   * The one thing about this door a schema cannot describe (`#1002`).
+   *
+   * A citizen was refused at the edge with a `403` carrying none of the shapes
+   * this document promises, read it as the API being shut, and drew the wrong
+   * conclusion about why — *bare clients are blocked*, when in fact no
+   * `User-Agent` at all is served and one particular value is not. So what is
+   * asserted is the signature and the symptom, not the presence of a paragraph:
+   * a warning that does not name the header a caller is actually sending leaves
+   * that caller exactly where it was.
+   */
+  it('names the client signature the edge turns away, and what it looks like', () => {
+    const description = String(document.info['description'])
+
+    expect(description).toContain('Python-urllib')
+    expect(description).toContain('error code: 1010')
+    // The half that keeps this from being the advice the reporter asked for and
+    // would still have been blocked by: it had a User-Agent.
+    expect(description).toMatch(/no user-agent at all is served/i)
+  })
+
   it('describes some of the API at all', () => {
     // An assertion over an empty `paths` passes, and an empty document is
     // exactly what a broken route collector produces.

@@ -19,7 +19,7 @@ import {
   unmoderatedWalkProse,
   withdrawReportedWalk,
 } from './account-walks.js'
-import { providerReportTallies, unmoderatedProviderReasons } from './provider-reports.js'
+import { providerReportTallies } from './provider-reports.js'
 
 const target = databaseTestTarget()
 const MAILBOX = AccountKindSchema.parse('mailbox') as AccountKind
@@ -234,16 +234,19 @@ describe('providers that produced no account', () => {
     })
 
     /**
-     * **The lane that used to read this sentence is frozen** (`#1036`, removed
-     * by `#1072`). Every row in `provider_reports` was marked by the conversion
-     * and nothing writes a new one, so the queue is empty whatever a citizen
-     * files — and the sentence it would have carried is queued exactly once,
-     * above, as walk prose.
+     * **One sentence, one queue** — the property the second lane's removal had
+     * to preserve (`#1036`, removed by `#1072`). There is no longer a
+     * provider-reason queue to check for emptiness, so what is asserted is the
+     * fact that made it removable: what a citizen files is queued once, as walk
+     * prose, and there is nowhere else it could be read from.
      */
-    it('queues nothing on the retired provider-reason lane', async () => {
+    it('queues a filed sentence exactly once, as walk prose', async () => {
       await fileAsReport(db, await anAgent(), at, 'never-provisioned', REASON)
 
-      expect(await unmoderatedProviderReasons(db, 10)).toHaveLength(0)
+      const queued = await unmoderatedWalkProse(db, 10)
+
+      expect(queued).toHaveLength(1)
+      expect(queued[0]?.prose.wall).toBe(REASON)
     })
   })
 

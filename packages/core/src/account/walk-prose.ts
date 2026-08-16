@@ -13,9 +13,10 @@ import { WALK_QUESTION, type AccountWalk } from './walk.js'
  * is a page about the same provider and went nowhere at all. The asymmetry was
  * not a decision, it was the moderation stage never being built.
  *
- * **One judgement over the whole page, not six.** `provider-reasons.ts` judges a
- * sentence because a citizen wrote one sentence; a walker writes its answers in
- * one sitting, about one attempt, and a reader receives them together. Judging
+ * **One judgement over the whole page, not six.** The lane this replaces judged
+ * a sentence because a citizen had written one sentence; a walker writes its
+ * answers in one sitting, about one attempt, and a reader receives them
+ * together. Judging
  * each field on its own would let a reader assemble a page half of which the
  * Colony refused, which is worse than either whole answer — and it would cost
  * six model calls where the question is the same question six times.

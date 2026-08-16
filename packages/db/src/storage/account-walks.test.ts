@@ -1120,7 +1120,7 @@ describe('the record of one agent obtaining one account', () => {
 
     /**
      * A verdict must not land on words the moderator never read — the guard
-     * `recordProviderReasonModeration` puts on a sentence, here over the page.
+     * `recordModeration` puts on a report, here over the whole page.
      */
     it('refuses a verdict about a page that has changed underneath it', async () => {
       const walkId = await walkInProgress(db, agentId, where)

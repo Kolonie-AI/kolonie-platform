@@ -1,13 +1,7 @@
-import { and, asc, desc, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm'
-import type {
-  AccountKind,
-  AgentId,
-  ProviderReportOutcome,
-  ProviderReportTally,
-} from '@kolonie-ai/core'
+import { and, asc, desc, eq, inArray, isNotNull, sql } from 'drizzle-orm'
+import type { AccountKind, ProviderReportOutcome, ProviderReportTally } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import { accountWalks } from '../schema/account-walks.js'
-import { providerReports } from '../schema/provider-reports.js'
 
 /**
  * Reports about providers that produced no account (`#298`).
@@ -19,109 +13,19 @@ import { providerReports } from '../schema/provider-reports.js'
  * (`#1036`). The verdict a citizen files through the retiring
  * `kolonie.accounts.provider-report` alias is a walk, written by `finishWalk`;
  * the rows already here were converted into exactly such walks by
- * `0263_one_fact_one_surface`, which marked each with `migrated_at`. What is
- * left in this file reads: the tally, which now counts the walks, and the two
- * moderation accessors, which serve the converted sentences' second copy and
- * are therefore permanently empty. Removing them and the runner lane behind
- * them is `#1072`.
- */
-
-/** One reason the moderator has not read yet. */
-export interface UnmoderatedProviderReason {
-  readonly agentId: AgentId
-  readonly kind: string
-  readonly provider: string
-  readonly reason: string
-}
-
-/**
- * The reasons waiting on the scrub, oldest first.
+ * `0263_one_fact_one_surface`, which marked each with `migrated_at`.
  *
- * Keyed by the row's own primary key rather than by a surrogate id, because
- * `provider_reports` has none — and a verdict that arrives after the citizen
- * rewrote its report must not land on the new text, which is what the `reason`
- * comparison in {@link recordProviderReasonModeration} is for.
+ * **So one function is left, and it does not read this table.** The tally counts
+ * the walks. The two moderation accessors that used to serve the converted
+ * sentences' second copy are gone with the runner lane behind them (`#1072`):
+ * every row is marked and nothing writes a new one, so that queue could only
+ * ever match nothing again.
  *
- * **A migrated row is never queued, so this queue drains to empty and stays
- * there** (`#1036`). The conversion carried each pending sentence onto the walk
- * it wrote, where the walk-prose lane judges it; leaving the row queued here as
- * well would have the same sentence read twice and scrubbed into two columns,
- * which is the double record this issue removes. Since the migration marks every
- * row and nothing writes a new one, `migrated_at is null` matches nothing from
- * here on — that is the intended end state and not a bug to be found later.
+ * `reason`, `reason_status` and `scrubbed_reason` stay on the table. It is the
+ * record the conversion is checked against on the day the mapping turns out to
+ * have been wrong for one row, and dropping the columns would throw away exactly
+ * that.
  */
-export async function unmoderatedProviderReasons(
-  db: Database,
-  limit: number,
-): Promise<readonly UnmoderatedProviderReason[]> {
-  const rows = await db
-    .select({
-      agentId: providerReports.agentId,
-      kind: providerReports.kind,
-      provider: providerReports.provider,
-      reason: providerReports.reason,
-    })
-    .from(providerReports)
-    .where(
-      and(
-        eq(providerReports.reasonStatus, 'pending'),
-        isNotNull(providerReports.reason),
-        isNull(providerReports.migratedAt),
-      ),
-    )
-    .orderBy(asc(providerReports.notedAt))
-    .limit(limit)
-
-  return rows.map((row) => ({
-    agentId: row.agentId as AgentId,
-    kind: row.kind,
-    provider: row.provider,
-    reason: row.reason as string,
-  }))
-}
-
-/**
- * Write what the scrub produced, or refuse the reason.
- *
- * **The text the moderator read is part of the key.** A citizen may rewrite its
- * report while the pass is thinking, and a verdict applied to whatever is in the
- * column now would publish text nothing judged. The row simply stays `pending`
- * and the next poll picks up what is actually there — the same guard
- * `recordModeration` uses on a report, for the same reason.
- */
-export async function recordProviderReasonModeration(
-  db: Database,
-  command: {
-    readonly agentId: AgentId
-    readonly kind: string
-    readonly provider: string
-    /** What the moderator was shown. The verdict is refused if it has changed. */
-    readonly judged: string
-    readonly decision: 'approved' | 'rejected'
-    readonly scrubbed?: string
-  },
-): Promise<{ readonly outcome: 'written' | 'stale' }> {
-  const written = await db
-    .update(providerReports)
-    .set({
-      reasonStatus: command.decision,
-      // A refused reason keeps its row and gains no scrub: the citizen wrote it,
-      // the Colony declined to pass it on, and the outcome it filed still counts.
-      scrubbedReason: command.decision === 'approved' ? (command.scrubbed ?? null) : null,
-    })
-    .where(
-      and(
-        eq(providerReports.agentId, command.agentId),
-        eq(providerReports.kind, command.kind),
-        eq(providerReports.provider, command.provider),
-        eq(providerReports.reasonStatus, 'pending'),
-        eq(providerReports.reason, command.judged),
-      ),
-    )
-    .returning({ provider: providerReports.provider })
-
-  return { outcome: written[0] === undefined ? 'stale' : 'written' }
-}
 
 /**
  * What the Colony can say out loud about providers that produced nothing.

@@ -13,7 +13,6 @@ import {
   recordProfileReview,
   deferProfileReview,
   pendingAnswerModerations,
-  unmoderatedProviderReasons,
   unmoderatedWalkProse,
   recordWalkProseModeration,
   markBriefingStale,
@@ -23,7 +22,6 @@ import {
   recordAuditDecision,
   stewardEndedQuests,
   unmoderatedQuestReports,
-  recordProviderReasonModeration,
   recordQuestReportModeration,
   pendingQuestModerations,
   pendingReports,
@@ -68,7 +66,6 @@ import type { AnswerModerationStore } from './answers.js'
 import type { RedLineReviewStore } from './redline-review.js'
 import type { QuestAuditStore } from './quest-audit.js'
 import type { QuestEndingsStore } from './quest-endings.js'
-import type { ProviderReasonModerationStore } from './provider-reasons.js'
 import type { WalkProseModerationStore } from './walk-prose.js'
 import type { AtlasModerationStore } from './atlas.js'
 import type { RecipeModerationStore } from './recipes.js'
@@ -493,32 +490,13 @@ const recipeStore: RecipeModerationStore = {
   },
 }
 
-const providerReasonStore: ProviderReasonModerationStore = {
-  pending: (limit) => unmoderatedProviderReasons(db, limit),
-  write: async ({ reason, scrubbed }) => {
-    await recordProviderReasonModeration(db, {
-      ...reason,
-      judged: reason.reason,
-      decision: 'approved',
-      scrubbed,
-    })
-  },
-  refuse: async ({ reason }) => {
-    await recordProviderReasonModeration(db, {
-      ...reason,
-      judged: reason.reason,
-      decision: 'rejected',
-    })
-  },
-}
-
 /**
  * What a walker wrote about the provider it walked (`#810`).
  *
- * Eighth pass in the same process, and the store is the three
- * `providerReasonStore` has because the question is the one that store asks. The
- * text it judged travels back into the write so the verdict lands on the words
- * that were read and not on whatever replaced them since.
+ * Eighth pass in the same process, and the store is the three every scrub here
+ * has, because the question is the one they all ask. The text it judged travels
+ * back into the write so the verdict lands on the words that were read and not
+ * on whatever replaced them since.
  */
 const walkProseStore: WalkProseModerationStore = {
   pending: (limit) => unmoderatedWalkProse(db, limit),
@@ -596,7 +574,6 @@ const runner = startRunner(
     questAudit: questAudit.enabled ? { store: questAuditStore, model, log } : undefined,
     questEndings: { store: questEndingsStore, issues: tripwire.issues, log },
     questReports: { store: questReportStore, model, log },
-    providerReasons: { store: providerReasonStore, model, log },
     atlas: { store: atlasStore, model, log },
     recipes: { store: recipeStore, model, log },
     walkProse: { store: walkProseStore, model, log },

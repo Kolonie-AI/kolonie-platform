@@ -12,9 +12,11 @@ import type { Database } from '../client.js'
 import { diagnoses } from '../schema/index.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
 import { registerAgent } from './agents.js'
+import { recordDoctorFeedback } from './doctor-feedback.js'
 import {
   attachProse,
   consultationFunnel,
+  ruleHealth,
   doctorTellingFor,
   markConsulted,
   recordTelling,
@@ -857,5 +859,232 @@ describe('whether a told citizen looks', () => {
       consulted: 0,
       medianHoursToConsult: null,
     })
+  })
+})
+
+/**
+ * Which rules are any good (`#1083`).
+ *
+ * **The two one-sided cases are what this block exists for.** A rule's own
+ * arithmetic and the citizens' verdicts about it are two sources that age
+ * differently — a diagnosis is swept when it stops being true, and a verdict is
+ * kept whether or not anything of that kind is open — so at any moment there are
+ * rules present in one source and absent from the other, in both directions. An
+ * inner join drops the rule that was disputed and then retired; an outer join
+ * written the wrong way round drops the rule nobody has commented on, which is
+ * most of them. Neither failure is visible in a fixture that has both sides, so
+ * each direction is asserted on its own.
+ */
+describe('which rules are any good', () => {
+  let db: Database
+
+  const AT = new Date('2026-08-13T12:00:00.000Z')
+  const POLICY = '2026-08-13.1'
+
+  const hoursAfter = (from: Date, hours: number) =>
+    new Date(from.getTime() + hours * 60 * 60 * 1000)
+
+  beforeAll(async () => {
+    db = await connectForTests(target.url)
+  })
+
+  afterAll(async () => {
+    await db?.close()
+  })
+
+  beforeEach(async () => {
+    await truncateAll(db)
+  })
+
+  const register = async (name: string): Promise<AgentId> => {
+    const registered = await registerAgent(
+      db,
+      RegisterAgentRequestSchema.parse({ name, platform: 'openclaw' }),
+    )
+    if (registered.outcome !== 'registered') throw new Error(registered.outcome)
+    return registered.agent.id
+  }
+
+  const open = async (subject: AgentId, overrides: Partial<Finding> = {}, policy = POLICY) => {
+    const written = await recordDiagnosis(db, aFinding({ subject, ...overrides }), policy, AT)
+    if (written.diagnosis === null) throw new Error(written.refusal ?? 'not stored')
+    return written.diagnosis
+  }
+
+  const announce = async (subject: AgentId, overrides: Partial<Finding> = {}, policy = POLICY) => {
+    const diagnosis = await open(subject, overrides, policy)
+    await recordTelling(db, diagnosis.id, diagnosis.severity, AT)
+    return diagnosis
+  }
+
+  const say = (
+    agentId: AgentId,
+    verdict: 'helpful' | 'not-applicable' | 'wrong',
+    kind: Finding['kind'] = 'polling-loop',
+  ) => recordDoctorFeedback(db, { agentId, kind, verdict, note: null }, hoursAfter(AT, 5))
+
+  /**
+   * The whole shape at once, which is the row a reader of the page is looking
+   * at: what the rule found, how much of it was said out loud, how often that
+   * brought the citizen back, and what those citizens made of it.
+   */
+  it('counts one rule down both sides', async () => {
+    const told = await Promise.all(
+      ['one', 'two', 'three', 'four'].map(async (name) => {
+        const agentId = await register(name)
+        await announce(agentId)
+        return agentId
+      }),
+    )
+    await open(await register('five'))
+
+    await markConsulted(db, told[0]!, hoursAfter(AT, 2))
+    await markConsulted(db, told[1]!, hoursAfter(AT, 4))
+
+    await say(told[1]!, 'helpful')
+    await say(told[2]!, 'helpful')
+    await say(told[3]!, 'wrong')
+
+    // Resolved last, so that the three verdicts above were given while their own
+    // findings were open and therefore carry the policy version they are about.
+    await db
+      .update(diagnoses)
+      .set({ state: 'resolved', resolvedAt: hoursAfter(AT, 6).toISOString() })
+      .where(eq(diagnoses.agentId, told[0]!))
+
+    expect(await ruleHealth(db)).toEqual([
+      {
+        kind: 'polling-loop',
+        policyVersion: POLICY,
+        opened: 5,
+        announced: 4,
+        consulted: 2,
+        resolvedAfterAnnouncement: 1,
+        medianHoursToConsult: 3,
+        helpful: 2,
+        notApplicable: 0,
+        wrong: 1,
+      },
+    ])
+  })
+
+  /**
+   * **The first one-sided case.** The finding was swept and the verdict about it
+   * was not, which is the ordinary end state of every rule that ever worked: the
+   * complaint outlives the thing complained about. A row of zeros with the
+   * verdicts intact is the honest rendering, and dropping it would quietly
+   * remove exactly the rules the Colony has been told most about.
+   */
+  it('keeps a rule that has verdicts and no surviving diagnoses', async () => {
+    const agentId = await register('one')
+    await announce(agentId)
+    await say(agentId, 'wrong')
+    await db.delete(diagnoses).where(eq(diagnoses.agentId, agentId))
+
+    expect(await ruleHealth(db)).toEqual([
+      {
+        kind: 'polling-loop',
+        policyVersion: POLICY,
+        opened: 0,
+        announced: 0,
+        consulted: 0,
+        resolvedAfterAnnouncement: 0,
+        medianHoursToConsult: null,
+        helpful: 0,
+        notApplicable: 0,
+        wrong: 1,
+      },
+    ])
+  })
+
+  /**
+   * **The second one-sided case, and the reverse of the one above.** Asserted
+   * separately because a join written the wrong way round drops one of these two
+   * and not the other, and this is the direction that would take most of the
+   * table with it: a rule nobody has said anything about is the normal case.
+   */
+  it('keeps a rule that has diagnoses and no verdicts', async () => {
+    await open(await register('one'))
+
+    expect(await ruleHealth(db)).toEqual([
+      {
+        kind: 'polling-loop',
+        policyVersion: POLICY,
+        opened: 1,
+        announced: 0,
+        consulted: 0,
+        resolvedAfterAnnouncement: 0,
+        medianHoursToConsult: null,
+        helpful: 0,
+        notApplicable: 0,
+        wrong: 0,
+      },
+    ])
+  })
+
+  /**
+   * A rule that changed is a different rule, and summing the two would hide the
+   * only thing this page is for: whether the change made it better.
+   */
+  it('reports two policy versions of one kind as two rows', async () => {
+    const agentId = await register('one')
+    await open(agentId, {}, '2026-08-13.1')
+    await open(agentId, {}, '2026-08-14.1')
+
+    const rows = await ruleHealth(db)
+
+    expect(rows.map((row) => row.policyVersion)).toEqual(['2026-08-13.1', '2026-08-14.1'])
+    expect(rows.every((row) => row.opened === 1)).toBe(true)
+  })
+
+  /**
+   * **A verdict given with nothing open carries no policy version**, because
+   * there was no diagnosis to copy one from — `doctor_feedback.policy_version`
+   * is nullable where `diagnoses.policy_version` is not, and this is the row that
+   * makes the difference visible. It is its own row rather than folded into the
+   * current rules: nobody knows which version that citizen was talking about, and
+   * attributing the complaint to the newest one would put it on a rule that may
+   * never have fired on anybody.
+   *
+   * The join therefore matches on `is not distinct from` and not `=`, which would
+   * have compared null to a string, matched nothing, and duplicated every such
+   * rule into two half-empty rows without saying so.
+   */
+  it('gives a verdict with no finding behind it a row of its own', async () => {
+    const grumbler = await register('one')
+    await say(grumbler, 'wrong')
+    await open(await register('two'))
+
+    expect(await ruleHealth(db)).toEqual([
+      {
+        kind: 'polling-loop',
+        policyVersion: POLICY,
+        opened: 1,
+        announced: 0,
+        consulted: 0,
+        resolvedAfterAnnouncement: 0,
+        medianHoursToConsult: null,
+        helpful: 0,
+        notApplicable: 0,
+        wrong: 0,
+      },
+      {
+        kind: 'polling-loop',
+        policyVersion: null,
+        opened: 0,
+        announced: 0,
+        consulted: 0,
+        resolvedAfterAnnouncement: 0,
+        medianHoursToConsult: null,
+        helpful: 0,
+        notApplicable: 0,
+        wrong: 1,
+      },
+    ])
+  })
+
+  /** Nothing has been found and nobody has said anything, which is a table with no rows. */
+  it('reports nothing at all when nothing has happened', async () => {
+    expect(await ruleHealth(db)).toEqual([])
   })
 })

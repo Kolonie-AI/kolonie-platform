@@ -1,6 +1,6 @@
 import type { AcademyProgress, AgentId, CallHour, Diagnosis } from '@kolonie-ai/core'
 import { DIAGNOSES_PAGE } from '@kolonie-ai/db'
-import type { ConsultationFunnel, DoctorFeedbackInput } from '@kolonie-ai/db'
+import type { ConsultationFunnel, DoctorFeedbackInput, RuleHealthRow } from '@kolonie-ai/db'
 import type { DoctorSource } from '../doctor.js'
 import type { DiagnosesDesk } from '../diagnoses.js'
 
@@ -109,10 +109,10 @@ export const NOTHING_ANNOUNCED: ConsultationFunnel = {
  * the default fixture is the one that would catch a renderer which only works
  * with rows.
  *
- * **It has four methods and no fifth**, mirroring `DiagnosesDesk`. A fake with a
+ * **It has five methods and no sixth**, mirroring `DiagnosesDesk`. A fake with a
  * `close` on it would be a fake that could pass a test the production seam
- * cannot — and the fourth, added for `#1081`, is a read like the other three, so
- * that stays true of it.
+ * cannot — and the fourth (`#1081`) and the fifth (`#1083`) are reads like the
+ * three before them, so that stays true of it.
  */
 export function fakeDiagnosesDesk(
   rows: readonly Diagnosis[] = [],
@@ -129,6 +129,18 @@ export function fakeDiagnosesDesk(
    * by leaving the sentence out entirely.
    */
   funnel: ConsultationFunnel = NOTHING_ANNOUNCED,
+  /**
+   * What each rule has done, where a test cares (`#1083`).
+   *
+   * Handed over for the same reason the funnel is, and more so: half of every
+   * row is what citizens said about the rule, which is a table {@link Diagnosis}
+   * has no reference to at all. Deriving it from `rows` would produce a page
+   * that renders one source and silently drops the other.
+   *
+   * The default is *no rule has fired and nobody has said anything*, which is
+   * the empty table the page has to render as a sentence.
+   */
+  ruleHealth: readonly RuleHealthRow[] = [],
 ): DiagnosesDesk {
   return {
     list: async (query) => {
@@ -155,5 +167,6 @@ export function fakeDiagnosesDesk(
         {},
       ),
     funnel: async () => funnel,
+    ruleHealth: async () => ruleHealth,
   }
 }

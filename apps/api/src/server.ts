@@ -29,6 +29,7 @@ import {
   diagnosisById,
   diagnosisCounts,
   consultationFunnel,
+  ruleHealth,
   markConsulted,
   recordDoctorFeedback,
   checkThrottle,
@@ -714,7 +715,7 @@ const app = buildApp({
   /**
    * What the console's diagnoses pages read (`#841`).
    *
-   * Four reads and no writes. There is no `close` here and there is not going
+   * Five reads and no writes. There is no `close` here and there is not going
    * to be one: a diagnosis resolves when its evidence stops matching, and a
    * person closing one would put an opinion into a state machine defined by
    * evidence.
@@ -724,6 +725,7 @@ const app = buildApp({
     byId: (id) => diagnosisById(db, id),
     counts: () => diagnosisCounts(db),
     funnel: (since) => consultationFunnel(db, since),
+    ruleHealth: () => ruleHealth(db),
   },
   // A citizen's private notes against the skills it holds (`#348`).
   skillNotes: {

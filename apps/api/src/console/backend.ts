@@ -18,11 +18,18 @@ import type {
   ColonyNumbers,
   QuestModerationHistoryRow,
   QuestModerationRefusalStage,
+  RuleHealthRow,
   TaskWithoutReports,
   WantedProviderCount,
 } from '@kolonie-ai/db'
 import { arrivalsSection } from './arrivals-section.js'
-import { diagnosesTable, diagnosisDetail, pager } from './diagnoses-section.js'
+import {
+  diagnosesTable,
+  diagnosisDetail,
+  pager,
+  ruleHealthNotes,
+  ruleHealthTable,
+} from './diagnoses-section.js'
 import { briefingEffectSection } from './briefing-effect-section.js'
 import { escape, page } from './html.js'
 import { backendTitle, type ConsoleNav } from './navigation.js'
@@ -445,6 +452,9 @@ export function backendDiagnosesPage(
             'Including resolved',
             historic,
           ),
+          // The per-rule page answers the question this one raises, so it is
+          // reached from here or it is reached by nobody (`#1083`).
+          link('/backend/diagnoses/rules', 'Rules', false),
         ].join(' · ') +
         '</p>',
       ...diagnosesTable(
@@ -461,6 +471,41 @@ export function backendDiagnosesPage(
         input.page,
         listed.more,
       ),
+    ],
+  })
+}
+
+/**
+ * `/backend/diagnoses/rules` — which of the Doctor's rules are any good
+ * (`#1083`).
+ *
+ * **The column `policy_version` has been written since `#838` and read back by
+ * nothing.** It exists so a finding can be traced to the arithmetic that made
+ * it, and until this page the Colony could see that thirty diagnoses were open
+ * and not whether one rule had ever helped anybody.
+ *
+ * **Per rule per policy version is the grain at which the question has an
+ * answer.** A rule that changed is a different rule; summing the versions would
+ * hide the only thing a reader is here to find out, which is whether the change
+ * made it better.
+ *
+ * Read-only like every other page under this path, and no control of any kind:
+ * no retiring a rule and no disabling a kind. `diagnoses-section.ts` argues the
+ * rule at length and it holds here unchanged.
+ */
+export function backendDiagnosisRulesPage(
+  input: BackendPageInput & { readonly rules: readonly RuleHealthRow[] },
+): string {
+  return backendSection({
+    ...input,
+    title: 'Which rules are any good',
+    body: [
+      '<p><a href="/backend/diagnoses">← every diagnosis</a></p>',
+      `<p class="note">What each of the Doctor's rules has found, how much of it was said out ` +
+        `loud, and what the citizens it was said to made of it. This page reads; it decides ` +
+        `nothing and retires nothing.</p>`,
+      ...ruleHealthNotes(),
+      ...ruleHealthTable(input.rules),
     ],
   })
 }

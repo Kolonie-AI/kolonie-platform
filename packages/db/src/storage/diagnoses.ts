@@ -9,6 +9,7 @@ import {
   type Diagnosis,
   type DiagnosisState,
   type Finding,
+  type FindingKind,
 } from '@kolonie-ai/core'
 import type { Database, Transaction } from '../client.js'
 import { diagnoses } from '../schema/diagnoses.js'
@@ -838,4 +839,153 @@ export async function consultationFunnel(
     consulted: row?.consulted ?? 0,
     medianHoursToConsult: row?.medianHoursToConsult ?? null,
   }
+}
+
+/** One rule's record: what it found, what came of it, and what the citizens said (`#1083`). */
+export interface RuleHealthRow {
+  readonly kind: FindingKind
+  /**
+   * The rules in force, or `null` for verdicts given while nothing was open.
+   *
+   * **Nullable although `diagnoses.policy_version` is not**, which is the one
+   * place these two sources genuinely differ. A verdict copies the version off
+   * the finding it was about, and a citizen answering the day after a finding
+   * resolved has no finding to copy from — see `doctor_feedback.policyVersion`.
+   * Those verdicts are real and are about a named rule; what is unknown is which
+   * arithmetic produced the finding they answered. So they get a row of their
+   * own rather than being dropped or folded into whichever version happens to be
+   * current, either of which would be an invention.
+   */
+  readonly policyVersion: string | null
+  readonly opened: number
+  readonly announced: number
+  readonly consulted: number
+  readonly resolvedAfterAnnouncement: number
+  /** Median hours from announcement to consultation, or `null` where nobody consulted. */
+  readonly medianHoursToConsult: number | null
+  readonly helpful: number
+  readonly notApplicable: number
+  readonly wrong: number
+}
+
+/**
+ * Which of the Doctor's rules are any good (`#1083`).
+ *
+ * **`diagnoses.policy_version` has existed since `#838` and nothing has ever
+ * read it back.** The column carries an argument for why it is more than
+ * `notNull` — *an unattributable diagnosis is not storable, since it is not
+ * auditable* — and until this function the Colony could see that it had thirty
+ * open diagnoses and could not see whether the `polling-loop` rule had ever
+ * helped anybody. Per-rule is the grain at which that question has an answer:
+ * a rule is what gets rewritten, retired or left alone.
+ *
+ * **One statement and a full outer join, rather than two queries stitched in
+ * TypeScript.** The join is the part that can be wrong, and it can be wrong in
+ * two directions that look nothing alike: an inner join drops a rule that was
+ * disputed and then stopped firing, and the wrong outer side drops a rule that
+ * fires constantly and nobody has ever commented on. Written here, both are
+ * reachable by a test against a real database; written in a `Map` merge, only
+ * the one somebody thought of is.
+ *
+ * **`is not distinct from` and not `=` on the version**, because the feedback
+ * side's version is nullable and `=` is unknown against a null — which in a full
+ * outer join is not an error but a silently unmatched row, the failure mode this
+ * whole function exists to make visible.
+ *
+ * **The two sources age differently and the caller has to say so.**
+ * `DIAGNOSIS_RETENTION_DAYS` is {@link DIAGNOSIS_RETENTION_DAYS} and
+ * `doctor_feedback` is swept by nothing, so a rule may carry more verdicts than
+ * findings. That is not a defect to be corrected by filtering the verdicts to
+ * the window — a verdict is evidence about a rule and stays true after the
+ * finding is gone — so it is corrected by the page saying it.
+ *
+ * **`resolvedAfterAnnouncement` is not a success rate.** A diagnosis resolves
+ * when its evidence stops matching, which may be the citizen acting on what it
+ * was told and may be the citizen stopping for reasons of its own. The name is
+ * as long as it is so that no caller can shorten it to `fixed` without noticing.
+ *
+ * Both scopes count in the diagnosis columns, because a Colony-scoped rule's own
+ * hit rate is worth having; only agent-scoped rows can carry a verdict, since a
+ * citizen can only answer about a finding that was about it.
+ */
+export async function ruleHealth(db: Database | Transaction): Promise<readonly RuleHealthRow[]> {
+  const rows = await db.execute<{
+    kind: string
+    policy_version: string | null
+    opened: number
+    announced: number
+    consulted: number
+    resolved_after: number
+    median_hours_to_consult: number | null
+    helpful: number
+    not_applicable: number
+    wrong: number
+  }>(sql`
+    with found as (
+      -- Every column carries its table, and the tables are aliased, because
+      -- #311 refuses a bare name inside a parenthesised select: an unqualified
+      -- column binds to the innermost table that declares it, which is a wrong
+      -- answer with no error attached. See bare-identifiers.ts.
+      select d.kind                                            as kind,
+             d.policy_version                                  as policy_version,
+             count(*)::int                                     as opened,
+             count(d.announced_at)::int                        as announced,
+             count(d.consulted_at)::int                        as consulted,
+             -- Announced *and* resolved afterwards. The ordering matters: a
+             -- finding that resolved before anybody was told is not evidence
+             -- that telling did anything, and without the comparison every
+             -- already-resolved row would count.
+             (count(*) filter (
+                where d.resolved_at is not null
+                  and d.announced_at is not null
+                  and d.resolved_at > d.announced_at))::int    as resolved_after,
+             -- Nulls are ignored by the ordered set, so a rule nobody consulted
+             -- after is null rather than a zero reading as *instantly*.
+             percentile_cont(0.5) within group (
+               order by extract(epoch from (d.consulted_at - d.announced_at)) / 3600.0
+             )                                                 as median_hours_to_consult
+        from diagnoses d
+       group by d.kind, d.policy_version
+    ),
+    said as (
+      select f.kind                                                  as kind,
+             f.policy_version                                        as policy_version,
+             (count(*) filter (where f.verdict = 'helpful'))::int        as helpful,
+             (count(*) filter (where f.verdict = 'not-applicable'))::int as not_applicable,
+             (count(*) filter (where f.verdict = 'wrong'))::int          as wrong
+        from doctor_feedback f
+       group by f.kind, f.policy_version
+    )
+    select coalesce(found.kind, said.kind)                     as kind,
+           coalesce(found.policy_version, said.policy_version) as policy_version,
+           coalesce(found.opened, 0)                           as opened,
+           coalesce(found.announced, 0)                        as announced,
+           coalesce(found.consulted, 0)                        as consulted,
+           coalesce(found.resolved_after, 0)                   as resolved_after,
+           found.median_hours_to_consult                       as median_hours_to_consult,
+           coalesce(said.helpful, 0)                           as helpful,
+           coalesce(said.not_applicable, 0)                    as not_applicable,
+           coalesce(said.wrong, 0)                             as wrong
+      from found
+      full outer join said
+        on said.kind = found.kind
+       and said.policy_version is not distinct from found.policy_version
+     -- The rule that fires most is the one whose quality matters most. The two
+     -- secondary keys are there so the page does not reshuffle between reads.
+     order by opened desc, kind asc, policy_version asc nulls last
+  `)
+
+  return rows.map((row) => ({
+    kind: row.kind as FindingKind,
+    policyVersion: row.policy_version,
+    opened: Number(row.opened),
+    announced: Number(row.announced),
+    consulted: Number(row.consulted),
+    resolvedAfterAnnouncement: Number(row.resolved_after),
+    medianHoursToConsult:
+      row.median_hours_to_consult === null ? null : Number(row.median_hours_to_consult),
+    helpful: Number(row.helpful),
+    notApplicable: Number(row.not_applicable),
+    wrong: Number(row.wrong),
+  }))
 }

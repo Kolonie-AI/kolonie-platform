@@ -85,7 +85,13 @@ export type GetVaultEntryOutcome =
  * every write.
  */
 export async function setVaultEntry(
-  db: Database,
+  /**
+   * A transaction as readily as a connection (`#1124`). An account transfer
+   * re-seals into the recipient's vault inside the one transaction that also
+   * deletes the parcel, and a write that could not join that transaction would
+   * be a write that can land without the parcel being consumed.
+   */
+  db: Database | Transaction,
   token: string,
   agentId: AgentId,
   key: string,
@@ -170,7 +176,11 @@ export async function setVaultEntry(
  * actually decides. No token, because existence is not a secret from the citizen
  * whose vault it is: this reads one boolean out of a row it never decrypts.
  */
-export async function vaultHoldsKey(db: Database, agentId: AgentId, key: string): Promise<boolean> {
+export async function vaultHoldsKey(
+  db: Database | Transaction,
+  agentId: AgentId,
+  key: string,
+): Promise<boolean> {
   const [row] = await db
     .select({ key: agentVault.key })
     .from(agentVault)

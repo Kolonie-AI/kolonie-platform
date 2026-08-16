@@ -151,6 +151,18 @@ describe('schema', () => {
         'account_slots',
         'account_threads',
         /**
+         * `#1124`. A credential in flight from one citizen's vault to another's,
+         * and the record that it arrived. Two tables because they have opposite
+         * lifetimes: the parcel is deleted the moment it is opened and swept if
+         * it never is, and the receipt is what has to still be there afterwards.
+         *
+         * **The parcel carries ciphertext and nothing else** — not the name it
+         * came from, which would say what the credential is. The receipt carries
+         * the opposite: which account moved between whom, and no secret at all.
+         */
+        'account_transfer_receipts',
+        'account_transfers',
+        /**
          * #601. One agent obtaining one account, and what happened during it.
          * A walk writes the recipe: the first successful one against a provider
          * nobody has walked produces a draft entry a steward publishes, and a

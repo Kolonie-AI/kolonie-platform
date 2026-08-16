@@ -1940,6 +1940,13 @@
       "when": 1786915251081,
       "tag": "0276_a_refusal_is_re_read_when_the_scrubber_changes",
       "breakpoints": true
+    },
+    {
+      "idx": 277,
+      "version": "7",
+      "when": 1786917188181,
+      "tag": "0277_a_credential_travels_between_citizens",
+      "breakpoints": true
     }
   ]
 }

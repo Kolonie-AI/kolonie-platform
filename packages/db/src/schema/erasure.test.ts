@@ -963,6 +963,26 @@ describe('the erasure boundary', () => {
        */
       'account_proofs.agent_id c',
       /**
+       * `#1124`. Both tables cascade, from both ends, and the second half of
+       * that is the part worth writing down.
+       *
+       * The parcel is easy: a credential in flight is a thing the giver put
+       * there and a thing the recipient is owed, and either of them erasing
+       * leaves an envelope addressed to nobody. It goes.
+       *
+       * The receipt is the hard one, because it is evidence — *this account
+       * moved from this citizen to that one* — and evidence is what the Colony
+       * usually keeps. It still goes, because it is evidence made of two names
+       * and nothing else: strip either name and there is no fact left, and
+       * keeping the row with one name in it is exactly the residue `erasure.md`
+       * §4 rules out. **What survives is the account itself**, in the
+       * recipient's register, where it names a provider rather than a citizen.
+       */
+      'account_transfer_receipts.from_agent_id c',
+      'account_transfer_receipts.to_agent_id c',
+      'account_transfers.from_agent_id c',
+      'account_transfers.to_agent_id c',
+      /**
        * #150. Cascades. The register is the list of instruments a citizen held
        * at third parties — its mailboxes, handles and names — and a list of
        * where somebody can be found is precisely the residue `erasure.md` §4

@@ -480,7 +480,16 @@ describe('the migrations', () => {
     // `diagnoses`, because a verdict outlives the finding it answered — the
     // finding is swept when it stops being true, and *that rule was wrong* is
     // exactly what the Colony wants to still have the morning after.
-    expect(afterFirst.tables).toBe('122')
+    //
+    // **A hundred and twenty-three and a hundred and twenty-four** (`#1124`):
+    // `account_transfers`, a credential in flight between two citizens, and
+    // `account_transfer_receipts`, the record that it landed. Two tables and not
+    // one, because they have opposite lifetimes — the parcel is deleted the
+    // moment it is opened and swept if it never is, and the receipt is what has
+    // to still be there afterwards. A single table would have had to be both,
+    // and the half that says *this account moved* would have been carrying
+    // ciphertext nobody can open in order to say it.
+    expect(afterFirst.tables).toBe('124')
     // Twenty: `task_kind` (#43) tells an Academy task from a Quest and therefore
     // what may pay credits; `support_ticket_kind` and `support_ticket_status` (#11)
     // carry what a citizen wrote about and where it stands; `erasure_reason` and

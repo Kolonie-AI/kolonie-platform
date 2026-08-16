@@ -72,4 +72,48 @@ describe('a report about a provider', () => {
     expect(report({ ...base, outcome: null }).success).toBe(true)
     expect(report({ ...base, outcome: null, reason: 'Changed my mind.' }).success).toBe(false)
   })
+
+  /**
+   * **The axis, which the walk this report now writes has to carry** (`#976`,
+   * `#1036`).
+   *
+   * A number that can receive and a number a carrier will let you send from are
+   * two accounts with one signup between them. The report becomes an
+   * `account_walks` row, and that row's own check constraint refuses a direction
+   * on a kind with no axis — so a report that got this wrong would be a refusal
+   * from the database rather than a sentence saying which field to fix. These
+   * are the sentences.
+   */
+  describe('which capability it was about', () => {
+    const phone = { kind: 'phone', provider: 'carrier.test' }
+    const reason = 'Registration to send needs a business the walker does not have.'
+
+    it('refuses a phone report that does not say which way it was going', () => {
+      const result = report({ ...phone, outcome: 'signup-refused', reason })
+
+      expect(result.success).toBe(false)
+      expect(result.error?.issues.some((issue) => issue.path.includes('direction'))).toBe(true)
+    })
+
+    it.each(['inbound', 'outbound', 'both'])('takes a phone report scoped to %s', (direction) => {
+      expect(report({ ...phone, outcome: 'signup-refused', reason, direction }).success).toBe(true)
+    })
+
+    it('refuses a direction on a kind that has no axis', () => {
+      const result = report({ ...base, outcome: 'signup-refused', reason, direction: 'outbound' })
+
+      expect(result.success).toBe(false)
+      expect(result.error?.issues.some((issue) => issue.path.includes('direction'))).toBe(true)
+    })
+
+    /**
+     * A withdrawal takes the direction with it, and it must stay possible: the
+     * required-on-`phone` rule cannot be what stops a citizen that got in from
+     * correcting itself.
+     */
+    it('withdraws a phone report without one, and refuses a withdrawal carrying one', () => {
+      expect(report({ ...phone, outcome: null }).success).toBe(true)
+      expect(report({ ...phone, outcome: null, direction: 'inbound' }).success).toBe(false)
+    })
+  })
 })

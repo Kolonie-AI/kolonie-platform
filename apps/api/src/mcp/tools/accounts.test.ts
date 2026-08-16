@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
+  AccountKindSchema,
+  AccountProviderSchema,
   AgentIdSchema,
   WALK_REPORT_FIELDS,
   WALK_REPORT_FIELD_ORDER,
@@ -516,9 +518,10 @@ describe('kolonie.accounts.wishes', () => {
  * missing from `kolonie.accounts.providers` were exactly the expensive ones.
  */
 describe('kolonie.accounts.provider-report', () => {
-  it('records a dead end and shows it in the provider answer', async () => {
-    const { colony, apiKey } = await registeredCitizen()
-    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+  it('records a dead end as the walk it now is', async () => {
+    const { colony, apiKey, agent } = await registeredCitizen()
+    const walks = fakeWalks()
+    const { client, close } = await connectedClient({ ...colony, walks }, `Bearer ${apiKey}`)
 
     await client.callTool({
       name: 'kolonie.accounts.provider-report',
@@ -529,17 +532,32 @@ describe('kolonie.accounts.provider-report', () => {
         reason: 'The signup form refuses an honest answer to are-you-human.',
       },
     })
-    const read = await client.callTool({ name: 'kolonie.accounts.providers', arguments: {} })
 
-    const text = JSON.stringify(read.content)
-    expect(text).toContain('disroot.org')
-    expect(text).toContain('refused signup')
+    /**
+     * **The walk, and not the tally two calls later** (`#1036`). This asserted
+     * on `kolonie.accounts.providers` while the alias kept a verdict row of its
+     * own; the aggregate is a join across `account_walks` and the frozen
+     * `provider_reports` now, and is asserted where both tables are. What is
+     * this layer's own is that filing a report writes one walk, refused, with
+     * the citizen's sentence as its wall.
+     */
+    expect(await walks.list(agent.id)).toMatchObject([
+      {
+        kind: 'mailbox',
+        provider: 'disroot.org',
+        outcome: 'refused',
+        wall: 'The signup form refuses an honest answer to are-you-human.',
+      },
+    ])
     await close()
   })
 
   it('needs no account and no identifier, which is the whole point', async () => {
     const { colony, apiKey } = await registeredCitizen()
-    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+    const { client, close } = await connectedClient(
+      { ...colony, walks: fakeWalks() },
+      `Bearer ${apiKey}`,
+    )
 
     const result = await client.callTool({
       name: 'kolonie.accounts.provider-report',
@@ -556,8 +574,9 @@ describe('kolonie.accounts.provider-report', () => {
   })
 
   it('withdraws on null, so a citizen that gets in can correct itself', async () => {
-    const { colony, apiKey } = await registeredCitizen()
-    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+    const { colony, apiKey, agent } = await registeredCitizen()
+    const walks = fakeWalks()
+    const { client, close } = await connectedClient({ ...colony, walks }, `Bearer ${apiKey}`)
 
     await client.callTool({
       name: 'kolonie.accounts.provider-report',
@@ -572,9 +591,13 @@ describe('kolonie.accounts.provider-report', () => {
       name: 'kolonie.accounts.provider-report',
       arguments: { kind: 'mailbox', provider: 'offilive.com', outcome: null },
     })
-    const read = await client.callTool({ name: 'kolonie.accounts.providers', arguments: {} })
 
-    expect(JSON.stringify(read.content)).not.toContain('offilive.com')
+    /**
+     * **The walk goes, because the alias wrote it** (`#1036`). A withdrawal
+     * takes back only what this surface itself filed — a walk the citizen
+     * described survives one, which is the storage's own assertion.
+     */
+    expect(await walks.list(agent.id)).toEqual([])
     await close()
   })
 
@@ -681,9 +704,10 @@ describe('provider aliases', () => {
   })
 
   it('counts a report filed under either name against one provider', async () => {
-    const { colony, apiKey } = await registeredCitizen()
+    const { colony, apiKey, agent } = await registeredCitizen()
+    const walks = fakeWalks()
     await colony.renames.alias('clawhub.com', 'clawhub.ai')
-    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+    const { client, close } = await connectedClient({ ...colony, walks }, `Bearer ${apiKey}`)
 
     const report = await client.callTool({
       name: 'kolonie.accounts.provider-report',
@@ -694,11 +718,15 @@ describe('provider aliases', () => {
         reason: 'The signup form refuses an honest answer to are-you-human.',
       },
     })
-    const read = await client.callTool({ name: 'kolonie.accounts.providers', arguments: {} })
 
+    /**
+     * The rename resolves before the write, so the alias never reaches the row:
+     * the walk this filed is at the canonical name, and the answer says so.
+     * Counting the two names as one provider is what that buys, and it is
+     * counted in `packages/db` now (`#1036`) rather than two calls later here.
+     */
     expect(report.structuredContent).toMatchObject({ providerCanonical: 'clawhub.ai' })
-    expect(JSON.stringify(read.content)).toContain('clawhub.ai')
-    expect(JSON.stringify(read.content)).not.toContain('clawhub.com')
+    expect(await walks.list(agent.id)).toMatchObject([{ provider: 'clawhub.ai' }])
     await close()
   })
 
@@ -1054,6 +1082,7 @@ describe('kolonie.accounts.recipes names the citizen who walked the entry', () =
    */
   it('puts no walker’s handle into the counted provider answer', async () => {
     const { colony, apiKey } = await registeredCitizen()
+    const register = fakeAccountRegister()
     colony.recipes.write({
       kind: 'github',
       provider: 'clawhub.ai',
@@ -1061,17 +1090,24 @@ describe('kolonie.accounts.recipes names the citizen who walked the entry', () =
       walkedRecipe: WALKED,
     })
     colony.recipes.walk('github', 'clawhub.ai', 'ada-who-walked')
-    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
-
-    await client.callTool({
-      name: 'kolonie.accounts.provider-report',
-      arguments: {
-        kind: 'github',
-        provider: 'clawhub.ai',
-        outcome: 'signup-refused',
-        reason: 'The signup form refuses an honest answer to are-you-human.',
-      },
+    /**
+     * **The tally is stated rather than filed** (`#1036`). Reporting a provider
+     * writes a walk now and the aggregate is computed in `packages/db`, so a
+     * test about what this read publishes seeds the row it is reading.
+     */
+    register.trouble({
+      kind: AccountKindSchema.parse('github'),
+      provider: AccountProviderSchema.parse('clawhub.ai'),
+      outcome: 'signup-refused',
+      citizens: 1,
+      experienced: 0,
+      reasons: [],
     })
+    const { client, close } = await connectedClient(
+      { ...colony, accounts: fakeAccounts(register) },
+      `Bearer ${apiKey}`,
+    )
+
     const read = await client.callTool({ name: 'kolonie.accounts.providers', arguments: {} })
 
     expect(JSON.stringify(read.content)).toContain('clawhub.ai')

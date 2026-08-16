@@ -625,15 +625,23 @@ describe('the record of one agent obtaining one account', () => {
      * **The rejection case `#601` asks for by name**: *a walk that ended
      * halfway proposing nothing*. Half a path published as a recipe is one that
      * fails at step three.
+     *
+     * The provider is on the shelf all the same, at `measured` and with no
+     * steps (`#904`, `#1036`). *Somebody walked here and it went nowhere* is
+     * what the Atlas is for; it was `provider-report` that used to record it,
+     * and the alias now writes a walk.
      */
-    it('proposes nothing for a walk that was abandoned', async () => {
+    it('proposes nothing for a walk that was abandoned, and still names the provider', async () => {
       const walkId = await walkInProgress(db, agentId, where)
       await recordWalkStep(db, walkId, { actor: 'agent' })
 
       const finished = await finishWalk(db, walkId, { outcome: 'abandoned' })
 
       expect(finished?.verdict.kind).toBe('nothing')
-      expect(await providerRecipe(db, where.kind, where.provider)).toBeUndefined()
+
+      const entry = await providerRecipe(db, where.kind, where.provider)
+      expect(entry?.status).toBe('measured')
+      expect(entry?.steps).toEqual([])
     })
 
     /**

@@ -3,8 +3,10 @@ import { sql } from 'drizzle-orm'
 import {
   AccountKindSchema,
   RegisterAgentRequestSchema,
+  providerReportAsWalk,
   type AccountKind,
   type AgentId,
+  type ProviderReportOutcome,
 } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
@@ -12,14 +14,46 @@ import { registerAgent } from './agents.js'
 import { declareAccount } from './accounts.js'
 import { providerRecipe, writeProviderRecipe } from './provider-recipes.js'
 import {
-  providerReportTallies,
-  recordProviderReasonModeration,
-  reportProvider,
-  unmoderatedProviderReasons,
-} from './provider-reports.js'
+  recordWalkProseModeration,
+  submitWalkReport,
+  unmoderatedWalkProse,
+  withdrawReportedWalk,
+} from './account-walks.js'
+import { providerReportTallies, unmoderatedProviderReasons } from './provider-reports.js'
 
 const target = databaseTestTarget()
 const MAILBOX = AccountKindSchema.parse('mailbox') as AccountKind
+
+/**
+ * What the retiring alias does, and the whole of it (`#1036`).
+ *
+ * `apps/api/src/accounts.ts` maps the outcome with `providerReportAsWalk` and
+ * hands the result to the walk store, which is `submitWalkReport`. These tests
+ * drive those same two calls rather than a fixture of their own, so a change to
+ * the mapping breaks them here and not only one layer up.
+ *
+ * **There is no storage-level `reportProvider` to drive any more.**
+ * `provider_reports` is a frozen historical record with no writer; every test
+ * below that used to call it now files the walk the alias files.
+ */
+const fileAsReport = async (
+  db: Database,
+  agentId: AgentId,
+  where: { readonly kind: AccountKind; readonly provider: string },
+  outcome: ProviderReportOutcome,
+  reason?: string,
+): Promise<void> => {
+  const mapped = providerReportAsWalk(outcome)
+
+  await submitWalkReport(db, agentId, where, {
+    outcome: mapped.outcome,
+    // The citizen's own sentence wins where it wrote one, as it does on the alias.
+    ...(mapped.wall === undefined ? {} : { wall: reason ?? mapped.wall }),
+    ...(mapped.recipe === undefined ? {} : { recipe: mapped.recipe }),
+    direction: null,
+    fromProviderReport: true,
+  })
+}
 
 describe('providers that produced no account', () => {
   let db: Database
@@ -48,11 +82,12 @@ describe('providers that produced no account', () => {
   }
 
   it('records a report and counts it', async () => {
-    await reportProvider(db, await anAgent(), {
-      kind: MAILBOX,
-      provider: 'disroot.org',
-      outcome: 'signup-refused',
-    })
+    await fileAsReport(
+      db,
+      await anAgent(),
+      { kind: MAILBOX, provider: 'disroot.org' },
+      'signup-refused',
+    )
 
     expect(await providerReportTallies(db)).toEqual([
       {
@@ -73,42 +108,38 @@ describe('providers that produced no account', () => {
    * walls, and the register made them look like four shrugs. This is the half a
    * reader acts on — and it does not reach a reader until the moderator has read
    * it, which is what the middle assertion is for.
+   *
+   * The sentence is the walk's `wall` now and is queued as walk prose (`#810`),
+   * so the moderation these tests drive is `recordWalkProseModeration`. One
+   * sentence, one queue: the lane that used to read it off `provider_reports` is
+   * frozen and empty, which the last test in this block asserts.
    */
   describe('the sentence beside the outcome', () => {
     const REASON = 'Signup is clean; the activation page is what refuses an agent.'
+    const at = { kind: MAILBOX, provider: 'dynv6.com' }
 
     it('is not served before the moderator has read it, and the count is served anyway', async () => {
-      await reportProvider(db, await anAgent(), {
-        kind: MAILBOX,
-        provider: 'dynv6.com',
-        outcome: 'never-provisioned',
-        reason: REASON,
-      })
+      await fileAsReport(db, await anAgent(), at, 'never-provisioned', REASON)
 
       // The count is the primary signal and it does not wait for the sentence.
       const [tally] = await providerReportTallies(db)
       expect(tally).toMatchObject({ citizens: 1, reasons: [] })
 
-      const [pending] = await unmoderatedProviderReasons(db, 10)
-      expect(pending?.reason).toBe(REASON)
+      const [pending] = await unmoderatedWalkProse(db, 10)
+      expect(pending?.prose.wall).toBe(REASON)
     })
 
     it('is served once the scrub has written it', async () => {
-      const agentId = await anAgent()
-      await reportProvider(db, agentId, {
-        kind: MAILBOX,
-        provider: 'dynv6.com',
-        outcome: 'never-provisioned',
-        reason: REASON,
-      })
+      await fileAsReport(db, await anAgent(), at, 'never-provisioned', REASON)
 
-      await recordProviderReasonModeration(db, {
-        agentId,
-        kind: MAILBOX,
-        provider: 'dynv6.com',
-        judged: REASON,
+      const [pending] = await unmoderatedWalkProse(db, 10)
+      if (pending === undefined) throw new Error('the sentence was not queued')
+
+      await recordWalkProseModeration(db, {
+        walkId: pending.walkId,
+        judged: pending.prose,
         decision: 'approved',
-        scrubbed: REASON,
+        scrubbed: { wall: REASON },
       })
 
       const [tally] = await providerReportTallies(db)
@@ -124,54 +155,49 @@ describe('providers that produced no account', () => {
      * filed still counts, and the only thing lost is the sentence.
      */
     it('never serves a reason the moderator refused, and keeps its count', async () => {
-      const agentId = await anAgent()
-      await reportProvider(db, agentId, {
-        kind: MAILBOX,
-        provider: 'dynv6.com',
-        outcome: 'never-provisioned',
-        reason: 'They answered the support ticket I opened from my own mailbox.',
-      })
+      const named = 'They answered the support ticket I opened from my own mailbox.'
+      await fileAsReport(db, await anAgent(), at, 'never-provisioned', named)
 
-      await recordProviderReasonModeration(db, {
-        agentId,
-        kind: MAILBOX,
-        provider: 'dynv6.com',
-        judged: 'They answered the support ticket I opened from my own mailbox.',
+      const [pending] = await unmoderatedWalkProse(db, 10)
+      if (pending === undefined) throw new Error('the sentence was not queued')
+
+      await recordWalkProseModeration(db, {
+        walkId: pending.walkId,
+        judged: pending.prose,
         decision: 'rejected',
       })
 
       const [tally] = await providerReportTallies(db)
       expect(tally).toMatchObject({ citizens: 1, reasons: [] })
-      expect(await unmoderatedProviderReasons(db, 10)).toHaveLength(0)
+      expect(await unmoderatedWalkProse(db, 10)).toHaveLength(0)
     })
 
     /**
      * A verdict that arrives after the citizen rewrote its report must not land
-     * on the new sentence — the same guard `recordModeration` puts on a report,
-     * and here it is the only one, because there is no surrogate id to key on.
+     * on the new sentence. The walk keeps its row through a rewrite — one walk
+     * per pair — so the guard is `recordWalkProseModeration`'s field-by-field
+     * comparison rather than the row's identity.
      */
     it('refuses a verdict about text the citizen has already replaced', async () => {
       const agentId = await anAgent()
-      await reportProvider(db, agentId, {
-        kind: MAILBOX,
-        provider: 'dynv6.com',
-        outcome: 'never-provisioned',
-        reason: REASON,
-      })
-      await reportProvider(db, agentId, {
-        kind: MAILBOX,
-        provider: 'dynv6.com',
-        outcome: 'never-provisioned',
-        reason: 'On second thoughts, it was the form and not the activation page.',
-      })
+      await fileAsReport(db, agentId, at, 'never-provisioned', REASON)
 
-      const stale = await recordProviderReasonModeration(db, {
+      const [judged] = await unmoderatedWalkProse(db, 10)
+      if (judged === undefined) throw new Error('the sentence was not queued')
+
+      await fileAsReport(
+        db,
         agentId,
-        kind: MAILBOX,
-        provider: 'dynv6.com',
-        judged: REASON,
+        at,
+        'never-provisioned',
+        'On second thoughts, it was the form and not the activation page.',
+      )
+
+      const stale = await recordWalkProseModeration(db, {
+        walkId: judged.walkId,
+        judged: judged.prose,
         decision: 'approved',
-        scrubbed: REASON,
+        scrubbed: { wall: REASON },
       })
 
       expect(stale.outcome).toBe('stale')
@@ -179,35 +205,45 @@ describe('providers that produced no account', () => {
     })
 
     /**
-     * **Rewriting without a reason clears the old one**, rather than leaving one
+     * **A rewrite takes the old scrub with it**, rather than leaving one
      * verdict's explanation standing beside a different verdict — the one way
      * this column could say something nobody wrote.
+     *
+     * The rewrite here carries no sentence of its own, so what stands on the
+     * walk is the mapping's own sentence about `signup-refused`; the citizen's
+     * approved text is gone and what replaced it is queued, unread.
      */
-    it('clears the reason when a rewrite carries none', async () => {
+    it('drops the approved sentence when a rewrite carries none', async () => {
       const agentId = await anAgent()
-      await reportProvider(db, agentId, {
-        kind: MAILBOX,
-        provider: 'dynv6.com',
-        outcome: 'never-provisioned',
-        reason: REASON,
-      })
-      await recordProviderReasonModeration(db, {
-        agentId,
-        kind: MAILBOX,
-        provider: 'dynv6.com',
-        judged: REASON,
-        decision: 'approved',
-        scrubbed: REASON,
-      })
+      await fileAsReport(db, agentId, at, 'never-provisioned', REASON)
 
-      await reportProvider(db, agentId, {
-        kind: MAILBOX,
-        provider: 'dynv6.com',
-        outcome: 'signup-refused',
+      const [judged] = await unmoderatedWalkProse(db, 10)
+      if (judged === undefined) throw new Error('the sentence was not queued')
+      await recordWalkProseModeration(db, {
+        walkId: judged.walkId,
+        judged: judged.prose,
+        decision: 'approved',
+        scrubbed: { wall: REASON },
       })
+      expect((await providerReportTallies(db))[0]?.reasons).toEqual([REASON])
+
+      await fileAsReport(db, agentId, at, 'signup-refused')
 
       const [tally] = await providerReportTallies(db)
       expect(tally).toMatchObject({ outcome: 'signup-refused', reasons: [] })
+    })
+
+    /**
+     * **The lane that used to read this sentence is frozen** (`#1036`, removed
+     * by `#1072`). Every row in `provider_reports` was marked by the conversion
+     * and nothing writes a new one, so the queue is empty whatever a citizen
+     * files — and the sentence it would have carried is queued exactly once,
+     * above, as walk prose.
+     */
+    it('queues nothing on the retired provider-reason lane', async () => {
+      await fileAsReport(db, await anAgent(), at, 'never-provisioned', REASON)
+
+      expect(await unmoderatedProviderReasons(db, 10)).toHaveLength(0)
     })
   })
 
@@ -218,8 +254,9 @@ describe('providers that produced no account', () => {
    */
   it('counts one citizen once, however many times it writes', async () => {
     const agentId = await anAgent()
+    const at = { kind: MAILBOX, provider: 'offilive.com' }
     for (const outcome of ['abandoned', 'never-provisioned', 'signup-refused'] as const) {
-      await reportProvider(db, agentId, { kind: MAILBOX, provider: 'offilive.com', outcome })
+      await fileAsReport(db, agentId, at, outcome)
     }
 
     const tallies = await providerReportTallies(db)
@@ -230,70 +267,57 @@ describe('providers that produced no account', () => {
 
   it('withdraws a report on null, which is how a citizen that got in corrects it', async () => {
     const agentId = await anAgent()
-    await reportProvider(db, agentId, {
-      kind: MAILBOX,
-      provider: 'offilive.com',
-      outcome: 'never-provisioned',
-    })
+    const at = { kind: MAILBOX, provider: 'offilive.com' }
+    await fileAsReport(db, agentId, at, 'never-provisioned')
 
-    const withdrawn = await reportProvider(db, agentId, {
-      kind: MAILBOX,
-      provider: 'offilive.com',
-      outcome: null,
-    })
-
-    expect(withdrawn).toEqual({ outcome: 'withdrawn' })
+    expect(await withdrawReportedWalk(db, agentId, at)).toBe(true)
     expect(await providerReportTallies(db)).toEqual([])
   })
 
-  it('keeps the outcomes apart, because they cost an agent different amounts', async () => {
-    await reportProvider(db, await anAgent(), {
-      kind: MAILBOX,
-      provider: 'somewhere.example',
-      outcome: 'signup-refused',
-    })
-    await reportProvider(db, await anAgent(), {
-      kind: MAILBOX,
-      provider: 'somewhere.example',
-      outcome: 'never-provisioned',
-    })
+  /**
+   * **Four of the five verdicts now read as one, and this says so out loud**
+   * (`#1036`).
+   *
+   * The walk knows *refused* and *abandoned*, and which of the four refusals a
+   * report was is not on the row: the mapping collapsed them, because a report
+   * never asked which of the nine walls the citizen hit. So two citizens filing
+   * `signup-refused` and `never-provisioned` at one provider are one line here,
+   * not two.
+   *
+   * The granularity moved rather than vanished — a walk filed through
+   * `walk-report` names its wall kind, and that is what `provider_recipes.walls`
+   * publishes and what a reader filters on. What this aggregate keeps is the
+   * count and the sentence beside it, which was always the half worth acting on.
+   */
+  it('folds the four refusals into one line, because the walk does not know which', async () => {
+    const at = { kind: MAILBOX, provider: 'somewhere.example' }
+    await fileAsReport(db, await anAgent(), at, 'signup-refused')
+    await fileAsReport(db, await anAgent(), at, 'never-provisioned')
 
-    const tallies = await providerReportTallies(db)
-
-    expect(tallies).toHaveLength(2)
-    expect(tallies.map((tally) => tally.outcome).sort()).toEqual([
-      'never-provisioned',
-      'signup-refused',
+    expect(await providerReportTallies(db)).toMatchObject([
+      { provider: 'somewhere.example', outcome: 'signup-refused', citizens: 2 },
     ])
   })
 
   /**
-   * **The fourth, and it is a fact about the provider rather than about the
-   * reporter** (`#334`). A domain with no working backend was being filed as
+   * **The one distinction that survives, and it is the one that was worth
+   * keeping** (`#334`). A domain with no working backend was being filed as
    * `abandoned` — defined as *"you gave up"* — so the aggregate said *this
    * provider is hard* where half of it meant *this provider is not there*, and a
    * reader acted on it by being more persistent at a door that does not exist.
    *
-   * The test is that the two are counted separately: they are the same provider
-   * and the same kind, and a vocabulary that folded them together would show one
-   * line here.
+   * `no-service` is a refusal on the walk and `abandoned` is not one, so the two
+   * are still counted separately: same provider, same kind, two lines.
    */
   it('tells a provider that is not there from one an agent gave up on', async () => {
-    await reportProvider(db, await anAgent(), {
-      kind: MAILBOX,
-      provider: 'landing-page.example',
-      outcome: 'no-service',
-    })
-    await reportProvider(db, await anAgent(), {
-      kind: MAILBOX,
-      provider: 'landing-page.example',
-      outcome: 'abandoned',
-    })
+    const at = { kind: MAILBOX, provider: 'landing-page.example' }
+    await fileAsReport(db, await anAgent(), at, 'no-service')
+    await fileAsReport(db, await anAgent(), at, 'abandoned')
 
     const tallies = await providerReportTallies(db)
 
     expect(tallies).toHaveLength(2)
-    expect(tallies.map((tally) => tally.outcome).sort()).toEqual(['abandoned', 'no-service'])
+    expect(tallies.map((tally) => tally.outcome).sort()).toEqual(['abandoned', 'signup-refused'])
     expect(tallies.every((tally) => tally.citizens === 1)).toBe(true)
   })
 
@@ -315,18 +339,14 @@ describe('providers that produced no account', () => {
     await db.execute(sql`update accounts set proved = true, proved_at = now()`)
 
     for (const agentId of [experienced, novice]) {
-      await reportProvider(db, agentId, {
-        kind: MAILBOX,
-        provider: 'agmail.ai',
-        outcome: 'never-provisioned',
-      })
+      await fileAsReport(db, agentId, { kind: MAILBOX, provider: 'agmail.ai' }, 'never-provisioned')
     }
 
     expect(await providerReportTallies(db)).toEqual([
       {
         kind: 'mailbox',
         provider: 'agmail.ai',
-        outcome: 'never-provisioned',
+        outcome: 'signup-refused',
         citizens: 2,
         experienced: 1,
         reasons: [],
@@ -336,16 +356,13 @@ describe('providers that produced no account', () => {
 
   it('narrows to one kind when asked', async () => {
     const agentId = await anAgent()
-    await reportProvider(db, agentId, {
-      kind: MAILBOX,
-      provider: 'somewhere.example',
-      outcome: 'abandoned',
-    })
-    await reportProvider(db, agentId, {
-      kind: AccountKindSchema.parse('domain') as AccountKind,
-      provider: 'elsewhere.example',
-      outcome: 'abandoned',
-    })
+    await fileAsReport(db, agentId, { kind: MAILBOX, provider: 'somewhere.example' }, 'abandoned')
+    await fileAsReport(
+      db,
+      agentId,
+      { kind: AccountKindSchema.parse('domain') as AccountKind, provider: 'elsewhere.example' },
+      'abandoned',
+    )
 
     expect(await providerReportTallies(db, MAILBOX)).toHaveLength(1)
     expect(await providerReportTallies(db)).toHaveLength(2)
@@ -353,22 +370,14 @@ describe('providers that produced no account', () => {
 
   it('names no citizen anywhere in what it publishes', async () => {
     const agentId = await anAgent()
-    await reportProvider(db, agentId, {
-      kind: MAILBOX,
-      provider: 'disroot.org',
-      outcome: 'signup-refused',
-    })
+    await fileAsReport(db, agentId, { kind: MAILBOX, provider: 'disroot.org' }, 'signup-refused')
 
     expect(JSON.stringify(await providerReportTallies(db))).not.toContain(agentId)
   })
 
   it('goes when its author does', async () => {
     const agentId = await anAgent()
-    await reportProvider(db, agentId, {
-      kind: MAILBOX,
-      provider: 'disroot.org',
-      outcome: 'signup-refused',
-    })
+    await fileAsReport(db, agentId, { kind: MAILBOX, provider: 'disroot.org' }, 'signup-refused')
 
     await db.execute(sql`delete from agents where id = ${agentId}`)
 
@@ -377,13 +386,16 @@ describe('providers that produced no account', () => {
 })
 
 /**
- * The channel agents actually use reaches the shelf (`#904`).
+ * The channel agents actually use reaches the shelf (`#904`, `#1036`).
  *
  * **Refusals were never categorically shut out of the catalogue** — `walkVerdict`
  * publishes a walk reported as `refused` with a wall named. The gap is narrower
  * and worse: that route runs through `walk-report`, and this is the one agents
  * reach for. Sixteen rows here against nothing on the telephony shelf, measured
  * 2026-08-14, is the measurement of which one gets used.
+ *
+ * `#1036` closes it by making the two routes the same route, which is why the
+ * second test below now asserts the opposite of what it asserted under `#904`.
  */
 describe('a provider report reaching the catalogue', () => {
   let db: Database
@@ -411,43 +423,50 @@ describe('a provider report reaching the catalogue', () => {
     await truncateAll(db)
   })
 
+  /**
+   * A verdict that proposes nothing still puts the provider on the shelf — the
+   * rule `#904` wrote and `finishWalk` now carries, since the function that used
+   * to carry it is gone.
+   */
   it('gives a provider with no entry a measured row', async () => {
     const agentId = await citizen('reporter')
 
     expect(await providerRecipe(db, kind, 'walled.example')).toBeUndefined()
 
-    await reportProvider(db, agentId, {
-      kind,
-      provider: 'walled.example',
-      outcome: 'signup-refused',
-      reason: 'The form demands a business number before it will issue one.',
-    })
+    await fileAsReport(db, agentId, { kind, provider: 'walled.example' }, 'abandoned')
 
     const entry = await providerRecipe(db, kind, 'walled.example')
     expect(entry?.status).toBe('measured')
-  })
-
-  /**
-   * **A report creates a row and never a verdict.** Marking a provider closed
-   * stays a walk's finding with a wall named; all a report does is give the
-   * citizen's own sentence somewhere to be read.
-   */
-  it('does not mark the provider refused, whatever the outcome said', async () => {
-    const agentId = await citizen('reporter')
-
-    await reportProvider(db, agentId, {
-      kind,
-      provider: 'walled.example',
-      outcome: 'no-service',
-      reason: 'Nothing answers on the documented host, and no alternate resolves.',
-    })
-
-    const entry = await providerRecipe(db, kind, 'walled.example')
-    expect(entry?.status).toBe('measured')
-    expect(entry?.refusal).toBeNull()
     expect(entry?.steps).toEqual([])
   })
 
+  /**
+   * **A verdict filed here is a verdict, which is the change** (`#1036`).
+   *
+   * Under `#904` this surface wrote a `measured` row and never a refusal, on the
+   * reasoning that marking a provider closed was a walk's finding and a report
+   * was something lesser. Folding the two removes the *something lesser*: the
+   * alias files a walk, a refused walk with a wall named publishes a refusal,
+   * and it does so whichever surface the citizen typed at. The wall the entry
+   * carries is the citizen's own sentence where it wrote one.
+   */
+  it('marks the provider refused, exactly as the walk it now is', async () => {
+    const agentId = await citizen('reporter')
+    const wall = 'Nothing answers on the documented host, and no alternate resolves.'
+
+    await fileAsReport(db, agentId, { kind, provider: 'walled.example' }, 'no-service', wall)
+
+    const entry = await providerRecipe(db, kind, 'walled.example')
+    expect(entry?.status).toBe('refused')
+    expect(entry?.refusal).toBe(wall)
+    expect(entry?.steps).toEqual([])
+  })
+
+  /**
+   * An entry somebody curated is not demoted by a verdict that proposes nothing.
+   * `abandoned` reaches neither the draft branch nor the refusal branch, and the
+   * measurement behind it is `onConflictDoNothing`.
+   */
   it('leaves an entry that already exists exactly as it stood', async () => {
     const agentId = await citizen('reporter')
 
@@ -461,15 +480,107 @@ describe('a provider report reaching the catalogue', () => {
       cautions: [{ text: 'Nobody has walked this one.', direction: null }],
     })
 
-    await reportProvider(db, agentId, {
-      kind,
-      provider: 'curated.example',
-      outcome: 'signup-refused',
-      reason: 'The form demands a business number before it will issue one.',
-    })
+    await fileAsReport(db, agentId, { kind, provider: 'curated.example' }, 'abandoned')
 
     const entry = await providerRecipe(db, kind, 'curated.example')
     expect(entry?.status).toBe('unwritten')
     expect(entry?.cautions).toEqual([{ text: 'Nobody has walked this one.', direction: null }])
+  })
+})
+
+/**
+ * The two rejection cases the definition of done names, at the level that
+ * actually holds them (`#1036`).
+ *
+ * Both are check constraints rather than validation, so they are driven with raw
+ * SQL: `finishWalk` nulls a wall on anything that is not a refusal and the walk
+ * schema refuses a direction on the wrong kind long before Postgres sees either,
+ * and a test that went through those functions would be asserting that the guard
+ * in front of the constraint works rather than that the constraint does. The
+ * constraint is the one that has to hold on the day somebody writes a third
+ * path — such as the migration that converted the rows already filed.
+ */
+describe('what the row itself refuses to hold', () => {
+  let db: Database
+  let seeded = 0
+
+  beforeAll(async () => {
+    db = await connectForTests(target.url)
+  })
+
+  afterAll(async () => {
+    await db?.close()
+  })
+
+  beforeEach(async () => {
+    await truncateAll(db)
+  })
+
+  const citizen = async (): Promise<AgentId> => {
+    const result = await registerAgent(
+      db,
+      RegisterAgentRequestSchema.parse({ name: `refusing-${++seeded}`, platform: 'openclaw' }),
+    )
+    if (result.outcome !== 'registered') throw new Error(result.outcome)
+    return result.agent.id
+  }
+
+  /**
+   * Which constraint refused, rather than that something did.
+   *
+   * The driver's own message says only *failed query*; the constraint's name is
+   * on the cause it wraps, and a test that read the outer message would pass on
+   * any error at all — a typo in the column list included.
+   */
+  const refusedBy = async (statement: ReturnType<typeof sql>): Promise<string> => {
+    try {
+      await db.execute(statement)
+    } catch (error) {
+      const cause: unknown = error instanceof Error ? error.cause : undefined
+      const named = cause as { constraint_name?: string } | undefined
+      return named?.constraint_name ?? String(cause ?? error)
+    }
+    throw new Error('the row was accepted')
+  }
+
+  it('refuses a wall on a walk that was abandoned rather than refused', async () => {
+    const agentId = await citizen()
+
+    expect(
+      await refusedBy(sql`
+        insert into account_walks (agent_id, kind, provider, finished_at, outcome, wall)
+        values (${agentId}, 'mailbox', 'walled.example', now(), 'abandoned', 'It stopped me here.')
+      `),
+    ).toBe('account_walks_wall_only_on_a_refusal')
+  })
+
+  it('refuses a direction on a kind that has no axis', async () => {
+    const agentId = await citizen()
+
+    expect(
+      await refusedBy(sql`
+        insert into account_walks (agent_id, kind, provider, direction)
+        values (${agentId}, 'mailbox', 'walled.example', 'outbound')
+      `),
+    ).toBe('account_walks_direction_is_known')
+  })
+
+  /**
+   * The other half of the same constraint: `phone` is the kind that has the
+   * axis, so the row a `provider-report` against a number writes is accepted
+   * with the direction the citizen scoped it to (`#1023`).
+   */
+  it('accepts a direction on the kind that has one', async () => {
+    const agentId = await citizen()
+
+    await db.execute(sql`
+      insert into account_walks (agent_id, kind, provider, direction)
+      values (${agentId}, 'phone', 'carrier.example', 'outbound')
+    `)
+
+    const [row] = await db.execute<{ direction: string }>(
+      sql`select direction from account_walks where agent_id = ${agentId}`,
+    )
+    expect(row?.direction).toBe('outbound')
   })
 })

@@ -143,6 +143,24 @@ export const providerReports = pgTable(
     reasonStatus: moderationStatus('reason_status').notNull().default('approved'),
 
     notedAt: timestamp('noted_at', { withTimezone: true, mode: 'string' }).notNull().defaultNow(),
+
+    /**
+     * When this verdict was converted into the walk that now carries it
+     * (`#1036`).
+     *
+     * **The row is marked and not deleted.** A citizen wrote it, it is that
+     * citizen's word about a provider, and a merge that destroys the record it is
+     * merging leaves nothing to check the conversion against — which is the one
+     * thing anybody will want on the day the mapping turns out to be wrong for a
+     * row. So the fact moves to `account_walks` and the original stays where it
+     * was, out of every count.
+     *
+     * **Out of every count is what the column is for.** `atlasFigures` counts a
+     * citizen once across the surfaces it reads; once a verdict is also a walk,
+     * a converted row left countable would make one citizen two. Null is the
+     * ordinary state of a row nobody has converted.
+     */
+    migratedAt: timestamp('migrated_at', { withTimezone: true, mode: 'string' }),
   },
   (table) => [
     /**

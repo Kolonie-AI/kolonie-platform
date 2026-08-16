@@ -86,6 +86,24 @@ export const accountWalks = pgTable(
      */
     direction: text('direction'),
 
+    /**
+     * Whether this row is a converted provider verdict rather than a walk
+     * somebody described (`#1036`).
+     *
+     * **A briefing has to be able to tell them apart, and nothing else about the
+     * row does.** `kolonie.accounts.provider-report` asked one question — *what
+     * did this provider do to you* — and the walk it converts to therefore has a
+     * Colony-written wall sentence, no four answers, and no steps. That is a
+     * thinner record than a walk, not a worse one, and a reader told *nine
+     * walkers described this provider* when eight of them filed a one-word
+     * verdict has been given a number that means something else.
+     *
+     * Set by the alias while it survives and by the data migration that moved
+     * the rows already written. Never set by `kolonie.accounts.walk-report`,
+     * which is the surface that asks.
+     */
+    fromProviderReport: boolean('from_provider_report').notNull().default(false),
+
     startedAt: timestamp('started_at', { withTimezone: true, mode: 'string' })
       .notNull()
       .defaultNow(),

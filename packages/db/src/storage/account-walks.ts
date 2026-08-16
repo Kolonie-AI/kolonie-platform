@@ -39,7 +39,7 @@ import { observedStepsFor } from './account-threads.js'
 import { canonicalProvider } from './atlas-renames.js'
 import { currentSessionStartSql } from './sessions.js'
 import { markProviderBriefingStale } from './provider-briefing.js'
-import { providerRecipe, writeProviderRecipe } from './provider-recipes.js'
+import { providerRecipe, recordMeasuredProvider, writeProviderRecipe } from './provider-recipes.js'
 import { toTimestamp } from './rows.js'
 
 /**
@@ -415,6 +415,7 @@ async function republishWalls(
       id: accountWalks.id,
       finishedAt: accountWalks.finishedAt,
       recipe: accountWalks.recipe,
+      direction: accountWalks.direction,
     })
     .from(accountWalks)
     .where(
@@ -431,10 +432,29 @@ async function republishWalls(
       /** Parsed on the way out, like everywhere else a `jsonb` becomes a shape. */
       const recipe = walk.recipe === null ? null : WalkedRecipeSchema.parse(walk.recipe)
       if (recipe?.walls === undefined || walk.finishedAt === null) return []
-      return [{ walkId: walk.id, at: toTimestamp(walk.finishedAt), walls: recipe.walls }]
+      return [
+        {
+          walkId: walk.id,
+          at: toTimestamp(walk.finishedAt),
+          /**
+           * **Which capability the walker was measuring** (`#1036`). Null on
+           * every kind with no axis, which is what `publishWalls` groups the
+           * whole catalogue on today and what every walk closed before `#1023`
+           * carries.
+           */
+          direction: walk.direction === null ? null : RecipeDirectionSchema.parse(walk.direction),
+          walls: recipe.walls,
+        },
+      ]
     }),
     (entry.walkedRecipe === null ? null : WalkedRecipeSchema.parse(entry.walkedRecipe))?.walls ??
       [],
+    /**
+     * The prose lands on the wall the account it came from describes — which is
+     * the entry's own scope, because the entry publishes exactly one walker's
+     * account and `writeProviderRecipe` set both from the same walk.
+     */
+    entry.direction === null ? null : RecipeDirectionSchema.parse(entry.direction),
   )
 
   /**
@@ -626,6 +646,16 @@ type WalkFinishInput = {
    * `ProviderReportRequestSchema` does it. Absent here is the unscoped null.
    */
   readonly direction?: RecipeDirection | null
+  /**
+   * Whether this is a converted provider verdict rather than a described walk
+   * (`#1036`).
+   *
+   * Absent everywhere except the retiring `kolonie.accounts.provider-report`
+   * alias, which is the point: the column is what lets a briefing say *one
+   * walker described this and eight filed a verdict* instead of calling nine
+   * thin records nine accounts.
+   */
+  readonly fromProviderReport?: boolean
 }
 
 /**
@@ -666,6 +696,7 @@ export async function finishWalk(
         takenStepPositions: input.takenStepPositions == null ? null : [...input.takenStepPositions],
         recipe: input.recipe ?? null,
         direction: input.direction ?? null,
+        fromProviderReport: input.fromProviderReport ?? false,
         scrubbedProse: null,
         /**
          * **A walk that wrote something enters the queue as it closes** (`#810`).
@@ -841,6 +872,53 @@ export async function finishWalk(
     }
 
     /**
+     * **A walk that followed an entry and did not get through marks it stale**
+     * (`#525`, carried across by `#1036`).
+     *
+     * `reportProvider` did this, on the argument that the report an agent
+     * already files is the report — and folding that surface into this one would
+     * have retired the rule by accident, exactly as it nearly retired `#904`'s
+     * below. A citizen that walked a published recipe and ended at a wall is the
+     * strongest evidence there is that the recipe has gone out of date, and the
+     * catalogue has to stop presenting it as current.
+     *
+     * **Only where the walk ended without the account.** A `proved` walk that
+     * took a different route is a divergence and is answered as one; clearing
+     * the confirmation there would mark an entry stale for having been walked
+     * successfully. And it clears the confirmation rather than setting a flag,
+     * so `isStale` reads it exactly as it reads *never confirmed*.
+     */
+    if (entry !== undefined && (walk.outcome === 'refused' || walk.outcome === 'abandoned')) {
+      await tx
+        .update(providerRecipesTable)
+        .set({ lastConfirmedAt: null, lastConfirmedBy: null })
+        .where(
+          and(
+            eq(providerRecipesTable.kind, walk.kind),
+            eq(providerRecipesTable.provider, walk.provider),
+          ),
+        )
+    }
+
+    /**
+     * **A walk that proposed nothing still puts the provider on the shelf**
+     * (`#904`, carried across by `#1036`).
+     *
+     * An abandoned walk proposes no draft and no refusal, so neither branch
+     * above writes anything — and until `provider-report` folded into this
+     * surface that was somebody else's job: `reportProvider` created the
+     * `measured` row for exactly this case. Folding the two without this line
+     * would have retired `#904`'s rule by accident, and a provider a citizen
+     * abandoned would go back to reading as one nobody had been to.
+     *
+     * `onConflictDoNothing` inside, so an entry that already exists is untouched
+     * — a measurement never demotes something somebody catalogued.
+     */
+    if (entry === undefined && verdict.kind !== 'draft' && verdict.kind !== 'refusal') {
+      await recordMeasuredProvider(tx, { kind: walk.kind, provider: walk.provider })
+    }
+
+    /**
      * **Last, and whatever the verdict was** (`#981`). A walk that merely
      * confirmed the published shape still hit walls on the way — the price, the
      * check, the review — and those are the same fact whether or not the steps
@@ -963,6 +1041,7 @@ export async function submitWalkReport(
             takenStepPositions: null,
             recipe: null,
             direction: null,
+            fromProviderReport: false,
             scrubbedProse: null,
             proseStatus: 'approved',
             proposedAt: null,
@@ -975,6 +1054,55 @@ export async function submitWalkReport(
     }
 
     return finishWalk(tx, walkId, input)
+  })
+}
+
+/**
+ * Take back a verdict filed through the retiring `provider-report` alias
+ * (`#1036`).
+ *
+ * **You may withdraw the verdict you filed; you may not delete the walk you
+ * described.** `provider-report` has always accepted `outcome: null` as *I got
+ * in after all, forget what I said*, and folding the surface into the walk had
+ * to keep that promise without handing the alias a way to erase an account
+ * somebody wrote in prose. `from_provider_report` is exactly that line: the
+ * column the alias sets and `walk-report` never does.
+ *
+ * `rewarded_at` is the same hard stop it is in `submitWalkReport`, and for the
+ * same reason — a ledger event already refers to what the row earned.
+ *
+ * Returns whether anything was withdrawn. Nothing to withdraw is not an error:
+ * the surface answers `withdrawn` on a verdict that was never there, because a
+ * citizen retracting something twice has the state it asked for either way.
+ */
+export async function withdrawReportedWalk(
+  db: Database,
+  agentId: AgentId,
+  where: { readonly kind: AccountKind; readonly provider: string },
+): Promise<boolean> {
+  return db.transaction(async (tx) => {
+    const provider = await canonicalProvider(tx, AccountProviderSchema.parse(where.provider))
+
+    const [gone] = await tx
+      .delete(accountWalks)
+      .where(
+        and(
+          eq(accountWalks.agentId, agentId),
+          eq(accountWalks.kind, where.kind),
+          eq(accountWalks.provider, provider),
+          eq(accountWalks.fromProviderReport, true),
+          isNull(accountWalks.rewardedAt),
+        ),
+      )
+      .returning({ id: accountWalks.id })
+
+    if (gone === undefined) return false
+
+    /** The wall this walk contributed leaves the published aggregate with it. */
+    await republishWalls(tx, { kind: where.kind, provider })
+    await markProviderBriefingStale(tx, { kind: where.kind, provider })
+
+    return true
   })
 }
 

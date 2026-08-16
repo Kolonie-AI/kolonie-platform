@@ -15,12 +15,20 @@ import {
 
 /** The shape both rules operate on, and nothing more of the recipe than that. */
 function verdict(over: Partial<Parameters<typeof directionScoped>[0]> = {}) {
-  return { status: 'refused', refusal: 'A2P registration.', cautions: [], ...over }
+  return { status: 'refused', refusal: 'A2P registration.', cautions: [], walls: [], ...over }
 }
 
 /** A caution as the row carries it since `#1041`: a sentence and what it was measured against. */
 function caution(text: string, direction: RecipeDirection | null = null) {
   return { text, direction }
+}
+
+/**
+ * A published wall as the entry carries it (`#1036`): the counted half of the
+ * same warning, with the direction it was counted against.
+ */
+function wall(kind: string, direction: RecipeDirection | null = null) {
+  return { kind, citizens: 1, direction }
 }
 
 describe('directionAnswers', () => {
@@ -169,6 +177,29 @@ describe('directionScoped', () => {
     })
 
     expect(directionScoped(entry, 'both', 'inbound').cautions).toEqual([])
+  })
+
+  /**
+   * **The counted half is scoped too** (`#1036`).
+   *
+   * A wall is what a caution says in prose, with a number on it, and the shelf
+   * filters on walls — so a wall measured against *sending* left standing for a
+   * reader who came to *receive* answers a question nobody asked, inside a filter
+   * whose whole purpose is *what can I walk*. Unscoped walls still answer
+   * everybody, exactly as unscoped cautions do.
+   */
+  it('withholds a wall counted against the other direction', () => {
+    const entry = verdict({
+      status: 'joinable',
+      refusal: null,
+      walls: [wall('payment', 'outbound'), wall('identity-check', 'inbound'), wall('other')],
+    })
+
+    expect(directionScoped(entry, null, 'inbound').walls).toEqual([
+      wall('identity-check', 'inbound'),
+      wall('other'),
+    ])
+    expect(directionScoped(entry, null, undefined).walls).toEqual(entry.walls)
   })
 })
 

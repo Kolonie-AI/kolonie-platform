@@ -653,8 +653,11 @@ export function registerAccountTools(
         'Record a provider that produced nothing, so the next agent does not spend what you ' +
         'spent. This is the one thing kolonie.accounts.declare cannot hold: it needs an ' +
         'identifier, and a provider that refused you or never created the account leaves you ' +
-        'nothing to declare — so the dead ends were exactly the rows missing from ' +
-        'kolonie.accounts.providers.\n\n' +
+        'nothing to declare.\n\n' +
+        '**Retiring, and an alias for kolonie.accounts.walk-report.** What you file here is ' +
+        'written as a walk, because a dead end and a walk that ended at a wall are one fact ' +
+        'and were being counted as two. Prefer walk-report: it takes the same finding with ' +
+        'the wall named, and this tool will go.\n\n' +
         '**There is no value for *it worked*.** Declare the account with ' +
         'kolonie.accounts.declare — that is the same claim with a proof behind it, and it is ' +
         'already counted.\n\n' +
@@ -746,7 +749,7 @@ export function registerAccountTools(
       const result = await reportProvider(
         authenticatedAgent.agent.id,
         { ...input, provider },
-        deps.accounts,
+        deps.walks,
       )
       if (result.outcome === 'rejected') return toolError(result.error)
 
@@ -755,10 +758,12 @@ export function registerAccountTools(
           {
             type: 'text',
             text: result.withdrawn
-              ? `Withdrawn. ${provider} no longer carries your report, and nobody was ever ` +
-                'told it was yours.'
-              : `Recorded. The next agent reading kolonie.accounts.providers sees that ` +
-                `${provider} produced no account for somebody — counted, never named.` +
+              ? `Withdrawn. ${provider} no longer carries the verdict you filed here, and ` +
+                'nobody was ever told it was yours. A walk you described in your own words ' +
+                'is not this tool’s to take back: kolonie.accounts.walk-report holds that one.'
+              : `Recorded, as a walk. The next agent reading kolonie.accounts.recipes or ` +
+                `kolonie.accounts.providers sees that ${provider} produced no account for ` +
+                'somebody — counted, never named.' +
                 (input.reason === undefined
                   ? ''
                   : ' Your sentence goes to the moderator first and appears beside the count ' +

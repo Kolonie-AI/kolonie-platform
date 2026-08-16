@@ -1,139 +1,30 @@
-import { and, asc, desc, eq, isNotNull, sql } from 'drizzle-orm'
-import { kindHasDirection } from '@kolonie-ai/core'
+import { and, asc, desc, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm'
 import type {
   AccountKind,
   AgentId,
   ProviderReportOutcome,
   ProviderReportTally,
-  RecipeDirection,
 } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
+import { accountWalks } from '../schema/account-walks.js'
 import { providerReports } from '../schema/provider-reports.js'
-import { markProviderRecipeStale, recordMeasuredProvider } from './provider-recipes.js'
 
 /**
  * Reports about providers that produced no account (`#298`).
  *
  * The register's mirror image: `accounts.ts` counts what citizens got, this
  * counts what they did not.
- */
-
-/**
- * Record what a provider did to this citizen, replace an earlier verdict, or
- * withdraw one.
  *
- * **An upsert on `(agent, kind, provider)`, so a citizen has one standing answer
- * per provider.** Writing again replaces it — which is also the withdrawal path
- * a citizen needs after finally getting in on a second attempt. `null` removes
- * the row entirely.
+ * **`provider_reports` is a frozen historical record and has no writer**
+ * (`#1036`). The verdict a citizen files through the retiring
+ * `kolonie.accounts.provider-report` alias is a walk, written by `finishWalk`;
+ * the rows already here were converted into exactly such walks by
+ * `0263_one_fact_one_surface`, which marked each with `migrated_at`. What is
+ * left in this file reads: the tally, which now counts the walks, and the two
+ * moderation accessors, which serve the converted sentences' second copy and
+ * are therefore permanently empty. Removing them and the runner lane behind
+ * them is `#1072`.
  */
-export async function reportProvider(
-  db: Database,
-  agentId: AgentId,
-  input: {
-    readonly kind: AccountKind
-    readonly provider: string
-    readonly outcome: ProviderReportOutcome | null
-    /**
-     * The sentence beside the outcome (`#362`), or absent.
-     *
-     * Absent on a rewrite **clears** the previous one rather than keeping it.
-     * The alternative — keep what was there unless a new one arrives — would
-     * leave a citizen's explanation of one verdict standing beside a different
-     * verdict, which is the one way this column can say something nobody wrote.
-     */
-    readonly reason?: string
-    /**
-     * Which capability this verdict is about, on a kind with an axis (`#976`).
-     *
-     * Cleared on a kind that has none, like the column's own constraint would
-     * insist — the boundary refuses one there and this makes the storage layer
-     * safe to call from a path that has not yet learned to.
-     */
-    readonly direction?: RecipeDirection
-  },
-): Promise<{ readonly outcome: 'recorded' | 'withdrawn' }> {
-  if (input.outcome === null) {
-    await db
-      .delete(providerReports)
-      .where(
-        and(
-          eq(providerReports.agentId, agentId),
-          eq(providerReports.kind, input.kind),
-          eq(providerReports.provider, input.provider),
-        ),
-      )
-
-    return { outcome: 'withdrawn' }
-  }
-
-  /**
-   * A new reason is unmoderated by construction, and a row without one is not
-   * waiting for anything — which is what keeps the pass's queue equal to
-   * *reasons nobody has read*. The scrub is always cleared here: a sentence
-   * approved against the old text must never survive onto new text.
-   */
-  const reason = input.reason ?? null
-  const written = {
-    outcome: input.outcome,
-    reason,
-    /**
-     * Absent clears it, with the rest of this group and for the same reason: a
-     * scope left standing from a previous verdict would claim this one was
-     * measured in a direction nobody said it was. Cleared outright on a kind
-     * with no axis, which is what the column's check would insist on anyway.
-     */
-    direction: kindHasDirection(input.kind) ? (input.direction ?? null) : null,
-    scrubbedReason: null,
-    reasonStatus: (reason === null ? 'approved' : 'pending') as 'approved' | 'pending',
-    notedAt: new Date().toISOString(),
-  }
-
-  await db
-    .insert(providerReports)
-    .values({ agentId, kind: input.kind, provider: input.provider, ...written })
-    .onConflictDoUpdate({
-      target: [providerReports.agentId, providerReports.kind, providerReports.provider],
-      set: written,
-    })
-
-  /**
-   * **A report against a provider with an entry marks that entry stale**
-   * (`#525`).
-   *
-   * Here rather than in a second reporting path, which is the whole of `#525`'s
-   * *following an entry and failing is reportable*: the report an agent already
-   * files is the report. A citizen that walked a published recipe and did not
-   * get through is the strongest available evidence that the recipe has gone
-   * out of date, and the catalogue has to stop presenting it as current.
-   *
-   * It clears the confirmation rather than setting a flag, so `isStale` reads
-   * it exactly as it reads *never confirmed* — a reader can act on neither.
-   */
-  await markProviderRecipeStale(db, input.kind, input.provider)
-
-  /**
-   * **A report against a provider with no entry gives it one** (`#904`).
-   *
-   * This is the gap the issue is named for, and it is narrow: refusals were
-   * never categorically shut out of the catalogue — `walkVerdict` publishes a
-   * walk reported as `refused` with a wall named. But that route runs through
-   * `walk-report`, and the channel agents actually reach for is this one.
-   * Sixteen rows here against nothing on the telephony shelf, measured
-   * 2026-08-14, is the measurement of which one gets used.
-   *
-   * **It creates a row and never a verdict.** `recordMeasuredProvider` writes
-   * `measured` with no steps, no refusal and no cautions, so a report cannot
-   * mark a provider closed — that stays a walk's finding with a wall named. All
-   * this does is give the citizen's own sentence somewhere to be read.
-   *
-   * `onConflictDoNothing` inside means a provider that already has an entry,
-   * curated or measured, is untouched.
-   */
-  await recordMeasuredProvider(db, { kind: input.kind, provider: input.provider })
-
-  return { outcome: 'recorded' }
-}
 
 /** One reason the moderator has not read yet. */
 export interface UnmoderatedProviderReason {
@@ -150,6 +41,14 @@ export interface UnmoderatedProviderReason {
  * `provider_reports` has none — and a verdict that arrives after the citizen
  * rewrote its report must not land on the new text, which is what the `reason`
  * comparison in {@link recordProviderReasonModeration} is for.
+ *
+ * **A migrated row is never queued, so this queue drains to empty and stays
+ * there** (`#1036`). The conversion carried each pending sentence onto the walk
+ * it wrote, where the walk-prose lane judges it; leaving the row queued here as
+ * well would have the same sentence read twice and scrubbed into two columns,
+ * which is the double record this issue removes. Since the migration marks every
+ * row and nothing writes a new one, `migrated_at is null` matches nothing from
+ * here on — that is the intended end state and not a bug to be found later.
  */
 export async function unmoderatedProviderReasons(
   db: Database,
@@ -163,7 +62,13 @@ export async function unmoderatedProviderReasons(
       reason: providerReports.reason,
     })
     .from(providerReports)
-    .where(and(eq(providerReports.reasonStatus, 'pending'), isNotNull(providerReports.reason)))
+    .where(
+      and(
+        eq(providerReports.reasonStatus, 'pending'),
+        isNotNull(providerReports.reason),
+        isNull(providerReports.migratedAt),
+      ),
+    )
     .orderBy(asc(providerReports.notedAt))
     .limit(limit)
 
@@ -221,6 +126,20 @@ export async function recordProviderReasonModeration(
 /**
  * What the Colony can say out loud about providers that produced nothing.
  *
+ * **Read off the walk now, not off this table** (`#1036`). The verdict a citizen
+ * files through `provider-report` is a walk, so this counts closed walks that
+ * stopped — and the rows already in `provider_reports` are counted here because
+ * the migration converted every one of them into exactly such a walk. Counting
+ * both would count the converted citizen twice, which is the double record the
+ * issue exists to remove.
+ *
+ * **The vocabulary is the walk's, projected back into this one.** A walk knows
+ * *refused* and *abandoned*; which of the five a refusal was is not on the row
+ * and is not recoverable, because the mapping collapsed four into one. So a
+ * refusal answers as `signup-refused` — the same projection `atlasFigures`
+ * makes — and where the citizen was actually stopped is in the sentence beside
+ * the count, which was always the more useful half.
+ *
  * **Counts and no identifiers**, the same condition `#288` set on
  * `providerTallies` and for the same reason: an agent-friendly provider becomes
  * less agent-friendly once a list of agents at it is public.
@@ -254,21 +173,31 @@ export async function providerReportTallies(
    * other — a self-comparison that Postgres refuses outright rather than
    * answering wrongly, which is the only reason it was caught immediately.
    */
-  const experienced = sql<string>`count(distinct provider_reports.agent_id) filter (
+  const experienced = sql<string>`count(distinct account_walks.agent_id) filter (
     where exists (
       select 1 from accounts a
-       where a.agent_id = provider_reports.agent_id
-         and a.kind = provider_reports.kind
+       where a.agent_id = account_walks.agent_id
+         and a.kind = account_walks.kind
          and a.proved = true
     )
   )`
 
+  /**
+   * The projection, written once and grouped on (`#1036`).
+   *
+   * `group by` repeats the expression rather than referring to the select alias,
+   * because an alias is not in scope there in Postgres and an ordinal would put
+   * the meaning of this group in a number.
+   */
+  const projected = sql<ProviderReportOutcome>`case when ${accountWalks.outcome} = 'refused'
+                                                    then 'signup-refused' else 'abandoned' end`
+
   const rows = await db
     .select({
-      kind: providerReports.kind,
-      provider: providerReports.provider,
-      outcome: providerReports.outcome,
-      citizens: sql<string>`count(distinct ${providerReports.agentId})`,
+      kind: accountWalks.kind,
+      provider: accountWalks.provider,
+      outcome: projected,
+      citizens: sql<string>`count(distinct ${accountWalks.agentId})`,
       experienced,
       /**
        * The moderated sentences, and only those (`#362`).
@@ -285,15 +214,21 @@ export async function providerReportTallies(
        */
       reasons: sql<
         string[]
-      >`coalesce(array_agg(distinct ${providerReports.scrubbedReason}) filter (where ${providerReports.scrubbedReason} is not null), '{}')`,
+      >`coalesce(array_agg(distinct ${accountWalks.scrubbedProse}->>'wall') filter (where ${accountWalks.scrubbedProse}->>'wall' is not null), '{}')`,
     })
-    .from(providerReports)
-    .where(kind === undefined ? undefined : eq(providerReports.kind, kind))
-    .groupBy(providerReports.kind, providerReports.provider, providerReports.outcome)
+    .from(accountWalks)
+    .where(
+      and(
+        isNotNull(accountWalks.finishedAt),
+        inArray(accountWalks.outcome, ['refused', 'abandoned']),
+        kind === undefined ? undefined : eq(accountWalks.kind, kind),
+      ),
+    )
+    .groupBy(accountWalks.kind, accountWalks.provider, projected)
     .orderBy(
-      desc(sql`count(distinct ${providerReports.agentId})`),
+      desc(sql`count(distinct ${accountWalks.agentId})`),
       desc(experienced),
-      asc(providerReports.provider),
+      asc(accountWalks.provider),
     )
 
   return rows.map((row) => ({

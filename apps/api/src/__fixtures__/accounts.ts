@@ -5,8 +5,8 @@ import {
   MAX_OPEN_ACCOUNT_PROOFS,
   now as currentTime,
   type Account,
-  type ProviderReportOutcome,
   type AccountKind,
+  type ProviderReportTally,
   type AgentId,
   type Timestamp,
 } from '@kolonie-ai/core'
@@ -34,6 +34,17 @@ export interface FakeAccountRegister extends AccountRegister {
   ) => Account
   /** Put an account on another citizen's record, to exercise the uniqueness rule. */
   readonly claimForAnother: (kind: string, identifier: string) => void
+  /**
+   * Put one row into the provider tally, which nothing here can produce
+   * (`#1036`).
+   *
+   * The verdicts behind that aggregate are `account_walks` rows now: filing a
+   * report through this API writes a walk, and the tally is a join across two
+   * tables in `packages/db`. A test about what the *read* publishes therefore
+   * has to state its own row — the same escape hatch, and the same reason, as
+   * {@link proveDirectly} above.
+   */
+  readonly trouble: (tally: ProviderReportTally) => void
   /**
    * Whether {@link claimForAnother} has taken this one (`#520`).
    *
@@ -65,21 +76,9 @@ export interface FakeAccountRegister extends AccountRegister {
 /** An in-memory account register. Reproduces what the routes depend on and nothing more. */
 export function fakeAccountRegister(): FakeAccountRegister {
   const rows: (Account & { agentId: AgentId })[] = []
-  /** Provider reports (`#298`), keyed exactly as storage keys them. */
-  const reports = new Map<
-    string,
-    {
-      agentId: AgentId
-      kind: string
-      provider: string
-      outcome: ProviderReportOutcome
-      /** As written, and never served — the fake keeps the same two columns the row does. */
-      reason?: string
-      /** What the moderator wrote. The only one a reader ever gets (`#362`). */
-      scrubbedReason?: string
-    }
-  >()
   const elsewhere = new Set<string>()
+  /** Seeded by {@link FakeAccountRegister.trouble} and by nothing else. */
+  const tallies: ProviderReportTally[] = []
 
   const key = (kind: string, identifier: string) => `${kind}:${identifier.toLowerCase()}`
 
@@ -280,78 +279,22 @@ export function fakeAccountRegister(): FakeAccountRegister {
     },
 
     /**
-     * Reports about providers that produced nothing (`#298`), counted the way
-     * the real one counts them: one standing verdict per citizen per provider,
-     * and `experienced` from whether that citizen holds a verified account of
-     * the kind anywhere.
+     * Providers that produced no account (`#298`), which this register no longer
+     * has any way to know about (`#1036`).
+     *
+     * **Seeded and never computed.** Those verdicts are `account_walks` rows
+     * now, so the tally is a join across two tables and a correlated `exists` —
+     * reproducing it here would be a second implementation of a query whose
+     * whole point is that there is one. What it produces is asserted in
+     * `packages/db/src/storage/provider-reports.test.ts`, against a real
+     * database, where both tables actually are. Nothing in `apps/api` reaches
+     * this by filing a report either: that write left the port with the
+     * `report` member `#1036` removed, and goes to the walk store. A test about
+     * what this read *publishes* therefore states its own row with {@link
+     * FakeAccountRegister.trouble}.
      */
-    async report(agentId, input) {
-      const at = `${agentId}\u0000${input.kind}\u0000${input.provider}`
-      if (input.outcome === null) {
-        reports.delete(at)
-        return { outcome: 'withdrawn' as const }
-      }
-
-      reports.set(at, {
-        agentId,
-        kind: input.kind,
-        provider: input.provider,
-        outcome: input.outcome,
-        // Unmoderated on arrival and therefore unserved, which is the property
-        // this fake has to reproduce (#362) rather than the queue behind it.
-        ...(input.reason === undefined ? {} : { reason: input.reason }),
-      })
-      return { outcome: 'recorded' as const }
-    },
-
     async troubles(kind) {
-      const tallies = new Map<
-        string,
-        { citizens: Set<AgentId>; experienced: Set<AgentId>; reasons: Set<string> }
-      >()
-
-      for (const report of reports.values()) {
-        if (kind !== undefined && report.kind !== kind) continue
-
-        const at = `${report.kind}\u0000${report.provider}\u0000${report.outcome}`
-        const tally = tallies.get(at) ?? {
-          citizens: new Set(),
-          experienced: new Set(),
-          reasons: new Set<string>(),
-        }
-        tally.citizens.add(report.agentId)
-        // Only what the moderator wrote, exactly as the real query does (#362):
-        // a fake that served the raw sentence would let a test pass while the
-        // published register carried unread text.
-        if (report.scrubbedReason !== undefined) tally.reasons.add(report.scrubbedReason)
-        if (
-          rows.some(
-            (row) => row.agentId === report.agentId && row.kind === report.kind && row.proved,
-          )
-        ) {
-          tally.experienced.add(report.agentId)
-        }
-        tallies.set(at, tally)
-      }
-
-      return [...tallies.entries()]
-        .map(([at, tally]) => {
-          const [tallyKind = '', provider = '', outcome = ''] = at.split('\u0000')
-          return {
-            kind: tallyKind as Account['kind'],
-            provider,
-            outcome: outcome as ProviderReportOutcome,
-            citizens: tally.citizens.size,
-            experienced: tally.experienced.size,
-            reasons: [...tally.reasons].sort(),
-          }
-        })
-        .sort(
-          (a, b) =>
-            b.citizens - a.citizens ||
-            b.experienced - a.experienced ||
-            (a.provider < b.provider ? -1 : 1),
-        )
+      return tallies.filter((tally) => kind === undefined || tally.kind === kind)
     },
 
     async prefer(agentId, accountId) {
@@ -389,6 +332,10 @@ export function fakeAccountRegister(): FakeAccountRegister {
       }
       rows.push(row)
       return strip(row)
+    },
+
+    trouble(tally) {
+      tallies.push(tally)
     },
 
     claimForAnother(kind, identifier) {

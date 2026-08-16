@@ -111,9 +111,19 @@ export function directionScoped<
     status: string
     refusal: string | null
     cautions: readonly { readonly direction: RecipeDirection | null }[]
+    walls: readonly { readonly direction?: RecipeDirection | null }[]
   },
 >(entry: T, scope: RecipeDirection | null, asked: RecipeDirection | undefined): T {
   const cautions = entry.cautions.filter((one) => directionAnswers(one.direction, asked))
+  /**
+   * **And the walls with them** (`#1036`). A wall is the counted half of the same
+   * warning a caution carries in prose, and `withWalls`/`excludeWalls` filter on
+   * it — so a wall left unscoped here would answer *this provider wants a
+   * payment* to a reader asking about the capability nobody was asked to pay for,
+   * and would do it inside a filter whose whole purpose is *what can I walk*.
+   * Unscoped walls answer everybody, exactly as unscoped cautions do.
+   */
+  const walls = entry.walls.filter((one) => directionAnswers(one.direction ?? null, asked))
 
   return {
     ...entry,
@@ -121,5 +131,6 @@ export function directionScoped<
       ? {}
       : { status: 'unwritten', refusal: null }),
     cautions,
+    walls,
   }
 }

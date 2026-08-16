@@ -38,6 +38,7 @@ import {
   submitWalkReport,
   unreportedWalk,
   walkInProgress,
+  withdrawReportedWalk,
   type Database,
 } from '@kolonie-ai/db'
 import type { ProviderRecipes } from './provider-recipes.js'
@@ -102,6 +103,16 @@ export interface WalkStore {
        * contract while dropping the one field a walk's prose lives in — and did.
        */
       readonly recipe?: WalkedRecipe
+      /**
+       * Whether this walk is a converted provider verdict (`#1036`).
+       *
+       * Declared here for the same reason as the two fields above it: the
+       * retiring `provider-report` alias is the only caller that sets it, and a
+       * port that did not name it would let a fake satisfy the contract while
+       * losing the one thing that tells a briefing a thin record from a walked
+       * one.
+       */
+      readonly fromProviderReport?: boolean
     },
   ): Promise<{ readonly walk: AccountWalk; readonly verdict: WalkVerdict } | undefined>
   /** File and close a walk, opening or replacing a direct one where necessary. */
@@ -110,6 +121,18 @@ export interface WalkStore {
     input: { readonly kind: AccountKind; readonly provider: string },
     report: Parameters<WalkStore['finish']>[1],
   ): Promise<{ readonly walk: AccountWalk; readonly verdict: WalkVerdict } | undefined>
+  /**
+   * Take back a verdict filed through the retiring `provider-report` alias
+   * (`#1036`), or nothing where there was none.
+   *
+   * **Narrower than `submit` on purpose.** It withdraws only a walk the alias
+   * itself wrote; a walk somebody described is not the alias's to delete, and
+   * the port says so rather than leaving it to the storage layer to remember.
+   */
+  withdrawReported(
+    agentId: AgentId,
+    input: { readonly kind: AccountKind; readonly provider: string },
+  ): Promise<boolean>
   /**
    * The last walk here that did not get through and never said why (`#811`), or
    * nothing — which is the ordinary answer.
@@ -1079,6 +1102,7 @@ export function databaseWalks(db: Database): WalkStore {
     record: (walkId, step) => recordWalkStep(db, walkId, step),
     finish: (walkId, input) => finishWalk(db, walkId, input),
     submit: (agentId, input, report) => submitWalkReport(db, agentId, input, report),
+    withdrawReported: (agentId, input) => withdrawReportedWalk(db, agentId, input),
     unreported: (agentId, input) => unreportedWalk(db, agentId, input),
     amend: (agentId, input, recipe) => amendProposedDraft(db, agentId, input, recipe),
     report: (agentId, walkId, answers) => reportFinishedWalk(db, agentId, walkId, answers),

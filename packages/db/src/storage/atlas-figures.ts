@@ -113,6 +113,19 @@ export async function atlasFigures(
       ? sql`true`
       : sql`(r.direction is null or r.direction in ('both', ${options.direction}))`
 
+  /**
+   * The same predicate over a walk row (`#1036`).
+   *
+   * Written out against `w.` rather than parameterised over the alias, for the
+   * reason `#311` exists: a bare `direction` inside these subqueries resolves
+   * against whichever table Postgres finds it in, and the wrong answer arrives
+   * with no error attached.
+   */
+  const walkAnswers =
+    options.direction === undefined || options.direction === 'both'
+      ? sql`true`
+      : sql`(w.direction is null or w.direction in ('both', ${options.direction}))`
+
   const rows = await db.execute<{
     kind: string
     provider: string
@@ -134,6 +147,19 @@ export async function atlasFigures(
     reported as (
       select kind, provider, agent_id, outcome, scrubbed_reason, direction
         from provider_reports
+       -- A verdict that has been converted into a walk is counted as that walk
+       -- and not twice (#1036). The row survives the conversion so the mapping
+       -- stays checkable; what it stops doing is contributing a second citizen.
+       where provider_reports.migrated_at is null
+    ),
+    -- **Walks, which is where a provider verdict now lives** (#1036). Until this
+    -- the figures read the account register and the standing-verdict table and
+    -- not the surface the Atlas actually publishes, so a provider eight walkers
+    -- had refused could read as one nobody had been to.
+    walked as (
+      select kind, provider, agent_id, outcome, direction
+        from account_walks
+       where account_walks.finished_at is not null
     ),
     -- Every provider anybody has been to, whatever direction they went in. The
     -- scoping below narrows what a row says and never which rows exist: a
@@ -144,6 +170,8 @@ export async function atlasFigures(
       select kind, provider from held
       union
       select kind, provider from reported
+      union
+      select kind, provider from walked
     )
     select
       p.kind as kind,
@@ -153,6 +181,9 @@ export async function atlasFigures(
          union
          select agent_id from reported r
           where r.kind = p.kind and r.provider = p.provider and ${answers}
+         union
+         select agent_id from walked w
+          where w.kind = p.kind and w.provider = p.provider and ${walkAnswers}
        ) tried) as attempted,
       (select count(distinct agent_id)::text from held h
         where h.kind = p.kind and h.provider = p.provider and h.proved) as proved,
@@ -163,9 +194,15 @@ export async function atlasFigures(
          from held h
         where h.kind = p.kind and h.provider = p.provider and h.proved
           and h.proved_at is not null) as median_hours,
-      (select count(distinct agent_id)::text from reported r
-        where r.kind = p.kind and r.provider = p.provider
-          and r.outcome = 'signup-refused' and ${answers}) as refused,
+      (select count(distinct agent_id)::text from (
+         select agent_id from reported r
+          where r.kind = p.kind and r.provider = p.provider
+            and r.outcome = 'signup-refused' and ${answers}
+         union
+         select agent_id from walked w
+          where w.kind = p.kind and w.provider = p.provider
+            and w.outcome = 'refused' and ${walkAnswers}
+       ) refusals) as refused,
       (select count(distinct agent_id)::text from held h
         where h.kind = p.kind and h.provider = p.provider and h.proved
           and h.proved_at < now() - (${retention} * interval '1 day')
@@ -175,10 +212,23 @@ export async function atlasFigures(
           and h.proved_at < now() - (${retention} * interval '1 day')) as held_long_enough,
       (select coalesce(jsonb_agg(jsonb_build_object('outcome', s.outcome, 'citizens', s.citizens)
                                  order by s.outcome), '[]'::jsonb)
-         from (select r.outcome as outcome, count(distinct r.agent_id) as citizens
-                 from reported r
-                where r.kind = p.kind and r.provider = p.provider and ${answers}
-                group by r.outcome) s) as stops,
+         from (select stop.outcome as outcome, count(distinct stop.agent_id) as citizens
+                 from (
+                   select r.outcome::text as outcome, r.agent_id as agent_id
+                     from reported r
+                    where r.kind = p.kind and r.provider = p.provider and ${answers}
+                   union
+                   -- The walk vocabulary has two of the five and says so: a
+                   -- refusal is a refused signup whatever wall it was, and the
+                   -- wall itself is published on the entry rather than here.
+                   select (case when w.outcome = 'refused' then 'signup-refused'
+                                else 'abandoned' end) as outcome,
+                          w.agent_id as agent_id
+                     from walked w
+                    where w.kind = p.kind and w.provider = p.provider
+                      and w.outcome in ('refused', 'abandoned') and ${walkAnswers}
+                 ) stop
+                group by stop.outcome) s) as stops,
       (select coalesce(jsonb_agg(distinct r.scrubbed_reason), '[]'::jsonb)
          from reported r
         where r.kind = p.kind and r.provider = p.provider
@@ -186,7 +236,12 @@ export async function atlasFigures(
       (exists (select 1 from held h
                 where h.kind = p.kind and h.provider = p.provider and h.proved)
        or exists (select 1 from reported r
-                where r.kind = p.kind and r.provider = p.provider)) as evidenced
+                where r.kind = p.kind and r.provider = p.provider)
+       -- A closed walk is somebody's account of having been there (#1036), which
+       -- is what this flag asks. Without this arm a provider every walker had
+       -- been to and nobody had filed a verdict about would read as unevidenced.
+       or exists (select 1 from walked w
+                where w.kind = p.kind and w.provider = p.provider)) as evidenced
       from pairs p
      where ${only}
      order by p.kind, p.provider

@@ -4,7 +4,10 @@ import {
   RECIPE_STALE_AFTER_DAYS,
   RegisterAgentRequestSchema,
   isStale,
+  providerReportAsWalk,
+  type AccountKind,
   type AgentId,
+  type ProviderReportOutcome,
 } from '@kolonie-ai/core'
 import { sql } from 'drizzle-orm'
 import type { Database } from '../client.js'
@@ -12,11 +15,38 @@ import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
 import { submitCatalogueEntry } from './catalogue-quest.js'
 import { pendingProposals } from './atlas-counterparty.js'
 import { confirmProviderRecipe, providerRecipe, writeProviderRecipe } from './provider-recipes.js'
-import { reportProvider } from './provider-reports.js'
+import { submitWalkReport } from './account-walks.js'
 import { registerAgent } from './agents.js'
 
 const target = databaseTestTarget()
 const kind = AccountKindSchema.parse('notion')
+
+/**
+ * The verdict a citizen files about a provider, as it is actually filed
+ * (`#1036`).
+ *
+ * There is no storage-level `reportProvider` any more: the retiring
+ * `provider-report` alias maps its outcome with `providerReportAsWalk` and hands
+ * the result to the walk store. These tests are about what a *verdict* does to a
+ * catalogue entry, so they drive the call the alias drives rather than a
+ * shorthand of their own — a change to the mapping has to be able to break them.
+ */
+const fileAsReport = async (
+  db: Database,
+  agentId: AgentId,
+  where: { readonly kind: AccountKind; readonly provider: string },
+  outcome: ProviderReportOutcome,
+): Promise<void> => {
+  const mapped = providerReportAsWalk(outcome)
+
+  await submitWalkReport(db, agentId, where, {
+    outcome: mapped.outcome,
+    ...(mapped.wall === undefined ? {} : { wall: mapped.wall }),
+    ...(mapped.recipe === undefined ? {} : { recipe: mapped.recipe }),
+    direction: null,
+    fromProviderReport: true,
+  })
+}
 
 /**
  * A citizen writing a catalogue entry (`#525`).
@@ -168,23 +198,16 @@ describe('a catalogue entry handed in by a citizen', () => {
       const walker = await citizen()
       await confirmProviderRecipe(db, kind, 'notion.so', walker)
 
-      await reportProvider(db, await citizen(), {
-        kind,
-        provider: 'notion.so',
-        outcome: 'signup-refused',
-      })
+      await fileAsReport(db, await citizen(), { kind, provider: 'notion.so' }, 'signup-refused')
 
       expect((await providerRecipe(db, kind, 'notion.so'))?.lastConfirmedAt).toBeNull()
     })
 
     it('leaves a provider with no entry alone', async () => {
-      await expect(
-        reportProvider(db, await citizen(), {
-          kind,
-          provider: 'nobody-wrote-this.test',
-          outcome: 'abandoned',
-        }),
-      ).resolves.toEqual({ outcome: 'recorded' })
+      const where = { kind, provider: 'nobody-wrote-this.test' }
+
+      await expect(fileAsReport(db, await citizen(), where, 'abandoned')).resolves.toBeUndefined()
+      expect(await providerRecipe(db, kind, 'nobody-wrote-this.test')).toBeUndefined()
     })
   })
 })

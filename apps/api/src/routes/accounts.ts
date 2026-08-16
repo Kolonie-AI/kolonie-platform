@@ -140,7 +140,7 @@ export function registerAccountRoutes(v1: FastifyInstance, deps: RouteDependenci
     const caller = await callerFor(request, reply, store)
     if (caller === null) return reply
 
-    const result = await reportProvider(caller.id, request.body, accounts)
+    const result = await reportProvider(caller.id, request.body, walks)
 
     if (result.outcome === 'rejected') {
       return reply.status(ERROR_STATUS[result.error.code]).send(result.error)

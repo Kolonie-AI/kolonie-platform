@@ -36,6 +36,13 @@ export function fakeWalks(): FakeWalkStore {
   const proposed = new Set<string>()
   /** Rows created by a report itself, rather than by an observed account event. */
   const direct = new Set<string>()
+  /**
+   * `from_provider_report` in miniature (`#1036`): the rows the retiring
+   * `provider-report` alias wrote, which are the only ones it may withdraw. Not
+   * a field on `AccountWalk` because no reader of a walk is told this — it
+   * decides what the alias may take back and what a briefing counts as thin.
+   */
+  const converted = new Set<string>()
 
   const add: FakeWalkStore['add'] = (input) => {
     const startedAt = currentTime()
@@ -92,6 +99,8 @@ export function fakeWalks(): FakeWalkStore {
       recipe: input.recipe ?? null,
     }
     rows[at] = walk
+    /** Set on the row as `finishWalk` sets the column, from the report itself. */
+    if (input.fromProviderReport === true) converted.add(walk.id)
     const verdict: WalkVerdict =
       input.outcome === 'proved'
         ? { kind: 'draft', steps: [] }
@@ -119,7 +128,7 @@ export function fakeWalks(): FakeWalkStore {
     },
     async record() {},
     finish,
-    // @mirrors packages/db/src/storage/account-walks.ts submitWalkReport f9c0005f
+    // @mirrors packages/db/src/storage/account-walks.ts submitWalkReport 3049f647
     async submit(agentId, input, report) {
       const open = rows.find(
         (walk) =>
@@ -175,11 +184,40 @@ export function fakeWalks(): FakeWalkStore {
           }
           if (replacement.steps.length === 0) direct.add(replacement.id)
           proposed.delete(replacement.id)
+          /**
+           * Cleared with the rest of the row, as the storage clears the column:
+           * what the replacement is came from the report now being filed, not
+           * from the one it replaces.
+           */
+          converted.delete(replacement.id)
           walkId = replacement.id
         }
       }
 
       return finish(walkId, report)
+    },
+    /**
+     * Only what the alias itself wrote (`#1036`), which is `converted` here and
+     * `from_provider_report` in the storage. A walk somebody described survives
+     * a withdrawal, and answering `false` for it is the whole assertion.
+     */
+    async withdrawReported(agentId, input) {
+      const at = rows.findIndex(
+        (walk) =>
+          walk.agentId === agentId &&
+          walk.kind === input.kind &&
+          walk.provider === input.provider &&
+          converted.has(walk.id),
+      )
+      const gone = rows[at]
+      if (gone === undefined) return false
+
+      rows.splice(at, 1)
+      converted.delete(gone.id)
+      direct.delete(gone.id)
+      proposed.delete(gone.id)
+
+      return true
     },
     async amend(agentId, input, recipe) {
       const at = rows.findIndex(

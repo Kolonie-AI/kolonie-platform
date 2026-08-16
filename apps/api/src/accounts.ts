@@ -5,15 +5,14 @@ import {
   AccountStatusSchema,
   KNOWN_ACCOUNT_KINDS,
   mayShowOnProfile,
+  providerReportAsWalk,
   type Account,
   type AccountKind,
   type AccountStatus,
   type AgentId,
   type ApiError,
   type ProviderTally,
-  type ProviderReportOutcome,
   type ProviderReportTally,
-  type RecipeDirection,
   ProviderReportRequestSchema,
 } from '@kolonie-ai/core'
 import type { AccountDeclaration, AccountEdit, AccountForgotten, Database } from '@kolonie-ai/db'
@@ -23,7 +22,6 @@ import {
   listAccounts,
   providerTallies,
   providerReportTallies as providerReportTalliesInDatabase,
-  reportProvider as reportProviderInDatabase,
   provedMailbox,
   setAccountNote,
   setAccountAttestable,
@@ -85,26 +83,14 @@ export interface AccountRegister {
    * citizens got, the other what they did not.
    */
   troubles(kind?: AccountKind): Promise<readonly ProviderReportTally[]>
-  /** One citizen's standing verdict on one provider. `null` withdraws it. */
-  report(
-    agentId: AgentId,
-    input: {
-      readonly kind: AccountKind
-      readonly provider: string
-      readonly outcome: ProviderReportOutcome | null
-      /**
-       * The sentence beside the outcome (`#362`). Absent on a rewrite clears the
-       * one that was there, rather than leaving one verdict's explanation
-       * standing beside a different verdict.
-       */
-      readonly reason?: string
-      /**
-       * Which capability the verdict is about, where the kind has two (`#976`).
-       * Absent clears it, with the reason beside it and for the same reason.
-       */
-      readonly direction?: RecipeDirection
-    },
-  ): Promise<{ readonly outcome: 'recorded' | 'withdrawn' }>
+  /**
+   * There is no `report` here any more (`#1036`).
+   *
+   * A citizen's verdict on a provider is a walk, so the write leaves through
+   * `WalkStore` and the register keeps only the read above it. Nothing was
+   * added to this port to replace it: a second way in would be the second
+   * record of one fact that the issue exists to remove.
+   */
   setVaultKey(agentId: AgentId, accountId: string, vaultKey: string | null): Promise<AccountEdit>
   prefer(agentId: AgentId, accountId: string): Promise<AccountEdit>
 }
@@ -261,7 +247,6 @@ export function databaseAccounts(db: Database): AccountRegister {
       setAccountProvider(db, agentId, accountId, provider),
     providers: (kind) => providerTallies(db, kind),
     troubles: (kind) => providerReportTalliesInDatabase(db, kind),
-    report: (agentId, input) => reportProviderInDatabase(db, agentId, input),
     setVaultKey: (agentId, accountId, key) => setAccountVaultKey(db, agentId, accountId, key),
     prefer: (agentId, accountId) => setAccountPreference(db, agentId, accountId),
   }
@@ -1154,12 +1139,19 @@ function answer(edit: AccountEdit): AccountWriteOutcome {
 
 /**
  * A citizen says what a provider did to it, when there is no account to declare
- * (`#298`).
+ * (`#298`) — now as a walk (`#1036`).
  *
  * **The write the register cannot carry.** `accounts.declare` needs an
  * identifier, and the providers that cost the most produced none — so the
  * dead ends were the one thing the provider dataset could not record, which
  * inverts the asymmetry that makes a negative result worth writing down.
+ *
+ * **One fact, one surface.** This used to write `provider_reports`, and a walk
+ * that hit the same wall wrote `account_walks` — two tables, two counts, and a
+ * provider eight citizens had been refused reading as one nobody had been to on
+ * whichever surface the reader happened to open. The verdict now lands where the
+ * Atlas publishes from, mapped by `providerReportAsWalk`, which is the issue's
+ * own table and not this function's to invent.
  *
  * **Nothing is verified and nothing pretends to be.** This is a citizen's word,
  * counted, published as a count and correctable by the citizen that wrote it.
@@ -1173,7 +1165,22 @@ export type ProviderReportOutcomeResult =
 export async function reportProvider(
   agentId: AgentId,
   body: unknown,
-  deps: AccountDependencies,
+  /**
+   * Where the verdict lands now (`#1036`).
+   *
+   * **A parameter and not a member of `deps`**, on `readAccounts`' own rule: a
+   * walk store is optional at every call site in this codebase, because
+   * recording a walk must never be able to fail the thing it is recording. Here
+   * it is the only place the fact can go, so its absence is refused rather than
+   * silently written to the table this issue retires — a fallback that wrote
+   * both would be the double record `#1036` exists to remove, appearing exactly
+   * where nobody was looking for it.
+   *
+   * **And the only store this takes.** The register was a parameter here until
+   * the same issue; every write this function makes goes to the walk, so asking
+   * for the register too would suggest a route that no longer exists.
+   */
+  walks: WalkStore | undefined,
 ): Promise<ProviderReportOutcomeResult> {
   const parsed = ProviderReportRequestSchema.safeParse(body ?? {})
   if (!parsed.success) {
@@ -1205,19 +1212,60 @@ export async function reportProvider(
     }
   }
 
-  const written = await deps.register.report(agentId, {
-    kind: parsed.data.kind as AccountKind,
-    provider: parsed.data.provider,
-    outcome: parsed.data.outcome,
-    // Spread rather than passed as `undefined`, so *absent* stays absent all the
-    // way to the write — where it means *clear the reason that was there*, which
-    // is what stops one verdict's explanation standing beside a different one.
-    ...(parsed.data.reason === undefined ? {} : { reason: parsed.data.reason }),
-    // Absent means *clear the scope* for the same reason (`#976`): a direction
-    // left over from a previous verdict would say this one was measured a way
-    // nobody said it was.
-    ...(parsed.data.direction === undefined ? {} : { direction: parsed.data.direction }),
+  if (walks === undefined) {
+    return {
+      outcome: 'rejected',
+      error: {
+        code: 'check_unavailable',
+        message:
+          'A provider verdict is a walk now, and this deployment records none. Nothing is wrong ' +
+          'with what you sent and there is nothing for you to correct: try again later, or file ' +
+          'the same finding with kolonie.accounts.walk-report, which is the surface this one is ' +
+          'an alias for.',
+      },
+    }
+  }
+
+  const at = { kind: parsed.data.kind as AccountKind, provider: parsed.data.provider }
+
+  /**
+   * **Withdrawing takes back the verdict, not the walk** (`#1036`).
+   *
+   * `outcome: null` has always meant *I got in after all, forget what I said*,
+   * and folding the surface into the walk had to keep that. What it may not do
+   * is hand this alias a way to delete a walk somebody described in prose —
+   * `withdrawReported` is narrowed to rows this alias itself wrote.
+   */
+  if (parsed.data.outcome === null) {
+    await walks.withdrawReported(agentId, at)
+    return { outcome: 'reported', withdrawn: true }
+  }
+
+  /**
+   * The mapping, and the one thing about this change the implementer did not
+   * choose: `#1036` fixes which walk outcome and which wall kind each of the
+   * five verdicts becomes, so it lives in `core` as one function and is read
+   * here and by the migration that converted the rows already filed.
+   */
+  const mapped = providerReportAsWalk(parsed.data.outcome)
+
+  await walks.submit(agentId, at, {
+    outcome: mapped.outcome,
+    /**
+     * **The citizen's own sentence wins, and stays moderated.** The mapping's
+     * sentence says what the enum said, which the wall kind already carries; a
+     * citizen that wrote where it was actually stopped wrote the better record.
+     * It goes in the walk's prose, where `#810`'s queue reads it — the same
+     * promise `reason` made on this surface and the reason it may not simply be
+     * copied into the published wall beside it.
+     */
+    ...(mapped.wall === undefined ? {} : { wall: parsed.data.reason ?? mapped.wall }),
+    ...(mapped.recipe === undefined ? {} : { recipe: mapped.recipe }),
+    // Absent means *no scope* for `#976`'s reason: a direction left over from a
+    // previous verdict would say this one was measured a way nobody said it was.
+    direction: parsed.data.direction ?? null,
+    fromProviderReport: true,
   })
 
-  return { outcome: 'reported', withdrawn: written.outcome === 'withdrawn' }
+  return { outcome: 'reported', withdrawn: false }
 }

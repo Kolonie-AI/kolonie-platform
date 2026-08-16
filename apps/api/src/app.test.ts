@@ -3,6 +3,7 @@ import { fakeArtefactChallenges } from './__fixtures__/artefact.js'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import type { FastifyInstance } from 'fastify'
 import { buildApp } from './app.js'
+import { mcpProbe } from './mcp/probe.js'
 import { fakeRegistry } from './__fixtures__/registry.js'
 import { fakeStandingHints } from './__fixtures__/hints.js'
 import { fakeWakeup } from './__fixtures__/wakeup.js'
@@ -239,6 +240,64 @@ describe('a probe at the MCP door', () => {
     expect(typeof body.rest).toBe('string')
     const response = await app.inject({ method: 'GET', url: body.rest })
     expect(response.statusCode, body.rest).not.toBe(404)
+  })
+
+  /**
+   * The reason belongs to the method that arrived (`#1058`).
+   *
+   * The hint used to end *…opens no server-to-client stream, which is what MCP
+   * gives `GET`* whatever the caller had sent, so `OPTIONS`, `HEAD`, `PUT` and
+   * `DELETE` were each handed `GET`'s reason as though it were their own. This
+   * asserts the split in both directions at once: the clause is present for the
+   * method it is about and absent for one it is not.
+   */
+  it('gives GET the reason that is about GET', async () => {
+    const body = (await app.inject({ method: 'GET', url: '/' })).json()
+    expect(body.hint).toMatch(/stream/)
+    expect(body.hint).toMatch(/405/)
+  })
+
+  /**
+   * `OPTIONS` is the method the old sentence was not merely misattributed to but
+   * wrong about: it asked which methods are allowed, and `Allow: POST` beside
+   * this body answers exactly that. Being told it had no meaning here was false.
+   */
+  it('corrects OPTIONS rather than giving it a reason', async () => {
+    const response = await app.inject({ method: 'OPTIONS', url: '/mcp' })
+    expect(response.headers.allow).toBe('POST')
+    expect(response.json().hint).toMatch(/Allow/)
+  })
+
+  /**
+   * `DELETE` is the other method MCP's transport defines — session termination —
+   * so a client that sent it deserves the reason it does not work here, which is
+   * that there is no session, not that the request was meaningless.
+   */
+  it('tells DELETE there is no session to end', async () => {
+    const body = (await app.inject({ method: 'DELETE', url: '/mcp' })).json()
+    expect(body.hint).toMatch(/session here to end/)
+  })
+
+  /**
+   * **The rejection case.** A method the transport never gave a meaning to gets
+   * the unconditional sentence and nothing more — no stream, no session, no
+   * `Allow` correction. This is the assertion that fails if the clause is ever
+   * made unconditional again: `PUT` is not `GET`, is not `DELETE` and is not
+   * `OPTIONS`, so a hint carrying any of their reasons is carrying somebody
+   * else's. `HEAD` takes the same branch and is asserted through `mcpProbe`
+   * directly, because `HEAD` has no body for `inject` to read.
+   */
+  it('never hands a method another method’s reason', async () => {
+    const bodies = [
+      (await app.inject({ method: 'PUT', url: '/mcp' })).json().hint,
+      mcpProbe('HEAD', '/mcp')?.hint,
+    ]
+    for (const hint of bodies) {
+      expect(hint).toMatch(/keeps no session/)
+      expect(hint).not.toMatch(/required to answer 405/)
+      expect(hint).not.toMatch(/session here to end/)
+      expect(hint).not.toMatch(/`Allow` header/)
+    }
   })
 
   /**

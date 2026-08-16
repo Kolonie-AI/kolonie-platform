@@ -32,6 +32,11 @@ import { MCP_PATHS } from './paths.js'
  * actually sends; `OPTIONS` asks which methods are allowed and `Allow` is
  * precisely its answer. Nothing here is a special case for `GET` because
  * nothing about the reason is.
+ *
+ * That last sentence is about *the answer*, which is identical for all of them —
+ * `405` and this header. It is not about the *explanation*, where the methods
+ * genuinely differ, and reading it as though it were is what left `OPTIONS`
+ * being told the reason `GET` has no meaning here. See `methodClause` (`#1058`).
  */
 export const MCP_PROBE_ALLOW = 'POST'
 
@@ -79,6 +84,52 @@ export interface McpProbe {
 }
 
 /**
+ * The half of the hint that is about the caller's method rather than about this
+ * server (`#1058`).
+ *
+ * The sentence before it is true of every method and says so: no session, no
+ * stream, `POST` is the only method that carries an MCP request. What follows is
+ * a clause about the method that actually arrived — and until `#1058` there was
+ * only ever one of them, *which is what MCP gives `GET`*, emitted verbatim to
+ * `OPTIONS`, `HEAD`, `PUT` and `DELETE` as though it were the reason theirs had
+ * no meaning either. The docstring above already said it should not be: *nothing
+ * here is a special case for `GET` because nothing about the reason is.* The
+ * string was the special case; this is the fix.
+ *
+ * **Two methods get a reason, because MCP gives them one.** Its streamable HTTP
+ * transport defines `GET` as the server-to-client stream and `DELETE` as session
+ * termination. This server is built with `sessionIdGenerator: undefined` and so
+ * has neither to offer. Naming which one is missing is the difference between
+ * *your request was meaningless* and *this server is stateless*, and only the
+ * second is true.
+ *
+ * **`OPTIONS` gets a correction rather than a reason.** It asked which methods
+ * are allowed, and the `Allow` header beside this body is a complete and correct
+ * answer. That was the one method for which the old sentence was not merely
+ * misattributed but false.
+ *
+ * **Everything else gets nothing, and that is the point.** `HEAD`, `PUT`,
+ * whatever a scanner invents: the transport never gave them a meaning to lose,
+ * so there is no clause to write. An empty string here is an honest answer and
+ * the general sentence has already covered them.
+ *
+ * Each clause opens with a space and closes with a full stop, so it drops into
+ * the sentence run without the caller assembling anything.
+ */
+function methodClause(method: string): string {
+  switch (method) {
+    case 'GET':
+      return ' MCP gives it that stream, and a server offering none is required to answer 405.'
+    case 'DELETE':
+      return ' MCP gives it session termination, and there is no session here to end.'
+    case 'OPTIONS':
+      return ' The `Allow` header beside this body is a complete answer to what it asked.'
+    default:
+      return ''
+  }
+}
+
+/**
  * Whether this request is a probe at the MCP door, and what to answer it with.
  *
  * `undefined` for anything that is not one, which the not-found handler treats
@@ -105,8 +156,9 @@ export function mcpProbe(method: string, url: string): McpProbe | undefined {
     rest: `${API_BASE_PATH}/`,
     hint:
       `This is the Colony's MCP surface and it is up. It speaks JSON-RPC over POST — begin ` +
-      `with an \`initialize\` request. ${method.toUpperCase()} has no meaning here: this ` +
-      `server keeps no session and opens no server-to-client stream, which is what MCP gives ` +
-      `GET. The REST API is a different surface, under ${API_BASE_PATH}/.`,
+      `with an \`initialize\` request. This server keeps no session and opens no ` +
+      `server-to-client stream, so POST is the only method that carries an MCP request and ` +
+      `${method.toUpperCase()} is not one of them.${methodClause(method.toUpperCase())} The ` +
+      `REST API is a different surface, under ${API_BASE_PATH}/.`,
   }
 }

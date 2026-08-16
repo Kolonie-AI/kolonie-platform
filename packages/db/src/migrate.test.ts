@@ -497,7 +497,16 @@ describe('the migrations', () => {
     // at because it survives being addressed to nobody: a handle no citizen holds
     // writes a real row with no parcel, so that giving cannot be used to find out
     // who exists.
-    expect(afterFirst.tables).toBe('126')
+    //
+    // **A hundred and twenty-seven and a hundred and twenty-eight** (`#1102`):
+    // `atlas_categories`, the shelves of the Atlas as rows rather than as an
+    // enum, and `provider_recipe_categories`, which entry is on which shelf.
+    // Two tables and not one column, because the vocabulary and the filing are
+    // separate facts: a shelf exists before anything is on it and outlives the
+    // last entry taken off it, and an entry the join table gives a second shelf
+    // is still filed on one of them primarily. Adding a shelf is a row now
+    // rather than a release.
+    expect(afterFirst.tables).toBe('128')
     // Twenty: `task_kind` (#43) tells an Academy task from a Quest and therefore
     // what may pay credits; `support_ticket_kind` and `support_ticket_status` (#11)
     // carry what a citizen wrote about and where it stands; `erasure_reason` and
@@ -662,7 +671,14 @@ describe('the migrations', () => {
     // `UPDATE` and deliberately does **not** refuse `DELETE`, because erasure
     // reaches those rows by cascade and a row-level delete guard would refuse
     // erasure itself.
-    expect(afterFirst.triggers).toBe('7')
+    //
+    // `#1102` makes eight: `provider_recipes_keep_primary_shelf` fills
+    // `provider_recipe_categories` from the category an entry names in its own
+    // column. The same reason again — every path that writes an entry is
+    // correct about the join table without having been told it exists, which is
+    // what lets a later issue give an entry a second shelf without first
+    // finding every writer.
+    expect(afterFirst.triggers).toBe('8')
 
     await expect(migrate(db, { migrationsFolder: MIGRATIONS_FOLDER })).resolves.not.toThrow()
     expect(await objectCounts()).toEqual(afterFirst)

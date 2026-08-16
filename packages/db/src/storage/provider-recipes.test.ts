@@ -242,13 +242,22 @@ describe('the provider catalogue', () => {
       )
     })
 
+    /**
+     * **A foreign key rather than a check, since `#1102`.** The rule is the
+     * same one and the thing enforcing it moved: the fifteen were written into
+     * a check constraint, so a sixteenth was a migration; they are rows in
+     * `atlas_categories` now, so a sixteenth is an insert and the column points
+     * at them. What is asserted here is the refusal and not the mechanism —
+     * except that naming the constraint is what says which mechanism is doing
+     * the refusing, and a category nobody defined must still not get in.
+     */
     it('refuses a category nobody defined', async () => {
       expect(
         await refusedBy(
           `insert into provider_recipes (kind, provider, title, status, category)
            values ('mailbox', 'shelf.example', 'Shelf', 'unwritten', 'miscellaneous')`,
         ),
-      ).toBe('provider_recipes_category_is_known')
+      ).toBe('provider_recipes_category_atlas_categories_slug_fk')
     })
 
     /**

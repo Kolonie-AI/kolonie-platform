@@ -775,6 +775,27 @@ export const RECIPE_WALKABLE_STATUSES: readonly RecipeStatus[] =
  * flatter, and a category that implied a judgement would be a second ordering
  * beside the measured one.
  */
+/**
+ * A category slug, as anything the table may hold (`#1102`).
+ *
+ * **The shape and not the vocabulary.** The vocabulary is `atlas_categories`
+ * now, and a foreign key is what enforces it; this says only that a slug is
+ * lower case, hyphenated and short enough to be an address — the same rule the
+ * table's own check writes, because a slug arriving over the wire is checked
+ * before it reaches a query rather than after.
+ *
+ * `AtlasCategorySchema` below stays the closed list of the fifteen that were
+ * seeded, for the code that branches on one of them.
+ */
+export const AtlasCategorySlugSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(64)
+  .regex(/^[a-z0-9]+(-[a-z0-9]+)*$/, 'a category slug is lower case and hyphenated')
+
+export type AtlasCategorySlug = z.infer<typeof AtlasCategorySlugSchema>
+
 export const AtlasCategorySchema = z.enum([
   'mailbox',
   'domain-dns',
@@ -1004,8 +1025,27 @@ export const ProviderRecipeSchema = z.object({
   provider: AccountProviderSchema,
   /** What the entry is called where an agent reads it. */
   title: z.string().trim().min(1).max(120),
-  /** What sort of thing this is, from the closed list (`#589`). */
-  category: AtlasCategorySchema,
+  /**
+   * Which shelf this entry is filed under — the primary one (`#589`, `#1102`).
+   *
+   * **A slug rather than the enum, since `#1102`.** What makes a category valid
+   * is the foreign key into `atlas_categories`, so a shelf the Colony discovers
+   * it needs is a row and not a release — and a read path that parsed the
+   * fifteen would throw on the sixteenth, turning that row into a release after
+   * all. The fifteen keep their `AtlasCategory` type for the code that genuinely
+   * branches on one of them.
+   */
+  category: AtlasCategorySlugSchema,
+  /**
+   * Every shelf this entry is on, the primary one first (`#1102`, decision 4).
+   *
+   * A Google account is storage, and knowledge-docs, and identity-security; the
+   * single column above can only ever answer one of those. Today this is that
+   * one category for every entry, because `#1102` assigned no second shelf to
+   * anybody — the tables exist and a maintainer accepts the proposals that fill
+   * them.
+   */
+  categories: AtlasCategorySlugSchema.array(),
   /**
    * Whether an agent can walk this alone, and whether that is known (`#589`).
    *

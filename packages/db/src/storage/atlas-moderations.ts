@@ -126,6 +126,15 @@ export async function recordAtlasModeration(
     if (decided === undefined) return { outcome: 'stale' as const }
 
     if (input.decision === 'accepted') {
+      /**
+       * **Still the enum, after `#1102` widened almost everything else to the
+       * slug.** This is the half of that decision that keeps the fifteen: the
+       * accept path has to name a kind for the entry it is listing, and the
+       * only thing that knows one is `KIND_BY_ATLAS_CATEGORY`, which is keyed
+       * by them. A shelf added as a row is pickable everywhere a category is
+       * read or filtered; it becomes acceptable here once something can say
+       * what kind of account it holds.
+       */
       const category = AtlasCategorySchema.parse(input.category)
 
       await listAtlasProvider(tx, {

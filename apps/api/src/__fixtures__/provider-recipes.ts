@@ -1,5 +1,6 @@
 import {
   AccountKindSchema,
+  ATLAS_SEEDED_CATEGORIES,
   figureKey,
   noFigures,
   operatorNeed,
@@ -391,6 +392,18 @@ export function fakeProviderRecipes(): FakeProviderRecipes {
       return [...rows].sort((a, b) => listOrder(a.status) - listOrder(b.status))
     },
 
+    /**
+     * The seeded taxonomy, which is what `0279` put in the table (`#1102`).
+     *
+     * **The constant and not a copy of it.** A fake that listed its own fifteen
+     * shelves would be a second vocabulary to keep in step, and the migration
+     * seeds this array verbatim — so a test rendering the maintainer's shelf
+     * picker sees the shelves a fresh database has.
+     */
+    async categories() {
+      return ATLAS_SEEDED_CATEGORIES
+    },
+
     async one(kind, provider) {
       return rows.find(
         (row) => row.kind === kind && row.provider.toLowerCase() === provider.toLowerCase(),
@@ -441,6 +454,14 @@ export function fakeProviderRecipes(): FakeProviderRecipes {
           'lastConfirmedAt' in entry ? (entry.lastConfirmedAt ?? null) : currentTime(),
         status,
         category: entry.category ?? 'code-hosting',
+        /**
+         * **One shelf unless a test says otherwise, and it is the primary one**
+         * (`#1102`). That is the invariant `provider_recipes_keep_primary_shelf`
+         * holds in the database: every entry has a join row for the column it
+         * carries, so a fake whose `categories` could be empty would let a test
+         * pass over a row that cannot exist.
+         */
+        categories: entry.categories ?? [entry.category ?? 'code-hosting'],
         operatorNeed: need.need,
         operatorNeedIsGuess: need.isGuess,
         refusal: entry.refusal ?? (status === 'refused' ? 'no honest route in' : null),

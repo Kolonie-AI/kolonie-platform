@@ -330,6 +330,15 @@ describe('schema', () => {
          */
         'artefact_challenges',
         /**
+         * `#1102`. The shelves of the Atlas, as rows. They were an enum in the
+         * code and a check constraint in the database until here, which made
+         * adding one a release; a table makes it an insert. Two levels and no
+         * more — a sub category's parent has to be a top one, enforced by a
+         * foreign key onto a generated column rather than by a trigger, so
+         * there is no arrangement of rows that produces a third level.
+         */
+        'atlas_categories',
+        /**
          * `#812`. Every verdict the Colony reached about a proposed provider —
          * the model, each admission question's answer, and a digest of the
          * claim judged. A third moderation table for the reason
@@ -656,6 +665,15 @@ describe('schema', () => {
         'provider_bundles',
         'provider_claims',
         'provider_enquiries',
+        /**
+         * `#1102`. Which entry is on which shelf, kept by a trigger from the
+         * category the entry names in its own column. One row per pair and one
+         * of them marked primary, enforced by a partial unique index — so an
+         * entry given a second shelf later still has exactly one answer to
+         * *where does this live*, and nothing that writes an entry today has to
+         * learn about a second table first.
+         */
+        'provider_recipe_categories',
         'provider_recipes',
         'provider_reports',
         // `quest_answers` (#177): what the sponsor is allowed to read, scrubbed

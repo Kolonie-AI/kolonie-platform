@@ -40,7 +40,7 @@ import {
   type AccountWalk,
   type AgentId,
   type AgentPlatform,
-  type AtlasCategory,
+  type AtlasCategorySlug,
   type ProviderRecipe,
   type ProviderTerms,
   type RecipeDirection,
@@ -1017,7 +1017,7 @@ export async function finishWalk(
      * An existing entry's shelf still wins, unchanged: a walk against something
      * somebody already catalogued does not re-shelve it.
      */
-    const shelf = ((): AtlasCategory | undefined => {
+    const shelf = ((): AtlasCategorySlug | undefined => {
       if (entry !== undefined) return entry.category
       try {
         return atlasCategoryForKind(walk.kind)

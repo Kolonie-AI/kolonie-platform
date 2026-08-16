@@ -1,7 +1,7 @@
 import {
-  AtlasCategorySchema,
+  AtlasCategorySlugSchema,
   atlasShelfTitle,
-  type AtlasCategory,
+  type AtlasCategorySlug,
   type AtlasEntry,
 } from '@kolonie-ai/core'
 import { escape, page } from './html.js'
@@ -40,7 +40,7 @@ import type { ConsoleNav } from './navigation.js'
  */
 
 /** Where the browser lives, under the accounts area `#582` is assembling. */
-export function atlasPickerPath(agentId: string, category?: AtlasCategory): string {
+export function atlasPickerPath(agentId: string, category?: AtlasCategorySlug): string {
   const base = `/agents/${agentId}/accounts/browse`
 
   return category === undefined ? base : `${base}?category=${category}`
@@ -61,7 +61,7 @@ export interface AtlasPickerInput {
   readonly entries: readonly AtlasEntry[]
   readonly state: PickerState
   /** The shelf being read, or nothing for the list of shelves. */
-  readonly category?: AtlasCategory | undefined
+  readonly category?: AtlasCategorySlug | undefined
   /**
    * A provider the operator just tried to add that was already there (`#591`).
    *
@@ -81,7 +81,7 @@ export interface AtlasPickerInput {
  * when what it has is categories nothing is filed under yet.
  */
 export function atlasPickerIndex(input: AtlasPickerInput): string {
-  const counts = new Map<AtlasCategory, number>()
+  const counts = new Map<AtlasCategorySlug, number>()
   for (const entry of input.entries) {
     counts.set(entry.category, (counts.get(entry.category) ?? 0) + 1)
   }
@@ -124,7 +124,7 @@ const PICKER_STANDFIRST =
 
 /** One shelf: every entry on it, with what is already true of it for this agent. */
 export function atlasPickerShelf(
-  input: AtlasPickerInput & { readonly category: AtlasCategory },
+  input: AtlasPickerInput & { readonly category: AtlasCategorySlug },
 ): string {
   const rows = input.entries
     .filter((entry) => entry.category === input.category)
@@ -208,9 +208,17 @@ function pickerOperatorLine(entry: AtlasEntry): string {
   return entry.operatorNeedIsGuess ? `${said} (a guess, not a walk)` : said
 }
 
-/** The shelf named in a query string, or nothing — a bad one is not an error. */
-export function pickerCategory(value: unknown): AtlasCategory | undefined {
-  const parsed = AtlasCategorySchema.safeParse(value)
+/**
+ * The shelf named in a query string, or nothing — a bad one is not an error.
+ *
+ * **The shape and not the vocabulary, since `#1102`.** The shelves are rows now,
+ * so a slug this console has never heard of may well be one a maintainer added
+ * last week; what it may not be is an injection. The page it opens is built from
+ * the entries, so a slug nothing is filed under renders as an empty shelf rather
+ * than as a lie about what the Atlas holds.
+ */
+export function pickerCategory(value: unknown): AtlasCategorySlug | undefined {
+  const parsed = AtlasCategorySlugSchema.safeParse(value)
 
   return parsed.success ? parsed.data : undefined
 }

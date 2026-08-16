@@ -71,6 +71,7 @@ const recipe = (input: {
     retiredAt: status === 'retired' ? (daysAgo(2) as never) : null,
     retiredReason: status === 'retired' ? 'the provider stopped taking agents' : null,
     category: 'code-hosting',
+    categories: ['code-hosting'],
     operatorNeed: 'unaided',
     operatorNeedIsGuess: false,
     refusal: status === 'refused' ? 'no honest route in' : null,

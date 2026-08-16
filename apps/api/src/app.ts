@@ -459,6 +459,12 @@ export function buildApp({
   const providerCatalogue: ProviderRecipes = recipes ?? {
     list: async () => [],
     listInternal: async () => [],
+    /**
+     * An absent catalogue has no shelves either. Not `ATLAS_SEEDED_CATEGORIES`:
+     * a deployment with no catalogue table would offer a maintainer fifteen
+     * shelves to file nothing under.
+     */
+    categories: async () => [],
     one: async () => undefined,
     figures: async () => [],
     briefings: async () => new Map(),

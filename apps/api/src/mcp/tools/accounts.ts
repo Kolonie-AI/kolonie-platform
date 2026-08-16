@@ -20,7 +20,7 @@ import {
   KNOWN_ACCOUNT_KINDS,
   AccountKindSchema,
   AccountProviderSchema,
-  AtlasCategorySchema,
+  AtlasCategorySlugSchema,
   GenericProofMethodSchema,
   HANDOVER_VALUE_MAX_LENGTH,
   RECIPE_MAX_STEPS,
@@ -1244,15 +1244,22 @@ export function registerAccountTools(
          * answers.
          */
         /**
-         * **`AtlasCategorySchema` itself and not a loose string**, unlike `kind`
-         * beside it. A kind is loose because the vocabulary grows whenever the
-         * Academy learns to verify something new; a category is closed by design,
-         * so the enum in the tool schema is the list — an agent reads the shelves
-         * off the argument instead of having to fetch the catalogue to find them.
+         * **A slug and no longer the enum, since `#1102`.** This argument used to
+         * carry `AtlasCategorySchema` so that an agent could read the shelves off
+         * the tool schema without fetching the catalogue, and that was worth
+         * having right up until the shelves became rows: an enum compiled into
+         * the process would refuse a shelf a maintainer added this morning, and
+         * would go on refusing it until the next release. A list that is wrong is
+         * worse than a list an agent has to ask for — and asking is one call it
+         * was going to make anyway, since the catalogue is what it wants.
+         *
+         * The three examples stay, because a shape without an instance is a
+         * regex; `kind` beside it is loose for its own reason.
          */
-        category: AtlasCategorySchema.optional().describe(
-          'One shelf of the catalogue — "mailbox", "code-hosting", "domain-dns". Leave it out ' +
-            'for everything.',
+        category: AtlasCategorySlugSchema.optional().describe(
+          'One shelf of the catalogue — "mailbox", "code-hosting", "domain-dns". The shelves ' +
+            'themselves are in the catalogue rather than in this argument, so leave it out to ' +
+            'read all of them and see what they are.',
         ),
         /**
          * `#523`'s question, asked of the catalogue: *what am I not equipped

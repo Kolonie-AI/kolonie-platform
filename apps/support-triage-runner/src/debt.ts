@@ -71,6 +71,32 @@ export const DEBT_MARKER = '<!-- watch-finding: payout-debt-outstanding -->'
 export const DEBT_TITLE = 'The Colony owes money it has not paid'
 
 /**
+ * The same verdict as the prose in `dischargeVerdict`, in a form the routing pass
+ * can act on (`#919`, second half).
+ *
+ * **A sentence addressed to a reader was not enough, because the reader that kept
+ * getting this wrong is a script.** Nothing in this repository applies an
+ * `agent:*` label; `kolonie-docs/.github/scripts/board-triage.sh` does, and its
+ * one default is *anything I cannot place becomes `agent:claude`*. So a finding
+ * with no Colony-side action was routed to an agent on every pass, and every
+ * session that picked it up spent itself concluding there was nothing to do —
+ * `#727` collected seven such comments over four days, and on 2026-08-16 a person
+ * removed the label at 15:06 and the next pass restored it at 15:15.
+ *
+ * `#919` named the remedy as *it carries no agent label* and was closed with that
+ * half unshipped, because it was written as though this runner applied the label.
+ * This is the half this side can actually hold: **state the fact, deterministically
+ * and in the body, and let the pass that owns routing decide what it means.**
+ *
+ * It is a fact and not an instruction, for the same reason the prose is: this
+ * runner does not get to say what an issue of its own is worth. And it is written
+ * only while `oursOnly` is empty — the moment a debt the Colony can act on arrives
+ * behind these, the marker is gone on that same pass and the finding is ordinary
+ * work again.
+ */
+export const NO_COLONY_ACTION_MARKER = '<!-- no-colony-action -->'
+
+/**
  * Whether the Colony is the party that can do something about this refusal
  * (`#727`).
  *
@@ -318,6 +344,10 @@ export function debtIssueBody(debt: OutstandingDebt, confirmedAt: number = Date.
   return [
     DEBT_MARKER,
     oursMarker(mine),
+    // Written only while none of it is ours, and rewritten every pass alongside
+    // the sentence it agrees with (`#919`). The two cannot drift: both are
+    // `mine.count`.
+    ...(mine.count > 0 ? [] : [NO_COLONY_ACTION_MARKER]),
     '',
     `**${debt.count} obligation(s) totalling ${debt.lamports} lamports have stood unpaid for ` +
       `more than ${DEBT_THRESHOLD_HOURS} hours.**`,

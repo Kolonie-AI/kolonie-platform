@@ -5,6 +5,7 @@ import {
   DEBT_MARKER,
   DEBT_REPOSITORY,
   DEBT_THRESHOLD_HOURS,
+  NO_COLONY_ACTION_MARKER,
   debtEscalationComment,
   debtIssueBody,
   decideDebt,
@@ -484,6 +485,21 @@ describe('the blocked-check the body answers by itself', () => {
     expect(outcome.action).toBe('standing')
     expect(issues.revised[0]?.body).toContain('last confirmed 2026-08-14T19:00:00.000Z')
     expect(issues.commented).toHaveLength(0)
+  })
+
+  /**
+   * The prose above is addressed to a reader, and the reader that kept getting
+   * this wrong is a script: `board-triage.sh` routes anything it cannot place to
+   * `agent:claude`, so the finding was handed to an agent on every pass. The
+   * marker is the same verdict in the one form that pass can act on, and the two
+   * are written from the same `mine.count` so they cannot disagree.
+   */
+  it('carries the marker the routing pass reads, so it is not routed to an agent', () => {
+    expect(debtIssueBody(threeDebtsNoneOurs, noon)).toContain(NO_COLONY_ACTION_MARKER)
+  })
+
+  it('drops the marker the moment a debt the Colony can act on arrives behind it', () => {
+    expect(debtIssueBody(andOneOfOurs, noon)).not.toContain(NO_COLONY_ACTION_MARKER)
   })
 
   it('carries the stamp on the pass that files it', async () => {

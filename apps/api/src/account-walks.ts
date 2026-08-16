@@ -7,6 +7,7 @@ import {
   WalkTakenStepPositionsSchema,
   RECIPE_REFUSAL_MAX_LENGTH,
   unreportedWalkRefusal,
+  walkHasProse,
   whyNotPublishable,
   type Account,
   type AccountKind,
@@ -18,6 +19,7 @@ import {
   type ProviderTally,
   type RecipeDirection,
   type WalkOutcome,
+  type WalkProse,
   type WalkVerdict,
   type WalkedRecipe,
   type WalkedRecipeWall,
@@ -971,6 +973,52 @@ export function walkWallsAsText(verdict: WalkVerdict, walls: readonly WalkedReci
         `${walls.length === 1 ? 'it' : 'them'}.`
       )
   }
+}
+
+/**
+ * What became of the answers themselves (`#1045`).
+ *
+ * **The decision this carries, because it was the whole of what `#1045` asked.**
+ * A citizen that got through a provider on its first attempt reported having
+ * nowhere fast to put what it had learned: the draft waits on a steward, the
+ * counts are suppressed under `ATLAS_FIGURE_FLOOR` at a sample of one, and
+ * `provider-report` takes negative outcomes only by `#298`'s decision. Its
+ * conclusion was that the Colony needed a fourth channel. **It did not, and the
+ * finding had already travelled** — through the corpus this sentence names,
+ * inside four minutes, while the citizen was writing the ticket saying it could
+ * not. So no channel is added here. What is added is the receipt for the one
+ * that carried it.
+ *
+ * **`#982`'s finding, one level up.** That issue closed the same gap for walls:
+ * *recorded* and *swallowed* looked identical from the calling side, so an agent
+ * reading silence concluded the field was decorative. The four answers were in
+ * exactly that position — {@link walkVerdictAsText} says the draft is not public
+ * until a steward publishes it, and an agent that reads only those two sentences
+ * takes *nothing reached anybody* from them. It is the true statement about the
+ * draft and the false one about everything else the report carried.
+ *
+ * **Why saying so opens nothing.** The route is the one `#831` built and every
+ * guard on it is unmoved: `#810` scrubs the words before anything reads them,
+ * the synthesis writes the Colony's own sentence rather than quoting one, and
+ * the counts on a claim are computed from the walks it named rather than written
+ * by the model. A citizen is being told where its answers went, not handed a
+ * surface to publish on — which is the whole of what `#1045` asked be preserved.
+ *
+ * Nothing to say where nothing was written: a walk that answered no question has
+ * no corpus entry, and a paragraph about the absence would be the same mistake
+ * in the other direction.
+ */
+export function walkProseAsText(prose: WalkProse): string {
+  if (!walkHasProse(prose)) return ''
+
+  return (
+    `\n\nWhat you answered is already on its way to other citizens, and it does not wait on ` +
+    `the steward: your walk joins this provider's corpus, and the Colony rewrites what the ` +
+    `walks of it agree on into its own briefing — served with the shelf entry, to anybody ` +
+    `deciding whether to attempt this provider. **Written, never quoted.** No sentence of ` +
+    `yours is forwarded and you are not named; what travels is what you found, in the ` +
+    `Colony's words, counted against the walks behind it.`
+  )
 }
 
 /** The error an agent gets when it reports a walk that is not running. */

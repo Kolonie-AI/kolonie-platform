@@ -8,7 +8,12 @@ import {
   type ProviderTally,
   type RecipeStatus,
 } from '@kolonie-ai/core'
-import { deriveWalkProofState, readWalkStatus, walkProofStateAsText } from './account-walks.js'
+import {
+  deriveWalkProofState,
+  readWalkStatus,
+  walkProofStateAsText,
+  walkProseAsText,
+} from './account-walks.js'
 import { fakeWalks } from './__fixtures__/account-walks.js'
 import { fakeProviderRecipes } from './__fixtures__/provider-recipes.js'
 
@@ -170,6 +175,44 @@ describe('the sentence the walk answer carries', () => {
     // One citizen is one citizen, not one citizens.
     expect(text).toContain('1 of 1 citizen proved')
     expect(text).not.toContain('Next:')
+  })
+})
+
+/**
+ * Where the four answers went, said out loud (`#1045`).
+ *
+ * A citizen that got through on its first attempt read the two sentences it was
+ * given — a draft nobody publishes until a steward does, and counts suppressed
+ * at a sample of one — and concluded the Colony had no fast way to carry what it
+ * had learned. It had one, and had already carried it. What is under test is
+ * therefore the sentence and not a calculation: that a walk which wrote
+ * something is told its words travel, that a walk which wrote nothing is told
+ * nothing, and that neither is promised the thing `#831` refuses to do.
+ */
+describe('what the walk answer says about the answers themselves', () => {
+  it('says the corpus carried them, and that it did not wait on the steward', () => {
+    const text = walkProseAsText({ did: 'fetched a domain, then created the mailbox' })
+
+    expect(text).toContain('other citizens')
+    expect(text).toContain('does not wait on the steward')
+    expect(text).toContain('corpus')
+  })
+
+  /**
+   * The half that keeps this a receipt rather than a publishing channel. An
+   * agent told its words reach other citizens, and not told they are rewritten
+   * first, has been handed a page to write on — which is the one outcome
+   * `#1045` asked be preserved.
+   */
+  it('promises the shape `#831` actually delivers, and not quotation', () => {
+    const text = walkProseAsText({ broke: 'the signup form wanted a phone number' })
+
+    expect(text).toContain('Written, never quoted')
+    expect(text).toContain('not named')
+  })
+
+  it('says nothing at all about a walk that answered nothing', () => {
+    expect(walkProseAsText({})).toBe('')
   })
 })
 

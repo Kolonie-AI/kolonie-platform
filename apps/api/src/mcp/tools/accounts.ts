@@ -10,6 +10,7 @@ import {
   unreportedWalkRefusalError,
   walkProofState,
   walkProofStateAsText,
+  walkProseAsText,
   walkVerdictAsText,
   walkWallsAsText,
 } from '../../account-walks.js'
@@ -38,6 +39,7 @@ import {
   kindHasDirection,
   recipeStatusIsOfferable,
   walkIsReported,
+  walkProse,
   wishAtlasSentence,
   type ApiError,
   type ProviderRecipe,
@@ -2349,6 +2351,7 @@ export function registerAccountTools(
             text:
               walkVerdictAsText(finished.verdict) +
               walkWallsAsText(finished.verdict, finished.walk.recipe?.walls ?? []) +
+              walkProseAsText(walkProse(finished.walk)) +
               (proof === undefined ? '' : walkProofStateAsText(proof)),
           },
         ],

@@ -297,6 +297,26 @@ describe('what a walk read says about the walk', () => {
   })
 
   /**
+   * **And it tells nobody to wait** (`#1061`).
+   *
+   * The defect that issue reports is not the fate but the sentence beside it: a
+   * walk that proposed nothing, against a `measured` entry, was told a steward
+   * was holding a proposal it had never made — an event that could not happen,
+   * addressed to a walker whose reasonable response is to stop. `#1032` removed
+   * the reviewer and the fate together, and what has to stay removed is the
+   * instruction to wait. A walker that reads this is done, and the only thing
+   * left is its own account of the path.
+   */
+  it('tells a walk against a claimless entry that nothing is waiting on anybody', async () => {
+    for (const entry of ['measured', 'unwritten'] as const) {
+      const { why } = (await read({ outcome: 'proved', entry })).walk
+
+      expect(why).toContain('nothing is waiting on anybody')
+      expect(why).not.toMatch(/steward|waiting for|not published/i)
+    }
+  })
+
+  /**
    * **The amendment route is named only where it applies** (`#986`, carried
    * across `#1032`). A `measured` entry is the one a walk wrote, so its account
    * of the path is the walker's to replace; against no entry at all there is

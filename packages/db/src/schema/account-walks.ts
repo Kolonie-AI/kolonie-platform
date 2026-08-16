@@ -216,7 +216,7 @@ export const accountWalks = pgTable(
      * and wrote up what it found has done the work whether or not somebody got
      * there first; what the Colony declines to do is count the same finding
      * twice. So the row is written, the author is told which walk it duplicates,
-     * and the one consequence is that `scrubbed_prose` stays null forever.
+     * and the one consequence is that `scrubbed_prose` is never written.
      *
      * **That single fact carries every other rule**, which is why there is no
      * second column and no status of its own: a walk with no scrubbed prose is
@@ -225,6 +225,13 @@ export const accountWalks = pgTable(
      * event is publication. A duplicate is emphatically **not** `rejected` —
      * repeating a report is not crossing a line, and the refusal tally must
      * never drift a citizen toward suspension for it.
+     *
+     * **The column is also written the other way round** (`#1109`): the sweep
+     * that compares the published walks against each other marks a repeat that
+     * was published before anybody could compare it. Such a walk keeps its
+     * scrub and stays readable — the pointer is what tells a reader it repeats
+     * an earlier walk — and what it loses is its place in the corpus the
+     * briefing is written from.
      *
      * Self-referential, because the duplicated walk is a walk. `set null` on
      * delete: the pointer is evidence about this row and losing it is better
@@ -415,18 +422,18 @@ export const accountWalks = pgTable(
     ),
 
     /**
-     * **A duplicate is never published, in the database** (`#1104`).
+     * **There is deliberately no constraint tying `duplicate_of` to the scrub**
+     * (`#1104`, withdrawn by `#1109`).
      *
-     * The detection writes `prose_status = 'approved'` with nothing scrubbed, so
-     * a duplicate is already out of the queue and out of every read. This is the
-     * defence that holds against a write path nobody has built yet — the same
-     * argument `account_walks_scrubbed_prose_iff_approved` makes one constraint
-     * up, and the reason a future scrubber cannot publish a repeat by accident.
+     * A repeat caught at the moment it is filed never gets one: the detection
+     * writes `prose_status = 'approved'` with nothing scrubbed, which is what
+     * keeps it out of the queue and out of every read. But a repeat recognised
+     * *after* it was published keeps the scrub it already had — it has been
+     * served under a walk id that a citizen or a page may quote, and a reference
+     * that resolved yesterday and 404s today is worse than one that resolves and
+     * says what it is. One column, two histories, and a constraint saying *never
+     * published* would have been true of only the first.
      */
-    check(
-      'account_walks_a_duplicate_is_not_published',
-      sql`${table.duplicateOf} is null or ${table.scrubbedProse} is null`,
-    ),
 
     /** The pass's queue: walks whose words nobody has read, oldest first. */
     index('account_walks_pending_prose_idx')

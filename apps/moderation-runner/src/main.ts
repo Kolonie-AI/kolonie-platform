@@ -13,6 +13,7 @@ import {
   recordProfileReview,
   deferProfileReview,
   approvedWalkProseWithoutScrub,
+  markPublishedDuplicateWalks,
   pendingAnswerModerations,
   unmoderatedWalkProse,
   recordApprovedWalkProseRescrub,
@@ -488,6 +489,7 @@ const walkProseStore: WalkProseModerationStore = {
 
     return written.outcome === 'written'
   },
+  markDuplicates: (limit) => markPublishedDuplicateWalks(db, limit),
 }
 
 /**

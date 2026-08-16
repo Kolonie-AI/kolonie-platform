@@ -1990,6 +1990,7 @@ describe('kolonie.accounts.recipes serves the walks behind an entry', () => {
           direction: null,
           by: 'ada-who-walked',
           prose: { did: 'Signed in with GitHub and it took the handle.' },
+          repeats: null,
         },
         {
           walkId: '6a1b2c3d-4e5f-4071-8293-a4b5c6d7e8f9',
@@ -2000,6 +2001,7 @@ describe('kolonie.accounts.recipes serves the walks behind an entry', () => {
           direction: null,
           by: null,
           prose: { wall: 'It wanted a card.' },
+          repeats: null,
         },
       ],
       nextCursor: 'the-next-page',
@@ -2049,6 +2051,52 @@ describe('kolonie.accounts.recipes serves the walks behind an entry', () => {
      * find out that a join leaked one.
      */
     expect(JSON.stringify(result)).not.toContain(agent.id)
+    await close()
+  })
+
+  /**
+   * `#1109`'s sweep marks a walk that was published before anybody could compare
+   * it. **Marked and never dropped**: it was served under an id a citizen may
+   * quote, so what the reader owes is the label rather than a hole.
+   */
+  it('serves a walk the sweep found repeats an earlier one, and says which', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    anEntry(colony)
+    const earlier = '5f0e6d1a-0c2f-4a6b-9d3e-1b2c3d4e5f60'
+    const page: PublishedWalkPage = {
+      walks: [
+        {
+          walkId: '6a1b2c3d-4e5f-4071-8293-a4b5c6d7e8f9',
+          kind: AccountKindSchema.parse('github'),
+          provider: 'clawhub.ai',
+          finishedAt: '2026-07-30T10:00:00.000Z',
+          outcome: 'proved',
+          direction: null,
+          by: null,
+          prose: { did: 'Signed in with GitHub and it took the handle.' },
+          repeats: earlier,
+        },
+      ],
+      nextCursor: null,
+    }
+    const walks = {
+      ...fakeWalks(),
+      async published() {
+        return page
+      },
+    }
+    const { client, close } = await connectedClient({ ...colony, walks }, `Bearer ${apiKey}`)
+
+    const result = await client.callTool({
+      name: 'kolonie.accounts.recipes',
+      arguments: { provider: 'clawhub.ai', walks: true },
+    })
+    const text = JSON.stringify(result.content)
+
+    expect(result.isError).toBeFalsy()
+    /** The words are still there, which is the whole of *marked and not hidden*. */
+    expect(text).toContain('Signed in with GitHub')
+    expect(text).toContain(`Repeats walk ${earlier}`)
     await close()
   })
 

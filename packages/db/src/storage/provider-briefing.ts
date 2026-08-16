@@ -79,12 +79,24 @@ export interface ProviderBriefingSource {
  * and nothing merges two of them. Recency is the only ordering the evidence
  * supports, and it is the right one for a corpus that decays — a signup wall from
  * March is evidence about March.
+ *
+ * **Repeats are left out here and nowhere else** (`#1109`). `synthesiseProvider()`
+ * drops any claim naming no source, so the number of sources behind a claim is
+ * what it has instead of a confidence: ten citizens filing one paragraph about
+ * one wall would become ten sources and read as the best-evidenced thing the
+ * Colony knows about that provider. The reader keeps serving those walks — they
+ * were published, and a marked repeat says more to a reader than a missing one —
+ * and this is where the double-counting actually happened.
  */
 export async function providerBriefingCorpus(
   db: Database,
   where: ProviderKey,
 ): Promise<readonly ProviderBriefingSource[]> {
-  const walks = await moderatedWalkProse(db, where, RECENT_WALKS_IN_CONTEXT)
+  const walks = await moderatedWalkProse(
+    db,
+    { ...where, withoutDuplicates: true },
+    RECENT_WALKS_IN_CONTEXT,
+  )
 
   return walks.map((walk) => ({
     id: walk.walkId,

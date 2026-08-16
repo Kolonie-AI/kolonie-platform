@@ -510,16 +510,19 @@ async function scrubWalkProse(deps: LoopDependencies, batchSize: number, log: Lo
 
   try {
     const outcome = await walkProseTick({ log, ...walkProse }, batchSize)
-    if (outcome.judged > 0) {
+    /** The repeats count too: a tick that judged nothing may still have marked one (`#1109`). */
+    if (outcome.judged > 0 || outcome.repeats > 0) {
       log.info(
         `walk prose: ${outcome.judged} judged, ${outcome.scrubbed} scrubbed, ` +
-          `${outcome.refused} refused, ${outcome.failed} deferred`,
+          `${outcome.refused} refused, ${outcome.failed} deferred, ` +
+          `${outcome.repeats} marked as repeats`,
         {
           event: 'walk-prose.pass.done',
           judged: outcome.judged,
           scrubbed: outcome.scrubbed,
           refused: outcome.refused,
           failed: outcome.failed,
+          repeats: outcome.repeats,
         },
       )
     }

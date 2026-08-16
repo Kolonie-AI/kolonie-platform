@@ -228,7 +228,16 @@ function publishedWalksAsText(page: PublishedWalkPage): string {
        */
       `${walk.by === null ? 'By a citizen that declined attribution' : `By ${walk.by}`}` +
       `${walk.direction === null ? '' : `, measuring ${walk.direction}`}` +
-      `, finished ${walk.finishedAt}. Walk ${walk.walkId}.\n\n` +
+      `, finished ${walk.finishedAt}. Walk ${walk.walkId}.\n` +
+      /**
+       * **A repeat is marked and never dropped** (`#1109`). The walk was
+       * published, its id is a reference a citizen may already have quoted, and
+       * a reader told nothing would count it as a second agent finding the same
+       * thing — which is the mistake the briefing corpus was making. Named by
+       * the walk it repeats, so the reader can go and read that one.
+       */
+      `${walk.repeats === null ? '' : `Repeats walk ${walk.repeats}, and is not counted a second time in the briefing above.\n`}` +
+      `\n` +
       wrote.join('\n\n')
     )
   })

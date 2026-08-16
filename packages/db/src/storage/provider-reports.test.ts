@@ -284,7 +284,7 @@ describe('providers that produced no account', () => {
    *
    * The walk knows *refused* and *abandoned*, and which of the four refusals a
    * report was is not on the row: the mapping collapsed them, because a report
-   * never asked which of the nine walls the citizen hit. So two citizens filing
+   * never asked which of the ten walls the citizen hit. So two citizens filing
    * `signup-refused` and `never-provisioned` at one provider are one line here,
    * not two.
    *
@@ -455,11 +455,13 @@ describe('a provider report reaching the catalogue', () => {
    *
    * **What the entry carries is the Colony's sentence and not the citizen's**
    * (`#1032`). The reason is composed from the typed wall kind the outcome maps
-   * to — `no-service` is `other`, which is the honest answer while the kinds
-   * have no slot for *nothing answered at all*. The citizen's own line is one of
-   * the moderated fields, so publishing it here would put an unread sentence
-   * into a response body in the same request that wrote it. It is not lost: it
-   * reaches readers through this entry's briefing once it has been read.
+   * to — `no-service` is `absent` since `#1091` gave the kinds a slot for
+   * *nothing answered at all*, and the entry gets that kind's own sentence
+   * rather than a clause reading *none of the above*. The citizen's own line is
+   * one of the moderated fields, so publishing it here would put an unread
+   * sentence into a response body in the same request that wrote it. It is not
+   * lost: it reaches readers through this entry's briefing once it has been
+   * read.
    */
   it('marks the provider refused, in the Colony’s own words and not the walker’s', async () => {
     const agentId = await citizen('reporter')
@@ -469,7 +471,7 @@ describe('a provider report reaching the catalogue', () => {
 
     const entry = await providerRecipe(db, kind, 'walled.example')
     expect(entry?.status).toBe('refused')
-    expect(entry?.refusal).toBe(colonyRefusal([{ kind: 'other' }]))
+    expect(entry?.refusal).toBe(colonyRefusal([{ kind: 'absent' }]))
     expect(entry?.refusal).not.toContain(wall)
     expect(entry?.steps).toEqual([])
   })

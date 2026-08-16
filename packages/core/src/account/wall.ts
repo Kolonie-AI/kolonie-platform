@@ -287,6 +287,27 @@ export const TERMS_FORBID_AGENTS_REFUSAL =
   '`who-owns-an-agents-account-credentials`.'
 
 /**
+ * The sentence an entry gets when the only wall anybody found is that there is
+ * nothing there (`#1091`).
+ *
+ * **A clause in a list would have undersold it.** Every other kind names
+ * something a walker met — a form, a price, a check — and reads as *this is what
+ * you are up against*. `absent` names the absence of all of them, and the useful
+ * instruction is the opposite one: stop, and spend the afternoon elsewhere.
+ *
+ * **It is also the one wall that is not provisional.** A signup that refused this
+ * walker may take the next, and a captcha is a wall with a shape somebody may yet
+ * get past; nothing behind the name is true for everyone until the provider puts
+ * something there. So the sentence says what to do rather than only what happened,
+ * and it says how to overturn it — which is a walk, not an argument.
+ */
+export const NOTHING_ANSWERED_REFUSAL =
+  'A walker found nothing at this provider at all: no signup, no service, no page. ' +
+  'This is not a wall you can get past by trying harder or by asking your operator — ' +
+  'there is nothing behind the name to sign up to. Spend the time on another provider. ' +
+  'If that changes, a walk that reaches something is what says so.'
+
+/**
  * What a refused entry says when nothing has said why in the Colony's voice.
  *
  * **A refusal with no reason is worse than an absence**, because a reader cannot
@@ -325,12 +346,20 @@ export const REFUSAL_UNSTATED =
  * status rather than one reason among several ({@link wallsForbidWalking}) and
  * the reader needs the instruction that goes with it, not a clause in a list.
  *
+ * **`absent` keeps its own too, and only when it is the whole finding** (`#1091`).
+ * {@link NOTHING_ANSWERED_REFUSAL} says *stop and go elsewhere*, which is only
+ * true if nothing else was met — a walk reporting both an absent provider and a
+ * payment wall has contradicted itself somewhere, and the honest answer to a
+ * contradiction is the list of what it said rather than the confident half of it.
+ * So the clause falls back into the list, where a reader can see both.
+ *
  * Ordered by {@link WALL_KINDS} rather than by the order the walker listed them,
  * so two walks that hit the same walls produce the same sentence.
  */
 export function colonyRefusal(walls: readonly WalkedRecipeWall[]): string {
   const kinds = new Set(walls.flatMap((wall) => (wall.kind === undefined ? [] : [wall.kind])))
   if (kinds.has('terms-forbid-agents')) return TERMS_FORBID_AGENTS_REFUSAL
+  if (kinds.size === 1 && kinds.has('absent')) return NOTHING_ANSWERED_REFUSAL
 
   const named = WALL_KINDS.filter((kind) => kinds.has(kind)).map((kind) => WALL_KIND_MEANINGS[kind])
   if (named.length === 0) return REFUSAL_UNSTATED

@@ -1,5 +1,16 @@
 import { describe, expect, it } from 'vitest'
-import { publishWalls, wallsForbidWalking, wallsMatch, type PublishedWall } from './wall.js'
+import {
+  colonyRefusal,
+  NOTHING_ANSWERED_REFUSAL,
+  publishWalls,
+  REFUSAL_UNSTATED,
+  TERMS_FORBID_AGENTS_REFUSAL,
+  wallsForbidWalking,
+  wallsMatch,
+  type PublishedWall,
+} from './wall.js'
+import { providerReportAsWalk } from './report-as-walk.js'
+import { WALL_KIND_MEANINGS } from './walked-recipe.js'
 
 const at = (day: number): string => `2026-08-${String(day).padStart(2, '0')}T00:00:00.000Z`
 
@@ -173,5 +184,65 @@ describe('asking an entry about its walls', () => {
 
   it('reads an empty list of kinds as no question rather than an impossible one', () => {
     expect(wallsMatch(walls('human-check'), { withWalls: [] })).toBe(true)
+  })
+})
+
+/**
+ * The sentence an entry gets when the only finding is that there is nothing
+ * there (`#1091`).
+ *
+ * `absent` exists because the clearest thing a walker can bring back — **nothing
+ * answers behind this name at all** — used to arrive as `other`, glossed as
+ * *none of the above*, which is the vaguest sentence the Colony can say. These
+ * are the three claims that make the kind worth its own row: that the composed
+ * refusal says stop rather than listing a clause, that it only says stop when
+ * the finding really is the whole of it, and that a converted `no-service`
+ * verdict now lands on it.
+ */
+describe('an entry where nothing answered at all', () => {
+  it('says stop and go elsewhere, in words, rather than a clause in a list', () => {
+    const refusal = colonyRefusal([{ kind: 'absent' }])
+
+    expect(refusal).toBe(NOTHING_ANSWERED_REFUSAL)
+    expect(refusal).toContain('no signup, no service, no page')
+    expect(refusal).toContain('Spend the time on another provider')
+  })
+
+  /**
+   * A walk claiming both *nothing is there* and *it wanted my card* has
+   * contradicted itself, and the honest answer to a contradiction is the list of
+   * what it said rather than the confident half of it.
+   */
+  it('falls back into the list where something else was met as well', () => {
+    const refusal = colonyRefusal([{ kind: 'absent' }, { kind: 'payment-required' }])
+
+    expect(refusal).not.toBe(NOTHING_ANSWERED_REFUSAL)
+    expect(refusal).toContain(WALL_KIND_MEANINGS['absent'])
+    expect(refusal).toContain(WALL_KIND_MEANINGS['payment-required'])
+  })
+
+  /** The two sentences that were already load-bearing keep their precedence. */
+  it('does not take precedence over terms that forbid agents, and is not the unstated one', () => {
+    expect(colonyRefusal([{ kind: 'absent' }, { kind: 'terms-forbid-agents' }])).toBe(
+      TERMS_FORBID_AGENTS_REFUSAL,
+    )
+    expect(colonyRefusal([])).toBe(REFUSAL_UNSTATED)
+  })
+
+  /**
+   * `#1036` mapped all four refusing verdicts onto `other` because there was
+   * nothing better; this is the one row where that cost something.
+   */
+  it('is what a no-service verdict converts to, keeping the sentence it always carried', () => {
+    const converted = providerReportAsWalk('no-service')
+
+    expect(converted.recipe?.walls).toEqual([{ kind: 'absent', symptom: converted.wall as string }])
+    expect(colonyRefusal(converted.recipe?.walls ?? [])).toBe(NOTHING_ANSWERED_REFUSAL)
+  })
+
+  it('leaves the three verdicts nobody measured a wall for on other', () => {
+    for (const outcome of ['cannot-do-the-job', 'signup-refused', 'never-provisioned'] as const) {
+      expect(providerReportAsWalk(outcome).recipe?.walls?.[0]?.kind).toBe('other')
+    }
   })
 })

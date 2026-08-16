@@ -390,7 +390,7 @@ export async function atlasFigures(
  * about the road, from which no arithmetic recovers a citizen. Wall kinds are a
  * disclosure argument rather than a sample-size one — `republishWalls` puts a
  * wall's *prose*, as its walker wrote it, onto the published entry with no floor
- * at all, so a count against a nine-member enum is strictly less than what the
+ * at all, so a count against a ten-member enum is strictly less than what the
  * Colony already says out loud.
  *
  * **Measured 2026-08-15 this is what decides whether the feature exists.** Every

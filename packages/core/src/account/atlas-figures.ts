@@ -144,7 +144,7 @@ export const AtlasWalkedSchema = z.object({
    * **Unfloored, and the argument is disclosure rather than sample size.**
    * `republishWalls` already puts a wall's *prose* — its title, symptom and
    * remedy, as its walker wrote them — onto the published entry with no floor at
-   * all. A count against a nine-member enum is strictly less than that, so a
+   * all. A count against a ten-member enum is strictly less than that, so a
    * floor here would suppress the safer half of what the Colony already says.
    *
    * **Kinds and never the prose** — the free text is moderated per report and

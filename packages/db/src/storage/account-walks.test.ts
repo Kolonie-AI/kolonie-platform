@@ -1371,12 +1371,16 @@ describe('the record of one agent obtaining one account', () => {
         const [queued] = await approvedWalkProseWithoutScrub(db, 10)
         if (queued === undefined) throw new Error('the stranded walk was not queued')
 
-        const written = await recordApprovedWalkProseRescrub(db, {
-          walkId,
-          judged: queued.prose,
-          decision: 'approved',
-          scrubbed: { did: 'The form was completed with identifying detail removed.' },
-        })
+        const written = await recordApprovedWalkProseRescrub(
+          db,
+          {
+            walkId,
+            judged: queued.prose,
+            decision: 'approved',
+            scrubbed: { did: 'The form was completed with identifying detail removed.' },
+          },
+          true,
+        )
 
         expect(written.outcome).toBe('written')
         expect(await approvedWalkProseWithoutScrub(db, 10)).toHaveLength(0)
@@ -1389,11 +1393,15 @@ describe('the record of one agent obtaining one account', () => {
       it('moves a crossed re-scrub to rejected and never publishes it', async () => {
         const walkId = await strand(where, { did: PROSE })
 
-        const written = await recordApprovedWalkProseRescrub(db, {
-          walkId,
-          judged: { did: PROSE },
-          decision: 'rejected',
-        })
+        const written = await recordApprovedWalkProseRescrub(
+          db,
+          {
+            walkId,
+            judged: { did: PROSE },
+            decision: 'rejected',
+          },
+          true,
+        )
 
         const [row] = await db.execute<{ prose_status: string; scrubbed_prose: unknown }>(
           sql`select prose_status, scrubbed_prose from account_walks where id = ${walkId}`,
@@ -1409,12 +1417,16 @@ describe('the record of one agent obtaining one account', () => {
           sql`update account_walks set did = 'Different words.' where id = ${walkId}`,
         )
 
-        const stale = await recordApprovedWalkProseRescrub(db, {
-          walkId,
-          judged: { did: PROSE },
-          decision: 'approved',
-          scrubbed: { did: PROSE },
-        })
+        const stale = await recordApprovedWalkProseRescrub(
+          db,
+          {
+            walkId,
+            judged: { did: PROSE },
+            decision: 'approved',
+            scrubbed: { did: PROSE },
+          },
+          true,
+        )
 
         expect(stale.outcome).toBe('stale')
         expect(await moderatedWalkProse(db, where)).toHaveLength(0)

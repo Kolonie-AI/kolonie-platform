@@ -63,10 +63,14 @@ export interface WalkProseModerationStore {
           readonly walk: ApprovedWalkProseWithoutScrub
           readonly decision: 'approved'
           readonly scrubbed: WalkProse
+          readonly markProviderStale: boolean
         }
-      | { readonly walk: ApprovedWalkProseWithoutScrub; readonly decision: 'rejected' },
-  ): Promise<void>
-  markProviderStale(input: { readonly kind: string; readonly provider: string }): Promise<void>
+      | {
+          readonly walk: ApprovedWalkProseWithoutScrub
+          readonly decision: 'rejected'
+          readonly markProviderStale: boolean
+        },
+  ): Promise<boolean>
 }
 
 export interface WalkProseLoopDependencies {
@@ -210,26 +214,21 @@ export async function walkProseTick(
   }
 
   const approvedWithoutScrub = await store.approvedWithoutScrub(batchSize)
-  const touched = new Map<string, { readonly kind: string; readonly provider: string }>()
-  for (const walk of approvedWithoutScrub) {
-    touched.set(`${walk.kind}\u0000${walk.provider}`, {
-      kind: walk.kind,
-      provider: walk.provider,
-    })
-  }
-  for (const provider of touched.values()) {
-    await store.markProviderStale(provider)
-  }
+  const touched = new Set<string>()
 
   for (const walk of approvedWithoutScrub) {
+    const providerKey = `${walk.kind}\u0000${walk.provider}`
+    const markProviderStale = !touched.has(providerKey)
+    let written = false
     const judgement = await moderateWalkProseWith(walk, deps, {
       write: async ({ scrubbed }) => {
-        await store.rescrub({ walk, decision: 'approved', scrubbed })
+        written = await store.rescrub({ walk, decision: 'approved', scrubbed, markProviderStale })
       },
       refuse: async () => {
-        await store.rescrub({ walk, decision: 'rejected' })
+        written = await store.rescrub({ walk, decision: 'rejected', markProviderStale })
       },
     })
+    if (written) touched.add(providerKey)
     record(walk, judgement)
   }
 

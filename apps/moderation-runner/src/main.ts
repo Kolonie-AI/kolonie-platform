@@ -39,7 +39,6 @@ import {
   staleBriefings,
   writeBriefing,
   providerBriefingCorpus,
-  markProviderBriefingStale,
   staleProviderBriefings,
   writeProviderBriefing,
   atlasEntryFor,
@@ -66,7 +65,6 @@ import type { WalkProseModerationStore } from './walk-prose.js'
 import type { AtlasModerationStore } from './atlas.js'
 import type { QuestReportModerationStore } from './quest-reports.js'
 import {
-  AccountKindSchema,
   createLog,
   gatewayFromEnvironment,
   gatewayOnlyFetch,
@@ -473,14 +471,23 @@ const walkProseStore: WalkProseModerationStore = {
     })
   },
   rescrub: async ({ walk, ...decision }) => {
-    await recordApprovedWalkProseRescrub(db, {
-      walkId: walk.walkId,
-      judged: walk.prose,
-      ...decision,
-    })
+    const command =
+      decision.decision === 'approved'
+        ? {
+            walkId: walk.walkId,
+            judged: walk.prose,
+            decision: 'approved' as const,
+            scrubbed: decision.scrubbed,
+          }
+        : {
+            walkId: walk.walkId,
+            judged: walk.prose,
+            decision: 'rejected' as const,
+          }
+    const written = await recordApprovedWalkProseRescrub(db, command, decision.markProviderStale)
+
+    return written.outcome === 'written'
   },
-  markProviderStale: ({ kind, provider }) =>
-    markProviderBriefingStale(db, { kind: AccountKindSchema.parse(kind), provider }),
 }
 
 /**

@@ -58,8 +58,8 @@ const recording = (
     walkId: string
     decision: 'approved' | 'rejected'
     scrubbed?: WalkProse
+    markProviderStale: boolean
   }[] = []
-  const stale: { kind: string; provider: string }[] = []
   const limits = { pending: [] as number[], approvedWithoutScrub: [] as number[] }
   const store: WalkProseModerationStore = {
     pending: async (limit) => {
@@ -78,13 +78,11 @@ const recording = (
     },
     rescrub: async ({ walk, ...decision }) => {
       rescrubbed.push({ walkId: walk.walkId, ...decision })
-    },
-    markProviderStale: async (where) => {
-      stale.push(where)
+      return true
     },
   }
 
-  return { store, written, refused, rescrubbed, stale, limits }
+  return { store, written, refused, rescrubbed, limits }
 }
 
 describe('the Colony scrubbing what a walker wrote', () => {
@@ -201,6 +199,7 @@ describe('the Colony scrubbing what a walker wrote', () => {
         walkId: '11111111-1111-4111-8111-111111111111',
         decision: 'approved',
         scrubbed: { ...aWalk().prose, note: `The private handle I used was ${REDACTION}.` },
+        markProviderStale: true,
       },
     ])
     expect(JSON.stringify(rescrubbed)).not.toContain('identifying-handle')
@@ -217,13 +216,14 @@ describe('the Colony scrubbing what a walker wrote', () => {
       {
         walkId: '11111111-1111-4111-8111-111111111111',
         decision: 'rejected',
+        markProviderStale: true,
       },
     ])
   })
 
   it('marks each provider in the repair batch stale once, however many walks it repairs', async () => {
     const { model } = answering()
-    const { store, stale } = recording(
+    const { store, rescrubbed } = recording(
       [],
       [
         aWalk(),
@@ -238,9 +238,10 @@ describe('the Colony scrubbing what a walker wrote', () => {
 
     await walkProseTick({ store, model }, 10)
 
-    expect(stale).toEqual([
-      { kind: 'mailbox', provider: aWalk().provider },
-      { kind: 'mailbox', provider: 'other-provider' },
+    expect(rescrubbed.map(({ markProviderStale }) => markProviderStale)).toEqual([
+      true,
+      false,
+      true,
     ])
   })
 

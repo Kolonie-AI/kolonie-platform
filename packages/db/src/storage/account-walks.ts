@@ -1619,36 +1619,55 @@ async function writeWalkProseVerdict(
  * queue's complete predicate, so this function cannot turn a pending,
  * unfinished, already-scrubbed or rejected walk into something else.
  *
- * Briefing invalidation is left to the bounded runner pass, which can collapse
- * several repaired walks at one provider into one call.
+ * Briefing invalidation is in the same transaction as the first successful
+ * repair for a provider in one bounded runner pass. That removes the window
+ * where synthesis could clear the flag before the repaired prose became
+ * readable, while still collapsing several walks at one provider into one call.
  */
 export async function recordApprovedWalkProseRescrub(
   db: Database,
   command: WalkProseModerationCommand,
+  markBriefingStale: boolean,
 ): Promise<{ readonly outcome: 'written' | 'stale' }> {
   const unchanged = WALK_PROSE_FIELDS.map((field) => {
     const judged = command.judged[field]
     return judged === undefined ? isNull(accountWalks[field]) : eq(accountWalks[field], judged)
   })
 
-  const written = await db
-    .update(accountWalks)
-    .set({
-      proseStatus: command.decision,
-      scrubbedProse: moderatedWalkProseValue(command),
-    })
-    .where(
-      and(
-        eq(accountWalks.id, command.walkId),
-        eq(accountWalks.proseStatus, 'approved'),
-        isNotNull(accountWalks.finishedAt),
-        isNull(accountWalks.scrubbedProse),
-        ...unchanged,
-      ),
-    )
-    .returning({ id: accountWalks.id })
+  return db.transaction(async (tx) => {
+    const written = await tx
+      .update(accountWalks)
+      .set({
+        proseStatus: command.decision,
+        scrubbedProse: moderatedWalkProseValue(command),
+      })
+      .where(
+        and(
+          eq(accountWalks.id, command.walkId),
+          eq(accountWalks.proseStatus, 'approved'),
+          isNotNull(accountWalks.finishedAt),
+          isNull(accountWalks.scrubbedProse),
+          ...unchanged,
+        ),
+      )
+      .returning({
+        id: accountWalks.id,
+        kind: accountWalks.kind,
+        provider: accountWalks.provider,
+      })
 
-  return { outcome: written.length > 0 ? 'written' : 'stale' }
+    const row = written[0]
+    if (row === undefined) return { outcome: 'stale' as const }
+
+    if (markBriefingStale) {
+      await markProviderBriefingStale(tx, {
+        kind: AccountKindSchema.parse(row.kind),
+        provider: row.provider,
+      })
+    }
+
+    return { outcome: 'written' as const }
+  })
 }
 
 /** One walk's words as anybody but their author may read them. */

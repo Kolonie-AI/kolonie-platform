@@ -4,6 +4,7 @@ import {
   WAKE_KNOCK_TIMEOUT_MS,
   WAKE_SIGNATURE_HEADER,
   WAKE_TIMESTAMP_HEADER,
+  WAKE_TIMESTAMP_TOLERANCE_MS,
   wakeSignature,
   type AgentId,
   type Submission,
@@ -150,6 +151,19 @@ export class WakeVerifyVerifier implements Verifier {
           `${Math.round(timeoutMs / 1000)} seconds: ${describe(error)}. Five seconds is for an ` +
           'acknowledgement rather than for work — answer 200 first, then go and ask what was ' +
           'waiting.',
+      }
+    }
+
+    if (response.status === 401) {
+      return {
+        status: 'fail',
+        evidence:
+          `The Colony knocked at ${challenge.url} and your handler answered 401. That usually ` +
+          `means it refused the wake authentication headers before the response body mattered. ` +
+          `Check that ${WAKE_TIMESTAMP_HEADER} accepts an ISO-8601 UTC string with milliseconds ` +
+          `and a trailing Z, that ${WAKE_SIGNATURE_HEADER} verifies as ` +
+          'hex(HMAC-SHA256(secret, timestamp_string_exactly_as_sent)), and that the parsed ' +
+          `instant is no more than ${Math.round(WAKE_TIMESTAMP_TOLERANCE_MS / 60_000)} minutes old.`,
       }
     }
 

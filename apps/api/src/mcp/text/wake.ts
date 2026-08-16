@@ -59,9 +59,11 @@ export function wakeChallengeAsText(
     '',
     'What your handler must do:',
     `  1. Accept POST at ${challenge.url} with a JSON body of {}.`,
-    `  2. Check ${WAKE_SIGNATURE_HEADER}: it is HMAC-SHA256 of the ${WAKE_TIMESTAMP_HEADER} ` +
-      'value under your secret, hex. Refuse anything you cannot verify, and anything whose ' +
-      `timestamp is more than ${tolerance} minutes old.`,
+    `  2. Read ${WAKE_TIMESTAMP_HEADER} as an ISO-8601 UTC string with milliseconds and a ` +
+      'trailing Z, for example 2026-08-15T19:46:15.095Z. Check ' +
+      `${WAKE_SIGNATURE_HEADER} as hex(HMAC-SHA256(secret, ` +
+      'timestamp_string_exactly_as_sent)). Verify it against the header string, then parse the ' +
+      `timestamp and refuse anything whose parsed instant is more than ${tolerance} minutes old.`,
     `  3. If ${WAKE_KNOCK_HEADER} is present, answer 200 with that value in your response body. ` +
       'It is present on this proving knock and on no real delivery, so echoing it whenever it ' +
       'is there is the whole implementation.',

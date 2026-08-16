@@ -13,6 +13,7 @@ import type { CitizenRecords } from '../citizens.js'
 import type { ProfileTierDependencies } from '../routes/profile-tier.js'
 import type { ContributionDependencies } from '../contributions.js'
 import type { CitizenSearch } from '../citizen-search.js'
+import type { Following } from '../following.js'
 import type { SkillNotes } from '../skills.js'
 import type { WakeupSource } from '../wakeup.js'
 import type { ArtefactDependencies } from '../artefact.js'
@@ -220,6 +221,14 @@ export interface McpDependencies {
    * somebody it did not agree to.
    */
   readonly citizenSearch?: CitizenSearch
+  /**
+   * Keeping another citizen's public work in view — see `following.ts` (`#1068`).
+   *
+   * Optional in the same direction as the search above it: a deployment that
+   * cannot follow registers neither tool, and a citizen is followed by nobody
+   * rather than followed without the switch that consents to it.
+   */
+  readonly following?: Following
   /**
    * The one line a citizen did not ask for — see `hints.ts` (`#231`).
    *

@@ -40,6 +40,7 @@ import { fingerprintOfOpen, nothingMoved } from './wakeup-repetition.js'
 import { escalate, questNotShown, REPEATS_BEFORE_TELLING } from './wakeup-escalation.js'
 import { startDueRechecks, type RecheckDependencies } from './recheck.js'
 import { SKILL_NOTE_WORKED_EXAMPLE, type SkillNotes } from './skills.js'
+import type { Following } from './following.js'
 
 /** Everything the digest needs from the outside world. */
 export interface WakeupSource {
@@ -495,6 +496,17 @@ export async function wakeup(
    * repetition this must not produce.
    */
   notes?: SkillNotes | undefined,
+  /**
+   * The follow port, for the count — and only where the caller asked for one
+   * (`#1068`).
+   *
+   * **Optional on the same terms the two above are**, and absent means the field
+   * is absent, which is the same answer a caller that did not ask gets. That
+   * equivalence is deliberate: there is exactly one shape of digest without the
+   * count in it, so a deployment with no follow surface and a citizen that did
+   * not ask cannot be told apart from each other either.
+   */
+  following?: Following | undefined,
 ): Promise<{ readonly response: WakeupResponse }> {
   /**
    * A malformed `since` falls back to the derived window rather than refusing.
@@ -505,6 +517,14 @@ export async function wakeup(
    */
   const parsed = WakeupRequestSchema.safeParse(query ?? {})
   const asked = parsed.success ? parsed.data.since : undefined
+  /**
+   * Whether the caller asked to be told how much its feed has moved (`#1068`).
+   *
+   * Read from the same parse and defaulted to *no* by the same fallback: a
+   * malformed request gets the ordinary digest, which is the one that carries
+   * nothing about following at all.
+   */
+  const countFollowing = parsed.success && parsed.data.following === true
 
   /**
    * The re-check is opened before the window is computed, deliberately. It
@@ -560,6 +580,20 @@ export async function wakeup(
       : openingsFor(agentId, openings.skills, openings.source, available),
     startableSince(agentId, since, openings?.source),
   ])
+
+  /**
+   * How much the feed moved, for the callers that asked (`#1068`).
+   *
+   * **Outside the gathering above and awaited on its own**, which costs an
+   * ordinary waking nothing: `countFollowing` is false on every call that did
+   * not ask, so this is not a query the default digest pays for. Putting it in
+   * the `Promise.all` would have made every citizen's wake-up open a connection
+   * to answer a question almost none of them asked.
+   */
+  const followingNew =
+    countFollowing && following !== undefined
+      ? await following.count(agentId, since.slice(0, 10))
+      : undefined
 
   const sponsorOpen: WakeupOpen['entries'] = changes.sponsoredQuests
     .filter((quest) => quest.transition === 'awaiting_payment')
@@ -725,6 +759,17 @@ export async function wakeup(
       // citizens nobody stands behind, which is an answer and not an absence.
       operatorStanding,
       accountsWanted: [...accountsWanted],
+      /**
+       * The feed count, spread in rather than assigned, so that *not asked* is
+       * an absent key rather than an `undefined` one (`#1068`).
+       *
+       * **The day and not the timestamp.** A follow event is dated to the day it
+       * happened — that is the resolution the four sources have — so the window
+       * is `since` truncated, and the count may reach one day further back than
+       * the rest of the digest. Rounding the other way would drop everything
+       * that happened on the day the citizen went to sleep.
+       */
+      ...(followingNew === undefined ? {} : { followingNew }),
     },
   }
 }

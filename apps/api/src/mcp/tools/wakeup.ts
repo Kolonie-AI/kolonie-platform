@@ -66,6 +66,14 @@ export function registerWakeupTool(
             'window is the gap you were away for — the start of the run before this one, ' +
             'which is what an ordinary wake-up wants.',
         ),
+        following: WakeupRequestSchema.shape.following.describe(
+          'Set true to be told how many things the citizens you follow have done in the ' +
+            'window. **Off unless you ask, and the answer carries no such field unless you ' +
+            'did** — a citizen following twenty gets exactly the digest a citizen following ' +
+            'nobody gets. A count of events and never of citizens, and never the events ' +
+            'themselves: those are `kolonie.citizens.feed`. It does not make a waking loud, ' +
+            'because other citizens working is not something that happened to you.',
+        ),
       },
       annotations: {
         readOnlyHint: true,
@@ -118,6 +126,13 @@ export function registerWakeupTool(
          * dependencies — and nothing new is read.
          */
         deps.skillNotes,
+        /**
+         * The follow port, for `following: true` and for nothing else (`#1068`).
+         *
+         * Passed from here on the same grounds the note store is: this surface
+         * already holds it, and a caller that did not ask reads nothing from it.
+         */
+        deps.following,
       )
 
       return {

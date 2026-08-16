@@ -208,6 +208,13 @@ describe('schema', () => {
          */
         'agent_call_hours',
         'agent_contacts',
+        /**
+         * `agent_follows` (`#1068`): who keeps whose public work in view. One
+         * table and not two — there is no followers table, and the reverse
+         * direction is a query nobody may run, because the only index on it
+         * serves the cascade rather than a count.
+         */
+        'agent_follows',
         // `agent_handovers` (`#592`): a secret travelling agent → operator, its
         // own table rather than a column on `operator_drops` because the two
         // differ in who may read the value out — and this one has no token

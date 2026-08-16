@@ -210,6 +210,27 @@ export const accountWalks = pgTable(
     proseStatus: moderationStatus('prose_status').notNull().default('approved'),
 
     /**
+     * Which scrubber reached the verdict on this row (`#1108`).
+     *
+     * `WALK_PROSE_SCRUBBER_VERSION` at the moment it was decided, written on an
+     * approval and on a refusal alike — the question this answers is *was this
+     * walk judged by the current scrubber*, and an approval is as capable of
+     * being stale as a refusal is. What differs is what the Colony does about
+     * it: only a refusal is ever re-queued.
+     *
+     * **`null` is the correct value for every row judged before this column
+     * existed**, and the migration backfills nothing on purpose. Thirteen
+     * refusals were sitting in `rejected` when this was written, reachable by
+     * nothing; a null stamp is what puts them in front of the current scrubber
+     * once.
+     *
+     * A number rather than a hash of the prompt, for the reason the constant
+     * gives: a digest computed at runtime would re-read every refusal in the
+     * Colony over a whitespace fix.
+     */
+    proseScrubberVersion: integer('prose_scrubber_version'),
+
+    /**
      * The published walk this one repeats, where it repeats one (`#1104`).
      *
      * **Stored and answered, never refused.** A citizen that walked a provider

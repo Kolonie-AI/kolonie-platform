@@ -7,6 +7,7 @@ import {
 import type {
   ApprovedWalkProseWithoutScrub,
   MarkedDuplicateWalk,
+  RequeuedWalkProse,
   UnmoderatedWalkProse,
 } from '@kolonie-ai/db'
 import { ANSWER_RED_LINE_PROMPT, redact } from './answers.js'
@@ -57,6 +58,14 @@ import type { Model } from './llm.js'
 
 /** Where the walk-prose pass reads and writes. Injected, like every other store here. */
 export interface WalkProseModerationStore {
+  /**
+   * Put the refusals an older scrubber reached back in the queue (`#1108`).
+   *
+   * No model call and no decision of its own: which version is current is
+   * `WALK_PROSE_SCRUBBER_VERSION`, and the comparison is one predicate in the
+   * database. What this pass decides is only how many of them one tick may do.
+   */
+  requeueRefused(limit: number): Promise<readonly RequeuedWalkProse[]>
   pending(limit: number): Promise<readonly UnmoderatedWalkProse[]>
   approvedWithoutScrub(limit: number): Promise<readonly ApprovedWalkProseWithoutScrub[]>
   write(input: { readonly walk: UnmoderatedWalkProse; readonly scrubbed: WalkProse }): Promise<void>
@@ -103,6 +112,15 @@ export type WalkProseJudgement =
 /** How a walk is named in a log line. The provider, never the walker. */
 const nameOf = (walk: UnmoderatedWalkProse) => `${walk.kind}/${walk.provider}`
 
+/**
+ * What the red-line question may be answered with.
+ *
+ * Named rather than written at the call because it is one of the inputs the
+ * version test pins (`#1108`, 3): a choice reworded changes what the model was
+ * asked, and a second copy in the test would be free to drift from this one.
+ */
+export const WALK_RED_LINE_CHOICES = ['clear', 'crossed'] as const
+
 type WalkProseModerationWriter = Pick<WalkProseModerationStore, 'write' | 'refuse'>
 
 /**
@@ -124,7 +142,7 @@ async function moderateWalkProseWith(
     const verdict = await model.classify({
       system: ANSWER_RED_LINE_PROMPT,
       user: page,
-      choices: ['clear', 'crossed'],
+      choices: WALK_RED_LINE_CHOICES,
     })
 
     if (verdict.decision === 'crossed') {
@@ -188,6 +206,15 @@ export interface WalkProseTickOutcome {
   readonly failed: number
   /** Published walks recognised as repeats of an earlier one (`#1109`). */
   readonly repeats: number
+  /**
+   * Refusals an older scrubber reached, put back in front of this one (`#1108`).
+   *
+   * Counted apart from `judged` because it is not a judgement: these walks are
+   * re-judged in the same tick by the pass below, where they are counted like
+   * any other pending walk. A tick that re-queued five and judged five has read
+   * five pages, not ten.
+   */
+  readonly requeued: number
 }
 
 /** Take one batch through the stage. Sequential, like every pass here. */
@@ -196,7 +223,7 @@ export async function walkProseTick(
   batchSize: number,
 ): Promise<WalkProseTickOutcome> {
   const { store, log = silentLog } = deps
-  const outcome = { judged: 0, scrubbed: 0, refused: 0, failed: 0, repeats: 0 }
+  const outcome = { judged: 0, scrubbed: 0, refused: 0, failed: 0, repeats: 0, requeued: 0 }
 
   const record = (walk: UnmoderatedWalkProse, judgement: WalkProseJudgement) => {
     outcome.judged++
@@ -222,6 +249,36 @@ export async function walkProseTick(
         outcome.failed++
         break
     }
+  }
+
+  /**
+   * **Before the pending batch, and bounded by the same one** (`#1108`, 6).
+   *
+   * First, because what it writes is `pending` — a refusal put back a moment ago
+   * is read by the queue below on this tick rather than the next, which is free
+   * and is what makes *the thirteen are re-read on the first run after this
+   * ships* one run rather than two.
+   *
+   * It is the only place the two passes below can be entered from that is not a
+   * citizen closing a walk, and it costs nothing on a tick where the scrubber has
+   * not changed: the predicate finds no row and the batch is the pending queue's
+   * alone.
+   */
+  const requeued = await store.requeueRefused(batchSize)
+  outcome.requeued = requeued.length
+
+  for (const walk of requeued) {
+    log.info(
+      `refusal at ${walk.kind}/${walk.provider} goes back to the scrubber` +
+        (walk.refusedBy === null ? ' (refused before the stamp existed)' : ''),
+      {
+        event: 'walk-prose.requeued',
+        provider: walk.provider,
+        /** The walk and the version that refused it. Neither is an agent id. */
+        walkId: walk.walkId,
+        refusedBy: walk.refusedBy,
+      },
+    )
   }
 
   for (const walk of await store.pending(batchSize)) {

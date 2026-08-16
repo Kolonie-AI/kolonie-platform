@@ -18,6 +18,7 @@ import {
   unmoderatedWalkProse,
   recordApprovedWalkProseRescrub,
   recordWalkProseModeration,
+  requeueRefusedWalkProse,
   markBriefingStale,
   questAuditQueue,
   questObstacleCorpus,
@@ -454,6 +455,7 @@ const atlasStore: AtlasModerationStore = {
  * replaced them since; the second queue is the permanent repair for `#1095`.
  */
 const walkProseStore: WalkProseModerationStore = {
+  requeueRefused: (limit) => requeueRefusedWalkProse(db, limit),
   pending: (limit) => unmoderatedWalkProse(db, limit),
   approvedWithoutScrub: (limit) => approvedWalkProseWithoutScrub(db, limit),
   write: async ({ walk, scrubbed }) => {

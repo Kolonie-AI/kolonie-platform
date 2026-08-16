@@ -1,14 +1,28 @@
+import { createHash } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
-import { AccountKindSchema, WALK_PROSE_QUESTIONS, type WalkProse } from '@kolonie-ai/core'
+import {
+  AccountKindSchema,
+  ConfidentialSpanKindSchema,
+  WALK_PROSE_FIELDS,
+  WALK_PROSE_QUESTIONS,
+  WALK_PROSE_SCRUBBER_VERSION,
+  type WalkProse,
+} from '@kolonie-ai/core'
 import type {
   ApprovedWalkProseWithoutScrub,
   MarkedDuplicateWalk,
+  RequeuedWalkProse,
   UnmoderatedWalkProse,
 } from '@kolonie-ai/db'
 import type { Model } from './llm.js'
 import { ANSWER_RED_LINE_PROMPT, REDACTION } from './answers.js'
 import { CONFIDENTIALITY_PROMPT } from './confidentiality.js'
-import { moderateWalkProse, walkProseTick, type WalkProseModerationStore } from './walk-prose.js'
+import {
+  moderateWalkProse,
+  walkProseTick,
+  WALK_RED_LINE_CHOICES,
+  type WalkProseModerationStore,
+} from './walk-prose.js'
 
 const aWalk = (prose: WalkProse = {}): UnmoderatedWalkProse => ({
   walkId: '11111111-1111-4111-8111-111111111111',
@@ -27,6 +41,15 @@ const aRepeat = (): MarkedDuplicateWalk => ({
   kind: AccountKindSchema.parse('mailbox'),
   provider: 'clawmail.com',
   duplicateOf: '11111111-1111-4111-8111-111111111111',
+})
+
+/** A refusal an older scrubber reached, put back in the queue (`#1108`). */
+const aStaleRefusal = (): RequeuedWalkProse => ({
+  walkId: '33333333-3333-4333-8333-333333333333',
+  kind: AccountKindSchema.parse('mailbox'),
+  provider: 'clawmail.com',
+  /** Refused before the stamp existed, which is what the thirteen on production are. */
+  refusedBy: null,
 })
 
 /**
@@ -64,6 +87,7 @@ const recording = (
   pending: readonly UnmoderatedWalkProse[] = [aWalk()],
   approvedWithoutScrub: readonly ApprovedWalkProseWithoutScrub[] = [],
   duplicates: readonly MarkedDuplicateWalk[] = [],
+  requeued: readonly RequeuedWalkProse[] = [],
 ) => {
   const written: { walkId: string; scrubbed: WalkProse }[] = []
   const refused: string[] = []
@@ -77,10 +101,19 @@ const recording = (
     pending: [] as number[],
     approvedWithoutScrub: [] as number[],
     markDuplicates: [] as number[],
+    requeueRefused: [] as number[],
   }
-  /** Which pass ran when, because `#1109` places the sweep after the other two. */
+  /**
+   * Which pass ran when, because `#1109` places the sweep after the other two
+   * and `#1108` places the re-queue before all three.
+   */
   const order: string[] = []
   const store: WalkProseModerationStore = {
+    requeueRefused: async (limit) => {
+      limits.requeueRefused.push(limit)
+      order.push('requeueRefused')
+      return requeued.slice(0, limit)
+    },
     pending: async (limit) => {
       limits.pending.push(limit)
       order.push('pending')
@@ -209,7 +242,14 @@ describe('the Colony scrubbing what a walker wrote', () => {
 
     const outcome = await walkProseTick({ store, model }, 10)
 
-    expect(outcome).toEqual({ judged: 2, scrubbed: 2, refused: 0, failed: 0, repeats: 0 })
+    expect(outcome).toEqual({
+      judged: 2,
+      scrubbed: 2,
+      refused: 0,
+      failed: 0,
+      repeats: 0,
+      requeued: 0,
+    })
   })
 
   it('re-scrubs a finished approval through the same marker and stores only redacted prose', async () => {
@@ -219,7 +259,14 @@ describe('the Colony scrubbing what a walker wrote', () => {
 
     const outcome = await walkProseTick({ store, model }, 10)
 
-    expect(outcome).toEqual({ judged: 1, scrubbed: 1, refused: 0, failed: 0, repeats: 0 })
+    expect(outcome).toEqual({
+      judged: 1,
+      scrubbed: 1,
+      refused: 0,
+      failed: 0,
+      repeats: 0,
+      requeued: 0,
+    })
     expect(rescrubbed).toEqual([
       {
         walkId: '11111111-1111-4111-8111-111111111111',
@@ -237,7 +284,14 @@ describe('the Colony scrubbing what a walker wrote', () => {
 
     const outcome = await walkProseTick({ store, model }, 10)
 
-    expect(outcome).toEqual({ judged: 1, scrubbed: 0, refused: 1, failed: 0, repeats: 0 })
+    expect(outcome).toEqual({
+      judged: 1,
+      scrubbed: 0,
+      refused: 1,
+      failed: 0,
+      repeats: 0,
+      requeued: 0,
+    })
     expect(rescrubbed).toEqual([
       {
         walkId: '11111111-1111-4111-8111-111111111111',
@@ -282,10 +336,22 @@ describe('the Colony scrubbing what a walker wrote', () => {
 
     const outcome = await walkProseTick({ store, model }, 2)
 
-    expect(outcome).toEqual({ judged: 4, scrubbed: 4, refused: 0, failed: 0, repeats: 0 })
+    expect(outcome).toEqual({
+      judged: 4,
+      scrubbed: 4,
+      refused: 0,
+      failed: 0,
+      repeats: 0,
+      requeued: 0,
+    })
     expect(written).toHaveLength(2)
     expect(rescrubbed).toHaveLength(2)
-    expect(limits).toEqual({ pending: [2], approvedWithoutScrub: [2], markDuplicates: [2] })
+    expect(limits).toEqual({
+      pending: [2],
+      approvedWithoutScrub: [2],
+      markDuplicates: [2],
+      requeueRefused: [2],
+    })
     expect(written.map(({ walkId }) => walkId)).not.toContain(
       '33333333-3333-4333-8333-333333333333',
     )
@@ -304,7 +370,7 @@ describe('the Colony scrubbing what a walker wrote', () => {
      * Last on purpose (`#1109`, 1): a scrub written a moment ago is a text this
      * comparison should see on the same tick rather than the next one.
      */
-    expect(order).toEqual(['pending', 'approvedWithoutScrub', 'markDuplicates'])
+    expect(order).toEqual(['requeueRefused', 'pending', 'approvedWithoutScrub', 'markDuplicates'])
     expect(outcome.repeats).toBe(1)
   })
 
@@ -314,7 +380,14 @@ describe('the Colony scrubbing what a walker wrote', () => {
 
     const outcome = await walkProseTick({ store, model }, 10)
 
-    expect(outcome).toEqual({ judged: 0, scrubbed: 0, refused: 0, failed: 0, repeats: 1 })
+    expect(outcome).toEqual({
+      judged: 0,
+      scrubbed: 0,
+      refused: 0,
+      failed: 0,
+      repeats: 1,
+      requeued: 0,
+    })
     /** The signal is a trigram comparison in the database, so nothing was asked. */
     expect(asked).toHaveLength(0)
   })
@@ -331,5 +404,105 @@ describe('the Colony scrubbing what a walker wrote', () => {
 
     expect(limits.markDuplicates).toEqual([1])
     expect(outcome.repeats).toBe(1)
+  })
+
+  it('puts the refusals an older scrubber reached back before it reads the queue', async () => {
+    const { model } = answering()
+    const { store, order } = recording([], [], [], [aStaleRefusal()])
+
+    const outcome = await walkProseTick({ store, model }, 10)
+
+    /**
+     * First on purpose (`#1108`, 6): what it writes is `pending`, so a refusal
+     * put back a moment ago is read by the queue below on this tick rather than
+     * the next. That is what makes a version bump one run and not two.
+     */
+    expect(order[0]).toBe('requeueRefused')
+    expect(outcome.requeued).toBe(1)
+  })
+
+  it('counts a re-queued refusal apart from a judgement, because nothing was read', async () => {
+    const { model, asked } = answering()
+    const { store } = recording([], [], [], [aStaleRefusal()])
+
+    const outcome = await walkProseTick({ store, model }, 10)
+
+    expect(outcome).toEqual({
+      judged: 0,
+      scrubbed: 0,
+      refused: 0,
+      failed: 0,
+      repeats: 0,
+      requeued: 1,
+    })
+    /** One predicate in the database, so no model call was paid for. */
+    expect(asked).toHaveLength(0)
+  })
+
+  it('bounds the re-queue by the same batch as every other pass', async () => {
+    const { model } = answering()
+    const { store, limits } = recording(
+      [],
+      [],
+      [],
+      [aStaleRefusal(), { ...aStaleRefusal(), walkId: '55555555-5555-4555-8555-555555555555' }],
+    )
+
+    const outcome = await walkProseTick({ store, model }, 1)
+
+    expect(limits.requeueRefused).toEqual([1])
+    expect(outcome.requeued).toBe(1)
+  })
+})
+
+/**
+ * The scrubbing path, as the bytes that decide a verdict (`#1108`, 3).
+ *
+ * Both prompts, the choices the red-line question is answered with, the span
+ * kinds the marking may return and the fields judged. Everything a change to
+ * would make an earlier refusal a verdict a different scrubber reached — and
+ * nothing else, because a digest over the whole file would fail on a comment.
+ */
+const scrubberInputs = () =>
+  createHash('sha256')
+    .update(
+      JSON.stringify([
+        ANSWER_RED_LINE_PROMPT,
+        CONFIDENTIALITY_PROMPT,
+        WALK_RED_LINE_CHOICES,
+        ConfidentialSpanKindSchema.options,
+        WALK_PROSE_FIELDS,
+      ]),
+    )
+    .digest('hex')
+
+/** What {@link scrubberInputs} came to when `WALK_PROSE_SCRUBBER_VERSION` was last decided. */
+const SCRUBBER_INPUTS_DIGEST = 'aba59904ce5711f81bc9438d3fdb090012721a00fce1a3c712eb60a0bcf919b5'
+
+/**
+ * **What stops the version being forgotten is this test and not a mechanism**
+ * (`#1108`, 3).
+ *
+ * A runtime hash would re-read every refusal the Colony holds on a whitespace
+ * fix, and no reviewer reading that diff could tell whether it was about to.
+ * This fails instead, in the pull request that changed the prompt, and says what
+ * to do about it — which is a decision made by a person rather than by a
+ * checksum.
+ */
+describe('pinning the scrubber version to the scrubber', () => {
+  it('fails when the scrubbing path changes and the version does not', () => {
+    expect(
+      scrubberInputs(),
+      'The scrubbing path changed. If a page could now be judged differently, bump ' +
+        'WALK_PROSE_SCRUBBER_VERSION in packages/core/src/account/walk-prose.ts — every ' +
+        'refusal stamped below it is put back in front of the scrubber — and record the new ' +
+        'digest here. If the change cannot move a verdict, record the digest alone and leave ' +
+        'the version where it is.',
+    ).toBe(SCRUBBER_INPUTS_DIGEST)
+  })
+
+  /** The version the digest above belongs to, so the pair is read together. */
+  it('is the version the runner and the storage both stamp with', () => {
+    expect(WALK_PROSE_SCRUBBER_VERSION).toBe(1)
   })
 })

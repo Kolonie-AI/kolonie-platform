@@ -24,13 +24,18 @@ export function badgeSweep(sweep: () => Promise<BadgesAwarded>): SweepSpec<Badge
 }
 
 /**
- * Paying the walks whose entries a steward has published (`#858`).
+ * Paying the walks whose words have reached their readers (`#858`, `#1033`).
  *
  * **It logs the pairs it paid for and never the citizens it paid.** A quiet pass
- * is the ordinary one — most days no steward published anything — and a pass
- * that did pay is worth a line, because *which providers the Atlas gained* is
- * the number this feature exists to move. Who earned it is on the reputation
- * record, where it belongs, and not in a runner's log.
+ * is the ordinary one — most days nothing new clears moderation — and a pass
+ * that did pay is worth a line, because *which providers the Atlas learned
+ * about* is the number this feature exists to move. Who earned it is on the
+ * reputation record, where it belongs, and not in a runner's log.
+ *
+ * **The outcome is in the line and the amount is not** (`#1033`). Every outcome
+ * pays the same now, so a log that said only *paid: 4* would leave the one thing
+ * worth watching — whether failed walks are actually being paid — readable
+ * nowhere but the database. A pair and its outcome name no citizen.
  */
 export function walkRewardSweep(
   sweep: () => Promise<readonly RewardedWalk[]>,
@@ -47,7 +52,7 @@ export function walkRewardSweep(
             fields: {
               event: 'walks.rewarded',
               paid: paid.length,
-              providers: paid.map((walk) => `${walk.kind}:${walk.provider}`),
+              providers: paid.map((walk) => `${walk.kind}:${walk.provider}:${walk.outcome}`),
             },
           },
   }

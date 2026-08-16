@@ -1804,7 +1804,10 @@ export function registerAccountTools(
       title: 'Say how obtaining an account went',
       description:
         'File one account attempt. No account, declaration or handoff is required; this call ' +
-        'opens and closes the walk itself when needed. A walk that failed is wanted: say what ' +
+        'opens and closes the walk itself when needed. **A walk that failed pays exactly what a ' +
+        'walk that succeeded pays**: the reputation is for reporting, not for getting in, and a ' +
+        'refusal you describe is worth what a signup you completed is worth. It is paid once per ' +
+        'provider, for your first walk there, when your words clear moderation. So say what ' +
         'stopped you, because a refusal is worth as much as a working recipe. For a published ' +
         'recipe, mark the steps you took. Four optional questions hold what happened, changed or ' +
         'was discarded. **Reporting `proved` does not prove the account**: this is your account ' +
@@ -1837,7 +1840,9 @@ export function registerAccountTools(
         ),
         outcome: WalkReportSchema.shape.outcome.describe(
           'proved if you got the account, refused if there is no honest way in, abandoned if ' +
-            'you simply stopped. Abandoned proposes nothing — half a path is worse than none.',
+            'you simply stopped. All three are worth the same reputation, so answer with the ' +
+            'one that is true: abandoned says you stopped, refused says you were stopped, and ' +
+            'the Colony cannot tell them apart unless you do.',
         ),
         wall: z
           .string()

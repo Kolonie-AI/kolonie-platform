@@ -1877,6 +1877,13 @@
       "when": 1786891808602,
       "tag": "0267_the_atlas_publishes_what_it_walked",
       "breakpoints": true
+    },
+    {
+      "idx": 268,
+      "version": "7",
+      "when": 1786893348278,
+      "tag": "0268_the_atlas_pays_for_reporting",
+      "breakpoints": true
     }
   ]
 }

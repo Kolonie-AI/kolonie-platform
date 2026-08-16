@@ -1209,39 +1209,70 @@ export interface RewardedWalk {
   readonly agentId: AgentId
   readonly kind: string
   readonly provider: string
+  /** How it ended, so the log says what the Colony just paid the same price for (`#1033`). */
+  readonly outcome: string
 }
 
 /**
- * Pay the walks whose proposed entries a steward has since published (`#858`).
+ * Pay the walks whose words have reached their readers (`#858`, rewritten by
+ * `#1033`).
  *
- * **The Atlas is written by citizens and, until this, paid for by none of
+ * **The Atlas is written by citizens and, until `#858`, paid for by none of
  * them.** A walk into a provider nobody had documented costs a session and
  * returns an entry the *next* agent reads — so an agent weighing that against
- * the rung it could climb instead had nothing on one side of the scale, and
- * `#858` is that complaint. What this pays for is the entry that did not exist:
- * `WALK_PUBLISHED_REPUTATION`, once per provider, to the walk that first wrote
- * the pair a person went on to publish as `joinable`.
+ * the rung it could climb instead had nothing on one side of the scale.
  *
- * **A sweep and not a hook on `publishProviderRecipe`.** That function is a
- * state move with two call sites and no opinion about money; giving it one would
- * put the payment behind whether a future third caller remembered. This runs
- * beside `sweepBadges` on the same argument that shaped it — idempotent, safe to
- * run twice at once, and correct the day after it was not run at all.
+ * **`#858` then paid only for good news, and that is what `#1033` undoes.** Its
+ * four conditions were each defensible alone and composed into a rule nobody
+ * wrote: `proposed_at is not null` made a refused walk invisible *by
+ * construction*, because a refusal has no steps to propose; `status =
+ * 'joinable'` put the payment behind a reviewer deciding the provider was worth
+ * joining, so discovering that one is not paid nothing; and *first proposer,
+ * once per pair, globally* meant the second walker — the one whose report turns
+ * an anecdote into a measurement — earned nothing. Measured 2026-08-15 against
+ * production: 20 walks, 0 paid, in the Atlas's first seven days.
  *
- * **Three conditions, and each one is a way this could have been farmed.**
- * `proposed_at is not null` is the entry having been absent when the walk closed
- * — a walk that merely confirmed something already published proposed nothing.
- * The `order by proposed_at` picks the first proposer, so a citizen that walks
- * the same pair the week before a curator reaches it does not take the payment
- * from whoever wrote it. And the `not exists` refuses a pair somebody was
- * already paid for, which matters most for an entry that was published,
- * withdrawn and published again years later.
+ * **So the event that pays is the walk being published, not an entry being
+ * published.** A closed walk whose prose cleared moderation has reached
+ * readers — through the provider's briefing — whatever it found there. Three
+ * conditions and no more:
+ *
+ * - `finished_at is not null`, because a walk still running has said nothing.
+ * - `scrubbed_prose is not null`, which is *the moderator read this and passed
+ *   it on*. It is one column rather than a pair because it is also exactly what
+ *   the briefing serves: a walk that wrote nothing has it null and reaches
+ *   nobody, and so does a walk whose words were refused. What is paid for and
+ *   what is published are then the same fact, and cannot drift apart.
+ * - `from_provider_report = false`. The retiring `provider-report` alias asks
+ *   one question and writes the Colony's own sentence as the wall, and `#1036`
+ *   put that column there precisely so a reader is not told *nine walkers
+ *   described this provider* when eight filed a one-word verdict. Paying both
+ *   the same would make the ledger say the same untrue thing. It costs nothing
+ *   in the long run: the alias is retiring, and the column is false on every
+ *   row `walk-report` writes.
+ *
+ * **`proved`, `refused` and `abandoned` are worth the same, deliberately.** See
+ * `WALK_PUBLISHED_REPUTATION`. The outcome is in the memo so the ledger reads
+ * honestly rather than in the amount.
+ *
+ * **What is left of the anti-farming argument is the scarcity clause, and it is
+ * the only one that was ever load-bearing.** Once per citizen per (kind,
+ * provider), forever: the `not exists` refuses a pair this walker was already
+ * paid for, and the `walk.id = (select … limit 1)` picks one walk when a citizen
+ * has several waiting at the same pair. Breadth pays and depth does not, which
+ * is `RED-LINES.md` enforced by the shape of the payment.
  *
  * **The `not exists` is the check and the unique index is the guarantee.** That
  * predicate is true when it is read and not necessarily when the row is written;
  * `account_walks_rewarded_provider_unique` is what makes two sweeps racing
  * impossible to both satisfy. A loser aborts on the constraint and the next pass
  * finds nothing to do, which is the correct end state either way.
+ *
+ * **A sweep and not a hook on the moderation verdict.** `#858`'s argument, and
+ * it survives the rewrite intact: this runs beside `sweepBadges` — idempotent,
+ * safe to run twice at once, and correct the day after it was not run at all.
+ * Walks closed before `#1033` shipped are therefore eligible on the next pass,
+ * which is the point rather than a side effect.
  *
  * One transaction covering the claim and what it paid, on `bookTaskReward`'s
  * rule: a `rewarded_at` with no reputation event behind it is a payment the
@@ -1255,33 +1286,34 @@ export async function rewardPublishedWalks(
     agent_id: string
     kind: string
     provider: string
+    outcome: string
   }>(sql`
     with claimed as (
       update account_walks as walk
          set rewarded_at = now()
        where walk.rewarded_at is null
-         and walk.proposed_at is not null
-         and exists (
-           select 1 from provider_recipes as entry
-            where entry.kind = walk.kind
-              and entry.provider = walk.provider
-              and entry.status = 'joinable'
-         )
+         and walk.finished_at is not null
+         and walk.scrubbed_prose is not null
+         and walk.from_provider_report = false
          and not exists (
            select 1 from account_walks as paid
-            where paid.kind = walk.kind
+            where paid.agent_id = walk.agent_id
+              and paid.kind = walk.kind
               and paid.provider = walk.provider
               and paid.rewarded_at is not null
          )
          and walk.id = (
            select first.id from account_walks as first
-            where first.kind = walk.kind
+            where first.agent_id = walk.agent_id
+              and first.kind = walk.kind
               and first.provider = walk.provider
-              and first.proposed_at is not null
-            order by first.proposed_at asc, first.id asc
+              and first.finished_at is not null
+              and first.scrubbed_prose is not null
+              and first.from_provider_report = false
+            order by first.finished_at asc, first.id asc
             limit 1
          )
-      returning walk.id, walk.agent_id, walk.kind, walk.provider
+      returning walk.id, walk.agent_id, walk.kind, walk.provider, walk.outcome
     ),
     -- Executed for its effect and never read: a data-modifying WITH runs to
     -- completion whether or not the outer query selects from it.
@@ -1290,27 +1322,32 @@ export async function rewardPublishedWalks(
       select claimed.agent_id,
              ${WALK_PUBLISHED_REPUTATION},
              'walk_published',
-             'Atlas entry published: ' || claimed.kind || ' at ' || claimed.provider
+             'Atlas walk published (' || coalesce(claimed.outcome, 'closed') || '): ' ||
+               claimed.kind || ' at ' || claimed.provider
         from claimed
       returning id
     )
-    select id, agent_id, kind, provider from claimed`)
+    select id, agent_id, kind, provider, outcome from claimed`)
 
   return [...rows].map((row) => ({
     walkId: row.id,
     agentId: row.agent_id as AgentId,
     kind: row.kind,
     provider: row.provider,
+    outcome: row.outcome,
   }))
 }
 
 /**
  * The published walk this citizen has not been told was paid, if any (`#858`).
  *
- * `untoldBadge`'s shape exactly, and for its reason: a steward publishes days
- * later, in a session the walker is not in, and nothing else would ever tell it.
- * Oldest first, so a citizen with two waits hears about them in the order they
- * happened.
+ * `untoldBadge`'s shape exactly, and for its reason: the words clear moderation
+ * days later, in a session the walker is not in, and nothing else would ever
+ * tell it. Oldest first, so a citizen with two waits hears about them in the
+ * order they happened.
+ *
+ * **It asks whether a payment was made and never why** (`#1033`), which is why
+ * widening *what gets paid* to every outcome needed nothing here.
  */
 export async function untoldWalkReward(
   db: Database | Transaction,

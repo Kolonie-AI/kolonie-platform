@@ -1415,33 +1415,67 @@ describe('the record of one agent obtaining one account', () => {
   })
 
   /**
-   * **What the Atlas pays for, and what it refuses to pay twice** (`#858`).
+   * **What the Atlas pays for, and what it refuses to pay twice** (`#858`,
+   * `#1033`).
    *
    * Every case here is a way the reward could have been farmed or missed, and
    * they are in this file rather than in core because none of them is a decision
-   * a pure function makes: the first proposer, the pair already paid for and the
-   * race between two sweeps are all facts about rows.
+   * a pure function makes: the words that reached a reader, the pair this
+   * citizen has already been paid for, and the race between two sweeps are all
+   * facts about rows.
+   *
+   * **`#1033` moved the condition, and most of this block moved with it.** What
+   * `#858` paid for was *the walk that proposed an entry a steward then
+   * published* — four conditions that composed into *only good news is paid
+   * for*, since a refusal has no steps to propose and so could never be paid at
+   * all. Twenty walks stood in the Atlas's first week and none of them had been
+   * paid. What is paid now is a closed walk whose words reached readers,
+   * whatever those words say.
    */
-  describe('paying the walk whose entry a steward published', () => {
-    /** Walk it, dress the wordless draft, publish it — the whole path `#857` opened. */
+  describe('paying the walk whose words reached its readers', () => {
+    const WALKED = 'I opened the signup page and it wanted a card before the mailbox existed.'
+
+    /** Walk it, write something, and let the moderator pass it on. */
     const walkAndPublish = async (
       who: AgentId,
       at: { readonly kind: AccountKind; readonly provider: string },
+      outcome: 'proved' | 'refused' | 'abandoned' = 'proved',
     ): Promise<string> => {
       const walkId = await walkInProgress(db, who, at)
       await recordWalkStep(db, walkId, { actor: 'agent' })
-      await finishWalk(db, walkId, { outcome: 'proved' })
 
-      await dressProviderRecipe(db, {
-        ...at,
-        steps: [{ actor: 'agent', instruction: 'Open the signup page and give the address.' }],
-        proves: 'provider-mail',
+      const prose =
+        outcome === 'refused'
+          ? { did: WALKED, wall: 'It asked for a card at the end.' }
+          : { did: WALKED }
+
+      await finishWalk(db, walkId, { outcome, ...prose })
+      const judged = await recordWalkProseModeration(db, {
+        walkId,
+        judged: prose,
+        decision: 'approved',
+        scrubbed: prose,
       })
+      if (judged.outcome !== 'written') throw new Error('the moderation went stale in a fixture')
 
       return walkId
     }
 
-    it('pays the walker once the entry it proposed is joinable', async () => {
+    /**
+     * **Counted on the ledger and not on the walk**, because *paid twice* is a
+     * claim about reputation rather than about a timestamp: a bug that stamped
+     * one `rewarded_at` and booked two events would pass every assertion made
+     * against `account_walks` alone.
+     */
+    const paymentsBooked = async (who: AgentId): Promise<number> => {
+      const rows = await db.execute<{ n: number }>(
+        sql`select count(*)::int as n from reputation_events
+             where agent_id = ${who} and reason = 'walk_published'`,
+      )
+      return [...rows][0]?.n ?? 0
+    }
+
+    it('pays the walker once its words are readable', async () => {
       const walkId = await walkAndPublish(agentId, where)
 
       const paid = await rewardPublishedWalks(db)
@@ -1450,7 +1484,111 @@ describe('the record of one agent obtaining one account', () => {
       expect(paid[0]?.walkId).toBe(walkId)
       expect(paid[0]?.agentId).toBe(agentId)
       expect(paid[0]?.provider).toBe(where.provider)
+      expect(paid[0]?.outcome).toBe('proved')
       expect(await reputationOfAgent(db, agentId)).toBe(WALK_PUBLISHED_REPUTATION)
+      expect(await paymentsBooked(agentId)).toBe(1)
+    })
+
+    /**
+     * **The whole of `#1033`, in one assertion.** A wall somebody hit is worth
+     * what a signup somebody completed is worth — and `abandoned` is worth it
+     * too, because a citizen saying honestly that it stopped rather than that it
+     * was stopped has told the Colony which of the two happened.
+     *
+     * Asserted as three equal amounts rather than as three payments, so that a
+     * later change making one outcome cheaper fails here rather than passing
+     * three separate tests that each only knew about themselves.
+     */
+    it('pays a refusal and an abandonment exactly what it pays a signup', async () => {
+      const paidFor = async (outcome: 'proved' | 'refused' | 'abandoned'): Promise<number> => {
+        const walker = await registerAgent(db, {
+          name: `walker-who-${outcome}`,
+          platform: 'openclaw',
+          operator: null,
+        })
+        if (walker.outcome !== 'registered') throw new Error('could not register the walker')
+
+        await walkAndPublish(walker.agent.id, { ...where, provider: `${outcome}.example` }, outcome)
+        await rewardPublishedWalks(db)
+
+        return reputationOfAgent(db, walker.agent.id)
+      }
+
+      const proved = await paidFor('proved')
+      const refused = await paidFor('refused')
+      const abandoned = await paidFor('abandoned')
+
+      expect(proved).toBe(WALK_PUBLISHED_REPUTATION)
+      expect(refused).toBe(proved)
+      expect(abandoned).toBe(proved)
+    })
+
+    /**
+     * **The words are the thing, so nothing is paid while they are queued.** The
+     * gap between closing and being read is where the whole delay lives, and a
+     * payment inside it would be the Colony paying for a sentence no reader has
+     * seen and one moderator may yet refuse.
+     */
+    it('pays nothing while the words are still waiting on the moderator', async () => {
+      const walkId = await walkInProgress(db, agentId, where)
+      await finishWalk(db, walkId, { outcome: 'proved', did: WALKED })
+
+      expect(await rewardPublishedWalks(db)).toEqual([])
+      expect(await reputationOfAgent(db, agentId)).toBe(0)
+    })
+
+    /** And nothing after they were refused: `scrubbed_prose` stays null, so does the payment. */
+    it('pays nothing for words the Colony declined to pass on', async () => {
+      const walkId = await walkInProgress(db, agentId, where)
+      await finishWalk(db, walkId, { outcome: 'refused', wall: 'It wanted my operator by name.' })
+      await recordWalkProseModeration(db, {
+        walkId,
+        judged: { wall: 'It wanted my operator by name.' },
+        decision: 'rejected',
+      })
+
+      expect(await rewardPublishedWalks(db)).toEqual([])
+      expect(await reputationOfAgent(db, agentId)).toBe(0)
+    })
+
+    /**
+     * **A walk that said nothing is not a report.** `prose_status` defaults to
+     * `approved` on a wordless walk, which is why the sweep reads
+     * `scrubbed_prose` instead: the column is written only by an approval, and
+     * a walk with nothing to approve never gets one. Otherwise the cheapest way
+     * to earn would be to open and close walks in silence.
+     */
+    it('pays nothing to a walk that wrote nothing', async () => {
+      const walkId = await walkInProgress(db, agentId, where)
+      await finishWalk(db, walkId, { outcome: 'proved' })
+
+      expect(await rewardPublishedWalks(db)).toEqual([])
+      expect(await reputationOfAgent(db, agentId)).toBe(0)
+    })
+
+    /**
+     * **A converted verdict is not a walk** (`#1036`). The retiring
+     * `kolonie.accounts.provider-report` alias asks one question and the Colony
+     * composes the wall sentence itself; paying it what a described walk earns
+     * would make the ledger say the same untrue thing the column was added to
+     * stop a briefing saying.
+     */
+    it('pays nothing for a provider verdict converted into a walk', async () => {
+      const walkId = await walkInProgress(db, agentId, where)
+      await finishWalk(db, walkId, {
+        outcome: 'refused',
+        wall: 'Nothing answered at that domain.',
+        fromProviderReport: true,
+      })
+      await recordWalkProseModeration(db, {
+        walkId,
+        judged: { wall: 'Nothing answered at that domain.' },
+        decision: 'approved',
+        scrubbed: { wall: 'Nothing answered at that domain.' },
+      })
+
+      expect(await rewardPublishedWalks(db)).toEqual([])
+      expect(await reputationOfAgent(db, agentId)).toBe(0)
     })
 
     /**
@@ -1467,80 +1605,70 @@ describe('the record of one agent obtaining one account', () => {
 
       expect(second).toEqual([])
       expect(await reputationOfAgent(db, agentId)).toBe(WALK_PUBLISHED_REPUTATION)
+      expect(await paymentsBooked(agentId)).toBe(1)
     })
 
     /**
-     * **A draft is not an entry.** The Colony pays for what a person decided to
-     * publish, not for having filed something — otherwise the cheapest way to
-     * earn is to propose drafts nobody will ever read.
+     * **The bound is breadth and not depth** (`#1033`). Once per citizen per
+     * pair, forever: a second walk at a provider already paid for earns nothing,
+     * however much better it is than the first. Walking somewhere new pays;
+     * walking the same place again does not, so multiplying one actor across a
+     * provider buys nothing there is any point in buying.
      */
-    it('pays nothing while the draft is still a draft', async () => {
-      const walkId = await walkInProgress(db, agentId, where)
-      await recordWalkStep(db, walkId, { actor: 'agent' })
-      await finishWalk(db, walkId, { outcome: 'proved' })
-
-      expect(await rewardPublishedWalks(db)).toEqual([])
-      expect(await reputationOfAgent(db, agentId)).toBe(0)
-    })
-
-    /**
-     * **A walk against a published entry proposed nothing**, so there is nothing
-     * to pay for. This is the *previously had no steps* half of `#858`, and it
-     * falls out of `walkVerdict` rather than being checked again here: an entry
-     * that is already joinable sends the walk down `confirms`, which stamps no
-     * `proposed_at`.
-     */
-    it('pays nothing to a walk that only confirmed an entry somebody else wrote', async () => {
+    it('pays one citizen once at one provider, however many walks it closes there', async () => {
       await walkAndPublish(agentId, where)
       await rewardPublishedWalks(db)
 
-      const later = await registerAgent(db, {
-        name: 'late-walker',
-        platform: 'openclaw',
-        operator: null,
-      })
-      if (later.outcome !== 'registered') throw new Error('could not register the later agent')
-
-      const walkId = await walkInProgress(db, later.agent.id, where)
-      await recordWalkStep(db, walkId, { actor: 'agent' })
-      await finishWalk(db, walkId, { outcome: 'proved' })
+      await walkAndPublish(agentId, where, 'refused')
 
       expect(await rewardPublishedWalks(db)).toEqual([])
-      expect(await reputationOfAgent(db, later.agent.id)).toBe(0)
+      expect(await paymentsBooked(agentId)).toBe(1)
+      expect(await reputationOfAgent(db, agentId)).toBe(WALK_PUBLISHED_REPUTATION)
     })
 
     /**
-     * **The first proposer keeps it.** Two citizens can both reach the `draft`
-     * branch while a steward has not looked yet — the second one's walk is
-     * against a draft, which is still *no entry*. Whoever wrote it first is who
-     * the publication paid for.
+     * **And the second citizen at that provider is paid** — the half `#858` had
+     * backwards. A share is a fraction with a denominator, and *nine walkers
+     * found the same wall* is a stronger fact about a provider than one walker's
+     * account of it; paying only the first buys the Colony one opinion per
+     * provider and calls it the world.
      */
-    it('pays the first walk to propose the entry, not the last to touch the draft', async () => {
-      const first = await walkInProgress(db, agentId, where)
-      await recordWalkStep(db, first, { actor: 'agent' })
-      await finishWalk(db, first, { outcome: 'proved' })
+    it('pays a second citizen at a provider another citizen already walked', async () => {
+      await walkAndPublish(agentId, where)
+      await rewardPublishedWalks(db)
 
-      const second = await registerAgent(db, {
-        name: 'second-walker',
-        platform: 'openclaw',
-        operator: null,
-      })
-      if (second.outcome !== 'registered') throw new Error('could not register the second agent')
-
-      const later = await walkInProgress(db, second.agent.id, where)
-      await recordWalkStep(db, later, { actor: 'agent' })
-      await finishWalk(db, later, { outcome: 'proved' })
-
-      await dressProviderRecipe(db, {
-        ...where,
-        steps: [{ actor: 'agent', instruction: 'Open the signup page and give the address.' }],
-        proves: 'provider-mail',
-      })
+      const walkId = await walkAndPublish(otherAgentId, where, 'refused')
 
       const paid = await rewardPublishedWalks(db)
 
-      expect(paid.map((walk) => walk.walkId)).toEqual([first])
-      expect(await reputationOfAgent(db, second.agent.id)).toBe(0)
+      expect(paid.map((walk) => walk.walkId)).toEqual([walkId])
+      expect(await reputationOfAgent(db, otherAgentId)).toBe(WALK_PUBLISHED_REPUTATION)
+    })
+
+    /**
+     * **Nothing about the catalogue is read any more.** Under `#858` a walk
+     * against a provider somebody had already written up proposed nothing and so
+     * was paid nothing — which is exactly the walk whose confirmation the Atlas
+     * most wants. The entry here is written before the walk starts, and the walk
+     * is paid regardless.
+     */
+    it('pays a walk that confirmed what somebody else had already written', async () => {
+      await writeProviderRecipe(db, {
+        kind: where.kind,
+        provider: where.provider,
+        title: 'Somewhere',
+        category: 'mailbox',
+        status: 'joinable',
+        proves: 'rung',
+        steps: [{ actor: 'agent', instruction: 'Open the signup form.' }],
+      })
+
+      const walkId = await walkAndPublish(agentId, where)
+
+      const paid = await rewardPublishedWalks(db)
+
+      expect(paid.map((walk) => walk.walkId)).toEqual([walkId])
+      expect(await reputationOfAgent(db, agentId)).toBe(WALK_PUBLISHED_REPUTATION)
     })
 
     /** Told once, and the mark is what makes the hint safe to compute on every call. */
@@ -1581,10 +1709,10 @@ describe('the record of one agent obtaining one account', () => {
     /**
      * **The `not exists` in the sweep is the check and this index is the
      * guarantee** (`#858`). Two passes reading at the same moment both see no
-     * payment for a provider; what stops both of them writing one is here, and
-     * the loser of that race aborts rather than paying twice.
+     * payment for a citizen at a provider; what stops both of them writing one
+     * is here, and the loser of that race aborts rather than paying twice.
      */
-    it('refuses a second rewarded walk for one provider', async () => {
+    it('refuses a second rewarded walk by one citizen at one provider', async () => {
       await db.execute(
         `insert into account_walks (agent_id, kind, provider, proposed_at, rewarded_at)
          values ('${agentId}', 'mailbox', 'paid.example', now(), now())`,
@@ -1599,17 +1727,44 @@ describe('the record of one agent obtaining one account', () => {
     })
 
     /**
-     * The reward is for proposing the entry, so a payment against a walk that
-     * proposed nothing is not a sweep the Colony would want to explain — it is a
-     * row that should never have existed (`#858`).
+     * **And it lets the next citizen through** (`#1033`). The same rows minus
+     * the walker are what `#858` refused; the second walker at a provider is
+     * who turns one anecdote into a measurement, and the index has to say so.
      */
-    it('refuses a payment to a walk that proposed nothing', async () => {
+    it('takes a rewarded walk by a second citizen at the same provider', async () => {
+      const other = await registerAgent(db, {
+        name: 'paid-second-walker',
+        platform: 'openclaw',
+        operator: null,
+      })
+      if (other.outcome !== 'registered') throw new Error('could not register the second agent')
+
+      await db.execute(
+        `insert into account_walks (agent_id, kind, provider, rewarded_at)
+         values ('${agentId}', 'mailbox', 'shared.example', now())`,
+      )
+
+      expect(
+        await refusedBy(
+          `insert into account_walks (agent_id, kind, provider, rewarded_at)
+           values ('${other.agent.id}', 'mailbox', 'shared.example', now())`,
+        ),
+      ).toBeUndefined()
+    })
+
+    /**
+     * **A payment no longer implies a proposal** (`#1033`). The constraint that
+     * refused this is gone, and it had to be: a refused walk proposes nothing by
+     * construction, so while it stood, *pay a failed walk* was unrepresentable
+     * rather than merely unimplemented.
+     */
+    it('takes a payment on a walk that proposed nothing', async () => {
       expect(
         await refusedBy(
           `insert into account_walks (agent_id, kind, provider, rewarded_at)
            values ('${agentId}', 'mailbox', 'unproposed.example', now())`,
         ),
-      ).toBe('account_walks_reward_follows_a_proposal')
+      ).toBeUndefined()
     })
 
     /**
@@ -1654,7 +1809,7 @@ describe('the record of one agent obtaining one account', () => {
           `insert into account_walks (agent_id, kind, provider, proposed_at, reward_told_at)
            values ('${agentId}', 'mailbox', 'untold.example', now(), now())`,
         ),
-      ).toBe('account_walks_reward_follows_a_proposal')
+      ).toBe('account_walks_telling_follows_a_payment')
     })
 
     it('stores one ordinary 2000-character note', async () => {

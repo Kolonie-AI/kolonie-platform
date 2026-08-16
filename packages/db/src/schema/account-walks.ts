@@ -243,34 +243,47 @@ export const accountWalks = pgTable(
     index('account_walks_provider_idx').on(table.kind, table.provider, table.finishedAt),
 
     /**
-     * **One provider is paid for once, and the database is what says so**
-     * (`#858`).
+     * **One citizen is paid once per provider, and the database is what says
+     * so** (`#858`, widened by `#1033`).
      *
-     * The sweep already declines to pay a pair somebody was paid for, and that
-     * check is a `not exists` — true when it is read and not afterwards. This is
-     * the guarantee: two sweeps racing, or a second walk published years later
-     * against an entry that had drifted back to a draft, cannot both be paid.
-     * The Atlas pays for the entry that did not exist, not for each walk that
-     * touched it.
+     * The sweep already declines to pay a citizen for a pair it was paid for,
+     * and that check is a `not exists` — true when it is read and not
+     * afterwards. This is the guarantee: two sweeps racing, or a second walk
+     * closed years later, cannot both be paid. A loser aborts on this index and
+     * the next pass finds nothing to do, which is the correct end state either
+     * way.
+     *
+     * **`agent_id` is in the key because `#1033` moved what is scarce.** `#858`
+     * paid for the entry that did not exist, so the pair alone was unique and
+     * the second citizen to walk a provider earned nothing — but a share needs a
+     * denominator, and the walker whose report turns one anecdote into a
+     * measurement is doing the work the Atlas is for. What stays bounded is
+     * depth: the same citizen at the same pair, twice, is the farm this refuses.
      *
      * Partial, so the unrewarded walks — nearly all of them, several per
      * provider — are not the thing being kept unique.
      */
     uniqueIndex('account_walks_rewarded_provider_unique')
-      .on(table.kind, table.provider)
+      .on(table.agentId, table.kind, table.provider)
       .where(sql`${table.rewardedAt} is not null`),
 
     /**
-     * A payment implies the entry it paid for, and telling implies a payment.
+     * Telling implies a payment.
      *
-     * Both halves of the same rule: `rewarded_at` is meaningless on a walk that
-     * proposed nothing, and *the citizen was told it was paid* is a lie on a walk
-     * nothing was paid for.
+     * *The citizen was told it was paid* is a lie on a walk nothing was paid
+     * for, and this is what makes `reward_told_at` unable to say it.
+     *
+     * **The other half of this rule was `rewarded_at is null or proposed_at is
+     * not null`, and `#1033` deleted it.** It read as bookkeeping — a payment
+     * implies the entry it paid for — and was in fact the whole reason a failed
+     * walk could never be paid: a refusal proposes nothing by construction, so
+     * the constraint made *pay a refused walk* unrepresentable rather than
+     * merely unimplemented. What pays now is the walk reaching its readers, and
+     * `proposed_at` says nothing about that.
      */
     check(
-      'account_walks_reward_follows_a_proposal',
-      sql`(${table.rewardedAt} is null or ${table.proposedAt} is not null)
-          and (${table.rewardToldAt} is null or ${table.rewardedAt} is not null)`,
+      'account_walks_telling_follows_a_payment',
+      sql`${table.rewardToldAt} is null or ${table.rewardedAt} is not null`,
     ),
 
     /**

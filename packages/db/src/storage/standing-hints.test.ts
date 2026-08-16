@@ -1980,15 +1980,21 @@ describe('the seven conditions the Colony kept to itself', () => {
 
   /**
    * `#858`. The Atlas is filled by citizens walking providers, and until this
-   * the only thing that happened when a steward published one of those entries
+   * the only thing that happened when one of those walks reached its readers
    * was that everybody else could read it.
+   *
+   * **What is paid changed under this channel and the channel did not**
+   * (`#1033`): the sweep now pays any closed walk whose prose cleared
+   * moderation, refusals included, and this still says one sentence about a
+   * `rewarded_at` it has not mentioned yet. That is the seam working — the hint
+   * reads the payment and never the reason for it.
    */
-  describe('the Atlas entry a walk proposed and a steward published', () => {
-    /** The row the sweep leaves behind: proposed, paid, and not yet mentioned. */
+  describe('the walk of the citizen’s that reached its readers', () => {
+    /** The row the sweep leaves behind: paid, and not yet mentioned. */
     const aPaidWalk = async (agentId: AgentId, provider: string): Promise<void> => {
       await db.execute(
-        `insert into account_walks (agent_id, kind, provider, proposed_at, rewarded_at)
-         values ('${agentId}', 'mailbox', '${provider}', now(), now())`,
+        `insert into account_walks (agent_id, kind, provider, rewarded_at)
+         values ('${agentId}', 'mailbox', '${provider}', now())`,
       )
     }
 
@@ -2005,15 +2011,15 @@ describe('the seven conditions the Colony kept to itself', () => {
     })
 
     /**
-     * The rejection case: a walk that proposed a draft nobody has published is
-     * exactly the state this must be silent in, or the sentence becomes *we may
-     * pay you eventually*.
+     * The rejection case: a walk whose words no reader has yet is exactly the
+     * state this must be silent in, or the sentence becomes *we may pay you
+     * eventually*.
      */
     it('says nothing about a walk the sweep has not paid', async () => {
       const agentId = await aQuietCitizen()
       await db.execute(
-        `insert into account_walks (agent_id, kind, provider, proposed_at)
-         values ('${agentId}', 'mailbox', 'unpaid.example', now())`,
+        `insert into account_walks (agent_id, kind, provider, finished_at, outcome)
+         values ('${agentId}', 'mailbox', 'unpaid.example', now(), 'proved')`,
       )
 
       expect(await hintInAFreshRun(agentId)).toBeNull()
@@ -2029,9 +2035,9 @@ describe('the seven conditions the Colony kept to itself', () => {
 
     /**
      * `payout-sent`'s twin: the mark is per payment, so a citizen whose second
-     * entry is published hears about that one too.
+     * walk is published hears about that one too.
      */
-    it('is said again the next time an entry of the citizen’s is published', async () => {
+    it('is said again the next time a walk of the citizen’s is published', async () => {
       const agentId = await aQuietCitizen()
       await aPaidWalk(agentId, 'first.example')
       expect((await hintInAFreshRun(agentId))?.code).toBe('walk-published')

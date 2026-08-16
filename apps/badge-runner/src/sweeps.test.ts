@@ -21,18 +21,24 @@ describe('what a pass is worth saying', () => {
       agentId: 'an-agent' as AgentId,
       kind: 'mailbox',
       provider: 'somewhere.example',
+      outcome: 'refused',
     }
 
-    /** The ordinary pass: most hours no steward published anything. */
-    it('says nothing when no entry was published', () => {
+    /** The ordinary pass: most hours nothing new has cleared moderation. */
+    it('says nothing when no walk was published', () => {
       expect(walkRewardSweep(async () => []).report([])).toBeUndefined()
     })
 
-    it('names the providers the Atlas gained', () => {
+    /**
+     * **The outcome is in the line** (`#1033`). Every outcome pays the same, so
+     * a count alone would leave *is the Colony actually paying failed walks*
+     * readable nowhere but the database — and that is the whole claim.
+     */
+    it('names the providers the Atlas learned about, and how each walk ended', () => {
       const line = walkRewardSweep(async () => []).report([paid])
 
       expect(line?.fields['event']).toBe('walks.rewarded')
-      expect(line?.fields['providers']).toEqual(['mailbox:somewhere.example'])
+      expect(line?.fields['providers']).toEqual(['mailbox:somewhere.example:refused'])
     })
 
     /**

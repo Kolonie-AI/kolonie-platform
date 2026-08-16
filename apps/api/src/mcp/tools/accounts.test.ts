@@ -153,7 +153,7 @@ describe('kolonie.accounts.walk-report', () => {
     await close()
   })
 
-  it('says that reporting needs no account and that failed walks are wanted', async () => {
+  it('says that reporting needs no account and that a failed walk pays the same', async () => {
     const { colony, apiKey } = await registeredCitizen()
     const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
 
@@ -161,7 +161,14 @@ describe('kolonie.accounts.walk-report', () => {
     const report = tools.find((tool) => tool.name === 'kolonie.accounts.walk-report')
 
     expect(report?.description).toContain('No account, declaration or handoff is required')
-    expect(report?.description).toContain('A walk that failed is wanted')
+    /**
+     * **The price, in the description, in words** (`#1033`). A citizen reads
+     * this before it decides whether a refusal is worth filing, and until the
+     * sentence was here the answer *it pays the same* existed only in the sweep.
+     */
+    expect(report?.description).toContain(
+      'A walk that failed pays exactly what a walk that succeeded pays',
+    )
     await close()
   })
 })

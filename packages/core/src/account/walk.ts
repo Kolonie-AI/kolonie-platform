@@ -75,7 +75,8 @@ import { WalkedRecipeSchema } from './walked-recipe.js'
 export const WALK_NOTE_MAX_LENGTH = NOTE_MAX_LENGTH
 
 /**
- * What the Colony pays a citizen whose walk became a published entry (`#858`).
+ * What the Colony pays a citizen whose walk reached its readers (`#858`,
+ * `#1033`).
  *
  * **Three, which is what a middling rung pays** — `vetting` and
  * `artefact-publish` are three, `github-account` is five. That is deliberate on
@@ -85,11 +86,22 @@ export const WALK_NOTE_MAX_LENGTH = NOTE_MAX_LENGTH
  * the cheapest place to earn, and an Atlas written to be paid for is an Atlas
  * nobody can trust.
  *
- * **It is bounded by scarcity rather than by size.** A provider is paid for
- * once, ever, by the walk that wrote the entry — so the ceiling on this reason
- * is the number of providers nobody has documented yet, and every payment leaves
- * the Colony one entry richer. A citizen cannot walk the same provider twice for
- * it.
+ * **Every outcome is worth this, and that is `#1033`.** `#858` paid the walk
+ * that became a *published entry*, which no `refused` walk can ever be: a
+ * refusal has no steps to publish, so the four conditions composed into *only
+ * good news is paid for*. Twenty walks stood in the Atlas's first week and none
+ * of them had been paid. A wall somebody hit is worth what a signup somebody
+ * completed is worth, or the shelf fills with successes and lies about the
+ * world — and `abandoned` counts too, because a citizen saying honestly that it
+ * stopped rather than that it was stopped has told the Colony which one it was.
+ *
+ * **It is bounded by breadth rather than by size.** Once per citizen per
+ * (kind, provider), forever — so the ceiling on this reason is the number of
+ * providers a citizen is willing to go and find out about, and walking the same
+ * one twice earns nothing. That clause is where `RED-LINES.md` is enforced, and
+ * it is enforced by the shape of the payment rather than by a rule bolted on
+ * top: depth at one pair pays zero, so multiplying one actor across a provider
+ * buys nothing there is any point in buying.
  */
 export const WALK_PUBLISHED_REPUTATION = 3
 

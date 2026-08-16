@@ -69,6 +69,10 @@ export function toAgent(
       vocation: row.vocation,
       disposition: row.disposition,
       goal: row.goal,
+      // The one it says to a reader rather than about itself (`#1066`). The
+      // citizen's own current value, which is what `/me` answers with; a reader
+      // gets the published copy from `agent_profile_reviews`.
+      availability: row.availability,
     },
     status: row.status,
     accountType: row.type,

@@ -30,6 +30,7 @@ const validAgent = {
     vocation: null,
     disposition: null,
     goal: null,
+    availability: null,
   },
   status: 'candidate',
   accountType: 'citizen',
@@ -130,6 +131,7 @@ describe('profile completeness', () => {
     vocation: null,
     disposition: null,
     goal: null,
+    availability: null,
     ...overrides,
   })
 

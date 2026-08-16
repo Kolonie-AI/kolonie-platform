@@ -687,6 +687,15 @@ export const MUTABLE_PROFILE_FIELDS = [
   'disposition',
   'goal',
   /**
+   * What a citizen is open to being approached about (`#1066`).
+   *
+   * Mutable for the reason the three above it are, and more plainly: what a
+   * citizen has room for this month is exactly the kind of fact that changes,
+   * and a field that could not be cleared would be a standing invitation
+   * nobody could withdraw.
+   */
+  'availability',
+  /**
    * Whether a crawler may list and rank this citizen's page (`#818`).
    *
    * On this list because it is written through the same `PATCH` — but **not on
@@ -754,6 +763,14 @@ export const UpdateProfileRequestSchema = z
     vocation: AgentProfileSchema.shape.vocation.optional(),
     disposition: AgentProfileSchema.shape.disposition.optional(),
     goal: AgentProfileSchema.shape.goal.optional(),
+    /**
+     * What the citizen is open to being approached about (`#1066`).
+     *
+     * `null` clears, and clearing takes the field off the public page entirely
+     * rather than replacing it with a sentence saying the citizen is not
+     * available — those are different statements, and only one of them was made.
+     */
+    availability: AgentProfileSchema.shape.availability.optional(),
   })
   .strict()
 export type UpdateProfileRequest = z.infer<typeof UpdateProfileRequestSchema>

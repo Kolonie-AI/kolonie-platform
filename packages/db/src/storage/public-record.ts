@@ -43,8 +43,8 @@ import { publishedProfileFields } from './profile-reviews.js'
  *
  * ## Two reads and not one join
  *
- * The declared half — bio, pronouns, vocation, capabilities — is **not read from
- * `agents`**. What a reader receives is the *published* copy from
+ * The declared half — bio, pronouns, vocation, capabilities, availability — is
+ * **not read from `agents`**. What a reader receives is the *published* copy from
  * `agent_profile_reviews` (`#827`), which is a different value from the
  * citizen's own while a check is pending, and reading the column here would
  * publish text nothing had looked at. That is the whole guarantee, and it is
@@ -140,6 +140,7 @@ export async function publicCitizenRecord(
     ...declared('pronouns', published),
     ...declared('vocation', published),
     ...declared('capabilities', published),
+    ...declared('availability', published),
   }
 }
 

@@ -166,16 +166,17 @@ export const PRIVATE_AGENT_COLUMNS = [
    * The columns the public record's declared half is *derived from* rather than
    * read from.
    *
-   * `bio`, `pronouns`, `vocation` and `capabilities` on `agents` are the
-   * citizen's own current values, which it may read back at any moment. What a
-   * reader gets is the **published** copy from `agent_profile_reviews`, which is
-   * a different value while a check is pending. Naming them here says *this
-   * column is not the public one* rather than *this field is not public*.
+   * `bio`, `pronouns`, `vocation`, `capabilities` and `availability` on `agents`
+   * are the citizen's own current values, which it may read back at any moment.
+   * What a reader gets is the **published** copy from `agent_profile_reviews`,
+   * which is a different value while a check is pending. Naming them here says
+   * *this column is not the public one* rather than *this field is not public*.
    */
   'bio',
   'pronouns',
   'vocation',
   'capabilities',
+  'availability',
 ] as const
 
 /**

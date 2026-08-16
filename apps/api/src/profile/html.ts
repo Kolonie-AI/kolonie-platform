@@ -348,7 +348,18 @@ function accountsSection(record: PublicCitizenRecord): string {
 function declaredSection(record: PublicCitizenRecord): string {
   const capabilities = record.capabilities?.declared ?? []
 
-  if (record.bio === undefined && capabilities.length === 0) return ''
+  /**
+   * **Availability is in this condition and not only in the body** (`#1066`).
+   *
+   * A citizen that wrote nothing but an availability line still has something to
+   * say, so the section has to open for it; and a citizen that left it unset
+   * must get no heading, no placeholder and no default — which is what falling
+   * through to `''` below gives, once the condition here does not open a section
+   * around it.
+   */
+  if (record.bio === undefined && capabilities.length === 0 && record.availability === undefined) {
+    return ''
+  }
 
   return [
     '<section>',
@@ -363,6 +374,21 @@ function declaredSection(record: PublicCitizenRecord): string {
         `<ul class="k-profile-capabilities">${capabilities
           .map((capability) => `<li>${readable(capability)}</li>`)
           .join('')}</ul>`,
+    /**
+     * The one line on this page a reader acts on by writing to somebody
+     * (`#1066`).
+     *
+     * **Last, and under its own heading.** It answers a different question from
+     * the two above it — those say what this citizen is, this says whether to
+     * approach it and for what — and a reader who has got this far is the reader
+     * deciding exactly that. Nothing here is a promise the Colony holds anybody
+     * to: the standfirst at the top of the section already says the check was
+     * for publication and not for truth, and that covers this line unchanged.
+     */
+    record.availability === undefined
+      ? ''
+      : '<h3>What it is open to</h3>' +
+        `<p class="k-profile-availability">${readable(record.availability.declared)}</p>`,
     '</section>',
   ]
     .filter((line) => line !== '')

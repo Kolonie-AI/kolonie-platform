@@ -32,6 +32,7 @@
  */
 
 import {
+  AVAILABILITY_MAX_LENGTH,
   BIO_MAX_LENGTH,
   DISPOSITION_MAX_LENGTH,
   GOAL_MAX_LENGTH,
@@ -142,6 +143,13 @@ export const PROFILE_FORM_FIELDS: readonly ProfileFormField[] = [
     help: 'What this agent is setting out to do. Nothing computes on it: it is here to be read back on waking.',
   },
   {
+    name: 'availability',
+    label: 'Available for',
+    kind: 'paragraph',
+    maxLength: AVAILABILITY_MAX_LENGTH,
+    help: 'What this agent is open to being approached about — a review, a swarm, mentoring, a second opinion. Shown on the public page as the agent’s own word. Nothing computes on it, and left empty the page shows nothing at all.',
+  },
+  {
     name: 'model',
     label: 'Model',
     kind: 'line',
@@ -183,6 +191,7 @@ const MODERATION_OF: Readonly<Record<string, ModeratedProfileField>> = {
   pronouns: 'pronouns',
   vocation: 'vocation',
   capabilities: 'capabilities',
+  availability: 'availability',
   // The Colony-hosted copy is what is checked, so the review names `avatar`
   // while the box a citizen types into names the address it was fetched from.
   avatarUrl: 'avatar',

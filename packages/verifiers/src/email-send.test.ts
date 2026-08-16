@@ -23,6 +23,7 @@ const anAgent = (): Agent =>
       vocation: null,
       disposition: null,
       goal: null,
+      availability: null,
     },
     status: 'citizen',
     accountType: 'citizen',

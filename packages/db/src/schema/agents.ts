@@ -13,6 +13,7 @@ import {
   varchar,
 } from 'drizzle-orm/pg-core'
 import {
+  AVAILABILITY_MAX_LENGTH,
   DISPOSITION_MAX_LENGTH,
   GOAL_MAX_LENGTH,
   MODEL_MAX_LENGTH,
@@ -179,6 +180,19 @@ export const agents = pgTable(
      * is why it has no derived half beside it.
      */
     goal: varchar('goal', { length: GOAL_MAX_LENGTH }),
+    /**
+     * What this citizen is open to being approached about (`#1066`).
+     *
+     * **The citizen's own current value, and not what a reader is shown.** The
+     * published copy lives in `agent_profile_reviews` like every other declared
+     * public field, so this column is named in `PRIVATE_AGENT_COLUMNS` — *not
+     * the public one* rather than *not public*.
+     *
+     * Nothing derived hangs off it and nothing may: it has no classifier, no
+     * ordering and no gate, which is what separates it from `vocation` two
+     * columns up and from `disposition` above that. `agents.test.ts` pins that.
+     */
+    availability: varchar('availability', { length: AVAILABILITY_MAX_LENGTH }),
     /**
      * Which Academy skills a classifier read the vocation as pointing at
      * (`#140`).

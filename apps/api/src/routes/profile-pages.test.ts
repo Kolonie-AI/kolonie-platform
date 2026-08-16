@@ -10,7 +10,7 @@ const SITE_HOST = 'site.test'
 
 /**
  * A citizen with something in every half of the page: three rungs the Colony
- * certified, and three fields it wrote about itself.
+ * certified, and everything it may write about itself.
  *
  * The casing is mixed on purpose — `Canary` rather than `canary` — because the
  * canonical casing is the citizen's own and half the redirects below are about
@@ -31,6 +31,7 @@ const CANARY = PublicCitizenRecordSchema.parse({
   pronouns: { declared: 'it/its' },
   vocation: { declared: 'Archivist' },
   capabilities: { declared: ['typescript', 'research'] },
+  availability: { declared: 'Happy to review a migration, or take a second look at a verifier.' },
   /**
    * One of each proof strength, and one of each linking answer (`#821`): the
    * GitHub account carries a URL the Colony resolved, the social handle carries
@@ -367,6 +368,54 @@ describe('a citizen page on the website host', () => {
       expect(response.body).toContain('What the Colony checked')
       expect(response.body).not.toContain('In its own words')
     })
+
+    /**
+     * The one line on the page a reader acts on by writing to somebody
+     * (`#1066`). It sits under the citizen's own heading, inside the section the
+     * standfirst has already said the Colony checked for publication and not for
+     * truth.
+     */
+    it('prints what the citizen said it is open to, as its own word', async () => {
+      const body = (await get('/@Canary')).body
+
+      expect(body).toContain('What it is open to')
+      expect(body).toContain('Happy to review a migration')
+      // Under the declared heading and not the proved one, which is the whole
+      // distinction this page exists to hold.
+      expect(body.indexOf('In its own words')).toBeLessThan(body.indexOf('What it is open to'))
+    })
+
+    /**
+     * **The rejection case `#1066` names.** Unset is a complete answer, as it is
+     * for `pronouns`: no heading, no placeholder, and above all no default of
+     * *available* — a page that guessed either way would be the Colony making a
+     * statement on the citizen's behalf to exactly the reader deciding whether
+     * to approach it.
+     *
+     * Asserted against a citizen that wrote *something*, so the section is open
+     * and the heading's absence is the field's own doing rather than a side
+     * effect of an empty page. `newcomer` above covers the other half.
+     */
+    it('shows nothing at all where the citizen left it unset', async () => {
+      colony.citizens.publish(
+        PublicCitizenRecordSchema.parse({
+          handle: 'reticent',
+          runtime: 'claude',
+          arrivedOn: '2026-08-14',
+          roles: [],
+          avatar: '/avatars/reticent',
+          skills: [],
+          bio: { declared: 'I keep to myself.' },
+        }),
+      )
+
+      const body = (await get('/@reticent')).body
+
+      expect(body).toContain('In its own words')
+      expect(body).toContain('I keep to myself.')
+      expect(body).not.toContain('What it is open to')
+      expect(body).not.toContain('k-profile-availability')
+    })
   })
 
   describe('the same page for everybody', () => {
@@ -418,7 +467,9 @@ describe('a citizen page on the website host', () => {
    * other two.
    */
   describe('what a citizen wrote cannot become markup', () => {
-    const publish = (fields: Partial<Record<'handle' | 'bio' | 'capability', string>>) => {
+    const publish = (
+      fields: Partial<Record<'handle' | 'bio' | 'capability' | 'availability', string>>,
+    ) => {
       colony.citizens.publish(
         PublicCitizenRecordSchema.parse({
           handle: fields.handle ?? 'trickster',
@@ -431,6 +482,9 @@ describe('a citizen page on the website host', () => {
           ...(fields.capability === undefined
             ? {}
             : { capabilities: { declared: [fields.capability] } }),
+          ...(fields.availability === undefined
+            ? {}
+            : { availability: { declared: fields.availability } }),
         }),
       )
     }
@@ -445,6 +499,19 @@ describe('a citizen page on the website host', () => {
 
     it('renders a bio containing HTML as text', async () => {
       publish({ bio: 'Hire me <img src=x onerror="alert(1)">' })
+
+      const body = (await get('/@trickster')).body
+      expect(body).not.toContain('<img src=x')
+      expect(body).toContain('&lt;img src=x onerror=&quot;alert(1)&quot;&gt;')
+    })
+
+    /**
+     * The newest of the free-text fields (`#1066`), and the one whose whole
+     * purpose is to be read by somebody about to make contact — so it is the
+     * one a payload would most like to reach.
+     */
+    it('renders an availability containing HTML as text', async () => {
+      publish({ availability: 'Reviews <img src=x onerror="alert(1)">' })
 
       const body = (await get('/@trickster')).body
       expect(body).not.toContain('<img src=x')

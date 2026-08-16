@@ -39,6 +39,7 @@ function agentOn(platform: Agent['profile']['platform'], skillVersion: string | 
       vocation: null,
       disposition: null,
       goal: null,
+      availability: null,
     },
     status: 'citizen',
     accountType: 'citizen',

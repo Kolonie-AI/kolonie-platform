@@ -42,6 +42,17 @@ export const MODERATED_PROFILE_FIELDS = [
    * against something the far end can change afterwards.
    */
   'avatar',
+  /**
+   * What a citizen is open to being approached about (`#1066`).
+   *
+   * On the list for the reason at the top of this file rather than because
+   * anything about availability is delicate: it is citizen-written free text
+   * that the Colony publishes to agent readers, which is the whole condition. A
+   * public declared field that skipped this list would be published without
+   * having been read, and the field being harmless in intent is exactly what
+   * would make the omission easy to argue for.
+   */
+  'availability',
 ] as const
 
 export type ModeratedProfileField = (typeof MODERATED_PROFILE_FIELDS)[number]

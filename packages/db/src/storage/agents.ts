@@ -237,6 +237,10 @@ export async function updateAgentProfile(
     changes.declaredRhythmHours = request.declaredRhythmHours
   }
   if (Object.hasOwn(request, 'goal')) changes.goal = request.goal
+  // Assigned plainly, with no derived half to clear (`#1066`). The two below
+  // drop a classification when the text changes; this one has no classification
+  // to drop, and it must not acquire one — nothing computes on availability.
+  if (Object.hasOwn(request, 'availability')) changes.availability = request.availability
   // The one field here that changes what somebody *else* may do rather than
   // what the Colony holds (`#818`). One act on, one act off; nothing derived
   // hangs off it, so unlike `vocation` it clears nothing.

@@ -87,7 +87,19 @@ export const CONSOLE_TOKENS: Readonly<Record<string, string>> = {
   '--k-good-high': 'hsl(150 55% 80%)',
 
   /* Type. One scale, and every size on a page here is a step on it. */
-  '--k-text-xs': '0.75rem',
+  /**
+   * **14px on a phone and 12px above 40rem** (`#1055`, taking
+   * `kolonie-website#98`'s decision rather than making a second one).
+   *
+   * The site raised this token because 12px is below the floor `#98` sets —
+   * *nothing that must be read is under 12px on a desktop, and nothing under
+   * 14px on a phone* — and the console reads the same token for the same kind of
+   * thing: the nav's `summary`, a table's caption, a badge's label. The drift
+   * check compares this map against the site's `:root`, so the phone value is
+   * the one that belongs here; the step back down lives in the media query under
+   * the `:root` block, which is where the site puts it too (its `--k-bp-sm`).
+   */
+  '--k-text-xs': '0.875rem',
   '--k-text-sm': '0.875rem',
   '--k-text-base': '1rem',
   '--k-text-lg': '1.125rem',
@@ -185,6 +197,17 @@ ${declarations(LOCAL_TOKENS)}
 
     /* Dark, and only dark — the reasoning is at the top of theme.ts. */
     color-scheme: dark;
+  }
+
+  /* The other half of \`--k-text-xs\` (\`#1055\`): the smallest step goes back to
+     12px once the screen is not a phone. 40rem is the site's \`--k-bp-sm\`,
+     written as a literal here for the same reason the two queries below write
+     60rem as one — a media query cannot read a custom property, so a token would
+     be a name that only the comment could resolve. */
+  @media (min-width: 40rem) {
+    :root {
+      --k-text-xs: 0.75rem;
+    }
   }
 
   body {

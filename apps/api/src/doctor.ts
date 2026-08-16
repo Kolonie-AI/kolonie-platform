@@ -12,6 +12,7 @@ import {
   type DoctorFinding,
   type Finding,
 } from '@kolonie-ai/core'
+import type { DoctorFeedbackInput, RecordedDoctorFeedback } from '@kolonie-ai/db'
 
 /** No sentence for anything, which is the ordinary state (`#840`). */
 const NO_PROSE: Readonly<Record<string, string>> = {}
@@ -24,12 +25,14 @@ const NO_PROSE: Readonly<Record<string, string>> = {}
  * database, and the handler below can be exercised against a fixture without a
  * Postgres.
  *
- * **Three reads and one write, and the write records only that the citizen
- * looked** (`#1081`). Nothing here decides anything about a citizen, changes its
- * standing or narrows what it may do: `kolonie.doctor` explains and never
- * sanctions — the card's ordering is *understand, inform, then limit*, and this
- * is the inform. Recording a consultation limits nothing, which is why it can
- * sit on this interface without moving the surface along that ordering.
+ * **Three reads and two writes, and both writes are about the Doctor rather
+ * than about the citizen** (`#1081`, `#1082`): one records that the citizen
+ * looked, the other records what it made of what it read. Nothing here decides
+ * anything about a citizen, changes its standing or narrows what it may do:
+ * `kolonie.doctor` explains and never sanctions — the card's ordering is
+ * *understand, inform, then limit*, and this is the inform. Neither write limits
+ * anything, which is why they can sit on this interface without moving the
+ * surface along that ordering.
  */
 export interface DoctorSource {
   /** This citizen's own rollup rows since a moment. Never anybody else's. */
@@ -64,6 +67,25 @@ export interface DoctorSource {
    * answers exactly as it does today.
    */
   noteConsultation?(agentId: AgentId, at: Date): Promise<void>
+  /**
+   * What this citizen made of a rule that fired on it (`#1082`).
+   *
+   * **Required, unlike the two optional members above it, and that is the whole
+   * argument.** Those are the Colony measuring itself: a deployment that wires
+   * neither writes nothing and answers exactly as it did before they existed,
+   * and the citizen is none the wiser because nothing was promised to it. This
+   * one is the citizen asking for something to be recorded. An optional version
+   * would admit a state where the tool is registered and cannot honour the one
+   * promise it makes, and the only way to make that state impossible is to not
+   * have it.
+   *
+   * **A rejection is not swallowed here**, which is the opposite call from
+   * {@link DoctorSource.noteConsultation} and deliberately so. That one is the
+   * Colony's own bookkeeping about a citizen that was going to get its answer
+   * either way; this one is the citizen asking for something to be recorded, and
+   * the only honest thing to do when it was not is to say so.
+   */
+  recordFeedback(input: DoctorFeedbackInput): Promise<RecordedDoctorFeedback>
 }
 
 /**

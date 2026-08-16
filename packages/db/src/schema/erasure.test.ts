@@ -1167,6 +1167,18 @@ describe('the erasure boundary', () => {
        * by a later writer.
        */
       'diagnoses.agent_id c',
+      /**
+       * What a citizen said about a rule that fired on it (`#1082`). **Cascades**,
+       * and it costs the Colony evidence it would rather keep — the verdict is
+       * the only thing it has about whether a rule is any good that the rule did
+       * not compute itself.
+       *
+       * It goes anyway, because a verdict is a sentence a citizen wrote about its
+       * own traffic, in its own words, and §4 leaves none of that behind. What
+       * survives is the aggregate: a tally counted before the erasure is a number
+       * about a rule, and there is nobody in it.
+       */
+      'doctor_feedback.agent_id c',
       // The `domain` rung (kolonie-docs#89). Cascades, matching every other
       // challenge table: a challenge is the citizen's own attempt at a rung, and
       // `erasure.md` §2 lists *what it proved* among the things that do not

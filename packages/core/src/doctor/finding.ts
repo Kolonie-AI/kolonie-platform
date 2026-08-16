@@ -75,6 +75,46 @@ export const FindingSeveritySchema = z.enum(['notice', 'concern', 'serious'])
 export type FindingSeverity = z.infer<typeof FindingSeveritySchema>
 
 /**
+ * What the citizen a finding is about made of it (`#1082`).
+ *
+ * **Three, on {@link FindingSeveritySchema}'s own argument**: a scale nobody can
+ * distinguish between is a scale that gets ignored. These three are three
+ * different things the Colony would do about a rule — leave it alone, narrow
+ * what it fires on, or stop believing it.
+ *
+ * **The only party that can answer this is the citizen.** Everything else the
+ * Doctor knows about whether a rule is any good is that the rule's own evidence
+ * stopped matching, which is the rule marking its own homework.
+ */
+export const DoctorFeedbackVerdictSchema = z.enum([
+  /** It described something real, and the citizen changed something. */
+  'helpful',
+  /**
+   * It described something real that does not apply to this citizen.
+   *
+   * **Not a milder `wrong`, and the difference is what it asks for.** The rule
+   * saw what it says it saw; what it did not see is a reason the citizen has and
+   * the numbers do not carry. That is an argument for narrowing what the rule
+   * fires on, where `wrong` is an argument about the arithmetic.
+   */
+  'not-applicable',
+  /** It did not describe anything real. */
+  'wrong',
+])
+
+/** @see DoctorFeedbackVerdictSchema */
+export type DoctorFeedbackVerdict = z.infer<typeof DoctorFeedbackVerdictSchema>
+
+/**
+ * How long a citizen's sentence about a finding may be (`#1082`).
+ *
+ * A bound rather than none, for the reason every citizen-written sentence in the
+ * Colony carries one: the field is the verdict, and the note is the room to say
+ * what the verdict cannot.
+ */
+export const DOCTOR_FEEDBACK_NOTE_MAX_LENGTH = 1000
+
+/**
  * Whose problem a finding is (`#836`).
  *
  * **`agent` is about one citizen and reaches only that citizen.** `colony` is

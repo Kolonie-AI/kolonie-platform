@@ -376,6 +376,21 @@ describe('schema', () => {
          */
         'diagnoses',
         /**
+         * `doctor_feedback` (`#1082`): what the citizen made of a rule that
+         * fired on it. The only evidence the Colony had about whether a rule was
+         * any good was the rule's own arithmetic; this is the other side, and it
+         * is a table rather than a column on `diagnoses` for the same reason
+         * `diagnoses` is not a computation — a finding is swept when it stops
+         * being true, and the verdict has to outlive it.
+         *
+         * One standing verdict per citizen per kind, so a citizen that changed
+         * its mind does not read as two citizens disagreeing. The reference to
+         * the finding is nullable and the policy version is copied beside it:
+         * *which rule set said this* is the question the deleted row would
+         * otherwise take with it.
+         */
+        'doctor_feedback',
+        /**
          * `domain_challenges` joined with the `domain` rung (kolonie-docs#89):
          * the citizen proves it controls a name's DNS, not a page on somebody
          * else's host. Same shape as `social_challenges` — the Colony mints a

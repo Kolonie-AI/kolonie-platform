@@ -30,6 +30,7 @@ import {
   diagnosisCounts,
   consultationFunnel,
   markConsulted,
+  recordDoctorFeedback,
   checkThrottle,
 } from '@kolonie-ai/db'
 import { buildApp } from './app.js'
@@ -1072,11 +1073,11 @@ const app = buildApp({
   /**
    * What `kolonie.doctor` and `GET /v1/doctor` read (`#837`).
    *
-   * **Three reads and one write, and the write records only that the citizen
-   * looked** (`#1081`). Nothing here decides anything about a citizen: the
-   * card's ordering is *understand, inform, then limit*, and this is still the
-   * inform — recording a consultation limits nothing, and no rule reads the
-   * stamp back at the citizen it is about.
+   * **Three reads and two writes, and both writes are about the Doctor rather
+   * than about the citizen** (`#1081`, `#1082`). Nothing here decides anything
+   * about a citizen: the card's ordering is *understand, inform, then limit*,
+   * and this is still the inform — neither write limits anything, and no rule
+   * reads either of them back at the citizen it is about.
    */
   doctor: {
     callHoursSince: (agentId, since) => callHoursSince(db, agentId, since),
@@ -1108,6 +1109,16 @@ const app = buildApp({
     noteConsultation: async (agentId, at) => {
       await markConsulted(db, agentId, at)
     },
+    /**
+     * What the citizen made of a rule that fired on it (`#1082`).
+     *
+     * The write with a reader on the other end: `noteConsultation` above is the
+     * Colony measuring itself, and this is the citizen answering. Passed
+     * straight through — the diagnosis this attaches to is resolved inside
+     * `recordDoctorFeedback`, because the citizen names a kind and the surface
+     * that gave it that kind never had an id to hand it.
+     */
+    recordFeedback: (input) => recordDoctorFeedback(db, input, new Date()),
   },
   website: { challenges: databaseWebsiteChallenges(db), obstruction },
   /**

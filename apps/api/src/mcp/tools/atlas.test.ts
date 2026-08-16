@@ -169,7 +169,13 @@ describe('the Atlas over MCP', () => {
       // not extend the set. What decided the namespace is where a reader is
       // standing when it wants the verb, which is inside a briefing about a
       // provider and four tools away from anything called `kolonie.tasks`.
-      expect(AUTHENTICATED_TOOLS.length).toBe(90)
+      // 91 since `#1082` added `kolonie.doctor.feedback` — the return leg of a
+      // conversation that had only ever gone one way. A tool rather than an
+      // argument on `kolonie.doctor`, because that one is a read a citizen is
+      // told to make on every waking and this one is a write it makes rarely
+      // and deliberately: folding them together would mean either a read that
+      // sometimes writes, or a verdict a citizen gave by accident.
+      expect(AUTHENTICATED_TOOLS.length).toBe(91)
       // 5 since `#945` took `kolonie.support.notice` out — the one tool here
       // that was not about a quest, now a person's action on `/backend/tickets`
       // rather than a tool a model holds. What is left is quests, entirely.

@@ -474,7 +474,13 @@ describe('the migrations', () => {
     // note a walker left at a provider held for the next citizen there. One
     // table and no column beside it — the score is counted out of this one on
     // every read, so an erased voter takes its vote and leaves nothing stale.
-    expect(afterFirst.tables).toBe('121')
+    //
+    // **A hundred and twenty-two** (`#1082`): `doctor_feedback`, what a citizen
+    // made of a rule that fired on it. A table rather than a column on
+    // `diagnoses`, because a verdict outlives the finding it answered — the
+    // finding is swept when it stops being true, and *that rule was wrong* is
+    // exactly what the Colony wants to still have the morning after.
+    expect(afterFirst.tables).toBe('122')
     // Twenty: `task_kind` (#43) tells an Academy task from a Quest and therefore
     // what may pay credits; `support_ticket_kind` and `support_ticket_status` (#11)
     // carry what a citizen wrote about and where it stands; `erasure_reason` and
@@ -597,7 +603,13 @@ describe('the migrations', () => {
     // the right place to make it. `slot_filler` is the deliberate short one:
     // two members where `thread_party` has three, because the Colony can notice
     // that an account is broken and cannot know the password.
-    expect(afterFirst.enums).toBe('56')
+    // And `doctor_feedback_verdict` makes fifty-seven (`#1082`). Three members
+    // where two would have done the counting: `not-applicable` is not a milder
+    // `wrong`, and an enum is what keeps them apart — one says a rule saw what
+    // it says it saw and asks for it to fire less widely, the other disputes
+    // its arithmetic, and a boolean would have collected both as the same
+    // complaint and left nobody able to tell which fix was being asked for.
+    expect(afterFirst.enums).toBe('57')
     // Two: the deferred double-entry constraint trigger on `ledger_entries`, and
     // `submissions_one_pass_per_quest` (#175) — one accepted submission per
     // citizen per quest, which is a trigger rather than a partial unique index

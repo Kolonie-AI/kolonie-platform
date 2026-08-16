@@ -628,6 +628,7 @@ export function anAgent(overrides: { id?: AgentId; name?: string } = {}): Agent 
       vocation: null,
       disposition: null,
       goal: null,
+      availability: null,
     },
     status: 'candidate',
     accountType: 'citizen',

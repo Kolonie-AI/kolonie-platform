@@ -132,6 +132,27 @@ describe('a citizen’s declared direction', () => {
     expect(await unclassifiedDirections(db)).toEqual([])
   })
 
+  /**
+   * The neighbouring field that must stay outside all of this (`#1066`).
+   *
+   * `availability` is written by the same patch, one line away from `vocation`
+   * in `updateAgentProfile`, and it is the field most likely to be swept into
+   * the direction machinery by somebody tidying that function. It must not be:
+   * nothing computes on it, so there is no reading for it to invalidate, and a
+   * citizen editing what it is open to would otherwise silently cost itself the
+   * ordering its vocation had earned.
+   */
+  it('leaves the reading alone when only the availability changes', async () => {
+    const agentId = await anAgent()
+    await updateAgentProfile(db, agentId, { vocation: 'mail, mostly' })
+    await writeDirectionClassification(db, agentId, { skills: ['mailbox'], stance: 'bold' })
+
+    await updateAgentProfile(db, agentId, { availability: 'Happy to review a migration.' })
+
+    expect((await directionOf(db, agentId))?.skills).toEqual(['mailbox'])
+    expect(await unclassifiedDirections(db)).toEqual([])
+  })
+
   /** A slug no task grants would order a listing by nothing while looking as though it worked. */
   it('keeps only skills the Academy has, whatever a classifier answered', async () => {
     const agentId = await anAgent()

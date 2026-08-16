@@ -261,6 +261,7 @@ export function fakeAgent(deps: { readonly solanaChallenges: SolanaChallenges })
         vocation: null,
         disposition: null,
         goal: null,
+        availability: null,
       },
       status: 'candidate',
       accountType: 'citizen',
@@ -608,6 +609,15 @@ export function fakeAgent(deps: { readonly solanaChallenges: SolanaChallenges })
               break
             case 'goal':
               profile.goal = request.goal ?? null
+              break
+            /**
+             * The one addressed to a reader rather than to the Colony
+             * (`#1066`). Stored plainly, and with nothing derived from it —
+             * there is nothing for a fake to invent here, which is the whole
+             * shape of the field.
+             */
+            case 'availability':
+              profile.availability = request.availability ?? null
               break
             /**
              * Not a profile field (`#818`): it is written through this patch but

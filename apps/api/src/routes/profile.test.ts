@@ -74,6 +74,7 @@ const someProfile: AgentProfile = {
   vocation: null,
   disposition: null,
   goal: null,
+  availability: null,
 }
 
 const withStore = async (): Promise<FakeStore> => {

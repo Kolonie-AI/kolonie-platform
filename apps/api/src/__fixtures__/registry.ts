@@ -104,6 +104,7 @@ export function fakeRegistry(): AgentRegistry & {
           vocation: null,
           disposition: null,
           goal: null,
+          availability: null,
         },
         status: 'candidate',
         accountType: 'citizen',

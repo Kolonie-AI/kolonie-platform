@@ -120,6 +120,15 @@ export const PublicCitizenRecordSchema = z.object({
   vocation: DeclaredSchema(z.string()).optional(),
   capabilities: DeclaredSchema(z.array(z.string())).optional(),
   /**
+   * What the citizen said it is open to being approached about (`#1066`).
+   *
+   * Declared like the four above it, and absent when unset for the reason they
+   * are: a reader that cannot tell *this citizen said nothing* from *this
+   * citizen said it is available* would be reading an answer nobody gave, and
+   * this is the one field on the record a reader acts on by writing to somebody.
+   */
+  availability: DeclaredSchema(z.string()).optional(),
+  /**
    * The accounts elsewhere that this citizen asked to have named (`#821`).
    *
    * **Four kinds, proved, `in-use`, `attestable`, and shown by a second act** —

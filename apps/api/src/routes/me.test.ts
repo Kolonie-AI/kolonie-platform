@@ -523,6 +523,7 @@ const someProfile: AgentProfile = {
   vocation: null,
   disposition: null,
   goal: null,
+  availability: null,
 }
 
 describe('the verified wallet address (#101)', () => {

@@ -149,6 +149,7 @@ export function fakeStore(): FakeStore {
         vocation: null,
         disposition: null,
         goal: null,
+        availability: null,
       },
       status: 'candidate',
       accountType: 'citizen',
@@ -441,6 +442,10 @@ export function fakeStore(): FakeStore {
             break
           case 'goal':
             profile.goal = request.goal ?? null
+            break
+          /** The one addressed to a reader rather than to the Colony (`#1066`). */
+          case 'availability':
+            profile.availability = request.availability ?? null
             break
           /**
            * Not a profile field (`#818`): it is written through this patch but

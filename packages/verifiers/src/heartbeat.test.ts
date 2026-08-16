@@ -30,6 +30,7 @@ const anAgent = (declaredRhythmHours: number | null): Agent => ({
     vocation: null,
     disposition: null,
     goal: null,
+    availability: null,
   },
   status: 'citizen',
   accountType: 'citizen',

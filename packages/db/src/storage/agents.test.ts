@@ -150,6 +150,7 @@ describe('registerAgent', () => {
       vocation: null,
       disposition: null,
       goal: null,
+      availability: null,
     })
   })
 
@@ -806,6 +807,8 @@ describe('runtime declarations', () => {
       vocation: 'I want to be the one who keeps mail working',
       disposition: 'I will go anywhere a page will let me',
       goal: 'Pass every rung that touches a mailbox',
+      // The one addressed to a reader rather than to the Colony (`#1066`).
+      availability: 'Happy to review a migration, or take a second look at a verifier.',
       // Written through this patch and deliberately **not** on the profile
       // shape (`#818`), so the loop below reads it from the column rather than
       // from `result.agent.profile`.

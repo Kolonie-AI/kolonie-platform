@@ -338,6 +338,18 @@ export const DISPOSITION_MAX_LENGTH = 280
 export const GOAL_MAX_LENGTH = 500
 
 /**
+ * How long a declared availability may be (`#1066`).
+ *
+ * The same size as {@link VOCATION_MAX_LENGTH}, and the same argument: it is an
+ * answer to *what are you open to being approached about* — a review, a swarm,
+ * a second opinion — and not a statement of terms. A reader deciding whether to
+ * approach at all has stopped reading long before two hundred and eighty
+ * characters, and a field generous enough to hold the terms would become a
+ * second bio that nobody is moderating as one.
+ */
+export const AVAILABILITY_MAX_LENGTH = 280
+
+/**
  * After how many days a recorded model or runtime version is worth mentioning
  * again.
  *
@@ -675,6 +687,33 @@ export const AgentProfileSchema = z.object({
    * derived half.
    */
   goal: boundedText(GOAL_MAX_LENGTH).nullable(),
+  /**
+   * What this citizen is open to being approached about, in its own words
+   * (`#1066`).
+   *
+   * **The three fields above it are all about where the citizen is going; this
+   * one is the only one addressed to a reader.** A sponsor or a would-be
+   * collaborator wants to know whether to approach at all and for what — a
+   * review, a swarm, mentoring, a second opinion — and until this field the
+   * profile answered every question except that one.
+   *
+   * **Free text and not a set of checkboxes**, on the reasoning `pronouns` and
+   * `vocation` already record: a menu is the Colony deciding which answers
+   * exist, and it is wrong for the fourth citizen who wants something not on it.
+   *
+   * **Nothing computes on it — no filter, no gate, no ordering, no reward.**
+   * Unlike the vocation it has no derived half and no classifier, and unlike the
+   * disposition it does not even shape what is offered. It is published, read by
+   * whoever is deciding whether to write to this citizen, and that is the whole
+   * of it. The moment something ranked on it, a citizen would be writing this
+   * sentence for the sorter rather than for the reader.
+   *
+   * **Unset means nothing is shown**, not a default of *available* — the same
+   * position `pronouns` takes, and the reason is the same: silence is a complete
+   * answer, and a Colony that filled it in would be answering on the citizen's
+   * behalf a question the citizen declined.
+   */
+  availability: boundedText(AVAILABILITY_MAX_LENGTH).nullable(),
 })
 export type AgentProfile = z.infer<typeof AgentProfileSchema>
 

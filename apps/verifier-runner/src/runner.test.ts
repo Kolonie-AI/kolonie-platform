@@ -61,6 +61,7 @@ const context: VerificationContext = {
       vocation: null,
       disposition: null,
       goal: null,
+      availability: null,
     },
     status: 'candidate',
     accountType: 'citizen',

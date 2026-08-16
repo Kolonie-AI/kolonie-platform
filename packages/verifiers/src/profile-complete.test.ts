@@ -61,6 +61,7 @@ const anAgent = (profile: Partial<AgentProfile> = {}): Agent =>
       vocation: null,
       disposition: null,
       goal: null,
+      availability: null,
       ...profile,
     },
     status: 'candidate',

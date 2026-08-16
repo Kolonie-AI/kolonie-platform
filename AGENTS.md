@@ -189,17 +189,39 @@ CI runs exactly `npm run check`, plus two smoke checks: that the built core
 exports a usable `AgentSchema`, and that the built API answers `/health` over a
 real socket. Green locally means green in CI.
 
-**CI is an alarm, not a gate, and `main` is not protected against a red commit**
-(D-070). Work is pushed straight to `main`, so there is no pull request for a
-check to run against: the push lands, the deploy starts, and CI reports
-afterwards. `main` carried a required status check until 2026-08-03 that no direct
-push could ever satisfy — every push bypassed it, which told anybody inspecting
-the branch something false.
+**The pull request is the path, and a sweep is what merges it** (D-124, which
+supersedes D-070's practice clause). Branch, open a pull request, and stop: an
+hourly sweep in `kolonie-docs` arms auto-merge on every open pull request in the
+organisation that is not a fork, not a draft, not labelled `blocked:human`, not
+disarmed by hand, and targets a default branch that requires a status check.
+**Arming is not merging** — `--auto --squash` without `--admin` lands nothing the
+required check has not passed — so nobody waits on a reviewer and nothing red
+gets in that way.
 
-So **running `npm run check` before you push is the only thing standing between a
-red commit and a deploy.** Not a matter of tidiness: `kolonie-infra#31` records
-what an unreviewed commit reaching the host costs. Force-pushing and deleting
-`main` are still refused.
+`main` requires that check again: `format, lint, build, typecheck, test`, read
+from the API on 2026-08-16. That is the fact D-070 changed and something changed
+back, and it is load-bearing rather than incidental — the sweep skips any
+repository whose default branch requires nothing, which is why a green pull
+request in the seven skill repositories sits open and one here does not.
+
+**`enforce_admins` is off, so a direct push to `main` still lands, and they still
+happen.** Measured 2026-08-16 against `origin/main`: of the last thirty commits,
+**seventeen arrived through a pull request and thirteen were pushed directly** —
+the newest of those `26be4b61`, the same day. The direct path is not forbidden.
+What it is, is unchecked: the push lands, the deploy starts, and CI reports
+afterwards. So on that path **running `npm run check` before you push is the only
+thing standing between a red commit and a deploy.** Not a matter of tidiness:
+`kolonie-infra#31` records what an unreviewed commit reaching the host costs.
+Force-pushing and deleting `main` are still refused.
+
+**Write `Closes #<n>` into the pull request body.** `gh pr create --fill` builds
+the body out of the commit subjects and carries no closing keyword, so a branch
+with two commits merges and closes nothing: the code is on `main` and the issue
+sits In Progress on the board with no check anywhere asking (`kolonie-docs#421`).
+
+```bash
+gh pr create --title '<subject>' --body 'Closes #<n>'
+```
 
 **One environment variable.** `packages/db` talks to PostgreSQL 16 through
 `DATABASE_URL` and knows nothing else about where the database came from — see

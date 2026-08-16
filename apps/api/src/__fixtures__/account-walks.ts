@@ -307,6 +307,17 @@ export function fakeWalks(): FakeWalkStore {
     async voteNote() {
       return { outcome: 'no-such-note' as const }
     },
+    /**
+     * Not modelled here, for the reason votes are not (`#1101`). What decides
+     * whether a walk is published is the scrub, whose handle travels is a column
+     * on another table, and where a page starts is a keyset — three storage
+     * decisions, and a fake that answered them from this array would be asserting
+     * them rather than exercising them. The tests that mean anything for this run
+     * against real PostgreSQL.
+     */
+    async published() {
+      return { walks: [], nextCursor: null }
+    },
     async divergences() {
       return []
     },

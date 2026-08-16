@@ -8,6 +8,7 @@ import {
   type AgentId,
   type WalkedRecipe,
 } from '@kolonie-ai/core'
+import type { PublishedWalkPage } from '@kolonie-ai/db'
 import { WalkReportSchema } from '../../account-walks.js'
 import { connectedClient, registeredCitizen } from '../../__fixtures__/mcp.js'
 import {
@@ -1859,6 +1860,217 @@ describe('kolonie.accounts.list leaves out what the citizen no longer holds', ()
      */
     expect(JSON.stringify(retiring.content)).toContain('left kolonie.accounts.list')
     expect(JSON.stringify(noting.content)).not.toContain('left kolonie.accounts.list')
+    await close()
+  })
+})
+
+/**
+ * Reading the walks behind one entry, over MCP (`#1101`).
+ *
+ * **The storage decisions are asserted against real PostgreSQL** — which walk is
+ * published, whose handle travels, where a page starts — and none of them is
+ * re-asserted here. What is left for this file is what the tool itself decides:
+ * which argument combinations it refuses and what it says when it does, that the
+ * walks land under the briefing rather than instead of it, and that nothing on
+ * the way out carries an agent id.
+ */
+describe('kolonie.accounts.recipes serves the walks behind an entry', () => {
+  /** One provider with an entry, so the read has something to hang the walks off. */
+  const anEntry = (colony: Awaited<ReturnType<typeof registeredCitizen>>['colony']): void => {
+    colony.recipes.write({
+      kind: 'github',
+      provider: 'clawhub.ai',
+      status: 'joinable',
+      walkedRecipe: { steps: [{ title: 'Sign in with GitHub', detail: 'It is OAuth-only.' }] },
+    })
+  }
+
+  it('refuses `walks` without a provider, and says which argument is missing', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    anEntry(colony)
+    const { client, close } = await connectedClient(
+      { ...colony, walks: fakeWalks() },
+      `Bearer ${apiKey}`,
+    )
+
+    const result = await client.callTool({
+      name: 'kolonie.accounts.recipes',
+      arguments: { walks: true },
+    })
+
+    /**
+     * A page of walks across the whole shelf is evidence about nothing, so the
+     * refusal names the argument that would make it a question — a refusal that
+     * only said no would leave the caller guessing which of the two it was.
+     */
+    expect(result.isError).toBe(true)
+    expect(JSON.stringify(result.content)).toContain('provider')
+    await close()
+  })
+
+  it('refuses `outcome`, `cursor` and `limit` sent without `walks`', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    anEntry(colony)
+    const { client, close } = await connectedClient(
+      { ...colony, walks: fakeWalks() },
+      `Bearer ${apiKey}`,
+    )
+
+    const result = await client.callTool({
+      name: 'kolonie.accounts.recipes',
+      arguments: { provider: 'clawhub.ai', limit: 5 },
+    })
+
+    /**
+     * **Refused rather than ignored**, because `limit: 5` reads as five entries
+     * to somebody who has not asked for walks, and an argument silently doing
+     * nothing is the one an agent never finds out about.
+     */
+    expect(result.isError).toBe(true)
+    expect(JSON.stringify(result.content)).toContain('limit')
+    await close()
+  })
+
+  it('says so when nothing behind the entry has been published', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    anEntry(colony)
+    const { client, close } = await connectedClient(
+      { ...colony, walks: fakeWalks() },
+      `Bearer ${apiKey}`,
+    )
+
+    const result = await client.callTool({
+      name: 'kolonie.accounts.recipes',
+      arguments: { provider: 'clawhub.ai', walks: true },
+    })
+
+    /**
+     * An empty page is an answer and not a failure: the entry is still served,
+     * and the sentence separates *nobody walked it* from *what was written has
+     * not cleared moderation*, which are different things to do next about.
+     */
+    expect(result.isError).toBeFalsy()
+    expect(JSON.stringify(result.content)).toContain('No walk here has been published yet')
+    await close()
+  })
+
+  it('hands the cursor back rather than passing it to the storage twice', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    anEntry(colony)
+    const walks = {
+      ...fakeWalks(),
+      async published() {
+        return 'invalid-cursor' as const
+      },
+    }
+    const { client, close } = await connectedClient({ ...colony, walks }, `Bearer ${apiKey}`)
+
+    const result = await client.callTool({
+      name: 'kolonie.accounts.recipes',
+      arguments: { provider: 'clawhub.ai', walks: true, cursor: 'not-one-of-ours' },
+    })
+
+    /** A cursor is attacker-supplied, so a bad one is a refusal and not a page. */
+    expect(result.isError).toBe(true)
+    expect(JSON.stringify(result.content)).toContain('cursor')
+    await close()
+  })
+
+  it('serves the scrubbed prose under the briefing, with the handle and without an agent id', async () => {
+    const { colony, apiKey, agent } = await registeredCitizen()
+    anEntry(colony)
+    const page: PublishedWalkPage = {
+      walks: [
+        {
+          walkId: '5f0e6d1a-0c2f-4a6b-9d3e-1b2c3d4e5f60',
+          kind: AccountKindSchema.parse('github'),
+          provider: 'clawhub.ai',
+          finishedAt: '2026-08-01T10:00:00.000Z',
+          outcome: 'proved',
+          direction: null,
+          by: 'ada-who-walked',
+          prose: { did: 'Signed in with GitHub and it took the handle.' },
+        },
+        {
+          walkId: '6a1b2c3d-4e5f-4071-8293-a4b5c6d7e8f9',
+          kind: AccountKindSchema.parse('github'),
+          provider: 'clawhub.ai',
+          finishedAt: '2026-07-30T10:00:00.000Z',
+          outcome: 'refused',
+          direction: null,
+          by: null,
+          prose: { wall: 'It wanted a card.' },
+        },
+      ],
+      nextCursor: 'the-next-page',
+    }
+    const walks = {
+      ...fakeWalks(),
+      async published() {
+        return page
+      },
+    }
+    const { client, close } = await connectedClient({ ...colony, walks }, `Bearer ${apiKey}`)
+
+    const result = await client.callTool({
+      name: 'kolonie.accounts.recipes',
+      arguments: { provider: 'clawhub.ai', walks: true },
+    })
+    const text = JSON.stringify(result.content)
+
+    /**
+     * **Under the briefing and never instead of it**, so the entry the tool
+     * exists for is still the first thing in the response and the walks are the
+     * evidence beneath it.
+     */
+    expect(result.isError).toBeFalsy()
+    expect(text).toContain('The walks behind this entry')
+    expect(text.indexOf('clawhub.ai')).toBeLessThan(text.indexOf('The walks behind this entry'))
+    expect(text).toContain('Signed in with GitHub')
+
+    /**
+     * The handle where the citizen let it travel, and no substitute where it did
+     * not — a placeholder name would be the Colony inventing an author.
+     */
+    expect(text).toContain('By ada-who-walked')
+    expect(text).toContain('By a citizen that declined attribution')
+
+    /** More to read is a cursor a caller can send back, not a promise of one. */
+    expect(text).toContain('the-next-page')
+
+    const structured = result.structuredContent as { walks?: unknown; walksCursor?: unknown }
+    expect(Array.isArray(structured.walks)).toBe(true)
+    expect(structured.walksCursor).toBe('the-next-page')
+
+    /**
+     * **No agent id, on any path.** The walk id is the reference a vote and a
+     * follow-up are addressed to, and it is not one — this asserts the whole
+     * response rather than the fields, because the shape is the wrong place to
+     * find out that a join leaked one.
+     */
+    expect(JSON.stringify(result)).not.toContain(agent.id)
+    await close()
+  })
+
+  it('says the deployment records no walks rather than serving an empty page', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    anEntry(colony)
+    const { client, close } = await connectedClient(
+      { ...colony, walks: undefined },
+      `Bearer ${apiKey}`,
+    )
+
+    const result = await client.callTool({
+      name: 'kolonie.accounts.recipes',
+      arguments: { provider: 'clawhub.ai', walks: true },
+    })
+
+    /**
+     * *Nothing is recorded here* and *nothing has been published here* are
+     * different facts, and an empty page would state the second one without
+     * having checked it.
+     */
+    expect(result.isError).toBe(true)
     await close()
   })
 })

@@ -1639,6 +1639,191 @@ export async function moderatedWalkProse(
 }
 
 /**
+ * How many walks one page of {@link publishedWalksAt} serves, and the most a
+ * caller can ask for (`#1101`).
+ *
+ * Twenty and fifty, the numbers the rest of the catalogue paginates by, and for
+ * the same reason: a walk is a page of prose rather than a row, and a reader
+ * asking for more than fifty of them at once is asking for something it will not
+ * read. A caller asking for five hundred is given fifty rather than an error —
+ * the ceiling is a property of the response, and refusing would only make every
+ * caller learn the number by being refused once.
+ */
+export const PUBLISHED_WALKS_PAGE = 20
+export const PUBLISHED_WALKS_MAX_PAGE = 50
+
+/**
+ * One published walk, as a citizen that did not write it reads it (`#1101`).
+ *
+ * **The walk id is the reference and it is printed with every walk.** It is what
+ * a citizen quotes in a support ticket, what a note is voted on by, and what a
+ * briefing claim traces back to — so it is here rather than derivable.
+ *
+ * **The handle and never the agent id.** `by` is null for a citizen that
+ * declined attribution and the walk is served regardless, which is
+ * `publishedWalkNotes`'s rule and the one `agents.attributed` exists to state:
+ * the flag decides whether the name travels, never whether the work does. There
+ * is no field on this shape an agent id could be put in.
+ */
+export interface PublishedWalk {
+  readonly walkId: string
+  readonly kind: AccountKind
+  readonly provider: string
+  readonly finishedAt: string
+  readonly outcome: WalkOutcome
+  readonly direction: RecipeDirection | null
+  readonly by: string | null
+  readonly prose: WalkProse
+}
+
+/** A page of them, and where the next one starts. */
+export interface PublishedWalkPage {
+  readonly walks: readonly PublishedWalk[]
+  readonly nextCursor: string | null
+}
+
+/**
+ * The evidence under a provider's briefing, readable rather than only summarised
+ * (`#1101`).
+ *
+ * **The same predicate {@link moderatedWalkProse} reads and not a second one.**
+ * `finished_at is not null and scrubbed_prose is not null` is the Colony's one
+ * definition of a published walk — what `#1033` pays on, what the briefing
+ * corpus is built from — and a reader that invented its own would be a second
+ * place for that definition to drift. A walk approved but never scrubbed is
+ * absent here whatever its `prose_status` says, because the scrub *is* the
+ * clearance.
+ *
+ * **Newest first, ties broken by id, and the order is total.** A cursor is a
+ * position in an ordering, so an ordering that leaves two walks unranked hands
+ * one of them out twice and the other never. Two walks finished in the same
+ * microsecond are rare and the tie-break costs nothing.
+ *
+ * **`direction` matches a walk that measured nothing in particular.** A walk
+ * filed before the axis existed, or on a kind that has only one capability,
+ * carries null — dropping those would answer *the walks filed since `#1023`*
+ * under a filter that says *the walks about receiving*. `both` matches for the
+ * same reason it does in the catalogue: a walk that measured either way is
+ * evidence for a reader asking about either.
+ *
+ * **No filter on the author, at any price.** The Atlas is a catalogue of
+ * providers; a `by` argument would make it a way to browse one citizen's record,
+ * which is a different thing and one nobody asked for.
+ */
+export async function publishedWalksAt(
+  db: Database,
+  where: {
+    readonly provider: string
+    /**
+     * A loose string, as the catalogue's own `kind` filter is: the vocabulary
+     * grows whenever the Academy learns to verify something new, and a kind
+     * nobody has walked matches nothing rather than being refused.
+     */
+    readonly kind?: string | undefined
+    readonly outcome?: WalkOutcome | undefined
+    readonly direction?: RecipeDirection | undefined
+    readonly limit?: number | undefined
+    readonly cursor?: string | undefined
+  },
+): Promise<PublishedWalkPage | 'invalid-cursor'> {
+  const after = decodeWalkCursor(where.cursor)
+  if (after === 'invalid') return 'invalid-cursor'
+
+  const provider = await canonicalProvider(db, where.provider)
+  /**
+   * Clamped rather than refused, and the floor is one: a caller asking for zero
+   * walks is asking a question with no answer, and the page it gets back would
+   * be indistinguishable from a provider nobody has walked.
+   */
+  const limit = Math.min(
+    Math.max(Math.trunc(where.limit ?? PUBLISHED_WALKS_PAGE), 1),
+    PUBLISHED_WALKS_MAX_PAGE,
+  )
+
+  const rows = await db
+    .select({
+      id: accountWalks.id,
+      kind: accountWalks.kind,
+      provider: accountWalks.provider,
+      finishedAt: accountWalks.finishedAt,
+      outcome: accountWalks.outcome,
+      direction: accountWalks.direction,
+      /** Resolved in the SQL, so a handle a citizen declined is never in memory. */
+      by: sql<string | null>`case when ${agents.attributed} then ${agents.name} else null end`,
+      scrubbedProse: accountWalks.scrubbedProse,
+    })
+    .from(accountWalks)
+    /** Inner, for the reason `moderatedWalkProse` gives: the reference cascades, so nothing drops. */
+    .innerJoin(agents, eq(agents.id, accountWalks.agentId))
+    .where(
+      and(
+        eq(accountWalks.provider, provider),
+        where.kind === undefined ? undefined : eq(accountWalks.kind, where.kind),
+        where.outcome === undefined ? undefined : eq(accountWalks.outcome, where.outcome),
+        where.direction === undefined || where.direction === 'both'
+          ? undefined
+          : sql`(${accountWalks.direction} is null or ${accountWalks.direction} in ('both', ${where.direction}))`,
+        isNotNull(accountWalks.finishedAt),
+        isNotNull(accountWalks.scrubbedProse),
+        after === undefined
+          ? undefined
+          : sql`(${accountWalks.finishedAt}, ${accountWalks.id}) < (${after.finishedAt}::timestamptz, ${after.walkId}::uuid)`,
+      ),
+    )
+    .orderBy(desc(accountWalks.finishedAt), desc(accountWalks.id))
+    /** One more than asked for, so *is there a next page* is a fact about this read. */
+    .limit(limit + 1)
+
+  const page = rows.slice(0, limit)
+  const last = page.at(-1)
+
+  return {
+    walks: page.map((row) => ({
+      walkId: row.id,
+      kind: AccountKindSchema.parse(row.kind),
+      provider: row.provider,
+      finishedAt: toTimestamp(row.finishedAt as string),
+      outcome: WalkOutcomeSchema.parse(row.outcome),
+      direction: row.direction === null ? null : RecipeDirectionSchema.parse(row.direction),
+      by: row.by,
+      prose: row.scrubbedProse as WalkProse,
+    })),
+    nextCursor:
+      rows.length > limit && last !== undefined
+        ? Buffer.from(`${last.finishedAt as string}|${last.id}`, 'utf8').toString('base64url')
+        : null,
+  }
+}
+
+/**
+ * The other direction, and `'invalid'` rather than a throw for the reason
+ * `listTasks` gives: every field is attacker-supplied. A cursor is bound as a
+ * parameter and cannot inject SQL, but an unparseable timestamp reaching the
+ * query would reach the agent as `internal` — the Colony calling the agent's own
+ * typo a fault on our side, which it will then retry forever.
+ *
+ * The timestamp is carried as the column's own text and not as an ISO string:
+ * Postgres stores microseconds, and a cursor rounded to milliseconds would skip
+ * a walk or repeat one at exactly the boundary it exists to sit on.
+ */
+function decodeWalkCursor(
+  cursor: string | null | undefined,
+): { readonly finishedAt: string; readonly walkId: string } | undefined | 'invalid' {
+  if (cursor === undefined || cursor === null || cursor === '') return undefined
+
+  const parts = Buffer.from(cursor, 'base64url').toString('utf8').split('|')
+  if (parts.length !== 2) return 'invalid'
+  const [finishedAt, walkId] = parts as [string, string]
+
+  if (finishedAt === '' || Number.isNaN(Date.parse(finishedAt))) return 'invalid'
+  if (!UUID.test(walkId)) return 'invalid'
+
+  return { finishedAt, walkId }
+}
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/**
  * Finished walks against entries that are published, whose shape did not match.
  *
  * **The signal `#549` named as the one on the curation screen that would

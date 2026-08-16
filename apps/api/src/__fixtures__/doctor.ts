@@ -1,5 +1,6 @@
 import type { AcademyProgress, AgentId, CallHour, Diagnosis } from '@kolonie-ai/core'
 import { DIAGNOSES_PAGE } from '@kolonie-ai/db'
+import type { ConsultationFunnel } from '@kolonie-ai/db'
 import type { DoctorSource } from '../doctor.js'
 import type { DiagnosesDesk } from '../diagnoses.js'
 
@@ -25,6 +26,15 @@ export function fakeDoctorSource(
    * either. The tests that are *about* prose hand over their own.
    */
   prose: Readonly<Record<string, Readonly<Record<string, string>>>> = {},
+  /**
+   * What the one write does, where a test cares (`#1081`).
+   *
+   * **Absent by default, because absent is a state production supports**: a
+   * deployment that wires no writer measures nothing and answers exactly as it
+   * did before the column existed, and every test written before this one is
+   * that deployment.
+   */
+  noteConsultation?: (agentId: AgentId, at: Date) => Promise<void>,
 ): DoctorSource {
   return {
     callHoursSince: async (agentId: AgentId, since: Date) =>
@@ -32,6 +42,7 @@ export function fakeDoctorSource(
     progressOf: async (agentId: AgentId) => progress[agentId] ?? EMPTY_PROGRESS,
     deprecatedRoutes: async () => deprecated,
     proseFor: async (agentId: AgentId) => prose[agentId] ?? {},
+    ...(noteConsultation === undefined ? {} : { noteConsultation }),
   }
 }
 
@@ -49,6 +60,13 @@ export const EMPTY_PROGRESS: AcademyProgress = {
   skillsHeld: 0,
 }
 
+/** Nobody was told, so there is nothing to say about who came back (`#1081`). */
+export const NOTHING_ANNOUNCED: ConsultationFunnel = {
+  announced: 0,
+  consulted: 0,
+  medianHoursToConsult: null,
+}
+
 /**
  * A diagnoses desk that answers from rows held in memory (`#841`).
  *
@@ -58,11 +76,27 @@ export const EMPTY_PROGRESS: AcademyProgress = {
  * the default fixture is the one that would catch a renderer which only works
  * with rows.
  *
- * **It has three methods and no fourth**, mirroring `DiagnosesDesk`. A fake with
- * a `close` on it would be a fake that could pass a test the production seam
- * cannot.
+ * **It has four methods and no fifth**, mirroring `DiagnosesDesk`. A fake with a
+ * `close` on it would be a fake that could pass a test the production seam
+ * cannot — and the fourth, added for `#1081`, is a read like the other three, so
+ * that stays true of it.
  */
-export function fakeDiagnosesDesk(rows: readonly Diagnosis[] = []): DiagnosesDesk {
+export function fakeDiagnosesDesk(
+  rows: readonly Diagnosis[] = [],
+  /**
+   * What the funnel counted, where a test cares (`#1081`).
+   *
+   * **Handed over rather than derived from `rows`**, because the rows are
+   * {@link Diagnosis} and a diagnosis does not carry when its citizen looked:
+   * the two timestamps the funnel divides live on the database row and stop at
+   * the storage seam. A fixture that invented them would be testing arithmetic
+   * this file had written rather than arithmetic PostgreSQL had.
+   *
+   * The default is *nobody was told*, which is the state the page has to render
+   * by leaving the sentence out entirely.
+   */
+  funnel: ConsultationFunnel = NOTHING_ANNOUNCED,
+): DiagnosesDesk {
   return {
     list: async (query) => {
       const matching = rows.filter(
@@ -87,5 +121,6 @@ export function fakeDiagnosesDesk(rows: readonly Diagnosis[] = []): DiagnosesDes
         }),
         {},
       ),
+    funnel: async () => funnel,
   }
 }

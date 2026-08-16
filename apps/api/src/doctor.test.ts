@@ -283,12 +283,14 @@ describe('the doctor surface', () => {
     /**
      * The card's ordering is *understand, inform, then limit*, and this is the
      * inform. Asserted against the source's own surface rather than by reading
-     * the handler: a seam with no write method cannot acquire one by accident.
+     * the handler: a seam that cannot name a method cannot acquire one by
+     * accident.
      */
-    it('is handed a source that can only read', () => {
-      const source = fakeDoctorSource()
+    it('is handed a source that reads, and writes only that the citizen looked', () => {
+      const reading = fakeDoctorSource()
+      const writing = fakeDoctorSource({}, {}, {}, {}, async () => {})
 
-      expect(Object.keys(source).sort()).toEqual([
+      expect(Object.keys(reading).sort()).toEqual([
         'callHoursSince',
         'deprecatedRoutes',
         'progressOf',
@@ -296,6 +298,18 @@ describe('the doctor surface', () => {
         // of band. Nothing on this seam asks a model for anything: that would
         // put the citizen surface behind a third party being up, which is the
         // one thing `#837` is built not to be.
+        'proseFor',
+      ])
+
+      // `#1081` added the only write, and it is the narrowest one there is: it
+      // records that a citizen looked and nothing about what was found. Nothing
+      // here decides anything, changes a standing or narrows what anybody may
+      // do, so the surface is still the inform.
+      expect(Object.keys(writing).sort()).toEqual([
+        'callHoursSince',
+        'deprecatedRoutes',
+        'noteConsultation',
+        'progressOf',
         'proseFor',
       ])
     })
@@ -384,5 +398,129 @@ describe('the doctor surface, with and without a sentence', () => {
 
     expect(answer.findings.length).toBeGreaterThan(0)
     expect(answer.findings.every((finding) => finding.prose === null)).toBe(true)
+  })
+})
+
+/**
+ * Whether being told brings a citizen back (`#1081`).
+ *
+ * Announcing findings on waking has never been measured, so *the citizen was
+ * told* and *the citizen looked* were the same fact in the record. Both doors
+ * write, because a citizen that reads its answer over HTTP has consulted the
+ * Doctor exactly as much as one that called the tool — and they are asserted
+ * separately, because a shared helper is not evidence that both doors call it.
+ *
+ * **The rejection case is the one this block exists for.** A measurement that
+ * can break the thing it measures is worse than no measurement: the write is
+ * swallowed, and `kolonie.doctor` answers in full whatever the database does.
+ */
+describe('recording that a citizen consulted', () => {
+  const CONSULTING = [4, 3, 2, 1].map((n) => bucket(n))
+
+  /** A citizen, and a record of what the Doctor wrote about it looking. */
+  const withARecorder = async (noteConsultation: (id: AgentId, at: Date) => Promise<void>) => {
+    const base = fakeColony()
+    const registered = await base.registry.register(
+      { name: 'canary', platform: 'openclaw' },
+      { ip: FAKE_CALLER_IP },
+    )
+    if (registered.outcome !== 'registered') throw new Error('fixture failed to register')
+
+    const agentId = registered.response.agent.id
+    const doctor = fakeDoctorSource({ [agentId]: CONSULTING }, {}, {}, {}, noteConsultation)
+
+    return { base, doctor, agentId, apiKey: registered.response.credentials.apiKey }
+  }
+
+  it('records it through the MCP door, for the caller and nobody else', async () => {
+    const consulted: { id: AgentId; at: Date }[] = []
+    const { base, doctor, agentId, apiKey } = await withARecorder(async (id, at) => {
+      consulted.push({ id, at })
+    })
+
+    const { client, close } = await connectedClient(
+      { ...base, doctor },
+      `Bearer ${apiKey}`,
+      agentId,
+    )
+    const result = await client.callTool({ name: 'kolonie.doctor', arguments: {} })
+    await close()
+
+    expect(DoctorAnswerSchema.parse(result.structuredContent)).toBeTruthy()
+    expect(consulted.map((row) => row.id)).toEqual([agentId])
+    expect(consulted[0]?.at).toBeInstanceOf(Date)
+  })
+
+  /**
+   * Asserted separately from the tool rather than through the shared helper.
+   * The two doors having the same behaviour is the claim; a helper they both
+   * *could* call is not evidence that they both do.
+   */
+  it('records it through the HTTP door as well', async () => {
+    const consulted: AgentId[] = []
+    const { base, doctor, agentId, apiKey } = await withARecorder(async (id) => {
+      consulted.push(id)
+    })
+
+    const app = buildApp({ ...base, doctor })
+    await app.ready()
+    const response = await app.inject({
+      method: 'GET',
+      url: '/v1/doctor',
+      headers: { authorization: `Bearer ${apiKey}` },
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(consulted).toEqual([agentId])
+  })
+
+  /**
+   * **The rejection case.** The write is the Colony measuring itself, and a
+   * citizen asking what it looks like from here does not get an error because
+   * the Colony's own bookkeeping failed.
+   */
+  it('answers in full when the write rejects, and says so in the log', async () => {
+    const logged: string[] = []
+    const { base, doctor, agentId, apiKey } = await withARecorder(async () => {
+      throw new Error('the database went away')
+    })
+
+    const { client, close } = await connectedClient(
+      { ...base, doctor, log: (message) => logged.push(message) },
+      `Bearer ${apiKey}`,
+      agentId,
+    )
+    const result = await client.callTool({ name: 'kolonie.doctor', arguments: {} })
+    await close()
+
+    expect(result.isError).toBeUndefined()
+    expect(DoctorAnswerSchema.parse(result.structuredContent)).toBeTruthy()
+    expect(logged).toContain('doctor.consultation.not-recorded')
+  })
+
+  /**
+   * A deployment that wired no writer measures nothing and answers exactly as it
+   * did before the column existed. That is the state every test above this file's
+   * `#1081` block is in, and it has to stay a supported one rather than a
+   * `TypeError` waiting for a deployment that skipped a migration.
+   */
+  it('answers a deployment that records nothing', async () => {
+    const base = fakeColony()
+    const registered = await base.registry.register(
+      { name: 'canary', platform: 'openclaw' },
+      { ip: FAKE_CALLER_IP },
+    )
+    if (registered.outcome !== 'registered') throw new Error('fixture failed to register')
+
+    const { client, close } = await connectedClient(
+      { ...base, doctor: fakeDoctorSource({ [registered.response.agent.id]: CONSULTING }) },
+      `Bearer ${registered.response.credentials.apiKey}`,
+      registered.response.agent.id,
+    )
+    const result = await client.callTool({ name: 'kolonie.doctor', arguments: {} })
+    await close()
+
+    expect(result.isError).toBeUndefined()
+    expect(DoctorAnswerSchema.parse(result.structuredContent)).toBeTruthy()
   })
 })

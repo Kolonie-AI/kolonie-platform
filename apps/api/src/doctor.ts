@@ -24,9 +24,12 @@ const NO_PROSE: Readonly<Record<string, string>> = {}
  * database, and the handler below can be exercised against a fixture without a
  * Postgres.
  *
- * **It can only read**, and there is deliberately no method here that writes
- * anything. `kolonie.doctor` explains and never sanctions — the card's ordering
- * is *understand, inform, then limit*, and this is the inform.
+ * **Three reads and one write, and the write records only that the citizen
+ * looked** (`#1081`). Nothing here decides anything about a citizen, changes its
+ * standing or narrows what it may do: `kolonie.doctor` explains and never
+ * sanctions — the card's ordering is *understand, inform, then limit*, and this
+ * is the inform. Recording a consultation limits nothing, which is why it can
+ * sit on this interface without moving the surface along that ordering.
  */
 export interface DoctorSource {
   /** This citizen's own rollup rows since a moment. Never anybody else's. */
@@ -55,6 +58,42 @@ export interface DoctorSource {
    * same citizen are the same finding — that is what the dedupe key means.
    */
   proseFor?(agentId: AgentId): Promise<Readonly<Record<string, string>>>
+  /**
+   * That this citizen consulted, so that being told can be told apart from
+   * being heard. Optional: a deployment without it measures nothing and
+   * answers exactly as it does today.
+   */
+  noteConsultation?(agentId: AgentId, at: Date): Promise<void>
+}
+
+/**
+ * Record that this citizen looked, and never let that cost it its answer
+ * (`#1081`).
+ *
+ * **Called by both doors after the answer is in hand**, and by both because a
+ * citizen that asked is a citizen that asked whichever door it used — recording
+ * only the MCP tool would make the figure a measurement of which client the
+ * citizen runs.
+ *
+ * **A rejection is swallowed and logged**, on the same reasoning `proseFor`'s
+ * catch is written down with: the answer is complete without the measurement,
+ * and a Doctor that could fail because its own bookkeeping failed would be worse
+ * than one that measures nothing. The citizen is told nothing about it, because
+ * there is nothing it could do.
+ */
+export async function recordConsultation(
+  agentId: AgentId,
+  source: DoctorSource,
+  at: Date,
+  log: (message: string, detail: unknown) => void,
+): Promise<void> {
+  if (source.noteConsultation === undefined) return
+
+  try {
+    await source.noteConsultation(agentId, at)
+  } catch (error) {
+    log('doctor.consultation.not-recorded', error)
+  }
 }
 
 /**

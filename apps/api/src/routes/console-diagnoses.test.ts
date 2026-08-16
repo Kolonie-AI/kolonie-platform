@@ -4,7 +4,8 @@ import type { Diagnosis } from '@kolonie-ai/core'
 import { buildApp } from '../app.js'
 import { fakeColony } from '../__fixtures__/colony/index.js'
 import { fakeConsole } from '../__fixtures__/console.js'
-import { fakeDiagnosesDesk } from '../__fixtures__/doctor.js'
+import { NOTHING_ANNOUNCED, fakeDiagnosesDesk } from '../__fixtures__/doctor.js'
+import type { ConsultationFunnel } from '@kolonie-ai/db'
 import { fakeHumanStore, fakeTenant } from '../__fixtures__/humans.js'
 import { OAUTH_STATE_COOKIE } from '../humans/humans.js'
 import { SESSION_COOKIE } from './console.js'
@@ -31,6 +32,7 @@ const aDiagnosis = (overrides: Partial<Diagnosis> = {}): Diagnosis => ({
   supportTicketId: null,
   announcedAt: null,
   announcedSeverity: null,
+  consultedAt: null,
   ...overrides,
 })
 
@@ -53,7 +55,11 @@ describe('the console’s diagnoses pages', () => {
   const CONSOLE_URL = 'https://console.example'
   const CONSOLE_HOST = 'console.example'
 
-  const withRows = async (rows: readonly Diagnosis[] | undefined) => {
+  const withRows = async (
+    rows: readonly Diagnosis[] | undefined,
+    /** What the funnel counted, for the tests that are about it (`#1081`). */
+    funnel: ConsultationFunnel = NOTHING_ANNOUNCED,
+  ) => {
     // Taken out of the fixture rather than overwritten: `fakeColony` wires one
     // by default, and `undefined` here has to mean *this deployment has none*
     // rather than *this deployment has an empty one*.
@@ -63,7 +69,7 @@ describe('the console’s diagnoses pages', () => {
       ...colony,
       console: { ...fakeConsole(), consoleUrl: CONSOLE_URL },
       humans: { store: humans, tenant: fakeTenant() },
-      ...(rows === undefined ? {} : { diagnoses: fakeDiagnosesDesk(rows) }),
+      ...(rows === undefined ? {} : { diagnoses: fakeDiagnosesDesk(rows, funnel) }),
     })
     await app.ready()
     return { app, humans }
@@ -209,6 +215,54 @@ describe('the console’s diagnoses pages', () => {
 
     expect(page.statusCode).toBe(200)
     expect(page.body).toContain('Nothing is open about the Colony itself')
+  })
+
+  /**
+   * Whether telling citizens anything achieves anything (`#1081`).
+   *
+   * **The rejection case is the omission.** A Colony that has announced nothing
+   * gets no sentence at all rather than one reading *told 0 citizens*: a
+   * denominator of zero is not a low uptake, and printing it as one would put a
+   * number on the page that a reader would go looking for a cause of.
+   */
+  describe('whether a told citizen came back', () => {
+    it('says how many were told and how many looked', async () => {
+      const { app, humans } = await withRows([], {
+        announced: 41,
+        consulted: 12,
+        medianHoursToConsult: 6,
+      })
+      const headers = await asMaintainer(app, humans)
+
+      const page = await app.inject({ method: 'GET', url: '/backend/diagnoses', headers })
+
+      expect(page.body).toContain('Told 41 citizens in the last 30 days')
+      expect(page.body).toContain('12 consulted the Doctor afterwards, typically within 6 hours')
+    })
+
+    /** Told and ignored is a finding, and it is the one worth reading plainly. */
+    it('says so plainly when nobody came back', async () => {
+      const { app, humans } = await withRows([], {
+        announced: 7,
+        consulted: 0,
+        medianHoursToConsult: null,
+      })
+      const headers = await asMaintainer(app, humans)
+
+      const page = await app.inject({ method: 'GET', url: '/backend/diagnoses', headers })
+
+      expect(page.body).toContain('none has consulted the Doctor afterwards')
+    })
+
+    it('leaves the sentence out entirely when nobody was told', async () => {
+      const { app, humans } = await withRows([])
+      const headers = await asMaintainer(app, humans)
+
+      const page = await app.inject({ method: 'GET', url: '/backend/diagnoses', headers })
+
+      expect(page.body).not.toContain('consulted the Doctor')
+      expect(page.body).not.toContain('Told 0 citizens')
+    })
   })
 
   describe('one diagnosis, read to the end', () => {

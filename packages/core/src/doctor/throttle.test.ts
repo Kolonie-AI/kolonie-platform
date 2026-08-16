@@ -47,6 +47,7 @@ const aDiagnosis = (overrides: Partial<Diagnosis> = {}): Diagnosis => ({
   escalatedIssueUrl: null,
   announcedAt: hoursBefore(THROTTLE_MIN_HOURS_SINCE_TELLING + 1),
   announcedSeverity: 'serious',
+  consultedAt: null,
   ...overrides,
 })
 

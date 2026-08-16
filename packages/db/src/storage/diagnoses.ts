@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, isNotNull, isNull, lt, sql, type SQL } from 'drizzle-orm'
+import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, lt, sql, type SQL } from 'drizzle-orm'
 import {
   DIAGNOSIS_RETENTION_DAYS,
   DOCTOR_TELLING_COOLING_HOURS,
@@ -475,6 +475,7 @@ function rowToDiagnosis(row: typeof diagnoses.$inferSelect): Diagnosis {
     lastSeenAt: toTimestamp(row.lastSeenAt),
     resolvedAt: row.resolvedAt === null ? null : toTimestamp(row.resolvedAt),
     announcedAt: row.announcedAt === null ? null : toTimestamp(row.announcedAt),
+    consultedAt: row.consultedAt === null ? null : toTimestamp(row.consultedAt),
   })
 }
 
@@ -737,4 +738,104 @@ export async function diagnosisCounts(
     .groupBy(diagnoses.scope, diagnoses.state)
 
   return Object.fromEntries(rows.map((row) => [`${row.scope}.${row.state}`, row.total]))
+}
+
+/**
+ * That this citizen consulted the Doctor after being told (`#1081`).
+ *
+ * **Every finding it had been told about, in one statement.** `doctorAnswerFor`
+ * computes live from the rollup and its answer carries no diagnosis id, so there
+ * is no information in the call about which finding it came for — a consultation
+ * is evidence for every one of them. The alternative, guessing at a single row,
+ * would be inventing a fact the call does not contain.
+ *
+ * **Only announced rows.** A finding the citizen was never told about cannot be
+ * evidence that telling worked, and counting it would make the funnel measure
+ * *did this citizen ever call the Doctor* — which the rollup already answers and
+ * is not the question.
+ *
+ * **Only open rows**, because a resolved diagnosis' funnel is finished.
+ *
+ * **Never reset and never overwritten**, which `consulted_at is null` in the
+ * where clause is what enforces. See the column's own comment for why a citizen
+ * re-announced at a worse severity does not get a second funnel.
+ *
+ * Returns how many rows it touched — `0` on the second call of the same day, and
+ * `0` for a citizen with nothing announced, which is the ordinary case.
+ */
+export async function markConsulted(
+  db: Database | Transaction,
+  agentId: AgentId,
+  at: Date,
+): Promise<number> {
+  const touched = await db
+    .update(diagnoses)
+    .set({ consultedAt: at.toISOString() })
+    .where(
+      and(
+        eq(diagnoses.subject, agentId),
+        eq(diagnoses.scope, 'agent'),
+        eq(diagnoses.state, 'open'),
+        isNotNull(diagnoses.announcedAt),
+        isNull(diagnoses.consultedAt),
+      ),
+    )
+    .returning({ id: diagnoses.id })
+
+  return touched.length
+}
+
+/** Whether telling citizens about findings makes them look (`#1081`). */
+export interface ConsultationFunnel {
+  readonly announced: number
+  readonly consulted: number
+  /** Median hours from announcement to consultation, or `null` when nothing has. */
+  readonly medianHoursToConsult: number | null
+}
+
+/**
+ * The one number that says whether the Doctor's push is worth anything (`#1081`).
+ *
+ * **Counted in every state, not only open.** A diagnosis that was told and then
+ * resolved itself belongs in both legs: it was announced, and the citizen either
+ * came back or did not. Dropping it would make the funnel improve every time a
+ * finding resolved, which is exactly backwards.
+ *
+ * **Both legs live on the row, and that is why they are not a join.**
+ * `CALL_HOUR_RETENTION_DAYS` is 35 and `DIAGNOSIS_RETENTION_DAYS` is 90, so a
+ * funnel computed against the rollup would lose its second leg on every
+ * diagnosis older than five weeks while the diagnosis itself was still on file —
+ * a measurement that silently disagreed with itself depending on the age of the
+ * row.
+ *
+ * The median is over the consulted rows alone: `percentile_cont` ignores nulls in
+ * the ordered set, so *nobody consulted* is `null` rather than a zero that would
+ * read as *everybody consulted instantly*.
+ */
+export async function consultationFunnel(
+  db: Database | Transaction,
+  since: Date,
+): Promise<ConsultationFunnel> {
+  const [row] = await db
+    .select({
+      announced: sql<number>`count(*)::int`,
+      consulted: sql<number>`count(${diagnoses.consultedAt})::int`,
+      medianHoursToConsult: sql<
+        number | null
+      >`percentile_cont(0.5) within group (order by extract(epoch from (${diagnoses.consultedAt} - ${diagnoses.announcedAt})) / 3600.0)`,
+    })
+    .from(diagnoses)
+    .where(
+      and(
+        eq(diagnoses.scope, 'agent'),
+        isNotNull(diagnoses.announcedAt),
+        gte(diagnoses.announcedAt, since.toISOString()),
+      ),
+    )
+
+  return {
+    announced: row?.announced ?? 0,
+    consulted: row?.consulted ?? 0,
+    medianHoursToConsult: row?.medianHoursToConsult ?? null,
+  }
 }

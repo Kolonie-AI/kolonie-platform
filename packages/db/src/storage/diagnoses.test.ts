@@ -14,7 +14,9 @@ import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
 import { registerAgent } from './agents.js'
 import {
   attachProse,
+  consultationFunnel,
   doctorTellingFor,
+  markConsulted,
   recordTelling,
   openDiagnosesFor,
   openDiagnosisFor,
@@ -677,5 +679,183 @@ describe('escalating a colony-scoped finding', () => {
     expect(String((refusal as { cause?: unknown } | undefined)?.cause)).toMatch(
       /diagnoses_only_colony_is_escalated/,
     )
+  })
+})
+
+/**
+ * Whether being told achieves anything (`#1081`).
+ *
+ * The Doctor has announced findings to citizens since `#845` and nothing has
+ * ever measured what happened next — so *the citizen was told* and *the citizen
+ * looked* were the same fact in the record, and the second is the only one that
+ * says the channel works. The two rejection cases are the ones the column is
+ * for: a stamp that moves on a second visit would measure visits rather than
+ * uptake, and a stamp on a row nobody was told about would measure nothing at
+ * all while looking exactly like success.
+ */
+describe('whether a told citizen looks', () => {
+  let db: Database
+  let agentId: AgentId
+
+  const AT = new Date('2026-08-13T12:00:00.000Z')
+  const POLICY = '2026-08-13.1'
+  const WINDOW_OPENED = new Date('2026-08-01T00:00:00.000Z')
+
+  const hoursAfter = (from: Date, hours: number) =>
+    new Date(from.getTime() + hours * 60 * 60 * 1000)
+
+  beforeAll(async () => {
+    db = await connectForTests(target.url)
+  })
+
+  afterAll(async () => {
+    await db?.close()
+  })
+
+  beforeEach(async () => {
+    await truncateAll(db)
+    agentId = await register('canary')
+  })
+
+  const register = async (name: string): Promise<AgentId> => {
+    const registered = await registerAgent(
+      db,
+      RegisterAgentRequestSchema.parse({ name, platform: 'openclaw' }),
+    )
+    if (registered.outcome !== 'registered') throw new Error(registered.outcome)
+    return registered.agent.id
+  }
+
+  const open = async (subject: AgentId, overrides: Partial<Finding> = {}) => {
+    const written = await recordDiagnosis(db, aFinding({ subject, ...overrides }), POLICY, AT)
+    if (written.diagnosis === null) throw new Error(written.refusal ?? 'not stored')
+    return written.diagnosis
+  }
+
+  /** Told about it, which is the state the whole measurement starts from. */
+  const announce = async (subject: AgentId, overrides: Partial<Finding> = {}) => {
+    const diagnosis = await open(subject, overrides)
+    await recordTelling(db, diagnosis.id, diagnosis.severity, AT)
+    return diagnosis
+  }
+
+  const consultedAtOf = async (id: string) => {
+    const [row] = await db.select().from(diagnoses).where(eq(diagnoses.id, id))
+    return row?.consultedAt ?? null
+  }
+
+  /**
+   * Every finding the citizen was told about, at once. It read one answer and
+   * that answer covered all of them, so stamping one and leaving the rest would
+   * record a funnel narrower than the one that actually happened.
+   */
+  it('stamps every announced finding the citizen holds', async () => {
+    await announce(agentId, { kind: 'polling-loop' })
+    await announce(agentId, { kind: 'no-progress' })
+
+    expect(await markConsulted(db, agentId, hoursAfter(AT, 2))).toBe(2)
+  })
+
+  /**
+   * **The rejection case the column exists for.** Stamped once and never again:
+   * the question is whether being told brings a citizen back, and a stamp that
+   * moved would answer a different question — how recently it last called —
+   * while looking like the same number.
+   */
+  it('records the first consultation and never a later one', async () => {
+    const diagnosis = await announce(agentId)
+
+    expect(await markConsulted(db, agentId, hoursAfter(AT, 2))).toBe(1)
+    expect(await markConsulted(db, agentId, hoursAfter(AT, 9))).toBe(0)
+    expect(await consultedAtOf(diagnosis.id)).toContain('14:00:00')
+  })
+
+  /**
+   * **The second rejection case.** A citizen calling `kolonie.doctor` because it
+   * felt like it was never told anything, and an unannounced finding it happens
+   * to have is not turned into evidence that announcing worked.
+   */
+  it('stamps nothing when the citizen was never told', async () => {
+    await open(agentId)
+
+    expect(await markConsulted(db, agentId, hoursAfter(AT, 2))).toBe(0)
+  })
+
+  /** A finding that has ended is not one the citizen came back about. */
+  it('stamps nothing on a finding that has resolved', async () => {
+    const diagnosis = await announce(agentId)
+    await db.update(diagnoses).set({ state: 'resolved' }).where(eq(diagnoses.id, diagnosis.id))
+
+    expect(await markConsulted(db, agentId, hoursAfter(AT, 2))).toBe(0)
+  })
+
+  /**
+   * A colony-scoped row is about a route and was announced to nobody, so there
+   * is no citizen whose consultation it could be recording.
+   */
+  it('never stamps a colony-scoped finding', async () => {
+    await open(agentId, { scope: 'colony', subject: '/v1/tasks', kind: 'retry-storm' })
+
+    expect(await markConsulted(db, agentId, hoursAfter(AT, 2))).toBe(0)
+  })
+
+  it('stamps nothing on another citizen', async () => {
+    const diagnosis = await announce(agentId)
+    const stranger = await register('stranger')
+
+    expect(await markConsulted(db, stranger, hoursAfter(AT, 2))).toBe(0)
+    expect(await consultedAtOf(diagnosis.id)).toBeNull()
+  })
+
+  it('counts the two legs and the middle of the wait between them', async () => {
+    await announce(agentId)
+    await announce(await register('two'))
+    await announce(await register('three'))
+    await announce(await register('four'))
+
+    await markConsulted(db, agentId, hoursAfter(AT, 3))
+
+    expect(await consultationFunnel(db, WINDOW_OPENED)).toEqual({
+      announced: 4,
+      consulted: 1,
+      medianHoursToConsult: 3,
+    })
+  })
+
+  /**
+   * **Nobody came back is a real answer and not a broken one.** A median over an
+   * empty set is null rather than zero, and zero would read as *they all came
+   * back instantly* — the opposite of what happened.
+   */
+  it('reports no median when nothing has been consulted', async () => {
+    await announce(agentId)
+
+    expect(await consultationFunnel(db, WINDOW_OPENED)).toEqual({
+      announced: 1,
+      consulted: 0,
+      medianHoursToConsult: null,
+    })
+  })
+
+  /** Nothing was announced at all, which is what an empty Colony looks like. */
+  it('counts nothing when nobody has been told', async () => {
+    await open(agentId)
+
+    expect(await consultationFunnel(db, WINDOW_OPENED)).toEqual({
+      announced: 0,
+      consulted: 0,
+      medianHoursToConsult: null,
+    })
+  })
+
+  /** The window is the caller's, and an announcement older than it is not counted. */
+  it('counts nothing announced before the window opened', async () => {
+    await announce(agentId)
+
+    expect(await consultationFunnel(db, hoursAfter(AT, 1))).toEqual({
+      announced: 0,
+      consulted: 0,
+      medianHoursToConsult: null,
+    })
   })
 })

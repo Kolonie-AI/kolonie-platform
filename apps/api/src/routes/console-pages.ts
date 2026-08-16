@@ -270,6 +270,15 @@ const SLOT_NOTICE: Record<string, string | undefined> = {
   closed: SLOT_CLOSED_NOTICE,
 }
 
+/**
+ * How far back `/backend/diagnoses` reads the consultation funnel (`#1081`).
+ *
+ * **Shorter than the 90 days a diagnosis is kept for**, deliberately: the
+ * question the line answers is *is this channel working now*, and a window as
+ * long as retention would take a quarter to notice that it had stopped.
+ */
+const CONSULTATION_WINDOW_DAYS = 30
+
 export function registerConsolePages(app: FastifyInstance, deps: RouteDependencies): void {
   const host = consoleHost(deps.console.consoleUrl)
   if (host === undefined) return
@@ -1689,7 +1698,15 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
             : (['open'] as const)
         const page = Math.max(0, Number.parseInt(request.query.page ?? '0', 10) || 0)
 
-        const [colony, agents, counts] = await Promise.all([
+        /**
+         * Thirty days, at the one call site that has an opinion about the
+         * window (`#1081`). It is a property of the page — *is this channel
+         * working now* — rather than of the storage function, which counts
+         * whatever it is handed.
+         */
+        const since = new Date(Date.now() - CONSULTATION_WINDOW_DAYS * 24 * 60 * 60 * 1000)
+
+        const [colony, agents, counts, funnel] = await Promise.all([
           diagnoses.list({
             scope: 'colony',
             states: [...states],
@@ -1701,6 +1718,7 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
             offset: showing === 'agent' ? page * DIAGNOSES_PAGE : 0,
           }),
           diagnoses.counts(),
+          diagnoses.funnel(since),
         ])
 
         return wantsHtml(request)
@@ -1711,12 +1729,13 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
                 colony,
                 agents,
                 counts,
+                funnel,
                 showing,
                 states: [...states],
                 page,
               }),
             )
-          : reply.send({ colony, agents, counts, showing, states, page })
+          : reply.send({ colony, agents, counts, funnel, showing, states, page })
       },
     )
 

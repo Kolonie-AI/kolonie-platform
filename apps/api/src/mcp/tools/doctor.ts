@@ -1,6 +1,6 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { authenticate } from '../../authentication.js'
-import { doctorAnswerFor } from '../../doctor.js'
+import { doctorAnswerFor, recordConsultation } from '../../doctor.js'
 import type { McpDependencies } from '../dependencies.js'
 import { toolError } from '../guard.js'
 import { doctorAsText } from '../text/doctor.js'
@@ -53,7 +53,19 @@ export function registerDoctorTool(
       const authenticated = await authenticate(credential, deps.store)
       if (authenticated.outcome === 'rejected') return toolError(authenticated.error)
 
-      const answer = await doctorAnswerFor(authenticated.agent.id, doctor, new Date())
+      const now = new Date()
+      const answer = await doctorAnswerFor(authenticated.agent.id, doctor, now)
+
+      /**
+       * After the answer and never in place of it (`#1081`).
+       *
+       * The description above promises that nothing here changes anything about
+       * the citizen, and this keeps that promise: what is written is that the
+       * citizen looked, on rows it had already been told about, and no rule
+       * reads it back at a citizen. A rejection is swallowed inside — see
+       * `recordConsultation`.
+       */
+      await recordConsultation(authenticated.agent.id, doctor, now, deps.log ?? console.error)
 
       return {
         content: [{ type: 'text', text: doctorAsText(answer) }],

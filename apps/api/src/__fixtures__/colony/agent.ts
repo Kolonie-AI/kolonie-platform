@@ -43,6 +43,7 @@ import { fakeDiagnosesDesk, fakeDoctorSource } from '../doctor.js'
 import { checkName, register, type AgentRegistry, type Caller } from '../../registration.js'
 import { memoryGate } from '../registry.js'
 import { fakeSkillNotes, type FakeSkillNotes } from '../skill-notes.js'
+import { fakeCitizenSearch, type FakeCitizenSearch } from '../citizen-search.js'
 import { fakeStandingHints } from '../hints.js'
 import { fakeWakeup } from '../wakeup.js'
 
@@ -131,6 +132,17 @@ export interface FakeAgent {
   readonly prospects: (agentId: AgentId) => Promise<OpenProspects>
   /** A citizen's private notes against the skills it holds (`#348`). */
   readonly skillNotes: FakeSkillNotes
+  /**
+   * Finding a citizen by what it can do (`#1067`).
+   *
+   * Wired by default and empty, for `doctor`'s reason one surface along: the
+   * tool is named in `AUTHENTICATED_TOOLS`, and a colony without a search would
+   * register one tool fewer than production does — which would make every tier
+   * assertion describe a half-wired server. Empty is also the honest default:
+   * discovery is off until a citizen switches it on, so a colony where nobody
+   * is findable is the Colony as it stands the day this ships.
+   */
+  readonly citizenSearch: FakeCitizenSearch
   /** The one line a citizen did not ask for (`#231`). */
   readonly hints: StandingHintSource
   /** The range a declared rhythm has to fall inside (#142). */
@@ -225,6 +237,8 @@ export function fakeAgent(deps: { readonly solanaChallenges: SolanaChallenges })
   const indexing = new Map<string, boolean>()
   /** Whether each citizen is named on what it left (`#960`). On until it says otherwise. */
   const attribution = new Map<string, boolean>()
+  /** Whether each citizen may be found by what it can do (`#1067`). Off until it says otherwise. */
+  const discovery = new Map<string, boolean>()
 
   const store = async (request: RegisterAgentFields): Promise<RegisterAgentResult> => {
     const key = request.name.toLowerCase()
@@ -369,6 +383,7 @@ export function fakeAgent(deps: { readonly solanaChallenges: SolanaChallenges })
       walk: null,
     }),
     skillNotes: fakeSkillNotes(),
+    citizenSearch: fakeCitizenSearch(),
     hints: fakeStandingHints(),
     /**
      * The default range (#142). A test that cares about the bounds passes its
@@ -541,6 +556,10 @@ export function fakeAgent(deps: { readonly solanaChallenges: SolanaChallenges })
       attributedOf: async (agentId: AgentId): Promise<boolean> =>
         attribution.get(String(agentId)) ?? true,
 
+      /** Off until the citizen turns it on, which is the column's own default. */
+      discoverableOf: async (agentId: AgentId): Promise<boolean> =>
+        discovery.get(String(agentId)) ?? false,
+
       /**
        * PATCH semantics against the same `byKey` map registration writes into,
        * so a profile edited here is the profile the *next* `kolonie.me` in the
@@ -630,6 +649,11 @@ export function fakeAgent(deps: { readonly solanaChallenges: SolanaChallenges })
             case 'attributed':
               if (request.attributed !== undefined)
                 attribution.set(String(agentId), request.attributed)
+              break
+            /** And the third of them (`#1067`), off rather than on by default. */
+            case 'discoverable':
+              if (request.discoverable !== undefined)
+                discovery.set(String(agentId), request.discoverable)
               break
             default:
               throw new Error(`the fake colony does not honour ${field satisfies never}`)

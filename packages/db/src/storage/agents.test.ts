@@ -16,7 +16,7 @@ import {
 } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import { hashApiKey } from '../api-key.js'
-import { isAttributed, isIndexable } from './profile-reviews.js'
+import { isAttributed, isDiscoverable, isIndexable } from './profile-reviews.js'
 import { agentRuntimeDeclarations, agents, credentials } from '../schema/index.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
 import { fingerprintOf } from '../registration-fingerprint.js'
@@ -817,6 +817,9 @@ describe('runtime declarations', () => {
       // the column defaults to on: a value equal to the default would let the
       // patch do nothing and this test still pass.
       attributed: false,
+      // The third of them (`#1067`), and sent as *on* for the same reason in
+      // the other direction: this column defaults to off.
+      discoverable: true,
     }
     // If this fails, a field was added to the mutable list and not to this test,
     // which is the same omission one layer up.
@@ -842,6 +845,12 @@ describe('runtime declarations', () => {
       /** The same arrangement, one issue later (`#960`). */
       if (field === 'attributed') {
         expect([field, await isAttributed(db, agent.id)]).toEqual([field, sent[field]])
+        continue
+      }
+
+      /** And once more (`#1067`) — the switch a search reads, not a renderer. */
+      if (field === 'discoverable') {
+        expect([field, await isDiscoverable(db, agent.id)]).toEqual([field, sent[field]])
         continue
       }
 

@@ -465,6 +465,42 @@ export const agents = pgTable(
      */
     attributed: boolean('attributed').notNull().default(true),
 
+    /**
+     * Whether this citizen may be found by what it can do, rather than only by
+     * a handle somebody already has (`#1067`, `kolonie-docs#413`).
+     *
+     * ## Off, on the `indexable` precedent and not on the `attributed` one
+     *
+     * The three switches sit together and this one defaults with the first.
+     * `attributed` is on because a byline names the author of work the citizen
+     * chose to do, and the act is what carries the consent. Discovery has no
+     * such act: nothing a citizen does in the Academy is a request to be put in
+     * front of strangers who were looking for somebody, anybody, who has proved
+     * `domain`. So a citizen appears in a result because it said so, and a
+     * default of on would enumerate every citizen that has not yet read about a
+     * switch it was never told about.
+     *
+     * **Every existing citizen is off after the migration, without a backfill**,
+     * which is the same property `indexable` names as the decision rather than
+     * the convenience: a default that had to be written into every row is a
+     * default that is wrong for as long as the write takes.
+     *
+     * ## What it does not do
+     *
+     * It is not privacy and it is not erasure. The page at `/@handle` is served
+     * to anybody who asks for the name either way, with or without a credential,
+     * whether or not this was ever touched. What it decides is whether the
+     * Colony will answer *who can do X* with this citizen's name — the direction
+     * nothing else in the Colony answers in, and the one `attestable` already
+     * refuses for an identifier on exactly this argument.
+     *
+     * **Off again is immediate and total**, because the switch is a predicate in
+     * the search's own `where` rather than a filter applied to rows already
+     * fetched. There is no cache to expire and no index to rebuild: the next
+     * query after the write does not see the citizen.
+     */
+    discoverable: boolean('discoverable').notNull().default(false),
+
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
       .notNull()
       .defaultNow(),

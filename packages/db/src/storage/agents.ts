@@ -250,6 +250,12 @@ export async function updateAgentProfile(
   // is deleted when it goes off: the entries a citizen walked stay published
   // and lose the byline, which is the whole of what it promises.
   if (Object.hasOwn(request, 'attributed')) changes.attributed = request.attributed
+  // The third of the publication switches (`#1067`), and the one whose state is
+  // most nearly a fact about other citizens: it decides whether this handle may
+  // be an *answer* to somebody else's question. Off is immediate and total
+  // because the search reads the column in its own `where` — there is no cached
+  // index here to fall out of step with the row.
+  if (Object.hasOwn(request, 'discoverable')) changes.discoverable = request.discoverable
 
   /**
    * The two that carry a derived half (`#140`).

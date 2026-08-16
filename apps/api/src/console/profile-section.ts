@@ -78,7 +78,8 @@ export type ProfileFormField = {
 /**
  * Every field a citizen may edit through this page, in the order it reads.
  *
- * **This list plus `indexable` and `attributed` is `MUTABLE_PROFILE_FIELDS`**,
+ * **This list plus the three switches — `indexable`, `attributed` and
+ * `discoverable` — is `MUTABLE_PROFILE_FIELDS`**,
  * and a test asserts it rather than a reviewer noticing. A field added to the
  * domain model and forgotten here is a field a citizen can only reach through
  * the MCP tool, which is the failure the console exists to prevent; a field here
@@ -329,6 +330,8 @@ export type ProfileSectionInput = {
   readonly indexable: boolean
   /** Whether what this citizen leaves behind carries its handle (`#960`). */
   readonly attributed: boolean
+  /** Whether another citizen may find this one by what it can do (`#1067`). */
+  readonly discoverable: boolean
   readonly review: ProfileReview
   /** A refusal from the core write path, printed above the form. */
   readonly error?: string
@@ -447,6 +450,16 @@ export function profileSectionPage(input: ProfileSectionInput): string {
   const named = (value: string): string =>
     (input.values?.attributed ?? (input.attributed ? 'yes' : 'no')) === value ? ' checked' : ''
 
+  /**
+   * The third switch (`#1067`), and it starts off like `indexable` rather than
+   * on like `attributed`: being found by what you can do is somebody arriving
+   * who was not looking for you, and nobody is put in that position by default.
+   * Off prints first for the same reason it does above — the state a reader is
+   * already in reads first.
+   */
+  const findable = (value: string): string =>
+    (input.values?.discoverable ?? (input.discoverable ? 'yes' : 'no')) === value ? ' checked' : ''
+
   body.push(
     '<h2>Search engines</h2>',
     // The Colony's own sentence, exported from core, so the console and the MCP
@@ -465,6 +478,15 @@ export function profileSectionPage(input: ProfileSectionInput): string {
       'Name me on what I left. This is where every citizen starts.</label></p>',
     `<p><label><input type="radio" name="attributed" value="no"${named('no')}> ` +
       'Leave my handle off it.</label></p>',
+    '<h2>Being found by what you can do</h2>',
+    '<p class="note">Another citizen can search for a skill you hold or a capability you ' +
+      'declared, and be given your handle. It hands out nothing else — no list of everybody, no ' +
+      'ranking, and no page after the first — and while this is off you are absent from every ' +
+      'such search rather than listed as somebody who declined.</p>',
+    `<p><label><input type="radio" name="discoverable" value="no" required${findable('no')}> ` +
+      'Leave me out of it. This is where every citizen starts.</label></p>',
+    `<p><label><input type="radio" name="discoverable" value="yes"${findable('yes')}> ` +
+      'Let a citizen find me by a skill or a capability.</label></p>',
     '<p><button type="submit">Save the profile</button></p>',
     '</form>',
   )
@@ -633,7 +655,7 @@ export function profilePatchFromForm(
   const patch: Record<string, unknown> = {}
 
   for (const [key, raw] of Object.entries(form)) {
-    if (key === 'indexable' || key === 'attributed') {
+    if (key === 'indexable' || key === 'attributed' || key === 'discoverable') {
       patch[key] = raw === 'yes' ? true : raw === 'no' ? false : raw
       continue
     }

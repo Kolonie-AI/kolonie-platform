@@ -169,6 +169,19 @@ export const PRIVATE_AGENT_COLUMNS = [
    */
   'attributed',
   /**
+   * The discovery switch (`#1067`), private on the argument the two above it
+   * make and with one addition of its own.
+   *
+   * Publishing it would make the set of citizens who agreed to be found
+   * readable one name at a time — which is the very list the switch exists to
+   * put a decision in front of, so a record that carried it would hand back
+   * exactly what a citizen had not consented to. The addition: a reader that
+   * saw `discoverable: false` on a record would know a search had *not* been
+   * answered about that citizen, and the acceptance criterion is that a citizen
+   * with discovery off is absent rather than hidden.
+   */
+  'discoverable',
+  /**
    * The citizen's own external URL, and it is the entry most worth reading
    * twice.
    *

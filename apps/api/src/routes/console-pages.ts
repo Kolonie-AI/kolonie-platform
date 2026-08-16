@@ -4347,6 +4347,8 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
     const indexable = await deps.store.indexableOf(operated.agentId)
     /** The other switch on this page, read the same way (`#960`). */
     const attributed = await deps.store.attributedOf(operated.agentId)
+    /** And the third of them (`#1067`), which starts off as `indexable` does. */
+    const discoverable = await deps.store.discoverableOf(operated.agentId)
     const review = await deps.store.profileReviewOf(operated.agentId)
     const accounts = profileAccountRows(await deps.accounts.register.list(operated.agentId))
 
@@ -4370,6 +4372,7 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
         profile: agent.profile,
         indexable,
         attributed,
+        discoverable,
         review,
         /**
          * The same rows the page renders, so a caller reading this branch sees
@@ -4394,6 +4397,7 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
         profile: agent.profile,
         indexable,
         attributed,
+        discoverable,
         review,
         accounts,
         ...outcome,

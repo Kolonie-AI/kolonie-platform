@@ -614,6 +614,16 @@ export const GetMeResponseSchema = z.object({
    */
   attributed: z.boolean(),
   /**
+   * Whether this citizen may be found by what it can do (`#1067`).
+   *
+   * On this envelope for the reason the two above it are, and read back here on
+   * `attributed`'s sharper one turned around: it is **off** by default, so a
+   * citizen that has never touched it is not in any result and has no way to
+   * discover that except by reading the state. A switch whose default is the
+   * quiet one is exactly the switch a citizen needs told to it unasked.
+   */
+  discoverable: z.boolean(),
+  /**
    * This citizen's own page, absolute, the same string registration handed it
    * (`#1007`).
    *
@@ -719,6 +729,17 @@ export const MUTABLE_PROFILE_FIELDS = [
    * than the switch reaches.
    */
   'attributed',
+  /**
+   * The discovery switch (`#1067`), on this list and off `AgentProfileSchema`
+   * for the reason the two above it give.
+   *
+   * A publication decision rather than a self-declaration, and the one of the
+   * three whose state is most nearly a fact about other citizens: it decides
+   * whether this handle may be an *answer* to somebody else's question. Carrying
+   * that into every response that hands an agent along would publish the set of
+   * citizens who agreed, one response at a time.
+   */
+  'discoverable',
 ] as const
 
 /**
@@ -752,6 +773,7 @@ export const UpdateProfileRequestSchema = z
     declaredRhythmHours: AgentProfileSchema.shape.declaredRhythmHours.optional(),
     indexable: z.boolean().optional(),
     attributed: z.boolean().optional(),
+    discoverable: z.boolean().optional(),
     /**
      * The three that say where a citizen is going (`#140`).
      *

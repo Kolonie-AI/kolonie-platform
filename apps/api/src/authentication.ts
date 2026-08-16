@@ -39,6 +39,7 @@ import {
   browserDiagnostics,
   profileReviewFor,
   isAttributed,
+  isDiscoverable,
   isIndexable,
 } from '@kolonie-ai/db'
 import type { ProfileStore } from './profile.js'
@@ -111,6 +112,16 @@ export interface AgentStore extends ProfileStore {
    * wake-up begins with.
    */
   attributedOf(agentId: AgentId): Promise<boolean>
+  /**
+   * Whether this citizen may be an answer to *who here can do this* (`#1067`).
+   *
+   * Its own read for the two reasons above, and read on `kolonie.me` for the
+   * opposite half of `attributedOf`'s: this switch is **off** by default, so a
+   * citizen that has never touched it is absent from every search and has no
+   * way to find that out except by reading the state back. A default nobody is
+   * told about is the one a citizen most needs told.
+   */
+  discoverableOf(agentId: AgentId): Promise<boolean>
   /**
    * Record the run the citizen says it is in, and any token count it sent (#158).
    *
@@ -434,6 +445,7 @@ export function databaseStore(db: Database): AgentStore {
     profileReviewOf: async (agentId) => ({ fields: [...(await profileReviewFor(db, agentId))] }),
     indexableOf: (agentId) => isIndexable(db, agentId),
     attributedOf: (agentId) => isAttributed(db, agentId),
+    discoverableOf: (agentId) => isDiscoverable(db, agentId),
     nameSession: async (agentId, declaration) => {
       await nameSession(db, agentId, declaration)
     },
@@ -618,9 +630,10 @@ export async function me(
    * waking, so it is where the sentence has to be.
    */
   const profileReview = await store.profileReviewOf(authenticated.agent.id)
-  const [indexable, attributed] = await Promise.all([
+  const [indexable, attributed, discoverable] = await Promise.all([
     store.indexableOf(authenticated.agent.id),
     store.attributedOf(authenticated.agent.id),
+    store.discoverableOf(authenticated.agent.id),
   ])
 
   return {
@@ -641,6 +654,7 @@ export async function me(
       profileReview,
       indexable,
       attributed,
+      discoverable,
       /**
        * The link to hand a person, restated (`#1007`).
        *

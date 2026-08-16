@@ -88,6 +88,7 @@ import {
   httpContributionReader,
 } from '@kolonie-ai/verifiers'
 import {
+  findCitizens,
   githubAccountOf,
   holdsSkillNow,
   openProspects,
@@ -720,6 +721,9 @@ const app = buildApp({
     read: (agentId, skill) => readSkillNote(db, agentId, skill),
     readMany: (agentId, skills) => readSkillNotes(db, agentId, skills),
   },
+  // Who here can do this (`#1067`). One method, and the switch it reads is a
+  // predicate inside `findCitizens` rather than anything this line could forget.
+  citizenSearch: { find: (query) => findCitizens(db, query) },
   quests: databaseQuests(
     db,
     questAuditPolicy(),

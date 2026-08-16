@@ -1856,6 +1856,13 @@
       "when": 1786877284453,
       "tag": "0264_one_fact_one_surface",
       "breakpoints": true
+    },
+    {
+      "idx": 265,
+      "version": "7",
+      "when": 1786879362739,
+      "tag": "0265_citizens_may_be_found_by_what_they_can_do",
+      "breakpoints": true
     }
   ]
 }

@@ -2,6 +2,7 @@ import { pgEnum } from 'drizzle-orm/pg-core'
 import {
   AccountProvenanceSchema,
   DiagnosisStateSchema,
+  DoctorFeedbackVerdictSchema,
   FindingKindSchema,
   FindingScopeSchema,
   FindingSeveritySchema,
@@ -562,3 +563,15 @@ export const diagnosisSeverity = pgEnum(
  * console being read-only.
  */
 export const diagnosisState = pgEnum('diagnosis_state', valuesOf(DiagnosisStateSchema.options))
+
+/**
+ * What the citizen a finding was about made of it (`#1082`).
+ *
+ * From core's own list, exactly as {@link diagnosisKind} is, and for the same
+ * price: a fourth verdict changes what every published count means, so it is a
+ * decision rather than a slug and it should cost a migration.
+ */
+export const doctorFeedbackVerdict = pgEnum(
+  'doctor_feedback_verdict',
+  valuesOf(DoctorFeedbackVerdictSchema.options),
+)

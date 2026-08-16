@@ -6,6 +6,7 @@ import {
   type AgentId,
   type CallHour,
 } from '@kolonie-ai/core'
+import type { DoctorFeedbackInput } from '@kolonie-ai/db'
 import { buildApp } from './app.js'
 import { doctorAnswerFor } from './doctor.js'
 import { FAKE_CALLER_IP, fakeColony } from './__fixtures__/colony/index.js'
@@ -279,6 +280,188 @@ describe('the doctor surface', () => {
     })
   })
 
+  /**
+   * The return leg (`#1082`): a citizen saying whether a rule described anything
+   * real. Everything here is about the two promises the description makes —
+   * that answering changes nothing about the citizen, and that a second verdict
+   * replaces the first rather than joining it.
+   */
+  describe('answering the doctor back', () => {
+    const aCitizen = async (feedback: DoctorFeedbackInput[] = []) => {
+      const base = fakeColony()
+      const registered = await base.registry.register(
+        { name: 'canary', platform: 'openclaw' },
+        { ip: FAKE_CALLER_IP },
+      )
+      if (registered.outcome !== 'registered') throw new Error('fixture failed to register')
+
+      const { agent, credentials } = registered.response
+      const connected = await connectedClient(
+        { ...base, doctor: fakeDoctorSource({}, {}, {}, {}, undefined, feedback) },
+        `Bearer ${credentials.apiKey}`,
+        agent.id,
+      )
+
+      return { ...connected, base, agentId: agent.id, feedback }
+    }
+
+    it('records a verdict and says what it did with it', async () => {
+      const { client, close, feedback, agentId } = await aCitizen()
+
+      const result = await client.callTool({
+        name: 'kolonie.doctor.feedback',
+        arguments: { kind: 'polling-loop', verdict: 'wrong', note: 'I call it once a waking.' },
+      })
+      await close()
+
+      expect(result.structuredContent).toMatchObject({
+        kind: 'polling-loop',
+        verdict: 'wrong',
+        replaced: false,
+      })
+      expect(feedback).toEqual([
+        { agentId, kind: 'polling-loop', verdict: 'wrong', note: 'I call it once a waking.' },
+      ])
+    })
+
+    /**
+     * The receipt is where the promise is checkable. A citizen weighing whether
+     * to say *the rule is wrong* is deciding on the cost, and a tool that made
+     * the claim in its description and went quiet in its answer would be asking
+     * to be taken on trust at the one moment it need not be.
+     */
+    it('tells the citizen its standing did not move', async () => {
+      const { client, close } = await aCitizen()
+
+      const result = await client.callTool({
+        name: 'kolonie.doctor.feedback',
+        arguments: { kind: 'retry-storm', verdict: 'not-applicable' },
+      })
+      await close()
+
+      const text = (result.content as { text: string }[])[0]?.text ?? ''
+      expect(text).toContain('no reputation')
+      expect(text).toContain('no attempt')
+    })
+
+    it('reports a second verdict about the same rule as a replacement', async () => {
+      const { client, close, feedback } = await aCitizen()
+
+      await client.callTool({
+        name: 'kolonie.doctor.feedback',
+        arguments: { kind: 'polling-loop', verdict: 'wrong' },
+      })
+      const again = await client.callTool({
+        name: 'kolonie.doctor.feedback',
+        arguments: { kind: 'polling-loop', verdict: 'helpful' },
+      })
+      await close()
+
+      expect(again.structuredContent).toMatchObject({ replaced: true, verdict: 'helpful' })
+      expect(feedback).toHaveLength(1)
+    })
+
+    /**
+     * **The rejection that must not be swallowed**, and the whole difference
+     * from the consultation stamp beside it. That one is bookkeeping the citizen
+     * did not ask for, so a failure is logged and the answer still goes out.
+     * This one is the citizen's own request: a receipt saying *recorded* over a
+     * write that threw would leave it believing the Colony holds an answer it
+     * does not hold.
+     */
+    it('fails rather than reporting a write that did not happen', async () => {
+      const base = fakeColony()
+      const registered = await base.registry.register(
+        { name: 'canary', platform: 'openclaw' },
+        { ip: FAKE_CALLER_IP },
+      )
+      if (registered.outcome !== 'registered') throw new Error('fixture failed to register')
+
+      const source = fakeDoctorSource()
+      const { client, close } = await connectedClient(
+        {
+          ...base,
+          doctor: {
+            ...source,
+            recordFeedback: async () => {
+              throw new Error('the verdict could not be stored')
+            },
+          },
+        },
+        `Bearer ${registered.response.credentials.apiKey}`,
+        registered.response.agent.id,
+      )
+
+      const result = await client.callTool({
+        name: 'kolonie.doctor.feedback',
+        arguments: { kind: 'polling-loop', verdict: 'wrong' },
+      })
+      await close()
+
+      expect(result.isError).toBe(true)
+    })
+
+    /**
+     * The vocabulary is the rules' own. A kind no rule produces is refused at the
+     * door rather than stored as a verdict about nothing, and a note that is only
+     * whitespace is refused here as well as by the table — one door and one last
+     * door, which is the same arrangement `#1082`'s storage tests assert.
+     */
+    it('refuses a kind, a verdict and a note the Colony has no meaning for', async () => {
+      const { client, close, feedback } = await aCitizen()
+
+      const kind = await client.callTool({
+        name: 'kolonie.doctor.feedback',
+        arguments: { kind: 'slow', verdict: 'wrong' },
+      })
+      const verdict = await client.callTool({
+        name: 'kolonie.doctor.feedback',
+        arguments: { kind: 'polling-loop', verdict: 'unhelpful' },
+      })
+      const note = await client.callTool({
+        name: 'kolonie.doctor.feedback',
+        arguments: { kind: 'polling-loop', verdict: 'wrong', note: '   ' },
+      })
+      await close()
+
+      expect(kind.isError).toBe(true)
+      expect(verdict.isError).toBe(true)
+      expect(note.isError).toBe(true)
+      expect(feedback).toEqual([])
+    })
+
+    /**
+     * The same guard as the tool it answers, and asserted rather than assumed: a
+     * Colony with no rollup produces no findings, and inviting a verdict on a
+     * finding nobody was ever given is a question with no honest answer.
+     */
+    it('is absent wherever kolonie.doctor is', async () => {
+      const base = fakeColony()
+      const registered = await base.registry.register(
+        { name: 'canary', platform: 'openclaw' },
+        { ip: FAKE_CALLER_IP },
+      )
+      if (registered.outcome !== 'registered') throw new Error('fixture failed to register')
+
+      const { doctor: _unwired, ...withoutADoctor } = base
+      const stranger = await connectedClient({ ...base, doctor: fakeDoctorSource() })
+      const unwired = await connectedClient(
+        withoutADoctor,
+        `Bearer ${registered.response.credentials.apiKey}`,
+        registered.response.agent.id,
+      )
+
+      expect((await stranger.client.listTools()).tools.map((tool) => tool.name)).not.toContain(
+        'kolonie.doctor.feedback',
+      )
+      expect((await unwired.client.listTools()).tools.map((tool) => tool.name)).not.toContain(
+        'kolonie.doctor.feedback',
+      )
+
+      await Promise.all([stranger.close(), unwired.close()])
+    })
+  })
+
   describe('what it never does', () => {
     /**
      * The card's ordering is *understand, inform, then limit*, and this is the
@@ -286,7 +469,7 @@ describe('the doctor surface', () => {
      * the handler: a seam that cannot name a method cannot acquire one by
      * accident.
      */
-    it('is handed a source that reads, and writes only that the citizen looked', () => {
+    it('is handed a source whose only writes are about the Doctor', () => {
       const reading = fakeDoctorSource()
       const writing = fakeDoctorSource({}, {}, {}, {}, async () => {})
 
@@ -299,9 +482,15 @@ describe('the doctor surface', () => {
         // put the citizen surface behind a third party being up, which is the
         // one thing `#837` is built not to be.
         'proseFor',
+        // `#1082` added the second write and it is required rather than
+        // optional, so it is on the reading source too — there is no such thing
+        // as a source that could not take a verdict. It is a write **about the
+        // Doctor**: what a citizen made of a rule, which changes the rule's
+        // standing with the Colony and nothing about the citizen's.
+        'recordFeedback',
       ])
 
-      // `#1081` added the only write, and it is the narrowest one there is: it
+      // `#1081` added the first write, and it is the narrowest one there is: it
       // records that a citizen looked and nothing about what was found. Nothing
       // here decides anything, changes a standing or narrows what anybody may
       // do, so the surface is still the inform.
@@ -311,6 +500,7 @@ describe('the doctor surface', () => {
         'noteConsultation',
         'progressOf',
         'proseFor',
+        'recordFeedback',
       ])
     })
 

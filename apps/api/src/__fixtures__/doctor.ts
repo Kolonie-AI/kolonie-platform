@@ -1,6 +1,6 @@
 import type { AcademyProgress, AgentId, CallHour, Diagnosis } from '@kolonie-ai/core'
 import { DIAGNOSES_PAGE } from '@kolonie-ai/db'
-import type { ConsultationFunnel } from '@kolonie-ai/db'
+import type { ConsultationFunnel, DoctorFeedbackInput } from '@kolonie-ai/db'
 import type { DoctorSource } from '../doctor.js'
 import type { DiagnosesDesk } from '../diagnoses.js'
 
@@ -35,13 +35,46 @@ export function fakeDoctorSource(
    * that deployment.
    */
   noteConsultation?: (agentId: AgentId, at: Date) => Promise<void>,
+  /**
+   * Where the verdicts land, for a test that wants to read them back (`#1082`).
+   *
+   * **Handed over rather than defaulted away**, because unlike the write above
+   * it this one is not optional on the seam: a source that could not record a
+   * verdict is a state production does not have, so the fixture does not have it
+   * either. What a caller may choose is whether it keeps the rows.
+   */
+  feedback?: DoctorFeedbackInput[],
 ): DoctorSource {
+  const kept = feedback ?? []
+
   return {
     callHoursSince: async (agentId: AgentId, since: Date) =>
       (rows[agentId] ?? []).filter((hour) => Date.parse(hour.hourStartedAt) >= since.getTime()),
     progressOf: async (agentId: AgentId) => progress[agentId] ?? EMPTY_PROGRESS,
     deprecatedRoutes: async () => deprecated,
     proseFor: async (agentId: AgentId) => prose[agentId] ?? {},
+    /**
+     * One standing verdict per citizen per rule, which is the table's own shape
+     * (`#1082`).
+     *
+     * Reproduced here rather than appended to, because `replaced` is the one
+     * field of the receipt a test can get wrong without noticing: a fixture that
+     * always answered `false` would let a broken replacement pass.
+     */
+    recordFeedback: async (input: DoctorFeedbackInput) => {
+      const at = kept.findIndex(
+        (held) => held.agentId === input.agentId && held.kind === input.kind,
+      )
+      if (at === -1) kept.push(input)
+      else kept[at] = input
+
+      return {
+        kind: input.kind,
+        verdict: input.verdict,
+        replaced: at !== -1,
+        diagnosisId: null,
+      }
+    },
     ...(noteConsultation === undefined ? {} : { noteConsultation }),
   }
 }

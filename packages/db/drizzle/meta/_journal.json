@@ -1905,6 +1905,13 @@
       "when": 1786903119563,
       "tag": "0271_a_told_citizen_either_looks_or_does_not",
       "breakpoints": true
+    },
+    {
+      "idx": 272,
+      "version": "7",
+      "when": 1786903491985,
+      "tag": "0272_a_citizen_answers_the_doctor_back",
+      "breakpoints": true
     }
   ]
 }

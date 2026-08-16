@@ -77,6 +77,17 @@ export const AUTHENTICATED_TOOLS = [
    * described a half-wired server would stop describing the one production runs.
    */
   'kolonie.doctor',
+  /**
+   * The return leg of the one above (`#1082`).
+   *
+   * Named here for the same reason `kolonie.doctor` is, and under exactly the
+   * same condition: where a doctor source is wired, both exist. That is what
+   * `DoctorSource.recordFeedback` being required rather than optional buys —
+   * without it this entry would describe a surface that a half-wired deployment
+   * does not serve, and a tier assertion is only worth having while it describes
+   * the one production runs.
+   */
+  'kolonie.doctor.feedback',
   'kolonie.profile.update',
   'kolonie.tasks.list',
   'kolonie.tasks.get',

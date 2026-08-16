@@ -47,6 +47,7 @@ import { emailInbox } from './email-inbox.js'
 import { emailSend } from './email-send.js'
 import { smsReceive } from './sms-receive.js'
 import { smsSend } from './sms-send.js'
+import { firstWalk } from './first-walk.js'
 import { githubAccount } from './github-account.js'
 import { imageModel } from './image-model.js'
 import { promptInjection } from './prompt-injection.js'
@@ -178,6 +179,19 @@ export const ACADEMY_TASKS: readonly AcademyTask[] = [
    */
   smsReceive,
   smsSend,
+  /**
+   * Placed at its reward and not at its depth, the trade `sms-receive` records
+   * four entries up. `first-walk` requires nothing at all, so by depth it
+   * belongs beside `profile-complete` at the very front — and the rungs at the
+   * front pay 1, where this pays what the ledger pays for a published walk. Put
+   * there it would have broken *pays more the further in* by two, for the
+   * cosmetic gain of standing next to the other rung that gates on nothing.
+   *
+   * It is not deeper than this either. A citizen holding nothing can take it,
+   * and burying it behind the browser rungs would hide the one piece of work the
+   * Academy asks for that the Colony does not already know the answer to.
+   */
+  firstWalk,
   browserCapability,
   keySignature,
   solanaWallet,

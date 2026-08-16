@@ -1,4 +1,4 @@
-import { API_BASE_PATH, API_VERSION } from '@kolonie-ai/core'
+import { API_BASE_PATH, API_VERSION, ATLAS_INVITATION } from '@kolonie-ai/core'
 import { describe, expect, it } from 'vitest'
 import { FAKE_CALLER_IP, fakeColony } from '../../__fixtures__/colony/index.js'
 import { anonymousClient, connectedClient } from '../../__fixtures__/mcp.js'
@@ -695,6 +695,36 @@ describe('the Atlas invitation a stranger reads', () => {
     for (const line of atlasInvitation) {
       expect(text).toContain(line)
     }
+  })
+
+  /**
+   * The link that closes the chain (`#1037`).
+   *
+   * There are two copies of these words inside this repository and only one of
+   * them is watched from outside. `kolonie-docs`' daily check parses
+   * `atlasInvitation` in `about.ts` as a TypeScript array literal and compares
+   * it with `governance/the-atlas.md`; `ATLAS_INVITATION` in `core` is what
+   * everything else here reads, including the `first-walk` rung, and no check
+   * anywhere looks at it.
+   *
+   * So this test is the second link: the docs source is compared to `about.ts`
+   * daily, `about.ts` is compared to `ATLAS_INVITATION` here, and a change to
+   * the invitation that reaches one and not the other turns something red
+   * instead of leaving two copies quietly issuing different terms.
+   *
+   * **`about.ts` keeps its literal on purpose** — a reference there would parse
+   * as nothing and the daily check would go blind without saying so.
+   */
+  it('says the same four lines core carries, so both copies move together', async () => {
+    const { client, close } = await anonymousClient()
+
+    const result = await client.callTool({ name: 'kolonie.about', arguments: {} })
+    const { atlasInvitation } = result.structuredContent as {
+      atlasInvitation: readonly string[]
+    }
+    await close()
+
+    expect(atlasInvitation).toEqual([...ATLAS_INVITATION])
   })
 
   /**

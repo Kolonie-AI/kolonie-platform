@@ -54,6 +54,7 @@ import { WakeVerifyVerifier, type WakeChallengeReader } from './wake-verify.js'
 import { SocialPostVerifier, type SocialGrants } from './social-post.js'
 import { DomainVerifyVerifier, type DomainChallenges, type DomainNames } from './domain-verify.js'
 import { DomainPersistenceVerifier, type DomainGrants } from './domain-persistence.js'
+import { FirstWalkVerifier, type FirstWalkStandings } from './first-walk.js'
 import {
   AccountPersistenceVerifier,
   domainRecheck,
@@ -275,6 +276,12 @@ export {
   type DomainGrants,
   type DomainPersistenceDependencies,
 } from './domain-persistence.js'
+export {
+  FirstWalkVerifier,
+  type FirstWalkDependencies,
+  type FirstWalkStandings,
+  type WalkStanding,
+} from './first-walk.js'
 export {
   AccountPersistenceVerifier,
   domainRecheck,
@@ -756,6 +763,19 @@ export interface VerifierDependencies {
    */
   readonly domainGrants?: DomainGrants
   /**
+   * What this citizen has walked, and whether any of it was new ground
+   * (`#1037`).
+   *
+   * Its own port, reading nothing outside the Colony. It is deliberately not a
+   * method on any of the Atlas ports the offer side uses: those choose something
+   * to suggest to one citizen and may filter as freely as they like, where this
+   * one decides a verdict and has to answer about every walk in the Colony. A
+   * shared port would let a filter added for the offer quietly narrow what the
+   * rung will pay for. Absent leaves `first-walk` submissions pending, like
+   * every other missing verifier here.
+   */
+  readonly firstWalkStandings?: FirstWalkStandings
+  /**
    * The account register, for the one badge that re-checks what a citizen holds
    * (`#152`). Absent leaves `account-persistence` unregistered, which is a
    * pending submission rather than a failure — see the note at the top of this
@@ -1048,6 +1068,17 @@ export function createVerifiers(deps: VerifierDependencies = {}): VerifierRegist
         grants: deps.domainGrants,
       }),
     )
+  }
+
+  /**
+   * The rung that asks a citizen to go where the Colony has not been (`#1037`).
+   *
+   * One port and no outside reader: everything this verdict turns on is a row
+   * the Colony already holds, which is why it is registered on the presence of
+   * a single dependency rather than on a fetcher being configured.
+   */
+  if (deps.firstWalkStandings !== undefined) {
+    verifiers.push(new FirstWalkVerifier({ standings: deps.firstWalkStandings }))
   }
 
   /**

@@ -31,6 +31,8 @@ import {
   lastDomainExpiry,
   citizenForDomainName,
   contactGaps,
+  closedWalkStandings,
+  unwalkedEntriesRemain,
   memoryRungRecord,
   hasAutonomyContract,
   domainGrantOf,
@@ -545,6 +547,18 @@ const verifiers = createVerifiers({
   },
   // The heartbeat rung reads the Colony's own record and nothing else (#143).
   contacts: { gapsOf: (agentId, count) => contactGaps(db, agentId, count) },
+  /**
+   * The rung that pays for going where the Colony has not been (`#1037`).
+   *
+   * Two reads and no vendor: whether this citizen closed a walk nobody had made
+   * before it, and whether the catalogue still holds ground to send anybody at.
+   * The second is what lets a refusal say *there is none left* instead of
+   * sending a citizen out after something that no longer exists.
+   */
+  firstWalkStandings: {
+    closedWalks: (agentId) => closedWalkStandings(db, agentId),
+    unwalkedEntriesRemain: () => unwalkedEntriesRemain(db),
+  },
   /**
    * The memory rung (#159). The judgement happened at redemption time; this reads
    * what it decided, and cannot reach the outstanding code even if it wanted to.

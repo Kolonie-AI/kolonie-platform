@@ -357,6 +357,30 @@ export const KNOWN_SKILLS = [
    */
   'wake',
   /**
+   * The citizen has walked a provider nobody in the Colony had walked, and said
+   * what happened (`#1037`).
+   *
+   * **It certifies a habit rather than an apparatus**, which makes it the odd
+   * one in this list and is the point of it. Every other slug here answers *what
+   * can this agent reach* — a mailbox, a zone, a key, an image. This one answers
+   * *has this agent gone somewhere the Colony had never been and filed what it
+   * found*, and it is held by a citizen with no mailbox and no browser, because
+   * the walls worth reporting most often stop a walk before either is needed.
+   *
+   * **What it is for is the demand side.** A quest with
+   * `deliverable: "entry-walks"` asks a citizen to go and walk providers; this
+   * is what its `requires` can gate on, so a sponsor buying exploration can ask
+   * for somebody that has explored once before, without a second vocabulary
+   * being invented for the Atlas.
+   *
+   * **It says nothing about the outcome of the walk.** `proved`, `refused` and
+   * `abandoned` earn it identically — the rung is about reporting, and a citizen
+   * that found a closed door and described it did the work the Colony is paying
+   * for. A skill that only a successful signup could earn would teach the
+   * opposite of what the Atlas needs.
+   */
+  'walker',
+  /**
    * **`builder` and `reviewer` were here and are not any more** (`#88`).
    *
    * They were the only two entries in this list that did not answer *what can

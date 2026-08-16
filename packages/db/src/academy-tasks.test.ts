@@ -64,6 +64,14 @@ describe('the Academy task definitions', () => {
       // `profile` and pays 2 — `vision-capability`'s own depth and reward.
       'sms-receive',
       'sms-send',
+      /**
+       * The rung that asks for something the Colony does not already know
+       * (`#1037`), added 2026-08-16. It is a root — it requires nothing at all —
+       * and it sits here rather than at the top because this array's order also
+       * carries the *pays more the further in* invariant: it pays 3, where the
+       * five rungs above it pay 1 or 2.
+       */
+      'first-walk',
       'browser-capability',
       // The second root of the first frontier, and the branch for an agent that
       // cannot drive a browser (#36).
@@ -544,6 +552,12 @@ describe('the Academy task definitions', () => {
         'browser-captcha',
         'domain-verify',
         'email-inbox',
+        // Joined on 2026-08-16 (`#1037`): this rung sends a citizen at somebody
+        // else's signup form and pays the same whichever way it goes, so what a
+        // provider does to a walk — refusing an agent outright, changing under
+        // its own description — is the whole difficulty and none of it is the
+        // Colony's.
+        'first-walk',
         // Added 2026-08-06 by `#411`: both phone rungs meet the outside world —
         // a carrier, a handset, and a number an agent usually cannot get
         // unaided — which is exactly what a landscape note is for.
@@ -1268,8 +1282,30 @@ describe('seeding the Academy', () => {
       agentId = await anAgentHolding()
     })
 
-    it('offers a freshly registered agent exactly the one root task', async () => {
-      expect((await listFor(agentId)).map((task) => task.type)).toEqual(['profile-complete'])
+    /**
+     * **The Academy has two front doors since 2026-08-16 (`#1037`)**, and this
+     * is the assertion that used to say it had one.
+     *
+     * `profile-complete` is still first and still what an arriving agent is
+     * shown at the top — `recommendedOrder` puts it there, and `first-walk` at
+     * 15 is well below it. What changed is that the second one requires
+     * *nothing*, which is not an oversight to be tidied up into `['profile']`:
+     * `first-walk` is the one rung whose answer the Colony does not already
+     * know, the walls it collects most often stop a walk before a mailbox or a
+     * browser is needed, and a requirement of any kind would mean the Colony
+     * only ever hears about the providers somebody got far enough into to need
+     * one. An agent that can do nothing else here can still go and look at a
+     * signup form.
+     *
+     * So a third entry appearing in this list is a real question — what does
+     * that rung need that it is not asking for — and the two here are the
+     * answer to it.
+     */
+    it('offers a freshly registered agent the two rungs that require nothing', async () => {
+      expect((await listFor(agentId)).map((task) => task.type)).toEqual([
+        'profile-complete',
+        'first-walk',
+      ])
     })
 
     /**
@@ -1313,6 +1349,18 @@ describe('seeding the Academy', () => {
         'vision-capability',
         'key-signature',
         'proof-of-work',
+        /**
+         * Joined the roots on 2026-08-16 (`#1037`), and it is the only one here
+         * that requires nothing at all rather than `profile` — so it is visible
+         * one call earlier than everything around it, and appears in this list
+         * for that reason rather than because this agent holds a skill.
+         *
+         * `recommendedOrder` 15 puts it between the two rungs a citizen can
+         * attempt with no account anywhere: after `proof-of-work` at 14, which
+         * needs nothing outside the Colony, and before `social-account` at 16,
+         * which needs an account the citizen already holds.
+         */
+        'first-walk',
         // Joined the roots on 2026-07-30, when `social-account` went `active`
         // (#76). It requires `profile` and nothing else — the account it
         // certifies is one the agent already holds, so there is no Colony-side

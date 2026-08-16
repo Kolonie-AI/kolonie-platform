@@ -14,6 +14,7 @@ import {
   type ProviderRecipe,
   type RecipeOperatorGuess,
   type ServedWalkNote,
+  type ServedWalkRoute,
 } from '@kolonie-ai/core'
 import type { FallingRate } from '@kolonie-ai/db'
 import type { ProviderRecipes } from '../provider-recipes.js'
@@ -113,6 +114,17 @@ export interface FakeProviderRecipes extends ProviderRecipes {
    */
   readonly note: (kind: string, provider: string, note: ServedWalkNote) => void
   /**
+   * The route a walker wrote for this pair, as a reader receives it (`#1090`).
+   *
+   * **Set rather than derived, for the reason `note` is**, and with one decision
+   * more: the real read serves *one* route per pair and picks the newest. A fake
+   * that picked would have to know which walk finished last, which is a fact
+   * about rows it does not hold. `packages/db/src/storage/walk-notes.test.ts`
+   * asserts the picking against a real Postgres; setting one here says only that
+   * a route exists and reaches the page.
+   */
+  readonly route: (kind: string, provider: string, route: ServedWalkRoute) => void
+  /**
    * A citizen who walked this pair and is named for it (`#960`).
    *
    * **Only the ones a test wants named.** The real read already applies both
@@ -134,6 +146,7 @@ export function fakeProviderRecipes(): FakeProviderRecipes {
   const measured: AtlasFigures[] = []
   const briefed: ProviderBriefing[] = []
   const noted: { kind: string; provider: string; note: ServedWalkNote }[] = []
+  const routed: { kind: string; provider: string; route: ServedWalkRoute }[] = []
   const proposed: EntryProposal[] = []
   const providersProposed: AtlasProposal[] = []
   const falling: FallingRate[] = []
@@ -208,6 +221,22 @@ export function fakeProviderRecipes(): FakeProviderRecipes {
 
     note(kind, provider, note) {
       noted.push({ kind, provider, note })
+    },
+
+    /** The longest block of the same answer, on the same terms (`#1090`). */
+    async routes(provider) {
+      const found = new Map<string, ServedWalkRoute>()
+      for (const one of routed) {
+        if (one.provider.toLowerCase() !== provider.toLowerCase()) continue
+        const key = figureKey(one.kind, one.provider)
+        if (!found.has(key)) found.set(key, one.route)
+      }
+
+      return found
+    },
+
+    route(kind, provider, route) {
+      routed.push({ kind, provider, route })
     },
 
     /**

@@ -1319,6 +1319,7 @@ export function registerAccountTools(
                           result.response.secretHandoff,
                           result.response.briefings,
                           result.response.notes,
+                          result.response.routes,
                         ),
                         ownAccountsAsText(ownAccounts),
                       ]
@@ -1353,6 +1354,15 @@ export function registerAccountTools(
               notes: result.response.notes.get(figureKey(recipe.kind, recipe.provider)) ?? [],
             }))
             .filter((row) => row.notes.length > 0),
+          /** The route, flattened the same way and for the same reason (`#1090`). */
+          routes: result.response.entries
+            .flatMap((entry) => entry.recipes)
+            .flatMap((recipe) => {
+              const route = result.response.routes.get(figureKey(recipe.kind, recipe.provider))
+              return route === undefined
+                ? []
+                : [{ kind: recipe.kind, provider: recipe.provider, ...route }]
+            }),
           ...(provider === undefined ? {} : { providerCanonical: provider }),
         },
       }

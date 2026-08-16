@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { REPORT_FIELD_ORDER, REPORT_FIELDS, type ReportField } from '../guidance/guidance.js'
 import { WALK_QUESTION, type AccountWalk } from './walk.js'
+import { walkedRecipeAsText } from './walked-recipe.js'
 
 /**
  * The words a walk leaves behind, and what has to happen to them before anybody
@@ -21,15 +22,18 @@ import { WALK_QUESTION, type AccountWalk } from './walk.js'
  * Colony refused, which is worse than either whole answer — and it would cost
  * six model calls where the question is the same question six times.
  *
- * **What is not here is the walked recipe.** `walk.recipe` is prose too, and it
- * gets its own verdict from the pass `#813` built: the draft it proposes is
- * judged as a draft, on the shelf question and the steps question, which are not
- * the questions asked here. Two passes over one field would be two standards for
- * it.
+ * **The walked route is here too, since `#1090`.** It was not, and the reason it
+ * was not has been deleted: `walk.recipe` had its own verdict from the pass
+ * `#813` built, and `#1032` removed that pass along with the record it judged.
+ * What was left was one prose field with no reader at all — a walker writing a
+ * careful step-by-step route got it published nowhere. It is a citizen's words
+ * about a provider going to a reader who is not its author, which is the whole
+ * of what `prose_status` governs, so it joins the six rather than getting a lane
+ * back. That costs one field in the prompt.
  */
 
 /**
- * Every field of a walk that holds words a citizen wrote.
+ * The prose fields that are columns of their own on `account_walks`.
  *
  * **The order is the order they are read in**, and it is stable for the reason
  * `REPORT_FIELD_ORDER` is: the joined text is what a model is shown and what a
@@ -38,8 +42,24 @@ import { WALK_QUESTION, type AccountWalk } from './walk.js'
  * `wall` is last and is one of these rather than an exception to them. It is a
  * sentence a citizen wrote about a provider, going to a reader who is not its
  * author — the same question, so the same answer.
+ *
+ * **Separate from {@link WALK_PROSE_FIELDS} because a verdict has to name what
+ * it judged.** `recordWalkProseModeration` refuses a verdict whose subject moved
+ * under it, and it does that by comparing each field against the column it came
+ * from. `route` has no column — it is rendered from `recipe`, a `jsonb` — so it
+ * is compared its own way. Splitting the constants makes that exclusion
+ * structural rather than a filter the next reader of the guard can drop.
  */
-export const WALK_PROSE_FIELDS = [...REPORT_FIELD_ORDER, 'note', 'wall'] as const
+export const WALK_PROSE_COLUMNS = [...REPORT_FIELD_ORDER, 'note', 'wall'] as const
+
+/**
+ * Every field of a walk that holds words a citizen wrote.
+ *
+ * `route` is appended rather than slotted beside the wall for the reason the
+ * order is stable at all: a field that moved would make every verdict recorded
+ * before it look like it was recorded against an edit.
+ */
+export const WALK_PROSE_FIELDS = [...WALK_PROSE_COLUMNS, 'route'] as const
 
 export const WalkProseFieldSchema = z.enum(WALK_PROSE_FIELDS)
 export type WalkProseField = z.infer<typeof WalkProseFieldSchema>
@@ -54,11 +74,20 @@ export type WalkProseField = z.infer<typeof WalkProseFieldSchema>
  */
 export const WALK_WALL_QUESTION = 'Where did the provider stop you?'
 
+/**
+ * The route, as a question, for the same reason the wall is one.
+ *
+ * It names the route as *proposed* because that is what the moderator is being
+ * asked about: whether these words can be shown, not whether the path works.
+ */
+export const WALK_ROUTE_QUESTION = 'What route did you write for the next citizen?'
+
 /** What each field was asked, in one place, so no surface paraphrases one. */
 export const WALK_PROSE_QUESTIONS: Readonly<Record<WalkProseField, string>> = {
   ...REPORT_FIELDS,
   note: WALK_QUESTION,
   wall: WALK_WALL_QUESTION,
+  route: WALK_ROUTE_QUESTION,
 }
 
 /**
@@ -79,15 +108,28 @@ export type WalkProse = z.infer<typeof WalkProseSchema>
  * {@link walkReportAnswers} gives: a column that did not exist when a row was
  * written reads as `undefined`, and a reader that threw on one would take the
  * moderation pass down over a walk from last week.
+ *
+ * **The route is rendered here rather than stored rendered.** `recipe` is
+ * structure and stays structure — the entry is built from the object, not from
+ * the text. What the moderator judges and what a reader is shown is one string,
+ * and it comes from the one renderer `D-002` argues for, with its attribution
+ * banner off: the question above it already says whose words these are, and the
+ * banner's other half — *the Colony has not checked them* — is exactly what the
+ * pass reading this is about to make untrue.
  */
 export function walkProse(
-  walk: Partial<Pick<AccountWalk, 'note' | 'wall' | ReportField>>,
+  walk: Partial<Pick<AccountWalk, 'note' | 'wall' | 'recipe' | ReportField>>,
 ): WalkProse {
   const prose: Record<string, string> = {}
 
-  for (const field of WALK_PROSE_FIELDS) {
+  for (const field of WALK_PROSE_COLUMNS) {
     const answer = walk[field]
     if (answer !== null && answer !== undefined && answer.trim() !== '') prose[field] = answer
+  }
+
+  if (walk.recipe !== null && walk.recipe !== undefined) {
+    const route = walkedRecipeAsText(walk.recipe, { attribution: false }).trim()
+    if (route !== '') prose.route = route
   }
 
   return prose

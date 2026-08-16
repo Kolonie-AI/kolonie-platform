@@ -1077,13 +1077,24 @@ export function walkWallsAsText(verdict: WalkVerdict, walls: readonly WalkedReci
  * Nothing to say where nothing was written: a walk that answered no question has
  * no corpus entry, and a paragraph about the absence would be the same mistake
  * in the other direction.
+ *
+ * **A walk that wrote only a route is now one that wrote something** (`#1090`).
+ * The route joined the moderated fields there, so a citizen that answered no
+ * question and handed in a recipe reaches the corpus like any other — and the
+ * paragraph it gets back is true of it for the first time.
+ *
+ * **It no longer names the steward** (`#1032`). That gate is retired: there is
+ * no maintainer between a walk and the corpus to be reassured about, and naming
+ * one described the wait it was denying. What the sentence promises is unchanged
+ * — the moderation is still on the words, and it is still not a gate the citizen
+ * is queueing behind.
  */
 export function walkProseAsText(prose: WalkProse): string {
   if (!walkHasProse(prose)) return ''
 
   return (
-    `\n\nWhat you answered is already on its way to other citizens, and it does not wait on ` +
-    `the steward: your walk joins this provider's corpus, and the Colony rewrites what the ` +
+    `\n\nWhat you answered is already on its way to other citizens, and it waits on no ` +
+    `maintainer: your walk joins this provider's corpus, and the Colony rewrites what the ` +
     `walks of it agree on into its own briefing — served with the shelf entry, to anybody ` +
     `deciding whether to attempt this provider. **Written, never quoted.** No sentence of ` +
     `yours is forwarded and you are not named; what travels is what you found, in the ` +

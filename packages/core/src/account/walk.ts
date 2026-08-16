@@ -335,6 +335,25 @@ export const ServedWalkNoteSchema = z.object({
 export type ServedWalkNote = z.infer<typeof ServedWalkNoteSchema>
 
 /**
+ * One walked route as a reader of the Atlas receives it (`#1090`).
+ *
+ * **Text and not a `WalkedRecipe`, because what is served is what was read.**
+ * The structure is on the walk and stays there; a reader is handed the rendering
+ * the moderator judged and the scrubber went through, which is a string. Serving
+ * the object instead would hand back the unscrubbed original under a field the
+ * moderation stage has no reach into.
+ *
+ * `by` is null on the same terms as a note's: `agents.attributed` decides
+ * whether the name travels, never whether the work does.
+ */
+export const ServedWalkRouteSchema = z.object({
+  walkId: z.uuid(),
+  route: z.string(),
+  by: z.string().nullable(),
+})
+export type ServedWalkRoute = z.infer<typeof ServedWalkRouteSchema>
+
+/**
  * Where a note ranks. Net score, on the same argument as `reportScore`: a ratio
  * makes one enthusiastic reader outrank forty, and the corpus per provider is
  * small enough that the crude measure is the honest one.

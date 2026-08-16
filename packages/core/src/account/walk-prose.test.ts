@@ -55,4 +55,40 @@ describe('the words a walk leaves behind', () => {
   it('is empty text when nothing was written', () => {
     expect(walkProseText({})).toBe('')
   })
+
+  /**
+   * The route joined the six at `#1090`, and the two things that could go wrong
+   * with it are both about what the moderator is shown: a route that never
+   * arrives is a page nobody reads, and a route arriving with its own preamble
+   * tells that reader the words have not been checked while it is checking them.
+   */
+  describe('the walked route', () => {
+    const recipe = { steps: [{ title: 'Choose the OAuth button.' }] }
+
+    it('renders the recipe into a field of its own', () => {
+      const prose = walkProse({ recipe })
+
+      expect(prose.route).toContain('Choose the OAuth button.')
+      expect(walkHasProse(prose)).toBe(true)
+    })
+
+    /** A walk that wrote no recipe has no route, rather than an empty one. */
+    it('is absent when no recipe was written', () => {
+      expect(walkProse({ note: 'Nothing structural to add.' }).route).toBeUndefined()
+    })
+
+    /**
+     * The banner `walkedRecipeAsText` normally carries says the Colony has not
+     * checked these words. Inside the corpus that is what the check is reading,
+     * so it is off — and a reader of the published route is told the opposite by
+     * `walkRouteAsText` instead.
+     */
+    it('carries no attribution banner of its own', () => {
+      expect(walkProse({ recipe }).route).not.toContain('The Colony has not checked them')
+    })
+
+    it('reaches the text the moderator is shown, under its question', () => {
+      expect(walkProseText(walkProse({ recipe }))).toContain(WALK_PROSE_QUESTIONS.route)
+    })
+  })
 })

@@ -48,6 +48,7 @@ import {
   type ProposalWithDemand,
   type ProviderBriefing,
   type ServedWalkNote,
+  type ServedWalkRoute,
   type ProviderRecipe,
   type RecipeDirection,
   type RecipeStep,
@@ -56,6 +57,7 @@ import {
 import type { Database } from '@kolonie-ai/db'
 import { providerBriefingAsText } from './mcp/text/provider-briefing.js'
 import { walkNotesAsText } from './mcp/text/walk-notes.js'
+import { walkRouteAsText } from './mcp/text/walk-route.js'
 import type { WalkStore } from './account-walks.js'
 import type { HeldAccount } from './accounts.js'
 import {
@@ -69,6 +71,7 @@ import {
   pendingProposals,
   providerBriefingsAt,
   publishedWalkNotesAt,
+  publishedWalkRoutesAt,
   publishProviderRecipe,
   dressProviderRecipe,
   providerRecipe,
@@ -132,6 +135,15 @@ export interface ProviderRecipes {
    * providers is the cost that read must not pay.
    */
   notes(provider: string): Promise<ReadonlyMap<string, readonly ServedWalkNote[]>>
+  /**
+   * The route a walker wrote out at one provider, cleared and attributed
+   * (`#1090`).
+   *
+   * **Bounded and keyed exactly as {@link ProviderRecipes.notes} is**, and for a
+   * sharper version of the same reason: a route is a page rather than a
+   * sentence, so the catalogue read is the last place it belongs.
+   */
+  routes(provider: string): Promise<ReadonlyMap<string, ServedWalkRoute>>
   /**
    * Who walked each row in the catalogue, by `figureKey` (`#960`).
    *
@@ -197,6 +209,7 @@ export function databaseProviderRecipes(db: Database): ProviderRecipes {
     figures: (options) => atlasFigures(db, options ?? {}),
     briefings: (provider) => providerBriefingsAt(db, provider),
     notes: (provider) => publishedWalkNotesAt(db, provider),
+    routes: (provider) => publishedWalkRoutesAt(db, provider),
     walkers: () => atlasWalkers(db),
     proposals: () => pendingProposals(db),
     fallingRates: () => fallingSuccessRates(db),
@@ -615,6 +628,8 @@ export async function readAtlas(
     readonly briefings: ReadonlyMap<string, ProviderBriefing>
     /** What walkers wrote themselves, by `figureKey`, under the same bound (`#1035`). */
     readonly notes: ReadonlyMap<string, readonly ServedWalkNote[]>
+    /** The newest cleared route per pair, under the same bound again (`#1090`). */
+    readonly routes: ReadonlyMap<string, ServedWalkRoute>
     /**
      * Said out loud when nothing in this answer rests on evidence (`#905`),
      * `null` when something does.
@@ -778,6 +793,17 @@ export async function readAtlas(
     : new Map<string, readonly ServedWalkNote[]>()
 
   /**
+   * The walked route, under the same bound a third time (`#1090`).
+   *
+   * A route is the longest thing a walk leaves behind, so if anything belongs
+   * behind the one-provider guard it is this: carrying a page of steps for every
+   * provider into a catalogue read would cost more than the rest of the answer.
+   */
+  const routes = oneProvider
+    ? await recipes.routes(input.provider as string)
+    : new Map<string, ServedWalkRoute>()
+
+  /**
    * **Asked of what is being returned, not of the whole catalogue.** A caller
    * that narrowed to one shelf is asking about that shelf, and answering from
    * the catalogue would tell it the Atlas has evidence somewhere else — which
@@ -785,7 +811,10 @@ export async function readAtlas(
    */
   const nothingMeasured = atlasShelfHasEvidence(entries) ? null : ATLAS_NOTHING_MEASURED
 
-  return { outcome: 'ok', response: { entries, secretHandoff, briefings, notes, nothingMeasured } }
+  return {
+    outcome: 'ok',
+    response: { entries, secretHandoff, briefings, notes, routes, nothingMeasured },
+  }
 }
 
 /**
@@ -819,6 +848,13 @@ export function atlasEntryAsText(
    * stops after it has not missed a name it needed.
    */
   notes: ReadonlyMap<string, readonly ServedWalkNote[]> = new Map(),
+  /**
+   * The route a walker wrote out, by `figureKey` (`#1090`). Defaulted and
+   * printed on the same terms as the notes, and last of the three: it is the
+   * longest block and the most specific, so a reader that stopped at the
+   * briefing has read the general statement and skipped only the detail.
+   */
+  routes: ReadonlyMap<string, ServedWalkRoute> = new Map(),
 ): string {
   /**
    * **Provenance and health above the rows, because both are about the whole
@@ -861,6 +897,7 @@ export function atlasEntryAsText(
       figuresAsText(recipe.figures),
       providerBriefingAsText(briefings.get(figureKey(recipe.kind, recipe.provider))),
       walkNotesAsText(notes.get(figureKey(recipe.kind, recipe.provider))),
+      walkRouteAsText(routes.get(figureKey(recipe.kind, recipe.provider))),
     )
   }
 

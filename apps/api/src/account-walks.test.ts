@@ -3,6 +3,7 @@ import {
   AccountKindSchema,
   AgentIdSchema,
   now as currentTime,
+  walkProse,
   type Account,
   type AccountWalk,
   type ProviderTally,
@@ -190,11 +191,31 @@ describe('the sentence the walk answer carries', () => {
  * nothing, and that neither is promised the thing `#831` refuses to do.
  */
 describe('what the walk answer says about the answers themselves', () => {
-  it('says the corpus carried them, and that it did not wait on the steward', () => {
+  it('says the corpus carried them, and that nothing was queued behind a maintainer', () => {
     const text = walkProseAsText({ did: 'fetched a domain, then created the mailbox' })
 
     expect(text).toContain('other citizens')
-    expect(text).toContain('does not wait on the steward')
+    expect(text).toContain('waits on no maintainer')
+    expect(text).toContain('corpus')
+
+    /**
+     * **The role went with the gate** (`#1032`). Naming the steward here
+     * described the wait the sentence was denying, and it kept a retired role in
+     * front of every citizen that finished a walk.
+     */
+    expect(text).not.toContain('steward')
+  })
+
+  /**
+   * **A recipe is an answer** (`#1090`). The route is one of the moderated
+   * fields now, so a walk that wrote steps and answered nothing else reaches the
+   * corpus — and this paragraph, which said nothing to it before, is true of it.
+   */
+  it('carries a walk that wrote only a route', () => {
+    const text = walkProseAsText(
+      walkProse({ recipe: { steps: [{ title: 'Use the OAuth button.' }] } }),
+    )
+
     expect(text).toContain('corpus')
   })
 

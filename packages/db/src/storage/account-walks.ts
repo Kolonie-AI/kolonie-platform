@@ -11,7 +11,7 @@ import {
   TERMS_FORBID_AGENTS_REFUSAL,
   WalkOutcomeSchema,
   wallsForbidWalking,
-  WALK_PROSE_FIELDS,
+  WALK_PROSE_COLUMNS,
   WALK_PUBLISHED_REPUTATION,
   WalkedRecipeSchema,
   walkHasProse,
@@ -645,11 +645,36 @@ export async function amendMeasuredEntry(
 
     const [updated] = await tx
       .update(accountWalks)
-      .set({ recipe })
+      .set({
+        recipe,
+        /**
+         * **A rewritten route goes back into the queue** (`#1090`). The route is
+         * one of the moderated fields now, and this is the one path that edits a
+         * moderated field on a walk that has already been judged. Leaving the
+         * verdict where it was would publish paragraphs no pass ever read, under
+         * an approval earned by the words they replaced — which is the whole of
+         * what `prose_status` exists to prevent.
+         *
+         * The other six go back with it, and that is the honest cost: an
+         * amendment is one page rewritten, judged as a page, exactly as
+         * `reportFinishedWalk` re-queues a walk that gains the four questions
+         * after its wall.
+         */
+        proseStatus: 'pending' as const,
+        scrubbedProse: null,
+      })
       .where(eq(accountWalks.id, row.id))
       .returning()
 
     if (updated === undefined) return undefined
+
+    /**
+     * What the briefing currently serves for this pair includes the walk's old
+     * words, which are no longer readable. Marking it here is the same argument
+     * `recordWalkProseModeration` makes: the place that changes what is readable
+     * is the place that has to remember.
+     */
+    await markProviderBriefingStale(tx, { kind: entry.kind, provider: entry.provider })
 
     /**
      * **One column, written directly, rather than through
@@ -1441,6 +1466,15 @@ export async function unmoderatedWalkProse(
  * Compared field by field rather than over a digest, so that a mismatch is a
  * mismatch on the column that actually changed and no second definition of *what
  * was judged* exists to drift from the first.
+ *
+ * **The route is guarded too, and cannot be guarded the same way** (`#1090`).
+ * `route` is not a column — it is `recipe`, a `jsonb`, rendered — and
+ * `amendMeasuredEntry` rewrites that field on a walk that has already finished.
+ * So it is compared as what the moderator actually read: the row is locked, the
+ * route re-rendered from it by the one function that renders it, and the verdict
+ * refused if those bytes differ. Comparing the rendered text rather than the
+ * object is the stricter of the two and the right one — a renderer that changed
+ * under a verdict changed what was judged just as surely as an amendment would.
  */
 export async function recordWalkProseModeration(
   db: Database,
@@ -1452,7 +1486,30 @@ export async function recordWalkProseModeration(
     readonly scrubbed?: WalkProse
   },
 ): Promise<{ readonly outcome: 'written' | 'stale' }> {
-  const unchanged = WALK_PROSE_FIELDS.map((field) => {
+  return db.transaction(async (tx) => await writeWalkProseVerdict(tx, command))
+}
+
+async function writeWalkProseVerdict(
+  db: Database | Transaction,
+  command: {
+    readonly walkId: string
+    readonly judged: WalkProse
+    readonly decision: 'approved' | 'rejected'
+    readonly scrubbed?: WalkProse
+  },
+): Promise<{ readonly outcome: 'written' | 'stale' }> {
+  const [locked] = await db
+    .select({ recipe: accountWalks.recipe })
+    .from(accountWalks)
+    .where(eq(accountWalks.id, command.walkId))
+    .for('update')
+    .limit(1)
+
+  if (locked === undefined) return { outcome: 'stale' }
+  if (walkProse({ recipe: locked.recipe }).route !== command.judged.route)
+    return { outcome: 'stale' }
+
+  const unchanged = WALK_PROSE_COLUMNS.map((field) => {
     const judged = command.judged[field]
     return judged === undefined ? isNull(accountWalks[field]) : eq(accountWalks[field], judged)
   })

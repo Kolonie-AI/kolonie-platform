@@ -1,11 +1,16 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
-import { AccountKindSchema, figureKey, type AgentId } from '@kolonie-ai/core'
+import { AccountKindSchema, figureKey, walkProse, type AgentId } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
 import { registerAgent, updateAgentProfile } from './agents.js'
 import { finishWalk, recordWalkProseModeration, walkInProgress } from './account-walks.js'
 import { renameProvider } from './atlas-renames.js'
-import { publishedWalkNotes, publishedWalkNotesAt, voteWalkNote } from './walk-notes.js'
+import {
+  publishedWalkNotes,
+  publishedWalkNotesAt,
+  publishedWalkRoutesAt,
+  voteWalkNote,
+} from './walk-notes.js'
 
 const target = databaseTestTarget()
 const kind = (value: string) => AccountKindSchema.parse(value)
@@ -144,6 +149,144 @@ describe('the note a walker leaves at a provider', () => {
 
       expect(byKind.get(figureKey('mailbox', where.provider))?.[0]?.note).toBe('The mailbox one.')
       expect(byKind.get(figureKey('domain', where.provider))?.[0]?.note).toBe('The domain one.')
+    })
+  })
+
+  /**
+   * The route reaches a reader on exactly the note's terms (`#1090`).
+   *
+   * Here rather than in a file of its own because it is the same act and the
+   * same rule — out of `scrubbed_prose`, past `attributed`, never out of the
+   * column a citizen wrote — and a second file would give that rule two homes to
+   * drift between. What differs is the picking: one route per pair, and the
+   * newest, which is the only decision this block adds.
+   */
+  describe('the route a walker writes out', () => {
+    /**
+     * One finished, moderated walk carrying a recipe.
+     *
+     * The judged route is rendered rather than typed out, because that is what
+     * `recordWalkProseModeration` compares against: a literal here would pin the
+     * test to today's wording of `walkedRecipeAsText` and turn a harmless
+     * rewording into a failing moderation.
+     */
+    const aRoute = async (
+      first: string,
+      options: {
+        readonly by?: AgentId
+        readonly moderated?: boolean
+        readonly at?: typeof where
+      } = {},
+    ): Promise<string> => {
+      const pair = options.at ?? where
+      const recipe = { steps: [{ title: first }] }
+      const walkId = await walkInProgress(db, options.by ?? walker, pair)
+      await finishWalk(db, walkId, { outcome: 'proved', recipe })
+
+      if (options.moderated !== false) {
+        const route = walkProse({ recipe }).route as string
+        const written = await recordWalkProseModeration(db, {
+          walkId,
+          judged: { route },
+          decision: 'approved',
+          scrubbed: { route },
+        })
+        if (written.outcome !== 'written') throw new Error('the moderation did not land')
+      }
+
+      return walkId
+    }
+
+    it('serves a moderated route under its author’s handle', async () => {
+      await aRoute('Open the signup form and choose the OAuth button.')
+
+      const route = (await publishedWalkRoutesAt(db, where.provider)).get(
+        figureKey(where.kind, where.provider),
+      )
+
+      expect(route?.route).toContain('Open the signup form and choose the OAuth button.')
+      expect(route?.by).toBe('walker')
+    })
+
+    /** The rule the whole module rests on, asserted again for the second field. */
+    it('withholds a route whose walk has not cleared moderation', async () => {
+      await aRoute('Nobody has read this route.', { moderated: false })
+
+      expect(await publishedWalkRoutesAt(db, where.provider)).toEqual(new Map())
+    })
+
+    it('serves the route of a citizen that declined attribution, without the handle', async () => {
+      await updateAgentProfile(db, walker, { attributed: false })
+      await aRoute('It asks for a card on the second step.')
+
+      const route = (await publishedWalkRoutesAt(db, where.provider)).get(
+        figureKey(where.kind, where.provider),
+      )
+
+      expect(route?.route).toContain('It asks for a card on the second step.')
+      expect(route?.by).toBeNull()
+    })
+
+    /**
+     * The one decision this query makes that the notes do not. A route describes
+     * a signup form, and the form is whatever it is today — so the newest wins,
+     * and there is no vote to inherit.
+     */
+    it('serves one route per pair, and it is the newest', async () => {
+      await aRoute('The old way, which no longer works.')
+      const newer = await aRoute('The way it works now.')
+
+      const route = (await publishedWalkRoutesAt(db, where.provider)).get(
+        figureKey(where.kind, where.provider),
+      )
+
+      expect(route?.walkId).toBe(newer)
+    })
+
+    it('keys each kind at one provider separately', async () => {
+      await aRoute('The mailbox one.')
+      await aRoute('The domain one.', { at: { kind: kind('domain'), provider: where.provider } })
+
+      const byKind = await publishedWalkRoutesAt(db, where.provider)
+
+      expect(byKind.get(figureKey('mailbox', where.provider))?.route).toContain('The mailbox one.')
+      expect(byKind.get(figureKey('domain', where.provider))?.route).toContain('The domain one.')
+    })
+
+    it('answers for a provider under the name it was renamed from', async () => {
+      await aRoute('Worth doing.')
+      await renameProvider(db, 'old.example', where.provider)
+
+      const byKind = await publishedWalkRoutesAt(db, 'old.example')
+
+      expect(byKind.get(figureKey(where.kind, where.provider))?.route).toContain('Worth doing.')
+    })
+
+    /**
+     * `amendMeasuredEntry` rewrites `recipe` on a finished walk, so a verdict can
+     * be written against a route that has since moved. The guard compares the
+     * rendered text under a row lock and answers `stale` rather than publishing
+     * words nobody read.
+     */
+    it('refuses a verdict whose route moved under it', async () => {
+      const walkId = await walkInProgress(db, walker, where)
+      await finishWalk(db, walkId, {
+        outcome: 'proved',
+        recipe: { steps: [{ title: 'As read.' }] },
+      })
+
+      const judged = walkProse({ recipe: { steps: [{ title: 'Not what is on the row.' }] } })
+        .route as string
+
+      expect(
+        await recordWalkProseModeration(db, {
+          walkId,
+          judged: { route: judged },
+          decision: 'approved',
+          scrubbed: { route: judged },
+        }),
+      ).toEqual({ outcome: 'stale' })
+      expect(await publishedWalkRoutesAt(db, where.provider)).toEqual(new Map())
     })
   })
 

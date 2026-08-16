@@ -5,6 +5,7 @@ import {
   type AccountKind,
   type AgentId,
   type ServedWalkNote,
+  type ServedWalkRoute,
 } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import { accountWalks, walkNoteFeedback } from '../schema/account-walks.js'
@@ -165,6 +166,64 @@ async function notesAt(
     helpfulCount: row.helpfulCount,
     unhelpfulCount: row.unhelpfulCount,
   }))
+}
+
+/**
+ * The newest cleared route at one provider, by `figureKey` (`#1090`).
+ *
+ * **In this file because it is the same act**: a citizen's own words, out of
+ * `scrubbed_prose` and never out of the raw column, under the handle of whoever
+ * wrote them, in a block the briefing must not absorb. The note is one sentence
+ * and the route is a page; nothing else about them differs, and giving the route
+ * its own module would give the rule two homes to drift between.
+ *
+ * **One per pair, and the newest rather than the best.** A note is ranked by
+ * readers because five of them fit beside each other and a reader can weigh
+ * them. A route cannot be shown five times — the response would be mostly
+ * routes — so the choice is which single one, and it is the recent one for
+ * `moderatedWalkProse`'s reason: a route is a description of a signup form, and
+ * the form is whatever it is today. There is no vote to inherit, and borrowing
+ * the note's would rank a route by a sentence beside it.
+ */
+export async function publishedWalkRoutesAt(
+  db: Database,
+  provider: string,
+): Promise<ReadonlyMap<string, ServedWalkRoute>> {
+  const canonical = await canonicalProvider(db, provider)
+
+  const rows = await db
+    .select({
+      walkId: accountWalks.id,
+      kind: accountWalks.kind,
+      provider: accountWalks.provider,
+      route: sql<string>`${accountWalks.scrubbedProse} ->> 'route'`,
+      by: sql<string | null>`case when ${agents.attributed} then ${agents.name} else null end`,
+    })
+    .from(accountWalks)
+    .innerJoin(agents, eq(agents.id, accountWalks.agentId))
+    .where(
+      and(
+        eq(accountWalks.provider, canonical),
+        isNotNull(accountWalks.finishedAt),
+        isNotNull(accountWalks.scrubbedProse),
+        sql`${accountWalks.scrubbedProse} ->> 'route' is not null`,
+      ),
+    )
+    /**
+     * The same window `publishedWalkNotesAt` reads, for the same reason: one
+     * busy kind must not be able to take the whole limit and leave a quieter
+     * kind at this provider with no route at all.
+     */
+    .orderBy(sql`${accountWalks.finishedAt} desc`, sql`${accountWalks.id} asc`)
+    .limit(WALK_NOTES_SHOWN * MOST_KINDS_AT_ONE_PROVIDER)
+
+  const byKind = new Map<string, ServedWalkRoute>()
+  for (const row of rows) {
+    const key = figureKey(AccountKindSchema.parse(row.kind), row.provider)
+    if (!byKind.has(key)) byKind.set(key, { walkId: row.walkId, route: row.route, by: row.by })
+  }
+
+  return byKind
 }
 
 /**

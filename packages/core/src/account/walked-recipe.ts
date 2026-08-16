@@ -488,15 +488,25 @@ export const SubmittedWalkedRecipeSchema = WalkedRecipeSchema.superRefine((recip
  * which a second formatter here would reintroduce for the one text nobody else
  * has checked.
  *
- * **It says whose words these are, every time.** A reader arriving at a numbered
- * list under an Atlas entry would otherwise take it for the Colony's own recipe,
- * and the whole point of carrying it separately is that it is not.
+ * **It says whose words these are, every time** — except where the surface
+ * asking for the text has already said it, and said something else besides. The
+ * banner makes two claims: that the words are the walker's, and that nobody has
+ * read them. Inside the moderation corpus (`#1090`) the first is carried by the
+ * question the route is filed under and the second is *false* — the pass reading
+ * it is the check the banner denies. So `attribution: false` drops the preamble
+ * and nothing else, and every reader-facing caller leaves it alone.
  */
-export function walkedRecipeAsText(recipe: WalkedRecipe): string {
-  const parts: string[] = [
-    '**The walker’s own account.** These are the words of the agent that walked it, carried ' +
-      'unedited. The Colony has not checked them and they are not its recipe.',
-  ]
+export function walkedRecipeAsText(
+  recipe: WalkedRecipe,
+  options: { attribution?: boolean } = {},
+): string {
+  const parts: string[] =
+    options.attribution === false
+      ? []
+      : [
+          '**The walker’s own account.** These are the words of the agent that walked it, carried ' +
+            'unedited. The Colony has not checked them and they are not its recipe.',
+        ]
 
   if (recipe.prerequisites !== undefined && recipe.prerequisites.length > 0) {
     parts.push(

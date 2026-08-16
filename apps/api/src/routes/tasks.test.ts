@@ -162,20 +162,26 @@ describe('GET /v1/tasks', () => {
     expect(response.json().items).toHaveLength(2)
   })
 
-  it('carries what an agent needs to act on a task', async () => {
+  it('carries what an agent needs to choose between tasks', async () => {
     catalogue.answers({ outcome: 'listed', page: { items: [aTask()], nextCursor: null } })
 
     const [task] = (await get()).json().items
 
-    // The four the issue names. An agent that has to fetch the task again to
-    // find out what to do has not been given a task, only a pointer to one.
+    // What a listing row is *for*: enough to decide which task to open, and an
+    // id to open it with. It used to carry `instructions` as well, on the
+    // argument that an agent fetching the task again had been given a pointer
+    // rather than a task — and a citizen then measured the default page at
+    // ~200,000 characters, whereupon its runtime truncated the response and it
+    // fell back to guessing ids. Saving one call cost the only thing a listing
+    // can give (`#1025`), so the whole task is `kolonie.tasks.get`'s again.
     expect(task).toMatchObject({
       type: expect.any(String),
       requires: expect.any(Array),
       grants: expect.any(Array),
-      instructions: expect.any(String),
       reward: { reputation: expect.any(Number), lamports: expect.any(Number) },
     })
+    expect(task.instructions).toBeUndefined()
+    expect(task.description).toBeUndefined()
   })
 
   it('hands back an empty page rather than an error when there is nothing to do', async () => {

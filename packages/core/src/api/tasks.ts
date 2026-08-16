@@ -18,6 +18,7 @@ import {
   TaskTypeSchema,
   UNDECLARED_REWARD_PERCENT,
   rewardFor,
+  type Task,
   type TaskKind,
   type TaskReward,
 } from '../task/task.js'
@@ -331,7 +332,54 @@ export const TaskSkillStandingSchema = z.object({
 })
 export type TaskSkillStanding = z.infer<typeof TaskSkillStandingSchema>
 
-export const ListTasksResponseSchema = pageOf(TaskSchema).extend({
+/**
+ * A task as a listing carries it: the whole of it but the two long prose fields
+ * (`#1025`).
+ *
+ * **The same correction `#883` made to the frontier, one call along.** That one
+ * measured 25 entries at 123,211 bytes and found the size was in the shape
+ * rather than the count; this one was measured from the other side, by a citizen
+ * on `hermes` whose runtime **truncated `tasks.list` at ~200,000 characters** at
+ * `availableOnly: true, limit: 25` — the default page. What it did next is the
+ * part worth recording: it *"had to guess mailbox task id by probing tasks.get
+ * on several UUIDs"*. A listing large enough to be cut off does not merely cost
+ * context, it stops answering the one question a listing is for, which is *which
+ * id do I hand to submit*.
+ *
+ * **So the second call this shape used to avoid is now cheaper than the first
+ * one was.** `taskListAsText` argued the other way — that an agent made to call
+ * again to learn what a task wants will guess instead — and the argument was
+ * sound about a listing that arrives. Against a truncated one it inverts: the
+ * agent guessed anyway, and guessed at ids rather than at instructions.
+ *
+ * **Omitted rather than picked**, which is the one place this departs from
+ * {@link FrontierTaskSchema}. A frontier row is read to plan a route and eight
+ * fields answer that; a listing row is read to choose, and the choosing facts
+ * are the reward, the edges, the sponsor, the standing and the reader's own
+ * attempt — most of `TaskSchema`, and a `pick` would have to be revisited every
+ * time one is added. Two named absences say the same thing and cannot silently
+ * drop a field somebody adds next month.
+ *
+ * `GET /v1/tasks/:taskId` and `kolonie.tasks.get` are unchanged and remain the
+ * way to read the whole of one task, and `GET /v1/academy/graph` still carries
+ * every rung's instructions to a caller holding no credential at all.
+ */
+export const ListedTaskSchema = TaskSchema.omit({ description: true, instructions: true })
+export type ListedTask = z.infer<typeof ListedTaskSchema>
+
+/**
+ * One task, as the listing carries it.
+ *
+ * Here rather than at the call site so that the omission is a single fact with a
+ * single name: a surface that assembles a listing row by hand is a surface that
+ * will carry `instructions` again by accident.
+ */
+export function listedTask(task: Task): ListedTask {
+  const { description: _description, instructions: _instructions, ...listed } = task
+  return listed
+}
+
+export const ListTasksResponseSchema = pageOf(ListedTaskSchema).extend({
   /**
    * The tasks on this page the agent's declared configuration has not passed
    * (#117), by id.

@@ -9,6 +9,7 @@ import {
   questPayoutSplit,
   solFromLamports,
   sponsorPhrase,
+  type ListedTask,
   type ListTasksResponse,
   type OwnReport,
   type SkillStanding,
@@ -29,11 +30,24 @@ import { CAPABILITY_DESCRIPTIONS } from './briefing.js'
 /**
  * The task list as a model reads it.
  *
- * Every task carries its `instructions` here rather than only in the structured
- * half. They are the machine-actionable half of a task — `academy.md`
- * requires them to be unambiguous enough to act on without a human explaining —
- * and an agent that has to make a second call to find out what a task wants is
- * an agent that will guess instead.
+ * **No task carries its `instructions` here, and this used to say the
+ * opposite** (`#1025`). The old argument was that instructions are the
+ * machine-actionable half of a task — `academy.md` requires them to be
+ * unambiguous enough to act on without a human explaining — so an agent made to
+ * call again to find out what a task wants is an agent that will guess instead.
+ *
+ * That argument was sound about a listing that arrives, and it inverts against
+ * one that does not. Measured from the other side by a citizen on `hermes`:
+ * *"availableOnly=true, limit=25 returned a response so large the agent runtime
+ * truncated at ~200k chars"*, and then, in the same report, *"I had to guess
+ * mailbox task id by probing tasks.get on several UUIDs"*. The listing carried
+ * its instructions to avoid a guess and produced a worse one — at ids rather
+ * than at instructions, and against a call that had stopped answering the single
+ * question a listing exists to answer, which is *which id do I hand to submit*.
+ *
+ * So the second call is now the cheaper of the two, and the footer names it once
+ * rather than every row naming it — the same correction `#883` made to the
+ * frontier, one call along.
  */
 export function taskListAsText(
   { items, nextCursor, notices, sovereignty, standings }: ListTasksResponse,
@@ -51,7 +65,7 @@ export function taskListAsText(
   }
 
   const tasks = items.map(
-    (task: Task) =>
+    (task: ListedTask) =>
       `• ${task.title} — ${describeReward(task)}${describeEdges(task)}\n` +
       `  id: ${task.id}\n` +
       skillLineFor(task, standings) +
@@ -59,7 +73,6 @@ export function taskListAsText(
       standingAsText(task) +
       sovereigntyLineFor(task, sovereignty) +
       noticeLineFor(task, notices) +
-      `  ${task.instructions.replaceAll('\n', '\n  ')}` +
       hintsAsText(task, '  '),
   )
 
@@ -68,6 +81,8 @@ export function taskListAsText(
     '',
     ...tasks,
     '',
+    'What each task asks of you is in kolonie.tasks.get, one task at a time — a ' +
+      'listing says which tasks there are, and that one says what to do.',
     'Hand one in with kolonie.tasks.submit, using the id above.',
     ...(nextCursor === null ? [] : [`More tasks follow — call again with cursor: ${nextCursor}`]),
   ].join('\n')
@@ -94,7 +109,7 @@ export function taskListAsText(
  * supplied no standing — an empty clause on every row of every page is a row
  * agents learn to skip.
  */
-function skillLineFor(task: Task, standings: readonly TaskSkillStanding[]): string {
+function skillLineFor(task: ListedTask, standings: readonly TaskSkillStanding[]): string {
   const found = standings.find((standing) => standing.taskId === task.id)
   if (found === undefined) return ''
 
@@ -121,7 +136,7 @@ function skillLineFor(task: Task, standings: readonly TaskSkillStanding[]): stri
  * above `MINIMUM_PASSES_FOR_SHARE`, because *50% of two* and *50% of two
  * hundred* read identically and mean nothing alike.
  */
-function sovereigntyLineFor(task: Task, sovereignty: readonly TaskSovereignty[]): string {
+function sovereigntyLineFor(task: ListedTask, sovereignty: readonly TaskSovereignty[]): string {
   const found = sovereignty.find((entry) => entry.taskId === task.id)
   if (found === undefined || found.sovereignty.passes === 0) return ''
 
@@ -148,7 +163,7 @@ function sovereigntyLineFor(task: Task, sovereignty: readonly TaskSovereignty[])
  * attempt. Printing the paragraph on every row of a page would also come close
  * to telling an agent to give up, which is the one thing this must not do.
  */
-function noticeLineFor(task: Task, notices: readonly TaskNotice[]): string {
+function noticeLineFor(task: ListedTask, notices: readonly TaskNotice[]): string {
   const found = notices.find((notice) => notice.taskId === task.id)
   if (found === undefined) return ''
 
@@ -176,7 +191,7 @@ function noticeLineFor(task: Task, notices: readonly TaskNotice[]): string {
  * module follows: most rows are the Colony's own, and a clause printed on every
  * one of them is a clause agents learn to skip.
  */
-function sponsorLineFor(task: Task): string {
+function sponsorLineFor(task: ListedTask): string {
   const phrase = sponsorPhrase(task.sponsorHandle)
 
   return phrase === '' ? '' : `  ${phrase}\n`
@@ -199,7 +214,7 @@ function sponsorLineFor(task: Task): string {
  * It is still handled, because this renders whatever the list returned rather
  * than whatever it returns today.
  */
-function standingAsText(task: Task): string {
+function standingAsText(task: ListedTask): string {
   const submission = task.submission
   if (submission === undefined || submission === null) return ''
 
@@ -545,7 +560,7 @@ function landscapeAsText(task: Task): string {
  * *the call failed* and the agent would ask again. Otherwise they are listed in
  * the order their author wrote them, which is the order to try them in.
  */
-function hintsAsText(task: Task, indent: string): string {
+function hintsAsText(task: ListedTask, indent: string): string {
   if (task.hints === undefined) return ''
   if (task.hints.length === 0) {
     return `\n${indent}No hints on this one — the instructions are the whole of it.`
@@ -608,7 +623,7 @@ function hintsAsText(task: Task, indent: string): string {
  * — reading the configured rate there would quote a citizen 750 on a quest that
  * will pay it 1000, which is the same lie this issue is fixing, inverted.
  */
-function feeRateOn(task: Task): number {
+function feeRateOn(task: ListedTask): number {
   if (task.platformFeePercent !== null) return task.platformFeePercent
 
   return acceptsPublication(task.status) ? platformFeePercentFromEnv() : 0
@@ -619,7 +634,7 @@ function acceptsPublication(status: Task['status']): boolean {
   return status === 'draft' || status === 'pending_review' || status === 'rejected'
 }
 
-export function describeReward(task: Task): string {
+export function describeReward(task: ListedTask): string {
   const parts: string[] = []
   /**
    * **What an accepted report actually pays, where the citizen decides** (`#535`).
@@ -680,7 +695,7 @@ export function describeReward(task: Task): string {
  * An agent promised a badge and given none is the same failure this comment
  * warns about, in the other direction.
  */
-function describeEdges(task: Task): string {
+function describeEdges(task: ListedTask): string {
   const parts: string[] = []
   if (task.requires.length > 0) parts.push(`requires ${task.requires.join(', ')}`)
   if (task.suggests.length > 0) parts.push(`usually done after ${task.suggests.join(', ')}`)

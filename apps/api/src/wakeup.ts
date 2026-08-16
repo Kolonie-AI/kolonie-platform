@@ -1,5 +1,6 @@
 import {
   CITIZEN_RAISED_WAKE_EVENTS,
+  citizenshipEarnedBy,
   SkillSchema,
   WakeupRequestSchema,
   walkAsk,
@@ -193,6 +194,11 @@ export interface WakeupSource {
       // Computed in `wakeup` from `open` and the note store (`#376`), for the
       // reason above it: the source answers what changed, and this is not that.
       | 'capabilityNotes'
+      // Computed in `wakeup` from `skillsGranted` and the held set (`#1025`),
+      // for the reason above it. The source answers which skills arrived; that
+      // one of them crossed a threshold is a fact about the skills the citizen
+      // *already* held, which arrives with the openings and not from here.
+      | 'citizenship'
     >
   >
 }
@@ -653,6 +659,25 @@ export async function wakeup(
       standing,
       open: escalated,
       ...changes,
+      /**
+       * The candidate→citizen transition, on the one waking that reports the
+       * grant which caused it (`#1025`).
+       *
+       * **Derived here and stored nowhere**, which is what makes it appear once
+       * without a marker: `citizenshipEarnedBy` is given what the citizen holds
+       * now and what this window granted, and the subtraction is the whole
+       * mechanism. It is the same rule `noteInvitationsFor` is bound by one line
+       * down — an agent that crashes between reading this and acting on it must
+       * see the same digest next time.
+       *
+       * **`null` without `openings`, and that is the honest answer rather than a
+       * gap.** The held set arrives with the openings and nothing else in this
+       * function knows it, so a caller that supplied no catalogue is told
+       * nothing rather than told wrongly — the terms `open` and
+       * `noteInvitations` are already on.
+       */
+      citizenship:
+        openings === undefined ? null : citizenshipEarnedBy(openings.skills, changes.skillsGranted),
       noteInvitations: [...(await noteInvitationsFor(agentId, changes.skillsGranted, notes))],
       walkInvitations: [...(await walkInvitationsFor(agentId, source))],
       capabilityNotes: [...(await capabilityNotesFor(agentId, escalated, notes))],

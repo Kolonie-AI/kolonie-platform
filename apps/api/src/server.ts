@@ -154,8 +154,10 @@ import { databaseWakeup } from './wakeup.js'
  */
 const log = createLog({ service: 'api' })
 
-// Resolved once and shared by the three surfaces that send (`#261`).
-const mail = mailerFromEnv()
+// Resolved once and shared by the three surfaces that send (`#261`). The logger
+// so that a mail desk that cannot be reached says so once per send rather than
+// only to whichever citizen happened to be asking (`#1087`).
+const mail = mailerFromEnv(process.env, cloudflareMailer, log)
 
 /**
  * The Colony's SMS sender, or nothing (`#411`).
@@ -1020,6 +1022,7 @@ const app = buildApp({
             accountId: process.env['CLOUDFLARE_ACCOUNT_ID'],
             token: process.env['CLOUDFLARE_EMAIL_SEND_TOKEN'],
             sender: process.env['ACADEMY_SENDER_ADDRESS'],
+            log,
           }),
         }
       : {}),

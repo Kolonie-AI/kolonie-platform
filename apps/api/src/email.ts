@@ -1,7 +1,7 @@
 import { timingSafeEqual } from 'node:crypto'
 import { z } from 'zod'
 import { fieldErrors } from './validation.js'
-import type { AgentId, ApiError } from '@kolonie-ai/core'
+import type { AgentId, ApiError, Log } from '@kolonie-ai/core'
 import type {
   Database,
   EmailChallengeLimits,
@@ -1017,6 +1017,60 @@ function rejected(code: ApiError['code'], message: string): CodeOutcome {
 }
 
 /**
+ * Why a send never left this process, in words that carry no address (`#1087`).
+ *
+ * ## The two rules this obeys, and they pull in the same direction
+ *
+ * **Read off the error's `code` and never off its message**, the argument
+ * `apps/api/src/reachability.ts` already makes for the same class of fault: a
+ * message is a runtime's wording and changes between releases, while
+ * `ECONNREFUSED` has meant one thing for forty years. The `cause` chain is where
+ * `undici` puts the socket error; the outer one says only `fetch failed`.
+ *
+ * **And the message is exactly what may not travel.** Node writes
+ * `getaddrinfo EAI_AGAIN <host>` — the mail desk's hostname, in the message and
+ * again in a `hostname` field. A reason goes into a log line, and at
+ * `mintEmailChallenge` it goes into a sentence a *citizen* reads, so a reason
+ * built by quoting the error would publish the Colony's outbound dependency
+ * to every agent that happened to ask for a code during an outage
+ * (`AGENTS.md §9`). Reading a code is what makes that impossible rather than
+ * merely unlikely: the vocabulary here is closed, and nothing from the error
+ * reaches the string.
+ *
+ * Anything unrecognised is *could not be reached* rather than guessed at, which
+ * is true of every failure this function is asked about — it is only ever called
+ * from the `catch`, so the send is already known not to have gone out.
+ */
+function mailFailureReason(error: unknown): string {
+  const codes = new Set<string>()
+  let current: unknown = error
+  for (let depth = 0; depth < 5 && current !== null && current !== undefined; depth += 1) {
+    if (typeof current === 'object' && 'code' in current && typeof current.code === 'string') {
+      codes.add(current.code)
+    }
+    if (typeof current === 'object' && 'name' in current && typeof current.name === 'string') {
+      codes.add(current.name)
+    }
+    current = typeof current === 'object' && 'cause' in current ? current.cause : null
+  }
+
+  // The measured one, and the reason `#1087` exists: 168 lines of `EAI_AGAIN`
+  // between 2026-08-06 and 2026-08-16, every one of them a tool that threw.
+  if (codes.has('EAI_AGAIN') || codes.has('ENOTFOUND')) return 'the mail desk did not resolve'
+  if (codes.has('ECONNREFUSED')) return 'the mail desk refused the connection'
+  if (
+    codes.has('TimeoutError') ||
+    codes.has('ETIMEDOUT') ||
+    codes.has('UND_ERR_CONNECT_TIMEOUT') ||
+    codes.has('UND_ERR_HEADERS_TIMEOUT')
+  ) {
+    return 'the mail desk timed out'
+  }
+
+  return 'the mail desk could not be reached'
+}
+
+/**
  * Sends through Cloudflare's Email Sending REST endpoint.
  *
  * **REST and not the Workers `send_email` binding**, which would have kept the
@@ -1063,6 +1117,23 @@ export function cloudflareMailer(config: {
    * exactly what `#398` removed.
    */
   readonly senderName?: string | undefined
+  /**
+   * Where a send that never left the process is written down (`#1087`).
+   *
+   * **Optional, and absent it changes nothing** — the failure is still returned
+   * to the caller, which is what every surface acts on. What the line buys is
+   * the other reader: a citizen told *the Colony could not deliver this* knows
+   * only about its own call, and *the mail desk has not resolved for two hours*
+   * is a sentence only the logs can say. `httpTelegramBot` keeps one for the
+   * same reason and `kolonie-docs#312` is what makes a burst of them reach a
+   * person.
+   *
+   * It is optional rather than required because `mailerFromEnv` is constructed
+   * in tests and fixtures that have no logger and want none; a mailer that would
+   * not build without one would buy an observability line at the price of a
+   * wiring argument in six places.
+   */
+  readonly log?: Log | undefined
 }): Mailer {
   /**
    * The sender as one `from` string, in RFC 5322 display-name form.
@@ -1097,44 +1168,86 @@ export function cloudflareMailer(config: {
   }
 
   return {
+    /**
+     * **Answers a failure and does not throw one** (`#1087`).
+     *
+     * That was already the contract — `console.ts` states it, the console
+     * fixture repeats it, and all six callers are written against it: each
+     * branches on `delivered` and has a sentence ready for the citizen. It was
+     * only ever honoured for a *status*. A send that failed at the socket threw
+     * straight through every one of those branches and out of the tool, which
+     * `api/mcp.tool.threw` recorded 168 times between 2026-08-06 and
+     * 2026-08-16, all of them `EAI_AGAIN` — the name of Cloudflare's API not
+     * resolving.
+     *
+     * **What that cost is worst at `kolonie.operator.request.open`**, where the
+     * throw arrives *after* the request row is written and the allowance spent.
+     * The prepared answer says the request is open, that this is not the
+     * citizen's problem, that its operator can still answer on the page they
+     * hold, and carries the `requestId` needed to withdraw it. Instead the
+     * citizen received a thrown tool error, from which none of that is
+     * recoverable — so the reasonable reading is *that did not work* and the
+     * reasonable act is to send it again, against a ceiling it has already paid
+     * into, for a request that already exists.
+     *
+     * So the `catch` is not a courtesy wrapper. It is what lets five surfaces'
+     * existing degradation actually run.
+     */
     async send({ to, subject, text, from }) {
-      const response = await fetch(
-        `https://api.cloudflare.com/client/v4/accounts/${config.accountId}/email/sending/send`,
-        {
-          method: 'POST',
-          headers: {
-            authorization: `Bearer ${config.token}`,
-            'content-type': 'application/json',
+      try {
+        const response = await fetch(
+          `https://api.cloudflare.com/client/v4/accounts/${config.accountId}/email/sending/send`,
+          {
+            method: 'POST',
+            headers: {
+              authorization: `Bearer ${config.token}`,
+              'content-type': 'application/json',
+            },
+            // The caller's sender when it has one, the configured one otherwise
+            // (`#398`). Both must be on a domain onboarded for Email Sending —
+            // an address that is not is refused by Cloudflare, not silently
+            // rewritten.
+            body: JSON.stringify({
+              to,
+              from: senderWithName(from ?? config.sender),
+              subject,
+              text,
+            }),
           },
-          // The caller's sender when it has one, the configured one otherwise
-          // (`#398`). Both must be on a domain onboarded for Email Sending —
-          // an address that is not is refused by Cloudflare, not silently
-          // rewritten.
-          body: JSON.stringify({
-            to,
-            from: senderWithName(from ?? config.sender),
-            subject,
-            text,
-          }),
-        },
-      )
+        )
 
-      if (!response.ok) {
-        // The status is enough to decide, and the body may name the recipient —
-        // which is an agent's mailbox and does not belong in a log line.
-        return { delivered: false, reason: `cloudflare answered ${response.status}` }
+        if (!response.ok) {
+          // The status is enough to decide, and the body may name the recipient —
+          // which is an agent's mailbox and does not belong in a log line.
+          return { delivered: false, reason: `cloudflare answered ${response.status}` }
+        }
+
+        /**
+         * Read defensively, because the body arrives over the same socket the
+         * request went out on. A connection dropped between the headers and the
+         * last byte throws *here*, and an unparseable answer is a send this
+         * process cannot claim succeeded — which is the existing verdict for
+         * `success !== true` and is reported as the same thing.
+         */
+        const body = (await response.json().catch(() => undefined)) as
+          { success?: boolean; errors?: { message?: string }[] } | undefined
+
+        if (body?.success !== true) {
+          return { delivered: false, reason: body?.errors?.[0]?.message ?? 'send rejected' }
+        }
+
+        return { delivered: true }
+      } catch (error) {
+        const reason = mailFailureReason(error)
+        // Never `error.message`, and never the error object: Node writes the
+        // hostname into both (`AGENTS.md §9`). The reason is a closed vocabulary
+        // built from the code alone — see `mailFailureReason`.
+        config.log?.warn('the mail desk could not be reached', {
+          event: 'mail.send.failed',
+          reason,
+        })
+        return { delivered: false, reason }
       }
-
-      const body = (await response.json()) as {
-        success?: boolean
-        errors?: { message?: string }[]
-      }
-
-      if (body.success !== true) {
-        return { delivered: false, reason: body.errors?.[0]?.message ?? 'send rejected' }
-      }
-
-      return { delivered: true }
     },
   }
 }

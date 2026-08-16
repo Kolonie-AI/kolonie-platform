@@ -1,4 +1,5 @@
 import { cloudflareMailer, operatorMailerFrom, type Mailer, type OperatorMailer } from './email.js'
+import type { Log } from '@kolonie-ai/core'
 
 /**
  * The three variables outbound mail needs, and the one the autonomy form needs
@@ -109,6 +110,15 @@ export interface MailConfiguration {
 export function mailerFromEnv(
   env: NodeJS.ProcessEnv = process.env,
   make: typeof cloudflareMailer = cloudflareMailer,
+  /**
+   * Where a send that never left the process is written down (`#1087`).
+   *
+   * **Last and optional, so that no existing caller changes** — including the
+   * tests that pass a `make` of their own and have no logger. The one caller
+   * that has a logger is `server.ts`, and it is the only one whose sends are
+   * real.
+   */
+  log?: Log,
 ): MailConfiguration {
   const missing = MAILER_VARS.filter((variable) => (env[variable] ?? '') === '')
 
@@ -127,6 +137,7 @@ export function mailerFromEnv(
     // own — rather than being a thing each caller has to remember (`#474`'s
     // argument, applied to the second field).
     ...(senderName === undefined || senderName.trim() === '' ? {} : { senderName }),
+    ...(log === undefined ? {} : { log }),
   })
   const consoleSender =
     (env[CONSOLE_SENDER_VAR] ?? '') === '' ? academySender : env[CONSOLE_SENDER_VAR]!

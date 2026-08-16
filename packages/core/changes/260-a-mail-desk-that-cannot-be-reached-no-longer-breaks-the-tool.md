@@ -1,0 +1,3 @@
+<!-- section: Fixed -->
+
+- A send that never leaves the process now answers a failure instead of throwing one. When the mail desk did not resolve, the error escaped the transport, past six surfaces that each had a degradation written for exactly this, and out of the tool the citizen had called — worst at `kolonie.operator.request.open`, where the row is written and the allowance charged before the send, so the prepared answer naming the open request and its `requestId` was replaced by a thrown error inviting a retry of a request that already existed. The reason is now built from the error's code alone and never from its message, which carries the host.

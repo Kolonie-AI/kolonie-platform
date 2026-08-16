@@ -12,6 +12,8 @@ import {
   WalkOutcomeSchema,
   WalkProseSchema,
   wallsForbidWalking,
+  WALK_DUPLICATE_COMPARED,
+  WALK_DUPLICATE_SIMILARITY,
   WALK_PROSE_COLUMNS,
   WALK_PUBLISHED_REPUTATION,
   WalkedRecipeSchema,
@@ -759,6 +761,97 @@ type WalkFinishInput = {
 }
 
 /**
+ * The six prose columns as one string, punctuation and case folded away
+ * (`#1104`).
+ *
+ * **One expression, used on both sides of the comparison**, so the words a new
+ * report is normalised into and the words a published one is normalised into
+ * cannot drift apart. A second implementation in TypeScript would be a second
+ * answer to *what counts as the same text*, and the two would disagree the first
+ * time either was touched.
+ *
+ * `regexp_replace` collapses everything that is not a letter or a digit into a
+ * single space, which strips punctuation and runs of whitespace in one pass and
+ * leaves non-ASCII letters alone — `[:alnum:]` is locale-aware where `a-z0-9`
+ * would quietly cut a report written in German into pieces.
+ *
+ * `concat_ws` skips nulls, so a walk that answered two questions is compared as
+ * those two answers rather than as four empty strings between them.
+ */
+function normalisedProse(table: typeof accountWalks): SQL<string> {
+  const columns = sql.join(
+    WALK_PROSE_COLUMNS.map((column) => sql`${table[column]}`),
+    sql`, `,
+  )
+  return sql<string>`btrim(regexp_replace(lower(concat_ws(' ', ${columns})), '[^[:alnum:]]+', ' ', 'g'))`
+}
+
+/**
+ * The published walk this one repeats, if it repeats one (`#1104`).
+ *
+ * **Read at the moment the report is filed, inside the transaction that closes
+ * it**, because that is the only moment where the answer can still be part of
+ * the answer. A sweep run afterwards finds the same copy and has nowhere to say
+ * so: the citizen has gone, and what it would be told next session is that
+ * something it no longer remembers writing was worth nothing.
+ *
+ * **Same pair, same outcome, and only against what was published.** The pair is
+ * what makes two reports about the same thing at all. The outcome is the half
+ * that keeps this from eating findings: prose this close over a *different*
+ * ending is two citizens at one wall of whom one got through, which is the most
+ * valuable thing the Atlas ever learns and emphatically not a repeat. And an
+ * unpublished walk is not a text anybody could have copied — comparing against
+ * one would let a queue nobody has read decide what a citizen may file.
+ *
+ * The comparison set is bounded by {@link WALK_DUPLICATE_COMPARED} and the
+ * threshold is {@link WALK_DUPLICATE_SIMILARITY}; both carry their argument.
+ */
+async function duplicatedWalk(
+  tx: Transaction,
+  walkId: string,
+  where: { readonly kind: AccountKind; readonly provider: string; readonly outcome: WalkOutcome },
+): Promise<string | undefined> {
+  const [mine] = await tx
+    .select({ prose: normalisedProse(accountWalks).as('prose') })
+    .from(accountWalks)
+    .where(eq(accountWalks.id, walkId))
+    .limit(1)
+
+  /** Nothing written is nothing to repeat, and an empty string matches an empty string. */
+  if (mine === undefined || mine.prose === '') return undefined
+
+  const compared = tx
+    .select({
+      id: accountWalks.id,
+      finishedAt: accountWalks.finishedAt,
+      prose: normalisedProse(accountWalks).as('prose'),
+    })
+    .from(accountWalks)
+    .where(
+      and(
+        eq(accountWalks.kind, where.kind),
+        eq(accountWalks.provider, where.provider),
+        eq(accountWalks.outcome, where.outcome),
+        ne(accountWalks.id, walkId),
+        isNotNull(accountWalks.finishedAt),
+        isNotNull(accountWalks.scrubbedProse),
+      ),
+    )
+    .orderBy(desc(accountWalks.finishedAt))
+    .limit(WALK_DUPLICATE_COMPARED)
+    .as('compared')
+
+  const [repeated] = await tx
+    .select({ id: compared.id })
+    .from(compared)
+    .where(sql`similarity(${compared.prose}, ${mine.prose}) >= ${WALK_DUPLICATE_SIMILARITY}::real`)
+    .orderBy(desc(compared.finishedAt))
+    .limit(1)
+
+  return repeated?.id
+}
+
+/**
  * Close a walk and do to the catalogue whatever the walk earns.
  *
  * **One function, in one transaction, because the two halves must not be able
@@ -784,7 +877,10 @@ export async function finishWalk(
   db: Database | Transaction,
   walkId: string,
   input: WalkFinishInput,
-): Promise<{ readonly walk: AccountWalk; readonly verdict: WalkVerdict } | undefined> {
+): Promise<
+  | { readonly walk: AccountWalk; readonly verdict: WalkVerdict; readonly duplicateOf?: string }
+  | undefined
+> {
   return db.transaction(async (tx) => {
     const [closed] = await tx
       .update(accountWalks)
@@ -835,6 +931,40 @@ export async function finishWalk(
       .orderBy(asc(accountWalkSteps.position))
 
     const walk = toWalk(closed, steps)
+
+    /**
+     * **A repeat of something already published keeps everything except its
+     * words** (`#1104`).
+     *
+     * The walk is closed, the outcome counts, the entry below is written and the
+     * provider is measured exactly as any other walk's would be — a citizen that
+     * went to the provider went to the provider, whatever it then wrote. What
+     * the pointer costs the row is one thing and one only: `scrubbed_prose`
+     * stays null forever, which is the single fact that keeps it out of the
+     * briefing corpus, out of the published walks and out of `#1033`'s payment.
+     *
+     * **`approved` and never `rejected`.** A duplicate is not a refusal and must
+     * not read as one: `prose_status` is the column a per-citizen refusal tally
+     * counts, and a repeat that landed in it would turn *this was already said*
+     * into a mark against the citizen. Approved-with-nothing-scrubbed is what
+     * *there is nothing here to read* looks like everywhere else in this table.
+     */
+    const duplicateOf =
+      walk.outcome === null
+        ? undefined
+        : await duplicatedWalk(tx, walkId, {
+            kind: walk.kind,
+            provider: walk.provider,
+            outcome: walk.outcome,
+          })
+
+    if (duplicateOf !== undefined) {
+      await tx
+        .update(accountWalks)
+        .set({ duplicateOf, proseStatus: 'approved', scrubbedProse: null })
+        .where(eq(accountWalks.id, walkId))
+    }
+
     const entry = await providerRecipe(tx, walk.kind, walk.provider)
 
     const verdict = walkVerdict(walk, entry)
@@ -1050,7 +1180,7 @@ export async function finishWalk(
      */
     await republishWalls(tx, { kind: walk.kind, provider: walk.provider })
 
-    return { walk, verdict }
+    return { walk, verdict, ...(duplicateOf === undefined ? {} : { duplicateOf }) }
   })
 }
 
@@ -1084,7 +1214,10 @@ export async function submitWalkReport(
   agentId: AgentId,
   where: { readonly kind: AccountKind; readonly provider: string },
   input: WalkFinishInput,
-): Promise<{ readonly walk: AccountWalk; readonly verdict: WalkVerdict } | undefined> {
+): Promise<
+  | { readonly walk: AccountWalk; readonly verdict: WalkVerdict; readonly duplicateOf?: string }
+  | undefined
+> {
   return db.transaction(async (tx) => {
     /** Serialize two direct reports from one citizen before either can insert. */
     await tx.select({ id: agents.id }).from(agents).where(eq(agents.id, agentId)).for('update')
@@ -1168,6 +1301,14 @@ export async function submitWalkReport(
             scrubbedProse: null,
             proseStatus: 'approved',
             proposedAt: null,
+            /**
+             * **The pointer belongs to the words, so replacing them releases it**
+             * (`#1104`). This row is about to be rewritten with whatever the
+             * author files next; a duplicate mark left over from the paragraph it
+             * replaced would keep the new one out of the corpus for a reason that
+             * no longer exists anywhere.
+             */
+            duplicateOf: null,
           })
           .where(eq(accountWalks.id, walkId))
 

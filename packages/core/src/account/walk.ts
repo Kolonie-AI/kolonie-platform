@@ -112,6 +112,42 @@ export const WALK_NOTE_MAX_LENGTH = NOTE_MAX_LENGTH
 export const WALK_PUBLISHED_REPUTATION = 3
 
 /**
+ * How alike two walk reports have to read before the second is a repeat
+ * (`#1104`).
+ *
+ * **Trigram similarity, at nine tenths.** High on purpose: the signal this is
+ * meant to catch is a copy, not a paraphrase, and the cost of the two mistakes
+ * is not symmetric. A duplicate that slips through is one extra source in a
+ * briefing corpus; an honest walk wrongly called a repeat is a citizen told its
+ * account of a wall it actually hit was worth nothing, on the one channel the
+ * Atlas depends on. Two agents that hit the same wall and wrote about it plainly
+ * land well below this — the words a person picks for a card prompt vary more
+ * than nine tenths.
+ *
+ * **It is never the whole of the test.** Prose this close plus a *different*
+ * outcome is a finding rather than a repeat: the same page, the same wall, and
+ * one of them got through. {@link WALK_PUBLISHED_REPUTATION}'s bound is the
+ * other half of the same argument — that one stops a citizen farming one pair,
+ * this one stops ten citizens filing one paragraph.
+ *
+ * **One constant, so tuning it is one edit and a reviewable diff** rather than a
+ * literal to find in a query.
+ */
+export const WALK_DUPLICATE_SIMILARITY = 0.9
+
+/**
+ * How many published walks at one pair a new report is read against (`#1104`).
+ *
+ * **A bound rather than the whole shelf, because the check runs inside the
+ * transaction that closes the walk.** A pair the Colony has walked two hundred
+ * times is a pair where the copy being looked for is recent — the text an agent
+ * would repeat is one it just read — and a scan with no ceiling would put the
+ * cost of filing a report on how popular the provider is. Most recent first, by
+ * `finished_at`, so what is compared is what a reader would have seen.
+ */
+export const WALK_DUPLICATE_COMPARED = 200
+
+/**
  * How a walk ended.
  *
  * **Three, and `abandoned` is the one that earns its place.** A walk that stops

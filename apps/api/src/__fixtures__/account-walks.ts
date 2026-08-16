@@ -118,6 +118,14 @@ export function fakeWalks(): FakeWalkStore {
     /** Stamped on exactly the verdict that wrote the row, as `finishWalk` stamps it. */
     if (verdict.kind === 'writes') proposed.add(walk.id)
 
+    /**
+     * **No `duplicateOf`, and that is the mirror rather than a gap** (`#1104`).
+     * The storage compares a new report against walks a moderator has *scrubbed*;
+     * this fake holds no scrub and publishes nothing, so a store built on it has
+     * nothing anybody could have copied and the honest answer is the absent one.
+     * A test that wants the repeat answer overrides `finish` with the walk it
+     * means, which is what the field being optional is for.
+     */
     return { walk, verdict }
   }
 
@@ -136,7 +144,7 @@ export function fakeWalks(): FakeWalkStore {
     },
     async record() {},
     finish,
-    // @mirrors packages/db/src/storage/account-walks.ts submitWalkReport 3049f647
+    // @mirrors packages/db/src/storage/account-walks.ts submitWalkReport 5dfeebc7
     async submit(agentId, input, report) {
       const open = rows.find(
         (walk) =>

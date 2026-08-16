@@ -38,15 +38,15 @@ describe('repairing the shelf a catalogue entry sits on', () => {
     readonly title?: string
   }) => {
     /**
-     * A draft has to carry at least one step (`provider_recipes_joinable_has_steps`),
-     * which is right: a draft is a walk somebody wrote down, and one with no steps
-     * is not a walk. The fixture writes the shape a real walk leaves.
+     * An offered entry has to carry at least one step and a proof
+     * (`provider_recipes_joinable_has_steps`), which is right: an entry with no
+     * steps is not a recipe. The fixture writes the shape a dressed entry has.
      */
     const steps = `[{"actor":"agent","instruction":"Fill in the signup form."}]`
     await db.execute(sql`
       insert into provider_recipes (kind, provider, title, category, status, steps, proves)
       values (${input.kind}, ${input.provider}, ${input.title ?? input.provider},
-              ${input.category}, ${sql.raw(`'${input.status ?? 'draft'}'`)},
+              ${input.category}, ${sql.raw(`'${input.status ?? 'joinable'}'`)},
               ${sql.raw(`'${steps}'::jsonb`)}, 'provider-mail')
     `)
   }

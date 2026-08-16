@@ -15,22 +15,20 @@ import {
 } from './recipe.js'
 
 /**
- * The three states `#604` added, and the two properties no surface can infer
- * from the name.
+ * The states an entry can be in, and the properties no surface can infer from
+ * the name.
  *
  * **The predicates are tested and not only the enum**, because every surface
  * branches on one of them: `recipeStatusIsPublic` decides whether a stranger
  * sees the entry at all, and `recipeStatusIsOfferable` decides whether an agent
- * may be sent to walk it. A surface that guessed would render a draft as
- * joinable, which is an agent following a recipe nobody approved.
+ * may be sent to walk it. A surface that guessed would render an unreviewed
+ * entry as joinable, which is an agent following a recipe nobody walked.
  */
-describe('the life of an Atlas entry (#604)', () => {
-  it('holds all seven states, in the order the life happens in', () => {
+describe('the life of an Atlas entry (#604, #1032)', () => {
+  it('holds all five states, in the order the life happens in', () => {
     expect(RecipeStatusSchema.options).toEqual([
-      'proposed',
       'unwritten',
       'measured',
-      'draft',
       'joinable',
       'refused',
       'retired',
@@ -50,11 +48,13 @@ describe('the life of an Atlas entry (#604)', () => {
     expect(recipeStatusIsOfferable('measured')).toBe(false)
   })
 
-  it('keeps two of them off every public surface', () => {
-    expect(RecipeStatusSchema.options.filter((one) => !recipeStatusIsPublic(one))).toEqual([
-      'proposed',
-      'draft',
-    ])
+  /**
+   * **`#1032` removed the two that were hidden**, so the predicate is now true
+   * of everything. It stays a function because five surfaces read it, and
+   * deleting it would scatter that decision back across them.
+   */
+  it('keeps none of them off a public surface', () => {
+    expect(RecipeStatusSchema.options.filter((one) => !recipeStatusIsPublic(one))).toEqual([])
   })
 
   /**
@@ -65,10 +65,9 @@ describe('the life of an Atlas entry (#604)', () => {
     expect(RecipeStatusSchema.options.filter(recipeStatusIsOfferable)).toEqual(['joinable'])
   })
 
-  it('lets a walk carry steps before anybody has published it', () => {
-    expect(recipeStatusAllowsSteps('draft')).toBe(true)
+  it('lets exactly the two states that have a route carry steps', () => {
+    expect(recipeStatusAllowsSteps('joinable')).toBe(true)
     expect(recipeStatusAllowsSteps('retired')).toBe(true)
-    expect(recipeStatusAllowsSteps('proposed')).toBe(false)
     expect(recipeStatusAllowsSteps('unwritten')).toBe(false)
     expect(recipeStatusAllowsSteps('refused')).toBe(false)
   })
@@ -82,14 +81,22 @@ describe('the life of an Atlas entry (#604)', () => {
       steps: [{ actor: 'agent', instruction: 'sign up' }],
     }
 
-    it('takes a draft with steps and no proof', () => {
-      expect(WriteProviderRecipeSchema.safeParse({ ...entry, status: 'draft' }).success).toBe(true)
+    /**
+     * **Where the steps used to go while nobody had reviewed them** (`#1032`).
+     * A walk that produced a route but no way to prove the account leaves the
+     * entry `measured`, which carries no steps at all — the route it walked is
+     * published in the computed briefing instead, under its own author.
+     */
+    it('refuses steps on a measured entry, which stands on figures and not on a route', () => {
+      expect(WriteProviderRecipeSchema.safeParse({ ...entry, status: 'measured' }).success).toBe(
+        false,
+      )
     })
 
-    it('refuses a draft with no steps, because that is an unwritten entry', () => {
+    it('takes a measured entry with no steps, which is what a briefing hangs off', () => {
       expect(
-        WriteProviderRecipeSchema.safeParse({ ...entry, status: 'draft', steps: [] }).success,
-      ).toBe(false)
+        WriteProviderRecipeSchema.safeParse({ ...entry, status: 'measured', steps: [] }).success,
+      ).toBe(true)
     })
 
     it('refuses a withdrawal that does not say why', () => {
@@ -112,16 +119,11 @@ describe('the life of an Atlas entry (#604)', () => {
       expect(
         WriteProviderRecipeSchema.safeParse({
           ...entry,
-          status: 'draft',
+          status: 'measured',
+          steps: [],
           retiredReason: 'but it is open',
         }).success,
       ).toBe(false)
-    })
-
-    it('refuses a proposal that carries steps', () => {
-      expect(WriteProviderRecipeSchema.safeParse({ ...entry, status: 'proposed' }).success).toBe(
-        false,
-      )
     })
 
     /** Nothing about `#588`'s three states moved. */
@@ -304,15 +306,17 @@ describe('a recipe declares its wall (#597)', () => {
     })
 
     /**
-     * **A draft is exempt, and that is not a loophole.** A walk observes that an
-     * operator was asked, not which asking was unavoidable — demanding the
-     * judgement here would mean a walk could not be stored at all.
+     * **A withdrawn entry is exempt, and that is not a loophole.** `retired`
+     * keeps whatever it had: re-checking a route the Colony has stopped
+     * offering would mean an entry could not be withdrawn without first being
+     * corrected.
      */
-    it('takes a draft that asks for an operator and names no wall', () => {
+    it('takes a withdrawn entry that asks for an operator and names no wall', () => {
       expect(
         WriteProviderRecipeSchema.safeParse({
           ...entry,
-          status: 'draft',
+          status: 'retired',
+          retiredReason: 'the provider began demanding a phone number',
           proves: undefined,
           steps: [{ actor: 'operator', instruction: 'Do something.', ask: 'Please do something.' }],
         }).success,
@@ -423,9 +427,7 @@ describe('a recipe that reaches something past the account (#637)', () => {
   /** A reach starts from the account this recipe produces. */
   it('refuses a reach on an entry that proves nothing', () => {
     const { proves: _proves, ...unproved } = entry
-    expect(WriteProviderRecipeSchema.safeParse({ ...unproved, status: 'draft' }).success).toBe(
-      false,
-    )
+    expect(WriteProviderRecipeSchema.safeParse(unproved).success).toBe(false)
   })
 
   it('refuses an empty reach, which claims a capability and says nothing about how', () => {

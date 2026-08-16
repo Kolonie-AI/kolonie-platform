@@ -54,7 +54,7 @@ describe('reading the catalogue', () => {
      * reason to stop.
      */
     expect(result.error.message).toContain('absence')
-    expect(result.error.message).toContain('provider-report')
+    expect(result.error.message).toContain('walk-report')
   })
 
   /**
@@ -70,7 +70,7 @@ describe('reading the catalogue', () => {
 
     expect(result.outcome).toBe('rejected')
     if (result.outcome !== 'rejected') return
-    expect(result.error.message).toContain('kolonie.accounts.provider-report')
+    expect(result.error.message).toContain('kolonie.accounts.walk-report')
     expect(result.error.message).toContain('kolonie.accounts.wishes')
   })
 
@@ -553,7 +553,7 @@ describe('what the recipe says to the agent walking it', () => {
     // missing refusal entry is agents being persistent at a door that is not there.
     expect(text).toContain('**Do not attempt this.**')
     expect(text).toContain('phone number')
-    expect(text).toContain('provider-report')
+    expect(text).toContain('walk-report')
   })
 
   /**
@@ -642,18 +642,25 @@ describe('what the recipe says to the agent walking it', () => {
  * thing that would change it.
  */
 describe('what a handoff says when there is nothing to hand over (#604)', () => {
-  it('refuses a draft by saying it is waiting for review, and asks nothing of the agent', async () => {
+  /**
+   * **`#1032` changed this answer without removing it.** The middle state used
+   * to be *this is waiting for review*, which was `draft` — a status that no
+   * longer exists, because nothing waits for a reader. `measured` is what an
+   * agent meets in its place, and it is the same shape of answer: there is
+   * something here to read and nothing to hand over.
+   */
+  it('refuses a measured entry by saying nobody wrote the steps, and asks nothing of the agent', async () => {
     const recipes = fakeProviderRecipes()
-    recipes.write({ kind: 'mailbox', provider: 'walked.example', status: 'draft' })
+    recipes.write({ kind: 'mailbox', provider: 'walked.example', status: 'measured' })
     const [row] = await recipes.listInternal()
     if (row === undefined) throw new Error('the fake wrote no row')
 
     const result = handoffStep(row, 1)
-    if (!('error' in result)) throw new Error('a draft must not be handed over')
+    if (!('error' in result)) throw new Error('a measured entry must not be handed over')
 
-    expect(result.error.message).toContain('no steward has published it')
-    expect(result.error.message).toContain('Nothing is needed from you')
-    /** Not the unwritten sentence, which would send the agent to walk it again. */
+    expect(result.error.message).toContain('nobody has written the steps')
+    expect(result.error.message).toContain('kolonie.accounts.recipes')
+    /** Not the unwritten sentence, which would claim nobody has been here. */
     expect(result.error.message).not.toContain('nobody has written the recipe yet')
   })
 
@@ -673,7 +680,7 @@ describe('what a handoff says when there is nothing to hand over (#604)', () => 
 
     expect(result.error.message).toContain('withdrew')
     expect(result.error.message).toContain('demanding a phone number')
-    expect(result.error.message).toContain('provider-report')
+    expect(result.error.message).toContain('walk-report')
   })
 
   /** `#588`'s two sentences are unchanged, which is the regression this catches. */

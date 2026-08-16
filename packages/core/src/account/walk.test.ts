@@ -107,31 +107,27 @@ describe('what a walk observed, as steps', () => {
   })
 
   /**
-   * **The derived steps have to be storable**, which is the property that makes
-   * the whole thing work rather than merely typecheck: a draft entry made of
-   * them must pass the write shape.
+   * **What a walk observes is not a route, and this is where you can see it**
+   * (`#1032`).
+   *
+   * Each derived step is a well-formed {@link RecipeStep} — it has to be, since
+   * divergence detection compares them against a published entry's own. What it
+   * is not is publishable. A walk records *a person was needed here, and this is
+   * what they were asked for*; a route has to say what to do, and nothing in the
+   * walk observed that sentence. Before `#1032` the gap was filled by a steward,
+   * from a `draft` row, twice in the Colony's history. Now it is not filled at
+   * all: the walk's own account is published in the provider's briefing, and the
+   * catalogue keeps only routes the Colony wrote.
    */
-  it('produces steps a draft entry accepts', () => {
+  it('produces steps every recipe accepts as steps', () => {
     const steps = walkToSteps(
       walk([step('agent'), step('operator', { ask: 'Please open this URL.' }, 2)]),
     )
 
     for (const one of steps) expect(RecipeStepSchema.safeParse(one).success).toBe(true)
-
-    expect(
-      WriteProviderRecipeSchema.safeParse({
-        kind: 'mailbox',
-        provider: 'somewhere.example',
-        title: 'Somewhere',
-        category: 'mailbox',
-        status: 'draft',
-        steps: [...steps],
-      }).success,
-    ).toBe(true)
   })
 
-  /** And publishing them, as they are, is refused — which is the other half. */
-  it('produces steps a published entry refuses until somebody writes them up', () => {
+  it('produces an operator step no published entry will take, which is why a walk writes none', () => {
     expect(
       WriteProviderRecipeSchema.safeParse({
         kind: 'mailbox',
@@ -139,8 +135,8 @@ describe('what a walk observed, as steps', () => {
         title: 'Somewhere',
         category: 'mailbox',
         status: 'joinable',
-        proves: 'rung',
-        steps: [...walkToSteps(walk([step('agent')]))],
+        proves: 'declared',
+        steps: [...walkToSteps(walk([step('operator', { ask: 'Please open this URL.' })]))],
       }).success,
     ).toBe(false)
   })
@@ -277,20 +273,48 @@ describe('what a walk reached past the account', () => {
 describe('what a finished walk proposes', () => {
   const one = [step('agent')]
 
-  it('proposes a draft where nobody has walked the provider', () => {
-    expect(walkVerdict(walk(one), undefined).kind).toBe('draft')
-    expect(walkVerdict(walk(one), { status: 'unwritten', steps: [] }).kind).toBe('draft')
+  it('writes the entry where nobody has walked the provider', () => {
+    expect(walkVerdict(walk(one), undefined).kind).toBe('writes')
+    expect(walkVerdict(walk(one), { status: 'unwritten', steps: [] }).kind).toBe('writes')
   })
 
   /**
-   * **The rejection case `#601` names**: a walk that ended halfway proposes
-   * nothing. Half a path published as a recipe is one that fails at step three.
+   * **A measured entry is figures and no route** (`#1032`), so a walk that
+   * produces one is writing it rather than contradicting it.
    */
-  it('proposes nothing for a walk that was abandoned', () => {
-    const verdict = walkVerdict(walk(one, { outcome: 'abandoned' }), undefined)
+  it('writes the entry over one standing on figures alone', () => {
+    expect(walkVerdict(walk(one), { status: 'measured', steps: [] }).kind).toBe('writes')
+  })
+
+  /**
+   * **A walk that ended halfway measures where it ended** (`#1032`).
+   *
+   * `#601` had this proposing nothing, and the reason was sound while a verdict
+   * became a route: half a path published as a recipe is one that fails at step
+   * three. A `writes` verdict no longer publishes a path — it writes a
+   * `measured` row saying the pair exists and citizens have been here, and the
+   * route and the walls are the briefing computed from the walks. *Where
+   * citizens stop* is what an abandoned walk is evidence of.
+   */
+  it('writes the entry for a walk that was abandoned where nobody has walked', () => {
+    expect(walkVerdict(walk(one, { outcome: 'abandoned' }), undefined).kind).toBe('writes')
+  })
+
+  /**
+   * **And it still cannot answer for an entry the Colony stands behind.** A walk
+   * that did not finish saw no shape to match, so it neither confirms nor
+   * contradicts a written route — restating a `joinable` entry as `measured`
+   * would take a published recipe off the Atlas on the strength of one walker
+   * who stopped.
+   */
+  it('proposes nothing for an abandoned walk against a published entry', () => {
+    const verdict = walkVerdict(walk(one, { outcome: 'abandoned' }), {
+      status: 'joinable',
+      steps: one,
+    })
 
     expect(verdict.kind).toBe('nothing')
-    expect(verdict.kind === 'nothing' && verdict.why).toContain('half a path')
+    expect(verdict.kind === 'nothing' && verdict.why).toContain('saw no shape')
   })
 
   it('proposes nothing for a walk that has not finished', () => {
@@ -299,8 +323,18 @@ describe('what a finished walk proposes', () => {
     )
   })
 
-  it('proposes nothing when nothing was observed', () => {
-    expect(walkVerdict(walk([]), undefined).kind).toBe('nothing')
+  /**
+   * **A walk that recorded no slots still writes the entry** (`#1032`).
+   *
+   * It did not before: the verdict was a proposed route, and a route derived
+   * from nothing was nothing. What it writes now is a `measured` row — the pair
+   * exists, a citizen has been here, the shelf can carry it — and none of that
+   * is read off the slots. A solo API-only walk that opened no episode used to
+   * leave the Colony holding nothing at all, which is the deadlock `#1024` went
+   * at from the other end.
+   */
+  it('writes the entry even where it observed no steps at all', () => {
+    expect(walkVerdict(walk([]), undefined).kind).toBe('writes')
   })
 
   it('proposes a refusal, with the wall', () => {
@@ -364,109 +398,23 @@ describe('what a finished walk proposes', () => {
     ).toBe('diverges')
   })
 
-  /** A draft is overwritten by a later walk: nobody has stood behind it yet. */
-  it('proposes a draft over an existing draft', () => {
-    expect(
-      walkVerdict(walk(one), { status: 'draft', steps: [{ actor: 'operator', ask: 'x' }] }).kind,
-    ).toBe('draft')
-  })
-})
-
-/**
- * The seed a solo walk leaves at a provider nobody has walked (`#1024`).
- *
- * **The deadlock these pin**: the entry is `unwritten`, so there are no published
- * steps to tick; the walk went through no handoff and no drop, so the Colony
- * observed nothing of it; and every walk at an API-only provider is that walk. A
- * complete account handed in by the walker proposed nothing at all, so the shelf
- * could only ever be seeded by the one walk a solo agent never performs.
- */
-describe('what a walk the Colony saw nothing of proposes', () => {
-  const soloWalk = (recipe: AccountWalk['recipe']): AccountWalk => walk([], { recipe })
-  const one = [step('agent')]
-
-  it('seeds a draft from the walker’s own account of it', () => {
-    const verdict = walkVerdict(
-      soloWalk({
-        steps: [
-          { title: 'Ask the API for an address', detail: 'It answers with one.' },
-          { title: 'Ask it for a token', detail: 'The address and the password.' },
-        ],
-      }),
-      { status: 'unwritten', steps: [] },
-    )
-
-    expect(verdict.kind).toBe('draft')
-    expect(verdict.kind === 'draft' && verdict.steps).toHaveLength(2)
-  })
-
   /**
-   * **`#517` is untouched by this.** What is taken from the walker's account is
-   * the shape — how many steps there were and who acted — and never the sentence,
-   * which the Colony writes. The walker's own words travel beside the entry as
-   * its own attributed account, and a wordless step is what the wording pass is
-   * given to work on.
+   * **And a joinable entry is never overwritten**, whatever its steps say. The
+   * walk either confirms it, contradicts it, or says it cannot tell — which is
+   * `#589`'s rule and the reason `#1032` could retire the review queue without
+   * losing the guard.
    */
-  it('takes the shape of those steps and none of their words', () => {
-    const verdict = walkVerdict(
-      soloWalk({
-        steps: [{ title: 'Ask the API for an address', detail: 'It answers with one.' }],
-      }),
-      undefined,
-    )
-
-    expect(verdict.kind === 'draft' && verdict.steps).toEqual([{ actor: 'agent' }])
-  })
-
-  /**
-   * **An operator step carries the exact sentence that person reads, and the
-   * Colony writes that sentence.** An observed operator step has one because the
-   * handoff sent it; a walker's claim about a step taken outside the Colony's
-   * sight has none. Writing it down as the walker's own step instead would delete
-   * the one fact that decides whether the next citizen can walk this alone — so
-   * the seed is refused, and says which step refused it.
-   */
-  it('seeds nothing where the walker says a step needed its operator', () => {
-    const verdict = walkVerdict(
-      soloWalk({
-        steps: [
-          { title: 'Open the form' },
-          { title: 'Solve the check', needsOperator: true },
-          { title: 'Confirm the address' },
-        ],
-      }),
-      undefined,
-    )
-
-    expect(verdict.kind).toBe('nothing')
-    expect(verdict.kind === 'nothing' && verdict.why).toContain('step 2')
-    expect(verdict.kind === 'nothing' && verdict.why).toContain('kolonie.accounts.handoff')
-  })
-
-  /** A walk with no account of its own keeps the sentence it always had. */
-  it('keeps saying nothing was observed where there is no account either', () => {
-    const verdict = walkVerdict(
-      soloWalk({ walls: [{ kind: 'other', title: 'A wall.' }] }),
-      undefined,
-    )
-
-    expect(verdict.kind === 'nothing' && verdict.why).toContain('nothing was observed')
-  })
-
-  /**
-   * **Read last, never instead of.** A walk the Colony watched is described by
-   * what it watched; the walker's account is the fallback for the case where
-   * there was nothing to watch.
-   */
-  it('describes a walk the Colony did watch by what it watched', () => {
-    const verdict = walkVerdict(
-      walk(one, {
-        recipe: { steps: [{ title: 'One' }, { title: 'Two' }, { title: 'Three' }] },
-      }),
-      undefined,
-    )
-
-    expect(verdict.kind === 'draft' && verdict.steps).toHaveLength(1)
+  it('never writes over an entry the Colony publishes, however the walk went', () => {
+    for (const status of ['joinable', 'refused', 'retired'] as const) {
+      for (const takenStepPositions of [null, [1]]) {
+        expect(
+          walkVerdict(walk(one, { takenStepPositions }), {
+            status,
+            steps: [{ actor: 'agent', instruction: 'One.' }],
+          }).kind,
+        ).not.toBe('writes')
+      }
+    }
   })
 })
 

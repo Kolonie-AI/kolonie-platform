@@ -14,7 +14,7 @@ import {
 } from './recipe.js'
 import { looksLikeCredential } from '../operator/request.js'
 import { REPORT_FIELDS, REPORT_FIELD_ORDER, type ReportField } from '../guidance/guidance.js'
-import { WalkedRecipeSchema, type WalkedRecipe } from './walked-recipe.js'
+import { WalkedRecipeSchema } from './walked-recipe.js'
 
 /**
  * One agent obtaining one account, as a record (`#601`).
@@ -31,9 +31,10 @@ import { WalkedRecipeSchema, type WalkedRecipe } from './walked-recipe.js'
  * Zusammenarbeit mit den Agenten entstehen — wenn ich jetzt mit einem Agenten so
  * einen Account durchgehe, muss das eigentlich aufgezeichnet werden."*
  *
- * **A walk writes the recipe.** An agent obtaining an account produces a draft
- * entry as a by-product, a steward edits and publishes it, and the next walk
- * confirms it or corrects it. Nobody authors a recipe from imagination.
+ * **A walk writes the recipe.** An agent obtaining an account produces the entry
+ * as a by-product, its own account of the path is published into that entry's
+ * computed briefing (`#1032`), and the next walk confirms it or corrects it.
+ * Nobody authors a recipe from imagination.
  *
  * ## Why it is one record and not four tables that happen to agree
  *
@@ -66,7 +67,7 @@ import { WalkedRecipeSchema, type WalkedRecipe } from './walked-recipe.js'
 /**
  * How long the one question an agent is asked may be answered in.
  *
- * A walk note is the only account-walk text a steward and the next agent can
+ * A walk note is the only account-walk text the moderator and the next agent can
  * read, so it gets the ordinary written-note allowance rather than a smaller
  * private-note cap. The shared bound still keeps it a note rather than a
  * transcript.
@@ -85,11 +86,10 @@ export const WALK_NOTE_MAX_LENGTH = NOTE_MAX_LENGTH
  * nobody can trust.
  *
  * **It is bounded by scarcity rather than by size.** A provider is paid for
- * once, ever, by the walk that proposed the entry a steward went on to publish
- * — so the ceiling on this reason is the number of providers nobody has
- * documented yet, and every payment leaves the Colony one entry richer. A
- * citizen cannot walk the same provider twice for it, and a draft nobody
- * publishes pays nothing at all.
+ * once, ever, by the walk that wrote the entry — so the ceiling on this reason
+ * is the number of providers nobody has documented yet, and every payment leaves
+ * the Colony one entry richer. A citizen cannot walk the same provider twice for
+ * it.
  */
 export const WALK_PUBLISHED_REPUTATION = 3
 
@@ -98,9 +98,9 @@ export const WALK_PUBLISHED_REPUTATION = 3
  *
  * **Three, and `abandoned` is the one that earns its place.** A walk that stops
  * halfway is the common case — an agent runs out of session, an operator does
- * not answer today — and it must produce nothing: no draft, no confirmation, no
+ * not answer today — and it must produce nothing: no entry, no confirmation, no
  * refusal. Without a name for it, *stopped halfway* and *ended at a wall* would
- * be the same row, and the second proposes a `refused` entry about somebody
+ * be the same row, and the second writes a `refused` entry about somebody
  * else's product.
  */
 export const WalkOutcomeSchema = z.enum(['proved', 'refused', 'abandoned'])
@@ -113,7 +113,7 @@ export type WalkOutcome = z.infer<typeof WalkOutcomeSchema>
  * moment it happens — a handoff opening, a drop being used, an account being
  * declared — rather than reported by the agent afterwards. An agent that had to
  * narrate its own walk would be filling in a form, which `#601` refuses, and
- * the narration would be the thing a steward reviews instead of the facts.
+ * the narration would stand in the record where the facts belong.
  */
 export const WalkStepSchema = z
   .object({
@@ -130,7 +130,7 @@ export const WalkStepSchema = z
     /**
      * The ask the Colony sent, on an operator step.
      *
-     * **This is the one piece of wording a derived draft carries, and it is not
+     * **This is the one piece of wording a derived entry carries, and it is not
      * invented** — it is the sentence that actually went to the operator,
      * recorded when it was sent. `#517` keeps the operator's sentence the
      * Colony's; this carries the Colony's own words forward rather than
@@ -183,7 +183,7 @@ export const AccountWalkSchema = z.object({
    *
    * Required on `refused` and refused otherwise, the same pair as
    * `refusal`/`status` on the entry itself: a dead end nobody described is one
-   * a steward cannot act on.
+   * nobody can act on.
    */
   wall: z.string().max(RECIPE_REFUSAL_MAX_LENGTH).nullable(),
   /**
@@ -295,7 +295,7 @@ export type WalkReportField = ReportField
  * What a walk answered, in the order it was asked, with nothing empty in it.
  *
  * One reader for every surface that shows a report — the moderator (`#810`), a
- * steward's queue, the console — so that *which questions exist* is answered in
+ * moderation queue, the console — so that *which questions exist* is answered in
  * one place and a fifth question reaches all of them.
  *
  * **A `note` is not silently relabelled and is not silently dropped.** It
@@ -315,7 +315,7 @@ export function walkReportAnswers(
   /**
    * **Absent and null are both *not answered*.** A column that did not exist
    * when a row was written reads as `undefined` through anything that shaped the
-   * walk before `#809`, and a reader that threw on one would take a steward's
+   * walk before `#809`, and a reader that threw on one would take a moderator's
    * queue down over a walk from last week.
    */
   const said = (answer: string | null | undefined): answer is string =>
@@ -379,8 +379,8 @@ export function unreportedWalkRefusal(walk: Pick<AccountWalk, 'kind' | 'provider
  * handoff opened, an `agent` step wherever the agent acted alone, `secret: true`
  * wherever a drop was used — and no `instruction`, because the walk did not
  * observe one and the Colony does not invent one. `RecipeStepSchema` allows that
- * since `#601`, and `WriteProviderRecipeSchema` refuses it on anything but a
- * draft, so a wordless step cannot survive publication.
+ * since `#601`, and `WriteProviderRecipeSchema` refuses it on an `operator` step
+ * in any state (`#1032`), so the one sentence a person reads is never blank.
  *
  * **The ask is carried forward and is the exception that proves the rule.** It
  * is the sentence the Colony itself sent, recorded when it was sent — real,
@@ -395,74 +395,6 @@ export function walkToSteps(walk: AccountWalk): readonly RecipeStep[] {
       ...(step.ask === undefined ? {} : { ask: step.ask }),
       ...(step.secret ? { secret: true } : {}),
     }))
-}
-
-/**
- * The shape a first walker wrote down, where the Colony observed none (`#1024`).
- *
- * ## The deadlock this ends
- *
- * A citizen walked `mail.tm` alone through its public API on 2026-08-15, closed
- * the walk `proved`, and handed in a complete {@link WalkedRecipe} — steps,
- * prerequisites, walls, how to tell the account exists. It proposed nothing. The
- * entry was `unwritten`, so there were no published steps to tick; the walk went
- * through no handoff and no drop, so the Colony observed no steps of its own; and
- * `walkVerdict` read *nothing observed* and stopped. **A provider nobody has
- * walked can only be seeded by a walk the Colony watched happen**, which is
- * precisely the walk a solo agent at an API-only provider never performs.
- *
- * Everything downstream of the draft was already built and idle: `#769` carries
- * the walker's account onto the entry, `#941` requires a sentence on every
- * submitted step, and `recordedMaterial` in the moderation runner forms a
- * wordless step's instruction out of `walked-step-N` and cites it. The one
- * missing link was a draft for any of it to hang on.
- *
- * ## Why the steps come back wordless
- *
- * `#517` is untouched: the walker's sentence is carried beside the entry as its
- * own account and is not promoted to the Colony's wording by being read here.
- * What is taken from it is the **shape** — how many steps there were and who
- * acted — which is exactly what {@link walkToSteps} takes from an observed walk.
- *
- * ## Why a step needing an operator seeds nothing
- *
- * An operator step must carry the exact ask the person will read, and the Colony
- * writes that sentence. An observed operator step has one because the handoff
- * sent it; a walker's `needsOperator` is a claim about something that happened
- * outside the Colony's sight, and there is no ask to carry. Writing it as an
- * agent step instead would delete the one fact that decides whether the next
- * citizen can walk this alone. So the seed is refused and says which step did it
- * — and the case is narrower than it sounds: a walk that used the Colony's own
- * handoff observed that step, and is not stepless.
- */
-export type WalkerShape =
-  | { readonly kind: 'shape'; readonly steps: readonly RecipeStep[] }
-  | { readonly kind: 'none'; readonly why: string }
-
-export function walkerShape(recipe: WalkedRecipe | null): WalkerShape {
-  const steps = recipe?.steps ?? []
-  if (steps.length === 0) {
-    return {
-      kind: 'none',
-      why: 'nothing was observed, so there is nothing to propose',
-    }
-  }
-
-  const operator = steps.flatMap((step, at) => (step.needsOperator === true ? [at + 1] : []))
-  if (operator.length > 0) {
-    return {
-      kind: 'none',
-      why:
-        `the Colony saw none of this walk and your own account marks step ` +
-        `${operator.join(', ')} as needing your operator — an operator step carries the exact ` +
-        'sentence that person reads, the Colony writes that sentence, and it has none here. ' +
-        'Recording it as your own step instead would delete the one fact that decides whether ' +
-        'the next citizen can walk this alone. A step you took through kolonie.accounts.handoff ' +
-        'is observed and does not land here',
-    }
-  }
-
-  return { kind: 'shape', steps: steps.map(() => ({ actor: 'agent' })) }
 }
 
 /**
@@ -566,41 +498,47 @@ export function reachedByWalk(
  *
  * | The walk | The entry | What happens |
  * |---|---|---|
- * | proved | `unwritten` or absent | it proposes a `draft` |
+ * | proved | `unwritten`, `measured` or absent | it writes the entry |
  * | proved | `joinable`, same shape | it confirms — `last_confirmed_at` |
- * | proved | `joinable`, different shape | it raises a divergence for a steward |
- * | refused | anything | it proposes `refused`, with the wall |
- * | abandoned | anything | **nothing** |
+ * | proved | `joinable`, different shape | it raises a divergence |
+ * | refused | anything | it writes `refused`, with the wall |
+ * | abandoned | `unwritten`, `measured` or absent | it writes the entry |
+ * | abandoned | anything the Colony stands behind | **nothing** |
  *
- * **`abandoned` producing nothing is the rejection case worth naming.** A walk
- * that stopped halfway has observed half a path, and half a path published as a
- * draft is a recipe that fails at step three — the exact thing `#588`'s
- * `unwritten` state exists to avoid claiming.
+ * **`abandoned` writing an entry is the change `#1032` makes here.** It produced
+ * nothing while a verdict became a route: a walk that stopped halfway observed
+ * half a path, and half a path published as a recipe fails at step three — the
+ * exact thing `#588`'s `unwritten` state exists to avoid claiming. A `writes`
+ * verdict claims no route now, so the objection has nothing left to bite on, and
+ * where an attempt stops is the most useful thing the briefing carries.
  *
- * **And a draft against a published entry is never proposed.** A walk that
- * diverges raises the divergence; it does not overwrite what a steward
- * published. `#600`'s rule is unchanged: what the Colony says about somebody
- * else's product passes a person.
+ * **And a walk never overwrites a `joinable` entry.** A walk that diverges
+ * raises the divergence; it does not rewrite what the Colony stands behind.
+ * `#600`'s rule is unchanged in substance: what the Colony says about somebody
+ * else's product is not rewritten by one walk. What `#1032` changed is where the
+ * walk's own account goes instead — into the entry's computed briefing, in the
+ * cycle its prose moderation settles, rather than into a queue.
  */
 export type WalkVerdict =
   | { readonly kind: 'nothing'; readonly why: string }
-  | {
-      readonly kind: 'draft'
-      readonly steps: readonly RecipeStep[]
-      /**
-       * Whether the shape came from the walker's own account rather than from
-       * anything the Colony watched (`#1024`).
-       *
-       * **It changes nothing about the draft and one thing about the sentence.**
-       * An observed draft is told back as *in the order they happened, with an
-       * operator step wherever your operator was asked for something* — both
-       * halves of which are false of a seed, which has no operator steps by
-       * construction and describes a walk the Colony saw none of. A draft the
-       * agent is told the wrong story about is one it corrects by filing an
-       * issue, which is the behaviour `#601` exists to replace.
-       */
-      readonly seeded?: boolean
-    }
+  /**
+   * **It writes the entry and not a route** (`#1032`).
+   *
+   * The entry a walk writes is `measured`: the pair exists, citizens have been
+   * here, and the shelf can carry it. What it does not carry is steps — the
+   * Colony publishes a route only where it stands behind one, and with the
+   * steward gate retired there is nobody left to author that. The route the
+   * walker actually took is published in the entry's computed briefing instead,
+   * out of `account_walks`, under its own author and with its own prose
+   * moderation.
+   *
+   * **That is a deletion and not a loss.** Before `#1032` this verdict carried a
+   * shape, which became a `draft` row, which waited for a person to dress it in
+   * wording the walk never observed. Two entries were ever dressed. The steps,
+   * the walls, the prerequisites and the walker's own account were on the walk
+   * row the entire time; what changes is that a reader can now see them.
+   */
+  | { readonly kind: 'writes' }
   | { readonly kind: 'refusal'; readonly wall: string }
   | { readonly kind: 'confirms' }
   | {
@@ -612,34 +550,36 @@ export type WalkVerdict =
 export function walkVerdict(
   walk: AccountWalk,
   entry: (Pick<ProviderRecipe, 'status' | 'steps'> & Reaching) | undefined,
-  /**
-   * The shape the Colony already has on record for this account, from the
-   * acquisition episode that obtained it (`#935`).
-   *
-   * **Prefill, never override.** `#935` keeps `walk-report` and is explicit about
-   * why: an agent that obtains an account entirely alone has no episode and no
-   * operator, and that is a large share of all walks. Where an episode does
-   * exist, the walk is prefilled from it rather than asked again — so this is
-   * read only where the walk itself observed nothing, which is exactly the case
-   * the measurement found: a signup carried out through the episode machinery
-   * produces no walk steps at all, and the draft it proposed was `steps: []`.
-   *
-   * Omitted, this argument changes nothing, which is the other half of the same
-   * criterion.
-   */
-  observed?: readonly RecipeStep[],
 ): WalkVerdict {
   if (walk.outcome === null) {
     return { kind: 'nothing', why: 'the walk has not finished' }
   }
 
+  /**
+   * **A walk that stopped part-way measured where it stopped** (`#1032`).
+   *
+   * This returned `nothing` for the length of the steward gate, and the reason
+   * was sound while a verdict became a route somebody would follow: half a path
+   * published as a recipe is one that fails at step three. A `writes` verdict no
+   * longer publishes a path. It writes a `measured` row — the pair exists,
+   * citizens have been here — and the route, the walls and where the walker
+   * stopped are the briefing computed from `account_walks`. *Where citizens
+   * stop* is precisely what an abandoned walk observed, so the outcome that
+   * proposed nothing is now the one with the most to say.
+   *
+   * It still cannot confirm or contradict a published entry: a walk that did not
+   * finish saw no shape to match, so anything the Colony already stands behind
+   * falls through to `nothing`.
+   */
   if (walk.outcome === 'abandoned') {
-    return {
-      kind: 'nothing',
-      why:
-        'the walk stopped part-way, so what it saw is half a path — and half a path published ' +
-        'as a recipe is one that fails at step three',
-    }
+    return entry !== undefined && entry.status !== 'unwritten' && entry.status !== 'measured'
+      ? {
+          kind: 'nothing',
+          why:
+            'the walk stopped part-way, so it saw no shape to match against what the Colony ' +
+            'already publishes here — what it did measure is in this provider’s briefing',
+        }
+      : { kind: 'writes' }
   }
 
   if (walk.outcome === 'refused') {
@@ -649,38 +589,13 @@ export function walkVerdict(
   }
 
   /**
-   * What this walk has to show for itself: its own observed steps, or the
-   * episode's where it observed none. The published-entry branch below reads
-   * `walk` directly and is untouched by the prefill — a tick-list is an answer
-   * about *this* walk, and an episode has not given one.
-   */
-  const seen = walk.steps.length > 0 ? walkToSteps(walk) : (observed ?? [])
-
-  /**
-   * **The walker's own account is the third source and the last** (`#1024`).
-   *
-   * Read only where the two the Colony watched are empty, on the same
-   * prefill-never-override rule the episode above follows: a walk the Colony saw
-   * is described by what it saw, and a walk it saw nothing of would otherwise
-   * propose nothing at a provider nobody has walked — which is the one case the
-   * Atlas most needs an entry for. See {@link walkerShape} for why the steps come
-   * back wordless and why one needing an operator seeds nothing.
-   */
-  const observedShape = seen.length > 0
-  const shape = observedShape ? { kind: 'shape' as const, steps: seen } : walkerShape(walk.recipe)
-
-  if (shape.kind === 'none') {
-    return { kind: 'nothing', why: shape.why }
-  }
-
-  /**
-   * A published entry is confirmed or contradicted; anything else — no entry at
-   * all, one nobody has walked, one still in draft — takes the draft this walk
-   * produced. A `refused` or `retired` entry that somebody has now walked
-   * successfully is a divergence in the loudest sense, and goes to a steward for
+   * A `joinable` entry is confirmed or contradicted; anything else — no entry at
+   * all, one nobody has walked, one only measured — takes what this walk saw. A
+   * `refused` or `retired` entry that somebody has now walked successfully is a
+   * divergence in the loudest sense, and is raised rather than written over for
    * the same reason: it contradicts what the Colony is publishing.
    */
-  if (entry !== undefined && entry.status !== 'unwritten' && entry.status !== 'draft') {
+  if (entry !== undefined && entry.status !== 'unwritten' && entry.status !== 'measured') {
     if (entry.status === 'refused' || entry.status === 'retired') {
       return { kind: 'diverges', walked: walkToSteps(walk), published: entry.steps }
     }
@@ -699,18 +614,17 @@ export function walkVerdict(
       : { kind: 'diverges', walked: reportedSteps(walk, entry), published: entry.steps }
   }
 
-  return observedShape
-    ? { kind: 'draft', steps: shape.steps }
-    : { kind: 'draft', steps: shape.steps, seeded: true }
+  return { kind: 'writes' }
 }
 
 /**
  * What a step says when nobody has written it up yet (`#601`).
  *
  * **One sentence, in one place, and it is not an instruction.** A wordless step
- * only exists on a `draft`, which reaches no public surface (`#604`) — so the
- * readers of this are the console and a steward's screen, and what they need is
- * *this happened and nobody has described it*, not a guess at what to do.
+ * is a walk saying *a step happened here and I acted alone*; what a reader needs
+ * in its place is *this happened and nobody has described it*, not a guess at
+ * what to do. The words a reader actually follows are in the entry's computed
+ * briefing, attributed to the walker that wrote them (`#1032`).
  *
  * Exported rather than written at each call site, because a placeholder spelled
  * two ways is two placeholders and the second one gets published.

@@ -101,14 +101,22 @@ export function fakeWalks(): FakeWalkStore {
     rows[at] = walk
     /** Set on the row as `finishWalk` sets the column, from the report itself. */
     if (input.fromProviderReport === true) converted.add(walk.id)
+    /**
+     * **The fake knows of no published entry, so it mirrors `walkVerdict`'s
+     * no-entry path** (`#1032`). There, a walk that got through and a walk that
+     * stopped part-way both write the row — an abandoned walk measured where it
+     * stopped, and where citizens stop is the half of a briefing nothing else
+     * observes. Only a refusal that names no wall proposes nothing.
+     */
     const verdict: WalkVerdict =
-      input.outcome === 'proved'
-        ? { kind: 'draft', steps: [] }
-        : input.outcome === 'refused'
-          ? { kind: 'refusal', wall: input.wall ?? '' }
-          : { kind: 'nothing', why: 'the walk was abandoned' }
+      input.outcome === 'refused'
+        ? input.wall == null
+          ? { kind: 'nothing', why: 'a refusal has to name the wall it ended at' }
+          : { kind: 'refusal', wall: input.wall }
+        : { kind: 'writes' }
 
-    if (verdict.kind === 'draft') proposed.add(walk.id)
+    /** Stamped on exactly the verdict that wrote the row, as `finishWalk` stamps it. */
+    if (verdict.kind === 'writes') proposed.add(walk.id)
 
     return { walk, verdict }
   }

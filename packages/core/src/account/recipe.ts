@@ -164,12 +164,12 @@ export const RecipeStepSchema = z
     /**
      * What is done, in one or two sentences.
      *
-     * **Optional, and only a `draft` may leave it out** (`#601`). The rule is on
-     * `WriteProviderRecipeSchema` and on the table's own check constraint rather
-     * than here, because it is a fact about the entry's state and a step does not
-     * know what state it is in.
+     * **Optional on an `agent` step, required on an `operator` one** (`#601`,
+     * narrowed by `#1032`). The rule is on `WriteProviderRecipeSchema` and on the
+     * table's own check constraint rather than here, because it is a fact about
+     * the entry and a step does not know what entry it is in.
      *
-     * A walk writes a draft as a by-product of an agent obtaining an account, and
+     * A walk writes an entry as a by-product of an agent obtaining an account, and
      * what a walk observes is *what happened* — an operator was asked here, the
      * agent acted alone there. It does not observe a sentence, and `#601` is
      * explicit that the Colony must not invent one:
@@ -177,12 +177,15 @@ export const RecipeStepSchema = z
      * > The Colony still writes the operator's sentence (`#517`), so a draft
      * > carries the actions and a steward supplies the wording.
      *
-     * That shape was not representable while this was required — a derived draft
-     * would have had to carry a sentence nobody wrote, and a steward publishing
-     * without rewriting would have shipped it. An absent instruction is the
-     * honest record of *nobody has written this step up yet*, and it cannot reach
-     * a reader: no public surface renders a draft (`#604`), and no entry can
-     * leave `draft` while a step is still wordless.
+     * `#601` held that shape in `draft` until a steward supplied wording. `#1032`
+     * retired the steward, so the wording has no author and inventing one is what
+     * `#517` forbids. What carries the words instead is the entry's computed
+     * briefing: the walker's own account of the step, moderated as prose and
+     * attributed to it. An absent instruction on an agent step is the honest
+     * record of *a step happened here and I acted alone* — which is the most a
+     * walk ever observed. On an `operator` step it stays required, because that
+     * sentence is read by a person who did not walk this and a blank line is not
+     * an instruction.
      */
     instruction: z.string().trim().min(1).max(RECIPE_STEP_MAX_LENGTH).optional(),
     /**
@@ -611,13 +614,26 @@ export const RECIPE_MAX_PACE_PER_DAY = 100
  *
  * | | |
  * |---|---|
- * | `proposed` | somebody asked for this provider and nobody has decided whether it belongs |
  * | `unwritten` | on the map, nobody has looked |
  * | `measured` | citizens have been here and nobody has written the route |
- * | `draft` | a walk produced steps that no steward has approved |
  * | `joinable` | steps exist, `proves` is set, and the Colony stands behind it |
  * | `refused` | walked, no honest route, reason required |
  * | `retired` | deliberately withdrawn, keeping its steps and saying why |
+ *
+ * **`proposed` and `draft` were removed by `#1032`, and with them the last two
+ * states a reader could not see.** Both existed to hold prose until a steward
+ * had read it, and `#1032` retired that gate: a walk publishes into the entry's
+ * computed briefing in the cycle its prose moderation settles, so *waiting for a
+ * human to look* is no longer a state an entry can be in. Measured on
+ * 2026-08-15 the gate had produced two decisions in its lifetime, both
+ * `accepted`, against six drafts left standing. Migration `0265` resolves those
+ * six by what they actually hold rather than by their label: a draft carrying a
+ * proof and a written route is `joinable`, because that is what it was waiting
+ * for a human to say out loud, and one carrying neither is `measured`, because
+ * that is the honest description of a pair citizens have walked and nobody has
+ * written up. **No walk is lost either way** — the walk rows are untouched and
+ * every route they took is published in the entry's computed briefing, which is
+ * the whole of what `#1032` builds.
  *
  * **The order is the life and not an alphabet**, and it is load-bearing in one
  * place: `RECIPE_STATUSES` reaches the table's check constraint in this order,
@@ -646,17 +662,14 @@ export const RECIPE_MAX_PACE_PER_DAY = 100
  * refused the churn explicitly; this note is here so nobody rediscovers the
  * argument.
  *
- * Two properties every surface needs and neither of which is inferable from the
- * name: `recipeStatusIsPublic` decides whether a stranger may see the entry at
- * all, and `recipeStatusIsOfferable` decides whether an agent may be sent to
- * walk it. A surface that has not been told renders a `draft` as joinable, which
- * is an agent following a recipe nobody approved.
+ * One property every surface needs and which is not inferable from the name:
+ * `recipeStatusIsOfferable` decides whether an agent may be sent to follow the
+ * entry. A surface that has not been told renders a `measured` row as joinable,
+ * which is an agent following steps nobody has written.
  */
 export const RecipeStatusSchema = z.enum([
-  'proposed',
   'unwritten',
   'measured',
-  'draft',
   'joinable',
   'refused',
   'retired',
@@ -664,19 +677,13 @@ export const RecipeStatusSchema = z.enum([
 export type RecipeStatus = z.infer<typeof RecipeStatusSchema>
 
 /**
- * Whether a stranger may see this entry at all (`#604`).
+ * Whether a stranger may see this entry at all — now every status (`#1032`).
  *
- * **Two of the seven are internal and the reasons are different.** A `proposed`
- * entry is *somebody else's suggestion* — publishing it would put a claim about
- * a third party's product on `kolonie.ai` before anybody at the Colony had read
- * it. A `draft` is the Colony's own work in progress, and publishing it would
- * offer an agent a path no steward has stood behind.
- *
- * **Both reasons are about prose nobody vetted, and that is what admits
- * `measured`** (`kolonie-docs#352`). Neither reason is about a fact the Colony
- * measured itself — that a citizen proved an account here, or reported being
- * turned away and why. There was no status for that, so those facts had nowhere
- * to go and the shelf stayed empty while the tables filled up.
+ * **Kept as a function after its last two exclusions went**, rather than deleted
+ * along with them. It is read at five surfaces, and the question it answers is
+ * one the Colony will ask again the first time a status arrives that a reader
+ * must not see. Deleting it would scatter that decision back across those five,
+ * which is the arrangement `#604` introduced it to end.
  *
  * **`retired` is public and that is the point of it.** `growth/README.md`'s
  * standing rule is that *a refusal is a page, not an omission*; a withdrawal is
@@ -684,18 +691,18 @@ export type RecipeStatus = z.infer<typeof RecipeStatusSchema>
  * record of why the Colony ever recommended it, which is exactly what a reader
  * arriving from an old link needs.
  */
-export function recipeStatusIsPublic(status: RecipeStatus): boolean {
-  return status !== 'proposed' && status !== 'draft'
+export function recipeStatusIsPublic(_status: RecipeStatus): boolean {
+  return true
 }
 
 /**
  * Whether an agent may be sent to walk this entry (`#604`).
  *
  * One state, and it is deliberately narrower than `recipeStatusIsPublic`: a
- * retired entry has a page a reader can still open and is not on offer, and a
- * draft is neither. `handoffStep` in the API refuses everything else *by name*,
- * because *nobody has walked this yet*, *this is waiting for review* and *this
- * was withdrawn* are three different answers and an agent can act on each.
+ * retired entry has a page a reader can still open and is not on offer.
+ * `handoffStep` in the API refuses everything else *by name*, because *nobody
+ * has walked this yet* and *this was withdrawn* are different answers and an
+ * agent can act on each.
  */
 export function recipeStatusIsOfferable(status: RecipeStatus): boolean {
   return status === 'joinable'
@@ -718,10 +725,6 @@ export function recipeStatusIsOfferable(status: RecipeStatus): boolean {
  * a question that is closed, and `refused` is the one status whose whole content
  * is *there is no honest way through* — the red-line-adjacent case where trying
  * again is the wrong instinct.
- *
- * **`proposed` and `draft` are excluded on `recipeStatusIsPublic`'s own
- * reasoning**: neither has been read by anybody at the Colony, so neither is
- * something to put in front of a citizen under the Colony's name.
  */
 export function recipeStatusIsWalkable(status: RecipeStatus): boolean {
   return status === 'unwritten' || status === 'measured' || status === 'joinable'
@@ -900,9 +903,7 @@ export function recipeWall(steps: readonly RecipeStep[]): RecipeStep | undefined
  *
  * | `status` | steps | `proves` | `refusal` | `retiredAt` |
  * |---|---|---|---|---|
- * | `proposed` | 0 | forbidden | forbidden | null |
  * | `unwritten` | 0 | forbidden | forbidden | null |
- * | `draft` | 1–20 | optional | forbidden | null |
  * | `joinable` | 1–20 | required | forbidden | null |
  * | `refused` | 0 | forbidden | required | null |
  * | `retired` | any | any | any | required, with a reason |
@@ -912,12 +913,13 @@ export function recipeWall(steps: readonly RecipeStep[]): RecipeStep | undefined
  * a partial recipe is one that fails at step three, and the whole design is that
  * the Colony wrote the path.
  *
- * **`draft` is the one state where that rule is suspended, and only because
- * nobody is offered it** (`#604`). A walk that produced four steps and no
- * `proves` is exactly what a steward has to be able to look at; refusing to
- * store it would mean the walk's output lived in a GitHub issue, which is the
- * defect `#601` is named for. It carries steps and is not public, and the two
- * facts are the same decision.
+ * **A walk that produced steps and no `proves` leaves the entry `measured`**
+ * (`#1032`). `draft` used to hold exactly that shape for a steward to look at;
+ * with the gate gone there is nobody to look, and an entry claiming a route it
+ * cannot say how to prove is the half-written recipe this table forbids. Nothing
+ * is lost by the demotion: the walk keeps its steps, its walls and its own
+ * account, and the entry's computed briefing publishes all three. The row is an
+ * overlay on the walks, and the walks are the record.
  *
  * **`measured` is excluded and the exclusion is the whole status**
  * (`kolonie-docs#352`). A measured row says *citizens have been here and nobody
@@ -935,7 +937,7 @@ export function recipeWall(steps: readonly RecipeStep[]): RecipeStep | undefined
  * can fail is one somebody works around by deleting the row.
  */
 export function recipeStatusAllowsSteps(status: RecipeStatus): boolean {
-  return status === 'joinable' || status === 'draft' || status === 'retired'
+  return status === 'joinable' || status === 'retired'
 }
 
 /**
@@ -953,24 +955,6 @@ export const UNWRITTEN_ENTRY_NOTE =
   'here, and that absence is the answer rather than a gap in the data. If you walk it, ' +
   'kolonie.accounts.provider-report is what turns this into a recipe, and a finding that there ' +
   'is no honest route in is worth exactly as much as a working one.'
-
-/**
- * What a page says about an entry a steward has not published (`#604`).
- *
- * **A draft has no public page, so this is not read by a stranger** — it is what
- * the console's curation queue and `/backend` say about the row. The note exists
- * anyway, and beside the other two, because the three are read together and a
- * state whose sentence lives inline in one surface is a state the next surface
- * describes differently.
- *
- * The tone is neither the apology `unwritten` avoids nor the warning `refused`
- * carries: a draft is work that happened, waiting on one person.
- */
-export const DRAFT_ENTRY_NOTE =
-  'Somebody walked this and wrote down what they found, and no steward has published it yet. ' +
-  'The steps below are what the walk produced — they are not the Colony saying this path works, ' +
-  'which is what publishing means and is why an agent is not offered a draft. Reviewing it is ' +
-  'the only thing between here and a recipe.'
 
 /**
  * What a page says about an entry the Colony has withdrawn (`#604`).
@@ -1071,9 +1055,10 @@ export const ProviderRecipeSchema = z.object({
    * one no recipe can be written for — and saying so is the recipe. **`unwritten`
    * is the gap**, said out loud, which is the state it replaces an absence with.
    *
-   * Two of the six never reach a stranger — see `recipeStatusIsPublic` — and one
-   * of the six is what an agent may be sent to walk. Neither is inferable from
-   * the name, so no surface should branch on the string.
+   * All five reach a stranger since `#1032` — see `recipeStatusIsPublic`, which
+   * used to exclude two — one of the five is what the Colony offers to follow,
+   * and three are what an agent may be sent to walk. None of that is inferable
+   * from the name, so no surface should branch on the string.
    */
   status: RecipeStatusSchema,
   /** Why not, when the status is `refused`. Null otherwise. */
@@ -1106,8 +1091,8 @@ export const ProviderRecipeSchema = z.object({
   /**
    * The ordered steps.
    *
-   * Empty on `proposed`, `unwritten` and `refused`, because there is nothing to
-   * walk. Present on `joinable` and on `draft`, and kept on `retired` — see
+   * Empty on `unwritten`, `measured` and `refused`, because there is nothing the
+   * Colony stands behind. Present on `joinable` and kept on `retired` — see
    * `recipeStatusAllowsSteps`, which is the one implementation of that table.
    */
   steps: z.array(RecipeStepSchema).max(RECIPE_MAX_STEPS),
@@ -1115,10 +1100,11 @@ export const ProviderRecipeSchema = z.object({
    * How the account is proved once it exists.
    *
    * `rung` means an Academy verifier does it and the recipe points at the rung;
-   * the other two are `#520`'s generic proofs. Required on `joinable`, optional
-   * on `draft` — a walk that got an account and did not work out how to prove it
-   * is a real and reviewable outcome — and forbidden where there is nothing to
-   * walk. `retired` keeps whatever it had.
+   * the other two are `#520`'s generic proofs. Required on `joinable` and
+   * forbidden where there is nothing to walk — a walk that got an account and did
+   * not work out how to prove it leaves the entry `measured`, and its own account
+   * of the signup is published in the briefing either way (`#1032`). `retired`
+   * keeps whatever it had.
    */
   proves: AccountProofMethodSchema.nullable(),
   /**
@@ -1382,10 +1368,12 @@ export const WriteProviderRecipeSchema = z
    * says *some of this needs a person* and leaves the citizen to find out which
    * — the exact cost `#597` was filed about.
    *
-   * **Only on `joinable`.** A `draft` is what a walk wrote down before a steward
-   * read it, and a walk observes that an operator was asked, not which asking was
-   * unavoidable — that is the steward's judgement and demanding it here would
-   * mean a walk could not be stored, which is the defect `#601` is named for.
+   * **Only on `joinable`.** A walk observes that an operator was asked, not which
+   * asking was unavoidable, and demanding the second here would mean a walk could
+   * not be stored — the defect `#601` is named for. With the steward gate gone
+   * (`#1032`) the entry that a walk alone produces is `measured`, and this rule
+   * binds where the Colony stands behind the route rather than where a walk
+   * merely reached it.
    */
   /**
    * **One caution per capability** (`#1041`), the rule the database cannot state.
@@ -1495,19 +1483,23 @@ export const WriteProviderRecipeSchema = z
     path: ['reaches', 'steps'],
   })
   /**
-   * A reach step may be wordless on exactly the states its account's steps may
-   * be — the same rule as `_published_steps_are_written`, applied to the second
-   * sequence so publishing cannot smuggle a blank line past it.
+   * **A reach step is never wordless** (`#1032`).
+   *
+   * The account's own steps allow a wordless `agent` step, because a walk records
+   * that a step happened and observes no sentence for it. Nothing derives a reach:
+   * every reach sequence in the Colony was written by somebody who had the words
+   * in hand, so an absent instruction here is a field left blank rather than an
+   * honest record of what was seen. `retired` is exempt on the general rule that a
+   * withdrawn entry keeps whatever it had.
    */
   .refine(
     (entry) =>
-      entry.status === 'draft' ||
       entry.status === 'retired' ||
       (entry.reaches?.steps ?? []).every((step) => step.instruction !== undefined),
     {
       message:
-        'every step needs to say what is done before the entry leaves draft, and a reach step is ' +
-        'a step.',
+        'every reach step needs to say what is done. Nothing derives a reach from a walk, so a ' +
+        'blank one is a field left empty rather than something nobody observed.',
       path: ['reaches', 'steps'],
     },
   )
@@ -1630,53 +1622,50 @@ export const WriteProviderRecipeSchema = z
   /**
    * **Steps belong to the states that have a walk behind them** (`#604`).
    *
-   * `draft` joins `joinable` here, which is the one place `#588`'s *nothing but
-   * joinable carries steps* rule was loosened. It is safe precisely because a
-   * draft reaches no public surface: the steps are what a steward reviews, and
-   * refusing to store them would put the output of a walk in a GitHub issue,
-   * which is the defect `#601` exists for.
-   *
    * `retired` is not listed in either direction — it keeps whatever it had.
    */
-  .refine(
-    (entry) => !(entry.status === 'joinable' || entry.status === 'draft') || entry.steps.length > 0,
-    {
-      message:
-        'a joinable or draft provider needs at least one step. That is what makes it a recipe, ' +
-        'and a draft with no steps is an unwritten entry with a busier label.',
-      path: ['steps'],
-    },
-  )
+  .refine((entry) => entry.status !== 'joinable' || entry.steps.length > 0, {
+    message:
+      'a joinable provider needs at least one step. That is what makes it a recipe, and an ' +
+      'entry with none is an unwritten entry with a busier label.',
+    path: ['steps'],
+  })
   .refine((entry) => recipeStatusAllowsSteps(entry.status) || entry.steps.length === 0, {
     message:
       'an entry in this state has nothing to walk. A partial recipe is one that fails at ' +
-      'step three — say the steps when a walk has produced them, as a draft if nobody has ' +
-      'reviewed it yet, and nothing before that.',
+      'step three — say the steps when a walk has produced them, and nothing before that.',
     path: ['steps'],
   })
   /**
-   * **A step may be wordless only while the entry is a draft** (`#601`).
+   * **An agent step may be wordless, and an operator step may not** (`#1032`).
    *
-   * This is the other half of making `instruction` optional, and it is the half
-   * that matters: a draft is the one state a walk can write, and publishing is
-   * exactly the act of a steward having supplied what the walk could not
-   * observe. An entry that left `draft` with a wordless step would be a recipe
-   * with a blank line in it, handed to an agent as a path to follow.
+   * `#601` allowed a wordless step only on a `draft`, on the argument that
+   * publishing was a steward supplying what the walk could not observe. `#1032`
+   * retired the steward, so that sentence now has no author — and inventing one
+   * is the thing `#517` forbids. What replaced it is the entry's computed
+   * briefing: the walker's own account of the step, moderated as prose and
+   * attributed, is what a reader follows, and {@link walkerShape} is explicit
+   * that what the entry takes from a walk is the **shape** and not the wording.
    *
-   * `retired` is allowed one, because it keeps whatever it had — an entry
-   * withdrawn while it was still a draft keeps the record of the walk, which is
-   * the whole argument for `retired` in `#604`.
+   * **The narrowing is to the actor, because that is where the old rule was
+   * actually load-bearing.** An operator step carries the exact sentence a
+   * person reads and the Colony writes it; a blank one would be a human handed
+   * an empty instruction. An agent step with no sentence is a walk saying *a
+   * step happened here and I acted alone*, which is true, useful and the most a
+   * walk ever observed. `walkerShape` refuses to seed an operator step at all
+   * for the same reason, so a walk-derived entry reaches this with agent steps
+   * only.
    */
   .refine(
     (entry) =>
-      entry.status === 'draft' ||
       entry.status === 'retired' ||
-      entry.steps.every((step) => step.instruction !== undefined),
+      entry.steps.every((step) => step.actor !== 'operator' || step.instruction !== undefined),
     {
       message:
-        'every step needs to say what is done before the entry leaves draft. A walk records ' +
-        'that a step happened and who it needed; the sentence is a steward’s, and publishing ' +
-        'is where it gets written.',
+        'an operator step needs to say what is done. The person reading it is not the agent ' +
+        'that walked this, and a blank line is not an instruction. An agent step may be ' +
+        'wordless — that is a walk recording its own shape, and the walker’s account carries ' +
+        'the words.',
       path: ['steps'],
     },
   )
@@ -1684,20 +1673,16 @@ export const WriteProviderRecipeSchema = z
     message:
       'name how the account is proved once it exists — a rung, or one of the generic proofs ' +
       'from #520. An entry that ends at a created account has stopped one step early. A walk ' +
-      'that did not work out how to prove the account is a draft rather than a joinable entry.',
+      'that did not work out how to prove the account leaves the entry measured, and its own ' +
+      'account of the signup is published in the briefing either way.',
     path: ['proves'],
   })
   /**
-   * `proves` is optional on a draft and forbidden where there is no walk. A walk
-   * that got an account and did not establish the proof is a real outcome and a
-   * reviewable one; refusing to store it loses the walk.
+   * `proves` is forbidden where there is no walk behind the entry.
    */
   .refine(
     (entry) =>
-      entry.status === 'joinable' ||
-      entry.status === 'draft' ||
-      entry.status === 'retired' ||
-      entry.proves === undefined,
+      entry.status === 'joinable' || entry.status === 'retired' || entry.proves === undefined,
     {
       message: 'there is nothing to prove where there is nothing to walk.',
       path: ['proves'],

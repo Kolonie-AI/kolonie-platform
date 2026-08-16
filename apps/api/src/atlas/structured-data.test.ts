@@ -108,7 +108,7 @@ describe('the Atlas as structured data', () => {
    * pretending to know a path.
    */
   it('writes no HowTo for a row nobody can walk', () => {
-    for (const status of ['refused', 'unwritten', 'proposed', 'retired'] as const) {
+    for (const status of ['refused', 'unwritten', 'measured', 'retired'] as const) {
       expect(howToFor(entry({ recipes: [recipe({ status, steps: [] })] }))).toEqual([])
     }
   })

@@ -44,21 +44,21 @@ const account = (
 })
 
 describe('the inventory', () => {
-  it('shows a private draft even before the walk has produced an account row', () => {
+  it('shows a published walk even before it has produced an account row', () => {
     const walk: WalkStatus = {
       walkId: crypto.randomUUID(),
       kind: AccountKindSchema.parse('github'),
       provider: 'provider',
-      status: 'draft',
+      status: 'published',
       startedAt: currentTime(),
       finishedAt: currentTime(),
       statusChangedAt: currentTime(),
-      appearsInRecipes: false,
+      appearsInRecipes: true,
       refusalReason: null,
       withdrawnReason: null,
       requiredChanges: null,
-      entryStatus: 'draft',
-      walk: { fate: 'awaiting-steward', why: 'Waiting for a steward to write the wording.' },
+      entryStatus: 'measured',
+      walk: { fate: 'published', why: 'What this walk measured is in the briefing.' },
       proof: {
         accountId: null,
         accountProved: false,
@@ -71,7 +71,12 @@ describe('the inventory', () => {
 
     const text = accountsAsText([], [walk])
 
-    expect(text).toContain('waiting for a steward')
+    /**
+     * `#1032`: the line used to say a steward had it and hand over an id to poll
+     * with. Nothing waits, so it says where what the walk found can be read —
+     * and it still carries the id, because two calls take it.
+     */
+    expect(text).toContain('kolonie.accounts.recipes')
     expect(text).toContain('kolonie.accounts.walk-status')
     expect(text).toContain(walk.walkId)
   })

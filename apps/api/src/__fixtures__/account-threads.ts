@@ -426,21 +426,23 @@ export function fakeAccountThreads(
       }
 
       /**
-       * Closing an acquisition proposes the Atlas draft (`#935`), and the
-       * surface renders which of the three it was. The fake holds no catalogue,
-       * so nothing here can be published over — what it reproduces is the rule
-       * the surface leans on either way: an account naming no provider proposes
-       * nothing, because there is no shelf to put a draft on.
+       * Closing an acquisition writes the Atlas entry (`#935`, narrowed by
+       * `#1032`), and the surface renders which of the three it was. The fake
+       * holds no catalogue, so nothing here can be published over — what it
+       * reproduces is the rule the surface leans on either way: an account
+       * naming no provider writes nothing, because there is no shelf to put an
+       * entry on.
+       *
+       * **The slots are gone from the question** (`#1032`). An episode used to
+       * be turned into steps, so what had been asked in it decided the shape of
+       * the draft; an episode writes a routeless `measured` row now, and the
+       * only thing left to weigh is whether the Colony already publishes here.
        */
       const account = accountOfThread(String(closed.threadId))
       const proposed: EpisodeVerdict =
         account === undefined || account.provider === null
           ? { kind: 'nothing', why: 'the account names no provider' }
-          : episodeVerdict(
-              closed,
-              [...slots.values()].filter((slot) => String(slot.episodeId) === String(closed.id)),
-              undefined,
-            )
+          : episodeVerdict(closed, undefined)
 
       return { outcome: 'closed', episode: closed, proposed }
     },

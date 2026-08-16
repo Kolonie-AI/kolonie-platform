@@ -266,7 +266,6 @@ describe('what the Atlas knows about this provider', () => {
         provider: 'mail.example',
         kind: 'mailbox',
         title: 'A mailbox at mail.example',
-        reviewed: true,
         steps: ['open the signup page', 'confirm the address'],
         operatorSteps: 1,
       },
@@ -279,20 +278,27 @@ describe('what the Atlas knows about this provider', () => {
     expect(html).toContain('1 of these needed a person')
   })
 
-  /** `#604`'s rule on every surface: steps nobody reviewed say so where they are read. */
-  it('says outright when no steward has stood behind the steps', () => {
-    const reviewed = {
-      state: 'walked' as const,
-      provider: 'mail.example',
-      kind: 'mailbox',
-      title: 'A mailbox at mail.example',
-      reviewed: true,
-      steps: ['open the signup page'],
-      operatorSteps: 0,
-    }
+  /**
+   * `#604`'s rule said steps nobody reviewed must say so where they are read.
+   * `#1032` removed the state it was about — a walk writes no steps, so every
+   * list that reaches this page is the Colony's own route and the caveat would
+   * be false on all of them. The warning that outlives it is the one about the
+   * provider having moved on.
+   */
+  it('warns that the page beats the list, and no longer says a steward is missing', () => {
+    const html = aPage({
+      atlas: {
+        state: 'walked',
+        provider: 'mail.example',
+        kind: 'mailbox',
+        title: 'A mailbox at mail.example',
+        steps: ['open the signup page'],
+        operatorSteps: 0,
+      },
+    })
 
-    expect(aPage({ atlas: reviewed })).not.toContain('no steward has reviewed')
-    expect(aPage({ atlas: { ...reviewed, reviewed: false } })).toContain('no steward has reviewed')
+    expect(html).not.toContain('steward')
+    expect(html).toContain('the page is right')
   })
 
   /**

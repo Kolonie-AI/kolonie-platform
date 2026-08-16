@@ -48,11 +48,13 @@ describe('the provider one citizen is invited to walk', () => {
     readonly kind: string
     readonly provider: string
     readonly title: string
-    readonly status: 'unwritten' | 'measured' | 'joinable' | 'refused' | 'retired' | 'draft'
+    readonly status: 'unwritten' | 'measured' | 'joinable' | 'refused' | 'retired'
     readonly about?: string
     /** A `refused` entry says why, on the table's own constraint. */
     readonly refusal?: string
-    /** A `draft` entry carries at least one step, on the table's own constraint. */
+    /** A `retired` entry says why it closed, on the same constraint. */
+    readonly retiredReason?: string
+    /** A `joinable` entry carries at least one step, on the table's own constraint. */
     readonly steps?: readonly { readonly actor: 'agent'; readonly instruction: string }[]
   }) =>
     writeProviderRecipe(db, {
@@ -62,6 +64,7 @@ describe('the provider one citizen is invited to walk', () => {
       about: entry.about ?? null,
       status: entry.status,
       refusal: entry.refusal ?? null,
+      retiredReason: entry.retiredReason ?? null,
       category: 'project-tracking',
       steps: [...(entry.steps ?? [])],
     })
@@ -91,8 +94,15 @@ describe('the provider one citizen is invited to walk', () => {
    * citizen at a door somebody established is shut spends its waking on a
    * question that is closed, and `refused` is the one status whose whole content
    * is *there is no honest way through*.
+   *
+   * **The third state this used to name is gone** (`#1032`). It seeded a `draft`
+   * and asserted that an entry nobody had read was not handed out; there is no
+   * such state now, because the gate that produced it is retired. What took its
+   * place — `measured` — is walkable on purpose and is asserted to be, one test
+   * down: a pair somebody stopped at is evidence about that pair, not a closed
+   * question.
    */
-  it('never names an entry that is refused, retired or unread', async () => {
+  it('never names an entry that is refused or retired', async () => {
     await anEntry({
       kind: 'project-tracking',
       provider: 'shut.example',
@@ -102,13 +112,34 @@ describe('the provider one citizen is invited to walk', () => {
     })
     await anEntry({
       kind: 'project-tracking',
-      provider: 'unread.example',
-      title: 'Unread',
-      status: 'draft',
-      steps: [{ actor: 'agent', instruction: 'Sign up.' }],
+      provider: 'gone.example',
+      title: 'Gone',
+      status: 'retired',
+      retiredReason: 'The provider closed to new accounts.',
     })
 
     expect(await walkSuggestionFor(db, agentId)).toBeNull()
+  })
+
+  /**
+   * **A measured entry is the one most worth walking again** (`#1032`). It says
+   * a citizen has been here and stopped, and nothing about where — the route and
+   * the walls are the briefing, and the briefing is thin until more than one
+   * walk feeds it. `recipeStatusIsWalkable` holds it in, and this is the test
+   * that keeps it there.
+   */
+  it('names an entry citizens have measured, which is not a closed question', async () => {
+    await anEntry({
+      kind: 'project-tracking',
+      provider: 'walked.example',
+      title: 'Walked',
+      status: 'measured',
+    })
+
+    expect(await walkSuggestionFor(db, agentId)).toMatchObject({
+      provider: 'walked.example',
+      why: 'thinnest',
+    })
   })
 
   /**

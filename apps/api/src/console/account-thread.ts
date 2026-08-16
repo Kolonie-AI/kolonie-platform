@@ -364,12 +364,18 @@ function atlasBlock(atlas: AtlasState): readonly string[] {
     '<details>',
     `<summary>What somebody who walked ${escape(atlas.provider)} wrote down ` +
       `(${String(atlas.steps.length)} step${atlas.steps.length === 1 ? '' : 's'})</summary>`,
+    /**
+     * **The caveat about who wrote this went with the status it described**
+     * (`#1032`). It read *and no steward has reviewed it yet* wherever a walk
+     * had put its own steps on the entry; walks no longer write steps, so every
+     * list that reaches here is the Colony's own route. What has not changed is
+     * the warning that matters more: the provider has had a year to move its
+     * signup, and the page in front of the reader wins.
+     */
     `<p class="note"><strong>A hint, not an instruction.</strong> This is ${escape(
       atlas.title,
-    )} as somebody else found it${
-      atlas.reviewed ? '' : ', and no steward has reviewed it yet'
-    }. The signup may have changed since. Where the page in front of you disagrees with the ` +
-      'list, the page is right.</p>',
+    )} as the Colony has it written down. The signup may have changed since. Where the page ` +
+      'in front of you disagrees with the list, the page is right.</p>',
     `<ol>${atlas.steps.map((step) => `<li>${escape(step)}</li>`).join('')}</ol>`,
     ...(atlas.operatorSteps === 0
       ? []

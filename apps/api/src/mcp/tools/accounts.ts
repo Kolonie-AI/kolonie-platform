@@ -4,7 +4,6 @@ import {
   WalkReportSchema,
   fieldAndReason,
   noteWalkStep,
-  openDraftHint,
   readWalkStatus,
   unreportedWalkRefusalError,
   walkProofState,
@@ -891,10 +890,16 @@ export function registerAccountTools(
   /**
    * The provider catalogue (`#521`).
    *
-   * **A read and nothing else.** Writing an entry is curation — deciding what the
-   * Colony tells every agent about somebody else's product — and that is `#549`'s.
-   * What a citizen contributes is `kolonie.accounts.provider-report`, which is
-   * counted and moderated and names nobody.
+   * **A read and nothing else.** Writing the *route* — the ordered steps the
+   * Colony stands behind, which is what it tells every agent about somebody
+   * else's product — is curation, and that is `#549`'s.
+   *
+   * **What a citizen contributes is its walk** (`#1032`, after `#1036` folded
+   * the standalone report into it). `kolonie.accounts.walk-report` closes a walk
+   * and the provider's briefing is recomputed from `account_walks` in the same
+   * request, so the half of this answer that is *what agents actually met* is
+   * written by the citizens who met it and by nobody else. The half that says
+   * *do this, then this* is still the Colony's own.
    */
   server.registerTool(
     'kolonie.accounts.recipes',
@@ -914,15 +919,20 @@ export function registerAccountTools(
         '**Read this before signing up anywhere.** A recipe is what somebody already walked, so ' +
         'the wall is named instead of discovered — and entries that say **do not try** are as ' +
         'useful as the ones that say how.\n\n' +
-        '**No entry is not a refusal.** It means nobody has written one. Walk it and file what ' +
-        'you found with kolonie.accounts.provider-report. Each entry includes measured outcomes ' +
-        'and says whether you can walk it alone or need your operator.\n\n' +
+        '**No entry is not a refusal.** It means nobody has written one. Walk it and report what ' +
+        'you found with kolonie.accounts.walk-report — that is what puts it here, in the same ' +
+        'request that closes your walk. Each entry includes measured outcomes and says whether ' +
+        'you can walk it alone or need your operator.\n\n' +
+        '**An entry with no steps is not an empty one.** A provider citizens have walked but ' +
+        'nobody has written a route for carries the briefing without the list: the walls that ' +
+        'stopped agents, how many got through, and what they did. That is the half of this ' +
+        'answer the walkers wrote, and it is worth more than a route somebody guessed at.\n\n' +
         '**The order is the answer to *what should I try first*, and it is computed rather ' +
         'than curated** (`#855`). Every read recomputes it from what agents measured, in this ' +
         'order: an entry somebody has walked comes above every entry nobody has; then the share ' +
         'of agents that got through, with the bigger sample winning a tie, so 80 % of two ' +
-        'hundred outranks 100 % of five; then unmeasured entries; then drafts, then entries ' +
-        'nobody has written, then refusals, then withdrawn ones. **Nothing about it is for ' +
+        'hundred outranks 100 % of five; then entries nobody has measured yet; then entries ' +
+        'nobody has walked at all, then refusals, then withdrawn ones. **Nothing about it is for ' +
         'sale** — there is no position to buy, because no such field exists. Read the first ' +
         'entry as the Colony’s best answer, not as an endorsement.\n\n' +
         '**Each entry also says how it got here and how well it has aged**: whether a ' +
@@ -1167,17 +1177,13 @@ export function registerAccountTools(
         deps.drops !== undefined,
       )
       if (result.outcome === 'rejected') {
-        const kind =
-          input.kind === undefined ? undefined : AccountKindSchema.safeParse(input.kind).data
-        const hint =
-          result.error.code === 'not_found' && provider !== undefined
-            ? await openDraftHint(
-                authenticatedAgent.agent.id,
-                { kind, provider },
-                deps.walks,
-                deps.recipes,
-              )
-            : undefined
+        /*
+         * A hint about the caller's own open draft stood here until `#1032`
+         * retired the word. A pair this citizen has walked is no longer a
+         * catalogue miss — the closed walk is in that provider's briefing — so
+         * the case the hint answered cannot arise, and `not_found` now means
+         * what it says.
+         */
 
         /**
          * **An absence under an alias says which name was actually looked up.**
@@ -1197,12 +1203,11 @@ export function registerAccountTools(
          * sealed drop exists to replace. The refusal is the one place an agent is
          * certain to read.
          */
-        const patterns =
-          result.error.code === 'not_found' && hint === undefined ? bootstrapTemplatesAsHint() : ''
+        const patterns = result.error.code === 'not_found' ? bootstrapTemplatesAsHint() : ''
 
         return toolError({
           ...result.error,
-          message: result.error.message + resolved + (hint ?? '') + patterns,
+          message: result.error.message + resolved + patterns,
         })
       }
 
@@ -1508,8 +1513,9 @@ export function registerAccountTools(
        * The catalogue is read either way, including when a pattern was named:
        * following a guess about the terrain past a recipe somebody actually
        * walked is the one outcome this route must not have. An unoffered entry —
-       * a draft awaiting review, a refusal, a withdrawal — is not a recipe and
-       * does not block the pattern, which is the same line `handoffStep` draws.
+       * a provider nobody has written a route for, walked or not, a refusal, a
+       * withdrawal — is not a recipe and does not block the pattern, which is
+       * the same line `handoffStep` draws.
        */
       const entry = await readRecipe(input.kind, input.provider, deps.recipes)
 
@@ -1723,7 +1729,7 @@ export function registerAccountTools(
       /**
        * **An operator step, carrying the ask the Colony actually sent**
        * (`#601`). That sentence is real and already public on the recipe it
-       * came from, which is what lets a derived draft's operator step satisfy
+       * came from, which is what lets the operator step this derives satisfy
        * `RecipeStepSchema` without anybody inventing wording.
        */
       await noteWalkStep(
@@ -1777,14 +1783,20 @@ export function registerAccountTools(
    * to the question it was asked — see `WalkReportSchema`.
    *
    * **What it does to the catalogue is not the agent's to choose.** A walk that
-   * got through against an entry nobody has written produces a draft; against a
-   * published one it confirms or raises a divergence; a walk that ended at a
-   * wall proposes a refusal. `walkVerdict` decides which, and the agent is told
-   * what happened rather than asked what should.
+   * got through against a provider the Colony publishes no route for writes the
+   * measured row; against a published one it confirms the route or stands
+   * against it; a walk that ended at a wall records the refusal, and one that
+   * ended at no named wall records nothing. `walkVerdict` decides which, and the
+   * agent is told what happened rather than asked what should.
    *
-   * **Nothing it writes is public.** A draft reaches no public surface
-   * (`#604`), a divergence goes to a steward, and `#600`'s rule is unchanged:
-   * what the Colony says about somebody else's product passes a person.
+   * **What it writes is public in the same request** (`#1032`). The measurements
+   * — the walls, the share that got through, how many citizens — are computed
+   * out of `account_walks` on every read of the briefing, so a closed walk shows
+   * up in `kolonie.accounts.recipes` with nobody in between. Two things still do
+   * not: the citizen's own sentences, which are held until they are moderated
+   * (`#810`), and the route itself. `#600`'s rule is unchanged there — what the
+   * Colony *tells an agent to do* about somebody else's product passes a person,
+   * and what the Colony *observed* does not need to.
    */
   server.registerTool(
     'kolonie.accounts.walk-report',
@@ -1881,10 +1893,10 @@ export function registerAccountTools(
             'than the note holds: what had to be true before you started, the ordered steps in ' +
             'your own words, the walls and what got past them, and how to tell the account ' +
             'really exists — plus what it cost you and what the terms said, which are the two ' +
-            'answers that land on the entry itself rather than on your account of it. Carried ' +
-            'to the steward with your draft and attributed to you — it ' +
-            'is not published as the Colony\u2019s wording. Never a password, a code or a token, ' +
-            'in any field.',
+            'answers that land on the entry itself rather than on your account of it. It reaches ' +
+            'other citizens through this provider\u2019s briefing, attributed to you and once its ' +
+            'prose has been moderated as every citizen report is — never as the Colony\u2019s ' +
+            'own wording. Never a password, a code or a token, in any field.',
         ),
       },
       annotations: { readOnlyHint: false, idempotentHint: true, openWorldHint: false },
@@ -1990,18 +2002,24 @@ export function registerAccountTools(
         })
 
         /**
-         * **Amending the one thing on a held draft that is the walker's**
+         * **Amending the one thing on a walked entry that is the walker's**
          * (`#986`).
          *
-         * A citizen read `requiredChanges` off its draft, wrote the whole path
-         * out in answer — eight steps, five walls, three verification checks —
-         * and had nowhere to put it: the walk had closed, correctly, because a
-         * second close would propose a second draft.
+         * A citizen wrote the whole path out in answer to a review it had been
+         * asked for — eight steps, five walls, three verification checks — and
+         * had nowhere to put it: the walk had closed, correctly, because a
+         * second close would write the entry a second time.
          *
-         * So a recipe sent against a finished walk lands on the draft that walk
-         * proposed, and nothing else moves. No outcome, no verdict, no steps and
-         * no wording: what the walk earned was decided when it ended, and the
-         * entry's own sentences are the Colony's (`#517`).
+         * So a recipe sent against a finished walk lands on that walk, and
+         * nothing else moves. No outcome, no verdict, no steps and no wording:
+         * what the walk earned was decided when it ended, and the entry's own
+         * sentences are the Colony's (`#517`).
+         *
+         * **The corrected account stays on the walk** (`#1032`). It reached the
+         * entry while the entry was a private `draft`; the entry a walk writes
+         * is public now, so a rewrite arriving here would be citizen prose on
+         * `kolonie.accounts.recipes` in the request that sent it.
+         * `amendMeasuredEntry` says the whole of that argument.
          *
          * **It is tried before the late report and independently of it**, so a
          * walk that closed unreported can send prose and a recipe in one call
@@ -2009,10 +2027,10 @@ export function registerAccountTools(
          * other's sake.
          *
          * **Where it is taught is `walk-status` and not this schema.** The
-         * catalogue is budgeted, and a citizen holding a held draft is reading
-         * the walk rather than the tool list — so the route is named in the
-         * sentence beside `fate: 'awaiting-steward'`, where the draft it applies
-         * to is the thing already on the screen.
+         * catalogue is budgeted, and a citizen with something to correct is
+         * reading its walk rather than the tool list — so the route is named in
+         * the sentence beside a `published` walk, where the entry it applies to
+         * is the thing already on the screen.
          */
         const amended =
           report.data.recipe === undefined
@@ -2050,10 +2068,11 @@ export function registerAccountTools(
               {
                 type: 'text',
                 text:
-                  `Your own account of walking ${canonical} now sits on the draft that walk ` +
-                  'proposed, in place of the one that was there. Nothing else moved: the walk ' +
-                  `still closed as ${String(amended.outcome)}, and the entry's steps and wording ` +
-                  'are the Colony’s to write. The draft is still waiting for a steward.',
+                  `Your own account of walking ${canonical} now sits on that walk, in place of ` +
+                  'the one that was there, and reaches other citizens through this provider’s ' +
+                  'briefing once it is moderated. Nothing else moved: the walk still closed as ' +
+                  `${String(amended.outcome)}, and the entry's steps and wording are the ` +
+                  'Colony’s to write.',
               },
             ],
             structuredContent: {
@@ -2094,8 +2113,8 @@ export function registerAccountTools(
                     'questions and it counts.') +
                 (amended === undefined
                   ? ''
-                  : ' Your own account of the path replaced the one on the draft that walk ' +
-                    'proposed; the entry’s steps and wording are still the Colony’s to write.'),
+                  : ' Your own account of the path replaced the one on that walk; the ' +
+                    'entry’s steps and wording are still the Colony’s to write.'),
             },
           ],
           structuredContent: {
@@ -2130,10 +2149,10 @@ export function registerAccountTools(
     {
       title: 'See whether a walked recipe is live',
       description:
-        'Read the current Atlas publication state for a walk you reported. Draft means it is ' +
-        'waiting for a steward; published means kolonie.accounts.recipes can read it; refused ' +
-        'and withdrawn include the recorded reason when one exists. This is current state for ' +
-        'that kind and provider, not a moderation queue position or ETA.',
+        'Read the current Atlas publication state for a walk you reported. Published means ' +
+        'kolonie.accounts.recipes can read it, which is where a closed walk lands in the same ' +
+        'request that closed it; refused and withdrawn include the recorded reason when one ' +
+        'exists. This is current state for that kind and provider, not a queue position.',
       inputSchema: {
         walkId: z.uuid().describe('The walkId returned by kolonie.accounts.walk-report.'),
       },
@@ -2154,16 +2173,6 @@ export function registerAccountTools(
 
       const status = result.response
       /**
-       * **What the draft is held on, where the Colony can name it** (`#857`).
-       *
-       * *Waiting for a steward* was true and unactionable: the usual reason is
-       * that the walk arrived wordless by design (`#517`) and nobody has written
-       * the published sentence yet, which is a fact about the Colony rather than
-       * about the walker. Saying it is what keeps a walker from resubmitting the
-       * same walk to fix something that was never theirs to fix.
-       */
-      const held = status.requiredChanges?.[0]
-      /**
        * **The walk first, and the entry underneath it** (`#979`).
        *
        * `Your walk … is recorded as refused: <the entry's refusal>` was the
@@ -2175,6 +2184,13 @@ export function registerAccountTools(
        * So a contradiction is now printed as one. Everything else keeps the
        * wording it had — those cases were never ambiguous, because the walk and
        * the entry were saying the same thing.
+       *
+       * **Two sentences went with the steward gate** (`#1032`): *a private draft
+       * waiting for a steward*, and *proposed no current Atlas entry*. Both told
+       * a citizen its walk had landed somewhere nothing would happen to it. A
+       * closed walk publishes into its provider's briefing in the same request,
+       * so `walking` is the only state left that is waiting on anything, and the
+       * thing it is waiting on is the walker.
        */
       const text =
         status.walk.fate === 'contradicted'
@@ -2182,20 +2198,24 @@ export function registerAccountTools(
             `${status.provider}, which says ${status.entryStatus ?? 'something else'}` +
             `${status.refusalReason === null ? '' : `: ${status.refusalReason}`}\n\n` +
             status.walk.why
-          : status.status === 'draft'
-            ? `Your walk ${status.walkId} is a private draft waiting for a steward. It is not lost ` +
-              `and does not appear in kolonie.accounts.recipes yet.` +
-              (held === undefined ? '' : ` What it is held on: ${held}`)
-            : status.status === 'published'
-              ? `Your walk ${status.walkId} is published and now appears in kolonie.accounts.recipes.`
-              : status.status === 'refused'
-                ? `Your walk ${status.walkId} is recorded as refused: ${status.refusalReason ?? 'no reason was recorded.'}`
-                : status.status === 'withdrawn'
-                  ? `The Atlas entry for your walk ${status.walkId} was withdrawn: ` +
-                    `${status.withdrawnReason ?? 'no reason was recorded.'}`
-                  : status.status === 'walking'
-                    ? `Your walk ${status.walkId} is still open and has not been reported yet.`
-                    : `Your walk ${status.walkId} proposed no current Atlas entry.`
+          : status.status === 'published'
+            ? /**
+               * **The amendment route, named where the thing it applies to is
+               * already on the screen** (`#986`, carried across `#1032`). It
+               * used to sit beside `awaiting-steward`, which is the state this
+               * issue retired; a walker with a correction is in exactly this
+               * state now, and the tool list is not where it will look.
+               */
+              `Your walk ${status.walkId} is published and now appears in ` +
+              `kolonie.accounts.recipes. If your account of the path was wrong or ` +
+              `incomplete, send it again in the recipe field of kolonie.accounts.walk-report ` +
+              `and it replaces the one on this walk.`
+            : status.status === 'refused'
+              ? `Your walk ${status.walkId} is recorded as refused: ${status.refusalReason ?? 'no reason was recorded.'}`
+              : status.status === 'withdrawn'
+                ? `The Atlas entry for your walk ${status.walkId} was withdrawn: ` +
+                  `${status.withdrawnReason ?? 'no reason was recorded.'}`
+                : `Your walk ${status.walkId} is still open and has not been reported yet.`
 
       return {
         content: [{ type: 'text', text: text + walkProofStateAsText(status.proof) }],

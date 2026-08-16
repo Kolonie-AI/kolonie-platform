@@ -7,12 +7,10 @@ import {
   AccountSlotIdSchema,
   AccountThreadIdSchema,
   atlasCategoryForKind,
-  episodeToSteps,
   episodeVerdict,
   type AccountEntry,
   type AtlasCategory,
   type EpisodeVerdict,
-  type RecipeStep,
   type AccountEntryId,
   type AccountEpisode,
   type AccountEpisodeId,
@@ -298,10 +296,13 @@ export async function closeEpisode(
  * time. That is `finishWalk`'s argument for its own guarded close, and this is
  * deliberately the same shape rather than a new one.
  *
- * **The draft is invisible until a steward publishes it**, because `draft` is
- * what the public reads past — the acceptance criterion is a property of the
- * status, not of anything written here, and that is why nothing here is
- * conditional on who is looking.
+ * **What it writes is `measured` and carries no route** (`#1032`). It used to
+ * write a `draft` — the slots turned into steps, invisible until a steward
+ * dressed them. The gate is gone and the derivation with it: the entry says the
+ * pair exists and that somebody got through, and the steps a citizen actually
+ * took are published in the provider's briefing under their own author. Nothing
+ * here is conditional on who is looking, because there is no longer anything
+ * held back.
  *
  * It returns the verdict rather than swallowing it, so the agent that closed the
  * episode is told what its work proposed instead of finding out from the Atlas
@@ -347,11 +348,9 @@ export async function proposeFromEpisode(
   const kind = AccountKindSchema.parse(context.accountKind)
   const provider = AccountProviderSchema.parse(context.provider)
 
-  const slots = await slotsOf(db, episodeId)
   const entry = await providerRecipe(db, kind, provider)
   const verdict = episodeVerdict(
     { kind: context.kind, outcome: context.outcome, wall: context.wall },
-    slots,
     entry,
   )
 
@@ -372,23 +371,26 @@ export async function proposeFromEpisode(
 
   if (shelf === undefined) return verdict
 
-  if (verdict.kind === 'draft') {
+  if (verdict.kind === 'writes') {
     await writeProviderRecipe(db, {
       kind,
       provider,
       /** The provider's own name and nothing invented — `finishWalk`'s rule. */
       title: entry?.title ?? provider,
       category: shelf,
-      status: 'draft',
-      steps: verdict.steps,
+      status: 'measured',
+      /**
+       * **No steps** (`#1032`). `measured` is figures and no route: an entry
+       * the Colony has not authored says the pair exists and stops there.
+       */
+      steps: [],
     })
 
     /**
      * **The attribution, written where it becomes true.** `provider_recipes`
-     * carries no author column on purpose, so *whose episode this draft came
+     * carries no author column on purpose, so *whose episode this entry came
      * from* has nowhere else to live, and a sweep asked later would be guessing
-     * from timestamps. `account_walks.proposed_at` is the same column for the
-     * same reason.
+     * from timestamps.
      */
     await db
       .update(accountEpisodes)
@@ -409,46 +411,6 @@ export async function proposeFromEpisode(
   }
 
   return verdict
-}
-
-/**
- * The shape this agent's acquisition episode observed at this provider, for a
- * walk to open prefilled from rather than ask about again (`#935`).
- *
- * **Undefined where there is no episode**, which is a large share of all walks —
- * an agent that obtained an account entirely alone has no operator and no
- * episode, and `#935` keeps `walk-report` precisely for it. Undefined is what
- * leaves `walkVerdict` unchanged.
- *
- * **It reads the account this agent holds**, not the provider globally: whose
- * signup this was is the whole content of the prefill, and another citizen's
- * episode is not an observation this walk made.
- */
-export async function observedStepsFor(
-  db: Database | Transaction,
-  agentId: string,
-  kind: string,
-  provider: string,
-): Promise<readonly RecipeStep[] | undefined> {
-  const [found] = await db
-    .select({ episodeId: accountEpisodes.id })
-    .from(accountEpisodes)
-    .innerJoin(accountThreads, eq(accountThreads.id, accountEpisodes.threadId))
-    .innerJoin(accounts, eq(accounts.id, accountThreads.accountId))
-    .where(
-      and(
-        eq(accountEpisodes.kind, 'acquisition'),
-        eq(accounts.agentId, agentId),
-        eq(accounts.kind, kind),
-        eq(accounts.provider, provider),
-      ),
-    )
-    .limit(1)
-
-  if (found === undefined) return undefined
-
-  const steps = episodeToSteps(await slotsOf(db, AccountEpisodeIdSchema.parse(found.episodeId)))
-  return steps.length === 0 ? undefined : steps
 }
 
 export type OpenSlotCommand = {

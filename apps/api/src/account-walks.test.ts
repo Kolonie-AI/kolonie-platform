@@ -285,21 +285,29 @@ describe('what a walk read says about the walk', () => {
   })
 
   /**
-   * Four of the seven statuses answer a different question, or none yet: a
-   * suggestion, our own unfinished prose, counts without wording, and nobody
-   * having written the route. A walk cannot disagree with any of them.
+   * Two of the five statuses answer a different question, or none yet: counts
+   * without wording, and nobody having written the route. A walk cannot
+   * disagree with either, and since `#1032` it does not wait on anybody to find
+   * that out — what it measured is published either way.
    */
-  it('waits for a steward where the entry makes no claim, and where there is none', async () => {
-    expect((await read({ outcome: 'proved' })).walk.fate).toBe('awaiting-steward')
-    expect((await read({ outcome: 'proved', entry: 'draft' })).walk.fate).toBe('awaiting-steward')
-    expect((await read({ outcome: 'proved', entry: 'proposed' })).walk.fate).toBe(
-      'awaiting-steward',
+  it('is published where the entry makes no claim, and where there is no entry', async () => {
+    expect((await read({ outcome: 'proved' })).walk.fate).toBe('published')
+    expect((await read({ outcome: 'proved', entry: 'measured' })).walk.fate).toBe('published')
+    expect((await read({ outcome: 'proved', entry: 'unwritten' })).walk.fate).toBe('published')
+  })
+
+  /**
+   * **The amendment route is named only where it applies** (`#986`, carried
+   * across `#1032`). A `measured` entry is the one a walk wrote, so its account
+   * of the path is the walker's to replace; against no entry at all there is
+   * nothing of the walker's on the shelf to correct.
+   */
+  it('names the amendment route on a measured entry and nowhere else', async () => {
+    expect((await read({ outcome: 'proved', entry: 'measured' })).walk.why).toContain(
+      'kolonie.accounts.walk-report with `recipe` replaces it',
     )
-    expect((await read({ outcome: 'proved', entry: 'measured' })).walk.fate).toBe(
-      'awaiting-steward',
-    )
-    expect((await read({ outcome: 'proved', entry: 'unwritten' })).walk.fate).toBe(
-      'awaiting-steward',
+    expect((await read({ outcome: 'proved', entry: 'unwritten' })).walk.why).not.toContain(
+      '`recipe` replaces it',
     )
   })
 
@@ -310,11 +318,19 @@ describe('what a walk read says about the walk', () => {
     expect(status.entryStatus).toBe('refused')
   })
 
-  it('says an abandoned walk proposed nothing rather than that it was refused', async () => {
-    const status = await read({ outcome: 'abandoned', entry: 'refused' })
+  /**
+   * `#1032` publishes an abandoned walk like any other, and the thing that had
+   * to survive that is what `proposed-nothing` was protecting: giving up says
+   * nothing about whether there is a way in, so it is weighed against neither a
+   * refusal nor a route.
+   */
+  it('publishes an abandoned walk and weighs it against no entry', async () => {
+    const refused = await read({ outcome: 'abandoned', entry: 'refused' })
+    const joinable = await read({ outcome: 'abandoned', entry: 'joinable' })
 
-    expect(status.walk.fate).toBe('proposed-nothing')
-    expect(status.walk.why).toContain('proposes nothing')
+    expect(refused.walk.fate).toBe('published')
+    expect(joinable.walk.fate).toBe('published')
+    expect(joinable.walk.why).toContain('not a claim about whether there is a way in')
   })
 
   /**

@@ -222,7 +222,7 @@ describe('the Atlas over MCP', () => {
 
       expect(result.outcome).toBe('rejected')
       if (result.outcome !== 'rejected') return
-      expect(result.error.message).toContain('kolonie.accounts.provider-report')
+      expect(result.error.message).toContain('kolonie.accounts.walk-report')
       expect(result.error.message).toContain('kolonie.accounts.wishes')
     })
 

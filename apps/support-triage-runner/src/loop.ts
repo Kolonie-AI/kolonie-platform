@@ -4,7 +4,6 @@ import { watchLogs, type WatchDependencies } from './watch.js'
 import { watchDebt, type DebtWatchDependencies } from './debt.js'
 import { escalateDiagnoses, type DiagnosisEscalationDependencies } from './diagnoses.js'
 import { watchArrivals, type ArrivalWatchDependencies } from './arrivals.js'
-import { watchDrafts, type DraftWatchDependencies } from './drafts.js'
 import {
   closingNote,
   filing,
@@ -86,19 +85,9 @@ export interface LoopDependencies {
    */
   readonly diagnoses?: DiagnosisEscalationDependencies | undefined
   /**
-   * The steward queue alarm (`#917`).
-   *
-   * **Optional on `debt`'s terms and for the same reason.** It is one query on
-   * the connection the queue already holds and the same App, so a deployment
-   * that has neither simply does not pass it — and one with no walks measures an
-   * empty queue and is silent, which is cheaper than a flag saying whether
-   * anybody is walking.
-   */
-  readonly drafts?: DraftWatchDependencies | undefined
-  /**
    * What agents said on their way in and did not get through (`#1009`, `#1026`).
    *
-   * **Optional on `drafts`' terms.** One query on the connection the queue
+   * **Optional on `debt`'s terms.** One query on the connection the queue
    * already holds and the same App — and a deployment nobody has failed to reach
    * reads an empty queue and is silent, which costs less than a flag saying
    * whether the door is being reported on.
@@ -335,6 +324,33 @@ export async function reconcile(deps: LoopDependencies): Promise<ReconcileOutcom
   const closed = new Map((await deps.issues.closed()).map((issue) => [issue.url, issue]))
   if (closed.size === 0) return { waiting: waiting.length, resolved: 0 }
 
+  /**
+   * The arrival pass (`#1026`), in its own `try` on the argument the three above
+   * give.
+   *
+   * **Silent unless it did something**, and *something* here includes letting
+   * reports go: a report that aged out without ever becoming a finding is one
+   * nobody will ever be told about again, and a cap or a drop that says nothing
+   * reads afterwards as everything having been covered. Reports merely waiting
+   * for company are the ordinary state and are not a line.
+   */
+  if (deps.arrivals !== undefined) {
+    try {
+      const found = await watchArrivals(deps.arrivals)
+      if (found.skipped === undefined && found.filed + found.commented + found.letGo > 0) {
+        log.info(
+          `arrival pass: ${found.filed} filed, ${found.commented} commented, ` +
+            `${found.marked} reports counted, ${found.letGo} let go, ${found.waiting} waiting`,
+          { event: 'arrivals.pass.done', ...found },
+        )
+      }
+    } catch (error) {
+      log.error('the arrival pass failed; every other pass is unaffected', error, {
+        event: 'arrivals.pass.failed',
+      })
+    }
+  }
+
   let resolved = 0
   for (const ticket of waiting) {
     const issue = ticket.issueUrl === null ? undefined : closed.get(ticket.issueUrl)
@@ -481,57 +497,6 @@ export async function tick(deps: LoopDependencies, batchSize: number): Promise<T
           event: 'diagnoses.pass.failed',
         },
       )
-    }
-  }
-
-  /**
-   * The withdrawal pass (`#917`, repointed by `#946`), in its own `try` on the
-   * argument the three above give: four jobs in one process are four jobs.
-   *
-   * **Silent while nothing has been withdrawn**, which is the ordinary state and
-   * the one this alarm wants to be in. A line every half hour saying no walk was
-   * thrown away is the wallpaper `#231` refuses.
-   */
-  if (deps.drafts !== undefined) {
-    try {
-      const found = await watchDrafts(deps.drafts)
-      if (found.skipped === undefined && found.action !== 'quiet') {
-        log.info(`draft pass: ${found.action}, ${found.withdrawn} withdrawn unpublished`, {
-          event: 'drafts.pass.done',
-          ...found,
-        })
-      }
-    } catch (error) {
-      log.error('the draft pass failed; tickets, logs and the debt alarm are unaffected', error, {
-        event: 'drafts.pass.failed',
-      })
-    }
-  }
-
-  /**
-   * The arrival pass (`#1026`), in its own `try` on the argument the four above
-   * give.
-   *
-   * **Silent unless it did something**, and *something* here includes letting
-   * reports go: a report that aged out without ever becoming a finding is one
-   * nobody will ever be told about again, and a cap or a drop that says nothing
-   * reads afterwards as everything having been covered. Reports merely waiting
-   * for company are the ordinary state and are not a line.
-   */
-  if (deps.arrivals !== undefined) {
-    try {
-      const found = await watchArrivals(deps.arrivals)
-      if (found.skipped === undefined && found.filed + found.commented + found.letGo > 0) {
-        log.info(
-          `arrival pass: ${found.filed} filed, ${found.commented} commented, ` +
-            `${found.marked} reports counted, ${found.letGo} let go, ${found.waiting} waiting`,
-          { event: 'arrivals.pass.done', ...found },
-        )
-      }
-    } catch (error) {
-      log.error('the arrival pass failed; every other pass is unaffected', error, {
-        event: 'arrivals.pass.failed',
-      })
     }
   }
 

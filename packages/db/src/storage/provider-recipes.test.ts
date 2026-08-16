@@ -8,7 +8,7 @@ import {
 import type { Database } from '../client.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
 import {
-  dressProviderRecipeDraft,
+  dressProviderRecipe,
   providerRecipe,
   providerRecipeList,
   recordMeasuredProvider,
@@ -294,49 +294,50 @@ describe('the provider catalogue', () => {
      * schema, and every one of these is a shape somebody would reasonably type
      * by hand.
      */
-    it('takes a proposal, which carries nothing at all', async () => {
-      expect(
-        await refusedBy(
-          `insert into provider_recipes (kind, provider, title, status, category)
-           values ('mailbox', 'asked.example', 'Asked for', 'proposed', 'mailbox')`,
-        ),
-      ).toBeUndefined()
-    })
-
-    it('refuses a proposal that carries steps', async () => {
-      expect(
-        await refusedBy(
-          `insert into provider_recipes (kind, provider, title, status, category, steps)
-           values ('mailbox', 'asked2.example', 'Asked', 'proposed', 'mailbox',
-                   '[{"actor":"agent","instruction":"sign up"}]')`,
-        ),
-      ).toBe('provider_recipes_unjoinable_is_empty')
+    /**
+     * **Both states the steward gate took with it are refused in SQL** (`#1032`).
+     *
+     * `draft` held a walk's own route until somebody read it and `proposed` held
+     * a guess until the same person did; the gate they fed took two decisions in
+     * its lifetime. What replaces them is the entry's computed briefing, so a row
+     * arriving in either state is not a stale label to tolerate — it is a writer
+     * that has not been migrated, and the constraint says so at the prompt rather
+     * than three surfaces later.
+     */
+    it('refuses the two states the steward gate took with it', async () => {
+      for (const status of ['draft', 'proposed']) {
+        expect(
+          await refusedBy(
+            `insert into provider_recipes (kind, provider, title, status, category)
+             values ('mailbox', 'gated-${status}.example', 'Gated', '${status}', 'mailbox')`,
+          ),
+        ).toBe('provider_recipes_status_is_known')
+      }
     })
 
     /**
-     * **The one state that carries steps without a proof**, and the reason it is
-     * allowed to is that no public surface reads it: a walk that got an account
-     * and did not work out how to prove it is a real outcome and a reviewable
-     * one. Refusing to store it would leave the walk in a GitHub issue, which is
-     * the defect `#601` is named for.
+     * **`measured` is what a walked pair looks like**: the provider exists and
+     * citizens have been here, and that is the whole of the entry. The route they
+     * took is not lost — it is on the walk, and the briefing computed from
+     * `account_walks` is where a reader meets it.
      */
-    it('takes a draft with steps and no proof', async () => {
+    it('takes a measured entry, which carries figures and no route', async () => {
       expect(
         await refusedBy(
-          `insert into provider_recipes (kind, provider, title, status, category, steps)
-           values ('mailbox', 'walked.example', 'Walked', 'draft', 'mailbox',
-                   '[{"actor":"agent","instruction":"sign up"}]')`,
+          `insert into provider_recipes (kind, provider, title, status, category)
+           values ('mailbox', 'walked.example', 'Walked', 'measured', 'mailbox')`,
         ),
       ).toBeUndefined()
     })
 
-    it('refuses a draft with no steps, because that is an unwritten entry', async () => {
+    it('refuses a measured entry that carries steps', async () => {
       expect(
         await refusedBy(
-          `insert into provider_recipes (kind, provider, title, status, category)
-           values ('mailbox', 'empty.example', 'Empty draft', 'draft', 'mailbox')`,
+          `insert into provider_recipes (kind, provider, title, status, category, steps)
+           values ('mailbox', 'dressed.example', 'Dressed', 'measured', 'mailbox',
+                   '[{"actor":"agent","instruction":"sign up"}]')`,
         ),
-      ).toBe('provider_recipes_joinable_has_steps')
+      ).toBe('provider_recipes_unjoinable_is_empty')
     })
 
     it('takes a withdrawal that keeps its steps, its proof and a reason', async () => {
@@ -408,12 +409,19 @@ describe('the provider catalogue', () => {
    * directly could not get a different answer, because there is no column.
    */
   /**
-   * **Which states a stranger can see, asserted against the real query** (`#604`).
+   * **Which states a stranger can see, asserted against the real query** (`#604`,
+   * `#1032`).
    *
    * `recipeStatusIsPublic` is the rule and `providerRecipeList` is where it is
    * applied; a unit test of the predicate would pass while the query published
    * everything, which is the failure that matters. So this writes one row in
-   * each of the six states and reads the list back twice.
+   * each of the five states and reads the list back.
+   *
+   * **All five are public now**, because the two that were not are gone: an
+   * entry was held back exactly while a steward had not read it, and `#1032`
+   * retired the reading. The filter stays wired up rather than deleted — the
+   * question *may a reader see this* keeps one answer in one place, ready for the
+   * first status that answers no.
    */
   describe('what a stranger is shown', () => {
     const write = async (provider: string, status: string, extra = '') =>
@@ -430,50 +438,48 @@ describe('the provider catalogue', () => {
         'joinable',
         `steps, proves::'[{"actor":"agent","instruction":"go"}]', 'rung'`,
       )
-      await write('walked.example', 'draft', `steps::'[{"actor":"agent","instruction":"go"}]'`)
+      await write('walked.example', 'measured')
       await write('listed.example', 'unwritten')
       await write('closed.example', 'refused', `refusal::'no honest route'`)
       await write('gone.example', 'retired', `retired_at, retired_reason::now(), 'it closed'`)
-      await write('asked.example', 'proposed')
     })
 
-    it('shows the four public states and hides the two internal ones', async () => {
+    it('shows every state, because none of them waits on a reader', async () => {
       const providers = (await providerRecipeList(db)).map((entry) => entry.provider)
 
-      expect(providers).toEqual(
-        expect.arrayContaining([
-          'open.example',
-          'listed.example',
-          'closed.example',
-          'gone.example',
-        ]),
-      )
-      expect(providers).not.toContain('walked.example')
-      expect(providers).not.toContain('asked.example')
+      expect(providers).toEqual([
+        'open.example',
+        'walked.example',
+        'listed.example',
+        'closed.example',
+        'gone.example',
+      ])
     })
 
     /**
-     * The rejection case for the flag itself: asking for the internal list has
-     * to actually change the answer, or the filter above is untested and the
-     * curation queue is empty for a reason nobody notices.
+     * The rejection case for the flag itself. It excludes nothing today, and
+     * asserting that it excludes nothing is what makes the day it does visible:
+     * a status added as internal without this test moving is one that reaches a
+     * stranger through the public list.
      */
-    it('shows all six when the caller asks for the internal list', async () => {
+    it('shows the same list to the internal caller, there being nothing held back', async () => {
       const providers = (await providerRecipeList(db, undefined, { includeInternal: true })).map(
         (entry) => entry.provider,
       )
 
-      expect(providers).toHaveLength(6)
-      expect(providers).toContain('walked.example')
-      expect(providers).toContain('asked.example')
+      expect(providers).toEqual((await providerRecipeList(db)).map((entry) => entry.provider))
+      expect(providers).toHaveLength(5)
     })
 
-    /** Joinable first, then the draft, then unwritten, then the two closed states. */
+    /**
+     * Joinable first, then what citizens measured, then the shelf, then the two
+     * closed states — `measured` above `unwritten` because a pair somebody
+     * actually walked is better evidence than one somebody shelved.
+     */
     it('orders them so what can be acted on is at the top', async () => {
-      const order = (await providerRecipeList(db, undefined, { includeInternal: true })).map(
-        (entry) => entry.status,
-      )
+      const order = (await providerRecipeList(db)).map((entry) => entry.status)
 
-      expect(order).toEqual(['joinable', 'draft', 'unwritten', 'refused', 'retired', 'proposed'])
+      expect(order).toEqual(['joinable', 'measured', 'unwritten', 'refused', 'retired'])
     })
 
     it('reads a withdrawal back with its date and its reason', async () => {
@@ -537,28 +543,33 @@ describe('the provider catalogue', () => {
   })
 
   /**
-   * Writing the Colony's words onto a draft a walk left wordless (`#857`).
+   * Writing the route onto an entry citizens have measured (`#857`, `#1032`).
    *
-   * A walk records that a step happened and who it needed; the sentence stays the
-   * Colony's to write (`#517`), so a walked draft arrives with no instruction and
-   * no proof method and `whyNotPublishable` holds it forever. What is asserted
-   * here is the write that was missing, and the guard on it: it touches a
-   * `draft` and it moves no status, so it can never publish anything by itself.
+   * A walk records that a step happened and who it needed, and leaves the entry
+   * `measured` with no steps at all — the route it took is published in the
+   * entry's computed briefing, under its own name. Dressing is the other act:
+   * somebody writes the Colony's own recipe onto the pair.
+   *
+   * **Since `#1032` that act publishes.** There was a status between the two
+   * while a steward's queue existed; the queue is gone, `measured` may hold no
+   * steps on the table's own constraint, and so writing the route *is* offering
+   * it. What is asserted here is that write, and the guard on it: it touches a
+   * `measured` entry and nothing else.
    */
-  describe('dressing a walked draft', () => {
+  describe('dressing a measured entry', () => {
     const walked = {
       kind: kind('mailbox'),
       provider: 'wordless.example',
       title: 'Wordless',
       category: 'mailbox' as const,
-      status: 'draft' as const,
-      steps: [{ actor: 'agent' as const }, { actor: 'operator' as const, ask: 'Please sign in.' }],
+      status: 'measured' as const,
+      steps: [],
     }
 
-    it('writes the sentences and the proof method onto the draft', async () => {
+    it('writes the sentences and the proof method, and offers the entry', async () => {
       await writeProviderRecipe(db, walked)
 
-      const dressed = await dressProviderRecipeDraft(db, {
+      const dressed = await dressProviderRecipe(db, {
         kind: walked.kind,
         provider: walked.provider,
         steps: [
@@ -574,15 +585,15 @@ describe('the provider catalogue', () => {
       expect(found?.steps[0]?.instruction).toBe('Ask the provider for a mailbox.')
       expect(found?.proves).toBe('rung')
       expect(found?.provesTask).toBe('email-inbox')
-      /** It describes; it does not decide. The verdict is still a separate act. */
-      expect(found?.status).toBe('draft')
+      /** Describing and deciding are one act now that nothing sits behind them. */
+      expect(found?.status).toBe('joinable')
     })
 
     /** A rung is the only proof the Colony checks itself, so it is the only one that names one. */
     it('drops a rung name from a proof that is not a rung', async () => {
       await writeProviderRecipe(db, walked)
 
-      await dressProviderRecipeDraft(db, {
+      await dressProviderRecipe(db, {
         kind: walked.kind,
         provider: walked.provider,
         steps: [
@@ -597,10 +608,11 @@ describe('the provider catalogue', () => {
     })
 
     /**
-     * The rejection case: a published entry is not a draft, and a write that
-     * could reach one would let the curation screen rewrite the catalogue.
+     * The rejection case: an entry that is already offered is not measured, and a
+     * write that could reach one would let the curation screen rewrite the
+     * catalogue.
      */
-    it('leaves an entry that is not a draft alone', async () => {
+    it('leaves an entry that is not measured alone', async () => {
       await writeProviderRecipe(db, {
         ...walked,
         status: 'joinable',
@@ -608,7 +620,7 @@ describe('the provider catalogue', () => {
         proves: 'provider-post',
       })
 
-      const dressed = await dressProviderRecipeDraft(db, {
+      const dressed = await dressProviderRecipe(db, {
         kind: walked.kind,
         provider: walked.provider,
         steps: [{ actor: 'agent', instruction: 'A sentence nobody reviewed.' }],

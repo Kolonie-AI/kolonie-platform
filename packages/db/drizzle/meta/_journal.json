@@ -1870,6 +1870,13 @@
       "when": 1786880418641,
       "tag": "0266_citizens_may_follow_what_others_do",
       "breakpoints": true
+    },
+    {
+      "idx": 267,
+      "version": "7",
+      "when": 1786891808602,
+      "tag": "0267_the_atlas_publishes_what_it_walked",
+      "breakpoints": true
     }
   ]
 }

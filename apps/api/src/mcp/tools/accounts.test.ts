@@ -167,77 +167,82 @@ describe('kolonie.accounts.walk-report', () => {
 })
 
 describe('kolonie.accounts.walk-status', () => {
-  it('polls a private draft and then sees it published', async () => {
+  /**
+   * **The only wait left is the walker's own** (`#1032`). This test used to poll
+   * a private `draft` until a steward published it; there is nobody to wait for,
+   * so what separates the two reads is whether the walk itself has been closed.
+   */
+  it('is walking until the walk closes, and published from the moment it does', async () => {
     const { colony, apiKey, agent } = await registeredCitizen()
     const walks = fakeWalks()
-    const walk = walks.add({ agentId: agent.id, kind: 'github', provider: 'provider' })
-    colony.recipes.write({ kind: 'github', provider: 'provider', status: 'draft' })
+    const open = walks.add({
+      agentId: agent.id,
+      kind: 'github',
+      provider: 'provider',
+      finished: false,
+    })
+    const closed = walks.add({ agentId: agent.id, kind: 'github', provider: 'other' })
+    colony.recipes.write({ kind: 'github', provider: 'other', status: 'measured' })
     const { client, close } = await connectedClient({ ...colony, walks }, `Bearer ${apiKey}`)
 
-    const draft = await client.callTool({
+    const walking = await client.callTool({
       name: 'kolonie.accounts.walk-status',
-      arguments: { walkId: walk.id },
+      arguments: { walkId: open.id },
     })
-    colony.recipes.setStatus('github', 'provider', 'joinable')
     const published = await client.callTool({
       name: 'kolonie.accounts.walk-status',
-      arguments: { walkId: walk.id },
+      arguments: { walkId: closed.id },
     })
 
-    expect(draft.structuredContent).toMatchObject({ status: 'draft', appearsInRecipes: false })
-    expect(JSON.stringify(draft.content)).toContain('not lost')
+    expect(walking.structuredContent).toMatchObject({
+      status: 'walking',
+      appearsInRecipes: false,
+    })
     expect(published.structuredContent).toMatchObject({
       status: 'published',
       appearsInRecipes: true,
+      walk: { fate: 'published' },
     })
     await close()
   })
 
   /**
-   * **What the draft is held on, said out loud** (`#857`).
+   * **Nothing is held on anybody, so nothing is listed** (`#857`, answered
+   * differently by `#1032`).
    *
-   * *Waiting for a steward* was true and unactionable: the citizen who filed
-   * `#857` watched a walk sit at `appearsInRecipes: false` with nothing naming
-   * what was outstanding, and the usual answer — the Colony has not written the
-   * published sentence yet (`#517`) — is a fact about the Colony rather than one
-   * the walker could have fixed by walking again.
+   * `#857` was filed because a walk sat at `appearsInRecipes: false` with
+   * nothing naming what was outstanding, and the honest answer — the Colony has
+   * not written the published sentence yet (`#517`) — was a fact about the
+   * Colony rather than one the walker could act on. The list is empty now
+   * because the wait it enumerated is gone: what the walk measured is published
+   * on close, and the sentence the Colony would stand behind is a separate act
+   * that the walker is not waiting for.
+   *
+   * **The one part that was ever the walker's survives** (`#986`): its own
+   * account of the path, which it may replace.
    */
-  it('names what a wordless draft is still held on', async () => {
+  it('holds a published walk on nothing, and still names the one part that is the walker’s', async () => {
     const { colony, apiKey, agent } = await registeredCitizen()
     const walks = fakeWalks()
     const walk = walks.add({ agentId: agent.id, kind: 'github', provider: 'provider' })
-    colony.recipes.write({
-      kind: 'github',
-      provider: 'provider',
-      status: 'draft',
-      steps: [{ actor: 'agent' }],
-      proves: null,
-    })
+    colony.recipes.write({ kind: 'github', provider: 'provider', status: 'measured' })
     const { client, close } = await connectedClient({ ...colony, walks }, `Bearer ${apiKey}`)
 
-    const draft = await client.callTool({
+    const status = await client.callTool({
       name: 'kolonie.accounts.walk-status',
       arguments: { walkId: walk.id },
     })
 
-    expect(draft.structuredContent).toMatchObject({
-      status: 'draft',
-      requiredChanges: [expect.stringContaining('waiting for its wording')],
-    })
-    expect(JSON.stringify(draft.content)).toContain('held on')
-    /**
-     * And it does not read as a job for the walker (`#986`). The citizen who
-     * filed it read this list as a to-do, rewrote its whole path in answer, and
-     * found the call that would take one refusing it.
-     */
-    expect(JSON.stringify(draft.structuredContent)).toContain('Nothing here is owed by the walker')
-    /** And it names the one part that is, rather than leaving the reader to find it. */
-    expect(draft.structuredContent).toMatchObject({
+    expect(status.structuredContent).toMatchObject({
+      status: 'published',
+      entryStatus: 'measured',
+      requiredChanges: null,
       walk: {
-        fate: 'awaiting-steward',
+        fate: 'published',
         why: expect.stringContaining('kolonie.accounts.walk-report with `recipe`'),
       },
     })
+    expect(JSON.stringify(status.content)).not.toContain('steward')
     await close()
   })
 
@@ -307,31 +312,56 @@ describe('kolonie.accounts.walk-status', () => {
     await close()
   })
 
-  it('surfaces the latest walk on the account list', async () => {
+  it('surfaces the latest walk on the account list, and says where to read it', async () => {
     const { colony, apiKey, agent } = await registeredCitizen()
     const walks = fakeWalks()
     const walk = walks.add({ agentId: agent.id, kind: 'github', provider: 'provider' })
-    colony.recipes.write({ kind: 'github', provider: 'provider', status: 'draft' })
+    colony.recipes.write({ kind: 'github', provider: 'provider', status: 'measured' })
     const { client, close } = await connectedClient({ ...colony, walks }, `Bearer ${apiKey}`)
 
     const result = await client.callTool({ name: 'kolonie.accounts.list', arguments: {} })
 
     expect(result.structuredContent).toMatchObject({
-      latestWalks: [{ walkId: walk.id, status: 'draft' }],
+      latestWalks: [{ walkId: walk.id, status: 'published' }],
     })
-    expect(JSON.stringify(result.content)).toContain('waiting for a steward')
+    /**
+     * **A place to read it rather than a queue to wait in** (`#1032`). This line
+     * said *waiting for a steward*, which was the whole of what the walker was
+     * told about a walk it had already finished.
+     */
+    expect(JSON.stringify(result.content)).toContain('kolonie.accounts.recipes')
     await close()
   })
 
-  it('adds a private draft hint to a provider-specific catalogue miss', async () => {
+  /**
+   * **The catalogue miss this replaced no longer happens** (`#1032`). A walked
+   * provider used to leave a private `draft` its own walker could not read, so
+   * `accounts.recipes` answered *nothing here* and a hint was bolted onto the
+   * error naming the walk. The entry a walk writes is `measured` and public, so
+   * the answer is the entry — with no route on it, because a walk does not
+   * write one, and with what the walkers met underneath.
+   */
+  it('answers a walked provider with a wordless entry and the briefing under it', async () => {
     const { colony, apiKey, agent } = await registeredCitizen()
     const walks = fakeWalks()
-    const walk = walks.add({ agentId: agent.id, kind: 'github', provider: 'provider' })
-    colony.recipes.write({
-      kind: 'github',
+    walks.add({ agentId: agent.id, kind: 'github', provider: 'provider' })
+    colony.recipes.write({ kind: 'github', provider: 'provider', status: 'measured' })
+    colony.recipes.brief({
+      kind: AccountKindSchema.parse('github'),
       provider: 'provider',
-      status: 'draft',
-      steps: [{ actor: 'agent', instruction: 'private wording' }],
+      claims: [
+        {
+          section: 'wall',
+          text: 'Signup asks for a card before the account exists.',
+          walks: 2,
+          platforms: { openclaw: 2 },
+          lastSupportedAt: '2026-08-15T00:00:00.000Z',
+          sources: [],
+          current: true,
+        },
+      ],
+      model: 'a-model',
+      writtenAt: '2026-08-15T00:00:00.000Z',
     })
     const { client, close } = await connectedClient({ ...colony, walks }, `Bearer ${apiKey}`)
 
@@ -341,10 +371,8 @@ describe('kolonie.accounts.walk-status', () => {
     })
     const text = JSON.stringify(result.content)
 
-    expect(result.isError).toBe(true)
-    expect(text).toContain(walk.id)
-    expect(text).toContain('not lost')
-    expect(text).not.toContain('private wording')
+    expect(result.isError).not.toBe(true)
+    expect(text).toContain('Signup asks for a card before the account exists.')
     await close()
   })
 })
@@ -814,11 +842,17 @@ describe('kolonie.accounts.walk-report long form', () => {
    *
    * `walk-report` had taken `recipe.walls` since `#769` and said nothing back
    * about them, and the catalogue published no `walls` key at all — so from the
-   * agent's side *kept* and *swallowed* were the same reply. A draft is not
-   * public, so the honest sentence is that they are held, and it is the sentence
-   * this asserts rather than the mere presence of the word.
+   * agent's side *kept* and *swallowed* were the same reply.
+   *
+   * **What it says has changed and the reason for saying it has not** (`#1032`).
+   * There is no draft to hold them on any more: the kind of each wall is counted
+   * into this provider's briefing in the request that closes the walk, and only
+   * the sentence waits, for the moderation every citizen report gets. The
+   * assertion is on that split rather than on the word `wall`, because *counted
+   * now, worded later* is the whole of what an agent needs in order to keep
+   * naming walls precisely.
    */
-  it('tells a proved walk that its walls are held on the draft', async () => {
+  it('tells a proved walk that its walls are counted and its words await moderation', async () => {
     const { colony, apiKey, agent } = await registeredCitizen()
     const walks = fakeWalks()
     walks.add({ agentId: agent.id, kind: 'github', provider: 'clawhub.ai', finished: false })
@@ -836,7 +870,9 @@ describe('kolonie.accounts.walk-report long form', () => {
 
     const text = JSON.stringify(result.content)
     expect(text).toContain('1 wall')
-    expect(text).toContain('publish when the steward publishes')
+    expect(text).toContain('counted toward this provider')
+    expect(text).toContain('clears moderation')
+    expect(text).not.toContain('steward')
     await close()
   })
 
@@ -871,6 +907,11 @@ describe('kolonie.accounts.walk-report long form', () => {
    * **A walk that hit nothing gets no paragraph about the nothing** (`#982`).
    * The sentence exists to answer a question the agent asked by filling the
    * field in; an agent that did not fill it in did not ask.
+   *
+   * **Asserted on the paragraph and not on the word** (`#1032`). The standing
+   * verdict sentence now names what a briefing counts — the walk, the runtime,
+   * and the walls by kind — so the word appears whether or not this walk carried
+   * any. What must not appear is the paragraph about *these* walls.
    */
   it('says nothing about walls where the report carried none', async () => {
     const { colony, apiKey, agent } = await registeredCitizen()
@@ -883,7 +924,7 @@ describe('kolonie.accounts.walk-report long form', () => {
       arguments: { kind: 'github', provider: 'clawhub.ai', outcome: 'proved' },
     })
 
-    expect(JSON.stringify(result.content)).not.toContain('wall')
+    expect(JSON.stringify(result.content)).not.toContain('counted toward this provider')
     await close()
   })
 
@@ -1440,6 +1481,12 @@ describe('kolonie.accounts.walk-report, the direction axis', () => {
    * The worked example, as the test it should always have had: a proved inbound
    * walk against a refusal about sending is two answers to two questions, and
    * `contradicted` is the one thing it is not.
+   *
+   * **The fate it lands on instead is `published`** (`#1032`). It used to be
+   * `awaiting-steward`, which is gone with the reviewer: a closed walk is in its
+   * provider's briefing as the request that closed it returns. What the test is
+   * for is unchanged — the entry about sending must not be read as disagreeing
+   * with a walk about receiving.
    */
   it('does not call a walk contradicted by an entry about the other capability', async () => {
     const { colony, apiKey, agent } = await registeredCitizen()
@@ -1465,7 +1512,7 @@ describe('kolonie.accounts.walk-report, the direction axis', () => {
       arguments: { walkId: walk.id },
     })
 
-    expect(status.structuredContent).toMatchObject({ walk: { fate: 'awaiting-steward' } })
+    expect(status.structuredContent).toMatchObject({ walk: { fate: 'published' } })
     const why = JSON.stringify(status.structuredContent)
     expect(why).toContain('inbound')
     expect(why).toContain('outbound')

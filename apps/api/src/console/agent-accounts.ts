@@ -124,20 +124,27 @@ function wishCatalogueCell(entry: WishCatalogueEntry | undefined): string {
     )
   }
 
-  if (entry.status === 'unwritten' || entry.status === 'proposed') {
+  if (entry.status === 'unwritten') {
     return '<small>listed, but no recipe written yet — nothing will be attempted</small>'
   }
 
   /**
-   * **A draft is not *ready*, and saying so is the whole of `#604` on this
-   * surface.** An operator told a recipe exists will mark the provider and wait
-   * for a handoff that `kolonie.accounts.handoff` refuses, because nobody has
-   * approved the steps yet.
+   * **A measured entry is not *ready*, and saying so is the whole of `#604` on
+   * this surface.** An operator told a recipe exists will mark the provider and
+   * wait for a handoff that `kolonie.accounts.handoff` refuses, because there
+   * are no steps for it to hand off.
+   *
+   * **What it points at is a page rather than a queue** (`#1032`). This used to
+   * read *a steward has to review the steps*, which was true of a `draft` and
+   * gave the operator something to wait for. Nobody is going to act on this row:
+   * what the walkers found is published on the provider's own page already, and
+   * it is worth more to the person reading this than the promise of a review
+   * that has no reviewer.
    */
-  if (entry.status === 'draft') {
+  if (entry.status === 'measured') {
     return (
-      '<small>walked, but not published yet — a steward has to review the steps before ' +
-      'anything is attempted</small>'
+      '<small>walked, with no route written — nothing will be attempted, and what the ' +
+      'walkers found is on this provider’s page</small>'
     )
   }
 
@@ -264,11 +271,11 @@ function bundleEntryNote(entry: BundleView['entries'][number]): string {
     return ' <strong>— withdrawn by the Colony and no longer offered</strong>'
   }
 
-  if (entry.status === 'draft') {
-    return ' <small>— walked, waiting on a steward to publish it</small>'
+  if (entry.status === 'measured') {
+    return ' <small>— walked, with no route written; see this provider’s page</small>'
   }
 
-  if (entry.status === 'unwritten' || entry.status === 'proposed') {
+  if (entry.status === 'unwritten') {
     return ' <small>— listed, but nobody has walked the signup yet</small>'
   }
 

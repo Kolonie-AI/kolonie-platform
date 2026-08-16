@@ -250,7 +250,7 @@ describe('what a shortened tool description may not lose', () => {
     const recipes = await descriptionOf('kolonie.accounts.recipes')
     expect(recipes).toMatch(/read this before signing up anywhere/i)
     expect(recipes).toMatch(/do not try/i)
-    expect(recipes).toContain('kolonie.accounts.provider-report')
+    expect(recipes).toContain('kolonie.accounts.walk-report')
 
     const wishes = await descriptionOf('kolonie.accounts.wishes')
     expect(wishes).toMatch(/wish and not an instruction/i)

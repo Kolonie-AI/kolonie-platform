@@ -16,7 +16,6 @@ import {
   recordSeenDefects,
   escalatableDiagnoses,
   outstandingDebt,
-  withdrawnRecipeDrafts,
   recordEscalation,
   unactedArrivalReports,
   markArrivalReportsActedOn,
@@ -29,7 +28,6 @@ import { APP_ID_VAR, APP_KEY_PATH_VAR, githubIssues, noIssues } from './github.j
 import { LOKI_TOKEN_VAR, LOKI_URL_VAR, LOKI_USER_VAR, lokiLogs, noLogs } from './logs.js'
 import type { DefectStore } from './watch.js'
 import { DEBT_THRESHOLD_HOURS } from './debt.js'
-import { DRAFT_WINDOW_DAYS } from './drafts.js'
 import { ARRIVAL_READ_LIMIT } from './arrivals.js'
 import { createHealthServer, STALE_POLLS } from './health.js'
 
@@ -236,18 +234,6 @@ const runner = startRunner(
       issues,
       find: (limit) => escalatableDiagnoses(db, limit),
       record: (diagnosisId, issueUrl) => recordEscalation(db, diagnosisId, issueUrl),
-    },
-    /**
-     * The withdrawal alarm (`#917`, repointed by `#946`). Unconditional for
-     * `debt`'s reason: one query on the connection the queue already holds and
-     * the same App.
-     *
-     * A deployment where nothing has been withdrawn measures zero and says
-     * nothing, which is what makes the read cheaper than a flag.
-     */
-    drafts: {
-      issues,
-      measure: () => withdrawnRecipeDrafts(db, DRAFT_WINDOW_DAYS),
     },
     /**
      * The arrival watcher (`#1026`). Unconditional on the same terms: one query

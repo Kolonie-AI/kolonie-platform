@@ -6,6 +6,7 @@ import {
   AtlasCategorySchema,
   RECIPE_MAX_STEPS,
   RECIPE_STEP_MAX_LENGTH,
+  RecipeActorSchema,
   type ProviderRecipe,
   type RecipeStep,
 } from './recipe.js'
@@ -332,52 +333,55 @@ export function recipeDraftExpired(lastHeldOn: string | undefined): string {
 }
 
 /**
- * The wording a steward supplies so a walked draft can be published (`#857`).
+ * The route a curator writes onto a measured entry so it can be published
+ * (`#857`, rewritten by `#1032`).
  *
- * ## The half of the pipeline that was missing
+ * ## What changed, and why the walk is no longer the skeleton
  *
- * A walk records **actions with the wording genuinely missing** — see
- * `walkToSteps` — because `#517` reserves the sentence a recipe publishes to the
- * Colony, and the walk did not observe one. {@link whyNotPublishable} then holds
- * every such draft, correctly, and says the sentence *is still the Colony's to
- * write*. Until `#857` there was nowhere to write it: the curation screen offered
- * **Publish**, refused by the wordless step, and **Refuse**, which empties the row.
- * So every draft a walk produced was stuck between a button that would not fire
- * and a button that discarded the walk, and the citizen who filed `#857` watched
- * a ClawHub walk sit at `appearsInRecipes: false` with no third option existing.
+ * `#857` called this a *wording*, and the noun was exact: a walk produced a
+ * `draft` carrying the shape it observed — who acted, in what order, through
+ * which channel — and a steward supplied only the sentences, positionally, one
+ * per observed step. `actor` was deliberately not settable, because retyping it
+ * would have been editing the record of what happened rather than describing it.
  *
- * ## Why this is a separate act from the verdict
+ * `#1032` retired the draft. A walk now writes a `measured` row with **no steps
+ * at all**, and its own account of the path is published beside the entry in the
+ * provider's computed briefing, attributed to the walker and moderated as prose.
+ * So there is no observed shape left here to dress, and the positional rule it
+ * enforced has nothing to be positional against.
  *
- * `publishProviderRecipe` moves a state and restates nothing. Dressing writes
- * text and moves nothing. Keeping them apart is what lets the screen do both in
- * one press without the *press* being the thing that decides: a steward who
- * dresses a draft and then reads it again has changed no state, and the
- * moderation runner's verdict about the dressed row is a verdict about what it
- * can actually see.
+ * **What replaces it is the whole route, written by whoever publishes it.** That
+ * is the sharper reading of `#517` rather than a loosening of it: the entry is
+ * what the Colony stands behind, so its shape and its sentences have one author
+ * and that author is not a transcription of one agent's afternoon. A walk
+ * disagreeing with the published route is not a lost edit — it is a divergence,
+ * raised as one.
  *
- * ## What a steward may write and what stays the walk's
+ * ## Why this is still separate from the verdict
  *
- * **Only the words.** `actor`, `secret` and the position come from what the
- * Colony observed and are not settable here — a steward retyping the shape would
- * be editing the record of what happened rather than describing it. An `ask`
- * already recorded is the sentence the Colony itself sent and wins over anything
- * offered; one is asked for only where an operator step has none.
+ * It no longer is, and that is the point: writing the route **is** publishing it
+ * (`dressEntry`), because a `measured` row cannot hold steps and a `joinable` one
+ * cannot exist without them. There is no half-dressed state to leave behind and
+ * nothing left to decide afterwards.
  */
-export const DraftWordingSchema = z
+export const EntryWordingSchema = z
   .object({
     /**
-     * One entry per observed step, in the walk's own order.
+     * The route, in the order an agent would walk it.
      *
-     * **Positional and required to match exactly.** A shorter list would leave a
-     * step to be filled by index arithmetic, and the step it silently attached
-     * the wrong sentence to is the one an agent then follows.
+     * **Every step carries its own actor**, which is what `#1032` moved here from
+     * the walk. An `ask` belongs to an `operator` step and is refused on an
+     * `agent` one — {@link routeFromWording} is where that is enforced, so the
+     * refusal can name the position.
      */
     steps: z
       .array(
         z
           .object({
+            actor: RecipeActorSchema,
             instruction: z.string().trim().min(1).max(RECIPE_STEP_MAX_LENGTH),
             ask: z.string().trim().min(1).max(RECIPE_STEP_MAX_LENGTH).optional(),
+            secret: z.boolean().optional(),
           })
           .strict(),
       )
@@ -387,45 +391,30 @@ export const DraftWordingSchema = z
     provesTask: z.string().trim().min(1).max(64).optional(),
   })
   .strict()
-export type DraftWording = z.infer<typeof DraftWordingSchema>
+export type EntryWording = z.infer<typeof EntryWordingSchema>
 
-/** Dressed steps, or the one sentence saying why these words do not fit this walk. */
+/** A route, or the one sentence saying why these steps are not one. */
 export type DressedSteps =
   | { readonly ok: true; readonly steps: readonly RecipeStep[] }
   | { readonly ok: false; readonly why: string }
 
 /**
- * Put a steward's sentences onto the steps a walk observed.
+ * Turn what a curator wrote into the steps an entry publishes.
  *
- * Pure, so the screen and the write agree about what a dressed draft is, and so
+ * Pure, so the screen and the write agree about what a published route is, and so
  * the rejection cases are testable without a database. Every refusal names the
- * position it is about, because that is how a steward finds the field to fix.
+ * position it is about, because that is how a curator finds the field to fix.
+ *
+ * **It takes no observed shape** since `#1032`. It used to be handed the steps a
+ * walk recorded and asked to dress them one for one; a `measured` entry carries
+ * no steps by construction, so there is nothing to line up against and the whole
+ * route arrives here at once.
  */
-export function dressWalkedSteps(
-  observed: readonly RecipeStep[],
-  wording: DraftWording['steps'],
-): DressedSteps {
-  if (observed.length === 0) {
-    return { ok: false, why: 'This walk recorded no steps, so there is nothing to describe.' }
-  }
-
-  if (observed.length !== wording.length) {
-    return {
-      ok: false,
-      why:
-        `This walk recorded ${String(observed.length)} step${observed.length === 1 ? '' : 's'} and ` +
-        `${String(wording.length)} ${wording.length === 1 ? 'was' : 'were'} described. Describe ` +
-        'each one in the order it happened — a shorter list would attach a sentence to the wrong step.',
-    }
-  }
-
+export function routeFromWording(wording: EntryWording['steps']): DressedSteps {
   const steps: RecipeStep[] = []
 
-  for (const [at, step] of observed.entries()) {
-    /** Checked above; the index is in range because the lengths are equal. */
-    const written = wording[at] as DraftWording['steps'][number]
-
-    if (step.actor === 'agent' && written.ask !== undefined) {
+  for (const [at, written] of wording.entries()) {
+    if (written.actor === 'agent' && written.ask !== undefined) {
       return {
         ok: false,
         why:
@@ -434,26 +423,20 @@ export function dressWalkedSteps(
       }
     }
 
-    /**
-     * **The recorded ask wins.** It is the sentence the Colony sent, stored when
-     * it was sent; letting a later reading of the walk replace it would make the
-     * recipe disagree with what the operator actually read.
-     */
-    const ask = step.ask ?? written.ask
-
-    if (step.actor === 'operator' && ask === undefined) {
+    if (written.actor === 'operator' && written.ask === undefined) {
       return {
         ok: false,
         why:
-          `Step ${String(at + 1)} needs an operator and no ask was recorded or written. The recipe ` +
-          'carries the sentence the operator is shown, so that the agent does not compose it.',
+          `Step ${String(at + 1)} needs an operator and carries no ask. The recipe carries the ` +
+          'sentence the operator is shown, so that the agent does not compose it.',
       }
     }
 
     steps.push({
-      ...step,
+      actor: written.actor,
       instruction: written.instruction,
-      ...(ask === undefined ? {} : { ask }),
+      ...(written.ask === undefined ? {} : { ask: written.ask }),
+      ...(written.secret === undefined ? {} : { secret: written.secret }),
     })
   }
 

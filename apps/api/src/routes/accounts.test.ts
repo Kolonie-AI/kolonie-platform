@@ -188,12 +188,12 @@ describe('GET /v1/accounts', () => {
 
   it('includes the latest walk status even before an account row exists', async () => {
     const walk = walks.add({ agentId, kind: 'github', provider: 'provider' })
-    recipes.write({ kind: 'github', provider: 'provider', status: 'draft' })
+    recipes.write({ kind: 'github', provider: 'provider', status: 'measured' })
 
     const response = await list()
 
     expect(response.json().latestWalks).toEqual([
-      expect.objectContaining({ walkId: walk.id, status: 'draft', appearsInRecipes: false }),
+      expect.objectContaining({ walkId: walk.id, status: 'published', appearsInRecipes: true }),
     ])
   })
 })

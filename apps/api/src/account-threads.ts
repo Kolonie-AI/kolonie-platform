@@ -372,11 +372,12 @@ export type ThreadResponse = {
   readonly entries?: readonly AccountEntry[]
   readonly entry?: AccountEntry
   /**
-   * What closing the episode proposed to the Atlas (`#935`), as the verdict kind
-   * — `draft`, `refusal` or `nothing`.
+   * What closing the episode wrote to the Atlas (`#935`), as the verdict kind —
+   * `writes`, `refusal` or `nothing`. It was `draft` until `#1032`, which is
+   * also what turned *proposed* into *wrote*: nothing waits for a reader now.
    *
-   * **The agent is told what its work proposed**, which is the same courtesy
-   * `walk-report` already pays with its own `proposes`. A draft that appears
+   * **The agent is told what its work wrote**, which is the same courtesy
+   * `walk-report` already pays with its own `proposes`. An entry that appears
    * somewhere the citizen never hears about is one it cannot correct, and the
    * one who has just closed the episode is the only reader who knows whether the
    * shape is right.

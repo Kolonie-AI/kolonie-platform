@@ -42,13 +42,6 @@ import {
   atlasEntryFor,
   recordAtlasModeration,
   unjudgedAtlasProposals,
-  dressProviderRecipeDraft,
-  expireStalledRecipeDrafts,
-  lastRecipeModeration,
-  proposingWalkNarrative,
-  recipeDraftDigest,
-  recordRecipeModeration,
-  unjudgedRecipeDrafts,
 } from '@kolonie-ai/db'
 import {
   BRIEFING_TICK_MULTIPLIER,
@@ -68,7 +61,6 @@ import type { QuestAuditStore } from './quest-audit.js'
 import type { QuestEndingsStore } from './quest-endings.js'
 import type { WalkProseModerationStore } from './walk-prose.js'
 import type { AtlasModerationStore } from './atlas.js'
-import type { RecipeModerationStore } from './recipes.js'
 import type { QuestReportModerationStore } from './quest-reports.js'
 import {
   createLog,
@@ -434,16 +426,6 @@ const questReportStore: QuestReportModerationStore = {
 }
 
 /**
- * The scrub between a citizen's sentence about a provider and every citizen that
- * reads the register (`#362`).
- *
- * Fifth pass in the same process, on the same poll, for the reason the third and
- * fourth are here. It is keyed by the row's own primary key because
- * `provider_reports` has no surrogate id, and the text the moderator read
- * travels with the verdict so a citizen that rewrote its report while the pass
- * was thinking does not have the old verdict land on the new sentence.
- */
-/**
  * Whether a proposed provider belongs on the map (`#812`).
  *
  * Sixth pass in the same process, on the same poll, for the reason the third,
@@ -456,35 +438,6 @@ const atlasStore: AtlasModerationStore = {
   listed: (provider) => atlasEntryFor(db, provider),
   record: async (input) => {
     const written = await recordAtlasModeration(db, input)
-
-    return { outcome: written.outcome }
-  },
-}
-
-/**
- * Whether a walked recipe is fit to publish (`#813`).
- *
- * Seventh pass in the same process, and the store is seven functions rather than
- * one because the pass does six separable things. One of them is arithmetic: the
- * digest is computed where the steps are stored, so the pass can ask *have I
- * judged this text before* without knowing what goes into the answer. Two of them
- * are `#941`'s wording stage — the material a sentence may be drawn from, and the
- * write that puts the formed sentences on the row.
- */
-const recipeStore: RecipeModerationStore = {
-  pending: (limit) => unjudgedRecipeDrafts(db, limit),
-  lastVerdict: (recipeId) => lastRecipeModeration(db, recipeId),
-  digest: (recipe) => recipeDraftDigest(recipe),
-  narrative: (recipeId) => proposingWalkNarrative(db, recipeId),
-  /**
-   * The same write the curation screen makes (`#857`), and deliberately the same
-   * one: a sentence the pass formed and a sentence a steward typed land on the
-   * row through one guarded update, so neither can overwrite a published entry.
-   */
-  dress: (entry) => dressProviderRecipeDraft(db, entry),
-  expire: () => expireStalledRecipeDrafts(db),
-  record: async (input) => {
-    const written = await recordRecipeModeration(db, input)
 
     return { outcome: written.outcome }
   },
@@ -575,7 +528,6 @@ const runner = startRunner(
     questEndings: { store: questEndingsStore, issues: tripwire.issues, log },
     questReports: { store: questReportStore, model, log },
     atlas: { store: atlasStore, model, log },
-    recipes: { store: recipeStore, model, log },
     walkProse: { store: walkProseStore, model, log },
     directions: {
       directions: directionStore,

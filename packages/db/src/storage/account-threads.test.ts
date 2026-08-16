@@ -20,7 +20,6 @@ import {
   episode,
   episodesOf,
   fillSlot,
-  observedStepsFor,
   openEpisode,
   openSlot,
   passTurn,
@@ -629,7 +628,7 @@ describe('the account conversation', () => {
       return opened.episode.id
     }
 
-    it('writes a draft nobody published, and stamps which episode proposed it', async () => {
+    it('writes an entry nobody published, and stamps which episode wrote it', async () => {
       const id = await anAcquisition('example.test', [
         { label: 'the address you chose', by: 'agent' },
         { label: 'the code from the confirmation mail', by: 'operator' },
@@ -637,12 +636,17 @@ describe('the account conversation', () => {
 
       const closed = await closeEpisode(db, id, { outcome: 'created' })
       expect(closed.outcome).toBe('closed')
-      expect(closed.outcome === 'closed' && closed.proposed.kind).toBe('draft')
+      expect(closed.outcome === 'closed' && closed.proposed.kind).toBe('writes')
 
       const entry = await providerRecipe(db, mailbox, 'example.test')
-      expect(entry?.status).toBe('draft')
-      expect(entry?.steps.map((one) => one.actor)).toEqual(['agent', 'operator'])
-      expect(entry?.steps[1]?.ask).toBe('the code from the confirmation mail')
+      expect(entry?.status).toBe('measured')
+
+      /**
+       * **The slots do not become steps** (`#1032`). Two were filled, one of
+       * them by an operator, and the catalogue takes neither — asserted here
+       * because it is the whole of what the issue changed about this path.
+       */
+      expect(entry?.steps).toEqual([])
 
       expect((await episode(db, id))?.proposedAt).not.toBeNull()
     })
@@ -727,17 +731,23 @@ describe('the account conversation', () => {
     })
 
     /**
-     * The prefill `walk-report` reads (`#935`): the same observation, offered to
-     * the walk that observed nothing of its own.
+     * **What a closed episode writes, now that it writes no route** (`#1032`).
+     *
+     * This covered `observedStepsFor`, the prefill `walk-report` read: an
+     * episode's filled slots, offered as steps to a walk that observed none of
+     * its own. Both ends of that are gone — the catalogue takes no route from a
+     * walk either, so there was nothing left for the prefill to feed. What the
+     * episode writes instead is asserted here: the pair exists, somebody got
+     * through, and the entry says so and stops.
      */
-    it('offers the episode’s shape to a walk at the same provider', async () => {
-      const id = await anAcquisition('prefill.test', [{ label: 'the address', by: 'agent' }])
+    it('writes a measured entry with no steps', async () => {
+      const id = await anAcquisition('measured.test', [{ label: 'the address', by: 'agent' }])
       await closeEpisode(db, id, { outcome: 'created' })
 
-      expect(await observedStepsFor(db, agentId, mailbox, 'prefill.test')).toEqual([
-        { actor: 'agent' },
-      ])
-      expect(await observedStepsFor(db, agentId, mailbox, 'nobody-walked.test')).toBeUndefined()
+      const entry = await providerRecipe(db, mailbox, 'measured.test')
+
+      expect(entry?.status).toBe('measured')
+      expect(entry?.steps).toEqual([])
     })
   })
 })

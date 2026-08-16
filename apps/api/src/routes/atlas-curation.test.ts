@@ -177,36 +177,36 @@ describe('the curation section', () => {
     expect(rendered).toContain('citizen')
   })
 
-  it('shows a walked draft and gives the curator both decisions', async () => {
+  /**
+   * **A walked entry carries no route, and the screen offers the boxes to write
+   * one** (`#1032`). It used to arrive here already carrying the steps a walk
+   * copied onto it, and both buttons decided what to do with those; a `measured`
+   * entry has none, so what this screen holds is a blank route form and the one
+   * refusal that is still a refusal.
+   */
+  it('shows a walked entry and gives the curator both decisions', async () => {
     const { curationSections } = await import('../console/curation.js')
     colony.recipes.write({
       kind: 'mailbox',
       provider: 'walked.example',
-      status: 'draft',
+      status: 'measured',
       category: 'mailbox',
-      steps: [
-        { actor: 'agent', instruction: 'Open the signup form.' },
-        { actor: 'operator', instruction: 'Pass the human check.', ask: 'Please pass the check.' },
-      ],
-      proves: 'rung',
-      provesTask: 'email-inbox',
     })
-    const draft = (await colony.recipes.listInternal())[0] as ProviderRecipe
+    const walked = (await colony.recipes.listInternal())[0] as ProviderRecipe
 
     const rendered = curationSections({
       proposals: [],
       providerProposals: [],
       falling: [],
       entries: [],
-      unpublished: [draft],
+      unpublished: [walked],
       divergences: [],
     })
 
-    expect(rendered).toContain('Open the signup form.')
-    expect(rendered).toContain('Please pass the check.')
-    expect(rendered).toContain('email-inbox')
-    expect(rendered).toContain('/backend/atlas/drafts/mailbox/walked.example/publish')
-    expect(rendered).toContain('/backend/atlas/drafts/mailbox/walked.example/refuse')
+    expect(rendered).toContain('Walked, with no route published')
+    expect(rendered).toContain('name="instruction-0"')
+    expect(rendered).toContain('/backend/atlas/walked/mailbox/walked.example/publish')
+    expect(rendered).toContain('/backend/atlas/walked/mailbox/walked.example/refuse')
   })
 
   /**
@@ -396,43 +396,70 @@ describe('the curation section', () => {
     })
   })
 
-  describe('deciding a walked draft', () => {
-    const seedDraft = () =>
+  /**
+   * **The two decisions a walked entry still carries** (`#857`, rewritten by
+   * `#1032`).
+   *
+   * A walk used to leave a private `draft` carrying the steps it took, and this
+   * screen decided whether to publish those steps. Nothing is private any more
+   * and no walk writes a route: a closed walk leaves a public `measured` entry
+   * with no steps at all, and what the citizens found is published in that
+   * provider's briefing under their own names. So what is decided here is
+   * whether the Colony writes a route of its own — and writing it *is*
+   * publishing it, which is why there is one press and not two.
+   */
+  describe('deciding a walked entry', () => {
+    const seedWalked = () =>
       colony.recipes.write({
         kind: 'mailbox',
         provider: 'walked.example',
-        status: 'draft',
+        status: 'measured',
         category: 'mailbox',
-        steps: [{ actor: 'agent', instruction: 'Open the signup form.' }],
-        proves: 'rung',
-        provesTask: 'email-inbox',
       })
 
-    it('publishes the walked steps in one press', async () => {
-      seedDraft()
+    const statusNow = async () =>
+      (await colony.recipes.one(AccountKindSchema.parse('mailbox'), 'walked.example'))?.status
 
-      const response = await app.inject({
+    const publish = async (payload?: Record<string, string>) =>
+      app.inject({
         method: 'POST',
-        url: '/backend/atlas/drafts/mailbox/walked.example/publish',
+        url: '/backend/atlas/walked/mailbox/walked.example/publish',
         headers: {
           host: consoleHost,
           accept: 'application/json',
           cookie: `__Host-kolonie_session=${await aMaintainer()}`,
         },
+        ...(payload === undefined ? {} : { payload }),
+      })
+
+    it('writes the route and publishes it in one press', async () => {
+      seedWalked()
+
+      const response = await publish({
+        'actor-0': 'agent',
+        'instruction-0': 'Ask the provider for a mailbox.',
+        'actor-1': 'operator',
+        'instruction-1': 'The operator passes the human check.',
+        'ask-1': 'Please pass the check.',
+        proves: 'rung',
+        provesTask: 'email-inbox',
       })
 
       expect(response.statusCode).toBe(200)
-      expect(
-        (await colony.recipes.one(AccountKindSchema.parse('mailbox'), 'walked.example'))?.status,
-      ).toBe('joinable')
+      const entry = await colony.recipes.one(AccountKindSchema.parse('mailbox'), 'walked.example')
+      expect(entry?.status).toBe('joinable')
+      expect(entry?.steps[0]?.instruction).toBe('Ask the provider for a mailbox.')
+      expect(entry?.steps[1]?.ask).toBe('Please pass the check.')
+      expect(entry?.proves).toBe('rung')
+      expect(entry?.provesTask).toBe('email-inbox')
     })
 
-    it('refuses with a reason and discards the unpublished steps', async () => {
-      seedDraft()
+    it('refuses with a reason and leaves no route behind', async () => {
+      seedWalked()
 
       const response = await app.inject({
         method: 'POST',
-        url: '/backend/atlas/drafts/mailbox/walked.example/refuse',
+        url: '/backend/atlas/walked/mailbox/walked.example/refuse',
         headers: {
           host: consoleHost,
           accept: 'application/json',
@@ -448,12 +475,12 @@ describe('the curation section', () => {
       expect(entry?.steps).toEqual([])
     })
 
-    it('refuses an empty refusal and leaves the draft untouched', async () => {
-      seedDraft()
+    it('refuses an empty refusal and leaves the entry measured', async () => {
+      seedWalked()
 
       const response = await app.inject({
         method: 'POST',
-        url: '/backend/atlas/drafts/mailbox/walked.example/refuse',
+        url: '/backend/atlas/walked/mailbox/walked.example/refuse',
         headers: {
           host: consoleHost,
           accept: 'application/json',
@@ -463,185 +490,103 @@ describe('the curation section', () => {
       })
 
       expect(response.statusCode).toBe(422)
-      expect(
-        (await colony.recipes.one(AccountKindSchema.parse('mailbox'), 'walked.example'))?.status,
-      ).toBe('draft')
-    })
-
-    it('refuses to publish a draft whose walked step still has no sentence', async () => {
-      colony.recipes.write({
-        kind: 'mailbox',
-        provider: 'walked.example',
-        status: 'draft',
-        category: 'mailbox',
-        steps: [{ actor: 'agent' }],
-        proves: 'rung',
-        provesTask: 'email-inbox',
-      })
-
-      const response = await app.inject({
-        method: 'POST',
-        url: '/backend/atlas/drafts/mailbox/walked.example/publish',
-        headers: {
-          host: consoleHost,
-          accept: 'application/json',
-          cookie: `__Host-kolonie_session=${await aMaintainer()}`,
-        },
-      })
-
-      expect(response.statusCode).toBe(422)
-      expect(response.json().message).toContain('waiting for its wording')
-      expect(
-        (await colony.recipes.one(AccountKindSchema.parse('mailbox'), 'walked.example'))?.status,
-      ).toBe('draft')
+      expect(await statusNow()).toBe('measured')
     })
 
     /**
-     * The dead end `#857` was filed about (`#517`, `#601`).
-     *
-     * A walk writes its steps wordless on purpose, so **every** draft a walk
-     * produced was refused by the test above and the only other button emptied
-     * the row. What is asserted here is the third option: the curator writes the
-     * Colony's sentences and the draft publishes in the same press, because two
-     * presses is where a half-dressed draft would live.
+     * **A press with nothing written is not a publish.** Before `#1032` it was:
+     * a draft arrived carrying steps, so the empty form meant *publish what the
+     * walk recorded*. There is nothing recorded to publish now, and an entry
+     * that went `joinable` with no route would be the catalogue claiming a path
+     * nobody wrote.
      */
-    describe('writing the wording a walk could not', () => {
-      const seedWordless = () =>
-        colony.recipes.write({
-          kind: 'mailbox',
-          provider: 'walked.example',
-          status: 'draft',
-          category: 'mailbox',
-          steps: [{ actor: 'agent' }, { actor: 'operator', ask: 'Please pass the check.' }],
-          proves: null,
-          provesTask: null,
-        })
+    it('refuses a publish that writes no route at all', async () => {
+      seedWalked()
 
-      const publish = async (payload: Record<string, string>) =>
-        app.inject({
-          method: 'POST',
-          url: '/backend/atlas/drafts/mailbox/walked.example/publish',
-          headers: {
-            host: consoleHost,
-            accept: 'application/json',
-            cookie: `__Host-kolonie_session=${await aMaintainer()}`,
-          },
-          payload,
-        })
+      const response = await publish()
 
-      it('dresses a wordless walk and publishes it in one press', async () => {
-        seedWordless()
+      expect(response.statusCode).toBe(422)
+      expect(response.json().message).toContain('writing the route it publishes')
+      expect(await statusNow()).toBe('measured')
+    })
 
-        const response = await publish({
-          'instruction-0': 'Ask the provider for a mailbox.',
-          'instruction-1': 'The operator passes the human check.',
-          proves: 'rung',
-          provesTask: 'email-inbox',
-        })
+    it('refuses a step that names an actor and carries no sentence', async () => {
+      seedWalked()
 
-        expect(response.statusCode).toBe(200)
-        const entry = await colony.recipes.one(AccountKindSchema.parse('mailbox'), 'walked.example')
-        expect(entry?.status).toBe('joinable')
-        expect(entry?.steps[0]?.instruction).toBe('Ask the provider for a mailbox.')
-        /** The shape stays the walk's: the recorded ask survives the dressing. */
-        expect(entry?.steps[1]?.ask).toBe('Please pass the check.')
-        expect(entry?.proves).toBe('rung')
-        expect(entry?.provesTask).toBe('email-inbox')
+      const response = await publish({ 'actor-0': 'agent', proves: 'provider-mail' })
+
+      expect(response.statusCode).toBe(422)
+      expect(await statusNow()).toBe('measured')
+    })
+
+    /**
+     * **The operator's sentence is the recipe's, not the agent's** — so an
+     * operator step arriving without one is refused rather than published for
+     * the agent to compose at.
+     */
+    it('refuses an operator step with no ask', async () => {
+      seedWalked()
+
+      const response = await publish({
+        'actor-0': 'operator',
+        'instruction-0': 'The operator passes the human check.',
+        proves: 'provider-mail',
       })
 
-      /**
-       * **Nothing lands when the wording does not fit.** A curator who described
-       * one step of two gets the form back with the sentence saying so, rather
-       * than a draft carrying half a rewrite.
-       */
-      it('refuses a wording that describes fewer steps than the walk recorded', async () => {
-        seedWordless()
+      expect(response.statusCode).toBe(422)
+      expect(response.json().message).toContain('carries no ask')
+      expect(await statusNow()).toBe('measured')
+    })
 
-        const response = await publish({
-          'instruction-0': 'Ask the provider for a mailbox.',
-          proves: 'provider-mail',
-        })
+    /** The red line, on the one surface that types free text into a published entry. */
+    it('refuses a sentence carrying a credential', async () => {
+      seedWalked()
 
-        expect(response.statusCode).toBe(422)
-        const entry = await colony.recipes.one(AccountKindSchema.parse('mailbox'), 'walked.example')
-        expect(entry?.status).toBe('draft')
-        expect(entry?.steps[0]?.instruction).toBeUndefined()
+      const response = await publish({
+        'actor-0': 'agent',
+        'instruction-0': 'Paste ghp_abcdefghijklmnopqrstuvwxyz01 into the field.',
+        proves: 'provider-mail',
       })
 
-      /** The red line, on the one surface that types free text into a published entry. */
-      it('refuses a sentence carrying a credential', async () => {
-        seedWordless()
+      expect(response.statusCode).toBe(422)
+      expect(response.json().message).toContain('credential')
+      expect(await statusNow()).toBe('measured')
+    })
 
-        const response = await publish({
-          'instruction-0': 'Paste ghp_abcdefghijklmnopqrstuvwxyz01 into the field.',
-          'instruction-1': 'The operator passes the human check.',
-          proves: 'provider-mail',
-        })
+    /**
+     * The curator needs the walker's account beside the boxes, or there is
+     * nothing to write from. **It is the older half of the record now** — no
+     * walk has copied its route onto an entry since `#1032` — so this asserts
+     * that the rows which still carry one still show it.
+     */
+    it('offers the form and the walker’s own account on a walked entry', async () => {
+      const { curationSections } = await import('../console/curation.js')
+      colony.recipes.write({
+        kind: 'mailbox',
+        provider: 'walked.example',
+        status: 'measured',
+        category: 'mailbox',
+        walkedRecipe: {
+          prerequisites: [],
+          steps: [{ title: 'Open the signup page', detail: 'it asks for an address' }],
+          walls: [],
+          verification: [],
+        },
+      })
+      const walked = (await colony.recipes.listInternal())[0] as ProviderRecipe
 
-        expect(response.statusCode).toBe(422)
-        expect(response.json().message).toContain('credential')
-        expect(
-          (await colony.recipes.one(AccountKindSchema.parse('mailbox'), 'walked.example'))?.status,
-        ).toBe('draft')
+      const rendered = curationSections({
+        proposals: [],
+        providerProposals: [],
+        falling: [],
+        entries: [],
+        unpublished: [walked],
+        divergences: [],
       })
 
-      /**
-       * **The press is the same press.** A draft that already reads as a recipe
-       * publishes with no body at all, exactly as it did before `#857` — the
-       * wording is an addition to the route and not a new requirement on it.
-       */
-      it('still publishes an already-written draft with no wording at all', async () => {
-        seedDraft()
-
-        const response = await app.inject({
-          method: 'POST',
-          url: '/backend/atlas/drafts/mailbox/walked.example/publish',
-          headers: {
-            host: consoleHost,
-            accept: 'application/json',
-            cookie: `__Host-kolonie_session=${await aMaintainer()}`,
-          },
-        })
-
-        expect(response.statusCode).toBe(200)
-        expect(
-          (await colony.recipes.one(AccountKindSchema.parse('mailbox'), 'walked.example'))?.status,
-        ).toBe('joinable')
-      })
-
-      /** The curator needs the walker's account beside the boxes, or there is nothing to write from. */
-      it('offers the form and the walker’s own account on a held draft', async () => {
-        const { curationSections } = await import('../console/curation.js')
-        colony.recipes.write({
-          kind: 'mailbox',
-          provider: 'walked.example',
-          status: 'draft',
-          category: 'mailbox',
-          steps: [{ actor: 'agent' }],
-          proves: null,
-          provesTask: null,
-          walkedRecipe: {
-            prerequisites: [],
-            steps: [{ title: 'Open the signup page', detail: 'it asks for an address' }],
-            walls: [],
-            verification: [],
-          },
-        })
-        const draft = (await colony.recipes.listInternal())[0] as ProviderRecipe
-
-        const rendered = curationSections({
-          proposals: [],
-          providerProposals: [],
-          falling: [],
-          entries: [],
-          unpublished: [draft],
-          divergences: [],
-        })
-
-        expect(rendered).toContain('name="instruction-0"')
-        expect(rendered).toContain('name="proves"')
-        expect(rendered).toContain('Open the signup page')
-      })
+      expect(rendered).toContain('name="instruction-0"')
+      expect(rendered).toContain('name="proves"')
+      expect(rendered).toContain('Open the signup page')
     })
   })
 })

@@ -707,18 +707,23 @@ function lastConfirmed(entry: AtlasEntry): string | undefined {
  * working recipe — which is the catalogue pretending, and the thing
  * `growth/README.md` refuses.
  *
- * `proposed` and `draft` cannot reach this function: nothing public reads them
- * (`recipeStatusIsPublic`). The `draft` branch exists anyway, because a state
- * with no branch here would render as a working recipe if it ever did — and a
- * silent default is exactly how the next state added arrives on the index
- * pretending to be joinable.
+ * **Every state reaches this function since `#1032`.** Two of them used not to:
+ * `draft` and `proposed` were private, and the branch that marked them was kept
+ * against the day they leaked. Both are gone, and `measured` took their place on
+ * the index as a state a stranger does see — so it is marked here, and marked as
+ * what it is rather than as a pending one. Nobody is working on a `measured`
+ * entry: it has been walked, what the walkers found is on its page, and what it
+ * has not got is a route the Colony stands behind.
+ *
+ * The rule the two retired branches existed for still holds: a state with no
+ * branch here renders as a working recipe, which is the catalogue pretending.
  */
 function indexStatusMark(status: AtlasEntry['status']): string {
   if (status === 'refused') return ' <span class="k-refused">cannot be joined</span>'
   if (status === 'retired') return ' <span class="k-refused">withdrawn</span>'
   if (status === 'unwritten') return ' <span class="k-unwritten">nobody has looked yet</span>'
-  if (status === 'draft' || status === 'proposed') {
-    return ' <span class="k-unwritten">not published yet</span>'
+  if (status === 'measured') {
+    return ' <span class="k-unwritten">walked, with no route written</span>'
   }
 
   return ''

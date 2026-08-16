@@ -345,18 +345,24 @@ function describe(response: ThreadResponse): string {
 
   if (response.op === 'close') {
     /**
-     * What it proposed to the Atlas, in a sentence, and nothing where it
-     * proposed nothing (`#935`). A closed maintenance episode is the ordinary
-     * case, and telling a citizen that its repair contributed no recipe would be
-     * noise about a thing that was never going to happen.
+     * What it wrote to the Atlas, in a sentence, and nothing where it wrote
+     * nothing (`#935`). A closed maintenance episode is the ordinary case, and
+     * telling a citizen that its repair contributed no recipe would be noise
+     * about a thing that was never going to happen.
+     *
+     * **Both sentences promised a reader and there is not one** (`#1032`). What
+     * an episode writes is public in the request that writes it, so what these
+     * say now is where to go and read it — and what it is not, which is a route
+     * the Colony stands behind.
      */
     const atlas =
-      response.proposes === 'draft'
-        ? ' What you did became a draft Atlas entry under your name — a steward reads it before ' +
-          'anybody else does, and until then it is not published.'
+      response.proposes === 'writes'
+        ? ' What you did is now in this provider\u2019s briefing under your name, where ' +
+          'kolonie.accounts.recipes reads it. It is what you measured and not a route the ' +
+          'Colony vouches for: nobody has written the steps.'
         : response.proposes === 'refusal'
-          ? ' The wall you named became a draft Atlas entry saying this provider refuses — a ' +
-            'steward reads it before anybody else does.'
+          ? ' The wall you named is now on this provider\u2019s Atlas entry, saying it refuses. ' +
+            'kolonie.accounts.recipes reads it.'
           : ''
 
     return (

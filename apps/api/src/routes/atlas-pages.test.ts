@@ -89,16 +89,15 @@ describe('the Atlas on the website host', () => {
     })
     colony.recipes.write({
       kind: 'mailbox',
-      provider: 'unreviewed.example',
-      title: 'Unreviewed',
-      status: 'draft',
-      steps: [{ actor: 'agent', instruction: 'A step no steward has read.' }],
+      provider: 'walked.example',
+      title: 'Walked',
+      status: 'measured',
     })
     colony.recipes.write({
       kind: 'mailbox',
-      provider: 'suggested.example',
-      title: 'Suggested',
-      status: 'proposed',
+      provider: 'unwritten.example',
+      title: 'Unwritten',
+      status: 'unwritten',
     })
 
     return buildApp({ ...colony, websiteUrl, siteChrome })
@@ -186,47 +185,65 @@ describe('the Atlas on the website host', () => {
     })
 
     /**
-     * **The two states no stranger may see** (`#604`).
+     * **There is no state a stranger may not see** (`#604`, inverted by
+     * `#1032`).
      *
-     * A `proposed` entry is somebody's suggestion about a third party's product
-     * that nobody at the Colony has read; a `draft` is a path no steward has
-     * stood behind. Asserted against the served bytes rather than against the
-     * filter, because the filter passing while a page renders the row is exactly
-     * the failure that matters.
+     * These four asserted the opposite until `#1032`: a `draft` was a path no
+     * steward had stood behind and a `proposed` entry was somebody's suggestion
+     * nobody had read, and both were withheld. Neither state exists now. A
+     * closed walk leaves a public `measured` row the same request it closes in,
+     * and an `unwritten` row is the Colony saying out loud that nobody has been
+     * here — which is worth more to a reader than an absence, and is what makes
+     * the entry findable by the citizen who might walk it.
+     *
+     * Asserted against the served bytes rather than against the filter, for the
+     * reason it always was: the filter agreeing while a page disagrees is
+     * exactly the failure that matters, and it now fails the other way round.
      */
-    it('shows neither a draft nor a proposal on the index', async () => {
+    it('shows a walked entry and an unwritten one on the index', async () => {
       const response = await get('/atlas')
 
-      expect(response.body).not.toContain('unreviewed.example')
-      expect(response.body).not.toContain('suggested.example')
-      expect(response.body).not.toContain('A step no steward has read.')
-      /** And the withdrawal is on it, which is what makes the assertion above about state. */
+      expect(response.body).toContain('walked.example')
+      expect(response.body).toContain('unwritten.example')
+      /** And the withdrawal, which is the state that was public before either. */
       expect(response.body).toContain('withdrawn.example')
     })
 
-    it('answers 404 for a draft and for a proposal, as if the row were not there', async () => {
-      expect((await get('/atlas/unreviewed.example')).statusCode).toBe(404)
-      expect((await get('/atlas/suggested.example')).statusCode).toBe(404)
+    it('gives each of them a page of its own', async () => {
+      expect((await get('/atlas/walked.example')).statusCode).toBe(200)
+      expect((await get('/atlas/unwritten.example')).statusCode).toBe(200)
     })
 
-    it('leaves both out of catalogue.json', async () => {
+    it('carries both in catalogue.json', async () => {
       const response = await get('/atlas/catalogue.json')
       const document = JSON.parse(response.body) as {
         entries: readonly { provider: string }[]
       }
       const providers = document.entries.map((entry) => entry.provider)
 
-      expect(providers).not.toContain('unreviewed.example')
-      expect(providers).not.toContain('suggested.example')
+      expect(providers).toContain('walked.example')
+      expect(providers).toContain('unwritten.example')
       expect(providers).toContain('withdrawn.example')
     })
 
-    it('leaves both out of the sitemap', async () => {
+    /**
+     * **The sitemap is the one surface that still tells the two apart, and it is
+     * not a visibility rule** (`#790`). Every state above is served, linked and
+     * in the catalogue; what the sitemap decides is what to hand a crawler by
+     * name, and ninety-three near-identical *nobody has looked at this yet*
+     * pages are the doorway pattern `growth/README.md` forbids.
+     *
+     * **A walked entry belongs in it since `#1032`.** `measured` is what a
+     * closed walk writes, so `atlasIsWalked` counts it — excluding it would have
+     * left the sitemap holding only the states nobody walks and dropped the
+     * findings, which is the inverse of what `#790` was for.
+     */
+    it('submits the walked entry to a crawler and not the unwritten one', async () => {
       const response = await get('/atlas/sitemap.xml')
 
-      expect(response.body).not.toContain('unreviewed.example')
-      expect(response.body).not.toContain('suggested.example')
+      expect(response.body).toContain('walked.example')
       expect(response.body).toContain('withdrawn.example')
+      expect(response.body).not.toContain('unwritten.example')
     })
 
     /**

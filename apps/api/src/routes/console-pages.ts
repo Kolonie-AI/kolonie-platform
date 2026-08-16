@@ -12,10 +12,11 @@ import {
   SLOT_VALUE_MAX_LENGTH,
   AccountProviderSchema,
   RECIPE_REFUSAL_MAX_LENGTH,
+  RECIPE_MAX_STEPS,
   RECIPE_STEP_MAX_LENGTH,
-  DraftWordingSchema,
-  dressWalkedSteps,
-  type DraftWording,
+  EntryWordingSchema,
+  routeFromWording,
+  type EntryWording,
   type ProviderRecipe,
   solFromLamports,
   platformFeePercentFromEnv,
@@ -1800,11 +1801,26 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
   })
 
   /**
-   * Publish or refuse the walked steps in a draft (`#808`), writing the wording
-   * first where the maintainer supplied it (`#857`).
+   * Publish or refuse a measured entry (`#808`, `#857`).
+   *
+   * **The path says `walked` and not `drafts` since `#1032`**, because there is
+   * no draft state left: a closed walk writes a public `measured` row with no
+   * route on it, and what this screen decides is whether the Colony writes one.
+   * Publishing is the wording — there is no status move behind it to make
+   * separately — and refusing is for a red line, since everything fixable is
+   * better left measured with the provider's briefing under it.
+   *
+   * **Not under `entries`, which is where it first went.** The entry *proposals*
+   * below take `/backend/atlas/entries/:proposalId/…`, and a pair route hung off
+   * the same segment collapses in the router's tree into
+   * `entries/:kind|:proposalId/…` — one node with two names for it. Fastify
+   * assigns both and it works, but the console's write surface stops being
+   * readable as a list of what the console can write, which is the one thing
+   * `console-write-surface.test.ts` is there to keep true. `walked` is the word
+   * the screen already uses for these rows.
    */
   for (const verdict of ['publish', 'refuse'] as const) {
-    app.post(`/backend/atlas/drafts/:kind/:provider/${verdict}`, async (request, reply) => {
+    app.post(`/backend/atlas/walked/:kind/:provider/${verdict}`, async (request, reply) => {
       if ((await backendGuard(request, reply)) === null) return reply
 
       const params = z
@@ -1823,54 +1839,74 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
           message:
             verdict === 'refuse'
               ? 'Refusing a walked recipe needs a sentence the walker can read.'
-              : 'That draft does not name a valid account kind and provider.',
+              : 'That entry does not name a valid account kind and provider.',
         })
       }
 
       const draft = await deps.recipes.one(params.data.kind, params.data.provider)
-      if (draft === undefined || draft.status !== 'draft') return consoleNotFound(reply, request)
+      if (draft === undefined || draft.status !== 'measured') return consoleNotFound(reply, request)
 
       /**
-       * **The wording is optional and the press is the same press** (`#857`).
-       * A draft that already reads as a recipe publishes exactly as it did
-       * before; one that arrived wordless from a walk is dressed and published
-       * in one action, because two presses is where a half-dressed draft would
-       * live.
+       * **Refusing takes no route and publishing is nothing but one** (`#1032`).
+       *
+       * The two verdicts used to share a shape: a draft arrived already carrying
+       * the steps a walk observed, wording was the optional half, and a separate
+       * call moved the state afterwards. A measured entry carries no steps at
+       * all — the table refuses them on one — so a publish with nothing written
+       * has nothing to publish, and there is no second act to move: writing the
+       * route *is* the publishing, which is why `dressEntry` is the only call on
+       * this path.
        */
-      const wording =
-        verdict === 'publish' ? wordingIn(request.body, draft.steps.length) : undefined
-      if (wording?.ok === false) {
+      if (verdict === 'refuse') {
+        const refused = await deps.recipes.refuseEntry(params.data.kind, params.data.provider, {
+          verdict: 'refused',
+          refusal: body?.success === true ? body.data.reason : '',
+        })
+
+        if (!refused) return consoleNotFound(reply, request)
+
+        return wantsHtml(request)
+          ? reply.redirect('/backend/atlas', 303)
+          : reply.send({
+              kind: params.data.kind,
+              provider: params.data.provider,
+              status: 'refused',
+            })
+      }
+
+      const wording = wordingIn(request.body)
+      if (wording === undefined || wording.ok === false) {
         return reply.status(ERROR_STATUS['validation_failed']).send({
           code: 'validation_failed',
-          message: wording.why,
+          message:
+            wording === undefined
+              ? 'Publishing an entry means writing the route it publishes: at least one step, ' +
+                'each naming who acts, and the method the account is proved by.'
+              : wording.why,
         })
       }
 
-      const dressed =
-        wording === undefined ? undefined : dressWalkedSteps(draft.steps, wording.wording.steps)
-      if (dressed?.ok === false) {
+      const route = routeFromWording(wording.wording.steps)
+      if (!route.ok) {
         return reply.status(ERROR_STATUS['validation_failed']).send({
           code: 'validation_failed',
-          message: dressed.why,
+          message: route.why,
         })
       }
 
       /**
-       * Judged on what publishing would leave behind, so a draft that would
+       * Judged on what publishing would leave behind, so a route that would
        * still be unpublishable is refused **before** anything is written and the
        * form comes back rather than half-landing.
        */
-      const effective: ProviderRecipe =
-        dressed === undefined || wording === undefined
-          ? draft
-          : {
-              ...draft,
-              steps: [...dressed.steps],
-              proves: wording.wording.proves,
-              provesTask: wording.wording.provesTask ?? null,
-            }
+      const effective: ProviderRecipe = {
+        ...draft,
+        steps: [...route.steps],
+        proves: wording.wording.proves,
+        provesTask: wording.wording.provesTask ?? null,
+      }
 
-      const missing = verdict === 'publish' ? whyNotPublishable(effective) : undefined
+      const missing = whyNotPublishable(effective)
       if (missing !== undefined) {
         return reply.status(ERROR_STATUS['validation_failed']).send({
           code: 'validation_failed',
@@ -1878,34 +1914,22 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
         })
       }
 
-      if (dressed !== undefined && wording !== undefined) {
-        const written = await deps.recipes.dressDraft(params.data.kind, params.data.provider, {
-          steps: dressed.steps,
-          proves: wording.wording.proves,
-          ...(wording.wording.provesTask === undefined
-            ? {}
-            : { provesTask: wording.wording.provesTask }),
-        })
+      const written = await deps.recipes.dressEntry(params.data.kind, params.data.provider, {
+        steps: route.steps,
+        proves: wording.wording.proves,
+        ...(wording.wording.provesTask === undefined
+          ? {}
+          : { provesTask: wording.wording.provesTask }),
+      })
 
-        if (!written) return consoleNotFound(reply, request)
-      }
-
-      const moved = await deps.recipes.decideDraft(
-        params.data.kind,
-        params.data.provider,
-        verdict === 'publish'
-          ? { verdict: 'published' }
-          : { verdict: 'refused', refusal: body?.success === true ? body.data.reason : '' },
-      )
-
-      if (!moved) return consoleNotFound(reply, request)
+      if (!written) return consoleNotFound(reply, request)
 
       return wantsHtml(request)
         ? reply.redirect('/backend/atlas', 303)
         : reply.send({
             kind: params.data.kind,
             provider: params.data.provider,
-            status: verdict === 'publish' ? 'joinable' : 'refused',
+            status: 'joinable',
           })
     })
   }
@@ -5454,22 +5478,27 @@ function audienceOf(quest: Task) {
 }
 
 /**
- * The wording a steward typed into the draft form, if they typed any (`#857`).
+ * The route a curator typed into the entry form (`#857`, rewritten by `#1032`).
  *
  * **Read positionally, from fields named by index.** A form that repeated one
- * name would hand back a string for a one-step walk and an array for a two-step
- * one, and the step a mis-indexed sentence lands on is the step an agent then
- * follows. `instruction-0` cannot drift.
+ * name would hand back a string for a one-step route and an array for a
+ * two-step one, and the step a mis-indexed sentence lands on is the step an
+ * agent then follows. `instruction-0` cannot drift.
  *
- * **Absence is the answer for a draft that already reads as a recipe**: the
- * whole form is optional, and `proves` is what says a steward filled it in —
- * every publishable draft has one, so its presence cannot be accidental.
+ * **How far the form reaches changed with the entry underneath it.** It used to
+ * supply sentences only, onto a shape a walk had already recorded; a measured
+ * entry records no shape, so the actor is a field here now. The length is read
+ * off the form rather than off the entry for the same reason — nothing on the
+ * row says how many steps this provider takes.
+ *
+ * **Absence is a real answer and it is not an empty route**: a form that names
+ * no `proves` is one nobody filled in, and the caller says so in its own words
+ * rather than reporting a schema failure about a list of zero steps.
  */
 function wordingIn(
   body: unknown,
-  steps: number,
 ):
-  | { readonly ok: true; readonly wording: DraftWording }
+  | { readonly ok: true; readonly wording: EntryWording }
   | { readonly ok: false; readonly why: string }
   | undefined {
   const fields = (body ?? {}) as Record<string, unknown>
@@ -5481,12 +5510,27 @@ function wordingIn(
 
   if (field('proves') === undefined) return undefined
 
-  const written = Array.from({ length: steps }, (_, at) => ({
-    instruction: field(`instruction-${String(at)}`) ?? '',
-    ...(field(`ask-${String(at)}`) === undefined ? {} : { ask: field(`ask-${String(at)}`) }),
-  }))
+  /**
+   * Stops at the first index with neither an actor nor an instruction, so a form
+   * that offers more blank rows than the curator used publishes the route they
+   * wrote rather than refusing on the blanks underneath it.
+   */
+  const written: unknown[] = []
+  for (let at = 0; at < RECIPE_MAX_STEPS; at += 1) {
+    const actor = field(`actor-${String(at)}`)
+    const instruction = field(`instruction-${String(at)}`)
+    if (actor === undefined && instruction === undefined) break
 
-  const parsed = DraftWordingSchema.safeParse({
+    const ask = field(`ask-${String(at)}`)
+    written.push({
+      actor,
+      instruction,
+      ...(ask === undefined ? {} : { ask }),
+      ...(fields[`secret-${String(at)}`] === undefined ? {} : { secret: true }),
+    })
+  }
+
+  const parsed = EntryWordingSchema.safeParse({
     steps: written,
     proves: field('proves'),
     ...(field('provesTask') === undefined ? {} : { provesTask: field('provesTask') }),
@@ -5497,9 +5541,9 @@ function wordingIn(
     : {
         ok: false,
         why:
-          'That wording does not fit a recipe: every step needs a sentence of at most ' +
-          `${String(RECIPE_STEP_MAX_LENGTH)} characters, and the proof method has to be one the ` +
-          'Colony recognises.',
+          'That route does not fit a recipe: every step names who acts and carries a sentence of ' +
+          `at most ${String(RECIPE_STEP_MAX_LENGTH)} characters, and the proof method has to be ` +
+          'one the Colony recognises.',
       }
 }
 

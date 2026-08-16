@@ -70,10 +70,19 @@ describe('who the catalogue names as having walked an entry', () => {
     expect((await atlasWalkers(db)).get(key)).toBeUndefined()
   })
 
-  it('names nobody for a walk that was simply abandoned', async () => {
+  /**
+   * **A walk that stopped halfway is still a deed** (`#1032`), which is why this
+   * reads the other way round from the refusal above it. Under `#904` an
+   * abandoned walk proposed nothing, stamped nothing and surfaced nobody. It now
+   * writes a `measured` row — *the pair exists and citizens have been here* —
+   * and the citizen the entry names is the one who went. That is the entry's own
+   * evidence rather than a verdict about the provider, so the line the issue
+   * draws is untouched: `refused` above is still the branch nobody is named on.
+   */
+  it('names the citizen who walked it, even where the walk was abandoned', async () => {
     await walk(agentId, { outcome: 'abandoned', did: 'I stopped at the mailbox step.' })
 
-    expect((await atlasWalkers(db)).get(key)).toBeUndefined()
+    expect((await atlasWalkers(db)).get(key)).toEqual(['ada'])
   })
 
   /** Several citizens walked it; the entry names all of them. */

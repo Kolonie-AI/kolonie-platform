@@ -628,36 +628,46 @@ export const providerRecipes = pgTable(
     ),
 
     /**
-     * A published entry has a walk and a proof; a draft has a walk (`#604`).
+     * A joinable entry has a walk and a proof (`#604`, narrowed by `#1032`).
      *
-     * **`draft` is the one state that carries steps without `proves`**, and it is
-     * safe because no public surface reads a draft. A walk that got an account
-     * and did not establish how to prove it is a real outcome and a reviewable
-     * one; refusing to store it would leave the walk's output in a GitHub issue,
-     * which is the defect `#601` is named for.
+     * **`draft` was the one state that carried steps without `proves`**, and it
+     * was safe because no public surface read a draft. `#1032` retired that
+     * state: there is no longer a status in which a route sits unpublished, so
+     * the exemption it needed has nothing left to exempt. A walk that got an
+     * account and did not establish how to prove it now leaves the entry
+     * `measured` and publishes what it did in the entry's computed briefing —
+     * which is a better home for it than a row nobody could read.
      */
     check(
       'provider_recipes_joinable_has_steps',
-      sql`${table.status} not in ('joinable', 'draft')
+      sql`${table.status} <> 'joinable'
           or (jsonb_array_length(${table.steps}) between 1 and ${sql.raw(String(RECIPE_MAX_STEPS))}
-              and (${table.status} = 'draft' or ${table.proves} is not null))`,
+              and ${table.proves} is not null)`,
     ),
 
     /**
-     * **A step may be wordless only while the entry is a draft** (`#601`).
+     * **An operator step says what is done; an agent step need not** (`#601`,
+     * narrowed by `#1032`).
      *
      * `RecipeStepSchema.instruction` became optional so that a walk can record
      * *this step happened and who it needed* without the Colony inventing the
-     * sentence `#517` says is its to write. This is the other half: publishing
-     * is exactly the act of a steward having supplied what the walk could not
-     * observe, and an entry that left `draft` with a wordless step would be a
-     * recipe with a blank line in it, handed to an agent as a path to follow.
+     * sentence `#517` says is its to write. `#601` held that shape in `draft`
+     * until a steward supplied the wording; `#1032` retired the steward, so that
+     * sentence now has no author and inventing one is exactly what `#517`
+     * forbids. What carries the words instead is the entry's computed briefing —
+     * the walker's own account, moderated as prose and attributed to it.
+     *
+     * **The narrowing is to the actor, because that is where the rule was
+     * load-bearing.** An operator step carries the exact sentence a person reads
+     * and the Colony writes it, so a blank one is a human handed an empty
+     * instruction. An agent step with no sentence is a walk saying *a step
+     * happened here and I acted alone*, which is true and is the most a walk
+     * ever observed.
      *
      * **In SQL and not only in `WriteProviderRecipeSchema`**, for this table's
      * standing reason: the seed and a `psql` prompt write through neither.
      *
-     * `retired` is exempt because it keeps whatever it had — an entry withdrawn
-     * while it was still a draft keeps the record of the walk, which is the
+     * `retired` is exempt because it keeps whatever it had, which is the
      * argument for `retired` existing at all.
      */
     check(
@@ -676,8 +686,10 @@ export const providerRecipes = pgTable(
        * null. Verified against PostgreSQL 16: it answers true for a step
        * without one, false for a step with one, and false for an empty array.
        */
-      sql`${table.status} in ('draft', 'retired')
-          or not jsonb_path_exists(${table.steps}, '$[*] ? (!exists(@.instruction))')`,
+      sql`${table.status} = 'retired'
+          or not jsonb_path_exists(
+                ${table.steps},
+                '$[*] ? (@.actor == "operator" && !exists(@.instruction))')`,
     ),
 
     /**
@@ -686,14 +698,16 @@ export const providerRecipes = pgTable(
      * **This is the one that carries `unwritten`'s whole meaning.** A row marked
      * *nobody has looked* that carries three steps is a half-written recipe
      * wearing the honest label, and it fails at step three for whoever trusts it.
-     * `proposed` is held to the same rule for the same reason, one step earlier.
+     * Since `#1032` it carries `measured`'s whole meaning too: a measurement is
+     * what the Colony observed of its own citizens, and the route they took is
+     * published in the computed briefing rather than written onto the row.
      *
      * `retired` is exempt: it keeps whatever it had, which is what makes its page
      * a record rather than an empty apology.
      */
     check(
       'provider_recipes_unjoinable_is_empty',
-      sql`${table.status} in ('joinable', 'draft', 'retired')
+      sql`${table.status} in ('joinable', 'retired')
           or (jsonb_array_length(${table.steps}) = 0 and ${table.proves} is null)`,
     ),
 
@@ -772,10 +786,18 @@ export const providerRecipes = pgTable(
           <= ${sql.raw(String(RECIPE_MAX_STEPS))}`,
     ),
 
-    /** A reach step is a step: wordless only while the entry is a draft (`#601`, `#637`). */
+    /**
+     * A reach step always says what is done (`#601`, `#637`, narrowed by `#1032`).
+     *
+     * **Unlike an ordinary step, this one is never walk-derived.** A reach is
+     * what the account is *for* once it exists, which no signup walk observes —
+     * the Colony writes every word of it. So the exemption `#1032` opened for a
+     * wordless agent step has nothing to apply to here: there is no walker whose
+     * account of it the briefing could carry instead.
+     */
     check(
       'provider_recipes_published_reach_is_written',
-      sql`${table.status} in ('draft', 'retired')
+      sql`${table.status} = 'retired'
           or ${table.reaches} is null
           or not jsonb_path_exists(${table.reaches} -> 'steps', '$[*] ? (!exists(@.instruction))')`,
     ),

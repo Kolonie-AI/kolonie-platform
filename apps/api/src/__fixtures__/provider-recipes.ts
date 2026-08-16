@@ -27,12 +27,10 @@ import type { ProviderRecipes } from '../provider-recipes.js'
  */
 const LIST_ORDER: readonly ProviderRecipe['status'][] = [
   'joinable',
-  'draft',
   'measured',
   'unwritten',
   'refused',
   'retired',
-  'proposed',
 ]
 
 /**
@@ -251,47 +249,52 @@ export function fakeProviderRecipes(): FakeProviderRecipes {
       return { outcome: 'decided' as const, proposal: decided }
     },
 
-    // @mirrors packages/db/src/storage/provider-recipes.ts publishProviderRecipe e3863628
-    async decideDraft(kind, provider, decision) {
+    // @mirrors packages/db/src/storage/provider-recipes.ts publishProviderRecipe 33d2c756
+    async refuseEntry(kind, provider, decision) {
       const at = rows.findIndex(
         (row) =>
           row.kind === kind &&
           row.provider.toLowerCase() === provider.toLowerCase() &&
-          row.status === 'draft',
+          row.status === 'measured',
       )
       const found = rows[at]
       if (found === undefined) return false
 
-      rows[at] =
-        decision.verdict === 'published'
-          ? { ...found, status: 'joinable', refusal: null, updatedAt: currentTime() }
-          : {
-              ...found,
-              status: 'refused',
-              refusal: decision.refusal,
-              steps: [],
-              proves: null,
-              provesTask: null,
-              reaches: null,
-              updatedAt: currentTime(),
-            }
+      /**
+       * **Refusing empties the row, because the table will not hold it
+       * otherwise.** `provider_recipes_unjoinable_is_empty` refuses steps or a
+       * proof on anything that is not joinable, so a fake that kept them would
+       * let a test pass against a row Postgres would reject.
+       */
+      rows[at] = {
+        ...found,
+        status: 'refused',
+        refusal: decision.refusal,
+        steps: [],
+        proves: null,
+        provesTask: null,
+        reaches: null,
+        updatedAt: currentTime(),
+      }
 
       return true
     },
 
-    // @mirrors packages/db/src/storage/provider-recipes.ts dressProviderRecipeDraft 31d86d4d
-    async dressDraft(kind, provider, wording) {
+    // @mirrors packages/db/src/storage/provider-recipes.ts dressProviderRecipe 1faf9547
+    async dressEntry(kind, provider, wording) {
       const at = rows.findIndex(
         (row) =>
           row.kind === kind &&
           row.provider.toLowerCase() === provider.toLowerCase() &&
-          row.status === 'draft',
+          row.status === 'measured',
       )
       const found = rows[at]
       if (found === undefined) return false
 
+      /** Writing the route is the publishing act since `#1032`, so the status moves here. */
       rows[at] = {
         ...found,
+        status: 'joinable',
         steps: [...wording.steps],
         proves: wording.proves,
         provesTask: wording.proves === 'rung' ? (wording.provesTask ?? null) : null,

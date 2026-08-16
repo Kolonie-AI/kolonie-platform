@@ -7,10 +7,8 @@ import {
   RECIPE_REFUSAL_MAX_LENGTH,
   RECIPE_STEP_MAX_LENGTH,
   isStale,
-  stepInstruction,
   walkedRecipeAsText,
   walkReportAnswers,
-  whyNotPublishable,
   type AccountWalk,
   type AtlasEntry,
   type EntryProposal,
@@ -297,30 +295,20 @@ export function staleEntriesSection(entries: readonly AtlasEntry[]): string {
 }
 
 /**
- * The entries no stranger can see, and what each is waiting on (`#604`).
- *
- * **Two states in one table, because they are one question to the person
- * reading this page**: *what is sitting here that nobody outside can see*. They
- * are waiting on different things and the column says which — a `draft` needs a
- * steward to read the steps, a `proposed` entry needs somebody to decide whether
- * the provider belongs on the map at all.
- *
- * This is the only surface either state appears on. `recipeStatusIsPublic` is
- * what keeps them off the rest, and `providerRecipeList` defaults to public — so
- * an entry arrives here by nothing having published it, rather than by anything
- * having routed it here.
- */
-/**
- * The walker's own account of the provider, beside the draft it produced (`#857`).
+ * The walker's own account of the provider, beside the entry it produced
+ * (`#857`, narrowed by `#1032`).
  *
  * **Source material and never the recipe.** `#517` reserves the published
  * sentence to the Colony and `walkedRecipeAsText` says so in its own banner; a
- * steward writing the wording is reading a report, exactly as they would read a
- * `provider-report` reason. Until now this column was the only thing on the
- * screen and the account was stored where nobody looked — which is how a steward
- * came to be asked for a sentence with the material for it one table away.
+ * curator writing the route is reading a report, exactly as they would read a
+ * walk's own four questions.
  *
- * Folded shut, because most drafts do not need it open to be judged.
+ * **It is the older half of the record now.** A walk no longer copies the route
+ * it took onto the entry: `#1032` stopped that write, and what a walk has to say
+ * about a provider is published in that provider's briefing under the walker's
+ * own name instead. So this column holds what earlier walks left behind and is
+ * empty for everything walked since — worth keeping while those rows are, worth
+ * nothing once they are gone. Folded shut either way.
  */
 function walkersAccount(entry: ProviderRecipe): string {
   if (entry.walkedRecipe === null) return ''
@@ -332,43 +320,52 @@ function walkersAccount(entry: ProviderRecipe): string {
 }
 
 /**
- * Where a steward writes the sentences a walk could not record (`#857`).
+ * How many blank steps the form offers. The route stops reading at the first row
+ * with neither an actor nor a sentence, so a provider needing fewer leaves the
+ * rest blank and a provider needing more is the argument for raising this.
+ */
+const ROUTE_FORM_STEPS = 6
+
+/**
+ * Where a curator writes the route the Colony publishes (`#857`, rewritten by
+ * `#1032`).
  *
- * **The third thing to do with a held draft.** A walk arrives wordless on
- * purpose, so `whyNotPublishable` holds it and the screen offered a Publish
- * button that would not fire beside a Refuse button that empties the row.
- * A draft could be discarded or left, and there was no way to finish it.
+ * **It used to describe a shape and now it writes one.** `#857` asked for
+ * sentences only, one per step a walk had observed, and let no field here change
+ * `actor` or an order: that shape was the Colony's record of what happened, and
+ * a form that retyped it would have been editing the record rather than
+ * describing it. `#1032` took the walk's record out of the entry altogether — a
+ * `measured` entry carries no steps at all, and the table refuses them on one —
+ * so there is no observed shape left to protect and the whole route is typed
+ * here at once.
  *
- * **The shape is fixed and only the words are asked for.** No field here can
- * change `actor`, an order or a recorded ask: those are what the Colony saw
- * happen, and a form that let them be retyped would be editing the record rather
- * than describing it. An ask is asked for exactly where an operator step has
- * none, and never on a step the agent takes alone.
+ * **That is the sharper reading of `#517` rather than a looser one.** What an
+ * entry publishes is the Colony's own route, written by whoever puts their name
+ * to it, not a transcription of one agent's afternoon. What the walkers found
+ * travels separately and in their own words, in the provider's briefing, and a
+ * walk that disagrees with this route is a divergence the Atlas already raises.
  *
- * It posts to the same publish route, so dressing and publishing are one press.
+ * Writing the route is the whole of publishing it, so this posts straight at it.
  */
 function wordingForm(entry: ProviderRecipe, route: string): string {
-  if (entry.steps.length === 0) return ''
-
-  const fields = entry.steps
-    .map((step, at) => {
-      const asked =
-        step.actor === 'operator' && step.ask === undefined
-          ? `<input type="text" name="ask-${String(at)}" ` +
-            `maxlength="${String(RECIPE_STEP_MAX_LENGTH)}" required ` +
-            'placeholder="the sentence the operator is shown" />'
-          : ''
-
-      return (
-        `<label><small>${String(at + 1)}. ${escape(step.actor)}</small>` +
-        `<input type="text" name="instruction-${String(at)}" ` +
-        `maxlength="${String(RECIPE_STEP_MAX_LENGTH)}" required ` +
-        `value="${escape(step.instruction ?? '')}" ` +
-        'placeholder="what this step does, in the Colony’s words" />' +
-        `${asked}</label>`
-      )
-    })
-    .join('')
+  const fields = Array.from(
+    { length: ROUTE_FORM_STEPS },
+    (_, at) =>
+      `<fieldset><legend><small>Step ${String(at + 1)}</small></legend>` +
+      `<label><small>Who acts</small><select name="actor-${String(at)}">` +
+      '<option value="">— no step —</option>' +
+      '<option value="agent">agent</option>' +
+      '<option value="operator">operator</option></select></label>' +
+      `<label><small>What this step does, in the Colony’s words</small>` +
+      `<input type="text" name="instruction-${String(at)}" ` +
+      `maxlength="${String(RECIPE_STEP_MAX_LENGTH)}" /></label>` +
+      '<label><small>On an operator step: the sentence the operator is shown</small>' +
+      `<input type="text" name="ask-${String(at)}" ` +
+      `maxlength="${String(RECIPE_STEP_MAX_LENGTH)}" /></label>` +
+      '<label><small>What comes back is a secret</small>' +
+      `<input type="checkbox" name="secret-${String(at)}" value="yes" /></label>` +
+      '</fieldset>',
+  ).join('')
 
   const proves = AccountProofMethodSchema.options
     .map(
@@ -379,8 +376,8 @@ function wordingForm(entry: ProviderRecipe, route: string): string {
     .join('')
 
   return (
-    `<details><summary>Write the wording</summary>` +
-    `<form method="post" action="/backend/atlas/drafts/${route}/publish">` +
+    `<details><summary>Write the route</summary>` +
+    `<form method="post" action="/backend/atlas/walked/${route}/publish">` +
     fields +
     `<label><small>Proof</small><select name="proves">${proves}</select></label>` +
     '<label><small>Rung, for a proof the Colony checks itself</small>' +
@@ -390,6 +387,28 @@ function wordingForm(entry: ProviderRecipe, route: string): string {
   )
 }
 
+/**
+ * The entries no stranger can see, and what each is waiting on (`#604`,
+ * rewritten by `#1032`).
+ *
+ * **Two states in one table, because they are one question to the person
+ * reading this page**: *what is sitting here that nobody outside can see*. They
+ * are waiting on different things and the column says which — a `measured` entry
+ * has been walked and carries no route the Colony stands behind, an `unwritten`
+ * one is a name on the map and nothing more.
+ *
+ * **Nothing on this page is a queue any more.** It was: a walk wrote a `draft`,
+ * the draft sat here until a steward read it, and until one did, what that
+ * walker measured was invisible to every citizen. A walk publishes itself now,
+ * into the provider's computed briefing, so what waits here is only the Colony's
+ * own route — and nobody is blocked on it. An empty table means every walked
+ * provider also has a route, not that a backlog was cleared.
+ *
+ * This is the only surface either state appears on. `recipeStatusIsPublic` is
+ * what keeps them off the rest, and `providerRecipeList` defaults to public — so
+ * an entry arrives here by nothing having published it, rather than by anything
+ * having routed it here.
+ */
 function unpublishedSection(entries: readonly ProviderRecipe[]): string {
   if (entries.length === 0) {
     return '<p class="note">Nothing is waiting. Every entry in the catalogue is published.</p>'
@@ -397,10 +416,10 @@ function unpublishedSection(entries: readonly ProviderRecipe[]): string {
 
   const rows = entries
     .map((entry) => {
-      if (entry.status !== 'draft') {
+      if (entry.status !== 'measured') {
         return (
           `<tr><td>${escape(entry.provider)}</td><td>${escape(entry.kind)}</td>` +
-          '<td>proposed — waiting on whether it belongs on the map</td>' +
+          '<td>unwritten — a name on the map, and nobody has walked it</td>' +
           `<td>${escape(relative(entry.updatedAt))}</td><td></td></tr>`
         )
       }
@@ -408,38 +427,25 @@ function unpublishedSection(entries: readonly ProviderRecipe[]): string {
       const route = `${escape(encodeURIComponent(entry.kind))}/${escape(
         encodeURIComponent(entry.provider),
       )}`
-      const steps = entry.steps
-        .map(
-          (step, at) =>
-            `<li><strong>${String(at + 1)}. ${escape(step.actor)}</strong> — ` +
-            `${escape(step.instruction === undefined ? 'no instruction written' : stepInstruction(step))}` +
-            (step.ask === undefined ? '' : `<br><small>Ask: ${escape(step.ask)}</small>`) +
-            '</li>',
-        )
-        .join('')
-      const proof =
-        entry.proves === null
-          ? 'no proof method named'
-          : entry.proves === 'rung'
-            ? `${escape(entry.proves)}${
-                entry.provesTask === null ? ', no rung named' : ` — ${escape(entry.provesTask)}`
-              }`
-            : escape(entry.proves)
-      const missing = whyNotPublishable(entry)
 
+      /**
+       * **A measured entry has no steps, and that is its state rather than a gap
+       * in it** (`#1032`). There is nothing to render in this column and nothing
+       * to check with `whyNotPublishable` — what the walkers measured is under
+       * this provider in the public catalogue already, counted and attributed,
+       * and what is missing is the Colony's own route, which the form writes.
+       */
       return (
         `<tr><td>${escape(entry.provider)}</td><td>${escape(entry.kind)}</td>` +
         '<td>' +
-        `<ol>${steps}</ol><small>Proof: ${proof}. Shelf: ${escape(entry.category)}.</small>` +
+        '<small>Walked, with no route published. What the walkers measured is under this ' +
+        `provider in the catalogue. Shelf: ${escape(entry.category)}.</small>` +
         walkersAccount(entry) +
         '</td>' +
         `<td>${escape(relative(entry.updatedAt))}</td>` +
         '<td>' +
-        (missing === undefined
-          ? `<form method="post" action="/backend/atlas/drafts/${route}/publish">` +
-            '<button type="submit">Publish</button></form>'
-          : `<small>Cannot publish yet: ${escape(missing)}</small>` + wordingForm(entry, route)) +
-        `<form method="post" action="/backend/atlas/drafts/${route}/refuse">` +
+        wordingForm(entry, route) +
+        `<form method="post" action="/backend/atlas/walked/${route}/refuse">` +
         `<input type="text" name="reason" maxlength="${String(RECIPE_REFUSAL_MAX_LENGTH)}" ` +
         'placeholder="why this route cannot be published" required />' +
         '<button type="submit">Refuse</button></form>' +

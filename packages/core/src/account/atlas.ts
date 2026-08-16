@@ -16,7 +16,6 @@ import {
   RecipeStatusSchema,
   isStale,
   operatorStepCount,
-  recipeStatusIsOfferable,
   type ProviderRecipe,
 } from './recipe.js'
 import type { RecipeCaution, RecipeOperatorNeed, RecipeStatus } from './recipe.js'
@@ -284,8 +283,8 @@ export const AtlasEntrySchema = z.object({
   /**
    * The citizens whose walk became this entry, by handle (`#960`).
    *
-   * **Deeds and never verdicts.** A handle reaches this list by having *proposed*
-   * an entry here — the walk that carried a draft to the steward. A walk that
+   * **Deeds and never verdicts.** A handle reaches this list by having *written*
+   * an entry here — the walk whose verdict produced the row. A walk that
    * found the provider closed writes its wall onto the entry and is stamped with
    * no proposal, so a citizen is structurally incapable of appearing here as the
    * one a provider turned down. That is the same line `accounts.providers` holds
@@ -514,8 +513,8 @@ export function atlasEntries(
 /**
  * What the Atlas knows about a provider somebody is about to walk (`#936`).
  *
- * **Three states and not seven, because three is what a reader can act on.**
- * `RecipeStatus` has seven values and they answer a curator's question — where
+ * **Three states and not five, because three is what a reader can act on.**
+ * `RecipeStatus` has five values and they answer a curator's question — where
  * is this entry in its life. Somebody opening an acquisition has one question
  * instead: is there a path written down, is this provider known to be closed, or
  * is nobody here before me. Every status folds into one of those three.
@@ -527,19 +526,20 @@ export function atlasEntries(
  */
 export type AtlasState =
   | {
+      /**
+       * **Only a `joinable` entry reaches this arm** (`#1032`).
+       *
+       * It used to carry a `reviewed` flag, false wherever a walk had written
+       * steps nobody had confirmed, and a surface rendering those steps had to
+       * caveat them. `#1032` removed the status that produced them: a walk no
+       * longer writes a route, so the only steps in the catalogue are the ones
+       * the Colony authored and stands behind. The route a citizen actually took
+       * is published in the provider's briefing instead, under its own author.
+       */
       readonly state: 'walked'
       readonly provider: string
       readonly kind: string
       readonly title: string
-      /**
-       * Whether a steward has stood behind these steps.
-       *
-       * False on a `draft`, which carries steps somebody walked and nobody
-       * reviewed. They are still worth showing — they are the only account of
-       * the path that exists — and the caveat is what stops them being read as
-       * the Colony's own instruction, which is `#604`'s rule on every surface.
-       */
-      readonly reviewed: boolean
       readonly steps: readonly string[]
       readonly operatorSteps: number
     }
@@ -604,7 +604,6 @@ export function atlasStateOf(
     provider: at,
     kind: row.kind,
     title: row.title,
-    reviewed: recipeStatusIsOfferable(row.status),
     steps: row.steps.map((step) => stepInstruction(step)),
     operatorSteps: operatorStepCount(row.steps).total,
   }
@@ -633,30 +632,27 @@ export function atlasStateOf(
  * questions and the answers point in different directions; a test asserts each,
  * because the natural instinct on reading one is to make the other match it.
  *
- * `#604`'s two visible states slot in by the same rule. `draft` is a finding —
- * somebody walked it — so it sits under `joinable`. `retired` is a finding too,
- * and sits under `refused`: both say the road is not open, and a reader learns
- * more from *there is no honest route* than from *the Colony withdrew this*.
+ * `retired` is a finding too, and sits under `refused`: both say the road is not
+ * open, and a reader learns more from *there is no honest route* than from *the
+ * Colony withdrew this*.
  *
- * **`proposed` never reaches here.** Nothing public reads a proposed row — see
- * `recipeStatusIsPublic` — and if every row of a provider is proposed the
- * provider is not on the Atlas at all, so there is nothing to roll up. The
- * fallback below is `unwritten` rather than `proposed` for that reason: an empty
- * rollup means *on the map, nobody has looked*.
+ * **Every status reaches here since `#1032`**, which removed the two a reader
+ * could not see. The fallback below is `unwritten` because an empty rollup means
+ * *on the map, nobody has looked* — it is no longer standing in for a hidden
+ * state, because there is not one.
  *
  * Exported because `#591`'s browsing surface and the website's index group by it,
  * and a second implementation of this ordering is a second answer to it.
  */
 export function atlasEntryStatus(rows: readonly { readonly status: RecipeStatus }[]): RecipeStatus {
   /**
-   * **`measured` sits under `draft` and above `unwritten`** (`#903`, and
+   * **`measured` sits under `joinable` and above `unwritten`** (`#903`, and
    * measured in production on 2026-08-14, where its absence from this list made
    * all seventeen measured entries report themselves as `unwritten`).
    *
-   * Under `draft`, because a draft is a walk: somebody went and wrote down what
-   * they did, and this is only *citizens have been through here*. Above
-   * `unwritten`, for the reason the whole status exists — evidence beats a
-   * provider somebody shelved.
+   * Under `joinable`, because that is a route the Colony stands behind and this
+   * is only *citizens have been through here*. Above `unwritten`, for the reason
+   * the whole status exists — evidence beats a provider somebody shelved.
    *
    * **The bug this fixes is the shape the fallback invites.** The list is
    * exhaustive over the public statuses and the `?? 'unwritten'` behind it is
@@ -666,14 +662,7 @@ export function atlasEntryStatus(rows: readonly { readonly status: RecipeStatus 
    * `atlas-provenance.test.ts` now asserts the list covers every one of them so
    * the next addition cannot repeat this.
    */
-  const order: readonly RecipeStatus[] = [
-    'joinable',
-    'draft',
-    'measured',
-    'refused',
-    'retired',
-    'unwritten',
-  ]
+  const order: readonly RecipeStatus[] = ['joinable', 'measured', 'refused', 'retired', 'unwritten']
 
   return order.find((status) => rows.some((row) => row.status === status)) ?? 'unwritten'
 }
@@ -1011,33 +1000,46 @@ export function figureKey(kind: string, provider: string): string {
  * **It reverses itself.** The moment a walk lands the row stops being
  * unwritten, and the sitemap and the meta follow on the next render with
  * nothing to remember or re-trigger.
+ *
+ * **`measured` counts as walked since `#1032`, and it has to.** It used to mean
+ * *figures without a route*, which was a real third thing: nobody had walked it
+ * and the numbers came from somewhere else. It now means *a walk closed here* —
+ * `finishWalk` writes exactly this status, and the route the walker took is
+ * published in the computed briefing rather than copied onto the row. Excluding
+ * it would have kept every walked provider out of the sitemap and asked its page
+ * not to be indexed, which is the precise inverse of what `#790` set out to do:
+ * the placeholders would have stayed the only thing left to exclude, and the
+ * findings would have gone with them.
+ *
+ * So the rule is one status wide now — `unwritten` is the placeholder, and the
+ * other four are all somebody having been here.
  */
 export function atlasIsWalked(entry: {
   readonly recipes: readonly { readonly status: RecipeStatus }[]
 }): boolean {
-  return entry.recipes.some(
-    (recipe) => recipe.status !== 'unwritten' && recipe.status !== 'measured',
-  )
+  return entry.recipes.some((recipe) => recipe.status !== 'unwritten')
 }
 
 /**
  * Whether anything on this shelf rests on evidence (`#905`).
  *
  * **The question `atlasIsWalked` cannot answer, and the reason it cannot is the
- * point.** A measured row is not walked — nobody has written the route — and it
- * is not a placeholder either, because citizens have been through it. Reading
- * *walked* as *has evidence* is what let a shelf of three unwalked entries
- * present itself as ranked.
+ * point.** Reading *walked* as *has evidence* is what let a shelf of three
+ * unwalked entries present itself as ranked.
  *
  * Evidence is any of three things: somebody walked an entry, a citizen proved an
  * account at it, or a citizen reported being stopped by it. What it is not is an
  * entry sitting on the shelf because somebody thought an agent might want one.
+ *
+ * **The `measured` arm is gone from here because `atlasIsWalked` absorbed it**
+ * (`#1032`): that status is now what a closed walk writes, so it is caught by
+ * the first arm and naming it again would only suggest the two disagree. What
+ * remains is the arm that genuinely differs — an `unwritten` row that citizens
+ * have attempted and never got an account at is evidence, and is not walked.
  */
 export function atlasShelfHasEvidence(entries: readonly AtlasEntry[]): boolean {
   return entries.some(
-    (entry) =>
-      atlasIsWalked(entry) ||
-      entry.recipes.some((recipe) => recipe.status === 'measured' || recipe.figures.attempted > 0),
+    (entry) => atlasIsWalked(entry) || entry.recipes.some((recipe) => recipe.figures.attempted > 0),
   )
 }
 

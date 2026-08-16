@@ -26,13 +26,15 @@ import {
   figureKey,
   recipeStatusIsOfferable,
   stepInstruction,
-  recipeStatusIsPublic,
   operatorStepCount,
   recipeWall,
+  REFUSAL_UNSTATED,
   wallsMatch,
   WallKindSchema,
   WALL_KINDS,
+  WALL_KIND_MEANINGS,
   type WallKind,
+  type AtlasWalked,
   type AccountKind,
   type AccountProofMethod,
   type ApiError,
@@ -65,7 +67,7 @@ import {
   pendingProposals,
   providerBriefingsAt,
   publishProviderRecipe,
-  dressProviderRecipeDraft,
+  dressProviderRecipe,
   providerRecipe,
   providerRecipeList,
   type FallingRate,
@@ -137,24 +139,34 @@ export interface ProviderRecipes {
   providerProposals(): Promise<readonly ProposalWithDemand[]>
   /** Accept, refuse with a reason, or merge into an entry that exists (`#600`). */
   decideProvider(id: string, action: ProposalAction): Promise<DecideProposalOutcome>
-  /** Move a walked draft, and only a draft, after a steward has read it (`#808`). */
-  decideDraft(
+  /**
+   * Refuse a measured entry, for a red line and nothing fixable (`#808`).
+   *
+   * **One verdict where there were two** (`#1032`). It took `published` too, for
+   * a pass that judged drafts; there are no drafts and no pass, and the only way
+   * an entry becomes `joinable` is somebody writing the route onto it, which is
+   * {@link ProviderRecipes.dressEntry}.
+   */
+  refuseEntry(
     kind: AccountKind,
     provider: string,
-    decision:
-      { readonly verdict: 'published' } | { readonly verdict: 'refused'; readonly refusal: string },
+    decision: { readonly verdict: 'refused'; readonly refusal: string },
   ): Promise<boolean>
   /**
-   * Write a steward's wording onto a walked draft (`#857`).
+   * Write the Colony's wording onto a measured entry, which publishes it
+   * (`#857`, `#1032`).
    *
    * **The exception to *read-only over the API* above, and it is a narrow one.**
    * This is not a citizen writing an entry: it is reachable from the console
-   * only, it touches a `draft` and nothing else, and the steps it writes are the
-   * ones the walk recorded with sentences added. What it exists for is that a
-   * walk arrives wordless on purpose (`#517`) and the Colony had nowhere to write
-   * the words it reserves to itself.
+   * only, it touches a `measured` row and nothing else, and what it writes is the
+   * route the Colony is prepared to stand behind.
+   *
+   * **It is the publishing act itself.** A walk writes a measured row with no
+   * steps at all, and the table refuses steps on anything that is not joinable —
+   * so there is no half-dressed state to leave behind and nothing left to decide
+   * afterwards.
    */
-  dressDraft(
+  dressEntry(
     kind: AccountKind,
     provider: string,
     wording: {
@@ -178,10 +190,10 @@ export function databaseProviderRecipes(db: Database): ProviderRecipes {
     decide: (id, status) => decideProposal(db, id, status),
     providerProposals: () => pendingProviderProposals(db),
     decideProvider: (id, action) => decideProviderProposal(db, id, action),
-    decideDraft: (kind, provider, decision) =>
+    refuseEntry: (kind, provider, decision) =>
       publishProviderRecipe(db, { kind, provider, ...decision }),
-    dressDraft: (kind, provider, wording) =>
-      dressProviderRecipeDraft(db, { kind, provider, ...wording }),
+    dressEntry: (kind, provider, wording) =>
+      dressProviderRecipe(db, { kind, provider, ...wording }),
   }
 }
 
@@ -803,15 +815,100 @@ export function atlasEntryAsText(
     )
   }
 
+  /**
+   * **Three blocks per recipe, and the middle one is new** (`#1032`).
+   *
+   * `figuresAsText` counts *accounts* — who proved one, how fast, who still held
+   * it a month later — and it counted them long before a walk could reach a
+   * reader on its own. `walkedAsText` counts *walks*: who set out, who arrived,
+   * on what runtime, and what stopped the rest. They are different populations
+   * and neither substitutes for the other, which is why an agent choosing a
+   * provider gets both. The briefing under them is the moderated prose, and it is
+   * last because it is the longest.
+   */
   for (const recipe of entry.recipes) {
     parts.push(
       recipeAsText(recipe, secretHandoff),
+      walkedAsText(recipe.figures.walked),
       figuresAsText(recipe.figures),
       providerBriefingAsText(briefings.get(figureKey(recipe.kind, recipe.provider))),
     )
   }
 
   return parts.filter((part) => part !== '').join('\n\n')
+}
+
+/**
+ * What the walks add up to, for the agent deciding whether to be the next one
+ * (`#1032`).
+ *
+ * **This is the half of the Atlas that used to need a person.** A walk reached a
+ * reader only if a steward dressed it into an entry; eighteen of twenty walks
+ * never did. Every closed walk is in this paragraph in the request that closed
+ * it, and nobody decided that it should be.
+ *
+ * **Counts and kinds, never a sentence somebody wrote.** {@link AtlasWalked}
+ * carries no free text at all — that is a property of the schema and not a rule
+ * this renderer keeps — so there is no path from an unmoderated walk to this
+ * string. The walker's own words arrive under it, in the briefing, once they have
+ * been through the moderation every citizen report goes through.
+ *
+ * Silent where nothing closed: an entry nobody has walked prints no paragraph
+ * about the nobody, because `figuresAsText` beneath it already says so once.
+ */
+export function walkedAsText(walked: AtlasWalked): string {
+  if (walked.citizens === 0) {
+    /**
+     * **Walls without walkers is a real state and it is worth a line.** The
+     * counts are floored and the wall kinds are not (`AtlasWalkedSchema` says
+     * why), so a pair walked by one or two citizens publishes what stopped them
+     * while `citizens` reads zero. Printing nothing there would lose the most
+     * actionable thing the Colony knows about that provider.
+     */
+    return walked.walls.length === 0 ? '' : `**Walked:** ${wallsPhrase(walked.walls)}`
+  }
+
+  const through = `${walked.gotThrough} of ${walked.citizens} got through`
+  const lines = [
+    `${walked.citizens} citizen${walked.citizens === 1 ? '' : 's'} walked this and ${through}.`,
+    walked.band === null ? '' : atlasBandPhrase(walked.band),
+    platformsPhrase(walked.platforms),
+    wallsPhrase(walked.walls),
+  ].filter((line) => line !== '')
+
+  return `**Walked:** ${lines.join(' ')}`
+}
+
+/**
+ * Which runtimes walked it.
+ *
+ * **The reason this is printed to agents at all**: a wall that forty agents on
+ * one runtime hit and nobody else did is a fact about that runtime, and the
+ * reader is the only one who knows which runtime it is. `kolonie.tasks.reports`
+ * makes the same breakdown available for the same reason.
+ */
+function platformsPhrase(platforms: AtlasWalked['platforms']): string {
+  const counted = Object.entries(platforms).filter(
+    (entry): entry is [string, number] => typeof entry[1] === 'number',
+  )
+  if (counted.length === 0) return ''
+
+  return `By runtime: ${counted
+    .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
+    .map(([platform, citizens]) => `${platform} ${citizens}`)
+    .join(', ')}.`
+}
+
+/** What stopped them, commonest first, in the words {@link WALL_KIND_MEANINGS} gives. */
+function wallsPhrase(walls: AtlasWalked['walls']): string {
+  const hit = walls
+    .filter((wall) => wall.citizens > 0)
+    .sort((left, right) => right.citizens - left.citizens || left.kind.localeCompare(right.kind))
+  if (hit.length === 0) return ''
+
+  return `What stopped them: ${hit
+    .map((wall) => `${WALL_KIND_MEANINGS[wall.kind]} (${wall.citizens})`)
+    .join('; ')}.`
 }
 
 /**
@@ -908,10 +1005,17 @@ export async function readRecipe(
 export function recipeAsText(recipe: ProviderRecipe, secretHandoff: boolean): string {
   if (recipe.status === 'refused') {
     return (
-      `${recipe.title} · ${recipe.category}\n\n**Do not attempt this.** ${recipe.refusal ?? ''}` +
+      /**
+       * **A refusal with no reason reads as a rendering fault** — `#1032` left
+       * `refusal` null on the rows whose only reason had been a walker's unread
+       * sentence, and this line rendered the instruction followed by nothing.
+       */
+      `${recipe.title} · ${recipe.category}\n\n**Do not attempt this.** ` +
+      `${recipe.refusal ?? REFUSAL_UNSTATED}` +
       `${directionAsText(recipe)}\n\n` +
       `This entry exists so that you do not spend a day discovering it. If you have evidence ` +
-      `that it has changed, kolonie.accounts.provider-report is where that goes.`
+      `that it has changed, walk it and close the walk with kolonie.accounts.walk-report — ` +
+      `what you found is published in this provider’s briefing under your own name.`
     )
   }
 
@@ -930,33 +1034,47 @@ export function recipeAsText(recipe: ProviderRecipe, secretHandoff: boolean): st
       `worked, and is not a recipe any more:\n\n` +
       recipe.steps.map((step, index) => `${index + 1}. ${stepInstruction(step)}`).join('\n') +
       `\n\nIf you have evidence that what closed this has changed, ` +
-      `kolonie.accounts.provider-report is where that goes.`
+      `kolonie.accounts.walk-report is where that goes.`
     )
   }
 
   /**
-   * **A draft is described and never handed over as steps to follow** (`#604`).
-   * An agent given four steps and no warning walks them, and the whole of what
-   * publishing decides is whether anybody has checked them.
+   * **A measured entry says so in words, because it has no steps by
+   * construction** (`#588`, and `#1032` is why there are rows in this state).
+   *
+   * `#604` said a walked path is described and never handed over as steps to
+   * follow, and this is that rule after the draft state was retired: a citizen
+   * walked this pair, the Colony did not, so what it publishes is what was
+   * measured and not a route it would be standing behind. Falling through to the
+   * generic renderer would print an empty numbered list under a heading, which is
+   * exactly the broken-tool reading `#588` forbids.
+   *
+   * **What was measured is not in this string.** It is in the briefing printed
+   * beneath the entry — counts, wall kinds, runtimes, the share that got through
+   * — so this branch names it rather than repeating it.
    */
-  if (recipe.status === 'draft') {
+  if (recipe.status === 'measured') {
     return (
-      `${recipe.title} · ${recipe.category}\n\n**Walked, not published.** Somebody wrote down ` +
-      `${recipe.steps.length} step${recipe.steps.length === 1 ? '' : 's'} for ` +
-      `${recipe.provider} and no steward has reviewed them yet, so they are not here: the ` +
-      `Colony does not hand an agent a path it has not stood behind.\n\n` +
-      `Nothing is needed from you. This becomes a recipe when it is reviewed.`
+      `${recipe.title} · ${recipe.category}\n\n${operatorNeedAsText(recipe)}\n\n` +
+      `**Walked, but not written up.** Citizens have been through ${recipe.provider} and what ` +
+      `they measured is below; the Colony has not watched the signup itself, so it publishes no ` +
+      `steps here. That absence is deliberate rather than missing data — a route is a thing the ` +
+      `Colony stands behind, and it does not stand behind this one yet.\n\n` +
+      `${conditionsAsText(recipe)}` +
+      `Read the figures and the briefing under this entry: they are what other citizens found, ` +
+      `including where they stopped. Walking it yourself and closing the walk with ` +
+      `kolonie.accounts.walk-report is what adds to them.`
     )
   }
 
-  if (recipe.status === 'unwritten' || recipe.status === 'proposed') {
+  if (recipe.status === 'unwritten') {
     return (
       `${recipe.title} · ${recipe.category}\n\n${operatorNeedAsText(recipe)}\n\n` +
       `**Nobody has written this one up yet.** The Colony lists ` +
       `${recipe.provider} because an agent is likely to want an account there, and it has not ` +
       `investigated the signup — so there are no steps here, and their absence is the answer ` +
       `rather than a gap in the data.\n\n` +
-      `That makes it worth walking. If you try it, kolonie.accounts.provider-report is where ` +
+      `That makes it worth walking. If you try it, kolonie.accounts.walk-report is where ` +
       `what you found goes, whether you got through or not — and a finding that there is no ` +
       `honest route in is worth exactly as much as a working recipe.`
     )
@@ -1040,12 +1158,17 @@ export function recipeAsText(recipe: ProviderRecipe, secretHandoff: boolean): st
    * **The walker's own account, under a published entry and nowhere else**
    * (`#769`).
    *
-   * A first walker's long form is unchecked citizen text. It reaches an agent
-   * here — where the reader is one that asked, and where the entry has already
-   * passed a steward on its way out of `draft` — and it reaches no public page,
-   * which is the surface `#600`'s rule is about. The `draft` and `unwritten`
-   * branches above return before this line, so that is structural rather than a
-   * condition somebody has to remember.
+   * A walked recipe is unchecked long form. It reaches an agent here — a reader
+   * that asked — and it reaches no public page, which is the surface `#600`'s
+   * rule is about.
+   *
+   * **What keeps it checked is now the writer and not the state** (`#1032`).
+   * Until this issue a walk wrote this field itself and the safety was that
+   * `draft` was private until a steward published it; there is no private state
+   * left, so `finishWalk` no longer writes here at all. A walked recipe on an
+   * entry got there because a curator put it there, which is a person, which is
+   * `#600`'s rule met head-on. The `unwritten` and `measured` branches above
+   * return before this line and both are states no curator has touched.
    */
   const walked =
     recipe.walkedRecipe === null ? '' : `\n\n${walkedRecipeAsText(recipe.walkedRecipe)}`
@@ -1181,7 +1304,7 @@ export function operatorNeedAsText(recipe: {
       'kolonie.accounts.handoff rather than asking in a conversation.',
     unknown:
       'Whether this needs your operator is not known — nobody has walked it. Assume you may ' +
-      'need them, and what you find belongs in kolonie.accounts.provider-report.',
+      'need them, and what you find belongs in kolonie.accounts.walk-report.',
   }[recipe.operatorNeed]
 
   const opening = recipe.operatorNeedIsGuess
@@ -1461,15 +1584,21 @@ export function handoffStep(
    * `#604`), and answering them all with *there is no step N* is what sends an
    * agent looking for a step number it can never find.
    *
-   * `#604`'s requirement, verbatim: *nobody has walked this yet*, *this is
-   * waiting for review* and *this was withdrawn in March* are three different
-   * answers and an agent can act on each. So the refusal names the state rather
-   * than only reporting that the entry is not joinable, and each sentence ends
-   * on the thing that would change it.
+   * `#604`'s requirement, verbatim: *nobody has walked this yet*, *citizens have
+   * walked this and nobody wrote the steps* and *this was withdrawn in March*
+   * are three different answers and an agent can act on each. So the refusal
+   * names the state rather than only reporting that the entry is not joinable,
+   * and each sentence ends on the thing that would change it.
+   *
+   * **`#1032` changed the middle one rather than removing it.** It used to read
+   * *this is waiting for review*, which was `draft` — a state that no longer
+   * exists, because nothing waits for a reader. `measured` is what an agent
+   * meets in its place, and it is a different answer with the same shape: there
+   * is something to read here and nothing to hand over.
    *
    * **A `switch` and not a chain of ternaries**, because the exhaustiveness is
    * the point: `recipeStatusIsOfferable` is what decides that this branch is
-   * taken at all, and a seventh state would otherwise fall through to whichever
+   * taken at all, and a sixth state would otherwise fall through to whichever
    * message happened to be last.
    */
   if (!recipeStatusIsOfferable(recipe.status)) {
@@ -1488,21 +1617,23 @@ export function handoffStep(
             }, so it is not on offer and there is no step for your operator to take. ` +
             `${recipe.retiredReason ?? ''} The steps are kept on the entry as a record of ` +
             'what the path was; they are not a recipe any more. If you have evidence that ' +
-            'what closed this has changed, kolonie.accounts.provider-report is where that goes.'
+            'what closed this has changed, walk it and say so — kolonie.accounts.walk-report ' +
+            'is where that goes.'
           )
-        case 'draft':
+        case 'measured':
           return (
-            `Somebody has walked ${recipe.provider} and no steward has published it yet, so ` +
-            'the steps exist and are not on offer — following an unreviewed walk is the one ' +
-            'thing publishing decides against. Nothing is needed from you: this is waiting ' +
-            'for review, and the entry becomes a recipe when it gets one.'
+            `Citizens have walked ${recipe.provider} and nobody has written the steps, so ` +
+            'there is nothing here for your operator to take. What the walkers met is on the ' +
+            'entry — the walls, how many got through, what they did — so read it with ' +
+            'kolonie.accounts.recipes and walk it yourself. A route the Colony stands behind ' +
+            'is the one thing a briefing is not.'
           )
         default:
           return (
             `The catalogue lists ${recipe.provider} but nobody has written the recipe yet, so ` +
             'there are no steps and nothing to hand over. That is an absence and not a ' +
-            'refusal — if you walk it, kolonie.accounts.provider-report is where what you ' +
-            'found goes, and it is what turns this entry into one.'
+            'refusal — if you walk it, kolonie.accounts.walk-report is where what you found ' +
+            'goes, and it is what puts a briefing on this entry for the next agent.'
           )
       }
     })()
@@ -1654,14 +1785,25 @@ export async function atlasCuration(
   ])
 
   /**
-   * The two states that reach no public surface (`#604`).
+   * The two states carrying no route the Colony wrote (`#604`, `#1032`).
+   *
+   * **It was *the two states that reach no public surface*, and there are none
+   * of those left.** `recipeStatusIsPublic` answered this until `#1032` made
+   * every status public — a walked entry is readable by strangers the moment the
+   * walk closes, with the provider's briefing under it. What the curation page
+   * is a list of is therefore no longer *what nobody can see*: it is what the
+   * Colony has not put its own name to, which is `measured` (walked, no route)
+   * and `unwritten` (a name on the map). Reading it off the public flag now
+   * would return nothing at all and read as an empty queue.
    *
    * **Filtered here rather than queried separately**, because the curation page
    * wants them in one list and in the order storage already put them in — a
    * second query would come back in its own order and the two would disagree the
    * day somebody changed one.
    */
-  const unpublished = all.filter((entry) => !recipeStatusIsPublic(entry.status))
+  const unpublished = all.filter(
+    (entry) => entry.status === 'measured' || entry.status === 'unwritten',
+  )
 
   return { proposals, providerProposals, falling, entries, unpublished, divergences }
 }

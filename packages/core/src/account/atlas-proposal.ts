@@ -161,7 +161,7 @@ export const WISH_ALSO_PROPOSED =
  * meaning of a call whose name is about something else.
  */
 export const ATLAS_ABSENCE_NEXT_MOVES =
-  'If you walk it, kolonie.accounts.provider-report is where what you found goes. If you have ' +
+  'If you walk it, kolonie.accounts.walk-report is where what you found goes. If you have ' +
   'not walked it and think it belongs on the map, kolonie.accounts.wishes puts it to the ' +
   'Colony — writing the wish is the proposal, and there is no second tool for making one.'
 

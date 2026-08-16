@@ -4,11 +4,15 @@ import {
   ATLAS_RETENTION_DAYS,
   AccountKindSchema,
   AccountProviderSchema,
+  type AgentPlatform,
+  AgentPlatformSchema,
   type AtlasAudience,
   type AtlasFigures,
   type AtlasStop,
+  type AtlasWalked,
   type ProviderReportOutcome,
   type RecipeDirection,
+  WallKindSchema,
   atlasBand,
   atlasCommonestStop,
 } from '@kolonie-ai/core'
@@ -138,6 +142,10 @@ export async function atlasFigures(
     stops: { outcome: string; citizens: number }[] | null
     reasons: string[] | null
     evidenced: boolean
+    walkers: string
+    walkers_through: string
+    walk_platforms: { platform: string; citizens: number }[] | null
+    walk_walls: { kind: string; citizens: number }[] | null
   }>(sql`
     with held as (
       select kind, provider, agent_id, proved, proved_at, created_at, status
@@ -157,8 +165,20 @@ export async function atlasFigures(
     -- not the surface the Atlas actually publishes, so a provider eight walkers
     -- had refused could read as one nobody had been to.
     walked as (
-      select kind, provider, agent_id, outcome, direction
+      -- The recipe and the walker's runtime ride along for the briefing (#1032).
+      -- The walls live inside the jsonb rather than in a column of their own, so
+      -- the kind counts below open it with jsonb_array_elements; joining the
+      -- register here rather than in each subquery keeps agents out of the
+      -- correlated selects, where #311's bare-column hazard lives.
+      select account_walks.kind as kind,
+             account_walks.provider as provider,
+             account_walks.agent_id as agent_id,
+             account_walks.outcome as outcome,
+             account_walks.direction as direction,
+             account_walks.recipe as recipe,
+             agents.platform as platform
         from account_walks
+        join agents on agents.id = account_walks.agent_id
        where account_walks.finished_at is not null
     ),
     -- Every provider anybody has been to, whatever direction they went in. The
@@ -241,7 +261,37 @@ export async function atlasFigures(
        -- is what this flag asks. Without this arm a provider every walker had
        -- been to and nobody had filed a verdict about would read as unevidenced.
        or exists (select 1 from walked w
-                where w.kind = p.kind and w.provider = p.provider)) as evidenced
+                where w.kind = p.kind and w.provider = p.provider)) as evidenced,
+      -- **The briefing** (#1032). Four aggregates over the walks, in the same
+      -- pass as everything above it for the reason the header gives: a walk
+      -- closing between two queries would put a citizen in one figure and not
+      -- the other, and nothing would catch it.
+      (select count(distinct w.agent_id)::text from walked w
+        where w.kind = p.kind and w.provider = p.provider and ${walkAnswers}) as walkers,
+      (select count(distinct w.agent_id)::text from walked w
+        where w.kind = p.kind and w.provider = p.provider
+          and w.outcome = 'proved' and ${walkAnswers}) as walkers_through,
+      (select coalesce(jsonb_agg(jsonb_build_object('platform', t.platform, 'citizens', t.citizens)
+                                 order by t.citizens desc, t.platform), '[]'::jsonb)
+         from (select w.platform as platform, count(distinct w.agent_id) as citizens
+                 from walked w
+                where w.kind = p.kind and w.provider = p.provider and ${walkAnswers}
+                group by w.platform) t) as walk_platforms,
+      -- A walk with no walls contributes no row, and a wall entry with no kind
+      -- is dropped rather than counted as 'other': the field is optional on a
+      -- WalkedRecipe, so an absent kind is a walker who did not say, which is
+      -- not the same claim as none of the above.
+      (select coalesce(jsonb_agg(jsonb_build_object('kind', t.kind, 'citizens', t.citizens)
+                                 order by t.citizens desc, t.kind), '[]'::jsonb)
+         from (select wall.kind as kind, count(distinct wall.agent_id) as citizens
+                 from (select w.agent_id as agent_id,
+                              jsonb_array_elements(w.recipe -> 'walls') ->> 'kind' as kind
+                         from walked w
+                        where w.kind = p.kind and w.provider = p.provider
+                          and jsonb_typeof(w.recipe -> 'walls') = 'array'
+                          and ${walkAnswers}) wall
+                where wall.kind is not null
+                group by wall.kind) t) as walk_walls
       from pairs p
      where ${only}
      order by p.kind, p.provider
@@ -322,8 +372,62 @@ export async function atlasFigures(
        * walking it rather than against listing it.
        */
       evidenced: row.evidenced,
+      walked: walkedOf(row, suppressed),
     }
   })
+}
+
+/**
+ * The walked block, floored where it is a count and not where it is not
+ * (`#1032`).
+ *
+ * **`citizens`, `gotThrough` and `platforms` are floored with everything else.**
+ * They are counts of people, and a runtime breakdown over two citizens is nearer
+ * to naming them than any other field in the row.
+ *
+ * **`band` and `walls` are not**, and each has its own reason. A band is
+ * `#792`'s rule already applied above to {@link AtlasFigures.band}: three words
+ * about the road, from which no arithmetic recovers a citizen. Wall kinds are a
+ * disclosure argument rather than a sample-size one — `republishWalls` puts a
+ * wall's *prose*, as its walker wrote it, onto the published entry with no floor
+ * at all, so a count against a nine-member enum is strictly less than what the
+ * Colony already says out loud.
+ *
+ * **Measured 2026-08-15 this is what decides whether the feature exists.** Every
+ * walked pair in production is under {@link ATLAS_FIGURE_FLOOR} — twenty walks
+ * by seven citizens, spread across their providers — so flooring the whole block
+ * would ship a briefing that reads as zeros for every provider anybody has
+ * actually been to.
+ */
+function walkedOf(
+  row: {
+    walkers: string
+    walkers_through: string
+    walk_platforms: { platform: string; citizens: number }[] | null
+    walk_walls: { kind: string; citizens: number }[] | null
+  },
+  suppressed: boolean,
+): AtlasWalked {
+  const citizens = Number(row.walkers)
+  const gotThrough = Number(row.walkers_through)
+
+  const platforms: Partial<Record<AgentPlatform, number>> = {}
+  if (!suppressed) {
+    for (const one of row.walk_platforms ?? []) {
+      platforms[AgentPlatformSchema.parse(one.platform)] = Number(one.citizens)
+    }
+  }
+
+  return {
+    citizens: suppressed ? 0 : citizens,
+    gotThrough: suppressed ? 0 : gotThrough,
+    band: citizens === 0 ? null : atlasBand({ attempted: citizens, proved: gotThrough }),
+    platforms,
+    walls: (row.walk_walls ?? []).map((wall) => ({
+      kind: WallKindSchema.parse(wall.kind),
+      citizens: Number(wall.citizens),
+    })),
+  }
 }
 
 function stopsOf(stops: { outcome: string; citizens: number }[] | null): AtlasStop[] {

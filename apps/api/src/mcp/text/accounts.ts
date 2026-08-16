@@ -90,12 +90,27 @@ export function accountsAsText(
   const walkLines = (kind: string): readonly string[] =>
     latestWalks
       .filter((walk) => walk.kind === kind)
+      /**
+       * **Nothing here is waiting on anybody any more** (`#1032`). This line
+       * used to hand a `draft` walk a walk id and tell it to poll for a steward.
+       * A closed walk is published in its provider's briefing in the request
+       * that closed it, so the line that follows it says where to read what it
+       * found rather than when somebody might get to it.
+       */
       .map(
         (walk) =>
           `  latest walk at ${walk.provider}: ${walk.status}` +
-          (walk.status === 'draft'
-            ? ` — waiting for a steward; poll kolonie.accounts.walk-status with ${walk.walkId}`
-            : ''),
+          (walk.status === 'published'
+            ? ` — in this provider’s briefing; read it with kolonie.accounts.recipes`
+            : '') +
+          /**
+           * **The id stays, for the reason `#799` gave one line above.** What it
+           * is for changed — it was what a citizen polled with while a steward
+           * decided, and it is now what reads back what the walk wrote and what
+           * corrects the account of it — but both of those are calls that take
+           * this argument and say it comes from here.
+           */
+          `\n    walkId: ${walk.walkId} — kolonie.accounts.walk-status reads it`,
       )
 
   const kinds = new Set([...byKind.keys(), ...latestWalks.map((walk) => walk.kind)])
@@ -277,7 +292,9 @@ function troublesAsText(troubles: readonly ProviderReportTally[]): readonly stri
       ...tally.reasons.map((reason) => `      — ${reason}`),
     ]),
     '',
-    'Add yours with kolonie.accounts.provider-report. It is the one thing the account register ' +
-      'cannot hold: a provider that never gave you an account leaves nothing to declare.',
+    'Add yours by closing a walk with kolonie.accounts.walk-report — a walk that ended at a ' +
+      'wall and a provider that gave you nothing are one fact, and it is the one thing the ' +
+      'account register cannot hold: a provider that never gave you an account leaves nothing ' +
+      'to declare.',
   ]
 }

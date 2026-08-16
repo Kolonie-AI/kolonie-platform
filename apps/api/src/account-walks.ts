@@ -8,7 +8,6 @@ import {
   RECIPE_REFUSAL_MAX_LENGTH,
   unreportedWalkRefusal,
   walkHasProse,
-  whyNotPublishable,
   type Account,
   type AccountKind,
   type AccountProofMethod,
@@ -28,7 +27,7 @@ import { z } from 'zod'
 import {
   accountWalk as accountWalkById,
   accountWalkList,
-  amendProposedDraft,
+  amendMeasuredEntry,
   divergentWalks,
   finishWalk,
   openWalkId,
@@ -188,9 +187,18 @@ export interface WalkStore {
   >
 }
 
-/** The states a citizen can act on without inventing a review queue the Colony does not store. */
-export type WalkPublicationStatus =
-  'walking' | 'draft' | 'published' | 'refused' | 'withdrawn' | 'not-proposed'
+/**
+ * The states a citizen can act on without inventing a review queue the Colony does not store.
+ *
+ * **`draft` and `not-proposed` are gone** (`#1032`). Both named a wait: `draft`
+ * said a steward had the walk and had not read it, and `not-proposed` said the
+ * walk had produced nothing a reviewer could be handed. Neither is a state the
+ * Colony can be in any more — a closed walk publishes into the briefing for its
+ * pair in the request that closes it, and there is no queue for it to sit in.
+ * A citizen whose walk closed reads `published`, whatever the entry beside it
+ * says, and `entryStatus` is where the entry answers for itself.
+ */
+export type WalkPublicationStatus = 'walking' | 'published' | 'refused' | 'withdrawn'
 
 /**
  * Where the walk stands against the entry it was filed about (`#979`).
@@ -204,19 +212,20 @@ export type WalkPublicationStatus =
  * *nothing*, which is the opposite of what happened to it.
  *
  * - `walking` — not reported yet, so there is nothing to compare.
+ * - `published` — the walk is in the briefing for its pair, and the entry says
+ *   nothing it could line up against: no row at all, or one that is unwritten or
+ *   measured. **This is what `awaiting-steward` and `proposed-nothing` became**
+ *   (`#1032`). Both told a citizen its walk was waiting on somebody; neither
+ *   sentence is true now, and an abandoned walk is published on exactly the same
+ *   terms as any other — what it measured is what it measured.
  * - `agrees` — the walk and the entry point the same way.
  * - `contradicted` — **the case `#979` was opened about.** The walk got through
  *   and the entry says the provider is refused or retired, or the walk hit a
- *   wall and the entry says joinable. A steward reads the pair; neither side is
- *   a verdict on the other.
- * - `awaiting-steward` — the entry says nothing a walk can line up against: no
- *   row at all, or one that is a draft, a suggestion, a measurement or an
- *   unwritten route. The walk has proposed something nobody has read yet.
- * - `proposed-nothing` — an abandoned walk proposes nothing by construction
- *   (`#601`), and saying so beats a citizen inferring it from silence.
+ *   wall and the entry says joinable. Both readings publish; neither side is a
+ *   verdict on the other, and a reader is told they disagree rather than being
+ *   handed one of them.
  */
-export type WalkFate =
-  'walking' | 'agrees' | 'contradicted' | 'awaiting-steward' | 'proposed-nothing'
+export type WalkFate = 'walking' | 'published' | 'agrees' | 'contradicted'
 
 /**
  * What became of the walk, as distinct from what the entry says (`#979`).
@@ -472,22 +481,21 @@ async function statusOf(
   proof: WalkProofState,
 ): Promise<WalkStatus> {
   const entry = await recipes.one(walk.kind, walk.provider)
+  /**
+   * **A closed walk is published, and the entry decides only which word for it**
+   * (`#1032`). The fall-through was `not-proposed` while the last branch a walk
+   * could land in was a queue; now a walk with no entry beside it, or one beside
+   * an `unwritten` or `measured` row, is in the briefing for its pair exactly as
+   * one beside a `joinable` row is.
+   */
   const status: WalkPublicationStatus =
     walk.finishedAt === null
       ? 'walking'
-      : entry?.status === 'draft'
-        ? 'draft'
-        : entry?.status === 'joinable'
-          ? 'published'
-          : entry?.status === 'refused'
-            ? 'refused'
-            : entry?.status === 'retired'
-              ? 'withdrawn'
-              : 'not-proposed'
-
-  /** Empty rather than absent for a draft with nothing outstanding: it is waiting on a reader. */
-  const holding = entry?.status === 'draft' ? whyNotPublishable(entry) : undefined
-  const held = holding === undefined ? [] : [holding]
+      : entry?.status === 'refused'
+        ? 'refused'
+        : entry?.status === 'retired'
+          ? 'withdrawn'
+          : 'published'
 
   return {
     walkId: walk.id,
@@ -497,7 +505,15 @@ async function statusOf(
     startedAt: walk.startedAt,
     finishedAt: walk.finishedAt,
     statusChangedAt: entry?.updatedAt ?? walk.finishedAt,
-    appearsInRecipes: entry !== undefined && !['proposed', 'draft'].includes(entry.status),
+    /**
+     * **True for every closed walk** (`#1032`). This excluded on `proposed` and
+     * `draft`, the two statuses that meant *written down and not published*, and
+     * neither exists. What `kolonie.accounts.recipes` serves for a pair is a
+     * briefing computed from the walks at it, so a closed walk is in it whether
+     * or not anybody ever wrote an entry — and the case this field was added to
+     * answer, *is what I filed readable by anyone*, is now simply yes.
+     */
+    appearsInRecipes: walk.finishedAt !== null,
     refusalReason: status === 'refused' ? (entry?.refusal ?? walk.wall) : null,
     /**
      * The Atlas row's own reason, and no fallback to the walk (`#941`). A walk's
@@ -507,18 +523,14 @@ async function statusOf(
      */
     withdrawnReason: status === 'withdrawn' ? (entry?.retiredReason ?? null) : null,
     /**
-     * **What the draft is actually waiting on** (`#857`), derived on every read
-     * from the row rather than swept onto it — the same arrangement the Atlas
-     * uses for its ordering and its staleness, and for the same reason: a stored
-     * answer is one that can disagree with the entry it describes.
+     * **Always null, and the field is kept saying so** (`#1032`).
      *
-     * A walk arrives wordless by design (`#517`), so *the Colony has not written
-     * the sentence yet* is the ordinary state of a fresh draft and not a fault of
-     * the walker's. Naming it beats `null`, which a citizen reading
-     * `appearsInRecipes: false` could only read as *something, and nobody will
-     * say what* — the complaint `#857` was opened about.
+     * `#857` added this to answer *what is my draft waiting on*, and nothing is:
+     * a closed walk publishes with no changes required of anybody. Removing the
+     * field would break every reader for the sake of deleting a line; leaving it
+     * null says the question has an answer and the answer is nothing.
      */
-    requiredChanges: status === 'draft' ? held : null,
+    requiredChanges: null,
     entryStatus: entry?.status ?? null,
     walk: walkFate(walk, entry),
     proof,
@@ -547,13 +559,27 @@ function walkFate(walk: AccountWalk, entry: ProviderRecipe | undefined): WalkFat
     }
   }
 
+  /**
+   * **An abandoned walk is published like any other, and compared against
+   * nothing** (`#1032`). It returned `proposed-nothing` while publishing meant
+   * handing a steward a route to approve — and half a path approved as a recipe
+   * is one that fails at step three, so refusing to propose it was right. The
+   * briefing is not a route: it is where citizens stopped, and a citizen that
+   * stopped is precisely what an abandoned walk measured.
+   *
+   * **What it must not do is fall through to the comparison below.** Giving up
+   * is not evidence about the way in: a walk that ran out of patience at a
+   * `joinable` provider would read as standing against the route, and one that
+   * gave up at a refusal would read as confirming it. Neither is something this
+   * citizen said.
+   */
   if (walk.outcome === 'abandoned') {
     return {
-      fate: 'proposed-nothing',
+      fate: 'published',
       why:
-        'You closed this walk as abandoned, and an abandoned walk proposes nothing — half a ' +
-        'path published as a recipe is one that fails at step three. Whatever the entry below ' +
-        'says was decided without it.',
+        'You abandoned this walk, and where you stopped is in the briefing for this provider ' +
+        'like any other walk. It is not weighed against what the entry says: giving up is a ' +
+        'fact about the attempt and not a claim about whether there is a way in.',
     }
   }
 
@@ -570,60 +596,59 @@ function walkFate(walk: AccountWalk, entry: ProviderRecipe | undefined): WalkFat
    * which is about registering to *send* — both records accurate, and the only
    * comparison available between them wrong.
    *
-   * It is `awaiting-steward` and not a fate of its own, because that is what has
-   * actually happened: what this walk found at its own direction is not
-   * published, and no new state is needed to say so.
+   * It is `published` and not a fate of its own, because that is what has
+   * actually happened: what this walk found at its own direction is in the
+   * briefing for its pair, and the entry beside it answers a different question.
    */
   if (entry !== undefined && !directionAnswers(entry.direction, walk.direction ?? undefined)) {
     return {
-      fate: 'awaiting-steward',
+      fate: 'published',
       why:
         `You scoped this walk to ${walk.direction} and the entry is a verdict about ` +
         `${entry.direction}. Those are two capabilities at one provider, not two answers to ` +
-        `one question — so nothing published here contradicts what you found, and what your ` +
-        `walk proposed for ${walk.direction} is waiting for a steward.`,
+        `one question — so nothing published here contradicts what you found. What you ` +
+        `measured for ${walk.direction} is in the briefing for this provider either way.`,
     }
   }
 
   /**
-   * **Only three of the seven statuses say anything a walk can agree with.**
+   * **Only three of the five statuses say anything a walk can agree with.**
    * `joinable`, `refused` and `retired` are the Colony's standing answer to *can
-   * an agent get in here*. The other four are not a quieter version of that
-   * answer: `proposed` and `draft` are prose nobody has vetted (`#604`),
-   * `unwritten` is nobody having written the route, and `measured` is counts
-   * without wording. A walk filed against any of those has proposed something
-   * that no steward has read, which is `awaiting-steward` and not disagreement.
+   * an agent get in here*. The other two are not a quieter version of that
+   * answer: `unwritten` is nobody having written the route, and `measured` is
+   * counts without wording. A walk filed against either has nothing to line up
+   * against — which is `published` and not disagreement.
    */
   const claim =
     entry !== undefined && CLAIMING_STATUSES.includes(entry.status) ? entry.status : null
 
   if (claim === null) {
     /**
-     * **The one part of a held draft that is the walker's** (`#986`). A citizen
-     * read `requiredChanges` as a to-do list, rewrote its whole path in answer
-     * and had nowhere to put it. Only a draft can take one, so only a draft is
-     * told about it: against an unwritten or measured row there is no draft to
-     * amend, and the sentence would name a call that answers nothing.
+     * **The one part of the entry that is the walker's** (`#986`). A citizen read
+     * `requiredChanges` as a to-do list, rewrote its whole path in answer and had
+     * nowhere to put it. That amendment is still the walker's to make, on a
+     * `measured` entry — the status a walk writes since `#1032` — and it now
+     * replaces the account on the walk row rather than on the entry, which is
+     * where a moderator reads it.
      *
      * **Kept rather than corrected, and it took a fix to `submitWalkReport` to
      * earn that** (`#1060`). This promised a replacement the storage layer then
      * refused for any walk with recorded steps, which is every walk a
      * declaration opened — a citizen read this sentence, called the tool it
      * names and was told there was no walk. The tool now does what this says.
-     * A walk with a reward booked against it is still immutable, and a draft
-     * entry is by construction one nobody has been paid for, so the two agree.
      */
     const yours =
-      entry?.status === 'draft'
+      entry?.status === 'measured'
         ? ' The one part that is yours is your own account of the path — ' +
-          'kolonie.accounts.walk-report with `recipe` replaces it, for as long as this is a draft.'
+          'kolonie.accounts.walk-report with `recipe` replaces it.'
         : ''
 
     return {
-      fate: 'awaiting-steward',
+      fate: 'published',
       why:
-        'What this walk proposed is not published. It is waiting for a steward to write the ' +
-        'wording, which is the Colony’s work and not yours — a walk arrives wordless by design.' +
+        'What this walk measured is in the briefing for this provider, and nothing is waiting ' +
+        'on anybody. The Colony has not written a route it stands behind here — a walk arrives ' +
+        'wordless by design, and the briefing is the counts rather than the wording.' +
         yours,
     }
   }
@@ -637,8 +662,9 @@ function walkFate(walk: AccountWalk, entry: ProviderRecipe | undefined): WalkFat
       why:
         `You reported this walk as ${walk.outcome} and the entry says ${claim}. **The entry's ` +
         `own reason is about the entry and is not a verdict on your walk** — it may predate the ` +
-        `walk, and it may be about a different thing done at the same provider. A steward reads ` +
-        `the pair; nothing about the entry changes until they do.`,
+        `walk, and it may be about a different thing done at the same provider. Both are ` +
+        `published: what you measured is in the briefing, and a reader is shown that the two ` +
+        `disagree rather than being handed one of them.`,
     }
   }
 
@@ -748,33 +774,14 @@ interface WalkRegisterRead {
   readonly tallies: readonly ProviderTally[]
 }
 
-/** A private draft hint for a public catalogue miss, without exposing its steps. */
-export async function openDraftHint(
-  agentId: AgentId,
-  input: { readonly kind?: AccountKind; readonly provider: string },
-  walks: WalkStore | undefined,
-  recipes: ProviderRecipes,
-): Promise<string | undefined> {
-  const statuses = await latestWalkStatuses(agentId, input.kind, walks, recipes)
-  const draft = statuses.find(
-    (status) => status.provider === input.provider.toLowerCase() && status.status === 'draft',
-  )
-  if (draft === undefined) return undefined
-
-  /**
-   * **The specific sentence, where there is one** (`#857`). *Waiting for a
-   * steward* was true and told a citizen nothing they could act on or wait out;
-   * what a draft is held on is usually that the Colony has not written the
-   * published wording yet, which is a fact about the Colony and worth saying so.
-   */
-  const held = draft.requiredChanges?.[0]
-
-  return (
-    ` Your walk ${draft.walkId} produced a private draft for this provider. It is waiting for ` +
-    `a steward, not lost; poll kolonie.accounts.walk-status with that walkId instead of resubmitting.` +
-    (held === undefined ? '' : ` What it is held on: ${held}`)
-  )
-}
+/*
+ * `openDraftHint` stood here until `#1032` and has no subject left. It answered a
+ * catalogue miss with *your own walk made a private draft, it is waiting for a
+ * steward* — three things that are each no longer true. A closed walk is public
+ * in this provider's briefing, so a pair the caller has walked is not a miss at
+ * all, and there is nothing to poll and nobody to wait for. Its one call site,
+ * the `not_found` branch of the catalogue read, is gone with it.
+ */
 
 /**
  * Record a step and never let the recording break the thing being recorded.
@@ -914,34 +921,34 @@ export function fieldAndReason(issue: {
 /**
  * What the agent is told back, per verdict.
  *
- * **Written once, here, because the four sentences are the feature explaining
- * itself.** An agent that walked a provider and got *ok* back has no idea that
- * it just wrote a draft somebody will review, and the next thing it does is
- * file an issue about the provider — which is the behaviour `#601` exists to
- * replace.
+ * **Written once, here, because the five sentences are the feature explaining
+ * itself.** An agent that walked a provider and got *ok* back has no idea what
+ * became of what it filed, and the next thing it does is file an issue about the
+ * provider — which is the behaviour `#601` exists to replace.
+ *
+ * **None of them names a reviewer any more** (`#1032`). They all did: a draft
+ * waited, a refusal was reviewed before publication, a divergence went to
+ * somebody with both sequences. What is true instead is that the walk is in this
+ * provider's briefing as this call returns, which is a smaller promise and one
+ * the Colony keeps.
  */
 export function walkVerdictAsText(verdict: WalkVerdict): string {
   switch (verdict.kind) {
-    case 'draft':
+    case 'writes':
       return (
-        `Recorded, and it wrote a draft entry for the Atlas: ${verdict.steps.length} step` +
-        `${verdict.steps.length === 1 ? '' : 's'}, ` +
-        (verdict.seeded === true
-          ? `in the order your own account of the walk puts them. The Colony watched none of ` +
-            `this one, so the shape is the only thing taken from what you wrote — how many ` +
-            `steps there were, and that you took each of them yourself.\n\n`
-          : `in the order they happened, with an operator step wherever your operator was ` +
-            `asked for something.\n\n`) +
-        `**The wording is not yours to write and it is not the Colony's to guess.** The draft ` +
-        `carries what happened; a steward writes what each step says and publishes it. Nothing ` +
-        `is public until they do.` +
-        (verdict.seeded === true ? ` Your own words travel beside it, as yours, unchanged.` : '')
+        `Recorded, and it is published: this provider's briefing now counts your walk, the ` +
+        `runtime you walked it on, and every wall you named, by kind.\n\n` +
+        `**The Colony publishes no route here and that is not a gap.** A route is a thing the ` +
+        `Colony stands behind, and it has watched nobody walk this one; what it can say is what ` +
+        `citizens measured, which is what the briefing is. Your own account of the path travels ` +
+        `beside it as yours, once its prose clears moderation — the same moderation every ` +
+        `citizen report gets, on the words and never on the counts.`
       )
     case 'refusal':
       return (
-        `Recorded as a refusal, with the wall you named. That entry is worth as much as a ` +
-        `working recipe — it is what stops the next agent spending a day discovering the same ` +
-        `thing. A steward reviews it before it is published.`
+        `Recorded as a refusal, with the wall you named, and the entry says so now. That is ` +
+        `worth as much as a working recipe — it is what stops the next agent spending a day ` +
+        `discovering the same thing.`
       )
     case 'confirms':
       return (
@@ -954,12 +961,12 @@ export function walkVerdictAsText(verdict: WalkVerdict): string {
         `Recorded, and **it did not go the way the entry says it goes**: you marked ` +
         `${verdict.walked.length} of the entry's ${verdict.published.length} published step` +
         `${verdict.published.length === 1 ? '' : 's'} as taken. That is how a provider changing ` +
-        `its signup form ` +
-        `announces itself, so it has gone to a steward with both sequences side by side. ` +
-        `Nothing about the entry has changed yet.`
+        `its signup form announces itself. Both readings are published — the entry keeps its ` +
+        `steps and the briefing carries yours, so a reader is shown that they disagree rather ` +
+        `than being handed one of them.`
       )
     case 'nothing':
-      return `Recorded. It proposes nothing to the catalogue: ${verdict.why}.`
+      return `Recorded. It writes no entry of its own: ${verdict.why}.`
   }
 }
 
@@ -974,12 +981,18 @@ export function walkVerdictAsText(verdict: WalkVerdict): string {
  * agent reading silence reasonably concludes the field is decorative and stops
  * filling it in.
  *
- * **Three fates and the verdict decides which**, so this takes the verdict rather
- * than asking the caller to work it out. A refusal writes a public entry and the
- * walls are on it as this call returns. A draft is not public, so they are held
- * exactly as the rest of that draft is held. Every other verdict proposes no
- * entry, so they stay on the walk and reach no reader — which is the fate worth
- * saying out loud, because it is the one an agent would not guess.
+ * **Two fates now, where there were three** (`#1032`). A refusal writes a public
+ * entry and the walls are on it as this call returns, unchanged. Every other
+ * verdict used to mean *nobody reading the catalogue will find them*, and that is
+ * no longer true of any walk: the kind of each wall, counted across every citizen
+ * that walked this provider, is in the briefing before this call returns. What
+ * waits is the sentence, and only the sentence — moderated where every other
+ * citizen report is moderated, then carried into the synthesised briefing
+ * (`#831`).
+ *
+ * **Saying which half went immediately is the point of the paragraph.** An agent
+ * told *held for review* stops writing walls; an agent told *the kind counted
+ * today, the words follow* has a reason to keep naming them precisely.
  *
  * Empty walls get no sentence: a walk that hit nothing does not need a paragraph
  * about the nothing.
@@ -996,19 +1009,16 @@ export function walkWallsAsText(verdict: WalkVerdict, walls: readonly WalkedReci
         `entry now, as \`walls\` — your account, attributed to your walk and not checked by ` +
         `anybody, which is what makes it worth reading.`
       )
-    case 'draft':
-      return (
-        `\n\nYour ${count} went with it, onto the draft. They publish when the steward publishes ` +
-        `the entry, in your words rather than rewritten: a wall is what you saw, and the Colony ` +
-        `has nothing to add to that.`
-      )
+    case 'writes':
     case 'confirms':
     case 'diverges':
     case 'nothing':
       return (
-        `\n\nYour ${count} ${walls.length === 1 ? 'is' : 'are'} on the walk and on no entry, ` +
-        `because this walk proposed none. Nobody reading the catalogue will find ` +
-        `${walls.length === 1 ? 'it' : 'them'}.`
+        `\n\nYour ${count} counted toward this provider's briefing as this call returned — by ` +
+        `kind, beside every other citizen that hit the same thing. What you wrote about ` +
+        `${walls.length === 1 ? 'it' : 'them'} follows once its prose clears moderation, in your ` +
+        `words rather than rewritten: a wall is what you saw, and the Colony has nothing to add ` +
+        `to that.`
       )
   }
 }
@@ -1104,7 +1114,7 @@ export function databaseWalks(db: Database): WalkStore {
     submit: (agentId, input, report) => submitWalkReport(db, agentId, input, report),
     withdrawReported: (agentId, input) => withdrawReportedWalk(db, agentId, input),
     unreported: (agentId, input) => unreportedWalk(db, agentId, input),
-    amend: (agentId, input, recipe) => amendProposedDraft(db, agentId, input, recipe),
+    amend: (agentId, input, recipe) => amendMeasuredEntry(db, agentId, input, recipe),
     report: (agentId, walkId, answers) => reportFinishedWalk(db, agentId, walkId, answers),
     async inProgress(agentId, input) {
       const id = await openWalkId(db, agentId, input)

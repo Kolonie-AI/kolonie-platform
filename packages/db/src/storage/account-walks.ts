@@ -4,6 +4,7 @@ import {
   AccountProviderSchema,
   AgentPlatformSchema,
   atlasCategoryForKind,
+  colonyRefusal,
   publishWalls,
   RecipeActorSchema,
   RecipeDirectionSchema,
@@ -25,6 +26,7 @@ import {
   type ProviderRecipe,
   type ProviderTerms,
   type RecipeDirection,
+  type RecipeOperatorGuess,
   type SignupCost,
   type WalkOutcome,
   type WalkProse,
@@ -35,7 +37,6 @@ import type { Database, Transaction } from '../client.js'
 import { accountWalks, accountWalkSteps } from '../schema/account-walks.js'
 import { agents } from '../schema/agents.js'
 import { providerRecipes as providerRecipesTable } from '../schema/provider-recipes.js'
-import { observedStepsFor } from './account-threads.js'
 import { canonicalProvider } from './atlas-renames.js'
 import { currentSessionStartSql } from './sessions.js'
 import { markProviderBriefingStale } from './provider-briefing.js'
@@ -314,7 +315,7 @@ export async function unreportedWalk(
  * **The gate would be a trap without this.** A walk is closed by the report, so
  * a walk closed *without* one can no longer be reported through the ordinary
  * path — `finishWalk` refuses a second close, correctly, because a second close
- * would propose a second draft. This writes the answers and nothing else: no
+ * would write a second entry. This writes the answers and nothing else: no
  * outcome, no verdict, no catalogue write.
  *
  * **It cannot overwrite an answer**, which is what keeps it from being an edit
@@ -497,7 +498,8 @@ async function republishWalls(
  * `writeProviderRecipe` is an upsert whose rule is that an omitted field resets:
  * a curation edit that does not mention `cost` is not re-asserting it. That rule
  * is right for a curator editing a whole entry and wrong for a walk, which is
- * told about two fields and nothing else — and the draft branch passed neither,
+ * told about two fields and nothing else — and the branch that writes passed
+ * neither,
  * so a walk against an entry somebody had already answered blanked both back to
  * `unknown` on its way past.
  *
@@ -519,27 +521,100 @@ function conditionsFromWalk(
 }
 
 /**
- * Replace the walker's own account on a draft it proposed (`#986`).
+ * What a walk carries forward off the entry it is writing over (`#1032`).
  *
- * **The one thing on a draft that is the walker's to write.** A citizen read
+ * **The same argument `conditionsFromWalk` makes, for the fields a walk is not
+ * asked about at all.** `writeProviderRecipe` is an upsert and its rule is that
+ * an omitted field resets — right for a curator editing a whole entry, and
+ * wrong for a walk, which is told about a handful of columns and passes only
+ * those. Everything else on the row is somebody's curation: what the provider
+ * is, whether it pays for placement, the referral arrangement, the cautions a
+ * reader is meant to meet before signing up. A walk closing past it wiped the
+ * lot.
+ *
+ * **`#1032` is why this is worth writing now rather than later.** The write was
+ * already reachable for an entry that was `unwritten`, but only a walk that got
+ * through reached it; an abandoned walk proposed nothing. Both now write, so
+ * every closed walk at a shelved provider passes over whatever a curator put
+ * there.
+ *
+ * **Not `proves`, `provesTask` or `reaches`.** Those three are the joinable
+ * entry's, `provider_recipes_unjoinable_is_empty` refuses them on anything this
+ * branch writes, and a walk never reaches an entry holding them —
+ * `walkVerdict` answers `confirms` or `diverges` against a published route.
+ * Carrying them would turn a constraint the row cannot satisfy into a failed
+ * write nobody asked for.
+ *
+ * **The operator guess is read back off what it derived**, because the read
+ * shape does not carry the column: `#589` decided the guess is stored and never
+ * surfaced, and what a reader gets is `operatorNeed` with `operatorNeedIsGuess`
+ * beside it. Both branches here write no steps, so the need on an entry they
+ * write over came from the guess or from nowhere — which makes the pair a
+ * faithful round trip rather than a reconstruction, and `unknown` the same
+ * answer as an unset column.
+ */
+function curationFromEntry(entry: ProviderRecipe | undefined): {
+  about?: string | null
+  runtimes?: ProviderRecipe['runtimes']
+  paid?: boolean
+  referral?: ProviderRecipe['referral']
+  contact?: string | null
+  operatorGuess?: RecipeOperatorGuess | null
+  cautions?: ProviderRecipe['cautions']
+  needs?: ProviderRecipe['needs']
+  agentApi?: ProviderRecipe['agentApi']
+  signupCode?: ProviderRecipe['signupCode']
+  pacePerDay?: number | null
+} {
+  if (entry === undefined) return {}
+
+  return {
+    about: entry.about,
+    runtimes: entry.runtimes,
+    paid: entry.paid,
+    referral: entry.referral,
+    contact: entry.contact,
+    operatorGuess:
+      entry.operatorNeedIsGuess && entry.operatorNeed !== 'unknown' ? entry.operatorNeed : null,
+    cautions: entry.cautions,
+    needs: entry.needs,
+    agentApi: entry.agentApi,
+    signupCode: entry.signupCode,
+    pacePerDay: entry.pacePerDay,
+  }
+}
+
+/**
+ * Replace the walker's own account on the entry it wrote (`#986`).
+ *
+ * **The one thing on that entry that is the walker's to write.** A citizen read
  * `requiredChanges` off its draft, wrote the whole path out in answer — eight
  * steps, five walls, three verification checks — and had nowhere to put it:
  * `walk-report` answers `not_found` on a walk that closed, correctly, because a
- * second close would propose a second draft. So the report was a dead end and
+ * second close would write a second entry. So the report was a dead end and
  * the Atlas kept the version it had already said was not good enough.
  *
  * **It touches the account and nothing else.** No outcome, no verdict, no
  * status, no steps: what a finished walk earned was decided when it finished,
  * and the entry's own steps and wording are the Colony's (`#517`, `#601`). What
- * moves is the walker's attributed account, on the walk row and on the entry
- * carrying it — the same value `finishWalk` wrote there, from the same author.
+ * moves is the walker's attributed account, on the walk row.
  *
- * **Only the walk that proposed the draft, and only while it is a draft.**
+ * **The corrected account stays on the walk and does not travel to the entry**
+ * (`#1032`). It did until this issue, because the entry it landed on was a
+ * private `draft`; a `measured` entry is public, so a rewrite arriving here
+ * would reach `kolonie.accounts.recipes` unread. `finishWalk` says the whole of
+ * that argument. What still travels are the conditions — typed fields a reader
+ * cannot be misled by a sentence in.
+ *
+ * **Only the walk that wrote the entry, and only while the entry is
+ * `measured`.** That was `draft` until `#1032` retired the status; `measured`
+ * is what a walk writes now, and it is the same gate — an entry standing on
+ * what citizens measured rather than on anything the Colony authored.
  * `proposed_at` is stamped on exactly the walk whose verdict wrote the row, so a
  * second citizen walking the same provider cannot overwrite the first one's
  * words, and nothing published is reachable from here at all.
  */
-export async function amendProposedDraft(
+export async function amendMeasuredEntry(
   db: Database,
   agentId: AgentId,
   where: { readonly kind: AccountKind; readonly provider: string },
@@ -549,7 +624,7 @@ export async function amendProposedDraft(
 
   return db.transaction(async (tx) => {
     const entry = await providerRecipe(tx, where.kind, provider)
-    if (entry === undefined || entry.status !== 'draft') return undefined
+    if (entry === undefined || entry.status !== 'measured') return undefined
 
     const [row] = await tx
       .select()
@@ -588,7 +663,6 @@ export async function amendProposedDraft(
     await tx
       .update(providerRecipesTable)
       .set({
-        walkedRecipe: recipe,
         updatedAt: sql`now()`,
         /**
          * **Written only where the amendment names them** (`#983`), which is the
@@ -662,8 +736,8 @@ type WalkFinishInput = {
  * Close a walk and do to the catalogue whatever the walk earns.
  *
  * **One function, in one transaction, because the two halves must not be able
- * to disagree.** A walk marked `proved` whose draft was not written is a record
- * saying a recipe exists where none does; a draft written from a walk that was
+ * to disagree.** A walk marked `proved` whose entry was not written is a record
+ * saying a recipe exists where none does; an entry written from a walk that was
  * never closed is a recipe derived from a path that may still be running.
  *
  * **What happens is `walkVerdict`'s decision and not this function's.** The
@@ -671,10 +745,14 @@ type WalkFinishInput = {
  * argument for each row; this applies it. A second implementation of *what does
  * a finished walk mean* is a second answer to it.
  *
- * **Nothing here reaches the public Atlas.** A draft is not public (`#604`) and
- * a divergence is returned for a steward rather than written over what somebody
- * published. `#600`'s rule is unchanged: what the Colony says about somebody
- * else's product passes a person.
+ * **Nothing here writes a route, and that is what `#1032` changed.** This branch
+ * wrote a `draft` — the walk's own steps, held behind a status the public read
+ * past until a curator dressed them. It now writes a `measured` row with no steps
+ * at all, and the route the citizen took is published in that provider's
+ * briefing, out of `account_walks`, under its own author. A divergence is still
+ * returned rather than written over what somebody published, so `#600`'s rule is
+ * unchanged: what the Colony says about somebody else's product passes a
+ * person.
  */
 export async function finishWalk(
   db: Database | Transaction,
@@ -720,7 +798,7 @@ export async function finishWalk(
      * **Already finished is not an error and writes nothing twice.** The
      * `is null` above is what makes closing a walk idempotent: a retried call,
      * or a proof arriving after a declaration already closed it, must not
-     * propose a second draft.
+     * write a second entry.
      */
     if (closed === undefined) return undefined
 
@@ -733,23 +811,7 @@ export async function finishWalk(
     const walk = toWalk(closed, steps)
     const entry = await providerRecipe(tx, walk.kind, walk.provider)
 
-    /**
-     * **The walk opens prefilled from the episode where one exists** (`#935`).
-     *
-     * A signup carried out through the episode machinery observes its steps
-     * there and none of them here, so the walk closing over it proposed
-     * `steps: []` — a draft with nothing in it, from the agent that had done the
-     * most work. Read only where this walk observed nothing of its own, which is
-     * exactly that case: prefill, never override. Where no episode exists the
-     * lookup returns undefined and this line changes nothing, which is the other
-     * half of the same criterion.
-     */
-    const observed =
-      walk.steps.length > 0
-        ? undefined
-        : await observedStepsFor(tx, walk.agentId, walk.kind, walk.provider)
-
-    const verdict = walkVerdict(walk, entry, observed)
+    const verdict = walkVerdict(walk, entry)
 
     /**
      * The shelf this walk's entry would go on, or nothing (`#917`).
@@ -776,23 +838,35 @@ export async function finishWalk(
       }
     })()
 
-    if (verdict.kind === 'draft' && shelf !== undefined) {
+    if (verdict.kind === 'writes' && shelf !== undefined) {
       await writeProviderRecipe(tx, {
         kind: walk.kind,
         provider: walk.provider,
         /**
          * **The provider's own name and nothing invented.** A title is prose and
-         * a steward writes it; until then the entry is called what it is. The
+         * the Colony writes it; until then the entry is called what it is. The
          * existing title is kept where there is one, so a walk against an entry
          * somebody already named does not rename it.
          */
         title: entry?.title ?? walk.provider,
         category: shelf,
-        status: 'draft',
+        /**
+         * **`measured`, and no route** (`#1032`).
+         *
+         * This branch used to write `draft`: the walk's own steps became the
+         * catalogue's steps, hidden behind a status the public read past until a
+         * steward dressed them. Two stewards existed and two Atlas decisions
+         * were ever taken, so the gate was a queue nobody emptied and six walks
+         * sat behind it. What the Colony publishes here now is the fact it can
+         * stand behind — this pair exists, somebody got through — and the route
+         * that citizen actually took is published in the provider's briefing,
+         * out of `account_walks`, under its own author.
+         */
+        status: 'measured',
         /**
          * **The entry is a verdict about whatever the walk measured** (`#1023`).
          *
-         * A draft derived from a walk that says it went for `inbound` is an
+         * An entry derived from a walk that says it went for `inbound` is an
          * entry about inbound, and saying so is the whole of what the axis
          * buys: it is what stops the next citizen sent to earn `phone` reading
          * a sending refusal as *this provider is closed*. A walk with no
@@ -800,17 +874,30 @@ export async function finishWalk(
          * both — the conservative reading, and never a guess.
          */
         direction: walk.direction,
-        steps: verdict.steps,
+        /** No route: see `status` above (`#1032`). */
+        steps: [],
         /**
-         * **The walker's account travels with the entry it proposed** (`#769`).
+         * **What a walk does not write is the walker's long form** (`#1032`).
          *
-         * Without this the long form would sit on the walk row and a steward
-         * reviewing the draft would be reading a shape with no words beside it —
-         * which is the state the citizen who filed `#769` was already in, one
-         * table along. `undefined` leaves whatever the entry had: a walk that
-         * added nothing must not delete the last walker's account.
+         * `#769` put `walkedRecipe` here, and the safety was structural: a walk
+         * closed into a `draft` entry, `draft` was private until a steward
+         * published it, and the walked recipe had a moderator of its own — the
+         * pass `#813` built, which this issue retires. A `measured` entry is
+         * public the moment it is written, so the same line would now hand
+         * unchecked citizen prose to `kolonie.accounts.recipes` in the request
+         * that wrote it.
+         *
+         * The walker's words are not lost and are not delayed by a person: the
+         * six prose columns on the walk are moderated where every other citizen
+         * report is, and reach readers through the synthesised briefing
+         * (`#831`). What publishes immediately is the typed half — wall kinds,
+         * counts, platforms, band — which cannot carry a sentence.
+         *
+         * A curator may still put a walked recipe on an entry; that is `#600`'s
+         * rule, that what the Colony says about somebody else's product passes a
+         * person, and it is a different act from a walk closing.
          */
-        ...(walk.recipe === null ? {} : { walkedRecipe: walk.recipe }),
+        ...curationFromEntry(entry),
         ...conditionsFromWalk(walk.recipe, entry),
       })
 
@@ -826,7 +913,7 @@ export async function finishWalk(
        *
        * It also carries `#858`'s *previously had no steps* half for free.
        * `walkVerdict` reaches this branch only where the entry is absent,
-       * unwritten or still a draft; a walk against something already published
+       * unwritten or measured; a walk against something the Colony publishes
        * confirms or diverges, and neither is stamped.
        */
       await tx
@@ -842,12 +929,22 @@ export async function finishWalk(
         title: entry?.title ?? walk.provider,
         category: shelf,
         status: 'refused',
-        refusal: verdict.wall,
-        /** The direction the draft branch carries, and for the same reason (`#1023`). */
+        /**
+         * **The Colony's sentence, composed from the typed walls — never the
+         * walker's** (`#1032`). This line wrote `verdict.wall`, which is the
+         * citizen's own free text and one of `WALK_PROSE_FIELDS`; a `refused`
+         * entry is public the moment it is written and `prose_status` is
+         * `pending` for every walk closing here, so the words went into
+         * `kolonie.accounts.recipes` in the request that wrote them, unread.
+         * Same argument as the `writes` branch above, and the walker's account
+         * reaches readers the same way: moderated, through the briefing.
+         */
+        refusal: colonyRefusal(walk.recipe?.walls ?? []),
+        /** The direction the branch above carries, and for the same reason (`#1023`). */
         direction: walk.direction,
         steps: [],
-        /** A refusal's walls are the most useful account there is — see the draft above. */
-        ...(walk.recipe === null ? {} : { walkedRecipe: walk.recipe }),
+        /** No long form here either, and for the reason the branch above gives (`#1032`). */
+        ...curationFromEntry(entry),
         ...conditionsFromWalk(walk.recipe, entry),
       })
     }
@@ -904,7 +1001,7 @@ export async function finishWalk(
      * **A walk that proposed nothing still puts the provider on the shelf**
      * (`#904`, carried across by `#1036`).
      *
-     * An abandoned walk proposes no draft and no refusal, so neither branch
+     * An abandoned walk writes no entry and no refusal, so neither branch
      * above writes anything — and until `provider-report` folded into this
      * surface that was somebody else's job: `reportProvider` created the
      * `measured` row for exactly this case. Folding the two without this line
@@ -914,7 +1011,7 @@ export async function finishWalk(
      * `onConflictDoNothing` inside, so an entry that already exists is untouched
      * — a measurement never demotes something somebody catalogued.
      */
-    if (entry === undefined && verdict.kind !== 'draft' && verdict.kind !== 'refusal') {
+    if (entry === undefined && verdict.kind !== 'writes' && verdict.kind !== 'refusal') {
       await recordMeasuredProvider(tx, { kind: walk.kind, provider: walk.provider })
     }
 
@@ -1122,8 +1219,8 @@ export interface RewardedWalk {
  * returns an entry the *next* agent reads — so an agent weighing that against
  * the rung it could climb instead had nothing on one side of the scale, and
  * `#858` is that complaint. What this pays for is the entry that did not exist:
- * `WALK_PUBLISHED_REPUTATION`, once per provider, to the walk that proposed the
- * draft a person went on to publish.
+ * `WALK_PUBLISHED_REPUTATION`, once per provider, to the walk that first wrote
+ * the pair a person went on to publish as `joinable`.
  *
  * **A sweep and not a hook on `publishProviderRecipe`.** That function is a
  * state move with two call sites and no opinion about money; giving it one would
@@ -1134,11 +1231,11 @@ export interface RewardedWalk {
  * **Three conditions, and each one is a way this could have been farmed.**
  * `proposed_at is not null` is the entry having been absent when the walk closed
  * — a walk that merely confirmed something already published proposed nothing.
- * The `order by proposed_at` picks the first proposer, so a citizen that walks a
- * held draft the week before a steward reaches it does not take the payment from
- * whoever wrote it. And the `not exists` refuses a pair somebody was already
- * paid for, which matters most for an entry that was published, drifted back to
- * a draft and was published again years later.
+ * The `order by proposed_at` picks the first proposer, so a citizen that walks
+ * the same pair the week before a curator reaches it does not take the payment
+ * from whoever wrote it. And the `not exists` refuses a pair somebody was
+ * already paid for, which matters most for an entry that was published,
+ * withdrawn and published again years later.
  *
  * **The `not exists` is the check and the unique index is the guarantee.** That
  * predicate is true when it is read and not necessarily when the row is written;
@@ -1330,7 +1427,7 @@ export async function recordWalkProseModeration(
       /**
        * **A refusal keeps its row and gains no scrub.** The citizen wrote it, the
        * Colony declined to pass it on, and everything the walk *is* — the
-       * outcome, the steps, the draft it proposed — stands untouched. There is no
+       * outcome, the steps, the entry it wrote — stands untouched. There is no
        * attempt to fail here and no standing to move.
        */
       scrubbedProse: command.decision === 'approved' ? (command.scrubbed ?? null) : null,

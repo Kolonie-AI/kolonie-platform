@@ -671,7 +671,6 @@ describe('the account conversation', () => {
             state: 'walked',
             provider: 'mail.example',
             kind: 'mailbox',
-            reviewed: true,
             operatorSteps: 1,
           },
         })

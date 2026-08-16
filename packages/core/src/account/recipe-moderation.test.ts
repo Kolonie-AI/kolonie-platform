@@ -1,39 +1,39 @@
 import { describe, expect, it } from 'vitest'
-import { RECIPE_STEP_MAX_LENGTH, type RecipeStep } from './recipe.js'
+import { RECIPE_STEP_MAX_LENGTH } from './recipe.js'
 import {
-  DraftWordingSchema,
+  EntryWordingSchema,
   RECIPE_DRAFT_EXPIRY_DAYS,
-  dressWalkedSteps,
   noRecipeStagesRun,
   recipeDraftExpired,
+  routeFromWording,
   whyNotPublishable,
   whyRecipeHeld,
 } from './recipe-moderation.js'
 
 /**
- * Writing the Colony's words onto a walked draft (`#857`).
+ * Writing the route a measured entry publishes (`#857`, rewritten by `#1032`).
  *
- * A walk arrives wordless on purpose (`#517`, `#601`): it records that a step
- * happened and who it needed, and the sentence describing it stays the Colony's
- * to write. Until `#857` there was nowhere to write it, so every walked draft sat
- * between a **Publish** the wordless step refused and a **Refuse** that empties
- * the row. What is asserted here is the half that was missing and, more
- * importantly, the half that must stay missing: a steward describes the shape the
- * walk recorded and cannot edit it.
+ * `#857` had a steward dress the steps a walk observed, one sentence per
+ * observed step, and forbade it from touching the shape — the shape was the
+ * walk's record of what happened. `#1032` took the walk out of the entry: a walk
+ * writes a `measured` row with no steps at all and publishes its own account of
+ * the path in the provider's briefing instead. So there is no shape here to
+ * preserve, and what is asserted is the rule that survived the change — an ask
+ * belongs to an operator and to nobody else — plus the red line on the one
+ * surface where free text becomes something the Colony stands behind.
  */
-describe('dressing a walked draft', () => {
-  const walked: readonly RecipeStep[] = [
-    { actor: 'agent' },
-    { actor: 'operator', ask: 'Open the signup page and confirm the address.' },
-  ]
-
-  it('writes the steward’s sentences onto the steps the walk recorded', () => {
-    const dressed = dressWalkedSteps(walked, [
-      { instruction: 'Ask for a mailbox at the provider.' },
-      { instruction: 'The operator confirms the address.' },
+describe('writing the route on a measured entry', () => {
+  it('takes the whole route, actor by actor', () => {
+    const route = routeFromWording([
+      { actor: 'agent', instruction: 'Ask for a mailbox at the provider.' },
+      {
+        actor: 'operator',
+        instruction: 'The operator confirms the address.',
+        ask: 'Open the signup page and confirm the address.',
+      },
     ])
 
-    expect(dressed).toStrictEqual({
+    expect(route).toStrictEqual({
       ok: true,
       steps: [
         { actor: 'agent', instruction: 'Ask for a mailbox at the provider.' },
@@ -46,97 +46,57 @@ describe('dressing a walked draft', () => {
     })
   })
 
-  /**
-   * **The recorded ask wins.** It is the sentence the Colony actually sent to
-   * that operator, stored when it was sent; a later reading of the walk replacing
-   * it would make the published recipe disagree with what somebody read.
-   */
-  it('keeps the ask the Colony sent over one the steward offers', () => {
-    const dressed = dressWalkedSteps(walked, [
-      { instruction: 'Ask for a mailbox at the provider.' },
-      { instruction: 'The operator confirms the address.', ask: 'Do the whole signup, please.' },
+  /** `secret` is what routes the answer (`#529`), so it is written here or nowhere. */
+  it('carries a step that comes back with a secret', () => {
+    const route = routeFromWording([
+      {
+        actor: 'operator',
+        instruction: 'The operator reads the code out of the mail.',
+        ask: 'Please paste the code you were sent.',
+        secret: true,
+      },
     ])
 
-    expect(dressed).toStrictEqual({
+    expect(route).toStrictEqual({
       ok: true,
-      steps: [
-        expect.objectContaining({ actor: 'agent' }),
-        expect.objectContaining({ ask: 'Open the signup page and confirm the address.' }),
-      ],
+      steps: [expect.objectContaining({ secret: true })],
     })
   })
 
-  /** A step the operator never saw an ask for still needs one before it publishes. */
-  it('takes an ask where the walk recorded none', () => {
-    const dressed = dressWalkedSteps(
-      [{ actor: 'operator' }],
-      [{ instruction: 'The operator creates the account.', ask: 'Please create the account.' }],
-    )
+  it('refuses an ask on a step the agent does alone', () => {
+    const route = routeFromWording([
+      { actor: 'agent', instruction: 'Sign up.', ask: 'Please sign up.' },
+    ])
 
-    expect(dressed).toStrictEqual({
-      ok: true,
-      steps: [
-        {
-          actor: 'operator',
-          instruction: 'The operator creates the account.',
-          ask: 'Please create the account.',
-        },
-      ],
-    })
+    expect(route).toStrictEqual({ ok: false, why: expect.stringContaining('agent acting alone') })
   })
 
-  it('refuses a walk that recorded no steps at all', () => {
-    expect(dressWalkedSteps([], [{ instruction: 'Sign up.' }])).toStrictEqual({
-      ok: false,
-      why: expect.stringContaining('no steps'),
-    })
+  it('refuses an operator step with no ask', () => {
+    const route = routeFromWording([{ actor: 'operator', instruction: 'Sign up.' }])
+
+    expect(route).toStrictEqual({ ok: false, why: expect.stringContaining('needs an operator') })
   })
 
   /**
-   * **The count is the shape, and the shape is the walk's.** A shorter list is
-   * not a shorter recipe: it attaches every sentence after the gap to the wrong
-   * step, and the result reads like an observation rather than a rewrite.
-   */
-  it('refuses a wording that describes a different number of steps', () => {
-    const dressed = dressWalkedSteps(walked, [{ instruction: 'Sign up.' }])
-
-    expect(dressed.ok).toBe(false)
-    expect(dressed.ok === false && dressed.why).toContain('2')
-  })
-
-  it('refuses an ask on a step the agent did alone', () => {
-    const dressed = dressWalkedSteps(
-      [{ actor: 'agent' }],
-      [{ instruction: 'Sign up.', ask: 'Please sign up.' }],
-    )
-
-    expect(dressed).toStrictEqual({ ok: false, why: expect.stringContaining('agent acting alone') })
-  })
-
-  it('refuses an operator step with no ask recorded and none written', () => {
-    const dressed = dressWalkedSteps([{ actor: 'operator' }], [{ instruction: 'Sign up.' }])
-
-    expect(dressed).toStrictEqual({ ok: false, why: expect.stringContaining('needs an operator') })
-  })
-
-  /**
-   * The red line, on the one surface where a human types free text into an entry
-   * the Colony publishes. A value written here is one the Colony holds and cannot
+   * The red line, on the one surface where free text is typed into an entry the
+   * Colony publishes. A value written here is one the Colony holds and cannot
    * un-hold, so it is refused before it is stored rather than redacted after.
    */
   it('refuses a sentence that reads as a credential', () => {
-    const dressed = dressWalkedSteps(
-      [{ actor: 'agent' }],
-      [{ instruction: 'Paste the token ghp_abcdefghijklmnopqrstuvwxyz01 into the field.' }],
-    )
+    const route = routeFromWording([
+      {
+        actor: 'agent',
+        instruction: 'Paste the token ghp_abcdefghijklmnopqrstuvwxyz01 into the field.',
+      },
+    ])
 
-    expect(dressed).toStrictEqual({ ok: false, why: expect.stringContaining('credential') })
+    expect(route).toStrictEqual({ ok: false, why: expect.stringContaining('credential') })
   })
 
   /** What the screen posts, parsed the way the route parses it. */
   it('takes a whole wording as the console submits it', () => {
-    const parsed = DraftWordingSchema.safeParse({
-      steps: [{ instruction: 'Sign up.' }],
+    const parsed = EntryWordingSchema.safeParse({
+      steps: [{ actor: 'agent', instruction: 'Sign up.' }],
       proves: 'rung',
       provesTask: 'github-account',
     })
@@ -144,9 +104,19 @@ describe('dressing a walked draft', () => {
     expect(parsed.success).toBe(true)
   })
 
+  /** A step with no actor is a step nobody is asked to take. */
+  it('refuses a step that does not say who acts', () => {
+    const parsed = EntryWordingSchema.safeParse({
+      steps: [{ instruction: 'Sign up.' }],
+      proves: 'provider-post',
+    })
+
+    expect(parsed.success).toBe(false)
+  })
+
   it('refuses a sentence longer than a recipe step may be', () => {
-    const parsed = DraftWordingSchema.safeParse({
-      steps: [{ instruction: 'a'.repeat(RECIPE_STEP_MAX_LENGTH + 1) }],
+    const parsed = EntryWordingSchema.safeParse({
+      steps: [{ actor: 'agent', instruction: 'a'.repeat(RECIPE_STEP_MAX_LENGTH + 1) }],
       proves: 'provider-post',
     })
 
@@ -154,8 +124,8 @@ describe('dressing a walked draft', () => {
   })
 
   it('refuses a proof method the Colony does not recognise', () => {
-    const parsed = DraftWordingSchema.safeParse({
-      steps: [{ instruction: 'Sign up.' }],
+    const parsed = EntryWordingSchema.safeParse({
+      steps: [{ actor: 'agent', instruction: 'Sign up.' }],
       proves: 'ask-nicely',
     })
 
@@ -163,22 +133,26 @@ describe('dressing a walked draft', () => {
   })
 
   /**
-   * The point of the whole exercise: a dressed draft is one `whyNotPublishable`
+   * The point of the whole exercise: a written route is one `whyNotPublishable`
    * has nothing left to say about. If this drifts, the console gains a button
    * that writes words and still cannot publish — which is the state `#857` was
    * filed about.
    */
-  it('leaves a draft that publishes cleanly', () => {
-    const dressed = dressWalkedSteps(walked, [
-      { instruction: 'Ask for a mailbox at the provider.' },
-      { instruction: 'The operator confirms the address.' },
+  it('leaves an entry that publishes cleanly', () => {
+    const route = routeFromWording([
+      { actor: 'agent', instruction: 'Ask for a mailbox at the provider.' },
+      {
+        actor: 'operator',
+        instruction: 'The operator confirms the address.',
+        ask: 'Open the signup page and confirm the address.',
+      },
     ])
 
-    expect(dressed.ok).toBe(true)
+    expect(route.ok).toBe(true)
     expect(
-      dressed.ok &&
+      route.ok &&
         whyNotPublishable({
-          steps: [...dressed.steps],
+          steps: [...route.steps],
           proves: 'provider-mail',
           provesTask: null,
         }),

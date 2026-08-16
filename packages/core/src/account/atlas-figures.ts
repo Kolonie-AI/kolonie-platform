@@ -1,6 +1,8 @@
 import { z } from 'zod'
+import { AgentPlatformSchema } from '../agent/agent.js'
 import { AccountKindSchema, AccountProviderSchema, ProviderReportOutcomeSchema } from './account.js'
 import type { RecipeStatus } from './recipe.js'
+import { WallKindSchema } from './walked-recipe.js'
 
 /**
  * What the Colony can say about a provider that nobody else can (`#545`).
@@ -101,6 +103,57 @@ export const AtlasStopSchema = z.object({
   citizens: z.int().min(0),
 })
 export type AtlasStop = z.infer<typeof AtlasStopSchema>
+
+/**
+ * What the walks at one provider add up to (`#1032`).
+ *
+ * **The briefing the Colony writes for itself, from `account_walks` and from
+ * nothing else.** Before `#1032` a walk reached a reader only if a steward
+ * dressed it into an entry, so twenty walks by seven citizens produced two
+ * published recipes and eighteen accounts nobody could read. This block is the
+ * other eighteen: it is derived on every read, it names no walker, and it needs
+ * no decision from anybody to appear.
+ */
+export const AtlasWalkedSchema = z.object({
+  /** Distinct citizens with a closed walk here. Floored with the other counts. */
+  citizens: z.int().min(0),
+
+  /** Of those, how many finished it holding the account. Floored likewise. */
+  gotThrough: z.int().min(0),
+
+  /**
+   * Which way the walks leaned, or null where none closed.
+   *
+   * **Unfloored, on `#792`'s rule for {@link AtlasFigures.band}** — three words
+   * are a fact about the road and no arithmetic recovers a citizen from them.
+   */
+  band: AtlasBandSchema.nullable(),
+
+  /**
+   * How many walked on each runtime.
+   *
+   * **Floored with the counts, because that is what it is.** A breakdown over
+   * two citizens is two citizens with a platform each, which is nearer to naming
+   * them than any other field in this row.
+   */
+  platforms: z.partialRecord(AgentPlatformSchema, z.int().min(1)),
+
+  /**
+   * What stopped them, by kind, with how many hit each.
+   *
+   * **Unfloored, and the argument is disclosure rather than sample size.**
+   * `republishWalls` already puts a wall's *prose* — its title, symptom and
+   * remedy, as its walker wrote them — onto the published entry with no floor at
+   * all. A count against a nine-member enum is strictly less than that, so a
+   * floor here would suppress the safer half of what the Colony already says.
+   *
+   * **Kinds and never the prose** — the free text is moderated per report and
+   * travels the path moderation governs. Nothing held can surface through this
+   * field, because this field cannot carry a sentence.
+   */
+  walls: z.array(z.object({ kind: WallKindSchema, citizens: z.int().min(0) })),
+})
+export type AtlasWalked = z.infer<typeof AtlasWalkedSchema>
 
 /**
  * What the Colony measured about one recipe.
@@ -244,6 +297,18 @@ export const AtlasFiguresSchema = z.object({
    * exist.
    */
   evidenced: z.boolean(),
+
+  /**
+   * What the walks here add up to (`#1032`), or an empty briefing where none
+   * closed.
+   *
+   * **Beside the report figures rather than merged into them.** A report is a
+   * citizen saying what happened; a walk is the Colony watching it happen, and
+   * folding one into the other would produce a number whose provenance a reader
+   * cannot recover. They are two measurements of the same road and they are
+   * allowed to disagree.
+   */
+  walked: AtlasWalkedSchema,
 })
 export type AtlasFigures = z.infer<typeof AtlasFiguresSchema>
 
@@ -265,6 +330,7 @@ export function noFigures(kind: string, provider: string): AtlasFigures {
     suppressed: false,
     /** Nobody has been here, which is the whole of what this row says. */
     evidenced: false,
+    walked: { citizens: 0, gotThrough: 0, band: null, platforms: {}, walls: [] },
   }
 }
 
@@ -418,16 +484,16 @@ export function throughRate(figures: AtlasFigures): number | null {
  * walked the unwritten one at all. Ranking them together would put a provider
  * that may well work underneath one that is known not to.
  *
- * **It is four rows since `#604`, and the two new ones sit at the ends.** A
- * `draft` outranks `unwritten` because something was walked and the entry is
- * waiting on a person rather than on anybody at all — it still sorts below every
- * measured entry, because a rate the Colony has not published is not a rate. A
- * `retired` entry sorts last of everything: it is not on offer, and a provider
- * the Colony withdrew should not appear above one it merely has not walked.
+ * **A `retired` entry sorts last of everything**: it is not on offer, and a
+ * provider the Colony withdrew should not appear above one it merely has not
+ * walked.
  *
- * `proposed` is not in the ladder and cannot be: nothing that ranks entries ever
- * sees one, because no public surface reads them (`recipeStatusIsPublic`). It
- * shares `retired`'s floor if one ever arrives, which is the safe direction.
+ * **`#1032` removed a rung rather than adding one.** `draft` sat between
+ * `unwritten` and the measured entries, holding *something was walked and this is
+ * waiting on a person*. Nothing waits on a person any more: a walk writes the
+ * entry as it closes, so what that rung described is now either a `measured` row
+ * with a briefing behind it or a `joinable` one, and both are ranked on the
+ * arithmetic below.
  *
  * **`unwritten`'s place above `refused` is not what the index shows** (`#790`).
  * `atlasByOutcome` puts every entry nobody has walked below every entry
@@ -440,10 +506,9 @@ export function atlasRank(input: {
   readonly status: RecipeStatus
   readonly figures: readonly AtlasFigures[]
 }): number {
-  if (input.status === 'retired' || input.status === 'proposed') return -3
+  if (input.status === 'retired') return -3
   if (input.status === 'refused') return -2
   if (input.status === 'unwritten') return -1
-  if (input.status === 'draft') return -0.5
 
   /**
    * **A measured row outranks one nobody has walked, and falls through to the

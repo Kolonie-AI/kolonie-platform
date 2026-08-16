@@ -28,7 +28,6 @@ import { respondToChange, type Tripwire } from './tripwire.js'
 import { findDuplicate } from './dedup.js'
 import { heldQuestTick, questTick, type QuestLoopDependencies } from './quests.js'
 import { atlasTick, type AtlasLoopDependencies } from './atlas.js'
-import { recipeTick, type RecipeLoopDependencies } from './recipes.js'
 import { walkProseTick, type WalkProseLoopDependencies } from './walk-prose.js'
 import { answerTick, type AnswerLoopDependencies } from './answers.js'
 import { redLineReviewTick, type RedLineReviewLoopDependencies } from './redline-review.js'
@@ -174,15 +173,6 @@ export interface LoopDependencies {
    * steward, which is exactly where they were before this existed.
    */
   readonly atlas?: AtlasLoopDependencies
-  /**
-   * Whether a walked recipe is fit to publish (`#813`).
-   *
-   * A seventh pass on the same poll, and the one whose queue was the quietest of
-   * all: a walk that got through wrote a `draft`, and a draft is invisible to
-   * every reader outside the Colony. Absent leaves each one a draft, which is
-   * exactly where they sat before this existed.
-   */
-  readonly recipes?: RecipeLoopDependencies
   /**
    * What a walker wrote about the provider it walked (`#810`).
    *
@@ -500,7 +490,6 @@ export async function tick(deps: LoopDependencies, batchSize: number): Promise<T
   await readDirections(deps, batchSize, log)
   await readProfiles(deps, batchSize, log)
   await judgeAtlasProposals(deps, batchSize, log)
-  await judgeRecipeDrafts(deps, batchSize, log)
   await scrubWalkProse(deps, batchSize, log)
 
   return outcome
@@ -535,43 +524,6 @@ async function scrubWalkProse(deps: LoopDependencies, batchSize: number, log: Lo
     }
   } catch (error) {
     log.error('the walk prose pass failed', error, { event: 'walk-prose.pass.failed' })
-  }
-}
-
-/**
- * Judge the walked recipes waiting to be published, on the same poll (`#813`).
- *
- * Its failure is swallowed like every other pass's, and what a failed poll costs
- * here is the least of any of them: the pass leaves a draft it could not judge a
- * draft, so a tick that never ran and a tick that decided nothing are the same
- * state, and the next one picks the queue up where this one left it.
- */
-async function judgeRecipeDrafts(
-  deps: LoopDependencies,
-  batchSize: number,
-  log: Log,
-): Promise<void> {
-  const { recipes } = deps
-  if (recipes === undefined) return
-
-  try {
-    const outcome = await recipeTick({ log, ...recipes }, batchSize)
-    if (outcome.judged > 0) {
-      log.info(
-        `recipe drafts: ${outcome.judged} judged, ${outcome.published} published, ` +
-          `${outcome.refused} refused, ${outcome.held} held, ${outcome.failed} deferred`,
-        {
-          event: 'recipe.pass.done',
-          judged: outcome.judged,
-          published: outcome.published,
-          refused: outcome.refused,
-          held: outcome.held,
-          failed: outcome.failed,
-        },
-      )
-    }
-  } catch (error) {
-    log.error('the recipe draft pass failed', error, { event: 'recipe.pass.failed' })
   }
 }
 

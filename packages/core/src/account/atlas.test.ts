@@ -417,7 +417,7 @@ describe('the words a heading is written in', () => {
 describe('what the Atlas has on a provider somebody is about to walk', () => {
   const entriesOf = (recipes: readonly ProviderRecipe[]) => atlasEntries(recipes)
 
-  it('reads a joinable entry as walked, with its steps and a steward behind it', () => {
+  it('reads a joinable entry as walked, with its steps and the Colony behind it', () => {
     const state = atlasStateOf(
       entriesOf([recipe({ kind: 'mailbox', provider: 'mail.example', operatorSteps: true })]),
       'mail.example',
@@ -425,7 +425,6 @@ describe('what the Atlas has on a provider somebody is about to walk', () => {
 
     expect(state.state).toBe('walked')
     if (state.state !== 'walked') return
-    expect(state.reviewed).toBe(true)
     expect(state.steps).toEqual(['sign up', 'accept the terms'])
     expect(state.operatorSteps).toBe(1)
   })
@@ -479,22 +478,27 @@ describe('what the Atlas has on a provider somebody is about to walk', () => {
   })
 
   /**
-   * A draft carries steps somebody walked and nobody reviewed. They are the only
-   * account of the path that exists, so they are shown — with the caveat that
-   * stops them reading as the Colony's own instruction, which is `#604`'s rule.
+   * **A withdrawn entry is a warning and never a route** (`#1032`).
+   *
+   * It may still carry the steps it was written with — `retired` is one of the
+   * two statuses `recipeStatusAllowsSteps` permits, so a withdrawal does not
+   * erase what the entry said. What it must not do is render as *here is the
+   * way in*: the provider is closed, and steps shown without that fact are an
+   * instruction to walk into a shut door. `closed` wins over the steps, and
+   * with `draft` gone there is no longer any status that reaches `walked`
+   * without the Colony standing behind it.
    */
-  it('shows a draft’s steps and says no steward stood behind them', () => {
-    const draft = {
-      ...recipe({ kind: 'mailbox', provider: 'draft.example', status: 'draft' }),
+  it('reads a withdrawn entry as closed even though it still carries steps', () => {
+    const withdrawn = {
+      ...recipe({ kind: 'mailbox', provider: 'gone.example', status: 'retired' as const }),
       steps: [{ actor: 'agent' as const, instruction: 'ask for an invitation' }],
     }
 
-    const state = atlasStateOf(entriesOf([draft]), 'draft.example')
+    const state = atlasStateOf(entriesOf([withdrawn]), 'gone.example')
 
-    expect(state.state).toBe('walked')
-    if (state.state !== 'walked') return
-    expect(state.reviewed).toBe(false)
-    expect(state.steps).toEqual(['ask for an invitation'])
+    expect(state.state).toBe('closed')
+    if (state.state !== 'closed') return
+    expect(state.withdrawn).toBe(true)
   })
 
   /** The kind narrows a provider walked for more than one sort of account. */

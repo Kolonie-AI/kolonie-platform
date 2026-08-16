@@ -49,6 +49,27 @@ describe('the order the Atlas is read in', () => {
   })
 
   /**
+   * **The tie-break breaks a tie and nothing else, pinned because `#1032` read
+   * it the other way.** That issue asked for a test that *80 % of two hundred
+   * outranks 100 % of five* — which is not this ordering: the share comes first
+   * and the sample only separates two entries that already agree on it, exactly
+   * as the same issue's own sentence says (*"share of agents that got through,
+   * bigger sample winning a tie"*). Both readings are defensible and only one of
+   * them is what the `accounts.recipes` description promises a reader, so the
+   * description wins and the other reading is a proposal rather than a bug.
+   *
+   * Asserted rather than left implicit because the two sentences disagreed in
+   * one issue, which is precisely the state in which somebody later changes the
+   * function to satisfy the wrong half of it.
+   */
+  it('does not let a bigger sample overturn a better share', () => {
+    const perfectAndSmall = rank('joinable', measured({ attempted: 5, proved: 5 }))
+    const goodAndLarge = rank('joinable', measured({ attempted: 200, proved: 160 }))
+
+    expect(perfectAndSmall).toBeGreaterThan(goodAndLarge)
+  })
+
+  /**
    * Nothing is known about an unmeasured entry, which is worse than a working
    * recipe and better than a road known to be closed.
    */

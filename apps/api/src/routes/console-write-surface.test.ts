@@ -172,11 +172,18 @@ describe('what the console can write', () => {
     // to sit behind different guards, so a maintainer who was not also a
     // steward pressed a button on their own page and got a 404.
     //
-    // **Nothing publishes or refuses a quest any more** (`#723`). The recipe
-    // draft route is deliberately different: it moves walked steps a person has
-    // read, and cannot invent a recipe from an unwritten entry (`#808`).
-    '/backend/atlas/drafts/:kind/:provider/publish',
-    '/backend/atlas/drafts/:kind/:provider/refuse',
+    // **Nothing publishes or refuses a quest any more** (`#723`). The walked
+    // entry route is deliberately different: it writes the Colony's own route
+    // onto a provider citizens have measured, and cannot invent one for an
+    // entry nobody has walked (`#808`, `#1032`).
+    //
+    // **Its own segment, and the list is why.** Under `entries` beside the two
+    // proposal routes below it, the router folds the two shapes into one node
+    // and prints `entries/:kind|:proposalId/…` — at which point this list stops
+    // being readable as what the console can write, which is the whole of what
+    // this file checks.
+    '/backend/atlas/walked/:kind/:provider/publish',
+    '/backend/atlas/walked/:kind/:provider/refuse',
     '/backend/atlas/entries/:proposalId/accept',
     '/backend/atlas/entries/:proposalId/refuse',
     '/backend/atlas/providers/:proposalId/accept',

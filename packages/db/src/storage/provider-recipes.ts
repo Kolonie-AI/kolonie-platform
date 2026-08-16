@@ -47,9 +47,9 @@ import type { Database, Transaction } from '../client.js'
 /**
  * **These take a transaction as well as a pool** (`#601`).
  *
- * `finishWalk` reads an entry and writes a draft inside the transaction that
- * closes the walk, because a walk marked `proved` whose draft was not written
- * is a record claiming a recipe that does not exist. Widening the parameter is
+ * `finishWalk` reads an entry and writes one inside the transaction that
+ * closes the walk, because a walk marked `proved` whose entry was not written
+ * is a record claiming a catalogue row that does not exist. Widening the parameter is
  * the whole of what that needed — the queries are unchanged.
  */
 type Handle = Database | Transaction
@@ -154,8 +154,8 @@ export function toRecipe(row: typeof providerRecipes.$inferSelect): ProviderReci
 /**
  * Every entry, or every entry for one kind.
  *
- * **Joinable first, then drafts, then measured, then unwritten, then refusals
- * and withdrawals; within each, by provider.** A reader scanning the catalogue
+ * **Joinable first, then measured, then unwritten, then refusals and
+ * withdrawals; within each, by provider.** A reader scanning the catalogue
  * wants what it can act on at the top; an entry nobody has looked at yet may
  * still work and so sits above one known not to (`#588`). The ordering is stated
  * here rather than left to the caller, so two surfaces cannot present one
@@ -168,13 +168,13 @@ export function toRecipe(row: typeof providerRecipes.$inferSelect): ProviderReci
  * comes from measured outcomes* — applied to a shelf where until now nothing
  * measured could appear at all.
  *
- * **`includeInternal` is the parameter `#604` added, and the default is the safe
- * direction.** Two of the six states never reach a stranger: a `proposed` entry
- * is somebody else's suggestion, unread; a `draft` is the Colony's own work in
- * progress. Every existing caller keeps the reading it had, and a caller that
- * wants the curation queue has to ask for it by name — which is the only shape
- * where forgetting produces *too little* rather than an unreviewed claim about
- * somebody's product on a public page.
+ * **`includeInternal` is the parameter `#604` added, and it currently excludes
+ * nothing.** It existed for the two states that never reached a stranger — a
+ * `proposed` entry nobody had read, a `draft` the Colony had not dressed — and
+ * `#1032` retired both. It is kept for `recipeStatusIsPublic`'s reason: the
+ * question *may a reader see this* has one answer in one place, ready for the
+ * first status that answers no, rather than scattered back across five surfaces
+ * the day one arrives.
  */
 export async function providerRecipeList(
   db: Handle,
@@ -201,12 +201,11 @@ export async function providerRecipeList(
     .orderBy(
       sql`case ${providerRecipes.status}
             when 'joinable' then 0
-            when 'draft' then 1
-            when 'measured' then 2
-            when 'unwritten' then 3
-            when 'refused' then 4
-            when 'retired' then 5
-            else 6
+            when 'measured' then 1
+            when 'unwritten' then 2
+            when 'refused' then 3
+            when 'retired' then 4
+            else 5
           end`,
       asc(providerRecipes.kind),
       asc(providerRecipes.provider),
@@ -685,71 +684,65 @@ export async function scopeProviderDirection(
 }
 
 /**
- * Move a draft the Colony has judged, and nothing else (`#808`).
+ * Refuse a measured entry, and nothing else (`#808`, narrowed by `#1032`).
  *
- * **The one path from `draft` to a published state.** `writeProviderRecipe`
- * replaces a row from the top, which is right for *this provider changed its
- * form* and wrong for *this walk was judged*: a publish that went through it
- * would have to restate every field it did not mean to change, and restating a
- * field is how a verdict quietly reverts an edit somebody made in between.
+ * **Refusal is all that is left here.** This used to carry a `published` verdict
+ * too, for the pass that judged a steward's drafts. `#1032` retired that pass:
+ * the only way an entry becomes `joinable` is somebody writing the route onto it,
+ * which is {@link dressProviderRecipe}, and a status move with no steps behind it
+ * would fail `provider_recipes_joinable_has_steps` anyway. What was two verdicts
+ * about one row is now one act that publishes and one that refuses.
  *
- * **Guarded on `draft` in the `where`, not by the caller.** The verdict was
- * reached about a draft; if a steward published or refused it in the meantime,
- * the entry is not that draft any more and this must do nothing. That makes the
- * ordinary race — a steward and the runner reaching the same row — resolve to
- * whoever got there first, exactly as `recordAtlasModeration` resolves it.
+ * **Not `writeProviderRecipe`**, which replaces a row from the top. That is right
+ * for *this provider changed its form* and wrong for *this entry was refused*: a
+ * refusal that went through it would have to restate every field it did not mean
+ * to change, and restating a field is how a verdict quietly reverts an edit
+ * somebody made in between.
+ *
+ * **Guarded on `measured` in the `where`, not by the caller.** The refusal was
+ * decided about a measured entry; if it was published or refused in the meantime,
+ * it is not that entry any more and this must do nothing. That makes the ordinary
+ * race resolve to whoever got there first, exactly as `recordAtlasModeration`
+ * resolves it.
  *
  * **Refusing empties the entry, because the table requires it.**
  * `provider_recipes_unjoinable_is_empty` will not hold a refused row with steps
  * or a proof, so refusing is not a label over a walk — it discards it, and
  * `reaches` and `provesTask` go with it since neither survives a null `proves`.
- * That is why `#813` refuses only for a red line: everything fixable is held as a
- * draft instead. What is kept is `walked_recipe`, which is a separate column and
- * unaffected — so the walk that produced a refused entry is still readable.
+ * Refuse only for a red line: everything fixable stays measured, where the
+ * provider's briefing still carries what citizens found. What is kept is
+ * `walked_recipe`, a separate column and unaffected — so the walk that produced a
+ * refused entry is still readable.
  *
- * Returns whether a row moved, so a caller can tell a verdict that landed from
- * one that arrived late.
+ * Returns whether a row moved, so a caller can tell a refusal that landed from one
+ * that arrived late.
  */
 export async function publishProviderRecipe(
   db: Handle,
   entry: {
     readonly kind: AccountKind
     readonly provider: string
-  } & (
-    | {
-        readonly verdict: 'published'
-        /** Where the shelf was confirmed or corrected; left alone when absent. */
-        readonly category?: AtlasCategory | undefined
-      }
-    | { readonly verdict: 'refused'; readonly refusal: string }
-  ),
+    readonly verdict: 'refused'
+    readonly refusal: string
+  },
 ): Promise<boolean> {
   const moved = await db
     .update(providerRecipes)
-    .set(
-      entry.verdict === 'published'
-        ? {
-            status: 'joinable',
-            ...(entry.category === undefined ? {} : { category: entry.category }),
-            refusal: null,
-            updatedAt: sql`now()`,
-          }
-        : {
-            status: 'refused',
-            refusal: entry.refusal,
-            /** The four the constraints require of an entry that is not joinable. */
-            steps: [],
-            proves: null,
-            provesTask: null,
-            reaches: null,
-            updatedAt: sql`now()`,
-          },
-    )
+    .set({
+      status: 'refused',
+      refusal: entry.refusal,
+      /** The four the constraints require of an entry that is not joinable. */
+      steps: [],
+      proves: null,
+      provesTask: null,
+      reaches: null,
+      updatedAt: sql`now()`,
+    })
     .where(
       and(
         eq(providerRecipes.kind, entry.kind),
         eq(providerRecipes.provider, AccountProviderSchema.parse(entry.provider)),
-        eq(providerRecipes.status, 'draft'),
+        eq(providerRecipes.status, 'measured'),
       ),
     )
     .returning({ id: providerRecipes.id })
@@ -758,26 +751,36 @@ export async function publishProviderRecipe(
 }
 
 /**
- * Write the wording onto a walked draft, so it can be published at all (`#857`).
+ * Write the wording onto a measured entry, so it can be published at all
+ * (`#857`).
  *
  * **The write that was missing.** A walk records the shape of what happened and
- * `#517` reserves the sentence a recipe publishes to the Colony, so every draft a
+ * `#517` reserves the sentence a recipe publishes to the Colony, so every entry a
  * walk produced arrived wordless and `whyNotPublishable` held it — correctly, and
  * forever, because nothing anywhere could supply the missing sentence. The screen
  * offered a Publish button that would not fire and a Refuse button that empties
- * the row. This is the third thing to do with such a draft.
+ * the row. This is the third thing to do with such an entry.
  *
- * **Guarded on `draft` in the `where`, for the reason `publishProviderRecipe`
+ * **A measured entry carries no route at all since `#1032`**, so this is now the
+ * only way steps ever reach the catalogue: what a citizen walked is published in
+ * that provider's briefing under its own author, and what the Colony recommends
+ * is written here, by the Colony, or not at all.
+ *
+ * **Guarded on `measured` in the `where`, for the reason `publishProviderRecipe`
  * is.** Dressing an entry that has since been published would overwrite a
  * live recipe from a form somebody opened an hour ago.
  *
- * **It moves no status**, which is what lets the screen dress and publish in one
- * press without the press being the thing that decides: the verdict that follows
- * is a verdict about a row the runner can actually read.
+ * **It moves the status, and since `#1032` that is the point.** Dressing used to
+ * write words and leave the deciding to a pass that judged drafts; that pass is
+ * gone, and there is nothing behind this act to decide anything afterwards. A
+ * `measured` row may hold no steps at all — `provider_recipes_unjoinable_is_empty`
+ * refuses them — so writing a route onto one and leaving it measured is not a
+ * state the table has. Writing the route *is* publishing it, by whoever wrote it,
+ * under their own name.
  *
- * Steps arrive already checked by `dressWalkedSteps` — this writes them.
+ * Steps arrive already checked by `routeFromWording` — this writes them.
  */
-export async function dressProviderRecipeDraft(
+export async function dressProviderRecipe(
   db: Handle,
   entry: {
     readonly kind: AccountKind
@@ -791,16 +794,18 @@ export async function dressProviderRecipeDraft(
   const dressed = await db
     .update(providerRecipes)
     .set({
+      status: 'joinable',
       steps: [...entry.steps],
       proves: entry.proves,
       provesTask: entry.proves === 'rung' ? (entry.provesTask ?? null) : null,
+      refusal: null,
       updatedAt: sql`now()`,
     })
     .where(
       and(
         eq(providerRecipes.kind, entry.kind),
         eq(providerRecipes.provider, AccountProviderSchema.parse(entry.provider)),
-        eq(providerRecipes.status, 'draft'),
+        eq(providerRecipes.status, 'measured'),
       ),
     )
     .returning({ id: providerRecipes.id })

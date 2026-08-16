@@ -1,6 +1,8 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import {
   AccountKindSchema,
+  REFUSAL_UNSTATED,
+  WALL_KIND_MEANINGS,
   WALK_PUBLISHED_REPUTATION,
   type AccountKind,
   type AgentId,
@@ -10,7 +12,7 @@ import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
 import { sql } from 'drizzle-orm'
 import {
   accountWalk,
-  amendProposedDraft,
+  amendMeasuredEntry,
   reportFinishedWalk,
   unreportedWalk,
   accountWalkList,
@@ -29,12 +31,7 @@ import {
   walkInProgress,
   walksToAskAbout,
 } from './account-walks.js'
-import {
-  dressProviderRecipeDraft,
-  providerRecipe,
-  publishProviderRecipe,
-  writeProviderRecipe,
-} from './provider-recipes.js'
+import { dressProviderRecipe, providerRecipe, writeProviderRecipe } from './provider-recipes.js'
 import { registerAgent } from './agents.js'
 import { nameSession } from './sessions.js'
 import { reputationOfAgent } from './balance.js'
@@ -295,23 +292,42 @@ describe('the record of one agent obtaining one account', () => {
   })
 
   describe('what a finished walk does to the catalogue', () => {
-    it('writes a draft with the steps it observed, and no wording', async () => {
+    /**
+     * **The entry says the pair was walked; the route stays on the walk**
+     * (`#1032`).
+     *
+     * This wrote a `draft` carrying the observed steps, and a steward read them
+     * before any citizen could. That gate took two decisions in its lifetime
+     * while six drafts stood open, so it is gone — and what replaces it is not a
+     * faster gate but a different division: **the entry is what the Colony
+     * stands behind, and the briefing is what the Colony observed.** An
+     * unreviewed route is the second thing, so it is published out of
+     * `account_walks` under its walker's name rather than copied onto the
+     * catalogue row as though the Colony had written it.
+     *
+     * Hence `measured` and no steps — the honest description of a pair citizens
+     * have walked and nobody has written up — which
+     * `provider_recipes_unjoinable_is_empty` is what enforces.
+     */
+    it('writes a measured entry, and leaves the route it observed on the walk', async () => {
       const walkId = await walkInProgress(db, agentId, where)
       await recordWalkStep(db, walkId, { actor: 'agent' })
       await recordWalkStep(db, walkId, { actor: 'operator', ask: 'Please open this URL.' })
 
       const finished = await finishWalk(db, walkId, { outcome: 'proved' })
 
-      expect(finished?.verdict.kind).toBe('draft')
+      expect(finished?.verdict.kind).toBe('writes')
 
       const entry = await providerRecipe(db, where.kind, where.provider)
-      expect(entry?.status).toBe('draft')
+      expect(entry?.status).toBe('measured')
       expect(entry?.category).toBe('mailbox')
-      expect(entry?.steps).toHaveLength(2)
-      /** The actions, with the wording genuinely absent — which is the issue. */
-      expect(entry?.steps[0]?.instruction).toBeUndefined()
-      /** And the one piece of wording that is real: the ask the Colony sent. */
-      expect(entry?.steps[1]?.ask).toBe('Please open this URL.')
+      expect(entry?.steps).toHaveLength(0)
+
+      /** And the route is not lost: it is on the walk, which is what the briefing reads. */
+      const steps = (await accountWalk(db, walkId))?.steps
+      expect(steps?.map((step) => step.actor)).toEqual(['agent', 'operator'])
+      /** The one piece of wording that is real: the ask the Colony sent. */
+      expect(steps?.[1]?.ask).toBe('Please open this URL.')
     })
 
     /**
@@ -409,13 +425,23 @@ describe('the record of one agent obtaining one account', () => {
     })
 
     /**
-     * The walker's own account travels with the draft it proposed (`#769`).
+     * **The typed half publishes and the walker's sentences do not** (`#1032`).
      *
-     * Without this the long form sits on the walk row and the steward reviewing
-     * the draft reads a shape with no words beside it — which is the state the
-     * citizen who filed `#769` was already in, one table along.
+     * `#769` copied the walker's whole long form onto the entry, so that a
+     * steward reading the draft saw a shape with words beside it. With the gate
+     * gone there is no reader between the walk and the catalogue: `title`,
+     * `symptom` and `remedy` are free text a citizen wrote a moment ago, and
+     * `WALK_PROSE_FIELDS` is where prose waits to be read. Publishing them here
+     * would put unmoderated text into the `kolonie.accounts.recipes` response
+     * body — the same leak `refusal` was, in a different column.
+     *
+     * **What survives is what cannot carry a sentence**: the wall kinds, and how
+     * many walkers hit each. That is the aggregate `#981` and `#982` asked for,
+     * and it is a stronger answer than one walker's phrasing was. The words are
+     * not lost — they are on the walk, and they reach readers through the
+     * briefing once the moderator has read them.
      */
-    it('carries the walker’s own account onto the entry it proposed', async () => {
+    it('publishes a walk’s wall kinds on the entry, and none of its prose', async () => {
       const walkId = await walkInProgress(db, agentId, where)
       await recordWalkStep(db, walkId, { actor: 'agent' })
 
@@ -428,23 +454,16 @@ describe('the record of one agent obtaining one account', () => {
       })
 
       const entry = await providerRecipe(db, where.kind, where.provider)
-      expect(entry?.walkedRecipe?.prerequisites).toEqual(['a GitHub account you already control'])
-      expect(entry?.walkedRecipe?.walls?.[0]?.title).toBe('the OAuth redirect asks for a password')
+      expect(entry?.walkedRecipe).toBeNull()
+      expect(JSON.stringify(entry)).not.toContain('the OAuth redirect asks for a password')
 
       /**
-       * **And they are reachable without knowing the blob is there** (`#982`),
-       * counted across the walkers that hit them (`#981`). `walls` is the
-       * aggregate one level up, computed where the walk finished and attached in
-       * `toRecipe` — the difference between a wall being stored and a wall being
-       * findable, and then between findable and countable.
+       * Counted across the walkers that hit them (`#981`), and reachable without
+       * knowing any blob is there (`#982`): `walls` is computed where the walk
+       * finished and attached in `toRecipe`.
        */
       expect(entry?.walls).toEqual([
-        {
-          kind: 'other',
-          reportedBy: 1,
-          lastReportedAt: expect.any(String),
-          title: 'the OAuth redirect asks for a password',
-        },
+        { kind: 'other', reportedBy: 1, lastReportedAt: expect.any(String) },
       ])
     })
 
@@ -474,15 +493,11 @@ describe('the record of one agent obtaining one account', () => {
 
       const entry = await providerRecipe(db, where.kind, where.provider)
       expect(entry?.status).toBe('refused')
+      /** The kind and the count, and — since `#1032` — not the walker's own wording. */
       expect(entry?.walls).toEqual([
-        {
-          kind: 'phone-verification',
-          reportedBy: 1,
-          lastReportedAt: expect.any(String),
-          title: 'the phone step',
-          symptom: 'the form rejects every number that has signed up before',
-        },
+        { kind: 'phone-verification', reportedBy: 1, lastReportedAt: expect.any(String) },
       ])
+      expect(JSON.stringify(entry)).not.toContain('the form rejects every number')
     })
 
     /**
@@ -601,21 +616,28 @@ describe('the record of one agent obtaining one account', () => {
     })
 
     /**
-     * **A later walk with nothing to add must not delete the last one's
-     * account** (`#769`). `undefined` means *say nothing about it*; only a
+     * **A walk passing through must not delete the account already on the
+     * entry** (`#769`). `undefined` means *say nothing about it*; only a
      * curation edit passing `null` clears it.
+     *
+     * The account on the entry is a curated one since `#1032` — a walk writes
+     * none — which makes this invariant matter more rather than less: what a
+     * walk would be blanking is now text somebody read and stood behind.
      */
-    it('leaves an earlier walker’s account alone when a later walk adds none', async () => {
-      const first = await walkInProgress(db, agentId, where)
-      await recordWalkStep(db, first, { actor: 'agent' })
-      await finishWalk(db, first, {
-        outcome: 'proved',
-        recipe: { verification: ['the authorised apps list names it'] },
+    it('leaves the account already on the entry alone when a walk adds none', async () => {
+      await writeProviderRecipe(db, {
+        kind: where.kind,
+        provider: where.provider,
+        title: 'Somewhere',
+        category: 'mailbox',
+        status: 'measured',
+        steps: [],
+        walkedRecipe: { verification: ['the authorised apps list names it'] },
       })
 
-      const second = await walkInProgress(db, agentId, where)
-      await recordWalkStep(db, second, { actor: 'agent' })
-      await finishWalk(db, second, { outcome: 'proved' })
+      const walkId = await walkInProgress(db, agentId, where)
+      await recordWalkStep(db, walkId, { actor: 'agent' })
+      await finishWalk(db, walkId, { outcome: 'proved' })
 
       const entry = await providerRecipe(db, where.kind, where.provider)
       expect(entry?.walkedRecipe?.verification).toEqual(['the authorised apps list names it'])
@@ -623,25 +645,52 @@ describe('the record of one agent obtaining one account', () => {
 
     /**
      * **The rejection case `#601` asks for by name**: *a walk that ended
-     * halfway proposing nothing*. Half a path published as a recipe is one that
-     * fails at step three.
+     * halfway publishing no route*. Half a path published as a recipe is one
+     * that fails at step three — and that objection is met by the entry
+     * carrying no steps, which it does.
      *
-     * The provider is on the shelf all the same, at `measured` and with no
-     * steps (`#904`, `#1036`). *Somebody walked here and it went nowhere* is
-     * what the Atlas is for; it was `provider-report` that used to record it,
-     * and the alias now writes a walk.
+     * What changed at `#1032` is the verdict beside it. This returned `nothing`
+     * while a verdict became a route somebody would follow; a `writes` verdict
+     * publishes no route at all now, so an abandoned walk writes the pair onto
+     * the shelf at `measured` — *somebody walked here and it went nowhere*,
+     * which is what the Atlas is for — and where it stopped is the briefing.
+     * The outcome that proposed nothing is the one with the most to say.
      */
-    it('proposes nothing for a walk that was abandoned, and still names the provider', async () => {
+    it('publishes no route for a walk that was abandoned, and still names the provider', async () => {
       const walkId = await walkInProgress(db, agentId, where)
       await recordWalkStep(db, walkId, { actor: 'agent' })
 
       const finished = await finishWalk(db, walkId, { outcome: 'abandoned' })
 
-      expect(finished?.verdict.kind).toBe('nothing')
+      expect(finished?.verdict.kind).toBe('writes')
 
       const entry = await providerRecipe(db, where.kind, where.provider)
       expect(entry?.status).toBe('measured')
       expect(entry?.steps).toEqual([])
+    })
+
+    /**
+     * **And it still cannot answer for an entry the Colony stands behind.** A
+     * walk that stopped part-way saw no shape to match, so `joinable` — and
+     * `refused`, and `retired` — fall through to `nothing` rather than being
+     * quietly restated as `measured` by somebody who gave up.
+     */
+    it('says nothing for an abandoned walk against an entry the Colony publishes', async () => {
+      await writeProviderRecipe(db, {
+        kind: where.kind,
+        provider: where.provider,
+        title: 'Somewhere',
+        category: 'mailbox',
+        status: 'joinable',
+        proves: 'rung',
+        steps: [{ actor: 'agent', instruction: 'Open the signup form.' }],
+      })
+
+      const walkId = await walkInProgress(db, agentId, where)
+      await recordWalkStep(db, walkId, { actor: 'agent' })
+
+      expect((await finishWalk(db, walkId, { outcome: 'abandoned' }))?.verdict.kind).toBe('nothing')
+      expect((await providerRecipe(db, where.kind, where.provider))?.status).toBe('joinable')
     })
 
     /**
@@ -735,13 +784,22 @@ describe('the record of one agent obtaining one account', () => {
       expect(await reportFinishedWalk(db, agentId, walkId, { did: 'Anything.' })).toBeUndefined()
     })
 
-    it('proposes a refusal with the wall, and no steps', async () => {
+    /**
+     * **The reader is told why, in the Colony's own sentence** (`#1032`). This
+     * asserted the walker's `wall` reached the entry verbatim, which is the leak
+     * the test two hundred lines up now pins: `wall` is moderated prose and a
+     * `refused` entry is public from the write. The sentence is composed from
+     * the typed wall kinds instead, so it still says the thing the walker said —
+     * a phone number was demanded — without publishing anybody's unread words.
+     */
+    it('proposes a refusal saying why, and no steps', async () => {
       const walkId = await walkInProgress(db, agentId, where)
       await recordWalkStep(db, walkId, { actor: 'agent' })
 
       const finished = await finishWalk(db, walkId, {
         outcome: 'refused',
         wall: 'It demands a phone number before it will create the account.',
+        recipe: { walls: [{ kind: 'phone-verification' }] },
       })
 
       expect(finished?.verdict.kind).toBe('refusal')
@@ -749,8 +807,24 @@ describe('the record of one agent obtaining one account', () => {
       const entry = await providerRecipe(db, where.kind, where.provider)
       expect(entry?.status).toBe('refused')
       expect(entry?.category).toBe('mailbox')
-      expect(entry?.refusal).toContain('phone number')
+      expect(entry?.refusal).toContain(WALL_KIND_MEANINGS['phone-verification'])
       expect(entry?.steps).toEqual([])
+    })
+
+    /**
+     * **A refusal that named no kind still says something a reader can act on.**
+     * `**Do not attempt this.**` followed by nothing reads as a rendering fault,
+     * which is what the walls-less refusals looked like the moment the walker's
+     * sentence stopped being copied here.
+     */
+    it('says why it can say no more, where the walk typed no wall at all', async () => {
+      const walkId = await walkInProgress(db, agentId, where)
+      await recordWalkStep(db, walkId, { actor: 'agent' })
+
+      await finishWalk(db, walkId, { outcome: 'refused', wall: 'It wanted a card.' })
+
+      const entry = await providerRecipe(db, where.kind, where.provider)
+      expect(entry?.refusal).toBe(REFUSAL_UNSTATED)
     })
 
     /**
@@ -851,7 +925,7 @@ describe('the record of one agent obtaining one account', () => {
       expect(await finishWalk(db, walkId, { outcome: 'refused', wall: 'x' })).toBeUndefined()
 
       const entry = await providerRecipe(db, where.kind, where.provider)
-      expect(entry?.status).toBe('draft')
+      expect(entry?.status).toBe('measured')
     })
 
     /** And a finished walk is not the open one any more. */
@@ -865,68 +939,73 @@ describe('the record of one agent obtaining one account', () => {
   })
 
   /**
-   * **The one thing on a held draft that is the walker's** (`#986`).
+   * **The one thing on a measured entry that is the walker's** (`#986`).
    *
    * A citizen read `requiredChanges` off its draft, wrote the whole path out in
    * answer and had nowhere to put it: the walk had closed, correctly, because a
-   * second close would propose a second draft. What moves here is the attributed
+   * second close would write a second entry. What moves here is the attributed
    * account and nothing else — no outcome, no verdict, and none of the wording
    * `#517` reserves for the Colony.
+   *
+   * **And since `#1032` it moves on the walk alone.** The entry this amends is
+   * `measured` and therefore public; a rewritten account arriving on it would
+   * reach `kolonie.accounts.recipes` in the request that wrote it, unread. The
+   * corrected words go where every citizen report goes.
    */
-  describe('amending the account on a draft this walk proposed', () => {
+  describe('amending the account this walk measured', () => {
     const RECIPE = {
       steps: [{ title: 'Open the signup page', detail: 'It is OAuth-only.' }],
       verification: ['the account page names the address'],
     }
 
-    const proposedDraft = async () => {
+    const measured = async () => {
       const walkId = await walkInProgress(db, agentId, where)
       await recordWalkStep(db, walkId, { actor: 'agent' })
       await finishWalk(db, walkId, { outcome: 'proved' })
       return walkId
     }
 
-    it('replaces the account on the walk and on the entry carrying it', async () => {
-      const walkId = await proposedDraft()
+    it('replaces the account on the walk, and puts none of it on the entry', async () => {
+      const walkId = await measured()
 
-      const amended = await amendProposedDraft(db, agentId, where, RECIPE)
+      const amended = await amendMeasuredEntry(db, agentId, where, RECIPE)
 
       expect(amended?.id).toBe(walkId)
       expect(amended?.recipe).toMatchObject(RECIPE)
-      expect((await providerRecipe(db, where.kind, where.provider))?.walkedRecipe).toMatchObject(
-        RECIPE,
-      )
+
+      const entry = await providerRecipe(db, where.kind, where.provider)
+      expect(entry?.walkedRecipe).toBeNull()
+      expect(JSON.stringify(entry)).not.toContain('It is OAuth-only.')
     })
 
     /** The verdict was decided when the walk ended, and an amendment is not one. */
     it('moves no outcome, no status and none of the entry’s own steps', async () => {
-      await proposedDraft()
+      await measured()
       const before = await providerRecipe(db, where.kind, where.provider)
 
-      const amended = await amendProposedDraft(db, agentId, where, RECIPE)
+      const amended = await amendMeasuredEntry(db, agentId, where, RECIPE)
 
       const after = await providerRecipe(db, where.kind, where.provider)
       expect(amended?.outcome).toBe('proved')
-      expect(after?.status).toBe('draft')
+      expect(after?.status).toBe('measured')
       expect(after?.steps).toEqual(before?.steps)
     })
 
     /**
      * **Nothing published is reachable from here.** A steward taking the entry
-     * out of `draft` is what ends the walker's hold on its own paragraph, and
-     * the fields a steward filled in are not touched on the way past.
+     * out of `measured` is what ends the walker's hold on its own paragraph,
+     * and the fields they filled in are not touched on the way past.
      */
-    it('refuses once a steward has published the entry, and keeps what they wrote', async () => {
-      await proposedDraft()
-      await dressProviderRecipeDraft(db, {
+    it('refuses once a curator has published the entry, and keeps what they wrote', async () => {
+      await measured()
+      await dressProviderRecipe(db, {
         ...where,
         steps: [{ actor: 'agent', instruction: 'Open the signup form.' }],
         proves: 'rung',
         provesTask: 'email-inbox',
       })
-      await publishProviderRecipe(db, { ...where, verdict: 'published' })
 
-      expect(await amendProposedDraft(db, agentId, where, RECIPE)).toBeUndefined()
+      expect(await amendMeasuredEntry(db, agentId, where, RECIPE)).toBeUndefined()
 
       const entry = await providerRecipe(db, where.kind, where.provider)
       expect(entry?.status).toBe('joinable')
@@ -934,9 +1013,9 @@ describe('the record of one agent obtaining one account', () => {
       expect(entry?.steps).toHaveLength(1)
     })
 
-    /** A citizen that proposed nothing here has nothing to amend. */
-    it('reaches no draft another walk proposed', async () => {
-      await proposedDraft()
+    /** A citizen that measured nothing here has nothing to amend. */
+    it('reaches no entry another walk measured', async () => {
+      await measured()
       const other = await registerAgent(db, {
         name: 'second-walker',
         platform: 'openclaw',
@@ -944,19 +1023,19 @@ describe('the record of one agent obtaining one account', () => {
       })
       if (other.outcome !== 'registered') throw new Error('could not register the second walker')
 
-      expect(await amendProposedDraft(db, other.agent.id, where, RECIPE)).toBeUndefined()
+      expect(await amendMeasuredEntry(db, other.agent.id, where, RECIPE)).toBeUndefined()
       expect((await providerRecipe(db, where.kind, where.provider))?.walkedRecipe).toBeNull()
     })
 
     /** An amendment about the steps has said nothing about the price (`#983`). */
     it('writes the two answers only where the amendment names them', async () => {
-      await proposedDraft()
-      await amendProposedDraft(db, agentId, where, { ...RECIPE, cost: 'paid-only' })
+      await measured()
+      await amendMeasuredEntry(db, agentId, where, { ...RECIPE, cost: 'paid-only' })
 
       const priced = await providerRecipe(db, where.kind, where.provider)
       expect(priced?.cost).toBe('paid-only')
 
-      await amendProposedDraft(db, agentId, where, RECIPE)
+      await amendMeasuredEntry(db, agentId, where, RECIPE)
 
       const after = await providerRecipe(db, where.kind, where.provider)
       expect(after?.cost).toBe('paid-only')
@@ -1001,6 +1080,47 @@ describe('the record of one agent obtaining one account', () => {
       expect(entry?.status).toBe('refused')
       expect(entry?.cost).toBe('paid-only')
       expect(entry?.terms).toBe('human-only')
+    })
+
+    /**
+     * **The rejection case `#1032` asks for, against a real database.**
+     *
+     * `wall` is one of `WALK_PROSE_FIELDS`, so a walk closing at this second
+     * carries `prose_status = 'pending'` — nobody has read it. The entry it
+     * writes is `refused`, which is public from the moment of the write, and
+     * `kolonie.accounts.recipes` renders `refusal` verbatim into its response
+     * body. So the sentence has to be the Colony's own.
+     *
+     * **Asserted over the whole serialised entry**, not over `refusal` alone:
+     * every field the tool answers with for this pair comes out of this object,
+     * so a leak through any other column is the same leak and this catches it.
+     * The `pending` verdict is asserted too, because a test that let the prose
+     * be approved would be checking nothing.
+     */
+    it('never publishes the walker’s own wall sentence on the refused entry', async () => {
+      const secret = 'PROSE-NOBODY-HAS-READ: it demanded a card at the final step'
+
+      const walkId = await walkInProgress(db, agentId, where)
+      await recordWalkStep(db, walkId, { actor: 'agent' })
+      await finishWalk(db, walkId, {
+        outcome: 'refused',
+        wall: secret,
+        recipe: { walls: [{ kind: 'payment-required' }] },
+      })
+
+      const walk = await accountWalk(db, walkId)
+      expect(walk?.wall).toBe(secret)
+
+      // Unread: it is sitting in the queue, which is what makes this a leak
+      // rather than a publication.
+      expect((await unmoderatedWalkProse(db, 10)).map((held) => held.walkId)).toContain(walkId)
+
+      const entry = await providerRecipe(db, where.kind, where.provider)
+      expect(entry?.status).toBe('refused')
+      expect(JSON.stringify(entry)).not.toContain('PROSE-NOBODY-HAS-READ')
+
+      // And the reader is still told why, in the Colony's voice.
+      expect(entry?.refusal).toContain(WALL_KIND_MEANINGS['payment-required'])
     })
 
     /**
@@ -1279,18 +1399,18 @@ describe('the record of one agent obtaining one account', () => {
 
       const entry = await providerRecipe(db, github.kind, github.provider)
 
-      expect(entry?.status).toBe('draft')
+      expect(entry?.status).toBe('measured')
       expect(entry?.category).toBe('code-hosting')
-      expect(entry?.steps.map((step) => step.actor)).toEqual([
-        'agent',
-        'operator',
-        'agent',
-        'agent',
-      ])
+      /** No route on the entry: the Colony publishes one only where it wrote it (`#1032`). */
+      expect(entry?.steps).toEqual([])
+
+      /** The four steps are on the walk, which is what the briefing reads. */
+      const steps = (await accountWalk(db, walkId))?.steps
+      expect(steps?.map((step) => step.actor)).toEqual(['agent', 'operator', 'agent', 'agent'])
       /** The operator's own sentence, carried forward and not composed. */
-      expect(entry?.steps[1]?.ask).toBe('Please create the account and accept the terms.')
-      /** And nothing else: a steward writes what each step says. */
-      expect(entry?.steps.every((step) => step.instruction === undefined)).toBe(true)
+      expect(steps?.[1]?.ask).toBe('Please create the account and accept the terms.')
+      /** And nothing else is written: a step a walker took silently stays silent. */
+      expect(steps?.filter((step) => step.ask !== undefined)).toHaveLength(1)
     })
   })
 
@@ -1312,12 +1432,11 @@ describe('the record of one agent obtaining one account', () => {
       await recordWalkStep(db, walkId, { actor: 'agent' })
       await finishWalk(db, walkId, { outcome: 'proved' })
 
-      await dressProviderRecipeDraft(db, {
+      await dressProviderRecipe(db, {
         ...at,
         steps: [{ actor: 'agent', instruction: 'Open the signup page and give the address.' }],
         proves: 'provider-mail',
       })
-      await publishProviderRecipe(db, { ...at, verdict: 'published' })
 
       return walkId
     }
@@ -1412,12 +1531,11 @@ describe('the record of one agent obtaining one account', () => {
       await recordWalkStep(db, later, { actor: 'agent' })
       await finishWalk(db, later, { outcome: 'proved' })
 
-      await dressProviderRecipeDraft(db, {
+      await dressProviderRecipe(db, {
         ...where,
         steps: [{ actor: 'agent', instruction: 'Open the signup page and give the address.' }],
         proves: 'provider-mail',
       })
-      await publishProviderRecipe(db, { ...where, verdict: 'published' })
 
       const paid = await rewardPublishedWalks(db)
 
@@ -1648,27 +1766,29 @@ describe('the record of one agent obtaining one account', () => {
    * *optional instruction* safe rather than merely convenient.
    */
   describe('a wordless step cannot be published', () => {
-    it('takes a draft whose steps have no wording', async () => {
+    it('takes an offered entry whose agent step has no wording', async () => {
       const written = await writeProviderRecipe(db, {
         kind: kind('mailbox'),
         provider: 'wordless.example',
         title: 'Wordless',
         category: 'mailbox',
-        status: 'draft',
+        status: 'joinable',
+        proves: 'rung',
+        provesTask: 'email-inbox',
         steps: [{ actor: 'agent' }],
       })
 
-      expect(written.status).toBe('draft')
+      expect(written.status).toBe('joinable')
       expect(written.steps[0]?.instruction).toBeUndefined()
     })
 
-    it('refuses to publish one', async () => {
+    it('refuses to publish a wordless operator step', async () => {
       let refused: string | undefined
       try {
         await db.execute(
           `insert into provider_recipes (kind, provider, title, status, category, steps, proves)
            values ('mailbox', 'published-blank.example', 'Blank', 'joinable', 'mailbox',
-                   '[{"actor":"agent"}]', 'rung')`,
+                   '[{"actor":"operator","ask":"Please sign in."}]', 'rung')`,
         )
       } catch (error: unknown) {
         for (let current: unknown = error; current != null;) {

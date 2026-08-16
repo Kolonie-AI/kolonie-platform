@@ -3,6 +3,7 @@ import { sql } from 'drizzle-orm'
 import {
   AccountKindSchema,
   RegisterAgentRequestSchema,
+  colonyRefusal,
   providerReportAsWalk,
   type AccountKind,
   type AgentId,
@@ -450,10 +451,17 @@ describe('a provider report reaching the catalogue', () => {
    * reasoning that marking a provider closed was a walk's finding and a report
    * was something lesser. Folding the two removes the *something lesser*: the
    * alias files a walk, a refused walk with a wall named publishes a refusal,
-   * and it does so whichever surface the citizen typed at. The wall the entry
-   * carries is the citizen's own sentence where it wrote one.
+   * and it does so whichever surface the citizen typed at.
+   *
+   * **What the entry carries is the Colony's sentence and not the citizen's**
+   * (`#1032`). The reason is composed from the typed wall kind the outcome maps
+   * to — `no-service` is `other`, which is the honest answer while the kinds
+   * have no slot for *nothing answered at all*. The citizen's own line is one of
+   * the moderated fields, so publishing it here would put an unread sentence
+   * into a response body in the same request that wrote it. It is not lost: it
+   * reaches readers through this entry's briefing once it has been read.
    */
-  it('marks the provider refused, exactly as the walk it now is', async () => {
+  it('marks the provider refused, in the Colony’s own words and not the walker’s', async () => {
     const agentId = await citizen('reporter')
     const wall = 'Nothing answers on the documented host, and no alternate resolves.'
 
@@ -461,16 +469,23 @@ describe('a provider report reaching the catalogue', () => {
 
     const entry = await providerRecipe(db, kind, 'walled.example')
     expect(entry?.status).toBe('refused')
-    expect(entry?.refusal).toBe(wall)
+    expect(entry?.refusal).toBe(colonyRefusal([{ kind: 'other' }]))
+    expect(entry?.refusal).not.toContain(wall)
     expect(entry?.steps).toEqual([])
   })
 
   /**
-   * An entry somebody curated is not demoted by a verdict that proposes nothing.
-   * `abandoned` reaches neither the draft branch nor the refusal branch, and the
-   * measurement behind it is `onConflictDoNothing`.
+   * **An entry somebody curated is measured, never overwritten** (`#1032`).
+   *
+   * Under `#904` an `abandoned` verdict left an existing row untouched, because
+   * the only thing it could have written was a route and half a route is worse
+   * than none. A `measured` row is not a route — it says the pair exists and
+   * citizens have been here — so a shelved entry that somebody has now walked
+   * moves off the shelf, and everything a curator wrote on it stays exactly
+   * where it was. What is asserted here is that pair: the status moves, the
+   * cautions do not.
    */
-  it('leaves an entry that already exists exactly as it stood', async () => {
+  it('measures an entry that already exists and leaves what it says alone', async () => {
     const agentId = await citizen('reporter')
 
     await writeProviderRecipe(db, {
@@ -486,7 +501,7 @@ describe('a provider report reaching the catalogue', () => {
     await fileAsReport(db, agentId, { kind, provider: 'curated.example' }, 'abandoned')
 
     const entry = await providerRecipe(db, kind, 'curated.example')
-    expect(entry?.status).toBe('unwritten')
+    expect(entry?.status).toBe('measured')
     expect(entry?.cautions).toEqual([{ text: 'Nobody has walked this one.', direction: null }])
   })
 })

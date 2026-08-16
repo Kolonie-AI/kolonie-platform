@@ -624,6 +624,6 @@ describe('the entry status rollup', () => {
 
   it('puts a measured row under a walk and above a listing', () => {
     expect(atlasEntryStatus([{ status: 'measured' }, { status: 'unwritten' }])).toBe('measured')
-    expect(atlasEntryStatus([{ status: 'draft' }, { status: 'measured' }])).toBe('draft')
+    expect(atlasEntryStatus([{ status: 'joinable' }, { status: 'measured' }])).toBe('joinable')
   })
 })

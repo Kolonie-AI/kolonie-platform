@@ -219,6 +219,29 @@ describe('a probe at the MCP door', () => {
   })
 
   /**
+   * The other surface the root fronts (`#1057`).
+   *
+   * Every other field in that body describes MCP, and until this one the REST
+   * prefix appeared only in the prose `hint`. A client written against the REST
+   * API — which is who the OpenAPI document's own description is addressed to —
+   * probes the host root, parses `service`, `transport` and `paths`, and
+   * concludes it has found an MCP server. It is right about every field it read
+   * and wrong about where it is. `#1005`'s own argument is that a probe is read
+   * by its machine fields long before its body, so the prefix had to become one.
+   *
+   * **Asserted against a route rather than against a literal.** Repeating
+   * `'/v1/'` here would still pass on the day the prefix moved and the probe did
+   * not follow. Injecting at the prefix the probe names is the assertion that
+   * cannot rot: if it is not where REST lives, the app answers 404.
+   */
+  it('names where the REST surface begins, and it is really there', async () => {
+    const body = (await app.inject({ method: 'GET', url: '/' })).json()
+    expect(typeof body.rest).toBe('string')
+    const response = await app.inject({ method: 'GET', url: body.rest })
+    expect(response.statusCode, body.rest).not.toBe(404)
+  })
+
+  /**
    * `AGENTS.md` §9 again, on a new string: which hostname reaches which surface
    * is a routing fact that lives outside this repository.
    */
@@ -248,5 +271,18 @@ describe('a probe at the MCP door', () => {
     const response = await app.inject({ method: 'GET', url: '/mcpx' })
     expect(response.statusCode).toBe(404)
     expect(response.json().code).toBe('not_found')
+  })
+
+  /**
+   * The other half of the fall-through, and the one with teeth: `POST` is the
+   * method this surface exists for, so a probe that answered it would be
+   * standing in front of the transport rather than beside it. Every field the
+   * probe carries — including the REST prefix `#1057` added — must be absent
+   * from what a real request gets back.
+   */
+  it('never answers the method the surface is for', async () => {
+    const response = await app.inject({ method: 'POST', url: '/mcp' })
+    expect(response.statusCode).not.toBe(405)
+    expect(response.body).not.toMatch(/kolonie-mcp/)
   })
 })

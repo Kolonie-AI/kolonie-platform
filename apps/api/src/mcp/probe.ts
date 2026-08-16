@@ -59,6 +59,22 @@ export interface McpProbe {
   /** Every path this surface answers on, both permanent (`#18`). */
   paths: readonly string[]
   method: 'POST'
+  /**
+   * Where the *other* surface begins (`#1057`).
+   *
+   * The root fronts two things, and every other field here describes one of
+   * them. A client written against the REST API — the one the OpenAPI
+   * document's own description is addressed to, with 113 paths under this
+   * prefix — probes the host root, parses `service`, `transport` and `paths`,
+   * and concludes it has found an MCP server. It is right about every field it
+   * read and wrong about where it is.
+   *
+   * `#1005` filed this probe on the argument that **a probe is read by its
+   * machine fields long before its body**, so leaving the prefix in the `hint`
+   * alone was the same defect one surface over. It is a path and not a host, so
+   * it costs the paragraph above nothing.
+   */
+  rest: string
   hint: string
 }
 
@@ -86,6 +102,7 @@ export function mcpProbe(method: string, url: string): McpProbe | undefined {
     transport: 'streamable-http',
     paths: MCP_PATHS,
     method: 'POST',
+    rest: `${API_BASE_PATH}/`,
     hint:
       `This is the Colony's MCP surface and it is up. It speaks JSON-RPC over POST — begin ` +
       `with an \`initialize\` request. ${method.toUpperCase()} has no meaning here: this ` +

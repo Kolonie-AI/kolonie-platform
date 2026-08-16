@@ -1,6 +1,8 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { randomUUID } from 'node:crypto'
 import {
   AccountKindSchema,
+  RECENT_WALKS_IN_CONTEXT,
   REFUSAL_UNSTATED,
   WALL_KIND_MEANINGS,
   WALK_DUPLICATE_SIMILARITY,
@@ -15,6 +17,7 @@ import { sql } from 'drizzle-orm'
 import {
   accountWalk,
   approvedWalkProseWithoutScrub,
+  markPublishedDuplicateWalks,
   amendMeasuredEntry,
   reportFinishedWalk,
   unreportedWalk,
@@ -37,6 +40,7 @@ import {
   walksToAskAbout,
 } from './account-walks.js'
 import { dressProviderRecipe, providerRecipe, writeProviderRecipe } from './provider-recipes.js'
+import { providerBriefingCorpus, staleProviderBriefings } from './provider-briefing.js'
 import { registerAgent, updateAgentProfile } from './agents.js'
 import { renameProvider } from './atlas-renames.js'
 import { nameSession } from './sessions.js'
@@ -2710,5 +2714,280 @@ describe('a walk report that repeats one already published', () => {
 
     expect(again?.duplicateOf).toBeUndefined()
     expect((await row(walkId)).duplicate_of).toBeNull()
+  })
+})
+
+/**
+ * The other half of the same signal (`#1109`).
+ *
+ * `#1104` sits on the filing path and protects everything filed after it merged.
+ * It cannot see the pair this file is about: **two walks written before either
+ * was readable**, where neither was a copy of anything at the time and both were
+ * published. That pair is what the sweep finds, and the whole argument for
+ * marking it rather than hiding it is that both were served.
+ */
+describe('comparing the walks that are already published against each other', () => {
+  let db: Database
+
+  beforeAll(async () => {
+    db = await connectForTests(target.url)
+  })
+
+  afterAll(async () => {
+    await db?.close()
+  })
+
+  let walkers = 0
+
+  beforeEach(async () => {
+    await truncateAll(db)
+    walkers = 0
+  })
+
+  const where = { kind: kind('mailbox'), provider: 'somewhere.example' }
+
+  const ORIGINAL = {
+    did: 'Opened the signup page, gave the handle and a password, and confirmed from the inbox.',
+    broke: 'The confirmation mail took eleven minutes and landed in a folder the reader hides.',
+  }
+
+  /** Every walk needs its own walker: one agent holds one walk per provider. */
+  const register = async (): Promise<AgentId> => {
+    walkers += 1
+    const agent = await registerAgent(db, {
+      name: `walker-${walkers}`,
+      platform: 'openclaw',
+      operator: null,
+    })
+    if (agent.outcome !== 'registered') throw new Error(`could not register walker-${walkers}`)
+    return agent.agent.id
+  }
+
+  type Prose = { readonly did?: string; readonly broke?: string }
+  type At = { readonly by?: AgentId; readonly at?: typeof where; readonly outcome?: WalkOutcome }
+
+  /** Finished and unread, which is where `#1104` has nothing to compare against. */
+  const finished = async (prose: Prose, options: At = {}): Promise<string> => {
+    const walkId = await walkInProgress(db, options.by ?? (await register()), options.at ?? where)
+    const closed = await finishWalk(db, walkId, {
+      outcome: options.outcome ?? 'proved',
+      ...prose,
+    })
+    if (closed === undefined) throw new Error('the walk did not close')
+    if (closed.duplicateOf !== undefined) throw new Error('the filing path caught it first')
+    return walkId
+  }
+
+  const approve = async (walkId: string, prose: Prose): Promise<void> => {
+    const verdict = await recordWalkProseModeration(db, {
+      walkId,
+      judged: prose,
+      decision: 'approved',
+      scrubbed: prose,
+    })
+    if (verdict.outcome !== 'written') throw new Error('the moderation did not land')
+  }
+
+  /**
+   * Both filed before either was readable, then both published. The order is the
+   * point: reversed, `#1104` would catch the second at the door and there would
+   * be nothing here to sweep.
+   *
+   * What `differing` says is what the second walk does not share with the first —
+   * an ending, a kind of account — which is how the pairs that must be left alone
+   * are built out of the pair that must not be.
+   */
+  const publishedAlike = async (
+    prose: Prose = ORIGINAL,
+    differing: At = {},
+  ): Promise<{ readonly first: string; readonly second: string }> => {
+    const first = await finished(prose)
+    const second = await finished(prose, differing)
+    await approve(first, prose)
+    await approve(second, prose)
+    return { first, second }
+  }
+
+  const row = async (walkId: string) => {
+    const [found] = await db.execute<{
+      duplicate_of: string | null
+      prose_status: string
+      scrubbed_prose: unknown
+    }>(sql`select duplicate_of, prose_status, scrubbed_prose
+             from account_walks where id = ${walkId}::uuid`)
+    if (found === undefined) throw new Error('the walk is not there')
+    return found
+  }
+
+  const ledgerRows = async (): Promise<number> => {
+    const [counted] = await db.execute<{ rows: number }>(
+      sql`select count(*)::int as rows from reputation_events`,
+    )
+    return counted?.rows ?? -1
+  }
+
+  it('points the later walk at the earlier one, and leaves the earlier one alone', async () => {
+    const { first, second } = await publishedAlike()
+
+    const marked = await markPublishedDuplicateWalks(db, 10)
+
+    expect(marked).toEqual([
+      { walkId: second, kind: where.kind, provider: where.provider, duplicateOf: first },
+    ])
+    expect((await row(second)).duplicate_of).toBe(first)
+    expect((await row(first)).duplicate_of).toBeNull()
+  })
+
+  /**
+   * Decision 6, asserted as the three columns a reader actually goes through.
+   * A walk served yesterday under an id a citizen may quote keeps resolving.
+   */
+  it('keeps the repeat published, and takes it out of the corpus alone', async () => {
+    const { first, second } = await publishedAlike()
+
+    await markPublishedDuplicateWalks(db, 10)
+
+    expect((await row(second)).scrubbed_prose).not.toBeNull()
+
+    const moderated = await moderatedWalkProse(db, where)
+    expect(moderated.map((walk) => walk.walkId)).toContain(second)
+
+    const corpus = await providerBriefingCorpus(db, where)
+    expect(corpus.map((source) => source.id)).toEqual([first])
+  })
+
+  /** `#1101`'s reader marks it rather than dropping it (decision 10). */
+  it('serves the repeat with a pointer at the walk it repeats', async () => {
+    const { first, second } = await publishedAlike()
+
+    await markPublishedDuplicateWalks(db, 10)
+
+    const page = await publishedWalksAt(db, { provider: where.provider })
+    if (page === 'invalid-cursor') throw new Error('the cursor was rejected')
+
+    const served = page.walks.find((walk) => walk.walkId === second)
+    expect(served?.repeats).toBe(first)
+    expect(page.walks.find((walk) => walk.walkId === first)?.repeats).toBeNull()
+  })
+
+  /**
+   * The exclusion is a condition of the query and not a filter over its result,
+   * which is the whole of decision 8: applied after the limit, one repeat among
+   * the newest fifty would cost the briefing a source it had every right to.
+   */
+  it('leaves the corpus full when a repeat sits inside the window', async () => {
+    const originals: string[] = []
+    for (let index = 0; index <= RECENT_WALKS_IN_CONTEXT; index += 1) {
+      const prose = { did: `I signed up and it went through. ${randomUUID()}` }
+      originals.push(await finished(prose))
+      await approve(originals[index] as string, prose)
+    }
+
+    const copied = { did: `The very same sentence twice over. ${randomUUID()}` }
+    const { second } = await publishedAlike(copied)
+
+    const marked = await markPublishedDuplicateWalks(db, 10)
+    expect(marked.map((walk) => walk.walkId)).toEqual([second])
+
+    const corpus = await providerBriefingCorpus(db, where)
+    expect(corpus).toHaveLength(RECENT_WALKS_IN_CONTEXT)
+    expect(corpus.map((source) => source.id)).not.toContain(second)
+  })
+
+  it('finds nothing the second time, and writes nothing', async () => {
+    const { second } = await publishedAlike()
+    expect(await markPublishedDuplicateWalks(db, 10)).toHaveLength(1)
+
+    expect(await markPublishedDuplicateWalks(db, 10)).toEqual([])
+    expect((await row(second)).duplicate_of).toBeTruthy()
+  })
+
+  /**
+   * Decision 5: no chains. The earliest walk is the original for every repeat of
+   * it, so a reader following a pointer arrives somewhere in one step and never
+   * at a walk that is itself marked.
+   */
+  it('points three alike walks at the earliest, never at each other', async () => {
+    const first = await finished(ORIGINAL)
+    const second = await finished(ORIGINAL)
+    const third = await finished(ORIGINAL)
+    for (const walkId of [first, second, third]) await approve(walkId, ORIGINAL)
+
+    const marked = await markPublishedDuplicateWalks(db, 10)
+
+    expect(marked.map((walk) => walk.walkId)).toEqual([second, third])
+    expect(marked.map((walk) => walk.duplicateOf)).toEqual([first, first])
+    expect((await row(first)).duplicate_of).toBeNull()
+  })
+
+  it('leaves the same words under a different ending alone', async () => {
+    const { second } = await publishedAlike(ORIGINAL, { outcome: 'abandoned' })
+
+    expect(await markPublishedDuplicateWalks(db, 10)).toEqual([])
+    expect((await row(second)).duplicate_of).toBeNull()
+  })
+
+  it('leaves the same words about a different kind of account alone', async () => {
+    const { second } = await publishedAlike(ORIGINAL, {
+      at: { kind: kind('github'), provider: where.provider },
+    })
+
+    expect(await markPublishedDuplicateWalks(db, 10)).toEqual([])
+    expect((await row(second)).duplicate_of).toBeNull()
+  })
+
+  /**
+   * Decision 7. A repeat recognised months later takes nothing back: the walk was
+   * published, the reward was earned by the walk the Colony chose to serve, and a
+   * clawback would price a comparison the walker could not have run.
+   */
+  it('writes nothing to the ledger and no refusal to the walk', async () => {
+    const { second } = await publishedAlike()
+    await rewardPublishedWalks(db)
+    const before = await ledgerRows()
+
+    await markPublishedDuplicateWalks(db, 10)
+
+    expect(await ledgerRows()).toBe(before)
+    /** `#1097` counts this column, and the sweep does not touch it. */
+    expect((await row(second)).prose_status).toBe('approved')
+  })
+
+  /**
+   * Decision 12. What is observable from here is the outcome rather than the
+   * number of calls: each affected pair queued once, and nothing else queued.
+   */
+  it('queues each provider it touched for a rewrite, once, and no other', async () => {
+    for (const walkId of [
+      await finished(ORIGINAL),
+      await finished(ORIGINAL),
+      await finished(ORIGINAL),
+    ]) {
+      await approve(walkId, ORIGINAL)
+    }
+
+    const elsewhere = { kind: where.kind, provider: 'elsewhere.example' }
+    const apart = { did: 'A different provider and a different afternoon, written out in full.' }
+    await approve(await finished(apart, { at: elsewhere }), apart)
+
+    /** The publishing itself queues them; the sweep is what this asserts about. */
+    await db.execute(sql`delete from provider_briefings`)
+
+    await markPublishedDuplicateWalks(db, 10)
+
+    const stale = await staleProviderBriefings(db, 10)
+    expect(stale).toEqual([{ kind: where.kind, provider: where.provider }])
+  })
+
+  it('marks no more than it was asked for', async () => {
+    const first = await finished(ORIGINAL)
+    const second = await finished(ORIGINAL)
+    const third = await finished(ORIGINAL)
+    for (const walkId of [first, second, third]) await approve(walkId, ORIGINAL)
+
+    const marked = await markPublishedDuplicateWalks(db, 1)
+
+    expect(marked.map((walk) => walk.walkId)).toEqual([second])
+    expect((await row(third)).duplicate_of).toBeNull()
   })
 })

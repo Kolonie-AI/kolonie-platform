@@ -1,4 +1,5 @@
 import { and, asc, desc, eq, isNotNull, isNull, ne, sql, type SQL } from 'drizzle-orm'
+import { alias, type PgColumn } from 'drizzle-orm/pg-core'
 import {
   AccountKindSchema,
   AccountProviderSchema,
@@ -760,6 +761,11 @@ type WalkFinishInput = {
   readonly fromProviderReport?: boolean
 }
 
+/** Whatever carries the six prose columns: the table itself, or an alias of it. */
+type WalkProseColumns = {
+  readonly [Column in (typeof WALK_PROSE_COLUMNS)[number]]: PgColumn
+}
+
 /**
  * The six prose columns as one string, punctuation and case folded away
  * (`#1104`).
@@ -777,8 +783,13 @@ type WalkFinishInput = {
  *
  * `concat_ws` skips nulls, so a walk that answered two questions is compared as
  * those two answers rather than as four empty strings between them.
+ *
+ * **The six columns and not the table they are on** (`#1109`), so the same
+ * expression serves an alias: the sweep joins `account_walks` to itself and both
+ * sides have to normalise the same way, which is the argument above with one more
+ * caller behind it.
  */
-function normalisedProse(table: typeof accountWalks): SQL<string> {
+function normalisedProse(table: WalkProseColumns): SQL<string> {
   const columns = sql.join(
     WALK_PROSE_COLUMNS.map((column) => sql`${table[column]}`),
     sql`, `,
@@ -1824,6 +1835,126 @@ export async function recordApprovedWalkProseRescrub(
   })
 }
 
+/** A walk the sweep recognised as a repeat of an earlier published one (`#1109`). */
+export interface MarkedDuplicateWalk {
+  readonly walkId: string
+  readonly kind: AccountKind
+  readonly provider: string
+  /** The earlier walk it repeats, always an original and never itself a duplicate. */
+  readonly duplicateOf: string
+}
+
+/**
+ * Compare the walks that are already published against each other (`#1109`).
+ *
+ * **`#1104` protects every report from its merge onward and nothing before it.**
+ * The corpus that existed when it landed was never compared against itself, so a
+ * repeat already in it stays in it — and `synthesiseProvider()` has the number of
+ * sources behind a claim where a confidence would be, so ten copies of one
+ * paragraph read as the best-evidenced thing the Colony knows about a provider.
+ * This is that same cost, in the rows that are already there.
+ *
+ * **The signal is `#1104`'s signal**: {@link normalisedProse}, the same exported
+ * threshold, the same pair, the same requirement that the outcome match. Two
+ * answers to *what counts as the same text* is a thing that drifts.
+ *
+ * **The earlier walk is the original**, ordered `finished_at` then id, both
+ * ascending. That makes the result deterministic and the second run of the sweep
+ * a no-op. A walk already carrying a pointer is neither a candidate nor an
+ * original again, so every pointer names the earliest original and there are no
+ * chains to follow.
+ *
+ * **What it does not do**: it does not clear `scrubbed_prose`, does not touch
+ * `prose_status`, and writes nothing to the ledger. A walk recognised here has
+ * been served under a UUID `#1101`'s reader hands out as a reference, and the
+ * reputation it was paid was paid under a rule its author could not have read.
+ * What the pointer costs it is its place in {@link providerBriefingCorpus}.
+ *
+ * Bounded per call, like every other runner pass: what is left over is the next
+ * tick's work, and the marks made here stand whatever happens after them.
+ */
+export async function markPublishedDuplicateWalks(
+  db: Database,
+  limit: number,
+): Promise<readonly MarkedDuplicateWalk[]> {
+  return db.transaction(async (tx) => {
+    const marked: MarkedDuplicateWalk[] = []
+    /** `kind` and `provider` together, so one group is marked stale once (`#1109`, 12). */
+    const stale = new Set<string>()
+
+    /**
+     * One pair at a time, because each mark changes the candidates: the walk just
+     * marked leaves the comparison from both sides, which is what turns three
+     * copies into two pointers at the first of them rather than a chain.
+     */
+    for (let found = 0; found < limit; found += 1) {
+      const later = alias(accountWalks, 'later')
+      const earlier = alias(accountWalks, 'earlier')
+
+      const [pair] = await tx
+        .select({
+          walkId: later.id,
+          kind: later.kind,
+          provider: later.provider,
+          duplicateOf: earlier.id,
+        })
+        .from(later)
+        .innerJoin(
+          earlier,
+          and(
+            eq(earlier.kind, later.kind),
+            eq(earlier.provider, later.provider),
+            eq(earlier.outcome, later.outcome),
+            /** Both published: an unpublished walk is not a text anybody could have read. */
+            isNotNull(earlier.finishedAt),
+            isNotNull(earlier.scrubbedProse),
+            isNull(earlier.duplicateOf),
+            sql`(${earlier.finishedAt}, ${earlier.id}) < (${later.finishedAt}, ${later.id})`,
+            sql`similarity(${normalisedProse(earlier)}, ${normalisedProse(later)}) >= ${WALK_DUPLICATE_SIMILARITY}::real`,
+          ),
+        )
+        .where(
+          and(
+            isNotNull(later.finishedAt),
+            isNotNull(later.scrubbedProse),
+            isNull(later.duplicateOf),
+            /** Nothing written is nothing to repeat, as at the moment of filing. */
+            sql`${normalisedProse(later)} <> ''`,
+          ),
+        )
+        .orderBy(asc(later.finishedAt), asc(later.id), asc(earlier.finishedAt), asc(earlier.id))
+        .limit(1)
+
+      if (pair === undefined) break
+
+      const written = await tx
+        .update(accountWalks)
+        .set({ duplicateOf: pair.duplicateOf })
+        .where(and(eq(accountWalks.id, pair.walkId), isNull(accountWalks.duplicateOf)))
+        .returning({ id: accountWalks.id })
+
+      /** The row moved under the read. Stop rather than loop on a pair that will not take. */
+      if (written[0] === undefined) break
+
+      const kind = AccountKindSchema.parse(pair.kind)
+      marked.push({
+        walkId: pair.walkId,
+        kind,
+        provider: pair.provider,
+        duplicateOf: pair.duplicateOf,
+      })
+
+      const group = `${pair.kind} ${pair.provider}`
+      if (!stale.has(group)) {
+        stale.add(group)
+        await markProviderBriefingStale(tx, { kind, provider: pair.provider })
+      }
+    }
+
+    return marked
+  })
+}
+
 /** One walk's words as anybody but their author may read them. */
 export interface ModeratedWalkProse {
   readonly walkId: string
@@ -1859,7 +1990,27 @@ export interface ModeratedWalkProse {
  */
 export async function moderatedWalkProse(
   db: Database,
-  where: { readonly kind: AccountKind; readonly provider: string },
+  where: {
+    readonly kind: AccountKind
+    readonly provider: string
+    /**
+     * Leave out the walks `#1109`'s sweep recognised as repeats of an earlier
+     * one.
+     *
+     * **Off by default, and the default is the reader's** (`#1109`, 8 and 10). A
+     * walk marked after it was published keeps its scrub and stays readable
+     * under the reference it was served with; what it loses is its place in the
+     * corpus a briefing is written from, because that is the one place where a
+     * repeat is counted as a second source.
+     *
+     * **The caller passes it here rather than filtering what comes back**, so
+     * the exclusion happens before `limit`. A corpus asking for
+     * `RECENT_WALKS_IN_CONTEXT` sources and filtering afterwards would hand the
+     * synthesis fewer sources than it asked for whenever a repeat was in the
+     * window — quietly, and worst at exactly the providers with the most walks.
+     */
+    readonly withoutDuplicates?: boolean | undefined
+  },
   limit = 100,
 ): Promise<readonly ModeratedWalkProse[]> {
   const provider = await canonicalProvider(db, where.provider)
@@ -1886,6 +2037,7 @@ export async function moderatedWalkProse(
         eq(accountWalks.provider, provider),
         isNotNull(accountWalks.finishedAt),
         isNotNull(accountWalks.scrubbedProse),
+        where.withoutDuplicates === true ? isNull(accountWalks.duplicateOf) : undefined,
       ),
     )
     .orderBy(desc(accountWalks.finishedAt))
@@ -1936,6 +2088,16 @@ export interface PublishedWalk {
   readonly direction: RecipeDirection | null
   readonly by: string | null
   readonly prose: WalkProse
+  /**
+   * The earlier walk this one repeats, where `#1109`'s sweep found one.
+   *
+   * **Marked and not hidden.** A reader served a repeat as an independent report
+   * would be making the same mistake the briefing corpus was making, and a walk
+   * dropped from the page would take a reference other citizens may already
+   * quote with it. So it is here, as the same UUID this reader hands out for
+   * every walk, and the reader says what it is.
+   */
+  readonly repeats: string | null
 }
 
 /** A page of them, and where the next one starts. */
@@ -2013,6 +2175,7 @@ export async function publishedWalksAt(
       /** Resolved in the SQL, so a handle a citizen declined is never in memory. */
       by: sql<string | null>`case when ${agents.attributed} then ${agents.name} else null end`,
       scrubbedProse: accountWalks.scrubbedProse,
+      duplicateOf: accountWalks.duplicateOf,
     })
     .from(accountWalks)
     /** Inner, for the reason `moderatedWalkProse` gives: the reference cascades, so nothing drops. */
@@ -2049,6 +2212,7 @@ export async function publishedWalksAt(
       direction: row.direction === null ? null : RecipeDirectionSchema.parse(row.direction),
       by: row.by,
       prose: row.scrubbedProse as WalkProse,
+      repeats: row.duplicateOf,
     })),
     nextCursor:
       rows.length > limit && last !== undefined

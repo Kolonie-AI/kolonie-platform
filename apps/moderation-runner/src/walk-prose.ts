@@ -4,7 +4,11 @@ import {
   walkProseText,
   type WalkProse,
 } from '@kolonie-ai/core'
-import type { ApprovedWalkProseWithoutScrub, UnmoderatedWalkProse } from '@kolonie-ai/db'
+import type {
+  ApprovedWalkProseWithoutScrub,
+  MarkedDuplicateWalk,
+  UnmoderatedWalkProse,
+} from '@kolonie-ai/db'
 import { ANSWER_RED_LINE_PROMPT, redact } from './answers.js'
 import { CONFIDENTIALITY_PROMPT } from './confidentiality.js'
 import type { Log } from './loop.js'
@@ -71,6 +75,15 @@ export interface WalkProseModerationStore {
           readonly markProviderStale: boolean
         },
   ): Promise<boolean>
+  /**
+   * Compare what is already published against itself and mark the repeats
+   * (`#1109`).
+   *
+   * No model call, which is why it is a store method and not a judgement: the
+   * signal is `#1104`'s trigram comparison, run in the database, and this pass
+   * only decides how many of them one tick may do.
+   */
+  markDuplicates(limit: number): Promise<readonly MarkedDuplicateWalk[]>
 }
 
 export interface WalkProseLoopDependencies {
@@ -173,6 +186,8 @@ export interface WalkProseTickOutcome {
   readonly scrubbed: number
   readonly refused: number
   readonly failed: number
+  /** Published walks recognised as repeats of an earlier one (`#1109`). */
+  readonly repeats: number
 }
 
 /** Take one batch through the stage. Sequential, like every pass here. */
@@ -181,7 +196,7 @@ export async function walkProseTick(
   batchSize: number,
 ): Promise<WalkProseTickOutcome> {
   const { store, log = silentLog } = deps
-  const outcome = { judged: 0, scrubbed: 0, refused: 0, failed: 0 }
+  const outcome = { judged: 0, scrubbed: 0, refused: 0, failed: 0, repeats: 0 }
 
   const record = (walk: UnmoderatedWalkProse, judgement: WalkProseJudgement) => {
     outcome.judged++
@@ -230,6 +245,34 @@ export async function walkProseTick(
     })
     if (written) touched.add(providerKey)
     record(walk, judgement)
+  }
+
+  /**
+   * **After the re-scrub pass and bounded by the same batch** (`#1109`, 1).
+   *
+   * Last, because both passes above put walks into the published set — a scrub
+   * written a moment ago is a text this comparison should see, and seeing it on
+   * the same tick rather than the next one is free. Bounded, because every pass
+   * in this runner is: what is left over is the next tick's work, and a sweep
+   * that tried to finish the whole corpus in one go would hold a transaction
+   * open across it.
+   *
+   * `#1104` sits on the filing path and this sits behind it, so a repeat that
+   * enters the published set by any other route — a re-scrub above, a
+   * re-moderation — is still caught. That is what makes it a pass and not a
+   * migration.
+   */
+  const repeats = await store.markDuplicates(batchSize)
+  outcome.repeats = repeats.length
+
+  for (const walk of repeats) {
+    log.info(`walk at ${walk.kind}/${walk.provider} repeats an earlier published walk`, {
+      event: 'walk-prose.repeat',
+      provider: walk.provider,
+      /** The walk and the walk it repeats. Neither is an agent id. */
+      walkId: walk.walkId,
+      duplicateOf: walk.duplicateOf,
+    })
   }
 
   return outcome

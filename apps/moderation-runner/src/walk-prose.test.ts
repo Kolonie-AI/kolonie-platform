@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { WALK_PROSE_QUESTIONS, type WalkProse } from '@kolonie-ai/core'
-import type { ApprovedWalkProseWithoutScrub, UnmoderatedWalkProse } from '@kolonie-ai/db'
+import { AccountKindSchema, WALK_PROSE_QUESTIONS, type WalkProse } from '@kolonie-ai/core'
+import type {
+  ApprovedWalkProseWithoutScrub,
+  MarkedDuplicateWalk,
+  UnmoderatedWalkProse,
+} from '@kolonie-ai/db'
 import type { Model } from './llm.js'
 import { ANSWER_RED_LINE_PROMPT, REDACTION } from './answers.js'
 import { CONFIDENTIALITY_PROMPT } from './confidentiality.js'
@@ -15,6 +19,14 @@ const aWalk = (prose: WalkProse = {}): UnmoderatedWalkProse => ({
     broke: 'It asked for a phone number at the last step.',
     ...prose,
   },
+})
+
+/** A walk the sweep recognised as a repeat of an earlier published one (`#1109`). */
+const aRepeat = (): MarkedDuplicateWalk => ({
+  walkId: '22222222-2222-4222-8222-222222222222',
+  kind: AccountKindSchema.parse('mailbox'),
+  provider: 'clawmail.com',
+  duplicateOf: '11111111-1111-4111-8111-111111111111',
 })
 
 /**
@@ -51,6 +63,7 @@ const answering = (
 const recording = (
   pending: readonly UnmoderatedWalkProse[] = [aWalk()],
   approvedWithoutScrub: readonly ApprovedWalkProseWithoutScrub[] = [],
+  duplicates: readonly MarkedDuplicateWalk[] = [],
 ) => {
   const written: { walkId: string; scrubbed: WalkProse }[] = []
   const refused: string[] = []
@@ -60,14 +73,22 @@ const recording = (
     scrubbed?: WalkProse
     markProviderStale: boolean
   }[] = []
-  const limits = { pending: [] as number[], approvedWithoutScrub: [] as number[] }
+  const limits = {
+    pending: [] as number[],
+    approvedWithoutScrub: [] as number[],
+    markDuplicates: [] as number[],
+  }
+  /** Which pass ran when, because `#1109` places the sweep after the other two. */
+  const order: string[] = []
   const store: WalkProseModerationStore = {
     pending: async (limit) => {
       limits.pending.push(limit)
+      order.push('pending')
       return pending.slice(0, limit)
     },
     approvedWithoutScrub: async (limit) => {
       limits.approvedWithoutScrub.push(limit)
+      order.push('approvedWithoutScrub')
       return approvedWithoutScrub.slice(0, limit)
     },
     write: async ({ walk, scrubbed }) => {
@@ -80,9 +101,14 @@ const recording = (
       rescrubbed.push({ walkId: walk.walkId, ...decision })
       return true
     },
+    markDuplicates: async (limit) => {
+      limits.markDuplicates.push(limit)
+      order.push('markDuplicates')
+      return duplicates.slice(0, limit)
+    },
   }
 
-  return { store, written, refused, rescrubbed, limits }
+  return { store, written, refused, rescrubbed, limits, order }
 }
 
 describe('the Colony scrubbing what a walker wrote', () => {
@@ -183,7 +209,7 @@ describe('the Colony scrubbing what a walker wrote', () => {
 
     const outcome = await walkProseTick({ store, model }, 10)
 
-    expect(outcome).toEqual({ judged: 2, scrubbed: 2, refused: 0, failed: 0 })
+    expect(outcome).toEqual({ judged: 2, scrubbed: 2, refused: 0, failed: 0, repeats: 0 })
   })
 
   it('re-scrubs a finished approval through the same marker and stores only redacted prose', async () => {
@@ -193,7 +219,7 @@ describe('the Colony scrubbing what a walker wrote', () => {
 
     const outcome = await walkProseTick({ store, model }, 10)
 
-    expect(outcome).toEqual({ judged: 1, scrubbed: 1, refused: 0, failed: 0 })
+    expect(outcome).toEqual({ judged: 1, scrubbed: 1, refused: 0, failed: 0, repeats: 0 })
     expect(rescrubbed).toEqual([
       {
         walkId: '11111111-1111-4111-8111-111111111111',
@@ -211,7 +237,7 @@ describe('the Colony scrubbing what a walker wrote', () => {
 
     const outcome = await walkProseTick({ store, model }, 10)
 
-    expect(outcome).toEqual({ judged: 1, scrubbed: 0, refused: 1, failed: 0 })
+    expect(outcome).toEqual({ judged: 1, scrubbed: 0, refused: 1, failed: 0, repeats: 0 })
     expect(rescrubbed).toEqual([
       {
         walkId: '11111111-1111-4111-8111-111111111111',
@@ -256,15 +282,54 @@ describe('the Colony scrubbing what a walker wrote', () => {
 
     const outcome = await walkProseTick({ store, model }, 2)
 
-    expect(outcome).toEqual({ judged: 4, scrubbed: 4, refused: 0, failed: 0 })
+    expect(outcome).toEqual({ judged: 4, scrubbed: 4, refused: 0, failed: 0, repeats: 0 })
     expect(written).toHaveLength(2)
     expect(rescrubbed).toHaveLength(2)
-    expect(limits).toEqual({ pending: [2], approvedWithoutScrub: [2] })
+    expect(limits).toEqual({ pending: [2], approvedWithoutScrub: [2], markDuplicates: [2] })
     expect(written.map(({ walkId }) => walkId)).not.toContain(
       '33333333-3333-4333-8333-333333333333',
     )
     expect(rescrubbed.map(({ walkId }) => walkId)).not.toContain(
       '33333333-3333-4333-8333-333333333333',
     )
+  })
+
+  it('sweeps the published walks for repeats last, after both passes have written', async () => {
+    const { model } = answering()
+    const { store, order } = recording([aWalk()], [aWalk()], [aRepeat()])
+
+    const outcome = await walkProseTick({ store, model }, 10)
+
+    /**
+     * Last on purpose (`#1109`, 1): a scrub written a moment ago is a text this
+     * comparison should see on the same tick rather than the next one.
+     */
+    expect(order).toEqual(['pending', 'approvedWithoutScrub', 'markDuplicates'])
+    expect(outcome.repeats).toBe(1)
+  })
+
+  it('counts a repeat without counting it as a judgement, because no model read it', async () => {
+    const { model, asked } = answering()
+    const { store } = recording([], [], [aRepeat()])
+
+    const outcome = await walkProseTick({ store, model }, 10)
+
+    expect(outcome).toEqual({ judged: 0, scrubbed: 0, refused: 0, failed: 0, repeats: 1 })
+    /** The signal is a trigram comparison in the database, so nothing was asked. */
+    expect(asked).toHaveLength(0)
+  })
+
+  it('bounds the sweep by the same batch as the passes above it', async () => {
+    const { model } = answering()
+    const { store, limits } = recording(
+      [],
+      [],
+      [aRepeat(), { ...aRepeat(), walkId: '44444444-4444-4444-8444-444444444444' }],
+    )
+
+    const outcome = await walkProseTick({ store, model }, 1)
+
+    expect(limits.markDuplicates).toEqual([1])
+    expect(outcome.repeats).toBe(1)
   })
 })

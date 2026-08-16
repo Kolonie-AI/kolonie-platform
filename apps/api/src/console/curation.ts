@@ -2,7 +2,7 @@ import {
   ATLAS_ADMISSION_QUESTIONS,
   ATLAS_CONDITION_QUESTIONS,
   AccountProofMethodSchema,
-  AtlasCategorySchema,
+  type AtlasCategoryRow,
   PROOF_LABEL,
   RECIPE_REFUSAL_MAX_LENGTH,
   RECIPE_STEP_MAX_LENGTH,
@@ -146,7 +146,19 @@ export function proposalsSection(proposals: readonly EntryProposal[]): string {
  * aggregate floor, and a count below it reads as `—` rather than as a small
  * number somebody could work backwards from.
  */
-export function providerProposalsSection(rows: readonly ProposalWithDemand[]): string {
+export function providerProposalsSection(
+  rows: readonly ProposalWithDemand[],
+  /**
+   * The shelves to choose from, read out of `atlas_categories` (`#1102`).
+   *
+   * **Passed in and not imported.** This `<select>` is the one surface that
+   * *writes* a category, so it is the one that decides what a maintainer can
+   * file something under. Built from the enum it would go on offering fifteen
+   * shelves the morning after somebody added a sixteenth — a shelf that exists,
+   * that the catalogue serves and that nothing in this console can reach.
+   */
+  shelves: readonly AtlasCategoryRow[],
+): string {
   if (rows.length === 0) {
     return (
       '<p class="note">Nothing has been proposed. Providers write in through the enquiry form, ' +
@@ -174,8 +186,18 @@ export function providerProposalsSection(rows: readonly ProposalWithDemand[]): s
         `<form method="post" action="/backend/atlas/providers/${escape(proposal.id)}/accept">` +
         '<select name="category" required>' +
         '<option value="">shelf…</option>' +
-        AtlasCategorySchema.options
-          .map((one) => `<option value="${escape(one)}">${escape(one)}</option>`)
+        shelves
+          .map(
+            (one) =>
+              /**
+               * **The slug is the value and the title is what is read.** The
+               * form posts a slug because that is what the column holds; a
+               * maintainer picking a shelf reads *Code hosting* rather than
+               * `code-hosting`, which since `#1102` is a fact the table carries
+               * and no longer one this file would have to keep in step.
+               */
+              `<option value="${escape(one.slug)}">${escape(one.title)}</option>`,
+          )
           .join('') +
         '</select>' +
         '<button type="submit">List it</button></form>' +
@@ -543,6 +565,8 @@ function divergencesSection(
 /** The whole section, headings and all, for whichever page is placing it. */
 export function curationSections(input: {
   readonly proposals: readonly EntryProposal[]
+  /** The shelves a proposal can be accepted onto, from `atlas_categories` (`#1102`). */
+  readonly shelves: readonly AtlasCategoryRow[]
   readonly providerProposals: readonly ProposalWithDemand[]
   readonly falling: readonly FallingRate[]
   readonly entries: readonly AtlasEntry[]
@@ -576,7 +600,7 @@ export function curationSections(input: {
       'somebody else’s product passes a person who walked it. A refusal needs a sentence, ' +
       'because the proposer is told the outcome and <em>no</em> with no reason teaches ' +
       'nothing.</p>',
-    providerProposalsSection(input.providerProposals),
+    providerProposalsSection(input.providerProposals, input.shelves),
     '<h2>What an entry must answer</h2>',
     '<p class="note">Three questions, and an entry belongs in the Atlas when all three are yes. ' +
       'They are here because the eighteen entries <code>#679</code> removed were not added ' +

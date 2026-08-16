@@ -4,7 +4,7 @@ import {
   atlasPath,
   now,
   AccountProviderSchema,
-  AtlasCategorySchema,
+  AtlasCategorySlugSchema,
   type AtlasDocument,
   type AtlasEntry,
 } from '@kolonie-ai/core'
@@ -107,8 +107,18 @@ export function registerAtlasPages(app: FastifyInstance, deps: RouteDependencies
      * page and not a page of its own; every shelf pointing at `/atlas` is what
      * stops fourteen near-identical URLs competing with each other in a search
      * index.
+     *
+     * **The vocabulary is read rather than compiled in, since `#1102`.** The
+     * shelves are rows now, so *does this shelf exist* is a question for the
+     * table and not for an enum frozen at the last release — a link to a shelf
+     * added last week has to filter, and a link to one that was renamed away
+     * has to fall back rather than render an empty page that reads as broken.
+     * The shape is checked first so that a string which could not be a slug
+     * never reaches the query.
      */
-    const asked = AtlasCategorySchema.safeParse(request.query.category)
+    const asked = AtlasCategorySlugSchema.safeParse(request.query.category)
+    const shelves = asked.success ? await recipes.categories() : []
+    const category = shelves.some((one) => one.slug === asked.data) ? asked.data : undefined
 
     return send(
       reply,
@@ -116,7 +126,7 @@ export function registerAtlasPages(app: FastifyInstance, deps: RouteDependencies
         entries: await listEntries(),
         canonical: `${websiteUrl}${ATLAS_PATH}`,
         chrome: await chromeOf(),
-        category: asked.success ? asked.data : undefined,
+        category,
       }),
       'text/html; charset=utf-8',
     )

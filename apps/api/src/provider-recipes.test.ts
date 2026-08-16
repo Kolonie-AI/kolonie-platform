@@ -227,9 +227,20 @@ describe('filtering the catalogue over HTTP', () => {
   })
 
   it('refuses a closed-list value outside the list', async () => {
-    for (const query of [{ category: 'telephony-ish' }, { status: 'refused-ish' }]) {
-      expect((await readRecipes(query, recipes)).outcome).toBe('rejected')
-    }
+    expect((await readRecipes({ status: 'refused-ish' }, recipes)).outcome).toBe('rejected')
+  })
+
+  /**
+   * **The shape and not the vocabulary, since `#1102`.** The shelves are rows
+   * now, so a filter that knew the fifteen the enum was frozen with would
+   * answer a link to a shelf added last week with the whole catalogue. A
+   * well-formed slug nothing is filed under is an empty shelf, which is the
+   * truth about it; only a string that could never name one is refused.
+   */
+  it('refuses a category that could not be a slug, and answers an unused one with nothing', async () => {
+    expect((await readRecipes({ category: 'Telephony Ish' }, recipes)).outcome).toBe('rejected')
+
+    expect(await listed({ category: 'telephony-ish' })).toEqual([])
   })
 
   /**
@@ -338,6 +349,7 @@ describe('what the recipe says to the agent walking it', () => {
         direction: null,
         status: 'joinable',
         category: 'code-hosting' as const,
+        categories: ['code-hosting'],
         operatorNeed: 'operator-needed' as const,
         operatorNeedIsGuess: false,
         refusal: null,
@@ -393,6 +405,7 @@ describe('what the recipe says to the agent walking it', () => {
         direction: null,
         status: 'joinable',
         category: 'code-hosting' as const,
+        categories: ['code-hosting'],
         operatorNeed: 'operator-needed' as const,
         operatorNeedIsGuess: false,
         refusal: null,
@@ -453,6 +466,7 @@ describe('what the recipe says to the agent walking it', () => {
       direction: null,
       status: 'joinable' as const,
       category: 'code-hosting' as const,
+      categories: ['code-hosting'],
       operatorNeed: 'operator-needed' as const,
       operatorNeedIsGuess: false,
       refusal: null,
@@ -526,6 +540,7 @@ describe('what the recipe says to the agent walking it', () => {
         direction: null,
         status: 'refused',
         category: 'code-hosting' as const,
+        categories: ['code-hosting'],
         operatorNeed: 'unknown' as const,
         operatorNeedIsGuess: false,
         refusal: 'It requires a phone number no citizen has (measured 2026-08-08).',
@@ -579,6 +594,7 @@ describe('what the recipe says to the agent walking it', () => {
       direction: null,
       status: 'joinable' as const,
       category: 'project-tracking' as const,
+      categories: ['project-tracking'],
       operatorNeed: 'unaided' as const,
       operatorNeedIsGuess: false,
       refusal: null,
@@ -739,6 +755,7 @@ describe('the handoff a recipe names', () => {
     direction: null,
     status: 'joinable' as const,
     category: 'code-hosting' as const,
+    categories: ['code-hosting'],
     operatorNeed: 'operator-needed' as const,
     operatorNeedIsGuess: false,
     refusal: null,
@@ -911,6 +928,7 @@ describe('an ask whose missing values are already held (#594 wall 3)', () => {
     status: 'joinable' as const,
     direction: null,
     category: 'code-hosting' as const,
+    categories: ['code-hosting'],
     operatorNeed: 'operator-needed' as const,
     operatorNeedIsGuess: false,
     refusal: null,

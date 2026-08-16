@@ -11,7 +11,6 @@ import {
   uuid,
 } from 'drizzle-orm/pg-core'
 import {
-  AtlasCategorySchema,
   RECIPE_MAX_RUNTIME_NOTES,
   RECIPE_MAX_STEPS,
   RecipeOperatorGuessSchema,
@@ -33,6 +32,7 @@ import {
   type RecipeNeed,
   type WalkedRecipe,
 } from '@kolonie-ai/core'
+import { atlasCategories } from './atlas-categories.js'
 
 /**
  * The vocabularies, taken from `core` so the table cannot disagree with it.
@@ -42,7 +42,6 @@ import {
  * one place, and the wrong place is whichever one nobody was editing.
  */
 const RECIPE_STATUSES = RecipeStatusSchema.options
-const ATLAS_CATEGORIES = AtlasCategorySchema.options
 const OPERATOR_GUESSES = RecipeOperatorGuessSchema.options
 const AGENT_APIS = AgentApiSchema.options
 const SIGNUP_CODES = SignupCodeSchema.options
@@ -215,11 +214,24 @@ export const providerRecipes = pgTable(
      * `github/github.com`, `trello/trello.com` — so it cannot group anything.
      *
      * **No default.** A default would let a row be filed on a shelf nobody chose,
-     * and the point of the column is that somebody chose. The vocabulary is
-     * `AtlasCategorySchema`'s and the check below is generated from it, so adding
-     * a category is a change in `core` and a migration, together.
+     * and the point of the column is that somebody chose.
+     *
+     * **The vocabulary is a table, and this is a foreign key into it** (`#1102`,
+     * decision 5). Until then it was a check constraint compiled from
+     * `AtlasCategorySchema.options`, which meant a new shelf was a change in
+     * `core` and a migration, together — a constraint compiled from a TypeScript
+     * array cannot follow a table, and a foreign key can. It is also strictly
+     * stronger: the check would have accepted a category that had been deleted
+     * from `atlas_categories` and this refuses to let it be deleted at all.
+     *
+     * **The column stays, and stays the primary shelf** (`#1102`, decision 4).
+     * It is what the URL, the ordering and every existing query use; the n:m in
+     * `provider_recipe_categories` carries this shelf too, so a reader that wants
+     * all of them has one place to look.
      */
-    category: text('category').notNull(),
+    category: text('category')
+      .notNull()
+      .references(() => atlasCategories.slug),
 
     /**
      * A best guess at who has to be there, for an entry nobody has walked
@@ -465,18 +477,11 @@ export const providerRecipes = pgTable(
     ),
 
     /**
-     * The shelf vocabulary, in SQL, generated from `core`'s list (`#589`).
-     *
-     * **Written from `AtlasCategorySchema` rather than typed out beside it**, so
-     * the two cannot drift: a category added in `core` and forgotten here would
-     * be a value the write shape accepts and the database refuses, which surfaces
-     * as a failed insert nobody expected. `provider-recipes.test.ts` asserts the
-     * two sets are the same by inserting every one of them.
+     * The shelf vocabulary used to live here, as a check generated from `core`'s
+     * list (`#589`). It is a foreign key on the column now (`#1102`, decision 5)
+     * — the vocabulary became `atlas_categories`, and a constraint compiled from
+     * a TypeScript array cannot follow a table.
      */
-    check(
-      'provider_recipes_category_is_known',
-      sql`${table.category} in (${sql.raw(ATLAS_CATEGORIES.map((one) => `'${one}'`).join(', '))})`,
-    ),
 
     /**
      * The direction vocabulary, and the kinds it may appear on (`#976`).

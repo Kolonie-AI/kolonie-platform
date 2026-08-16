@@ -164,9 +164,17 @@ describe('where a relocated paragraph goes', () => {
       })
     }
 
+    /**
+     * A *malformed* slug rather than an unused one, since `#1102`. The category
+     * argument is checked for shape and not against a closed list any more —
+     * the vocabulary is a table — so `not-a-shelf` is now a well-formed name for
+     * a shelf nobody has made and answers with nothing found. What is still
+     * refused, and is what this call is here to keep checking, is a string that
+     * could not be a slug at all.
+     */
     const invalidRecipes = await client.callTool({
       name: 'kolonie.accounts.recipes',
-      arguments: { category: 'not-a-shelf' },
+      arguments: { category: 'Not A Shelf' },
     })
     const invalidWishes = await client.callTool({
       name: 'kolonie.accounts.wishes',

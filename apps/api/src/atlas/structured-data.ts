@@ -1,4 +1,9 @@
-import { ATLAS_PATH, stepInstruction, type AtlasCategory, type AtlasEntry } from '@kolonie-ai/core'
+import {
+  ATLAS_PATH,
+  stepInstruction,
+  type AtlasCategorySlug,
+  type AtlasEntry,
+} from '@kolonie-ai/core'
 
 /**
  * The Atlas, as data a machine reads (`#789`).
@@ -46,7 +51,7 @@ import { ATLAS_PATH, stepInstruction, type AtlasCategory, type AtlasEntry } from
  * between the two would be a cycle for one string concatenation. `sitemap.ts`
  * makes the same call for the same reason.
  */
-const shelfPath = (category?: AtlasCategory): string =>
+const shelfPath = (category?: AtlasCategorySlug): string =>
   category === undefined ? ATLAS_PATH : `${ATLAS_PATH}?category=${category}`
 
 /**
@@ -164,7 +169,7 @@ export function breadcrumbFor(entry: AtlasEntry, siteUrl: string): string {
 export function itemListFor(
   entries: readonly AtlasEntry[],
   siteUrl: string,
-  category?: AtlasCategory | undefined,
+  category?: AtlasCategorySlug | undefined,
 ): string {
   return asJsonLdBlock({
     '@context': 'https://schema.org',

@@ -10,7 +10,7 @@ import {
 } from './atlas-figures.js'
 import { atlasCategoryForKind } from './atlas-proposal.js'
 import {
-  AtlasCategorySchema,
+  AtlasCategorySlugSchema,
   ProviderRecipeSchema,
   RecipeOperatorNeedSchema,
   RecipeStatusSchema,
@@ -260,8 +260,13 @@ export const AtlasEntrySchema = z.object({
    * `growth/README.md` refuses in as many words: *one page per provider, never
    * one per combination*. The per-kind categories are still on the rows below,
    * where a reader who has arrived is looking at one provider anyway.
+   *
+   * **A slug rather than the enum, since `#1102`** — the vocabulary is a table
+   * and a shelf added to it is a row, so an entry filed on the sixteenth shelf
+   * has to be renderable without a release. `atlasShelfTitle` already answers
+   * *the slug if this one is new*.
    */
-  category: AtlasCategorySchema,
+  category: AtlasCategorySlugSchema,
   /**
    * Whether this provider can be joined without an operator (`#589`).
    *
@@ -851,6 +856,13 @@ export function measuredOnlyRecipes(
          */
         title: figure.provider,
         category,
+        /**
+         * The one shelf its kind names, because a row nobody wrote up is on no
+         * others (`#1102`). The join table has nothing for a synthesized entry —
+         * there is no `provider_recipes` row for the trigger to fire on — so the
+         * list is stated here rather than left to be filled in.
+         */
+        categories: [category],
         /**
          * Unscoped, and it stays that way (`#976`). The figures behind this row
          * count attempts at a provider; nothing in them says which capability

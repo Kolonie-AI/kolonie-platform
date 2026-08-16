@@ -9,7 +9,7 @@ import {
   atlasCategoryForKind,
   episodeVerdict,
   type AccountEntry,
-  type AtlasCategory,
+  type AtlasCategorySlug,
   type EpisodeVerdict,
   type AccountEntryId,
   type AccountEpisode,
@@ -360,7 +360,7 @@ export async function proposeFromEpisode(
    * defaulting to one, and the throw is caught here so that a kind with no shelf
    * costs the episode its draft and not the close.
    */
-  const shelf = ((): AtlasCategory | undefined => {
+  const shelf = ((): AtlasCategorySlug | undefined => {
     if (entry !== undefined) return entry.category
     try {
       return atlasCategoryForKind(kind)

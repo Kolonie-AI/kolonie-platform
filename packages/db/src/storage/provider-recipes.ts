@@ -1,9 +1,9 @@
-import { and, asc, eq, inArray, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm'
 import {
   AccountKindSchema,
   AccountProviderSchema,
   AgentApiSchema,
-  AtlasCategorySchema,
+  AtlasCategorySlugSchema,
   atlasCategoryForKind,
   SignupCodeSchema,
   ProviderTermsSchema,
@@ -26,6 +26,7 @@ import {
   type AccountProofMethod,
   type AgentApi,
   type AtlasCategory,
+  type AtlasCategorySlug,
   type SignupCode,
   type ProviderTerms,
   type RecipeNeed,
@@ -53,6 +54,7 @@ import type { Database, Transaction } from '../client.js'
  * the whole of what that needed — the queries are unchanged.
  */
 type Handle = Database | Transaction
+import { providerRecipeCategories } from '../schema/provider-recipe-categories.js'
 import { providerRecipes } from '../schema/provider-recipes.js'
 import { toTimestamp } from './rows.js'
 
@@ -63,7 +65,21 @@ import { toTimestamp } from './rows.js'
  * there is no join here.
  */
 
-export function toRecipe(row: typeof providerRecipes.$inferSelect): ProviderRecipe {
+export function toRecipe(
+  row: typeof providerRecipes.$inferSelect,
+  /**
+   * Every shelf this entry is on, primary first (`#1102`, decision 4).
+   *
+   * **Optional, and absent means *the one shelf the column names*.** `toRecipe`
+   * is called from a dozen places, several of which have a row in hand and no
+   * transaction to run a second query on — a walk closing, a proposal being
+   * accepted — and none of them would be improved by a join. The invariant the
+   * trigger in `0279` keeps is exactly that the primary row and the column say
+   * the same thing, so the fallback is not a guess: it is the same answer, read
+   * off the copy that is already here.
+   */
+  shelves?: readonly string[],
+): ProviderRecipe {
   const steps = (row.steps ?? []).map((step: RecipeStep) => RecipeStepSchema.parse(step))
 
   /** Parsed on the way out, like `steps` and `reaches`: `jsonb` is not a shape. */
@@ -96,7 +112,14 @@ export function toRecipe(row: typeof providerRecipes.$inferSelect): ProviderReci
     contact: row.contact,
     lastConfirmedAt: row.lastConfirmedAt === null ? null : toTimestamp(row.lastConfirmedAt),
     status: RecipeStatusSchema.parse(row.status),
-    category: AtlasCategorySchema.parse(row.category),
+    /**
+     * **A slug and no longer the enum** (`#1102`, decision 6). What makes a
+     * category valid is the foreign key into `atlas_categories`; parsing the
+     * fifteen here would throw on the sixteenth, which is the whole thing that
+     * issue set out to stop being a release.
+     */
+    category: AtlasCategorySlugSchema.parse(row.category),
+    categories: (shelves ?? [row.category]).map((one) => AtlasCategorySlugSchema.parse(one)),
     operatorNeed: need.need,
     operatorNeedIsGuess: need.isGuess,
     refusal: row.refusal,
@@ -211,7 +234,50 @@ export async function providerRecipeList(
       asc(providerRecipes.provider),
     )
 
-  return rows.map(toRecipe)
+  const shelves = await shelvesByRecipe(
+    db,
+    rows.map((row) => row.id),
+  )
+
+  return rows.map((row) => toRecipe(row, shelves.get(row.id)))
+}
+
+/**
+ * Which shelves each of these entries is on, primary first (`#1102`).
+ *
+ * **One query for the whole page rather than one per entry.** The Atlas index
+ * renders four hundred entries, and a shelf lookup per row would be the n+1 that
+ * `atlasEntries` exists to keep out of SQL, arriving from the other side.
+ *
+ * **An entry with no rows is absent rather than empty**, so `toRecipe` falls
+ * back to its column. That is the state every entry written before `0279`'s
+ * trigger was in, and a page that rendered *no shelves* for one would be worse
+ * than a page that renders the one the column has always named.
+ */
+async function shelvesByRecipe(
+  db: Handle,
+  ids: readonly string[],
+): Promise<ReadonlyMap<string, readonly string[]>> {
+  if (ids.length === 0) return new Map()
+
+  const rows = await db
+    .select({
+      recipeId: providerRecipeCategories.recipeId,
+      categorySlug: providerRecipeCategories.categorySlug,
+    })
+    .from(providerRecipeCategories)
+    .where(inArray(providerRecipeCategories.recipeId, [...ids]))
+    /** Primary first, then alphabetically, so two reads of one entry agree. */
+    .orderBy(desc(providerRecipeCategories.primary), asc(providerRecipeCategories.categorySlug))
+
+  const byRecipe = new Map<string, string[]>()
+  for (const row of rows) {
+    const held = byRecipe.get(row.recipeId)
+    if (held === undefined) byRecipe.set(row.recipeId, [row.categorySlug])
+    else held.push(row.categorySlug)
+  }
+
+  return byRecipe
 }
 
 /** One entry, by the pair that identifies it. */
@@ -233,7 +299,10 @@ export async function providerRecipe(
     )
     .limit(1)
 
-  return row === undefined ? undefined : toRecipe(row)
+  if (row === undefined) return undefined
+
+  const shelves = await shelvesByRecipe(db, [row.id])
+  return toRecipe(row, shelves.get(row.id))
 }
 
 /**
@@ -258,7 +327,7 @@ export async function writeProviderRecipe(
     /** Set when a walk confirmed it. Absent on a curation edit, which confirms nothing. */
     readonly confirmedBy?: string | null
     readonly status: RecipeStatus
-    readonly category: AtlasCategory
+    readonly category: AtlasCategorySlug
     /** A guess, and only where there are no steps to derive the answer from. */
     readonly operatorGuess?: RecipeOperatorGuess | null
     readonly refusal?: string | null
@@ -454,7 +523,7 @@ export async function listAtlasProvider(
     readonly kind: AccountKind
     readonly provider: string
     readonly title: string
-    readonly category: AtlasCategory
+    readonly category: AtlasCategorySlug
     readonly operatorGuess?: RecipeOperatorGuess
     /**
      * The answer to admission question two, where somebody has looked (`#680`).

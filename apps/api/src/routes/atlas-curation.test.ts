@@ -7,6 +7,7 @@ import { fakeHumans } from '../__fixtures__/humans.js'
 import { fakeStore, type FakeStore } from '../__fixtures__/store.js'
 import {
   AccountKindSchema,
+  ATLAS_SEEDED_CATEGORIES,
   now,
   type AccountWalk,
   type AtlasProposal,
@@ -106,6 +107,7 @@ describe('the curation section', () => {
         falling: [],
         entries: [],
         unpublished: [],
+        shelves: ATLAS_SEEDED_CATEGORIES,
         divergences: [],
       }),
     ).toContain('an empty one is the good answer')
@@ -140,6 +142,7 @@ describe('the curation section', () => {
       falling: [],
       entries: [],
       unpublished: [],
+      shelves: ATLAS_SEEDED_CATEGORIES,
       divergences: [
         {
           walk,
@@ -169,6 +172,7 @@ describe('the curation section', () => {
       falling: [],
       entries: [],
       unpublished: [],
+      shelves: ATLAS_SEEDED_CATEGORIES,
       divergences: [],
     })
 
@@ -200,6 +204,7 @@ describe('the curation section', () => {
       falling: [],
       entries: [],
       unpublished: [walked],
+      shelves: ATLAS_SEEDED_CATEGORIES,
       divergences: [],
     })
 
@@ -232,6 +237,7 @@ describe('the curation section', () => {
       ],
       entries: [],
       unpublished: [],
+      shelves: ATLAS_SEEDED_CATEGORIES,
       divergences: [],
     })
 
@@ -314,6 +320,7 @@ describe('the curation section', () => {
         falling: [],
         entries: [],
         unpublished: [],
+        shelves: ATLAS_SEEDED_CATEGORIES,
         divergences: [],
       })
 
@@ -335,6 +342,7 @@ describe('the curation section', () => {
         falling: [],
         entries: [],
         unpublished: [],
+        shelves: ATLAS_SEEDED_CATEGORIES,
         divergences: [],
       })
 
@@ -581,6 +589,7 @@ describe('the curation section', () => {
         falling: [],
         entries: [],
         unpublished: [walked],
+        shelves: ATLAS_SEEDED_CATEGORIES,
         divergences: [],
       })
 

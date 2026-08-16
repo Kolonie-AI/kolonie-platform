@@ -1,7 +1,8 @@
 import {
   AccountKindSchema,
   ATLAS_ABSENCE_NEXT_MOVES,
-  AtlasCategorySchema,
+  AtlasCategorySlugSchema,
+  type AtlasCategoryRow,
   BOOTSTRAP_TEMPLATES,
   DIRECTIONAL_KINDS,
   RecipeDirectionSchema,
@@ -75,6 +76,7 @@ import {
   publishProviderRecipe,
   dressProviderRecipe,
   providerRecipe,
+  atlasCategoryList,
   providerRecipeList,
   type FallingRate,
 } from '@kolonie-ai/db'
@@ -116,6 +118,22 @@ export interface ProviderRecipes {
    * caller of it is one grep away.
    */
   listInternal(): Promise<readonly ProviderRecipe[]>
+  /**
+   * The shelves themselves, out of `atlas_categories` (`#1102`).
+   *
+   * **On this port and not imported from `core`**, which is the whole of what
+   * `#1102` bought. The taxonomy was a TypeScript enum, so a shelf was a release;
+   * it is rows now, and a surface that renders the constant would be showing the
+   * fifteen the enum was frozen with rather than what the Colony files things
+   * under. The constant survives as what the migration seeded and what a test
+   * compares this against.
+   *
+   * The only caller that *needs* it is the one that writes a category — the
+   * maintainer's accept-a-proposal form, whose `<select>` decides what an entry
+   * can be filed under. Everything that only reads builds its shelves from the
+   * entries it is holding, and goes on doing so.
+   */
+  categories(): Promise<readonly AtlasCategoryRow[]>
   /**
    * What the Colony wrote up about one provider's walks (`#831`).
    *
@@ -205,6 +223,7 @@ export function databaseProviderRecipes(db: Database): ProviderRecipes {
   return {
     list: (kind) => providerRecipeList(db, kind),
     listInternal: () => providerRecipeList(db, undefined, { includeInternal: true }),
+    categories: () => atlasCategoryList(db),
     one: (kind, provider) => providerRecipe(db, kind, provider),
     figures: (options) => atlasFigures(db, options ?? {}),
     briefings: (provider) => providerBriefingsAt(db, provider),
@@ -349,14 +368,28 @@ function invalidKind(kind: string): ApiError | null {
       }
 }
 
+/**
+ * **The shape and not the vocabulary, since `#1102`.** The shelves are rows in
+ * `atlas_categories` now rather than a frozen list in this process, so a filter
+ * that refused everything it was not compiled with would refuse a shelf a
+ * maintainer added this morning — and would keep refusing it until the next
+ * release, which is the whole thing `#1102` set out to stop.
+ *
+ * What is left to reject is the shape: a filter is a slug, and `Mailbox ` or
+ * `mailbox; drop` is a typo worth naming rather than a shelf that is empty. A
+ * well-formed slug nothing is filed under answers with nothing, which is the
+ * same answer `/atlas?category=` gives and the same one the console's picker
+ * gives — three surfaces onto one catalogue, agreeing.
+ */
 function invalidCategory(category: string): ApiError | null {
-  return AtlasCategorySchema.safeParse(category).success
+  return AtlasCategorySlugSchema.safeParse(category).success
     ? null
     : {
         code: 'validation_failed',
         message:
-          'That is not a category the Atlas uses. The list is closed on purpose — a shelf ' +
-          `nobody can find things on is not a shelf — and it is: ${AtlasCategorySchema.options.join(', ')}.`,
+          'A category is a lowercase kebab-case slug — "mailbox", "code-hosting", ' +
+          '"payments-finance". The shelves themselves are in the catalogue: leave this out to ' +
+          'read all of them, and a shelf nothing is filed under answers with nothing.',
       }
 }
 
@@ -1840,15 +1873,19 @@ export async function atlasCuration(
   readonly entries: readonly AtlasEntry[]
   readonly unpublished: readonly ProviderRecipe[]
   readonly divergences: Awaited<ReturnType<WalkStore['divergences']>>
+  /** The shelves a proposal can be accepted onto (`#1102`). */
+  readonly shelves: readonly AtlasCategoryRow[]
 }> {
-  const [proposals, providerProposals, falling, entries, all, divergences] = await Promise.all([
-    recipes.proposals(),
-    recipes.providerProposals(),
-    recipes.fallingRates(),
-    atlasCatalogue(recipes),
-    recipes.listInternal(),
-    walks?.divergences() ?? Promise.resolve([]),
-  ])
+  const [proposals, providerProposals, falling, entries, all, divergences, shelves] =
+    await Promise.all([
+      recipes.proposals(),
+      recipes.providerProposals(),
+      recipes.fallingRates(),
+      atlasCatalogue(recipes),
+      recipes.listInternal(),
+      walks?.divergences() ?? Promise.resolve([]),
+      recipes.categories(),
+    ])
 
   /**
    * The two states carrying no route the Colony wrote (`#604`, `#1032`).
@@ -1871,5 +1908,5 @@ export async function atlasCuration(
     (entry) => entry.status === 'measured' || entry.status === 'unwritten',
   )
 
-  return { proposals, providerProposals, falling, entries, unpublished, divergences }
+  return { proposals, providerProposals, falling, entries, unpublished, divergences, shelves }
 }

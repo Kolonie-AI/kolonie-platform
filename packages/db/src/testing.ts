@@ -1,8 +1,10 @@
 import { migrate } from 'drizzle-orm/postgres-js/migrator'
 import { sql } from 'drizzle-orm'
+import { ATLAS_SEEDED_CATEGORIES } from '@kolonie-ai/core'
 import { assertNoBareOuterReference } from './bare-identifiers.js'
 import { createDatabase, databaseUrlFromEnv, DATABASE_URL_VAR, type Database } from './client.js'
 import { MIGRATIONS_FOLDER, MIGRATIONS_SCHEMA } from './migrations.js'
+import { atlasCategories } from './schema/atlas-categories.js'
 
 // Re-exported so test files keep importing everything they need from one place.
 export { MIGRATIONS_FOLDER, MIGRATIONS_SCHEMA }
@@ -467,6 +469,37 @@ export async function truncateAll(db: Database): Promise<void> {
       end if;
     end $$
   `)
+
+  await seedAtlasCategories(db)
+}
+
+/**
+ * Put the Atlas taxonomy back after a truncate (`#1102`).
+ *
+ * **The shelves are vocabulary, not test data.** `provider_recipes.category` is
+ * a foreign key into them now, so a database whose `atlas_categories` is empty
+ * is one no migration ever produces and one in which no entry can be written at
+ * all — which is how this was found: eleven tests in `atlas-renames.test.ts`
+ * failing with `Key (category)=(code-hosting) is not present`.
+ *
+ * **Re-seeded rather than skipped by the truncate above**, so that a test which
+ * adds a shelf gets it removed again like everything else it wrote. The rows
+ * come from {@link ATLAS_SEEDED_CATEGORIES}, which is what the migration's own
+ * seed was generated from, in its order — top categories first, because a sub
+ * category's parent has to exist before the foreign key will take it.
+ */
+async function seedAtlasCategories(db: Database): Promise<void> {
+  for (const row of ATLAS_SEEDED_CATEGORIES) {
+    await db
+      .insert(atlasCategories)
+      .values({
+        slug: row.slug,
+        title: row.title,
+        standfirst: row.standfirst,
+        parentSlug: row.parent,
+      })
+      .onConflictDoNothing()
+  }
 }
 
 /**

@@ -17,7 +17,7 @@ import {
   providerBriefingAgeHours,
   providerClaimsIn,
   throughRate,
-  type AtlasCategory,
+  type AtlasCategorySlug,
   type AtlasEntry,
   type AtlasFigures,
   type ProviderBriefing,
@@ -242,7 +242,7 @@ function siteOf(canonical: string): string {
   return new URL(canonical).origin
 }
 
-export function atlasIndexPath(category?: AtlasCategory): string {
+export function atlasIndexPath(category?: AtlasCategorySlug): string {
   return category === undefined ? ATLAS_PATH : `${ATLAS_PATH}?category=${category}`
 }
 
@@ -266,7 +266,7 @@ export function atlasIndexPage(input: {
   readonly canonical: string
   readonly chrome?: SiteChrome | undefined
   /** The shelf a reader asked for, when they asked for one. */
-  readonly category?: AtlasCategory | undefined
+  readonly category?: AtlasCategorySlug | undefined
 }): string {
   const { category } = input
   const shown =
@@ -322,7 +322,7 @@ export function atlasIndexPage(input: {
  * **The count is derived and never typed** — `#97` is explicit that *ninety-six
  * providers* ages on the next curation, and the same is true one shelf down.
  *
- * **It is built from the entries and not from `AtlasCategorySchema`.** Fourteen
+ * **It is built from the entries and not from the vocabulary.** Fourteen
  * headings over three entries would say the Atlas has eleven holes in it, when
  * what it has is eleven categories nothing has been filed under yet. That is
  * `shelves`' argument below, one level up.
@@ -331,7 +331,7 @@ export function atlasIndexPage(input: {
  * what a screen reader announces, and a colour that said the same thing would
  * say it to one reader in two.
  */
-function shelfNav(entries: readonly AtlasEntry[], current: AtlasCategory | undefined): string {
+function shelfNav(entries: readonly AtlasEntry[], current: AtlasCategorySlug | undefined): string {
   if (entries.length === 0) return ''
 
   const counts = new Map<string, number>()
@@ -339,7 +339,7 @@ function shelfNav(entries: readonly AtlasEntry[], current: AtlasCategory | undef
 
   const links = [...counts.entries()].map(
     ([category, count]) =>
-      `<li><a href="${escape(atlasIndexPath(category as AtlasCategory))}"` +
+      `<li><a href="${escape(atlasIndexPath(category))}"` +
       `${category === current ? ' aria-current="page"' : ''}>` +
       `${escape(atlasShelfTitle(category))}</a> ` +
       `<span class="k-atlas-count">${count}</span></li>`,
@@ -385,7 +385,7 @@ function shelves(entries: readonly AtlasEntry[]): readonly string[] {
        * carries. Only what a reader sees is the shelf title.
        */
       `<h2 id="${escape(category)}"><a href="${escape(
-        atlasIndexPath(category as AtlasCategory),
+        atlasIndexPath(category),
       )}">${escape(atlasShelfTitle(category))}</a> ` +
       /**
        * The count, derived from the shelf it is standing on

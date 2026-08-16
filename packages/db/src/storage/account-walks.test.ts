@@ -203,6 +203,58 @@ describe('the record of one agent obtaining one account', () => {
     })
 
     /**
+     * **The entry is a verdict about whatever the walk measured** (`#1023`).
+     *
+     * `#976` scoped the entry and the report and left the walk unscoped, so a
+     * draft proposed by an inbound walk went onto the shelf as a claim about
+     * `phone` at that provider — answering readers who only ever needed to send.
+     * The direction travels with the draft for the same reason the walker's own
+     * prose does: it is what the steward is reviewing.
+     */
+    it('carries the walk’s direction onto the entry it proposed', async () => {
+      const scoped = { kind: kind('phone'), provider: 'agentphone.example' }
+      const walkId = await walkInProgress(db, agentId, scoped)
+      await recordWalkStep(db, walkId, { actor: 'agent' })
+
+      await finishWalk(db, walkId, { outcome: 'proved', direction: 'inbound' })
+
+      expect((await accountWalk(db, walkId))?.direction).toBe('inbound')
+      expect((await providerRecipe(db, scoped.kind, scoped.provider))?.direction).toBe('inbound')
+    })
+
+    /**
+     * And the other half of the same rule: a kind with no axis proposes an
+     * unscoped entry, which is the `null` `#976` gave a meaning to — *nobody
+     * wrote down which way* — and never a guess.
+     */
+    it('leaves the entry unscoped when the kind has no axis', async () => {
+      const walkId = await walkInProgress(db, agentId, where)
+      await recordWalkStep(db, walkId, { actor: 'agent' })
+
+      await finishWalk(db, walkId, { outcome: 'proved' })
+
+      expect((await accountWalk(db, walkId))?.direction).toBeNull()
+      expect((await providerRecipe(db, where.kind, where.provider))?.direction).toBeNull()
+    })
+
+    /** A refused walk scopes the refusal it publishes, exactly as the draft does. */
+    it('carries the direction onto a refusal too', async () => {
+      const scoped = { kind: kind('phone'), provider: 'sendonly.example' }
+      const walkId = await walkInProgress(db, agentId, scoped)
+      await recordWalkStep(db, walkId, { actor: 'agent' })
+
+      await finishWalk(db, walkId, {
+        outcome: 'refused',
+        direction: 'outbound',
+        wall: 'A2P brand and campaign registration is required before a number may send.',
+      })
+
+      const entry = await providerRecipe(db, scoped.kind, scoped.provider)
+      expect(entry?.status).toBe('refused')
+      expect(entry?.direction).toBe('outbound')
+    })
+
+    /**
      * The walker's own account travels with the draft it proposed (`#769`).
      *
      * Without this the long form sits on the walk row and the steward reviewing
@@ -1278,6 +1330,41 @@ describe('the record of one agent obtaining one account', () => {
            values ('${agentId}', 'mailbox', 'unproposed.example', now())`,
         ),
       ).toBe('account_walks_reward_follows_a_proposal')
+    })
+
+    /**
+     * **A direction only means something on a kind that has two** (`#1023`).
+     * `mailbox` is the kind `atlas-direction.ts` argues *could* take the axis
+     * and is deliberately left off `DIRECTIONAL_KINDS` until something has been
+     * recorded against it, so a scoped mailbox walk is a claim the Atlas has no
+     * way to read back.
+     */
+    it('refuses a direction on a kind that has no axis', async () => {
+      expect(
+        await refusedBy(
+          `insert into account_walks (agent_id, kind, provider, direction)
+           values ('${agentId}', 'mailbox', 'scoped.example', 'inbound')`,
+        ),
+      ).toBe('account_walks_direction_is_known')
+    })
+
+    it('refuses a direction that is not one of the three', async () => {
+      expect(
+        await refusedBy(
+          `insert into account_walks (agent_id, kind, provider, direction)
+           values ('${agentId}', 'phone', 'scoped.example', 'sideways')`,
+        ),
+      ).toBe('account_walks_direction_is_known')
+    })
+
+    /** And the unscoped null is a state rather than a gap: every kind takes it. */
+    it('takes an unscoped walk on either kind', async () => {
+      expect(
+        await refusedBy(
+          `insert into account_walks (agent_id, kind, provider)
+           values ('${agentId}', 'phone', 'unscoped.example')`,
+        ),
+      ).toBeUndefined()
     })
 
     /** And a citizen cannot be told about a payment that was never made. */

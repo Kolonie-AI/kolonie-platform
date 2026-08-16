@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { NOTE_MAX_LENGTH } from '../common/note.js'
 import { TimestampSchema } from '../common/time.js'
 import { AccountKindSchema, AccountProviderSchema, type AccountCapability } from './account.js'
+import { RecipeDirectionSchema } from './atlas-direction.js'
 import {
   RECIPE_MAX_STEPS,
   RECIPE_REFUSAL_MAX_LENGTH,
@@ -215,6 +216,21 @@ export const AccountWalkSchema = z.object({
    * than a bigger number on `note`.
    */
   recipe: WalkedRecipeSchema.nullable(),
+  /**
+   * Which capability this walk measured, on a kind with two (`#1023`).
+   *
+   * **Null is the unscoped state and not a gap to fill**, exactly as it is on
+   * the entry: it says nobody wrote down which way this walk went, which is true
+   * of every walk recorded before the field existed and of every walk at a kind
+   * with no axis. `directionAnswers` reads it as covering both, which is the
+   * conservative direction — see {@link RecipeDirectionSchema}.
+   *
+   * **Nothing infers it.** `atlas.ts` already refuses to guess a scope for a
+   * synthesised row on the grounds that it would be *a claim about a walk nobody
+   * recorded*; a scope back-filled onto a walk that did not carry one is the
+   * same claim about a walk that was.
+   */
+  direction: RecipeDirectionSchema.nullable(),
   steps: z.array(WalkStepSchema).max(RECIPE_MAX_STEPS),
 })
 export type AccountWalk = z.infer<typeof AccountWalkSchema>

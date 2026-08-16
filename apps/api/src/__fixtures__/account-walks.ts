@@ -17,6 +17,8 @@ export interface FakeWalkStore extends WalkStore {
     readonly provider: string
     readonly finished?: boolean
     readonly outcome?: AccountWalk['outcome']
+    /** Which capability the walk measured (`#1023`); absent is the unscoped null. */
+    readonly direction?: AccountWalk['direction']
     /** Whether this walk's verdict wrote the draft, which is what `amend` reaches. */
     readonly proposed?: boolean
   }) => AccountWalk
@@ -44,6 +46,7 @@ export function fakeWalks(): FakeWalkStore {
       startedAt,
       finishedAt,
       outcome: finishedAt === null ? null : (input.outcome ?? 'proved'),
+      direction: input.direction ?? null,
       wall: null,
       note: null,
       did: null,
@@ -83,6 +86,7 @@ export function fakeWalks(): FakeWalkStore {
         ...previous,
         finishedAt: currentTime(),
         outcome: input.outcome,
+        direction: input.direction ?? null,
         wall: input.wall ?? null,
         note: input.note ?? null,
         did: input.did ?? null,

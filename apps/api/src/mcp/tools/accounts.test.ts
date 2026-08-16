@@ -1188,6 +1188,112 @@ describe('kolonie.accounts.walk-report, four questions', () => {
 })
 
 /**
+ * **A walk says which of the two capabilities it measured** (`#1023`).
+ *
+ * `#976` gave the Atlas the axis and reached two of its three surfaces: the
+ * report and the entry. The walk — the one record carrying a whole recipe —
+ * could not say what its recipe was a recipe *for*, so `agentphone.ai` was
+ * walked for a number that can receive, reported `proved`, and read back
+ * `contradicted` against a published refusal about registering to send. Both
+ * records were accurate; the only comparison available between them was not.
+ */
+describe('kolonie.accounts.walk-report, the direction axis', () => {
+  const walking = async (kind: string, provider: string) => {
+    const { colony, apiKey, agent } = await registeredCitizen()
+    const walks = fakeWalks()
+    walks.add({ agentId: agent.id, kind, provider, finished: false })
+    const { client, close } = await connectedClient({ ...colony, walks }, `Bearer ${apiKey}`)
+    return { client, close, walks, agent, colony }
+  }
+
+  it('refuses a phone walk that does not say which way it went', async () => {
+    const { client, close } = await walking('phone', 'agentphone.example')
+
+    const result = await client.callTool({
+      name: 'kolonie.accounts.walk-report',
+      arguments: { kind: 'phone', provider: 'agentphone.example', outcome: 'proved' },
+    })
+
+    expect(result.isError).toBe(true)
+    expect(JSON.stringify(result.content)).toContain('two capabilities')
+    await close()
+  })
+
+  it('refuses a direction on a kind whose verdicts do not have one', async () => {
+    const { client, close } = await walking('mailbox', 'mail.example')
+
+    const result = await client.callTool({
+      name: 'kolonie.accounts.walk-report',
+      arguments: {
+        kind: 'mailbox',
+        provider: 'mail.example',
+        outcome: 'proved',
+        direction: 'inbound',
+      },
+    })
+
+    expect(result.isError).toBe(true)
+    expect(JSON.stringify(result.content)).toContain('Leave it out')
+    await close()
+  })
+
+  it('stores the direction on the walk', async () => {
+    const { client, close, walks, agent } = await walking('phone', 'agentphone.example')
+
+    const result = await client.callTool({
+      name: 'kolonie.accounts.walk-report',
+      arguments: {
+        kind: 'phone',
+        provider: 'agentphone.example',
+        outcome: 'proved',
+        direction: 'inbound',
+      },
+    })
+
+    expect(result.isError).not.toBe(true)
+    const [walk] = await walks.list(agent.id)
+    expect(walk?.direction).toBe('inbound')
+    await close()
+  })
+
+  /**
+   * The worked example, as the test it should always have had: a proved inbound
+   * walk against a refusal about sending is two answers to two questions, and
+   * `contradicted` is the one thing it is not.
+   */
+  it('does not call a walk contradicted by an entry about the other capability', async () => {
+    const { colony, apiKey, agent } = await registeredCitizen()
+    const walks = fakeWalks()
+    const walk = walks.add({
+      agentId: agent.id,
+      kind: 'phone',
+      provider: 'agentphone.example',
+      outcome: 'proved',
+      direction: 'inbound',
+    })
+    colony.recipes.write({
+      kind: 'phone',
+      provider: 'agentphone.example',
+      status: 'refused',
+      direction: 'outbound',
+      refusal: 'A2P brand and campaign registration is required before a number may send.',
+    })
+    const { client, close } = await connectedClient({ ...colony, walks }, `Bearer ${apiKey}`)
+
+    const status = await client.callTool({
+      name: 'kolonie.accounts.walk-status',
+      arguments: { walkId: walk.id },
+    })
+
+    expect(status.structuredContent).toMatchObject({ walk: { fate: 'awaiting-steward' } })
+    const why = JSON.stringify(status.structuredContent)
+    expect(why).toContain('inbound')
+    expect(why).toContain('outbound')
+    await close()
+  })
+})
+
+/**
  * The Academy's retry rule, on the account side (`#811`).
  *
  * Three properties make the Academy's version fair and all three are asserted

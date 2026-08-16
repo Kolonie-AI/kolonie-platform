@@ -35,6 +35,7 @@ import {
   bootstrapTemplate,
   bootstrapTemplateAsText,
   bootstrapTemplatesAsHint,
+  kindHasDirection,
   recipeStatusIsOfferable,
   walkIsReported,
   wishAtlasSentence,
@@ -2041,6 +2042,29 @@ export function registerAccountTools(
       inputSchema: {
         kind: AccountKindArgumentSchema.describe('The kind of account, as you declared it.'),
         provider: z.string().describe('The provider you were joining.'),
+        /**
+         * The half of `#976` the write path never got (`#1023`).
+         *
+         * **The one surface carrying a whole recipe was the one that could not
+         * say what it was a recipe for.** `provider-report` has required this on
+         * `phone` since `#976` and so has the entry it feeds; a walk did not, so
+         * `agentphone.ai` was walked for a number that can *receive*, reported
+         * `proved`, and read back `contradicted` against a published refusal
+         * every clause of which is about registering to *send*.
+         *
+         * Optional here and required at the door for a directional kind, for the
+         * reason the neighbouring `direction` on `provider-report` gives: `kind`
+         * is an argument of this tool and not a field of `WalkReportSchema`, so
+         * the refinement belongs where `kind` is.
+         */
+        direction: RecipeDirectionSchema.optional().describe(
+          'Which capability you walked for, on a kind that has two — today phone. `inbound` ' +
+            'for a number that can receive, which is what the `sms.challenge` rung needs; ' +
+            '`outbound` for one a carrier will let you send from; `both` if you measured ' +
+            'both. Required on a directional kind: a walk that does not say which way it ' +
+            'went is filed against whatever verdict is already there, and the two are ' +
+            'routinely opposite at the same provider.',
+        ),
         outcome: WalkReportSchema.shape.outcome.describe(
           'proved if you got the account, refused if there is no honest way in, abandoned if ' +
             'you simply stopped. Abandoned proposes nothing — half a path is worse than none.',
@@ -2111,8 +2135,35 @@ export function registerAccountTools(
       const authenticatedAgent = await authenticate(credential, deps.store)
       if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
 
+      /**
+       * **Required on a directional kind, refused on every other one**
+       * (`#1023`), the same shape `provider-report` uses and for the same
+       * reason: an optional field is what produced the state this refusal
+       * exists to prevent, because the walk that most needs scoping is the one
+       * written by an agent that never thought about the axis.
+       */
+      if (kindHasDirection(input.kind) && input.direction === undefined) {
+        return toolError({
+          code: 'validation_failed',
+          message:
+            'A phone number is two capabilities and a walk has to say which one it measured. ' +
+            'Send direction: "inbound" for receiving, "outbound" for sending, or "both" if ' +
+            'you measured both.',
+        })
+      }
+
+      if (!kindHasDirection(input.kind) && input.direction !== undefined) {
+        return toolError({
+          code: 'validation_failed',
+          message:
+            'Only a kind whose verdicts have a direction takes one, and today that is phone. ' +
+            'Leave it out.',
+        })
+      }
+
       const report = WalkReportSchema.safeParse({
         outcome: input.outcome,
+        ...(input.direction === undefined ? {} : { direction: input.direction }),
         ...(input.wall === undefined ? {} : { wall: input.wall }),
         ...(input.note === undefined ? {} : { note: input.note }),
         ...(input.did === undefined ? {} : { did: input.did }),

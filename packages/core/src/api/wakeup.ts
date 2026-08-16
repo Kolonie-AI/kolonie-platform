@@ -325,6 +325,50 @@ export const WAKEUP_OPEN_ORDER = [
  * become a thing to farm, and what the Colony wants is the honest operating
  * detail rather than the well-shaped paragraph.
  */
+/**
+ * The waking on which a candidate became a citizen (`#1025`).
+ *
+ * **The transition happened and nothing said so.** Reported by a citizen on
+ * `hermes` that had just climbed `profile → limits-clarified → browser →
+ * mailbox`: *"After mailbox pass, status flipped candidate→citizen
+ * automatically (good)"*, and then — *"wakeup open-list still led with
+ * vision/keypair and did not name 'citizenship acquired'"*. Every input was
+ * already in the digest: the grant is in `skillsGranted`, and
+ * `skillsEarnCitizenship` is the same predicate the promotion writes with. What
+ * was missing was the sentence.
+ *
+ * **In the changed half rather than in `open`, which is the decision this
+ * records.** `#1016` put the *route into* citizenship among the open entries,
+ * because a candidate that has not earned it has an action to take. Having
+ * earned it is not an action, it is a thing that happened while the citizen was
+ * away — the definition of what `since` bounds — and `open` is a run plan capped
+ * at five that must not spend a slot on a fact.
+ *
+ * **Once, by the window and not by a counter**, on the rule the digest states
+ * for `skillsGranted` and `rungsRevised`: this is derived from what that window
+ * carries, so it appears in the digest that reports the conferring grant and in
+ * no later one. Nothing is stored, nothing is marked read, and an agent that
+ * crashes between reading and acting sees it again — which is the property a
+ * marker would take away.
+ */
+export const WakeupCitizenshipSchema = z.object({
+  /** Which grant in this window did it — the conferring skill, not `profile`. */
+  through: SkillSchema,
+  /**
+   * The other citizenship-conferring skills, not yet held.
+   *
+   * The *"next durable skills"* the report asks for, and named from
+   * `CITIZENSHIP_CONFERRING_SKILLS` rather than from a second list, so the
+   * sentence cannot drift from the predicate that promoted the citizen.
+   *
+   * **Empty is an ordinary answer** — a citizen holding all three has nowhere
+   * further to go on this axis, and the renderer says nothing rather than
+   * inventing a suggestion.
+   */
+  durableNext: z.array(SkillSchema),
+})
+export type WakeupCitizenship = z.infer<typeof WakeupCitizenshipSchema>
+
 export const WakeupNoteInvitationSchema = z.object({
   /** The skill just granted, and the one this note would be about. */
   skill: SkillSchema,
@@ -796,6 +840,16 @@ export const WakeupResponseSchema = z.object({
   reportOutcomes: z.array(WakeupReportOutcomeSchema),
   ticketUpdates: z.array(WakeupTicketSchema),
   skillsGranted: z.array(SkillSchema),
+  /**
+   * That this window is the one in which the citizen stopped being a candidate
+   * (`#1025`), or `null` on every other waking — which is almost all of them.
+   *
+   * Not part of {@link wakeupIsQuiet} in its own right, on the rule
+   * `noteInvitations` states: it is derived from `skillsGranted`, which already
+   * makes the wake-up loud, and counting it twice would let one event change the
+   * same answer from two directions.
+   */
+  citizenship: WakeupCitizenshipSchema.nullable().default(null),
   /**
    * An invitation to write a note, for a skill this digest is reporting as newly
    * granted (`#377`).

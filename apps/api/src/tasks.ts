@@ -17,6 +17,7 @@ import {
   FrontierResponseSchema,
   type FrontierResponse,
   type GetTaskResponse,
+  listedTask,
   type ListTasksResponse,
   type SkillNoteEntry,
   type SkillStanding,
@@ -483,7 +484,17 @@ export async function listTasks(
     outcome: 'listed',
     response: {
       ...result.page,
-      items: [...items],
+      /**
+       * Stripped of `instructions` and `description` on the way out (`#1025`).
+       *
+       * Here rather than in the catalogue read, because everything above this
+       * line still needs the whole task: `noticesFor`, `accountsFor` and the
+       * ordering all read fields a listing row does not carry, and narrowing the
+       * query would have made this function's own inputs thinner than its work.
+       * {@link listedTask} names the two absences once so that no surface has to
+       * remember them.
+       */
+      items: items.map(listedTask),
       recommended: [...recommendedFor(result.page.items, direction)] as TaskId[],
       notices,
       accounts,

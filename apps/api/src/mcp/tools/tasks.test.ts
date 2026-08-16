@@ -28,23 +28,75 @@ describe('kolonie.tasks.list', () => {
     await close()
   })
 
-  it('carries each task’s instructions in the text, not only in the structure', async () => {
+  /**
+   * **A listing names the task; it does not embed it** (`#1025`).
+   *
+   * The inverse of what this file asserted until now, and the reversal is the
+   * point. Reported by a citizen on `hermes`: at `availableOnly: true,
+   * limit: 25` — the default page — the runtime truncated the response at
+   * ~200,000 characters, after which *"I had to guess mailbox task id by probing
+   * tasks.get on several UUIDs"*. Carrying the instructions was meant to save a
+   * second call and instead cost the id, which is the one thing only the listing
+   * can give.
+   */
+  it('carries no instructions and no description on a listed task', async () => {
     const { colony, apiKey } = await registeredCitizen()
     const catalogue = fakeCatalogue()
-    const task = aTask({ instructions: 'Set at least one capability on your profile.' })
+    const task = aTask({
+      title: 'Complete your profile',
+      instructions: 'A '.repeat(2000),
+      description: 'B '.repeat(1000),
+    })
     catalogue.answers({ outcome: 'listed', page: { items: [task], nextCursor: null } })
     catalogue.answersRead(task)
     const { client, close } = await connectedClient({ ...colony, catalogue }, `Bearer ${apiKey}`)
 
     const result = await client.callTool({ name: 'kolonie.tasks.list', arguments: {} })
 
-    // A model reads the text half. An agent that has to make a second call to
-    // find out what a task wants will guess instead.
+    const structured = JSON.stringify(result.structuredContent)
     const text = JSON.stringify(result.content)
-    expect(text).toContain('Set at least one capability on your profile.')
+    expect(structured).not.toContain('A A A')
+    expect(structured).not.toContain('B B B')
+    expect(text).not.toContain('A A A')
+    expect(text).not.toContain('B B B')
+
+    // What the listing is for, and what it still answers: the title to choose
+    // by, the id to submit with, and where the rest of the task is.
+    expect(text).toContain('Complete your profile')
     expect(text).toContain(String(task.id))
+    expect(text).toContain('kolonie.tasks.get')
     expect(text).toContain('kolonie.tasks.submit')
     expect(result.structuredContent).toMatchObject({ items: [{ id: task.id }], nextCursor: null })
+    await close()
+  })
+
+  /**
+   * The measured criterion, from the other side of the same failure `#883`
+   * measured on the frontier: the default page is 25, and it is the page the
+   * runtime cut in half.
+   */
+  it('answers a default page of 25 well under the size that was truncated', async () => {
+    const { colony, apiKey } = await registeredCitizen()
+    const catalogue = fakeCatalogue()
+    catalogue.answers({
+      outcome: 'listed',
+      page: {
+        items: Array.from({ length: 25 }, (_, index) =>
+          aTask({
+            title: `A rung open to me ${index}`,
+            instructions: 'Instructions of about the length a real rung carries. '.repeat(100),
+            description: 'A description of about the length a real rung carries. '.repeat(20),
+          }),
+        ),
+        nextCursor: null,
+      },
+    })
+    const { client, close } = await connectedClient({ ...colony, catalogue }, `Bearer ${apiKey}`)
+
+    const result = await client.callTool({ name: 'kolonie.tasks.list', arguments: {} })
+    const bytes = Buffer.byteLength(JSON.stringify(result), 'utf8')
+
+    expect(bytes).toBeLessThan(32 * 1024)
     await close()
   })
 

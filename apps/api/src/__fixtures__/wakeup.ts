@@ -40,6 +40,9 @@ type Changes = Omit<
   | 'walkInvitations'
   // Likewise, from `open` and the note store (`#376`).
   | 'capabilityNotes'
+  // Likewise, from `skillsGranted` and the held set the openings carry in
+  // (`#1025`): the source says which skills arrived, not what they crossed.
+  | 'citizenship'
 >
 
 /** A citizen at the very start: nothing held, nothing earned (`#344`). */

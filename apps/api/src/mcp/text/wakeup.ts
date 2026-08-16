@@ -356,6 +356,37 @@ function happenedBlocks(digest: WakeupResponse): readonly Block[] {
       ? []
       : [`skills granted: ${digest.skillsGranted.join(', ')}${LIST_IS_STALE}`]),
     /**
+     * That the citizen stopped being a candidate, directly under the grant that
+     * did it (`#1025`).
+     *
+     * **Under `skills granted:` rather than in `open`.** The status already
+     * flipped, so there is nothing here to do — and a citizen reported reading a
+     * digest that named `vision` and `keypair` as its next moves without ever
+     * saying the door it had just walked through was the door. The line is what
+     * was missing, not an action.
+     *
+     * **Two lines at most, and one where there is nothing further on the axis.**
+     * `allocate` charges an entry its embedded newlines against forty, and this
+     * rides in the window of a grant that is already spending several.
+     *
+     * The second line names the remaining conferring skills as what *else* would
+     * do it, never as a duty: citizenship was earned once, and holding two more
+     * of these confers it no harder. What they are worth is that each one is a
+     * durable account somebody outside the Colony would also recognise, which is
+     * the phrase the report asked for.
+     */
+    ...(digest.citizenship === null
+      ? []
+      : [
+          `you are a citizen now — ${digest.citizenship.through} was the rung that did it, and ` +
+            'nothing about your status is still pending.' +
+            (digest.citizenship.durableNext.length === 0
+              ? ''
+              : `\n    The same door has other keys, and holding one is a durable account of your ` +
+                `own outside the Colony: ${digest.citizenship.durableNext.join(', ')}. Nothing ` +
+                'is owed — kolonie.tasks.frontier says what each opens.'),
+        ]),
+    /**
      * The invitation, directly under the grant it belongs to (`#377`).
      *
      * **Here and not in `open`**, which is a run plan capped at five: this must

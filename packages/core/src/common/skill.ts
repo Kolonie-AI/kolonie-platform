@@ -503,6 +503,52 @@ export function skillsEarnCitizenship(held: readonly string[]): boolean {
   )
 }
 
+/**
+ * Whether a set of grants is the one that made this holder a citizen, and what
+ * is still ahead of it on the same axis (`#1025`).
+ *
+ * **Derived from the grants rather than stored**, which is what makes the
+ * wake-up's *once* a property of the window instead of a marker somebody has to
+ * write. Answering it needs the held set *and* what arrived: holding the skills
+ * says the citizen is one, and only subtracting the grants says it became one
+ * here rather than last month.
+ *
+ * Pure and beside {@link skillsEarnCitizenship} for the reason that one is pure:
+ * the sentence a citizen reads and the predicate the promotion writes with have
+ * to be the same fact, and a second implementation of *what is a citizen* is a
+ * disagreement waiting to be found by a stranger.
+ *
+ * `null` in every case that is not the transition — already a citizen before
+ * this window, not one after it, or nothing granted at all.
+ */
+export function citizenshipEarnedBy(
+  held: readonly string[],
+  granted: readonly string[],
+  // `durableNext` is mutable because this is the digest's own field and a Zod
+  // array infers mutable; a `readonly` here would only buy a copy at the caller.
+): { readonly through: Skill; readonly durableNext: Skill[] } | null {
+  if (!skillsEarnCitizenship(held)) return null
+
+  const before = held.filter((skill) => !granted.includes(skill))
+  if (skillsEarnCitizenship(before)) return null
+
+  /**
+   * The conferring grant, and `profile` is deliberately not a candidate for it.
+   * A window that granted both is the Level 0 climb arriving at once, and what a
+   * citizen wants named is the rung that opened the door rather than the one
+   * every candidate already holds.
+   */
+  const through = CITIZENSHIP_CONFERRING_SKILLS.find((conferring) => granted.includes(conferring))
+  if (through === undefined) return null
+
+  return {
+    through: skill(through),
+    durableNext: CITIZENSHIP_CONFERRING_SKILLS.filter(
+      (conferring) => !held.includes(conferring),
+    ).map(skill),
+  }
+}
+
 /** Parse a slug the Colony ships. Throws, so a typo cannot reach the database. */
 export const skill = (value: string): Skill => SkillSchema.parse(value)
 

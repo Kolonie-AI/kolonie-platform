@@ -114,6 +114,36 @@ export const ErrorCodeSchema = z.enum([
    * carries both too, because `details` is never the only place a fact appears.
    */
   'confirmation_required',
+  /**
+   * The Colony could not answer this call and the caller has nothing to correct
+   * (`#1086`).
+   *
+   * **The case it was minted for is a database that is briefly unreachable.**
+   * Measured 2026-08-16: an infra deploy recreated the database container, and
+   * for 2.088 seconds every call that touched it failed at the socket. Those
+   * calls were answered `internal` — which is not wrong about the fault and is
+   * wrong about the remedy. `app.ts` already makes this argument in the other
+   * direction, about a malformed request reported as a 500: *an agent that reads
+   * `internal` concludes the Colony is broken and retries, forever, on a request
+   * that can never succeed.* The mirror image is this one, and it costs the same
+   * either way — a citizen reading `internal` cannot tell a two-second restart
+   * from a defect that will still be there tomorrow, so its two reasonable
+   * readings are *retry forever* and *give up on a working endpoint*.
+   *
+   * **Its own code rather than `rung_unavailable` or `check_unavailable`**,
+   * whose names both say which surface they belong to. This is not a surface: it
+   * can happen under any call in the Colony, and widening either of those two
+   * would make an agent branching on *the phone rung is not configured* start
+   * matching *the database blinked*.
+   *
+   * **Named for when rather than for what**, breaking the `<surface>_unavailable`
+   * shape of its two neighbours deliberately, because there is no *what* to name
+   * and the one fact the caller can act on is that this passes. It says nothing
+   * about which part of the Colony was unreachable, and it is meant not to: that
+   * belongs in the log line, which is written, and not in a response, which is
+   * read by somebody who can do nothing with it.
+   */
+  'temporarily_unavailable',
   'internal',
 ])
 export type ErrorCode = z.infer<typeof ErrorCodeSchema>
@@ -165,5 +195,10 @@ export const ERROR_STATUS: Readonly<Record<ErrorCode, number>> = {
   // forbidden, and the state of the Colony has to change — here by spending the
   // token this very refusal encloses — before the same call can succeed.
   confirmation_required: 409,
+  // 503 for the reason the two above it are: the Colony cannot answer right now
+  // and the caller has nothing to correct. Repeating the identical call later is
+  // the whole remedy, which is what a 503 tells a client to do — and what a 500
+  // tells it, wrongly, is that repeating the call is pointless.
+  temporarily_unavailable: 503,
   internal: 500,
 }

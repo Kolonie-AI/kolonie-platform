@@ -1,5 +1,6 @@
 import Fastify, { type FastifyError, type FastifyInstance } from 'fastify'
 import fastifyStatic from '@fastify/static'
+import { isDatabaseOutage } from '@kolonie-ai/db'
 import type { ProviderRecipes } from './provider-recipes.js'
 import type { AtlasRenames } from './atlas/renames.js'
 import type { Attestations } from './attestations.js'
@@ -830,13 +831,44 @@ export function buildApp({
      * from this response is "my request was malformed"; the HTTP status carries
      * the finer detail for anyone who wants it.
      */
+    /**
+     * The same argument as the paragraph above, made in the other direction
+     * (`#1086`). That one is about a caller's mistake reported as the Colony's;
+     * this is about the Colony's own two-second absence reported as its defect.
+     *
+     * Measured 2026-08-16: an infra deploy recreated the database container and
+     * for 2.088 seconds every call that touched it failed at the socket. All of
+     * them were answered `internal`, which is a true statement about *where* the
+     * fault was and a false one about *what to do next* — a citizen reading it
+     * cannot tell a restart it should wait out from a defect that will still be
+     * there tomorrow, so its two reasonable readings are retry forever and give
+     * up on an endpoint that works.
+     *
+     * **Decided by the driver's error code and never by the message**, which is
+     * why the question is asked of `@kolonie-ai/db` rather than answered here:
+     * which codes mean *not there* is a fact about the driver, and a copy of it
+     * in this file is a copy nobody updates. `isDatabaseOutage` recognises a
+     * named list and guesses at nothing, so an unfamiliar fault stays `internal`
+     * and stays visible — the direction that costs least when it is wrong.
+     *
+     * **The message does not change and must not.** The driver puts the host and
+     * port into both the message and an `address` field, and neither has any
+     * business in a response (AGENTS.md §9). What the caller gains is the code
+     * and the status; where the Colony was unreachable is in the log line below,
+     * read by somebody who can act on it.
+     */
     const status = caught.statusCode ?? 500
     const error: ApiError =
       status >= 400 && status < 500
         ? { code: 'validation_failed', message: 'The request could not be read as documented.' }
-        : // Never leak an internal message to a caller: it may quote a query or
-          // a connection string. The request id correlates it with the logs.
-          { code: 'internal', message: 'Internal error.' }
+        : isDatabaseOutage(caught)
+          ? {
+              code: 'temporarily_unavailable',
+              message: 'The Colony could not answer this call. Nothing is wrong with the request.',
+            }
+          : // Never leak an internal message to a caller: it may quote a query or
+            // a connection string. The request id correlates it with the logs.
+            { code: 'internal', message: 'Internal error.' }
 
     // And now there is a log for it to correlate with (`#230`). Only the 5xx
     // half: a malformed request is the caller's mistake and is answered, not

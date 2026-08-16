@@ -43,6 +43,13 @@ export {
   hashApiKey,
 } from './api-key.js'
 export { fingerprintOf, REGISTRATION_FINGERPRINT_ALGORITHM } from './registration-fingerprint.js'
+/**
+ * Exported so `apps/api` can tell a store that was not there from a defect of
+ * its own (`#1086`). The knowledge is the driver's, so it lives on this side of
+ * the boundary and travels as one function rather than as a list of codes
+ * copied into an error handler.
+ */
+export { isDatabaseOutage } from './outage.js'
 export {
   API_REQUIRED_ENV,
   IMAGE_REQUIRED_ENV,

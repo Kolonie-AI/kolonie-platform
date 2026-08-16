@@ -149,23 +149,26 @@ jobs:
 
           services=""
 
-          # Built here, deployed by nobody yet — the one name whose image this
-          # workflow pushes and whose service `kolonie-infra` does not declare
-          # (kolonie-infra#192). It is held out of `services` rather than out of
-          # the loop, so the build job still fires on a change to it.
+          # Names built here and deployed by nobody yet: an image this workflow
+          # pushes whose service `kolonie-infra` does not declare. Empty, and
+          # this is the lever the next new service is introduced with — held out
+          # of `services` rather than out of the loop, so the build job still
+          # fires on a change to it while the deploy does not name it.
           #
-          # **Naming it in `services` before the other repository knows it would
-          # fail every deploy, not just its own.** `deploy-set.sh` refuses a name
-          # missing from its `ORDER` and exits 1, and the list is deployed as one
-          # sequence — so a commit touching anything in `shared` (this file
-          # included) would carry `doctor-runner` along and take api, the three
+          # **Naming one in `services` before the other repository knows it
+          # would fail every deploy, not just its own.** `deploy-set.sh` refuses
+          # a name missing from its `ORDER` and exits 1, and the list is deployed
+          # as one sequence — so a commit touching anything in `shared` (this
+          # file included) would carry the new name along and take api, the four
           # runners and the website down with it.
           #
-          # This is the staging `badge-runner` went through in the other
-          # direction, and its compose comment records the same rule from the
-          # other side: both halves land together or neither does. Remove this
-          # line in the commit that follows the compose service, not before.
-          withheld="doctor-runner"
+          # `doctor-runner` sat here from e7234018 until kolonie-infra declared
+          # it in 47e2853, which is the same staging `badge-runner` went through
+          # and the rule its compose comment states from the other side: both
+          # halves land together or neither does. Add a name here in the commit
+          # that builds the image, and clear it in the one that follows the
+          # compose service — not before.
+          withheld=""
 
           for entry in \
             "api:^apps/api/" \

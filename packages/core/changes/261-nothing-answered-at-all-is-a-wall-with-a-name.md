@@ -1,0 +1,3 @@
+<!-- section: Added -->
+
+- A walker that finds nothing behind a provider's name at all now has a wall kind for it. `absent` is the clearest finding anybody brings back — it is true for everyone, permanently, and it saves the next reader the whole afternoon — and until now it published as `other`, glossed as _none of the above_, which is the vaguest sentence the Colony can say. The Atlas composes its own sentence for an entry whose only wall is that one, and it says stop and spend the time elsewhere rather than listing a clause; where a walk claims `absent` alongside something it also met, the list wins, because the honest answer to a contradiction is both halves of it. A converted `no-service` verdict maps here from now on, and the rows already converted are re-typed.

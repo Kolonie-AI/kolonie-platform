@@ -26,11 +26,18 @@ import type { WalkedRecipe, WalkedRecipeWall, WallKind } from './walked-recipe.j
  *
  * | report outcome      | walk outcome | wall kind                          |
  * | ------------------- | ------------ | ---------------------------------- |
- * | `no-service`        | `refused`    | `other`, saying nothing answered    |
+ * | `no-service`        | `refused`    | `absent` — nothing answered at all  |
  * | `cannot-do-the-job` | `refused`    | `other`, naming what it cannot do   |
- * | `signup-refused`    | `refused`    | whichever of the nine it hit        |
+ * | `signup-refused`    | `refused`    | whichever of the ten it hit         |
  * | `never-provisioned` | `refused`    | `other`                             |
  * | `abandoned`         | `abandoned`  | none — a wall is only on a refusal  |
+ *
+ * The first row was `other` until `#1091`, and it is the row where that cost
+ * something. `no-service` is the one outcome that is a fact about the provider
+ * rather than about the walker — a signup that refused this agent may take the
+ * next — so it is the finding worth surfacing loudest, and it published as *none
+ * of the above*. `absent` is that clause given a name; `#1091` also re-typed the
+ * rows already converted, which is `0270`.
  *
  * The last row is the existing check constraint
  * `account_walks_wall_only_on_a_refusal` and not a choice made here: a walk that
@@ -39,7 +46,7 @@ import type { WalkedRecipe, WalkedRecipeWall, WallKind } from './walked-recipe.j
  *
  * `signup-refused` is the one row with a degree of freedom, and the alias has no
  * way to exercise it: a report says *it turned me down* and never which of the
- * nine walls did it. So it converts to `other` with a sentence saying the kind
+ * ten walls did it. So it converts to `other` with a sentence saying the kind
  * was not recorded, which is true and is what makes it findable as *a refusal
  * whose kind nobody knows* rather than mislabelled as one somebody measured.
  * A citizen that knows says so on `kolonie.accounts.walk-report`, where the
@@ -64,14 +71,14 @@ const CONVERTED_WALL: Readonly<Record<Exclude<ProviderReportOutcome, 'abandoned'
     'The provider’s own documentation says the account cannot do what this kind is for, so ' +
     'signup was never attempted.',
   'signup-refused':
-    'The provider turned the walker down at signup. Which of the nine walls it was is not on ' +
+    'The provider turned the walker down at signup. Which of the ten walls it was is not on ' +
     'this record: it was filed as a provider report, which never asked.',
   'never-provisioned': 'Signup appeared to succeed and the account never worked.',
 }
 
-/** Which of the nine each verdict converts to. `signup-refused`: see above. */
+/** Which of the ten each verdict converts to. `signup-refused`: see above. */
 const CONVERTED_KIND: Readonly<Record<Exclude<ProviderReportOutcome, 'abandoned'>, WallKind>> = {
-  'no-service': 'other',
+  'no-service': 'absent',
   'cannot-do-the-job': 'other',
   'signup-refused': 'other',
   'never-provisioned': 'other',
@@ -90,10 +97,13 @@ export interface ReportAsWalk {
  * Convert one provider verdict into the walk it describes (`#1036`).
  *
  * **Every synthesised wall carries a `symptom`.** `SubmittedWalkedRecipeSchema`
- * requires one where the kind is `other`, and four of the five outcomes map to
+ * requires one where the kind is `other`, and three of the five outcomes map to
  * `other` — so a conversion that omitted it would produce a recipe the door
  * would refuse from a citizen, which is the definition of a shape the Colony
- * should not be writing on a citizen's behalf either.
+ * should not be writing on a citizen's behalf either. `no-service` keeps its
+ * symptom even though `absent` needs none: the sentence is the same fact the
+ * kind now carries, and dropping it would make the converted rows say less than
+ * they said before the kind existed.
  */
 export function providerReportAsWalk(outcome: ProviderReportOutcome): ReportAsWalk {
   if (outcome === 'abandoned') return { outcome: 'abandoned' }

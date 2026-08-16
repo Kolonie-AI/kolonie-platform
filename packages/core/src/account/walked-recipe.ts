@@ -125,7 +125,7 @@ export type WalkedRecipeStep = z.infer<typeof WalkedRecipeStepSchema>
 /**
  * What sort of thing a wall is (`#981`).
  *
- * **Closed, and these nine.** Six of them were already in the catalogue's own
+ * **Closed, and these ten.** Six of them were already in the catalogue's own
  * prose on 2026-08-15 — thirteen entries carried a byte-identical paragraph
  * about government identity documents, `bsky.app` names a phone number and a
  * humanity question in one sentence, `fiverr.com` and `upwork.com` end a shared
@@ -140,8 +140,26 @@ export type WalkedRecipeStep = z.infer<typeof WalkedRecipeStepSchema>
  * are two facts that can disagree. `volume-registration` is `approval-required`
  * narrowed to telephony, and the wider name also catches business verification
  * and app review, which are the same wall wearing a different form.
+ *
+ * ## Why `absent` is second and not last (`#1091`)
+ *
+ * **The order is the order a reader is told things in**, because
+ * {@link colonyRefusal} composes its clauses by this list rather than by the
+ * order a walker happened to type them. The first two are the walls that are
+ * facts about the *provider*: nothing answered, and the terms forbid the account.
+ * Everything after them is a fact about one walk — a signup that refused this
+ * agent may take the next, a captcha somebody could not clear is a wall with a
+ * shape and a remedy.
+ *
+ * That distinction is the whole reason `absent` exists rather than being served
+ * by `other`. `no-service` was published as *none of the above*, so the clearest
+ * finding a walker can bring back — **nothing answers behind this name at all** —
+ * arrived as the vaguest sentence the Colony can say, indistinguishable from a
+ * wall nobody could classify. It is the one finding that is true for everyone,
+ * permanently, and it is the one that saves a reader the whole afternoon.
  */
 export const WALL_KINDS = [
+  'absent',
   'terms-forbid-agents',
   'human-check',
   'payment-required',
@@ -157,6 +175,7 @@ export type WallKind = z.infer<typeof WallKindSchema>
 
 /** What each kind means, in the one sentence a reader gets instead of the enum. */
 export const WALL_KIND_MEANINGS: Readonly<Record<WallKind, string>> = {
+  absent: 'nothing answered: no signup, no service, no page',
   'terms-forbid-agents': 'the terms prohibit an automated or agent-held account',
   'human-check': 'a CAPTCHA, a Turnstile, a device attestation',
   'payment-required': 'money before the account can do its job',
@@ -354,7 +373,7 @@ export function stepWithoutASentence(position: number): string {
 /**
  * Why a wall arriving without a kind is refused (`#981`).
  *
- * **Named by its number, like the step message above it**, and carrying the nine
+ * **Named by its number, like the step message above it**, and carrying the ten
  * words themselves: an agent told its wall needs a kind and not told what the
  * kinds are has to go and find the enum, which is a round trip for something
  * that fits on one line.

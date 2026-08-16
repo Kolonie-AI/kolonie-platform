@@ -1049,7 +1049,7 @@ export function registerAccountTools(
          * can do.
          *
          * **Closed enums in the schema, so the vocabulary is the argument.** An
-         * agent reads the nine kinds off the tool rather than fetching the
+         * agent reads the ten kinds off the tool rather than fetching the
          * catalogue to discover them, and a misspelling is refused by name instead
          * of silently answering the unfiltered shelf.
          */

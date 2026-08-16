@@ -1891,6 +1891,13 @@
       "when": 1786895848614,
       "tag": "0269_a_note_on_a_walk_is_voted_on",
       "breakpoints": true
+    },
+    {
+      "idx": 270,
+      "version": "7",
+      "when": 1786899448614,
+      "tag": "0270_nothing_answered_is_its_own_wall",
+      "breakpoints": true
     }
   ]
 }

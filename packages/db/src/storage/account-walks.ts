@@ -1,4 +1,17 @@
-import { and, asc, desc, eq, isNotNull, isNull, ne, sql, type SQL } from 'drizzle-orm'
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  inArray,
+  isNotNull,
+  isNull,
+  lt,
+  ne,
+  or,
+  sql,
+  type SQL,
+} from 'drizzle-orm'
 import { alias, type PgColumn } from 'drizzle-orm/pg-core'
 import {
   AccountKindSchema,
@@ -16,6 +29,7 @@ import {
   WALK_DUPLICATE_COMPARED,
   WALK_DUPLICATE_SIMILARITY,
   WALK_PROSE_COLUMNS,
+  WALK_PROSE_SCRUBBER_VERSION,
   WALK_PUBLISHED_REPUTATION,
   WalkedRecipeSchema,
   walkHasProse,
@@ -1645,6 +1659,105 @@ export async function approvedWalkProseWithoutScrub(
   }))
 }
 
+/** A refusal the current scrubber has not read, put back in the queue (`#1108`). */
+export interface RequeuedWalkProse {
+  readonly walkId: string
+  readonly kind: AccountKind
+  readonly provider: string
+  /**
+   * The scrubber that refused it, or `null` where it was refused before the
+   * stamp existed. What the log says, so a maintainer reading a run can tell the
+   * thirteen historical refusals from a genuine version bump.
+   */
+  readonly refusedBy: number | null
+}
+
+/**
+ * Put the refusals an older scrubber reached back in front of the current one
+ * (`#1108`).
+ *
+ * **A refusal is not permanent; it is a verdict reached once by something that
+ * can change.** `rejected` is terminal in three independent places — this queue
+ * selects `pending`, {@link recordWalkProseModeration} guards on `pending`, and
+ * the schema forbids a scrubbed refusal — and none of that is wrong. This is the
+ * one sentence that was missing beside it: *the thing that reached it has
+ * changed*, said by {@link WALK_PROSE_SCRUBBER_VERSION} moving.
+ *
+ * **One write, and it is `prose_status` back to `pending`.** From there the walk
+ * takes the path every other walk takes, judged by today's prompt, and there is
+ * no second moderation path to keep in step with the first. `scrubbed_prose` is
+ * already null on a refused row and stays null, which is what
+ * `account_walks_scrubbed_prose_iff_approved` requires.
+ *
+ * **The stamp is left where it is.** It says which scrubber refused this walk
+ * until another one has read it, and a crash between this write and that verdict
+ * leaves a `pending` row the ordinary queue picks up — the same end state as any
+ * other unjudged walk.
+ *
+ * **Only `rejected`, and an approval is never re-opened** (`#1108`, 4). The
+ * asymmetry is the decision and not an oversight to be tidied up: re-reading a
+ * refusal can only give a citizen back something it was denied, and re-reading an
+ * approval can only take away something already published and already paid for.
+ *
+ * **What makes it terminate is the stamp and not a retry count.** A walk refused
+ * again is stamped with the current version by the write that refuses it, so it
+ * fails this predicate from then on. There is no loop and nothing to tune.
+ *
+ * Oldest first and bounded, like every queue here: what is left over is the next
+ * tick's work.
+ */
+export async function requeueRefusedWalkProse(
+  db: Database,
+  limit: number,
+): Promise<readonly RequeuedWalkProse[]> {
+  const stale = and(
+    eq(accountWalks.proseStatus, 'rejected'),
+    isNotNull(accountWalks.finishedAt),
+    or(
+      isNull(accountWalks.proseScrubberVersion),
+      lt(accountWalks.proseScrubberVersion, WALK_PROSE_SCRUBBER_VERSION),
+    ),
+  )
+
+  const rows = await db
+    .update(accountWalks)
+    .set({ proseStatus: 'pending' })
+    .where(
+      and(
+        stale,
+        /**
+         * The bound, as a subquery, because an `update` takes no `limit`. The
+         * predicate is repeated inside it rather than narrowed to the ids alone
+         * so that a row that stopped qualifying between the two — another runner
+         * having judged it — is not re-queued by the outer statement.
+         */
+        inArray(
+          accountWalks.id,
+          db
+            .select({ id: accountWalks.id })
+            .from(accountWalks)
+            .where(stale)
+            .orderBy(asc(accountWalks.finishedAt), asc(accountWalks.id))
+            .limit(limit),
+        ),
+      ),
+    )
+    .returning({
+      id: accountWalks.id,
+      kind: accountWalks.kind,
+      provider: accountWalks.provider,
+      /** `returning` answers with the row as it stands, and this column was not touched. */
+      refusedBy: accountWalks.proseScrubberVersion,
+    })
+
+  return rows.map((row) => ({
+    walkId: row.id,
+    kind: AccountKindSchema.parse(row.kind),
+    provider: row.provider,
+    refusedBy: row.refusedBy,
+  }))
+}
+
 type WalkProseModerationDecision =
   | { readonly decision: 'approved'; readonly scrubbed: WalkProse }
   | { readonly decision: 'rejected' }
@@ -1740,6 +1853,15 @@ async function writeWalkProseVerdict(
        * attempt to fail here and no standing to move.
        */
       scrubbedProse: moderatedWalkProseValue(command),
+      /**
+       * **Both verdicts are stamped, and the caller cannot forget to** (`#1108`,
+       * 1). It is written here rather than passed in because *judged by this
+       * scrubber* is a fact about this write and not a decision any caller
+       * makes — a parameter would be one more thing a second write path could
+       * omit, and a row with no stamp is one the re-queue sweep reads as *judged
+       * before the stamp existed*.
+       */
+      proseScrubberVersion: WALK_PROSE_SCRUBBER_VERSION,
     })
     .where(
       and(
@@ -1805,6 +1927,8 @@ export async function recordApprovedWalkProseRescrub(
       .set({
         proseStatus: command.decision,
         scrubbedProse: moderatedWalkProseValue(command),
+        /** A second reading is a reading: it is stamped like the first (`#1108`). */
+        proseScrubberVersion: WALK_PROSE_SCRUBBER_VERSION,
       })
       .where(
         and(

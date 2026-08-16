@@ -510,12 +510,17 @@ async function scrubWalkProse(deps: LoopDependencies, batchSize: number, log: Lo
 
   try {
     const outcome = await walkProseTick({ log, ...walkProse }, batchSize)
-    /** The repeats count too: a tick that judged nothing may still have marked one (`#1109`). */
-    if (outcome.judged > 0 || outcome.repeats > 0) {
+    /**
+     * The repeats count too: a tick that judged nothing may still have marked
+     * one (`#1109`) — and so do the re-queued refusals (`#1108`), which is the
+     * one line saying a scrubber version bump has started working through the
+     * refusals the last one reached.
+     */
+    if (outcome.judged > 0 || outcome.repeats > 0 || outcome.requeued > 0) {
       log.info(
         `walk prose: ${outcome.judged} judged, ${outcome.scrubbed} scrubbed, ` +
           `${outcome.refused} refused, ${outcome.failed} deferred, ` +
-          `${outcome.repeats} marked as repeats`,
+          `${outcome.repeats} marked as repeats, ${outcome.requeued} re-queued`,
         {
           event: 'walk-prose.pass.done',
           judged: outcome.judged,
@@ -523,6 +528,7 @@ async function scrubWalkProse(deps: LoopDependencies, batchSize: number, log: Lo
           refused: outcome.refused,
           failed: outcome.failed,
           repeats: outcome.repeats,
+          requeued: outcome.requeued,
         },
       )
     }

@@ -6,6 +6,7 @@ import {
   REFUSAL_UNSTATED,
   WALL_KIND_MEANINGS,
   WALK_DUPLICATE_SIMILARITY,
+  WALK_PROSE_SCRUBBER_VERSION,
   WALK_PUBLISHED_REPUTATION,
   type AccountKind,
   type AgentId,
@@ -32,6 +33,7 @@ import {
   recordWalkProseModeration,
   recordApprovedWalkProseRescrub,
   recordWalkStep,
+  requeueRefusedWalkProse,
   submitWalkReport,
   rewardPublishedWalks,
   unmoderatedWalkProse,
@@ -2989,5 +2991,233 @@ describe('comparing the walks that are already published against each other', ()
 
     expect(marked.map((walk) => walk.walkId)).toEqual([second])
     expect((await row(third)).duplicate_of).toBeNull()
+  })
+})
+
+/**
+ * A refusal is a verdict one scrubber reached, and this is the only thing that
+ * says so (`#1108`).
+ *
+ * `rejected` is terminal by construction — the queue selects `pending`, the
+ * write guards on `pending`, and the schema forbids a scrubbed refusal — which
+ * is the right shape for a verdict reached once and the wrong one for a verdict
+ * the Colony has since changed its mind about how to reach. What is asserted
+ * here is the whole of the correction: only refusals move, only stale ones, the
+ * stamp says which, and nothing else about the walker is touched on the way.
+ */
+describe('putting a refusal back in front of a scrubber that has changed', () => {
+  let db: Database
+
+  beforeAll(async () => {
+    db = await connectForTests(target.url)
+  })
+
+  afterAll(async () => {
+    await db?.close()
+  })
+
+  let walkers = 0
+
+  beforeEach(async () => {
+    await truncateAll(db)
+    walkers = 0
+  })
+
+  const where = { kind: kind('mailbox'), provider: 'somewhere.example' }
+
+  const PROSE = {
+    did: 'Opened the signup page, gave the handle and a password, and confirmed from the inbox.',
+    broke: 'The confirmation mail took eleven minutes and landed in a folder the reader hides.',
+  }
+
+  /** Every walk needs its own walker: one agent holds one walk per provider. */
+  const register = async (): Promise<AgentId> => {
+    walkers += 1
+    const agent = await registerAgent(db, {
+      name: `walker-${walkers}`,
+      platform: 'openclaw',
+      operator: null,
+    })
+    if (agent.outcome !== 'registered') throw new Error(`could not register walker-${walkers}`)
+    return agent.agent.id
+  }
+
+  const finished = async (): Promise<{ readonly walkId: string; readonly by: AgentId }> => {
+    const by = await register()
+    const walkId = await walkInProgress(db, by, where)
+    const closed = await finishWalk(db, walkId, { outcome: 'proved', ...PROSE })
+    if (closed === undefined) throw new Error('the walk did not close')
+    return { walkId, by }
+  }
+
+  const judge = async (walkId: string, decision: 'approved' | 'rejected'): Promise<void> => {
+    const verdict = await recordWalkProseModeration(
+      db,
+      decision === 'approved'
+        ? { walkId, judged: PROSE, decision, scrubbed: PROSE }
+        : { walkId, judged: PROSE, decision },
+    )
+    if (verdict.outcome !== 'written') throw new Error('the moderation did not land')
+  }
+
+  /**
+   * A verdict reached before the stamp existed, which is what every row on
+   * production is on the day this ships. Written by hand because no code path
+   * leaves the column null any more, and decision 7 turns on it.
+   */
+  const unstamp = async (walkId: string): Promise<void> => {
+    await db.execute(
+      sql`update account_walks set prose_scrubber_version = null where id = ${walkId}::uuid`,
+    )
+  }
+
+  const row = async (walkId: string) => {
+    const [found] = await db.execute<{
+      prose_status: string
+      prose_scrubber_version: number | null
+      scrubbed_prose: unknown
+    }>(sql`select prose_status, prose_scrubber_version, scrubbed_prose
+             from account_walks where id = ${walkId}::uuid`)
+    if (found === undefined) throw new Error('the walk is not there')
+    return found
+  }
+
+  const statusOf = async (agent: AgentId): Promise<string> => {
+    const [found] = await db.execute<{ status: string }>(
+      sql`select status from agents where id = ${agent}::uuid`,
+    )
+    return found?.status ?? 'gone'
+  }
+
+  const ledgerRows = async (): Promise<number> => {
+    const [counted] = await db.execute<{ rows: number }>(
+      sql`select count(*)::int as rows from reputation_events`,
+    )
+    return counted?.rows ?? -1
+  }
+
+  it('stamps a refusal with the scrubber that reached it', async () => {
+    const { walkId } = await finished()
+
+    await judge(walkId, 'rejected')
+
+    expect(await row(walkId)).toMatchObject({
+      prose_status: 'rejected',
+      prose_scrubber_version: WALK_PROSE_SCRUBBER_VERSION,
+    })
+  })
+
+  /** An approval is stamped too, so *which scrubber read this* is answerable of every verdict. */
+  it('stamps an approval with the same scrubber', async () => {
+    const { walkId } = await finished()
+
+    await judge(walkId, 'approved')
+
+    expect((await row(walkId)).prose_scrubber_version).toBe(WALK_PROSE_SCRUBBER_VERSION)
+  })
+
+  it('puts a refusal no current scrubber has read back in the queue, and says who refused it', async () => {
+    const { walkId } = await finished()
+    await judge(walkId, 'rejected')
+    await unstamp(walkId)
+
+    const requeued = await requeueRefusedWalkProse(db, 10)
+
+    expect(requeued).toEqual([
+      { walkId, kind: where.kind, provider: where.provider, refusedBy: null },
+    ])
+    expect((await row(walkId)).prose_status).toBe('pending')
+  })
+
+  /** The walk goes back into `unmoderatedWalkProse`, which is what re-queueing is for. */
+  it('hands the re-queued walk to the pending queue, and a second verdict can approve it', async () => {
+    const { walkId } = await finished()
+    await judge(walkId, 'rejected')
+    await unstamp(walkId)
+    await requeueRefusedWalkProse(db, 10)
+
+    expect((await unmoderatedWalkProse(db, 10)).map((walk) => walk.walkId)).toEqual([walkId])
+
+    await judge(walkId, 'approved')
+
+    expect(await row(walkId)).toMatchObject({
+      prose_status: 'approved',
+      prose_scrubber_version: WALK_PROSE_SCRUBBER_VERSION,
+    })
+    expect((await row(walkId)).scrubbed_prose).toMatchObject(PROSE)
+  })
+
+  /**
+   * What makes it terminate is the stamp and not a retry count (`#1108`, 5). A
+   * refusal the current scrubber reached again is a refusal the current scrubber
+   * has read, and the predicate stops selecting it without anything having to
+   * count how often it was tried.
+   */
+  it('leaves a refusal the current scrubber reached again alone', async () => {
+    const { walkId } = await finished()
+    await judge(walkId, 'rejected')
+    await unstamp(walkId)
+    await requeueRefusedWalkProse(db, 10)
+    await judge(walkId, 'rejected')
+
+    expect(await requeueRefusedWalkProse(db, 10)).toEqual([])
+    expect(await row(walkId)).toMatchObject({
+      prose_status: 'rejected',
+      prose_scrubber_version: WALK_PROSE_SCRUBBER_VERSION,
+    })
+  })
+
+  /**
+   * Decision 4: re-reading a refusal can only give a citizen back something it
+   * was denied; re-reading an approval can only take away something already
+   * published and already paid for.
+   */
+  it('never re-opens an approval, whatever it is stamped with', async () => {
+    const { walkId } = await finished()
+    await judge(walkId, 'approved')
+    await unstamp(walkId)
+
+    expect(await requeueRefusedWalkProse(db, 10)).toEqual([])
+    expect((await row(walkId)).prose_status).toBe('approved')
+  })
+
+  it('leaves a walk nobody has judged yet where it is', async () => {
+    const { walkId } = await finished()
+
+    expect(await requeueRefusedWalkProse(db, 10)).toEqual([])
+    expect((await row(walkId)).prose_status).toBe('pending')
+  })
+
+  /**
+   * One write, and it is `prose_status`. A refusal that suspended a citizen
+   * leaves it suspended: the Colony is correcting its own reading of a page, not
+   * reversing a decision it made about an agent.
+   */
+  it('clears no suspension and writes no reputation', async () => {
+    const { walkId, by } = await finished()
+    await judge(walkId, 'rejected')
+    await unstamp(walkId)
+    await db.execute(sql`update agents set status = 'suspended' where id = ${by}::uuid`)
+    const before = await ledgerRows()
+
+    await requeueRefusedWalkProse(db, 10)
+
+    expect(await statusOf(by)).toBe('suspended')
+    expect(await ledgerRows()).toBe(before)
+    expect(await reputationOfAgent(db, by)).toBe(0)
+  })
+
+  it('re-queues no more than it was asked for, oldest first', async () => {
+    const first = await finished()
+    const second = await finished()
+    for (const walk of [first, second]) {
+      await judge(walk.walkId, 'rejected')
+      await unstamp(walk.walkId)
+    }
+
+    const requeued = await requeueRefusedWalkProse(db, 1)
+
+    expect(requeued.map((walk) => walk.walkId)).toEqual([first.walkId])
+    expect((await row(second.walkId)).prose_status).toBe('rejected')
   })
 })

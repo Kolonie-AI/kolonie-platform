@@ -65,6 +65,42 @@ export const WalkProseFieldSchema = z.enum(WALK_PROSE_FIELDS)
 export type WalkProseField = z.infer<typeof WalkProseFieldSchema>
 
 /**
+ * Which scrubber reached the verdicts being written today (`#1108`).
+ *
+ * **A refusal is not permanent, and this is the only thing that says so.**
+ * `rejected` is terminal by construction — the queue selects `pending`, the write
+ * guards on `pending`, and the schema forbids a scrubbed refusal — which is the
+ * correct shape for a verdict reached once. What was missing is a way to say *the
+ * thing that reached it has changed*. Every verdict is stamped with this number,
+ * on an approval and on a refusal alike, and the runner re-queues the refusals
+ * stamped with less than it. `null` is a verdict reached before the stamp
+ * existed, and is therefore re-read once.
+ *
+ * **Hand-edited, and deliberately not a hash of the prompt at runtime**
+ * (`#1108`, 2). A runtime digest would re-read every refusal the Colony holds on
+ * a whitespace fix in a prompt, and no reviewer reading that diff could tell
+ * whether it was about to. Bumping this is a sentence in a pull request, which is
+ * what a decision to re-read citizens' refused words should cost.
+ *
+ * **What stops it being forgotten is a test, not a mechanism** (`#1108`, 3).
+ * `walk-prose.test.ts` holds a digest of the scrubbing path's own inputs — both
+ * prompts, the span kinds, the red-line choices and the fields judged — and fails
+ * when they change while this number does not. Its message names this constant.
+ *
+ * **Only refusals are re-read. An approval is never re-opened** (`#1108`, 4).
+ * Re-reading a refusal can only give a citizen back something it was denied;
+ * re-reading an approval can only take away something already published and
+ * already paid for. The Colony reaches backward to correct itself against its own
+ * verdict, never against a citizen's.
+ *
+ * It lives in `core` rather than beside the prompt because two places have to
+ * agree on it — the runner that pins the prompt to it, and the storage that
+ * stamps and compares it — and a constant either of them owned would be imported
+ * by the other.
+ */
+export const WALK_PROSE_SCRUBBER_VERSION = 1
+
+/**
  * The wall, as a question rather than a label.
  *
  * Worded here because a scrub is shown the questions along with the answers —

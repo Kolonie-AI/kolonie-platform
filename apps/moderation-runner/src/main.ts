@@ -12,8 +12,10 @@ import {
   waitingProfileReviews,
   recordProfileReview,
   deferProfileReview,
+  approvedWalkProseWithoutScrub,
   pendingAnswerModerations,
   unmoderatedWalkProse,
+  recordApprovedWalkProseRescrub,
   recordWalkProseModeration,
   markBriefingStale,
   questAuditQueue,
@@ -37,6 +39,7 @@ import {
   staleBriefings,
   writeBriefing,
   providerBriefingCorpus,
+  markProviderBriefingStale,
   staleProviderBriefings,
   writeProviderBriefing,
   atlasEntryFor,
@@ -63,6 +66,7 @@ import type { WalkProseModerationStore } from './walk-prose.js'
 import type { AtlasModerationStore } from './atlas.js'
 import type { QuestReportModerationStore } from './quest-reports.js'
 import {
+  AccountKindSchema,
   createLog,
   gatewayFromEnvironment,
   gatewayOnlyFetch,
@@ -446,13 +450,13 @@ const atlasStore: AtlasModerationStore = {
 /**
  * What a walker wrote about the provider it walked (`#810`).
  *
- * Eighth pass in the same process, and the store is the three every scrub here
- * has, because the question is the one they all ask. The text it judged travels
- * back into the write so the verdict lands on the words that were read and not
- * on whatever replaced them since.
+ * Eighth pass in the same process. The text it judged travels back into each
+ * write so the verdict lands on the words that were read and not on whatever
+ * replaced them since; the second queue is the permanent repair for `#1095`.
  */
 const walkProseStore: WalkProseModerationStore = {
   pending: (limit) => unmoderatedWalkProse(db, limit),
+  approvedWithoutScrub: (limit) => approvedWalkProseWithoutScrub(db, limit),
   write: async ({ walk, scrubbed }) => {
     await recordWalkProseModeration(db, {
       walkId: walk.walkId,
@@ -468,6 +472,15 @@ const walkProseStore: WalkProseModerationStore = {
       decision: 'rejected',
     })
   },
+  rescrub: async ({ walk, ...decision }) => {
+    await recordApprovedWalkProseRescrub(db, {
+      walkId: walk.walkId,
+      judged: walk.prose,
+      ...decision,
+    })
+  },
+  markProviderStale: ({ kind, provider }) =>
+    markProviderBriefingStale(db, { kind: AccountKindSchema.parse(kind), provider }),
 }
 
 /**

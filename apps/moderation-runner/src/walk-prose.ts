@@ -4,7 +4,7 @@ import {
   walkProseText,
   type WalkProse,
 } from '@kolonie-ai/core'
-import type { UnmoderatedWalkProse } from '@kolonie-ai/db'
+import type { ApprovedWalkProseWithoutScrub, UnmoderatedWalkProse } from '@kolonie-ai/db'
 import { ANSWER_RED_LINE_PROMPT, redact } from './answers.js'
 import { CONFIDENTIALITY_PROMPT } from './confidentiality.js'
 import type { Log } from './loop.js'
@@ -54,8 +54,19 @@ import type { Model } from './llm.js'
 /** Where the walk-prose pass reads and writes. Injected, like every other store here. */
 export interface WalkProseModerationStore {
   pending(limit: number): Promise<readonly UnmoderatedWalkProse[]>
+  approvedWithoutScrub(limit: number): Promise<readonly ApprovedWalkProseWithoutScrub[]>
   write(input: { readonly walk: UnmoderatedWalkProse; readonly scrubbed: WalkProse }): Promise<void>
   refuse(input: { readonly walk: UnmoderatedWalkProse }): Promise<void>
+  rescrub(
+    input:
+      | {
+          readonly walk: ApprovedWalkProseWithoutScrub
+          readonly decision: 'approved'
+          readonly scrubbed: WalkProse
+        }
+      | { readonly walk: ApprovedWalkProseWithoutScrub; readonly decision: 'rejected' },
+  ): Promise<void>
+  markProviderStale(input: { readonly kind: string; readonly provider: string }): Promise<void>
 }
 
 export interface WalkProseLoopDependencies {
@@ -75,18 +86,21 @@ export type WalkProseJudgement =
 /** How a walk is named in a log line. The provider, never the walker. */
 const nameOf = (walk: UnmoderatedWalkProse) => `${walk.kind}/${walk.provider}`
 
+type WalkProseModerationWriter = Pick<WalkProseModerationStore, 'write' | 'refuse'>
+
 /**
  * Scrub one walk's words, or refuse them.
  *
- * A failure leaves the row `pending`, so the next pass picks it up — the `#170`
- * direction, applied to a channel where the citizen was told the report costs
- * nothing and must therefore never be told it failed.
+ * A failure leaves the row in the queue state that selected it, so the next pass
+ * picks it up — the `#170` direction, applied to a channel where the citizen was
+ * told the report costs nothing and must therefore never be told it failed.
  */
-export async function moderateWalkProse(
+async function moderateWalkProseWith(
   walk: UnmoderatedWalkProse,
   deps: WalkProseLoopDependencies,
+  writer: WalkProseModerationWriter,
 ): Promise<WalkProseJudgement> {
-  const { store, model, log = silentLog } = deps
+  const { model, log = silentLog } = deps
   const page = walkProseText(walk.prose)
 
   try {
@@ -97,7 +111,7 @@ export async function moderateWalkProse(
     })
 
     if (verdict.decision === 'crossed') {
-      await store.refuse({ walk })
+      await writer.refuse({ walk })
       return { kind: 'refused', reason: verdict.reason }
     }
 
@@ -129,7 +143,7 @@ export async function moderateWalkProse(
       if (answer !== undefined) scrubbed[field] = redact(answer, present)
     }
 
-    await store.write({ walk, scrubbed })
+    await writer.write({ walk, scrubbed })
 
     return { kind: 'scrubbed', redacted: present.length }
   } catch (error) {
@@ -139,6 +153,14 @@ export async function moderateWalkProse(
     })
     return { kind: 'failed', error }
   }
+}
+
+/** Moderate a newly pending walk through the shared red-line and confidentiality path. */
+export async function moderateWalkProse(
+  walk: UnmoderatedWalkProse,
+  deps: WalkProseLoopDependencies,
+): Promise<WalkProseJudgement> {
+  return moderateWalkProseWith(walk, deps, deps.store)
 }
 
 /** What one pass over the queue came to. */
@@ -157,8 +179,7 @@ export async function walkProseTick(
   const { store, log = silentLog } = deps
   const outcome = { judged: 0, scrubbed: 0, refused: 0, failed: 0 }
 
-  for (const walk of await store.pending(batchSize)) {
-    const judgement = await moderateWalkProse(walk, deps)
+  const record = (walk: UnmoderatedWalkProse, judgement: WalkProseJudgement) => {
     outcome.judged++
 
     switch (judgement.kind) {
@@ -182,6 +203,34 @@ export async function walkProseTick(
         outcome.failed++
         break
     }
+  }
+
+  for (const walk of await store.pending(batchSize)) {
+    record(walk, await moderateWalkProse(walk, deps))
+  }
+
+  const approvedWithoutScrub = await store.approvedWithoutScrub(batchSize)
+  const touched = new Map<string, { readonly kind: string; readonly provider: string }>()
+  for (const walk of approvedWithoutScrub) {
+    touched.set(`${walk.kind}\u0000${walk.provider}`, {
+      kind: walk.kind,
+      provider: walk.provider,
+    })
+  }
+  for (const provider of touched.values()) {
+    await store.markProviderStale(provider)
+  }
+
+  for (const walk of approvedWithoutScrub) {
+    const judgement = await moderateWalkProseWith(walk, deps, {
+      write: async ({ scrubbed }) => {
+        await store.rescrub({ walk, decision: 'approved', scrubbed })
+      },
+      refuse: async () => {
+        await store.rescrub({ walk, decision: 'rejected' })
+      },
+    })
+    record(walk, judgement)
   }
 
   return outcome

@@ -1312,6 +1312,88 @@ describe('the record of one agent obtaining one account', () => {
       })
     })
 
+    /**
+     * The seventh field, and the only one about the provider rather than the
+     * attempt (`#1120`). It travels the same path as the other six — stored on the
+     * walk, queued, scrubbed, served — and the thing worth pinning is that it is
+     * on that path at all while staying off the one that pays.
+     */
+    describe('what the provider is', () => {
+      const ABOUT = 'A disposable mailbox service with a web inbox and no signup.'
+
+      it('is stored on the walk and reaches the queue with the rest', async () => {
+        const walkId = await walkInProgress(db, agentId, where)
+        await finishWalk(db, walkId, { outcome: 'abandoned', did: PROSE, about: ABOUT })
+
+        expect((await accountWalk(db, walkId))?.about).toBe(ABOUT)
+        expect((await unmoderatedWalkProse(db, 10))[0]?.prose).toEqual({
+          did: PROSE,
+          about: ABOUT,
+        })
+      })
+
+      /**
+       * **A walk that answers only this has still written something.** It earns
+       * nothing — `walkIsReported` is unmoved, which `packages/core` asserts — but
+       * it is a citizen's words going to a reader who is not their author, and that
+       * is the whole of what puts a page in front of the scrubber.
+       */
+      it('queues and publishes a walk that said nothing else', async () => {
+        const walkId = await walkInProgress(db, agentId, where)
+        await finishWalk(db, walkId, { outcome: 'proved', about: ABOUT })
+
+        expect((await unmoderatedWalkProse(db, 10))[0]?.walkId).toBe(walkId)
+
+        await recordWalkProseModeration(db, {
+          walkId,
+          judged: { about: ABOUT },
+          decision: 'approved',
+          scrubbed: { about: ABOUT },
+        })
+
+        expect((await moderatedWalkProse(db, where))[0]?.prose).toEqual({ about: ABOUT })
+      })
+
+      /** The re-report writes it, and re-queues the page it has just changed. */
+      it('is written by a later report, which puts the page back in the queue', async () => {
+        const walkId = await walkInProgress(db, agentId, where)
+        await finishWalk(db, walkId, { outcome: 'refused', wall: 'A phone check.' })
+        await recordWalkProseModeration(db, {
+          walkId,
+          judged: { wall: 'A phone check.' },
+          decision: 'approved',
+          scrubbed: { wall: 'A phone check.' },
+        })
+
+        await reportFinishedWalk(db, agentId, walkId, { about: ABOUT })
+
+        expect(await moderatedWalkProse(db, where)).toHaveLength(0)
+        expect((await unmoderatedWalkProse(db, 10))[0]?.prose).toEqual({
+          wall: 'A phone check.',
+          about: ABOUT,
+        })
+      })
+
+      /**
+       * A replacement report rewrites the row, and a sentence about the provider
+       * left over from the paragraph it replaced would be served as part of a page
+       * nobody wrote.
+       */
+      it('is cleared with the rest when a report replaces the walk', async () => {
+        const walkId = await walkInProgress(db, agentId, where)
+        await recordWalkStep(db, walkId, { actor: 'agent' })
+        await finishWalk(db, walkId, { outcome: 'abandoned', did: PROSE, about: ABOUT })
+
+        const again = await submitWalkReport(db, agentId, where, {
+          outcome: 'abandoned',
+          did: 'On a second reading it never let me in at all.',
+        })
+
+        expect(again?.walk.id).toBe(walkId)
+        expect(again?.walk.about).toBeNull()
+      })
+    })
+
     describe('repairing an approval left without a scrub', () => {
       const strand = async (
         at: { readonly kind: AccountKind; readonly provider: string },

@@ -115,6 +115,8 @@ export interface WalkStore {
       readonly broke?: string | null
       readonly changed?: string | null
       readonly discarded?: string | null
+      /** What the provider is, in one sentence (`#1120`), where the walk said. */
+      readonly about?: string | null
       readonly takenStepPositions?: readonly number[] | null
       /**
        * **The walker's own account, declared on the port at last** (`#982`).
@@ -188,6 +190,7 @@ export interface WalkStore {
       readonly broke?: string | null
       readonly changed?: string | null
       readonly discarded?: string | null
+      readonly about?: string | null
     },
   ): Promise<AccountWalk | undefined>
   /** The walk this agent is on, if it is on one. */
@@ -911,6 +914,16 @@ export const WalkReportSchema = z
     broke: WalkNoteSchema.optional(),
     changed: WalkNoteSchema.optional(),
     discarded: WalkNoteSchema.optional(),
+    /**
+     * The seventh, and the only one about the provider rather than the attempt
+     * (`#1120`).
+     *
+     * Held to `WalkNoteSchema` like the four above it, and optional like all of
+     * them: a walk that answers nothing here is accepted, published and paid
+     * exactly as one that answers it. What it buys is the strongest source the
+     * synthesised provider description can have — never that sentence itself.
+     */
+    about: WalkNoteSchema.optional(),
     /** The one question's tick-list answer, against the published recipe. */
     takenStepPositions: WalkTakenStepPositionsSchema.optional(),
     /**

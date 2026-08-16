@@ -28,6 +28,7 @@ import {
   WISH_NOTE_MAX_LENGTH,
   WISH_ALSO_PROPOSED,
   WALK_REPORT_FIELDS,
+  WALK_ABOUT_QUESTION,
   WALK_PROSE_FIELDS,
   WALK_PROSE_QUESTIONS,
   SubmittedWalkedRecipeSchema,
@@ -2145,6 +2146,24 @@ export function registerAccountTools(
         broke: z.string().optional().describe(WALK_REPORT_FIELDS.broke),
         changed: z.string().optional().describe(WALK_REPORT_FIELDS.changed),
         discarded: z.string().optional().describe(WALK_REPORT_FIELDS.discarded),
+        /**
+         * The one question about the place rather than the attempt (`#1120`).
+         *
+         * **Optional in the way the four above it are, and it is worth being
+         * explicit about what that means here**: a walk that skips it is
+         * accepted, published and paid identically, so the description asked for
+         * costs a walker nothing to withhold. The `.describe` is the question
+         * and a sentence saying so — `#368`'s rule again, which forbids naming a
+         * candidate answer and not saying what answering is for.
+         */
+        about: z
+          .string()
+          .optional()
+          .describe(
+            `${WALK_ABOUT_QUESTION} Optional, and skipping it costs you nothing. It is the ` +
+              'strongest source for the description the Colony writes of this provider, and it ' +
+              'is never published as your sentence.',
+          ),
         takenStepPositions: z
           .array(z.number().int().min(1))
           .optional()
@@ -2216,6 +2235,7 @@ export function registerAccountTools(
         ...(input.broke === undefined ? {} : { broke: input.broke }),
         ...(input.changed === undefined ? {} : { changed: input.changed }),
         ...(input.discarded === undefined ? {} : { discarded: input.discarded }),
+        ...(input.about === undefined ? {} : { about: input.about }),
         ...(input.takenStepPositions === undefined
           ? {}
           : { takenStepPositions: input.takenStepPositions }),
@@ -2366,6 +2386,7 @@ export function registerAccountTools(
           ...(report.data.broke === undefined ? {} : { broke: report.data.broke }),
           ...(report.data.changed === undefined ? {} : { changed: report.data.changed }),
           ...(report.data.discarded === undefined ? {} : { discarded: report.data.discarded }),
+          ...(report.data.about === undefined ? {} : { about: report.data.about }),
         })
         if (late === undefined) {
           return toolError({

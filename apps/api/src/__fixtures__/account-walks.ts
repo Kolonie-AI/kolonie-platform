@@ -62,6 +62,7 @@ export function fakeWalks(): FakeWalkStore {
       broke: null,
       changed: null,
       discarded: null,
+      about: null,
       takenStepPositions: null,
       recipe: null,
       steps: [],
@@ -88,6 +89,8 @@ export function fakeWalks(): FakeWalkStore {
       broke: input.broke ?? null,
       changed: input.changed ?? null,
       discarded: input.discarded ?? null,
+      /** The seventh field lands like the six, so the walk a tool result reads back carries it. */
+      about: input.about ?? null,
       takenStepPositions: input.takenStepPositions == null ? null : [...input.takenStepPositions],
       /**
        * **The long form lands on the walk here too** (`#982`), the way
@@ -144,7 +147,7 @@ export function fakeWalks(): FakeWalkStore {
     },
     async record() {},
     finish,
-    // @mirrors packages/db/src/storage/account-walks.ts submitWalkReport 5dfeebc7
+    // @mirrors packages/db/src/storage/account-walks.ts submitWalkReport 9b197df9
     async submit(agentId, input, report) {
       const open = rows.find(
         (walk) =>
@@ -195,6 +198,13 @@ export function fakeWalks(): FakeWalkStore {
             broke: null,
             changed: null,
             discarded: null,
+            /**
+             * Cleared with the six (`#1120`), as `submitWalkReport` clears the
+             * column: what the provider is came from the report being replaced,
+             * and a sentence surviving into a paragraph nobody wrote would be
+             * served as though its author had stood behind it.
+             */
+            about: null,
             takenStepPositions: null,
             recipe: null,
           }

@@ -43,6 +43,7 @@ import {
   providerBriefingCorpus,
   staleProviderBriefings,
   writeProviderBriefing,
+  writeProviderDescription,
   atlasEntryFor,
   recordAtlasModeration,
   unjudgedAtlasProposals,
@@ -317,6 +318,7 @@ const providerBriefings: ProviderBriefingStore = {
   stale: (limit) => staleProviderBriefings(db, limit),
   corpus: (where) => providerBriefingCorpus(db, where),
   write: (input) => writeProviderBriefing(db, input),
+  describe: (input) => writeProviderDescription(db, input),
 }
 
 /**

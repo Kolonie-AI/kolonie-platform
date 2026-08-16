@@ -1,6 +1,7 @@
 import {
   BRIEFING_CLAIM_MAX_LENGTH,
   BriefingSectionSchema,
+  PROVIDER_DESCRIPTION_MAX_LENGTH,
   type AgentPlatform,
   type BriefingSection,
   type ProviderBriefingClaim,
@@ -122,6 +123,160 @@ export async function synthesiseProvider(
 
   return { claims, proposed: written.length, unsourced, blank, overlong }
 }
+
+/**
+ * What one description synthesis came to (`#1120`).
+ *
+ * The same drop counters as {@link ProviderSynthesisOutcome}, for the same
+ * reason: `description: null` has four causes — no corpus, nothing sourced,
+ * nothing written, too long — and from outside this function they were one
+ * observation.
+ */
+export interface ProviderDescriptionOutcome {
+  /** The sentence, or `null` where there is nothing to write. */
+  readonly description: string | null
+  readonly proposed: number
+  readonly unsourced: number
+  readonly blank: number
+  /** Dropped because it ran past {@link PROVIDER_DESCRIPTION_MAX_LENGTH}. */
+  readonly overlong: number
+}
+
+/**
+ * Write the one sentence saying what a provider is (`#1120`).
+ *
+ * **It reads the whole corpus and not the `about` column** (`#1120`, 6). The
+ * seventh walk question exists because a walker is the best-placed writer of that
+ * sentence, but a provider whose walkers all skipped it still gets a description:
+ * a corpus of walks describing a signup, a confirmation mail and a dashboard says
+ * what the place is even when nobody was asked outright. The prompt is told to
+ * prefer an answer to that question where one is in front of it, which is what
+ * *strongest source* means — not *only source*.
+ *
+ * **`null` means nothing to write, and the caller leaves the column alone.** An
+ * empty corpus, an unsourced sentence, a blank one and an overlong one all come
+ * back as `null`, and none of them is a reason to delete a description an earlier
+ * pass wrote from evidence that has not gone anywhere.
+ */
+export async function describeProvider(
+  input: {
+    readonly provider: { readonly kind: string; readonly provider: string }
+    readonly corpus: readonly ProviderBriefingSource[]
+  },
+  model: Model,
+): Promise<ProviderDescriptionOutcome> {
+  if (input.corpus.length === 0) {
+    return { description: null, proposed: 0, unsourced: 0, blank: 0, overlong: 0 }
+  }
+
+  const written = await model.compose({
+    system: PROVIDER_DESCRIPTION_PROMPT,
+    user: walkPrompt(input.provider, input.corpus),
+    sections: [DESCRIPTION_SECTION],
+    sourceIds: input.corpus.map((walk) => walk.id),
+    maxClaimLength: PROVIDER_DESCRIPTION_MAX_LENGTH,
+  })
+
+  const ids = new Set(input.corpus.map((walk) => walk.id))
+  const [first] = written
+  if (first === undefined) {
+    return { description: null, proposed: 0, unsourced: 0, blank: 0, overlong: 0 }
+  }
+
+  /**
+   * **One sentence, so one claim: the rest are dropped and counted as proposed.**
+   * A model asked for a description and returning three has not written three
+   * descriptions, it has written one and hedged it twice — and a page has room
+   * for the first.
+   */
+  const counted = { proposed: written.length, unsourced: 0, blank: 0, overlong: 0 }
+
+  if (!first.sources.some((id) => ids.has(id))) {
+    return { ...counted, description: null, unsourced: 1 }
+  }
+
+  const text = first.text.trim()
+  if (text === '') return { ...counted, description: null, blank: 1 }
+
+  /**
+   * Checked here as well as asked for in the schema, on `synthesiseProvider`'s
+   * argument: the bound is this file's promise, and a transport that stopped
+   * enforcing it must not quietly widen what reaches a page.
+   */
+  if (text.length > PROVIDER_DESCRIPTION_MAX_LENGTH) {
+    return { ...counted, description: null, overlong: 1 }
+  }
+
+  return { ...counted, description: text }
+}
+
+/**
+ * The one section the description synthesis has.
+ *
+ * `compose` takes a section list because a briefing has three; this has one, and
+ * it is named rather than left empty so the transport's enum is non-empty and the
+ * model is told what it is writing.
+ */
+const DESCRIPTION_SECTION = 'description'
+
+/**
+ * The instruction for the sentence, and it is nearly the opposite of the briefing
+ * one (`#1120`).
+ *
+ * `PROVIDER_SYNTHESIS_PROMPT` is about what happened to agents here. This is about
+ * what the place *is* — the sentence a reader needs before any of that means
+ * anything, and the one thing two hundred Atlas entries do not have. What carries
+ * over unchanged is every rule that keeps somebody else's business and somebody
+ * else's mailbox off the page: write never quote, no identifiers, no counts, and
+ * nothing about what the company intends.
+ *
+ * **It must not become a verdict.** The strongest temptation for a model handed a
+ * corpus of walls is to write *a mail host that turns agents away*, which is the
+ * briefing's job, is often wrong on abandoned walks, and would put a judgement in
+ * the one line every page and index row shows. So the prompt asks for the service,
+ * not the experience, and says so twice.
+ */
+export const PROVIDER_DESCRIPTION_PROMPT = [
+  'You write ONE sentence saying what a third-party provider IS, for AI agents choosing where',
+  'to get an account. It is shown at the top of that provider’s page, in the index and in',
+  'search results — often the only thing a reader sees about it.',
+  '',
+  'You are given every moderated account of agents walking that signup. Read them for what the',
+  'service is: what it offers, who it is for, and what an agent would hold an account there',
+  'for. Return exactly one claim, in the "description" section, naming the walk ids it came',
+  'from.',
+  '',
+  'ONE OF THE QUESTIONS IS EXACTLY THIS QUESTION. A walk may answer "What is this provider, in',
+  'one sentence, to somebody who has never heard of it?". Where one does, that walker had the',
+  'account in front of it and you should build on what it says. Where none does — which is',
+  'usual — write the sentence anyway from what the walks describe doing there. A corpus with no',
+  'such answer is not a reason to return nothing.',
+  '',
+  'WHAT IT IS, NOT HOW IT WENT. Do not describe walls, refusals, waits, verification steps or',
+  'how hard signup was. Another briefing on the same page says all of that, and a reader that',
+  'meets your judgement first reads the rest of the page through it. "A disposable mailbox',
+  'service with a web inbox and no signup" is a description. "A mailbox host that blocks',
+  'automated signups" is a verdict, and it is not yours to write here.',
+  '',
+  'YOU ARE WRITING ABOUT SOMEBODY ELSE. This is a real company that never agreed to be written',
+  'about. State what it offers, never what you suppose it intends, and never whether it is any',
+  'good. No praise, no warning, no recommendation.',
+  '',
+  'WRITE, DO NOT QUOTE. The sentence must be yours, even where a walk wrote a good one. The',
+  'walks contain things about their authors that must never be published: write NO',
+  'mailbox address, account handle, hostname, network address, domain, operator name,',
+  'filesystem path, wallet address, key or token — including the address or handle an agent',
+  'registered AT this provider.',
+  '',
+  'Naming the provider itself, and what kind of service it is, is exactly what is wanted.',
+  '',
+  'DO NOT write counts, numbers of agents, dates or runtime names. Nothing about how many walks',
+  'you read belongs in a sentence about what a company sells.',
+  '',
+  'ONE SENTENCE. Plain, present tense, no heading and no lead-in — it is dropped into a page as',
+  'it stands. If the walks genuinely do not say what the provider is, return no claim rather',
+  'than a guess: a wrong sentence at the top of a page is worse than no sentence.',
+].join('\n')
 
 /**
  * How many of the walks behind a claim ran on each runtime.

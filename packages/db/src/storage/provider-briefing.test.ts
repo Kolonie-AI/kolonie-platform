@@ -13,14 +13,17 @@ import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
 import { registerAgent } from './agents.js'
 import { finishWalk, recordWalkProseModeration, walkInProgress } from './account-walks.js'
 import { renameProvider } from './atlas-renames.js'
+import { providerRecipe, writeProviderRecipe } from './provider-recipes.js'
 import {
   markProviderBriefingStale,
   providerBriefingCorpus,
   providerBriefingCounts,
   providerBriefingsAt,
   readProviderBriefing,
+  readProviderDescription,
   staleProviderBriefings,
   writeProviderBriefing,
+  writeProviderDescription,
 } from './provider-briefing.js'
 
 const target = databaseTestTarget()
@@ -366,6 +369,134 @@ describe('the briefing the Colony writes about a provider', () => {
       await aWalk({ moderated: false })
 
       expect(await providerBriefingCorpus(db, where)).toEqual([])
+    })
+  })
+
+  /**
+   * The one sentence saying what the provider *is* (`#1120`).
+   *
+   * It lives on the entry rather than on the briefing row, and every test here is
+   * about that decision holding: the briefing is deleted when a synthesis produces
+   * nothing (`#611`) and the description must not go with it, a curator editing the
+   * entry must not wipe it, and a provider nobody has written an entry for has
+   * nothing to describe.
+   */
+  describe('the sentence saying what a provider is', () => {
+    const anEntry = async (
+      overrides: {
+        readonly provider?: string
+        readonly status?: 'joinable' | 'refused'
+        readonly about?: string
+      } = {},
+    ) =>
+      writeProviderRecipe(db, {
+        kind: where.kind,
+        provider: overrides.provider ?? where.provider,
+        title: 'Somewhere',
+        status: overrides.status ?? 'joinable',
+        category: 'mailbox',
+        /** A refusal carries no route, and the constraint pair says so both ways. */
+        ...(overrides.status === 'refused'
+          ? { steps: [], refusal: 'The signup demands a natural person and says so.' }
+          : {
+              steps: [{ actor: 'agent' as const, instruction: 'open the signup page' }],
+              proves: 'provider-mail' as const,
+            }),
+        ...(overrides.about === undefined ? {} : { about: overrides.about }),
+      })
+
+    const sentence = 'A disposable mailbox service with a web inbox and no signup.'
+
+    it('reads back what was written onto the entry', async () => {
+      await anEntry()
+
+      expect(await writeProviderDescription(db, { ...where, description: sentence })).toBe(true)
+      expect(await readProviderDescription(db, where)).toBe(sentence)
+    })
+
+    /** Nothing has been written yet, which is not the same as an empty sentence. */
+    it('answers nothing for an entry the runner has not reached', async () => {
+      await anEntry()
+
+      expect(await readProviderDescription(db, where)).toBeNull()
+    })
+
+    /**
+     * **The whole reason this is a second write** (`#1120`, 8). A synthesis that
+     * produces no claims deletes the briefing row, and a description folded into
+     * that write would be deleted with it — losing the sentence saying what the
+     * provider is because its *walls* happened to be unquotable this week.
+     */
+    it('survives a synthesis that produces nothing and deletes the briefing', async () => {
+      await anEntry()
+      await writeProviderDescription(db, { ...where, description: sentence })
+      await writeProviderBriefing(db, { ...where, claims: [aClaim()], model: 'fake/test-model' })
+
+      await writeProviderBriefing(db, { ...where, claims: [], model: 'fake/test-model' })
+
+      expect(await readProviderBriefing(db, where)).toBeUndefined()
+      expect(await readProviderDescription(db, where)).toBe(sentence)
+    })
+
+    /**
+     * **A curator's edit does not touch it**, the arrangement `walls` has had since
+     * `#981`. The upsert omits the column on purpose, so a typo fixed in `about`
+     * cannot delete a sentence the Colony paid a model to write.
+     */
+    it('is left alone by a curation edit of the same entry', async () => {
+      await anEntry({ about: 'The first paragraph a curator wrote.' })
+      await writeProviderDescription(db, { ...where, description: sentence })
+
+      await anEntry({ about: 'The paragraph, with the typo fixed.' })
+
+      expect((await providerRecipe(db, where.kind, where.provider))?.about).toBe(
+        'The paragraph, with the typo fixed.',
+      )
+      expect(await readProviderDescription(db, where)).toBe(sentence)
+    })
+
+    /**
+     * A refusal is a page a reader is *most* likely to arrive at cold, so it gets
+     * the sentence like any other entry: the description says what the provider is,
+     * and whether the Colony got in is the rest of the page's business.
+     */
+    it('is written onto a refused entry like any other', async () => {
+      await anEntry({ status: 'refused' })
+
+      expect(await writeProviderDescription(db, { ...where, description: sentence })).toBe(true)
+      expect(await readProviderDescription(db, where)).toBe(sentence)
+    })
+
+    /**
+     * **An update and never an insert.** A provider with walks behind it but no
+     * Atlas entry has nothing to describe — writing a row here would create a
+     * recipe with a description and no recipe in it. The `false` is what lets the
+     * runner say so in its log rather than treat it as a failure.
+     */
+    it('writes nothing for a provider with no entry, and says so', async () => {
+      expect(await writeProviderDescription(db, { ...where, description: sentence })).toBe(false)
+      expect(await readProviderDescription(db, where)).toBeNull()
+    })
+
+    /** The same door every other call here goes through (`#772`). */
+    it('resolves a rename before it matches, either way round', async () => {
+      await anEntry()
+      await renameProvider(db, where.provider, 'renamed.example')
+
+      expect(await writeProviderDescription(db, { ...where, description: sentence })).toBe(true)
+      expect(await readProviderDescription(db, { ...where, provider: 'renamed.example' })).toBe(
+        sentence,
+      )
+      expect(await readProviderDescription(db, where)).toBe(sentence)
+    })
+
+    /** What an emptied corpus asks for: the page goes back to having no sentence. */
+    it('clears the sentence when the runner writes null', async () => {
+      await anEntry()
+      await writeProviderDescription(db, { ...where, description: sentence })
+
+      expect(await writeProviderDescription(db, { ...where, description: null })).toBe(true)
+      expect(await readProviderDescription(db, where)).toBeNull()
     })
   })
 })

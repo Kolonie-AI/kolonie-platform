@@ -99,10 +99,19 @@ export async function openHandover(
  * What is waiting for one person to read, across every agent they operate.
  *
  * Never carries a value and never carries a ciphertext — a listing is a listing.
+ *
+ * **`agentId` narrows it to one agent, and the human id still authorises it**
+ * (`#1027`). One agent's accounts page renders what that agent sealed, and the
+ * name would have been the other way to get there — names are unique, so it
+ * would have worked, and it would have made a display string load-bearing for a
+ * query about credentials. The filter is added to the `where` rather than
+ * applied by the caller so there is no version of this list that arrives whole
+ * at a page which then has to remember to trim it.
  */
 export async function handoversFor(
   db: Database,
   humanId: string,
+  agentId?: AgentId,
 ): Promise<readonly HandoverSummary[]> {
   const rows = await db
     .select({
@@ -122,6 +131,7 @@ export async function handoversFor(
         eq(humanAgents.humanId, humanId),
         isNull(agentHandovers.destroyedAt),
         gt(agentHandovers.expiresAt, sql`now()`),
+        ...(agentId === undefined ? [] : [eq(agentHandovers.agentId, agentId)]),
       ),
     )
     .orderBy(asc(agentHandovers.expiresAt))

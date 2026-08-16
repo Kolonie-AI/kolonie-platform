@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { FastifyInstance } from 'fastify'
-import type { AgentId } from '@kolonie-ai/core'
+import type { AgentId, HandoverSummary, HumanId } from '@kolonie-ai/core'
 import { buildApp } from '../app.js'
 import { fakeColony, type FakeColony } from '../__fixtures__/colony/index.js'
 import { fakeConsole } from '../__fixtures__/console.js'
@@ -35,16 +35,41 @@ let humans: FakeHumanStore
 let colony: FakeColony
 let agentId: AgentId
 let strangersAgentId: AgentId
+let sealed: { readonly summary: HandoverSummary; readonly agentId: AgentId }[]
+let asked: { humanId: HumanId; agentId: AgentId | undefined }[]
+
+/**
+ * The sealed channel, recorded rather than exercised (`#1027`).
+ *
+ * What the page owes is a listing narrowed to this agent and a form that opens
+ * one; opening it is `POST /handovers/:id`'s own test. So this store answers the
+ * listing and records what it was asked — because *which agent was it asked
+ * about* is the property that matters, and it is invisible in the HTML.
+ */
+const fakeHandovers = () => ({
+  open: async () => ({ outcome: 'unsealable' as const }),
+  waiting: async (humanId: HumanId, forAgent?: AgentId) => {
+    asked.push({ humanId, agentId: forAgent })
+    return sealed
+      .filter((row) => forAgent === undefined || row.agentId === forAgent)
+      .map((row) => row.summary)
+  },
+  read: async () => ({ outcome: 'closed' as const }),
+  hasOperator: async () => true,
+})
 
 beforeEach(async () => {
   humans = fakeHumanStore()
   const pages = fakeOperatorPages()
   const agents = fakeStore()
   colony = fakeColony()
+  sealed = []
+  asked = []
 
   app = buildApp({
     ...colony,
     store: agents,
+    handovers: fakeHandovers(),
     console: { ...fakeConsole(), consoleUrl: CONSOLE_URL },
     humans: { store: humans, tenant: fakeTenant() },
     autonomy: {
@@ -176,6 +201,62 @@ describe('one agent’s accounts, on a page of their own', () => {
     })
 
     expect(response.statusCode).toBe(404)
+  })
+})
+
+/**
+ * The sealed secrets this agent is waiting on somebody to open (`#1027`).
+ *
+ * The listing has existed since `#592` and had no reader, and the route that
+ * opens one takes an id no page printed — so this asserts the two halves that
+ * were missing: the page asks for *this* agent's, and it renders a way in.
+ */
+describe('what the agent has sealed', () => {
+  const aSummary = (overrides: Partial<HandoverSummary> = {}): HandoverSummary => ({
+    id: '99999999-9999-4999-8999-999999999999',
+    agentName: 'ariadne',
+    provider: 'mail.example',
+    prompt: 'The password for the mailbox at mail.example.',
+    createdAt: '2026-08-16T08:00:00.000Z',
+    expiresAt: '2036-08-16T12:00:00.000Z',
+    readsLeft: 3,
+    ...overrides,
+  })
+
+  it('renders the way in, which no surface offered before', async () => {
+    const cookie = await signedInCookie()
+    await link(agentId)
+    sealed.push({ agentId, summary: aSummary() })
+
+    const response = await accounts(cookie, agentId)
+
+    expect(response.body).toContain('What your agent has sealed for you')
+    expect(response.body).toContain('action="/handovers/99999999-9999-4999-8999-999999999999"')
+  })
+
+  /**
+   * **The narrowing, asserted where it is made.** `handoversFor` answers for
+   * every agent a person operates, so an unnarrowed read would put one agent's
+   * sealed credentials on another's page. The HTML cannot show this — with one
+   * agent linked both readings render the same — so the call is what is checked.
+   */
+  it('asks only about the agent whose page this is', async () => {
+    const cookie = await signedInCookie()
+    await link(agentId)
+
+    await accounts(cookie, agentId)
+
+    expect(asked).toHaveLength(1)
+    expect(asked[0]?.agentId).toBe(agentId)
+  })
+
+  it('renders no section when the agent has sealed nothing', async () => {
+    const cookie = await signedInCookie()
+    await link(agentId)
+
+    const response = await accounts(cookie, agentId)
+
+    expect(response.body).not.toContain('What your agent has sealed for you')
   })
 })
 

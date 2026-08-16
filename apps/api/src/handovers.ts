@@ -38,7 +38,16 @@ export interface HandoverStore {
     readonly prompt: string
     readonly value: string
   }): ReturnType<typeof openHandoverInDatabase>
-  waiting(humanId: HumanId): Promise<readonly HandoverSummary[]>
+  /**
+   * What this person has waiting, everywhere or at one agent (`#1027`).
+   *
+   * The narrowed form is what the accounts page reads. It had no consumer at
+   * all until then: a listing existed in storage and on this interface, and the
+   * only route that touched a handover was the one that reads a single id — so
+   * an operator who had not been told the id by hand could not reach a sealed
+   * value at all.
+   */
+  waiting(humanId: HumanId, agentId?: AgentId): Promise<readonly HandoverSummary[]>
   read(handoverId: string, humanId: HumanId): ReturnType<typeof readHandoverAsOperator>
   /**
    * Whether anybody can ever read what this agent seals (`#918`).
@@ -61,7 +70,7 @@ export interface HandoverStore {
 export function databaseHandovers(db: Database, sealingKey: string): HandoverStore {
   return {
     open: (command) => openHandoverInDatabase(db, command, sealingKey),
-    waiting: (humanId) => handoversFor(db, String(humanId)),
+    waiting: (humanId, agentId) => handoversFor(db, String(humanId), agentId),
     read: (handoverId, humanId) =>
       readHandoverAsOperator(db, handoverId, String(humanId), sealingKey),
     hasOperator: async (agentId) => (await operatorOf(db, agentId)) !== undefined,

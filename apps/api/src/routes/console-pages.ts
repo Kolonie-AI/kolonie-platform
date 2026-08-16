@@ -3126,6 +3126,45 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
         openedAt: open.episode.openedAt,
       }))
 
+    /**
+     * What this agent has sealed for this person, and nobody has opened
+     * (`#1027`).
+     *
+     * **Narrowed in the query and not here.** `waiting` takes the agent because
+     * a listing trimmed by the caller is a listing that arrives whole at a page
+     * which then has to remember to trim it — on a query about credentials. The
+     * human id is still what authorises it; the agent only narrows.
+     *
+     * **Absent when the deployment has no sealing key**, which is the same
+     * absence every other handover surface makes: nothing can have been sealed,
+     * so there is nothing to say.
+     */
+    const sealed = (await deps.handovers?.waiting(operated.humanId, operated.agentId)) ?? []
+
+    /**
+     * Which of these wishes has a question waiting on this person (`#1027`).
+     *
+     * **The join the schema already carries.** `operator_requests.wish_id` has
+     * been there since the channel was built, mutually exclusive with `task_id`
+     * by a check constraint — so a request bound to a wish is a fact the
+     * database holds and nothing on this page read. An operator working through
+     * the wish list learned about it on a different page, or not at all.
+     *
+     * **Open ones only, and keyed by the provider the row is.** A closed
+     * exchange is history and the row is asking what is outstanding; the wish
+     * list in hand is what turns a wish id back into a provider, so no second
+     * read is needed for it.
+     */
+    const openAsks = (await deps.operatorRequests.store.list(operated.agentId)).filter(
+      (item) => item.closedAt === null && item.wishId !== null,
+    )
+    const asks = Object.fromEntries(
+      openAsks.flatMap((item) => {
+        const wish = wishes.find((candidate) => candidate.id === item.wishId)
+        return wish === undefined ? [] : [[wish.provider, item.id] as const]
+      }),
+    )
+
     if (!wantsHtml(request)) {
       return reply.send({
         agentId: String(operated.agentId),
@@ -3133,6 +3172,12 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
         held: accounts,
         wishes,
         maintenance,
+        /**
+         * The listing and never a value, exactly as the HTML has it — reading
+         * one out is `POST /handovers/:id` and spends one of three.
+         */
+        sealed,
+        asks,
         ...(adoption === undefined ? {} : { adoption }),
       })
     }
@@ -3181,6 +3226,9 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
         bundles: await deps.wishes.store.bundles(),
         // What stopped answering, if anything has (`#934`).
         maintenance,
+        // What is sealed and what has been asked, on the rows they belong to (`#1027`).
+        sealed,
+        asks,
         ...(adoption === undefined ? {} : { adoption }),
         ...(notice === undefined ? {} : { notice }),
       }),

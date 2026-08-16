@@ -42,6 +42,8 @@ import {
   type Wish,
 } from '@kolonie-ai/core'
 import type { BundleView } from '@kolonie-ai/db'
+import { exchangeAnchor } from '../autonomy-page.js'
+import { consoleOperatorPath } from '../operator-page-body.js'
 import { escape, page } from './html.js'
 import type { ConsoleNav } from './navigation.js'
 import { absolute, relative } from './time.js'
@@ -191,6 +193,51 @@ function wishStartCell(input: AgentAccountsInput, wish: Wish): string {
     'invent this one for you — a name chosen at signup is chosen once.</small></p>' +
     '<button type="submit">Start the conversation</button></form>'
   )
+}
+
+/**
+ * What is actually happening on this wish, rather than only when it was marked
+ * (`#1027`).
+ *
+ * **The cell used to answer one question and the row raised three.** *Not yet*
+ * or *wanted, two days ago* is the mark's own history; it says nothing about
+ * the sealed password waiting at that provider or the question the agent asked
+ * about it. Both of those were reachable — one through an id nobody printed,
+ * one through a different page — and neither was reachable *from here*, which
+ * is the row the operator is looking at when they wonder what happened.
+ *
+ * **A pointer and never the thing.** The secret is opened in the section below,
+ * which spends a read and says so; the question is answered on the operator
+ * page, at its own anchor. This cell is the sentence that says they exist.
+ *
+ * **The anchor and not `answerAt`.** `#587` and `#428` settled that the durable
+ * bearer token is not rendered inside a signed-in page, and a deep link is
+ * exactly where it would have been convenient to.
+ */
+function wishStatusCell(input: AgentAccountsInput, wish: Wish): string {
+  const mark = wish.wantedAt === null ? 'not yet' : `wanted, ${escape(relative(wish.wantedAt))}`
+
+  const sealed = (input.sealed ?? []).filter((secret) => secret.provider === wish.provider)
+  const ask = input.asks?.[wish.provider]
+
+  return [
+    mark,
+    ...(sealed.length === 0
+      ? []
+      : [
+          `<br><a href="#sealed"><strong>${
+            sealed.length === 1
+              ? 'A secret is sealed for you'
+              : `${sealed.length} secrets are sealed for you`
+          }</strong></a>`,
+        ]),
+    ...(ask === undefined
+      ? []
+      : [
+          `<br><a href="${escape(consoleOperatorPath(input.agentId))}#${escape(exchangeAnchor(ask))}">` +
+            'It has asked you something</a>',
+        ]),
+  ].join('')
 }
 
 /**
@@ -396,6 +443,27 @@ export function heldRecheckCell(account: HeldAccountRow, zone: string): string {
     : '<small>not re-checked — the Colony re-checks an account once it has been proved</small>'
 }
 
+/**
+ * One secret this agent has sealed and nobody has opened (`#1027`).
+ *
+ * A narrowing of `HandoverSummary` rather than the thing itself: the page has
+ * the agent in the heading, so `agentName` would be the name printed twice, and
+ * `createdAt` is not the clock anybody is watching — the expiry is.
+ *
+ * **There is no field a value could arrive in, and that is the guarantee.** The
+ * plaintext leaves the database in one place, `POST /handovers/:id`, which
+ * spends one of three reads and renders its own page. A page that listed the
+ * values would spend all of them on a refresh.
+ */
+export interface SealedSecret {
+  readonly id: string
+  readonly provider: string
+  /** The Colony's sentence, written when it was sealed. Never the agent's. */
+  readonly prompt: string
+  readonly expiresAt: string
+  readonly readsLeft: number
+}
+
 /** What one agent's accounts page is rendered from. */
 export interface AgentAccountsInput {
   /** Who is reading and where they are, for the navigation (`#608`). */
@@ -427,6 +495,37 @@ export interface AgentAccountsInput {
    * row is the way in.
    */
   readonly conversations?: Readonly<Record<string, string>> | undefined
+  /**
+   * Secrets the agent has sealed and nobody has opened (`#1027`).
+   *
+   * **The first reader this channel ever had.** `handoversFor` was written with
+   * `#592` and stayed unread: the only route that touched a handover took an id
+   * in the path, and nothing anywhere printed one. An agent could seal a
+   * password, be told it had four hours, and watch the four hours pass — which
+   * is the same silence `#918` costed at six days, arrived at from the other
+   * end. `#918` fixed *nobody could ever read it*; this is *nobody could find
+   * it*.
+   *
+   * **A list rather than a map by provider, unlike `conversations`.** A wish is
+   * one row per provider and a handover is not: an agent may seal twice at one
+   * provider, and the second is usually the one that matters. The wish row joins
+   * on provider all the same — it is saying *there is something here*, and the
+   * count is the honest form of that.
+   */
+  readonly sealed?: readonly SealedSecret[] | undefined
+  /**
+   * Which wishes have a question waiting on this person, by provider (`#1027`).
+   *
+   * **Derived through the wish the request already names, and stored nowhere** —
+   * the same join `conversations` makes one field up, and D-002's reason is the
+   * same. `operator_requests.wish_id` has existed since the channel did; what
+   * did not exist was anything on this page that read it, so an operator working
+   * in Accounts never learned that their agent had asked them something about
+   * the row in front of them.
+   *
+   * The value is the request id, because what this row wants is the way in.
+   */
+  readonly asks?: Readonly<Record<string, string>> | undefined
   readonly bundles?: readonly BundleView[] | undefined
   /** The hand-over, when this identity can still be handed over at all (`#459`). */
   readonly adoption?: AdoptionSection | undefined
@@ -605,6 +704,66 @@ export function agentAccountsPage(input: AgentAccountsInput): string {
         ]
 
   /**
+   * What the agent sealed and nobody has opened (`#1027`).
+   *
+   * **The first control anywhere that opens one.** `openHandover` has written
+   * these since `#592` and `handoversFor` has been able to list them for just as
+   * long; what did not exist was a page that read the list. The only route that
+   * touches a handover takes an id in its path, and no surface printed an id —
+   * so an operator who had not been handed a UUID by hand could not reach a
+   * sealed value at all. `#918` fixed the case where nobody *could* ever read
+   * it. This is the case where nobody could *find* it, which looks the same from
+   * the agent's side and costs the same silence.
+   *
+   * **Between what stopped answering and the form that hands one over**, because
+   * those three are the same subject read three ways: an account that has gone,
+   * an account arriving from the agent, an account arriving from the operator.
+   *
+   * **No section when there is nothing sealed**, on `maintenance`'s own grounds.
+   *
+   * **A button and never the value.** Each read spends one of a small number and
+   * the last one destroys the secret, so the count is printed beside the button
+   * and the page that shows the value is the one that spends it. A list that
+   * rendered the values would spend all of them on a refresh — which is why this
+   * is a form and not a link, the same reason `POST /handovers/:id` is a POST.
+   */
+  const sealed =
+    input.sealed === undefined || input.sealed.length === 0
+      ? []
+      : [
+          '<h2 id="sealed">What your agent has sealed for you</h2>',
+          `<p>${escape(input.name)} has put something in a sealed box for you — a password it ` +
+            'chose, or whatever else the step it was on needed you to have. The Colony carries ' +
+            'it and cannot read it.</p>',
+          /**
+           * Said before the button rather than after it. Both halves are
+           * irreversible and neither is guessable from a button labelled *Open*.
+           */
+          '<p class="note"><strong>Opening it spends a read, and it is shown once.</strong> ' +
+            'The last read destroys the value, and so does the expiry, whether or not anybody ' +
+            'came. Keep it wherever you keep the rest of what opens this account.</p>',
+          '<table>',
+          '<thead><tr><th>Provider</th><th>What it is</th><th>Until</th><th>Reads left</th>' +
+            '<th></th></tr></thead>',
+          `<tbody>${input.sealed
+            .map((secret) =>
+              [
+                '<tr>',
+                `<td>${escape(secret.provider)}</td>`,
+                `<td>${escape(secret.prompt)}</td>`,
+                `<td>${escape(relative(secret.expiresAt))}, at ` +
+                  `${escape(absolute(secret.expiresAt, input.zone))}</td>`,
+                `<td>${secret.readsLeft}</td>`,
+                `<td><form method="post" action="/handovers/${escape(secret.id)}">` +
+                  '<button type="submit">Open it</button></form></td>',
+                '</tr>',
+              ].join(''),
+            )
+            .join('')}</tbody>`,
+          '</table>',
+        ]
+
+  /**
    * Handing the agent an account it never asked for (`#933`).
    *
    * **Every other route runs the other way.** `accounts.handoff` is the Colony
@@ -742,9 +901,7 @@ export function agentAccountsPage(input: AgentAccountsInput): string {
                 `<td>${wish.author === 'operator' ? 'you' : escape(input.name)}</td>`,
                 `<td>${wish.noticedWhile === null ? '—' : escape(wish.noticedWhile)}</td>`,
                 `<td>${wishCatalogueCell(input.catalogue?.[wish.provider])}</td>`,
-                `<td>${
-                  wish.wantedAt === null ? 'not yet' : `wanted, ${escape(relative(wish.wantedAt))}`
-                }</td>`,
+                `<td>${wishStatusCell(input, wish)}</td>`,
                 `<td>${
                   wish.wantedAt === null
                     ? `<form method="post" action="/agents/${escape(input.agentId)}/wishes/want">` +
@@ -837,6 +994,7 @@ export function agentAccountsPage(input: AgentAccountsInput): string {
     '<h2>What this agent holds</h2>',
     ...held,
     ...maintenance,
+    ...sealed,
     ...handover,
     ...wishes,
     ...bundleBlock,

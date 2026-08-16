@@ -394,3 +394,146 @@ describe('a wanted wish becomes a conversation', () => {
     )
   })
 })
+
+/**
+ * The sealed box, and the way into it (`#1027`).
+ *
+ * **A channel that worked and could not be found.** An agent has been able to
+ * seal a secret since `#592`, the listing to render it has existed as long, and
+ * the only route that opens one takes an id in its path that no page printed —
+ * so an operator not handed a UUID by hand had no way to a value their agent had
+ * put there for them. `#918` is the same silence measured from the other end: it
+ * fixed *nobody could ever read it*, this is *nobody could find it*.
+ *
+ * These assert the section, that it never carries the value, that a wish row at
+ * that provider says so, and that the deep link to an open question is the
+ * anchor rather than the durable token `#587` and `#428` keep out of a
+ * signed-in page.
+ */
+describe('what your agent has sealed for you', () => {
+  const HANDOVER = '55555555-5555-4555-8555-555555555555'
+
+  const aSecret = (overrides: Record<string, unknown> = {}) =>
+    ({
+      id: HANDOVER,
+      provider: 'mail.example',
+      prompt: 'The password for the mailbox at mail.example.',
+      expiresAt: '2026-08-16T12:00:00.000Z',
+      readsLeft: 3,
+      ...overrides,
+    }) as never
+
+  const aWish = (overrides: Record<string, unknown> = {}) =>
+    ({
+      id: '33333333-3333-4333-8333-333333333333',
+      provider: 'mail.example',
+      author: 'citizen',
+      noticedWhile: null,
+      wantedAt: '2026-08-10T00:00:00.000Z',
+      addedAt: '2026-08-01T00:00:00.000Z',
+      ...overrides,
+    }) as never
+
+  /** The control that did not exist anywhere before this. */
+  it('offers the way in, as a form and not a link', () => {
+    const html = aPage({ sealed: [aSecret()] })
+
+    expect(html).toContain('What your agent has sealed for you')
+    expect(html).toContain(`action="/handovers/${HANDOVER}"`)
+    expect(html).toContain('method="post"')
+    expect(html).toContain('Open it')
+  })
+
+  /**
+   * A GET would let a prefetch, a crawler or a back button spend a read of a
+   * live credential — the reason the route is a POST, held here too.
+   */
+  it('does not offer it as something a browser might follow on its own', () => {
+    expect(aPage({ sealed: [aSecret()] })).not.toContain(`href="/handovers/${HANDOVER}"`)
+  })
+
+  /** Both are irreversible and neither is guessable from a button. */
+  it('says what opening it costs before the button, and when it goes by itself', () => {
+    const html = aPage({ sealed: [aSecret()] })
+
+    expect(html).toContain('Opening it spends a read')
+    expect(html).toContain('whether or not anybody came')
+    expect(html).toContain('>3<')
+  })
+
+  /** The one thing this page must never carry: the plaintext. */
+  it('carries the sentence the Colony wrote and no value', () => {
+    const html = aPage({ sealed: [aSecret()] })
+
+    expect(html).toContain('The password for the mailbox at mail.example.')
+    expect(html).not.toContain('hunter2')
+  })
+
+  /** `maintenance`'s rule: a heading that says nothing is wrong is one readers skip. */
+  it('renders no section at all when nothing is sealed', () => {
+    expect(aPage()).not.toContain('What your agent has sealed for you')
+    expect(aPage({ sealed: [] })).not.toContain('What your agent has sealed for you')
+  })
+
+  /**
+   * The row is where the operator is looking when they wonder what happened, so
+   * it is where the pointer belongs — and it is a pointer, not a second door.
+   */
+  it('marks the wish row at that provider and anchors it into the section', () => {
+    const html = aPage({ wishes: [aWish()], sealed: [aSecret()] })
+
+    expect(html).toContain('A secret is sealed for you')
+    expect(html).toContain('href="#sealed"')
+    expect(html).toContain('id="sealed"')
+  })
+
+  /** A handover may exist at a provider nobody put on the list. */
+  it('renders the section for a provider with no wish behind it', () => {
+    const html = aPage({ wishes: [], sealed: [aSecret({ provider: 'other.example' })] })
+
+    expect(html).toContain('What your agent has sealed for you')
+    expect(html).toContain('other.example')
+  })
+
+  /** An agent may seal twice at one provider, and the count is the honest form. */
+  it('counts them on the row rather than claiming there is one', () => {
+    const html = aPage({
+      wishes: [aWish()],
+      sealed: [aSecret(), aSecret({ id: '66666666-6666-4666-8666-666666666666' })],
+    })
+
+    expect(html).toContain('2 secrets are sealed for you')
+  })
+
+  /**
+   * `operator_requests.wish_id` has existed since the channel did and nothing on
+   * this page read it, so an operator in Accounts never learned their agent had
+   * asked them about the row in front of them.
+   */
+  it('points a wish row at the question waiting on it', () => {
+    const html = aPage({
+      wishes: [aWish()],
+      asks: { 'mail.example': '77777777-7777-4777-8777-777777777777' },
+    })
+
+    expect(html).toContain('It has asked you something')
+    expect(html).toContain('#question-77777777-7777-4777-8777-777777777777')
+  })
+
+  /** `#587`, `#428`: the durable bearer token is not rendered inside a session. */
+  it('deep-links through the console path and never the mailed token', () => {
+    const html = aPage({
+      wishes: [aWish()],
+      asks: { 'mail.example': '77777777-7777-4777-8777-777777777777' },
+    })
+
+    expect(html).toContain(`/agents/${AGENT}/operator`)
+    expect(html).not.toContain('/operator/')
+  })
+
+  /** The mark is still the first thing the cell says. */
+  it('keeps what the cell already answered', () => {
+    expect(aPage({ wishes: [aWish({ wantedAt: null })], sealed: [aSecret()] })).toContain('not yet')
+    expect(aPage({ wishes: [aWish()], sealed: [aSecret()] })).toContain('wanted,')
+  })
+})

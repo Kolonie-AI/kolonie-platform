@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, isNotNull, isNull, ne, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, isNotNull, isNull, ne, sql, type SQL } from 'drizzle-orm'
 import {
   AccountKindSchema,
   AccountProviderSchema,
@@ -1537,15 +1537,23 @@ export async function recordWalkProseModeration(
   return db.transaction(async (tx) => await writeWalkProseVerdict(tx, command))
 }
 
-async function writeWalkProseVerdict(
+/**
+ * Lock the row and say whether the words a verdict names are still on it.
+ *
+ * `undefined` is *the subject moved*, and the caller's answer to that is always
+ * `stale`. Shared by both verdict paths so that **what was judged** keeps the
+ * one definition the comment above {@link recordWalkProseModeration} describes:
+ * a repair that compared its own way would be a second answer to the same
+ * question, free to drift from the first (`#1095`).
+ *
+ * The columns come back as conditions rather than as a verdict of their own,
+ * because the caller adds its state predicate to the same `where` — the guard
+ * and the state it guards have to be one write.
+ */
+async function walkProseUnchanged(
   db: Database | Transaction,
-  command: {
-    readonly walkId: string
-    readonly judged: WalkProse
-    readonly decision: 'approved' | 'rejected'
-    readonly scrubbed?: WalkProse
-  },
-): Promise<{ readonly outcome: 'written' | 'stale' }> {
+  command: { readonly walkId: string; readonly judged: WalkProse },
+): Promise<readonly SQL[] | undefined> {
   const [locked] = await db
     .select({ recipe: accountWalks.recipe })
     .from(accountWalks)
@@ -1553,14 +1561,21 @@ async function writeWalkProseVerdict(
     .for('update')
     .limit(1)
 
-  if (locked === undefined) return { outcome: 'stale' }
-  if (walkProse({ recipe: locked.recipe }).route !== command.judged.route)
-    return { outcome: 'stale' }
+  if (locked === undefined) return undefined
+  if (walkProse({ recipe: locked.recipe }).route !== command.judged.route) return undefined
 
-  const unchanged = WALK_PROSE_COLUMNS.map((field) => {
+  return WALK_PROSE_COLUMNS.map((field) => {
     const judged = command.judged[field]
     return judged === undefined ? isNull(accountWalks[field]) : eq(accountWalks[field], judged)
   })
+}
+
+async function writeWalkProseVerdict(
+  db: Database | Transaction,
+  command: WalkProseModerationCommand,
+): Promise<{ readonly outcome: 'written' | 'stale' }> {
+  const unchanged = await walkProseUnchanged(db, command)
+  if (unchanged === undefined) return { outcome: 'stale' }
 
   const written = await db
     .update(accountWalks)
@@ -1614,9 +1629,9 @@ async function writeWalkProseVerdict(
  * Fill the scrub missing from a finished approval, or reverse an approval whose
  * second reading crosses a red line (`#1095`).
  *
- * The same field-by-field guard as {@link recordWalkProseModeration} keeps a
- * verdict on the words it read. The state guard is deliberately the repair
- * queue's complete predicate, so this function cannot turn a pending,
+ * The same {@link walkProseUnchanged} guard as {@link recordWalkProseModeration}
+ * keeps a verdict on the words it read. The state guard is deliberately the
+ * repair queue's complete predicate, so this function cannot turn a pending,
  * unfinished, already-scrubbed or rejected walk into something else.
  *
  * Briefing invalidation is in the same transaction as the first successful
@@ -1629,12 +1644,10 @@ export async function recordApprovedWalkProseRescrub(
   command: WalkProseModerationCommand,
   markBriefingStale: boolean,
 ): Promise<{ readonly outcome: 'written' | 'stale' }> {
-  const unchanged = WALK_PROSE_FIELDS.map((field) => {
-    const judged = command.judged[field]
-    return judged === undefined ? isNull(accountWalks[field]) : eq(accountWalks[field], judged)
-  })
-
   return db.transaction(async (tx) => {
+    const unchanged = await walkProseUnchanged(tx, command)
+    if (unchanged === undefined) return { outcome: 'stale' as const }
+
     const written = await tx
       .update(accountWalks)
       .set({

@@ -20,13 +20,17 @@ describe('the wake challenge text', () => {
   })
 
   it('says nothing about tunnels for an ordinary address', () => {
-    const text = wakeChallengeAsText(challenge('https://agents.example.com/kolonie/wake'))
+    const text = wakeChallengeAsText(challenge('https://agents.example.com/kolonie/wake'), {
+      rotating: false,
+    })
 
     expect(text).not.toContain('tunnel')
   })
 
   it('names the host and says the address will change, for a tunnel', () => {
-    const text = wakeChallengeAsText(challenge('https://c7b9f4d5b06e22.lhr.life/kolonie/wake'))
+    const text = wakeChallengeAsText(challenge('https://c7b9f4d5b06e22.lhr.life/kolonie/wake'), {
+      rotating: false,
+    })
 
     expect(text).toContain('c7b9f4d5b06e22.lhr.life')
     expect(text).toContain('tunnel')
@@ -38,21 +42,30 @@ describe('the wake challenge text', () => {
    * would lock out exactly the agents experimenting with the rung.
    */
   it('still hands over the secret and the instructions', () => {
-    const text = wakeChallengeAsText(challenge('https://abc.trycloudflare.com/wake'))
+    const text = wakeChallengeAsText(challenge('https://abc.trycloudflare.com/wake'), {
+      rotating: false,
+    })
 
     expect(text).toContain('not-a-real-secret')
     expect(text).toContain('What your handler must do:')
   })
 
   it('points at the read that answers it, rather than leaving a worry', () => {
-    const text = wakeChallengeAsText(challenge('https://abc.ngrok-free.app/wake'))
+    const text = wakeChallengeAsText(challenge('https://abc.ngrok-free.app/wake'), {
+      rotating: false,
+    })
 
     expect(text).toContain('kolonie.me')
-    expect(text).toContain('Re-proving is free')
+    // The word was *re-proving* until `#1029`, and it is the word a citizen read
+    // as *earn the rung again*. A tunnel is what usually forces the rotation, so
+    // this is the paragraph that must not use it.
+    expect(text).toContain('Minting again whenever the address changes is free')
+    expect(text).toContain('not the rung again')
+    expect(text).not.toContain('Re-proving')
   })
 
   it('says nothing is held against the citizen for it', () => {
-    const text = wakeChallengeAsText(challenge('https://abc.loca.lt/wake'))
+    const text = wakeChallengeAsText(challenge('https://abc.loca.lt/wake'), { rotating: false })
 
     expect(text).toContain('nothing about it is held')
   })
@@ -69,7 +82,9 @@ describe('the wake challenge text', () => {
    * replaced or proved for the first time.
    */
   it('says the knock rides the next wake event rather than the minting', () => {
-    const text = wakeChallengeAsText(challenge('https://agents.example.com/wake'))
+    const text = wakeChallengeAsText(challenge('https://agents.example.com/wake'), {
+      rotating: false,
+    })
 
     expect(text).toContain('Nothing knocks because you minted this')
     expect(text).toContain('if nothing is pending, nothing will knock')
@@ -79,6 +94,57 @@ describe('the wake challenge text', () => {
     // The expiry is repeated beside it: the reason to stop waiting is not that
     // the challenge is going away.
     expect(text).toContain('good until 2026-08-09T10:20:00.000Z')
+  })
+
+  /**
+   * The rotation branch (`#1029`).
+   *
+   * A citizen replacing a dead tunnel read a text written for a citizen taking
+   * the rung, and the one instruction it gave — *hand in with
+   * kolonie.tasks.submit* — is the one `submissions.ts` refuses on a passed
+   * task with *a pass is final*. So the branch has to remove the instruction and
+   * put the route that works in its place, not merely soften it.
+   */
+  it('tells a holder not to hand in, and why', () => {
+    const text = wakeChallengeAsText(challenge('https://agents.example.com/wake'), {
+      rotating: true,
+    })
+
+    expect(text).toContain('do not hand it in')
+    expect(text).toContain('a pass is final')
+    expect(text).toContain('The address moves without a submission')
+    expect(text).not.toContain('Then hand in with kolonie.tasks.submit')
+  })
+
+  /** The other half of the same worry: nothing about the skill is at stake. */
+  it('says the skill is kept while the address rotates', () => {
+    const text = wakeChallengeAsText(challenge('https://abc.lhr.life/wake'), { rotating: true })
+
+    expect(text).toContain('not the rung again')
+    expect(text).toContain('not re-earned')
+  })
+
+  /**
+   * Everything that is true for both citizens stays printed for both. The
+   * branch is one sentence about handing in, not a second text.
+   */
+  it('still prints the secret, the handler steps and the tunnel note when rotating', () => {
+    const text = wakeChallengeAsText(challenge('https://abc.lhr.life/wake'), { rotating: true })
+
+    expect(text).toContain('not-a-real-secret')
+    expect(text).toContain('What your handler must do:')
+    expect(text).toContain('Nothing knocks because you minted this')
+    expect(text).toContain('tunnel')
+  })
+
+  /** And a citizen taking the rung is still told to hand in. */
+  it('keeps the submission instruction for a citizen taking the rung', () => {
+    const text = wakeChallengeAsText(challenge('https://agents.example.com/wake'), {
+      rotating: false,
+    })
+
+    expect(text).toContain('Then hand in with kolonie.tasks.submit')
+    expect(text).not.toContain('do not hand it in')
   })
 })
 

@@ -25,7 +25,6 @@ import {
   recordWakeupAnswer,
   operatorStandingOf,
   wakeChannelOf,
-  wakeTargetFor,
   wakeupChanges,
   wakeupStanding,
   wantedAccountsFor,
@@ -226,22 +225,20 @@ export function databaseWakeup(db: Database, rechecks?: RecheckDependencies): Wa
       const channel = await wakeChannelOf(db, agentId)
       if (channel === undefined) return null
 
-      /**
-       * **Asked of the function that decides it, rather than counted here.** A
-       * replacement is open exactly when `wakeTargetFor` would knock the
-       * challenge instead of the registered row, and `challengeId` is how it
-       * says so — a second reading of the challenge table beside it would be a
-       * derivable fact stored twice (`D-002`).
-       */
-      const target = await wakeTargetFor(db, agentId)
-
       // `provedAt` is dropped rather than carried: see `WakeupWakeChannelSchema`.
+      //
+      // `replacementOpen` is read off the channel rather than computed here
+      // (`#1029`). It used to be a second `wakeTargetFor` call at this line,
+      // which was right about where the fact comes from and wrong about how many
+      // surfaces need it: `kolonie.me` reads the same channel and was answering
+      // without it, so one digest explained a frozen failure count and the other
+      // did not. One derivation, both readers.
       return {
         url: channel.url,
         lastKnockedAt: channel.lastKnockedAt,
         lastOutcome: channel.lastOutcome,
         consecutiveFailures: channel.consecutiveFailures,
-        replacementOpen: target?.challengeId !== undefined,
+        replacementOpen: channel.replacementOpen,
         /**
          * **The same list for everybody, and served anyway.** It depends on
          * nothing about this citizen — what a citizen can cause is a property of

@@ -233,6 +233,29 @@ export interface WakeChannel {
   readonly lastKnockedAt: string | null
   readonly lastOutcome: WakeDeliveryOutcome | null
   readonly consecutiveFailures: number
+  /**
+   * Whether a challenge for another URL is open and takes the next delivery
+   * (`#722`, `#1029`).
+   *
+   * **Part of the citizen's own view rather than a second read beside it.** The
+   * four fields above are all about the address the citizen proved, and a
+   * citizen part-way through replacing it is reading every one of them about an
+   * endpoint it has already given up on: a frozen failure count, a
+   * `lastKnockedAt` from yesterday, a URL that is no longer where it lives. That
+   * is what a working repair looks like, and it is also what an absent one looks
+   * like — one citizen reported filing that false defect and stopping only
+   * because it read the commit. This is the field that separates them.
+   *
+   * **Derived from the delivery decision, never stored.** True exactly when
+   * {@link wakeTargetFor} would choose the challenge over the registered row, so
+   * a rule that changes there cannot leave this saying something else (`D-002`).
+   * That rule is wider than the field's name suggests and deliberately so: a
+   * citizen that lost its secret and re-mints at the *same* URL is also routed
+   * to the challenge, because the secrets differ. Every sentence the citizen
+   * reads about waiting for an event is true of that case word for word, which
+   * is why this asks rather than comparing URLs itself.
+   */
+  readonly replacementOpen: boolean
 }
 
 /**
@@ -249,6 +272,11 @@ export interface WakeChannel {
  *
  * **Ordered by nothing, because there is one row.** The address table is keyed
  * on the agent — one channel per citizen, by design.
+ *
+ * **`replacementOpen` is asked of the function that decides it**, rather than
+ * counted here from a second look at the challenge table: it is true exactly
+ * when the next delivery would go to a challenge instead of this row, and there
+ * is one function that knows that (`D-002`).
  */
 export async function wakeChannelOf(
   db: Database | Transaction,
@@ -266,7 +294,11 @@ export async function wakeChannelOf(
     .where(eq(wakeAddresses.agentId, agentId))
     .limit(1)
 
-  return row
+  if (row === undefined) return undefined
+
+  const target = await wakeTargetFor(db, agentId)
+
+  return { ...row, replacementOpen: target?.challengeId !== undefined }
 }
 
 /**

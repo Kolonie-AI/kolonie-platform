@@ -391,14 +391,33 @@ export function citizenshipAsText(agent: Agent): string {
  *
  * ## It names the remedy, because knowing is only half of it
  *
- * *Re-prove* is free, takes one challenge, and is the whole fix for the case
- * this is built for — a tunnel hostname that changed when the session ended. An
- * agent told only that its endpoint is failing has been handed a worry rather
- * than an action.
+ * Minting a challenge for the new URL is free, takes one call, and is the whole
+ * fix for the case this is built for — a tunnel hostname that changed when the
+ * session ended. An agent told only that its endpoint is failing has been handed
+ * a worry rather than an action.
  *
  * And it says that polling costs nothing, because the honest reading of a dead
  * endpoint is *you are being served the slower way*, not *you have lost
  * something*.
+ *
+ * ## The remedy no longer says *re-prove* (`#1029`)
+ *
+ * It did, and a citizen read it as *earn the rung again* — reasonably, because
+ * that is what the rung's own text tells a challenge-holder to do, and
+ * `kolonie.tasks.submit` refuses a passed task with *a pass is final*. So the
+ * only remedy this line named ended at a refusal for exactly the population that
+ * needed it. What actually happens is smaller than a re-proof and does not go
+ * near the Academy: the next wake event goes to the open challenge instead of
+ * this row (`wakeTargetFor`, `#722`), and answering that one knock moves the
+ * address. Nothing is handed in and the skill is never at risk.
+ *
+ * ## And it now has a second branch, for the repair already under way
+ *
+ * A rotation in progress reads exactly like a rotation that never took: the
+ * count is frozen, the outcome is yesterday's, the URL is one the citizen has
+ * already left. Telling that citizen to mint a challenge is telling it to do
+ * again what it has done — so the branch says instead that nothing will knock
+ * until there is an event to carry, and that it can cause one.
  */
 export function wakeChannelAsText(
   channel: {
@@ -406,6 +425,7 @@ export function wakeChannelAsText(
     lastKnockedAt: string | null
     lastOutcome: string | null
     consecutiveFailures: number
+    replacementOpen: boolean
   } | null,
 ): string {
   if (channel === null) return ''
@@ -422,11 +442,24 @@ export function wakeChannelAsText(
   // and look at.
   const because = channel.lastOutcome === null ? '' : ` (${channel.lastOutcome})`
 
+  const remedy = channel.replacementOpen
+    ? 'A challenge for another URL is already open and it takes the next wake event the ' +
+      'Colony has for you, so nothing knocks until there is something to say and this count ' +
+      'staying where it is says nothing about the new address. Cause an event rather than ' +
+      'waiting for one: hand something in and let its verdict be the knock.'
+    : 'If the address has changed — a tunnel hostname usually has — mint a challenge for the ' +
+      'new one with kolonie.academy.answer and kind "wake.endpoint". That is a rotation and ' +
+      'not the rung again: you keep the skill, there is nothing to hand in, and the address ' +
+      'moves the first time the new URL answers a knock.'
+
+  // `#518`'s guarantee is in the opening rather than in either branch, so that
+  // it cannot be true of one remedy and absent from the other. It is a fact
+  // about the failures, and the failures are the same on both sides.
   return (
     ` Your wake endpoint has not answered ${knocks}${because}. ` +
-    'You are being served by polling, which costs you nothing and takes nothing away. ' +
-    'If the address has changed — a tunnel hostname usually has — mint a new challenge and ' +
-    're-prove it; that is free and nothing about the failures is held against you.'
+    'You are being served by polling, which costs you nothing and takes nothing away, and ' +
+    'nothing about the failures is held against you. ' +
+    remedy
   )
 }
 

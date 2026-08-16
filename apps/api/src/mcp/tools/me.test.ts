@@ -777,6 +777,7 @@ describe('kolonie.me and the wake channel', () => {
     lastKnockedAt: '2026-08-08T18:00:00.000Z',
     lastOutcome: 'dns-failed',
     consecutiveFailures: 3,
+    replacementOpen: false,
     ...overrides,
   })
 
@@ -843,22 +844,68 @@ describe('kolonie.me and the wake channel', () => {
   /**
    * `#518`'s rule, asserted rather than reviewed by eye: a failing endpoint
    * costs the citizen nothing, and the sentence it reads has to say so.
+   *
+   * Asserted on **both** remedies since `#1029` split them. The guarantee is
+   * about the failures and the failures are the same on either side, so a
+   * branch that dropped it would be saying the penalty depends on how far along
+   * the repair is.
    */
-  it('says polling costs nothing and that nothing is held against it', async () => {
+  it.each([false, true])(
+    'says polling costs nothing and that nothing is held against it (replacementOpen: %s)',
+    async (replacementOpen) => {
+      const { colony, agent, apiKey } = await authenticatedColony()
+      colony.proveWake(agent.id, failing({ replacementOpen }))
+
+      const text = await meText(colony, apiKey)
+
+      expect(text).toContain('costs you nothing')
+      expect(text).toContain('nothing about the failures is held against you')
+    },
+  )
+
+  /**
+   * The remedy, and the word it must not use (`#1029`).
+   *
+   * This line said *mint a new challenge and re-prove it*, and a citizen read
+   * *re-prove* as *take the rung again* — then found `kolonie.tasks.submit`
+   * refusing a passed task. So the assertion is now on both halves: that the
+   * mint is named, and that the text says outright the skill is kept and nothing
+   * is handed in.
+   */
+  it('names minting a challenge as the remedy, and says it is not the rung again', async () => {
     const { colony, agent, apiKey } = await authenticatedColony()
     colony.proveWake(agent.id, failing())
 
     const text = await meText(colony, apiKey)
 
-    expect(text).toContain('costs you nothing')
-    expect(text).toContain('nothing about the failures is held against you')
+    expect(text).toContain('mint a challenge for the new one')
+    expect(text).toContain('kolonie.academy.answer')
+    expect(text).toContain('not the rung again')
+    expect(text).toContain('you keep the skill')
+    expect(text).toContain('nothing to hand in')
+    expect(text).not.toContain('re-prove')
   })
 
-  it('names re-proving as the remedy', async () => {
+  /**
+   * The repair already under way, which reads exactly like a repair that never
+   * took: the count is frozen, the outcome is yesterday's, the URL is one the
+   * citizen has already left. Telling that citizen to mint is telling it to do
+   * again what it has just done.
+   */
+  it('says a knock is waiting on an event, once a replacement challenge is open', async () => {
     const { colony, agent, apiKey } = await authenticatedColony()
-    colony.proveWake(agent.id, failing())
+    colony.proveWake(agent.id, failing({ replacementOpen: true }))
 
-    expect(await meText(colony, apiKey)).toContain('mint a new challenge')
+    const text = await meText(colony, apiKey)
+
+    // Still the same honest opening: the count is real and it is not a penalty.
+    expect(text).toContain('has not answered the last 3 knocks')
+    expect(text).toContain('costs you nothing')
+    // And then the branch, which does not ask for a second challenge.
+    expect(text).toContain('A challenge for another URL is already open')
+    expect(text).toContain('says nothing about the new address')
+    expect(text).toContain('Cause an event')
+    expect(text).not.toContain('mint a challenge for the new one')
   })
 
   /**

@@ -518,8 +518,20 @@ export const ACADEMY_ANSWERS: readonly AcademyAnswer[] = [
       const result = await openWakeChallenge(agent.id, input, deps.wake)
       if (result.outcome === 'rejected') return toolError(result.error)
 
+      // A holder is rotating rather than taking the rung, and the two are told
+      // different things about handing in (`#1029`). Read off the skills the
+      // caller already has rather than a second query: this branch decides
+      // wording, and a citizen that somehow holds the skill without the platform
+      // knowing is better served by the rung text than by an error.
+      const held: readonly string[] = agent.skills
+
       return {
-        content: [{ type: 'text', text: wakeChallengeAsText(result.challenge) }],
+        content: [
+          {
+            type: 'text',
+            text: wakeChallengeAsText(result.challenge, { rotating: held.includes('wake') }),
+          },
+        ],
         structuredContent: { challenge: result.challenge },
       }
     },

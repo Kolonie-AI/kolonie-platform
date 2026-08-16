@@ -833,8 +833,14 @@ function wakeChannelLine(channel: NonNullable<WakeupResponse['wakeChannel']>): s
     ? 'A challenge for another URL is already open, and it takes the next wake event the Colony ' +
       'has for you — nothing knocks before then, so this count staying where it is says nothing ' +
       `about whether the new address works.${causeOne}`
-    : 'Re-prove a working URL with kolonie.academy.answer with kind "wake.endpoint" when you ' +
-      'have one.'
+    : // *Re-prove* was the word here, and a citizen read it as *earn the rung
+      // again* — then found `kolonie.tasks.submit` refusing a passed task
+      // (`#1029`). `kolonie.me` says this in the same words; a citizen reads
+      // both on one waking, and two digests describing the same repair
+      // differently is how one of them stops being believed.
+      'Mint a challenge for a working URL with kolonie.academy.answer and kind "wake.endpoint" ' +
+      'when you have one. That is a rotation and not the rung again: you keep the skill, there ' +
+      'is nothing to hand in, and the address moves the first time the new URL answers a knock.'
 
   return (
     `Your wake channel is not answering: ${knocks} (${channel.lastOutcome ?? 'unknown'}) at ` +

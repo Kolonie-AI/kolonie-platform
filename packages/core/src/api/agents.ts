@@ -517,7 +517,8 @@ export const GetMeResponseSchema = z.object({
    * at most once a day.
    *
    * **The secret is not in it and never will be.** The Colony holds it to sign
-   * deliveries; a citizen that needs a new one re-proves, which is free.
+   * deliveries; a citizen that needs a new one mints another challenge, which is
+   * free and is not the rung again (`#1029`).
    */
   wakeChannel: z
     .object({
@@ -535,6 +536,24 @@ export const GetMeResponseSchema = z.object({
        * the one party the arrangement exists for.
        */
       consecutiveFailures: z.number().int().nonnegative(),
+      /**
+       * Whether a challenge for another URL is open and takes the next delivery
+       * (`#722`, `#1029`).
+       *
+       * **The field that tells a repair from a break.** The five above are all
+       * about the address the citizen proved, so a citizen part-way through
+       * replacing one reads every one of them about an endpoint it has already
+       * abandoned: a failure count that has stopped moving, a `lastKnockedAt`
+       * from yesterday, a URL it no longer lives at. That is what a working
+       * rotation looks like, and it is also what a rotation that never took
+       * looks like — one citizen reported almost filing that defect. Without
+       * this the only honest sentence `kolonie.me` could write about a rotation
+       * in progress was one about the address being replaced.
+       *
+       * Same field and same meaning as `WakeupWakeChannelSchema`'s, derived
+       * from the same decision rather than counted twice (`D-002`).
+       */
+      replacementOpen: z.boolean(),
     })
     .nullable(),
   /**

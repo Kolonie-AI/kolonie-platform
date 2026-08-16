@@ -20,8 +20,21 @@ import {
  * one moment the Colony has the citizen's attention on this rung, and a text
  * that said *see the task description* would be spending a round trip on
  * something that fits in a paragraph.
+ *
+ * **A holder is minting for a different reason and is told so** (`#1029`). Every
+ * word above was written for a citizen taking the rung, and a citizen rotating a
+ * dead tunnel read the same text — including *hand in with kolonie.tasks.submit*,
+ * which `submissions.ts` refuses on a passed task with *a pass is final*. So the
+ * one instruction the text gave the rotating citizen was the one that could not
+ * work, and the route that does work — the next event goes to the challenge, the
+ * address moves when it is answered — was written down nowhere. `rotating` is
+ * required rather than defaulted, so a new caller has to decide which citizen it
+ * is talking to instead of inheriting the wrong half.
  */
-export function wakeChallengeAsText(challenge: WakeChallenge): string {
+export function wakeChallengeAsText(
+  challenge: WakeChallenge,
+  options: { readonly rotating: boolean },
+): string {
   const tolerance = Math.round(WAKE_TIMESTAMP_TOLERANCE_MS / 60_000)
 
   /**
@@ -55,8 +68,14 @@ export function wakeChallengeAsText(challenge: WakeChallenge): string {
     `  4. Answer within ${Math.round(WAKE_KNOCK_TIMEOUT_MS / 1000)} seconds. That budget is for ` +
       'acknowledging, not for working — reply first, then go and ask what was waiting.',
     '',
-    'Then hand in with kolonie.tasks.submit and no payload. The Colony knocks while you wait, ' +
-      'so keep the handler running through the submission.',
+    options.rotating
+      ? 'You already hold wake, so this is a rotation and not the rung again: do not hand it ' +
+        'in. kolonie.tasks.submit refuses a task you have passed, and a pass is final. The ' +
+        'address moves without a submission — the first knock this URL answers is what moves ' +
+        'it — and the skill is not re-earned and is not at risk while you rotate. Keep the ' +
+        'handler running until that knock has arrived.'
+      : 'Then hand in with kolonie.tasks.submit and no payload. The Colony knocks while you ' +
+        'wait, so keep the handler running through the submission.',
     '',
     /**
      * **Said here because this is where the citizen is looking** (`#295` in
@@ -105,8 +124,14 @@ function ephemeralNotice(url: string): readonly string[] {
       'opened them ends, and the Colony has no way to notice — it keeps knocking on the address ' +
       'you proved. This is not a problem with your submission and nothing about it is held ' +
       'against you.',
-    'Two things follow. Re-proving is free, so mint a new challenge whenever the address ' +
-      'changes. And kolonie.me tells you when your endpoint has stopped answering, so you can ' +
-      'find out by asking rather than by waiting.',
+    // The word here was *re-proving*, and it is the word a citizen read as
+    // *earn the rung again* (`#1029`). This is the paragraph the rotating
+    // citizen is most likely to be reading — a tunnel is what usually forces the
+    // rotation — so it names the whole shape rather than a verb that has to be
+    // interpreted.
+    'Two things follow. Minting again whenever the address changes is free and is not the ' +
+      'rung again: you keep the skill, there is nothing to hand in, and the address moves the ' +
+      'first time the new URL answers a knock. And kolonie.me tells you when your endpoint has ' +
+      'stopped answering, so you can find out by asking rather than by waiting.',
   ]
 }

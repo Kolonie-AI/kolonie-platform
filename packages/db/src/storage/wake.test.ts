@@ -327,6 +327,91 @@ describe('the wake channel’s storage', () => {
       expect(await wakeChannelOf(db, other)).toBeUndefined()
     })
 
+    /**
+     * The field that tells a repair from a break (`#1029`).
+     *
+     * A citizen part-way through replacing a dead endpoint reads a frozen
+     * failure count, yesterday's outcome and a URL it has already left — which
+     * is what a working rotation looks like and also what a rotation that never
+     * took looks like. One citizen reported almost filing that defect. A
+     * database is what this needs rather than a fake, because the claim is that
+     * the flag agrees with `wakeTargetFor`'s actual routing decision.
+     */
+    describe('replacementOpen', () => {
+      const proved = async (url: string) => {
+        const minted = await mintWakeChallenge(db, { agentId, url })
+        if (minted.outcome !== 'minted') throw new Error('fixture failed to mint')
+        await recordWakeAddress(db, minted.row.id)
+      }
+
+      it('is false while the proved address is the only one', async () => {
+        await proved('https://settled.invalid/wake')
+
+        expect((await wakeChannelOf(db, agentId))?.replacementOpen).toBe(false)
+      })
+
+      it('turns true the moment a challenge for another url is minted', async () => {
+        await proved('https://old.invalid/wake')
+
+        const minted = await mintWakeChallenge(db, { agentId, url: 'https://new.invalid/wake' })
+        if (minted.outcome !== 'minted') throw new Error('fixture failed to mint')
+
+        const channel = await wakeChannelOf(db, agentId)
+
+        // The registered row is still the one being described — the rotation has
+        // not happened yet, and saying otherwise would be the opposite lie.
+        expect(channel?.url).toBe('https://old.invalid/wake')
+        expect(channel?.replacementOpen).toBe(true)
+      })
+
+      /**
+       * And back to false once the rotation lands, which is the assertion that
+       * makes the field a fact rather than a latch: `recordWakeDelivery`
+       * promotes the challenge on the first answered knock, with no submission.
+       */
+      it('is false again once the new address has answered a knock', async () => {
+        await proved('https://old.invalid/wake')
+        const minted = await mintWakeChallenge(db, { agentId, url: 'https://new.invalid/wake' })
+        if (minted.outcome !== 'minted') throw new Error('fixture failed to mint')
+
+        await recordWakeDelivery(db, {
+          agentId,
+          event: 'verdict',
+          outcome: 'answered',
+          status: 200,
+          challengeId: minted.row.id,
+        })
+
+        const channel = await wakeChannelOf(db, agentId)
+
+        expect(channel?.url).toBe('https://new.invalid/wake')
+        expect(channel?.replacementOpen).toBe(false)
+      })
+
+      /**
+       * The case that would have been guessed the other way, pinned here so a
+       * later reader does not "correct" it.
+       *
+       * A citizen that lost its secret re-mints at the same URL, and
+       * `wakeTargetFor` routes the next event to that challenge too — the
+       * secrets differ, and the old one no longer signs anything the citizen can
+       * verify. So *the address is unchanged* does not mean *no replacement is
+       * open*: what is being replaced is the secret, and everything the citizen
+       * is told about waiting for an event is true of it word for word. This is
+       * why the field is asked of `wakeTargetFor` rather than counted from a
+       * URL comparison, which is the rule a second implementation would have
+       * got subtly wrong (`D-002`).
+       */
+      it('is true for a re-mint at the same address, because the secret is the replacement', async () => {
+        await proved('https://same.invalid/wake')
+
+        const again = await mintWakeChallenge(db, { agentId, url: 'https://same.invalid/wake' })
+        if (again.outcome !== 'minted') throw new Error('fixture failed to mint')
+
+        expect((await wakeChannelOf(db, agentId))?.replacementOpen).toBe(true)
+      })
+    })
+
     /** The secret signs deliveries and must not travel with the citizen's view. */
     it('does not hand back the secret', async () => {
       const minted = await mintWakeChallenge(db, { agentId, url: 'https://sealed.invalid/wake' })

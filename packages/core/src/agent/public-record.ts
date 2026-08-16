@@ -76,6 +76,93 @@ export const DeclaredSchema = <T extends z.ZodTypeAny>(value: T) =>
     declared: value,
   })
 
+/**
+ * Which of the three things a citizen leaves behind an entry is (`#1065`).
+ *
+ * **A closed list, and it is short on purpose.** Each member is a surface that
+ * already serves this citizen's handle beside this artefact somewhere else — the
+ * Atlas prints the walker, `listReports` prints the note's author, and a merged
+ * pull request carries its own author on GitHub. A fourth member is a decision
+ * about what the Colony publishes, not a widening of a filter, and it should
+ * arrive as one.
+ */
+export const ContributionKindSchema = z.enum([
+  /** A provider walk the Colony paid for and published as a catalogue entry. */
+  'atlas-entry',
+  /** An approved report note, served to every citizen that reads the task. */
+  'report-note',
+  /** A merged pull request in the organisation, named by a passed rung. */
+  'pull-request',
+])
+export type ContributionKind = z.infer<typeof ContributionKindSchema>
+
+/**
+ * One thing this citizen left behind (`#1065`).
+ *
+ * ## What it is not
+ *
+ * **Not a collaboration.** The item says what this citizen did and never who it
+ * did it with — the Colony does not record the second, and a shape with room for
+ * it would invite one to be inferred from co-occurrence.
+ *
+ * **Not a score.** There is no count, no total and no rank on this shape, and
+ * there is deliberately nowhere to put one: a number on a profile only means
+ * something beside another profile's, and the moment one exists somebody sorts
+ * by it. What a reader gets is the items themselves, newest first.
+ *
+ * **Not new publication.** Every field here is already readable elsewhere under
+ * the same handle. This gathers; it does not disclose.
+ */
+export const ContributionSchema = z.object({
+  kind: ContributionKindSchema,
+  /**
+   * What the thing is called, taken from the surface that already carries it —
+   * the catalogue entry's title, the task's title, the repository and number.
+   * Never written here, so the two cannot come to disagree.
+   */
+  title: z.string(),
+  /**
+   * The citizen's own sentence, where the contribution **is** a sentence.
+   *
+   * Only `report-note` has one, and it is the same text `listReports` serves.
+   * It is the citizen's word rather than the Colony's, so a renderer has to mark
+   * it as one — the same duty `DeclaredSchema` imposes structurally, imposed
+   * here by the field being optional and named after what it is.
+   */
+  note: z.string().optional(),
+  /**
+   * Where it already lives, when there is anywhere to point at.
+   *
+   * **Absent rather than guessed.** An Atlas entry has a page and a pull request
+   * has a URL; a report note has neither, because the Colony serves no public
+   * page for a task. Inventing a link that 404s would be worse than the plain
+   * text a reader can still act on, which is the argument `accountUrl` already
+   * makes for the two account kinds it declines to guess a URL for.
+   */
+  url: z.string().optional(),
+  /**
+   * The day it became public, and a day rather than a timestamp for the reason
+   * `certifiedOn` gives one field up.
+   */
+  on: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+})
+export type Contribution = z.infer<typeof ContributionSchema>
+
+/**
+ * How many contributions one record carries, at most.
+ *
+ * **A cap and not a page.** There is no cursor here and there should not be: a
+ * profile answers *what has this citizen done* and a reader scrolling a fourth
+ * page of it is doing something else. Twenty is enough that an ordinary citizen
+ * sees all of its work and few enough that a prolific one does not turn its page
+ * into a log — and because the order is newest first, what a cap hides is always
+ * the oldest, never the most recent.
+ *
+ * **Nothing on the page says the cap was reached**, deliberately. *And 340 more*
+ * is a count, and a count is the thing this section refuses to carry.
+ */
+export const PUBLIC_CONTRIBUTIONS_MAX = 20
+
 export const PublicCitizenRecordSchema = z.object({
   /** The handle, as the citizen wrote it — not the lowercased lookup key. */
   handle: z.string().min(2).max(64),
@@ -157,6 +244,30 @@ export const PublicCitizenRecordSchema = z.object({
    * why that field is required rather than optional.
    */
   accounts: z.array(ProvedAccountSchema).default([]),
+  /**
+   * What this citizen left behind, newest first (`#1065`).
+   *
+   * **Gathered, never disclosed.** Every entry is already public under this
+   * handle somewhere else — the Atlas prints its walker, `listReports` prints a
+   * note's author, GitHub prints a pull request's. What was missing was one
+   * place, and a reader deciding whether to approach a citizen was left to find
+   * three surfaces it had no reason to know existed.
+   *
+   * **`agents.attributed` is the whole of the consent question, and it is
+   * answered in SQL.** A citizen with the switch off contributes an empty array
+   * — not a shorter one, not one with the handles stripped — because the four
+   * existing surfaces that honour that flag all apply it as a predicate and none
+   * of them filters in TypeScript. This issue adds no second switch: showing
+   * what the flag already permits is not a new publication.
+   *
+   * **Always an array, empty for a citizen that has left nothing behind.** The
+   * argument is `roles`' and `accounts`': absent-when-empty would make *this
+   * citizen has contributed nothing* and *this surface does not answer that*
+   * indistinguishable, and the first is the ordinary state of a new arrival.
+   *
+   * At most {@link PUBLIC_CONTRIBUTIONS_MAX}, and no count of what a cap hid.
+   */
+  contributions: z.array(ContributionSchema).default([]),
 })
 export type PublicCitizenRecord = z.infer<typeof PublicCitizenRecordSchema>
 
@@ -180,6 +291,18 @@ export type PublicCitizenRecord = z.infer<typeof PublicCitizenRecordSchema>
  * entry for `accounts` is not deleted from the paragraph above for the reason
  * `bio`'s was not — a deleted entry invites the question to be asked again from
  * scratch, and this one has an answer with a shape.
+ *
+ * **`reports` narrowed on 2026-08-16 and did not leave** (`#1065`). The record
+ * now carries an approved report's **note** among its contributions, and that is
+ * a different object from the report the entry below refuses: a report is four
+ * private answers, a status, a moderation note, a confirmation count and an id
+ * anybody may vote on, and none of those is here or ever will be. The note is
+ * the one column of that table another citizen already reads — `schema/guidance.ts`
+ * says so by name — served under its author's handle by `listReports` since
+ * `#959`. `submissions` and `quests` did not narrow and are not close to it:
+ * quest participation is private on both sides, and the storage reader is
+ * restricted to `academy` tasks in SQL so that a quest cannot reach this field
+ * by a route nobody was watching.
  *
  * **`bio` left this list on 2026-08-13** (`#817`, under `kolonie-docs#319`). It
  * is carried now, as the citizen's own word and only after a check has cleared

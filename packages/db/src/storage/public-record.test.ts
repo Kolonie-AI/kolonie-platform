@@ -2,13 +2,23 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import {
   AccountKindSchema,
   PRIVATE_AGENT_COLUMNS,
+  PUBLIC_CONTRIBUTIONS_MAX,
   PUBLIC_SOURCE_COLUMNS,
   type AgentId,
 } from '@kolonie-ai/core'
 import { eq, getTableColumns } from 'drizzle-orm'
 import type { Database } from '../client.js'
 import { connectForTests, databaseTestTarget, truncateAll } from '../testing.js'
-import { agents } from '../schema/index.js'
+import {
+  accountWalks,
+  agents,
+  submissions,
+  taskAttempts,
+  taskReports,
+  tasks,
+  verifications,
+} from '../schema/index.js'
+import { writeProviderRecipe } from './provider-recipes.js'
 import { publicCitizenRecord } from './public-record.js'
 import {
   queueProfileReview,
@@ -436,6 +446,316 @@ describe('what a public citizen record carries', () => {
       expect(refusal).toBeInstanceOf(Error)
       expect(String((refusal as { cause?: unknown }).cause)).toMatch(
         /accounts_shown_is_proved_and_attestable/,
+      )
+    })
+  })
+
+  /**
+   * What a citizen left behind (`#1065`).
+   *
+   * Every fixture here is written straight to its table. What is under test is
+   * the read, and each of these rows' own write path drags in a walk runner, a
+   * moderation verdict or a verifier that has nothing to do with it — the same
+   * argument `atlas-renames.test.ts` makes for the same tables.
+   */
+  describe('the contributions a page may name', () => {
+    const anEntry = async (provider: string, title: string) =>
+      writeProviderRecipe(db, {
+        kind: AccountKindSchema.parse('social'),
+        provider,
+        title,
+        status: 'joinable',
+        category: 'social-publishing',
+        steps: [{ actor: 'agent', instruction: 'sign up' }],
+        proves: 'provider-post',
+      })
+
+    /** A walk the Colony paid for, which is what makes it the published entry. */
+    const aRewardedWalk = async (provider: string, rewardedAt: string) => {
+      await db.insert(accountWalks).values({
+        agentId,
+        kind: 'social',
+        provider,
+        proposedAt: new Date(rewardedAt),
+        rewardedAt: new Date(rewardedAt),
+      })
+    }
+
+    const anApprovedNote = async (
+      note: string,
+      over: { readonly kind?: 'academy' | 'quest'; readonly moderatedAt?: string } = {},
+    ) => {
+      const [task] = await db
+        .insert(tasks)
+        .values({
+          type: 'domain-verify',
+          title: `Prove a domain (${note.slice(0, 8)})`,
+          kind: over.kind ?? 'academy',
+          description: 'Whatever this rung is for.',
+          instructions: 'What the agent must actually do.',
+          rewardReputation: 1,
+          timeoutHours: 24,
+        })
+        .returning({ id: tasks.id })
+      const [attempt] = await db
+        .insert(taskAttempts)
+        .values({
+          agentId,
+          taskId: task!.id,
+          attempt: 1,
+          opener: 'submission' as const,
+          outcome: 'passed' as const,
+          openedAt: '2026-07-02T10:00:00.000Z',
+          closedAt: '2026-07-02T10:05:00.000Z',
+        })
+        .returning({ id: taskAttempts.id })
+      await db.insert(taskReports).values({
+        attemptId: attempt!.id,
+        broke: 'The DNS record never propagated.',
+        note,
+        status: 'approved',
+        moderatedAt: over.moderatedAt ?? '2026-07-03T10:00:00.000Z',
+      })
+    }
+
+    /** The rung's own record of a merged change, which is the only one there is. */
+    const aMergedPullRequest = async (author: string, mergedAt = '2026-06-01T00:00:00.000Z') => {
+      const [task] = await db
+        .insert(tasks)
+        .values({
+          type: 'code-contribution',
+          title: 'Contribute a change',
+          kind: 'academy' as const,
+          description: 'Whatever this rung is for.',
+          instructions: 'What the agent must actually do.',
+          rewardReputation: 1,
+          timeoutHours: 24,
+        })
+        .returning({ id: tasks.id })
+      const [submission] = await db
+        .insert(submissions)
+        .values({
+          taskId: task!.id,
+          agentId,
+          payload: {},
+          status: 'passed' as const,
+          verifiedAt: mergedAt,
+        })
+        .returning({ id: submissions.id })
+      await db.insert(verifications).values({
+        submissionId: submission!.id,
+        taskType: 'code-contribution',
+        status: 'pass' as const,
+        evidence: 'A change of this citizen’s was merged.',
+        metadata: {
+          author,
+          pullRequest: 'https://github.com/Kolonie-AI/kolonie-platform/pull/1',
+          repository: 'Kolonie-AI/kolonie-platform',
+          mergedAt,
+        },
+      })
+    }
+
+    const listed = async () => (await publicCitizenRecord(db, 'colette'))?.contributions ?? []
+
+    it('is an empty array for a citizen that has left nothing behind', async () => {
+      expect(await listed()).toEqual([])
+    })
+
+    it('names the Atlas entry a paid walk proposed, and links to where it lives', async () => {
+      await anEntry('bluesky.test', 'Getting an account at bluesky.test')
+      await aRewardedWalk('bluesky.test', '2026-07-01T00:00:00.000Z')
+
+      expect(await listed()).toEqual([
+        {
+          kind: 'atlas-entry',
+          title: 'Getting an account at bluesky.test',
+          url: '/atlas/bluesky.test',
+          on: '2026-07-01',
+        },
+      ])
+    })
+
+    /**
+     * **The walk that was never paid for is not an entry.** `rewarded_at` is the
+     * Colony's own acknowledgement that this walk became the published recipe,
+     * and without it the citizen has attempted a provider rather than written the
+     * Atlas's account of it.
+     */
+    it('says nothing about a walk the Colony has not paid for', async () => {
+      await anEntry('bluesky.test', 'Getting an account at bluesky.test')
+      await db.insert(accountWalks).values({ agentId, kind: 'social', provider: 'bluesky.test' })
+
+      expect(await listed()).toEqual([])
+    })
+
+    it('carries an approved report note as the citizen’s own sentence', async () => {
+      await anApprovedNote('The DNS check reads the apex, not the www record.')
+
+      expect(await listed()).toEqual([
+        {
+          kind: 'report-note',
+          title: expect.stringContaining('Prove a domain'),
+          note: 'The DNS check reads the apex, not the www record.',
+          on: '2026-07-03',
+        },
+      ])
+    })
+
+    /**
+     * **Rejection case, and the one the issue asks for by name.** Quest
+     * participation is private on both sides — a sponsor never learns who
+     * answered and a reader never learns what a citizen answered. The only route
+     * by which it could reach this surface is an attempt on a task whose `kind`
+     * is `quest`, so the restriction is a predicate in SQL rather than a comment
+     * saying it cannot happen.
+     */
+    it('never names anything a citizen did on a quest', async () => {
+      await anApprovedNote('What I learned answering this quest.', { kind: 'quest' })
+
+      expect(await listed()).toEqual([])
+    })
+
+    /**
+     * **Rejection case.** A pending note is text nothing has judged, and the
+     * profile is read by strangers deciding whether to trust a citizen.
+     */
+    it('says nothing about a note moderation has not approved', async () => {
+      await anApprovedNote('Approved, and therefore shown.')
+      const [pendingTask] = await db
+        .insert(tasks)
+        .values({
+          type: 'website-verify',
+          title: 'Prove a website',
+          kind: 'academy' as const,
+          description: 'Whatever this rung is for.',
+          instructions: 'What the agent must actually do.',
+          rewardReputation: 1,
+          timeoutHours: 24,
+        })
+        .returning({ id: tasks.id })
+      const [attempt] = await db
+        .insert(taskAttempts)
+        .values({
+          agentId,
+          taskId: pendingTask!.id,
+          attempt: 1,
+          opener: 'submission' as const,
+          outcome: 'passed' as const,
+          openedAt: '2026-07-02T10:00:00.000Z',
+          closedAt: '2026-07-02T10:05:00.000Z',
+        })
+        .returning({ id: taskAttempts.id })
+      await db.insert(taskReports).values({
+        attemptId: attempt!.id,
+        broke: 'The meta tag was there and the fetch never saw it.',
+        note: 'Not yet read by anybody.',
+      })
+
+      expect((await listed()).map((entry) => entry.note)).toEqual([
+        'Approved, and therefore shown.',
+      ])
+    })
+
+    /**
+     * The pull request needs the citizen to have said in public which GitHub
+     * login is its own — otherwise the page asserts a handle-to-login linkage
+     * that `what-a-profile-may-show-of-an-account.md` requires a second act for.
+     */
+    it('names a merged pull request once the citizen shows the login it was merged under', async () => {
+      const account = await recordProvedAccount(db, agentId, {
+        kind: AccountKindSchema.parse('github'),
+        identifier: 'a-citizen',
+        capabilities: [],
+        provedAt: new Date('2026-05-01T00:00:00Z').toISOString(),
+      })
+      await setAccountAttestable(db, agentId, account.id, true)
+      await setAccountShownOnProfile(db, agentId, account.id, true)
+      await aMergedPullRequest('A-Citizen')
+
+      expect(await listed()).toEqual([
+        {
+          kind: 'pull-request',
+          title: 'Kolonie-AI/kolonie-platform',
+          url: 'https://github.com/Kolonie-AI/kolonie-platform/pull/1',
+          on: '2026-06-01',
+        },
+      ])
+    })
+
+    /**
+     * **Rejection case.** The rung is still on the page as a skill, which says a
+     * merge happened without saying whose account it happened under.
+     */
+    it('says nothing about a merged pull request when no login is shown', async () => {
+      await aMergedPullRequest('a-citizen')
+
+      expect(await listed()).toEqual([])
+    })
+
+    /** A shown login that is not the one the verifier read proves nothing about it. */
+    it('says nothing about a pull request merged under a different login', async () => {
+      const account = await recordProvedAccount(db, agentId, {
+        kind: AccountKindSchema.parse('github'),
+        identifier: 'somebody-else',
+        capabilities: [],
+        provedAt: new Date('2026-05-01T00:00:00Z').toISOString(),
+      })
+      await setAccountAttestable(db, agentId, account.id, true)
+      await setAccountShownOnProfile(db, agentId, account.id, true)
+      await aMergedPullRequest('a-citizen')
+
+      expect(await listed()).toEqual([])
+    })
+
+    /** Newest first: this section answers *what has it been doing*, not *what has it accrued*. */
+    it('lists the newest contribution first', async () => {
+      await anEntry('bluesky.test', 'Getting an account at bluesky.test')
+      await aRewardedWalk('bluesky.test', '2026-07-01T00:00:00.000Z')
+      await anApprovedNote('The later of the two, by three weeks.', {
+        moderatedAt: '2026-07-20T10:00:00.000Z',
+      })
+
+      expect((await listed()).map((entry) => entry.on)).toEqual(['2026-07-20', '2026-07-01'])
+    })
+
+    /**
+     * **The rejection case the whole surface rests on.** `attributed` off is a
+     * citizen saying it does not want its name on what it leaves behind, and it
+     * is applied in each query's `where` rather than by filtering afterwards —
+     * the arrangement `#961` chose so that no later line can print what was
+     * never fetched. The record carries an empty array and not a stripped one.
+     */
+    it('names nothing at all for a citizen that asked not to be named', async () => {
+      await anEntry('bluesky.test', 'Getting an account at bluesky.test')
+      await aRewardedWalk('bluesky.test', '2026-07-01T00:00:00.000Z')
+      await anApprovedNote('The DNS check reads the apex.')
+      await db.update(agents).set({ attributed: false }).where(eq(agents.id, agentId))
+
+      const record = await publicCitizenRecord(db, 'colette')
+
+      expect(record?.contributions).toEqual([])
+      expect(JSON.stringify(record)).not.toMatch(/bluesky|apex/)
+    })
+
+    /**
+     * The cap is a cap and not a page: it hides the oldest, and it prints no
+     * count of what it hid. A number here would be a score the moment two pages
+     * could be put side by side.
+     */
+    it('stops at the cap, and says nothing about what the cap hid', async () => {
+      for (let index = 0; index < PUBLIC_CONTRIBUTIONS_MAX + 3; index += 1) {
+        const day = String(index + 1).padStart(2, '0')
+        await anEntry(`p${day}.test`, `Getting an account at p${day}.test`)
+        await aRewardedWalk(`p${day}.test`, `2026-07-${day}T00:00:00.000Z`)
+      }
+
+      const carried = await listed()
+
+      expect(carried).toHaveLength(PUBLIC_CONTRIBUTIONS_MAX)
+      expect(carried.at(-1)?.on).toBe('2026-07-04')
+      expect(JSON.stringify(await publicCitizenRecord(db, 'colette'))).not.toMatch(
+        /p01\.test|p02\.test|p03\.test/,
       )
     })
   })

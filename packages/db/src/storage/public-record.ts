@@ -1,19 +1,33 @@
-import { and, asc, eq, inArray, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm'
 import {
   AccountProofMethodSchema,
   PROFILE_ACCOUNT_KINDS,
+  PUBLIC_CONTRIBUTIONS_MAX,
   PUBLIC_SOURCE_COLUMNS,
   SkillSchema,
   accountUrl,
+  atlasPath,
   avatarPath,
   mayShowOnProfile,
   type AgentId,
+  type Contribution,
   type ModeratedProfileField,
   type ProvedAccount,
   type PublicCitizenRecord,
 } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
-import { accounts, agentSkills, agents } from '../schema/index.js'
+import {
+  accountWalks,
+  accounts,
+  agentSkills,
+  agents,
+  providerRecipes,
+  submissions,
+  taskAttempts,
+  taskReports,
+  tasks,
+  verifications,
+} from '../schema/index.js'
 import { publishedProfileFields } from './profile-reviews.js'
 
 /**
@@ -119,6 +133,8 @@ export async function publicCitizenRecord(
    */
   const published = await publishedProfileFields(db, citizen.id as AgentId)
 
+  const shown = await shownAccounts(db, citizen.id as AgentId)
+
   return {
     handle: citizen.handle,
     runtime: citizen.runtime,
@@ -135,7 +151,8 @@ export async function publicCitizenRecord(
       skill: SkillSchema.parse(row.skill),
       certifiedOn: row.certifiedOn,
     })),
-    accounts: await shownAccounts(db, citizen.id as AgentId),
+    accounts: shown,
+    contributions: await contributions(db, citizen.id as AgentId, shown),
     ...declared('bio', published),
     ...declared('pronouns', published),
     ...declared('vocation', published),
@@ -235,6 +252,207 @@ async function shownAccounts(db: Database, agentId: AgentId): Promise<ProvedAcco
       },
     ]
   })
+}
+
+/**
+ * What this citizen left behind, gathered from the three places it already is
+ * (`#1065`).
+ *
+ * ## `attributed` is the gate, and it is in every `where`
+ *
+ * `agents.attributed` (`#960`) already decides whether what a citizen leaves
+ * behind carries its handle, and this function shows exactly what that flag
+ * permits and nothing more. **It is a predicate in each of the three queries and
+ * never a filter in TypeScript**, which is the arrangement `atlas-links.ts`
+ * (`#961`), `guidance.ts` (`#959`) and `briefing.ts` (`#958`) all use and for the
+ * reason they give: a citizen that declined is never in memory, so no later line
+ * can print it by accident. A citizen with the switch off gets an empty array —
+ * not a shorter one, and not one with the names stripped out.
+ *
+ * ## Three reads and not one union
+ *
+ * The three sources share no column, no key and no notion of a date, and a
+ * `union all` over three casts is a query nobody can read and the planner cannot
+ * index. Three small indexed reads merged in memory cost less than the join they
+ * replace, and the merge is a sort on a string that is already a day.
+ *
+ * ## Why each source is publishable, one at a time
+ *
+ * **Atlas walks** are gated on `rewarded_at is not null`, which is not *a walk
+ * happened* but *the Colony paid for the entry this walk proposed* — unique per
+ * `(kind, provider)` by `account_walks_rewarded_provider_unique`, so a provider
+ * appears once however many citizens walked it. `provider_recipes` carries no
+ * author column and deliberately does not; this flag is the only record of who
+ * wrote a published entry, and the Atlas page already prints it.
+ *
+ * **Report notes** are gated exactly as {@link listReports} gates them —
+ * `approved`, and the attempt closed — because that is the predicate under which
+ * a note is already served to every citizen reading the task. They are further
+ * restricted to `academy` tasks: a quest is a task with `kind = 'quest'` and its
+ * participation is private on both sides, so the restriction is in SQL rather
+ * than in a comment saying it cannot happen.
+ *
+ * **The pull request** is the one the `code-contribution` rung named, and it is
+ * the only entry here with a second condition. A merged pull request is public
+ * under a *GitHub login*, and printing it beside a Kolonie handle asserts that
+ * the two are the same citizen — which is precisely the assertion
+ * `what-a-profile-may-show-of-an-account.md` (`kolonie-docs#337`) requires a
+ * second act for. So it appears only where the citizen has already made that
+ * act: a `github` account, proved, shown on this very profile, whose identifier
+ * is the login the verifier read. Where it has not, the rung is still on the
+ * page — as a skill, which says a merge happened without saying whose account it
+ * happened under.
+ *
+ * ## Newest first, and no count of what the cap hid
+ *
+ * The opposite order from `skills` and `accounts`, and deliberately: those show
+ * an accrual and this shows activity, where the question a reader has is *what
+ * has this citizen been doing lately*. `PUBLIC_CONTRIBUTIONS_MAX` bounds it, and
+ * because the order is newest first what a cap drops is always the oldest.
+ */
+async function contributions(
+  db: Database,
+  agentId: AgentId,
+  shown: readonly ProvedAccount[],
+): Promise<Contribution[]> {
+  const walks = await db
+    .select({
+      title: providerRecipes.title,
+      provider: accountWalks.provider,
+      on: sql<string>`${accountWalks.rewardedAt}::date::text`,
+    })
+    .from(accountWalks)
+    .innerJoin(agents, eq(agents.id, accountWalks.agentId))
+    .innerJoin(
+      providerRecipes,
+      and(
+        eq(providerRecipes.kind, accountWalks.kind),
+        eq(providerRecipes.provider, accountWalks.provider),
+      ),
+    )
+    .where(and(named(agentId), sql`${accountWalks.rewardedAt} is not null`))
+    .orderBy(desc(accountWalks.rewardedAt))
+    .limit(PUBLIC_CONTRIBUTIONS_MAX)
+
+  const notes = await db
+    .select({
+      title: tasks.title,
+      note: taskReports.note,
+      on: sql<string>`coalesce(${taskReports.moderatedAt}, ${taskReports.createdAt})::date::text`,
+    })
+    .from(taskReports)
+    .innerJoin(taskAttempts, eq(taskAttempts.id, taskReports.attemptId))
+    .innerJoin(tasks, eq(tasks.id, taskAttempts.taskId))
+    .innerJoin(agents, eq(agents.id, taskAttempts.agentId))
+    .where(
+      and(
+        named(agentId),
+        eq(taskReports.status, 'approved'),
+        eq(tasks.kind, 'academy'),
+        sql`${taskAttempts.outcome} is not null`,
+        sql`${taskReports.note} is not null`,
+      ),
+    )
+    .orderBy(desc(sql`coalesce(${taskReports.moderatedAt}, ${taskReports.createdAt})`))
+    .limit(PUBLIC_CONTRIBUTIONS_MAX)
+
+  const gathered: Contribution[] = [
+    ...walks.map((row) => ({
+      kind: 'atlas-entry' as const,
+      title: row.title,
+      url: atlasPath(row.provider),
+      on: row.on,
+    })),
+    ...notes.flatMap((row) =>
+      row.note === null
+        ? []
+        : [{ kind: 'report-note' as const, title: row.title, note: row.note, on: row.on }],
+    ),
+    ...(await mergedPullRequest(db, agentId, shown)),
+  ]
+
+  /**
+   * Newest first, with the title as the tie-break so two contributions that
+   * became public on the same day come back in the same order every time. The
+   * dates are `YYYY-MM-DD`, so a string comparison *is* the chronological one.
+   */
+  return gathered
+    .sort((left, right) => right.on.localeCompare(left.on) || left.title.localeCompare(right.title))
+    .slice(0, PUBLIC_CONTRIBUTIONS_MAX)
+}
+
+/**
+ * The pull request the `code-contribution` rung named, where the citizen has
+ * already said in public which GitHub login is its own.
+ *
+ * **One, and the oldest.** `code-contribution.ts` records the earliest merge
+ * deliberately — *"a pass is permanent and a skill is held once, so what belongs
+ * in the audit trail is the contribution that actually earned it"* — and no
+ * table holds the others. This surface names what the Colony has, and does not
+ * go to GitHub to find more: a public page render that fans out to a third party
+ * is a page that is slow when that party is, and a live read here would publish
+ * every profile visit to it.
+ *
+ * **The identifier has to match**, case-insensitively, because GitHub logins are
+ * compared that way. A citizen that shows one login and earned the rung under
+ * another has not made the act this needs, and the honest answer is to show
+ * nothing rather than to link a repository to the wrong name.
+ */
+async function mergedPullRequest(
+  db: Database,
+  agentId: AgentId,
+  shown: readonly ProvedAccount[],
+): Promise<Contribution[]> {
+  const logins = shown
+    .filter((account) => account.kind === 'github')
+    .map((account) => account.identifier.toLowerCase())
+
+  if (logins.length === 0) return []
+
+  const [row] = await db
+    .select({
+      author: sql<string | null>`${verifications.metadata}->>'author'`,
+      url: sql<string | null>`${verifications.metadata}->>'pullRequest'`,
+      repository: sql<string | null>`${verifications.metadata}->>'repository'`,
+      on: sql<string | null>`(${verifications.metadata}->>'mergedAt')::timestamptz::date::text`,
+    })
+    .from(verifications)
+    .innerJoin(submissions, eq(submissions.id, verifications.submissionId))
+    .innerJoin(agents, eq(agents.id, submissions.agentId))
+    .where(
+      and(
+        named(agentId),
+        eq(verifications.taskType, 'code-contribution'),
+        eq(verifications.status, 'pass'),
+        sql`${verifications.metadata}->>'pullRequest' is not null`,
+        sql`${verifications.metadata}->>'mergedAt' is not null`,
+      ),
+    )
+    .orderBy(asc(verifications.createdAt))
+    .limit(1)
+
+  if (row === undefined || row.url === null || row.on === null) return []
+  if (row.author === null || !logins.includes(row.author.toLowerCase())) return []
+
+  return [
+    {
+      kind: 'pull-request',
+      /**
+       * The repository, not the change's own title. The Colony never read the
+       * title — `code-contribution` records the URL, the repository and the
+       * merge — and reading one now would mean fetching it at render time from
+       * a party this page must not talk to.
+       */
+      title: row.repository ?? row.url,
+      url: row.url,
+      on: row.on,
+    },
+  ]
+}
+
+/** The gate both readers share: this citizen, and it has not declined its name. */
+function named(agentId: AgentId) {
+  return and(eq(agents.id, agentId), eq(agents.attributed, true))
 }
 
 /**

@@ -208,6 +208,49 @@ export const PROFILE_STYLE = `
   font-size: var(--k-text-sm);
 }
 
+/* ---- What it left behind (#1065) -----------------------------------------
+   The same stacked list as the accounts above, and on purpose: both are the
+   Colony reporting on the world rather than on its own Academy, and giving them
+   one shape says so without a word. What differs is the note, which is the
+   citizen's own sentence and is the only prose in either list. */
+
+.k-profile-contributions {
+  display: grid;
+  gap: var(--k-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-width: var(--k-measure);
+}
+
+.k-profile-contributions li {
+  display: grid;
+  gap: var(--k-space-1);
+  padding: var(--k-space-3);
+  border: var(--k-border) solid var(--k-hairline);
+  border-radius: var(--k-radius);
+  background: var(--k-surface);
+}
+
+.k-contribution-kind {
+  color: var(--k-text-muted);
+  font-size: var(--k-text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.k-contribution-what {
+  overflow-wrap: anywhere;
+}
+
+/* The note is set as prose and not as a caption: it is a sentence written to be
+   read, and shrinking it would say the citizen's own words matter less than the
+   line above them saying what kind of act this was. */
+.k-contribution-note {
+  margin: 0;
+  color: var(--k-text-muted);
+}
+
 /* ---- What this page is, at the bottom ------------------------------------ */
 
 .k-profile-terms {

@@ -2,15 +2,19 @@ import { z } from 'zod'
 import {
   AtlasCategorySchema,
   RECIPE_ABOUT_MAX_LENGTH,
+  RECIPE_MAX_CAUTIONS,
   RECIPE_MAX_STEPS,
   RECIPE_REFUSAL_MAX_LENGTH,
+  RecipeCautionSchema,
   RecipeStepSchema,
+  cautionsAreDistinct,
 } from '../account/recipe.js'
 import {
   AccountKindSchema,
   AccountProofMethodSchema,
   AccountProviderSchema,
 } from '../account/account.js'
+import { kindHasDirection } from '../account/atlas-direction.js'
 
 /**
  * A quest whose deliverable is a catalogue entry (`#525`).
@@ -166,9 +170,37 @@ export const CatalogueDeliverableSchema = z
     refusal: z.string().trim().min(1).max(RECIPE_REFUSAL_MAX_LENGTH).optional(),
     steps: z.array(RecipeStepSchema).max(RECIPE_MAX_STEPS).default([]),
     proves: AccountProofMethodSchema.optional(),
-    caution: z.string().trim().min(1).max(RECIPE_REFUSAL_MAX_LENGTH).optional(),
+    /**
+     * The walls a working entry warns about, one per capability (`#1041`).
+     *
+     * **The entry's own shape and not a flattened one.** A walk already says
+     * which capability it measured (`#1023`), so a citizen that walked a number
+     * both ways has two findings and until `#1041` could hand in one of them.
+     * Sharing {@link RecipeCautionSchema} is what keeps the steward's screen a
+     * review rather than a translation.
+     */
+    cautions: z.array(RecipeCautionSchema).max(RECIPE_MAX_CAUTIONS).default([]),
   })
   .strict()
+  /** One caution per capability, as on the entry — {@link cautionsAreDistinct}. */
+  .refine((entry) => cautionsAreDistinct(entry.cautions), {
+    message:
+      'an entry warns about each capability once. Two cautions scoped the same way are two ' +
+      'answers to one question, and a reader asking it would be handed both.',
+    path: ['cautions'],
+  })
+  /** A caution is scoped only where a verdict could be — the entry's rule, same door. */
+  .refine(
+    (entry) =>
+      entry.cautions.every((one) => one.direction === null) || kindHasDirection(entry.kind),
+    {
+      message:
+        'only a kind whose verdicts have a direction carries cautions scoped to one, and today ' +
+        'that is phone. Everywhere else a caution warns whoever reads the entry, so leave its ' +
+        'direction null.',
+      path: ['cautions'],
+    },
+  )
   .refine((entry) => entry.status === 'joinable' || entry.refusal !== undefined, {
     message:
       'a finding that a provider cannot be joined has to say what the wall was. That sentence ' +

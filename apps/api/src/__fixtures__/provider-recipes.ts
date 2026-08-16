@@ -402,7 +402,7 @@ export function fakeProviderRecipes(): FakeProviderRecipes {
         proves: entry.proves ?? (status === 'joinable' ? 'provider-post' : null),
         provesTask: entry.provesTask ?? null,
         reaches: entry.reaches ?? null,
-        caution: entry.caution ?? null,
+        cautions: entry.cautions ?? [],
         walkedRecipe: entry.walkedRecipe ?? null,
         /**
          * **Derived from the walk unless the caller says otherwise** (`#981`).

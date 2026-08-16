@@ -1828,6 +1828,13 @@
       "when": 1786842754603,
       "tag": "0260_a_walk_says_which_way_it_went",
       "breakpoints": true
+    },
+    {
+      "idx": 261,
+      "version": "7",
+      "when": 1786846333608,
+      "tag": "0261_a_caution_is_measured_against_one_capability",
+      "breakpoints": true
     }
   ]
 }

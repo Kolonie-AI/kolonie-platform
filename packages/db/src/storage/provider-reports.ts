@@ -123,7 +123,7 @@ export async function reportProvider(
    * 2026-08-14, is the measurement of which one gets used.
    *
    * **It creates a row and never a verdict.** `recordMeasuredProvider` writes
-   * `measured` with no steps, no refusal and no caution, so a report cannot
+   * `measured` with no steps, no refusal and no cautions, so a report cannot
    * mark a provider closed — that stays a walk's finding with a wall named. All
    * this does is give the citizen's own sentence somewhere to be read.
    *

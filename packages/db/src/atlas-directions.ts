@@ -27,10 +27,12 @@ import { scopeProviderDirection } from './storage/provider-recipes.js'
  * unscoped, on three different grounds:
  *
  * - `twilio.com` is a **working entry**, and the Colony runs it for receiving.
- *   Its caution names an outbound wall, but the entry as a whole describes both
- *   capabilities, and scoping it would tell an inbound reader *nobody has
- *   measured whether a number here can receive* about the very number the Colony
- *   receives on. A per-caution axis is a smaller and separate question.
+ *   Its cautions name a wall on each side, but the entry as a whole describes
+ *   both capabilities, and scoping the *verdict* would tell an inbound reader
+ *   *nobody has measured whether a number here can receive* about the very
+ *   number the Colony receives on. This paragraph once called a per-caution axis
+ *   a smaller and separate question; `#1041` answered it, and the answer is why
+ *   the entry can now warn about each direction without the verdict moving.
  * - `vonage.com` and `telnyx.com` are **unwritten**: there is no verdict to
  *   scope, and a scope on an entry nobody walked is a claim about a walk that
  *   did not happen.

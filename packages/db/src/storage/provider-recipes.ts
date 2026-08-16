@@ -11,6 +11,7 @@ import {
   SignupCostSchema,
   RecipeOperatorGuessSchema,
   RecipeRuntimeNoteSchema,
+  RecipeCautionSchema,
   RecipeReachSchema,
   RecipeStatusSchema,
   RecipeDirectionSchema,
@@ -31,6 +32,7 @@ import {
   type SignupCost,
   type ProviderRecipe,
   type RecipeOperatorGuess,
+  type RecipeCaution,
   type RecipeReach,
   type RecipeRuntimeNote,
   type RecipeStatus,
@@ -114,7 +116,8 @@ export function toRecipe(row: typeof providerRecipes.$inferSelect): ProviderReci
     provesTask: row.provesTask,
     /** Parsed on the way out, like `steps`: `jsonb` accepts whatever was written. */
     reaches: row.reaches === null ? null : RecipeReachSchema.parse(row.reaches),
-    caution: row.caution,
+    /** Parsed on the way out, like `steps` and `reaches` beside it (`#1041`). */
+    cautions: RecipeCautionSchema.array().parse(row.cautions),
     walkedRecipe,
     /**
      * **Its own column since `#981`, and lifted out of `walkedRecipe` before that**
@@ -285,7 +288,15 @@ export async function writeProviderRecipe(
     readonly provesTask?: string | null
     /** What the account is then good for, and how to reach it (`#637`). */
     readonly reaches?: RecipeReach | null
-    readonly caution?: string | null
+    /**
+     * The walls this entry warns about, one per capability (`#1041`).
+     *
+     * **The whole set, with the rest of this group**, because this is an upsert:
+     * an edit that names the outbound caution and omits the inbound one is
+     * saying the inbound warning is gone. Merging by direction would leave no
+     * way to withdraw a caution at all.
+     */
+    readonly cautions?: readonly RecipeCaution[]
     /**
      * The walker's own account of the path (`#769`).
      *
@@ -368,7 +379,7 @@ export async function writeProviderRecipe(
      * proving one would otherwise keep a sequence that begins nowhere.
      */
     reaches: entry.proves === undefined || entry.proves === null ? null : (entry.reaches ?? null),
-    caution: entry.caution ?? null,
+    cautions: entry.cautions ?? [],
     /** Left alone unless the caller said something — see the field's own note. */
     ...(entry.walkedRecipe === undefined ? {} : { walkedRecipe: entry.walkedRecipe }),
     /**
@@ -457,8 +468,16 @@ export async function listAtlasProvider(
      * A caution on a listing says *nobody has walked this and here is why it is
      * worth knowing that*. It must say so in its own words — see the ones in
      * `atlas-providers.ts`, each of which names that nothing has been walked.
+     *
+     * **A set here too, and not because a listing is usually walked** (`#1041`).
+     * Almost every shelf caution is one unscoped sentence, and the plural shape
+     * buys nothing for those. It buys `twilio.com`: the one listed provider the
+     * Colony actually runs, whose findings point in two directions at once, and
+     * which is on the one shelf where a direction means anything. A single
+     * string here would have made the seed the place the second finding could
+     * not be written — which is the defect this issue exists for, one layer up.
      */
-    readonly caution?: string
+    readonly cautions?: readonly RecipeCaution[]
   },
 ): Promise<boolean> {
   const written = await db
@@ -470,7 +489,7 @@ export async function listAtlasProvider(
       category: entry.category,
       operatorGuess: entry.operatorGuess ?? null,
       agentApi: entry.agentApi ?? 'unknown',
-      caution: entry.caution ?? null,
+      cautions: entry.cautions ?? [],
       /**
        * The three things a listing must not carry, written explicitly rather
        * than left to the column defaults: steps, a proof and a refusal are each
@@ -497,7 +516,7 @@ export async function listAtlasProvider(
  * `telephony` shelf of three unwalked entries while the one phone provider
  * anybody proved — `agentmessage.io`, measured 2026-08-14 — was not on it.
  *
- * **It writes a row and no prose.** No steps, no `proves`, no `caution`, no
+ * **It writes a row and no prose.** No steps, no `proves`, no caution, no
  * `refusal`. Those are the four claims that say *somebody investigated this*,
  * and a proof says only *a citizen got in here*. The counts are not written
  * either: `atlasFigures` computes them live from `accounts` and
@@ -549,7 +568,7 @@ export async function recordMeasuredProvider(
       steps: [],
       proves: null,
       refusal: null,
-      caution: null,
+      cautions: [],
     })
     .onConflictDoNothing({ target: [providerRecipes.kind, providerRecipes.provider] })
     .returning({ id: providerRecipes.id })

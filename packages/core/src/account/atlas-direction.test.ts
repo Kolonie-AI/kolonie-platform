@@ -4,6 +4,7 @@ import {
   directionAnswers,
   directionScoped,
   kindHasDirection,
+  type RecipeDirection,
 } from './atlas-direction.js'
 
 /**
@@ -14,7 +15,12 @@ import {
 
 /** The shape both rules operate on, and nothing more of the recipe than that. */
 function verdict(over: Partial<Parameters<typeof directionScoped>[0]> = {}) {
-  return { status: 'refused', refusal: 'A2P registration.', caution: null, ...over }
+  return { status: 'refused', refusal: 'A2P registration.', cautions: [], ...over }
+}
+
+/** A caution as the row carries it since `#1041`: a sentence and what it was measured against. */
+function caution(text: string, direction: RecipeDirection | null = null) {
+  return { text, direction }
 }
 
 describe('directionAnswers', () => {
@@ -45,7 +51,7 @@ describe('directionAnswers', () => {
 
 describe('directionScoped', () => {
   it('hands back an answering verdict untouched', () => {
-    const entry = verdict({ caution: 'watch the console' })
+    const entry = verdict({ cautions: [caution('watch the console', 'inbound')] })
 
     expect(directionScoped(entry, 'inbound', 'inbound')).toEqual(entry)
   })
@@ -70,7 +76,11 @@ describe('directionScoped', () => {
    */
   it('leaves a measured verdict standing whichever way it was measured', () => {
     const scoped = directionScoped(
-      verdict({ status: 'measured', refusal: null, caution: 'console-only' }),
+      verdict({
+        status: 'measured',
+        refusal: null,
+        cautions: [caution('console-only', 'inbound')],
+      }),
       'outbound',
       'inbound',
     )
@@ -81,15 +91,84 @@ describe('directionScoped', () => {
   /** The half of the title that is not the status: prose the reader did not come for. */
   it('withholds a caution measured against the other direction', () => {
     expect(
-      directionScoped(verdict({ caution: 'console-only' }), 'outbound', 'inbound').caution,
-    ).toBeNull()
-    expect(
       directionScoped(
-        verdict({ status: 'measured', refusal: null, caution: 'console-only' }),
+        verdict({ cautions: [caution('A2P brand registration', 'outbound')] }),
         'outbound',
         'inbound',
-      ).caution,
-    ).toBeNull()
+      ).cautions,
+    ).toEqual([])
+    expect(
+      directionScoped(
+        verdict({
+          status: 'measured',
+          refusal: null,
+          cautions: [caution('A2P brand registration', 'outbound')],
+        }),
+        'outbound',
+        'inbound',
+      ).cautions,
+    ).toEqual([])
+  })
+
+  /**
+   * `#1041`, in one assertion. Before it there was one caution on the row scoped
+   * by the row's verdict, so an entry could warn about receiving or about sending
+   * and never both — the second warning overwrote the first. `twilio.com` is the
+   * worked example, and each reader is now handed the wall that is theirs.
+   */
+  it('gives each reader the caution measured against what they came for', () => {
+    const entry = verdict({
+      status: 'joinable',
+      refusal: null,
+      cautions: [
+        caution('A2P 10DLC brand registration before you may send.', 'outbound'),
+        caution('Only console-verified numbers can receive.', 'inbound'),
+      ],
+    })
+
+    expect(directionScoped(entry, null, 'outbound').cautions).toEqual([
+      caution('A2P 10DLC brand registration before you may send.', 'outbound'),
+    ])
+    expect(directionScoped(entry, null, 'inbound').cautions).toEqual([
+      caution('Only console-verified numbers can receive.', 'inbound'),
+    ])
+  })
+
+  /** A reader who asked for nothing is asking for whatever there is. */
+  it('gives a reader who asked for nothing all of them', () => {
+    const cautions = [caution('sending', 'outbound'), caution('receiving', 'inbound')]
+
+    expect(directionScoped(verdict({ cautions }), null, undefined).cautions).toEqual(cautions)
+  })
+
+  /**
+   * The unscoped caution is the one every kind without an axis writes, and it
+   * answers everybody — the same conservative reading `directionAnswers` gives a
+   * verdict nobody scoped.
+   */
+  it('keeps an unscoped caution for a reader who asked for one direction', () => {
+    const entry = verdict({
+      cautions: [caution('the signup mails from a domain many filters drop')],
+    })
+
+    expect(directionScoped(entry, null, 'inbound').cautions).toEqual(entry.cautions)
+  })
+
+  /**
+   * The filter runs whatever the row's own scope is, which is why there is no
+   * early return: an entry measured `both` has a verdict that answers everybody
+   * and cautions that may not, and returning early on the verdict would hand a
+   * reader asking about receiving a warning about sending on exactly the entries
+   * most likely to carry one.
+   */
+  it('filters the cautions of an entry whose verdict answers everybody', () => {
+    const entry = verdict({
+      status: 'joinable',
+      refusal: null,
+      cautions: [caution('A2P brand registration', 'outbound')],
+    })
+
+    expect(directionScoped(entry, 'both', 'inbound').cautions).toEqual([])
   })
 })
 

@@ -19,7 +19,7 @@ import {
   recipeStatusIsOfferable,
   type ProviderRecipe,
 } from './recipe.js'
-import type { RecipeOperatorNeed, RecipeStatus } from './recipe.js'
+import type { RecipeCaution, RecipeOperatorNeed, RecipeStatus } from './recipe.js'
 import { stepInstruction } from './walk.js'
 
 /**
@@ -750,7 +750,7 @@ export function atlasEntryHealth(
   rows: readonly {
     readonly status: RecipeStatus
     readonly lastConfirmedAt: string | null
-    readonly caution: string | null
+    readonly cautions: readonly RecipeCaution[]
     readonly figures: AtlasFigures
   }[],
   status: RecipeStatus,
@@ -763,7 +763,7 @@ export function atlasEntryHealth(
 
   if (joinable.every((row) => isStale(row.lastConfirmedAt, at))) return 'stale'
 
-  if (joinable.some((row) => row.caution !== null)) return 'caution'
+  if (joinable.some((row) => row.cautions.length > 0)) return 'caution'
 
   const attempted = joinable.reduce((sum, row) => sum + row.figures.attempted, 0)
   const proved = joinable.reduce((sum, row) => sum + row.figures.proved, 0)
@@ -894,7 +894,7 @@ export function measuredOnlyRecipes(
         proves: null,
         provesTask: null,
         reaches: null,
-        caution: null,
+        cautions: [],
         walkedRecipe: null,
         /** Nobody walked this row, so nobody was stopped anywhere on it. */
         walls: [],

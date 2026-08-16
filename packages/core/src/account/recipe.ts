@@ -481,6 +481,57 @@ export function recipeWalkSteps(entry: {
 export const RECIPE_REFUSAL_MAX_LENGTH = 500
 
 /**
+ * A wall a working entry warns about, and which capability it was measured
+ * against (`#1041`).
+ *
+ * **One warning per direction, because a kind with two capabilities has two
+ * walls.** `#976` gave the entry's *verdict* a direction and left the caution a
+ * single column, so an entry could warn about receiving or about sending and
+ * never both — the second warning overwrote the first, and `directionScoped`
+ * could withhold a caution measured against the wrong capability but could not
+ * produce one that had never been stored. `twilio.com` is the worked example:
+ * outbound is blocked by A2P 10DLC brand registration, inbound is limited to
+ * console-verified numbers, and both are things a citizen wants to read before
+ * spending an afternoon.
+ *
+ * **Null is the unscoped caution and it answers everybody**, exactly as the null
+ * scope does on the entry — see {@link directionAnswers}. Every caution on a
+ * kind with no axis is one of these, and the database refuses a scoped caution
+ * anywhere else, so nobody records a direction against a mailbox and expects a
+ * reader to act on it.
+ */
+export const RecipeCautionSchema = z
+  .object({
+    text: z.string().trim().min(1).max(RECIPE_REFUSAL_MAX_LENGTH),
+    direction: RecipeDirectionSchema.nullable(),
+  })
+  .strict()
+export type RecipeCaution = z.infer<typeof RecipeCautionSchema>
+
+/**
+ * How many cautions one entry may carry.
+ *
+ * One per direction and one unscoped, which is the ceiling the shape implies
+ * rather than a number chosen for it — {@link cautionsAreDistinct} is what makes
+ * the ceiling mean *one each* rather than four of the same.
+ */
+export const RECIPE_MAX_CAUTIONS = RecipeDirectionSchema.options.length + 1
+
+/**
+ * Whether a set of cautions says each thing once (`#1041`).
+ *
+ * **Checked here and not in the database**, and the split is not a preference:
+ * PostgreSQL refuses a subquery in a check constraint, and distinctness over a
+ * `jsonb` array cannot be written without one — the constraint beside the column
+ * carries the shape, the length and the vocabulary, which are all expressible as
+ * plain function calls. Two cautions scoped the same way are two answers to one
+ * question, and a reader asking that question would be handed both.
+ */
+export function cautionsAreDistinct(cautions: readonly RecipeCaution[]): boolean {
+  return new Set(cautions.map((one) => one.direction)).size === cautions.length
+}
+
+/**
  * How long the paragraph saying what a provider *is* may be (`#547`).
  *
  * **One paragraph and not a review.** `#547` asks a provider page to say what
@@ -1063,8 +1114,18 @@ export const ProviderRecipeSchema = z.object({
    * Distinct from `refusal`: this is a working entry warning about a wall an agent
    * may hit, where `refusal` says the provider cannot be joined at all. Both come
    * from `kolonie.accounts.provider-report` findings rather than from guesswork.
+   *
+   * **A set and not a sentence since `#1041`**, so an entry on a kind with two
+   * capabilities can warn about each of them — see {@link RecipeCautionSchema}.
+   * Empty on most entries, and the empty array is the honest empty answer: a
+   * `null` beside it would be a second spelling of *nothing to say*.
+   *
+   * **Already scoped by the time a reader sees it.** `directionScoped` filters
+   * this set to the cautions that answer what the reader asked for, so a surface
+   * rendering the array does not re-check the directions and cannot disagree
+   * with the shelf about which warnings apply.
    */
-  caution: z.string().max(RECIPE_REFUSAL_MAX_LENGTH).nullable(),
+  cautions: z.array(RecipeCautionSchema).max(RECIPE_MAX_CAUTIONS),
   /**
    * The walker's own long-form account of the path (`#769`).
    *
@@ -1237,7 +1298,16 @@ export const WriteProviderRecipeSchema = z
     provesTask: z.string().trim().min(1).max(64).optional(),
     /** What the account is then good for, and how to reach it (`#637`). */
     reaches: RecipeReachSchema.optional(),
-    caution: z.string().trim().min(1).max(RECIPE_REFUSAL_MAX_LENGTH).optional(),
+    /**
+     * The walls a working entry warns about, one per capability (`#1041`).
+     *
+     * **The whole set, like `steps` and `needs` beside it**, because this is an
+     * upsert: an edit that names the outbound caution and omits the inbound one
+     * is saying the inbound warning is gone. That is the same contract every
+     * other field in this shape has, and the alternative — merging by direction
+     * — would leave no way to withdraw a caution at all.
+     */
+    cautions: z.array(RecipeCautionSchema).max(RECIPE_MAX_CAUTIONS).default([]),
     /** The walker's own account of the path, where a walk supplied one (`#769`). */
     walkedRecipe: WalkedRecipeSchema.optional(),
     /** Stricter than the default, when `provider-report` findings say so (`#532`). */
@@ -1281,6 +1351,18 @@ export const WriteProviderRecipeSchema = z
    * unavoidable — that is the steward's judgement and demanding it here would
    * mean a walk could not be stored, which is the defect `#601` is named for.
    */
+  /**
+   * **One caution per capability** (`#1041`), the rule the database cannot state.
+   *
+   * See {@link cautionsAreDistinct} for why it is here: distinctness over a
+   * `jsonb` array needs a subquery, and a check constraint may not have one.
+   */
+  .refine((entry) => cautionsAreDistinct(entry.cautions), {
+    message:
+      'an entry warns about each capability once. Two cautions scoped the same way are two ' +
+      'answers to one question, and a reader asking it would be handed both.',
+    path: ['cautions'],
+  })
   .refine((entry) => entry.steps.filter((step) => step.wall === true).length <= 1, {
     message:
       'a recipe has one wall. Two says a person is genuinely required twice, which is either ' +
@@ -1471,6 +1553,25 @@ export const WriteProviderRecipeSchema = z
       'off everywhere else.',
     path: ['direction'],
   })
+  /**
+   * A caution is scoped only where a verdict could be (`#1041`).
+   *
+   * The same rule as `direction` above and refused at the same door: an entry
+   * whose kind has no axis has one capability, so a caution scoped to half of it
+   * is a warning the shelf would silently ignore. The unscoped caution is the
+   * one every other kind writes, and it is not affected.
+   */
+  .refine(
+    (entry) =>
+      entry.cautions.every((one) => one.direction === null) || kindHasDirection(entry.kind),
+    {
+      message:
+        'only a kind whose verdicts have a direction carries cautions scoped to one, and today ' +
+        'that is phone. Everywhere else a caution warns whoever reads the entry, so leave its ' +
+        'direction null.',
+      path: ['cautions'],
+    },
+  )
   /**
    * A withdrawal says when and why, and nothing else may say why it was
    * withdrawn (`#604`).

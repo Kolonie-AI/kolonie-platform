@@ -127,7 +127,7 @@ describe('backfilling the catalogue from what the database holds', () => {
     for (const provider of ['proved.example', 'walled.example']) {
       const entry = await providerRecipe(db, PHONE, provider)
       expect(entry?.steps).toEqual([])
-      expect(entry?.caution).toBeNull()
+      expect(entry?.cautions).toEqual([])
       expect(entry?.refusal).toBeNull()
       expect(entry?.proves).toBeNull()
       expect(entry?.about).toBeNull()

@@ -3,6 +3,7 @@ import {
   KIND_BY_ATLAS_CATEGORY,
   type AgentApi,
   type AtlasCategory,
+  type RecipeCaution,
   type RecipeOperatorGuess,
 } from '@kolonie-ai/core'
 import type { Database } from './client.js'
@@ -529,40 +530,101 @@ const AGENT_API_ANSWERS: Readonly<Record<string, AgentApi>> = {
  * unlike its shelfmates and somebody should find out how*. Two of the three name
  * question three and one names question one, which is why they cannot be one
  * field with the API answer.
+ *
+ * **A list per provider since `#1041`, and one entry needs it.** Every warning
+ * below is one unscoped sentence — a shelf nobody walked has one thing to say,
+ * and it says it to whoever reads the entry. `twilio.com` is the exception on
+ * both counts: the Colony runs it, so its entry is findings rather than
+ * warnings, and it sits on the one shelf where a finding has a direction. Its
+ * two walls are on different axes and neither is the other's qualifier, so a
+ * single sentence could only have carried whichever was written last.
  */
-const SHELF_CAUTIONS: Readonly<Record<string, string>> = {
-  'contabo.com':
-    'The API manages machines you already have; ordering one is not self-service the way it is ' +
-    'on the rest of this shelf, and the signup wants a person. Worth a walk to find where the ' +
-    'wall actually is — and if there is one, this entry becomes a refusal rather than a caution.',
-  'oracle.com':
-    'The free tier is real and the signup is notoriously hostile: card checks, region locks and ' +
-    'silent rejections. An agent sent here can lose an afternoon and still not have an account. ' +
-    'Nobody has walked it, so this is a warning rather than a finding.',
-  'scaleway.com':
-    'A good API, and French identity checks are reported for some accounts — which would put it ' +
-    'behind the same wall as `payments-finance` for the citizens it happens to. Nobody has ' +
-    'walked it, so whether question one is really answered here is unknown.',
+const SHELF_CAUTIONS: Readonly<Record<string, readonly RecipeCaution[]>> = {
+  'contabo.com': [
+    {
+      text:
+        'The API manages machines you already have; ordering one is not self-service the way it ' +
+        'is on the rest of this shelf, and the signup wants a person. Worth a walk to find where ' +
+        'the wall actually is — and if there is one, this entry becomes a refusal rather than a ' +
+        'caution.',
+      direction: null,
+    },
+  ],
+  'oracle.com': [
+    {
+      text:
+        'The free tier is real and the signup is notoriously hostile: card checks, region locks ' +
+        'and silent rejections. An agent sent here can lose an afternoon and still not have an ' +
+        'account. Nobody has walked it, so this is a warning rather than a finding.',
+      direction: null,
+    },
+  ],
+  'scaleway.com': [
+    {
+      text:
+        'A good API, and French identity checks are reported for some accounts — which would put ' +
+        'it behind the same wall as `payments-finance` for the citizens it happens to. Nobody ' +
+        'has walked it, so whether question one is really answered here is unknown.',
+      direction: null,
+    },
+  ],
   /**
-   * The one caution on this list that is a finding rather than a warning
-   * (`#678`). The Colony runs Twilio, so this is what its own walk cost.
+   * The two cautions on this list that are findings rather than warnings
+   * (`#678`, split on `#1041`). The Colony runs Twilio, so this is what its own
+   * walk cost — and it cost two different things depending on which way the
+   * citizen was going.
+   *
+   * **Outbound is the registration wall and the geography step.** They are one
+   * caution because they are one journey: a number that may not send has not
+   * got as far as caring which countries it may send to, and a reader who gets
+   * past the first meets the second on the same errand.
+   *
+   * **Inbound is a separate wall and used to be invisible.** It is milder and
+   * it is not implied by the outbound one — a citizen sent here to earn
+   * `sms.challenge` needs to receive and nothing above tells it what stops
+   * that. Before `#1041` the row had one field, the outbound finding was in it,
+   * and this sentence had nowhere to go.
    */
-  'twilio.com':
-    'The Colony runs this one, so this is measured rather than expected. Numbers, sending and ' +
-    'receiving are a full API — but **which countries a number may message is console-only**, ' +
-    'with no API for it at all, and a number that has not been enabled for the destination ' +
-    'answers error 21408 rather than failing visibly at the point you set it up. That one step ' +
-    'is your operator’s, and it is the only one: the signup itself wants a card and a phone, ' +
-    'and everything after it an agent does by itself.',
-  'vonage.com':
-    'On this shelf so it is not one provider deep, not because anybody has walked it. Same shape ' +
-    'as Twilio on paper — programmable numbers, an API — and whether the geography step is ' +
-    'console-only here too is exactly the kind of thing a walk would find.',
-  'telnyx.com':
-    'Cheaper numbers and an API-first product, and reported to be stricter than its shelfmates ' +
-    'about who may buy a number. Nobody has walked it, so where that wall actually sits is the ' +
-    'open question — and it is the one worth answering, because a shelf whose entries all have ' +
-    'the same wall is a shelf with one entry.',
+  'twilio.com': [
+    {
+      text:
+        'The Colony runs this one, so this is measured rather than expected. A2P 10DLC wants a ' +
+        'registered brand before a US number may send, and a citizen is not one. Past that, ' +
+        '**which countries a number may message is console-only**, with no API for it at all, ' +
+        'and a number that has not been enabled for the destination answers error 21408 rather ' +
+        'than failing where you set it up. Both steps are your operator’s; everything else on ' +
+        'this shelf an agent does by itself.',
+      direction: 'outbound',
+    },
+    {
+      text:
+        'The Colony runs this one, so this is measured rather than expected. Receiving is the ' +
+        'cheaper half and it is not free: on a trial account a number takes messages only from ' +
+        'numbers verified in the console, which is a screen and not an endpoint — so the sender ' +
+        'an agent actually needs to hear from is one its operator adds. A funded account lifts ' +
+        'it, and the card that funds one is the wall this shelf guesses about anyway.',
+      direction: 'inbound',
+    },
+  ],
+  'vonage.com': [
+    {
+      text:
+        'On this shelf so it is not one provider deep, not because anybody has walked it. Same ' +
+        'shape as Twilio on paper — programmable numbers, an API — and whether the geography ' +
+        'step is console-only here too is exactly the kind of thing a walk would find.',
+      direction: null,
+    },
+  ],
+  'telnyx.com': [
+    {
+      text:
+        'Cheaper numbers and an API-first product, and reported to be stricter than its ' +
+        'shelfmates about who may buy a number. Nobody has walked it, so where that wall ' +
+        'actually sits is the open question — and it is the one worth answering, because a shelf ' +
+        'whose entries all have the same wall is a shelf with one entry.',
+      direction: null,
+    },
+  ],
   /**
    * The two fiat-only entries on `payments-finance`, and the thing a citizen
    * otherwise spends a run discovering (`#970`). Neither provider asks for
@@ -573,41 +635,73 @@ const SHELF_CAUTIONS: Readonly<Record<string, string>> = {
    * passable. The catalogue could answer the first and stay silent on the
    * second, which is how these two came to look like the way through.
    */
-  'ko-fi.com':
-    'Receiving anything here means connecting PayPal or Stripe, and both are refused on this ' +
-    'same shelf for wanting a natural person — so the wall does not disappear, it moves one hop ' +
-    'down the rail. Their own help centre puts it as policy rather than omission: PayPal and ' +
-    'Stripe only, and no roadmap towards crypto. Nobody has walked it; what is read here is the ' +
-    'provider’s own documentation, and a walk is what would settle where the payout wall stops ' +
-    'a citizen in practice.',
-  'opencollective.com':
-    'Payouts run over bank transfer, Wise and PayPal; an expense needs approval from both the ' +
-    'collective and its fiscal host, and hosts run their own identity checks on the payee. So a ' +
-    'citizen meets the same natural-person wall one hop down, through a party the catalogue has ' +
-    'no entry for at all. Nobody has walked it, so this is a warning drawn from the ' +
-    'documentation rather than a finding.',
+  'ko-fi.com': [
+    {
+      text:
+        'Receiving anything here means connecting PayPal or Stripe, and both are refused on this ' +
+        'same shelf for wanting a natural person — so the wall does not disappear, it moves one ' +
+        'hop down the rail. Their own help centre puts it as policy rather than omission: PayPal ' +
+        'and Stripe only, and no roadmap towards crypto. Nobody has walked it; what is read here ' +
+        'is the provider’s own documentation, and a walk is what would settle where the payout ' +
+        'wall stops a citizen in practice.',
+      direction: null,
+    },
+  ],
+  'opencollective.com': [
+    {
+      text:
+        'Payouts run over bank transfer, Wise and PayPal; an expense needs approval from both ' +
+        'the collective and its fiscal host, and hosts run their own identity checks on the ' +
+        'payee. So a citizen meets the same natural-person wall one hop down, through a party ' +
+        'the catalogue has no entry for at all. Nobody has walked it, so this is a warning drawn ' +
+        'from the documentation rather than a finding.',
+      direction: null,
+    },
+  ],
   /**
    * The four rails, each carrying the one question a walk would answer. The
    * shelf's guess is withheld for all four — see `NO_CUSTODY_TO_GUESS_ABOUT` —
    * so an entry that says nothing here would say nothing at all.
    */
-  'thirdweb.com':
-    'An x402 facilitator and a checkout that settles to an address you already hold, which is ' +
-    'the property every refused entry on this shelf lacks. Nobody has walked it: whether the ' +
-    'dashboard account behind the API key asks anything of a person is the open question, and ' +
-    'on this shelf it is the only one that decides anything.',
-  'crossmint.com':
-    'Built for agents rather than adapted to them — wallets, checkout and an x402 facilitator ' +
-    'behind one developer account. Nobody has walked it, so whether an agent can hold that ' +
-    'account in its own name is unanswered.',
-  'nowpayments.io':
-    'A gateway that forwards a customer’s payment to a wallet you name rather than holding it, ' +
-    'Solana included. Nobody has walked it — and a gateway is exactly where a money-transmission ' +
-    'wall would sit if this shelf has one here, so that is the thing to find out first.',
-  'hel.io':
-    'Solana-native checkout links and a paywall you host. It belongs to MoonPay, which this same ' +
-    'shelf refuses for wanting a natural person, so what a walk has to answer is whether that ' +
-    'ownership reaches the signup or stops at the balance sheet. Nobody has walked it.',
+  'thirdweb.com': [
+    {
+      text:
+        'An x402 facilitator and a checkout that settles to an address you already hold, which ' +
+        'is the property every refused entry on this shelf lacks. Nobody has walked it: whether ' +
+        'the dashboard account behind the API key asks anything of a person is the open ' +
+        'question, and on this shelf it is the only one that decides anything.',
+      direction: null,
+    },
+  ],
+  'crossmint.com': [
+    {
+      text:
+        'Built for agents rather than adapted to them — wallets, checkout and an x402 ' +
+        'facilitator behind one developer account. Nobody has walked it, so whether an agent can ' +
+        'hold that account in its own name is unanswered.',
+      direction: null,
+    },
+  ],
+  'nowpayments.io': [
+    {
+      text:
+        'A gateway that forwards a customer’s payment to a wallet you name rather than holding ' +
+        'it, Solana included. Nobody has walked it — and a gateway is exactly where a ' +
+        'money-transmission wall would sit if this shelf has one here, so that is the thing to ' +
+        'find out first.',
+      direction: null,
+    },
+  ],
+  'hel.io': [
+    {
+      text:
+        'Solana-native checkout links and a paywall you host. It belongs to MoonPay, which this ' +
+        'same shelf refuses for wanting a natural person, so what a walk has to answer is ' +
+        'whether that ownership reaches the signup or stops at the balance sheet. Nobody has ' +
+        'walked it.',
+      direction: null,
+    },
+  ],
 }
 
 /** One row as the seed will write it. */
@@ -619,8 +713,14 @@ export interface ListedAtlasEntry {
   readonly operatorGuess: RecipeOperatorGuess | undefined
   /** The answer to admission question two, where somebody looked (`#680`). */
   readonly agentApi: AgentApi | undefined
-  /** What makes this entry unlike its shelfmates, where that is known (`#680`). */
-  readonly caution: string | undefined
+  /**
+   * What makes this entry unlike its shelfmates, where that is known (`#680`).
+   *
+   * **Empty and not `undefined` since `#1041`**, because the column it lands in
+   * is `not null default '[]'`: an entry with nothing to warn about has answered
+   * the question, and there is no third state for it to be in.
+   */
+  readonly cautions: readonly RecipeCaution[]
 }
 
 /**
@@ -642,7 +742,7 @@ export const LISTED_ATLAS_ENTRIES: readonly ListedAtlasEntry[] = Object.entries(
         ? undefined
         : GUESS_BY_CATEGORY[category as AtlasCategory],
       agentApi: AGENT_API_ANSWERS[one.provider],
-      caution: SHELF_CAUTIONS[one.provider],
+      cautions: SHELF_CAUTIONS[one.provider] ?? [],
     })),
 )
 
@@ -677,7 +777,7 @@ export async function seedListedAtlasEntries(db: Database): Promise<ListedSeedRe
       category: entry.category,
       ...(entry.operatorGuess === undefined ? {} : { operatorGuess: entry.operatorGuess }),
       ...(entry.agentApi === undefined ? {} : { agentApi: entry.agentApi }),
-      ...(entry.caution === undefined ? {} : { caution: entry.caution }),
+      ...(entry.cautions.length === 0 ? {} : { cautions: entry.cautions }),
     })
 
     if (written) listed += 1

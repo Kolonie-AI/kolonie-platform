@@ -458,7 +458,7 @@ describe('a provider report reaching the catalogue', () => {
       status: 'unwritten',
       category: 'mailbox',
       steps: [],
-      caution: 'Nobody has walked this one.',
+      cautions: [{ text: 'Nobody has walked this one.', direction: null }],
     })
 
     await reportProvider(db, agentId, {
@@ -470,6 +470,6 @@ describe('a provider report reaching the catalogue', () => {
 
     const entry = await providerRecipe(db, kind, 'curated.example')
     expect(entry?.status).toBe('unwritten')
-    expect(entry?.caution).toBe('Nobody has walked this one.')
+    expect(entry?.cautions).toEqual([{ text: 'Nobody has walked this one.', direction: null }])
   })
 })

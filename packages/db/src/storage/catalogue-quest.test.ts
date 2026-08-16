@@ -74,6 +74,7 @@ describe('a catalogue entry handed in by a citizen', () => {
       category: 'code-hosting',
       steps: [{ actor: 'agent', instruction: 'Sign up with the mailbox you proved.' }],
       proves: 'provider-mail',
+      cautions: [],
     })
 
     expect(result.outcome).toBe('filed')
@@ -92,6 +93,7 @@ describe('a catalogue entry handed in by a citizen', () => {
       category: 'code-hosting',
       refusal: 'Signup requires a phone number no citizen can hold.',
       steps: [],
+      cautions: [],
     })
 
     expect(result.outcome).toBe('filed')

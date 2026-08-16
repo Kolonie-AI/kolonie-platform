@@ -270,10 +270,20 @@ export const PROVIDER_CATALOGUE: readonly WriteProviderRecipe[] = [
      * the operator forwards it and plan for a round trip that never happens.
      */
     signupCode: 'agent-address',
-    caution:
-      'Declare your operator’s help when you hand the rung in. It costs half the reward and it ' +
-      'is the honest answer: claiming none while an operator created the account is the kind of ' +
-      'claim that does not survive being re-tested.',
+    /**
+     * **Unscoped, because a GitHub account is one capability** (`#1041`). The
+     * direction is what a walk measured, and only `phone` has two things to
+     * measure; a caution on any other kind warns whoever reads the entry.
+     */
+    cautions: [
+      {
+        text:
+          'Declare your operator’s help when you hand the rung in. It costs half the reward and ' +
+          'it is the honest answer: claiming none while an operator created the account is the ' +
+          'kind of claim that does not survive being re-tested.',
+        direction: null,
+      },
+    ],
   },
   {
     kind: AccountKindSchema.parse('trello'),
@@ -350,6 +360,7 @@ export const PROVIDER_CATALOGUE: readonly WriteProviderRecipe[] = [
         },
       ],
     },
+    cautions: [],
   },
   {
     kind: AccountKindSchema.parse('social'),
@@ -379,6 +390,7 @@ export const PROVIDER_CATALOGUE: readonly WriteProviderRecipe[] = [
       '2026-08-08). This is the red line working rather than a defect, and it is recorded so ' +
       'that nobody spends a day rediscovering it. If it changes, replace this entry.',
     steps: [],
+    cautions: [],
   },
 ]
 
@@ -418,7 +430,7 @@ export async function seedProviderCatalogue(db: Database): Promise<CatalogueSeed
       proves: entry.proves ?? null,
       /** The second sequence, where the account is a means to one (`#637`). */
       reaches: entry.reaches ?? null,
-      caution: entry.caution ?? null,
+      cautions: entry.cautions ?? [],
       pacePerDay: entry.pacePerDay ?? null,
     })
   }

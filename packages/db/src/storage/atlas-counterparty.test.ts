@@ -219,7 +219,11 @@ describe('an entry’s paying counterparty', () => {
         kind,
         provider: 'example.test',
         author: 'claimed-provider',
-        proposed: { caution: 'Our confirmation mail moved to a different sender.' },
+        proposed: {
+          cautions: [
+            { text: 'Our confirmation mail moved to a different sender.', direction: null },
+          ],
+        },
       })
 
       expect(result.outcome).toBe('filed')

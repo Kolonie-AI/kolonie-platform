@@ -92,24 +92,49 @@ describe('a verdict measured one way does not answer the other', () => {
    * The other half of the title of `#976`: the wall was being written down, in a
    * caution, where no filter could see it. A caution measured against sending is
    * not a warning to a reader who came to receive.
+   *
+   * **The scope is the caution's own since `#1041`**, which is what lets one
+   * entry warn about both halves. Before it, the axis lived on the entry and an
+   * entry could hold exactly one warning — so `twilio.com`, which has a wall on
+   * each side, had to pick one and be silent about the other.
    */
-  it('withholds a caution measured against the other direction', async () => {
-    recipes.write({
-      kind: 'phone',
-      provider: 'partly.example',
-      category: 'telephony',
-      status: 'measured',
-      direction: 'outbound',
-      caution: 'Which countries a number may message is console-only.',
+  describe('a caution measured against one capability', () => {
+    beforeEach(() => {
+      recipes.write({
+        kind: 'phone',
+        provider: 'partly.example',
+        category: 'telephony',
+        status: 'measured',
+        direction: 'outbound',
+        cautions: [
+          { text: 'Which countries a number may message is console-only.', direction: 'outbound' },
+          { text: 'A trial number only hears from verified senders.', direction: 'inbound' },
+          { text: 'The console signs you out every few hours.', direction: null },
+        ],
+      })
     })
 
-    const asked = await readAtlas({ kind: 'phone', direction: 'inbound' }, recipes, false)
-    if (asked.outcome !== 'ok') throw new Error('expected the read to succeed')
+    it('is withheld from a reader who came for the other one', async () => {
+      const asked = await readAtlas({ kind: 'phone', direction: 'inbound' }, recipes, false)
+      if (asked.outcome !== 'ok') throw new Error('expected the read to succeed')
 
-    // The entry survives the withholding: a caution is an editorial warning on
-    // one row, and removing it is not a verdict about the provider.
-    expect(asked.response.entries[0]?.status).toBe('measured')
-    expect(asked.response.entries[0]?.recipes[0]?.caution).toBeNull()
+      // The entry survives the withholding: a caution is an editorial warning on
+      // one row, and removing it is not a verdict about the provider.
+      expect(asked.response.entries[0]?.status).toBe('measured')
+      expect(asked.response.entries[0]?.recipes[0]?.cautions.map((one) => one.text)).toEqual([
+        'A trial number only hears from verified senders.',
+        // The unscoped one answers every reader, which is the point of the null:
+        // it was never measured against a capability, so no capability excludes it.
+        'The console signs you out every few hours.',
+      ])
+    })
+
+    it('is all handed to a reader who asked for nothing', async () => {
+      const asked = await readAtlas({ kind: 'phone' }, recipes, false)
+      if (asked.outcome !== 'ok') throw new Error('expected the read to succeed')
+
+      expect(asked.response.entries[0]?.recipes[0]?.cautions).toHaveLength(3)
+    })
   })
 
   it('refuses a direction that is not one of the three', async () => {

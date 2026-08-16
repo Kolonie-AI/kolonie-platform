@@ -28,7 +28,7 @@ import { recordMeasuredProvider } from './storage/provider-recipes.js'
  * from an attempt narrative**: a plausible-sounding recipe nobody walked is worse
  * than an empty shelf, because it is indistinguishable from one somebody did.
  * That is not enforced by care here — `recordMeasuredProvider` writes `measured`
- * with empty steps and a null `caution`, and
+ * with empty steps and no cautions at all, and
  * `provider_recipes_unjoinable_is_empty` refuses anything else at the database.
  *
  * **The citizens' own sentences are not copied anywhere.** They already live in

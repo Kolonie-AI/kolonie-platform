@@ -66,7 +66,7 @@ const recipe = (input: {
     proves: joinable ? 'provider-post' : null,
     provesTask: null,
     reaches: null,
-    caution: null,
+    cautions: [],
     walkedRecipe: null,
     walls: [],
     agentApi: 'unknown' as const,

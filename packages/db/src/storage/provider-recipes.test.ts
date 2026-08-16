@@ -886,7 +886,7 @@ describe('a provider row the Colony measured', () => {
     expect(entry?.steps).toEqual([])
     expect(entry?.proves).toBeNull()
     expect(entry?.refusal).toBeNull()
-    expect(entry?.caution).toBeNull()
+    expect(entry?.cautions).toEqual([])
   })
 
   it('shows it to a stranger, without a steward', async () => {
@@ -927,7 +927,7 @@ describe('a provider row the Colony measured', () => {
       category: 'telephony',
       steps: [],
       refusal: 'The signup demands a natural person and says so.',
-      caution: 'Read the refusal before spending an afternoon here.',
+      cautions: [{ text: 'Read the refusal before spending an afternoon here.', direction: null }],
     })
 
     const before = await providerRecipe(db, kind('phone'), 'curated.example')
@@ -939,7 +939,7 @@ describe('a provider row the Colony measured', () => {
 
     expect(written).toBe(false)
     expect(after?.status).toBe('refused')
-    expect(after?.caution).toBe(before?.caution)
+    expect(after?.cautions).toEqual(before?.cautions)
     expect(after?.refusal).toBe(before?.refusal)
     expect(after?.title).toBe(before?.title)
   })

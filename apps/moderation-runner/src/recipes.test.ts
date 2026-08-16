@@ -34,7 +34,7 @@ const aRecipe = (over: Partial<ProviderRecipe> = {}): ProviderRecipe =>
     proves: 'rung',
     provesTask: 'email-inbox',
     reaches: null,
-    caution: null,
+    cautions: [],
     walkedRecipe: null,
     agentApi: 'full',
     signupCode: 'none',

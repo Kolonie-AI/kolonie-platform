@@ -76,14 +76,25 @@ describe('the providers the Atlas lists', () => {
      * been enabled for the destination answers `21408` instead of failing where
      * you set it up. Both halves, because the error code is what a citizen
      * searches for at the moment it goes wrong.
+     *
+     * **And both directions since `#1041`.** The walk measured two things and the
+     * row could hold one, so the receiving wall — a trial number takes messages
+     * only from numbers verified in a console — had nowhere to go. Asserted as
+     * two cautions rather than one string containing both, because a reader
+     * asking about receiving must be shown that one and not the other.
      */
     it('records what the Colony learned from running Twilio', () => {
       const twilio = LISTED_ATLAS_ENTRIES.find((entry) => entry.provider === 'twilio.com')
 
       expect(WALKED_PROVIDERS).toContain('twilio.com')
       expect(twilio?.agentApi).toBe('partial')
-      expect(twilio?.caution).toContain('console-only')
-      expect(twilio?.caution).toContain('21408')
+
+      const outbound = twilio?.cautions.find((one) => one.direction === 'outbound')
+      expect(outbound?.text).toContain('console-only')
+      expect(outbound?.text).toContain('21408')
+
+      const inbound = twilio?.cautions.find((one) => one.direction === 'inbound')
+      expect(inbound?.text).toContain('verified in the console')
     })
 
     it('gives every entry a category from the closed vocabulary', () => {
@@ -381,9 +392,9 @@ describe('the providers the Atlas lists', () => {
 
       for (const entry of hosting) {
         if (ODD_ONES_OUT.includes(entry.provider)) {
-          expect(entry.caution).not.toBeNull()
+          expect(entry.cautions.length).toBeGreaterThan(0)
         } else {
-          expect(entry.caution).toBeNull()
+          expect(entry.cautions).toEqual([])
           expect(entry.agentApi).toBe('full')
         }
       }
@@ -401,22 +412,28 @@ describe('the providers the Atlas lists', () => {
      * Both directions are asserted: a walked entry may not borrow the unwalked
      * disclaimer either, because that is the same defect pointing the other way
      * and it would throw away the one measurement on the list.
+     *
+     * **Every caution and not the entry's caution** (`#1041`). An entry now
+     * carries a set, and the rule was never about the row — it is about each
+     * sentence a reader is shown, so it is asserted about each of them.
      */
     it('says in every caution which kind of claim it is making', async () => {
       await seedListedAtlasEntries(db)
 
-      const cautioned = (await providerRecipeList(db)).filter((entry) => entry.caution !== null)
+      const cautioned = (await providerRecipeList(db)).filter((entry) => entry.cautions.length > 0)
 
       expect(cautioned.length).toBeGreaterThan(0)
 
       for (const entry of cautioned) {
-        const caution = entry.caution?.toLowerCase() ?? ''
+        for (const one of entry.cautions) {
+          const caution = one.text.toLowerCase()
 
-        if (WALKED_PROVIDERS.includes(entry.provider)) {
-          expect(caution).toContain('measured')
-          expect(caution).not.toContain('nobody has walked')
-        } else {
-          expect(caution).toContain('walk')
+          if (WALKED_PROVIDERS.includes(entry.provider)) {
+            expect(caution).toContain('measured')
+            expect(caution).not.toContain('nobody has walked')
+          } else {
+            expect(caution).toContain('walk')
+          }
         }
       }
     })
@@ -490,9 +507,11 @@ describe('the providers the Atlas lists', () => {
      */
     it('names the downstream rail on every entry that stays fiat-only', () => {
       for (const provider of FIAT_ONLY) {
-        const caution = payments().find((entry) => entry.provider === provider)?.caution ?? ''
+        const cautions = payments().find((entry) => entry.provider === provider)?.cautions ?? []
 
-        expect(caution).toEqual(expect.stringMatching(/PayPal|Wise|Stripe/))
+        expect(cautions.map((one) => one.text).join(' ')).toEqual(
+          expect.stringMatching(/PayPal|Wise|Stripe/),
+        )
       }
     })
 
@@ -540,7 +559,10 @@ describe('the providers the Atlas lists', () => {
         expect(WALKED_PROVIDERS).not.toContain(entry.provider)
         expect(entry.status).toBe('unwritten')
         expect(entry.steps).toHaveLength(0)
-        expect(entry.caution?.toLowerCase()).toContain('nobody has walked')
+        expect(entry.cautions.length).toBeGreaterThan(0)
+        for (const one of entry.cautions) {
+          expect(one.text.toLowerCase()).toContain('nobody has walked')
+        }
       }
     })
   })

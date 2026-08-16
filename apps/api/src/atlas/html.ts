@@ -857,11 +857,35 @@ function recipeSection(
     reach,
     figuresSection(recipe.figures, recipe.steps.length),
     briefingSection(briefing),
-    recipe.caution === null
-      ? ''
-      : `<p><strong>Known to go wrong:</strong> ${escape(recipe.caution)}</p>`,
+    cautionParagraphs(recipe.cautions),
     '</section>',
   ].join('')
+}
+
+/**
+ * One paragraph per caution, each saying which capability it was measured
+ * against (`#1041`).
+ *
+ * The same decision the text renderer takes and for the same reason: a page
+ * reader who asked for nothing gets both of `twilio.com`'s warnings, and read as
+ * one they contradict each other. Unscoped cautions carry no label — they answer
+ * every reader, and most of the Atlas has no axis to label.
+ */
+function cautionParagraphs(cautions: AtlasEntry['recipes'][number]['cautions']): string {
+  return cautions
+    .map((one) => {
+      const scope =
+        one.direction === null
+          ? ''
+          : one.direction === 'both'
+            ? ' (sending and receiving)'
+            : one.direction === 'inbound'
+              ? ' (receiving)'
+              : ' (sending)'
+
+      return `<p><strong>Known to go wrong${scope}:</strong> ${escape(one.text)}</p>`
+    })
+    .join('')
 }
 
 function provesLine(proves: AtlasEntry['recipes'][number]['proves']): string {

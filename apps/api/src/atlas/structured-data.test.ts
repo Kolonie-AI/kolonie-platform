@@ -32,7 +32,7 @@ const recipe = (over: Partial<AtlasEntry['recipes'][number]> = {}) =>
     proves: 'provider-post',
     provesTask: null,
     reaches: null,
-    caution: null,
+    cautions: [],
     walkedRecipe: null,
     agentApi: 'unknown',
     signupCode: 'unknown',

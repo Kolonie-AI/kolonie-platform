@@ -18,6 +18,7 @@ import {
   RecipeStatusSchema,
   RecipeDirectionSchema,
   DIRECTIONAL_KINDS,
+  RECIPE_MAX_CAUTIONS,
   type RecipeReach,
   type RecipeRuntimeNote,
   type RecipeStep,
@@ -28,6 +29,7 @@ import {
   RecipeNeedSchema,
   SignupCostSchema,
   type PublishedWall,
+  type RecipeCaution,
   type RecipeNeed,
   type WalkedRecipe,
 } from '@kolonie-ai/core'
@@ -256,8 +258,28 @@ export const providerRecipes = pgTable(
      */
     reaches: jsonb('reaches').$type<RecipeReach>(),
 
-    /** A wall a working entry warns about, from `provider-report` findings. */
-    caution: text('caution'),
+    /**
+     * The walls a working entry warns about, one per capability (`#1041`).
+     *
+     * **A set and not a sentence.** It was one `text` column, and `#976` gave
+     * the entry's *verdict* a direction while leaving the warning a single
+     * value — so an entry could warn about receiving or about sending and never
+     * both, and the second finding overwrote the first. `twilio.com` is the
+     * worked example: outbound is blocked by A2P 10DLC brand registration,
+     * inbound is limited to console-verified numbers, and a citizen wants to
+     * read the one it came for before it spends an afternoon.
+     *
+     * **`jsonb` on the row and not a child table**, which is what `#1041`
+     * proposed, for the three reasons `walls` gives beside it: this is the
+     * catalogue's hottest path, where `providerRecipeList` would otherwise carry
+     * a group-by over another table for all 133 rows; a recipe is read whole by
+     * one caller at a time and nothing queries across the cautions; and it lands
+     * on the row, so `toRecipe` stays the single place a row becomes a recipe.
+     *
+     * **`not null default '[]'`, like `walls` and `needs`**, because an entry
+     * with nothing to warn about has answered the question.
+     */
+    cautions: jsonb('cautions').$type<readonly RecipeCaution[]>().notNull().default([]),
 
     /**
      * The walker's own long-form account of the path (`#769`).
@@ -456,6 +478,41 @@ export const providerRecipes = pgTable(
               and ${table.kind} in (${sql.raw(
                 DIRECTIONAL_KINDS.map((one) => `'${one}'`).join(', '),
               )}))`,
+    ),
+
+    /**
+     * The caution vocabulary, and where a scoped one may appear (`#1041`).
+     *
+     * **The direction check again, one level down.** A caution scoped to a
+     * capability the kind does not have is a warning the shelf silently ignores
+     * — `directionScoped` would hand it to nobody — so it is refused at the same
+     * door and for the same reason the column above is.
+     *
+     * **`jsonb_path_exists` and not a subquery**, for the reason
+     * `provider_recipes_published_steps_are_written` records: PostgreSQL refuses
+     * a subquery in a check constraint outright (`cannot use subquery in check
+     * constraint`, `0A000`), and a jsonpath is an ordinary function call over the
+     * value. The first clause matches an element whose `direction` is neither
+     * null nor one of the three words; the second matches any scoped element at
+     * all, and is what the kind gate is written against.
+     *
+     * **Distinctness is the one rule not here**, and it is not an oversight:
+     * *each direction at most once* over a `jsonb` array cannot be written
+     * without a subquery. It lives in `cautionsAreDistinct` and is refined at
+     * both write doors — the entry's and the quest deliverable's.
+     */
+    check(
+      'provider_recipes_cautions_are_scoped',
+      sql`jsonb_typeof(${table.cautions}) = 'array'
+          and jsonb_array_length(${table.cautions}) <= ${sql.raw(String(RECIPE_MAX_CAUTIONS))}
+          and not jsonb_path_exists(
+            ${table.cautions},
+            '$[*] ? (@.direction != null && ${sql.raw(
+              RECIPE_DIRECTIONS.map((one) => `@.direction != "${one}"`).join(' && '),
+            )})'
+          )
+          and (${table.kind} in (${sql.raw(DIRECTIONAL_KINDS.map((one) => `'${one}'`).join(', '))})
+               or not jsonb_path_exists(${table.cautions}, '$[*] ? (@.direction != null)'))`,
     ),
 
     check(

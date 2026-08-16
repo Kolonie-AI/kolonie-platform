@@ -83,24 +83,43 @@ export function directionAnswers(
  * entry off the shelf, and an unwalked entry is worth listing — it is where the
  * next walk comes from.
  *
- * **Only a refusal is rewritten, and the caution always goes.** A refusal is the
- * one status that tells a reader not to bother, so it is the one that costs
- * something when it is about the wrong capability. `measured` costs nothing —
- * its figures are counts of attempts and they are true whichever way the agents
- * were going — and rewriting it would throw away evidence to fix a verdict that
- * was never in the way. The caution is dropped in every case because it is the
- * prose this whole axis exists to replace: a wall a carrier puts in front of
- * *sending* is not a warning to a reader who came to *receive*, and asking them
- * to work that out from the wording is what the field is for.
+ * **Only a refusal is rewritten.** A refusal is the one status that tells a
+ * reader not to bother, so it is the one that costs something when it is about
+ * the wrong capability. `measured` costs nothing — its figures are counts of
+ * attempts and they are true whichever way the agents were going — and rewriting
+ * it would throw away evidence to fix a verdict that was never in the way.
+ *
+ * **The cautions are filtered rather than dropped, and each answers for itself**
+ * (`#1041`). Until then there was one caution on the row, it was scoped by the
+ * row's verdict, and the only thing this could do with a caution measured
+ * against the other capability was withhold it — so an entry could warn about
+ * receiving or about sending and never both. Each caution now carries the
+ * direction it was measured against, so this keeps the ones that answer what the
+ * reader asked for, including the unscoped ones, and withholds the rest. A wall
+ * a carrier puts in front of *sending* is still not a warning to a reader who
+ * came to *receive*; what has changed is that withholding it no longer costs
+ * that reader the warning that was theirs.
+ *
+ * **The filter runs whatever the row's own scope is**, which is why there is no
+ * early return here any more. An entry measured both ways — or one nobody
+ * scoped — has a verdict that answers everybody and cautions that may not, and
+ * an early return on the verdict would hand a reader asking about receiving a
+ * warning about sending on exactly the entries most likely to carry one.
  */
 export function directionScoped<
-  T extends { status: string; refusal: string | null; caution: string | null },
+  T extends {
+    status: string
+    refusal: string | null
+    cautions: readonly { readonly direction: RecipeDirection | null }[]
+  },
 >(entry: T, scope: RecipeDirection | null, asked: RecipeDirection | undefined): T {
-  if (directionAnswers(scope, asked)) return entry
+  const cautions = entry.cautions.filter((one) => directionAnswers(one.direction, asked))
 
   return {
     ...entry,
-    ...(entry.status === 'refused' ? { status: 'unwritten', refusal: null } : {}),
-    caution: null,
+    ...(directionAnswers(scope, asked) || entry.status !== 'refused'
+      ? {}
+      : { status: 'unwritten', refusal: null }),
+    cautions,
   }
 }

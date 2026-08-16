@@ -14,7 +14,7 @@ import {
 import { noFigures } from './atlas-figures.js'
 import type { AtlasFigures } from './atlas-figures.js'
 import { RECIPE_STALE_AFTER_DAYS, RecipeStatusSchema, recipeStatusIsPublic } from './recipe.js'
-import type { ProviderRecipe, RecipeStatus } from './recipe.js'
+import type { ProviderRecipe, RecipeCaution, RecipeStatus } from './recipe.js'
 
 const daysAgo = (days: number): string =>
   new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString()
@@ -47,7 +47,7 @@ const recipe = (input: {
   provider: string
   status?: RecipeStatus
   lastConfirmedAt?: string | null
-  caution?: string | null
+  cautions?: RecipeCaution[]
   walked?: boolean
 }): ProviderRecipe => {
   const status = input.status ?? 'joinable'
@@ -78,7 +78,7 @@ const recipe = (input: {
     proves: joinable ? 'provider-post' : null,
     provesTask: null,
     reaches: null,
-    caution: input.caution ?? null,
+    cautions: input.cautions ?? [],
     walkedRecipe: input.walked === true ? { steps: [] } : null,
     walls: [],
     agentApi: 'unknown',
@@ -241,7 +241,11 @@ describe('how well an entry has aged', () => {
 
   it('is caution when a joinable row carries one', () => {
     const rows = measured([
-      recipe({ kind: 'github', provider: 'github.com', caution: 'the form times out' }),
+      recipe({
+        kind: 'github',
+        provider: 'github.com',
+        cautions: [{ text: 'the form times out', direction: null }],
+      }),
     ])
 
     expect(atlasEntryHealth(rows, 'joinable')).toBe('caution')
@@ -274,7 +278,7 @@ describe('how well an entry has aged', () => {
         kind: 'github',
         provider: 'github.com',
         lastConfirmedAt: null,
-        caution: 'the form times out',
+        cautions: [{ text: 'the form times out', direction: null }],
       }),
     ])
 
@@ -377,7 +381,7 @@ describe('the rows the figures imply', () => {
      * — the absence is the content rather than a gap in it.
      */
     expect(synthesized[0]?.steps).toEqual([])
-    expect(synthesized[0]?.caution).toBeNull()
+    expect(synthesized[0]?.cautions).toEqual([])
     expect(synthesized[0]?.proves).toBeNull()
   })
 

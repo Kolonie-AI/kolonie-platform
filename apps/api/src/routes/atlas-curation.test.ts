@@ -19,7 +19,11 @@ const proposal = (overrides: Partial<EntryProposal> = {}): EntryProposal => ({
   kind: AccountKindSchema.parse('mailbox'),
   provider: 'mail.tm' as never,
   author: 'citizen',
-  proposed: { caution: 'The confirmation mail now comes from a different sender.' },
+  proposed: {
+    cautions: [
+      { text: 'The confirmation mail now comes from a different sender.', direction: null },
+    ],
+  },
   note: 'I walked it on 2026-08-08.',
   status: 'pending',
   proposedAt: now(),

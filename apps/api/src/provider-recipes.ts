@@ -1054,9 +1054,46 @@ export function recipeAsText(recipe: ProviderRecipe, secretHandoff: boolean): st
     `${recipe.title} · ${recipe.category}\n\n${operatorNeedAsText(recipe)}` +
     `${directionAsText(recipe)}\n\n` +
     `${conditionsAsText(recipe)}${unwalkable}${steps}\n\n${proved}${reach}` +
-    (recipe.caution === null ? '' : `\n\n**Known to go wrong:** ${recipe.caution}`) +
+    cautionsAsText(recipe) +
     walked
   )
+}
+
+/**
+ * What is known to go wrong, one line per capability it was measured against
+ * (`#1041`).
+ *
+ * **The scope is printed on the caution and not only on the verdict.** A reader
+ * who asks for nothing is handed every caution the entry holds, which on
+ * `twilio.com` is two sentences that contradict each other read as one — *a
+ * number may not send* beside *a number may only hear from verified senders* is
+ * a plain contradiction unless each says which half it is about. A reader who
+ * asked for one capability has already been filtered down by `directionScoped`
+ * and sees only the answering ones, so the label is redundant there and cheap;
+ * printing it either way is what keeps the two readings of the same entry from
+ * needing different code.
+ *
+ * Unscoped cautions carry no label, which is most of the Atlas: they answer
+ * every reader, and *this applies to both directions* on a mailbox entry is a
+ * sentence about an axis that entry does not have.
+ */
+function cautionsAsText(recipe: { readonly cautions: ProviderRecipe['cautions'] }): string {
+  if (recipe.cautions.length === 0) return ''
+
+  return recipe.cautions
+    .map((one) => {
+      const scope =
+        one.direction === null
+          ? ''
+          : one.direction === 'both'
+            ? ' (sending and receiving)'
+            : one.direction === 'inbound'
+              ? ' (receiving)'
+              : ' (sending)'
+
+      return `\n\n**Known to go wrong${scope}:** ${one.text}`
+    })
+    .join('')
 }
 
 /**

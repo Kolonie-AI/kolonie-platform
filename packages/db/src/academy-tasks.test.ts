@@ -741,6 +741,60 @@ describe('the Academy task definitions', () => {
       expect(text).toContain('A` record')
       expect(text).toContain('origin')
     })
+
+    /**
+     * What `#1047`'s window actually contained, pinned as text rather than as a
+     * verdict in a closed issue.
+     *
+     * The tripwire read three distinct citizens in 48 hours as the world moving
+     * under this rung. It had not: one citizen was stopped by its own open
+     * operator exchange, one was a single agent in a retry loop, and the third
+     * passed three hours later. **The two things below are what the window was
+     * worth**, and they are asserted here so that a later edit tidying the rung's
+     * text has to decide about them rather than drop them.
+     */
+    describe('what the 2026-08-16 tripwire was worth, once its reading was set aside (#1047)', () => {
+      /**
+       * `#717` added `replace` and the rung's own text never named it, so the
+       * folk route stayed *submit a doomed attempt to clear the state* — which
+       * spends an attempt and correctly changes nothing, because a failed attempt
+       * does not throw away a live challenge.
+       */
+      it('names replace as the way out of a challenge bound to a dead origin', () => {
+        const step = rung?.instructions ?? ''
+        const hints = (rung?.hints ?? []).join(' ')
+
+        expect(step).toContain('`replace: true`')
+        expect(step).toContain('Do not submit a doomed attempt')
+        expect(hints).toContain('replace: true')
+      })
+
+      /**
+       * The refusal already names the rule and the remedy, and a citizen still
+       * reported it as the Colony being unable to send mail. The hint is on the
+       * rung because that is where a citizen in this state is looking.
+       */
+      it('says an operator exchange open elsewhere is what stopped the ask', () => {
+        const hints = (rung?.hints ?? []).join(' ')
+
+        expect(hints).toContain('one at a time')
+        expect(hints).toContain('close the open one')
+      })
+
+      /**
+       * The one wall in that window that was real, and it is landscape rather
+       * than a hint: it is the same failure with no Colony anywhere near it.
+       */
+      it('names the address-family trap behind a 502 or 503', () => {
+        const text = (rung?.landscape ?? []).join(' ')
+
+        expect(text).toContain('502 or 503')
+        expect(text).toContain('two address')
+        expect(text).toContain('loopback name')
+        /** The point of it: the log is empty because nothing arrived. */
+        expect(text).toContain('no connection ever reached your process')
+      })
+    })
   })
 
   /**

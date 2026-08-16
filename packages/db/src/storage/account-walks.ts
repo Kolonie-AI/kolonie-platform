@@ -860,10 +860,23 @@ export async function finishWalk(
  * stop the attempt before the Colony observes a handoff or an account declaration,
  * so requiring either one discards exactly the walks the Atlas most needs.
  *
- * A prior direct report at the same pair is reused rather than multiplied. Rows
- * with observed steps remain attempt history and are never overwritten here; a
- * direct row has no child steps, and a paid row is likewise immutable because a
- * ledger event already refers to what it earned.
+ * A prior finished report at the same pair is reused rather than multiplied, and
+ * that includes one with observed steps (`#1060`).
+ *
+ * **The steps and the prose are two different things and only one of them is the
+ * author's** — which is what the first version of this got wrong. The steps are
+ * what the Colony observed happening; the prose, the outcome, the wall and the
+ * direction are what the author was asked for and what the surface already
+ * promises they can replace. So the reuse leaves `account_walk_steps` alone and
+ * overwrites nothing but the reported fields.
+ *
+ * Refusing a stepped row made `#1023`'s `direction` unreachable on exactly the
+ * walks it was written for: a walk opened by `kolonie.accounts.declare` has a
+ * step from that moment, so every walk filed the ordinary way was frozen the
+ * instant it finished.
+ *
+ * `rewardedAt` stays the hard stop. A paid row is immutable because a ledger
+ * event already refers to what it earned.
  */
 export async function submitWalkReport(
   db: Database,
@@ -892,21 +905,29 @@ export async function submitWalkReport(
     let walkId = open?.id
 
     if (walkId === undefined) {
+      /**
+       * `startedAt = finishedAt` stood here too, and was standing in for *this
+       * row was written by a direct report*. That is no longer the question:
+       * every unrewarded finished walk at this pair is the author's to replace.
+       * It is still read, because it decides whether the reopened walk keeps its
+       * own start — see below.
+       */
       const [direct] = await tx
-        .select({ id: accountWalks.id })
+        .select({
+          id: accountWalks.id,
+          /**
+           * Both sides written out with their table names. Drizzle renders
+           * `${accountWalks.id}` bare in a select field, and a bare `id` inside
+           * this subquery resolves against `account_walk_steps` — the wrong
+           * answer with no error attached that `#311` is about.
+           */
+          hasSteps: sql<boolean>`exists (
+            select 1 from account_walk_steps as step
+             where step.walk_id = account_walks.id
+          )`,
+        })
         .from(accountWalks)
-        .where(
-          and(
-            pair,
-            isNotNull(accountWalks.finishedAt),
-            isNull(accountWalks.rewardedAt),
-            sql`${accountWalks.startedAt} = ${accountWalks.finishedAt}`,
-            sql`not exists (
-              select 1 from account_walk_steps as step
-               where step.walk_id = ${accountWalks.id}
-            )`,
-          ),
-        )
+        .where(and(pair, isNotNull(accountWalks.finishedAt), isNull(accountWalks.rewardedAt)))
         .orderBy(desc(accountWalks.startedAt))
         .limit(1)
         .for('update')
@@ -923,7 +944,14 @@ export async function submitWalkReport(
         await tx
           .update(accountWalks)
           .set({
-            startedAt: sql`now()`,
+            /**
+             * A walk with steps keeps the moment it actually started. Equal
+             * endpoints are how `unreportedWalk` tells a direct report from a
+             * walk something else opened, so moving the start of a stepped row
+             * to `now()` would make it read as the other kind — and `now()` is
+             * transaction-stable, so it would land exactly on `finishedAt`.
+             */
+            ...(direct.hasSteps ? {} : { startedAt: sql`now()` }),
             finishedAt: null,
             outcome: null,
             wall: null,

@@ -944,10 +944,14 @@ describe('kolonie.accounts.walk-report long form', () => {
   })
 
   /**
-   * A finished observed walk remains history. The report now opens an attempt of
-   * its own rather than overwriting the row whose earlier outcome already stands.
+   * **A finished walk nobody was paid for is the author's to replace** (`#1060`).
+   *
+   * This asserted the opposite until a citizen went back to add `#1023`'s
+   * `direction` to a walk it had already written up, and was told there was no
+   * walk to report on. The row is the same row and the second report is the one
+   * that stands: a walk is not history until a reward refers to it.
    */
-  it('does not overwrite a finished walk when the report opens its own attempt', async () => {
+  it('replaces the finished walk rather than opening a second one beside it', async () => {
     const { colony, apiKey, agent } = await registeredCitizen()
     const walks = fakeWalks()
     const earlier = walks.add({
@@ -964,9 +968,9 @@ describe('kolonie.accounts.walk-report long form', () => {
     })
 
     expect(result.isError).not.toBe(true)
-    expect(result.structuredContent).not.toMatchObject({ walkId: earlier.id })
-    expect((await walks.one(agent.id, earlier.id))?.recipe).toBeNull()
-    expect(await walks.list(agent.id)).toHaveLength(2)
+    expect(result.structuredContent).toMatchObject({ walkId: earlier.id })
+    expect((await walks.one(agent.id, earlier.id))?.recipe).toMatchObject(RECIPE)
+    expect(await walks.list(agent.id)).toHaveLength(1)
     await close()
   })
 

@@ -581,6 +581,14 @@ function walkFate(walk: AccountWalk, entry: ProviderRecipe | undefined): WalkFat
      * and had nowhere to put it. Only a draft can take one, so only a draft is
      * told about it: against an unwritten or measured row there is no draft to
      * amend, and the sentence would name a call that answers nothing.
+     *
+     * **Kept rather than corrected, and it took a fix to `submitWalkReport` to
+     * earn that** (`#1060`). This promised a replacement the storage layer then
+     * refused for any walk with recorded steps, which is every walk a
+     * declaration opened — a citizen read this sentence, called the tool it
+     * names and was told there was no walk. The tool now does what this says.
+     * A walk with a reward booked against it is still immutable, and a draft
+     * entry is by construction one nobody has been paid for, so the two agree.
      */
     const yours =
       entry?.status === 'draft'

@@ -139,6 +139,119 @@ describe('the record of one agent obtaining one account', () => {
     expect(await accountWalkList(db, agentId)).toHaveLength(1)
   })
 
+  /**
+   * **A finished report is the author's to replace, and the steps beside it are
+   * not** (`#1060`).
+   *
+   * A citizen wrote its walk up, read `#1023`'s `direction` afterwards and went
+   * back to add it — and was told there was no walk to report on. Every walk
+   * filed the ordinary way had a step on it, because `kolonie.accounts.declare`
+   * records one, and a stepped row was refused. So the field was unreachable on
+   * exactly the walks it was written for.
+   */
+  describe('re-reporting a walk that already finished', () => {
+    /**
+     * **The rejection case first.** A walk with a reward booked against it is
+     * immutable, because a ledger event already refers to what it earned. The
+     * report is not lost — it opens a walk of its own — and the paid row is the
+     * one thing this must never touch.
+     */
+    it('leaves a walk that was paid for alone, and files beside it', async () => {
+      const paid = await walkInProgress(db, agentId, where)
+      await recordWalkStep(db, paid, { actor: 'agent' })
+      await finishWalk(db, paid, { outcome: 'proved', did: 'It was OAuth all the way through.' })
+      await db.execute(sql`update account_walks set rewarded_at = now() where id = ${paid}`)
+
+      const again = await submitWalkReport(db, agentId, where, {
+        outcome: 'refused',
+        wall: 'The signup form now demands a card.',
+      })
+
+      expect(again?.walk.id).not.toBe(paid)
+      const rewarded = await accountWalk(db, paid)
+      expect(rewarded?.outcome).toBe('proved')
+      expect(rewarded?.did).toContain('OAuth')
+      expect(await accountWalkList(db, agentId)).toHaveLength(2)
+    })
+
+    /**
+     * The walk the issue is about: opened by a declaration, so it carries a step,
+     * finished, and then re-reported to add the one field `#1023` introduced.
+     */
+    it('replaces the report on a stepped walk rather than refusing it', async () => {
+      const scoped = { kind: kind('phone'), provider: 'agentphone.example' }
+      const walkId = await walkInProgress(db, agentId, scoped)
+      await recordWalkStep(db, walkId, { actor: 'agent' })
+      await submitWalkReport(db, agentId, scoped, {
+        outcome: 'proved',
+        did: 'I signed up and the number was live in a minute.',
+      })
+
+      const again = await submitWalkReport(db, agentId, scoped, {
+        outcome: 'proved',
+        direction: 'inbound',
+        did: 'I signed up and the number was live in a minute. It cannot send.',
+      })
+
+      expect(again?.walk.id).toBe(walkId)
+      expect(again?.walk.direction).toBe('inbound')
+      expect(again?.walk.did).toContain('cannot send')
+      expect(await accountWalkList(db, agentId)).toHaveLength(1)
+    })
+
+    /**
+     * **And the steps are untouched by it.** The prose is what the author was
+     * asked for; the steps are what the Colony observed happening, and no report
+     * is evidence about those. Losing them would also lose the divergence a
+     * later walk is judged against.
+     */
+    it('leaves every observed step exactly as it was', async () => {
+      const walkId = await walkInProgress(db, agentId, where)
+      await recordWalkStep(db, walkId, { actor: 'agent' })
+      await recordWalkStep(db, walkId, { actor: 'operator', ask: 'Please open this URL.' })
+      await submitWalkReport(db, agentId, where, { outcome: 'proved' })
+      const before = (await accountWalk(db, walkId))?.steps
+
+      await submitWalkReport(db, agentId, where, {
+        outcome: 'refused',
+        wall: 'On a second reading it never let me in at all.',
+      })
+
+      expect((await accountWalk(db, walkId))?.steps).toEqual(before)
+    })
+
+    /**
+     * Two reports racing at one pair. `for('update')` on the citizen's own row
+     * is what makes the loser reuse what the winner wrote instead of inserting a
+     * second walk beside it.
+     */
+    it('files one walk when two reports arrive at once', async () => {
+      const walkId = await walkInProgress(db, agentId, where)
+      await recordWalkStep(db, walkId, { actor: 'agent' })
+      await finishWalk(db, walkId, { outcome: 'proved' })
+
+      await Promise.all([
+        submitWalkReport(db, agentId, where, { outcome: 'abandoned', did: 'One of two.' }),
+        submitWalkReport(db, agentId, where, { outcome: 'abandoned', did: 'The other.' }),
+      ])
+
+      expect(await accountWalkList(db, agentId)).toHaveLength(1)
+    })
+
+    /** And `#1031` still holds: a pair nobody has walked opens its own walk. */
+    it('opens a walk where there was none to replace', async () => {
+      const fresh = { kind: kind('mailbox'), provider: 'unwalked.example' }
+
+      const filed = await submitWalkReport(db, agentId, fresh, {
+        outcome: 'refused',
+        wall: 'It wanted a phone number before it would create anything.',
+      })
+
+      expect(filed?.walk.provider).toBe('unwalked.example')
+      expect(await accountWalkList(db, agentId)).toHaveLength(1)
+    })
+  })
+
   it('numbers steps in the order they happened, and never from the caller', async () => {
     const walkId = await walkInProgress(db, agentId, where)
     await recordWalkStep(db, walkId, { actor: 'agent' })

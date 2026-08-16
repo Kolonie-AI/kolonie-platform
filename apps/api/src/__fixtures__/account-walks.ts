@@ -119,7 +119,7 @@ export function fakeWalks(): FakeWalkStore {
     },
     async record() {},
     finish,
-    // @mirrors packages/db/src/storage/account-walks.ts submitWalkReport a4e4e153
+    // @mirrors packages/db/src/storage/account-walks.ts submitWalkReport f9c0005f
     async submit(agentId, input, report) {
       const open = rows.find(
         (walk) =>
@@ -131,12 +131,19 @@ export function fakeWalks(): FakeWalkStore {
       let walkId = open?.id
 
       if (walkId === undefined) {
+        /**
+         * **Every finished walk at this pair, not only the ones a report wrote**
+         * (`#1060`). `direct.has(...)` stood here and made the walks a
+         * declaration opened — which is every walk filed the ordinary way —
+         * unreplaceable. The storage's own hard stop is `rewarded_at`, which
+         * this fake does not model because nothing here books a reward.
+         */
         const replacement = rows.find(
           (walk) =>
-            direct.has(walk.id) &&
             walk.agentId === agentId &&
             walk.kind === input.kind &&
-            walk.provider === input.provider,
+            walk.provider === input.provider &&
+            walk.finishedAt !== null,
         )
 
         if (replacement === undefined) {
@@ -147,7 +154,13 @@ export function fakeWalks(): FakeWalkStore {
           const at = rows.findIndex((walk) => walk.id === replacement.id)
           rows[at] = {
             ...replacement,
-            startedAt: currentTime(),
+            /**
+             * A walk with steps keeps the moment it actually started, and keeps
+             * the steps: the prose is what the author was asked for, the steps
+             * are what the Colony observed. Equal endpoints are what `direct`
+             * stands in for here, so only a stepless walk joins that set.
+             */
+            ...(replacement.steps.length === 0 ? { startedAt: currentTime() } : {}),
             finishedAt: null,
             outcome: null,
             direction: null,
@@ -159,8 +172,8 @@ export function fakeWalks(): FakeWalkStore {
             discarded: null,
             takenStepPositions: null,
             recipe: null,
-            steps: [],
           }
+          if (replacement.steps.length === 0) direct.add(replacement.id)
           proposed.delete(replacement.id)
           walkId = replacement.id
         }

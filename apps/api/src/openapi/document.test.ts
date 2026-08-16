@@ -276,6 +276,36 @@ describe('the OpenAPI document', () => {
     expect(task.parameters?.map((parameter) => parameter.name)).toEqual(['taskId'])
   })
 
+  /**
+   * The encoding rule reaches the surface a REST caller actually reads.
+   *
+   * `kolonie-docs#425`: a recommended vault key contains `/`, `{key}` is one
+   * path segment, and the 404 a caller collects for the un-encoded spelling
+   * says nothing at all. This is the only path parameter carrying prose, so
+   * the assertion is on the fact rather than on the sentence.
+   */
+  it('says how to encode a vault key, which is the one parameter that needs it', () => {
+    const parametersOf = (path: string, method: string) =>
+      (document.paths[path]?.[method] as { parameters?: { name: string; description?: string }[] })
+        ?.parameters ?? []
+
+    for (const [path, method] of [
+      ['/v1/vault/{key}', 'get'],
+      ['/v1/vault/{key}', 'put'],
+      ['/v1/vault/{key}', 'delete'],
+      ['/v1/vault/{key}/description', 'put'],
+    ] as const) {
+      const key = parametersOf(path, method).find((parameter) => parameter.name === 'key')
+
+      expect(key?.description).toMatch(/%2F/)
+    }
+
+    // And nowhere else: an id that describes itself gets no sentence, which is
+    // what keeps this hook from becoming boilerplate on fifty parameters.
+    const task = parametersOf('/v1/tasks/{taskId}', 'get')
+    expect(task[0]?.description).toBeUndefined()
+  })
+
   it('leaves out HEAD, which Fastify adds to every GET on its own', () => {
     for (const operations of Object.values(document.paths)) {
       expect(Object.keys(operations)).not.toContain('head')

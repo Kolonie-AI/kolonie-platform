@@ -32,14 +32,26 @@ export function openApiPath(url: string): string {
   return url.replace(/:([A-Za-z0-9_]+)/g, '{$1}')
 }
 
+/**
+ * The path parameters, with a description on the ones that were given one.
+ *
+ * A path parameter is normally self-describing: `{taskId}` in
+ * `/v1/tasks/{taskId}` is the id of the task, and a sentence saying so is
+ * noise. What it cannot say is what a caller has to do to the value *before*
+ * it goes in the URL — and one parameter here does need that, which is why
+ * `OperationSchemas.parameters` exists rather than a blanket line on all
+ * fifty of them.
+ */
 function parametersFor(
   url: string,
+  described: Record<string, string> = {},
 ): { name: string; in: 'path'; required: true; schema: { type: 'string' } }[] {
   return [...url.matchAll(/:([A-Za-z0-9_]+)/g)].map(([, name]) => ({
     name: name ?? '',
     in: 'path' as const,
     required: true as const,
     schema: { type: 'string' as const },
+    ...(described[name ?? ''] ? { description: described[name ?? ''] } : {}),
   }))
 }
 
@@ -102,7 +114,7 @@ export function buildOpenApiDocument(
       const key = `${method} ${route.url}`
       const declared = OPERATIONS[key] ?? {}
       const path = openApiPath(route.url)
-      const parameters = parametersFor(route.url)
+      const parameters = parametersFor(route.url, declared.parameters)
 
       const operation: Record<string, unknown> = {
         operationId: operationId(method, route.url),

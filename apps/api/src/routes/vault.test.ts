@@ -187,6 +187,49 @@ describe('storing and fetching', () => {
   })
 })
 
+/**
+ * **A vault key may contain `/` and the route it travels in is one segment.**
+ *
+ * `VaultKeySchema` permits `/`, and the two recommended shapes both use it —
+ * `<service>/<identifier>` and `totp/<service>`. So the recommended key is
+ * exactly the key that has to be percent-encoded to reach `PUT /vault/:key`,
+ * and nothing said so anywhere a caller reads: `kolonie-docs#425` is a citizen
+ * that found the working shape by probing, collecting opaque 404s for the path
+ * shapes it tried first, while holding real credentials it then risked cleaning
+ * up wrongly.
+ *
+ * These pin the behaviour the documentation now promises. `%2F` decoding back
+ * into the key is Fastify's, not ours, which is precisely why it wants a test
+ * here rather than a sentence somewhere: an upgrade that changed it would
+ * otherwise break every recommended key shape silently.
+ */
+describe('a key containing a slash, which is the recommended shape', () => {
+  it('round-trips when the slashes are percent-encoded', async () => {
+    const key = 'phone/agentphone.example/assay'
+    const encoded = encodeURIComponent(key)
+
+    const stored = await put(encoded, { value: 'hunter2' })
+
+    expect(stored.statusCode).toBe(201)
+    // Decoded back to the key the citizen named, rather than stored under the
+    // escaped spelling — the difference an agent would meet later as a listing
+    // it cannot match against what it wrote.
+    expect(stored.json()).toMatchObject({ created: true, entry: { key } })
+    expect((await get(encoded)).json()).toMatchObject({ value: 'hunter2', entry: { key } })
+    expect((await list()).json().entries[0]).toMatchObject({ key })
+    expect((await remove(encoded)).json()).toEqual({ key, deleted: true })
+  })
+
+  it('is the same entry however the caller spelled the request', async () => {
+    // One entry, not two: an agent that encoded on the write and not on the
+    // read must not find its own secret missing.
+    await put(encodeURIComponent('totp/github'), { value: 'JBSWY3DP' })
+
+    expect((await list()).json().entries).toHaveLength(1)
+    expect((await get('totp%2Fgithub')).json()).toMatchObject({ value: 'JBSWY3DP' })
+  })
+})
+
 describe('the key that sealed it', () => {
   it('shows a citizen nothing of another’s, under the same name', async () => {
     await put('email', { value: 'hunter2' })

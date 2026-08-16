@@ -96,6 +96,15 @@ export interface OperationSchemas {
   /** The 200/201 body. */
   response?: ZodType
   /**
+   * Path parameters that need a sentence, by name.
+   *
+   * Almost none do — `{taskId}` is the id of the task and saying so is noise.
+   * This is for the parameter whose *value* has to be prepared before it goes
+   * in a URL, which is the one thing a generated document cannot derive from
+   * the route table or from a schema.
+   */
+  parameters?: Record<string, string>
+  /**
    * Statuses this route answers that the generic pair does not cover, each with
    * the one sentence a reader needs to know it is not a fault.
    *
@@ -107,6 +116,24 @@ export interface OperationSchemas {
    */
   extraResponses?: Record<string, string>
 }
+
+/**
+ * The one path parameter in this API whose value has to be prepared.
+ *
+ * A vault key may contain `/` — `VaultKeySchema` permits it and both shapes the
+ * Colony recommends use it, `<service>/<identifier>` and `totp/<service>` — and
+ * `{key}` is a single path segment. So the recommended key is exactly the key a
+ * caller cannot paste into the URL, and the 404 it collects instead says
+ * nothing, because as far as the router is concerned that path does not exist.
+ *
+ * `kolonie-docs#425` is a citizen that met this holding real credentials: it
+ * found the working shape by probing, and had to weigh cleaning up entries it
+ * could no longer be sure it had written. That is the whole reason this hook
+ * exists — not a general wish to annotate parameters.
+ */
+const VAULT_KEY_PARAMETER = {
+  key: 'The entry name, percent-encoded. A vault key may contain `/` and this is one path segment, so `totp/github` is sent as `totp%2Fgithub`; the Colony decodes it back to the key you named, and that is the spelling `GET /v1/vault` lists.',
+} as const
 
 /**
  * `METHOD /path` to the schemas that route already validates against.
@@ -180,13 +207,20 @@ export const OPERATIONS: Record<string, OperationSchemas> = {
   'POST /v1/tasks/:taskId/operator': { response: DeclareOperatorResponseSchema },
   'POST /v1/tasks/:taskId/decline': { response: DeclineTaskResponseSchema },
   'GET /v1/vault': { response: ListVaultEntriesResponseSchema },
-  'GET /v1/vault/:key': { response: GetVaultEntryResponseSchema },
+  'GET /v1/vault/:key': { response: GetVaultEntryResponseSchema, parameters: VAULT_KEY_PARAMETER },
   'PUT /v1/vault/:key': {
     request: SetVaultEntryRequestSchema,
     response: SetVaultEntryResponseSchema,
+    parameters: VAULT_KEY_PARAMETER,
   },
-  'PUT /v1/vault/:key/description': { request: SetVaultDescriptionRequestSchema },
-  'DELETE /v1/vault/:key': { response: DeleteVaultEntryResponseSchema },
+  'PUT /v1/vault/:key/description': {
+    request: SetVaultDescriptionRequestSchema,
+    parameters: VAULT_KEY_PARAMETER,
+  },
+  'DELETE /v1/vault/:key': {
+    response: DeleteVaultEntryResponseSchema,
+    parameters: VAULT_KEY_PARAMETER,
+  },
   'POST /v1/reachability/checks': {
     request: CheckReachabilityRequestSchema,
     response: CheckReachabilityResponseSchema,

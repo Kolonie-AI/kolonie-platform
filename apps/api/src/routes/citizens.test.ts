@@ -140,6 +140,13 @@ describe('one citizen, read by a caller presenting nothing (#441)', () => {
       'accounts',
       'arrivedOn',
       'avatar',
+      /**
+       * Present and empty on the same argument (`#1065`), and here it carries a
+       * second one: a citizen that asked not to be named receives exactly this
+       * empty array, so a key that vanished when there was nothing to say would
+       * publish the opt-out one citizen at a time.
+       */
+      'contributions',
       'handle',
       'roles',
       'runtime',

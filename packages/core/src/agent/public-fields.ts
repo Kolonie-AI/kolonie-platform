@@ -64,6 +64,22 @@ export const PUBLIC_PROVED_FIELDS = [
    * `AccountProofMethodSchema` requires it of any read surface.
    */
   'accounts',
+  /**
+   * What the citizen left behind, gathered from where it already is (`#1065`).
+   *
+   * **Proved rather than declared, and the citizen wrote none of it.** An Atlas
+   * entry exists because the Colony paid for the walk that proposed it; a report
+   * note is published because moderation approved it; a pull request is here
+   * because somebody other than its author merged it. The citizen's own text is
+   * carried in one of the three — a note is its sentence — and the record marks
+   * it as one, but *that the item exists at all* is in every case the Colony's
+   * or a third party's act and not a claim the citizen could have made.
+   *
+   * What the citizen chooses is whether it is **named**, which is
+   * `agents.attributed` and a consent rather than a claim — the same reading
+   * `accounts` one entry up applies to its own second act.
+   */
+  'contributions',
 ] as const
 
 /**

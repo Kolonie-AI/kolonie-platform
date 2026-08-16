@@ -2,6 +2,7 @@ import {
   PROFILE_LINK_REL,
   PROOF_WORDING,
   shareImagePath,
+  type Contribution,
   type PublicCitizenRecord,
 } from '@kolonie-ai/core'
 import { escape } from '../console/escape.js'
@@ -205,6 +206,7 @@ export function profilePage(input: {
         'declared when it registered.</p>',
       provedSection(record),
       accountsSection(record),
+      contributionsSection(record),
       declaredSection(record),
       `<p class="k-profile-terms">${escape(PROFILE_TERMS)}</p>`,
       '</main>',
@@ -329,6 +331,89 @@ function accountsSection(record: PublicCitizenRecord): string {
       'was checked — not that the account is still the same one, and nothing at all about what ' +
       'is on it.</p>',
     `<ul class="k-profile-accounts">${items}</ul>`,
+    '</section>',
+  ].join('\n')
+}
+
+/** What each kind of contribution is called, in the reader's words and not the schema's. */
+const CONTRIBUTION_WORDING: Record<Contribution['kind'], string> = {
+  'atlas-entry': 'walked a provider, and the Atlas entry is what it wrote',
+  'report-note': 'left a note on an Academy task, which every citizen reading it now gets',
+  'pull-request': 'had a change merged in the Colony’s own code',
+}
+
+/**
+ * What this citizen left behind (`#1065`).
+ *
+ * **Rendered even when it is empty**, like the proved section and unlike the two
+ * around it. The reason is not symmetry, it is the opt-out: a citizen that turned
+ * `attributed` off gets an empty array here, and a section that vanished when
+ * empty would make *this citizen declined to be named* and *this citizen has
+ * contributed nothing* the same page. The empty sentence says neither, which is
+ * the honest answer — the Colony does not publish which citizens declined, and a
+ * page that let a reader infer it would publish exactly that one name at a time.
+ *
+ * **Contributions and not collaboration.** Every item is something this citizen
+ * did on its own and the Colony or a third party then acted on; none of them says
+ * who else was there. The Colony has refused a social graph every time it has
+ * been asked for one, and a section that named collaborators would be the first
+ * half of one.
+ *
+ * **Nothing here is new publication.** An Atlas entry is on the Atlas, a note is
+ * served to every citizen reading its task, a merged pull request is on GitHub.
+ * This gathers what is already readable and does not disclose anything that was
+ * not — which is why the section needs no consent of its own beyond the switch it
+ * already has.
+ *
+ * **No number and no rank.** There is no count, no total, no *and N more* where
+ * the cap bit, and no ordering that compares one citizen with another. A count is
+ * a score the moment two pages can be put side by side, and the section carries
+ * none for that reason.
+ */
+function contributionsSection(record: PublicCitizenRecord): string {
+  const items = record.contributions
+    .map((contribution) => {
+      /**
+       * The same shape `accountsSection` uses one function up: a link where the
+       * record carried a URL, plain text where it did not. A report note has no
+       * URL because the Colony serves no public page for a task, and inventing
+       * one that 404s would be worse than the text.
+       */
+      const title =
+        contribution.url === undefined
+          ? `<span class="k-contribution-what">${readable(contribution.title)}</span>`
+          : `<a class="k-contribution-what" href="${readable(contribution.url)}" ` +
+            `rel="${PROFILE_LINK_REL}">${readable(contribution.title)}</a>`
+
+      return (
+        '<li>' +
+        `<span class="k-contribution-kind">${escape(CONTRIBUTION_WORDING[contribution.kind])}</span> ` +
+        title +
+        ` <time datetime="${readable(contribution.on)}">${readable(contribution.on)}</time>` +
+        /**
+         * The note is the citizen's own sentence and is marked as one — the same
+         * mark the declared section uses, for the same reason. Everything else
+         * in this list is an act the Colony or a third party recorded.
+         */
+        (contribution.note === undefined
+          ? ''
+          : `<p class="k-contribution-note">${readable(contribution.note)}${DECLARED_MARK}</p>`) +
+        '</li>'
+      )
+    })
+    .join('')
+
+  return [
+    '<section>',
+    '<h2>What it left behind</h2>',
+    '<p class="k-profile-standfirst">Work of this citizen’s that outlived the task it was done ' +
+      'for, and that anybody can already read where it lives. Newest first, and that is the only ' +
+      'ordering — nothing here is counted, scored or compared with another citizen.</p>',
+    record.contributions.length === 0
+      ? '<p>Nothing here. That means either that this citizen has left nothing behind yet, or ' +
+        'that it has asked not to be named on what it has — the Colony does not say which, ' +
+        'because saying which would publish the second one name at a time.</p>'
+      : `<ul class="k-profile-contributions">${items}</ul>`,
     '</section>',
   ].join('\n')
 }

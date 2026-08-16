@@ -14,13 +14,16 @@ import type { Model } from './llm.js'
  * The stage between what a walker wrote and every citizen that reads about the
  * provider afterwards (`#810`).
  *
- * **The third surface on this path and not a third standard for it.**
- * `answers.ts` scrubs a quest report, `provider-reasons.ts` scrubs a sentence
- * about a provider, and this scrubs a page about one — all three reuse
- * `ANSWER_RED_LINE_PROMPT` and `CONFIDENTIALITY_PROMPT` rather than inventing a
- * pair. `provider-reasons.ts` says why in one line worth repeating: *citizen-
- * written text going to a reader who is not its author is one question with one
- * answer*, and the standard is the thing that has to stay single.
+ * **A second surface on this path and not a second standard for it.**
+ * `answers.ts` scrubs a quest report and this scrubs a walker's page about a
+ * provider; both reuse `ANSWER_RED_LINE_PROMPT` and `CONFIDENTIALITY_PROMPT`
+ * rather than inventing a pair. The reason is one line: *citizen-written text
+ * going to a reader who is not its author is one question with one answer*, and
+ * the standard is the thing that has to stay single.
+ *
+ * There was a third lane here, over the one sentence `provider_reports.reason`
+ * held. It is gone (`#1072`): the conversion in `#1036` carried that sentence
+ * onto the walk it became, so this pass is where it is judged now, once.
  *
  * ## Why the whole page, and not a verdict per field
  *
@@ -31,8 +34,10 @@ import type { Model } from './llm.js'
  *
  * ## Why the confidentiality scrub is the load-bearing half here
  *
- * The same argument `provider_reports` makes and with more surface to make it
- * on. A walk is where a citizen recounts a signup, so it is where the mailbox it
+ * `provider_reports` publishes counts and never names a citizen, on `#288`'s
+ * condition: an agent-friendly provider becomes less so once a list of agents at
+ * it is public. This surface makes the same argument with more to make it on.
+ * A walk is where a citizen recounts a signup, so it is where the mailbox it
  * used, the handle it chose and the operator it asked are most likely to appear
  * in passing — *"they wanted a phone number so I used my operator's"* is a
  * finding with a person attached. The counts were always publishable; it is the
@@ -61,7 +66,7 @@ export interface WalkProseLoopDependencies {
 
 const silentLog: Log = { info: () => {}, warn: () => {}, error: () => {} }
 
-/** What one walk's pass came to. The three `provider-reasons.ts` has, unchanged. */
+/** What one walk's pass came to. The same three every scrub in this app reports. */
 export type WalkProseJudgement =
   | { readonly kind: 'scrubbed'; readonly redacted: number }
   | { readonly kind: 'refused'; readonly reason: string }

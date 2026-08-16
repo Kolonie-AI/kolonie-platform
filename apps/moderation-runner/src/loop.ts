@@ -34,7 +34,6 @@ import { answerTick, type AnswerLoopDependencies } from './answers.js'
 import { redLineReviewTick, type RedLineReviewLoopDependencies } from './redline-review.js'
 import { questAuditTick, type QuestAuditLoopDependencies } from './quest-audit.js'
 import { questEndingsTick, type QuestEndingsLoopDependencies } from './quest-endings.js'
-import { providerReasonTick, type ProviderReasonLoopDependencies } from './provider-reasons.js'
 import { questReportTick, type QuestReportLoopDependencies } from './quest-reports.js'
 import { directionTick, type DirectionLoopDependencies } from './directions.js'
 import { profileTick, type ProfileLoopDependencies } from './profiles.js'
@@ -147,8 +146,6 @@ export interface LoopDependencies {
    * check and a deploy step.
    */
   readonly questReports?: QuestReportLoopDependencies
-  /** The scrub between a citizen's sentence about a provider and every reader of the register (`#362`). */
-  readonly providerReasons?: ProviderReasonLoopDependencies
   /**
    * Reading what citizens said they want to become (`#140`).
    *
@@ -500,7 +497,6 @@ export async function tick(deps: LoopDependencies, batchSize: number): Promise<T
   await auditQuestVerdicts(deps, batchSize, log)
   await fileQuestEndings(deps, batchSize, log)
   await scrubQuestReports(deps, batchSize, log)
-  await scrubProviderReasons(deps, batchSize, log)
   await readDirections(deps, batchSize, log)
   await readProfiles(deps, batchSize, log)
   await judgeAtlasProposals(deps, batchSize, log)
@@ -515,8 +511,8 @@ export async function tick(deps: LoopDependencies, batchSize: number): Promise<T
  *
  * Its failure is swallowed like every other pass's. What a failed poll costs
  * here is a page staying unread for one more tick: the row is left `pending`,
- * nothing partial is served, and the next poll picks it up — the shape
- * `scrubProviderReasons` settled on, for the same reason it settled on it.
+ * nothing partial is served, and the next poll picks it up — the shape every
+ * scrub in this file settled on, for the same reason they all settled on it.
  */
 async function scrubWalkProse(deps: LoopDependencies, batchSize: number, log: Log): Promise<void> {
   const { walkProse } = deps
@@ -854,43 +850,6 @@ async function scrubQuestReports(
     }
   } catch (error) {
     log.error('the quest report scrub failed', error, { event: 'quest-report.pass.failed' })
-  }
-}
-
-/**
- * Run the provider-reason scrub on the same poll (`#362`).
- *
- * Its failure is swallowed like every other pass's, and for the reason they all
- * give: they share a process and a schedule and nothing else, so a queue that
- * throws must not stop the rest. What a failed poll costs here is that a
- * register keeps its counts and shows one fewer sentence, which is the mildest
- * failure of any pass in this file.
- */
-async function scrubProviderReasons(
-  deps: LoopDependencies,
-  batchSize: number,
-  log: Log,
-): Promise<void> {
-  const { providerReasons } = deps
-  if (providerReasons === undefined) return
-
-  try {
-    const outcome = await providerReasonTick({ log, ...providerReasons }, batchSize)
-    if (outcome.judged > 0) {
-      log.info(
-        `reasons about providers: ${outcome.judged} read, ${outcome.scrubbed} scrubbed, ` +
-          `${outcome.refused} refused, ${outcome.failed} deferred`,
-        {
-          event: 'provider-reason.pass.done',
-          judged: outcome.judged,
-          scrubbed: outcome.scrubbed,
-          refused: outcome.refused,
-          failed: outcome.failed,
-        },
-      )
-    }
-  } catch (error) {
-    log.error('the provider reason scrub failed', error, { event: 'provider-reason.pass.failed' })
   }
 }
 

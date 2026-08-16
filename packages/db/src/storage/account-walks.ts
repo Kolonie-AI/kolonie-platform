@@ -1296,9 +1296,9 @@ export async function unmoderatedWalkProse(
 /**
  * Write what the scrub produced, or refuse the words.
  *
- * **What the moderator read is part of the key**, the guard
- * `recordProviderReasonModeration` uses, and it is needed here for a narrower
- * race than there. A walk's answers are written once and cannot be edited —
+ * **What the moderator read is part of the key**, the guard `recordModeration`
+ * puts on a report, and it is needed here for a narrower race than there. A
+ * walk's answers are written once and cannot be edited —
  * `reportFinishedWalk` applies only where the walk holds none — but that same
  * function can add the four questions to a walk already closed with a `wall`,
  * and it re-queues the row when it does. A verdict reached against the wall

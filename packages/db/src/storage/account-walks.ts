@@ -290,6 +290,12 @@ export async function unreportedWalk(
         eq(accountWalks.provider, provider),
         isNotNull(accountWalks.finishedAt),
         ne(accountWalks.outcome, 'proved'),
+        /**
+         * A walk opened and closed by `walk-report` in one transaction was
+         * reported by construction. `now()` is transaction-stable, so equal
+         * endpoints distinguish it without adding a column solely for its origin.
+         */
+        sql`${accountWalks.startedAt} <> ${accountWalks.finishedAt}`,
       ),
     )
     .orderBy(desc(accountWalks.finishedAt))
@@ -593,6 +599,35 @@ export async function amendProposedDraft(
   })
 }
 
+type WalkFinishInput = {
+  readonly outcome: WalkOutcome
+  /** Required when the outcome is `refused`, refused otherwise. */
+  readonly wall?: string | null
+  /** The answer to the one question, already checked against `WalkNoteSchema`. */
+  readonly note?: string | null
+  /**
+   * The four questions (`#809`), each already checked against
+   * `WalkNoteSchema` — the same bound and the same credential refusal the note
+   * is held to, applied per field rather than copied.
+   */
+  readonly did?: string | null
+  readonly broke?: string | null
+  readonly changed?: string | null
+  readonly discarded?: string | null
+  /** Published recipe positions checked by the agent, in order. */
+  readonly takenStepPositions?: readonly number[] | null
+  /** The walker's own long-form account of the path (`#769`), where it gave one. */
+  readonly recipe?: WalkedRecipe | null
+  /**
+   * Which capability the walk measured (`#1023`), on a kind that has two.
+   *
+   * Required at the door for a directional kind and refused elsewhere — the
+   * refinement is one layer up, where `kind` is, exactly as
+   * `ProviderReportRequestSchema` does it. Absent here is the unscoped null.
+   */
+  readonly direction?: RecipeDirection | null
+}
+
 /**
  * Close a walk and do to the catalogue whatever the walk earns.
  *
@@ -612,36 +647,9 @@ export async function amendProposedDraft(
  * else's product passes a person.
  */
 export async function finishWalk(
-  db: Database,
+  db: Database | Transaction,
   walkId: string,
-  input: {
-    readonly outcome: WalkOutcome
-    /** Required when the outcome is `refused`, refused otherwise. */
-    readonly wall?: string | null
-    /** The answer to the one question, already checked against `WalkNoteSchema`. */
-    readonly note?: string | null
-    /**
-     * The four questions (`#809`), each already checked against
-     * `WalkNoteSchema` — the same bound and the same credential refusal the note
-     * is held to, applied per field rather than copied.
-     */
-    readonly did?: string | null
-    readonly broke?: string | null
-    readonly changed?: string | null
-    readonly discarded?: string | null
-    /** Published recipe positions checked by the agent, in order. */
-    readonly takenStepPositions?: readonly number[] | null
-    /** The walker's own long-form account of the path (`#769`), where it gave one. */
-    readonly recipe?: WalkedRecipe | null
-    /**
-     * Which capability the walk measured (`#1023`), on a kind that has two.
-     *
-     * Required at the door for a directional kind and refused elsewhere — the
-     * refinement is one layer up, where `kind` is, exactly as
-     * `ProviderReportRequestSchema` does it. Absent here is the unscoped null.
-     */
-    readonly direction?: RecipeDirection | null
-  },
+  input: WalkFinishInput,
 ): Promise<{ readonly walk: AccountWalk; readonly verdict: WalkVerdict } | undefined> {
   return db.transaction(async (tx) => {
     const [closed] = await tx
@@ -658,6 +666,7 @@ export async function finishWalk(
         takenStepPositions: input.takenStepPositions == null ? null : [...input.takenStepPositions],
         recipe: input.recipe ?? null,
         direction: input.direction ?? null,
+        scrubbedProse: null,
         /**
          * **A walk that wrote something enters the queue as it closes** (`#810`).
          *
@@ -841,6 +850,103 @@ export async function finishWalk(
     await republishWalls(tx, { kind: walk.kind, provider: walk.provider })
 
     return { walk, verdict }
+  })
+}
+
+/**
+ * File a walk whether or not another account operation opened it first (`#1031`).
+ *
+ * **The report is itself enough evidence that an attempt happened.** A wall can
+ * stop the attempt before the Colony observes a handoff or an account declaration,
+ * so requiring either one discards exactly the walks the Atlas most needs.
+ *
+ * A prior direct report at the same pair is reused rather than multiplied. Rows
+ * with observed steps remain attempt history and are never overwritten here; a
+ * direct row has no child steps, and a paid row is likewise immutable because a
+ * ledger event already refers to what it earned.
+ */
+export async function submitWalkReport(
+  db: Database,
+  agentId: AgentId,
+  where: { readonly kind: AccountKind; readonly provider: string },
+  input: WalkFinishInput,
+): Promise<{ readonly walk: AccountWalk; readonly verdict: WalkVerdict } | undefined> {
+  return db.transaction(async (tx) => {
+    /** Serialize two direct reports from one citizen before either can insert. */
+    await tx.select({ id: agents.id }).from(agents).where(eq(agents.id, agentId)).for('update')
+
+    const provider = await canonicalProvider(tx, AccountProviderSchema.parse(where.provider))
+    const pair = and(
+      eq(accountWalks.agentId, agentId),
+      eq(accountWalks.kind, where.kind),
+      eq(accountWalks.provider, provider),
+    )
+    const [open] = await tx
+      .select({ id: accountWalks.id })
+      .from(accountWalks)
+      .where(and(pair, isNull(accountWalks.finishedAt)))
+      .orderBy(desc(accountWalks.startedAt))
+      .limit(1)
+      .for('update')
+
+    let walkId = open?.id
+
+    if (walkId === undefined) {
+      const [direct] = await tx
+        .select({ id: accountWalks.id })
+        .from(accountWalks)
+        .where(
+          and(
+            pair,
+            isNotNull(accountWalks.finishedAt),
+            isNull(accountWalks.rewardedAt),
+            sql`${accountWalks.startedAt} = ${accountWalks.finishedAt}`,
+            sql`not exists (
+              select 1 from account_walk_steps as step
+               where step.walk_id = ${accountWalks.id}
+            )`,
+          ),
+        )
+        .orderBy(desc(accountWalks.startedAt))
+        .limit(1)
+        .for('update')
+
+      if (direct === undefined) {
+        const [created] = await tx
+          .insert(accountWalks)
+          .values({ agentId, kind: where.kind, provider })
+          .returning({ id: accountWalks.id })
+        if (created === undefined) throw new Error('account_walks insert returned no row')
+        walkId = created.id
+      } else {
+        walkId = direct.id
+        await tx
+          .update(accountWalks)
+          .set({
+            startedAt: sql`now()`,
+            finishedAt: null,
+            outcome: null,
+            wall: null,
+            note: null,
+            did: null,
+            broke: null,
+            changed: null,
+            discarded: null,
+            takenStepPositions: null,
+            recipe: null,
+            direction: null,
+            scrubbedProse: null,
+            proseStatus: 'approved',
+            proposedAt: null,
+          })
+          .where(eq(accountWalks.id, walkId))
+
+        /** Replacing readable prose changes the corpus before the new moderation settles. */
+        await markProviderBriefingStale(tx, { kind: where.kind, provider })
+      }
+    }
+
+    return finishWalk(tx, walkId, input)
   })
 }
 

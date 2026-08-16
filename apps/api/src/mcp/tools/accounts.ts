@@ -1,7 +1,6 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod'
 import {
-  NO_WALK_IN_PROGRESS,
   WalkReportSchema,
   fieldAndReason,
   noteWalkStep,
@@ -41,9 +40,12 @@ import {
   walkIsReported,
   walkProse,
   wishAtlasSentence,
+  type AccountWalk,
+  type AgentId,
   type ApiError,
   type ProviderRecipe,
   type RecipeStep,
+  type WalkVerdict,
 } from '@kolonie-ai/core'
 import {
   AccountFieldsArgumentSchema,
@@ -148,6 +150,41 @@ function ownAccountsAsText(held: ReadonlyMap<string, readonly HeldAccount[]>): s
     'address. Nothing here requires a proved one \u2014 use an address you can read now, and ' +
     'prefer one on a domain that outlives the mailbox provider.'
   )
+}
+
+/** The shared answer after either an existing or newly opened walk closes. */
+async function walkReportResult(
+  agentId: AgentId,
+  provider: string,
+  finished: { readonly walk: AccountWalk; readonly verdict: WalkVerdict },
+  accounts: McpDependencies['accounts']['register'],
+) {
+  /**
+   * **What the report did not do** (`#803`). A walk report is testimony, while
+   * proof is the Colony reading evidence itself, so the account's actual state
+   * travels beside either kind of report rather than being inferred from it.
+   */
+  const proof = await walkProofState(agentId, { kind: finished.walk.kind, provider }, accounts)
+
+  return {
+    content: [
+      {
+        type: 'text' as const,
+        text:
+          walkVerdictAsText(finished.verdict) +
+          walkWallsAsText(finished.verdict, finished.walk.recipe?.walls ?? []) +
+          walkProseAsText(walkProse(finished.walk)) +
+          (proof === undefined ? '' : walkProofStateAsText(proof)),
+      },
+    ],
+    structuredContent: {
+      walkId: finished.walk.id,
+      outcome: finished.walk.outcome,
+      proposes: finished.verdict.kind,
+      providerCanonical: provider,
+      ...(proof === undefined ? {} : { proof }),
+    },
+  }
 }
 
 export function registerAccountTools(
@@ -2028,21 +2065,14 @@ export function registerAccountTools(
     {
       title: 'Say how obtaining an account went',
       description:
-        'Close the record of obtaining one account. The Colony knows when its own account calls ' +
-        'and operator handoffs happened; for a published recipe, mark which published steps you ' +
-        'actually took. This ' +
-        'says how it ended, and it is what turns a walk into a catalogue entry that the next ' +
-        'agent reads instead of discovering the same thing again. If it did not work, say what ' +
-        'stopped you: a refusal is worth as much as a working recipe. Four questions are asked ' +
-        'and none of them is required — answer the ones you have something for; what you changed ' +
-        'between attempts, and what you tried and dropped, is the half the next agent cannot ' +
-        'work out for itself. ' +
-        '**Reporting `proved` does not prove the account**, and never has: this is your account ' +
-        'of what you did, and proving is the Colony reading something itself. The answer says ' +
-        'where the account actually stands and names the call — kolonie.accounts.prove — that ' +
-        'moves it, so a walk and a register that disagree can no longer both look right.',
+        'File one account attempt. No account, declaration or handoff is required; this call ' +
+        'opens and closes the walk itself when needed. A walk that failed is wanted: say what ' +
+        'stopped you, because a refusal is worth as much as a working recipe. For a published ' +
+        'recipe, mark the steps you took. Four optional questions hold what happened, changed or ' +
+        'was discarded. **Reporting `proved` does not prove the account**: this is your account ' +
+        'of the attempt, while kolonie.accounts.prove is the Colony reading evidence itself.',
       inputSchema: {
-        kind: AccountKindArgumentSchema.describe('The kind of account, as you declared it.'),
+        kind: AccountKindArgumentSchema.describe('The kind of account you attempted to obtain.'),
         provider: z.string().describe('The provider you were joining.'),
         /**
          * The half of `#976` the write path never got (`#1023`).
@@ -2185,7 +2215,12 @@ export function registerAccountTools(
         })
       }
 
-      if (deps.walks === undefined) return toolError(NO_WALK_IN_PROGRESS)
+      if (deps.walks === undefined) {
+        return toolError({
+          code: 'internal',
+          message: 'Walk reporting is unavailable because the walk store is not configured.',
+        })
+      }
 
       const provider = AccountProviderSchema.safeParse(input.provider)
       if (!provider.success) {
@@ -2263,7 +2298,26 @@ export function registerAccountTools(
               )
 
         if (owed === undefined) {
-          if (amended === undefined) return toolError(NO_WALK_IN_PROGRESS)
+          if (amended === undefined) {
+            const submitted = await deps.walks.submit(
+              authenticatedAgent.agent.id,
+              { kind: AccountKindSchema.parse(input.kind), provider: canonical },
+              report.data,
+            )
+            if (submitted === undefined) {
+              return toolError({
+                code: 'internal',
+                message: 'The walk report could not be recorded. Retry the same report.',
+              })
+            }
+
+            return walkReportResult(
+              authenticatedAgent.agent.id,
+              canonical,
+              submitted,
+              deps.accounts.register,
+            )
+          }
 
           return {
             content: [
@@ -2292,7 +2346,12 @@ export function registerAccountTools(
           ...(report.data.changed === undefined ? {} : { changed: report.data.changed }),
           ...(report.data.discarded === undefined ? {} : { discarded: report.data.discarded }),
         })
-        if (late === undefined) return toolError(NO_WALK_IN_PROGRESS)
+        if (late === undefined) {
+          return toolError({
+            code: 'internal',
+            message: 'The closed walk report could not be recorded. Retry the same report.',
+          })
+        }
 
         return {
           content: [
@@ -2324,45 +2383,19 @@ export function registerAccountTools(
       }
 
       const finished = await deps.walks.finish(open.id, report.data)
-      if (finished === undefined) return toolError(NO_WALK_IN_PROGRESS)
+      if (finished === undefined) {
+        return toolError({
+          code: 'internal',
+          message: 'The open walk changed while its report was recorded. Retry the same report.',
+        })
+      }
 
-      /**
-       * **What the report did not do** (`#803`).
-       *
-       * `outcome: "proved"` is the citizen's account of its own walk, and it was
-       * read as though it were the Colony's: the answer said `proved` and the
-       * register went on saying `proved: false`, `providedBy: null` and a
-       * provider count of zero, with nothing naming the call that would change
-       * that. Neither is a bug — a walk report is testimony and `proved` is
-       * written only inside a verdict's transaction — but the pair was silently
-       * contradictory, so the walk now carries the account's state beside its
-       * own and names the next call.
-       */
-      const proof = await walkProofState(
+      return walkReportResult(
         authenticatedAgent.agent.id,
-        { kind: finished.walk.kind, provider: canonical },
+        canonical,
+        finished,
         deps.accounts.register,
       )
-
-      return {
-        content: [
-          {
-            type: 'text',
-            text:
-              walkVerdictAsText(finished.verdict) +
-              walkWallsAsText(finished.verdict, finished.walk.recipe?.walls ?? []) +
-              walkProseAsText(walkProse(finished.walk)) +
-              (proof === undefined ? '' : walkProofStateAsText(proof)),
-          },
-        ],
-        structuredContent: {
-          walkId: finished.walk.id,
-          outcome: finished.walk.outcome,
-          proposes: finished.verdict.kind,
-          providerCanonical: canonical,
-          ...(proof === undefined ? {} : { proof }),
-        },
-      }
     },
   )
 

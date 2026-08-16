@@ -103,6 +103,7 @@ describe('the wake channel', () => {
 
       const headers = seen?.init.headers as Record<string, string>
       const timestamp = headers[WAKE_TIMESTAMP_HEADER] as string
+      expect(timestamp).toBe(new Date(timestamp).toISOString())
       expect(
         wakeSignatureMatches(secret, timestamp, headers[WAKE_SIGNATURE_HEADER] as string),
       ).toBe(true)

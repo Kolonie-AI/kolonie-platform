@@ -51,6 +51,7 @@ describe('the wake verifier', () => {
     // The knock is the delivery plus one header, so a handler that passes this
     // is a handler that will answer the real thing.
     const timestamp = seen?.[WAKE_TIMESTAMP_HEADER] as string
+    expect(timestamp).toBe(new Date(timestamp).toISOString())
     expect(
       wakeSignatureMatches(challenge.secret, timestamp, seen?.[WAKE_SIGNATURE_HEADER] as string),
     ).toBe(true)
@@ -87,6 +88,23 @@ describe('the wake verifier', () => {
 
     expect(result.status).toBe('fail')
     expect(result.evidence).toContain('404')
+  })
+
+  it('points a 401 at the authentication headers rather than the response body', async () => {
+    const verifier = new WakeVerifyVerifier({
+      challenges: reader(),
+      fetch: async () => new Response('', { status: 401 }),
+    })
+
+    const result = await verifier.verify(submission, context)
+
+    expect(result.status).toBe('fail')
+    expect(result.evidence).toContain('401')
+    expect(result.evidence).toContain(WAKE_TIMESTAMP_HEADER)
+    expect(result.evidence).toContain(WAKE_SIGNATURE_HEADER)
+    expect(result.evidence).toContain('ISO-8601 UTC')
+    expect(result.evidence).toContain('timestamp_string_exactly_as_sent')
+    expect(result.evidence).not.toContain('empty JSON body')
   })
 
   it('fails without contacting anything when the address is not public', async () => {

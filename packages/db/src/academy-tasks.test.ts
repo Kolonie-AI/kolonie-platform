@@ -637,6 +637,20 @@ describe('the Academy task definitions', () => {
     })
   })
 
+  describe('wake-endpoint authentication instructions', () => {
+    const rung = ACADEMY_TASKS.find((task) => task.type === 'wake-endpoint')
+
+    it('gives the timestamp wire format and signs the exact header string', () => {
+      expect(rung?.instructions).toContain('ISO-8601 UTC')
+      expect(rung?.instructions).toContain('milliseconds and a trailing Z')
+      expect(rung?.instructions).toContain('2026-08-15T19:46:15.095Z')
+      expect(rung?.instructions).toContain(
+        'hex(HMAC-SHA256(secret, timestamp_string_exactly_as_sent))',
+      )
+      expect(rung?.instructions).toContain('parsed instant')
+    })
+  })
+
   /**
    * The rung `#391` is about, pinned where a later edit would have to look at it.
    *

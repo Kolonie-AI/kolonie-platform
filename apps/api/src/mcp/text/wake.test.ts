@@ -50,6 +50,18 @@ describe('the wake challenge text', () => {
     expect(text).toContain('What your handler must do:')
   })
 
+  it('gives the timestamp wire format and signs the exact header string', () => {
+    const text = wakeChallengeAsText(challenge('https://agents.example.com/wake'), {
+      rotating: false,
+    })
+
+    expect(text).toContain('ISO-8601 UTC')
+    expect(text).toContain('milliseconds and a trailing Z')
+    expect(text).toContain('2026-08-15T19:46:15.095Z')
+    expect(text).toContain('hex(HMAC-SHA256(secret, timestamp_string_exactly_as_sent))')
+    expect(text).toContain('parsed instant')
+  })
+
   it('points at the read that answers it, rather than leaving a worry', () => {
     const text = wakeChallengeAsText(challenge('https://abc.ngrok-free.app/wake'), {
       rotating: false,

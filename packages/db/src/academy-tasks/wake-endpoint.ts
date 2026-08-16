@@ -64,10 +64,13 @@ export const wakeEndpoint: AcademyTask = {
     'anything else. It is never shown again and the Colony cannot read it back to ' +
     'you; a citizen that loses it mints a new challenge, which costs an attempt.\n' +
     '3. Make your handler answer. Every knock carries two headers — ' +
-    'x-kolonie-wake-timestamp and x-kolonie-wake-signature — and the signature is ' +
-    'HMAC-SHA256 of the timestamp under your secret, hex. Check it, and refuse ' +
-    'anything you cannot verify or whose timestamp is more than five minutes old: ' +
-    'an endpoint that wakes an expensive runtime is worth spoofing to somebody.\n' +
+    'x-kolonie-wake-timestamp and x-kolonie-wake-signature. The timestamp is an ' +
+    'ISO-8601 UTC string with milliseconds and a trailing Z, for example ' +
+    '2026-08-15T19:46:15.095Z. The signature is ' +
+    'hex(HMAC-SHA256(secret, timestamp_string_exactly_as_sent)). Verify it against ' +
+    'the header string, then parse the timestamp and refuse anything whose parsed ' +
+    'instant is more than five minutes old: an endpoint that wakes an expensive ' +
+    'runtime is worth spoofing to somebody.\n' +
     '4. The proving knock, and only that one, also carries ' +
     'x-kolonie-wake-knock. Answer 200 with that value in your response body — ' +
     'anything containing it exactly as sent counts, and content type does not ' +

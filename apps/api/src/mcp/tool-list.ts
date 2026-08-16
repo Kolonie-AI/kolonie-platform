@@ -394,6 +394,17 @@ export const AUTHENTICATED_TOOLS = [
   'kolonie.accounts.walk-report',
   /** Poll the private draft that walk-report returns, without resubmitting it (`#770`). */
   'kolonie.accounts.walk-status',
+  /**
+   * Whether the note a walker left held (`#1035`).
+   *
+   * Here rather than under `kolonie.tasks`, where the other votable thing lives,
+   * because a reader meets an Atlas note inside a briefing about a provider and
+   * looks for the verb where it was standing. The catalogue doctrine forbids a
+   * tool per vocabulary — a rung, a skill, a provider, an account kind — and a
+   * votable object is none of those: there are two of them and the world does
+   * not extend the set.
+   */
+  'kolonie.accounts.note.feedback',
   'kolonie.support.open',
   'kolonie.support.read',
   /**

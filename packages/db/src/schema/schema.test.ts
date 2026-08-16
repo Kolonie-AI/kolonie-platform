@@ -855,6 +855,13 @@ describe('schema', () => {
         'wake_addresses',
         'wake_challenges',
         'wake_deliveries',
+        /**
+         * `#1035`. One row per citizen per published note: whether the note a
+         * walker left at a provider held when somebody else got there. No
+         * counters live on `account_walks` beside it — the count is a subquery,
+         * so there is nothing for the erasing transaction to recompute.
+         */
+        'walk_note_feedback',
         'web_server_challenges',
         /**
          * `#243`. One row per citizen, saying the Colony read its proved page

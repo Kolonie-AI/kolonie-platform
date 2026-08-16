@@ -469,7 +469,12 @@ describe('the migrations', () => {
     // direction — there is no followers table and no count of one, and the only
     // index on the followed side exists to make the cascade cheap rather than to
     // make a count possible.
-    expect(afterFirst.tables).toBe('120')
+    //
+    // **A hundred and twenty-one** (`#1035`): `walk_note_feedback`, whether the
+    // note a walker left at a provider held for the next citizen there. One
+    // table and no column beside it — the score is counted out of this one on
+    // every read, so an erased voter takes its vote and leaves nothing stale.
+    expect(afterFirst.tables).toBe('121')
     // Twenty: `task_kind` (#43) tells an Academy task from a Quest and therefore
     // what may pay credits; `support_ticket_kind` and `support_ticket_status` (#11)
     // carry what a citizen wrote about and where it stands; `erasure_reason` and

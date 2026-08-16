@@ -47,6 +47,7 @@ import {
   type ProposalAction,
   type ProposalWithDemand,
   type ProviderBriefing,
+  type ServedWalkNote,
   type ProviderRecipe,
   type RecipeDirection,
   type RecipeStep,
@@ -54,6 +55,7 @@ import {
 } from '@kolonie-ai/core'
 import type { Database } from '@kolonie-ai/db'
 import { providerBriefingAsText } from './mcp/text/provider-briefing.js'
+import { walkNotesAsText } from './mcp/text/walk-notes.js'
 import type { WalkStore } from './account-walks.js'
 import type { HeldAccount } from './accounts.js'
 import {
@@ -66,6 +68,7 @@ import {
   fallingSuccessRates,
   pendingProposals,
   providerBriefingsAt,
+  publishedWalkNotesAt,
   publishProviderRecipe,
   dressProviderRecipe,
   providerRecipe,
@@ -120,6 +123,15 @@ export interface ProviderRecipes {
    * for reading the paying quests on the entry page only.
    */
   briefings(provider: string): Promise<ReadonlyMap<string, ProviderBriefing>>
+  /**
+   * What walkers wrote in their own words about one provider (`#1035`).
+   *
+   * **Bounded exactly as the briefings are, and keyed the same.** The argument is
+   * the one `#831` made and nothing here weakens it: an agent reading the whole
+   * catalogue is deciding where to go, and quoted notes from four hundred
+   * providers is the cost that read must not pay.
+   */
+  notes(provider: string): Promise<ReadonlyMap<string, readonly ServedWalkNote[]>>
   /**
    * Who walked each row in the catalogue, by `figureKey` (`#960`).
    *
@@ -184,6 +196,7 @@ export function databaseProviderRecipes(db: Database): ProviderRecipes {
     one: (kind, provider) => providerRecipe(db, kind, provider),
     figures: (options) => atlasFigures(db, options ?? {}),
     briefings: (provider) => providerBriefingsAt(db, provider),
+    notes: (provider) => publishedWalkNotesAt(db, provider),
     walkers: () => atlasWalkers(db),
     proposals: () => pendingProposals(db),
     fallingRates: () => fallingSuccessRates(db),
@@ -600,6 +613,8 @@ export async function readAtlas(
     readonly secretHandoff: boolean
     /** What the Colony wrote up, by `figureKey`. Empty unless one provider was named. */
     readonly briefings: ReadonlyMap<string, ProviderBriefing>
+    /** What walkers wrote themselves, by `figureKey`, under the same bound (`#1035`). */
+    readonly notes: ReadonlyMap<string, readonly ServedWalkNote[]>
     /**
      * Said out loud when nothing in this answer rests on evidence (`#905`),
      * `null` when something does.
@@ -751,10 +766,16 @@ export async function readAtlas(
    * one provider has already decided, and is asking the question the briefing
    * answers.
    */
-  const briefings =
-    input.provider === undefined || entries.length === 0
-      ? new Map<string, ProviderBriefing>()
-      : await recipes.briefings(input.provider)
+  const oneProvider = input.provider !== undefined && entries.length > 0
+
+  const briefings = oneProvider
+    ? await recipes.briefings(input.provider as string)
+    : new Map<string, ProviderBriefing>()
+
+  /** The quoted half, under the same bound and for the same reason (`#1035`). */
+  const notes = oneProvider
+    ? await recipes.notes(input.provider as string)
+    : new Map<string, readonly ServedWalkNote[]>()
 
   /**
    * **Asked of what is being returned, not of the whole catalogue.** A caller
@@ -764,7 +785,7 @@ export async function readAtlas(
    */
   const nothingMeasured = atlasShelfHasEvidence(entries) ? null : ATLAS_NOTHING_MEASURED
 
-  return { outcome: 'ok', response: { entries, secretHandoff, briefings, nothingMeasured } }
+  return { outcome: 'ok', response: { entries, secretHandoff, briefings, notes, nothingMeasured } }
 }
 
 /**
@@ -791,6 +812,13 @@ export function atlasEntryAsText(
    * same absence stated twice.
    */
   briefings: ReadonlyMap<string, ProviderBriefing> = new Map(),
+  /**
+   * What walkers wrote in their own words, by `figureKey` (`#1035`). Defaulted
+   * to empty on the same terms as the briefings, and printed under them: the
+   * Colony's summary is the shorter and more general statement, and a reader who
+   * stops after it has not missed a name it needed.
+   */
+  notes: ReadonlyMap<string, readonly ServedWalkNote[]> = new Map(),
 ): string {
   /**
    * **Provenance and health above the rows, because both are about the whole
@@ -832,6 +860,7 @@ export function atlasEntryAsText(
       walkedAsText(recipe.figures.walked),
       figuresAsText(recipe.figures),
       providerBriefingAsText(briefings.get(figureKey(recipe.kind, recipe.provider))),
+      walkNotesAsText(notes.get(figureKey(recipe.kind, recipe.provider))),
     )
   }
 

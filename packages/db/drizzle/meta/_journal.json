@@ -1884,6 +1884,13 @@
       "when": 1786893348278,
       "tag": "0268_the_atlas_pays_for_reporting",
       "breakpoints": true
+    },
+    {
+      "idx": 269,
+      "version": "7",
+      "when": 1786895848614,
+      "tag": "0269_a_note_on_a_walk_is_voted_on",
+      "breakpoints": true
     }
   ]
 }

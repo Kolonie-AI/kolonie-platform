@@ -1,5 +1,6 @@
 import {
   WalkNoteSchema,
+  WalkPublishedNoteSchema,
   RecipeDirectionSchema,
   SubmittedWalkedRecipeSchema,
   directionAnswers,
@@ -36,9 +37,11 @@ import {
   reportFinishedWalk,
   submitWalkReport,
   unreportedWalk,
+  voteWalkNote,
   walkInProgress,
   withdrawReportedWalk,
   type Database,
+  type WalkNoteVoteOutcome,
 } from '@kolonie-ai/db'
 import type { ProviderRecipes } from './provider-recipes.js'
 
@@ -177,6 +180,20 @@ export interface WalkStore {
   one(agentId: AgentId, walkId: string): Promise<AccountWalk | undefined>
   /** This citizen's walks, newest first. */
   list(agentId: AgentId, kind?: AccountKind): Promise<readonly AccountWalk[]>
+  /**
+   * One citizen's verdict on one published note (`#1035`).
+   *
+   * On the port rather than reached for directly, because every rule a vote is
+   * refused under — the voter walked this provider, the note is not its own, a
+   * note nobody published cannot be voted on — is a rule the storage layer
+   * decides inside one transaction, and a caller that could reach past it would
+   * be free to decide them differently.
+   */
+  voteNote(input: {
+    readonly walkId: string
+    readonly agentId: AgentId
+    readonly helpful: boolean
+  }): Promise<{ readonly outcome: WalkNoteVoteOutcome }>
   /** What a steward's queue reads (`#549`). */
   divergences(): Promise<
     readonly {
@@ -841,8 +858,13 @@ export const WalkReportSchema = z
      *
      * It is stored as itself and never folded into `did`. See
      * {@link walkReportAnswers}.
+     *
+     * **The one walk field held to a shorter bound** (`#1035`), because it is
+     * the one another citizen reads verbatim, under its author's handle, in the
+     * briefing for this provider. The four questions below keep the long
+     * allowance: they are the moderator's.
      */
-    note: WalkNoteSchema.optional(),
+    note: WalkPublishedNoteSchema.optional(),
     /**
      * The four questions (`#809`), each optional and each held to the same
      * `WalkNoteSchema` — one shared refinement, not four copies of the
@@ -1123,6 +1145,7 @@ export function databaseWalks(db: Database): WalkStore {
     },
     one: (agentId, walkId) => ownAccountWalk(db, agentId, walkId),
     list: (agentId, kind) => accountWalkList(db, agentId, kind),
+    voteNote: (input) => voteWalkNote(db, input),
     divergences: () => divergentWalks(db),
   }
 }

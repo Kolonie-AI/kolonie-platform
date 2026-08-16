@@ -460,6 +460,7 @@ export function buildApp({
     one: async () => undefined,
     figures: async () => [],
     briefings: async () => new Map(),
+    notes: async () => new Map(),
     walkers: async () => new Map(),
     proposals: async () => [],
     providerProposals: async () => [],

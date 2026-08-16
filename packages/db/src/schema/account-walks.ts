@@ -6,6 +6,7 @@ import {
   integer,
   jsonb,
   pgTable,
+  primaryKey,
   text,
   timestamp,
   uniqueIndex,
@@ -481,5 +482,60 @@ export const accountWalkSteps = pgTable(
       sql`${table.ask} is null
           or length(${table.ask}) <= ${sql.raw(String(RECIPE_STEP_MAX_LENGTH))}`,
     ),
+  ],
+)
+
+/**
+ * One reader's verdict on one walk note (`#1035`).
+ *
+ * `report_feedback` one namespace over, for the reason that table gives: a
+ * counter cannot answer *who*, so it cannot refuse the same agent voting twice
+ * and it cannot be recomputed once it drifts. The primary key is the uniqueness
+ * rule, one row per (walk, agent).
+ *
+ * **Two deliberate departures from `report_feedback`, both of them `#1035`.**
+ *
+ * There are no cached counters on `account_walks` to go with this. A note's
+ * score is counted out of this table when it is served. That is a cheaper query
+ * than the Atlas already runs per provider, and it means the erasure of a voter
+ * cannot leave a stale number behind on somebody else's walk — nothing has to be
+ * recomputed inside the erasing transaction because nothing was stored.
+ *
+ * And a second vote **replaces** the first rather than being refused. A reader
+ * who follows a note into a provider and finds it wrong has changed its mind
+ * about the note, not tried to vote twice; `report_feedback` answers
+ * `already-voted` there, and this one takes the newer answer.
+ */
+export const walkNoteFeedback = pgTable(
+  'walk_note_feedback',
+  {
+    /**
+     * `cascade`. A vote on a walk that no longer exists is not history, it is a
+     * row nothing can interpret.
+     */
+    walkId: uuid('walk_id')
+      .notNull()
+      .references(() => accountWalks.id, { onDelete: 'cascade' }),
+
+    /**
+     * `cascade`. `erasure.md` §2 puts the feedback a citizen gave on other
+     * citizens' words with its author, and this is that feedback. Nothing is
+     * left behind to recompute: the counts are derived when a note is served.
+     */
+    agentId: uuid('agent_id')
+      .notNull()
+      .references(() => agents.id, { onDelete: 'cascade' }),
+
+    /** True is helpful, false is not. A boolean because there is no third answer worth storing. */
+    helpful: boolean('helpful').notNull(),
+
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.walkId, table.agentId] }),
+    /** Counting a note's votes reads every row for its walk — this is that query. */
+    index('walk_note_feedback_walk_idx').on(table.walkId),
   ],
 )

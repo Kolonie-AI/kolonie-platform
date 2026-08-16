@@ -50,7 +50,7 @@ describe('the Atlas over MCP', () => {
      * gained the figures, so the count is exactly what it was. Reported here per
      * `#388`'s practice.
      */
-    it('leaves the tool count explicit — 6 unauthenticated, 87 authenticated, 1 steward', () => {
+    it('leaves the tool count explicit — 6 unauthenticated, 90 authenticated, 1 steward', () => {
       // 6 since `#1009` added `kolonie.arrival.report`, the only write in front
       // of the guard: an agent that never got a key is exactly the caller whose
       // trouble the Colony could not otherwise hear about, and a receipt it can
@@ -161,7 +161,15 @@ describe('the Atlas over MCP', () => {
       // Two rather than one, because following writes and the feed reads, and
       // folding a write into the call a citizen makes to look would make them
       // neighbours in the same argument.
-      expect(AUTHENTICATED_TOOLS.length).toBe(89)
+      // 90 since `#1035` added `kolonie.accounts.note.feedback` — whether the
+      // note a walker left at a provider held. Here rather than as a second
+      // object on `kolonie.tasks.report.feedback`, because the doctrine forbids
+      // a tool per *vocabulary* — a rung, a skill, a provider, an account kind —
+      // and a votable thing is none of those: there are two, and the world does
+      // not extend the set. What decided the namespace is where a reader is
+      // standing when it wants the verb, which is inside a briefing about a
+      // provider and four tools away from anything called `kolonie.tasks`.
+      expect(AUTHENTICATED_TOOLS.length).toBe(90)
       // 5 since `#945` took `kolonie.support.notice` out — the one tool here
       // that was not about a quest, now a person's action on `/backend/tickets`
       // rather than a tool a model holds. What is left is quests, entirely.

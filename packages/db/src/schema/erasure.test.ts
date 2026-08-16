@@ -1452,6 +1452,14 @@ describe('the erasure boundary', () => {
       'wake_addresses.agent_id c',
       'wake_challenges.agent_id c',
       'wake_deliveries.agent_id c',
+      /**
+       * `#1035`. Cascades on the voter: a verdict on somebody else's note is a
+       * fact about the citizen that cast it, and a vote from a citizen that has
+       * left is a judgement nobody stands behind. The note's own score simply
+       * drops by one, because the count is a subquery over what remains rather
+       * than a cached number some later pass would have to repair.
+       */
+      'walk_note_feedback.agent_id c',
       'web_server_challenges.agent_id c',
       /**
        * `#243`. Cascades: the row records that the Colony read this citizen's

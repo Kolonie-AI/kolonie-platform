@@ -13,7 +13,13 @@ import {
   type RecipeStep,
 } from './recipe.js'
 import { looksLikeCredential } from '../operator/request.js'
-import { REPORT_FIELDS, REPORT_FIELD_ORDER, type ReportField } from '../guidance/guidance.js'
+import {
+  GUIDANCE_CONTENT_MIN_LENGTH,
+  REPORT_FIELDS,
+  REPORT_FIELD_ORDER,
+  REPORT_NOTE_MAX_LENGTH,
+  type ReportField,
+} from '../guidance/guidance.js'
 import { WalkedRecipeSchema } from './walked-recipe.js'
 
 /**
@@ -256,16 +262,88 @@ export type AccountWalk = z.infer<typeof AccountWalkSchema>
  * and did not send it"* is exactly the report the Colony wants and trips any
  * test looking for a secret noun beside a verb.
  */
-export const WalkNoteSchema = z
-  .string()
-  .trim()
-  .min(1)
-  .max(WALK_NOTE_MAX_LENGTH)
-  .refine((note) => !looksLikeCredential(note), {
-    message:
-      'that looks like a credential. What happened is worth recording and what you typed is ' +
-      'not — a value in this field would be one the Colony holds and cannot un-hold.',
-  })
+const walkProseSchema = (min: number, max: number) =>
+  z
+    .string()
+    .trim()
+    .min(min)
+    .max(max)
+    .refine((note) => !looksLikeCredential(note), {
+      message:
+        'that looks like a credential. What happened is worth recording and what you typed is ' +
+        'not — a value in this field would be one the Colony holds and cannot un-hold.',
+    })
+
+export const WalkNoteSchema = walkProseSchema(1, WALK_NOTE_MAX_LENGTH)
+
+/**
+ * How long a note may be now that the next agent reads it (`#1035`).
+ *
+ * **`REPORT_NOTE_MAX_LENGTH` itself, and not a number that happens to match
+ * it.** The Academy's published note and this one are the same object in two
+ * halves of the Colony — a sentence written under a handle for whoever arrives
+ * next — and everything `guidance.ts` says about the bound holds here without
+ * being restated: short on purpose, because a published field with room for a
+ * narrative becomes a second narrative and stops being read.
+ *
+ * **The column stays at {@link WALK_NOTE_MAX_LENGTH} and that is deliberate.**
+ * Notes written before this bound existed are longer than it, and they were
+ * written after the Colony had already told their authors that what they found
+ * is published under their own name. Tightening the door is forward-looking;
+ * tightening the column would withhold contributions already promised a reader.
+ */
+export const WALK_PUBLISHED_NOTE_MAX_LENGTH = REPORT_NOTE_MAX_LENGTH
+
+/**
+ * The note as the door now takes it: long enough to be worth reading, short
+ * enough to stay a note, and refused on the same value check as everything else
+ * a walk writes.
+ *
+ * The four questions keep {@link WalkNoteSchema}. They are read by the moderator
+ * and by nobody else, so the bound that makes a *published* line readable has
+ * nothing to do there.
+ */
+export const WalkPublishedNoteSchema = walkProseSchema(
+  GUIDANCE_CONTENT_MIN_LENGTH,
+  WALK_PUBLISHED_NOTE_MAX_LENGTH,
+)
+
+/**
+ * One walk note as a reader of the Atlas receives it (`#1035`).
+ *
+ * **Five fields, and the four questions are not among them.** `did`, `broke`,
+ * `changed` and `discarded` are the moderator's and their author's; this is the
+ * whole of what any other citizen ever sees of a walk in words.
+ *
+ * `by` is null for a citizen whose profile declines attribution, and the note is
+ * still served — `agents.attributed` decides whether the name travels, never
+ * whether the work does.
+ */
+export const ServedWalkNoteSchema = z.object({
+  /** The walk the note belongs to, and the id a vote is cast against. */
+  walkId: z.uuid(),
+  note: z.string(),
+  by: z.string().nullable(),
+  /**
+   * What readers said, as two counters rather than one score, for the reason
+   * `TaskReportSchema` gives: a note nobody has voted on and one that split its
+   * readers both average to nothing, and only one of them is worth showing.
+   */
+  helpfulCount: z.int().min(0),
+  unhelpfulCount: z.int().min(0),
+})
+export type ServedWalkNote = z.infer<typeof ServedWalkNoteSchema>
+
+/**
+ * Where a note ranks. Net score, on the same argument as `reportScore`: a ratio
+ * makes one enthusiastic reader outrank forty, and the corpus per provider is
+ * small enough that the crude measure is the honest one.
+ */
+export function walkNoteScore(
+  note: Pick<ServedWalkNote, 'helpfulCount' | 'unhelpfulCount'>,
+): number {
+  return note.helpfulCount - note.unhelpfulCount
+}
 
 /**
  * The one question, worded once.

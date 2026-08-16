@@ -297,6 +297,16 @@ export function fakeWalks(): FakeWalkStore {
         (walk) => walk.agentId === agentId && (kind === undefined || walk.kind === kind),
       )
     },
+    /**
+     * Votes are not modelled here (`#1035`). The rules a vote is refused under
+     * are all cross-walk — did this citizen walk this pair, is the note its own
+     * — and a fake that answered them from this array would be asserting the
+     * storage layer's decisions rather than exercising them. The tests that mean
+     * anything for a vote run against real PostgreSQL.
+     */
+    async voteNote() {
+      return { outcome: 'no-such-note' as const }
+    },
     async divergences() {
       return []
     },

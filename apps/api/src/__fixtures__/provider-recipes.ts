@@ -13,6 +13,7 @@ import {
   type ProviderBriefing,
   type ProviderRecipe,
   type RecipeOperatorGuess,
+  type ServedWalkNote,
 } from '@kolonie-ai/core'
 import type { FallingRate } from '@kolonie-ai/db'
 import type { ProviderRecipes } from '../provider-recipes.js'
@@ -101,6 +102,17 @@ export interface FakeProviderRecipes extends ProviderRecipes {
    */
   readonly brief: (briefing: ProviderBriefing) => void
   /**
+   * A note a walker left at this pair, as a reader receives it (`#1035`).
+   *
+   * **Set rather than derived, for the reason `brief` is.** Which notes are
+   * published, whose handle each carries and what order they come in are three
+   * decisions the SQL makes — out of `scrubbed_prose`, past `attributed`, by
+   * score — and a fake that made them again could make them differently.
+   * `packages/db/src/storage/walk-notes.test.ts` is where they are asserted,
+   * against a real Postgres.
+   */
+  readonly note: (kind: string, provider: string, note: ServedWalkNote) => void
+  /**
    * A citizen who walked this pair and is named for it (`#960`).
    *
    * **Only the ones a test wants named.** The real read already applies both
@@ -121,6 +133,7 @@ export function fakeProviderRecipes(): FakeProviderRecipes {
   const rows: ProviderRecipe[] = []
   const measured: AtlasFigures[] = []
   const briefed: ProviderBriefing[] = []
+  const noted: { kind: string; provider: string; note: ServedWalkNote }[] = []
   const proposed: EntryProposal[] = []
   const providersProposed: AtlasProposal[] = []
   const falling: FallingRate[] = []
@@ -179,6 +192,22 @@ export function fakeProviderRecipes(): FakeProviderRecipes {
 
     brief(briefing) {
       briefed.push(briefing)
+    },
+
+    /** The quoted half of the same answer, on the same terms (`#1035`). */
+    async notes(provider) {
+      const found = new Map<string, ServedWalkNote[]>()
+      for (const one of noted) {
+        if (one.provider.toLowerCase() !== provider.toLowerCase()) continue
+        const key = figureKey(one.kind, one.provider)
+        found.set(key, [...(found.get(key) ?? []), one.note])
+      }
+
+      return found
+    },
+
+    note(kind, provider, note) {
+      noted.push({ kind, provider, note })
     },
 
     /**

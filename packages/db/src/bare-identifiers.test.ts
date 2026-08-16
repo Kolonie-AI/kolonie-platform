@@ -331,6 +331,32 @@ describe('a subquery never interpolates columns of two tables', () => {
    * qualification rather than about execution. `exploration-query.test.ts`
    * exercises this one against a real database, which is the check that fails
    * when the SQL is valid-looking and wrong.
+   *
+   * ## `walk-notes.ts`, added 2026-08-16 (`#1035`)
+   *
+   * Two fragments, `helpfulCount` and `unhelpfulCount`, which count the votes on
+   * one published note. Each names `walk_note_feedback` and correlates outward to
+   * `account_walks` — two tables, which is the shape this rule flags. They are
+   * counted rather than cached deliberately: the counter cache on `task_reports`
+   * is what obliges `#91` to recompute inside the erasing transaction, and a
+   * subquery has nothing to drift.
+   *
+   * **In a `select` and again in the `order by`, and measured rather than
+   * assumed.** Rendered through this dialect on 2026-08-16:
+   *
+   * ```
+   * (
+   *   select count(*)::int from "walk_note_feedback"
+   *    where "walk_note_feedback"."walk_id" = "account_walks"."id"
+   *      and "walk_note_feedback"."helpful" = true
+   * )
+   * ```
+   *
+   * Every identifier qualified, the outward correlation included. The unhelpful
+   * fragment is the same statement with `false` on the last line. Both are
+   * exercised against a real database in `storage/walk-notes.test.ts`, which is
+   * the check that would fail if the correlation were valid-looking and wrong —
+   * an uncorrelated count would give a stranger's unvoted note a count of one.
    */
   const MEASURED_SAFE: Readonly<Record<string, number>> = {
     'tasks.ts': 1,
@@ -342,6 +368,7 @@ describe('a subquery never interpolates columns of two tables', () => {
     'steward.ts': 4,
     'read.ts': 1,
     'operator-requests.ts': 1,
+    'walk-notes.ts': 2,
   }
 
   /**

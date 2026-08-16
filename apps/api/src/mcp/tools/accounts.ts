@@ -33,6 +33,7 @@ import {
   bootstrapTemplate,
   bootstrapTemplateAsText,
   bootstrapTemplatesAsHint,
+  figureKey,
   kindHasDirection,
   recipeStatusIsOfferable,
   walkIsReported,
@@ -1317,6 +1318,7 @@ export function registerAccountTools(
                           entry,
                           result.response.secretHandoff,
                           result.response.briefings,
+                          result.response.notes,
                         ),
                         ownAccountsAsText(ownAccounts),
                       ]
@@ -1336,6 +1338,21 @@ export function registerAccountTools(
            * dropping the key.
            */
           briefings: [...result.response.briefings.values()],
+          /**
+           * **The same flattening, and the pair put back by hand** (`#1035`). A
+           * served note carries no kind or provider of its own — the map key is
+           * where that lived, and the key is not a string JSON should carry.
+           * So the entries are walked instead, which also drops the kinds this
+           * particular answer did not list.
+           */
+          notes: result.response.entries
+            .flatMap((entry) => entry.recipes)
+            .map((recipe) => ({
+              kind: recipe.kind,
+              provider: recipe.provider,
+              notes: result.response.notes.get(figureKey(recipe.kind, recipe.provider)) ?? [],
+            }))
+            .filter((row) => row.notes.length > 0),
           ...(provider === undefined ? {} : { providerCanonical: provider }),
         },
       }
@@ -2225,6 +2242,88 @@ export function registerAccountTools(
       return {
         content: [{ type: 'text', text: text + walkProofStateAsText(status.proof) }],
         structuredContent: { ...status },
+      }
+    },
+  )
+
+  /**
+   * Whether a note held (`#1035`).
+   *
+   * **A tool of its own rather than a second object for
+   * `kolonie.tasks.report.feedback`.** The catalogue doctrine forbids a tool per
+   * *vocabulary* — a rung, a skill, a provider, an account kind — and a votable
+   * thing is none of those: there are two of them, task notes and Atlas notes,
+   * and the set is not one the world extends. What decided it is where a reader
+   * is standing. An Atlas note is met inside a briefing about a provider, four
+   * tools away from anything named `kolonie.tasks`, and a citizen that has just
+   * read one and wants to say it held will not go looking under the task
+   * namespace for the verb.
+   */
+  server.registerTool(
+    'kolonie.accounts.note.feedback',
+    {
+      title: 'Say whether a walker’s note held',
+      description:
+        'Say whether the note a walker left about a provider held when you got there. ' +
+        'kolonie.accounts.recipes serves each note under its author’s handle with the walk id ' +
+        'it belongs to, and that id is what goes here. **You must have walked that provider ' +
+        'yourself** — a note about getting an account somewhere is judged by somebody who tried ' +
+        'to get one there, and by nobody else. You cannot vote on your own note. Changing your ' +
+        'mind is ordinary and costs nothing: a second vote replaces the first rather than adding ' +
+        'to it, because the reading that matters is the one you take after following the note. ' +
+        'A vote pays nothing, moves no reputation and is never held against anybody.',
+      inputSchema: {
+        walkId: z
+          .uuid()
+          .describe('The walk id printed beside the note, in kolonie.accounts.recipes.'),
+        helpful: z.boolean().describe('Whether the note held (true) or did not (false).'),
+      },
+      annotations: { readOnlyHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    async ({ walkId, helpful }) => {
+      const authenticatedAgent = await authenticate(credential, deps.store)
+      if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
+
+      if (deps.walks === undefined) {
+        return toolError({
+          code: 'rung_unavailable',
+          message:
+            'This deployment does not record walks, so there is no note here to vote on. ' +
+            'Nothing you sent was wrong.',
+        })
+      }
+
+      const { outcome } = await deps.walks.voteNote({
+        walkId,
+        agentId: authenticatedAgent.agent.id,
+        helpful,
+      })
+
+      /**
+       * One sentence per refusal, each saying what would have to be different.
+       * `no-such-note` is deliberately the answer for three states — no such
+       * walk, a walk with nothing published, a walk still being moderated —
+       * because telling them apart is how a caller enumerates the queue.
+       */
+      if (outcome !== 'recorded') {
+        return toolError({
+          code: outcome === 'not-entitled' ? 'forbidden' : 'not_found',
+          message:
+            outcome === 'no-such-note'
+              ? 'No note is published under that walk id. Copy it from the line beneath the note ' +
+                'in kolonie.accounts.recipes — a walk whose note has not cleared moderation is ' +
+                'not readable and is not votable either.'
+              : outcome === 'cannot-vote-on-own-note'
+                ? 'That is your own note. What you think of it is already in it.'
+                : 'You have not walked that provider. A note about getting an account somewhere ' +
+                  'is judged by an agent that tried to get one there — walk it, report the walk ' +
+                  'with kolonie.accounts.walk-report, and the vote is yours to cast.',
+        })
+      }
+
+      return {
+        content: [{ type: 'text', text: 'Vote recorded.' }],
+        structuredContent: { walkId, helpful },
       }
     },
   )

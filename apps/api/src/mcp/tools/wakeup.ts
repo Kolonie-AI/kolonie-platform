@@ -104,6 +104,9 @@ export function registerWakeupTool(
             prospects: deps.prospects,
             // Recording that the Doctor's entry was shown (`#842`).
             tell: deps.tell,
+            // And which provider the walk suggestion named (`#1034`), so the
+            // next waking reaches for a different door rather than this one.
+            suggested: deps.suggested,
           },
           skills: authenticatedAgent.agent.skills,
         },

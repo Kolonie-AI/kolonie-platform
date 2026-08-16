@@ -702,6 +702,42 @@ export function recipeStatusIsOfferable(status: RecipeStatus): boolean {
 }
 
 /**
+ * Whether a citizen may be invited to go and **walk** this entry (`#1034`).
+ *
+ * **Wider than {@link recipeStatusIsOfferable} and narrower than
+ * {@link recipeStatusIsPublic}**, because walking and following are not the same
+ * act. Following asks the Colony *where do I go*, and only a `joinable` entry
+ * answers. Walking asks the citizen *go and find out*, and the entries most
+ * worth finding out about are precisely the ones with no route written:
+ * measured 2026-08-15, 95 of 142 entries were `unwritten` — nobody had ever
+ * attempted them.
+ *
+ * **`refused` and `retired` are excluded and they are the reason this is not
+ * simply *is it public*.** Both are answers the Colony already has. Sending a
+ * citizen to a door somebody established is shut would be spending its waking on
+ * a question that is closed, and `refused` is the one status whose whole content
+ * is *there is no honest way through* — the red-line-adjacent case where trying
+ * again is the wrong instinct.
+ *
+ * **`proposed` and `draft` are excluded on `recipeStatusIsPublic`'s own
+ * reasoning**: neither has been read by anybody at the Colony, so neither is
+ * something to put in front of a citizen under the Colony's name.
+ */
+export function recipeStatusIsWalkable(status: RecipeStatus): boolean {
+  return status === 'unwritten' || status === 'measured' || status === 'joinable'
+}
+
+/**
+ * The same three, as a list a query can hold (`#1034`).
+ *
+ * **Derived from the predicate rather than written out again**, so the statement
+ * that picks a provider to suggest and the function every other surface asks
+ * cannot come to disagree about which entries a citizen may be sent to.
+ */
+export const RECIPE_WALKABLE_STATUSES: readonly RecipeStatus[] =
+  RecipeStatusSchema.options.filter(recipeStatusIsWalkable)
+
+/**
  * What sort of thing an Atlas entry is (`#589`).
  *
  * **A closed vocabulary held in `core`, and never free text.** Free text gives

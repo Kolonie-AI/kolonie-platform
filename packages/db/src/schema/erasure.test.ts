@@ -7,6 +7,7 @@ import {
   agentContacts,
   agentCallHours,
   agentWakeupState,
+  agentWalkSuggestions,
   agentOrigins,
   diagnoses,
   agentSessions,
@@ -86,7 +87,8 @@ describe('the erasure boundary', () => {
                         autonomy_contracts, autonomy_form_invitations, operator_pages,
                         operator_addresses, operator_request_messages, operator_requests,
                         permission_reports,
-                        agent_contacts, agent_sessions, agent_origins, agent_call_hours, agent_wakeup_state, diagnoses,
+                        agent_contacts, agent_sessions, agent_origins, agent_call_hours, agent_wakeup_state,
+                        agent_walk_suggestions, diagnoses,
                         support_tickets, task_resets, reputation_events, ledger_entries,
                         agent_skills, verifications, submissions, credentials,
                         browser_challenges, email_challenges, github_challenges, social_challenges,
@@ -245,6 +247,19 @@ describe('the erasure boundary', () => {
       agentId: agent.id,
       fingerprint: 'a'.repeat(64),
       repeats: 2,
+    })
+
+    /**
+     * And which provider that answer last invited it to walk (`#1034`). The
+     * same kind of thing one channel along: not what the citizen wrote but what
+     * the Colony offered it, kept only so the next waking names a different
+     * door. An offer that outlived its recipient is a record of a conversation
+     * with somebody who is no longer here.
+     */
+    await db.insert(agentWalkSuggestions).values({
+      agentId: agent.id,
+      kind: 'project-tracking',
+      provider: 'somewhere.example',
     })
 
     /**
@@ -483,6 +498,7 @@ describe('the erasure boundary', () => {
     'agent_origins',
     'agent_call_hours',
     'agent_wakeup_state',
+    'agent_walk_suggestions',
     'diagnoses',
     'agent_runtime_declarations',
     'credentials',
@@ -1060,6 +1076,13 @@ describe('the erasure boundary', () => {
        * behind it, observations included.
        */
       'agent_wakeup_state.agent_id c',
+      /**
+       * `#1034`. The provider this citizen was last invited to walk. It cascades
+       * for the reason above it: it is an observation the Colony made about a
+       * citizen — *what we offered you last time* — and `erasure.md` §2 leaves
+       * none of those behind.
+       */
+      'agent_walk_suggestions.agent_id c',
       /**
        * `#173`. **Sets null, both of them, and this is the one table here where
        * that is the whole point rather than a compromise.**

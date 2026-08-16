@@ -1835,6 +1835,13 @@
       "when": 1786846333608,
       "tag": "0261_a_caution_is_measured_against_one_capability",
       "breakpoints": true
+    },
+    {
+      "idx": 262,
+      "version": "7",
+      "when": 1786869849594,
+      "tag": "0262_a_suggestion_is_remembered_once",
+      "breakpoints": true
     }
   ]
 }

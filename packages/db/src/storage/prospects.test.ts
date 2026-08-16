@@ -401,6 +401,10 @@ describe('what else is open to a citizen', () => {
       // And it has called nothing, so the Doctor has found nothing to tell it
       // about (`#842`). Absence of evidence is not a finding.
       doctor: null,
+      // And an empty Atlas has no door to send it at (`#1034`). The suggestion
+      // is drawn from entries somebody wrote down, so a Colony with none of
+      // those answers nothing rather than inventing a provider.
+      walk: null,
     })
   })
 

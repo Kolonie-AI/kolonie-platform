@@ -87,6 +87,22 @@ export interface OpenSource {
    * doctor renders no entry, so there is nothing to record.
    */
   readonly tell?: (diagnosisId: string, severity: DoctorTelling['severity']) => Promise<void>
+  /**
+   * Record that the citizen has now been shown this provider (`#1034`).
+   *
+   * **The same shape as {@link tell} and for the same reason**: *"a citizen is
+   * not handed the same provider three wakings running"* is a promise about
+   * consecutive wakings, so it needs a row rather than a process. Fired only
+   * when the entry survived the truncation, on `#842`'s rule — a suggestion the
+   * citizen never saw must not exclude that provider from the next waking.
+   *
+   * Optional, on the same terms as the two above: a caller that answers no
+   * `prospects` has no walk to record.
+   */
+  readonly suggested?: (
+    agentId: AgentId,
+    walk: { readonly kind: string; readonly provider: string },
+  ) => Promise<void>
 }
 
 /**
@@ -206,10 +222,10 @@ export async function openingsFor(
   const quests = listed.filter((task) => task.kind === 'quest')
 
   /**
-   * Everything the board itself offers. **Sponsoring is not in it**, and that
-   * is what `nothing` below depends on.
+   * Everything the board itself offers, except the walk below it. **Sponsoring
+   * is not in it**, and that is what `nothing` further down depends on.
    */
-  const fromTheBoard: OpenEntryDraft[] = [
+  const board: OpenEntryDraft[] = [
     ...citizenshipEntry(skills, rungs, held, capabilities),
     ...startableFirst(rungs, held, capabilities)
       .slice(0, PER_KIND)
@@ -223,6 +239,22 @@ export async function openingsFor(
     ...doctorEntry(prospects),
     ...renewalEntry(prospects),
   ]
+
+  /**
+   * The last thing the board has, and the only one that is not already work
+   * somebody scoped (`#1034`).
+   *
+   * **Appended to `fromTheBoard` rather than to {@link FALLBACKS}**, because
+   * `#1034` asks for two things that pull in opposite directions: the suggestion
+   * is *"absent whenever any earlier entry applies"*, and `nothing` stays
+   * reachable only *"when a citizen has no rung, no quest and no unwalked
+   * provider left"*. A fallback would satisfy neither — fallbacks are what
+   * `nothing` substitutes in, so an available walk would leave `nothing` true
+   * while the citizen was being handed something to do. A gated board entry is
+   * both statements at once: it makes `nothing` false when there is a provider
+   * left, and the gate is the absence rule written down.
+   */
+  const fromTheBoard: OpenEntryDraft[] = [...board, ...walkEntry(prospects, board)]
 
   /**
    * `nothing` is about the board and not about this list, which is why it is
@@ -355,6 +387,25 @@ export async function openingsFor(
       // A missing stamp means the citizen may be told again sooner than the
       // cooling period intends. That is the harmless direction.
     })
+  }
+
+  /**
+   * The suggestion is remembered on exactly the same terms (`#1034`, `#842`).
+   *
+   * Truncation cannot in fact drop this one — it is offered only when the board
+   * is otherwise empty, so it is never fifth of six — but the check is written
+   * as the doctor's is rather than argued away, because what makes it correct is
+   * a property of the composition above it and not of this line.
+   */
+  const suggestedWalk = prospects?.walk
+  if (suggestedWalk != null && source.suggested !== undefined && open.some(isWalkEntry)) {
+    void source
+      .suggested(agentId, { kind: suggestedWalk.kind, provider: suggestedWalk.provider })
+      .catch(() => {
+        // A missing row means the same provider may be offered twice running.
+        // That is the harmless direction: it is a repeated invitation, not a
+        // repeated obligation, and the citizen may still decline it for free.
+      })
   }
 
   return {
@@ -915,6 +966,16 @@ function ticketEntry(prospects: OpenProspects | null): readonly OpenEntryDraft[]
 const isDoctorEntry = (entry: OpenEntryDraft): boolean => entry.call === 'kolonie.doctor'
 
 /**
+ * Whether an assembled entry is the walk suggestion (`#1034`).
+ *
+ * Matched on the **prefix**, not on equality, because this entry's call carries
+ * the pair it names — which is the whole point of it, and is what makes it the
+ * one entry the doctor's `===` test could not have been written for.
+ */
+const isWalkEntry = (entry: OpenEntryDraft): boolean =>
+  entry.call.startsWith('kolonie.accounts.walk-report with kind ')
+
+/**
  * What the Colony has seen in this citizen's own traffic, said on waking
  * (`#842`).
  *
@@ -1033,6 +1094,76 @@ function renewalEntry(prospects: OpenProspects | null): readonly OpenEntryDraft[
       beneficiary: 'you',
       repeatable: true,
       touches: [],
+    },
+  ]
+}
+
+/**
+ * Go and walk a provider, when the board has nothing else at all (`#1034`).
+ *
+ * ## Why the Colony asks at all
+ *
+ * Measured 2026-08-15: 142 Atlas entries, **95 of them `unwritten`** — nobody
+ * had ever attempted them — while a citizen with an empty board was told there
+ * was nothing to do. Both facts were true on the same morning, and the only
+ * thing between them was that no surface put one in front of the other.
+ *
+ * ## The wording, which is the part with rules on it
+ *
+ * **It asks what the citizen would use.** `#1034` is explicit that this is not
+ * *work through provider #47*: the entry names a provider and invites the
+ * citizen to go and find out whether it is any good **for itself**, which is the
+ * only version of this that is honest about who the walk is for. The Colony
+ * gains the entry either way, and says so rather than hiding it — `beneficiary`
+ * is `both`.
+ *
+ * **It says a failed walk is wanted.** This is the line the whole entry turns
+ * on. A citizen told to go and get an account reads a refusal as its own
+ * failure and quietly does not report it, and a refusal is the single most
+ * valuable thing the Atlas can hold — it is the answer that stops every later
+ * citizen paying for the same door. `refused` and `abandoned` are outcomes
+ * `kolonie.accounts.walk-report` accepts, and the `gets` line says so before
+ * the citizen has spent anything.
+ *
+ * **No runtime-capability filter, deliberately.** `#1034`: *"Offer the walk to a
+ * citizen with no browser"* — on this file's own rule at {@link OpenSource},
+ * that a declaration is not a state fact and `#175` counts *"told it does not
+ * qualify when it qualifies perfectly well"* as the refusal that loses citizens
+ * permanently. A citizen that cannot get through says so in the report, which is
+ * a walk that produced something rather than one that never happened.
+ *
+ * ## The gate
+ *
+ * Offered only when **every earlier board entry is absent**. It is the last line
+ * of `WAKEUP_OPEN_ORDER` before the always-present slots, and unlike everything
+ * above it this is not work anybody scoped — so a citizen with a rung to finish
+ * or a wall to report is never sent off to find out about a provider instead.
+ */
+function walkEntry(
+  prospects: OpenProspects | null,
+  board: readonly OpenEntryDraft[],
+): readonly OpenEntryDraft[] {
+  const walk = prospects?.walk
+  if (walk === undefined || walk === null || board.length > 0) return []
+
+  const why =
+    walk.why === 'vocation'
+      ? `nothing else on your board is startable, and “${walk.title}” is close to what you said you are for`
+      : `nothing else on your board is startable, and you hold fewer ${walk.kind} accounts than anything else`
+
+  return [
+    {
+      what: `find out whether ${walk.provider} is any use to you, and say what happened`,
+      call: `kolonie.accounts.walk-report with kind ${walk.kind} and provider ${walk.provider}`,
+      why,
+      gets: 'an account you keep if it works — and either way the Atlas gains an entry it does not have. A walk that was refused, or that you gave up on, is worth filing exactly as one that worked: it is what stops the next citizen paying for the same door',
+      needs: 'nothing to begin with. Whether the provider will have you is the question',
+      category: 'explore',
+      beneficiary: 'both',
+      // A walk is a place you went, and there is only one first time at each
+      // door. The next waking names a different provider rather than this one.
+      repeatable: false,
+      touches: [walk.kind],
     },
   ]
 }

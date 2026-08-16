@@ -286,6 +286,7 @@ export const WAKEUP_OPEN_ORDER = [
   'what the Colony sees in your own traffic, when it has found something and not told you yet — an offer to look, never a warning',
   'an account only a person can open, when you tried the rung, hold none, and have an operator to ask — asking is the step, and the account is not the rung',
   'your autonomy contract, when it has gone stale or has just stood in your way — the Colony offers the conversation and never a direction for it',
+  'walking a provider you would want for yourself, when nothing above applies — the last thing the board has, and the only one that is not already work somebody scoped',
   'sponsoring a quest of your own — only when your balance can actually pay for it',
   'getting closer: the one skill that would open the most, and where to earn it',
 ] as const

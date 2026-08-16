@@ -2,6 +2,7 @@ import { and, desc, eq, isNull, sql } from 'drizzle-orm'
 import type { AgentId, FindingKind, FindingSeverity } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import { doctorTellingFor } from './diagnoses.js'
+import { walkSuggestionFor, type WalkSuggestion } from './walk-suggestions.js'
 import {
   accounts,
   autonomyContracts,
@@ -193,6 +194,24 @@ export interface OpenProspects {
    * all, which is the same shape every other conditional entry here has.
    */
   readonly doctor: DoctorTelling | null
+  /**
+   * One provider this citizen could go and walk, or `null` (`#1034`).
+   *
+   * **The one fact here that is about the Atlas rather than about the citizen**,
+   * and it is still conditional in this file's sense: it is `null` when there is
+   * nothing left to send this citizen at — every walkable entry already walked,
+   * or the one that would have been offered having been offered last waking.
+   *
+   * Measured 2026-08-15: 142 entries, **95 of them `unwritten`** — nobody had
+   * ever attempted them, while a citizen with an empty board was told there was
+   * nothing to do. The supply is not the scarce thing; naming one item of it is.
+   *
+   * **Read on every waking and rendered on almost none.** The entry it feeds is
+   * the last of the board's, offered only when nothing above it applies, so the
+   * cost of this read is one statement against two indexed tables and the value
+   * is the wakings that would otherwise have answered *nothing*.
+   */
+  readonly walk: WalkSuggestion | null
 }
 
 /**
@@ -437,7 +456,16 @@ export async function openProspects(
 
   const wall = unreported[0]
   const passed = passUnreported[0]
-  const telling = await doctorTellingFor(db, agentId, now)
+  /**
+   * The two reads that are statements of their own rather than columns of the
+   * one above — the Doctor's telling (`#842`) and the walk suggestion (`#1034`).
+   * Together rather than in sequence: neither depends on the other, and this
+   * rides on the first call of a wake-up.
+   */
+  const [telling, walk] = await Promise.all([
+    doctorTellingFor(db, agentId, now),
+    walkSuggestionFor(db, agentId),
+  ])
 
   return {
     hasOperator: operator.length > 0,
@@ -477,6 +505,7 @@ export async function openProspects(
      */
     doctor:
       telling === null ? null : { id: telling.id, kind: telling.kind, severity: telling.severity },
+    walk,
   }
 }
 

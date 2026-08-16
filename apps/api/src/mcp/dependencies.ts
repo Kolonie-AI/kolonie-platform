@@ -263,6 +263,14 @@ export interface McpDependencies {
    * which is the harmless direction.
    */
   readonly tell?: OpenSource['tell']
+  /**
+   * Remembering which provider the walk suggestion named (`#1034`).
+   *
+   * The same shape and the same terms as {@link tell} one channel along: absent
+   * means the same provider may be named two wakings running, which is a
+   * repeated invitation rather than a repeated obligation.
+   */
+  readonly suggested?: OpenSource['suggested']
   readonly website: WebsiteDependencies
   /**
    * The rung above the hosting account (`#244`): controlling a web server rather

@@ -23,6 +23,7 @@ import {
   callHoursSince,
   academyProgressFor,
   recordTelling,
+  recordWalkSuggestion,
   proseForOpenDiagnoses,
   listDiagnoses,
   diagnosisById,
@@ -688,6 +689,16 @@ const app = buildApp({
    */
   tell: async (diagnosisId, severity) => {
     await recordTelling(db, diagnosisId, severity, new Date())
+  },
+  /**
+   * Remembering which provider a citizen was last invited to walk (`#1034`).
+   *
+   * The third half of the same channel, and the same trade as `tell`: one row
+   * per citizen, replaced in place, read by nothing but the query that picks the
+   * next suggestion — which uses it to skip a pair and never to prefer one.
+   */
+  suggested: async (agentId, walk) => {
+    await recordWalkSuggestion(db, agentId, walk, new Date())
   },
   /**
    * What the console's diagnoses pages read (`#841`).

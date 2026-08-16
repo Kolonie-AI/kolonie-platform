@@ -171,6 +171,10 @@ export const anonymousClient = (registry: AgentRegistry = fakeRegistry()) =>
       // No finding waiting (`#842`), which is the ordinary state and the one a
       // test that is not about the Doctor should not have to assert around.
       doctor: null,
+      // Nor a provider to walk (`#1034`): the walk is the board's last resort,
+      // and a fixture whose citizen has one would put it in front of every test
+      // that composes an empty board for some other reason.
+      walk: null,
     }),
     skillNotes: fakeSkillNotes(),
     hints: fakeStandingHints(),

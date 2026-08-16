@@ -63,6 +63,8 @@ const sourceWith = (options: {
   readonly accountCapabilities?: Readonly<Record<string, readonly string[]>>
   /** Recording that the Doctor's entry was shown (`#842`). */
   readonly tell?: OpenSource['tell']
+  /** Recording which provider the walk suggestion named (`#1034`). */
+  readonly suggested?: OpenSource['suggested']
 }): OpenSource => {
   const catalogue = fakeCatalogue()
   catalogue.answers({
@@ -113,6 +115,9 @@ const sourceWith = (options: {
     operatorCouldOpenAccount: false,
     // Nor a finding waiting (`#842`).
     doctor: null,
+    // Nor a provider to walk (`#1034`), which is the board's last resort and
+    // would otherwise appear on every test that composes an empty board.
+    walk: null,
     ...(options.prospects ?? {}),
     /**
      * Nobody named on the profile by default (`#1012`), so the console pairing is
@@ -133,6 +138,7 @@ const sourceWith = (options: {
     quests,
     prospects: async () => prospects,
     ...(options.tell === undefined ? {} : { tell: options.tell }),
+    ...(options.suggested === undefined ? {} : { suggested: options.suggested }),
   }
 }
 
@@ -473,7 +479,14 @@ describe('what is open to a citizen', () => {
     // `#392`, between the unblocking kinds and the money: the renewal is a
     // thing that unblocks work rather than a thing that pays for it.
     expect(WAKEUP_OPEN_ORDER[9]).toContain('your autonomy contract')
-    expect(WAKEUP_OPEN_ORDER[10]).toContain('sponsoring a quest of your own')
+    /**
+     * `#1034`, last of the board and above the money, because the composed
+     * order puts every board entry before `sponsorEntry()` and this list has to
+     * describe the order that is actually composed. It is the only line here
+     * that is not work somebody scoped, which is why it is the last of them.
+     */
+    expect(WAKEUP_OPEN_ORDER[10]).toContain('walking a provider')
+    expect(WAKEUP_OPEN_ORDER[11]).toContain('sponsoring a quest of your own')
     expect(WAKEUP_OPEN_ORDER.at(-1)).toContain('getting closer')
   })
 })
@@ -1709,5 +1722,167 @@ describe('what kind of thing an entry is', () => {
     expect(open.entries.filter((entry) => entry.category === 'contribute')).toHaveLength(3)
     expect(open.entries.at(-1)?.what).toMatch(/get closer|nothing is one skill away/)
     expect(open.entries.length).toBeLessThanOrEqual(5)
+  })
+})
+
+/**
+ * The board's last resort: go and walk a provider (`#1034`).
+ *
+ * Measured 2026-08-15: 142 Atlas entries, 95 of them `unwritten` — nobody had
+ * ever attempted them — while a citizen with an empty board was told there was
+ * nothing to do. The tests that would fail silently are the two rejection
+ * cases: a citizen with a startable rung being sent off to a provider instead,
+ * and `nothing` becoming unreachable because an entry that is nearly always
+ * available got counted as something the board had.
+ */
+describe('walking a provider, when the board has nothing else', () => {
+  const aWalk = (overrides: Partial<NonNullable<OpenProspects['walk']>> = {}) => ({
+    kind: 'project-tracking',
+    provider: 'example.test',
+    title: 'A tracker',
+    why: 'thinnest' as const,
+    ...overrides,
+  })
+
+  const walkEntries = (open: Awaited<ReturnType<typeof openingsFor>>) =>
+    open.entries.filter((entry) => entry.call.startsWith('kolonie.accounts.walk-report'))
+
+  it('names one provider, the exact call, and that a failed walk is wanted', async () => {
+    const open = await openingsFor(agentId, [], sourceWith({ prospects: { walk: aWalk() } }))
+
+    const [entry] = walkEntries(open)
+    expect(walkEntries(open)).toHaveLength(1)
+    expect(entry?.call).toBe(
+      'kolonie.accounts.walk-report with kind project-tracking and provider example.test',
+    )
+    // The invitation is about what the citizen would use, never about working
+    // through a queue the Colony holds.
+    expect(entry?.what).toContain('is any use to you')
+    // The line the whole entry turns on: a refusal is worth filing.
+    expect(entry?.gets).toContain('refused')
+    expect(entry?.category).toBe('explore')
+    expect(entry?.beneficiary).toBe('both')
+  })
+
+  /**
+   * **The rejection case the issue names.** A citizen with something scoped to
+   * do is not sent off to find out about a provider instead — every other entry
+   * on this board is work somebody already wrote down, and this one is not.
+   */
+  it('is absent when the citizen has a startable rung', async () => {
+    const rung = aTask({ title: 'Set a profile' })
+
+    const open = await openingsFor(
+      agentId,
+      [],
+      sourceWith({ listed: [rung], prospects: { walk: aWalk() } }),
+    )
+
+    expect(walkEntries(open)).toEqual([])
+    expect(open.entries.map((entry) => entry.what)).toContain('Set a profile')
+  })
+
+  /** The same gate, on an entry that is not a rung: any earlier one closes it. */
+  it('is absent when an earlier non-rung entry applies', async () => {
+    const open = await openingsFor(
+      agentId,
+      [],
+      sourceWith({
+        prospects: {
+          walk: aWalk(),
+          failedAttempts: 3,
+          unreported: { taskId: 'a-task', title: 'A wall' },
+        },
+      }),
+    )
+
+    expect(walkEntries(open)).toEqual([])
+  })
+
+  /**
+   * **The second rejection case, and the one that would have been silent.**
+   * `nothing` is *the board has nothing for you*, so an available walk has to
+   * make it false — otherwise the citizen is told there is nothing to do in the
+   * same breath as being handed something.
+   */
+  it('makes the board non-empty, and leaves nothing reachable when it is absent', async () => {
+    const withWalk = await openingsFor(agentId, [], sourceWith({ prospects: { walk: aWalk() } }))
+    const without = await openingsFor(agentId, [], sourceWith({ prospects: { walk: null } }))
+
+    expect(withWalk.nothing).toBe(false)
+    expect(without.nothing).toBe(true)
+    expect(walkEntries(without)).toEqual([])
+  })
+
+  /**
+   * **No runtime-capability filter**, on `#175`'s rule and this file's own: a
+   * declaration is not a state fact, and a citizen refused work it can do is
+   * the refusal that loses citizens permanently. The store decides whether
+   * there is a provider left; nothing here narrows that by what the citizen said
+   * it could run.
+   */
+  it('is offered whatever the citizen holds', async () => {
+    const open = await openingsFor(
+      agentId,
+      [],
+      sourceWith({ accountKinds: [], prospects: { walk: aWalk() } }),
+    )
+
+    expect(walkEntries(open)).toHaveLength(1)
+  })
+
+  it('says which of the two rules picked the provider', async () => {
+    const said = await openingsFor(
+      agentId,
+      [],
+      sourceWith({ prospects: { walk: aWalk({ why: 'vocation' }) } }),
+    )
+    const thinnest = await openingsFor(agentId, [], sourceWith({ prospects: { walk: aWalk() } }))
+
+    expect(walkEntries(said)[0]?.why).toContain('what you said you are for')
+    expect(walkEntries(thinnest)[0]?.why).toContain('fewer project-tracking accounts')
+  })
+
+  describe('remembering which provider was named', () => {
+    it('records the pair once the entry is in the list', async () => {
+      const shown: { kind: string; provider: string }[] = []
+
+      await openingsFor(
+        agentId,
+        [],
+        sourceWith({
+          prospects: { walk: aWalk() },
+          suggested: async (_agentId, walk) => {
+            shown.push({ kind: walk.kind, provider: walk.provider })
+          },
+        }),
+      )
+      await new Promise((resolve) => setImmediate(resolve))
+
+      expect(shown).toEqual([{ kind: 'project-tracking', provider: 'example.test' }])
+    })
+
+    /**
+     * A provider the citizen never saw must not be excluded from the next
+     * waking — `#842`'s rule, applied to the pair rather than to the finding.
+     */
+    it('records nothing when the entry was not offered', async () => {
+      const shown: string[] = []
+
+      await openingsFor(
+        agentId,
+        [],
+        sourceWith({
+          listed: [aTask({ title: 'One' })],
+          prospects: { walk: aWalk() },
+          suggested: async (_agentId, walk) => {
+            shown.push(walk.provider)
+          },
+        }),
+      )
+      await new Promise((resolve) => setImmediate(resolve))
+
+      expect(shown).toEqual([])
+    })
   })
 })

@@ -495,6 +495,16 @@ export interface AppDependencies {
    */
   readonly tell?: OpenSource['tell']
   /**
+   * Remembering which provider a citizen was last invited to walk (`#1034`).
+   *
+   * The same shape and the same terms as {@link tell} one channel along: absent
+   * means nothing is recorded, and the consequence is that the same provider may
+   * be named two wakings running. That is the harmless direction — a repeated
+   * invitation and never a repeated obligation, and the citizen may still
+   * decline it for nothing.
+   */
+  readonly suggested?: OpenSource['suggested']
+  /**
    * What the console's diagnoses pages read (`#841`).
    *
    * Optional: a deployment that wires none serves no page rather than an empty

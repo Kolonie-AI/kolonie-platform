@@ -22,6 +22,7 @@ export function registerMcpRoutes(app: FastifyInstance, deps: RouteDependencies)
     rollup,
     doctor,
     tell,
+    suggested,
     catalogue,
     recipes,
     renames,
@@ -210,6 +211,9 @@ export function registerMcpRoutes(app: FastifyInstance, deps: RouteDependencies)
           // And the half that records a telling (`#842`), so the wake-up over
           // this door does not announce the same finding on every waking.
           ...(tell === undefined ? {} : { tell }),
+          // And the same half one channel along (`#1034`), so the walk this door
+          // suggests is not the walk it suggested last time.
+          ...(suggested === undefined ? {} : { suggested }),
           /**
            * The public record and its brake (`#957`), forwarded as one pair.
            *

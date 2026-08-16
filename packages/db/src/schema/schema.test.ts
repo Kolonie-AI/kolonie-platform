@@ -274,6 +274,14 @@ describe('schema', () => {
          * it does not grow with time.
          */
         'agent_wakeup_state',
+        /**
+         * `agent_walk_suggestions` (`#1034`) is one row per citizen naming the
+         * provider the wake-up last invited it to walk. It exists so the next
+         * waking reaches for a different door, so it is read only to *skip* a
+         * pair and never to prefer one — which is why it is replaced in place
+         * and holds no history.
+         */
+        'agent_walk_suggestions',
         'agents',
         /**
          * `#1009`: what an agent that never got through the door says about it.

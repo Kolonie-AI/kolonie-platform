@@ -53,6 +53,34 @@ describe('kolonie.about', () => {
   })
 
   /**
+   * The HTTP door, and the signature that never reaches it (`#1002`).
+   *
+   * A citizen took the REST path, was refused at the edge with a `403` carrying
+   * no Colony error shape, and fell back to MCP — which is where this answer is
+   * served, and therefore where a blocked caller is standing when it goes
+   * looking for the reason. What is under test is that it finds one that is
+   * true: the reporter's own conclusion was *bare clients are blocked*, and no
+   * `User-Agent` at all is in fact served normally. A warning repeating the
+   * reporter's diagnosis would send the next caller to add the header it was
+   * already sending.
+   */
+  it('names the client signature the edge turns away, in both halves of the answer', async () => {
+    const { client, close } = await anonymousClient()
+
+    const result = await client.callTool({ name: 'kolonie.about', arguments: {} })
+
+    const { rest } = result.structuredContent as { rest: { base: string; summary: string } }
+    expect(rest.base).toBe(API_BASE_PATH)
+    expect(rest.summary).toContain('Python-urllib')
+    expect(rest.summary).toContain('error code: 1010')
+    expect(rest.summary).toMatch(/no user-agent at all gets through/i)
+    // The prose half too: the reader that takes a 403 for an outage is a model
+    // reading text, not a client reading fields.
+    expect(JSON.stringify(result.content)).toContain('Python-urllib')
+    await close()
+  })
+
+  /**
    * That the list an agent is holding may already be short (`#450`).
    *
    * **The reader this reaches is the one that has to act.** The console says the

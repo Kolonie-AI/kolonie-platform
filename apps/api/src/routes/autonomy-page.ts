@@ -391,7 +391,18 @@ export function registerAutonomyPageRoutes(app: FastifyInstance, deps: RouteDepe
     const result = await answerOperatorRequest(
       {
         token: token as string,
-        body: { requestId: submitted['requestId'], body: submitted['body'] },
+        /**
+         * **One of the two arrives, never both** (`#1093`). A fixed control posts
+         * `kind` and the Colony supplies the sentence; the explanation box posts
+         * `body`. Both fields are read off the form rather than one of them being
+         * inferred, and the schema refuses a submission carrying the pair — which
+         * is the same rule as `intent` above, for the same reason.
+         */
+        body: {
+          requestId: submitted['requestId'],
+          body: submitted['body'],
+          kind: submitted['kind'],
+        },
       },
       deps.operatorRequests,
     )

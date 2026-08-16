@@ -609,7 +609,14 @@ describe('the migrations', () => {
     // it says it saw and asks for it to fire less widely, the other disputes
     // its arithmetic, and a boolean would have collected both as the same
     // complaint and left nobody able to tell which fix was being asked for.
-    expect(afterFirst.enums).toBe('57')
+    // And `operator_answer_kind` makes fifty-eight (`#1093`). Three members for
+    // the three things a fixed control on the operator page can say, and the
+    // reason it is an enum rather than a boolean is the same reason
+    // `doctor_feedback_verdict` is: *you may go ahead* and *I have done it* were
+    // one word — `Allow` — and a citizen that had asked for a machine account
+    // could not tell which of them it had been given. A closed list is also what
+    // lets the CHECK beside it hold, since only an operator declares.
+    expect(afterFirst.enums).toBe('58')
     // Two: the deferred double-entry constraint trigger on `ledger_entries`, and
     // `submissions_one_pass_per_quest` (#175) — one accepted submission per
     // citizen per quest, which is a trigger rather than a partial unique index

@@ -3,7 +3,7 @@ import { check, index, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-cor
 import { OPERATOR_MESSAGE_MAX_LENGTH, OPERATOR_MESSAGE_MIN_LENGTH } from '@kolonie-ai/core'
 import { accountWishes } from './account-wishes.js'
 import { agents } from './agents.js'
-import { operatorRequestAuthor } from './enums.js'
+import { operatorAnswerKind, operatorRequestAuthor } from './enums.js'
 import { tasks } from './tasks.js'
 
 const bodyMin = sql.raw(String(OPERATOR_MESSAGE_MIN_LENGTH))
@@ -145,6 +145,24 @@ export const operatorRequestMessages = pgTable(
 
     body: text('body').notNull(),
 
+    /**
+     * What the operator declared this message to be, or `null` if it declared
+     * nothing (#1093).
+     *
+     * **A property of the message and not a status on the exchange.** There is
+     * still no status column here or on `operator_requests`: this says what a
+     * person meant by the words they sent at 09:14, a later message may say
+     * something else, and the table being append-only is what makes that a
+     * correction rather than a state change.
+     *
+     * **Null wherever nothing was declared, which is most rows.** Every citizen
+     * message, every reply typed as free text, every row written before this
+     * column existed. A default would put a declaration in the mouth of somebody
+     * who made none — which is the defect this closes, not a smaller version of
+     * it.
+     */
+    answerKind: operatorAnswerKind('answer_kind'),
+
     writtenAt: timestamp('written_at', { withTimezone: true, mode: 'string' })
       .notNull()
       .defaultNow(),
@@ -153,6 +171,16 @@ export const operatorRequestMessages = pgTable(
     check(
       'operator_request_messages_body_length',
       sql`char_length(${table.body}) between ${bodyMin} and ${bodyMax}`,
+    ),
+    /**
+     * Only an operator declares (#1093). A citizen permits nothing, completes
+     * nothing on its own behalf and refuses nothing to itself, so a kind on its
+     * message would be a sentence with no meaning — and the surfaces read the
+     * declaration back without asking who wrote it.
+     */
+    check(
+      'operator_request_messages_only_operators_declare',
+      sql`${table.answerKind} is null or ${table.author} = 'operator'`,
     ),
     /**
      * The one read: *this exchange, oldest first*. Composite so the order is

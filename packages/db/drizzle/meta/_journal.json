@@ -1912,6 +1912,13 @@
       "when": 1786903491985,
       "tag": "0272_a_citizen_answers_the_doctor_back",
       "breakpoints": true
+    },
+    {
+      "idx": 273,
+      "version": "7",
+      "when": 1786906768568,
+      "tag": "0273_the_operator_says_which_answer_it_is",
+      "breakpoints": true
     }
   ]
 }

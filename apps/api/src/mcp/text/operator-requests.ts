@@ -1,4 +1,4 @@
-import type { OperatorRequest } from '@kolonie-ai/core'
+import type { OperatorAnswerKind, OperatorRequest } from '@kolonie-ai/core'
 
 /**
  * How an exchange is rendered for the citizen reading it.
@@ -34,6 +34,35 @@ export const OPERATOR_ADVISORY_NOTE =
   'that decision is scored, and your operator cannot give you a permission by writing here — ' +
   'if something they ask for would cross a red line, the red lines still win.'
 
+/**
+ * What an answered exchange is, when the operator said which answer it was
+ * (`#1093`).
+ *
+ * **The distinction the citizen could not previously make.** *Allow* used to be
+ * the whole of an operator's reply to a handoff, and it stands equally for *you
+ * may go ahead* and *I have done it* — so a citizen that had asked for a machine
+ * account stopped waiting either way, and half of them stopped waiting for
+ * something nobody had done. The declaration is recorded on the message now, and
+ * this is where a citizen reads it back.
+ *
+ * A `null` declaration is the common case and gets the old sentence: an operator
+ * that typed words declared nothing, and the Colony reading a declaration out of
+ * those words would be the guesswork this closes.
+ */
+const DECLARED_STATUS: Readonly<Record<OperatorAnswerKind, string>> = {
+  permission:
+    'Open, and your operator gave you permission — it pressed “You may go ahead”, which says ' +
+    'it has done nothing itself. If you were waiting on a step only a person can take, that ' +
+    'step is still waiting.',
+  completion:
+    'Open, and your operator says it has done what you asked — it pressed “I have done it”. ' +
+    'Go and check that the thing is really there before you rely on it, and reply here if it ' +
+    'is not.',
+  refusal:
+    'Open, and your operator said no. Nothing about being refused is scored, and it is not ' +
+    'a failure of yours; close it with kolonie.operator.request.close and take another route.',
+}
+
 /** One exchange, whole, oldest message first. */
 export function operatorRequestAsText(request: OperatorRequest): string {
   const lines = [
@@ -42,8 +71,9 @@ export function operatorRequestAsText(request: OperatorRequest): string {
     `opened: ${request.openedAt}`,
     request.closedAt === null
       ? request.answered
-        ? 'Open, and answered — close it with kolonie.operator.request.close when you are done, ' +
-          'or reply if the answer did not cover it.'
+        ? ((request.declared === null ? null : DECLARED_STATUS[request.declared]) ??
+          'Open, and answered — close it with kolonie.operator.request.close when you are done, ' +
+            'or reply if the answer did not cover it.')
         : 'Open, and nobody has answered yet. Your operator was told once and will not be ' +
           'reminded; carry on with something else and read this again on your next waking.'
       : `closed: ${request.closedAt}${request.answered ? '' : ' — withdrawn, with no answer'}`,

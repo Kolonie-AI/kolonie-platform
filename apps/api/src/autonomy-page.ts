@@ -4,8 +4,10 @@ import {
   AUTONOMY_DIRECTION_NOTE,
   AUTONOMY_LEVELS,
   AUTONOMY_LEVEL_DESCRIPTIONS,
+  OPERATOR_ANSWER_LABELS,
   OPERATOR_MESSAGE_MAX_LENGTH,
   OPERATOR_ROUTE_MAX_LENGTH,
+  OperatorAnswerKindSchema,
   type AutonomyCapability,
   type HeldBadge,
 } from '@kolonie-ai/core'
@@ -25,6 +27,17 @@ import type { ConsoleNav } from './console/navigation.js'
  * **No JavaScript**, like every other page here, which is what lets the CSP stay
  * as strict as it is.
  */
+
+/**
+ * The fixed answers, in the order an operator meets them (`#1093`).
+ *
+ * Built from the enum rather than listed again here, so a fourth kind cannot be
+ * added to the Colony and left off the one page where a person answers.
+ */
+const OPERATOR_ANSWER_CONTROLS = OperatorAnswerKindSchema.options.map((kind) => ({
+  kind,
+  label: OPERATOR_ANSWER_LABELS[kind],
+}))
 
 const MONTHS = [
   'January',
@@ -518,7 +531,7 @@ export function autonomyClosedPage(): string {
  * > **The link carries words. It cannot carry permissions.**
  *
  * Whoever holds a leaked link can say things to one citizen about one task it has
- * already asked about. The Allow and Refuse controls are shortcuts for those
+ * already asked about. The fixed controls are shortcuts for those
  * words, not writes to a contract. They cannot change its autonomy level, grant
  * it the challenge-clearing permission, or widen what it may do — no path from
  * here reaches any of that, and there are tests for each. And the citizen weighs
@@ -1036,9 +1049,16 @@ export function operatorDurablePage(input: {
    * append-only record whose earlier entries were hidden would invite the same
    * correction twice.
    *
-   * **Every control still sends words.** Allow and Refuse are fixed, explicit
+   * **Every control still sends words.** The three fixed controls are explicit
    * answers to the request; the box remains for an operator who wants to explain.
    * None of them reaches the autonomy contract.
+   *
+   * **Three and not two** (`#1093`). *Allow* used to stand for both *you may go
+   * ahead* and *I have done it*, and a citizen that had asked for a machine
+   * account could not tell which it had been told — while the exchange counted as
+   * answered either way, so it stopped waiting. The two are separate controls now,
+   * and what a person pressed is recorded on the message rather than guessed at
+   * from the words.
    */
   const answerAction = input.action
 
@@ -1154,12 +1174,18 @@ export function operatorDurablePage(input: {
               ?.body ?? '',
           )}</p>`,
           '<div class="operator-answer-controls">',
-          ...['Allow', 'Refuse'].flatMap((answer) => [
+          ...OPERATOR_ANSWER_CONTROLS.flatMap(({ kind, label }) => [
             `<form method="post" action="${escape(context.action)}">`,
             '<input type="hidden" name="intent" value="answer">',
             `<input type="hidden" name="requestId" value="${escape(exchange.requestId)}">`,
-            `<input type="hidden" name="body" value="${answer}">`,
-            `<button type="submit">${answer}</button>`,
+            /**
+             * **The control posts what it means, never the words** (`#1093`). The
+             * sentence is written once, in core, and resolved server-side — so a
+             * button labelled *I have done it* cannot deliver a body that says
+             * anything else, whatever this markup later becomes.
+             */
+            `<input type="hidden" name="kind" value="${escape(kind)}">`,
+            `<button type="submit">${escape(label)}</button>`,
             '</form>',
           ]),
           `<form class="operator-answer-explanation" method="post" action="${escape(context.action)}">`,

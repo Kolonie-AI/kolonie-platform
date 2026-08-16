@@ -2,12 +2,14 @@ import {
   AnswerOperatorRequestSchema,
   credentialFinding,
   credentialRefusalMessage,
+  OPERATOR_ANSWER_BODIES,
   OpenOperatorRequestSchema,
   OperatorRequestIdSchema,
   ReplyToOperatorRequestSchema,
   type AgentId,
   type ApiError,
   type CredentialFinding,
+  type OperatorAnswerKind,
   type ListOperatorRequestsResponse,
   type OperatorRequest,
   type OperatorRequestId,
@@ -99,6 +101,8 @@ export interface OperatorRequestStore {
     readonly token: string
     readonly requestId: OperatorRequestId
     readonly body: string
+    /** What a pressed control declared, absent when the operator typed (`#1093`). */
+    readonly kind?: OperatorAnswerKind
   }): Promise<AnswerOperatorRequestOutcome>
 }
 
@@ -525,7 +529,24 @@ export async function answerOperatorRequest(
     }
   }
 
-  const finding = credentialFinding(parsed.data.body)
+  /**
+   * **The words come from the Colony when a control was pressed** (`#1093`).
+   *
+   * The page posts the kind alone, and the sentence is resolved here from the one
+   * table in core. That is what makes it impossible for a message declared
+   * `permission` to carry a body saying the thing was done — the two halves of the
+   * answer are never independently supplied, so they cannot disagree.
+   *
+   * It also fixes the reading for a citizen that ignores the new field entirely:
+   * `kolonie.operator.request.read` renders `body` verbatim, and these bodies say
+   * in words which of the two answers this is.
+   */
+  const body =
+    parsed.data.kind === undefined
+      ? (parsed.data.body as string)
+      : OPERATOR_ANSWER_BODIES[parsed.data.kind]
+
+  const finding = credentialFinding(body)
   if (finding !== null) {
     return { outcome: 'rejected', error: credentialRefusal(finding) }
   }
@@ -533,7 +554,8 @@ export async function answerOperatorRequest(
   const answered = await deps.store.answer({
     token: input.token,
     requestId: parsed.data.requestId,
-    body: parsed.data.body,
+    body,
+    kind: parsed.data.kind,
   })
 
   if (answered.outcome !== 'answered') return { outcome: 'unreachable' }

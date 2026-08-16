@@ -1,5 +1,9 @@
 import { randomUUID } from 'node:crypto'
-import { ListOperatorRequestsResponseSchema, OperatorRequestResponseSchema } from '@kolonie-ai/core'
+import {
+  ListOperatorRequestsResponseSchema,
+  OPERATOR_ANSWER_BODIES,
+  OperatorRequestResponseSchema,
+} from '@kolonie-ai/core'
 import { describe, expect, it } from 'vitest'
 import { FAKE_CALLER_IP, fakeColony, type FakeColony } from '../../__fixtures__/colony/index.js'
 import { connectedClient } from '../../__fixtures__/mcp.js'
@@ -257,6 +261,43 @@ describe('kolonie.operator.request', () => {
     const parsed = OperatorRequestResponseSchema.parse(read.structuredContent)
     expect(parsed.request.answered).toBe(true)
     expect(parsed.request.messages[1]?.author).toBe('operator')
+    await close()
+  })
+
+  /**
+   * **Permission is not completion** (`#1093`). The reported defect was a citizen
+   * that asked for a machine account, was told *Allow*, and could not tell whether
+   * the account existed — while the exchange counted as answered, so it stopped
+   * waiting. What the operator pressed is on the message now, and the citizen reads
+   * it back in words rather than inferring it.
+   */
+  it('says which answer it is when the operator pressed a control, and nothing when it typed', async () => {
+    const { colony, apiKey, taskId, pageToken } = await aBlockedCitizen()
+    const opened = await openA(colony, apiKey, taskId)
+    const { request } = OperatorRequestResponseSchema.parse(opened.result.structuredContent)
+    await opened.close()
+
+    await colony.operatorRequestStore.answer({
+      token: pageToken,
+      requestId: request.id,
+      body: OPERATOR_ANSWER_BODIES.permission,
+      kind: 'permission',
+    })
+
+    const { client, close } = await connectedClient(colony, `Bearer ${apiKey}`)
+    const read = await client.callTool({
+      name: 'kolonie.operator.request.read',
+      arguments: { requestId: request.id },
+    })
+
+    const text = JSON.stringify(read.content)
+    expect(text).toContain('gave you permission')
+    expect(text).toContain('still waiting')
+    expect(text).not.toContain('has done what you asked')
+
+    const parsed = OperatorRequestResponseSchema.parse(read.structuredContent)
+    expect(parsed.request.declared).toBe('permission')
+    expect(parsed.request.messages[1]?.kind).toBe('permission')
     await close()
   })
 

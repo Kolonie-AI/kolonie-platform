@@ -1,6 +1,7 @@
 import { and, asc, desc, eq, isNull, sql } from 'drizzle-orm'
 import type {
   AgentId,
+  OperatorAnswerKind,
   OperatorRequest,
   OperatorRequestAuthor,
   OperatorRequestId,
@@ -89,6 +90,7 @@ const messagesOf = async (
     .select({
       author: operatorRequestMessages.author,
       body: operatorRequestMessages.body,
+      answerKind: operatorRequestMessages.answerKind,
       writtenAt: operatorRequestMessages.writtenAt,
     })
     .from(operatorRequestMessages)
@@ -98,9 +100,22 @@ const messagesOf = async (
   return rows.map((row) => ({
     author: row.author as OperatorRequestAuthor,
     body: row.body,
+    kind: row.answerKind === null ? null : (row.answerKind as OperatorAnswerKind),
     writtenAt: toTimestamp(row.writtenAt),
   }))
 }
+
+/**
+ * What the operator last declared, or `null` if it declared nothing (`#1093`).
+ *
+ * **The last one wins**, because a correction here is another message rather than
+ * an edit: an operator that granted permission and then went and did the thing
+ * says so by declaring `completion`, and the citizen must not be told the earlier
+ * declaration is still the operative answer. Derived on every read, like
+ * `answered`, so there is nothing to keep in step.
+ */
+const declaredIn = (messages: readonly OperatorRequestMessage[]): OperatorAnswerKind | null =>
+  messages.reduce<OperatorAnswerKind | null>((latest, message) => message.kind ?? latest, null)
 
 /**
  * One exchange, whole, addressed by id and by the agent it must belong to.
@@ -152,6 +167,7 @@ export async function readOperatorRequest(
     openedAt: toTimestamp(row.openedAt),
     closedAt: row.closedAt === null ? null : toTimestamp(row.closedAt),
     answered: messages.some((message) => message.author === 'operator'),
+    declared: declaredIn(messages),
     messages: [...messages],
   }
 }
@@ -610,6 +626,13 @@ export async function answerOperatorRequest(
     readonly token: string
     readonly requestId: OperatorRequestId
     readonly body: string
+    /**
+     * What the operator declared this to be, when it answered by pressing one of
+     * the fixed controls rather than typing (`#1093`). The words still arrive in
+     * `body`; the caller resolves them from `OPERATOR_ANSWER_BODIES` so that the
+     * control and the sentence cannot disagree.
+     */
+    readonly kind?: OperatorAnswerKind
   },
 ): Promise<AnswerOperatorRequestOutcome> {
   const [target] = await db
@@ -633,6 +656,7 @@ export async function answerOperatorRequest(
     agentId: target.agentId as AgentId,
     taskId: target.taskId as TaskId | null,
     body: input.body,
+    kind: input.kind,
   })
 }
 
@@ -660,12 +684,22 @@ async function recordOperatorAnswer(
     readonly agentId: AgentId
     readonly taskId: TaskId | null
     readonly body: string
+    /**
+     * What was declared, if anything (`#1093`). Absent for a reply typed into the
+     * page or into Telegram, and that absence is the honest record: nobody
+     * pressed anything, and reading a declaration out of the words would be the
+     * guesswork the field exists to end.
+     */
+    readonly kind?: OperatorAnswerKind
   },
 ): Promise<AnswerOperatorRequestOutcome> {
   return db.transaction(async (tx) => {
-    await tx
-      .insert(operatorRequestMessages)
-      .values({ requestId: input.requestId, author: 'operator', body: input.body })
+    await tx.insert(operatorRequestMessages).values({
+      requestId: input.requestId,
+      author: 'operator',
+      body: input.body,
+      answerKind: input.kind ?? null,
+    })
 
     const clearedSetAside =
       input.taskId === null ? false : await clearSetAside(tx, input.agentId, input.taskId)

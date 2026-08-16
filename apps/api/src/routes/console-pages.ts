@@ -4351,7 +4351,12 @@ export function registerConsolePages(app: FastifyInstance, deps: RouteDependenci
     const result = await answerOperatorRequest(
       {
         token: door.token,
-        body: { requestId: submitted['requestId'], body: submitted['body'] },
+        /** The second door renders the identical form, so it forwards `kind` too (`#1093`). */
+        body: {
+          requestId: submitted['requestId'],
+          body: submitted['body'],
+          kind: submitted['kind'],
+        },
       },
       deps.operatorRequests,
     )

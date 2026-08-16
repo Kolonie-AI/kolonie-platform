@@ -1,0 +1,3 @@
+CREATE TYPE "public"."operator_answer_kind" AS ENUM('permission', 'completion', 'refusal');--> statement-breakpoint
+ALTER TABLE "operator_request_messages" ADD COLUMN "answer_kind" "operator_answer_kind";--> statement-breakpoint
+ALTER TABLE "operator_request_messages" ADD CONSTRAINT "operator_request_messages_only_operators_declare" CHECK ("operator_request_messages"."answer_kind" is null or "operator_request_messages"."author" = 'operator');

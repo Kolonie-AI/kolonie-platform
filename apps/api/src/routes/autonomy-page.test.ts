@@ -11,7 +11,7 @@ import {
 import { fakeOperatorNotes } from '../__fixtures__/operator-notes.js'
 import { fakeOperatorRequests } from '../__fixtures__/operator-requests.js'
 import { fakeStore } from '../__fixtures__/store.js'
-import type { AgentId } from '@kolonie-ai/core'
+import { OPERATOR_ANSWER_BODIES, type AgentId } from '@kolonie-ai/core'
 
 describe('the operator’s form', () => {
   let app: FastifyInstance
@@ -867,10 +867,19 @@ describe('the operator’s form', () => {
       expect(response.body).toContain('I cannot make a GitHub account without you.')
       expect(response.body).toContain(`value="${requestId}"`)
       expect(response.body).toContain('<textarea')
-      expect(response.body).toContain('<button type="submit">Allow</button>')
-      expect(response.body).toContain('<button type="submit">Refuse</button>')
-      expect(response.body).toContain('name="body" value="Allow"')
-      expect(response.body).toContain('name="body" value="Refuse"')
+      /**
+       * **Three controls, and the two halves of the old *Allow* are separate**
+       * (`#1093`). The button posts what it means and never the words: the sentence
+       * is resolved in core, so a control cannot deliver a body that says something
+       * else.
+       */
+      expect(response.body).toContain('<button type="submit">You may go ahead</button>')
+      expect(response.body).toContain('<button type="submit">I have done it</button>')
+      expect(response.body).toContain('<button type="submit">No</button>')
+      expect(response.body).toContain('name="kind" value="permission"')
+      expect(response.body).toContain('name="kind" value="completion"')
+      expect(response.body).toContain('name="kind" value="refusal"')
+      expect(response.body).not.toContain('name="body" value=')
       expect(response.body).toContain('<ul class="operator-asks">')
       expect(response.body).toContain('<summary>What you recorded</summary>')
       expect(response.body).toContain('<summary>History</summary>')
@@ -878,19 +887,73 @@ describe('the operator’s form', () => {
       expect(response.body).not.toContain('<script')
     })
 
-    it.each(['Allow', 'Refuse'])('records a one-click %s answer and confirms it', async (body) => {
+    it.each(['permission', 'completion', 'refusal'] as const)(
+      'records a one-click %s answer, in the Colony’s own words, and confirms it',
+      async (kind) => {
+        const { token, requestId } = await anAsk()
+
+        const response = await post(`/operator/page/${token}`, {
+          intent: 'answer',
+          requestId,
+          kind,
+        })
+
+        expect(response.statusCode).toBe(200)
+        expect(response.body).toContain('Sent')
+        const [exchange] = await requests.store.exchangesForToken(token)
+        expect(exchange?.messages[1]?.body).toBe(OPERATOR_ANSWER_BODIES[kind])
+        expect(exchange?.messages[1]?.kind).toBe(kind)
+      },
+    )
+
+    /**
+     * **The defect this closes** (`#1093`): a citizen that asked for a machine
+     * account could not tell *you may go ahead* from *I have done it*, because the
+     * old pair of controls posted the single word *Allow* for both — and the
+     * exchange counted as answered either way, so it stopped waiting.
+     */
+    it('tells permission from completion, and lets a later press correct an earlier one', async () => {
+      const { token, requestId } = await anAsk()
+
+      await post(`/operator/page/${token}`, { intent: 'answer', requestId, kind: 'permission' })
+      let seen = await requests.store.read({ agentId, requestId })
+      expect(seen?.declared).toBe('permission')
+
+      await post(`/operator/page/${token}`, { intent: 'answer', requestId, kind: 'completion' })
+      seen = await requests.store.read({ agentId, requestId })
+      expect(seen?.declared).toBe('completion')
+      expect(seen?.messages.map((message) => message.kind)).toEqual([
+        null,
+        'permission',
+        'completion',
+      ])
+    })
+
+    /** A typed answer declares nothing, and the Colony does not read one out of it. */
+    it('declares nothing for an answer the operator typed', async () => {
+      const { token, requestId } = await anAsk()
+
+      await post(`/operator/page/${token}`, { requestId, body: 'Done — the handle is @canary-ai.' })
+
+      const seen = await requests.store.read({ agentId, requestId })
+      expect(seen?.answered).toBe(true)
+      expect(seen?.declared).toBeNull()
+    })
+
+    /** The control and the box are alternatives, never a pair. */
+    it('refuses a submission carrying both a pressed control and typed words', async () => {
       const { token, requestId } = await anAsk()
 
       const response = await post(`/operator/page/${token}`, {
         intent: 'answer',
         requestId,
-        body,
+        kind: 'permission',
+        body: 'and here are some words as well',
       })
 
-      expect(response.statusCode).toBe(200)
-      expect(response.body).toContain('Sent')
-      const [exchange] = await requests.store.exchangesForToken(token)
-      expect(exchange?.messages[1]?.body).toBe(body)
+      const seen = await requests.store.read({ agentId, requestId })
+      expect(seen?.answered).toBe(false)
+      expect(response.statusCode).toBe(422)
     })
 
     /**

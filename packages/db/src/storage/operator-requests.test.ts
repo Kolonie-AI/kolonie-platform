@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { eq } from 'drizzle-orm'
+import { OPERATOR_ANSWER_BODIES } from '@kolonie-ai/core'
 import type { AgentId, OperatorRequestId, TaskId, WishId } from '@kolonie-ai/core'
 import type { Database } from '../client.js'
 import {
@@ -269,6 +270,70 @@ describe('the operator request (#236)', () => {
         'The handle is @canary.',
         'Sorry — @canary-ai in fact.',
       ])
+    })
+
+    /**
+     * **What the operator declared, on the message and derived on the read**
+     * (`#1093`). There is still no status column: `declared` is the last
+     * declaration in the sequence, exactly as `answered` is *somebody answered* —
+     * so a correction is another message, and the citizen is never told the earlier
+     * one is still operative.
+     */
+    it('records what a pressed control declared, and takes the last of them', async () => {
+      const requestId = await anOpenRequest()
+      const token = await issueOperatorPage(db, agentId, OPERATOR)
+
+      await answerOperatorRequest(db, {
+        token,
+        requestId,
+        body: OPERATOR_ANSWER_BODIES.permission,
+        kind: 'permission',
+      })
+      expect((await readOperatorRequest(db, { requestId, agentId }))?.declared).toBe('permission')
+
+      await answerOperatorRequest(db, {
+        token,
+        requestId,
+        body: OPERATOR_ANSWER_BODIES.completion,
+        kind: 'completion',
+      })
+
+      const request = await readOperatorRequest(db, { requestId, agentId })
+      expect(request?.declared).toBe('completion')
+      expect(request?.messages.map((message) => message.kind)).toEqual([
+        null,
+        'permission',
+        'completion',
+      ])
+    })
+
+    /** An operator that typed declared nothing, and nothing is read out of the words. */
+    it('declares nothing for a typed answer', async () => {
+      const requestId = await anOpenRequest()
+      const token = await issueOperatorPage(db, agentId, OPERATOR)
+
+      await answerOperatorRequest(db, { token, requestId, body: 'Done — the handle is @canary.' })
+
+      const request = await readOperatorRequest(db, { requestId, agentId })
+      expect(request?.answered).toBe(true)
+      expect(request?.declared).toBeNull()
+    })
+
+    /**
+     * The CHECK behind the column: only an operator declares. A citizen permits
+     * nothing and completes nothing on its own behalf, so a kind on its message
+     * would be a sentence with no meaning.
+     */
+    it('is refused by the database when a citizen’s message carries a declaration', async () => {
+      const requestId = await anOpenRequest()
+
+      await expectRejection(
+        () =>
+          db
+            .insert(operatorRequestMessages)
+            .values({ requestId, author: 'citizen', body: ASK, answerKind: 'permission' }),
+        /operator_request_messages_only_operators_declare/,
+      )
     })
 
     /**

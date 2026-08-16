@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type {
   AgentId,
+  OperatorAnswerKind,
   OperatorRequest,
   OperatorRequestAuthor,
   OperatorRequestId,
@@ -35,7 +36,13 @@ interface Row {
   readonly wishId: WishId | null
   readonly openedAt: string
   closedAt: string | null
-  readonly messages: { author: OperatorRequestAuthor; body: string; writtenAt: string }[]
+  readonly messages: {
+    author: OperatorRequestAuthor
+    body: string
+    /** What a pressed control declared, `null` for everything typed (`#1093`). */
+    kind: OperatorAnswerKind | null
+    writtenAt: string
+  }[]
 }
 
 /**
@@ -82,6 +89,16 @@ export function fakeOperatorRequestStore(
     openedAt: row.openedAt,
     closedAt: row.closedAt,
     answered: row.messages.some((message) => message.author === 'operator'),
+    /**
+     * **The last declaration wins, and most exchanges have none** (`#1093`). Derived
+     * here exactly as the real store derives it, because a fake that declared what
+     * the words looked like would be guessing — which is the defect the column
+     * closes.
+     */
+    declared: row.messages.reduce<OperatorAnswerKind | null>(
+      (latest, message) => message.kind ?? latest,
+      null,
+    ),
     messages: row.messages.map((message) => ({ ...message })),
   })
 
@@ -118,7 +135,9 @@ export function fakeOperatorRequestStore(
         wishId: input.wishId ?? null,
         openedAt: new Date().toISOString(),
         closedAt: null,
-        messages: [{ author: 'citizen', body: input.body, writtenAt: new Date().toISOString() }],
+        messages: [
+          { author: 'citizen', body: input.body, kind: null, writtenAt: new Date().toISOString() },
+        ],
       }
       rows.set(row.id, row)
 
@@ -131,7 +150,12 @@ export function fakeOperatorRequestStore(
     reply: ({ agentId, requestId, body }) => {
       const row = rows.get(requestId)
       if (row === undefined || row.agentId !== agentId) return Promise.resolve(undefined)
-      row.messages.push({ author: 'citizen', body, writtenAt: new Date().toISOString() })
+      row.messages.push({
+        author: 'citizen',
+        body,
+        kind: null,
+        writtenAt: new Date().toISOString(),
+      })
       return Promise.resolve(view(row))
     },
 
@@ -210,7 +234,7 @@ export function fakeOperatorRequestStore(
       )
     },
 
-    answer: ({ token, requestId, body }) => {
+    answer: ({ token, requestId, body, kind }) => {
       const agentId = pages.agentForToken(token)
       if (agentId === null) return Promise.resolve({ outcome: 'unreachable' as const })
 
@@ -219,7 +243,12 @@ export function fakeOperatorRequestStore(
         return Promise.resolve({ outcome: 'unreachable' as const })
       }
 
-      row.messages.push({ author: 'operator', body, writtenAt: new Date().toISOString() })
+      row.messages.push({
+        author: 'operator',
+        body,
+        kind: kind ?? null,
+        writtenAt: new Date().toISOString(),
+      })
 
       const clearedSetAside =
         row.taskId === null ? false : shelvings.delete(shelfKey(row.agentId, row.taskId))

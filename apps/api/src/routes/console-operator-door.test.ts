@@ -308,6 +308,41 @@ describe('the operator page opens on a session', () => {
     expect(response.statusCode).toBe(200)
   })
 
+  /**
+   * **The fixed controls work through this door too** (`#1093`). One renderer means
+   * the session page carries the same three buttons, so a door that forwarded only
+   * the words would refuse every press — and the person answering would meet a 422
+   * on the control the page itself had offered them.
+   */
+  it('records what a pressed control declared, as the token door does', async () => {
+    const cookie = await signedInCookie()
+    await link(agentId)
+    await pages.issue(agentId, 'op@example.org')
+    const taskId = requests.store.giveTask()
+    const opened = await requests.store.open({ agentId, taskId, body: 'Please make the account.' })
+    if (opened.outcome !== 'opened') throw new Error(`expected opened, got ${opened.outcome}`)
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/agents/${agentId}/operator`,
+      payload: new URLSearchParams({
+        intent: 'answer',
+        requestId: opened.request.id,
+        kind: 'completion',
+      }).toString(),
+      headers: {
+        host: CONSOLE_HOST,
+        accept: 'text/html',
+        cookie,
+        'content-type': 'application/x-www-form-urlencoded',
+      },
+    })
+
+    expect(response.statusCode).toBe(200)
+    const seen = await requests.store.read({ agentId, requestId: opened.request.id })
+    expect(seen?.declared).toBe('completion')
+  })
+
   it('refuses a write for an agent this human does not operate', async () => {
     const cookie = await signedInCookie()
     await link(agentId)

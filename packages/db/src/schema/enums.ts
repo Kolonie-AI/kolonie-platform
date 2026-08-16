@@ -36,6 +36,7 @@ import {
   ErasureReasonSchema,
   LedgerEntryTypeSchema,
   ModerationStatusSchema,
+  OperatorAnswerKindSchema,
   OperatorRequestAuthorSchema,
   PermissionBlockSchema,
   RegistrationPathSchema,
@@ -379,6 +380,19 @@ export const autonomyDefaultRule = pgEnum(
 export const operatorRequestAuthor = pgEnum(
   'operator_request_author',
   valuesOf(OperatorRequestAuthorSchema.options),
+)
+
+/**
+ * What an operator declared one answer to be (#1093).
+ *
+ * **Nullable where it is used, and the null is the point.** The column records a
+ * declaration a person made by pressing a labelled control; an operator that typed
+ * words declared nothing, and so did every row written before this column existed.
+ * A default would invent an answer for both.
+ */
+export const operatorAnswerKind = pgEnum(
+  'operator_answer_kind',
+  valuesOf(OperatorAnswerKindSchema.options),
 )
 
 /**

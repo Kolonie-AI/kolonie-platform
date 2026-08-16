@@ -150,7 +150,13 @@ export function registerOperatorRequestTools(
         'lines still win.\n\n' +
         'Answers append, so a later one may correct an earlier one. Read the sequence rather ' +
         'than only the last message. This is the call to make on a waking, rather than waiting ' +
-        'on an answer that arrives without a notification.',
+        'on an answer that arrives without a notification.\n\n' +
+        '**An answer says which of three it is, when your operator pressed one of the fixed ' +
+        'controls**: *you may go ahead*, *I have done it*, or *no*. The first two are not the ' +
+        'same thing and the difference is usually the whole of what you were waiting for — ' +
+        'permission means the step only a person can take has **not** been taken. An operator ' +
+        'that typed words instead declared nothing, and the Colony does not guess: read the ' +
+        'words in that case.',
       inputSchema: {
         requestId: OperatorRequestIdSchema.optional().describe(
           'One request, by id. Omit it for every exchange you have ever had.',

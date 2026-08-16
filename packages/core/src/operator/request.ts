@@ -347,10 +347,51 @@ export const CREDENTIAL_REFUSAL_MESSAGE =
   'be put in the vault with kolonie.vault.set, then read it from there. Say what you need ' +
   'without the secret itself and send it again.'
 
+/**
+ * What an operator declared its answer to be (`#1093`).
+ *
+ * **A property of one message, not a status on the exchange.** There is still no
+ * status field and this is not one: it says what a person meant by the words they
+ * sent at 09:14, it never contradicts `closedAt`, and a later message may declare
+ * something else — which is a correction and not a state change, exactly as
+ * `operator_request_messages` being append-only already promises.
+ *
+ * **The defect it closes.** The page offered two fixed controls, *Allow* and
+ * *Refuse*, and put the word itself in the body. A citizen that had asked its
+ * operator to create a machine account then read `Allow` and could not tell
+ * *"you may go ahead and do it"* from *"I have done it"* — the two answers a
+ * handoff request most needs kept apart. Reported by a citizen on 2026-08-16 and
+ * correctly diagnosed as ambiguous channel semantics rather than a red line.
+ *
+ * **Nullable everywhere it is not declared, and that is the honest value**: for
+ * the explanation box, for a reply typed into Telegram, for every message the
+ * citizen wrote, and for every row written before this existed. Inferring one from
+ * the words would be the guesswork this replaces.
+ */
+export const OperatorAnswerKindSchema = z.enum([
+  /**
+   * *You may go ahead — I have not done anything myself.*
+   *
+   * The load-bearing half is the second clause. A citizen blocked on a step only a
+   * person can take is still blocked after this answer, and it now knows so.
+   */
+  'permission',
+  /** *I have done what you asked.* The step is taken; go and check it. */
+  'completion',
+  /** *No.* Whether it will not or cannot is for the words to say. */
+  'refusal',
+])
+export type OperatorAnswerKind = z.infer<typeof OperatorAnswerKindSchema>
+
 /** One message in an exchange, as the citizen reads it back. */
 export const OperatorRequestMessageSchema = z.object({
   author: OperatorRequestAuthorSchema,
   body: z.string().min(OPERATOR_MESSAGE_MIN_LENGTH).max(OPERATOR_MESSAGE_MAX_LENGTH),
+  /**
+   * What the operator declared this message to be, or `null` if nothing was
+   * declared. Never set on a citizen's own message: a citizen permits nothing.
+   */
+  kind: OperatorAnswerKindSchema.nullable(),
   writtenAt: TimestampSchema,
 })
 export type OperatorRequestMessage = z.infer<typeof OperatorRequestMessageSchema>
@@ -393,6 +434,21 @@ export const OperatorRequestSchema = z
      * the evidence is derived from the messages rather than declared.
      */
     answered: z.boolean(),
+    /**
+     * What the operator last declared, or `null` if it never declared anything
+     * (`#1093`).
+     *
+     * **Derived from the sequence, like `answered`, and for the same reason.** The
+     * last declaration wins because a correction here is another message rather than
+     * an edit — an operator who pressed *you may go ahead* and then went and did the
+     * thing says so by pressing *I have done it*, and the citizen reading the
+     * exchange must not be told the first one is still the operative answer.
+     *
+     * It does not weaken `answered` and is not a second spelling of it. An operator
+     * that wrote free text has answered and declared nothing, which is exactly what
+     * `answered: true` with `declared: null` says.
+     */
+    declared: OperatorAnswerKindSchema.nullable(),
     /** The whole sequence, oldest first. Append-only; nothing here was ever edited. */
     messages: z.array(OperatorRequestMessageSchema),
   })
@@ -427,11 +483,61 @@ export const ReplyToOperatorRequestSchema = z.object({
 })
 export type ReplyToOperatorRequest = z.infer<typeof ReplyToOperatorRequestSchema>
 
-/** What the operator posts from the durable page. The token is in the URL. */
-export const AnswerOperatorRequestSchema = z.object({
-  requestId: OperatorRequestIdSchema,
-  body: z.string().min(OPERATOR_MESSAGE_MIN_LENGTH).max(OPERATOR_MESSAGE_MAX_LENGTH),
-})
+/**
+ * What each fixed control on the page actually sends (`#1093`).
+ *
+ * **The words are written here and not in the form**, because the button and the
+ * sentence must not be able to disagree. The page posts the kind alone and the
+ * Colony writes the message, so there is no request shape in which a message
+ * declared `permission` carries a body saying it was done.
+ *
+ * They are full sentences rather than the single words that were there before,
+ * and that is the half of the fix that reaches a citizen which ignores the new
+ * field entirely: `kolonie.operator.request.read` renders `body` verbatim, so a
+ * body that says which of the two it is fixes the reading on its own.
+ */
+export const OPERATOR_ANSWER_BODIES: Readonly<Record<OperatorAnswerKind, string>> = {
+  permission:
+    'You may go ahead. This is permission — I have not done anything myself, so if you were ' +
+    'waiting for a step only a person can take, it has not been taken yet.',
+  completion:
+    'I have done what you asked. Go and check that it is there, and say so here if it is not.',
+  refusal: 'No — I am not going to do this.',
+}
+
+/**
+ * What each control is labelled, for the person pressing it (`#1093`).
+ *
+ * **Beside the bodies rather than in the page**, so the label and the sentence it
+ * sends are read together by whoever next changes either. The old pair, *Allow*
+ * and *Refuse*, is what the defect was: *Allow* is the same word for *you may* and
+ * *I have*, and an operator answering a handoff meant the second one about half
+ * the time.
+ */
+export const OPERATOR_ANSWER_LABELS: Readonly<Record<OperatorAnswerKind, string>> = {
+  permission: 'You may go ahead',
+  completion: 'I have done it',
+  refusal: 'No',
+}
+
+/**
+ * What the operator posts from the durable page. The token is in the URL.
+ *
+ * **Exactly one of `body` and `kind`** (`#1093`): words the operator typed, or one
+ * of the fixed controls whose sentence the Colony supplies. Both together would be
+ * two answers to *what did this person mean*, which is the ambiguity this issue is
+ * about arriving in a different shape.
+ */
+export const AnswerOperatorRequestSchema = z
+  .object({
+    requestId: OperatorRequestIdSchema,
+    body: z.string().min(OPERATOR_MESSAGE_MIN_LENGTH).max(OPERATOR_MESSAGE_MAX_LENGTH).optional(),
+    kind: OperatorAnswerKindSchema.optional(),
+  })
+  .refine((input) => (input.body === undefined) !== (input.kind === undefined), {
+    message: 'exactly one of body or kind is required',
+    path: ['body'],
+  })
 export type AnswerOperatorRequest = z.infer<typeof AnswerOperatorRequestSchema>
 
 export const OperatorRequestResponseSchema = z.object({ request: OperatorRequestSchema })

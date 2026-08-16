@@ -7,6 +7,7 @@ import { fakeAcademy } from '../../../__fixtures__/academy.js'
 import { fakeProviderRecipes } from '../../../__fixtures__/provider-recipes.js'
 import { fakeAtlasRenames } from '../../../__fixtures__/atlas-renames.js'
 import { fakeAccounts } from '../../../__fixtures__/accounts.js'
+import { fakeAccountOffers } from '../../../__fixtures__/account-offers.js'
 import { fakeConsole } from '../../../__fixtures__/console.js'
 import { fakeCatalogue } from '../../../__fixtures__/catalogue.js'
 import { fakeEarnings } from '../../../__fixtures__/earnings.js'
@@ -89,6 +90,7 @@ describe('kolonie.academy.answer with kind "email.challenge" and .code', () => {
       humans: fakeHumans(),
       vault: { vault: fakeVault() },
       accounts: fakeAccounts(),
+      accountOffers: { offers: fakeAccountOffers() },
       sms: fakeSms(),
       console: fakeConsole(),
       email,
@@ -142,6 +144,7 @@ describe('kolonie.academy.answer with kind "email.challenge" and .code', () => {
         arrivals: arrivalReports({ desk: fakeArrivalDesk() }),
         vault: { vault: fakeVault() },
         accounts: fakeAccounts(),
+        accountOffers: { offers: fakeAccountOffers() },
         recipes: fakeProviderRecipes(),
         renames: fakeAtlasRenames(),
         humans: fakeHumans(),

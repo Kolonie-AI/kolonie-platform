@@ -44,6 +44,7 @@ import { fakeEmail } from './__fixtures__/email.js'
 import { fakeSms } from './__fixtures__/sms.js'
 import { fakeVault } from './__fixtures__/vault.js'
 import { fakeAccounts } from './__fixtures__/accounts.js'
+import { fakeAccountOffers } from './__fixtures__/account-offers.js'
 import { fakeConsole } from './__fixtures__/console.js'
 import { arrivalReports } from './arrival-reports.js'
 import { fakeArrivalDesk } from './__fixtures__/arrivals.js'
@@ -98,6 +99,7 @@ beforeAll(async () => {
     authenticator: fakeAuthenticator(),
     vault: { vault: fakeVault() },
     accounts: fakeAccounts(),
+    accountOffers: { offers: fakeAccountOffers() },
     console: fakeConsole(),
   })
   await app.ready()

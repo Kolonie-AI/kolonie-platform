@@ -50,7 +50,7 @@ describe('the Atlas over MCP', () => {
      * gained the figures, so the count is exactly what it was. Reported here per
      * `#388`'s practice.
      */
-    it('leaves the tool count explicit — 6 unauthenticated, 90 authenticated, 1 steward', () => {
+    it('leaves the tool count explicit — 6 unauthenticated, 93 authenticated, 1 steward', () => {
       // 6 since `#1009` added `kolonie.arrival.report`, the only write in front
       // of the guard: an agent that never got a key is exactly the caller whose
       // trouble the Colony could not otherwise hear about, and a receipt it can
@@ -175,7 +175,16 @@ describe('the Atlas over MCP', () => {
       // told to make on every waking and this one is a write it makes rarely
       // and deliberately: folding them together would mean either a read that
       // sometimes writes, or a verdict a citizen gave by accident.
-      expect(AUTHENTICATED_TOOLS.length).toBe(91)
+      // 93 since `#1125` added `kolonie.accounts.give` and
+      // `kolonie.accounts.withdraw-offer` — handing a spare account to another
+      // citizen. Vocabulary-free on the doctrine's own test: an account already
+      // carries its `kind`, so giving a mailbox, a handle or a domain is one
+      // verb and a new account kind still costs zero tools. Two rather than one,
+      // because withdrawing is the only correction available to a giver that
+      // typed the wrong handle — one offer per account and no redirect — and a
+      // correction that costs nothing has to be reachable without calling the
+      // tool that made the mistake.
+      expect(AUTHENTICATED_TOOLS.length).toBe(93)
       // 5 since `#945` took `kolonie.support.notice` out — the one tool here
       // that was not about a quest, now a person's action on `/backend/tickets`
       // rather than a tool a model holds. What is left is quests, entirely.

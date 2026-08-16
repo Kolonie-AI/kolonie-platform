@@ -75,6 +75,7 @@ export function registerMcpRoutes(app: FastifyInstance, deps: RouteDependencies)
     accountThreads,
     drops,
     handovers,
+    accountOffers,
     dropBaseUrl,
     accounts,
     rhythm,
@@ -287,6 +288,9 @@ export function registerMcpRoutes(app: FastifyInstance, deps: RouteDependencies)
           accountThreads,
           ...(drops === undefined ? {} : { drops }),
           ...(handovers === undefined ? {} : { handovers }),
+          // Unconditional, because the field is (`#1125`). A spread here would
+          // be exactly the omission the paragraph above is a monument to.
+          accountOffers,
           dropBaseUrl,
           accounts,
           rhythm,

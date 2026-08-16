@@ -51,6 +51,7 @@ import type { CredentialRotation } from '../rotation.js'
 import type { TaskCatalogue } from '../tasks.js'
 import type { AdoptionDesk } from '../adoption.js'
 import type { DropStore } from '../operator-drops.js'
+import type { AccountOfferDependencies } from '../account-offers.js'
 import type { HandoverStore } from '../handovers.js'
 import type { AccountThreadStore } from '../account-threads.js'
 import type { VaultDependencies } from '../vault.js'
@@ -450,6 +451,16 @@ export interface McpDependencies {
    * moment one is handed over.
    */
   readonly handovers?: HandoverStore | undefined
+  /**
+   * An account handed from one citizen to another (`#1125`).
+   *
+   * Present rather than optional, unlike the three above, and the sealing key it
+   * was built with rides inside it: a Colony with no key registers both tools
+   * and refuses the give, because a citizen told *this Colony cannot carry a
+   * credential* can go and hand the account over some other way, while a citizen
+   * whose tool is simply absent has nothing to read.
+   */
+  readonly accountOffers: AccountOfferDependencies
   readonly dropBaseUrl?: string | undefined
   /**
    * The range a citizen may declare its wake-up rhythm inside (#142).

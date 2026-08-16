@@ -10,6 +10,7 @@ import type { Following } from '../following.js'
 import type { SkillNotes } from '../skills.js'
 import type { AcademyDependencies } from '../academy.js'
 import type { AccountDependencies, AccountResolution } from '../accounts.js'
+import type { AccountOfferDependencies } from '../account-offers.js'
 import type { ProviderRecipes } from '../provider-recipes.js'
 import type { AtlasRenames } from '../atlas/renames.js'
 import type { AtlasQuestReader } from '../atlas/links.js'
@@ -307,6 +308,15 @@ export interface RouteDependencies {
   readonly drops: DropDependencies['drops']
   /** The agent → operator secret channel (`#592`). Absent with no sealing key. */
   readonly handovers?: HandoverStore | undefined
+  /**
+   * An account handed from one citizen to another (`#1125`).
+   *
+   * **Required**, for the reason `accountThreads` above gives twice over: a
+   * field the MCP door may quietly omit is one that gets omitted. Here the
+   * store is constructed on every deployment and carries its own answer for a
+   * Colony with no sealing key, so there is nothing for a door to decide.
+   */
+  readonly accountOffers: AccountOfferDependencies
   /**
    * The operator's desk on Telegram (`#793`). Absent when the bot is not
    * configured, and then the webhook route is not mounted and no surface offers

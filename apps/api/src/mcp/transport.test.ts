@@ -5,6 +5,7 @@ import type { FastifyInstance } from 'fastify'
 import { afterEach, describe, expect, it } from 'vitest'
 import { fakeAcademy } from '../__fixtures__/academy.js'
 import { fakeAccounts } from '../__fixtures__/accounts.js'
+import { fakeAccountOffers } from '../__fixtures__/account-offers.js'
 import { fakeConsole } from '../__fixtures__/console.js'
 import { fakeCatalogue } from '../__fixtures__/catalogue.js'
 import { fakeQuests } from '../__fixtures__/quests.js'
@@ -103,6 +104,7 @@ describe('the MCP surface over HTTP', () => {
       quests: fakeQuests(),
       vault: { vault: fakeVault() },
       accounts: fakeAccounts(),
+      accountOffers: { offers: fakeAccountOffers() },
       console: fakeConsole(),
       email: fakeEmail(),
       sms: fakeSms(),
@@ -161,6 +163,7 @@ describe('the MCP surface over HTTP', () => {
       quests: fakeQuests(),
       vault: { vault: fakeVault() },
       accounts: fakeAccounts(),
+      accountOffers: { offers: fakeAccountOffers() },
       console: fakeConsole(),
       email: fakeEmail(),
       sms: fakeSms(),
@@ -226,6 +229,7 @@ describe('the MCP surface over HTTP', () => {
       quests: fakeQuests(),
       vault: { vault: fakeVault() },
       accounts: fakeAccounts(),
+      accountOffers: { offers: fakeAccountOffers() },
       console: fakeConsole(),
       email: fakeEmail(),
       sms: fakeSms(),
@@ -284,6 +288,7 @@ describe('the MCP surface over HTTP', () => {
       quests: fakeQuests(),
       vault: { vault: fakeVault() },
       accounts: fakeAccounts(),
+      accountOffers: { offers: fakeAccountOffers() },
       console: fakeConsole(),
       email: fakeEmail(),
       sms: fakeSms(),
@@ -342,6 +347,7 @@ describe('the MCP surface over HTTP', () => {
       quests: fakeQuests(),
       vault: { vault: fakeVault() },
       accounts: fakeAccounts(),
+      accountOffers: { offers: fakeAccountOffers() },
       console: fakeConsole(),
       email: fakeEmail(),
       sms: fakeSms(),
@@ -409,6 +415,7 @@ describe('the MCP surface over HTTP', () => {
       quests: fakeQuests(),
       vault: { vault: fakeVault() },
       accounts: fakeAccounts(),
+      accountOffers: { offers: fakeAccountOffers() },
       console: fakeConsole(),
       email: fakeEmail(),
       sms: fakeSms(),
@@ -614,6 +621,7 @@ describe('the MCP surface over HTTP', () => {
       quests: fakeQuests(),
       vault: { vault: fakeVault() },
       accounts: fakeAccounts(),
+      accountOffers: { offers: fakeAccountOffers() },
       console: fakeConsole(),
       email: fakeEmail(),
       sms: fakeSms(),

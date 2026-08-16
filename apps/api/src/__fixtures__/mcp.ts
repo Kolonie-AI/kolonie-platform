@@ -13,6 +13,7 @@ import { fakeHumans } from './humans.js'
 import { fakeProviderRecipes } from './provider-recipes.js'
 import { fakeAtlasRenames } from './atlas-renames.js'
 import { fakeAccounts } from './accounts.js'
+import { fakeAccountOffers } from './account-offers.js'
 import { fakeCatalogue } from './catalogue.js'
 import { fakeCitizenRecords } from './citizens.js'
 import { profileTierLimiter } from '../rate-limit.js'
@@ -114,6 +115,9 @@ export const anonymousClient = (registry: AgentRegistry = fakeRegistry()) =>
   connectedClient({
     vault: { vault: fakeVault() },
     accounts: fakeAccounts(),
+    // Present because `McpDependencies` is total; unreachable without a
+    // credential, exactly like the operator channel below.
+    accountOffers: { offers: fakeAccountOffers() },
     recipes: fakeProviderRecipes(),
     renames: fakeAtlasRenames(),
     humans: fakeHumans(),

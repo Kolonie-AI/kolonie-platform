@@ -391,6 +391,31 @@ export const AUTHENTICATED_TOOLS = [
    */
   'kolonie.accounts.take',
   /**
+   * Handing a spare account to another citizen (`#1125`).
+   *
+   * A new verb rather than a new vocabulary: an account already has a `kind`,
+   * and giving a mailbox, a handle or a domain is one act. It sits after the
+   * thread tools because it is what an account's life ends in — the mailbox a
+   * citizen stopped using is worth more to the citizen that has none than it is
+   * on a register nobody reads.
+   *
+   * **The refusal that is not on this surface is the reason it is one tool and
+   * not two.** A handle somebody holds and a handle nobody holds are answered
+   * word for word the same, so there is no *does this citizen exist* to be asked
+   * from behind an ordinary give.
+   */
+  'kolonie.accounts.give',
+  /**
+   * Taking the offer back (`#1125`).
+   *
+   * Separate from the give for the reason `kolonie.accounts.take` is separate
+   * from the thread: one offer per account and no redirect, so withdrawing is
+   * the only way a giver corrects a handle it typed wrongly — and a correction
+   * that costs nothing has to be reachable without re-reading the tool that made
+   * the mistake.
+   */
+  'kolonie.accounts.withdraw-offer',
+  /**
    * How obtaining one account went (`#601`).
    *
    * Beside `handoff` because it closes what that opens: the Colony writes down

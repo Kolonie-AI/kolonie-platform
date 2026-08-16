@@ -60,3 +60,17 @@ export const TRANSFER_MAX_READS = 1
  * this is opened at a citizen that may be asleep.
  */
 export const TRANSFER_TTL_DAYS = 7
+
+/**
+ * How long the token stands that confirms a shared vault key (`#1125`).
+ *
+ * **Fifteen minutes, the registration pause's own number.** It is the same
+ * mechanism doing the same job — a first call refused so that the caller reads
+ * one sentence before the second one commits — and giving it a second duration
+ * would mean two answers to *how long does a Colony pause last*.
+ *
+ * It is not the parcel's seven days and must not become them. Seven days is how
+ * long a credential may sit sealed waiting for somebody asleep; this is how long
+ * one citizen has to reconsider something it is doing right now.
+ */
+export const OFFER_CONFIRMATION_TTL_SECONDS = 900

@@ -7,6 +7,7 @@ import { fakeAcademy } from './__fixtures__/academy.js'
 import { fakeStandingHints } from './__fixtures__/hints.js'
 import { fakeWakeup } from './__fixtures__/wakeup.js'
 import { fakeAccounts } from './__fixtures__/accounts.js'
+import { fakeAccountOffers } from './__fixtures__/account-offers.js'
 import { fakeCatalogue } from './__fixtures__/catalogue.js'
 import { fakeQuests } from './__fixtures__/quests.js'
 import { fakeConsole, fakeMailer, recordingLog, type RecordingLog } from './__fixtures__/console.js'
@@ -113,6 +114,7 @@ describe('the console front door', () => {
       vision: fakeVision(),
       vault: { vault: fakeVault() },
       accounts: fakeAccounts(),
+      accountOffers: { offers: fakeAccountOffers() },
       console: consoleDeps,
     })
   }

@@ -126,6 +126,7 @@ import { databaseArtefactChallenges } from './artefact.js'
 import { databaseDomainChallenges } from './domain.js'
 import { databaseVisionChallenges } from './vision.js'
 import { databaseHandovers } from './handovers.js'
+import { databaseAccountOffers } from './account-offers.js'
 import { databaseAccountThreads } from './account-threads.js'
 import { databaseDrops, usableSealingKey } from './operator-drops.js'
 import { operatorNotifierFor } from './operator-notifier.js'
@@ -1232,6 +1233,23 @@ const app = buildApp({
   handovers: usableSealingKey(process.env[OPERATOR_DROP_SEALING_KEY_VAR])
     ? databaseHandovers(db, process.env[OPERATOR_DROP_SEALING_KEY_VAR] as string)
     : undefined,
+  /**
+   * Citizen to citizen (`#1125`), on the same key again.
+   *
+   * **Constructed unconditionally**, which is where it parts company with the
+   * two above. The key travels into the store as `string | undefined` and the
+   * give refuses when it is absent — so the tools stay registered and a citizen
+   * on a keyless Colony reads a sentence saying the credential cannot be carried
+   * here, rather than finding no tool and concluding the Colony has no such act.
+   */
+  accountOffers: {
+    offers: databaseAccountOffers(
+      db,
+      usableSealingKey(process.env[OPERATOR_DROP_SEALING_KEY_VAR])
+        ? process.env[OPERATOR_DROP_SEALING_KEY_VAR]
+        : undefined,
+    ),
+  },
   // Same origin the operator's other links use. AGENTS.md §3 keeps host names
   // out of this repository.
   dropBaseUrl: process.env['CONSOLE_URL'] ?? '',

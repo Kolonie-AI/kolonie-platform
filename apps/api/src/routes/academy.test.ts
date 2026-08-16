@@ -42,6 +42,7 @@ import { fakeEmail } from '../__fixtures__/email.js'
 import { fakeSms } from '../__fixtures__/sms.js'
 import { fakeVault } from '../__fixtures__/vault.js'
 import { fakeAccounts } from '../__fixtures__/accounts.js'
+import { fakeAccountOffers } from '../__fixtures__/account-offers.js'
 import { fakeConsole } from '../__fixtures__/console.js'
 import { expectedWidth, probeFor } from '../academy.js'
 import type { CaptchaCheck } from '../academy.js'
@@ -66,6 +67,7 @@ const build = (answer: CaptchaCheck = 'passed') => {
     quests: fakeQuests(),
     vault: { vault: fakeVault() },
     accounts: fakeAccounts(),
+    accountOffers: { offers: fakeAccountOffers() },
     console: fakeConsole(),
     email: fakeEmail(),
     sms: fakeSms(),
@@ -282,6 +284,7 @@ describe('POST /v1/academy/challenges', () => {
       quests: fakeQuests(),
       vault: { vault: fakeVault() },
       accounts: fakeAccounts(),
+      accountOffers: { offers: fakeAccountOffers() },
       console: fakeConsole(),
       email: fakeEmail(),
       sms: fakeSms(),
@@ -657,6 +660,7 @@ describe('when the gate is not configured', () => {
       quests: fakeQuests(),
       vault: { vault: fakeVault() },
       accounts: fakeAccounts(),
+      accountOffers: { offers: fakeAccountOffers() },
       console: fakeConsole(),
       email: fakeEmail(),
       sms: fakeSms(),
@@ -760,6 +764,7 @@ describe('when the gate is not configured', () => {
       quests: fakeQuests(),
       vault: { vault: fakeVault() },
       accounts: fakeAccounts(),
+      accountOffers: { offers: fakeAccountOffers() },
       console: fakeConsole(),
       email: fakeEmail(),
       sms: fakeSms(),

@@ -58,6 +58,7 @@ import type { EarningsDesk, PayoutDependencies } from './payouts.js'
 import type { TreasurySweepDependencies } from './treasury.js'
 import type { QuestDesk } from './quests.js'
 import type { TaskCatalogue } from './tasks.js'
+import type { AccountOfferDependencies } from './account-offers.js'
 import type { HandoverStore } from './handovers.js'
 import type { AccountThreadStore } from './account-threads.js'
 import type { DropStore } from './operator-drops.js'
@@ -379,6 +380,16 @@ export interface AppDependencies {
    * cannot carry a secret, rather than failing at the moment one is handed over.
    */
   readonly handovers?: HandoverStore | undefined
+  /**
+   * An account handed from one citizen to another (`#1125`).
+   *
+   * **Required, where the two above are optional.** The key travels inside the
+   * store as `string | undefined` and the give refuses when it is absent, so a
+   * keyless Colony still registers the tools and answers a citizen with a
+   * sentence saying the credential cannot be carried here — rather than serving
+   * no tool at all, which a citizen reads as *the Colony has no such act*.
+   */
+  readonly accountOffers: AccountOfferDependencies
   /**
    * The operator's desk on Telegram (`#793`).
    *

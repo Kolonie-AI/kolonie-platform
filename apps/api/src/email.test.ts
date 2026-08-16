@@ -43,6 +43,7 @@ import { support } from './support.js'
 import { fakeAcademy } from './__fixtures__/academy.js'
 import { fakeVault } from './__fixtures__/vault.js'
 import { fakeAccounts } from './__fixtures__/accounts.js'
+import { fakeAccountOffers } from './__fixtures__/account-offers.js'
 import { fakeConsole } from './__fixtures__/console.js'
 import {
   fakeEmail,
@@ -82,6 +83,7 @@ const build = (inboundSecret: string | undefined) => {
     quests: fakeQuests(),
     vault: { vault: fakeVault() },
     accounts: fakeAccounts(),
+    accountOffers: { offers: fakeAccountOffers() },
     console: fakeConsole(),
     registry: fakeRegistry(),
     store,
@@ -640,6 +642,7 @@ describe('GET /v1/mailboxes', () => {
       quests: fakeQuests(),
       vault: { vault: fakeVault() },
       accounts: fakeAccounts(),
+      accountOffers: { offers: fakeAccountOffers() },
       console: fakeConsole(),
       registry: fakeRegistry(),
       store,

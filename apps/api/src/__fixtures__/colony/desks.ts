@@ -4,6 +4,8 @@ import { fakeProviderRecipes, type FakeProviderRecipes } from '../provider-recip
 import { fakeAtlasRenames } from '../atlas-renames.js'
 import type { AtlasRenames } from '../../atlas/renames.js'
 import type { AccountDependencies } from '../../accounts.js'
+import type { AccountOfferDependencies } from '../../account-offers.js'
+import { fakeAccountOffers, type FakeAccountOffers } from '../account-offers.js'
 import { fakeHumans } from '../humans.js'
 import type { HumanDependencies } from '../../humans/humans.js'
 import { support as supportSurface, type Support } from '../../support.js'
@@ -57,6 +59,16 @@ export interface FakeDesks {
   readonly erasureDesk: FakeErasureDesk
   /** The account register, behind both surfaces. Overridable the same way (#150). */
   readonly accounts: AccountDependencies
+  /**
+   * An account handed to another citizen (`#1125`), and the fake behind it.
+   *
+   * Both, for the reason `support` and `erasure` give: `accountOffers` is what
+   * the tools are wired to, and `accountOfferStore` is how a test says *this
+   * citizen holds that account* or asks whether a parcel was actually written —
+   * which is the one fact the surface must never disclose.
+   */
+  readonly accountOffers: AccountOfferDependencies
+  readonly accountOfferStore: FakeAccountOffers
   /** The provider catalogue (`#521`). Empty until a test writes an entry. */
   readonly recipes: FakeProviderRecipes
   /** Where a provider used to be (`#546`). Empty until a test renames one. */
@@ -115,6 +127,7 @@ export interface FakeDesks {
 export function fakeDesks(): FakeDesks {
   const desk = fakeSupportDesk()
   const erasureDesk = fakeErasureDesk()
+  const accountOfferStore = fakeAccountOffers()
 
   const support = supportSurface({ desk })
   /**
@@ -151,6 +164,8 @@ export function fakeDesks(): FakeDesks {
     erasure: erasureSurface({ desk: erasureDesk }),
     erasureDesk,
     accounts: fakeAccounts(),
+    accountOffers: { offers: accountOfferStore },
+    accountOfferStore,
     recipes: fakeProviderRecipes(),
     renames: fakeAtlasRenames(),
     humans: fakeHumans(),

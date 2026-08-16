@@ -1954,6 +1954,13 @@
       "when": 1786919046763,
       "tag": "0278_a_provider_gets_a_description",
       "breakpoints": true
+    },
+    {
+      "idx": 279,
+      "version": "7",
+      "when": 1786922018053,
+      "tag": "0279_an_account_is_offered_to_another_citizen",
+      "breakpoints": true
     }
   ]
 }

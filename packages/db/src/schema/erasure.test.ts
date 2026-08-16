@@ -952,6 +952,20 @@ describe('the erasure boundary', () => {
 
     expect(carried).toEqual([
       /**
+       * `#1125`. Cascades from both ends, on the reasoning `#1124` sets out one
+       * screen down: an offer is two handles and an account, and stripping either
+       * handle leaves a row that is not evidence of anything.
+       *
+       * **The recipient's end matters as much as the giver's.** An offer held out
+       * to a citizen that has since erased itself is an offer to nobody, and
+       * leaving it addressed to a dead id would keep a record of who was once
+       * being given something — a fact about the erased citizen, in the giver's
+       * register, where it would outlive every other trace of them.
+       */
+      'account_offer_confirmations.agent_id c',
+      'account_offers.from_agent_id c',
+      'account_offers.to_agent_id c',
+      /**
        * `#520`. Cascades, like every other challenge table. A proof row names an
        * account at a third party and the mailbox a forward had to come from —
        * which is a list of where somebody can be found, the residue `erasure.md`

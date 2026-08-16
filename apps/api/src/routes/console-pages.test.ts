@@ -57,6 +57,7 @@ import {
   fakeAccountRegister,
   type FakeAccountRegister,
 } from '../__fixtures__/accounts.js'
+import { fakeAccountOffers } from '../__fixtures__/account-offers.js'
 import { fakeConsole, recordingLog, type RecordingLog } from '../__fixtures__/console.js'
 import { fakeSettings } from '../__fixtures__/settings.js'
 import { fakeErasureDesk } from '../__fixtures__/erasure.js'
@@ -121,6 +122,7 @@ beforeEach(async () => {
     providerEnquiries: enquiries_,
     vault: { vault: fakeVault() },
     accounts: fakeAccounts(register_),
+    accountOffers: { offers: fakeAccountOffers() },
     console: console_,
     email: fakeEmail(),
     sms: fakeSms(),
@@ -522,6 +524,7 @@ describe('when the console throws', () => {
       humans: fakeHumans(),
       vault: { vault: fakeVault() },
       accounts: fakeAccounts(),
+      accountOffers: { offers: fakeAccountOffers() },
       console: { ...fakeConsole(), consoleUrl: CONSOLE_URL },
       email: fakeEmail(),
       sms: fakeSms(),

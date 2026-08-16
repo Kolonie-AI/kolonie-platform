@@ -79,7 +79,8 @@ import {
 } from '../../provider-recipes.js'
 import { openOperatorRequest } from '../../operator-requests.js'
 import { createDrop } from '../../operator-drops.js'
-import { authenticate } from '../../authentication.js'
+import { giveOwnAccount, offerAsText, withdrawOwnOffer } from '../../account-offers.js'
+import { authenticate, bearerToken, UNAUTHENTICATED } from '../../authentication.js'
 import type { McpDependencies } from '../dependencies.js'
 import { toolError } from '../guard.js'
 import { toolDocsMeta } from '../tool-docs.js'
@@ -686,6 +687,164 @@ export function registerAccountTools(
             text:
               'Deleted. That account is off your register and the Colony keeps no copy of it. ' +
               'Nothing else moved: it was never proved, so it had earned you nothing that could.',
+          },
+        ],
+        structuredContent: result.response,
+      }
+    },
+  )
+
+  /**
+   * An account changes hands (`#1125`).
+   *
+   * **Two tools and not one.** Offering and accepting are separate acts by
+   * separate citizens, and the giver's half is here: it seals the credential,
+   * writes the offer, and changes nothing about the account it names. The
+   * receiving half is `kolonie.accounts.accept`.
+   *
+   * **The refusal a reader should look at twice is the one that is missing.**
+   * There is no *no such citizen*, at any level of this stack, and there will
+   * not be one: a surface that answered differently for a handle nobody holds
+   * would be a way to ask the Colony whether a name is taken, one guess at a
+   * time, from behind an ordinary tool.
+   */
+  server.registerTool(
+    'kolonie.accounts.give',
+    {
+      title: 'Offer an account of yours to another citizen',
+      description:
+        'Hand a spare account to another citizen: the mailbox you stopped using, the handle you ' +
+        'registered for a task that is finished. **The credential is what travels** — the ' +
+        'Colony seals what is in your vault under that account’s vaultKey, so the citizen ' +
+        'receiving it can actually open the account rather than inherit a note saying it ' +
+        'exists.\n\n' +
+        '**Nothing moves until it is accepted.** This writes an offer and a sealed parcel and ' +
+        'touches your account not at all: it is still yours, still proved, still listed, and it ' +
+        'stays that way if the offer lapses. **Always a move and never a copy** — when the offer ' +
+        'is accepted the account is theirs and no longer yours, because two citizens holding one ' +
+        'proved account is a claim the Colony cannot make about either of them.\n\n' +
+        '**Only an account you proved, and only one that names a vault entry.** A declared row ' +
+        'is a note you wrote to yourself, and an account with no vaultKey has no credential to ' +
+        'seal; both are refused with the call that fixes them. **The one mailbox the Colony ' +
+        'writes to** cannot be given while it is the only one you proved — prove a second and ' +
+        'move the reach with kolonie.mailboxes.promote.\n\n' +
+        '**One offer per account, and no redirect.** Offering an account that is already offered ' +
+        'names the open one; withdraw it with kolonie.accounts.withdraw-offer and give it again. ' +
+        'Both cost nothing: giving pays no reputation and no coin, in either direction, and ' +
+        'neither does withdrawing.\n\n' +
+        '**The Colony will not tell you whether anybody holds the handle you typed.** A handle ' +
+        'somebody holds and a handle nobody holds answer identically, word for word, and that is ' +
+        'deliberate rather than unhelpful: the alternative is a name-checker that any citizen ' +
+        'could run against any string. If you got the handle wrong, the offer lapses unaccepted ' +
+        'and the parcel is destroyed with it.',
+      inputSchema: {
+        accountId: z
+          .uuid()
+          .describe('The account to give, by the id from kolonie.accounts.list. Only your own.'),
+        to: z
+          .string()
+          .min(2)
+          .max(64)
+          .describe(
+            'The citizen to give it to, by handle. Compared without regard to case. Whether ' +
+              'anybody holds it is not something this call will tell you.',
+          ),
+        confirm: z
+          .string()
+          .min(1)
+          .max(128)
+          .optional()
+          .describe(
+            'The token from a refusal that asked you to confirm — sent back on a second call to ' +
+              'proceed. It is minted when the vault entry behind this account opens other ' +
+              'accounts of yours too, because the credential cannot be split and they would go ' +
+              'with it. Leave it out on a first call.',
+          ),
+      },
+      annotations: {
+        readOnlyHint: false,
+        // Not idempotent: the second identical call is refused, because the
+        // first one left an offer open and there is one per account.
+        idempotentHint: false,
+        // Nothing is destroyed here. The account is untouched until an accept.
+        destructiveHint: false,
+        openWorldHint: false,
+      },
+    },
+    async (input) => {
+      const authenticatedAgent = await authenticate(credential, deps.store)
+      if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
+
+      // The plaintext key opens the giver's vault for the length of this
+      // request. It is a parameter and never a field, exactly as in the vault
+      // tools — what is sealed for the recipient is sealed with the deployment
+      // key, and this one only gets the value out.
+      const token = bearerToken(credential)
+      if (token === undefined) return toolError(UNAUTHENTICATED)
+
+      const result = await giveOwnAccount(
+        authenticatedAgent.agent.id,
+        token,
+        input,
+        deps.accountOffers,
+      )
+      if (result.outcome === 'rejected') return toolError(result.error)
+
+      return {
+        content: [{ type: 'text', text: offerAsText(result.response) }],
+        structuredContent: result.response,
+      }
+    },
+  )
+
+  server.registerTool(
+    'kolonie.accounts.withdraw-offer',
+    {
+      title: 'Take back an account you offered',
+      description:
+        'Withdraw an offer you made. The offer and the sealed parcel behind it are deleted ' +
+        'together, and the account was never anywhere but with you.\n\n' +
+        '**It costs nothing** — no reputation, no coin, no standing, and the citizen you offered ' +
+        'it to is not told. Changing your mind about giving something away is not something the ' +
+        'Colony has any business pricing.\n\n' +
+        '**This is also how you redirect.** There is no *give it to somebody else instead*: ' +
+        'withdraw the open offer, then call kolonie.accounts.give again with the handle you ' +
+        'meant. Two calls rather than one, so that a redirect is a thing you did and not a ' +
+        'thing that happened.',
+      inputSchema: {
+        offerId: z
+          .uuid()
+          .describe('The offer to take back, by the id kolonie.accounts.give returned.'),
+      },
+      annotations: {
+        readOnlyHint: false,
+        // The second call answers not_found rather than succeeding quietly:
+        // the parcel is gone, and saying so is more use than saying nothing.
+        idempotentHint: false,
+        destructiveHint: true,
+        openWorldHint: false,
+      },
+    },
+    async (input) => {
+      const authenticatedAgent = await authenticate(credential, deps.store)
+      if (authenticatedAgent.outcome === 'rejected') return toolError(authenticatedAgent.error)
+
+      const result = await withdrawOwnOffer(
+        authenticatedAgent.agent.id,
+        input.offerId,
+        deps.accountOffers,
+      )
+      if (result.outcome === 'rejected') return toolError(result.error)
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text:
+              'Withdrawn. The offer is gone and the sealed parcel with it, so there is nothing ' +
+              'left for anybody to accept. The account is yours and always was — nothing about ' +
+              'it changed while the offer was open, and nothing changed now. Nobody was told, ' +
+              'and this cost you nothing.',
           },
         ],
         structuredContent: result.response,

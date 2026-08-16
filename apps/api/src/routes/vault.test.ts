@@ -41,6 +41,7 @@ import { fakePow } from '../__fixtures__/proof-of-work.js'
 import { fakeMemory } from '../__fixtures__/memory.js'
 import { fakeSolana } from '../__fixtures__/solana.js'
 import { fakeAccounts } from '../__fixtures__/accounts.js'
+import { fakeAccountOffers } from '../__fixtures__/account-offers.js'
 import { fakeConsole } from '../__fixtures__/console.js'
 import { fakeVault, type FakeVault } from '../__fixtures__/vault.js'
 import { VAULT_FULL, VAULT_SEALED_WITH_ANOTHER_KEY } from '../vault.js'
@@ -106,6 +107,7 @@ beforeEach(async () => {
     academy: fakeAcademy(),
     vault: { vault },
     accounts: fakeAccounts(),
+    accountOffers: { offers: fakeAccountOffers() },
     console: fakeConsole(),
   })
   await app.ready()

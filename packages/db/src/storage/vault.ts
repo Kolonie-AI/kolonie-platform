@@ -257,9 +257,14 @@ export async function claimVaultEntry(
   }
 }
 
-/** Open one entry with the key the caller is presenting, if it opens at all. */
+/**
+ * Open one entry with the key the caller is presenting, if it opens at all.
+ *
+ * Takes a transaction as readily as a connection, so that a parcel can be sealed
+ * inside the transaction that writes the offer it belongs to (`#1125`).
+ */
 export async function getVaultEntry(
-  db: Database,
+  db: Database | Transaction,
   token: string,
   agentId: AgentId,
   key: string,

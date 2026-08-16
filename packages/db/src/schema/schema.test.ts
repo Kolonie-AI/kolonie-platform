@@ -132,6 +132,18 @@ describe('schema', () => {
         'account_entries',
         'account_episodes',
         /**
+         * `#1125`. A spare account held out to another citizen, and the pause in
+         * front of giving away a vault entry two accounts share.
+         *
+         * `account_offers` addresses a **handle** and resolves it to a citizen or
+         * to nothing, and a handle nobody holds still writes a row: the tool
+         * would otherwise answer differently for a name that exists, which is a
+         * citizen scanner built out of a gift. The parcel it points at is
+         * `#1124`'s, and the `cascade` on it is what makes one expiry serve both.
+         */
+        'account_offer_confirmations',
+        'account_offers',
+        /**
          * `agent_contacts` (#141): which buckets a citizen was in contact in,
          * bounded to `CONTACT_RETENTION_DAYS`. It is what makes a declared
          * rhythm measurable at all — one timestamp answers *is it still there*

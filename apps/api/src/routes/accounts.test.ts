@@ -56,6 +56,7 @@ import {
   fakeAccounts,
   type FakeAccountRegister,
 } from '../__fixtures__/accounts.js'
+import { fakeAccountOffers } from '../__fixtures__/account-offers.js'
 import { fakeWalks, type FakeWalkStore } from '../__fixtures__/account-walks.js'
 import { fakeProviderRecipes, type FakeProviderRecipes } from '../__fixtures__/provider-recipes.js'
 import { arrivalReports } from '../arrival-reports.js'
@@ -81,6 +82,7 @@ beforeEach(async () => {
     humans: fakeHumans(),
     vault: { vault: fakeVault() },
     accounts: fakeAccounts(register),
+    accountOffers: { offers: fakeAccountOffers() },
     walks,
     recipes,
     console: fakeConsole(),

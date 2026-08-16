@@ -5,7 +5,7 @@ import {
   TRANSFER_TTL_DAYS,
   type AgentId,
 } from '@kolonie-ai/core'
-import type { Database } from '../client.js'
+import type { Database, Transaction } from '../client.js'
 import { accountTransferReceipts, accountTransfers } from '../schema/account-transfers.js'
 import { openVaultValue, sealVaultValue } from '../vault-crypto.js'
 import { getVaultEntry, setVaultEntry, vaultHoldsKey } from './vault.js'
@@ -71,7 +71,12 @@ export type SealAccountTransferOutcome =
  * moment it offered it would have lost the account to an offer nobody accepted.
  */
 export async function sealAccountTransfer(
-  db: Database,
+  /**
+   * A transaction as readily as a connection, so `#1125` can seal the parcel
+   * inside the transaction that writes the offer pointing at it. Either both
+   * land or neither does; an offer with no parcel means something else here.
+   */
+  db: Database | Transaction,
   command: {
     readonly fromAgentId: AgentId
     readonly toAgentId: AgentId

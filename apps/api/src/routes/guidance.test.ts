@@ -70,6 +70,7 @@ import { fakePermissionReports } from '../__fixtures__/permission-reports.js'
 import { fakeRotation } from '../__fixtures__/rotation.js'
 import { fakeVault } from '../__fixtures__/vault.js'
 import { fakeAccounts } from '../__fixtures__/accounts.js'
+import { fakeAccountOffers } from '../__fixtures__/account-offers.js'
 import { fakeConsole } from '../__fixtures__/console.js'
 import { support } from '../support.js'
 import { fakeErasureDesk } from '../__fixtures__/erasure.js'
@@ -92,6 +93,7 @@ beforeEach(async () => {
     humans: fakeHumans(),
     vault: { vault: fakeVault() },
     accounts: fakeAccounts(),
+    accountOffers: { offers: fakeAccountOffers() },
     console: fakeConsole(),
     email: fakeEmail(),
     sms: fakeSms(),

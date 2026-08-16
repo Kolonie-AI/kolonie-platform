@@ -119,6 +119,24 @@ repository needs a genuinely different toolchain, audience, or blast radius.
   `npm run check:counts` straight after `npm run generate`** — a new table or enum
   moves four assertions in three files, and this is the eleven-second way to find
   out which (§4).
+- **A migration may add. A migration that drops waits for the deploy that
+  stopped reading.** Adding a column, backfilling it and dropping the old one in
+  one file is correct against the schema and wrong against the fleet: for the
+  length of a rollout, code that reads the old column is running against a
+  database that no longer has it. Ship the add and the backfill; ship the code
+  that reads the new column; drop the old column in a **later** migration, once
+  the deploy that stopped reading it is out. The drop is cheap and can wait a
+  day — a failed pass in production cannot.
+  `0261_a_caution_is_measured_against_one_capability.sql` is the worked example
+  and the only one this repository has needed in 262 migrations: it added
+  `cautions`, backfilled, added the constraint and dropped `caution` in one file,
+  and `moderation-runner` — started five minutes earlier, on the image before it
+  — logged one `recipe.pass.failed` with `42703 column "caution" does not exist`
+  (`#1051`). Neither half of that code was wrong; they were right at different
+  times. **The reason to write this down is that the one-file sequence looks
+  correct when you write it**, and the schema it produces is correct — nothing in
+  `check:migrations` or the type system has anything to object to. Only the fleet
+  does, and only for as long as the rollout takes.
 - **A fixture that reimplements a decision pins what it copies.** The fakes in
   `apps/api/src/__fixtures__/` exist so the API tests run without a database, and
   most of them store rows — a row cannot drift. The handful that reimplement a
